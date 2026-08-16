@@ -1,6 +1,5 @@
-// IMPORTED DEP-MODULES
-import AhoCorasick from 'ahocorasick';
 // IMPORTED MODULES
+import AhoCorasick from './ahocorasick';
 import { getLanguage } from '$lib/languages';
 import { bookPair, getEffectiveGlossary } from './glossary';
 // IMPORTED TYPES

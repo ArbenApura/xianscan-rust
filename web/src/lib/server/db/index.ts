@@ -7,7 +7,7 @@ import { migrate } from 'drizzle-orm/better-sqlite3/migrator';
 // IMPORTED MODULES
 import { existsSync, mkdirSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { resolveDatabasePath } from '../paths';
 import * as schema from './schema';
 
 // -- TYPES -- //
@@ -33,7 +33,7 @@ export function createDb(path: string) {
 
 // -- CONSTANTS -- //
 
-const DB_PATH = env.DATABASE_PATH ?? './data/manua.db';
+const DB_PATH = resolveDatabasePath();
 
 // WHERE THE GENERATED MIGRATION FILES LIVE (web/drizzle). DEV (VITE) AND PROD (`node build`) BOTH RUN WITH
 // cwd = web/, SO RESOLVE FROM cwd FIRST; THE import.meta.url FALLBACK COVERS A BUNDLED SERVER STARTED

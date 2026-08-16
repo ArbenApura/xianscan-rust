@@ -2,7 +2,7 @@
 // OPENAI SDK + QUEUE + RETRY + COST PRICING CALCULATION.
 import type { TranslationUsage } from '$lib/types';
 import OpenAI from 'openai';
-import PQueue from 'p-queue';
+import PQueue from './queue';
 import { getActiveProvider } from './providers';
 
 // -- TYPES -- //

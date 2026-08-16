@@ -46,7 +46,7 @@ fn main() {
         // Emit a non-fatal warning; the compile will still fail at include_bytes!
         // which gives a clear error message.
         println!(
-            "cargo:warning=better-sqlite3 .node not found at {}. Run `npm install` in web/.",
+            "cargo:warning=better-sqlite3 .node not found at {}. Run `yarn install` in web/.",
             bs3_node.display()
         );
         // Emit a dummy value so the env! macro in web_assets.rs doesn't cause a
@@ -58,7 +58,7 @@ fn main() {
     // -----------------------------------------------------------------------
     // 2. @napi-rs/canvas  (Skia)
     // -----------------------------------------------------------------------
-    // npm installs exactly one platform-specific subpackage, e.g.:
+    // package manager installs exactly one platform-specific subpackage, e.g.:
     //   @napi-rs/canvas-win32-x64-msvc/   (Windows x64)
     //   @napi-rs/canvas-linux-x64-gnu/    (Linux x64 glibc)
     //   @napi-rs/canvas-darwin-universal/ (macOS universal)
@@ -103,7 +103,7 @@ fn main() {
         println!("cargo:rerun-if-changed={}", abs_str);
     } else {
         println!(
-            "cargo:warning=@napi-rs/canvas skia .node not found under {}. Run `npm install` in web/.",
+            "cargo:warning=@napi-rs/canvas skia .node not found under {}. Run `yarn install` in web/.",
             napi_dir.display()
         );
         println!("cargo:rustc-env=SKIA_NODE_PATH=MISSING_SKIA_NODE");

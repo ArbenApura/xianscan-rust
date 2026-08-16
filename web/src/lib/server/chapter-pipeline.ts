@@ -20,7 +20,7 @@ import type OpenAI from 'openai';
 // IMPORTED ENVS ($env/...)
 import { env } from '$env/dynamic/private';
 // IMPORTED DEP-MODULES
-import PQueue from 'p-queue';
+import PQueue from './queue';
 import { and, asc, eq } from 'drizzle-orm';
 // IMPORTED TYPES
 import type { TranslationUsage, PipelineStep, PipelinePhase, LangPair } from '$lib/types';
