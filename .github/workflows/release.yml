@@ -40,8 +40,8 @@ jobs:
             artifact_name: xianscan-rust
             release_asset: xianscan-macos-arm64.tar.gz
 
-          # macOS Intel (x86_64)
-          - os: macos-13
+          # macOS Intel (x86_64) - cross-compiled on macOS Apple Silicon runner
+          - os: macos-latest
             target: x86_64-apple-darwin
             artifact_name: xianscan-rust
             release_asset: xianscan-macos-x86_64.tar.gz
