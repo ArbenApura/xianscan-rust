@@ -130,8 +130,13 @@ pub fn clean_stray_ocr_artifacts(text: &str) -> String {
     let lines: Vec<&str> = text.split('\n').collect();
     let mut cleaned_lines = Vec::new();
 
+    let re_bracket_dots = Regex::new(r"^[\[\]【】()（）〔〕]\s*(……|…|\.\.\.)").unwrap();
+    let re_sfx_yi = Regex::new(r"([沙轰咚咳啪砰咔唰嘭哇嗷嘶呜呼哈哒嗒踏铛铮刷咻嗖哧嚓哐咕嗡吼鸣飒吱咯嘎喳])一{1,3}").unwrap();
+
     for line in lines {
         let mut cleaned = line.trim().to_string();
+        cleaned = re_bracket_dots.replace_all(&cleaned, "$1").to_string();
+        cleaned = re_sfx_yi.replace_all(&cleaned, "$1—").to_string();
         cleaned = STRAY_LATIN_SUFFIX.replace(&cleaned, "$1").to_string();
         cleaned = TRAILING_TAIL_NUMBERS.replace(&cleaned, "$1").to_string();
         if let Some(caps) = TRAILING_CIRCLES_ELLIPSIS.captures(&cleaned) {
@@ -152,7 +157,9 @@ pub fn clean_stray_ocr_artifacts(text: &str) -> String {
         let re_wm2 = Regex::new(r"咦[！!](?:唐然|庄然|后体)").unwrap();
         cleaned = re_wm2.replace_all(&cleaned, "咦！居然").to_string();
 
-        cleaned_lines.push(cleaned);
+        if !cleaned.is_empty() {
+            cleaned_lines.push(cleaned);
+        }
     }
 
     let mut res = cleaned_lines.join("\n");
@@ -161,7 +168,21 @@ pub fn clean_stray_ocr_artifacts(text: &str) -> String {
         if caps[0].contains('\n') { "潜\n伏" } else { "潜伏" }
     }).to_string();
 
-    res
+    // Clean broken middle-dot ellipsis line bridges: e.g. "哇啊……啊·\n……" -> "哇啊……啊……" or "哇啊……啊·……" -> "哇啊……啊……"
+    let re_dot_ellipsis = Regex::new(r"[·•]\s*\n*\s*(……|…|\.\.\.)").unwrap();
+    res = re_dot_ellipsis.replace_all(&res, "$1").to_string();
+
+    // Deduplicate consecutive identical lines (e.g. "沙—\n沙—" -> "沙—")
+    let final_lines: Vec<&str> = res.split('\n').collect();
+    let mut deduped = Vec::new();
+    for l in final_lines {
+        let trimmed = l.trim();
+        if !trimmed.is_empty() && (deduped.is_empty() || deduped.last() != Some(&trimmed)) {
+            deduped.push(trimmed);
+        }
+    }
+
+    deduped.join("\n")
 }
 
 impl ComicTextDetector {
@@ -375,9 +396,9 @@ pub fn merge_text_lines(
         .collect();
 
     indexed.sort_by(|a, b| {
-        let (ax, _, _, _) = box_to_xywh_f32(a.1);
-        let (bx, _, _, _) = box_to_xywh_f32(b.1);
-        ax.partial_cmp(&bx).unwrap()
+        let (ax, ay, _, _) = box_to_xywh_f32(a.1);
+        let (bx, by, _, _) = box_to_xywh_f32(b.1);
+        ax.total_cmp(&bx).then(ay.total_cmp(&by))
     });
 
     // Struct: [x0, y0, x1, y1, score, is_wm, text]
@@ -580,7 +601,7 @@ pub fn group_paragraphs(
     horizontal.sort_by(|a, b| {
         let (ax, ay, _, _) = box_to_xywh_f32(a.0);
         let (bx, by, _, _) = box_to_xywh_f32(b.0);
-        ay.partial_cmp(&by).unwrap().then(ax.partial_cmp(&bx).unwrap())
+        ay.total_cmp(&by).then(ax.total_cmp(&bx))
     });
 
     for (box_pts, score, txt) in horizontal {
@@ -784,7 +805,7 @@ pub fn deduplicate_boxes(
         .map(|(idx, (b, &s))| (idx, b, s))
         .collect();
 
-    indexed.sort_by(|a, b| b.2.partial_cmp(&a.2).unwrap());
+    indexed.sort_by(|a, b| b.2.total_cmp(&a.2));
 
     let mut kept_boxes: Vec<Vec<[f32; 2]>> = Vec::new();
     let mut kept_scores: Vec<f32> = Vec::new();
@@ -835,7 +856,7 @@ pub fn deduplicate_boxes(
     (kept_boxes, kept_scores)
 }
 
-/// Reading order sorting: groups into rows with row_tolerance and sorts left-to-right within rows (sort_regions_top_to_bottom port).
+/// Sort detected text regions top-to-bottom, grouping lines into horizontal rows.
 pub fn sort_regions_top_to_bottom(boxes: &[Vec<[f32; 2]>], _page_h: usize, row_tolerance: f32) -> Vec<usize> {
     if boxes.is_empty() {
         return Vec::new();
@@ -875,12 +896,12 @@ pub fn sort_regions_top_to_bottom(boxes: &[Vec<[f32; 2]>], _page_h: usize, row_t
     rows.sort_by(|a, b| {
         let min_ya = a.iter().map(|&j| centers[j].0).fold(f32::INFINITY, f32::min);
         let min_yb = b.iter().map(|&j| centers[j].0).fold(f32::INFINITY, f32::min);
-        min_ya.partial_cmp(&min_yb).unwrap()
+        min_ya.total_cmp(&min_yb)
     });
 
     let mut order = Vec::new();
     for mut row in rows {
-        row.sort_by(|&a, &b| centers[a].1.partial_cmp(&centers[b].1).unwrap());
+        row.sort_by(|&a, &b| centers[a].1.total_cmp(&centers[b].1));
         order.extend(row);
     }
 

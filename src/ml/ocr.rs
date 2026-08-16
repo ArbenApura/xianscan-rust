@@ -474,11 +474,9 @@ impl RapidOcr {
         lines.sort_by(|a, b| {
             let ya = a.polygon[0][1];
             let yb = b.polygon[0][1];
-            if (ya - yb).abs() < 10 {
-                a.polygon[0][0].cmp(&b.polygon[0][0])
-            } else {
-                ya.cmp(&yb)
-            }
+            let xa = a.polygon[0][0];
+            let xb = b.polygon[0][0];
+            ya.cmp(&yb).then(xa.cmp(&xb))
         });
 
         Ok(lines)

@@ -161,7 +161,7 @@ pub fn calculate_box_angle(pts: &[[f32; 2]]) -> f32 {
 
     let angle_deg = if pts.len() == 4 {
         let mut sorted_x = pts.to_vec();
-        sorted_x.sort_by(|a, b| a[0].partial_cmp(&b[0]).unwrap());
+        sorted_x.sort_by(|a, b| a[0].total_cmp(&b[0]).then(a[1].total_cmp(&b[1])));
 
         let (tl, bl) = if sorted_x[0][1] < sorted_x[1][1] {
             (sorted_x[0], sorted_x[1])
@@ -229,9 +229,8 @@ pub fn convex_hull(pts: &[[f32; 2]]) -> Vec<[f32; 2]> {
     }
 
     points.sort_by(|a, b| {
-        a[0].partial_cmp(&b[0])
-            .unwrap()
-            .then(a[1].partial_cmp(&b[1]).unwrap())
+        a[0].total_cmp(&b[0])
+            .then(a[1].total_cmp(&b[1]))
     });
     points.dedup_by(|a, b| (a[0] - b[0]).abs() < 1e-4 && (a[1] - b[1]).abs() < 1e-4);
 
@@ -340,7 +339,7 @@ pub fn get_mini_boxes(contour: &[[f32; 2]]) -> (Vec<[f32; 2]>, f32) {
 
     // Standardize 4-point ordering: sort by x, then assign [TL, TR, BR, BL]
     let mut points = best_rect;
-    points.sort_by(|a, b| a[0].partial_cmp(&b[0]).unwrap());
+    points.sort_by(|a, b| a[0].total_cmp(&b[0]).then(a[1].total_cmp(&b[1])));
 
     let (i1, i4) = if points[1][1] > points[0][1] {
         (0, 1)
@@ -459,7 +458,7 @@ pub fn box_score_fast(bitmap: &[f32], map_w: usize, map_h: usize, contour: &[[f3
             }
         }
 
-        node_x.sort_by(|a, b| a.partial_cmp(b).unwrap());
+        node_x.sort_by(|a, b| a.total_cmp(b));
 
         for chunk in node_x.chunks_exact(2) {
             let start_x = (chunk[0].floor() as isize).max(x0 as isize) as usize;
@@ -563,7 +562,7 @@ pub fn fill_polygon(mask: &mut [u8], width: usize, height: usize, poly: &[[i32; 
             }
         }
 
-        node_x.sort_by(|a, b| a.partial_cmp(b).unwrap());
+        node_x.sort_by(|a, b| a.total_cmp(b));
 
         for chunk in node_x.chunks_exact(2) {
             let start_x = (chunk[0].floor() as isize).clamp(0, width as isize - 1) as usize;

@@ -101,5 +101,27 @@ fn test_regression_page_63602() {
     for r in &res.regions {
         println!("  Region {}: box={:?}, text='{}', conf={:.2}", r.id, r.box_, r.text.replace('\n', "\\n"), r.confidence);
     }
+
+    // 1. Must detect speech bubble with intact dialogue and ellipsis without rogue brackets
+    let bubble = res.regions.iter().find(|r| r.text.contains("哇啊") || r.text.contains("老大") || r.text.contains("状况"));
+    assert!(bubble.is_some(), "Speech bubble region must be detected");
+    let bubble_text = &bubble.unwrap().text;
+    assert!(bubble_text.contains("哇啊……啊……"), "Ellipsis must be cleanly normalized");
+    assert!(bubble_text.contains("老大！有状况啊！"), "Dialogue line 2 must be complete");
+    assert!(!bubble_text.contains('['), "Must not have rogue bracket artifact");
+
+    // 2. Must suppress false-positive artwork/drawing contour regions (e.g. hair '色', motion sweat '小', 'S', margin '中')
+    let all_text = res.regions.iter().map(|r| r.text.as_str()).collect::<Vec<_>>().join("\n");
+    assert!(!all_text.contains("色"), "Must not detect hair vibration contour as '色'");
+    assert!(!all_text.contains("小"), "Must not detect sweat/motion marks as '小'");
+    assert!(!res.regions.iter().any(|r| r.text == "S"), "Must not detect squiggle motion marks as single Latin 'S'");
+    assert!(!res.regions.iter().any(|r| r.text == "中" && r.box_.x >= 850), "Must not detect right edge margin noise as '中'");
+
+    // 3. Must detect all 3 panel SFX rustling sound effects normalized as '沙—'
+    let sfx_regions: Vec<_> = res.regions.iter().filter(|r| r.text.starts_with("沙")).collect();
+    assert_eq!(sfx_regions.len(), 3, "Must detect exactly 3 distinct SFX regions");
+    for sfx in &sfx_regions {
+        assert!(sfx.text == "沙—" || sfx.text == "沙——", "SFX must normalize prolonged stroke away from numeral '一'");
+    }
 }
 
