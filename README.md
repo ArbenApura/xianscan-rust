@@ -169,7 +169,24 @@ xianscan-prod/
 # Linux (systemd / nohup)
 nohup ./target/release/xianscan-rust > xianscan.log 2>&1 &
 ```
+- **Web UI & Reader**: `http://localhost:8124` (or `http://<your-lan-ip>:8124` from any phone or tablet on your network)
+- **ML Pipeline Backend**: `http://127.0.0.1:8123`
 
+---
+
+### 5. Running Production and Development Simultaneously
+
+If you want to run both a **Production instance** and a **Development instance** on the same machine without port collisions, use custom environment variables:
+
+```powershell
+# In PowerShell:
+$env:PORT="9000"
+$env:ML_PORT="9001"
+.\target\release\xianscan-rust.exe
+```
+Now your Production server runs on `http://localhost:9000`, while your Dev server runs untouched on default ports `8124`/`5173`.
+
+---
 
 ### 🎨 Inpainting Strategies (Configurable in Web UI)
 
@@ -196,6 +213,22 @@ The repository is pre-configured with **split optimization profiles** and the **
 └────────────────────────────────────────────────────────────────────────┘
 ```
 
+### How to Run in Development Mode:
+
+#### Terminal 1 — Rust Backend (with auto-reload on file change)
+```bash
+cargo watch -x run
+# (Or simply 'cargo run' if not using cargo-watch)
+```
+- Starts the native ML engine and API server at `http://127.0.0.1:8123`.
+
+#### Terminal 2 — SvelteKit Web UI (with instant Hot Module Replacement)
+```bash
+cd web
+npm run dev
+```
+- Open [http://localhost:5173](http://localhost:5173) in your browser. Any edits in Svelte components will update in real time!
+
 ### Fast Commands for Developers:
 
 #### 1. Instant Type-Checking (~0.48 seconds)
@@ -208,19 +241,6 @@ cargo check
 Run with dev profile (your code compiles in ~1s while ML models and image decoders execute at full release speed):
 ```bash
 cargo run
-```
-
-#### 3. Live Auto-Reload Server (Recompiles on file save)
-```bash
-cargo install cargo-watch
-cargo watch -x run
-```
-
-#### 4. Web UI Development with Vite HMR
-Keep the Rust backend running in one terminal, then start Vite Hot Module Replacement in `web/`:
-```bash
-cd web
-npm run dev
 ```
 
 ---
