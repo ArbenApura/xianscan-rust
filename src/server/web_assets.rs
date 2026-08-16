@@ -213,6 +213,8 @@ pub fn extract_if_needed() -> anyhow::Result<Option<PathBuf>> {
             true
         };
 
+        let pkg_exist = app_dir.join("package.json").exists();
+
         let already_current = version_stamp
             .exists()
             .then(|| std::fs::read_to_string(&version_stamp).ok())
@@ -221,7 +223,8 @@ pub fn extract_if_needed() -> anyhow::Result<Option<PathBuf>> {
             .unwrap_or(false)
             && fonts_exist
             && icu_exist
-            && node_exist;
+            && node_exist
+            && pkg_exist;
 
         if !already_current {
             tracing::info!("Extracting embedded web assets to {:?} …", app_dir);
@@ -243,6 +246,9 @@ pub fn extract_if_needed() -> anyhow::Result<Option<PathBuf>> {
 #[cfg(feature = "embed-web")]
 fn extract_all(app_dir: &std::path::Path) -> anyhow::Result<()> {
     use std::fs;
+
+    // 0. App package.json — declares ES module type so Node loads build/index.js as ESM
+    fs::write(app_dir.join("package.json"), r#"{"type":"module"}"#)?;
 
     // 1. SvelteKit build output → app_dir/build/
     extract_dir(&WEB_BUILD, &app_dir.join("build"))?;
