@@ -50,15 +50,8 @@ if not exist "web\build\index.js" (
     cd ..
 )
 
+:: 5. LAUNCH UNIFIED NATIVE SERVER (HOSTS BOTH ML ENGINE & WEB UI)
+echo [*] Launching Unified XianScan Native + Web Server...
 echo.
-echo ================================================================
-echo   [+] Starting ML Engine on http://127.0.0.1:8123
-echo   [+] Starting Web App on   http://localhost:8124
-echo ================================================================
-echo.
+target\release\xianscan-rust.exe
 
-:: Launch Native Rust ML Engine in background window and Web App in foreground
-start "XianScan Native ML Engine" cmd /k "cd /d "%~dp0" && target\release\xianscan-rust.exe"
-
-cd /d "%~dp0web"
-call npm run preview
