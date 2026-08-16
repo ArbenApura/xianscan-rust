@@ -126,3 +126,80 @@ fn test_regression_page_63602() {
     }
 }
 
+#[test]
+fn test_regression_page_15_seq_8() {
+    let img_path = Path::new("tests/fixtures/page_15_seq_8.png");
+    if !img_path.exists() {
+        return;
+    }
+    let img = image::ImageReader::open(img_path)
+        .expect("Failed to open page_15_seq_8.png")
+        .with_guessed_format()
+        .expect("Failed to guess format")
+        .decode()
+        .expect("Failed to decode image");
+
+    let res = get_or_analyze_fixture(&img);
+    println!("Page 15 seq 8 detected {} regions:", res.regions.len());
+    for r in &res.regions {
+        println!("  Region {}: box={:?}, text='{}', conf={:.2}", r.id, r.box_, r.text.replace('\n', "\\n"), r.confidence);
+    }
+
+    let all_text = res.regions.iter().map(|r| r.text.as_str()).collect::<Vec<_>>().join("\n");
+
+    // 1. Must suppress hallucinated giant artwork region "福迎" across character robes/shadows
+    assert!(!all_text.contains("福迎"), "Must not hallucinate '福迎' over dark clothing/shading");
+    assert!(!res.regions.iter().any(|r| r.box_.w >= 600 && r.box_.h >= 300), "Must not create giant whole-width false positive region");
+
+    // 2. Speech bubble "系统诞生在我身上……" must have full ellipsis coverage and proper width
+    let sys_bubble = res.regions.iter().find(|r| r.text.contains("系统诞生在我身上"));
+    assert!(sys_bubble.is_some(), "Speech bubble '系统诞生在我身上……' must be detected");
+    let sys_bubble = sys_bubble.unwrap();
+    assert!(sys_bubble.text.ends_with("……"), "Speech bubble must contain standard double ellipsis '……', got '{}'", sys_bubble.text);
+    assert!(sys_bubble.box_.w >= 380, "Bubble width must encompass the full dialogue line and ellipsis, got w={}", sys_bubble.box_.w);
+
+    // 3. Other speech bubbles must be cleanly detected
+    assert!(all_text.contains("十一年前"), "Must detect top bubble '十一年前……'");
+    assert!(all_text.contains("发生过什么大事"), "Must detect '发生过什么大事？'");
+    assert!(all_text.contains("穿越"), "Must detect '穿越……'");
+    assert!(all_text.contains("压寨夫人"), "Must detect '压寨夫人……'");
+}
+
+#[test]
+fn test_regression_page_32_seq_22() {
+    let img_path = Path::new("tests/fixtures/page_32_seq_22.png");
+    if !img_path.exists() {
+        return;
+    }
+    let img = image::ImageReader::open(img_path)
+        .expect("Failed to open page_32_seq_22.png")
+        .with_guessed_format()
+        .expect("Failed to guess format")
+        .decode()
+        .expect("Failed to decode image");
+
+    let res = get_or_analyze_fixture(&img);
+    println!("Page 32 seq 22 detected {} regions:", res.regions.len());
+    for r in &res.regions {
+        println!("  Region {}: box={:?}, text='{}', conf={:.2}", r.id, r.box_, r.text.replace('\n', "\\n"), r.confidence);
+    }
+
+    let all_text = res.regions.iter().map(|r| r.text.as_str()).collect::<Vec<_>>().join("\n");
+
+    // 1. Must suppress hallucinated isolated '一' background noise
+    assert!(!res.regions.iter().any(|r| r.text.trim() == "一" && r.box_.w <= 60), "Must not detect isolated '一' background contour noise");
+
+    // 2. Middle speech bubble must unify both paragraphs into a single dialogue region
+    let mid_bubble = res.regions.iter().find(|r| r.text.contains("世家子弟") || r.text.contains("到时候他还记不记得"));
+    assert!(mid_bubble.is_some(), "Middle speech bubble must be detected");
+    let mid_text = &mid_bubble.unwrap().text;
+    assert!(mid_text.contains("到时候他") || mid_text.contains("记不记得"), "Middle bubble must contain paragraph 1 text");
+    assert!(mid_text.contains("世家子弟") && mid_text.contains("修炼"), "Middle bubble must contain paragraph 2 text");
+
+    // 3. Top and bottom speech bubbles must also be intact
+    assert!(all_text.contains("现实一点") || all_text.contains("叶紫芸"), "Must detect top bubble");
+    assert!(all_text.contains("什么叫整天") || all_text.contains("污蔑"), "Must detect bottom bubble");
+}
+
+
+

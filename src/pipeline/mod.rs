@@ -255,13 +255,23 @@ impl PipelineEngine {
                 || (lh >= 60 && lw >= 60 && rl.score < 0.60)
                 || (lh * lw >= 10000 && rl.score < 0.80)
             );
-            let is_low_conf_isolated_char = char_count <= 1 && !is_sfx_glyph && rl.score < 0.63 && !is_sfx_tail;
+            let is_isolated_dash_noise = char_count <= 1 && ["一", "1", "丨", "I", "l", "|", "-"].contains(&clean_t) && rl.score < 0.75 && (lw <= 60 || lh <= 25 || (lh as f32 / lw.max(1) as f32) < 0.40);
+            let is_low_conf_isolated_char = char_count <= 1 && !is_sfx_glyph && rl.score < 0.70 && !is_sfx_tail;
+
+            let is_giant_chinese_hallucination = has_chinese && !is_sfx_glyph && (
+                (lw >= (page_w as f32 * 0.60) as i32 && lh >= 120 && char_count <= 4 && rl.score < 0.75)
+                || (lh >= 200 && lw >= 300 && char_count <= 3 && rl.score < 0.70)
+                || (lh >= 100 && (lw as f32 / char_count as f32) >= 150.0 && rl.score < 0.65)
+                || (lh >= 300 && lw >= (page_w as f32 * 0.40) as i32 && char_count <= 5 && rl.score < 0.75)
+            );
 
             let is_giant_artwork = is_single_latin
                 || is_border_margin_char
                 || is_giant_single_char_artwork
+                || is_isolated_dash_noise
                 || is_low_conf_isolated_char
                 || is_circle_noise
+                || is_giant_chinese_hallucination
                 || (!has_chinese && !is_sfx_tail && !is_sfx_glyph && char_count >= 2 && lh >= 100 && (lw / char_count as i32) >= 90 && rl.score < 0.85)
                 || (!has_chinese && !is_sfx_tail && !is_sfx_glyph && char_count <= 2 && lh >= 100 && lw >= 140)
                 || (lh >= 180 && lw >= 350 && !has_chinese)
@@ -553,6 +563,45 @@ impl PipelineEngine {
 
                 if last_valid_x > right_limit {
                     box_rect.w = (last_valid_x - box_rect.x as u32).min(page_w - box_rect.x as u32) as i32;
+                    poly = vec![
+                        [box_rect.x, box_rect.y],
+                        [box_rect.x + box_rect.w, box_rect.y],
+                        [box_rect.x + box_rect.w, box_rect.y + box_rect.h],
+                        [box_rect.x, box_rect.y + box_rect.h],
+                    ];
+                }
+            }
+
+            // Expand horizontal speech bubble lines ending in ellipsis to ensure complete dot coverage for inpainting
+            let extends_ellipsis = cleaned.ends_with("……") || cleaned.ends_with('…');
+            if extends_ellipsis && !vertical {
+                let right_limit = (box_rect.x + box_rect.w) as u32;
+                let max_scan_x = (right_limit + 40).min(page_w);
+                let y_start = (box_rect.y.max(0) as u32).min(page_h - 1);
+                let y_end = ((box_rect.y + box_rect.h).max(0) as u32).min(page_h);
+
+                let rgb = img.to_rgb8();
+                let mut last_dot_x = right_limit;
+
+                for curr_x in right_limit..max_scan_x {
+                    let mut has_dark = false;
+                    for curr_y in y_start..y_end {
+                        let p = rgb.get_pixel(curr_x, curr_y);
+                        let b = (p[0] as u32 * 299 + p[1] as u32 * 587 + p[2] as u32 * 114) / 1000;
+                        if b < 120 {
+                            has_dark = true;
+                            break;
+                        }
+                    }
+                    if has_dark {
+                        last_dot_x = curr_x + 8;
+                    } else if curr_x > last_dot_x + 8 {
+                        break;
+                    }
+                }
+
+                if last_dot_x > right_limit {
+                    box_rect.w = (last_dot_x - box_rect.x as u32).min(page_w - box_rect.x as u32) as i32;
                     poly = vec![
                         [box_rect.x, box_rect.y],
                         [box_rect.x + box_rect.w, box_rect.y],

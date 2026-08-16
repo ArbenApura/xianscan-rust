@@ -152,6 +152,10 @@ pub fn clean_stray_ocr_artifacts(text: &str) -> String {
             cleaned = "……".to_string();
         }
 
+        // Normalize single trailing ellipsis or 3-dot ellipsis in dialogue to standard double ellipsis "……"
+        let re_trailing_single_ellipsis = Regex::new(r"([\u4e00-\u9fa5a-zA-Z0-9])(?:…|\.{3})$").unwrap();
+        cleaned = re_trailing_single_ellipsis.replace(&cleaned, "${1}……").to_string();
+
         let re_wm1 = Regex::new(r"(?:唐然|庄然|后体)[订让]你").unwrap();
         cleaned = re_wm1.replace_all(&cleaned, "居然让你").to_string();
         let re_wm2 = Regex::new(r"咦[！!](?:唐然|庄然|后体)").unwrap();
@@ -486,7 +490,7 @@ pub fn merge_text_lines(
                 }
             }
 
-            let terminal_punct = "。!！?？…）】”\"'~～:：;；";
+            let terminal_punct = "。!！?？）】”\"'~～:：;；";
             let ln_trimmed = ln.text.trim_end();
             if !ln_trimmed.is_empty() && terminal_punct.chars().any(|c| ln_trimmed.ends_with(c)) && gap >= -h.max(lh) * 0.40 {
                 let ui_prefix_re = Regex::new(r"^(?:嘟|叮|提示|系统|注意)[!！:：]?$").unwrap();
@@ -651,11 +655,17 @@ pub fn group_paragraphs(
                 || (!txt.trim().is_empty() && txt.trim().chars().count() <= 3 && !txt.trim().ends_with(['，', ',', '、', ':', '：']) && eff_h <= eff_lh * 1.80)
                 || is_parenthetical;
 
+            let has_meaningful_text = !txt.trim().is_empty() || !last_txt.trim().is_empty();
+            let is_multiline_para = cand_line_cnt > 1.0 || last_line_cnt > 1.0 || (has_meaningful_text && (txt.chars().count() >= 10 || last_txt.chars().count() >= 10));
+            let is_same_bubble_paragraphs = is_multiline_para && overlap >= 0.70 * w.min(lw) && (new_cx - para_mean_cx).abs() <= 0.20 * w.min(lw);
+
             let gap_multiplier = if is_parenthetical {
                 2.8
+            } else if is_same_bubble_paragraphs {
+                2.4
             } else if is_trailing_tail {
                 1.8
-            } else if is_strongly_aligned && (!txt.trim().is_empty() || !last_txt.trim().is_empty()) {
+            } else if is_strongly_aligned && has_meaningful_text {
                 1.6
             } else {
                 1.0
@@ -690,11 +700,12 @@ pub fn group_paragraphs(
                     let is_short = last_clean.chars().count() <= 5;
                     let has_gap = gap >= 0.30 * min_eff_h && !(is_aligned && overlap >= 0.50 * w.min(lw));
                     let has_offset = (new_cx - para_mean_cx).abs() > 0.40 * w.min(lw) && !(is_left_aligned || is_right_aligned);
-                    if (is_both_single && gap >= 0.15 * min_eff_h)
+                    if !is_same_bubble_paragraphs && (
+                        (is_both_single && gap >= 0.15 * min_eff_h)
                         || (is_short && !(is_aligned && overlap >= 0.50 * w.min(lw)) && gap >= 0.15 * min_eff_h)
                         || has_gap
                         || (has_offset && gap > 0.10 * min_eff_h)
-                    {
+                    ) {
                         continue;
                     }
                 }
