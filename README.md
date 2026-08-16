@@ -118,36 +118,34 @@ The compiled standalone binary will be generated at:
 - **Windows**: `target/release/xianscan-rust.exe`
 - **Linux / macOS**: `target/release/xianscan-rust`
 
-## 🚀 Production Release & Deployment Guide
+## 📦 Packaging & Production Distribution
 
-You can build XianScan in two different production distribution formats:
+XianScan is built to run as a **self-contained, zero-dependency single executable** (containing the Rust ML backend, SvelteKit SSR frontend, native `.node` addons, fonts, and AI models).
 
-### Option A: 100% Standalone Single Executable (All Models Baked In)
-Produces a single **`xianscan-rust.exe` (~342 MB)** that contains all neural network weights (ComicTextDetector, PP-OCR, LaMa) compiled directly into the binary:
+### Build Formats:
 
+#### Option A: Standalone 1-File Release (All Embedded)
+Produces a single binary with all models and web assets compiled directly inside:
 ```bash
-# Build 1-file standalone binary with embedded AI models
-cargo build --release --features embed-models
+# 1. Build SvelteKit frontend
+cd web && yarn install && yarn build && cd ..
+
+# 2. Compile standalone release binary
+cargo build --release --features embed-models,embed-web
 ```
-- **Benefits**: **Zero external files or folders required**. You can copy literally just `xianscan-rust.exe` anywhere and double-click to run.
-- **Smart Runtime Override**: If a `./models/` folder is placed next to the executable, it will use the disk files; otherwise, it seamlessly uses the embedded binary weights.
+- **Windows**: `target/release/xianscan-rust.exe`
+- **Linux / macOS**: `target/release/xianscan-rust`
+- **How it works at runtime**: On first launch, web assets & runtime dependencies self-extract to the user AppData directory (`%APPDATA%/XianScan/app/` on Windows, `~/.local/share/xianscan/app/` on Linux, `~/Library/Application Support/XianScan/app/` on macOS). Subsequent launches use cached assets instantly.
 
-### Option B: Modular Release (~26 MB Executable + External Models Folder)
-Produces a lightweight binary with external model weights:
-
+#### Option B: Modular Release (Lightweight Binary + External Models)
 ```bash
-# 1. Build the SvelteKit frontend (if modifying web UI)
-cd web && npm run build && cd ..
-
-# 2. Build the lightweight native Rust binary
 cargo build --release
 ```
-- **Distribution Layout**: Place `xianscan-rust.exe` alongside the `models/` directory:
+Place the compiled executable next to the `models/` directory:
 ```
 xianscan-prod/
 ├── xianscan-rust.exe          # (~26 MB)
-├── DirectML.dll               # (~17.7 MB - optional for Windows GPU)
-└── models/                    # (~317 MB total)
+└── models/                    # (~317 MB)
     ├── comictextdetector.pt.onnx
     ├── PP-OCRv6_det_small.onnx
     ├── PP-OCRv6_rec_small.onnx
@@ -155,96 +153,70 @@ xianscan-prod/
     └── rapidocr_keys.json
 ```
 
-### 3. Production Environment Variables
+---
 
-| Variable | Default | Description |
+## 🗄️ Database & Storage Architecture
+
+XianScan uses **SQLite** with **Drizzle ORM** and [`better-sqlite3`](https://github.com/WiseLibs/better-sqlite3) with Write-Ahead Logging (WAL) enabled:
+
+| Environment | Database Location | Notes |
 | :--- | :--- | :--- |
-| `PORT` | `8124` | The web UI and SSR server port (accessible over LAN/WAN). |
-| `ML_PORT` | `8123` | Internal native ML sidecar pipeline port. |
-| `MODELS_DIR` | `./models` | Path to ONNX model weights folder. |
-| `WEB_DIR` | `./web` | Path to the web application directory containing `build/`. |
-| `DATABASE_PATH` | `./xianscan.db` | Path to the SQLite database file. |
-
-### 4. Running in Production
-```bash
-# Windows
-./target/release/xianscan-rust.exe
-
-# Linux (systemd / nohup)
-nohup ./target/release/xianscan-rust > xianscan.log 2>&1 &
-```
-- **Web UI & Reader**: `http://localhost:8124` (or `http://<your-lan-ip>:8124` from any phone or tablet on your network)
-- **ML Pipeline Backend**: `http://127.0.0.1:8123`
-
----
-
-### 5. Running Production and Development Simultaneously
-
-If you want to run both a **Production instance** and a **Development instance** on the same machine without port collisions, use custom environment variables:
-
-```powershell
-# In PowerShell:
-$env:PORT="9000"
-$env:ML_PORT="9001"
-.\target\release\xianscan-rust.exe
-```
-Now your Production server runs on `http://localhost:9000`, while your Dev server runs untouched on default ports `8124`/`5173`.
-
----
-
-### 🎨 Inpainting Strategies (Configurable in Web UI)
-
-XianScan supports 3 distinct AI text erasure and background inpainting strategies selectable in the Web UI Settings modal:
-
-| Mode | Strategy | How It Operates | Best Use Case |
-| :--- | :--- | :--- | :--- |
-| **`patch`** *(Default)* | **Localized 1:1 Bubble Crops** | Isolates 8-connected speech bubble components with $+24\text{px}$ padding. Runs at native resolution while leaving the other ~98% of page artwork 100% untouched. | **Fastest (~100–300ms)**. Recommended for 95% of standard dialogue pages. |
-| **`scaled`** | **Balanced 512×512 Resampling** | Downsamples canvas and mask to $512\times 512$, executes exactly 1 LaMa ONNX forward pass, and upscales via Catmull-Rom bicubic interpolation. | **Predictable constant time (~300–500ms)**. Great for low-end CPUs or pages with dozens of scattered sound effects. |
-| **`full`** | **Global Dynamic Full Canvas** | Pads the entire native resolution image to modulo 8 and synthesizes global background texture in a single full-page pass. | **Maximum artistic context (~3–5s on CPU, ~80ms on GPU)**. Ideal for complex art spreads and large sound effects over detailed illustrations. |
+| **All Modes (Dev / Prod)** | `%APPDATA%/XianScan/data/xianscan.db` | System AppData directory (auto-runs pending migrations on boot). |
+| **Vitest Tests (`yarn test`)** | `:memory:` | Ephemeral in-memory database. |
+| **Custom Path Override** | Set `DATABASE_PATH=...` in `.env` | Custom SQLite file location if desired. |
 
 ---
 
 ## 🛠️ Development & Fast Iteration Workflow
 
-The repository is pre-configured with **split optimization profiles** and the **LLD fast linker**, enabling instant sub-second build times during local development:
+| Workflow | Command | Web UI Mode | Rust Backend Mode |
+| :--- | :--- | :--- | :--- |
+| **🚀 Single-Command Dev (Recommended)** | `cargo run -- --dev` | **Vite Live HMR** (`yarn dev`) | Dev profile (Static) |
+| **🔄 Full Hot-Reload (Rust + Web HMR)** | `cargo watch -w src -x "run -- --dev"` | **Vite Live HMR** (`yarn dev`) | Auto-recompiles on `.rs` change |
+| **📦 Rust Hot-Reload + Compiled Web Build** | `cargo watch -w src -x run` | Pre-compiled SSR (`web/build/`) | Auto-recompiles on `.rs` change |
+| **⚡ Standalone ML Backend Only** | `cargo watch -w src -x "run -- --ml-only"` | *Disabled* (connect your own `yarn dev`) | Auto-recompiles on `.rs` change |
+| **🏭 Standard Unified Run** | `cargo run` | Pre-compiled SSR (`web/build/`) | Dev profile (Static) |
 
-```
-┌────────────────────────────────────────────────────────────────────────┐
-│  Cargo.toml Developer Optimization Architecture:                       │
-│  • External Crates (ort, image, axum, tokio): opt-level = 3 (Full Speed)│
-│  • Your Code (src/):                          opt-level = 0 (1s Build)  │
-│  • Linker (.cargo/config.toml):               LLD Linker (<0.5s Link)   │
-└────────────────────────────────────────────────────────────────────────┘
-```
+---
 
-### How to Run in Development Mode:
+### Detailed Usage:
 
-#### Terminal 1 — Rust Backend (with auto-reload on file change)
+#### 1. Live Dev Mode (Frontend HMR + ML Engine)
+Starts both the native ML sidecar (`:8123`) and the live Vite dev server (`:8124`) in **one single command**:
 ```bash
-cargo watch -x run
-# (Or simply 'cargo run' if not using cargo-watch)
-```
-- Starts the native ML engine and API server at `http://127.0.0.1:8123`.
+cargo run -- --dev
 
-#### Terminal 2 — SvelteKit Web UI (with instant Hot Module Replacement)
-```bash
-cd web
-npm run dev
+# Or with automatic Rust recompilation whenever .rs files change:
+cargo watch -w src -x "run -- --dev"
 ```
-- Open [http://localhost:5173](http://localhost:5173) in your browser. Any edits in Svelte components will update in real time!
+
+#### 2. Serving the Pre-Compiled Web Build
+When testing production SSR behavior or after running `cd web && yarn build`:
+```bash
+# Serves pre-compiled web/build/ on :8124 with Rust auto-reloading:
+cargo watch -w src -x run
+
+# Or run once without auto-reloading:
+cargo run
+```
+
+#### 3. Running Web UI and Rust in Separate Terminals (Optional)
+* **Terminal 1 (ML Backend)**: `cargo watch -w src -x "run -- --ml-only"`
+* **Terminal 2 (Web UI)**: `cd web && yarn dev`
+
+---
 
 ### Fast Commands for Developers:
 
-#### 1. Instant Type-Checking (~0.48 seconds)
-Run `cargo check` to validate types, borrow checker, and syntax instantly:
 ```bash
+# Instant type-checking (~0.5s)
 cargo check
-```
 
-#### 2. Incremental Dev Run (~1.1 seconds)
-Run with dev profile (your code compiles in ~1s while ML models and image decoders execute at full release speed):
-```bash
-cargo run
+# Run Rust test suites
+cargo test -- --nocapture
+
+# Run Web UI unit tests (Vitest with in-memory SQLite)
+cd web && yarn test
 ```
 
 ---
