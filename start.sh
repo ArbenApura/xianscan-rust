@@ -29,18 +29,6 @@ if [ ! -f "web/build/index.js" ]; then
     cd web && npm run build && cd ..
 fi
 
+echo "[*] Launching Unified XianScan Native + Web Server..."
 echo ""
-echo "================================================================"
-echo "  [+] Starting ML Engine on http://127.0.0.1:8123"
-echo "  [+] Starting Web App on   http://localhost:8124"
-echo "================================================================"
-echo ""
-
-# Start Rust ML Engine in background
-./target/release/xianscan-rust &
-RUST_PID=$!
-
-trap "kill $RUST_PID 2>/dev/null || true" EXIT
-
-cd web
-npm run preview
+exec ./target/release/xianscan-rust
