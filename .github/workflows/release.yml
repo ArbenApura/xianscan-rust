@@ -25,26 +25,20 @@ jobs:
           # Windows x86_64
           - os: windows-latest
             target: x86_64-pc-windows-msvc
-            artifact_name: xianscan-rust.exe
+            artifact_name: xianscan.exe
             release_asset: xianscan-windows-x86_64.zip
 
           # Linux x86_64 (Ubuntu / Debian / Fedora)
           - os: ubuntu-latest
             target: x86_64-unknown-linux-gnu
-            artifact_name: xianscan-rust
+            artifact_name: xianscan
             release_asset: xianscan-linux-x86_64.tar.gz
 
           # macOS Apple Silicon (M1 / M2 / M3 / M4)
           - os: macos-latest
             target: aarch64-apple-darwin
-            artifact_name: xianscan-rust
+            artifact_name: xianscan
             release_asset: xianscan-macos-arm64.tar.gz
-
-          # macOS Intel (x86_64) - cross-compiled on macOS Apple Silicon runner
-          - os: macos-latest
-            target: x86_64-apple-darwin
-            artifact_name: xianscan-rust
-            release_asset: xianscan-macos-x86_64.tar.gz
 
     steps:
       - name: Checkout Code
@@ -61,13 +55,27 @@ jobs:
           npm install
           npm run build
 
+      - name: Download AI Model Weights for Embedded Binary
+        shell: bash
+        run: |
+          mkdir -p models
+          echo "Downloading ComicTextDetector (~95MB)..."
+          curl -sSL -o models/comictextdetector.pt.onnx "https://github.com/zyddnys/manga-image-translator/releases/download/beta-0.3/comictextdetector.pt.onnx"
+          echo "Downloading LaMa Inpainting (~206MB)..."
+          curl -sSL -o models/lama.onnx "https://huggingface.co/ogkalu/lama-manga-onnx-dynamic/resolve/main/lama-manga-dynamic.onnx"
+          echo "Downloading PP-OCR Detection (~10MB)..."
+          curl -sSL -o models/PP-OCRv6_det_small.onnx "https://github.com/RapidAI/RapidOCR/releases/download/v1.1.0/ch_PP-OCRv4_det_infer.onnx"
+          echo "Downloading PP-OCR Recognition (~21MB)..."
+          curl -sSL -o models/PP-OCRv6_rec_small.onnx "https://github.com/RapidAI/RapidOCR/releases/download/v1.1.0/ch_PP-OCRv4_rec_infer.onnx"
+          ls -lh models/
+
       - name: Setup Rust Toolchain
         uses: dtolnay/rust-toolchain@stable
         with:
           targets: ${{ matrix.target }}
 
-      - name: Build Optimized Release Binary
-        run: cargo build --release --target ${{ matrix.target }}
+      - name: Build Standalone 1-File Release Binary (Embedded Models)
+        run: cargo build --release --features embed-models --target ${{ matrix.target }}
 
       # Packaging Windows Archive
       - name: Package Windows Binary
@@ -75,8 +83,7 @@ jobs:
         shell: pwsh
         run: |
           New-Item -ItemType Directory -Path staging/web/build -Force
-          Copy-Item target/${{ matrix.target }}/release/xianscan-rust.exe staging/
-          if (Test-Path models) { Copy-Item models staging/ -Recurse -Force }
+          Copy-Item target/${{ matrix.target }}/release/xianscan-rust.exe staging/xianscan.exe
           if (Test-Path web/build) { Copy-Item web/build/* staging/web/build/ -Recurse -Force }
           Copy-Item web/package.json staging/web/ -ErrorAction SilentlyContinue
           Copy-Item README.md staging/ -ErrorAction SilentlyContinue
@@ -88,13 +95,12 @@ jobs:
         if: matrix.os != 'windows-latest'
         run: |
           mkdir -p staging/web/build
-          cp target/${{ matrix.target }}/release/xianscan-rust staging/
-          if [ -d models ]; then cp -r models staging/ 2>/dev/null || true; fi
+          cp target/${{ matrix.target }}/release/xianscan-rust staging/xianscan
           if [ -d web/build ]; then cp -r web/build/* staging/web/build/ 2>/dev/null || true; fi
           cp web/package.json staging/web/ 2>/dev/null || true
           cp README.md staging/ 2>/dev/null || true
           cp LICENSE staging/ 2>/dev/null || true
-          chmod +x staging/xianscan-rust
+          chmod +x staging/xianscan
           tar -czf ${{ matrix.release_asset }} -C staging .
 
       - name: Upload Artifact to GitHub Release
@@ -104,4 +110,5 @@ jobs:
           tag_name: ${{ github.event.inputs.tag_name || github.ref_name }}
           files: ${{ matrix.release_asset }}
           generate_release_notes: true
+
 
