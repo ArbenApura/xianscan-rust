@@ -238,15 +238,30 @@ impl PipelineEngine {
 
         // 5. Filter out oversized artwork / logo artifact boxes
         let mut clean_rapid_lines = Vec::new();
-        for rl in normalized_rapid_lines {
-            let (_, _, lw, lh) = polygon_bounds(&rl.polygon);
+        for mut rl in normalized_rapid_lines {
+            let (lx, _ly, lw, lh) = polygon_bounds(&rl.polygon);
+            rl.text = clean_stray_ocr_artifacts(&rl.text);
             let char_count = rl.text.chars().filter(|c| !c.is_whitespace()).count().max(1);
             let has_chinese = CHINESE_RE.is_match(&rl.text);
             let is_circle_noise = Regex::new(r"^[0oO·•\s]{1,6}$").unwrap().is_match(&rl.text) && !has_chinese;
             let is_sfx_tail = Regex::new(r"[-—―_~～·.．…!！?？]").unwrap().is_match(&rl.text);
             let is_sfx_glyph = rl.text.chars().any(|c| "噗轰咚咳啪砰咔唰嘭哇嗷嘶呜呼哈哒嗒踏铛铮刷咻嗖哧嚓哐咕嗡吼鸣飒吱咯嘎喳沙！!".contains(c));
+            let clean_t = rl.text.trim();
 
-            let is_giant_artwork = is_circle_noise
+            let is_single_latin = !has_chinese && char_count <= 1 && Regex::new(r"^[a-zA-Z]$").unwrap().is_match(clean_t);
+            let is_border_margin_char = (lx <= 30 || (lx + lw) >= (page_w as i32 - 30)) && char_count <= 1 && !is_sfx_glyph;
+            let is_giant_single_char_artwork = char_count <= 1 && !is_sfx_glyph && (
+                (lh >= 90 && lw >= 90 && rl.score < 0.75)
+                || (lh >= 60 && lw >= 60 && rl.score < 0.60)
+                || (lh * lw >= 10000 && rl.score < 0.80)
+            );
+            let is_low_conf_isolated_char = char_count <= 1 && !is_sfx_glyph && rl.score < 0.63 && !is_sfx_tail;
+
+            let is_giant_artwork = is_single_latin
+                || is_border_margin_char
+                || is_giant_single_char_artwork
+                || is_low_conf_isolated_char
+                || is_circle_noise
                 || (!has_chinese && !is_sfx_tail && !is_sfx_glyph && char_count >= 2 && lh >= 100 && (lw / char_count as i32) >= 90 && rl.score < 0.85)
                 || (!has_chinese && !is_sfx_tail && !is_sfx_glyph && char_count <= 2 && lh >= 100 && lw >= 140)
                 || (lh >= 180 && lw >= 350 && !has_chinese)
@@ -255,7 +270,7 @@ impl PipelineEngine {
                 || (!has_chinese && char_count <= 2 && (lh >= 120 || lw >= 120 || (lh >= 80 && (lh / lw.max(1) >= 2 || lw / lh.max(1) >= 2))))
                 || (char_count >= 3 && lw <= 35 && (lw as f32 / char_count as f32) <= 12.0 && rl.score < 0.75);
 
-            if !is_giant_artwork {
+            if !is_giant_artwork && !rl.text.trim().is_empty() {
                 clean_rapid_lines.push(rl);
             }
         }
@@ -420,7 +435,50 @@ impl PipelineEngine {
                 .collect();
 
             let (text, confidence, poly): (String, f32, Vec<[i32; 2]>) = if !matched.is_empty() {
-                let texts: Vec<String> = matched.iter().map(|l| l.text.clone()).collect();
+                let mut sorted_matched = matched.clone();
+                sorted_matched.sort_by(|a, b| {
+                    let (ax, ay, _, ah) = polygon_bounds(&a.polygon);
+                    let (bx, by, _, bh) = polygon_bounds(&b.polygon);
+                    let a_mid_y = ay + ah / 2;
+                    let b_mid_y = by + bh / 2;
+                    if (a_mid_y - b_mid_y).abs() <= 15 {
+                        ax.cmp(&bx)
+                    } else {
+                        ay.cmp(&by)
+                    }
+                });
+
+                let mut row_grouped_texts: Vec<String> = Vec::new();
+                let mut last_mid_y: Option<i32> = None;
+
+                for m in &sorted_matched {
+                    let (_, my, _, mh) = polygon_bounds(&m.polygon);
+                    let mid_y = my + mh / 2;
+                    let clean_t = clean_stray_ocr_artifacts(&m.text);
+                    if clean_t.trim().is_empty() {
+                        continue;
+                    }
+
+                    match last_mid_y {
+                        Some(prev_y) if (mid_y - prev_y).abs() <= 15 => {
+                            if let Some(last_row) = row_grouped_texts.last_mut() {
+                                let merged = if *last_row == clean_t {
+                                    last_row.clone()
+                                } else {
+                                    format!("{}{}", last_row.trim_end(), clean_t.trim_start())
+                                };
+                                *last_row = clean_stray_ocr_artifacts(&merged);
+                            } else {
+                                row_grouped_texts.push(clean_t);
+                            }
+                        }
+                        _ => {
+                            row_grouped_texts.push(clean_t);
+                            last_mid_y = Some(mid_y);
+                        }
+                    }
+                }
+
                 let avg_score = matched.iter().map(|l| l.score).sum::<f32>() / matched.len() as f32;
                 let poly_pts: Vec<[i32; 2]> = vec![
                     [box_rect.x, box_rect.y],
@@ -428,7 +486,7 @@ impl PipelineEngine {
                     [box_rect.x + box_rect.w, box_rect.y + box_rect.h],
                     [box_rect.x, box_rect.y + box_rect.h],
                 ];
-                (texts.join("\n"), avg_score, poly_pts)
+                (row_grouped_texts.join("\n"), avg_score, poly_pts)
             } else {
                 // Crop and recognize line
                 let crop_x = box_rect.x.clamp(0, page_w as i32 - 1) as u32;
@@ -586,7 +644,7 @@ fn is_multiline_comic_blob(cb: &[[f32; 2]], rapid_boxes: &[Vec<[f32; 2]>], page_
 
 fn recover_missing_interjection(img: &DynamicImage, pts: &[[i32; 2]], text: &str) -> String {
     let t_strip = text.trim();
-    if !["！", "!", "？", "?", "……", "…", "...", "！？", "!?", "？！", "?!", "呀", "呀！", "呀~"].contains(&t_strip) {
+    if !["！", "!", "？", "?", "！？", "!?", "？！", "?!", "呀", "呀！", "呀~"].contains(&t_strip) {
         return text.to_string();
     }
 
