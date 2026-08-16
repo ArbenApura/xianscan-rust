@@ -76,24 +76,20 @@ jobs:
           curl -sSL -o models/PP-OCRv6_rec_small.onnx "https://github.com/RapidAI/RapidOCR/releases/download/v1.1.0/ch_PP-OCRv4_rec_infer.onnx"
           ls -lh models/
 
-      - name: Download Standalone Node.js Runtime for Embedded Binary
+      - name: Stage Standalone Node.js Runtime for Embedded Binary
         shell: bash
         run: |
           mkdir -p web/bin
           if [ "${{ matrix.os }}" = "windows-latest" ]; then
-            echo "Downloading Windows standalone node.exe..."
-            curl -sSL -o web/bin/node.exe "https://nodejs.org/dist/v20.18.0/win-x64/node.exe"
-          elif [ "${{ matrix.os }}" = "ubuntu-latest" ]; then
-            echo "Downloading Linux standalone node..."
-            curl -sSL "https://nodejs.org/dist/v20.18.0/node-v20.18.0-linux-x64.tar.xz" | tar -xJ -C /tmp
-            cp /tmp/node-v20.18.0-linux-x64/bin/node web/bin/node
-            chmod +x web/bin/node
-          elif [ "${{ matrix.os }}" = "macos-latest" ]; then
-            echo "Downloading macOS Apple Silicon standalone node..."
-            curl -sSL "https://nodejs.org/dist/v20.18.0/node-v20.18.0-darwin-arm64.tar.gz" | tar -xz -C /tmp
-            cp /tmp/node-v20.18.0-darwin-arm64/bin/node web/bin/node
+            NODE_PATH=$(which node)
+            cp "$NODE_PATH" web/bin/node.exe
+          else
+            NODE_PATH=$(which node)
+            cp "$NODE_PATH" web/bin/node
             chmod +x web/bin/node
           fi
+          echo "Staged Node.js runtime version:"
+          web/bin/node* --version
           ls -lh web/bin/
 
       - name: Setup Rust Toolchain
