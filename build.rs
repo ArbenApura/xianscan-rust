@@ -127,9 +127,43 @@ fn main() {
         println!("cargo:rustc-env=SKIA_ICU_PATH={}", abs_str);
     }
 
-    // Rerun if node_modules layout changes (new npm install).
+    // -----------------------------------------------------------------------
+    // 3. Standalone Node.js Runtime Binary (Optional Bundling)
+    // -----------------------------------------------------------------------
+    let web_bin_dir = manifest_dir.join("web").join("bin");
+    let node_bin_candidates = [
+        web_bin_dir.join("node.exe"),
+        web_bin_dir.join("node"),
+    ];
+
+    let mut node_bin_path: Option<PathBuf> = None;
+    for candidate in &node_bin_candidates {
+        if candidate.exists() {
+            node_bin_path = Some(candidate.clone());
+            break;
+        }
+    }
+
+    let empty_node_path = out_dir.join("empty_node_bin");
+    if !empty_node_path.exists() {
+        let _ = std::fs::write(&empty_node_path, b"");
+    }
+
+    if let Some(path) = node_bin_path {
+        let abs = path.canonicalize().unwrap_or(path.clone());
+        let abs_str = strip_unc_prefix(abs.display().to_string());
+        println!("cargo:rustc-env=NODE_BIN_PATH={}", abs_str);
+        println!("cargo:rerun-if-changed={}", abs_str);
+    } else {
+        let abs = empty_node_path.canonicalize().unwrap_or(empty_node_path);
+        let abs_str = strip_unc_prefix(abs.display().to_string());
+        println!("cargo:rustc-env=NODE_BIN_PATH={}", abs_str);
+    }
+
+    // Rerun if node_modules or web/bin layout changes.
     println!("cargo:rerun-if-changed={}", node_modules.join("better-sqlite3").display());
     println!("cargo:rerun-if-changed={}", node_modules.join("@napi-rs").display());
+    println!("cargo:rerun-if-changed={}", web_bin_dir.display());
 }
 
 /// Strip the Windows extended-length path prefix (`\\?\`) that
