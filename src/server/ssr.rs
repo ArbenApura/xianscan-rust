@@ -26,7 +26,7 @@ impl SsrServer {
         // or ./data for on-disk dev builds).
         let data_root = std::env::var("DATA_ROOT").unwrap_or_else(|_| "./data".to_string());
         let db_path = std::env::var("DATABASE_PATH")
-            .unwrap_or_else(|_| format!("{}/manua.db", data_root));
+            .unwrap_or_else(|_| format!("{}/xianscan.db", data_root));
 
         // NODE_PATH lets Node resolve `require('better-sqlite3')` and
         // `require('@napi-rs/canvas')` from the extracted node_modules directory
@@ -62,8 +62,48 @@ impl SsrServer {
         Ok(Self { child: Some(child) })
     }
 
+    pub fn start_vite_dev(web_dir: &Path, port: u16, ml_port: u16) -> anyhow::Result<Self> {
+        let clean_web_dir = normalize_windows_path(web_dir);
+        let data_root = std::env::var("DATA_ROOT").unwrap_or_else(|_| "./data".to_string());
+        let db_path = std::env::var("DATABASE_PATH")
+            .unwrap_or_else(|_| format!("{}/xianscan.db", data_root));
+
+        #[cfg(windows)]
+        let mut cmd = Command::new("cmd");
+        #[cfg(windows)]
+        cmd.args(["/C", "yarn", "dev"]);
+
+        #[cfg(not(windows))]
+        let mut cmd = Command::new("yarn");
+        #[cfg(not(windows))]
+        cmd.args(["dev"]);
+
+        cmd.current_dir(&clean_web_dir)
+            .env("PORT", port.to_string())
+            .env("HOST", "0.0.0.0")
+            .env("ML_BASE_URL", format!("http://127.0.0.1:{}", ml_port))
+            .env("DATA_ROOT", &data_root)
+            .env("DATABASE_PATH", &db_path)
+            .stdout(Stdio::inherit())
+            .stderr(Stdio::inherit());
+
+        info!("Starting Vite Live Dev Server on port {}...", port);
+        let child = cmd.spawn()?;
+
+        Ok(Self { child: Some(child) })
+    }
+
     pub fn stop(&mut self) {
         if let Some(mut child) = self.child.take() {
+            #[cfg(windows)]
+            {
+                let pid = child.id();
+                let _ = Command::new("taskkill")
+                    .args(["/PID", &pid.to_string(), "/T", "/F"])
+                    .stdout(Stdio::null())
+                    .stderr(Stdio::null())
+                    .status();
+            }
             let _ = child.kill();
             let _ = child.wait();
         }

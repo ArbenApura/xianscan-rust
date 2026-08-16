@@ -104,21 +104,24 @@ async fn main() -> anyhow::Result<()> {
         }
     };
 
-    // Only redirect data storage to AppData when running as an embedded build
-    // (i.e. embed-web compiled in AND extraction succeeded).
-    // Dev builds (cargo run without --features embed-web) keep data local at
-    // ./data/ so dev data stays project-local and doesn't pollute AppData.
-    if let Some(ref _app_dir) = embedded_app_dir {
-        let data_dir = web_assets::get_data_dir();
-        if std::env::var("DATA_ROOT").is_err() {
-            std::env::set_var("DATA_ROOT", data_dir.to_string_lossy().as_ref());
-        }
-        if std::env::var("DATABASE_PATH").is_err() {
-            std::env::set_var(
-                "DATABASE_PATH",
-                data_dir.join("manua.db").to_string_lossy().as_ref(),
-            );
-        }
+    // Always route data storage and SQLite to the system AppData data directory
+    let data_dir = web_assets::get_data_dir();
+    let proper_db = data_dir.join("xianscan.db");
+    let legacy_db = data_dir.join("manua.db");
+    if !proper_db.exists() && legacy_db.exists() {
+        let _ = std::fs::rename(&legacy_db, &proper_db);
+        let _ = std::fs::rename(data_dir.join("manua.db-wal"), data_dir.join("xianscan.db-wal"));
+        let _ = std::fs::rename(data_dir.join("manua.db-shm"), data_dir.join("xianscan.db-shm"));
+    }
+
+    if std::env::var("DATA_ROOT").is_err() {
+        std::env::set_var("DATA_ROOT", data_dir.to_string_lossy().as_ref());
+    }
+    if std::env::var("DATABASE_PATH").is_err() {
+        std::env::set_var(
+            "DATABASE_PATH",
+            proper_db.to_string_lossy().as_ref(),
+        );
     }
 
     // Resolve web dir: prefer embedded extraction → on-disk fallback.
@@ -178,9 +181,32 @@ async fn main() -> anyhow::Result<()> {
         let _ = axum::serve(listener, app).await;
     });
 
-    // Start SvelteKit SSR Web Engine
+    let args: Vec<String> = std::env::args().collect();
+    let is_dev_mode = args.iter().any(|arg| arg == "--dev" || arg == "-d")
+        || std::env::var("DEV_MODE").map(|v| v == "1" || v.eq_ignore_ascii_case("true")).unwrap_or(false);
+    let ml_only = args.iter().any(|arg| arg == "--ml-only" || arg == "-m")
+        || std::env::var("NO_SSR").map(|v| v == "1" || v.eq_ignore_ascii_case("true")).unwrap_or(false)
+        || std::env::var("ML_ONLY").map(|v| v == "1" || v.eq_ignore_ascii_case("true")).unwrap_or(false);
+
+    // Start Web Engine
     let mut _ssr_guard = None;
-    if let Some(ref w_dir) = web_dir {
+    if ml_only {
+        println!("  [+] Web Engine:  Disabled (--ml-only active; connect your external Vite dev server)");
+    } else if is_dev_mode {
+        if let Some(ref w_dir) = web_dir {
+            match SsrServer::start_vite_dev(w_dir, web_port, ml_port) {
+                Ok(server) => {
+                    println!("  [+] Web Engine:  Vite Live Dev HMR (Active on port {})", web_port);
+                    _ssr_guard = Some(server);
+                }
+                Err(e) => {
+                    println!("  [!] Web Engine:  Failed to start Vite dev server: {}", e);
+                }
+            }
+        } else {
+            println!("  [!] Web Engine:  Web directory not found for dev server.");
+        }
+    } else if let Some(ref w_dir) = web_dir {
         match SsrServer::start(w_dir, web_port, ml_port) {
             Ok(server) => {
                 println!("  [+] Web Engine:  SvelteKit SSR (Active on port {})", web_port);
@@ -195,10 +221,20 @@ async fn main() -> anyhow::Result<()> {
     }
 
     println!("================================================================");
-    println!("  🚀 XianScan is running!");
-    println!("     Web UI:       http://localhost:{}", web_port);
-    println!("     LAN/Network:  http://0.0.0.0:{}", web_port);
-    println!("     ML Backend:   http://127.0.0.1:{}", ml_port);
+    if ml_only {
+        println!("  🚀 XianScan (ML Backend Mode) is running!");
+        println!("     ML Backend:   http://127.0.0.1:{}", ml_port);
+        println!("     Web UI (Dev): http://localhost:{} (run 'cd web && yarn dev')", web_port);
+    } else if is_dev_mode {
+        println!("  🚀 XianScan (Full Dev Mode: ML + Vite HMR) is running!");
+        println!("     Web UI (HMR): http://localhost:{}", web_port);
+        println!("     ML Backend:   http://127.0.0.1:{}", ml_port);
+    } else {
+        println!("  🚀 XianScan is running!");
+        println!("     Web UI:       http://localhost:{}", web_port);
+        println!("     LAN/Network:  http://0.0.0.0:{}", web_port);
+        println!("     ML Backend:   http://127.0.0.1:{}", ml_port);
+    }
     println!("================================================================");
     println!("  (Press Ctrl+C to stop)");
     println!();
