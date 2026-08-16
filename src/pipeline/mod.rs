@@ -422,7 +422,7 @@ impl PipelineEngine {
         for (i, &idx) in order.iter().enumerate() {
             let box_pts = &dedup_boxes[idx];
             let (bx, by, bw, bh) = box_to_xywh_f32(box_pts);
-            let box_rect = BoxRect {
+            let mut box_rect = BoxRect {
                 x: bx.max(0.0) as i32,
                 y: by.max(0.0) as i32,
                 w: bw.max(1.0) as i32,
@@ -434,7 +434,7 @@ impl PipelineEngine {
                 .filter(|l| line_center_inside_box(&l.polygon, &box_rect))
                 .collect();
 
-            let (text, confidence, poly): (String, f32, Vec<[i32; 2]>) = if !matched.is_empty() {
+            let (text, confidence, mut poly): (String, f32, Vec<[i32; 2]>) = if !matched.is_empty() {
                 let mut sorted_matched = matched.clone();
                 sorted_matched.sort_by(|a, b| {
                     let (ax, ay, _, ah) = polygon_bounds(&a.polygon);
@@ -522,6 +522,45 @@ impl PipelineEngine {
 
             let angle = calculate_box_angle_i32(&poly);
             let vertical = box_rect.h > (box_rect.w as f32 * 1.2) as i32;
+
+            // Expand horizontal SFX prolonged stroke tails if the bright stroke continues past the detected box edge
+            let extends_sfx = cleaned.ends_with('—') || cleaned.ends_with('―') || cleaned.ends_with('-') || cleaned.ends_with('～') || cleaned.ends_with('~');
+            if extends_sfx && !vertical {
+                let right_limit = (box_rect.x + box_rect.w) as u32;
+                let max_scan_x = (right_limit + 100).min(page_w);
+                let y_start = (box_rect.y.max(0) as u32).min(page_h - 1);
+                let y_end = ((box_rect.y + box_rect.h).max(0) as u32).min(page_h);
+
+                let rgb = img.to_rgb8();
+                let mut last_valid_x = right_limit;
+
+                for curr_x in right_limit..max_scan_x {
+                    let mut has_bright = false;
+                    for curr_y in y_start..y_end {
+                        let p = rgb.get_pixel(curr_x, curr_y);
+                        let b = (p[0] as u32 * 299 + p[1] as u32 * 587 + p[2] as u32 * 114) / 1000;
+                        if b >= 170 {
+                            has_bright = true;
+                            break;
+                        }
+                    }
+                    if has_bright {
+                        last_valid_x = curr_x + 5;
+                    } else if curr_x > last_valid_x + 12 {
+                        break;
+                    }
+                }
+
+                if last_valid_x > right_limit {
+                    box_rect.w = (last_valid_x - box_rect.x as u32).min(page_w - box_rect.x as u32) as i32;
+                    poly = vec![
+                        [box_rect.x, box_rect.y],
+                        [box_rect.x + box_rect.w, box_rect.y],
+                        [box_rect.x + box_rect.w, box_rect.y + box_rect.h],
+                        [box_rect.x, box_rect.y + box_rect.h],
+                    ];
+                }
+            }
 
             regions.push(Region {
                 id: format!("r{}", i),
