@@ -120,12 +120,12 @@ fn find_node_binary(web_dir: &Path) -> anyhow::Result<PathBuf> {
 
     #[cfg(target_os = "macos")]
     {
-        // Homebrew (Apple Silicon primary, Intel fallback), nvm, volta, system Node.
+        // Homebrew (Apple Silicon), nvm, volta, system Node.
         let home = std::env::var("HOME").unwrap_or_default();
         let common_paths = [
             "/opt/homebrew/bin/node",          // Homebrew on Apple Silicon (M1/M2/M3/M4)
-            "/usr/local/bin/node",             // Homebrew on Intel Mac / system installs
-            "/usr/bin/node",                   // System Node (rare on macOS)
+            "/usr/local/bin/node",             // Custom or system installs
+            "/usr/bin/node",                   // System Node
         ];
         // nvm and volta use home-relative paths
         let nvm_path = format!("{}/.nvm/versions/node", home);

@@ -97,7 +97,6 @@ Pre-compiled release binaries are available for all major platforms:
 | **Windows** | 64-bit (`x86_64`) | `xianscan-v0.1.0-windows-x86_64.zip` |
 | **Linux** | 64-bit (`x86_64` - Ubuntu, Debian, Fedora, Arch) | `xianscan-v0.1.0-linux-x86_64.tar.gz` |
 | **macOS** | Apple Silicon (`aarch64` - M1, M2, M3, M4) | `xianscan-v0.1.0-macos-arm64.tar.gz` |
-| **macOS** | Intel (`x86_64`) | `xianscan-v0.1.0-macos-x86_64.tar.gz` |
 
 ---
 

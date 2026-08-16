@@ -103,6 +103,12 @@ const SKIA_NODE_FILENAME: &str = env!("SKIA_NODE_FILENAME");
 #[cfg(feature = "embed-web")]
 const SKIA_ICU_BYTES: &[u8] = include_bytes!(env!("SKIA_ICU_PATH"));
 
+/// Optional bundled standalone Node.js binary for the current platform.
+/// Path discovered by build.rs → NODE_BIN_PATH.
+#[cfg(feature = "embed-web")]
+const NODE_BINARY: &[u8] = include_bytes!(env!("NODE_BIN_PATH"));
+
+
 
 // ---------------------------------------------------------------------------
 // App-data directory resolution
@@ -200,6 +206,13 @@ pub fn extract_if_needed() -> anyhow::Result<Option<PathBuf>> {
             true
         };
 
+        let node_exist = if !NODE_BINARY.is_empty() {
+            let node_exe_name = if cfg!(windows) { "node.exe" } else { "node" };
+            app_dir.join("bin").join(node_exe_name).exists()
+        } else {
+            true
+        };
+
         let already_current = version_stamp
             .exists()
             .then(|| std::fs::read_to_string(&version_stamp).ok())
@@ -207,7 +220,8 @@ pub fn extract_if_needed() -> anyhow::Result<Option<PathBuf>> {
             .map(|v| v.trim() == APP_VERSION)
             .unwrap_or(false)
             && fonts_exist
-            && icu_exist;
+            && icu_exist
+            && node_exist;
 
         if !already_current {
             tracing::info!("Extracting embedded web assets to {:?} …", app_dir);
@@ -283,6 +297,25 @@ fn extract_all(app_dir: &std::path::Path) -> anyhow::Result<()> {
     fs::write(canvas_pkg_dir.join(SKIA_NODE_FILENAME), SKIA_NODE)?;
     if !SKIA_ICU_BYTES.is_empty() {
         fs::write(canvas_pkg_dir.join("icudtl.dat"), SKIA_ICU_BYTES)?;
+    }
+
+    // 7. Standalone Node.js Runtime (if bundled)
+    if !NODE_BINARY.is_empty() {
+        let bin_dir = app_dir.join("bin");
+        fs::create_dir_all(&bin_dir)?;
+        let node_exe_name = if cfg!(windows) { "node.exe" } else { "node" };
+        let node_dest = bin_dir.join(node_exe_name);
+        fs::write(&node_dest, NODE_BINARY)?;
+
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            if let Ok(meta) = fs::metadata(&node_dest) {
+                let mut perms = meta.permissions();
+                perms.set_mode(0o755);
+                let _ = fs::set_permissions(&node_dest, perms);
+            }
+        }
     }
 
     Ok(())
