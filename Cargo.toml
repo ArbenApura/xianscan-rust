@@ -1,11 +1,13 @@
 [package]
 name = "xianscan-rust"
-version = "0.1.0"
+version = "0.1.1"
 edition = "2021"
 
 [features]
 default = []
 embed-models = []
+embed-web = []
+
 
 [dependencies]
 # Async Web & HTTP Server
@@ -39,6 +41,8 @@ r2d2_sqlite = "0.25"
 
 # Embedded Assets
 rust-embed = "8.5"
+include_dir = "0.7"
+
 
 # Logging & Error Handling
 tracing = "0.1"

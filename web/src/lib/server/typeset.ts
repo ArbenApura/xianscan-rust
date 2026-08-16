@@ -2,8 +2,11 @@
 import { createCanvas, GlobalFonts, loadImage, type Image, type SKRSContext2D } from '@napi-rs/canvas';
 import { fileURLToPath } from 'node:url';
 import { join } from 'node:path';
+import { existsSync } from 'node:fs';
 
 // -- TYPES -- //
+
+
 
 export interface TypesetBox {
 	x: number;
@@ -34,9 +37,24 @@ export interface TextSegment {
 	text: string;
 }
 
-// -- CONSTANTS -- //
+function findFontDir(): string {
+	const candidates = [
+		fileURLToPath(new URL('../../../static/fonts', import.meta.url)),
+		fileURLToPath(new URL('../../static/fonts', import.meta.url)),
+		fileURLToPath(new URL('../../../../static/fonts', import.meta.url)),
+		join(process.cwd(), 'static', 'fonts'),
+		join(process.cwd(), 'web', 'static', 'fonts'),
+		join(process.env.APPDATA || '', 'XianScan', 'app', 'static', 'fonts'),
+	];
+	for (const dir of candidates) {
+		if (existsSync(join(dir, 'CCWildWords-Roman.ttf'))) {
+			return dir;
+		}
+	}
+	return candidates[0];
+}
 
-const FONT_DIR = fileURLToPath(new URL('../../../static/fonts', import.meta.url));
+const FONT_DIR = findFontDir();
 
 export const FONT_DIALOGUE = 'CC Wild Words';
 export const FONT_SFX = 'CC Wild Words';
@@ -71,8 +89,9 @@ let fontsRegistered = false;
 function registerFonts(): void {
 	if (fontsRegistered) return;
 	fontsRegistered = true;
-	GlobalFonts.registerFromPath(join(FONT_DIR, 'CCWildWords-Roman.ttf'), FONT_DIALOGUE);
-	GlobalFonts.registerFromPath(join(FONT_DIR, 'FriendlySans-Regular.ttf'), FONT_FALLBACK_NAME);
+	const fontDir = findFontDir();
+	GlobalFonts.registerFromPath(join(fontDir, 'CCWildWords-Roman.ttf'), FONT_DIALOGUE);
+	GlobalFonts.registerFromPath(join(fontDir, 'FriendlySans-Regular.ttf'), FONT_FALLBACK_NAME);
 	try {
 		if (process.platform === 'win32') {
 			GlobalFonts.registerFromPath('C:\\Windows\\Fonts\\arial.ttf', 'Arial');
@@ -89,7 +108,7 @@ function registerFonts(): void {
 	}
 	if (!GlobalFonts.has(FONT_DIALOGUE) || !GlobalFonts.has(FONT_FALLBACK_NAME)) {
 		fontsRegistered = false;
-		throw new Error(`typeset fonts not found in ${FONT_DIR} — run the font download step`);
+		throw new Error(`typeset fonts not found in ${fontDir} — run the font download step`);
 	}
 }
 

@@ -49,7 +49,14 @@ jobs:
         with:
           node-version: 22
 
-      - name: Build SvelteKit Frontend
+      - name: Install Linux Native Build Dependencies
+        if: matrix.os == 'ubuntu-latest'
+        run: |
+          sudo apt-get update -y
+          # Required by better-sqlite3 (node-gyp) and @napi-rs/canvas (Skia prebuilt)
+          sudo apt-get install -y build-essential python3 libfontconfig1-dev
+
+      - name: Build SvelteKit Frontend + Native Addons
         working-directory: web
         run: |
           npm install
@@ -74,18 +81,17 @@ jobs:
         with:
           targets: ${{ matrix.target }}
 
-      - name: Build Standalone 1-File Release Binary (Embedded Models)
-        run: cargo build --release --features embed-models --target ${{ matrix.target }}
+      - name: Build Standalone 1-File Release Binary (Embedded Models + Web UI)
+        run: cargo build --release --features embed-models,embed-web --target ${{ matrix.target }}
+
 
       # Packaging Windows Archive
       - name: Package Windows Binary
         if: matrix.os == 'windows-latest'
         shell: pwsh
         run: |
-          New-Item -ItemType Directory -Path staging/web/build -Force
+          New-Item -ItemType Directory -Path staging -Force
           Copy-Item target/${{ matrix.target }}/release/xianscan-rust.exe staging/xianscan.exe
-          if (Test-Path web/build) { Copy-Item web/build/* staging/web/build/ -Recurse -Force }
-          Copy-Item web/package.json staging/web/ -ErrorAction SilentlyContinue
           Copy-Item README.md staging/ -ErrorAction SilentlyContinue
           Copy-Item LICENSE staging/ -ErrorAction SilentlyContinue
           Compress-Archive -Path staging/* -DestinationPath ${{ matrix.release_asset }}
@@ -94,14 +100,13 @@ jobs:
       - name: Package Unix Binary
         if: matrix.os != 'windows-latest'
         run: |
-          mkdir -p staging/web/build
+          mkdir -p staging
           cp target/${{ matrix.target }}/release/xianscan-rust staging/xianscan
-          if [ -d web/build ]; then cp -r web/build/* staging/web/build/ 2>/dev/null || true; fi
-          cp web/package.json staging/web/ 2>/dev/null || true
           cp README.md staging/ 2>/dev/null || true
           cp LICENSE staging/ 2>/dev/null || true
           chmod +x staging/xianscan
           tar -czf ${{ matrix.release_asset }} -C staging .
+
 
       - name: Upload Artifact to GitHub Release
         uses: softprops/action-gh-release@v2

@@ -6,6 +6,8 @@ use xianscan_rust::ml::device::get_hardware_status;
 use xianscan_rust::pipeline::PipelineEngine;
 use xianscan_rust::server::router::{create_router, AppState};
 use xianscan_rust::server::ssr::SsrServer;
+use xianscan_rust::server::web_assets;
+
 
 fn find_models_dir() -> PathBuf {
     if let Ok(env_dir) = std::env::var("MODELS_DIR") {
@@ -87,8 +89,42 @@ async fn main() -> anyhow::Result<()> {
         .unwrap_or(8124);
 
     let models_dir = find_models_dir();
-    let web_dir = find_web_dir();
+
+    // -----------------------------------------------------------------------
+    // Web asset extraction (embed-web feature)
+    // When the binary was compiled with --features embed-web, extract the
+    // SvelteKit build + native .node addons to the user's app-data directory.
+    // This runs in milliseconds on subsequent launches (VERSION stamp check).
+    // -----------------------------------------------------------------------
+    let embedded_app_dir = match web_assets::extract_if_needed() {
+        Ok(dir) => dir,
+        Err(e) => {
+            eprintln!("  [!] Failed to extract embedded web assets: {}", e);
+            None
+        }
+    };
+
+    // Only redirect data storage to AppData when running as an embedded build
+    // (i.e. embed-web compiled in AND extraction succeeded).
+    // Dev builds (cargo run without --features embed-web) keep data local at
+    // ./data/ so dev data stays project-local and doesn't pollute AppData.
+    if let Some(ref _app_dir) = embedded_app_dir {
+        let data_dir = web_assets::get_data_dir();
+        if std::env::var("DATA_ROOT").is_err() {
+            std::env::set_var("DATA_ROOT", data_dir.to_string_lossy().as_ref());
+        }
+        if std::env::var("DATABASE_PATH").is_err() {
+            std::env::set_var(
+                "DATABASE_PATH",
+                data_dir.join("manua.db").to_string_lossy().as_ref(),
+            );
+        }
+    }
+
+    // Resolve web dir: prefer embedded extraction → on-disk fallback.
+    let web_dir = embedded_app_dir.or_else(find_web_dir);
     let hw = get_hardware_status();
+
 
     println!();
     println!("================================================================");
