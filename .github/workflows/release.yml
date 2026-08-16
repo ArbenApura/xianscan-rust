@@ -7,7 +7,7 @@ on:
   workflow_dispatch:
     inputs:
       tag_name:
-        description: 'Release Tag Name (e.g. v1.0.0)'
+        description: 'Release Tag Name (e.g. v0.1.0)'
         required: true
         default: 'v0.1.0'
 
@@ -26,29 +26,43 @@ jobs:
           - os: windows-latest
             target: x86_64-pc-windows-msvc
             artifact_name: xianscan-rust.exe
-            release_asset: xianscan-v0.1.0-windows-x86_64.zip
+            release_asset: xianscan-windows-x86_64.zip
 
           # Linux x86_64 (Ubuntu / Debian / Fedora)
           - os: ubuntu-latest
             target: x86_64-unknown-linux-gnu
             artifact_name: xianscan-rust
-            release_asset: xianscan-v0.1.0-linux-x86_64.tar.gz
+            release_asset: xianscan-linux-x86_64.tar.gz
 
           # macOS Apple Silicon (M1 / M2 / M3 / M4)
           - os: macos-latest
             target: aarch64-apple-darwin
             artifact_name: xianscan-rust
-            release_asset: xianscan-v0.1.0-macos-arm64.tar.gz
+            release_asset: xianscan-macos-arm64.tar.gz
 
           # macOS Intel (x86_64)
           - os: macos-13
             target: x86_64-apple-darwin
             artifact_name: xianscan-rust
-            release_asset: xianscan-v0.1.0-macos-x86_64.tar.gz
+            release_asset: xianscan-macos-x86_64.tar.gz
 
     steps:
       - name: Checkout Code
         uses: actions/checkout@v4
+
+      - name: Setup Node.js (for Web UI build)
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'npm'
+          cache-dependency-path: web/package-lock.json
+
+      - name: Build SvelteKit Frontend
+        run: |
+          cd web
+          npm ci
+          npm run build
+          cd ..
 
       - name: Setup Rust Toolchain
         uses: dtolnay/rust-toolchain@stable
@@ -63,28 +77,34 @@ jobs:
         if: matrix.os == 'windows-latest'
         shell: pwsh
         run: |
-          New-Item -ItemType Directory -Path staging/models -Force
+          New-Item -ItemType Directory -Path staging/web/build -Force
           Copy-Item target/${{ matrix.target }}/release/xianscan-rust.exe staging/
-          if (Test-Path models) { Copy-Item models/* staging/models/ -Recurse -Force }
+          if (Test-Path models) { Copy-Item models staging/ -Recurse -Force }
+          if (Test-Path web/build) { Copy-Item web/build/* staging/web/build/ -Recurse -Force }
+          Copy-Item web/package.json staging/web/ -ErrorAction SilentlyContinue
           Copy-Item README.md staging/ -ErrorAction SilentlyContinue
-          Copy-Item start.bat staging/ -ErrorAction SilentlyContinue
+          Copy-Item LICENSE staging/ -ErrorAction SilentlyContinue
           Compress-Archive -Path staging/* -DestinationPath ${{ matrix.release_asset }}
 
       # Packaging Linux & macOS Archives
       - name: Package Unix Binary
         if: matrix.os != 'windows-latest'
         run: |
-          mkdir -p staging/models
+          mkdir -p staging/web/build
           cp target/${{ matrix.target }}/release/xianscan-rust staging/
-          if [ -d models ]; then cp -r models/* staging/models/ 2>/dev/null || true; fi
+          if [ -d models ]; then cp -r models staging/ 2>/dev/null || true; fi
+          if [ -d web/build ]; then cp -r web/build/* staging/web/build/ 2>/dev/null || true; fi
+          cp web/package.json staging/web/ 2>/dev/null || true
           cp README.md staging/ 2>/dev/null || true
-          cp start.sh staging/ 2>/dev/null || true
-          chmod +x staging/xianscan-rust staging/start.sh 2>/dev/null || true
+          cp LICENSE staging/ 2>/dev/null || true
+          chmod +x staging/xianscan-rust
           tar -czf ${{ matrix.release_asset }} -C staging .
 
       - name: Upload Artifact to GitHub Release
         uses: softprops/action-gh-release@v2
-        if: startsWith(github.ref, 'refs/tags/')
+        if: startsWith(github.ref, 'refs/tags/') || github.event_name == 'workflow_dispatch'
         with:
+          tag_name: ${{ github.event.inputs.tag_name || github.ref_name }}
           files: ${{ matrix.release_asset }}
           generate_release_notes: true
+
