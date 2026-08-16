@@ -59,8 +59,8 @@ jobs:
       - name: Build SvelteKit Frontend + Native Addons
         working-directory: web
         run: |
-          npm install
-          npm run build
+          yarn install
+          yarn build
 
       - name: Download AI Model Weights for Embedded Binary
         shell: bash
