@@ -1,0 +1,4 @@
+// THE SVELTEKIT VIRTUAL MODULE $env/dynamic/private IS A LITERAL {} UNDER VITEST. THIS ALIAS MAKES IT A
+// LIVE process.env DOUBLE SO vi.stubEnv() + vi.resetModules() + DYNAMIC IMPORT CAN CONTROL IMPORT-TIME
+// CONSTANTS (THE PATTERN USED BY env-DEPENDENT MODULE TESTS).
+export const env = process.env;

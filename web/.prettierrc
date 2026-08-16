@@ -1,0 +1,12 @@
+{
+	"tabWidth": 4,
+	"useTabs": true,
+	"singleQuote": true,
+	"trailingComma": "all",
+	"printWidth": 120,
+	"arrowParens": "always",
+	"plugins": ["prettier-plugin-svelte", "prettier-plugin-tailwindcss"],
+	"overrides": [{ "files": "*.svelte", "options": { "parser": "svelte" } }],
+	"tailwindAttributes": ["classes"],
+	"tailwindFunctions": ["cn", "tv", "clsx", "cva"]
+}

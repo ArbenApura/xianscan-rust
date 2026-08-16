@@ -1,0 +1,114 @@
+@import './lib/fonts.css';
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* GLOBAL RESET-ISH BASE — KEEP MINIMAL, TAILWIND HANDLES THE REST */
+@layer base {
+	html {
+		-webkit-text-size-adjust: 100%;
+		font-family: var(--app-font-family, 'CC Wild Words', 'WildWorld', 'Inter', system-ui, sans-serif);
+		font-weight: 600;
+		-webkit-font-smoothing: antialiased;
+		-moz-osx-font-smoothing: grayscale;
+	}
+	body {
+		@apply bg-white text-slate-900 antialiased;
+		font-family: var(--app-font-family, 'CC Wild Words', 'WildWorld', 'Inter', system-ui, sans-serif);
+		font-weight: 600;
+		font-synthesis: weight;
+	}
+	button, input, optgroup, select, textarea {
+		font-family: inherit;
+		font-weight: inherit;
+	}
+
+	/* Elevate minimum font weight so WildWorld text remains robust and legible */
+	.font-thin,
+	.font-extralight,
+	.font-light,
+	.font-normal {
+		font-weight: 550;
+	}
+
+
+	/* THEMED SCROLLBARS — TRANSLUCENT THUMBS BLEND OVER WHATEVER THEME BACKGROUND IS ACTIVE
+	   (LIGHT/SEPIA → DARK THUMB, DARK → LIGHT THUMB), SO THEY MATCH EVERY THEME. */
+	:root {
+		--sb-thumb: rgba(0, 0, 0, 0.38);
+		--sb-thumb-hover: rgba(0, 0, 0, 0.55);
+		--sb-track: rgba(0, 0, 0, 0.07);
+	}
+	:root.dark {
+		--sb-thumb: rgba(255, 255, 255, 0.3);
+		--sb-thumb-hover: rgba(255, 255, 255, 0.48);
+		--sb-track: rgba(255, 255, 255, 0.07);
+	}
+	/* FIREFOX */
+	* {
+		scrollbar-width: thin;
+		scrollbar-color: var(--sb-thumb) var(--sb-track);
+	}
+	/* WEBKIT / CHROMIUM */
+	::-webkit-scrollbar {
+		width: 12px;
+		height: 12px;
+	}
+	::-webkit-scrollbar-track,
+	::-webkit-scrollbar-corner {
+		background: var(--sb-track);
+	}
+	::-webkit-scrollbar-thumb {
+		background-color: var(--sb-thumb);
+		border: 2px solid transparent;
+		border-radius: 9999px;
+		background-clip: padding-box;
+	}
+	::-webkit-scrollbar-thumb:hover {
+		background-color: var(--sb-thumb-hover);
+	}
+
+	/* HIDE SCROLLBARS ONLY WHERE EXPLICITLY OPTED IN VIA .no-scrollbar */
+	.no-scrollbar::-webkit-scrollbar {
+		display: none;
+	}
+	.no-scrollbar {
+		-ms-overflow-style: none;
+		scrollbar-width: none;
+	}
+
+	/* MOBILE TOUCH POLISH — KILL THE GREY TAP FLASH AND THE 300ms CLICK DELAY ON INTERACTIVE ELEMENTS */
+	button,
+	a,
+	[role='button'],
+	input,
+	select,
+	textarea,
+	label {
+		-webkit-tap-highlight-color: transparent;
+	}
+	button,
+	a,
+	[role='button'] {
+		touch-action: manipulation;
+	}
+}
+
+/* SAFE-AREA HELPERS FOR NOTCHED / HOME-INDICATOR PHONES (viewport-fit=cover IS SET IN app.html) */
+@layer utilities {
+	.pb-safe {
+		padding-bottom: env(safe-area-inset-bottom);
+	}
+	.pt-safe {
+		padding-top: env(safe-area-inset-top);
+	}
+	/* A FIXED BOTTOM BAR: ITS OWN PADDING PLUS THE HOME-INDICATOR INSET */
+	.bottom-bar-safe {
+		padding-bottom: calc(0.5rem + env(safe-area-inset-bottom));
+	}
+	/* RESERVE SPACE SO CONTENT ISN'T HIDDEN BEHIND A ~3.5rem FIXED BOTTOM BAR + THE INSET */
+	.pb-bottombar {
+		padding-bottom: calc(4rem + env(safe-area-inset-bottom));
+	}
+}

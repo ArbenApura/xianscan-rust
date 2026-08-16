@@ -1,0 +1,108 @@
+@import url('https://api.fontshare.com/v2/css?f[]=clash-grotesk@200,300,400,500,600,700&f[]=general-sans@200,300,400,500,600,700&display=swap');
+@import '@fontsource/poppins/400.css';
+@import '@fontsource/poppins/600.css';
+@import '@fontsource/poppins/700.css';
+@import '@fontsource/nunito-sans/400.css';
+@import '@fontsource/nunito-sans/600.css';
+@import '@fontsource/nunito-sans/700.css';
+@import '@fontsource/montserrat/400.css';
+@import '@fontsource/montserrat/600.css';
+@import '@fontsource/montserrat/700.css';
+@import '@fontsource/lexend/400.css';
+@import '@fontsource/lexend/600.css';
+@import '@fontsource/lexend/700.css';
+
+/* SELF-HOSTED UI FONTS — SUBSET DIET, WOFF2-ONLY */
+@font-face {
+	font-family: 'Inter';
+	font-style: normal;
+	font-display: swap;
+	font-weight: 400;
+	src: url('@fontsource/inter/files/inter-latin-400-normal.woff2') format('woff2');
+}
+@font-face {
+	font-family: 'Inter';
+	font-style: normal;
+	font-display: swap;
+	font-weight: 400;
+	src: url('@fontsource/inter/files/inter-latin-ext-400-normal.woff2') format('woff2');
+	unicode-range: U+0100-024F, U+0259, U+1E00-1EFF, U+2020, U+20A0-20AB, U+20AD-20CF, U+2113, U+2C60-2C7F, U+A720-A7FF;
+}
+@font-face {
+	font-family: 'Inter';
+	font-style: normal;
+	font-display: swap;
+	font-weight: 600;
+	src: url('@fontsource/inter/files/inter-latin-600-normal.woff2') format('woff2');
+}
+@font-face {
+	font-family: 'Inter';
+	font-style: normal;
+	font-display: swap;
+	font-weight: 600;
+	src: url('@fontsource/inter/files/inter-latin-ext-600-normal.woff2') format('woff2');
+	unicode-range: U+0100-024F, U+0259, U+1E00-1EFF, U+2020, U+20A0-20AB, U+20AD-20CF, U+2113, U+2C60-2C7F, U+A720-A7FF;
+}
+@font-face {
+	font-family: 'Lora';
+	font-style: normal;
+	font-display: swap;
+	font-weight: 400;
+	src: url('@fontsource/lora/files/lora-latin-400-normal.woff2') format('woff2');
+}
+@font-face {
+	font-family: 'Lora';
+	font-style: normal;
+	font-display: swap;
+	font-weight: 600;
+	src: url('@fontsource/lora/files/lora-latin-600-normal.woff2') format('woff2');
+}
+
+@font-face {
+	font-family: 'CC Wild Words';
+	font-style: normal;
+	font-display: swap;
+	font-weight: 100 900;
+	src: url('/fonts/CCWildWords-Roman.ttf') format('truetype');
+}
+
+@font-face {
+	font-family: 'CC Wild Words';
+	font-style: italic;
+	font-display: swap;
+	font-weight: 100 900;
+	src: url('/fonts/CCWildWords-Roman.ttf') format('truetype');
+}
+
+@font-face {
+	font-family: 'WildWorld';
+	font-style: normal;
+	font-display: swap;
+	font-weight: 100 900;
+	src: url('/fonts/CCWildWords-Roman.ttf') format('truetype');
+}
+
+@font-face {
+	font-family: 'WildWorld';
+	font-style: italic;
+	font-display: swap;
+	font-weight: 100 900;
+	src: url('/fonts/CCWildWords-Roman.ttf') format('truetype');
+}
+
+@font-face {
+	font-family: 'Friendly Sans';
+	font-style: normal;
+	font-display: swap;
+	font-weight: 400 700;
+	src: url('/fonts/FriendlySans-Regular.ttf') format('truetype');
+}
+
+@font-face {
+	font-family: 'Friendly Sans';
+	font-style: italic;
+	font-display: swap;
+	font-weight: 400 700;
+	src: url('/fonts/FriendlySans-Italic.ttf') format('truetype');
+}
+

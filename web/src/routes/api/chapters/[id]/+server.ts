@@ -1,0 +1,60 @@
+// CHAPTER DETAIL — PAGES (WITH THEIR REGIONS) FOR THE RESULTS VIEW & EDIT / DELETE.
+// IMPORTED DEP-MODULES
+import { error, json } from '@sveltejs/kit';
+import { eq, inArray } from 'drizzle-orm';
+import { z } from 'zod';
+// IMPORTED MODULES
+import { assertChapterExists, getChapterReaderData } from '$lib/server/chapters';
+import { db } from '$lib/server/db';
+import { chapters } from '$lib/server/db/schema';
+import type { RequestHandler } from './$types';
+
+const PatchChapterBody = z.object({
+	title: z.string().max(200).optional(),
+	titleTarget: z.string().max(200).nullable().optional(),
+	seq: z.number().int().min(0).optional(),
+});
+
+export const GET: RequestHandler = async ({ params }) => {
+	const chapterId = Number(params.id);
+	if (!Number.isInteger(chapterId)) throw error(400, 'Invalid chapter id.');
+	const data = await getChapterReaderData(chapterId);
+	return json(data);
+};
+
+export const PATCH: RequestHandler = async ({ params, request }) => {
+	const chapterId = Number(params.id);
+	if (!Number.isInteger(chapterId)) throw error(400, 'Invalid chapter id.');
+	await assertChapterExists(chapterId);
+
+	const parsed = PatchChapterBody.safeParse(await request.json().catch(() => null));
+	if (!parsed.success) throw error(400, 'Invalid update data.');
+
+	const updates: Record<string, unknown> = {};
+	if (parsed.data.title !== undefined) updates.title = parsed.data.title.trim();
+	if (parsed.data.titleTarget !== undefined) updates.titleTarget = parsed.data.titleTarget ? parsed.data.titleTarget.trim() : null;
+	if (parsed.data.seq !== undefined) updates.seq = parsed.data.seq;
+
+	if (Object.keys(updates).length > 0) {
+		db.update(chapters).set(updates).where(eq(chapters.id, chapterId)).run();
+	}
+
+	const updated = db.select().from(chapters).where(eq(chapters.id, chapterId)).get();
+	return json({ chapter: updated });
+};
+
+export const DELETE: RequestHandler = async ({ params }) => {
+	const chapterId = Number(params.id);
+	if (!Number.isInteger(chapterId)) throw error(400, 'Invalid chapter id.');
+	await assertChapterExists(chapterId);
+	db.delete(chapters).where(eq(chapters.id, chapterId)).run();
+	return json({ ok: true });
+};
+
+function safeJson(raw: string): unknown {
+	try {
+		return JSON.parse(raw);
+	} catch {
+		return null;
+	}
+}

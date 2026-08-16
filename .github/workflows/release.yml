@@ -1,0 +1,90 @@
+name: Release Multi-Platform Executables
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      tag_name:
+        description: 'Release Tag Name (e.g. v1.0.0)'
+        required: true
+        default: 'v0.1.0'
+
+permissions:
+  contents: write
+
+jobs:
+  build-release:
+    name: Build ${{ matrix.target }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # Windows x86_64
+          - os: windows-latest
+            target: x86_64-pc-windows-msvc
+            artifact_name: xianscan-rust.exe
+            release_asset: xianscan-v0.1.0-windows-x86_64.zip
+
+          # Linux x86_64 (Ubuntu / Debian / Fedora)
+          - os: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+            artifact_name: xianscan-rust
+            release_asset: xianscan-v0.1.0-linux-x86_64.tar.gz
+
+          # macOS Apple Silicon (M1 / M2 / M3 / M4)
+          - os: macos-latest
+            target: aarch64-apple-darwin
+            artifact_name: xianscan-rust
+            release_asset: xianscan-v0.1.0-macos-arm64.tar.gz
+
+          # macOS Intel (x86_64)
+          - os: macos-13
+            target: x86_64-apple-darwin
+            artifact_name: xianscan-rust
+            release_asset: xianscan-v0.1.0-macos-x86_64.tar.gz
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Setup Rust Toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - name: Build Optimized Release Binary
+        run: cargo build --release --target ${{ matrix.target }}
+
+      # Packaging Windows Archive
+      - name: Package Windows Binary
+        if: matrix.os == 'windows-latest'
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Path staging/models -Force
+          Copy-Item target/${{ matrix.target }}/release/xianscan-rust.exe staging/
+          if (Test-Path models) { Copy-Item models/* staging/models/ -Recurse -Force }
+          Copy-Item README.md staging/ -ErrorAction SilentlyContinue
+          Copy-Item start.bat staging/ -ErrorAction SilentlyContinue
+          Compress-Archive -Path staging/* -DestinationPath ${{ matrix.release_asset }}
+
+      # Packaging Linux & macOS Archives
+      - name: Package Unix Binary
+        if: matrix.os != 'windows-latest'
+        run: |
+          mkdir -p staging/models
+          cp target/${{ matrix.target }}/release/xianscan-rust staging/
+          if [ -d models ]; then cp -r models/* staging/models/ 2>/dev/null || true; fi
+          cp README.md staging/ 2>/dev/null || true
+          cp start.sh staging/ 2>/dev/null || true
+          chmod +x staging/xianscan-rust staging/start.sh 2>/dev/null || true
+          tar -czf ${{ matrix.release_asset }} -C staging .
+
+      - name: Upload Artifact to GitHub Release
+        uses: softprops/action-gh-release@v2
+        if: startsWith(github.ref, 'refs/tags/')
+        with:
+          files: ${{ matrix.release_asset }}
+          generate_release_notes: true
