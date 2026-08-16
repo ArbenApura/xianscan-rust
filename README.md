@@ -67,19 +67,24 @@ Unified Native Server (xianscan-rust.exe)
 
 ---
 
-## ⚡ Quick Start (1-Click)
+## ⚡ Quick Start
 
 ### 🪟 Windows
-Simply double-click `start.bat`:
-```cmd
-start.bat
+Run the standalone executable or launch via Cargo:
+```powershell
+.\target\release\xianscan-rust.exe
+# Or build & run directly:
+cargo run --release --features embed-models
 ```
 
 ### 🐧 Linux / 🍏 macOS
 ```bash
-chmod +x start.sh
-./start.sh
+./target/release/xianscan-rust
+# Or build & run directly:
+cargo run --release --features embed-models
 ```
+
+Open **[http://localhost:8124](http://localhost:8124)** in your browser!
 
 ---
 
