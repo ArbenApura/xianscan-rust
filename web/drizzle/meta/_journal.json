@@ -1,0 +1,34 @@
+{
+  "version": "7",
+  "dialect": "sqlite",
+  "entries": [
+    {
+      "idx": 0,
+      "version": "6",
+      "when": 1786539841832,
+      "tag": "0000_wandering_human_cannonball",
+      "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "6",
+      "when": 1786542882637,
+      "tag": "0001_regions_polygon",
+      "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "6",
+      "when": 1786621381513,
+      "tag": "0002_ambitious_lady_deathstrike",
+      "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "6",
+      "when": 1786835032088,
+      "tag": "0003_tough_stark_industries",
+      "breakpoints": true
+    }
+  ]
+}

@@ -1,0 +1,5 @@
+# PRETTIER ALREADY HONOURS .gitignore. KEEP THIS FILE FOR ANYTHING COMMITTED BUT NOT REFORMATTED.
+build/
+.svelte-kit/
+package/
+drizzle/

@@ -1,0 +1,15 @@
+{
+	"extends": "./tsconfig.json",
+	// CI TYPE-CHECKS THE TEST SUITE TOO — THE APP TSCONFIG DELIBERATELY EXCLUDES tests/ (THEY ARE NOT
+	// PART OF THE APP BUILD), SO THIS OVERRIDES THE INCLUDE WITHOUT TOUCHING THE APP'S OWN EXCLUDE LIST.
+	// THE GENERATED .svelte-kit/ambient.d.ts MUST STAY INCLUDED (IT DECLARES THE $env/$app MODULES).
+	"include": [
+		".svelte-kit/ambient.d.ts",
+		".svelte-kit/env.d.ts",
+		".svelte-kit/non-ambient.d.ts",
+		"src/**/*.ts",
+		"tests/**/*.ts",
+		"vitest.config.ts"
+	],
+	"exclude": ["node_modules/"]
+}

@@ -1,0 +1,57 @@
+# ==============================================================================
+# RUST & CARGO BUILD ARTIFACTS
+# ==============================================================================
+/target/
+**/*.rs.bk
+*.pdb
+
+# ==============================================================================
+# WEB / NODE.JS / SVELTEKIT ARTIFACTS
+# ==============================================================================
+web/node_modules/
+web/build/
+web/.svelte-kit/
+web/package/
+web/coverage/
+web/vite.config.ts.timestamp-*
+
+# Web Environment Files
+web/.env
+web/.env.*
+!web/.env.example
+
+# ==============================================================================
+# RUNTIME USER DATA & DATABASE (PRESERVE DIRECTORY STRUCTURE)
+# ==============================================================================
+web/data/*.db
+web/data/*.db-shm
+web/data/*.db-wal
+web/data/uploads/*
+web/data/output/*
+web/data/clean/*
+web/data/cache/*
+!web/data/**/.gitkeep
+
+# ==============================================================================
+# LARGE AI MODEL WEIGHTS (>100MB BLOCKED BY GITHUB WITHOUT GIT LFS)
+# ==============================================================================
+models/*.onnx
+models/*.pt
+models/*.pth
+models/*.bin
+!models/.gitkeep
+!models/ppocr_keys_v1.txt
+!models/rapidocr_keys.json
+
+# ==============================================================================
+# LOGS, TEMPORARY & OS FILES
+# ==============================================================================
+*.log
+*.log.*
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.tmp
+staging/
+tests/.cache/

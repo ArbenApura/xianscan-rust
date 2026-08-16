@@ -1,0 +1,23 @@
+node_modules/
+/build
+/.svelte-kit
+/package
+
+.env
+.env.*
+!.env.example
+
+# LOCAL SQLITE DATABASE
+*.db
+*.db-shm
+*.db-wal
+*.bak-*
+*.recovered-*
+
+# DEV / TEST ARTIFACTS
+*.log
+*.log.err
+coverage
+
+# RUNTIME DATA (UPLOADS, PROCESSED PAGES)
+/data

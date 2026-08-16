@@ -1,0 +1,81 @@
+[package]
+name = "xianscan-rust"
+version = "0.1.0"
+edition = "2021"
+
+[features]
+default = []
+embed-models = []
+
+[dependencies]
+# Async Web & HTTP Server
+tokio = { version = "1.43", features = ["full"] }
+axum = { version = "0.8", features = ["multipart", "ws"] }
+tower = "0.5"
+tower-http = { version = "0.6", features = ["cors", "trace", "fs", "compression-full"] }
+
+# Serialization & JSON
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+regex = "1.11"
+sha2 = "0.10"
+hex = "0.4"
+
+# Computer Vision, Geometry & Math
+image = { version = "0.25", default-features = false, features = ["png", "jpeg", "webp"] }
+imageproc = "0.25"
+ndarray = { version = "0.16", features = ["std"] }
+geo = "0.29"
+zip = { version = "2.2", default-features = false, features = ["deflate"] }
+
+# ONNX Runtime ML Engine
+ort = { version = "2.0.0-rc.9", default-features = false, features = ["download-binaries", "copy-dylibs", "tls-rustls"] }
+num_cpus = "1.16"
+
+# SQLite Database
+rusqlite = { version = "0.32", features = ["bundled"] }
+r2d2 = "0.8"
+r2d2_sqlite = "0.25"
+
+# Embedded Assets
+rust-embed = "8.5"
+
+# Logging & Error Handling
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+anyhow = "1.0"
+thiserror = "2.0"
+
+# Windows DXGI Adapter Enumeration
+[target.'cfg(windows)'.dependencies]
+windows = { version = "0.58", features = ["Win32_Graphics_Dxgi"] }
+
+# HTTP Client for DeepSeek / AI APIs
+reqwest = { version = "0.12", features = ["json", "stream"] }
+
+[dev-dependencies]
+tempfile = "3.17"
+
+# DEV BUILD SPEED OPTIMIZATIONS:
+# 1. Keeps external heavy crates (ort, image, ndarray, axum) at opt-level 3 so ML runs at full release speed.
+# 2. Leaves your code in src/ at opt-level 0 for sub-second re-compilations.
+# 3. Reduces debug symbols from 2 to 1 (line tables only), cutting linking times by over 60%.
+[profile.dev]
+debug = 1
+
+[profile.dev.package."*"]
+opt-level = 3
+
+# PRODUCTION RELEASE PROFILE:
+# - opt-level 3: Maximum SIMD & compiler optimizations
+# - lto = "thin": Link-Time Optimization across crates for maximum inlining and throughput
+# - codegen-units = 1: Global code optimization
+# - strip = true: Strips all debug info, reducing binary size by ~50%
+# - panic = "abort": Removes unwinding tables for smaller binary and faster execution
+[profile.release]
+opt-level = 3
+lto = "thin"
+codegen-units = 1
+strip = true
+panic = "abort"
+

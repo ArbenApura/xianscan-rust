@@ -1,0 +1,1 @@
+ALTER TABLE `regions` ADD `polygon` text;

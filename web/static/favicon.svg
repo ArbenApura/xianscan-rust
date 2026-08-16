@@ -1,0 +1,28 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
+	<defs>
+		<linearGradient id="bg" x1="0%" y1="0%" x2="100%" y2="100%">
+			<stop offset="0%" stop-color="#c94435" />
+			<stop offset="100%" stop-color="#8c2317" />
+		</linearGradient>
+		<linearGradient id="accent" x1="0%" y1="0%" x2="100%" y2="100%">
+			<stop offset="0%" stop-color="#fef3c7" />
+			<stop offset="100%" stop-color="#fde68a" />
+		</linearGradient>
+	</defs>
+	<rect width="64" height="64" rx="16" fill="url(#bg)" />
+	<rect x="1" y="1" width="62" height="62" rx="15" fill="none" stroke="#ffffff" stroke-opacity="0.22" stroke-width="1.5" />
+	<!-- Book pages -->
+	<path d="M14 43.5C18.5 40.5 24 40.5 32 43.5C40 40.5 45.5 40.5 50 43.5V19.5C45.5 16.5 40 16.5 32 19.5C24 16.5 18.5 16.5 14 19.5Z" fill="#ffffff" fill-opacity="0.95" />
+	<path d="M32 19.5V43.5" stroke="#8c2317" stroke-width="2" stroke-linecap="round" />
+	<!-- Sparkle / Translation Star Accent -->
+	<path d="M44 10.5C44 13.5 46.5 16 49.5 16C46.5 16 44 18.5 44 21.5C44 18.5 41.5 16 38.5 16C41.5 16 44 13.5 44 10.5Z" fill="url(#accent)" />
+	<!-- Content Lines on Left Page -->
+	<line x1="18.5" y1="26" x2="27.5" y2="26" stroke="#8c2317" stroke-width="2" stroke-linecap="round" stroke-opacity="0.75" />
+	<line x1="18.5" y1="31" x2="27.5" y2="31" stroke="#8c2317" stroke-width="2" stroke-linecap="round" stroke-opacity="0.75" />
+	<line x1="18.5" y1="36" x2="24.5" y2="36" stroke="#8c2317" stroke-width="2" stroke-linecap="round" stroke-opacity="0.75" />
+	<!-- Content Lines on Right Page -->
+	<line x1="36.5" y1="28" x2="45.5" y2="28" stroke="#8c2317" stroke-width="2" stroke-linecap="round" stroke-opacity="0.75" />
+	<line x1="36.5" y1="33" x2="45.5" y2="33" stroke="#8c2317" stroke-width="2" stroke-linecap="round" stroke-opacity="0.75" />
+	<line x1="36.5" y1="38" x2="42.5" y2="38" stroke="#8c2317" stroke-width="2" stroke-linecap="round" stroke-opacity="0.75" />
+</svg>
+

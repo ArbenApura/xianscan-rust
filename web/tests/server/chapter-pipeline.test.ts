@@ -1,0 +1,617 @@
+// CHAPTER PIPELINE RUNNER TESTS — THE FULL PER-PAGE LOOP WITH FAKE SIDECAR + FAKE LLM + IN-MEMORY
+// SQLITE + A TEMP DATA ROOT. NO NETWORK, NO MODELS, NO API KEY.
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { createCanvas } from '@napi-rs/canvas';
+import type OpenAI from 'openai';
+import { eq } from 'drizzle-orm';
+import { getTestDb, resetDb, seedBook, seedChapter, seedPage, type TestDb } from '../helpers/db';
+import type { AnalyzeResult, PipelineClient } from '$lib/server/pipeline-client';
+import { chapterWork } from '$lib/server/chapter-pipeline';
+import { pages, regions, glossary } from '$lib/server/db/schema';
+
+vi.mock('$lib/server/db', async () => ({ db: (await import('../helpers/db')).getTestDb() }));
+
+// -- FAKES -- //
+
+const PAGE_PNG = (() => {
+	const c = createCanvas(200, 300);
+	const x = c.getContext('2d');
+	x.fillStyle = 'white';
+	x.fillRect(0, 0, 200, 300);
+	return c.toBuffer('image/png');
+})();
+
+class FakePipeline implements PipelineClient {
+	preprocessCalls = 0;
+	analyzeCalls = 0;
+	cleanCalls = 0;
+	failAnalyzeOn = new Set<number>(); // PAGE FILE PATHS THAT SHOULD FAIL ANALYZE
+
+	async preprocess(image: Buffer, _signal?: AbortSignal): Promise<Buffer> {
+		this.preprocessCalls++;
+		return image;
+	}
+
+	async analyze(_image: Buffer, _signal?: AbortSignal): Promise<AnalyzeResult> {
+		this.analyzeCalls++;
+		return {
+			width: 200,
+			height: 300,
+			backend: 'comic-ctd',
+			regions: [
+				{
+					id: 'r0',
+					box: { x: 20, y: 30, w: 100, h: 40 },
+					polygon: [
+						[20, 30],
+						[120, 30],
+						[120, 70],
+						[20, 70],
+					],
+					text: '你好',
+					confidence: 0.95,
+					vertical: false,
+				},
+			],
+		};
+	}
+
+	async clean(image: Buffer, _regions: unknown[], _signal?: AbortSignal): Promise<Buffer> {
+		this.cleanCalls++;
+		return image;
+	}
+
+	async health() {
+		return { status: 'ok', detector: 'comic-ctd', inpainter: 'opencv' };
+	}
+}
+
+function fakeLlm(translations: Record<string, string> = { r0: 'Hello' }) {
+	const client = {
+		chat: {
+			completions: {
+				create: async () => ({
+					choices: [{ message: { content: JSON.stringify(translations) } }],
+					usage: { prompt_tokens: 50, completion_tokens: 10, total_tokens: 60 },
+				}),
+			},
+		},
+	} as unknown as OpenAI;
+	return client;
+}
+
+// -- STATES -- //
+
+let db: TestDb;
+let dataRoot: string;
+let pipeline: FakePipeline;
+
+// -- LIFECYCLES -- //
+
+beforeEach(() => {
+	db = getTestDb();
+	resetDb();
+	dataRoot = mkdtempSync(join(tmpdir(), 'mt-pipeline-'));
+	pipeline = new FakePipeline();
+});
+
+afterEach(() => {
+	rmSync(dataRoot, { recursive: true, force: true });
+});
+
+// -- HELPERS -- //
+
+function seedChapterWithPage(fileName: string) {
+	seedBook(db, { id: 'b1' });
+	const chapter = seedChapter(db, { bookId: 'b1', seq: 0 });
+	const page = seedPage(db, { chapterId: chapter.id, seq: 0, filePath: `uploads/${fileName}` });
+	mkdirSync(join(dataRoot, 'uploads'), { recursive: true });
+	writeFileSync(join(dataRoot, 'uploads', fileName), PAGE_PNG);
+	return { chapter, page };
+}
+
+async function run(chapterId: number, llm: OpenAI) {
+	const events: string[] = [];
+	await chapterWork(chapterId, { pipeline, dataRoot, llm })(new AbortController().signal, (e) =>
+		events.push(e.type),
+	);
+	return events;
+}
+
+// -- TESTS -- //
+
+describe('runChapterPipeline', () => {
+	it('analyzes, translates, cleans, typesets and marks the page done', async () => {
+		const { chapter, page } = seedChapterWithPage('c1-p0.png');
+		await run(chapter.id, fakeLlm());
+
+		const got = db.select().from(pages).where(eq(pages.id, page.id)).get();
+		expect(got?.status).toBe('done');
+		expect(got?.cleanedPath).toBe(`clean/${chapter.id}/0.png`);
+		expect(got?.outputPath).toBe(`output/${chapter.id}/0.png`);
+		expect(got?.width).toBe(200);
+
+		// ARTIFACTS EXIST ON DISK
+		expect(readFileSync(join(dataRoot, got!.cleanedPath!)).length).toBeGreaterThan(0);
+		expect(readFileSync(join(dataRoot, got!.outputPath!)).length).toBeGreaterThan(0);
+
+		// THE REGION ROW HAS OCR TEXT + TRANSLATION
+		const region = db.select().from(regions).where(eq(regions.pageId, page.id)).get();
+		expect(region?.textSource).toBe('你好');
+		expect(region?.textTarget).toBe('Hello');
+		expect(region?.status).toBe('translated');
+		expect(JSON.parse(region!.polygon!)).toHaveLength(4);
+
+		expect(pipeline.analyzeCalls).toBe(1);
+		expect(pipeline.cleanCalls).toBe(1);
+	});
+
+	it('re-translates freshly when page is reset to pending (direct translation without caching)', async () => {
+		const { chapter, page } = seedChapterWithPage('c1-p0.png');
+		const llm = fakeLlm();
+		await run(chapter.id, llm);
+		// SEND THE PAGE BACK TO 'pending' SO THE SECOND RUN RE-ENTERS THE PIPELINE FRESHLY
+		db.update(pages).set({ status: 'pending' }).where(eq(pages.id, page.id)).run();
+		await run(chapter.id, llm);
+
+		const regions2 = db.select().from(regions).all();
+		expect(regions2).toHaveLength(1); // REGIONS WERE REPLACED, NOT DUPLICATED
+		expect(regions2[0].textTarget).toBe('Hello');
+		expect(pipeline.analyzeCalls).toBe(2);
+	});
+
+	it('skips already-translated pages on re-run (resume without redundant work)', async () => {
+		seedBook(db, { id: 'b1' });
+		const chapter = seedChapter(db, { bookId: 'b1', seq: 0 });
+		const p0 = seedPage(db, { chapterId: chapter.id, seq: 0, filePath: 'uploads/done.png' });
+		const p1 = seedPage(db, { chapterId: chapter.id, seq: 1, filePath: 'uploads/new.png' });
+		mkdirSync(join(dataRoot, 'uploads'), { recursive: true });
+		writeFileSync(join(dataRoot, 'uploads', 'done.png'), PAGE_PNG);
+		writeFileSync(join(dataRoot, 'uploads', 'new.png'), PAGE_PNG);
+
+		await chapterWork(chapter.id, { pipeline, dataRoot, llm: fakeLlm() })(new AbortController().signal, () => {});
+		expect(db.select().from(pages).where(eq(pages.id, p0.id)).get()?.status).toBe('done');
+
+		// PAGE 1 GOES BACK TO 'pending' (e.g. CLEARED) — PAGE 0 STAYS 'done'
+		db.update(pages).set({ status: 'pending' }).where(eq(pages.id, p1.id)).run();
+		const callsBefore = pipeline.analyzeCalls;
+
+		const events: string[] = [];
+		await chapterWork(chapter.id, { pipeline, dataRoot, llm: fakeLlm() })(new AbortController().signal, (e) =>
+			events.push(e.type),
+		);
+
+		// ONLY PAGE 1 WAS RE-ANALYZED — PAGE 0 WAS SKIPPED AND KEPT ITS OUTPUT
+		expect(pipeline.analyzeCalls - callsBefore).toBe(1);
+		// BOTH PAGES REPORT DONE (THE SKIPPED PAGE EMITS ITS page-done UP FRONT, IN ORDER)
+		expect(events.filter((t) => t === 'page-done')).toEqual(['page-done', 'page-done']);
+		expect(events).toContain('start');
+		expect(events).toContain('page-step-start');
+		expect(events).toContain('page-step-end');
+		const got0 = db.select().from(pages).where(eq(pages.id, p0.id)).get();
+		const got1 = db.select().from(pages).where(eq(pages.id, p1.id)).get();
+		expect(got0?.status).toBe('done');
+		expect(got0?.outputPath).toBe(`output/${chapter.id}/0.png`); // UNTOUCHED
+		expect(got1?.status).toBe('done');
+	});
+
+	it('isolates per-page failures: one bad page, the rest finish', async () => {
+		seedBook(db, { id: 'b1' });
+		const chapter = seedChapter(db, { bookId: 'b1', seq: 0 });
+		const _good = seedPage(db, { chapterId: chapter.id, seq: 0, filePath: 'uploads/good.png' });
+		const _bad = seedPage(db, { chapterId: chapter.id, seq: 1, filePath: 'uploads/bad.png' });
+		mkdirSync(join(dataRoot, 'uploads'), { recursive: true });
+		writeFileSync(join(dataRoot, 'uploads', 'good.png'), PAGE_PNG);
+		// THE BAD PAGE MUST DIFFER BYTE-WISE SO THE FAILURE INJECTION CAN DISTINGUISH THEM
+		const badPng = (() => {
+			const c = createCanvas(200, 300);
+			const x = c.getContext('2d');
+			x.fillStyle = 'gray';
+			x.fillRect(0, 0, 200, 300);
+			return c.toBuffer('image/png');
+		})();
+		writeFileSync(join(dataRoot, 'uploads', 'bad.png'), badPng);
+
+		const failing = new FakePipeline();
+		const badBytes = readFileSync(join(dataRoot, 'uploads', 'bad.png'));
+		const originalAnalyze = failing.analyze.bind(failing);
+		failing.analyze = async (image, signal) => {
+			if (image.equals(badBytes)) {
+				throw new Error('sidecar exploded');
+			}
+			return originalAnalyze(image, signal);
+		};
+
+		const events: any[] = [];
+		await chapterWork(chapter.id, { pipeline: failing, dataRoot, llm: fakeLlm() })(
+			new AbortController().signal,
+			(e) => events.push(e),
+		);
+
+		const pages2 = db
+			.select()
+			.from(pages)
+			.where(eq(pages.chapterId, chapter.id))
+			.orderBy(pages.seq)
+			.all();
+		expect(pages2[0].status).toBe('done');
+		expect(pages2[1].status).toBe('error');
+		expect(pages2[1].error).toContain('sidecar exploded');
+		expect(events.filter((t) => t.type === 'error').length).toBe(1);
+		expect(events.filter((t) => t.type === 'page-done').length).toBe(1);
+		const errorEvent = events.find((t) => t.type === 'error');
+		expect(errorEvent.failedStep).toBe('analyze');
+	});
+
+	it('aborts between pages when the signal fires', async () => {
+		seedBook(db, { id: 'b1' });
+		const chapter = seedChapter(db, { bookId: 'b1', seq: 0 });
+		const p1 = seedPage(db, { chapterId: chapter.id, seq: 0, filePath: 'uploads/p1.png' });
+		const p2 = seedPage(db, { chapterId: chapter.id, seq: 1, filePath: 'uploads/p2.png' });
+		mkdirSync(join(dataRoot, 'uploads'), { recursive: true });
+		writeFileSync(join(dataRoot, 'uploads', 'p1.png'), PAGE_PNG);
+		writeFileSync(join(dataRoot, 'uploads', 'p2.png'), PAGE_PNG);
+
+		const controller = new AbortController();
+		// ABORT DURING THE FIRST PAGE'S ANALYZE — THE JOB MUST STOP AT THE PHASE BOUNDARY
+		const slowPipeline = new FakePipeline();
+		const original = slowPipeline.analyze.bind(slowPipeline);
+		slowPipeline.analyze = async (image, signal) => {
+			const r = await original(image, signal);
+			controller.abort();
+			return r;
+		};
+
+		// AN ABORT STOPS THE JOB — THE WORK FUNCTION RETHROWS THE AbortError (SUPERSEDE TAKES OVER).
+		// pageConcurrency: 1 KEEPS THE ORDERING DETERMINISTIC.
+		await expect(
+			chapterWork(chapter.id, { pipeline: slowPipeline, dataRoot, llm: fakeLlm(), pageConcurrency: 1 })(
+				controller.signal,
+				() => {},
+			),
+		).rejects.toMatchObject({ name: 'AbortError' });
+
+		const p1row = db.select().from(pages).where(eq(pages.id, p1.id)).get();
+		const skipped = db.select().from(pages).where(eq(pages.id, p2.id)).get();
+		expect(p1row?.status).toBe('processing'); // PHASE 1 FINISHED; PHASE 3 NEVER STARTED
+		expect(p1row?.status).not.toBe('error'); // AN ABORT NEVER MARKS PAGES AS ERRORS
+		expect(skipped?.status).toBe('pending'); // NEVER STARTED
+	});
+
+	it('resets pages stuck in processing (crash resume) before running', async () => {
+		seedBook(db, { id: 'b1' });
+		const chapter = seedChapter(db, { bookId: 'b1', seq: 0 });
+		const page = seedPage(db, { chapterId: chapter.id, seq: 0, filePath: 'uploads/stuck.png' });
+		mkdirSync(join(dataRoot, 'uploads'), { recursive: true });
+		writeFileSync(join(dataRoot, 'uploads', 'stuck.png'), PAGE_PNG);
+		// SIMULATE A CRASH MID-JOB: THE PAGE IS STUCK IN 'processing'
+		db.update(pages).set({ status: 'processing' }).where(eq(pages.id, page.id)).run();
+
+		await run(chapter.id, fakeLlm());
+
+		const got = db.select().from(pages).where(eq(pages.id, page.id)).get();
+		expect(got?.status).toBe('done'); // THE RESET LET THE RE-RUN COMPLETE IT
+	});
+
+	it('translations update only their own region (seq keyed correctly)', async () => {
+		const { chapter, page } = seedChapterWithPage('c1-p0.png');
+		// A TWO-REGION PAGE
+		const multi = new FakePipeline();
+		multi.analyze = async () => ({
+			width: 200,
+			height: 300,
+			backend: 'comic-ctd',
+			regions: [
+				{ id: 'r0', box: { x: 0, y: 0, w: 50, h: 20 }, polygon: [[0, 0]], text: '甲', confidence: 0.9, vertical: false },
+				{ id: 'r1', box: { x: 0, y: 100, w: 50, h: 20 }, polygon: [[0, 100]], text: '轰', confidence: 0.9, vertical: false },
+			],
+		});
+		await chapterWork(chapter.id, { pipeline: multi, dataRoot, llm: fakeLlm({ r0: 'A', r1: 'BOOM' }) })(
+			new AbortController().signal,
+			() => {},
+		);
+
+		const rows = db.select().from(regions).where(eq(regions.pageId, page.id)).orderBy(regions.seq).all();
+		expect(rows).toHaveLength(2);
+		expect(rows[0].textTarget).toBe('A');
+		expect(rows[1].textTarget).toBe('BOOM');
+	});
+
+	it('ignores watermarks and preserves them untouched without inpainting or translation', async () => {
+		const { chapter, page } = seedChapterWithPage('c1-p0.png');
+		let cleanedRegionsPassed: unknown[] = [];
+		const wmPipeline = new FakePipeline();
+		wmPipeline.analyze = async () => ({
+			width: 200,
+			height: 300,
+			backend: 'comic-ctd',
+			regions: [
+				{ id: 'r0', box: { x: 10, y: 10, w: 50, h: 20 }, polygon: [[10, 10]], text: '你好', confidence: 0.9, vertical: false },
+				{ id: 'r1', box: { x: 100, y: 10, w: 90, h: 20 }, polygon: [[100, 10]], text: 'www.baozimh.com', confidence: 0.9, vertical: false },
+			],
+		});
+		wmPipeline.clean = async (_image: Buffer, regionsPassed: unknown[]) => {
+			cleanedRegionsPassed = regionsPassed;
+			return PAGE_PNG;
+		};
+
+		const llmReceivedSources: string[] = [];
+		const customLlm = {
+			chat: {
+				completions: {
+					create: async (params: { messages: { content: string }[] }) => {
+						llmReceivedSources.push(params.messages[1]?.content || '');
+						return {
+							choices: [{ message: { content: JSON.stringify({ r0: 'Hello', r1: '' }) } }],
+							usage: { prompt_tokens: 20, completion_tokens: 5, total_tokens: 25 },
+						};
+					},
+				},
+			},
+		} as unknown as OpenAI;
+
+		await chapterWork(chapter.id, { pipeline: wmPipeline, dataRoot, llm: customLlm })(
+			new AbortController().signal,
+			() => {},
+		);
+
+		// CLEAN ONLY RECEIVES REGIONS WITH VALID TRANSLATIONS (1 TOTAL — WATERMARK r1 IS LEFT UNTOUCHED)
+		expect(cleanedRegionsPassed).toHaveLength(1);
+
+		const rows = db.select().from(regions).where(eq(regions.pageId, page.id)).orderBy(regions.seq).all();
+		expect(rows).toHaveLength(2);
+		expect(rows[0].textTarget).toBe('Hello');
+		expect(rows[1].textTarget).toBeNull(); // WATERMARK HAS NO TRANSLATED TARGET
+	});
+
+	it('records translation usage on each re-run of a pending page', async () => {
+		const { chapter, page } = seedChapterWithPage('c1-p0.png');
+		const llm = fakeLlm();
+		const usages: unknown[] = [];
+		const deps = { pipeline, dataRoot, llm, onUsage: (u: unknown) => usages.push(u) };
+		await chapterWork(chapter.id, deps)(new AbortController().signal, () => {});
+		// SEND THE PAGE BACK TO 'pending' SO THE SECOND RUN TRANSLATES FRESHLY
+		db.update(pages).set({ status: 'pending' }).where(eq(pages.id, page.id)).run();
+		await chapterWork(chapter.id, deps)(new AbortController().signal, () => {});
+		// RUN 1: CHAPTER EXTRACTION (1) + TRANSLATION (1). RUN 2: EXTRACTION (1) + TRANSLATION (1) -> 4 USAGES.
+		expect(usages.length).toBe(4);
+	});
+
+	it('skips pages entirely on re-run when everything is done (no extraction call either)', async () => {
+		const { chapter } = seedChapterWithPage('c1-p0.png');
+		const llm = fakeLlm();
+		const usages: unknown[] = [];
+		const deps = { pipeline, dataRoot, llm, onUsage: (u: unknown) => usages.push(u) };
+		await chapterWork(chapter.id, deps)(new AbortController().signal, () => {});
+		await chapterWork(chapter.id, deps)(new AbortController().signal, () => {});
+		// RUN 1: EXTRACTION + TRANSLATION = 2. RUN 2: EVERYTHING SKIPPED — NO LLM CALLS AT ALL.
+		expect(usages.length).toBe(2);
+	});
+
+	it('processes pages concurrently within each phase', async () => {
+		seedBook(db, { id: 'b1' });
+		const chapter = seedChapter(db, { bookId: 'b1', seq: 0 });
+		mkdirSync(join(dataRoot, 'uploads'), { recursive: true });
+		for (let i = 0; i < 3; i++) {
+			seedPage(db, { chapterId: chapter.id, seq: i, filePath: `uploads/c${i}.png` });
+			writeFileSync(join(dataRoot, `uploads/c${i}.png`), PAGE_PNG);
+		}
+
+		// TRACK CONCURRENT ANALYZE CALLS — PARALLEL PHASE 1 MUST OVERLAP THEM
+		let inFlight = 0;
+		let maxInFlight = 0;
+		const concurrent = new FakePipeline();
+		const original = concurrent.analyze.bind(concurrent);
+		concurrent.analyze = async (image, signal) => {
+			inFlight++;
+			maxInFlight = Math.max(maxInFlight, inFlight);
+			await new Promise((r) => setTimeout(r, 10));
+			const result = await original(image, signal);
+			inFlight--;
+			return result;
+		};
+
+		const events: string[] = [];
+		await chapterWork(chapter.id, {
+			pipeline: concurrent,
+			dataRoot,
+			llm: fakeLlm(),
+			pageConcurrency: 3,
+		})(new AbortController().signal, (e) => events.push(e.type));
+
+		expect(maxInFlight).toBeGreaterThan(1); // ANALYZE CALLS OVERLAPPED
+		const rows = db
+			.select()
+			.from(pages)
+			.where(eq(pages.chapterId, chapter.id))
+			.orderBy(pages.seq)
+			.all();
+		expect(rows.every((r) => r.status === 'done')).toBe(true);
+		// EVENTS ARRIVE IN PAGE ORDER EVEN THOUGH PAGES FINISH OUT OF ORDER
+		expect(events.filter((t) => t === 'page-done')).toEqual(['page-done', 'page-done', 'page-done']);
+	});
+
+	it('emits high-resolution step telemetry events across all pipeline phases', async () => {
+		const { chapter } = seedChapterWithPage('c1-p0.png');
+		const telemetryEvents: any[] = [];
+		await chapterWork(chapter.id, { pipeline, dataRoot, llm: fakeLlm() })(
+			new AbortController().signal,
+			(e) => telemetryEvents.push(e),
+		);
+
+		const stepStartEvents = telemetryEvents.filter((e) => e.type === 'page-step-start');
+		const stepEndEvents = telemetryEvents.filter((e) => e.type === 'page-step-end');
+
+		expect(stepStartEvents.some((e) => e.step === 'analyze')).toBe(true);
+		expect(stepStartEvents.some((e) => e.step === 'translate')).toBe(true);
+		expect(stepStartEvents.some((e) => e.step === 'clean')).toBe(true);
+		expect(stepStartEvents.some((e) => e.step === 'typeset')).toBe(true);
+
+		const analyzeEnd = stepEndEvents.find((e) => e.step === 'analyze');
+		expect(analyzeEnd?.durationMs).toBeGreaterThanOrEqual(0);
+		expect(analyzeEnd?.stepDetails?.regionsCount).toBe(1);
+
+		const typesetEnd = stepEndEvents.find((e) => e.step === 'typeset');
+		expect(typesetEnd?.durationMs).toBeGreaterThanOrEqual(0);
+	});
+
+	it('only processes specified pageIds when provided', async () => {
+		seedBook(db, { id: 'b_target' });
+		const chapter = seedChapter(db, { bookId: 'b_target', seq: 0 });
+		const p1 = seedPage(db, { chapterId: chapter.id, seq: 0, filePath: 'uploads/p1.png' });
+		const p2 = seedPage(db, { chapterId: chapter.id, seq: 1, filePath: 'uploads/p2.png' });
+		mkdirSync(join(dataRoot, 'uploads'), { recursive: true });
+		writeFileSync(join(dataRoot, 'uploads', 'p1.png'), PAGE_PNG);
+		writeFileSync(join(dataRoot, 'uploads', 'p2.png'), PAGE_PNG);
+
+		const events: any[] = [];
+		// ONLY TARGET p2
+		await chapterWork(chapter.id, { pipeline, dataRoot, llm: fakeLlm() }, [p2.id])(
+			new AbortController().signal,
+			(e) => events.push(e),
+		);
+
+		const rows = db
+			.select()
+			.from(pages)
+			.where(eq(pages.chapterId, chapter.id))
+			.orderBy(pages.seq)
+			.all();
+
+		expect(rows[0].status).toBe('pending'); // p1 remains pending untouched
+		expect(rows[1].status).toBe('done'); // p2 was translated
+		expect(events.filter((e) => e.type === 'page-done').length).toBe(1);
+		expect(events.find((e) => e.type === 'page-done')?.pageId).toBe(p2.id);
+	});
+
+	it('executes cleanly when SSR data loaders run concurrently with parallel pipeline writes', async () => {
+		const { getChapterReaderData } = await import('$lib/server/chapters');
+		const { getBookDetails } = await import('$lib/server/books');
+
+		seedBook(db, { id: 'b_ssr' });
+		const chapter = seedChapter(db, { bookId: 'b_ssr', seq: 0 });
+		mkdirSync(join(dataRoot, 'uploads'), { recursive: true });
+		for (let i = 0; i < 4; i++) {
+			seedPage(db, { chapterId: chapter.id, seq: i, filePath: `uploads/ssr_${i}.png` });
+			writeFileSync(join(dataRoot, `uploads/ssr_${i}.png`), PAGE_PNG);
+		}
+
+		// SLOW DOWN ANALYZE & TRANSLATE TO ENSURE SSR QUERIES OVERLAP WITH PARALLEL PIPELINE WRITES
+		const concurrent = new FakePipeline();
+		const origClean = concurrent.clean.bind(concurrent);
+		concurrent.clean = async (img, regs, sig) => {
+			await new Promise((r) => setTimeout(r, 15));
+			return origClean(img, regs, sig);
+		};
+
+		// LAUNCH PIPELINE
+		const pipelinePromise = chapterWork(chapter.id, {
+			pipeline: concurrent,
+			dataRoot,
+			llm: fakeLlm(),
+			pageConcurrency: 4,
+		})(new AbortController().signal, () => {});
+
+		// SIMULATE MULTIPLE RAPID SSR LOADS RUNNING CONCURRENTLY
+		const ssrPromises = [
+			getChapterReaderData(chapter.id),
+			getBookDetails('b_ssr'),
+			getChapterReaderData(chapter.id),
+			getBookDetails('b_ssr'),
+		];
+
+		const [_, ...ssrResults] = await Promise.all([pipelinePromise, ...ssrPromises]);
+
+		expect(ssrResults[0].chapter.id).toBe(chapter.id);
+		expect(ssrResults[1].book.id).toBe('b_ssr');
+
+		const finalPages = db.select().from(pages).where(eq(pages.chapterId, chapter.id)).all();
+		expect(finalPages.every((p) => p.status === 'done')).toBe(true);
+	});
+
+	it('streams pages through translation without waiting for all pages to finish analyze', async () => {
+		seedBook(db, { id: 'b_stream' });
+		const chapter = seedChapter(db, { bookId: 'b_stream', seq: 0 });
+		const p0 = seedPage(db, { chapterId: chapter.id, seq: 0, filePath: 'uploads/stream_0.png' });
+		const p1 = seedPage(db, { chapterId: chapter.id, seq: 1, filePath: 'uploads/stream_1.png' });
+		mkdirSync(join(dataRoot, 'uploads'), { recursive: true });
+		writeFileSync(join(dataRoot, 'uploads', 'stream_0.png'), PAGE_PNG);
+		writeFileSync(join(dataRoot, 'uploads', 'stream_1.png'), PAGE_PNG);
+
+		const stepEvents: Array<{ pageId: number; step: string; type: string }> = [];
+
+		await chapterWork(chapter.id, {
+			pipeline,
+			dataRoot,
+			llm: fakeLlm(),
+			pageConcurrency: 1,
+		})(new AbortController().signal, (e) => {
+			if (e.pageId && e.step) {
+				stepEvents.push({ pageId: e.pageId, step: e.step, type: e.type });
+			}
+		});
+
+		const p0Translate = stepEvents.findIndex(
+			(e) => e.pageId === p0.id && e.step === 'translate' && e.type === 'page-step-start',
+		);
+		const p1Analyze = stepEvents.findIndex(
+			(e) => e.pageId === p1.id && e.step === 'analyze' && e.type === 'page-step-start',
+		);
+
+		expect(p0Translate).toBeGreaterThanOrEqual(0);
+		expect(p1Analyze).toBeGreaterThanOrEqual(0);
+		expect(p0Translate).toBeLessThan(p1Analyze);
+	});
+
+	it('persists newly discovered terms from single-call page translation to the book glossary', async () => {
+		seedBook(db, { id: 'b_terms' });
+		const chapter = seedChapter(db, { bookId: 'b_terms', seq: 0 });
+		seedPage(db, { chapterId: chapter.id, seq: 0, filePath: 'uploads/terms_0.png' });
+		mkdirSync(join(dataRoot, 'uploads'), { recursive: true });
+		writeFileSync(join(dataRoot, 'uploads', 'terms_0.png'), PAGE_PNG);
+
+		const fakeLlmWithTerms = {
+			chat: {
+				completions: {
+					create: async () => ({
+						choices: [
+							{
+								message: {
+									content: JSON.stringify({
+										translations: { r0: 'Hello there' },
+										newTerms: [
+											{ source: '你好', target: 'Hello', category: 'other', gender: 'neuter' },
+										],
+									}),
+								},
+							},
+						],
+						usage: { prompt_tokens: 50, completion_tokens: 10, total_tokens: 60 },
+					}),
+				},
+			},
+		} as unknown as OpenAI;
+
+		await chapterWork(chapter.id, {
+			pipeline,
+			dataRoot,
+			llm: fakeLlmWithTerms,
+		})(new AbortController().signal, () => {});
+
+		const bookTerms = db
+			.select()
+			.from(glossary)
+			.where(eq(glossary.bookId, 'b_terms'))
+			.all();
+
+		expect(bookTerms).toHaveLength(1);
+		expect(bookTerms[0].source).toBe('你好');
+		expect(bookTerms[0].target).toBe('Hello');
+		expect(bookTerms[0].status).toBe('ai');
+	});
+});
+
+

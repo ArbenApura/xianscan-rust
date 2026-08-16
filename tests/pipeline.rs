@@ -1,0 +1,62 @@
+mod common;
+
+use std::path::Path;
+use common::{hash_image, read_cache, write_cache};
+use xianscan_rust::ml::schemas::{AnalyzeResponse, CleanRequestRegion};
+use xianscan_rust::pipeline::PipelineEngine;
+
+#[test]
+fn test_end_to_end_pipeline_on_page_679() {
+    let img_path = Path::new("tests/fixtures/page_679.jpg");
+    let img = image::ImageReader::open(img_path)
+        .expect("Failed to open page_679.jpg")
+        .with_guessed_format()
+        .expect("Failed to guess format")
+        .decode()
+        .expect("Failed to decode image");
+
+    let key = hash_image(&img);
+    let (analyze_res, engine_opt) = if let Some(cached) = read_cache::<AnalyzeResponse>("analyze", &key) {
+        (cached, None)
+    } else {
+        let models_dir = Path::new("models");
+        let mut engine = PipelineEngine::new(models_dir);
+        let res = engine.analyze_image(&img).expect("Analysis failed");
+        write_cache("analyze", &key, &res);
+        (res, Some(engine))
+    };
+
+    println!("Pipeline analyze produced {} regions", analyze_res.regions.len());
+    assert!(!analyze_res.regions.is_empty(), "Must detect regions");
+
+    for r in &analyze_res.regions {
+        println!("Region {}: text='{}', conf={:.2}, box={:?}", r.id, r.text, r.confidence, r.box_);
+    }
+
+    let clean_regions: Vec<CleanRequestRegion> = analyze_res
+        .regions
+        .iter()
+        .take(3)
+        .map(|r| CleanRequestRegion {
+            id: r.id.clone(),
+            box_: Some(r.box_.clone()),
+            polygon: Some(r.polygon.clone()),
+        })
+        .collect();
+
+    let clean_key = format!("clean_dim_{}_{}", key, clean_regions.len());
+    let (cleaned_w, cleaned_h) = if let Some(dims) = read_cache::<(u32, u32)>("clean_pipeline", &clean_key) {
+        dims
+    } else {
+        let mut engine = engine_opt.unwrap_or_else(|| PipelineEngine::new(Path::new("models")));
+        let cleaned_img = engine.clean_image(&img, &clean_regions, "patch").expect("Clean image failed");
+        let scaled_img = engine.clean_image(&img, &clean_regions, "scaled").expect("Clean scaled failed");
+        assert_eq!(scaled_img.width(), img.width());
+        assert_eq!(scaled_img.height(), img.height());
+        write_cache("clean_pipeline", &clean_key, &(cleaned_img.width(), cleaned_img.height()));
+        (cleaned_img.width(), cleaned_img.height())
+    };
+
+    assert_eq!(cleaned_w, img.width());
+    assert_eq!(cleaned_h, img.height());
+}
