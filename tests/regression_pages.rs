@@ -117,11 +117,12 @@ fn test_regression_page_63602() {
     assert!(!res.regions.iter().any(|r| r.text == "S"), "Must not detect squiggle motion marks as single Latin 'S'");
     assert!(!res.regions.iter().any(|r| r.text == "中" && r.box_.x >= 850), "Must not detect right edge margin noise as '中'");
 
-    // 3. Must detect all 3 panel SFX rustling sound effects normalized as '沙—'
+    // 3. Must detect all 3 panel SFX rustling sound effects normalized as '沙—' with full tail width coverage >= 250px
     let sfx_regions: Vec<_> = res.regions.iter().filter(|r| r.text.starts_with("沙")).collect();
     assert_eq!(sfx_regions.len(), 3, "Must detect exactly 3 distinct SFX regions");
     for sfx in &sfx_regions {
         assert!(sfx.text == "沙—" || sfx.text == "沙——", "SFX must normalize prolonged stroke away from numeral '一'");
+        assert!(sfx.box_.w >= 250, "SFX bounding box width must cover the full prolonged stroke tail (w >= 250px)");
     }
 }
 
