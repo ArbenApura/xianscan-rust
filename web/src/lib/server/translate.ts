@@ -13,7 +13,7 @@ import type { LangPair, TermDraft, TranslationUsage } from '$lib/types';
 import type OpenAI from 'openai';
 import { languageName } from '$lib/languages';
 // IMPORTED MODULES
-import { computeUsage, createClient, queued, resolveModel, stripThinkingTags, thinkingParam, withRetry } from './deepseek';
+import { computeUsage, createClient, queued, resolveModel, stripThinkingTags, thinkingParam, withRetry } from './llm';
 
 export interface RegionSource {
 	id: string;

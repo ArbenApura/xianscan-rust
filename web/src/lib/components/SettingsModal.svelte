@@ -355,7 +355,7 @@
 		openrouter: [
 			'google/gemini-2.5-flash',
 			'anthropic/claude-3.5-sonnet',
-			'deepseek/deepseek-chat',
+			'deepseek/deepseek-v4-flash',
 			'meta-llama/llama-3.3-70b-instruct',
 		],
 		openai: ['gpt-4o-mini', 'gpt-4o'],
@@ -587,10 +587,10 @@
 			badge: 'Literary Flagship',
 			desc: 'Unmatched prose quality, character dialogue nuance, and natural localization tone.',
 		},
-		'deepseek/deepseek-chat': {
-			label: 'DeepSeek Chat (V3)',
-			badge: 'Affordable & Smart',
-			desc: 'DeepSeek V3 general model accessed via OpenRouter routing.',
+		'deepseek/deepseek-v4-flash': {
+			label: 'DeepSeek V4 Flash',
+			badge: 'Ultra-Fast',
+			desc: 'DeepSeek V4 high-speed comic translation model via OpenRouter routing.',
 		},
 		'meta-llama/llama-3.3-70b-instruct': {
 			label: 'Llama 3.3 70B Instruct',

@@ -2,7 +2,7 @@ import { eq, sql } from 'drizzle-orm';
 import { db as defaultDb } from './db';
 import { aiProviders, type AiProvider } from './db/schema';
 import OpenAI from 'openai';
-import { thinkingParam } from './deepseek';
+import { thinkingParam } from './llm';
 
 export interface ProviderPublicInfo {
 	id: string;
@@ -78,7 +78,7 @@ export const DEFAULT_PROVIDERS: Array<Omit<AiProvider, 'createdAt' | 'updatedAt'
 		availableModels: JSON.stringify([
 			'google/gemini-2.5-flash',
 			'anthropic/claude-3.5-sonnet',
-			'deepseek/deepseek-chat',
+			'deepseek/deepseek-v4-flash',
 			'meta-llama/llama-3.3-70b-instruct',
 		]),
 		enabled: true,

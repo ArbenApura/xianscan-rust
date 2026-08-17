@@ -55,8 +55,8 @@ export interface AppSettings {
 // CLIENT-FACING MODEL CHOICES FOR THE GLOBAL PICKER. THE IDS MIRROR THE SERVER DEFAULTS IN
 // $lib/server/deepseek (resolveModel VALIDATES WHATEVER THE CLIENT SENDS, SO A STALE ID IS SAFE).
 export const TRANSLATION_MODELS: { id: string; label: string; blurb: string }[] = [
-	{ id: 'deepseek-v4-flash', label: 'Flash', blurb: 'Fast & economical — great for everyday use' },
-	{ id: 'deepseek-v4-pro', label: 'Pro', blurb: 'Higher-quality prose — slower, costs more' },
+	{ id: 'deepseek-v4-flash', label: 'Flash', blurb: 'Ultra-fast (1-2s) — great for everyday comic translation' },
+	{ id: 'deepseek-v4-pro', label: 'Pro', blurb: 'Flagship model — higher-quality prose for complex idioms' },
 ];
 
 export const INPAINT_MODES: { id: InpaintMode; label: string; tag: string; badgeColor: string; blurb: string }[] = [

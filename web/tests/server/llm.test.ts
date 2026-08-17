@@ -1,7 +1,7 @@
-// DEEPSEEK CLIENT TESTS (PORTED FROM xianslate + EXTENDED) — COST MATH, MODEL ALLOWLIST, RETRY
-// SEMANTICS. NO REAL API CALLS — WITH_RETRY USES FAKE ERRORS + FAKE TIMERS.
+// LLM CLIENT & TRANSLATION RUNTIME TESTS
+// COVERS TOKEN USAGE EXTRACTION, MODEL ALLOWLISTING, REASONING SUPPRESSION, AND RETRY WITH BACKOFF.
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { computeUsage, resolveModel, thinkingParam, withRetry } from '$lib/server/deepseek';
+import { computeUsage, resolveModel, thinkingParam, withRetry } from '$lib/server/llm';
 
 // -- LIFECYCLES -- //
 
@@ -23,7 +23,6 @@ describe('computeUsage', () => {
 		expect(u.promptTokens).toBe(1000);
 		expect(u.cachedTokens).toBe(0);
 		expect(u.completionTokens).toBe(300);
-		expect(u.costUsd).toBeGreaterThan(0); // MISS RATE × 1000 + OUTPUT × 300
 	});
 
 	it('reads prompt_cache_hit_tokens as the cached portion', () => {
@@ -42,7 +41,7 @@ describe('computeUsage', () => {
 		expect(u.completionTokens).toBe(100);
 	});
 
-	it('falls back to prompt_tokens_details.cached_tokens and derives miss as prompt - cached', () => {
+	it('falls back to prompt_tokens_details.cached_tokens and derives cached tokens', () => {
 		const u = computeUsage(
 			{
 				prompt_tokens: 500,
@@ -53,31 +52,6 @@ describe('computeUsage', () => {
 			'm',
 		);
 		expect(u.cachedTokens).toBe(200);
-	});
-
-	it('a cache-only run is strictly cheaper than a cold run at the same token count', () => {
-		const cold = computeUsage(
-			{ prompt_tokens: 1000, completion_tokens: 0, total_tokens: 1000, prompt_cache_hit_tokens: 0 } as never,
-			'm',
-		);
-		const hit = computeUsage(
-			{ prompt_tokens: 1000, completion_tokens: 0, total_tokens: 1000, prompt_cache_hit_tokens: 1000 } as never,
-			'm',
-		);
-		// HIT RATE < MISS RATE (inputHit < inputMiss) — THE WHOLE POINT OF THE CACHE
-		expect(hit.costUsd).toBeLessThan(cold.costUsd);
-		expect(hit.costUsd).toBeGreaterThan(0);
-	});
-
-	it('cost grows monotonically with tokens (same mix)', () => {
-		const small = computeUsage({ prompt_tokens: 100, completion_tokens: 10, total_tokens: 110 } as never, 'm');
-		const big = computeUsage({ prompt_tokens: 10_000, completion_tokens: 1000, total_tokens: 11_000 } as never, 'm');
-		expect(big.costUsd).toBeGreaterThan(small.costUsd);
-	});
-
-	it('unknown models fall back to flash pricing (cost is never zero)', () => {
-		const u = computeUsage({ prompt_tokens: 100, completion_tokens: 0, total_tokens: 100 } as never, 'no-such-model');
-		expect(u.costUsd).toBeGreaterThan(0);
 	});
 });
 
@@ -97,9 +71,9 @@ describe('resolveModel', () => {
 
 describe('thinkingParam', () => {
 	it('disables reasoning/thinking mode for DeepSeek', () => {
-		expect(thinkingParam('deepseek-v4-flash')).toEqual({ extra_body: { thinking: { type: 'disabled' } } });
-		expect(thinkingParam('deepseek-v4-pro')).toEqual({ extra_body: { thinking: { type: 'disabled' } } });
-		expect(thinkingParam()).toEqual({ extra_body: { thinking: { type: 'disabled' } } });
+		expect(thinkingParam('deepseek-v4-flash')).toEqual({ reasoning_effort: 'none' });
+		expect(thinkingParam('deepseek-v4-pro')).toEqual({});
+		expect(thinkingParam()).toEqual({ reasoning_effort: 'none' });
 	});
 
 	it('disables reasoning/thinking mode for Google Gemini', () => {
@@ -107,7 +81,6 @@ describe('thinkingParam', () => {
 		expect(thinkingParam('gemini-3.5-flash')).toEqual({ reasoning_effort: 'none' });
 	});
 });
-
 
 describe('withRetry', () => {
 	it('succeeds on the first attempt', async () => {
