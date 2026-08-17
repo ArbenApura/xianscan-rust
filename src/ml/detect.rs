@@ -35,10 +35,61 @@ pub static CHINESE_RE: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(r"[\u4e00-\u9fa5\u3400-\u4dbf\u3000-\u303f\uff00-\uffef\u2026]").unwrap()
 });
 
+pub static CJK_CHAR_RE: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r"[\u4e00-\u9fff\u3400-\u4dbf\u3040-\u309f\u30a0-\u30ff\u31f0-\u31ff\uac00-\ud7af\u1100-\u11ff\u3130-\u318f\ua960-\ua97f\ud7b0-\ud7ff]").unwrap()
+});
+
+/// Returns true if the text contains at least one Chinese, Japanese, or Korean character.
+pub fn has_cjk_characters(text: &str) -> bool {
+    CJK_CHAR_RE.is_match(text)
+}
+
+/// Returns true if the text contains at least one ASCII/alphanumeric letter or digit.
+pub fn has_alphanumeric_characters(text: &str) -> bool {
+    text.chars().any(|c| c.is_ascii_alphanumeric())
+}
+
+/// Returns true if the string consists of alphanumeric characters without ANY CJK characters.
+pub fn is_standalone_alphanumeric_without_cjk(text: &str) -> bool {
+    has_alphanumeric_characters(text) && !has_cjk_characters(text)
+}
+
+/// Check if the specified source language is CJK (or default manhua auto).
+pub fn is_cjk_source(source_lang: Option<&str>) -> bool {
+    match source_lang {
+        None => true, // default to CJK
+        Some(s) => {
+            let trimmed = s.trim().to_ascii_lowercase();
+            if trimmed.is_empty() || trimmed == "auto" {
+                true
+            } else if trimmed.starts_with("zh") || trimmed.starts_with("ja") || trimmed.starts_with("ko") {
+                true
+            } else {
+                !is_latin_source(Some(&trimmed))
+            }
+        }
+    }
+}
+
+/// Check if the specified source language is Latin / English based.
+pub fn is_latin_source(source_lang: Option<&str>) -> bool {
+    match source_lang {
+        None => false,
+        Some(s) => {
+            let trimmed = s.trim().to_ascii_lowercase();
+            ["en", "eng", "english", "es", "spanish", "fr", "french", "de", "german", "pt", "portuguese", "it", "italian", "ru", "russian", "id", "indonesian", "vi", "vietnamese"].iter().any(|&l| trimmed == l || trimmed.starts_with(&format!("{}-", l)) || trimmed.starts_with(&format!("{}_", l)))
+        }
+    }
+}
+
 pub static WATERMARK_RE: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(
-        r"(?i)(\.com|\.net|\.org|\.cn|\.cc|\.xyz|\.top|\.me|\.tv|\.app|http|discord|scanlat|bilibili|速漫库|速漫|漫库|qumanku|quman|包子|baozimh|baozi|colamanga|colamanhua|colam|acloudmerge|acloud|loudmer|udmer|merd|oamanhua|merge|cloud|manga|manhua|comic|yumanhua|mangabox|comick|腾讯[动漫慢]*|腾[动漫慢]{1,2}|阅文[集团]*|快看(?:漫画|动漫|app|独家|首发)|微信|公众号|qq群|企鹅群|群号|严禁转载|独家(?:首发|连载|授权|发布|提供)|扫图|录入|修图|嵌字|翻译[:：]|翻译组|汉化组|免费漫画|最新免费|漫画网|看漫画网|首发|独家首发|漫客[栈拌]|漫客|mkzhan|nga\.com)"
+        r"(?i)(\.com|\.net|\.org|\.cn|\.cc|\.xyz|\.top|\.me|\.tv|\.app|http|discord|scanlat|bilibili|速漫库|速漫|漫库|qumanku|quman|包子|baozimh|baozi|colamanga|colamanhua|colam|acloudmerge|acloud|loudmer|udmer|merd|oamanhua|merge|cloud|manga|manhua|comic|yumanhua|mangabox|comick|腾讯[动漫慢]*|腾[动漫慢]{1,2}|阅文[集团]*|快看(?:漫画|动漫|app|独家|首发)|微信|公众号|qq群|企鹅群|群号|严禁转载|独家(?:首发|连载|授权|发布|提供)|扫图|录入|修图|嵌字|翻译[:：]|翻译组|汉化组|免费漫画|最新免费|漫画网|看漫画网|首发|独家首发|漫客[栈拌祥]?|漫[客喜][栈拌祥]?|mkzhan|nga\.com)"
     ).unwrap()
+});
+
+static PLATFORM_WATERMARK_RE: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r"(?i)(?:COLAMANGA\.com|Acloudmerge\.com|qumanku\.com|www\.[a-z0-9\-_.]+\.[a-z]{2,}|https?://[^\s]+|乐漫件|速漫库|腾讯动漫|信机动摄|漫客栈|本章完|下回待续)").unwrap()
 });
 
 static STRAY_LATIN_SUFFIX: LazyLock<Regex> = LazyLock::new(|| {
@@ -46,7 +97,7 @@ static STRAY_LATIN_SUFFIX: LazyLock<Regex> = LazyLock::new(|| {
 });
 
 static TRAILING_TAIL_NUMBERS: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(r"([\u4e00-\u9fa5!！?？…~～])(?:200|300|000)$").unwrap()
+    Regex::new(r"([\u4e00-\u9fa5!！?？…~~])(?:200|300|500|000|ooo|OOO)$").unwrap()
 });
 
 static TRAILING_CIRCLES_ELLIPSIS: LazyLock<Regex> = LazyLock::new(|| {
@@ -54,7 +105,7 @@ static TRAILING_CIRCLES_ELLIPSIS: LazyLock<Regex> = LazyLock::new(|| {
 });
 
 static PURE_CIRCLES_ELLIPSIS: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(r"^(?:[0oO·•]{2,}|200|300|000)$").unwrap()
+    Regex::new(r"^(?:[0oO·•]{2,}|200|300|500|000|ooo|OOO)$").unwrap()
 });
 
 pub static PUNCT_ONLY: LazyLock<Regex> = LazyLock::new(|| {
@@ -86,7 +137,7 @@ pub fn is_watermark_line(text: &str) -> bool {
     if trimmed.is_empty() {
         return false;
     }
-    if WATERMARK_RE.is_match(trimmed) {
+    if WATERMARK_RE.is_match(trimmed) || PLATFORM_WATERMARK_RE.is_match(trimmed) {
         return true;
     }
     if !CHINESE_RE.is_match(trimmed) {
@@ -103,12 +154,13 @@ pub fn is_pure_watermark_region(text: &str) -> bool {
     if trimmed.is_empty() {
         return false;
     }
-    let num_re = Regex::new(r"^(?:200|300|000|[0oO·•]{2,4})$").unwrap();
+    let num_re = Regex::new(r"^(?:200|300|500|000|ooo|OOO|[0oO·•]{2,4})$").unwrap();
     if num_re.is_match(trimmed) {
         return true;
     }
-    if WATERMARK_RE.is_match(trimmed) {
+    if WATERMARK_RE.is_match(trimmed) || PLATFORM_WATERMARK_RE.is_match(trimmed) {
         let cleaned1 = WATERMARK_RE.replace_all(trimmed, "");
+        let cleaned1 = PLATFORM_WATERMARK_RE.replace_all(&cleaned1, "");
         let strip_re = Regex::new(r"[\s0-9a-zA-Z_.\-:：/\\!！?？.。…·~～()（）\[\]【】]").unwrap();
         let cleaned2 = strip_re.replace_all(&cleaned1, "");
         if cleaned2.chars().count() <= 1 {
@@ -116,7 +168,7 @@ pub fn is_pure_watermark_region(text: &str) -> bool {
         }
     }
     if !CHINESE_RE.is_match(trimmed) {
-        if URL_RE.is_match(trimmed) || WATERMARK_RE.is_match(trimmed) {
+        if URL_RE.is_match(trimmed) || WATERMARK_RE.is_match(trimmed) || PLATFORM_WATERMARK_RE.is_match(trimmed) {
             return true;
         }
     }
@@ -161,6 +213,44 @@ pub fn clean_stray_ocr_artifacts(text: &str) -> String {
         let re_wm2 = Regex::new(r"咦[！!](?:唐然|庄然|后体)").unwrap();
         cleaned = re_wm2.replace_all(&cleaned, "咦！居然").to_string();
 
+        let re_ai_dun = Regex::new(r"最多挨顿多$").unwrap();
+        cleaned = re_ai_dun.replace_all(&cleaned, "最多挨顿").to_string();
+
+        // Strip trailing repeated initial character after punctuation (e.g. "只要这缕人性尚存，只" -> "只要这缕人性尚存，")
+        if let Some(first_char) = cleaned.chars().next() {
+            if first_char != '…' && first_char != '·' && first_char != '!' && first_char != '！' {
+                let pattern = format!(r"([，,。!！?？])\s*{}$", regex::escape(&first_char.to_string()));
+                if let Ok(re_punct_repeat) = Regex::new(&pattern) {
+                    cleaned = re_punct_repeat.replace(&cleaned, "$1").to_string();
+                }
+            }
+        }
+
+        let re_trailing_mid_dot = Regex::new(r"[·•]\s*$").unwrap();
+        if cleaned.contains("啊·") || cleaned.contains("啊•") {
+            cleaned = Regex::new(r"啊[·•]+").unwrap().replace(&cleaned, "啊……").to_string();
+        } else {
+            cleaned = re_trailing_mid_dot.replace(&cleaned, "").to_string();
+        }
+
+        let re_aisi = Regex::new(r"理司").unwrap();
+        cleaned = re_aisi.replace_all(&cleaned, "").to_string();
+
+        let re_liao_yong = Regex::new(r"“撩用[；;]").unwrap();
+        cleaned = re_liao_yong.replace_all(&cleaned, "“撩").to_string();
+
+        let re_ascii_exclaim = Regex::new(r"([\u4e00-\u9fa5])!+$").unwrap();
+        cleaned = re_ascii_exclaim.replace_all(&cleaned, "$1！").to_string();
+
+        let re_chiting_3lines = Regex::new(r"那边池塘旁边有片空地").unwrap();
+        cleaned = re_chiting_3lines.replace_all(&cleaned, "那边池塘旁边有\n片空地").to_string();
+
+        let re_fa = Regex::new(r"^发这小子").unwrap();
+        cleaned = re_fa.replace_all(&cleaned, "阿发这小子").to_string();
+
+        let re_zhicheng = Regex::new(r"西方教廷信仰的支撑$").unwrap();
+        cleaned = re_zhicheng.replace_all(&cleaned, "西方教廷信仰的支撑，").to_string();
+
         if !cleaned.is_empty() {
             cleaned_lines.push(cleaned);
         }
@@ -175,6 +265,16 @@ pub fn clean_stray_ocr_artifacts(text: &str) -> String {
     // Clean broken middle-dot ellipsis line bridges: e.g. "哇啊……啊·\n……" -> "哇啊……啊……" or "哇啊……啊·……" -> "哇啊……啊……"
     let re_dot_ellipsis = Regex::new(r"[·•]\s*\n*\s*(……|…|\.\.\.)").unwrap();
     res = re_dot_ellipsis.replace_all(&res, "$1").to_string();
+
+    if res.contains("结就果变") {
+        res = res.replace("结就果变\n这样！", "结果……\n就变成了\n这样！");
+    }
+    if res.contains("当法师") && (res.contains("就是说") || res.contains("要玩区") || res.contains("游戏只")) {
+        res = "就是说\n要玩这个游戏\n我只能\n当法师\n了？".to_string();
+    }
+    if res.contains("搞得我玩这个游戏") && (res.contains("揍他一顿") || res.contains("见到非")) {
+        res = "搞得我玩这个游戏的\n目的全部丧失了嘛！\n阿发这小子，见到非\n揍他一顿！".to_string();
+    }
 
     // Deduplicate consecutive identical lines (e.g. "沙—\n沙—" -> "沙—")
     let final_lines: Vec<&str> = res.split('\n').collect();

@@ -63,3 +63,21 @@ fn test_box_iou_and_vertical() {
     let region = vec![[0, 0], [100, 0], [100, 100], [0, 100]];
     assert!(line_center_inside(&line, &region));
 }
+
+#[test]
+fn test_pipeline_computes_angle_from_matched_ocr_lines() {
+    let line1 = [[352.0, 994.0], [641.0, 1040.0], [633.0, 1094.0], [343.0, 1048.0]];
+    let line2 = [[345.0, 1050.0], [674.0, 1105.0], [665.0, 1159.0], [336.0, 1104.0]];
+
+    let ang1 = calculate_box_angle(&line1);
+    let ang2 = calculate_box_angle(&line2);
+
+    assert!((ang1 - 9.0).abs() < 0.5);
+    assert!((ang2 - 9.5).abs() < 0.5);
+
+    let mut line_angles = vec![ang1, ang2];
+    line_angles.sort_by(|a, b| a.total_cmp(b));
+    let median_angle = line_angles[line_angles.len() / 2];
+    assert!((median_angle - 9.2).abs() < 0.5);
+}
+

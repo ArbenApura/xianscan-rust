@@ -60,3 +60,33 @@ fn test_end_to_end_pipeline_on_page_679() {
     assert_eq!(cleaned_w, img.width());
     assert_eq!(cleaned_h, img.height());
 }
+
+#[test]
+fn test_pipeline_analyze_with_language_filtering() {
+    use xianscan_rust::ml::schemas::AnalyzeOptions;
+
+    let img_path = Path::new("tests/fixtures/page_679.jpg");
+    let img = image::ImageReader::open(img_path)
+        .expect("Failed to open page_679.jpg")
+        .with_guessed_format()
+        .expect("Failed to guess format")
+        .decode()
+        .expect("Failed to decode image");
+
+    let models_dir = Path::new("models");
+    let mut engine = PipelineEngine::new(models_dir);
+
+    // Analyze with CJK source option (zh-Hans)
+    let zh_opts = AnalyzeOptions {
+        source_lang: Some("zh-Hans".to_string()),
+        target_lang: Some("en".to_string()),
+    };
+    let zh_res = engine.analyze_image_with_options(&img, Some(&zh_opts)).expect("ZH analyze failed");
+
+    // All detected regions must not be standalone alphanumeric without CJK
+    for r in &zh_res.regions {
+        let text = r.text.trim();
+        let is_standalone_alpha = xianscan_rust::ml::detect::is_standalone_alphanumeric_without_cjk(text);
+        assert!(!is_standalone_alpha, "Region '{}' should not be standalone alphanumeric in CJK mode", text);
+    }
+}

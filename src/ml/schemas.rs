@@ -24,6 +24,14 @@ pub struct Region {
     pub is_subtitle: bool,
 }
 
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct AnalyzeOptions {
+    #[serde(default)]
+    pub source_lang: Option<String>,
+    #[serde(default)]
+    pub target_lang: Option<String>,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AnalyzeResponse {
     pub width: u32,

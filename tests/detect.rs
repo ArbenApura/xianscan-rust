@@ -67,3 +67,56 @@ fn test_rapid_ocr_detect_and_recognize_on_page_679() {
     }
     assert!(!lines.is_empty());
 }
+
+#[test]
+fn test_language_aware_filtering_helpers() {
+    use xianscan_rust::ml::detect::{
+        has_alphanumeric_characters, has_cjk_characters, is_cjk_source, is_latin_source,
+        is_standalone_alphanumeric_without_cjk,
+    };
+
+    // CJK detection
+    assert!(has_cjk_characters("你好世界"));
+    assert!(has_cjk_characters("こんにちは"));
+    assert!(has_cjk_characters("안녕하세요"));
+    assert!(has_cjk_characters("Level 99 级"));
+    assert!(!has_cjk_characters("Level 99"));
+    assert!(!has_cjk_characters("PAGE 12"));
+    assert!(!has_cjk_characters("SCANLATOR"));
+    assert!(!has_cjk_characters("……！？"));
+
+    // Alphanumeric detection
+    assert!(has_alphanumeric_characters("Level 99"));
+    assert!(has_alphanumeric_characters("Chapter 1 话"));
+    assert!(!has_alphanumeric_characters("……！？"));
+    assert!(!has_alphanumeric_characters("你好"));
+
+    // Standalone alphanumeric without CJK
+    assert!(is_standalone_alphanumeric_without_cjk("SCANLATOR"));
+    assert!(is_standalone_alphanumeric_without_cjk("PAGE 12"));
+    assert!(is_standalone_alphanumeric_without_cjk("12345"));
+    assert!(is_standalone_alphanumeric_without_cjk("Chapter 1"));
+    assert!(!is_standalone_alphanumeric_without_cjk("Chapter 1 话"));
+    assert!(!is_standalone_alphanumeric_without_cjk("Level 99 级"));
+    assert!(!is_standalone_alphanumeric_without_cjk("你好"));
+    assert!(!is_standalone_alphanumeric_without_cjk("……！"));
+
+    // Source language classification
+    assert!(is_cjk_source(Some("zh-Hans")));
+    assert!(is_cjk_source(Some("zh-Hant")));
+    assert!(is_cjk_source(Some("zh")));
+    assert!(is_cjk_source(Some("ja")));
+    assert!(is_cjk_source(Some("ko")));
+    assert!(is_cjk_source(Some("auto")));
+    assert!(is_cjk_source(None));
+    assert!(!is_cjk_source(Some("en")));
+    assert!(!is_cjk_source(Some("english")));
+
+    assert!(is_latin_source(Some("en")));
+    assert!(is_latin_source(Some("eng")));
+    assert!(is_latin_source(Some("es")));
+    assert!(is_latin_source(Some("fr")));
+    assert!(!is_latin_source(Some("zh-Hans")));
+    assert!(!is_latin_source(Some("ja")));
+    assert!(!is_latin_source(None));
+}

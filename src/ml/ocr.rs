@@ -416,8 +416,8 @@ impl RapidOcr {
             }
         }
 
-        // Tiled recognition passes on tall webtoon pages (h >= 1000)
-        if tiled && h >= 1000 {
+        // Tiled recognition passes on manhwa pages (h >= 600)
+        if tiled && h >= 600 {
             let slice_h = 500_u32;
             let step_y = 300_u32;
             let mut y = 0_u32;

@@ -10,7 +10,7 @@ use tower_http::cors::{Any, CorsLayer};
 
 use crate::ml::device::{get_hardware_status, set_active_provider};
 use crate::ml::reslice::{smart_reslice_chapter, stitch_images_vertically};
-use crate::ml::schemas::{AnalyzeResponse, CleanRequestRegion, HardwareStatus};
+use crate::ml::schemas::{AnalyzeOptions, AnalyzeResponse, CleanRequestRegion, HardwareStatus};
 use crate::pipeline::PipelineEngine;
 
 #[derive(Clone)]
@@ -73,14 +73,35 @@ async fn analyze_handler(
     mut multipart: Multipart,
 ) -> Result<Json<AnalyzeResponse>, (StatusCode, String)> {
     let mut image_bytes = None;
+    let mut source_lang = None;
+    let mut target_lang = None;
 
     while let Ok(Some(field)) = multipart.next_field().await {
         let name = field.name().unwrap_or_default().to_string();
-        if name == "image" || name == "file" || name.is_empty() {
+        if name == "image" || name == "file" {
             if let Ok(bytes) = field.bytes().await {
                 if !bytes.is_empty() {
                     image_bytes = Some(bytes);
-                    break;
+                }
+            }
+        } else if name == "source_lang" || name == "sourceLang" || name == "src_lan" || name == "src_lang" {
+            if let Ok(text) = field.text().await {
+                let trimmed = text.trim();
+                if !trimmed.is_empty() {
+                    source_lang = Some(trimmed.to_string());
+                }
+            }
+        } else if name == "target_lang" || name == "targetLang" || name == "tgt_lan" || name == "tgt_lang" {
+            if let Ok(text) = field.text().await {
+                let trimmed = text.trim();
+                if !trimmed.is_empty() {
+                    target_lang = Some(trimmed.to_string());
+                }
+            }
+        } else if image_bytes.is_none() && name.is_empty() {
+            if let Ok(bytes) = field.bytes().await {
+                if !bytes.is_empty() {
+                    image_bytes = Some(bytes);
                 }
             }
         }
@@ -94,8 +115,13 @@ async fn analyze_handler(
     let img = image::load_from_memory(&bytes)
         .map_err(|e| (StatusCode::BAD_REQUEST, format!("Invalid image format: {}", e)))?;
 
+    let options = AnalyzeOptions {
+        source_lang,
+        target_lang,
+    };
+
     let mut engine = state.engine.lock().unwrap();
-    let res = engine.analyze_image(&img)
+    let res = engine.analyze_image_with_options(&img, Some(&options))
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("Analysis pipeline error: {}", e)))?;
 
     Ok(Json(res))
@@ -147,12 +173,12 @@ async fn clean_handler(
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("Inpainting failed: {}", e)))?;
 
     let mut out_bytes = std::io::Cursor::new(Vec::new());
-    cleaned.write_to(&mut out_bytes, image::ImageFormat::Png)
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("PNG encode failed: {}", e)))?;
+    cleaned.write_to(&mut out_bytes, image::ImageFormat::WebP)
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("WebP encode failed: {}", e)))?;
 
     Ok((
         StatusCode::OK,
-        [(header::CONTENT_TYPE, "image/png")],
+        [(header::CONTENT_TYPE, "image/webp")],
         out_bytes.into_inner(),
     ).into_response())
 }
@@ -186,12 +212,12 @@ async fn preprocess_handler(
     let cleaned = engine.watermark.inpaint_colliding_watermarks(&img, &color_wm_mask);
 
     let mut out_bytes = std::io::Cursor::new(Vec::new());
-    cleaned.write_to(&mut out_bytes, image::ImageFormat::Png)
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("PNG encode failed: {}", e)))?;
+    cleaned.write_to(&mut out_bytes, image::ImageFormat::WebP)
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("WebP encode failed: {}", e)))?;
 
     Ok((
         StatusCode::OK,
-        [(header::CONTENT_TYPE, "image/png")],
+        [(header::CONTENT_TYPE, "image/webp")],
         out_bytes.into_inner(),
     ).into_response())
 }
@@ -223,12 +249,12 @@ async fn stitch_handler(
 
     let stitched = stitch_images_vertically(&[img1, img2]);
     let mut out_bytes = std::io::Cursor::new(Vec::new());
-    stitched.write_to(&mut out_bytes, image::ImageFormat::Png)
+    stitched.write_to(&mut out_bytes, image::ImageFormat::WebP)
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
 
     Ok((
         StatusCode::OK,
-        [(header::CONTENT_TYPE, "image/png")],
+        [(header::CONTENT_TYPE, "image/webp")],
         out_bytes.into_inner(),
     ).into_response())
 }
@@ -261,10 +287,10 @@ async fn reslice_handler(
 
         use std::io::Write;
         for (idx, slice) in slices.iter().enumerate() {
-            let mut png_buf = std::io::Cursor::new(Vec::new());
-            let _ = slice.write_to(&mut png_buf, image::ImageFormat::Png);
-            let _ = zip.start_file(format!("{}.png", idx), options);
-            let _ = zip.write_all(&png_buf.into_inner());
+            let mut webp_buf = std::io::Cursor::new(Vec::new());
+            let _ = slice.write_to(&mut webp_buf, image::ImageFormat::WebP);
+            let _ = zip.start_file(format!("{}.webp", idx), options);
+            let _ = zip.write_all(&webp_buf.into_inner());
         }
         let _ = zip.finish();
     }

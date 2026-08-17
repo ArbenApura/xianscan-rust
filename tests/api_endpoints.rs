@@ -82,3 +82,36 @@ async fn test_clean_endpoint_respects_inpaint_strategy_modes() {
     let response = app.oneshot(req).await.unwrap();
     assert_eq!(response.status(), StatusCode::OK);
 }
+
+#[tokio::test]
+async fn test_analyze_endpoint_with_language_parameters() {
+    let engine = PipelineEngine::new(Path::new("tests/fixtures"));
+    let state = AppState {
+        engine: Arc::new(Mutex::new(engine)),
+    };
+    let app = create_router(state);
+
+    let img_buf = image::ImageBuffer::<image::Rgb<u8>, Vec<u8>>::from_pixel(64, 64, image::Rgb([255, 255, 255]));
+    let dyn_img = image::DynamicImage::ImageRgb8(img_buf);
+    let mut png_bytes = std::io::Cursor::new(Vec::new());
+    dyn_img.write_to(&mut png_bytes, image::ImageFormat::Png).unwrap();
+    let img_vec = png_bytes.into_inner();
+
+    let boundary = "boundary789012";
+    let mut body = Vec::new();
+    body.extend_from_slice(format!("--{}\r\nContent-Disposition: form-data; name=\"source_lang\"\r\n\r\nzh-Hans\r\n", boundary).as_bytes());
+    body.extend_from_slice(format!("--{}\r\nContent-Disposition: form-data; name=\"target_lang\"\r\n\r\nen\r\n", boundary).as_bytes());
+    body.extend_from_slice(format!("--{}\r\nContent-Disposition: form-data; name=\"image\"; filename=\"test.png\"\r\nContent-Type: image/png\r\n\r\n", boundary).as_bytes());
+    body.extend_from_slice(&img_vec);
+    body.extend_from_slice(format!("\r\n--{}--\r\n", boundary).as_bytes());
+
+    let req = Request::builder()
+        .method("POST")
+        .uri("/pages/analyze")
+        .header("content-type", format!("multipart/form-data; boundary={}", boundary))
+        .body(Body::from(body))
+        .unwrap();
+
+    let response = app.oneshot(req).await.unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+}

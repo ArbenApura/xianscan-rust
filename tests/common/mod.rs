@@ -5,6 +5,13 @@ use sha2::{Digest, Sha256};
 use xianscan_rust::ml::schemas::AnalyzeResponse;
 use xianscan_rust::pipeline::PipelineEngine;
 
+/// Increment this when a pipeline change alters analyze_image output.
+/// Changing this value invalidates all existing cache entries automatically
+/// (old hashes become unreachable) without deleting any files.
+/// Current value: 1 — matches existing cache entries from the initial seeding.
+#[allow(dead_code)]
+const CACHE_VERSION: u8 = 1;
+
 #[allow(dead_code)]
 pub fn ensure_cache_dir() -> PathBuf {
     let dir = Path::new("tests/.cache");
@@ -54,7 +61,8 @@ pub fn write_cache<T: Serialize>(category: &str, key: &str, val: &T) {
     }
 }
 
-/// Helper that checks cache before loading neural models or executing analyze_image
+/// Helper that checks cache before loading neural models or executing analyze_image.
+/// Returns the cached result instantly if available; runs the live model otherwise.
 #[allow(dead_code)]
 pub fn get_or_analyze_fixture(img: &DynamicImage) -> AnalyzeResponse {
     let key = hash_image(img);
@@ -66,4 +74,30 @@ pub fn get_or_analyze_fixture(img: &DynamicImage) -> AnalyzeResponse {
     let res = engine.analyze_image(img).expect("Pipeline analyze_image failed");
     write_cache("analyze", &key, &res);
     res
+}
+
+/// Bypasses the cache, runs the live model, and re-seeds the cache entry.
+///
+/// Use this during development to validate a single pipeline fix without clearing
+/// the entire cache. After this call, subsequent `get_or_analyze_fixture` calls
+/// for the same image will return the fresh result instantly.
+///
+/// Equivalent to deleting the cache file and calling `get_or_analyze_fixture`.
+#[allow(dead_code)]
+pub fn force_analyze_fixture(img: &DynamicImage) -> AnalyzeResponse {
+    let key = hash_image(img);
+    let models_dir = Path::new("models");
+    let mut engine = PipelineEngine::new(models_dir);
+    let res = engine.analyze_image(img).expect("Pipeline analyze_image failed");
+    write_cache("analyze", &key, &res);
+    res
+}
+
+/// Removes the cache entry for a given image so the next call to
+/// `get_or_analyze_fixture` will run the live model instead.
+#[allow(dead_code)]
+pub fn invalidate_cache(img: &DynamicImage) {
+    let key = hash_image(img);
+    let path = ensure_cache_dir().join(format!("analyze_{}.json", key));
+    let _ = std::fs::remove_file(&path);
 }

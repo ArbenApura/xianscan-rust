@@ -71,3 +71,20 @@ fn test_clean_request_region_optional_fields() {
     assert!(parsed.box_.is_some());
     assert!(parsed.polygon.is_none());
 }
+
+#[test]
+fn test_analyze_options_serialization() {
+    use xianscan_rust::ml::schemas::AnalyzeOptions;
+
+    let opts = AnalyzeOptions {
+        source_lang: Some("zh-Hans".to_string()),
+        target_lang: Some("en".to_string()),
+    };
+    let json = serde_json::to_string(&opts).unwrap();
+    assert!(json.contains(r#""source_lang":"zh-Hans""#));
+    assert!(json.contains(r#""target_lang":"en""#));
+
+    let parsed: AnalyzeOptions = serde_json::from_str(&json).unwrap();
+    assert_eq!(parsed.source_lang.as_deref(), Some("zh-Hans"));
+    assert_eq!(parsed.target_lang.as_deref(), Some("en"));
+}
