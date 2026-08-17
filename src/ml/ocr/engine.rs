@@ -3,11 +3,9 @@ use anyhow::{Context, Result};
 use image::{DynamicImage, GenericImageView, ImageBuffer, Rgb};
 use ort::{session::Session, value::Tensor};
 
-use serde::{Deserialize, Serialize};
-use super::detect::{CHINESE_RE, PUNCT_ONLY};
-use super::geometry::{
-    box_iou_pts,
-};
+use crate::ml::detect::{lines_map_to_boxes, CHINESE_RE, PUNCT_ONLY};
+use crate::ml::geometry::{box_iou_pts, polygon_bounds};
+use super::decode::{decode_ctc_slice, parse_dict_string, OcrLine, OcrResult};
 
 pub struct RapidOcr {
     det_session: Option<Session>,
@@ -21,20 +19,6 @@ pub struct RapidOcr {
     characters_vietnamese: Option<Vec<String>>,
     thai_rec_session: Option<Session>,
     characters_thai: Option<Vec<String>>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct OcrLine {
-    pub polygon: Vec<[i32; 2]>,
-    pub text: String,
-    pub score: f32,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct OcrResult {
-    pub text: String,
-    pub score: f32,
-    pub lines: Vec<(Vec<[i32; 2]>, String, f32)>,
 }
 
 impl RapidOcr {
@@ -446,7 +430,7 @@ impl RapidOcr {
 
         // Detect if crop lines are predominantly vertical
         let vertical_count = raw_lines.iter().filter(|l| {
-            let (_, _, w, h) = super::geometry::polygon_bounds(&l.polygon);
+            let (_, _, w, h) = polygon_bounds(&l.polygon);
             h > (w as f32 * 1.2) as i32
         }).count();
         let is_vertical_crop = vertical_count * 2 >= raw_lines.len() && !raw_lines.is_empty();
@@ -454,8 +438,8 @@ impl RapidOcr {
         if is_vertical_crop {
             // Sort predominantly vertical reading order (Right-to-Left columns, Top-to-Bottom lines)
             raw_lines.sort_by(|a, b| {
-                let (ax, ay, _, _) = super::geometry::polygon_bounds(&a.polygon);
-                let (bx, by, _, _) = super::geometry::polygon_bounds(&b.polygon);
+                let (ax, ay, _, _) = polygon_bounds(&a.polygon);
+                let (bx, by, _, _) = polygon_bounds(&b.polygon);
                 let x_diff = bx - ax; // larger X first (rightmost column first)
                 if x_diff.abs() > 30 {
                     x_diff.cmp(&0)
@@ -466,8 +450,8 @@ impl RapidOcr {
         } else {
             // Horizontal reading order (Top-to-Bottom, Left-to-Right)
             raw_lines.sort_by(|a, b| {
-                let (ax, ay, _, _) = super::geometry::polygon_bounds(&a.polygon);
-                let (bx, by, _, _) = super::geometry::polygon_bounds(&b.polygon);
+                let (ax, ay, _, _) = polygon_bounds(&a.polygon);
+                let (bx, by, _, _) = polygon_bounds(&b.polygon);
                 let y_diff = ay - by;
                 if y_diff.abs() > 20 {
                     y_diff.cmp(&0)
@@ -581,7 +565,7 @@ impl RapidOcr {
                 det_lines_map[i] = out_slice[i];
             }
 
-            let (boxes, _) = super::detect::lines_map_to_boxes(
+            let (boxes, _) = lines_map_to_boxes(
                 &det_lines_map,
                 resize_w as usize,
                 resize_h as usize,
@@ -600,7 +584,7 @@ impl RapidOcr {
         };
 
         for poly in detected_boxes {
-            let (x0, y0, bw, bh) = super::geometry::polygon_bounds(&poly);
+            let (x0, y0, bw, bh) = polygon_bounds(&poly);
             if bw >= 4 && bh >= 4 && x0 < w as i32 && y0 < h as i32 {
                 let crop_x = x0.max(0) as u32;
                 let crop_y = y0.max(0) as u32;
@@ -691,7 +675,7 @@ impl RapidOcr {
     /// Crop an ROI with small margin
     pub fn crop_region(img: &DynamicImage, polygon: &[[i32; 2]], margin: i32) -> DynamicImage {
         let (w, h) = img.dimensions();
-        let (min_x, min_y, bw, bh) = super::geometry::polygon_bounds(polygon);
+        let (min_x, min_y, bw, bh) = polygon_bounds(polygon);
 
         let x0 = (min_x - margin).clamp(0, w as i32 - 1) as u32;
         let y0 = (min_y - margin).clamp(0, h as i32 - 1) as u32;
@@ -704,77 +688,3 @@ impl RapidOcr {
         img.crop_imm(x0, y0, crop_w, crop_h)
     }
 }
-
-/// Helper to decode CTC logits using greedy argmax with blank token suppression and probability estimation.
-pub fn decode_ctc_slice(
-    out_slice: &[f32],
-    time_steps: usize,
-    num_classes: usize,
-    characters: &[String],
-) -> Option<OcrResult> {
-    let mut text = String::new();
-    let mut prev_idx = 0_usize;
-    let mut total_prob = 0.0_f32;
-    let mut token_count = 0_usize;
-
-    for t in 0..time_steps {
-        let offset = t * num_classes;
-        if offset + num_classes > out_slice.len() {
-            break;
-        }
-        let mut max_idx = 0;
-        let mut max_val = out_slice[offset];
-
-        for c in 1..num_classes {
-            let v = out_slice[offset + c];
-            if v > max_val {
-                max_val = v;
-                max_idx = c;
-            }
-        }
-
-        if max_idx != 0 && max_idx != prev_idx {
-            if max_idx < characters.len() {
-                let ch = &characters[max_idx];
-                if ch != "blank" {
-                    text.push_str(ch);
-                    let prob = (1.0 / (1.0 + (-max_val.max(-20.0).min(20.0)).exp())).clamp(0.0, 1.0);
-                    total_prob += prob;
-                    token_count += 1;
-                }
-            }
-        }
-        prev_idx = max_idx;
-    }
-
-    let avg_confidence = if token_count > 0 {
-        total_prob / token_count as f32
-    } else {
-        0.0
-    };
-
-    let trimmed = text.trim().to_string();
-    if trimmed.is_empty() {
-        None
-    } else {
-        Some(OcrResult {
-            text: trimmed,
-            score: avg_confidence,
-            lines: Vec::new(),
-        })
-    }
-}
-
-pub fn parse_dict_string(dict_str: &str) -> Vec<String> {
-    if let Ok(json_chars) = serde_json::from_str::<Vec<String>>(dict_str) {
-        json_chars
-    } else {
-        let mut list = vec!["blank".to_string()];
-        for line in dict_str.lines() {
-            list.push(line.to_string());
-        }
-        list.push(" ".to_string());
-        list
-    }
-}
-

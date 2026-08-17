@@ -1,0 +1,17 @@
+pub mod dbnet;
+pub mod detector;
+pub mod grouping;
+pub mod lang;
+pub mod text_clean;
+
+pub use dbnet::lines_map_to_boxes;
+pub use detector::{preprocess_for_onnx, ComicTextDetector, DetectResult};
+pub use grouping::{deduplicate_boxes, group_paragraphs, merge_text_lines, sort_regions_top_to_bottom};
+pub use lang::{
+    has_alphanumeric_characters, has_cjk_characters, is_cjk_source, is_latin_source,
+    is_standalone_alphanumeric_without_cjk, CJK_CHAR_RE,
+};
+pub use text_clean::{
+    clean_stray_ocr_artifacts, is_pure_watermark_region, is_watermark_line, ALL_ELLIPSIS,
+    CHINESE_RE, ELLIPSIS_TAIL, EXCLAIM_TAIL, PUNCT_ONLY, PUNCT_TAIL, QUESTION_TAIL, WATERMARK_RE,
+};
