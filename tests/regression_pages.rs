@@ -3,16 +3,22 @@ mod common;
 use std::path::Path;
 use common::get_or_analyze_fixture;
 
-/// # Regression Test: Page 679 (Resolution: 800 × 2400 WebP)
+/// # Regression Test: Page 679 (Resolution: 800 × 1270 WebP)
 ///
 /// ## Purpose & Behavior Tested:
-/// - **Text Completeness & Multi-Line Dialogue Capture**:
-///   Ensures that multi-line conversational speech bubbles (e.g. *"难道这么多年张予德都在成都和你们在一起？"*)
-///   are fully captured as a unified paragraph without being fragmented or truncated.
+/// - **Speech Bubble Separation & Detection**:
+///   Ensures that both upper and lower speech bubbles in Panel 1 are detected as independent
+///   dialogue regions (*"难道这么多年张予德都在成都和你们在一起？"* and *"他到底为什么扔下……"*).
+/// - **Boundary Enclosure for Trailing Punctuation**:
+///   Guarantees that the bounding box for *"我不想评价我父亲的行为……"* fully encloses all trailing ellipsis dots
+///   preventing text bleeding during inpainting.
+/// - **Exact Multi-Region Ground Truth & Watermark Filtering**:
+///   Strictly asserts 5 clean regions across 3 panels and suppresses margin watermarks.
 ///
 /// ## Key Invariants:
-/// - Minimum of 4 grouped dialogue/narration regions.
-/// - Speech bubble dialogue must contain either *"难道"* or *"张予德"*.
+/// - Exactly 5 regions detected (`assert_eq!(res.regions.len(), 5)`).
+/// - Both Panel 1 dialogue bubbles captured cleanly.
+/// - Panel 2 bounding box right edge `x + w >= 265` to fully encapsulate `……`.
 #[test]
 fn test_regression_page_679() {
     let img_path = Path::new("tests/fixtures/page_679.webp");
@@ -24,12 +30,61 @@ fn test_regression_page_679() {
         .expect("Failed to decode image");
 
     let res = get_or_analyze_fixture(&img);
-    assert!(!res.regions.is_empty(), "Page 679 must have detected regions");
+    assert_eq!(res.regions.len(), 5, "Page 679 must have exactly 5 detected regions");
 
+    // 1. Panel 1: Upper speech bubble (Zhang Yude dialogue)
+    let p1_upper = res.regions.iter().find(|r| r.text.contains("张予德") || r.text.contains("成都") || r.text.contains("难道"));
+    assert!(p1_upper.is_some(), "Panel 1 upper speech bubble must be detected");
+    let p1_upper = p1_upper.unwrap();
+    assert!(p1_upper.text.contains("难道") && p1_upper.text.contains("张予德"), "Panel 1 upper bubble must contain full text");
+    assert!(p1_upper.box_.w <= 185, "Panel 1 upper bubble width ({}) must be tight (<= 185)", p1_upper.box_.w);
+
+    // 2. Panel 1: Lower speech bubble ("他到底为什么扔下……")
+    let p1_lower = res.regions.iter().find(|r| r.text.contains("到底") || r.text.contains("扔下"));
+    assert!(p1_lower.is_some(), "Panel 1 lower speech bubble ('他到底为什么扔下……') must be detected");
+    let p1_lower = p1_lower.unwrap();
+    assert!(p1_lower.text.contains("到底") && p1_lower.text.contains("扔下"), "Panel 1 lower bubble text must be complete");
+    assert!(
+        p1_lower.box_.x + p1_lower.box_.w <= 252,
+        "Panel 1 lower bubble right edge ({}) must not overextend past the speech bubble (<= 252)",
+        p1_lower.box_.x + p1_lower.box_.w
+    );
+    assert!(p1_lower.box_.w <= 185, "Panel 1 lower bubble width ({}) must be tight (<= 185)", p1_lower.box_.w);
+
+    // 3. Panel 2: Dialogue with trailing ellipsis ("我不想评价我父亲的行为……")
+    let p2_dialogue = res.regions.iter().find(|r| r.text.contains("不想评价") || r.text.contains("父亲的行为"));
+    assert!(p2_dialogue.is_some(), "Panel 2 dialogue bubble must be detected");
+    let p2_dialogue = p2_dialogue.unwrap();
+    assert!(p2_dialogue.text.contains("不想评价") && p2_dialogue.text.contains("父亲的行为"), "Panel 2 dialogue must be intact");
+    // Boundary check: ensure the bounding box extends to cover all trailing ellipsis dots but doesn't overextend into hair
+    assert!(
+        p2_dialogue.box_.x + p2_dialogue.box_.w >= 266,
+        "Panel 2 bounding box right edge ({}) must extend to >= 266 to fully cover trailing ellipsis",
+        p2_dialogue.box_.x + p2_dialogue.box_.w
+    );
+    assert!(
+        p2_dialogue.box_.w <= 245,
+        "Panel 2 bounding box width ({}) must not overextend into character hair (<= 245)",
+        p2_dialogue.box_.w
+    );
+
+    // 4. Panel 3: Location tag ("Z市")
+    let p3_tag = res.regions.iter().find(|r| r.text.trim() == "Z市" || r.text.contains("Z市"));
+    assert!(p3_tag.is_some(), "Panel 3 location tag ('Z市') must be detected");
+    let p3_tag = p3_tag.unwrap();
+    assert!(p3_tag.box_.w <= 130, "Panel 3 tag width ({}) must be tight (<= 130)", p3_tag.box_.w);
+
+    // 5. Panel 3: Large dialogue bubble ("我今天刚到...")
+    let p3_dialogue = res.regions.iter().find(|r| r.text.contains("今天刚到") || r.text.contains("爷爷的坟"));
+    assert!(p3_dialogue.is_some(), "Panel 3 dialogue bubble must be detected");
+    let p3_dialogue = p3_dialogue.unwrap();
+    assert!(p3_dialogue.text.contains("今天刚到") && p3_dialogue.text.contains("爷爷的坟"), "Panel 3 dialogue must be intact");
+    assert!(p3_dialogue.box_.w <= 285, "Panel 3 dialogue width ({}) must be tight (<= 285)", p3_dialogue.box_.w);
+
+    // Negative assertions: Watermark suppression
     let all_text = res.regions.iter().map(|r| r.text.as_str()).collect::<Vec<_>>().join("\n");
-    println!("Page 679 detected text:\n{}", all_text);
-    assert!(res.regions.len() >= 4, "Page 679 should have at least 4 grouped paragraphs");
-    assert!(all_text.contains("难道") || all_text.contains("张予德"), "Page 679 must contain speech bubble text");
+    assert!(!all_text.to_lowercase().contains("acloudmerge"), "Watermark 'ACloudMerge' must be suppressed");
+    assert!(!all_text.contains("腾讯动漫"), "Watermark '腾讯动漫' must be suppressed");
 }
 
 /// # Regression Test: Page 63617 (Resolution: 800 × 1600 WebP)
@@ -158,22 +213,38 @@ fn test_regression_page_15_seq_8() {
 
     let all_text = res.regions.iter().map(|r| r.text.as_str()).collect::<Vec<_>>().join("\n");
 
-    // 1. Must suppress hallucinated giant artwork region "福迎" across character robes/shadows
+    // 1. Exact region count: exactly 6 speech bubbles
+    assert_eq!(res.regions.len(), 6, "Page 15 seq 8 must have exactly 6 speech bubbles, got {}", res.regions.len());
+
+    // 2. Must suppress hallucinated giant artwork region "福迎" across character robes/shadows
     assert!(!all_text.contains("福迎"), "Must not hallucinate '福迎' over dark clothing/shading");
     assert!(!res.regions.iter().any(|r| r.box_.w >= 600 && r.box_.h >= 300), "Must not create giant whole-width false positive region");
 
-    // 2. Speech bubble "系统诞生在我身上……" must have full ellipsis coverage and proper width
+    // 3. Speech bubble "系统诞生在我身上……" must have full ellipsis coverage and proper width
     let sys_bubble = res.regions.iter().find(|r| r.text.contains("系统诞生在我身上"));
     assert!(sys_bubble.is_some(), "Speech bubble '系统诞生在我身上……' must be detected");
     let sys_bubble = sys_bubble.unwrap();
     assert!(sys_bubble.text.ends_with("……"), "Speech bubble must contain standard double ellipsis '……', got '{}'", sys_bubble.text);
     assert!(sys_bubble.box_.w >= 380, "Bubble width must encompass the full dialogue line and ellipsis, got w={}", sys_bubble.box_.w);
 
-    // 3. Other speech bubbles must be cleanly detected
+    // 4. Speech bubble "穿越……" must preserve trailing ellipsis dots
+    let cy_bubble = res.regions.iter().find(|r| r.text.starts_with("穿越"));
+    assert!(cy_bubble.is_some(), "Speech bubble '穿越……' must be detected");
+    let cy_bubble = cy_bubble.unwrap();
+    assert!(cy_bubble.text.ends_with("……"), "Speech bubble '穿越' must end with ellipsis '……', got '{}'", cy_bubble.text);
+    assert!(cy_bubble.box_.w >= 150, "Bubble width must encompass ellipsis, got w={}", cy_bubble.box_.w);
+
+    // 5. Speech bubble "压寨夫人……\n小樱……" must preserve ellipses on both lines
+    let yz_bubble = res.regions.iter().find(|r| r.text.contains("压寨夫人"));
+    assert!(yz_bubble.is_some(), "Speech bubble '压寨夫人……' must be detected");
+    let yz_bubble = yz_bubble.unwrap();
+    assert!(yz_bubble.text.contains("压寨夫人……"), "'压寨夫人' line must contain ellipsis '……', got '{}'", yz_bubble.text);
+    assert!(yz_bubble.text.contains("小樱……"), "'小樱' line must contain ellipsis '……', got '{}'", yz_bubble.text);
+
+    // 6. Other speech bubbles must be cleanly detected
     assert!(all_text.contains("十一年前"), "Must detect top bubble '十一年前……'");
     assert!(all_text.contains("发生过什么大事"), "Must detect '发生过什么大事？'");
-    assert!(all_text.contains("穿越"), "Must detect '穿越……'");
-    assert!(all_text.contains("压寨夫人"), "Must detect '压寨夫人……'");
+    assert!(all_text.contains("心第一次在这个"), "Must detect '心第一次在这个\n世界上诞生'");
 }
 
 /// # Regression Test: Page 162 Seq 1 (Resolution: 800 × 1590 WebP)

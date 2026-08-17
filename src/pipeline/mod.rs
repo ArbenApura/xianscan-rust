@@ -176,7 +176,7 @@ impl PipelineEngine {
                 let cb_rect = BoxRect { x: cb_x, y: cb_y, w: cb_w, h: cb_h };
                 let cb_area = (cb_w * cb_h).max(1);
 
-                for rl in &rapid_lines {
+                for (r_idx, rl) in rapid_lines.iter().enumerate() {
                     let (rx, ry, rw, rh) = polygon_bounds(&rl.polygon);
                     let rl_area = (rw * rh).max(1);
                     let iou = box_iou_pts(cb, &rl.polygon);
@@ -190,6 +190,39 @@ impl PipelineEngine {
 
                     if iou >= 0.20 || rl_contained || cb_covered || line_center_inside_box(&rl.polygon, &cb_rect) {
                         ocr_det_matched[idx] = true;
+
+                        // If ComicTextDetector box is significantly wider than RapidLine (e.g. ellipsis truncated on right)
+                        // test if recognizing ComicBox yields full text (including ellipsis).
+                        if cb_w >= rw + 25 || (cb_w as f32) >= (rw as f32 * 1.25) {
+                            let pad_x = 15;
+                            let pad_y = 10;
+                            let cx = (cb_x - pad_x).max(0) as u32;
+                            let cy = (cb_y - pad_y).max(0) as u32;
+                            let cw = ((cb_w + pad_x * 2) as u32).min(w - cx);
+                            let ch = ((cb_h + pad_y * 2) as u32).min(h - cy);
+                            if cw >= 8 && ch >= 8 {
+                                let crop = img.crop_imm(cx, cy, cw, ch);
+                                if let Ok(Some(line_res)) = ocr.recognize_line_with_lang(&crop, source_lang) {
+                                    let clean_c = clean_stray_ocr_artifacts(&line_res.text);
+                                    let clean_chars = clean_c.chars().filter(|c| !c.is_whitespace()).count();
+                                    let rl_chars = rl.text.chars().filter(|c| !c.is_whitespace()).count();
+                                    if clean_chars > rl_chars || (clean_c.contains('…') && !rl.text.contains('…')) {
+                                        // Replace with expanded box and text
+                                        let offset_poly = vec![
+                                            [cb_x, cb_y],
+                                            [cb_x + cb_w, cb_y],
+                                            [cb_x + cb_w, cb_y + cb_h],
+                                            [cb_x, cb_y + cb_h],
+                                        ];
+                                        rapid_lines[r_idx] = OcrLine {
+                                            polygon: offset_poly,
+                                            text: clean_c,
+                                            score: line_res.score.max(rl.score),
+                                        };
+                                    }
+                                }
+                            }
+                        }
                         break;
                     }
                 }
@@ -558,7 +591,7 @@ impl PipelineEngine {
 
             let mut refined_polys: Option<Vec<Vec<[i32; 2]>>> = None;
 
-            let (text, confidence): (String, f32) = if !matched.is_empty() {
+            let (text, confidence, final_sorted_matched): (String, f32, Vec<&OcrLine>) = if !matched.is_empty() {
                 // Deduplicate intra-region lines (filter out sub-box fragments and spatial duplicate echoes)
                 let has_cjk_in_matched = matched.iter().any(|l| has_cjk_characters(&l.text));
                 let mut filtered_matched: Vec<&OcrLine> = Vec::new();
@@ -727,10 +760,10 @@ impl PipelineEngine {
                         false
                     }
                 };
-                let is_short_line_in_bubble = matched.len() <= 2 && box_rect.w >= 40 && box_rect.h >= 18;
+                let is_short_line_in_bubble = matched.len() <= 2 && box_rect.w >= 40 && box_rect.h >= 18 && avg_score < 0.60;
                 let needs_crop_refinement = is_short_line_in_bubble
                     || is_uneven_multiline
-                    || avg_score < 0.70;
+                    || avg_score < 0.60;
 
                 if needs_crop_refinement {
                     let rgb = img.to_rgb8();
@@ -839,7 +872,7 @@ impl PipelineEngine {
                     }
                 }
 
-                (best_text, best_score)
+                (best_text, best_score, sorted_matched)
             } else {
                 // Crop and recognize line
                 let crop_x = box_rect.x.clamp(0, page_w as i32 - 1) as u32;
@@ -868,7 +901,7 @@ impl PipelineEngine {
                         }
                     }
                 }
-                (crop_text, crop_score)
+                (crop_text, crop_score, Vec::new())
             };
 
             let mut cleaned = clean_stray_ocr_artifacts(&text);
@@ -906,48 +939,62 @@ impl PipelineEngine {
             // Prevents detector/unclip dilation from over-expanding into bubble borders or character artwork.
             let active_polys: Vec<&[[i32; 2]]> = if let Some(ref rps) = refined_polys {
                 rps.iter().map(|p| p.as_slice()).collect()
+            } else if !final_sorted_matched.is_empty() {
+                final_sorted_matched.iter().map(|m| m.polygon.as_slice()).collect()
             } else {
                 matched.iter().map(|m| m.polygon.as_slice()).collect()
             };
 
             if !active_polys.is_empty() {
+                let cleaned_lines: Vec<&str> = cleaned.split('\n').filter(|s| !s.trim().is_empty()).collect();
+                let mut poly_min_y = i32::MAX;
+                let mut poly_max_y = i32::MIN;
+                for poly in &active_polys {
+                    let (_, py, _, ph) = polygon_bounds(poly);
+                    poly_min_y = poly_min_y.min(py);
+                    poly_max_y = poly_max_y.max(py + ph);
+                }
+                let total_h = (poly_max_y - poly_min_y).max(1);
+                let line_count = active_polys.len().max(1) as i32;
+                let est_line_h = (total_h / line_count).clamp(18, 45);
+
                 let mut min_mx = i32::MAX;
                 let mut min_my = i32::MAX;
                 let mut max_mx = i32::MIN;
                 let mut max_my = i32::MIN;
-                let total_poly_lines = cleaned.split('\n').filter(|s| !s.trim().is_empty()).count().max(1) as i32;
-                let max_row_chars = cleaned.split('\n').map(|l| l.chars().count()).max().unwrap_or(5).max(1) as i32;
+
                 for (poly_idx, poly) in active_polys.iter().enumerate() {
                     let (px, py, pw, ph) = polygon_bounds(poly);
-                    let (char_cnt, single_lh) = if active_polys.len() > 1 {
-                        let cnt = if let Some(m) = matched.get(poly_idx) {
-                            clean_stray_ocr_artifacts(&m.text).chars().count().max(1) as i32
-                        } else {
-                            max_row_chars
-                        };
-                        (cnt, ph.max(18))
+                    let line_str = if poly_idx < cleaned_lines.len() {
+                        cleaned_lines[poly_idx]
+                    } else if let Some(m) = matched.get(poly_idx) {
+                        m.text.as_str()
                     } else {
-                        (max_row_chars, (ph / total_poly_lines).max(18))
+                        ""
                     };
-                    let max_typographic_w = (char_cnt * single_lh * 135 / 100) + 15;
-                    let clamped_px2 = (px + pw).min(px + max_typographic_w);
+
+                    let ends_with_ellipsis = line_str.ends_with('…') || line_str.ends_with("...") || line_str.ends_with('～') || line_str.ends_with('~');
+                    let char_cnt = line_str.chars().count().max(1) as i32;
+                    let line_px2 = px + pw;
+
+                    // If line ends in ellipsis, ensure right edge extends sufficiently to cover all trailing dots
+                    let line_right = if ends_with_ellipsis {
+                        let expected_right = px + (char_cnt * est_line_h * 98 / 100) + 4;
+                        line_px2.max(expected_right)
+                    } else {
+                        // For standard CJK lines without trailing punctuation, clamp tightly to the detected polygon
+                        let max_typographic_w = (char_cnt * est_line_h * 105 / 100) + 4;
+                        line_px2.min(px + max_typographic_w)
+                    };
 
                     min_mx = min_mx.min(px);
                     min_my = min_my.min(py);
-                    max_mx = max_mx.max(clamped_px2);
+                    max_mx = max_mx.max(line_right);
                     max_my = max_my.max(py + ph);
                 }
 
                 if max_mx > min_mx && max_my > min_my {
-                    let total_h = max_my - min_my;
-                    let line_count = active_polys.len().max(1) as i32;
-                    let est_line_h = total_h / line_count;
-                    let has_punct = cleaned.contains('！') || cleaned.contains('!') || cleaned.contains('？') || cleaned.contains('?') || cleaned.contains('…') || cleaned.contains('~');
-                    let margin_x = if has_punct {
-                        (est_line_h / 3).clamp(10, 22)
-                    } else {
-                        (est_line_h / 4).clamp(4, 12)
-                    };
+                    let margin_x = (est_line_h / 6).clamp(3, 7);
                     let margin_y = (est_line_h / 5).clamp(3, 8);
 
                     let bound_x1 = (min_mx - margin_x).max(0);
@@ -1162,27 +1209,7 @@ impl PipelineEngine {
                 let mx2 = (ex.box_.x + ex.box_.w).max(box_rect.x + box_rect.w);
                 let my2 = (ex.box_.y + ex.box_.h).max(box_rect.y + box_rect.h);
 
-                let pad_x = 25;
-                let pad_y = 20;
-                let crop_x = (mx - pad_x).max(0) as u32;
-                let crop_y = (my - pad_y).max(0) as u32;
-                let crop_w = ((mx2 - mx + pad_x * 2) as u32).min(page_w - crop_x);
-                let crop_h = ((my2 - my + pad_y * 2) as u32).min(page_h - crop_y);
-
-                let mut unified_text = None;
-                if crop_w >= 16 && crop_h >= 16 {
-                    let crop = img.crop_imm(crop_x, crop_y, crop_w, crop_h);
-                    if let Some(ref mut ocr) = self.ocr {
-                        if let Ok(Some(res)) = ocr.recognize_crop(&crop) {
-                            let clean_c = clean_stray_ocr_artifacts(&res.text);
-                            if clean_c.chars().count() >= cleaned.chars().count() {
-                                unified_text = Some(clean_c);
-                            }
-                        }
-                    }
-                }
-
-                let final_t = unified_text.unwrap_or(cleaned);
+                let final_t = if cleaned.chars().count() >= ex.text.chars().count() { cleaned } else { ex.text.clone() };
                 let unified_box = BoxRect { x: mx, y: my, w: mx2 - mx, h: my2 - my };
                 let unified_poly = vec![
                     [mx, my], [mx2, my], [mx2, my2], [mx, my2],
@@ -1193,7 +1220,7 @@ impl PipelineEngine {
                     box_: unified_box,
                     polygon: unified_poly,
                     text: final_t,
-                    confidence,
+                    confidence: confidence.max(regions[r_idx].confidence),
                     vertical,
                     angle,
                     is_title: false,
