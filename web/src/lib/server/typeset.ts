@@ -62,8 +62,8 @@ export const FONT_MONO = 'CC Wild Words';
 export const FONT_FALLBACK_NAME = 'Friendly Sans';
 export const FONT_FALLBACK = ', "Friendly Sans", "Yu Gothic Bold", "Yu Gothic", "Microsoft YaHei Bold", "Microsoft YaHei", Arial, "Segoe UI", sans-serif';
 
-// RENDER MARGINS INSIDE THE DETECTED BOX — 2% INSET (0.02) GIVES MAXIMUM BOUNDARY UTILIZATION WITH CLEAN EDGE PADDING
-const BOX_INSET = 0.02;
+// RENDER MARGINS INSIDE THE DETECTED BOX — 5% INSET (0.05) GIVES BALANCED BOUNDARY UTILIZATION WITH CLEAN EDGE PADDING
+const BOX_INSET = 0.05;
 const SFX_BOX_INSET = 0.02;
 const MIN_FONT_SIZE = 6;
 const LINE_HEIGHT = 1.2;

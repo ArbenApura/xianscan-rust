@@ -41,7 +41,7 @@ export interface AppSettings {
 	// TYPESETTING & LETTERING STUDIO CONFIGURATIONS
 	typesetFont: string; // Primary Latin dialogue font (default 'CC Wild Words')
 	typesetCjkFont: string; // CJK East Asian fallback font (default 'Friendly Sans')
-	typesetPadding: number; // Bubble inset padding margin ratio (default 0.02)
+	typesetPadding: number; // Bubble inset padding margin ratio (default 0.05)
 	typesetFontScale: number; // Sizing multiplier (default 1.0)
 	typesetOutline: TypesetOutline; // Outline stroke weight ('none' | 'thin' | 'standard' | 'heavy')
 	typesetContrast: TypesetContrast; // Color contrast mode ('auto' | 'dark' | 'light')
@@ -180,7 +180,7 @@ export const AVAILABLE_CJK_FONTS = [
 
 // BUMP version WHEN DEFAULTS CHANGE — TRIGGERS A ONE-TIME MIGRATION OF SAVED SETTINGS
 export const DEFAULTS: AppSettings = {
-	version: 9,
+	version: 10,
 	theme: 'sepia',
 	appFont: 'comic',
 	model: 'deepseek-v4-flash',
@@ -196,7 +196,7 @@ export const DEFAULTS: AppSettings = {
 	webtoonWidth: 'md',
 	typesetFont: 'CC Wild Words',
 	typesetCjkFont: 'Friendly Sans',
-	typesetPadding: 0.02,
+	typesetPadding: 0.05,
 	typesetFontScale: 1.0,
 	typesetOutline: 'standard',
 	typesetContrast: 'auto',
@@ -361,7 +361,7 @@ function mergeKnown(parsed: unknown): AppSettings {
 	if (!['sm', 'md', 'lg'].includes(out.webtoonWidth)) out.webtoonWidth = 'md';
 	if (!out.typesetFont || typeof out.typesetFont !== 'string') out.typesetFont = 'CC Wild Words';
 	if (!out.typesetCjkFont || typeof out.typesetCjkFont !== 'string') out.typesetCjkFont = 'Friendly Sans';
-	out.typesetPadding = Math.max(0.01, Math.min(0.15, Number(out.typesetPadding) || 0.02));
+	out.typesetPadding = Math.max(0.01, Math.min(0.15, Number(out.typesetPadding) || 0.05));
 	out.typesetFontScale = Math.max(0.6, Math.min(2.0, Number(out.typesetFontScale) || 1.0));
 	if (!['none', 'thin', 'standard', 'heavy'].includes(out.typesetOutline)) out.typesetOutline = 'standard';
 	if (!['auto', 'dark', 'light'].includes(out.typesetContrast)) out.typesetContrast = 'auto';
@@ -378,6 +378,9 @@ function mergeKnown(parsed: unknown): AppSettings {
 	out.enableTextRotation = typeof (parsed as any)?.enableTextRotation === 'boolean' ? (parsed as any).enableTextRotation : true;
 	if ((parsed as any)?.version < 5 || out.sourceLang === 'zh-CN' || out.sourceLang === 'zh-Hans') {
 		out.sourceLang = DEFAULT_SOURCE_LANG;
+	}
+	if ((parsed as any)?.version < 10 && out.typesetPadding === 0.02) {
+		out.typesetPadding = 0.05;
 	}
 	out.version = DEFAULTS.version;
 	return out;

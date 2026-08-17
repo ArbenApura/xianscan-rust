@@ -12,6 +12,7 @@ import {
 	parseTranslations,
 	systemPrompt,
 	translatePage,
+	translateSingleText,
 	userPrompt,
 } from '$lib/server/translate';
 
@@ -492,4 +493,36 @@ describe('parseExtractedTerms & extractTerms', () => {
 		);
 		expect(res.byRegion.get('r1')).toBe('こんにちは！');
 	});
+
+	describe('translateSingleText with custom instructions', () => {
+		it('injects custom instruction into system prompt', async () => {
+			let passedSystemContent = '';
+			const fakeClient = {
+				chat: {
+					completions: {
+						create: async (params: { messages: OpenAI.Chat.ChatCompletionMessageParam[] }) => {
+							passedSystemContent = (params.messages.find((m) => m.role === 'system')?.content as string) || '';
+							return {
+								choices: [{ message: { content: '"By the heavens! Begone!"' } }],
+								usage: { prompt_tokens: 15, completion_tokens: 8 },
+							};
+						},
+					},
+				},
+			} as unknown as OpenAI;
+
+			const result = await translateSingleText(
+				'给我滚！',
+				{ sourceLang: 'zh-Hans', targetLang: 'en' },
+				{
+					client: fakeClient,
+					instruction: 'Make it sound dramatic and archaic',
+				},
+			);
+
+			expect(passedSystemContent).toContain('Special user localization instruction: Make it sound dramatic and archaic');
+			expect(result.text).toBe('By the heavens! Begone!');
+		});
+	});
 });
+

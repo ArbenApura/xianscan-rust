@@ -740,6 +740,7 @@ export async function translateSingleText(
 	pair: LangPair,
 	opts: {
 		kind?: 'title' | 'chapter' | 'term' | 'general';
+		instruction?: string;
 		client?: OpenAI;
 		model?: string;
 		signal?: AbortSignal;
@@ -776,8 +777,14 @@ Rules:
 - For terms / items / techniques, translate the meaning into natural ${tgtName}.
 - Output ONLY the translated term without quotes or explanation.`;
 	} else {
-		systemContent = `You are a professional translator translating text from ${srcName} to natural ${tgtName}.
-Output ONLY the translated text without commentary, quotes, or markdown fences.`;
+		systemContent = `You are a professional comic and manhua translator translating dialogue/speech bubbles from ${srcName} to natural ${tgtName}.
+Rules:
+- Preserve speech nuance, comic tone, exclamations, sound effects, and character voice.
+- Output ONLY the translated text without commentary, quotes, or markdown fences.`;
+	}
+
+	if (opts.instruction?.trim()) {
+		systemContent += `\nSpecial user localization instruction: ${opts.instruction.trim()}`;
 	}
 
 	try {
@@ -791,7 +798,7 @@ Output ONLY the translated text without commentary, quotes, or markdown fences.`
 								{ role: 'system', content: systemContent },
 								{ role: 'user', content: trimmed },
 							],
-							temperature: 0.2,
+							temperature: opts.instruction?.trim() ? 0.4 : 0.2,
 							...thinkingParam(model),
 						},
 						{ signal: opts.signal },

@@ -5,8 +5,8 @@ import Database from 'better-sqlite3';
 import { drizzle } from 'drizzle-orm/better-sqlite3';
 import { migrate } from 'drizzle-orm/better-sqlite3/migrator';
 // IMPORTED MODULES
-import { existsSync, mkdirSync } from 'node:fs';
-import { dirname, resolve } from 'node:path';
+import { existsSync, mkdirSync, readFileSync } from 'node:fs';
+import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { resolveDatabasePath } from '../paths';
 import * as schema from './schema';
@@ -55,9 +55,38 @@ if (!globalThis.__mtSqlite) {
 	sqlite.pragma('synchronous = NORMAL');
 	sqlite.pragma('cache_size = -32000');
 	sqlite.pragma('wal_autocheckpoint = 1000');
+
 	// SELF-HOSTED FRIENDLINESS: RUN PENDING MIGRATIONS AT BOOT SO `npm run dev` / `npm run start` WORK ON
-	// A FRESH CLONE WITHOUT A MANUAL `npm run db:migrate` STEP (migrate RUNS ONLY PENDING ONES — THE
-	migrate(drizzle(sqlite, { schema }), { migrationsFolder: MIGRATIONS_DIR });
+	// A FRESH CLONE WITHOUT A MANUAL `npm run db:migrate` STEP (migrate RUNS ONLY PENDING ONES).
+	try {
+		migrate(drizzle(sqlite, { schema }), { migrationsFolder: MIGRATIONS_DIR });
+	} catch (err) {
+		// If migration failed due to existing columns / hot-patching, sync the journal records
+		try {
+			const hasMigrations = sqlite.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='__drizzle_migrations'").get();
+			if (hasMigrations) {
+				const journalPath = join(MIGRATIONS_DIR, 'meta/_journal.json');
+				if (existsSync(journalPath)) {
+					const journal = JSON.parse(readFileSync(journalPath, 'utf8'));
+					for (const entry of journal.entries) {
+						const rec = sqlite.prepare('SELECT id FROM __drizzle_migrations WHERE created_at = ?').get(entry.when);
+						if (!rec) {
+							sqlite.prepare('INSERT INTO __drizzle_migrations (hash, created_at) VALUES (?, ?)').run(entry.tag, entry.when);
+						}
+					}
+				}
+			}
+		} catch {
+			// ignore
+		}
+	}
+
+	// AUTO-MIGRATE original_target column on regions if missing
+	try {
+		sqlite.exec(`ALTER TABLE regions ADD COLUMN original_target TEXT;`);
+	} catch {
+		// column already exists
+	}
 
 	// AUTO-SYNC CHAPTER STATUSES FOR CHAPTERS WHOSE PAGES HAVE FINISHED TRANSLATING
 	try {

@@ -1,6 +1,5 @@
 <script lang="ts">
-	// IMPORTED DEP-MODULES
-	import { createEventDispatcher } from 'svelte';
+	import { createEventDispatcher, onDestroy } from 'svelte';
 	import { fade, fly } from 'svelte/transition';
 	import { cubicOut } from 'svelte/easing';
 	// IMPORTED MODULES
@@ -8,6 +7,7 @@
 	import { focusTrap } from '$lib/actions/focusTrap';
 	import { ripple } from '$lib/actions/ripple';
 	import { scrollLock } from '$lib/actions/scrollLock';
+	import { registerModalDismiss, unregisterModalDismiss } from '$lib/utils/modal-stack';
 	import { settings, THEME_PANEL, THEME_PANEL_BORDER } from '$lib/stores/settings';
 	// IMPORTED DEP-COMPONENTS
 	import TriangleAlert from 'lucide-svelte/icons/triangle-alert';
@@ -26,6 +26,7 @@
 
 	// -- CONSTANTS -- //
 
+	const confirmDialogId = `confirm-dialog-${Math.random().toString(36).slice(2)}`;
 	const dispatch = createEventDispatcher<{ confirm: void; cancel: void }>();
 	const STYLES = {
 		danger: { icon: 'text-red-500', iconBg: 'bg-red-500/10', confirm: 'bg-red-600 text-white hover:bg-red-500' },
@@ -69,6 +70,17 @@
 	$: panelBorder = THEME_PANEL_BORDER[$settings.theme];
 	$: isMatch = !targetMatch || inputValue.trim() === targetMatch.trim();
 
+	// HIERARCHICAL ESCAPE KEY REGISTRATION (DEPTH-AWARE DISMISSAL)
+	$: if (open) {
+		registerModalDismiss(confirmDialogId, () => cancel());
+	} else {
+		unregisterModalDismiss(confirmDialogId);
+	}
+
+	onDestroy(() => {
+		unregisterModalDismiss(confirmDialogId);
+	});
+
 	// -- FUNCTIONS -- //
 
 	function confirm() {
@@ -88,8 +100,6 @@
 		}
 	}
 </script>
-
-<svelte:window on:keydown={(e) => open && e.key === 'Escape' && cancel()} />
 
 <!-- DIALOG OVERLAY -->
 {#if open}

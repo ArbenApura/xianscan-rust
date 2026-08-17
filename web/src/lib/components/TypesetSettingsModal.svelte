@@ -96,8 +96,8 @@
 
 	// -- PADDING PRESETS -- //
 	const PADDING_PRESETS: { value: number; label: string; sub: string }[] = [
-		{ value: 0.02, label: 'Tight (2%)', sub: 'Maximal bubble fill · Default' },
-		{ value: 0.05, label: 'Balanced (5%)', sub: 'Standard edge clearance' },
+		{ value: 0.02, label: 'Tight (2%)', sub: 'Maximal bubble fill' },
+		{ value: 0.05, label: 'Balanced (5%)', sub: 'Standard edge clearance · Default' },
 		{ value: 0.08, label: 'Spacious (8%)', sub: 'Generous safety breathing room' },
 		{ value: 0.12, label: 'Airy (12%)', sub: 'Large boundary padding' },
 	];
@@ -167,7 +167,7 @@
 			...s,
 			typesetFont: 'CC Wild Words',
 			typesetCjkFont: 'Friendly Sans',
-			typesetPadding: 0.02,
+			typesetPadding: 0.05,
 			typesetFontScale: 1.0,
 			typesetOutline: 'standard',
 			typesetContrast: 'auto',
@@ -199,7 +199,7 @@
 				? previewSampleText.toLowerCase()
 				: previewSampleText;
 	$: previewTransformRotation = $settings.enableTextRotation ? `rotate(${previewSimulatedAngle}deg)` : 'none';
-	$: previewInsetPadding = `${Math.max(8, Math.round(120 * ($settings.typesetPadding || 0.02)))}px`;
+	$: previewInsetPadding = `${Math.max(8, Math.round(120 * ($settings.typesetPadding || 0.05)))}px`;
 	$: previewFontSizePx = `${Math.max(12, Math.round(14 * ($settings.typesetFontScale || 1.0)))}px`;
 </script>
 
@@ -415,12 +415,12 @@
 			<div class="space-y-1.5">
 				<div class="flex items-center justify-between">
 					<label class="text-[11px] font-semibold opacity-75 pl-0.5">Bubble Edge Inset Padding</label>
-					<span class="text-[10px] font-mono opacity-60">{Math.round(($settings.typesetPadding || 0.02) * 100)}% inset</span>
+					<span class="text-[10px] font-mono opacity-60">{Math.round(($settings.typesetPadding || 0.05) * 100)}% inset</span>
 				</div>
 
 				<div class="grid grid-cols-2 sm:grid-cols-4 gap-2">
 					{#each PADDING_PRESETS as preset}
-						{@const isSelected = Math.abs(($settings.typesetPadding || 0.02) - preset.value) < 0.005}
+						{@const isSelected = Math.abs(($settings.typesetPadding || 0.05) - preset.value) < 0.005}
 						<button
 							type="button"
 							on:click={() => setPadding(preset.value)}

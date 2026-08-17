@@ -11,6 +11,11 @@
 	import Layers from 'lucide-svelte/icons/layers';
 	import List from 'lucide-svelte/icons/list';
 	import ImageIcon from 'lucide-svelte/icons/image';
+	import Pencil from 'lucide-svelte/icons/pencil';
+	import RotateCcw from 'lucide-svelte/icons/rotate-ccw';
+	import RefreshCw from 'lucide-svelte/icons/refresh-cw';
+	import Loader2 from 'lucide-svelte/icons/loader-2';
+	import EditRegionTranslationModal from './EditRegionTranslationModal.svelte';
 
 	export let open = false;
 	export let page: any | null = null;
@@ -18,6 +23,7 @@
 
 	const dispatch = createEventDispatcher<{
 		close: void;
+		update: { page: any; region?: any; reloadKey: number };
 	}>();
 
 	let inspectTab: 'output' | 'cleaned' | 'original' = 'output';
@@ -26,10 +32,44 @@
 	let hoveredRegionId: number | null = null;
 	let imageScrollContainer: HTMLDivElement | null = null;
 
+	// Region Translation Editor State
+	let editingRegion: any | null = null;
+	let editModalOpen = false;
+	let loadingDetails = false;
+	let lastFetchedPageId: number | null = null;
+
 	$: if (page) {
 		if (page.outputPath) inspectTab = 'output';
 		else if (page.cleanedPath) inspectTab = 'cleaned';
 		else inspectTab = 'original';
+	}
+
+	async function fetchFreshPageData(pageId: number, silent = false) {
+		if (!pageId) return;
+		if (!silent) loadingDetails = true;
+		try {
+			const res = await fetch(`/api/pages/${pageId}`);
+			if (!res.ok) throw new Error('Failed to load page details');
+			const data = await res.json();
+			if (data.page && data.page.id === pageId) {
+				page = { ...page, ...data.page };
+				lastFetchedPageId = pageId;
+				if (page.outputPath && inspectTab === 'original' && !page.cleanedPath) {
+					inspectTab = 'output';
+				}
+				dispatch('update', { page, reloadKey });
+			}
+		} catch (e: any) {
+			if (!silent) toast.error('Could not refresh page regions');
+		} finally {
+			loadingDetails = false;
+		}
+	}
+
+	// Auto-sync whenever inspect modal opens or targets a page
+	$: if (open && page?.id && (page.id !== lastFetchedPageId || !page.regions || page.regions.length === 0)) {
+		lastFetchedPageId = page.id;
+		void fetchFreshPageData(page.id, false);
 	}
 
 	function getBox(rawBox: any): { x: number; y: number; w: number; h: number } | null {
@@ -99,10 +139,57 @@
 	function selectRegionOnMobile(region: any) {
 		hoveredRegionId = region.id;
 		mobileSection = 'image';
-		// Delay slightly to allow tab switch rendering
 		setTimeout(() => {
 			scrollToRegion(region);
 		}, 60);
+	}
+
+	function openEdit(region: any) {
+		editingRegion = region;
+		editModalOpen = true;
+	}
+
+	function handleRegionSaved(e: CustomEvent<{ region: any; outputPath?: string }>) {
+		if (!page) return;
+		const updatedReg = e.detail.region;
+		const reg = page.regions?.find((r: any) => r.id === updatedReg.id);
+		if (reg) {
+			reg.textTarget = updatedReg.textTarget;
+			reg.originalTarget = updatedReg.originalTarget;
+		}
+		if (e.detail.outputPath) {
+			page.outputPath = e.detail.outputPath;
+		}
+		reloadKey = Date.now();
+		page = { ...page };
+		dispatch('update', { page, region: updatedReg, reloadKey });
+	}
+
+	async function handleQuickResetRegion(region: any) {
+		if (!page) return;
+		try {
+			const res = await fetch(`/api/pages/${page.id}/regions/${region.id}`, {
+				method: 'PATCH',
+				headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify({ action: 'reset_ai' }),
+			});
+			if (!res.ok) throw new Error('Failed to reset translation');
+			const data = await res.json();
+			const reg = page.regions?.find((r: any) => r.id === region.id);
+			if (reg) {
+				reg.textTarget = data.region.textTarget;
+				reg.originalTarget = data.region.originalTarget;
+			}
+			if (data.outputPath) {
+				page.outputPath = data.outputPath;
+			}
+			reloadKey = Date.now();
+			page = { ...page };
+			toast.success(`Reset #${region.seq + 1} to default AI translation`);
+			dispatch('update', { page, region: data.region, reloadKey });
+		} catch (e: any) {
+			toast.error(e?.message || 'Failed to reset translation');
+		}
 	}
 
 	function copyInspectDebugInfo() {
@@ -123,6 +210,7 @@
 				box: getBox(r.box),
 				sourceOcr: r.textSource,
 				translation: r.textTarget,
+				originalTarget: r.originalTarget,
 			})),
 		};
 		navigator.clipboard?.writeText(JSON.stringify(debug, null, 2));
@@ -225,6 +313,18 @@
 					</div>
 
 					<div class="flex items-center gap-1.5">
+						<!-- SYNC / REFRESH DATA BUTTON -->
+						<button
+							type="button"
+							class="inline-flex items-center gap-1 rounded-lg border border-black/10 bg-white px-2 sm:px-2.5 py-1 text-[10.5px] sm:text-[11px] font-semibold text-neutral-700 shadow-2xs hover:bg-neutral-50 dark:border-white/10 dark:bg-neutral-800 dark:text-neutral-200 dark:hover:bg-neutral-700 cursor-pointer disabled:opacity-50"
+							title="Fetch latest detected regions and translation data from database"
+							disabled={loadingDetails}
+							on:click={() => fetchFreshPageData(page.id, false)}
+						>
+							<RefreshCw size={11} class={loadingDetails ? 'animate-spin text-[#b23a2e] dark:text-[#e08a63]' : 'text-neutral-500'} />
+							<span>{loadingDetails ? 'Syncing...' : 'Sync'}</span>
+						</button>
+
 						<!-- QUICK FLIP TOGGLE BUTTON (ORIGINAL <-> TRANSLATED) -->
 						{#if page.outputPath}
 							<button
@@ -282,7 +382,7 @@
 								xmlns="http://www.w3.org/2000/svg"
 							>
 								{#each page.regions || [] as region (region.id)}
-									{@const active = hoveredRegionId === region.id}
+									{@const active = hoveredRegionId === region.id || editingRegion?.id === region.id}
 									{#if showRegions || active}
 										{@const b = getBox(region.box)}
 										{@const bx = b?.x ?? 0}
@@ -352,23 +452,45 @@
 						<List size={14} class="text-[#b23a2e] dark:text-[#e08a63]" />
 						<span>Detected Regions ({page.regions?.length ?? 0})</span>
 					</h3>
+					{#if loadingDetails}
+						<span class="inline-flex items-center gap-1 text-[10.5px] font-medium text-[#b23a2e] dark:text-[#e08a63]">
+							<Loader2 size={11} class="animate-spin" />
+							<span>Syncing...</span>
+						</span>
+					{/if}
 				</div>
 
-				{#if !page.regions || page.regions.length === 0}
-					<div class="flex flex-1 items-center justify-center p-6 text-center text-xs opacity-60 rounded-xl border border-dashed border-black/10 dark:border-white/10">
-						No text regions detected on this page yet. Run the pipeline to detect dialogue speech bubbles.
+				{#if loadingDetails && (!page.regions || page.regions.length === 0)}
+					<!-- SKELETON LOADING STATE -->
+					<div class="flex-1 min-h-0 space-y-3 overflow-y-auto pr-1">
+						{#each [1, 2, 3] as _}
+							<div class="rounded-xl border border-black/10 bg-black/[0.02] p-3.5 space-y-2.5 animate-pulse dark:border-white/10 dark:bg-white/[0.02]">
+								<div class="flex items-center justify-between">
+									<div class="h-4 w-16 rounded bg-black/10 dark:bg-white/10"></div>
+									<div class="h-3 w-20 rounded bg-black/10 dark:bg-white/10"></div>
+								</div>
+								<div class="h-3 w-full rounded bg-black/10 dark:bg-white/10"></div>
+								<div class="h-3 w-3/4 rounded bg-black/10 dark:bg-white/10"></div>
+							</div>
+						{/each}
+					</div>
+				{:else if !page.regions || page.regions.length === 0}
+					<div class="flex flex-1 flex-col items-center justify-center p-6 text-center text-xs opacity-60 rounded-xl border border-dashed border-black/10 dark:border-white/10 gap-2">
+						<p>No text regions detected on this page yet.</p>
+						<p class="text-[11px] opacity-75">If translation is in progress or just finished, click <strong>Sync</strong> above to pull latest regions.</p>
 					</div>
 				{:else}
-					<div class="flex-1 min-h-0 space-y-2 overflow-y-auto pr-1 overscroll-contain">
+					<div class="flex-1 min-h-0 space-y-2.5 overflow-y-auto pr-1 overscroll-contain">
 						{#each page.regions as region (region.id)}
 							{@const b = getBox(region.box)}
 							{@const angle = getRegionAngle(region)}
 							{@const isVertical = isRegionVertical(region)}
+							{@const isModified = region.originalTarget && region.textTarget && region.textTarget !== region.originalTarget}
 							<!-- svelte-ignore a11y-no-static-element-interactions -->
 							<!-- svelte-ignore a11y-click-events-have-key-events -->
 							<div
-								class={`rounded-xl border p-2.5 sm:p-3 text-xs transition-all cursor-pointer ${
-									hoveredRegionId === region.id
+								class={`rounded-xl border p-3 text-xs transition-all cursor-pointer ${
+									hoveredRegionId === region.id || editingRegion?.id === region.id
 										? 'border-[#b23a2e]/50 bg-[#b23a2e]/5 dark:border-[#e08a63]/40 dark:bg-[#e08a63]/5 shadow-sm'
 										: 'border-black/10 bg-black/[0.02] dark:border-white/10 dark:bg-white/[0.02] hover:border-black/20 dark:hover:border-white/20'
 								}`}
@@ -389,6 +511,11 @@
 										<span class="rounded px-1.5 py-0.5 text-[10px] font-bold text-[#b23a2e] bg-[#b23a2e]/10 dark:text-[#e08a63]">
 											#{region.seq + 1}
 										</span>
+										{#if isModified}
+											<span class="rounded bg-amber-500/15 border border-amber-500/30 px-1.5 py-0.5 text-[9px] font-bold text-amber-700 dark:text-amber-300">
+												Edited
+											</span>
+										{/if}
 										{#if region.conf !== null}
 											<span class="text-[10px] font-mono opacity-50">
 												{(region.conf * 100).toFixed(0)}% conf
@@ -449,27 +576,69 @@
 									</div>
 								</div>
 
-								<!-- AI TARGET -->
+								<!-- TRANSLATION OUTPUT ROW WITH EDIT & RESET BUTTONS -->
 								{#if region.textTarget}
 									<div class="mt-2 border-t border-black/[0.05] pt-1.5 dark:border-white/[0.05]">
-										<div class="mb-0.5 text-[10px] font-semibold text-[#b23a2e] dark:text-[#e08a63]">
-											AI Translation
+										<div class="flex items-center justify-between mb-0.5">
+											<span class="text-[10px] font-semibold text-[#b23a2e] dark:text-[#e08a63]">
+												{isModified ? 'Manual Translation' : 'AI Translation'}
+											</span>
+
+											<div class="flex items-center gap-1">
+												{#if isModified}
+													<button
+														type="button"
+														title="Reset to default AI translation"
+														aria-label="Reset to default AI translation"
+														class="inline-flex items-center gap-0.5 rounded px-1.5 py-0.5 text-[9px] font-semibold text-neutral-600 hover:text-neutral-900 bg-black/5 hover:bg-black/10 dark:text-neutral-400 dark:hover:text-neutral-100 dark:bg-white/5 dark:hover:bg-white/10 transition-colors"
+														on:click|stopPropagation={() => handleQuickResetRegion(region)}
+													>
+														<RotateCcw size={10} />
+														<span>Reset AI</span>
+													</button>
+												{/if}
+
+												<button
+													type="button"
+													title="Edit translation & AI re-roll"
+													aria-label="Edit translation & AI re-roll"
+													class="inline-flex items-center gap-0.5 rounded px-1.5 py-0.5 text-[9px] font-semibold text-[#b23a2e] hover:bg-[#b23a2e]/10 dark:text-[#e08a63] dark:hover:bg-[#e08a63]/10 transition-colors"
+													on:click|stopPropagation={() => openEdit(region)}
+												>
+													<Pencil size={10} />
+													<span>Edit</span>
+												</button>
+
+												<button
+													type="button"
+													title="Copy translation"
+													aria-label="Copy translation"
+													class="rounded p-1 opacity-50 transition hover:bg-black/10 hover:opacity-100 dark:hover:bg-white/10 active:scale-95"
+													on:click|stopPropagation={() => {
+														navigator.clipboard?.writeText(region.textTarget ?? '');
+														toast.success(`Copied translation for #${region.seq + 1}`);
+													}}
+												>
+													<Copy size={11} />
+												</button>
+											</div>
 										</div>
-										<div class="flex items-start gap-1">
-											<span class="flex-1 break-words leading-snug text-[11px]">{region.textTarget}</span>
-											<button
-												type="button"
-												title="Copy translation"
-												aria-label="Copy translation"
-												class="mt-0.5 flex-shrink-0 rounded p-1 opacity-50 transition hover:bg-black/10 hover:opacity-100 dark:hover:bg-white/10 active:scale-95"
-												on:click|stopPropagation={() => {
-													navigator.clipboard?.writeText(region.textTarget ?? '');
-													toast.success(`Copied translation for #${region.seq + 1}`);
-												}}
-											>
-												<Copy size={12} />
-											</button>
+
+										<div class="break-words leading-snug text-[11px]">
+											{region.textTarget}
 										</div>
+									</div>
+								{:else}
+									<div class="mt-2 border-t border-black/[0.05] pt-1.5 dark:border-white/[0.05] flex items-center justify-between">
+										<span class="text-[10px] opacity-40 italic">No translation yet</span>
+										<button
+											type="button"
+											class="inline-flex items-center gap-1 text-[10px] font-semibold text-[#b23a2e] dark:text-[#e08a63] hover:underline"
+											on:click|stopPropagation={() => openEdit(region)}
+										>
+											<Pencil size={11} />
+											<span>Add Translation</span>
+										</button>
 									</div>
 								{/if}
 
@@ -506,3 +675,16 @@
 		</div>
 	</svelte:fragment>
 </Modal>
+
+<!-- DEDICATED EDIT REGION TRANSLATION & AI RE-ROLL MODAL -->
+{#if page}
+	<EditRegionTranslationModal
+		bind:open={editModalOpen}
+		pageId={page.id}
+		region={editingRegion}
+		on:saved={handleRegionSaved}
+		on:close={() => {
+			editModalOpen = false;
+		}}
+	/>
+{/if}

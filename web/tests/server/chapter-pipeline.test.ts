@@ -130,8 +130,8 @@ describe('runChapterPipeline', () => {
 
 		const got = db.select().from(pages).where(eq(pages.id, page.id)).get();
 		expect(got?.status).toBe('done');
-		expect(got?.cleanedPath).toBe(`clean/${chapter.id}/0.webp`);
-		expect(got?.outputPath).toBe(`output/${chapter.id}/0.webp`);
+		expect(got?.cleanedPath).toMatch(new RegExp(`^clean/${chapter.id}/[a-f0-9-]+\\.webp$`));
+		expect(got?.outputPath).toMatch(new RegExp(`^output/${chapter.id}/[a-f0-9-]+\\.webp$`));
 		expect(got?.width).toBe(200);
 
 		// ARTIFACTS EXIST ON DISK
@@ -173,7 +173,8 @@ describe('runChapterPipeline', () => {
 		writeFileSync(join(dataRoot, 'uploads', 'new.png'), PAGE_PNG);
 
 		await chapterWork(chapter.id, { pipeline, dataRoot, llm: fakeLlm() })(new AbortController().signal, () => {});
-		expect(db.select().from(pages).where(eq(pages.id, p0.id)).get()?.status).toBe('done');
+		const origP0 = db.select().from(pages).where(eq(pages.id, p0.id)).get();
+		expect(origP0?.status).toBe('done');
 
 		// PAGE 1 GOES BACK TO 'pending' (e.g. CLEARED) — PAGE 0 STAYS 'done'
 		db.update(pages).set({ status: 'pending' }).where(eq(pages.id, p1.id)).run();
@@ -194,7 +195,7 @@ describe('runChapterPipeline', () => {
 		const got0 = db.select().from(pages).where(eq(pages.id, p0.id)).get();
 		const got1 = db.select().from(pages).where(eq(pages.id, p1.id)).get();
 		expect(got0?.status).toBe('done');
-		expect(got0?.outputPath).toBe(`output/${chapter.id}/0.webp`); // UNTOUCHED
+		expect(got0?.outputPath).toBe(origP0?.outputPath); // UNTOUCHED
 		expect(got1?.status).toBe('done');
 	});
 

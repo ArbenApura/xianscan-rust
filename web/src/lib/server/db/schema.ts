@@ -110,6 +110,7 @@ export const regions = sqliteTable(
 		// OCR TEXT IN THE SOURCE LANGUAGE AND THE LLM TRANSLATION INTO THE TARGET LANGUAGE.
 		textSource: text('text_source').notNull().default(''),
 		textTarget: text('text_target'),
+		originalTarget: text('original_target'),
 		// 'pending' | 'translated' | 'failed' — TRANSLATION STATE.
 		status: text('status', { enum: ['pending', 'translated', 'failed'] }).notNull().default('pending'),
 		// OCR CONFIDENCE (0..1) — NULL WHEN UNKNOWN.

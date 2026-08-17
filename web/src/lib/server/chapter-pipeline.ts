@@ -14,7 +14,8 @@
 //   - PER-PAGE ERROR ISOLATION: ONE BAD PAGE MARKS ITSELF 'error' AND THE JOB CONTINUES.
 //   - THE WORK FUNCTION FITS startChapterJob() (translation-service) — signal + emit.
 //   - ALL FILE PATHS ARE RELATIVE TO dataRoot (web/data/); THE API LAYER PASSES IT.
-import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { randomUUID } from 'node:crypto';
+import { mkdirSync, readFileSync, writeFileSync, unlinkSync } from 'node:fs';
 import { join } from 'node:path';
 import type OpenAI from 'openai';
 // IMPORTED ENVS ($env/...)
@@ -290,7 +291,7 @@ export async function runChapterPipeline(
 						for (const region of analyzed.regions) {
 							let target = byRegion.get(region.id)?.trim() ?? '';
 							if (!target) { const punct = resolveDialoguePunctuation(region.text); if (punct) { target = punct; byRegion.set(region.id, target); } }
-							tx.update(regions).set({ textTarget: target || null, status: target ? 'translated' : 'failed' }).where(and(eq(regions.pageId, injectRow.id), eq(regions.seq, seqById.get(region.id) ?? -1))).run();
+							tx.update(regions).set({ textTarget: target || null, originalTarget: target || null, status: target ? 'translated' : 'failed' }).where(and(eq(regions.pageId, injectRow.id), eq(regions.seq, seqById.get(region.id) ?? -1))).run();
 						}
 					});
 					emit({ type: 'page-step-end', chapterId, page: injectIdx, pageId: injectRow.id, step: 'persist_translations', stepStatus: 'completed' });
@@ -303,7 +304,10 @@ export async function runChapterPipeline(
 					const cleanRegions = analyzed.regions.filter((r) => Boolean(byRegion.get(r.id)?.trim())).map((r) => ({ id: r.id, box: r.box, polygon: r.polygon }));
 					const cleaned = cleanRegions.length > 0 ? await deps.pipeline.clean(image, cleanRegions, deps.inpaintMode ?? 'patch', signal) : image;
 					if (signal.aborted || deps.isPageCancelled?.(injectRow.id)) return;
-					const cleanPath = `clean/${chapterId}/${injectRow.seq}.webp`;
+					if (injectRow.cleanedPath) {
+						try { unlinkSync(join(deps.dataRoot, injectRow.cleanedPath)); } catch {}
+					}
+					const cleanPath = `clean/${chapterId}/${randomUUID()}.webp`;
 					const cleanAbs = join(deps.dataRoot, cleanPath);
 					cleanDir(join(deps.dataRoot, 'clean', String(chapterId)));
 					writeFileSync(cleanAbs, cleaned);
@@ -317,7 +321,10 @@ export async function runChapterPipeline(
 					const typesetRegions = analyzed.regions.filter((r) => Boolean(byRegion.get(r.id)?.trim())).map((r) => ({ id: r.id, box: r.box, text: byRegion.get(r.id)!, vertical: r.vertical, angle: r.angle }));
 					const out = await typesetPage(cleaned, typesetRegions, deps.typesetOptions);
 					if (signal.aborted || deps.isPageCancelled?.(injectRow.id)) return;
-					const outputPath = `output/${chapterId}/${injectRow.seq}.webp`;
+					if (injectRow.outputPath) {
+						try { unlinkSync(join(deps.dataRoot, injectRow.outputPath)); } catch {}
+					}
+					const outputPath = `output/${chapterId}/${randomUUID()}.webp`;
 					cleanDir(join(deps.dataRoot, 'output', String(chapterId)));
 					writeFileSync(join(deps.dataRoot, outputPath), out);
 					emit({ type: 'page-step-end', chapterId, page: injectIdx, pageId: injectRow.id, step: 'typeset', stepStatus: 'completed', durationMs: performance.now() - tTy0 });
@@ -566,7 +573,7 @@ export async function runChapterPipeline(
 						}
 					}
 					tx.update(regions)
-						.set({ textTarget: target || null, status: target ? 'translated' : 'failed' })
+						.set({ textTarget: target || null, originalTarget: target || null, status: target ? 'translated' : 'failed' })
 						.where(and(eq(regions.pageId, page.id), eq(regions.seq, seqById.get(region.id) ?? -1)))
 						.run();
 				}
@@ -594,7 +601,10 @@ export async function runChapterPipeline(
 				cleanRegions.length > 0 ? await deps.pipeline.clean(image, cleanRegions, deps.inpaintMode ?? 'patch', signal) : image;
 			signal.throwIfAborted();
 			if (deps.isPageCancelled?.(page.id)) return;
-			const cleanPath = `clean/${chapterId}/${page.seq}.webp`;
+			if (page.cleanedPath) {
+				try { unlinkSync(join(deps.dataRoot, page.cleanedPath)); } catch {}
+			}
+			const cleanPath = `clean/${chapterId}/${randomUUID()}.webp`;
 			const cleanAbs = join(deps.dataRoot, cleanPath);
 			cleanDir(join(deps.dataRoot, 'clean', String(chapterId)));
 			writeFileSync(cleanAbs, cleaned);
@@ -628,7 +638,10 @@ export async function runChapterPipeline(
 			const out = await typesetPage(cleaned, typesetRegions, deps.typesetOptions);
 			signal.throwIfAborted();
 			if (deps.isPageCancelled?.(page.id)) return;
-			const outputPath = `output/${chapterId}/${page.seq}.webp`;
+			if (page.outputPath) {
+				try { unlinkSync(join(deps.dataRoot, page.outputPath)); } catch {}
+			}
+			const outputPath = `output/${chapterId}/${randomUUID()}.webp`;
 			cleanDir(join(deps.dataRoot, 'output', String(chapterId)));
 			writeFileSync(join(deps.dataRoot, outputPath), out);
 			const tType = performance.now() - tType0;

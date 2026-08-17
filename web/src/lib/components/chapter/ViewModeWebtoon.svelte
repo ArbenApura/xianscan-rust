@@ -17,27 +17,21 @@
 		{#each pages as page (page.id)}
 			{@const hasRatio = Boolean(page.width && page.height)}
 			<div
-				class="relative w-full border-0 p-0 m-0 leading-none bg-black"
+				class="relative w-full border-0 p-0 m-0 leading-none bg-black overflow-hidden"
 				data-page-seq={page.seq}
 				data-page-id={page.id}
-				style={hasRatio ? `aspect-ratio: ${page.width} / ${page.height};` : ''}
 			>
-				<div
-					class="w-full h-full bg-black/40 overflow-hidden"
+				<img
+					src={`/api/pages/${page.id}/file?kind=${webtoonKind === 'output' && page.outputPath ? 'output' : 'original'}&v=${reloadKey}_${page.outputPath || 'orig'}${pageVersions[page.id] ? `_${pageVersions[page.id]}` : ''}`}
+					alt={`Page ${page.seq + 1}`}
+					width={page.width || undefined}
+					height={page.height || undefined}
+					draggable="false"
+					class="w-full block h-auto object-contain leading-none border-0 p-0 m-0 select-none pointer-events-none"
+					loading="lazy"
+					decoding="async"
 					style={hasRatio ? `aspect-ratio: ${page.width} / ${page.height};` : ''}
-				>
-					<img
-						src={`/api/pages/${page.id}/file?kind=${webtoonKind === 'output' && page.outputPath ? 'output' : 'original'}&v=${reloadKey}_${page.outputPath || 'orig'}${pageVersions[page.id] ? `_${pageVersions[page.id]}` : ''}`}
-						alt={`Page ${page.seq + 1}`}
-						width={page.width || undefined}
-						height={page.height || undefined}
-						draggable="false"
-						class="w-full block h-auto object-contain leading-none border-0 p-0 m-0 select-none pointer-events-none"
-						loading="lazy"
-						decoding="async"
-						style={hasRatio ? `aspect-ratio: ${page.width} / ${page.height};` : ''}
-					/>
-				</div>
+				/>
 			</div>
 		{/each}
 	</div>

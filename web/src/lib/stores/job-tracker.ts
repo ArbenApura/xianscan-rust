@@ -283,8 +283,11 @@ function createJobTrackerStore() {
 						};
 
 						const updatedSnapshot = applyEventToSnapshot(baseSnapshot, event);
+						const hasActivePages = updatedSnapshot.pages.some((p) => p.status === 'processing');
 						const isTerminal =
-							event.type === 'done' || (event.type === 'error' && event.page === undefined);
+							event.type === 'done' ||
+							(event.type === 'error' && event.page === undefined) ||
+							(event.type === 'page-cancelled' && !hasActivePages);
 
 						return {
 							...state,
@@ -292,7 +295,7 @@ function createJobTrackerStore() {
 								...state.jobs,
 								[chapterId]: {
 									...existing,
-									running: !isTerminal,
+									running: !isTerminal && (event.type === 'start' || hasActivePages),
 									connectionState: isTerminal ? 'idle' : 'connected',
 									snapshot: updatedSnapshot,
 									reconnectAttempts: 0,
@@ -532,14 +535,20 @@ function createJobTrackerStore() {
 					}
 					return p;
 				});
+				const hasProcessingPages = updatedPages.some((p) => p.status === 'processing');
+				const isStillRunning = hasProcessingPages;
+
 				return {
 					...state,
 					jobs: {
 						...state.jobs,
 						[chapterId]: {
 							...existing,
+							running: isStillRunning,
+							connectionState: isStillRunning ? existing.connectionState : 'idle',
 							snapshot: {
 								...existing.snapshot,
+								status: isStillRunning ? existing.snapshot.status : 'done',
 								pages: updatedPages,
 							},
 						},
