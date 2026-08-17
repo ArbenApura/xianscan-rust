@@ -161,7 +161,7 @@ impl PipelineEngine {
         // 2. RapidOCR Full-Page Det + Rec
         let mut rapid_lines: Vec<OcrLine> = Vec::new();
         if let Some(ref mut ocr) = self.ocr {
-            if let Ok(rl) = ocr.detect_and_recognize_tiled(img, true) {
+            if let Ok(rl) = ocr.detect_and_recognize_tiled_with_lang(img, true, source_lang) {
                 rapid_lines = rl;
             }
         }
@@ -209,7 +209,7 @@ impl PipelineEngine {
                         if crop_w >= 4 && crop_h >= 4 {
                             let crop = img.crop_imm(crop_x, crop_y, crop_w, crop_h);
                             if bh > 45 || bh > (bw as f32 * 1.5) as i32 || crop_w >= 32 {
-                                if let Ok(Some(crop_res)) = ocr.recognize_crop(&crop) {
+                                if let Ok(Some(crop_res)) = ocr.recognize_crop_with_lang(&crop, source_lang) {
                                     if !crop_res.lines.is_empty() {
                                         for (sub_poly, sub_text, sub_score) in crop_res.lines {
                                             let offset_poly = sub_poly.iter().map(|p| [p[0] + crop_x as i32, p[1] + crop_y as i32]).collect();
@@ -227,7 +227,7 @@ impl PipelineEngine {
                                         });
                                     }
                                 }
-                            } else if let Ok(Some(line_res)) = ocr.recognize_line(&crop) {
+                            } else if let Ok(Some(line_res)) = ocr.recognize_line_with_lang(&crop, source_lang) {
                                 if !line_res.text.is_empty() {
                                     rapid_lines.push(OcrLine {
                                         polygon: cb.clone(),
@@ -276,7 +276,7 @@ impl PipelineEngine {
 
                 if wm_crop_w >= 16 && wm_crop_h >= 16 {
                     let clean_wm_crop = clean_wm_img.crop_imm(wm_crop_x0, wm_crop_y0, wm_crop_w, wm_crop_h);
-                    if let Ok(mut clean_lines) = ocr.detect_and_recognize_tiled(&clean_wm_crop, false) {
+                    if let Ok(mut clean_lines) = ocr.detect_and_recognize_tiled_with_lang(&clean_wm_crop, false, source_lang) {
                         for cl in &mut clean_lines {
                             for p in &mut cl.polygon {
                                 p[0] += wm_crop_x0 as i32;
