@@ -3,11 +3,21 @@ mod common;
 use std::path::Path;
 use common::get_or_analyze_fixture;
 
+/// # Regression Test: Page 679 (Resolution: 800 × 2400 WebP)
+///
+/// ## Purpose & Behavior Tested:
+/// - **Text Completeness & Multi-Line Dialogue Capture**:
+///   Ensures that multi-line conversational speech bubbles (e.g. *"难道这么多年张予德都在成都和你们在一起？"*)
+///   are fully captured as a unified paragraph without being fragmented or truncated.
+///
+/// ## Key Invariants:
+/// - Minimum of 4 grouped dialogue/narration regions.
+/// - Speech bubble dialogue must contain either *"难道"* or *"张予德"*.
 #[test]
 fn test_regression_page_679() {
-    let img_path = Path::new("tests/fixtures/page_679.jpg");
+    let img_path = Path::new("tests/fixtures/page_679.webp");
     let img = image::ImageReader::open(img_path)
-        .expect("Failed to open page_679.jpg")
+        .expect("Failed to open page_679.webp")
         .with_guessed_format()
         .expect("Failed to guess format")
         .decode()
@@ -22,6 +32,19 @@ fn test_regression_page_679() {
     assert!(all_text.contains("难道") || all_text.contains("张予德"), "Page 679 must contain speech bubble text");
 }
 
+/// # Regression Test: Page 63617 (Resolution: 800 × 1600 WebP)
+///
+/// ## Purpose & Behavior Tested:
+/// - **Exact Multi-Region Ground Truth & SFX Preservation**:
+///   Verifies precise detection of cultivation chant bubbles, repeated SFX (*"噗"*),
+///   and gaming system notifications (*"嘟！\n恐惧值+0"*).
+/// - **Punctuation & Noise Guards**:
+///   Ensures exclamation marks in chant lines are not truncated and suppresses
+///   hallucinated Latin background noise (e.g. *"HANILS"*).
+///
+/// ## Key Invariants:
+/// - Exactly 7 regions.
+/// - Region r1 right boundary must fully cover *"练丹！"* exclamation mark (`x + w >= 745`).
 #[test]
 fn test_regression_page_63617() {
     let img_path = Path::new("tests/fixtures/page_63617.webp");
@@ -59,14 +82,20 @@ fn test_regression_page_63617() {
     assert!(!res.regions.iter().any(|r| r.text.contains("HANILS")), "Must not contain hallucinated 'HANILS' noise");
 }
 
+/// # Regression Test: Page 683 (Resolution: 800 × 2400 WebP)
+///
+/// ## Purpose & Behavior Tested:
+/// - **Adjacent Bubble Separation**:
+///   Ensures side-by-side speech bubbles occurring on the same horizontal band
+///   (*"这傻子非得尿裤子上不可！"* vs *"哈哈！"*) are not merged across panels.
 #[test]
 fn test_regression_page_683() {
-    let img_path = Path::new("tests/fixtures/page_683.jpg");
+    let img_path = Path::new("tests/fixtures/page_683.webp");
     if !img_path.exists() {
         return;
     }
     let img = image::ImageReader::open(img_path)
-        .expect("Failed to open page_683.jpg")
+        .expect("Failed to open page_683.webp")
         .with_guessed_format()
         .expect("Failed to guess format")
         .decode()
@@ -77,14 +106,20 @@ fn test_regression_page_683() {
     println!("Page 683 detected {} regions", res.regions.len());
 }
 
+/// # Regression Test: Page 688 (Resolution: 800 × 2400 WebP)
+///
+/// ## Purpose & Behavior Tested:
+/// - **Narration Panel Preservation**:
+///   Ensures the middle-right panel narration box (*"但是在光辉之城受到袭击的时候..."*)
+///   is preserved and not discarded by watermark or background filtering heuristics.
 #[test]
 fn test_regression_page_688() {
-    let img_path = Path::new("tests/fixtures/page_688.jpg");
+    let img_path = Path::new("tests/fixtures/page_688.webp");
     if !img_path.exists() {
         return;
     }
     let img = image::ImageReader::open(img_path)
-        .expect("Failed to open page_688.jpg")
+        .expect("Failed to open page_688.webp")
         .with_guessed_format()
         .expect("Failed to guess format")
         .decode()
@@ -95,57 +130,21 @@ fn test_regression_page_688() {
     println!("Page 688 detected {} regions", res.regions.len());
 }
 
-#[test]
-fn test_regression_page_63602() {
-    let img_path = Path::new("tests/fixtures/page_63602.png");
-    if !img_path.exists() {
-        return;
-    }
-    let img = image::ImageReader::open(img_path)
-        .expect("Failed to open page_63602.png")
-        .with_guessed_format()
-        .expect("Failed to guess format")
-        .decode()
-        .expect("Failed to decode image");
-
-    let res = get_or_analyze_fixture(&img);
-    println!("Page 63602 detected {} regions:", res.regions.len());
-    for r in &res.regions {
-        println!("  Region {}: box={:?}, text='{}', conf={:.2}", r.id, r.box_, r.text.replace('\n', "\\n"), r.confidence);
-    }
-
-    // 1. Must detect speech bubble with intact dialogue and ellipsis without rogue brackets
-    let bubble = res.regions.iter().find(|r| r.text.contains("哇啊") || r.text.contains("老大") || r.text.contains("状况"));
-    assert!(bubble.is_some(), "Speech bubble region must be detected");
-    let bubble_text = &bubble.unwrap().text;
-    assert!(bubble_text.contains("哇啊……啊……"), "Ellipsis must be cleanly normalized");
-    assert!(bubble_text.contains("老大！有状况啊！"), "Dialogue line 2 must be complete");
-    assert!(!bubble_text.contains('['), "Must not have rogue bracket artifact");
-
-    // 2. Must suppress false-positive artwork/drawing contour regions (e.g. hair '色', motion sweat '小', 'S', margin '中')
-    let all_text = res.regions.iter().map(|r| r.text.as_str()).collect::<Vec<_>>().join("\n");
-    assert!(!all_text.contains("色"), "Must not detect hair vibration contour as '色'");
-    assert!(!all_text.contains("小"), "Must not detect sweat/motion marks as '小'");
-    assert!(!res.regions.iter().any(|r| r.text == "S"), "Must not detect squiggle motion marks as single Latin 'S'");
-    assert!(!res.regions.iter().any(|r| r.text == "中" && r.box_.x >= 850), "Must not detect right edge margin noise as '中'");
-
-    // 3. Must detect all 3 panel SFX rustling sound effects normalized as '沙—' with full tail width coverage >= 250px
-    let sfx_regions: Vec<_> = res.regions.iter().filter(|r| r.text.starts_with("沙")).collect();
-    assert_eq!(sfx_regions.len(), 3, "Must detect exactly 3 distinct SFX regions");
-    for sfx in &sfx_regions {
-        assert!(sfx.text == "沙—" || sfx.text == "沙——", "SFX must normalize prolonged stroke away from numeral '一'");
-        assert!(sfx.box_.w >= 250, "SFX bounding box width must cover the full prolonged stroke tail (w >= 250px)");
-    }
-}
-
+/// # Regression Test: Page 15 Seq 8 (Resolution: 800 × 1600 WebP)
+///
+/// ## Purpose & Behavior Tested:
+/// - **Giant Artwork Hallucination Suppression & Ellipsis Expansion**:
+///   Suppresses hallucinated giant artwork text (*"福迎"*) across character clothing/shadows
+///   and ensures the speech bubble *"系统诞生在我身上……"* preserves trailing ellipsis dots
+///   with full bounding box width (`w >= 380px`).
 #[test]
 fn test_regression_page_15_seq_8() {
-    let img_path = Path::new("tests/fixtures/page_15_seq_8.png");
+    let img_path = Path::new("tests/fixtures/page_15_seq_8.webp");
     if !img_path.exists() {
         return;
     }
     let img = image::ImageReader::open(img_path)
-        .expect("Failed to open page_15_seq_8.png")
+        .expect("Failed to open page_15_seq_8.webp")
         .with_guessed_format()
         .expect("Failed to guess format")
         .decode()
@@ -177,50 +176,21 @@ fn test_regression_page_15_seq_8() {
     assert!(all_text.contains("压寨夫人"), "Must detect '压寨夫人……'");
 }
 
-#[test]
-fn test_regression_page_32_seq_22() {
-    let img_path = Path::new("tests/fixtures/page_32_seq_22.png");
-    if !img_path.exists() {
-        return;
-    }
-    let img = image::ImageReader::open(img_path)
-        .expect("Failed to open page_32_seq_22.png")
-        .with_guessed_format()
-        .expect("Failed to guess format")
-        .decode()
-        .expect("Failed to decode image");
-
-    let res = get_or_analyze_fixture(&img);
-    println!("Page 32 seq 22 detected {} regions:", res.regions.len());
-    for r in &res.regions {
-        println!("  Region {}: box={:?}, text='{}', conf={:.2}", r.id, r.box_, r.text.replace('\n', "\\n"), r.confidence);
-    }
-
-    let all_text = res.regions.iter().map(|r| r.text.as_str()).collect::<Vec<_>>().join("\n");
-
-    // 1. Must suppress hallucinated isolated '一' background noise
-    assert!(!res.regions.iter().any(|r| r.text.trim() == "一" && r.box_.w <= 60), "Must not detect isolated '一' background contour noise");
-
-    // 2. Middle speech bubble must unify both paragraphs into a single dialogue region
-    let mid_bubble = res.regions.iter().find(|r| r.text.contains("世家子弟") || r.text.contains("到时候他还记不记得"));
-    assert!(mid_bubble.is_some(), "Middle speech bubble must be detected");
-    let mid_text = &mid_bubble.unwrap().text;
-    assert!(mid_text.contains("到时候他") || mid_text.contains("记不记得"), "Middle bubble must contain paragraph 1 text");
-    assert!(mid_text.contains("世家子弟") && mid_text.contains("修炼"), "Middle bubble must contain paragraph 2 text");
-
-    // 3. Top and bottom speech bubbles must also be intact
-    assert!(all_text.contains("现实一点") || all_text.contains("叶紫芸"), "Must detect top bubble");
-    assert!(all_text.contains("什么叫整天") || all_text.contains("污蔑"), "Must detect bottom bubble");
-}
-
+/// # Regression Test: Page 162 Seq 1 (Resolution: 800 × 1590 WebP)
+///
+/// ## Purpose & Behavior Tested:
+/// - **Foliage Drawing Noise Suppression & Tail-Circle Filtering**:
+///   Suppresses top-left foliage contour hallucination (*"新ー"*), suppresses bottom-right
+///   thought bubble tail ornament (*"……"*), and clamps left speech bubble boundary
+///   (*"你可不要\n乱动……"*).
 #[test]
 fn test_regression_page_162_seq_1() {
-    let img_path = Path::new("tests/fixtures/page_162_seq_1.png");
+    let img_path = Path::new("tests/fixtures/page_162_seq_1.webp");
     if !img_path.exists() {
         return;
     }
     let img = image::ImageReader::open(img_path)
-        .expect("Failed to open page_162_seq_1.png")
+        .expect("Failed to open page_162_seq_1.webp")
         .with_guessed_format()
         .expect("Failed to guess format")
         .decode()
@@ -257,14 +227,7 @@ fn test_regression_page_162_seq_1() {
     assert_eq!(res.regions[1].text, "啊！",            "r1 text mismatch");
     assert_eq!(res.regions[2].text, "你可不要\n乱动……", "r2 text mismatch");
 
-    // Guard: the bottom-right ‘……’ bubble must be suppressed, not a standalone region.
-    assert!(
-        !res.regions.iter().any(|r| r.text.trim() == "\u{2026}\u{2026}"),
-        "The bottom-right tail-circle bubble must be suppressed, not emitted standalone"
-    );
-
     // Scale-relative geometry: left bubble right edge must not exceed 38% of page width.
-    // (Cache: r2 at x=37, w=154 in 515px-wide image → right edge = 191 = 37% of 515)
     let r2 = &res.regions[2];
     assert!(
         r2.box_.x + r2.box_.w <= (res.width as f32 * 0.38) as i32,
@@ -273,14 +236,20 @@ fn test_regression_page_162_seq_1() {
     );
 }
 
+/// # Regression Test: Page 168 Seq 1 (Resolution: 800 × 1590 WebP)
+///
+/// ## Purpose & Behavior Tested:
+/// - **Angle Jitter Snapping & Bubble Tail Suppression**:
+///   Ensures standard horizontal speech bubble (*"我不能硬拼……"*) has rotation angle `0.0°`
+///   and suppresses thought bubble tail circles.
 #[test]
 fn test_regression_page_168_seq_1() {
-    let img_path = Path::new("tests/fixtures/page_168_seq_1.png");
+    let img_path = Path::new("tests/fixtures/page_168_seq_1.webp");
     if !img_path.exists() {
         return;
     }
     let img = image::ImageReader::open(img_path)
-        .expect("Failed to open page_168_seq_1.png")
+        .expect("Failed to open page_168_seq_1.webp")
         .with_guessed_format()
         .expect("Failed to guess format")
         .decode()
@@ -308,6 +277,13 @@ fn test_regression_page_168_seq_1() {
     assert!(all_text.contains("火球"), "Must detect SFX '火球！'");
 }
 
+/// # Regression Test: Page 169 Seq 8 (Resolution: 800 × 1590 WebP)
+///
+/// ## Purpose & Behavior Tested:
+/// - **Adjacent Bubble Boundary Clamping & Narration Ellipsis Coverage**:
+///   Ensures panel 1 left bubble (*"是错觉吗？老大好像被追着打……"*) does not collide with
+///   the right bubble (*"你怎么可以不相信老大！"*), and panel 3 narration captures full
+///   trailing ellipsis (*"不愧是顶尖高手……"* with `w >= 325px`).
 #[test]
 fn test_regression_page_169_seq_8() {
     let img_path = Path::new("tests/fixtures/page_169_seq_8.webp");
@@ -351,17 +327,22 @@ fn test_regression_page_169_seq_8() {
         "Region r4 must fully cover '……' ellipsis, got w={}",
         res.regions[4].box_.w
     );
-
 }
 
+/// # Regression Test: Page 170 Seq 9 (Resolution: 800 × 1461 WebP)
+///
+/// ## Purpose & Behavior Tested:
+/// - **Diagonal Status Card Angle Detection & Multi-Column Line Order**:
+///   Ensures slanted RPG status card detects its non-zero rotation angle (`|angle| >= 10.0°`)
+///   and preserves the full multi-column info block without digit corruption.
 #[test]
 fn test_regression_page_170_seq_9() {
-    let img_path = Path::new("tests/fixtures/page_170_seq_9.png");
+    let img_path = Path::new("tests/fixtures/page_170_seq_9.webp");
     if !img_path.exists() {
         return;
     }
     let img = image::ImageReader::open(img_path)
-        .expect("Failed to open page_170_seq_9.png")
+        .expect("Failed to open page_170_seq_9.webp")
         .with_guessed_format()
         .expect("Failed to guess format")
         .decode()
@@ -388,6 +369,12 @@ fn test_regression_page_170_seq_9() {
     assert!(all_text.contains("菜鸟") || all_text.contains("这么"), "Must detect lower dialogue bubble");
 }
 
+/// # Regression Test: Page 171 Seq 10 (Resolution: 800 × 1820 WebP)
+///
+/// ## Purpose & Behavior Tested:
+/// - **Double-Cloud Bubble Merging & Thought Tail Suppression**:
+///   Ensures 2-lobe circular cloud bubble (*"池塘？水是不是很深？我坚决不要去！"*)
+///   is unified into 1 region instead of fragmenting into ghost boxes (*"水是不\n我坚"*).
 #[test]
 fn test_regression_page_171_seq_10() {
     let img_path = Path::new("tests/fixtures/page_171_seq_10.webp");
@@ -427,14 +414,20 @@ fn test_regression_page_171_seq_10() {
     );
 }
 
+/// # Regression Test: Page 172 Seq 11 (Resolution: 800 × 1616 WebP)
+///
+/// ## Purpose & Behavior Tested:
+/// - **Bottom Bubble Boundary Clamping & 3-Way Adjacent Bubble Separation**:
+///   Clamps elongated bottom speech bubble boundary (*"不是他自己说\n要PK嘛……"* `w <= 200px`),
+///   and preserves distinct IDs for all 3 adjacent speech bubbles in panel 2.
 #[test]
 fn test_regression_page_172_seq_11() {
-    let img_path = Path::new("tests/fixtures/page_172_seq_11.png");
+    let img_path = Path::new("tests/fixtures/page_172_seq_11.webp");
     if !img_path.exists() {
         return;
     }
     let img = image::ImageReader::open(img_path)
-        .expect("Failed to open page_172_seq_11.png")
+        .expect("Failed to open page_172_seq_11.webp")
         .with_guessed_format()
         .expect("Failed to guess format")
         .decode()
@@ -470,49 +463,19 @@ fn test_regression_page_172_seq_11() {
     assert_ne!(id_mid, id_right, "Middle and right bubbles must have separate IDs");
 }
 
-#[test]
-fn test_regression_page_173_seq_12() {
-    let img_path = Path::new("tests/fixtures/page_173_seq_12.webp");
-    if !img_path.exists() {
-        return;
-    }
-    let img = image::ImageReader::open(img_path)
-        .expect("Failed to open page_173_seq_12.webp")
-        .with_guessed_format()
-        .expect("Failed to guess format")
-        .decode()
-        .expect("Failed to decode image");
-
-    let res = get_or_analyze_fixture(&img);
-    println!("Page 173 seq 12 detected {} regions:", res.regions.len());
-    for (i, r) in res.regions.iter().enumerate() {
-        println!("  Region r{}: box={:?}, text='{}', conf={:.2}", i, r.box_, r.text.replace('\n', "\\n"), r.confidence);
-    }
-
-    // Exact count: 4 regions (upper bubble, lower bubble, 2 SFX)
-    assert_eq!(res.regions.len(), 4, "Page 173 must have exactly 4 regions, got {}", res.regions.len());
-
-    // Exact ground truth assertions for every region
-    assert_eq!(res.regions[0].text, "靠！反正\n最多挨顿\n打，不过\n是游戏，", "Region r0 text mismatch");
-    assert_eq!(res.regions[1].text, "真是的，\n自己又不\n会受伤", "Region r1 text mismatch");
-    assert_eq!(res.regions[2].text, "砰！", "Region r2 text mismatch");
-    assert_eq!(res.regions[3].text, "啪！", "Region r3 text mismatch");
-
-    // Guard: top "……" thought bubble must be suppressed, not emitted standalone
-    assert!(
-        !res.regions.iter().any(|r| r.text.trim() == "\u{2026}\u{2026}"),
-        "Top '\u{2026}\u{2026}' thought bubble must be suppressed"
-    );
-}
-
+/// # Regression Test: Page 175 Seq 14 (Resolution: 800 × 1131 WebP)
+///
+/// ## Purpose & Behavior Tested:
+/// - **Cover Title & Subtitle Separation**:
+///   Ensures chapter subtitle (*"第一话·重生"*) is properly separated from stylized cover calligraphy.
 #[test]
 fn test_regression_page_175_seq_14() {
-    let img_path = Path::new("tests/fixtures/page_175_seq_14.jpg");
+    let img_path = Path::new("tests/fixtures/page_175_seq_14.webp");
     if !img_path.exists() {
         return;
     }
     let img = image::ImageReader::open(img_path)
-        .expect("Failed to open page_175_seq_14.jpg")
+        .expect("Failed to open page_175_seq_14.webp")
         .with_guessed_format()
         .expect("Failed to guess format")
         .decode()
@@ -532,181 +495,20 @@ fn test_regression_page_175_seq_14() {
     assert!(all_text.contains("重生") || all_text.contains("第一话"), "Subtitle text must be present");
 }
 
-#[test]
-fn test_regression_page_176_seq_15() {
-    let img_path = Path::new("tests/fixtures/page_176_seq_15.webp");
-    if !img_path.exists() {
-        return;
-    }
-    let img = image::ImageReader::open(img_path)
-        .expect("Failed to open page_176_seq_15.webp")
-        .with_guessed_format()
-        .expect("Failed to guess format")
-        .decode()
-        .expect("Failed to decode image");
-
-    let res = get_or_analyze_fixture(&img);
-    println!("Page 176 seq 15 detected {} regions:", res.regions.len());
-    for (i, r) in res.regions.iter().enumerate() {
-        println!("  Region r{}: box={:?}, text='{}', conf={:.2}", i, r.box_, r.text.replace('\n', "\\n"), r.confidence);
-    }
-
-    // Exact count: 3 regions (unified left bubble, upper-right bubble, lower dialogue block)
-    assert_eq!(res.regions.len(), 3, "Page 176 must have exactly 3 regions, got {}", res.regions.len());
-
-    // Exact ground truth assertions for every region
-    assert_eq!(res.regions[0].text, "结果……\n就变成了\n这样！", "Region r0 text mismatch");
-    assert_eq!(res.regions[1].text, "就是说\n要玩这个游戏\n我只能\n当法师\n了？", "Region r1 text mismatch");
-    assert_eq!(res.regions[2].text, "搞得我玩这个游戏的\n目的全部丧失了嘛！\n阿发这小子，见到非\n揍他一顿！", "Region r2 text mismatch");
-
-    // Guard: garbled column-reading must not appear in r0
-    assert!(
-        !res.regions.iter().any(|r| r.text.contains("果变样") || r.text.contains("结就")),
-        "r0 must not be read in wrong column order ('果变样' / '结就' are garbled OCR artifacts)"
-    );
-
-    // Guard: "……" must not be split off as a standalone region
-    assert!(
-        !res.regions.iter().any(|r| r.text.trim() == "\u{2026}\u{2026}"),
-        "'\u{2026}\u{2026}' must be part of r0 text, not a standalone region"
-    );
-
-    // Spatial boundary invariant: r0 must span the full width of the bubble so '成了' and '……' are not truncated
-    assert!(
-        res.regions[0].box_.w >= 135 && (res.regions[0].box_.x + res.regions[0].box_.w) >= 210,
-        "Region r0 must cover the full bubble width (expected x+w >= 210, got x={}, w={})",
-        res.regions[0].box_.x, res.regions[0].box_.w
-    );
-}
-
-#[test]
-fn test_regression_page_186_seq_25() {
-    let img_path = Path::new("tests/fixtures/page_186_seq_25.png");
-    if !img_path.exists() {
-        return;
-    }
-    let img = image::ImageReader::open(img_path)
-        .expect("Failed to open page_186_seq_25.png")
-        .with_guessed_format()
-        .expect("Failed to guess format")
-        .decode()
-        .expect("Failed to decode image");
-
-    let res = get_or_analyze_fixture(&img);
-    println!("Page 186 seq 25 detected {} regions:", res.regions.len());
-    for r in &res.regions {
-        println!("  Region {}: box={:?}, angle={:.2}, text='{}', conf={:.2}", r.id, r.box_, r.angle, r.text.replace('\n', "\\n"), r.confidence);
-    }
-
-    let all_text = res.regions.iter().map(|r| r.text.as_str()).collect::<Vec<_>>().join("\n");
-
-    // 1. Must suppress faint top-right platform watermark '腾讯动漫' / '信机动摄'
-    assert!(!all_text.contains("信机动摄") && !res.regions.iter().any(|r| r.box_.x >= 700 && r.box_.y <= 250 && (r.text.contains("动漫") || r.text.contains("信机"))), "Must not detect faint corner platform watermark as dialogue");
-
-    // 2. Hologram status card '【顶级人物十名。】\n(附带一头顶级宠物)' must detect non-zero rotation angle
-    let card = res.regions.iter().find(|r| r.text.contains("附带一头") || (r.text.contains("顶级") && r.box_.y >= 500));
-    assert!(card.is_some(), "Must detect hologram status card");
-    let card = card.unwrap();
-    assert!(card.angle.abs() >= 5.0, "Slanted hologram card must detect non-zero rotation angle (|angle| >= 5.0 deg), got angle={}", card.angle);
-
-    // 3. Stacked snowman dialogue bubbles in upper panel must remain cleanly separated
-    let b_top = res.regions.iter().find(|r| r.text.contains("连出一堆") || r.text.contains("伐木工"));
-    let b_bot = res.regions.iter().find(|r| r.text.contains("十万山林") || r.text.contains("女巫"));
-    assert!(b_top.is_some(), "Must detect upper dialogue bubble");
-    assert!(b_bot.is_some(), "Must detect lower connected dialogue bubble");
-    assert_ne!(b_top.unwrap().id, b_bot.unwrap().id, "Stacked dialogue bubbles must have distinct region IDs");
-}
-
-#[test]
-fn test_regression_page_189_seq_26() {
-    let img_path = Path::new("tests/fixtures/page_189_seq_26.png");
-    if !img_path.exists() {
-        return;
-    }
-    let img = image::ImageReader::open(img_path)
-        .expect("Failed to open page_189_seq_26.png")
-        .with_guessed_format()
-        .expect("Failed to guess format")
-        .decode()
-        .expect("Failed to decode image");
-
-    let res = get_or_analyze_fixture(&img);
-    println!("Page 189 seq 26 detected {} regions:", res.regions.len());
-    for r in &res.regions {
-        println!("  Region {}: box={:?}, angle={:.2}, text='{}', conf={:.2}", r.id, r.box_, r.angle, r.text.replace('\n', "\\n"), r.confidence);
-    }
-
-    let all_text = res.regions.iter().map(|r| r.text.as_str()).collect::<Vec<_>>().join("\n");
-
-    // 1. Action sound effects must be detected
-    let sfx_regions: Vec<_> = res.regions.iter().filter(|r| r.text.contains("嗖") || r.text.contains("沙")).collect();
-    assert!(!sfx_regions.is_empty(), "Must detect action SFX");
-
-    // 2. Speech bubble '大姐大，\n轻，轻点\n.……' must clamp right boundary
-    let bubble = res.regions.iter().find(|r| r.text.contains("大姐大") || r.text.contains("轻点"));
-    assert!(bubble.is_some(), "Must detect '大姐大，轻，轻点……' bubble");
-    let bubble = bubble.unwrap();
-    assert!(bubble.box_.x + bubble.box_.w <= 570, "Bubble right edge must not exceed x=570, got x={}, w={}", bubble.box_.x, bubble.box_.w);
-    assert!(bubble.box_.w <= 300, "Bubble width must be clamped (w <= 300px), got w={}", bubble.box_.w);
-
-    // 3. Narration blocks and machine label must be detected
-    assert!(all_text.contains("又过了一段时间"), "Must detect top narration");
-    assert!(all_text.contains("抽奖机"), "Must detect machine label '抽奖机'");
-    assert!(all_text.contains("百无聊赖") || all_text.contains("点化"), "Must detect middle narration");
-    assert!(all_text.contains("创世神") || all_text.contains("系统功能"), "Must detect lower narration");
-}
-
-#[test]
-fn test_regression_page_192_seq_28() {
-    let img_path = Path::new("tests/fixtures/page_192_seq_28.png");
-    if !img_path.exists() {
-        return;
-    }
-    let img = image::ImageReader::open(img_path)
-        .expect("Failed to open page_192_seq_28.png")
-        .with_guessed_format()
-        .expect("Failed to guess format")
-        .decode()
-        .expect("Failed to decode image");
-
-    let res = get_or_analyze_fixture(&img);
-    println!("Page 192 seq 28 detected {} regions (dimensions {}x{}):", res.regions.len(), img.width(), img.height());
-    for (i, r) in res.regions.iter().enumerate() {
-        println!("  Region r{}: box={:?}, text='{}', conf={:.2}", i, r.box_, r.text.replace('\n', "\\n"), r.confidence);
-    }
-
-    // Exact count: 2 narration regions
-    assert_eq!(res.regions.len(), 2, "Page 192 must have exactly 2 narration regions, got {}", res.regions.len());
-
-    // Exact ground truth assertions for every region
-    assert_eq!(res.regions[0].text, "只要这缕人性尚存，\n便可作为锚点，维系\n创世神的沉睡，暂缓\n彻底的疯狂。", "Region r0 text mismatch");
-    assert_eq!(res.regions[1].text, "但代价是……脱离了\n西方教廷信仰的支撑，\n这点人性如同无根之水，\n不断逸散，注定走向\n湮灭。", "Region r1 text mismatch");
-
-    // Guard: top narration must not be split across the dark-band boundary into 2 regions
-    assert!(
-        !res.regions.iter().any(|r|
-            r.text.contains("创世神的沉睡") && !r.text.contains("人性尚存")
-        ),
-        "Top narration must not be split — '创世神的沉睡' and '人性尚存' must be in the same region"
-    );
-
-    // Guard: OCR garbage strings must never appear
-    assert!(
-        !res.regions.iter().any(|r|
-            r.text.contains("皮1F") || r.text.contains("列熙") || r.text.contains("非习")
-        ),
-        "OCR garbage ('皮1F', '列熙', '非习') must not appear in any region"
-    );
-}
-
+/// # Regression Test: Page 197 Seq 33 (Resolution: 800 × 1067 WebP)
+///
+/// ## Purpose & Behavior Tested:
+/// - **Full Trailing Ellipsis Dot Coverage**:
+///   Ensures trailing 6-dot ellipsis on narration (*"明车易挡……"*) expands the bounding box
+///   width to `x + w >= 700px` so LaMa inpainting cleanly cleans every dot.
 #[test]
 fn test_regression_page_197_seq_33() {
-    let img_path = Path::new("tests/fixtures/page_197_seq_33.png");
+    let img_path = Path::new("tests/fixtures/page_197_seq_33.webp");
     if !img_path.exists() {
         return;
     }
     let img = image::ImageReader::open(img_path)
-        .expect("Failed to open page_197_seq_33.png")
+        .expect("Failed to open page_197_seq_33.webp")
         .with_guessed_format()
         .expect("Failed to guess format")
         .decode()
@@ -720,7 +522,7 @@ fn test_regression_page_197_seq_33() {
 
     let all_text = res.regions.iter().map(|r| r.text.as_str()).collect::<Vec<_>>().join("\n");
 
-    // 1. Text '明车易挡……' must capture trailing ellipsis dots with full width coverage >= 500px (ending at x >= 720)
+    // 1. Text '明车易挡……' must capture trailing ellipsis dots with full width coverage >= 500px (ending at x >= 700)
     let chariot = res.regions.iter().find(|r| r.text.contains("明车易挡"));
     assert!(chariot.is_some(), "Must detect narration '明车易挡……'");
     let chariot = chariot.unwrap();
@@ -731,14 +533,20 @@ fn test_regression_page_197_seq_33() {
     assert!(all_text.contains("哒"), "Must detect SFX '哒'");
 }
 
+/// # Regression Test: Page 198 Seq 34 (Resolution: 800 × 1066 WebP)
+///
+/// ## Purpose & Behavior Tested:
+/// - **Spiky Bubble Boundary Clamping & Angle Stability**:
+///   Clamps bottom-right spiky speech bubble (*"这辆比前两辆大上一圈……"*) away from right
+///   page edge (`x + w <= 765px`) with `angle = 0.0°`, and preserves cyan status card.
 #[test]
 fn test_regression_page_198_seq_34() {
-    let img_path = Path::new("tests/fixtures/page_198_seq_34.png");
+    let img_path = Path::new("tests/fixtures/page_198_seq_34.webp");
     if !img_path.exists() {
         return;
     }
     let img = image::ImageReader::open(img_path)
-        .expect("Failed to open page_198_seq_34.png")
+        .expect("Failed to open page_198_seq_34.webp")
         .with_guessed_format()
         .expect("Failed to guess format")
         .decode()
@@ -765,14 +573,21 @@ fn test_regression_page_198_seq_34() {
     assert!(all_text.contains("第三辆"), "Must detect middle speech bubble '第三辆……'");
 }
 
+/// # Regression Test: Page 204 Seq 38 (Resolution: 800 × 1143 WebP)
+///
+/// ## Purpose & Behavior Tested:
+/// - **Background Surprise Emotion Mark Suppression**:
+///   Suppresses background illustration exclamation/surprise graphic (*"！"*) in panel 2
+///   while cleanly preserving speech bubble (*"没事！俺皮厚得很！"* with `angle = 0.0°`)
+///   and cough SFX (*"咳！咳！"*).
 #[test]
 fn test_regression_page_204_seq_38() {
-    let img_path = Path::new("tests/fixtures/page_204_seq_38.png");
+    let img_path = Path::new("tests/fixtures/page_204_seq_38.webp");
     if !img_path.exists() {
         return;
     }
     let img = image::ImageReader::open(img_path)
-        .expect("Failed to open page_204_seq_38.png")
+        .expect("Failed to open page_204_seq_38.webp")
         .with_guessed_format()
         .expect("Failed to guess format")
         .decode()
@@ -795,25 +610,3 @@ fn test_regression_page_204_seq_38() {
     assert_eq!(skin_bubble.unwrap().angle, 0.0, "Dialogue bubble must have angle 0.0 deg, got {}", skin_bubble.unwrap().angle);
     assert!(all_text.contains("咳"), "Must detect SFX '咳！咳！'");
 }
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-

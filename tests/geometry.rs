@@ -1,6 +1,10 @@
 use xianscan_rust::ml::geometry::{box_iou, calculate_box_angle, is_vertical_box, line_center_inside};
 use xianscan_rust::ml::schemas::{BoxRect, Region};
 
+/// # Geometry Test: Horizontal Box Angle Snapping
+///
+/// ## Purpose:
+/// Verifies that perfectly axis-aligned horizontal boxes return an angle of `0.0°`.
 #[test]
 fn test_horizontal_box_has_zero_angle() {
     let pts = [[10.0, 10.0], [100.0, 10.0], [100.0, 40.0], [10.0, 40.0]];
@@ -8,6 +12,10 @@ fn test_horizontal_box_has_zero_angle() {
     assert_eq!(angle, 0.0);
 }
 
+/// # Geometry Test: Clockwise Positive Angle Calculation
+///
+/// ## Purpose:
+/// Verifies that boxes tilted +45° clockwise compute a positive angle near 45.0°.
 #[test]
 fn test_tilted_clockwise_positive_angle() {
     let pts = [[0.0, 0.0], [100.0, 100.0], [80.0, 120.0], [-20.0, 20.0]];
@@ -15,6 +23,10 @@ fn test_tilted_clockwise_positive_angle() {
     assert!((angle - 45.0).abs() < 0.1);
 }
 
+/// # Geometry Test: Counter-Clockwise Negative Angle Calculation
+///
+/// ## Purpose:
+/// Verifies that boxes tilted -30° counter-clockwise compute a negative angle near -30.0°.
 #[test]
 fn test_tilted_counter_clockwise_negative_angle() {
     let pts = [[0.0, 100.0], [100.0, 100.0 - 57.7], [120.0, 120.0 - 57.7], [20.0, 120.0]];
@@ -22,6 +34,10 @@ fn test_tilted_counter_clockwise_negative_angle() {
     assert!((angle - (-30.0)).abs() < 0.5);
 }
 
+/// # Geometry Test: Subpixel Baseline Jitter Snapping
+///
+/// ## Purpose:
+/// Verifies that minor baseline noise (< 1.5°) snaps to 0.0° to prevent upright text tilting.
 #[test]
 fn test_small_angle_jitter_snapped_to_zero() {
     let rad = 1.0_f32.to_radians();
@@ -30,6 +46,10 @@ fn test_small_angle_jitter_snapped_to_zero() {
     assert_eq!(angle, 0.0);
 }
 
+/// # Schema Test: Region Default Angle Serialization
+///
+/// ## Purpose:
+/// Verifies `Region` struct initializes with angle 0.0°.
 #[test]
 fn test_region_schema_default_angle() {
     let r = Region {
@@ -46,6 +66,10 @@ fn test_region_schema_default_angle() {
     assert_eq!(r.angle, 0.0);
 }
 
+/// # Geometry Test: Intersection over Union (IoU) & Vertical Aspect Ratios
+///
+/// ## Purpose:
+/// Tests standard bounding box IoU computation and vertical box aspect checks.
 #[test]
 fn test_box_iou_and_vertical() {
     let b1 = BoxRect { x: 0, y: 0, w: 100, h: 100 };
@@ -64,6 +88,11 @@ fn test_box_iou_and_vertical() {
     assert!(line_center_inside(&line, &region));
 }
 
+/// # Geometry Test: Median Angle from Constituent OCR Lines
+///
+/// ## Purpose:
+/// Verifies that diagonal multi-line speech bubbles compute their rotation angle
+/// using the median angle of constituent OCR lines (~9.2°).
 #[test]
 fn test_pipeline_computes_angle_from_matched_ocr_lines() {
     let line1 = [[352.0, 994.0], [641.0, 1040.0], [633.0, 1094.0], [343.0, 1048.0]];
@@ -80,4 +109,3 @@ fn test_pipeline_computes_angle_from_matched_ocr_lines() {
     let median_angle = line_angles[line_angles.len() / 2];
     assert!((median_angle - 9.2).abs() < 0.5);
 }
-

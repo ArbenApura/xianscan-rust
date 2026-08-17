@@ -3,6 +3,10 @@ use xianscan_rust::ml::reslice::{
     find_optimal_cut_points, is_point_forbidden, smart_reslice_chapter, stitch_images_vertically,
 };
 
+/// # Reslice Test: Vertical Strip Canvas Stitching
+///
+/// ## Purpose:
+/// Verifies vertical concatenation of image strips with exact dimension checking.
 #[test]
 fn test_stitch_images_vertically() {
     let img1 = DynamicImage::new_rgb8(200, 100);
@@ -12,6 +16,10 @@ fn test_stitch_images_vertically() {
     assert_eq!(stitched.dimensions(), (200, 250));
 }
 
+/// # Reslice Test: Width Discrepancy Resizing
+///
+/// ## Purpose:
+/// Verifies strip images with mismatched widths expand to the maximum canvas width.
 #[test]
 fn test_stitch_images_mismatched_width() {
     let img1 = DynamicImage::new_rgb8(200, 100);
@@ -22,6 +30,11 @@ fn test_stitch_images_mismatched_width() {
     assert_eq!(stitched.height(), 300);
 }
 
+/// # Reslice Test: Blank Gutter Cut Point Optimization
+///
+/// ## Purpose:
+/// Verifies that vertical slicing algorithms choose the solid white panel gutter
+/// ($Y=1750..1850$) instead of slicing through textured manga artwork.
 #[test]
 fn test_find_optimal_cut_points_blank_gutters() {
     let mut canvas_buf = ImageBuffer::from_pixel(400, 3000, Rgb([100_u8, 100, 100]));
@@ -53,6 +66,10 @@ fn test_find_optimal_cut_points_blank_gutters() {
     assert_eq!(*cuts.last().unwrap(), 3000);
 }
 
+/// # Reslice Test: Forbidden Coordinate Exclusions
+///
+/// ## Purpose:
+/// Verifies boundary condition handling in forbidden cut intervals.
 #[test]
 fn test_forbidden_zone_check() {
     let zones = [(100, 200), (500, 600)];
@@ -64,6 +81,11 @@ fn test_forbidden_zone_check() {
     assert!(!is_point_forbidden(700, &zones));
 }
 
+/// # Reslice Test: Smart Webtoon Chapter Reslicing
+///
+/// ## Purpose:
+/// Verifies that long webtoon chapters are divided into standardized page slices
+/// with conserved total pixel height ($\sum h_i = 3200\text{px}$).
 #[test]
 fn test_smart_reslice_chapter() {
     let slice1 = DynamicImage::ImageRgb8(ImageBuffer::from_pixel(300, 800, Rgb([120, 120, 120])));

@@ -5,13 +5,18 @@ use common::{hash_image, read_cache, write_cache};
 use xianscan_rust::ml::detect::{ComicTextDetector, DetectResult};
 use xianscan_rust::ml::ocr::{OcrLine, RapidOcr};
 
+/// # Detector Test: `ComicTextDetector` on `page_679.webp`
+///
+/// ## Purpose:
+/// Verifies that the specialized manga text detector ONNX model (`comictextdetector.pt.onnx`)
+/// loads and detects bounding boxes on a high-resolution raw manga page.
 #[test]
 fn test_comic_text_detector_on_fixture_page_679() {
-    let img_path = Path::new("tests/fixtures/page_679.jpg");
-    assert!(img_path.exists(), "Fixture page_679.jpg must exist");
+    let img_path = Path::new("tests/fixtures/page_679.webp");
+    assert!(img_path.exists(), "Fixture page_679.webp must exist");
 
     let img = image::ImageReader::open(img_path)
-        .expect("Failed to open page_679.jpg")
+        .expect("Failed to open page_679.webp")
         .with_guessed_format()
         .expect("Failed to guess format")
         .decode()
@@ -32,15 +37,20 @@ fn test_comic_text_detector_on_fixture_page_679() {
         (res.boxes.len(), res.backend)
     };
 
-    println!("Detected {} text lines on page_679.jpg ({})", boxes_len, backend);
-    assert!(boxes_len > 0, "Must detect text boxes on page_679.jpg");
+    println!("Detected {} text lines on page_679.webp ({})", boxes_len, backend);
+    assert!(boxes_len > 0, "Must detect text boxes on page_679.webp");
 }
 
+/// # OCR Test: `RapidOcr` Tiled Detection & Recognition on `page_679.webp`
+///
+/// ## Purpose:
+/// Verifies that RapidOCR (`PP-OCRv6`) performs tiled text line detection, CTC argmax decoding,
+/// and confidence scoring on vertical and horizontal Chinese text lines.
 #[test]
 fn test_rapid_ocr_detect_and_recognize_on_page_679() {
-    let img_path = Path::new("tests/fixtures/page_679.jpg");
+    let img_path = Path::new("tests/fixtures/page_679.webp");
     let img = image::ImageReader::open(img_path)
-        .expect("Failed to open page_679.jpg")
+        .expect("Failed to open page_679.webp")
         .with_guessed_format()
         .expect("Failed to guess format")
         .decode()
@@ -68,6 +78,11 @@ fn test_rapid_ocr_detect_and_recognize_on_page_679() {
     assert!(!lines.is_empty());
 }
 
+/// # Language Classification Helpers Test
+///
+/// ## Purpose:
+/// Unit tests for CJK/Latin script classification, standalone alphanumeric margin
+/// noise detection, and source language code routing.
 #[test]
 fn test_language_aware_filtering_helpers() {
     use xianscan_rust::ml::detect::{

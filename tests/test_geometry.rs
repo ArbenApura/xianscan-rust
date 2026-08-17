@@ -3,6 +3,10 @@ use xianscan_rust::ml::geometry::{
     get_mini_boxes, unclip_polygon,
 };
 
+/// # Geometry Test: Axis-Aligned Minimum Bounding Box Extraction
+///
+/// ## Purpose:
+/// Verifies `get_mini_boxes` calculates the minimum bounding rectangle and short-side dimension.
 #[test]
 fn test_get_mini_boxes_axis_aligned() {
     let pts = vec![[10.0, 10.0], [50.0, 10.0], [50.0, 30.0], [10.0, 30.0]];
@@ -11,6 +15,10 @@ fn test_get_mini_boxes_axis_aligned() {
     assert!((sside - 20.0).abs() < 1.0);
 }
 
+/// # Geometry Test: Vatti Clipper Polygon Unclip Expansion
+///
+/// ## Purpose:
+/// Verifies `unclip_polygon` expands DBNet text line segmentation masks outward by the unclip ratio.
 #[test]
 fn test_unclip_polygon_expansion() {
     let pts = vec![[20.0, 20.0], [80.0, 20.0], [80.0, 40.0], [20.0, 40.0]];
@@ -21,6 +29,10 @@ fn test_unclip_polygon_expansion() {
     assert!(sside > 20.0, "Expanded box short side must be larger than 20.0");
 }
 
+/// # Geometry Test: Polygon Rasterization & Contour Tracing
+///
+/// ## Purpose:
+/// Verifies `fill_polygon` rasterizes polygon boundaries and `find_contours` extracts outer loops.
 #[test]
 fn test_find_contours_and_fill_polygon() {
     let w = 100;
@@ -38,6 +50,10 @@ fn test_find_contours_and_fill_polygon() {
     assert!(contours[0].len() >= 4);
 }
 
+/// # Geometry Test: Binary Mask Morphological Dilation
+///
+/// ## Purpose:
+/// Verifies `dilate_mask` expands inpainting mask regions by radius $r$ pixels.
 #[test]
 fn test_dilate_mask_expansion() {
     let w = 50;
@@ -52,6 +68,10 @@ fn test_dilate_mask_expansion() {
     assert_eq!(dilated[25 * w + 30], 0);
 }
 
+/// # Geometry Test: Polygon Point IoU Calculation
+///
+/// ## Purpose:
+/// Verifies `box_iou_pts` computes overlap ratio between two polygon coordinate arrays.
 #[test]
 fn test_box_iou_pts() {
     let b1 = vec![[0, 0], [100, 0], [100, 100], [0, 100]];
@@ -62,6 +82,10 @@ fn test_box_iou_pts() {
     assert!((iou - 0.3333).abs() < 0.05);
 }
 
+/// # Geometry Test: Integer Coordinate Box Angle Snapping
+///
+/// ## Purpose:
+/// Verifies `calculate_box_angle_i32` computes rotation angle from integer polygon vertices.
 #[test]
 fn test_calculate_box_angle_i32() {
     let horizontal_box = vec![[0, 0], [100, 0], [100, 30], [0, 30]];

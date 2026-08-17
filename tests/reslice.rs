@@ -3,6 +3,10 @@ use xianscan_rust::ml::reslice::{
     is_point_forbidden, merge_intervals, stitch_images_vertically,
 };
 
+/// # Reslice Test: Vertical Image Stitching
+///
+/// ## Purpose:
+/// Verifies that multiple vertical strip images are stitched into a single continuous canvas.
 #[test]
 fn test_stitch_images_vertically() {
     let img1 = DynamicImage::ImageRgb8(ImageBuffer::from_pixel(200, 100, Rgb([0, 0, 0])));
@@ -13,6 +17,11 @@ fn test_stitch_images_vertically() {
     assert_eq!(stitched.height(), 250);
 }
 
+/// # Reslice Test: Mismatched Width Canvas Normalization
+///
+/// ## Purpose:
+/// Verifies that when input images have differing widths, the stitched canvas width
+/// scales to the maximum width while preserving aspect ratios.
 #[test]
 fn test_stitch_images_mismatched_width() {
     let img1 = DynamicImage::ImageRgb8(ImageBuffer::from_pixel(200, 100, Rgb([0, 0, 0])));
@@ -23,6 +32,10 @@ fn test_stitch_images_mismatched_width() {
     assert_eq!(stitched.height(), 300);
 }
 
+/// # Reslice Test: Forbidden Cut Zone Avoidance
+///
+/// ## Purpose:
+/// Verifies `is_point_forbidden` identifies vertical coordinates that intersect dialogue bubbles.
 #[test]
 fn test_forbidden_zone_check() {
     let zones = vec![(100, 200), (500, 600)];
@@ -34,6 +47,10 @@ fn test_forbidden_zone_check() {
     assert!(!is_point_forbidden(700, &zones));
 }
 
+/// # Reslice Test: Overlapping Forbidden Interval Merging
+///
+/// ## Purpose:
+/// Verifies `merge_intervals` combines overlapping $(y_0, y_1)$ intervals into contiguous exclusion ranges.
 #[test]
 fn test_merge_intervals() {
     let raw = vec![(100, 200), (150, 250), (400, 500)];
@@ -41,6 +58,10 @@ fn test_merge_intervals() {
     assert_eq!(merged, vec![(100, 250), (400, 500)]);
 }
 
+/// # Reslice Test: Optimal Cut Point Selection
+///
+/// ## Purpose:
+/// Verifies `find_optimal_cut_points` finds slice positions within target height bounds without cutting speech bubbles.
 #[test]
 fn test_find_optimal_cut_points() {
     let canvas = DynamicImage::ImageRgb8(ImageBuffer::from_pixel(400, 3000, Rgb([100, 100, 100])));

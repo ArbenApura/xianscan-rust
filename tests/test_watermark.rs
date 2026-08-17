@@ -1,6 +1,11 @@
 use image::{DynamicImage, GenericImageView, ImageBuffer, Rgb};
 use xianscan_rust::ml::watermark::WatermarkRemover;
 
+/// # Watermark Test: Chromatic Bubble Watermark Mask Generation
+///
+/// ## Purpose:
+/// Verifies that semi-transparent colored scanlator watermarks (e.g. red letters over white bubble)
+/// are detected and masked while black character text strokes ($RGB \le 50$) are protected.
 #[test]
 fn test_create_bubble_watermark_mask_detects_colored_overlay() {
     let remover = WatermarkRemover::new();
@@ -39,6 +44,11 @@ fn test_create_bubble_watermark_mask_detects_colored_overlay() {
     assert_eq!(mask.get_pixel(200, 200)[0], 0);
 }
 
+/// # Watermark Test: Colliding Watermark Inpainting & Text Recovery
+///
+/// ## Purpose:
+/// Verifies that inpainting restores the white bubble background around the text
+/// without degrading or eroding the dark dialogue text strokes.
 #[test]
 fn test_inpaint_colliding_watermarks() {
     let remover = WatermarkRemover::new();

@@ -5,6 +5,10 @@ fn box_pts(x: f32, y: f32, w: f32, h: f32) -> Vec<[f32; 2]> {
     vec![[x, y], [x + w, y], [x + w, y + h], [x, y + h]]
 }
 
+/// # Scale Test: Whisper Font Tight Vertical Gap Grouping
+///
+/// ## Purpose:
+/// Verifies small whisper font lines ($h=14\text{px}$) with tight spacing ($gap=5\text{px}$) group together.
 #[test]
 fn test_whisper_lines_group_at_tight_gap() {
     let l1 = box_pts(80.0, 100.0, 120.0, 14.0);
@@ -13,6 +17,10 @@ fn test_whisper_lines_group_at_tight_gap() {
     assert_eq!(merged.len(), 1, "Whisper lines with gap=5px must group");
 }
 
+/// # Scale Test: Whisper Font Wide Gap Separation
+///
+/// ## Purpose:
+/// Verifies small whisper font lines ($h=14\text{px}$) with wide gap ($gap=9\text{px}$) remain separate.
 #[test]
 fn test_whisper_lines_separate_at_wide_gap() {
     let l1 = box_pts(80.0, 100.0, 120.0, 14.0);
@@ -21,6 +29,10 @@ fn test_whisper_lines_separate_at_wide_gap() {
     assert_eq!(merged.len(), 2, "Whisper lines with gap=9px must stay separate");
 }
 
+/// # Scale Test: Standard Dialogue Tight Gap Grouping
+///
+/// ## Purpose:
+/// Verifies standard dialogue text lines ($h=26\text{px}$) group within paragraph thresholds.
 #[test]
 fn test_dialogue_lines_group_at_tight_gap() {
     let l1 = box_pts(100.0, 200.0, 200.0, 26.0);
@@ -29,6 +41,10 @@ fn test_dialogue_lines_group_at_tight_gap() {
     assert_eq!(merged.len(), 1);
 }
 
+/// # Scale Test: Panel Gutter Separation for Standard Dialogue
+///
+/// ## Purpose:
+/// Verifies dialogue lines across a gutter gap ($gap=15\text{px}$) are kept in separate regions.
 #[test]
 fn test_dialogue_lines_separate_at_gutter() {
     let l1 = box_pts(100.0, 200.0, 200.0, 26.0);
@@ -37,6 +53,10 @@ fn test_dialogue_lines_separate_at_gutter() {
     assert_eq!(merged.len(), 2);
 }
 
+/// # Scale Test: Disparate Font Size Non-Grouping Invariant
+///
+/// ## Purpose:
+/// Verifies that small dialogue lines ($h=14\text{px}$) never group with giant SFX/Title lines ($h=45\text{px}$).
 #[test]
 fn test_different_font_sizes_never_group() {
     let l1 = box_pts(80.0, 100.0, 120.0, 14.0);
@@ -45,6 +65,10 @@ fn test_different_font_sizes_never_group() {
     assert_eq!(merged.len(), 2, "Lines with h1=14 and h2=45 must stay separate");
 }
 
+/// # Scale Test: Adjacent Multi-Line Bubble Non-Chaining
+///
+/// ## Purpose:
+/// Verifies that 4-line left bubble and 4-line right bubble do not merge via transitive spatial chaining.
 #[test]
 fn test_adjacent_bubbles_not_merged_via_chaining() {
     // Left bubble: 4 lines at cx=146
@@ -66,6 +90,10 @@ fn test_adjacent_bubbles_not_merged_via_chaining() {
     assert_eq!(result.len(), 2, "Adjacent side-by-side bubbles must not merge");
 }
 
+/// # Scale Test: Suspicious X-Overlap Horizontal Merge Guard
+///
+/// ## Purpose:
+/// Verifies that overlapping horizontal line segments with mismatched alignment stay independent.
 #[test]
 fn test_merge_text_lines_suspicious_x_overlap() {
     let l4 = box_pts(82.0, 761.0, 128.0, 32.0);

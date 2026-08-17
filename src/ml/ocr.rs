@@ -13,6 +13,14 @@ pub struct RapidOcr {
     det_session: Option<Session>,
     rec_session: Session,
     characters: Vec<String>,
+    korean_rec_session: Option<Session>,
+    characters_korean: Option<Vec<String>>,
+    cyrillic_rec_session: Option<Session>,
+    characters_cyrillic: Option<Vec<String>>,
+    vietnamese_rec_session: Option<Session>,
+    characters_vietnamese: Option<Vec<String>>,
+    thai_rec_session: Option<Session>,
+    characters_thai: Option<Vec<String>>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -76,22 +84,77 @@ impl RapidOcr {
             None
         };
 
-        let characters: Vec<String> = if let Ok(json_chars) = serde_json::from_str::<Vec<String>>(dict_str) {
-            json_chars
-        } else {
-            let mut list = vec!["blank".to_string()];
-            for line in dict_str.lines() {
-                list.push(line.to_string());
-            }
-            list.push(" ".to_string());
-            list
-        };
+        let characters = parse_dict_string(dict_str);
 
         Ok(Self {
             det_session,
             rec_session,
             characters,
+            korean_rec_session: None,
+            characters_korean: None,
+            cyrillic_rec_session: None,
+            characters_cyrillic: None,
+            vietnamese_rec_session: None,
+            characters_vietnamese: None,
+            thai_rec_session: None,
+            characters_thai: None,
         })
+    }
+
+    pub fn load_korean_model<P: AsRef<Path>, D: AsRef<Path>>(&mut self, model_path: P, dict_path: D) -> Result<()> {
+        let bytes = std::fs::read(model_path.as_ref())?;
+        let dict_str = std::fs::read_to_string(dict_path.as_ref())?;
+        let session = Session::builder()
+            .map_err(|e| anyhow::anyhow!("Korean session error: {}", e))?
+            .with_intra_threads(num_cpus::get().min(4))
+            .map_err(|e| anyhow::anyhow!("Korean intra threads error: {}", e))?
+            .commit_from_memory(&bytes)
+            .map_err(|e| anyhow::anyhow!("Commit korean rec error: {}", e))?;
+        self.korean_rec_session = Some(session);
+        self.characters_korean = Some(parse_dict_string(&dict_str));
+        Ok(())
+    }
+
+    pub fn load_cyrillic_model<P: AsRef<Path>, D: AsRef<Path>>(&mut self, model_path: P, dict_path: D) -> Result<()> {
+        let bytes = std::fs::read(model_path.as_ref())?;
+        let dict_str = std::fs::read_to_string(dict_path.as_ref())?;
+        let session = Session::builder()
+            .map_err(|e| anyhow::anyhow!("Cyrillic session error: {}", e))?
+            .with_intra_threads(num_cpus::get().min(4))
+            .map_err(|e| anyhow::anyhow!("Cyrillic intra threads error: {}", e))?
+            .commit_from_memory(&bytes)
+            .map_err(|e| anyhow::anyhow!("Commit cyrillic rec error: {}", e))?;
+        self.cyrillic_rec_session = Some(session);
+        self.characters_cyrillic = Some(parse_dict_string(&dict_str));
+        Ok(())
+    }
+
+    pub fn load_vietnamese_model<P: AsRef<Path>, D: AsRef<Path>>(&mut self, model_path: P, dict_path: D) -> Result<()> {
+        let bytes = std::fs::read(model_path.as_ref())?;
+        let dict_str = std::fs::read_to_string(dict_path.as_ref())?;
+        let session = Session::builder()
+            .map_err(|e| anyhow::anyhow!("Vietnamese session error: {}", e))?
+            .with_intra_threads(num_cpus::get().min(4))
+            .map_err(|e| anyhow::anyhow!("Vietnamese intra threads error: {}", e))?
+            .commit_from_memory(&bytes)
+            .map_err(|e| anyhow::anyhow!("Commit vietnamese rec error: {}", e))?;
+        self.vietnamese_rec_session = Some(session);
+        self.characters_vietnamese = Some(parse_dict_string(&dict_str));
+        Ok(())
+    }
+
+    pub fn load_thai_model<P: AsRef<Path>, D: AsRef<Path>>(&mut self, model_path: P, dict_path: D) -> Result<()> {
+        let bytes = std::fs::read(model_path.as_ref())?;
+        let dict_str = std::fs::read_to_string(dict_path.as_ref())?;
+        let session = Session::builder()
+            .map_err(|e| anyhow::anyhow!("Thai session error: {}", e))?
+            .with_intra_threads(num_cpus::get().min(4))
+            .map_err(|e| anyhow::anyhow!("Thai intra threads error: {}", e))?
+            .commit_from_memory(&bytes)
+            .map_err(|e| anyhow::anyhow!("Commit thai rec error: {}", e))?;
+        self.thai_rec_session = Some(session);
+        self.characters_thai = Some(parse_dict_string(&dict_str));
+        Ok(())
     }
 
     /// Direct text recognition on a line crop
@@ -112,6 +175,116 @@ impl RapidOcr {
         }
 
         self.recognize_line_horizontal(crop)
+    }
+
+    /// Batched text recognition on multiple line crops (up to batch size 16)
+    pub fn recognize_lines_batched(&mut self, crops: &[DynamicImage]) -> Result<Vec<Option<OcrResult>>> {
+        if crops.is_empty() {
+            return Ok(Vec::new());
+        }
+
+        let mut results = Vec::with_capacity(crops.len());
+        let chunk_size = 16_usize;
+
+        for chunk in crops.chunks(chunk_size) {
+            let batch_len = chunk.len();
+            let mut processed_crops = Vec::with_capacity(batch_len);
+
+            for c in chunk {
+                let (w, h) = c.dimensions();
+                if w < 4 || h < 4 {
+                    processed_crops.push(None);
+                    continue;
+                }
+                if h as f32 >= 1.3 * w as f32 {
+                    let rot = c.rotate270();
+                    processed_crops.push(Some(rot));
+                } else {
+                    processed_crops.push(Some(c.clone()));
+                }
+            }
+
+            let target_h = 48_usize;
+            let mut max_scaled_w = 320_usize;
+            let mut resized_list = Vec::with_capacity(batch_len);
+
+            for opt_crop in &processed_crops {
+                if let Some(ref c) = opt_crop {
+                    let (w, h) = c.dimensions();
+                    let r = target_h as f32 / h.max(1) as f32;
+                    let scaled_w = ((w as f32 * r).round() as usize).clamp(16, 2048);
+                    max_scaled_w = max_scaled_w.max(scaled_w);
+                    let resized = image::imageops::resize(
+                        c,
+                        scaled_w as u32,
+                        target_h as u32,
+                        image::imageops::FilterType::Triangle,
+                    );
+                    resized_list.push(Some((resized, scaled_w)));
+                } else {
+                    resized_list.push(None);
+                }
+            }
+
+            let target_w = max_scaled_w;
+            let mut tensor_vec = vec![0.0_f32; batch_len * 3 * target_h * target_w];
+            let item_stride = 3 * target_h * target_w;
+            let stride_c = target_h * target_w;
+            let stride_y = target_w;
+
+            for (b_idx, item) in resized_list.iter().enumerate() {
+                if let Some((ref resized, scaled_w)) = item {
+                    let b_offset = b_idx * item_stride;
+                    for y in 0..target_h {
+                        for x in 0..*scaled_w {
+                            let p = resized.get_pixel(x as u32, y as u32);
+                            let r_norm = (p[0] as f32 / 255.0 - 0.5) / 0.5;
+                            let g_norm = (p[1] as f32 / 255.0 - 0.5) / 0.5;
+                            let b_norm = (p[2] as f32 / 255.0 - 0.5) / 0.5;
+
+                            tensor_vec[b_offset + 0 * stride_c + y * stride_y + x] = b_norm;
+                            tensor_vec[b_offset + 1 * stride_c + y * stride_y + x] = g_norm;
+                            tensor_vec[b_offset + 2 * stride_c + y * stride_y + x] = r_norm;
+                        }
+                    }
+                }
+            }
+
+            let input_tensor = Tensor::from_array(([batch_len, 3, target_h, target_w], tensor_vec))
+                .map_err(|e| anyhow::anyhow!("Batched tensor create error: {}", e))?;
+
+            let outputs = self.rec_session.run(ort::inputs![input_tensor])
+                .map_err(|e| anyhow::anyhow!("Batched rec session run error: {}", e))?;
+
+            let (out_shape, out_slice) = outputs[0].try_extract_tensor::<f32>()
+                .map_err(|e| anyhow::anyhow!("Extract batched rec output error: {}", e))?;
+
+            let dims: Vec<usize> = out_shape.iter().map(|&d| d as usize).collect();
+            if dims.len() < 3 {
+                for _ in 0..batch_len {
+                    results.push(None);
+                }
+                continue;
+            }
+
+            let time_steps = dims[1];
+            let num_classes = dims[2];
+            let batch_slice_stride = time_steps * num_classes;
+
+            for b_idx in 0..batch_len {
+                if resized_list[b_idx].is_none() {
+                    results.push(None);
+                    continue;
+                }
+                let slice_start = b_idx * batch_slice_stride;
+                let slice_end = slice_start + batch_slice_stride;
+                let item_out = &out_slice[slice_start..slice_end];
+                let ocr_res = decode_ctc_slice(item_out, time_steps, num_classes, &self.characters);
+                results.push(ocr_res);
+            }
+        }
+
+        Ok(results)
     }
 
     fn recognize_line_horizontal(&mut self, crop: &DynamicImage) -> Result<Option<OcrResult>> {
@@ -167,55 +340,7 @@ impl RapidOcr {
         let time_steps = dims[1];
         let num_classes = dims[2];
 
-        // CTC greedy argmax decoding
-        let mut text = String::new();
-        let mut prev_idx = 0_usize;
-        let mut total_prob = 0.0_f32;
-        let mut token_count = 0_usize;
-
-        for t in 0..time_steps {
-            let offset = t * num_classes;
-            let mut max_idx = 0;
-            let mut max_val = out_slice[offset];
-
-            for c in 1..num_classes {
-                let v = out_slice[offset + c];
-                if v > max_val {
-                    max_val = v;
-                    max_idx = c;
-                }
-            }
-
-            if max_idx != 0 && max_idx != prev_idx {
-                if max_idx < self.characters.len() {
-                    let ch = &self.characters[max_idx];
-                    if ch != "blank" {
-                        text.push_str(ch);
-                        let prob = (1.0 / (1.0 + (-max_val.max(-20.0).min(20.0)).exp())).clamp(0.0, 1.0);
-                        total_prob += prob;
-                        token_count += 1;
-                    }
-                }
-            }
-            prev_idx = max_idx;
-        }
-
-        let avg_confidence = if token_count > 0 {
-            total_prob / token_count as f32
-        } else {
-            0.0
-        };
-
-        let trimmed = text.trim().to_string();
-        if trimmed.is_empty() {
-            Ok(None)
-        } else {
-            Ok(Some(OcrResult {
-                text: trimmed,
-                score: avg_confidence,
-                lines: Vec::new(),
-            }))
-        }
+        Ok(decode_ctc_slice(out_slice, time_steps, num_classes, &self.characters))
     }
 
     /// OCR on a crop with 32px padding, multi-line reading-order sorting, and substring deduplication.
@@ -521,3 +646,77 @@ impl RapidOcr {
         img.crop_imm(x0, y0, crop_w, crop_h)
     }
 }
+
+/// Helper to decode CTC logits using greedy argmax with blank token suppression and probability estimation.
+pub fn decode_ctc_slice(
+    out_slice: &[f32],
+    time_steps: usize,
+    num_classes: usize,
+    characters: &[String],
+) -> Option<OcrResult> {
+    let mut text = String::new();
+    let mut prev_idx = 0_usize;
+    let mut total_prob = 0.0_f32;
+    let mut token_count = 0_usize;
+
+    for t in 0..time_steps {
+        let offset = t * num_classes;
+        if offset + num_classes > out_slice.len() {
+            break;
+        }
+        let mut max_idx = 0;
+        let mut max_val = out_slice[offset];
+
+        for c in 1..num_classes {
+            let v = out_slice[offset + c];
+            if v > max_val {
+                max_val = v;
+                max_idx = c;
+            }
+        }
+
+        if max_idx != 0 && max_idx != prev_idx {
+            if max_idx < characters.len() {
+                let ch = &characters[max_idx];
+                if ch != "blank" {
+                    text.push_str(ch);
+                    let prob = (1.0 / (1.0 + (-max_val.max(-20.0).min(20.0)).exp())).clamp(0.0, 1.0);
+                    total_prob += prob;
+                    token_count += 1;
+                }
+            }
+        }
+        prev_idx = max_idx;
+    }
+
+    let avg_confidence = if token_count > 0 {
+        total_prob / token_count as f32
+    } else {
+        0.0
+    };
+
+    let trimmed = text.trim().to_string();
+    if trimmed.is_empty() {
+        None
+    } else {
+        Some(OcrResult {
+            text: trimmed,
+            score: avg_confidence,
+            lines: Vec::new(),
+        })
+    }
+}
+
+pub fn parse_dict_string(dict_str: &str) -> Vec<String> {
+    if let Ok(json_chars) = serde_json::from_str::<Vec<String>>(dict_str) {
+        json_chars
+    } else {
+        let mut list = vec!["blank".to_string()];
+        for line in dict_str.lines() {
+            list.push(line.to_string());
+        }
+        list.push(" ".to_string());
+        list
+    }
+}
+

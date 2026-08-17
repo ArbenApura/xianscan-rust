@@ -5,11 +5,18 @@ use common::{hash_image, read_cache, write_cache};
 use xianscan_rust::ml::schemas::{AnalyzeResponse, CleanRequestRegion};
 use xianscan_rust::pipeline::PipelineEngine;
 
+/// # End-to-End Pipeline Test: Detection, OCR & Inpainting on `page_679.webp`
+///
+/// ## Purpose:
+/// Tests the full multi-stage processing pipeline on a real manga page:
+/// 1. Runs `ComicTextDetector` + `RapidOCR` full page text recognition.
+/// 2. Converts detected dialogue bubble bounding boxes into clean masks.
+/// 3. Executes LaMa inpainting to ensure image dimensions (`w`, `h`) remain preserved.
 #[test]
 fn test_end_to_end_pipeline_on_page_679() {
-    let img_path = Path::new("tests/fixtures/page_679.jpg");
+    let img_path = Path::new("tests/fixtures/page_679.webp");
     let img = image::ImageReader::open(img_path)
-        .expect("Failed to open page_679.jpg")
+        .expect("Failed to open page_679.webp")
         .with_guessed_format()
         .expect("Failed to guess format")
         .decode()
@@ -61,13 +68,18 @@ fn test_end_to_end_pipeline_on_page_679() {
     assert_eq!(cleaned_h, img.height());
 }
 
+/// # Language-Aware Filtering Pipeline Test
+///
+/// ## Purpose:
+/// Verifies that when analyzing in CJK source mode (`zh-Hans`), standalone alphanumeric
+/// watermarks and English margin noise are filtered out from final dialogue regions.
 #[test]
 fn test_pipeline_analyze_with_language_filtering() {
     use xianscan_rust::ml::schemas::AnalyzeOptions;
 
-    let img_path = Path::new("tests/fixtures/page_679.jpg");
+    let img_path = Path::new("tests/fixtures/page_679.webp");
     let img = image::ImageReader::open(img_path)
-        .expect("Failed to open page_679.jpg")
+        .expect("Failed to open page_679.webp")
         .with_guessed_format()
         .expect("Failed to guess format")
         .decode()

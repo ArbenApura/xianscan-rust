@@ -72,6 +72,7 @@ impl LamaInpainter {
             }
 
             let patch_img = img.crop_imm(x0, y0, patch_w, patch_h);
+            let patch_rgb = patch_img.to_rgb8();
             let mut patch_mask: ImageBuffer<Luma<u8>, Vec<u8>> = ImageBuffer::new(patch_w, patch_h);
             let mut patch_has_active = false;
 
@@ -86,6 +87,18 @@ impl LamaInpainter {
             }
 
             if !patch_has_active {
+                continue;
+            }
+
+            // Solid-color / white bubble inpaint bypass (~70% of dialogue bubbles)
+            if let Some(fill_color) = is_solid_background_patch(&patch_rgb, &patch_mask) {
+                for py in 0..patch_h {
+                    for px in 0..patch_w {
+                        if patch_mask.get_pixel(px, py)[0] > 0 {
+                            result.put_pixel(x0 + px, y0 + py, fill_color);
+                        }
+                    }
+                }
                 continue;
             }
 
@@ -286,4 +299,71 @@ pub fn build_mask(height: u32, width: u32, polygons: &[Vec<[i32; 2]>], dilate_px
     };
 
     ImageBuffer::from_raw(width, height, dilated).unwrap_or_else(|| ImageBuffer::new(width, height))
+}
+
+/// Evaluates whether the unmasked perimeter and background around a patch mask is a flat/solid color (e.g. white comic speech bubble).
+pub fn is_solid_background_patch(
+    patch_rgb: &ImageBuffer<Rgb<u8>, Vec<u8>>,
+    patch_mask: &ImageBuffer<Luma<u8>, Vec<u8>>,
+) -> Option<Rgb<u8>> {
+    let (w, h) = patch_rgb.dimensions();
+    let raw_rgb = patch_rgb.as_raw();
+    let raw_mask = patch_mask.as_raw();
+
+    let mut r_sum = 0.0_f64;
+    let mut g_sum = 0.0_f64;
+    let mut b_sum = 0.0_f64;
+    let mut count = 0_usize;
+
+    // Collect unmasked background pixels
+    for i in 0..(w * h) as usize {
+        if raw_mask[i] == 0 {
+            let r = raw_rgb[i * 3] as f64;
+            let g = raw_rgb[i * 3 + 1] as f64;
+            let b = raw_rgb[i * 3 + 2] as f64;
+            r_sum += r;
+            g_sum += g;
+            b_sum += b;
+            count += 1;
+        }
+    }
+
+    if count < 8 {
+        return None;
+    }
+
+    let mean_r = r_sum / count as f64;
+    let mean_g = g_sum / count as f64;
+    let mean_b = b_sum / count as f64;
+
+    // Calculate variance
+    let mut var_sum = 0.0_f64;
+    for i in 0..(w * h) as usize {
+        if raw_mask[i] == 0 {
+            let r = raw_rgb[i * 3] as f64;
+            let g = raw_rgb[i * 3 + 1] as f64;
+            let b = raw_rgb[i * 3 + 2] as f64;
+            let dr = r - mean_r;
+            let dg = g - mean_g;
+            let db = b - mean_b;
+            var_sum += (dr * dr + dg * dg + db * db) / 3.0;
+        }
+    }
+
+    let std_dev = (var_sum / count as f64).sqrt();
+
+    // Comic speech bubbles are typically white/near-white (mean > 230) with low std_dev (< 10.0)
+    // or solid flat color with very low std_dev (< 4.0)
+    let is_white_bubble = mean_r >= 230.0 && mean_g >= 230.0 && mean_b >= 230.0 && std_dev < 10.0;
+    let is_solid_flat = std_dev < 4.0;
+
+    if is_white_bubble || is_solid_flat {
+        Some(Rgb([
+            mean_r.round().clamp(0.0, 255.0) as u8,
+            mean_g.round().clamp(0.0, 255.0) as u8,
+            mean_b.round().clamp(0.0, 255.0) as u8,
+        ]))
+    } else {
+        None
+    }
 }

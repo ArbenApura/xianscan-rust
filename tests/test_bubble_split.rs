@@ -4,6 +4,11 @@ use std::path::Path;
 use common::get_or_analyze_fixture;
 use xianscan_rust::ml::detect::merge_text_lines;
 
+/// # Bubble Split Test: Terminal Punctuation Horizontal Merge Guard
+///
+/// ## Purpose:
+/// Verifies that adjacent horizontal utterances ending with terminal punctuation (e.g. `！`, `。`, `？`)
+/// are not merged into a single sentence across separate speech bubbles.
 #[test]
 fn test_merge_text_lines_terminal_punct_guard() {
     let b1 = vec![[49.0, 105.0], [253.0, 105.0], [253.0, 152.0], [49.0, 152.0]];
@@ -14,15 +19,20 @@ fn test_merge_text_lines_terminal_punct_guard() {
     assert_eq!(merged.len(), 2, "Terminal punctuation guard must prevent horizontal merge of distinct utterances");
 }
 
+/// # Bubble Split Test: Full Pipeline Adjacent Bubble Separation on `page_683.webp`
+///
+/// ## Purpose:
+/// Verifies that side-by-side dialogue bubbles in panel 2 (*"这傻子非得尿裤子上不可！"* vs *"哈哈！"*)
+/// are emitted as separate regions with unique IDs and clean text isolation.
 #[test]
 fn test_page_683_full_pipeline_bubble_separation() {
-    let img_path = Path::new("tests/fixtures/page_683.jpg");
+    let img_path = Path::new("tests/fixtures/page_683.webp");
     if !img_path.exists() {
         return;
     }
 
     let img = image::ImageReader::open(img_path)
-        .expect("Failed to open page_683.jpg")
+        .expect("Failed to open page_683.webp")
         .with_guessed_format()
         .expect("Failed to guess format")
         .decode()
@@ -45,15 +55,20 @@ fn test_page_683_full_pipeline_bubble_separation() {
     assert!(!right.text.contains("裤子"), "Right bubble must not contain '裤子'");
 }
 
+/// # Bubble Split Test: Multi-Line Paragraph Completeness on `page_679.webp`
+///
+/// ## Purpose:
+/// Verifies that conversational dialogue lines spanning multiple rows are unified
+/// without skipping the introductory speech words.
 #[test]
 fn test_page_679_full_pipeline_text_completeness() {
-    let img_path = Path::new("tests/fixtures/page_679.jpg");
+    let img_path = Path::new("tests/fixtures/page_679.webp");
     if !img_path.exists() {
         return;
     }
 
     let img = image::ImageReader::open(img_path)
-        .expect("Failed to open page_679.jpg")
+        .expect("Failed to open page_679.webp")
         .with_guessed_format()
         .expect("Failed to guess format")
         .decode()

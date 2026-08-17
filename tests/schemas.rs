@@ -1,5 +1,9 @@
 use xianscan_rust::ml::schemas::{AnalyzeResponse, BoxRect, CleanRequestRegion, Region};
 
+/// # Schema Test: `BoxRect` JSON Serialization & Deserialization
+///
+/// ## Purpose:
+/// Verifies struct field mapping and integer coordinate JSON serialization for bounding boxes.
 #[test]
 fn test_box_rect_serialization() {
     let b = BoxRect { x: 1, y: 2, w: 100, h: 50 };
@@ -10,6 +14,10 @@ fn test_box_rect_serialization() {
     assert_eq!(parsed, b);
 }
 
+/// # Schema Test: `Region` Data Model JSON Roundtrip
+///
+/// ## Purpose:
+/// Verifies `Region` struct serializes all metadata including angle, vertical status, and polygon.
 #[test]
 fn test_region_serialization() {
     let r = Region {
@@ -34,6 +42,10 @@ fn test_region_serialization() {
     assert!(parsed.vertical);
 }
 
+/// # Schema Test: `AnalyzeResponse` Full Roundtrip
+///
+/// ## Purpose:
+/// Verifies full API response payload serializes and deserializes accurately across processes.
 #[test]
 fn test_analyze_response_roundtrip() {
     let r = Region {
@@ -63,6 +75,10 @@ fn test_analyze_response_roundtrip() {
     assert_eq!(parsed.regions[0].text, "你好");
 }
 
+/// # Schema Test: Optional Inpainting Region Fields
+///
+/// ## Purpose:
+/// Verifies `CleanRequestRegion` gracefully deserializes when optional `polygon` fields are omitted.
 #[test]
 fn test_clean_request_region_optional_fields() {
     let json = r#"{"id":"r0","box":{"x":1,"y":2,"w":3,"h":4}}"#;
@@ -72,6 +88,10 @@ fn test_clean_request_region_optional_fields() {
     assert!(parsed.polygon.is_none());
 }
 
+/// # Schema Test: `AnalyzeOptions` Language Parameters
+///
+/// ## Purpose:
+/// Verifies OCR language translation parameters (`source_lang`, `target_lang`) serialize properly.
 #[test]
 fn test_analyze_options_serialization() {
     use xianscan_rust::ml::schemas::AnalyzeOptions;

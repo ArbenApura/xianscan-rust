@@ -44,7 +44,7 @@ impl PipelineEngine {
         };
 
         // 2. RapidOCR
-        let ocr = if dir.join("PP-OCRv6_rec_small.onnx").exists() {
+        let mut ocr = if dir.join("PP-OCRv6_rec_small.onnx").exists() {
             let dict_path = if dir.join("rapidocr_keys.json").exists() {
                 dir.join("rapidocr_keys.json")
             } else {
@@ -70,6 +70,21 @@ impl PipelineEngine {
                 None
             }
         };
+
+        if let Some(ref mut ocr_engine) = ocr {
+            if dir.join("korean_mobile_v2.0_rec.onnx").exists() && dir.join("korean_dict.txt").exists() {
+                let _ = ocr_engine.load_korean_model(dir.join("korean_mobile_v2.0_rec.onnx"), dir.join("korean_dict.txt"));
+            }
+            if dir.join("cyrillic_mobile_v2.0_rec.onnx").exists() && dir.join("cyrillic_dict.txt").exists() {
+                let _ = ocr_engine.load_cyrillic_model(dir.join("cyrillic_mobile_v2.0_rec.onnx"), dir.join("cyrillic_dict.txt"));
+            }
+            if dir.join("vi_PP-OCRv3_rec.onnx").exists() && dir.join("vi_dict.txt").exists() {
+                let _ = ocr_engine.load_vietnamese_model(dir.join("vi_PP-OCRv3_rec.onnx"), dir.join("vi_dict.txt"));
+            }
+            if dir.join("th_PP-OCRv5_mobile_rec.onnx").exists() && dir.join("th_dict.txt").exists() {
+                let _ = ocr_engine.load_thai_model(dir.join("th_PP-OCRv5_mobile_rec.onnx"), dir.join("th_dict.txt"));
+            }
+        }
 
         // 3. LaMa Inpainter
         let inpainter = if dir.join("lama.onnx").exists() {
@@ -208,49 +223,74 @@ impl PipelineEngine {
             }
         }
 
-        // 4. Chromatic Watermark Recovery on Raw Image
+        // 4. Chromatic Watermark Recovery on Localized Region
         let color_wm_mask = self.watermark.create_bubble_watermark_mask(img, 210, 20, 35, 15);
         let mut has_color_wm = false;
         let mut wm_pix_count = 0;
-        for p in color_wm_mask.pixels() {
-            if p[0] > 0 {
-                has_color_wm = true;
-                wm_pix_count += 1;
+        let mut min_wm_x = page_w;
+        let mut max_wm_x = 0;
+        let mut min_wm_y = page_h;
+        let mut max_wm_y = 0;
+
+        for y in 0..page_h {
+            for x in 0..page_w {
+                if color_wm_mask.get_pixel(x, y)[0] > 0 {
+                    has_color_wm = true;
+                    wm_pix_count += 1;
+                    min_wm_x = min_wm_x.min(x);
+                    max_wm_x = max_wm_x.max(x);
+                    min_wm_y = min_wm_y.min(y);
+                    max_wm_y = max_wm_y.max(y);
+                }
             }
         }
 
         if has_color_wm && wm_pix_count > 50 {
             let clean_wm_img = self.watermark.inpaint_colliding_watermarks(img, &color_wm_mask);
             if let Some(ref mut ocr) = self.ocr {
-                if let Ok(clean_lines) = ocr.detect_and_recognize_tiled(&clean_wm_img, false) {
-                    for cl in clean_lines {
-                        let (cx, cy, cw, ch) = polygon_bounds(&cl.polygon);
-                        let mut overlap_pix = 0;
-                        for y in cy.max(0)..(cy + ch).min(page_h as i32) {
-                            for x in cx.max(0)..(cx + cw).min(page_w as i32) {
-                                if color_wm_mask.get_pixel(x as u32, y as u32)[0] > 0 {
-                                    overlap_pix += 1;
-                                }
+                let wm_crop_x0 = (min_wm_x as i32 - 40).max(0) as u32;
+                let wm_crop_y0 = (min_wm_y as i32 - 40).max(0) as u32;
+                let wm_crop_x1 = (max_wm_x + 40).min(page_w);
+                let wm_crop_y1 = (max_wm_y + 40).min(page_h);
+                let wm_crop_w = wm_crop_x1.saturating_sub(wm_crop_x0);
+                let wm_crop_h = wm_crop_y1.saturating_sub(wm_crop_y0);
+
+                if wm_crop_w >= 16 && wm_crop_h >= 16 {
+                    let clean_wm_crop = clean_wm_img.crop_imm(wm_crop_x0, wm_crop_y0, wm_crop_w, wm_crop_h);
+                    if let Ok(mut clean_lines) = ocr.detect_and_recognize_tiled(&clean_wm_crop, false) {
+                        for cl in &mut clean_lines {
+                            for p in &mut cl.polygon {
+                                p[0] += wm_crop_x0 as i32;
+                                p[1] += wm_crop_y0 as i32;
                             }
-                        }
-
-                        if overlap_pix >= 15 && CHINESE_RE.is_match(&cl.text) && !is_watermark_line(&cl.text) {
-                            let mut replaced = false;
-                            for rl in &mut rapid_lines {
-                                let iou = box_iou_pts(&cl.polygon, &rl.polygon);
-                                let same_text = cl.text == rl.text || cl.text.contains(&rl.text) || rl.text.contains(&cl.text);
-                                let has_latin = rl.text.chars().any(|c| c.is_ascii_alphabetic());
-
-                                if (has_latin && iou >= 0.15) || (iou >= 0.55) || (same_text && iou >= 0.25) {
-                                    if has_latin || cl.text.len() >= rl.text.len() {
-                                        *rl = cl.clone();
+                            let (cx, cy, cw, ch) = polygon_bounds(&cl.polygon);
+                            let mut overlap_pix = 0;
+                            for y in cy.max(0)..(cy + ch).min(page_h as i32) {
+                                for x in cx.max(0)..(cx + cw).min(page_w as i32) {
+                                    if color_wm_mask.get_pixel(x as u32, y as u32)[0] > 0 {
+                                        overlap_pix += 1;
                                     }
-                                    replaced = true;
-                                    break;
                                 }
                             }
-                            if !replaced {
-                                rapid_lines.push(cl);
+
+                            if overlap_pix >= 15 && CHINESE_RE.is_match(&cl.text) && !is_watermark_line(&cl.text) {
+                                let mut replaced = false;
+                                for rl in &mut rapid_lines {
+                                    let iou = box_iou_pts(&cl.polygon, &rl.polygon);
+                                    let same_text = cl.text == rl.text || cl.text.contains(&rl.text) || rl.text.contains(&cl.text);
+                                    let has_latin = rl.text.chars().any(|c| c.is_ascii_alphabetic());
+
+                                    if (has_latin && iou >= 0.15) || (iou >= 0.55) || (same_text && iou >= 0.25) {
+                                        if has_latin || cl.text.len() >= rl.text.len() {
+                                            *rl = cl.clone();
+                                        }
+                                        replaced = true;
+                                        break;
+                                    }
+                                }
+                                if !replaced {
+                                    rapid_lines.push(cl.clone());
+                                }
                             }
                         }
                     }

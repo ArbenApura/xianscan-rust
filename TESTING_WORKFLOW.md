@@ -15,7 +15,21 @@ This document defines the strict protocol for adding, compiling, and resolving M
 * **Constraint**: Wait for the user to confirm/agree with the analysis before writing code.
 
 ### Step 3: Write Test Case with Strict Pass Conditions (Compilation Only)
-* **Action**: Write the test case into the test suite (`tests/` directory) with **strict, comprehensive pass conditions**.
+* **Action**: Write the test case into the appropriate test file in the `tests/` directory with **strict, comprehensive pass conditions**.
+* **📁 Test File Categorization & Target File Routing Guide**:
+  Place each new test case into the specific file that matches its problem domain:
+  
+  | Category / Problem Domain | Target Test File | Sample Test Patterns |
+  | :--- | :--- | :--- |
+  | **Real Full-Page Regressions** | [`tests/regression_pages.rs`](tests/regression_pages.rs) | End-to-end full page analysis (`get_or_analyze_fixture`), exact region counts, complete dialogue extraction, and panel boundary assertions. |
+  | **Speech Bubble Separation & Splitting** | [`tests/test_bubble_split.rs`](tests/test_bubble_split.rs) | Side-by-side bubble separation, terminal punctuation boundary guards, multi-utterance split preservation. |
+  | **Noise, Tail Circles & Stray OCR Cleanup** | [`tests/test_reported_cases.rs`](tests/test_reported_cases.rs) | Thought bubble tail circle suppression, drawing vibration noise filtering, stray isolated character cleanup, digit prefix stripping. |
+  | **Font Scale & Dialogue Level Grouping** | [`tests/test_scale_differentiation.rs`](tests/test_scale_differentiation.rs) | Whisper vs. normal dialogue separation, tight vs. wide gutter line clustering, disparate font size non-grouping. |
+  | **Watermark Detection & Recovery** | [`tests/test_watermark.rs`](tests/test_watermark.rs) / [`tests/watermark.rs`](tests/watermark.rs) | Chromatic bubble watermark mask detection, colliding watermark inpainting & text recovery, corner platform logo suppression. |
+  | **Geometric Math, Angles & Polygon Unclip** | [`tests/geometry.rs`](tests/geometry.rs) / [`tests/test_geometry.rs`](tests/test_geometry.rs) | Box IoU, orientation angle calculation & snapping, polygon unclip/dilation, axis-aligned mini boxes. |
+  | **Smart Reslicing & Webtoon Chapter Cuts** | [`tests/reslice.rs`](tests/reslice.rs) / [`tests/test_reslice.rs`](tests/test_reslice.rs) | Vertical chapter stitching, blank gutter cut detection, forbidden speech bubble slicing avoidance. |
+  | **Title & Subtitle Separation** | [`tests/test_title_subtitle_separation.rs`](tests/test_title_subtitle_separation.rs) | Cover calligraphy title vs. chapter subtitle separation, substring deduplication, mid-sentence ellipsis preservation. |
+
 * **Strict Assertion Invariants**:
   1. **Exact Native Image Resolution**: Fixture images must match the **exact width and height** of the raw uploaded page provided by the user. Never downscale, downsample, or compress test images—neural feature maps, OCR line aspect ratios, and spatial clustering thresholds depend strictly on native pixel scale.
   2. **Exact Region Count**: Always assert `assert_eq!(res.regions.len(), expected_count)` to catch ghost, duplicate, or split boxes immediately.

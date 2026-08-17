@@ -1,6 +1,11 @@
 use xianscan_rust::ml::detect::{CHINESE_RE, PUNCT_ONLY};
 use xianscan_rust::ml::geometry::calculate_box_angle_i32;
 
+/// # Subtitle Test: Mid-Sentence Ellipsis Preservation
+///
+/// ## Purpose:
+/// Verifies that dialogue containing mid-sentence pause dots (`你……是李婉儿，`)
+/// is treated as valid conversational text and not discarded by punctuation filters.
 #[test]
 fn test_mid_sentence_ellipsis_not_split() {
     let text = "你……是李婉儿，";
@@ -8,6 +13,11 @@ fn test_mid_sentence_ellipsis_not_split() {
     assert!(CHINESE_RE.is_match(text));
 }
 
+/// # Subtitle Test: Substring Prefix & Suffix Deduplication (Sample 45334)
+///
+/// ## Purpose:
+/// Verifies that partial sub-phrase ghost fragments (`嗯`, `极高，`) overlapping full lines
+/// (`嗯，他对你的评价`, `极高，称你为……`) are eliminated via containment deduplication.
 #[test]
 fn test_sample_45334_substring_deduplication() {
     let raw_crop_lines: Vec<&str> = vec![
@@ -66,6 +76,10 @@ fn test_sample_45334_substring_deduplication() {
     assert_eq!(kept_texts, vec!["嗯，他对你的评价", "极高，称你为……"]);
 }
 
+/// # Subtitle Test: Horizontal Speech Bubble Angle Invariant
+///
+/// ## Purpose:
+/// Verifies standard horizontal speech bubbles have angle 0.0°.
 #[test]
 fn test_horizontal_speech_bubble_angle_is_zero() {
     let poly = vec![[50, 100], [250, 100], [250, 140], [50, 140]];

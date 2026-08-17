@@ -54,10 +54,10 @@ pub fn is_standalone_alphanumeric_without_cjk(text: &str) -> bool {
     has_alphanumeric_characters(text) && !has_cjk_characters(text)
 }
 
-/// Check if the specified source language is CJK (or default manhua auto).
+/// Check if the specified source language is CJK (defaults to zh-Hans).
 pub fn is_cjk_source(source_lang: Option<&str>) -> bool {
     match source_lang {
-        None => true, // default to CJK
+        None => true, // default to CJK (zh-Hans)
         Some(s) => {
             let trimmed = s.trim().to_ascii_lowercase();
             if trimmed.is_empty() || trimmed == "auto" {
@@ -71,13 +71,13 @@ pub fn is_cjk_source(source_lang: Option<&str>) -> bool {
     }
 }
 
-/// Check if the specified source language is Latin / English based.
+/// Check if the specified source language is Latin / European / non-CJK based.
 pub fn is_latin_source(source_lang: Option<&str>) -> bool {
     match source_lang {
         None => false,
         Some(s) => {
             let trimmed = s.trim().to_ascii_lowercase();
-            ["en", "eng", "english", "es", "spanish", "fr", "french", "de", "german", "pt", "portuguese", "it", "italian", "ru", "russian", "id", "indonesian", "vi", "vietnamese"].iter().any(|&l| trimmed == l || trimmed.starts_with(&format!("{}-", l)) || trimmed.starts_with(&format!("{}_", l)))
+            ["en", "eng", "english", "es", "spanish", "fr", "french", "de", "german", "pt", "portuguese", "it", "italian", "ru", "russian", "id", "indonesian", "vi", "vietnamese", "th", "thai"].iter().any(|&l| trimmed == l || trimmed.starts_with(&format!("{}-", l)) || trimmed.starts_with(&format!("{}_", l)))
         }
     }
 }
@@ -393,25 +393,31 @@ pub fn preprocess_for_onnx(img: &DynamicImage, input_size: u32) -> (Vec<f32>, u3
     let pad_w = input_size - new_unpad_w;
     let pad_h = input_size - new_unpad_h;
 
-    let resized = image::imageops::resize(img, new_unpad_w, new_unpad_h, image::imageops::FilterType::Triangle);
+    let rgb_img = img.to_rgb8();
+    let resized = image::imageops::resize(&rgb_img, new_unpad_w, new_unpad_h, image::imageops::FilterType::Triangle);
+    let raw_bytes = resized.as_raw();
 
     let mut tensor = vec![0.0_f32; 1 * 3 * input_size as usize * input_size as usize];
 
     // ComicTextDetector expects BGR channel order normalized to [0, 1]
     let stride_c = input_size as usize * input_size as usize;
     let stride_y = input_size as usize;
+    let unpad_w_usize = new_unpad_w as usize;
 
     for y in 0..new_unpad_h as usize {
-        for x in 0..new_unpad_w as usize {
-            let pixel = resized.get_pixel(x as u32, y as u32);
-            let r_val = pixel[0] as f32 / 255.0;
-            let g_val = pixel[1] as f32 / 255.0;
-            let b_val = pixel[2] as f32 / 255.0;
+        let row_offset = y * stride_y;
+        let raw_row_offset = y * unpad_w_usize * 3;
+        for x in 0..unpad_w_usize {
+            let raw_idx = raw_row_offset + x * 3;
+            let r_val = raw_bytes[raw_idx] as f32 / 255.0;
+            let g_val = raw_bytes[raw_idx + 1] as f32 / 255.0;
+            let b_val = raw_bytes[raw_idx + 2] as f32 / 255.0;
 
+            let tensor_idx = row_offset + x;
             // Channel 0: B, Channel 1: G, Channel 2: R
-            tensor[0 * stride_c + y * stride_y + x] = b_val;
-            tensor[1 * stride_c + y * stride_y + x] = g_val;
-            tensor[2 * stride_c + y * stride_y + x] = r_val;
+            tensor[0 * stride_c + tensor_idx] = b_val;
+            tensor[1 * stride_c + tensor_idx] = g_val;
+            tensor[2 * stride_c + tensor_idx] = r_val;
         }
     }
 
