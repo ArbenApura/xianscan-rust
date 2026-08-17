@@ -181,9 +181,32 @@ pub fn build_regions(
             let avg_score = matched.iter().map(|l| l.score).sum::<f32>() / matched.len() as f32;
             let mut best_text = row_grouped_texts.join("\n");
             let mut best_score = avg_score;
+            let mut valid_angles: Vec<f32> = matched
+                .iter()
+                .map(|l| calculate_box_angle_i32(&l.polygon))
+                .filter(|a| a.abs() >= 1.5)
+                .collect();
+            valid_angles.sort_by(|a, b| a.total_cmp(b));
+            let median_angle = if !valid_angles.is_empty() {
+                valid_angles[valid_angles.len() / 2]
+            } else {
+                0.0
+            };
+
+            let has_mixed_orientations = {
+                let has_vert = matched.iter().any(|l| {
+                    let (_, _, lw, lh) = polygon_bounds(&l.polygon);
+                    lh >= (lw as f32 * 1.5) as i32 && lh >= 35
+                });
+                let has_horiz = matched.iter().any(|l| {
+                    let (_, _, lw, lh) = polygon_bounds(&l.polygon);
+                    lw >= (lh as f32 * 1.5) as i32 && lw >= 35
+                });
+                has_vert && has_horiz
+            };
 
             let is_uneven_multiline = {
-                if matched.len() >= 3 {
+                if matched.len() >= 3 && matched.len() <= 6 {
                     let line_lens: Vec<usize> = row_grouped_texts.iter().map(|t| t.chars().count()).collect();
                     let max_l = line_lens.iter().cloned().max().unwrap_or(0);
                     let min_l = line_lens.iter().cloned().min().unwrap_or(0);
@@ -195,6 +218,7 @@ pub fn build_regions(
             let is_short_line_in_bubble = matched.len() <= 2 && box_rect.w >= 40 && box_rect.h >= 18;
             let needs_crop_refinement = is_short_line_in_bubble
                 || is_uneven_multiline
+                || has_mixed_orientations
                 || avg_score < 0.70;
 
             if needs_crop_refinement {
@@ -253,19 +277,75 @@ pub fn build_regions(
                             }).cloned().collect();
 
                             if clean_lines.len() >= 2 {
-                                clean_lines.sort_by_key(|(pts, _, _)| pts.iter().map(|p| p[1]).min().unwrap_or(0));
+                                let rad = median_angle.to_radians();
+                                let cos_a = rad.cos();
+                                let sin_a = rad.sin();
+                                let rot_y = |x: i32, y: i32| -> f32 {
+                                    -(x as f32) * sin_a + (y as f32) * cos_a
+                                };
+                                let rot_x = |x: i32, y: i32| -> f32 {
+                                    (x as f32) * cos_a + (y as f32) * sin_a
+                                };
+
+                                clean_lines.sort_by(|(pts_a, _, _), (pts_b, _, _)| {
+                                    let (ax, ay, aw, ah) = polygon_bounds(pts_a);
+                                    let (bx, by, bw, bh) = polygon_bounds(pts_b);
+                                    let a_mid_x = ax + aw / 2;
+                                    let a_mid_y = ay + ah / 2;
+                                    let b_mid_x = bx + bw / 2;
+                                    let b_mid_y = by + bh / 2;
+
+                                    let a_rot_y = rot_y(a_mid_x, a_mid_y);
+                                    let b_rot_y = rot_y(b_mid_x, b_mid_y);
+                                    let a_rot_x = rot_x(a_mid_x, a_mid_y);
+                                    let b_rot_x = rot_x(b_mid_x, b_mid_y);
+
+                                    let min_h = (ah.min(bh) as f32).max(10.0);
+                                    let y_close = (a_rot_y - b_rot_y).abs() <= (min_h * 0.40).max(6.0);
+                                    if y_close {
+                                        a_rot_x.total_cmp(&b_rot_x)
+                                    } else {
+                                        a_rot_y.total_cmp(&b_rot_y)
+                                    }
+                                });
+
+                                let mut grouped_lines: Vec<(Vec<[i32; 2]>, String, f32)> = Vec::new();
+                                for (pts, txt, score) in clean_lines {
+                                    let (x, y, w, h) = polygon_bounds(&pts);
+                                    let mid_x = x + w / 2;
+                                    let mid_y = y + h / 2;
+                                    let curr_rot_y = rot_y(mid_x, mid_y);
+
+                                    if let Some((last_pts, last_txt, last_score)) = grouped_lines.last_mut() {
+                                        let (lx, ly, lw, lh) = polygon_bounds(last_pts);
+                                        let last_mid_x = lx + lw / 2;
+                                        let last_mid_y = ly + lh / 2;
+                                        let last_rot_y = rot_y(last_mid_x, last_mid_y);
+                                        let min_h = (lh.min(h) as f32).max(10.0);
+                                        let same_row = (curr_rot_y - last_rot_y).abs() <= (min_h * 0.40).max(6.0);
+                                        if same_row {
+                                            let mut combined_pts = last_pts.clone();
+                                            combined_pts.extend(pts);
+                                            *last_pts = combined_pts;
+                                            *last_txt = clean_stray_ocr_artifacts(&format!("{}{}", last_txt.trim_end(), txt.trim_start()));
+                                            *last_score = (*last_score + score) / 2.0;
+                                            continue;
+                                        }
+                                    }
+                                    grouped_lines.push((pts, txt, score));
+                                }
+
                                 let mut filtered = Vec::new();
-                                for (i, (pts, txt, score)) in clean_lines.iter().enumerate() {
+                                for (i, (pts, txt, score)) in grouped_lines.iter().enumerate() {
                                     if i == 0 {
                                         filtered.push((pts.clone(), txt.clone(), *score));
                                         continue;
                                     }
                                     let prev_pts = &filtered.last().unwrap().0;
                                     let prev_txt = &filtered.last().unwrap().1;
-                                    let prev_max_y = prev_pts.iter().map(|p| p[1]).max().unwrap_or(0);
-                                    let prev_min_y = prev_pts.iter().map(|p| p[1]).min().unwrap_or(0);
-                                    let prev_h = (prev_max_y - prev_min_y).max(10);
-                                    let curr_min_y = pts.iter().map(|p| p[1]).min().unwrap_or(0);
+                                    let (_px, prev_min_y, _pw, prev_h) = polygon_bounds(prev_pts);
+                                    let prev_max_y = prev_min_y + prev_h;
+                                    let (_cx, curr_min_y, _cw, _ch) = polygon_bounds(pts);
                                     let v_gap = curr_min_y - prev_max_y;
 
                                     let prev_has_term = prev_txt.ends_with('？') || prev_txt.ends_with('?') || prev_txt.ends_with('！') || prev_txt.ends_with('!') || prev_txt.ends_with('。');
@@ -288,11 +368,17 @@ pub fn build_regions(
                             let clean_res_text = clean_stray_ocr_artifacts(&raw_res_text);
                             let clean_chars = clean_res_text.chars().filter(|c| !c.is_whitespace()).count();
                             let orig_chars = best_text.chars().filter(|c| !c.is_whitespace()).count();
-                            if CHINESE_RE.is_match(&clean_res_text) && (res.score > avg_score || clean_chars > orig_chars) {
+                            if CHINESE_RE.is_match(&clean_res_text) && (res.score > avg_score || clean_chars > orig_chars || has_mixed_orientations) {
                                 best_text = clean_res_text;
                                 best_score = res.score;
                                 let line_polys: Vec<Vec<[i32; 2]>> = clean_lines.iter().map(|(p, _, _)| {
-                                    p.iter().map(|pt| [crop_x as i32 + pt[0], crop_y as i32 + pt[1]]).collect()
+                                    let (px, py, pw, ph) = polygon_bounds(p);
+                                    vec![
+                                        [crop_x as i32 + px, crop_y as i32 + py],
+                                        [crop_x as i32 + px + pw, crop_y as i32 + py],
+                                        [crop_x as i32 + px + pw, crop_y as i32 + py + ph],
+                                        [crop_x as i32 + px, crop_y as i32 + py + ph],
+                                    ]
                                 }).collect();
                                 if !line_polys.is_empty() {
                                     refined_polys = Some(line_polys);

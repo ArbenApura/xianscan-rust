@@ -682,21 +682,21 @@ fn test_regression_page_204_seq_38() {
     assert!(all_text.contains("咳"), "Must detect SFX '咳！咳！'");
 }
 
-/// # Regression Test: Novice Mage Equipment & Speech Bubble Page (Resolution: 560 × 1024 WebP)
+/// # Regression Test: Novice Mage Equipment & Speech Bubble Page (Resolution: 800 × 1461 WebP)
 ///
 /// ## Purpose & Behavior Tested:
 /// - **Speech Bubble Unification vs. Column Split**:
-///   Guarantees that the lower panel speech bubble containing 3 vertical lines:
-///   `哼，这么胡\n来，菜鸟一\n个！` is unified into a single speech bubble region
-///   rather than being incorrectly split across columns into fractured fragments (`哼来个/这菜` and `这么胡/菜鸟一`).
+///   Guarantees that the lower panel speech bubble containing 3 horizontal lines:
+///   `哼，这么胡\n来，菜鸟一\n个！` is recognized accurately and unified into a single speech bubble region
+///   rather than being incorrectly split across columns into fractured fragments (`哼来个/这菜` and `这么胡/菜鸟一` or `这么—\n哼来个\n这么胡\n菜鸟一`).
 /// - **Equipment Stats Card Detection**:
 ///   Ensures the upper character stats/equipment window (`职业：法师...残破的割肉小刀`) is cleanly detected as a single region.
 ///
 /// ## Key Invariants:
 /// - Exactly 2 regions.
 /// - Region 0: Upper stats card containing `职业：法师` and `残破的割肉小刀`.
-/// - Region 1: Speech bubble containing `哼，这么胡\n来，菜鸟一\n个！` (or full unified text `哼，这么胡`, `菜鸟一个`).
-/// - Negative guard: No fractured sub-boxes (e.g. separate regions containing `哼来个` or `这菜`).
+/// - Region 1: Speech bubble containing `哼，这么胡\n来，菜鸟一\n个！`.
+/// - Negative guard: No fractured sub-boxes or column cross-reading (`哼来个`).
 #[test]
 fn test_regression_page_novice_mage_split_bubble() {
     let img_path = Path::new("tests/fixtures/page_novice_mage_split_bubble.webp");
@@ -735,7 +735,8 @@ fn test_regression_page_novice_mage_split_bubble() {
     let speech_bubble = res.regions.iter().find(|r| r.text.contains("菜鸟") || r.text.contains("这么胡") || r.text.contains("哼"));
     assert!(speech_bubble.is_some(), "Must detect lower speech bubble");
     let bubble_text = &speech_bubble.unwrap().text;
-    assert!(bubble_text.contains("这么胡") && bubble_text.contains("菜鸟"), "Speech bubble must unify both columns without fragmentation");
+    assert!(bubble_text.contains("这么胡") && bubble_text.contains("菜鸟"), "Speech bubble must unify lines without fragmentation");
+    assert!(!bubble_text.contains("哼来个"), "Speech bubble must not cross-read column characters into '哼来个'");
 
     // 4. Negative Guard: Zero split fragment ghost boxes
     assert!(!res.regions.iter().any(|r| r.text.trim() == "哼来个\n这菜" || r.text.trim() == "这么胡\n菜鸟一"), "Must not leave column-split fragment ghost boxes");
