@@ -1,4 +1,7 @@
 use std::sync::{LazyLock, Mutex};
+use anyhow::Result;
+use ort::session::builder::GraphOptimizationLevel;
+use ort::session::Session;
 use tracing::info;
 
 use super::schemas::{GpuInfo, HardwareStatus};
@@ -132,4 +135,55 @@ pub fn set_active_provider(mode: &str) -> HardwareStatus {
     *guard = if clean == "auto" { None } else { Some(clean) };
     drop(guard);
     get_hardware_status()
+}
+
+/// Creates an ONNX Runtime Session from bytes using the active hardware accelerator
+/// (DirectML for dedicated GPUs, with automatic, graceful fallback to multi-threaded CPU).
+pub fn create_session_from_memory(bytes: &[u8], model_tag: &str) -> Result<Session> {
+    let (providers, _) = probe_hardware();
+    let wants_dml = providers.iter().any(|p| p == "DmlExecutionProvider");
+
+    if wants_dml {
+        #[cfg(feature = "directml")]
+        {
+            let dml_res = (|| -> Result<Session> {
+                let session = Session::builder()
+                    .map_err(|e| anyhow::anyhow!("Builder error: {}", e))?
+                    .with_intra_threads(num_cpus::get().min(8))
+                    .map_err(|e| anyhow::anyhow!("Intra threads error: {}", e))?
+                    .with_optimization_level(GraphOptimizationLevel::Level3)
+                    .map_err(|e| anyhow::anyhow!("Opt level error: {}", e))?
+                    .with_execution_providers([ort::ep::DirectML::default().build()])
+                    .map_err(|e| anyhow::anyhow!("DirectML provider error: {}", e))?
+                    .commit_from_memory(bytes)
+                    .map_err(|e| anyhow::anyhow!("Commit error: {}", e))?;
+                Ok(session)
+            })();
+
+            match dml_res {
+                Ok(s) => {
+                    info!("Successfully initialized ONNX model '{}' with DirectML GPU acceleration.", model_tag);
+                    return Ok(s);
+                }
+                Err(e) => {
+                    tracing::warn!(
+                        "Failed to initialize ONNX model '{}' with DirectML ({}); falling back to CPU multi-threaded.",
+                        model_tag, e
+                    );
+                }
+            }
+        }
+    }
+
+    // CPU multi-threaded session with Level 3 graph optimization
+    let session = Session::builder()
+        .map_err(|e| anyhow::anyhow!("Session builder error: {}", e))?
+        .with_intra_threads(num_cpus::get().min(8))
+        .map_err(|e| anyhow::anyhow!("Session intra threads error: {}", e))?
+        .with_optimization_level(GraphOptimizationLevel::Level3)
+        .map_err(|e| anyhow::anyhow!("Session optimization level error: {}", e))?
+        .commit_from_memory(bytes)
+        .map_err(|e| anyhow::anyhow!("Commit session from memory error: {}", e))?;
+
+    Ok(session)
 }

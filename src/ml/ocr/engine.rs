@@ -49,21 +49,9 @@ impl RapidOcr {
         rec_bytes: &[u8],
         dict_str: &str,
     ) -> Result<Self> {
-        let rec_session = Session::builder()
-            .map_err(|e| anyhow::anyhow!("Rec session builder error: {}", e))?
-            .with_intra_threads(num_cpus::get().min(8))
-            .map_err(|e| anyhow::anyhow!("Rec session intra threads error: {}", e))?
-            .commit_from_memory(rec_bytes)
-            .map_err(|e| anyhow::anyhow!("Commit rec from memory error: {}", e))?;
-
+        let rec_session = crate::ml::device::create_session_from_memory(rec_bytes, "rapid_ocr_rec")?;
         let det_session = if let Some(db) = det_bytes {
-            let ds = Session::builder()
-                .map_err(|e| anyhow::anyhow!("Det session builder error: {}", e))?
-                .with_intra_threads(num_cpus::get().min(8))
-                .map_err(|e| anyhow::anyhow!("Det session intra threads error: {}", e))?
-                .commit_from_memory(db)
-                .map_err(|e| anyhow::anyhow!("Commit det from memory error: {}", e))?;
-            Some(ds)
+            Some(crate::ml::device::create_session_from_memory(db, "rapid_ocr_det")?)
         } else {
             None
         };
@@ -86,12 +74,7 @@ impl RapidOcr {
     }
 
     pub fn load_korean_from_bytes(&mut self, bytes: &[u8], dict_str: &str) -> Result<()> {
-        let session = Session::builder()
-            .map_err(|e| anyhow::anyhow!("Korean session error: {}", e))?
-            .with_intra_threads(num_cpus::get().min(4))
-            .map_err(|e| anyhow::anyhow!("Korean intra threads error: {}", e))?
-            .commit_from_memory(bytes)
-            .map_err(|e| anyhow::anyhow!("Commit korean rec error: {}", e))?;
+        let session = crate::ml::device::create_session_from_memory(bytes, "rapid_ocr_korean")?;
         self.korean_rec_session = Some(session);
         self.characters_korean = Some(parse_dict_string(dict_str));
         Ok(())
@@ -104,12 +87,7 @@ impl RapidOcr {
     }
 
     pub fn load_cyrillic_from_bytes(&mut self, bytes: &[u8], dict_str: &str) -> Result<()> {
-        let session = Session::builder()
-            .map_err(|e| anyhow::anyhow!("Cyrillic session error: {}", e))?
-            .with_intra_threads(num_cpus::get().min(4))
-            .map_err(|e| anyhow::anyhow!("Cyrillic intra threads error: {}", e))?
-            .commit_from_memory(bytes)
-            .map_err(|e| anyhow::anyhow!("Commit cyrillic rec error: {}", e))?;
+        let session = crate::ml::device::create_session_from_memory(bytes, "rapid_ocr_cyrillic")?;
         self.cyrillic_rec_session = Some(session);
         self.characters_cyrillic = Some(parse_dict_string(dict_str));
         Ok(())
@@ -122,12 +100,7 @@ impl RapidOcr {
     }
 
     pub fn load_vietnamese_from_bytes(&mut self, bytes: &[u8], dict_str: &str) -> Result<()> {
-        let session = Session::builder()
-            .map_err(|e| anyhow::anyhow!("Vietnamese session error: {}", e))?
-            .with_intra_threads(num_cpus::get().min(4))
-            .map_err(|e| anyhow::anyhow!("Vietnamese intra threads error: {}", e))?
-            .commit_from_memory(bytes)
-            .map_err(|e| anyhow::anyhow!("Commit vietnamese rec error: {}", e))?;
+        let session = crate::ml::device::create_session_from_memory(bytes, "rapid_ocr_vietnamese")?;
         self.vietnamese_rec_session = Some(session);
         self.characters_vietnamese = Some(parse_dict_string(dict_str));
         Ok(())
@@ -140,12 +113,7 @@ impl RapidOcr {
     }
 
     pub fn load_thai_from_bytes(&mut self, bytes: &[u8], dict_str: &str) -> Result<()> {
-        let session = Session::builder()
-            .map_err(|e| anyhow::anyhow!("Thai session error: {}", e))?
-            .with_intra_threads(num_cpus::get().min(4))
-            .map_err(|e| anyhow::anyhow!("Thai intra threads error: {}", e))?
-            .commit_from_memory(bytes)
-            .map_err(|e| anyhow::anyhow!("Commit thai rec error: {}", e))?;
+        let session = crate::ml::device::create_session_from_memory(bytes, "rapid_ocr_thai")?;
         self.thai_rec_session = Some(session);
         self.characters_thai = Some(parse_dict_string(dict_str));
         Ok(())

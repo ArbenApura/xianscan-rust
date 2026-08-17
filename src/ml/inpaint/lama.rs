@@ -17,12 +17,7 @@ impl LamaInpainter {
     }
 
     pub fn from_bytes(bytes: &[u8]) -> Result<Self> {
-        let session = Session::builder()
-            .map_err(|e| anyhow::anyhow!("Session builder error: {}", e))?
-            .with_intra_threads(num_cpus::get().min(4))
-            .map_err(|e| anyhow::anyhow!("Session intra threads error: {}", e))?
-            .commit_from_memory(bytes)
-            .map_err(|e| anyhow::anyhow!("Commit from memory error: {}", e))?;
+        let session = crate::ml::device::create_session_from_memory(bytes, "lama_inpaint")?;
         Ok(Self { session })
     }
 

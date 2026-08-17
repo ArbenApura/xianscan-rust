@@ -63,9 +63,20 @@ struct SetDevicePayload {
     provider: Option<String>,
 }
 
-async fn hardware_set_handler(Json(payload): Json<SetDevicePayload>) -> Json<HardwareStatus> {
+async fn hardware_set_handler(
+    State(state): State<AppState>,
+    Json(payload): Json<SetDevicePayload>,
+) -> Json<HardwareStatus> {
     let prov = payload.provider.unwrap_or_else(|| "auto".to_string());
-    Json(set_active_provider(&prov))
+    let status = set_active_provider(&prov);
+
+    // Dynamically reload the pipeline engine with the newly active execution provider
+    if let Ok(mut engine) = state.engine.lock() {
+        let models_dir = std::env::var("MODELS_DIR").unwrap_or_else(|_| "models".to_string());
+        *engine = PipelineEngine::new(models_dir);
+    }
+
+    Json(status)
 }
 
 async fn analyze_handler(
