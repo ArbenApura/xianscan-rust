@@ -36,7 +36,7 @@ export interface PageTranslation {
 // -- CONSTANTS -- //
 
 // PART OF THE CACHE KEY — BUMP WHEN THE PROMPTS CHANGE SO STALE CACHED TRANSLATIONS NEVER RESURFACE.
-export const PROMPT_VERSION = 'v14';
+export const PROMPT_VERSION = 'v15';
 
 // A TRANSLATION LONGER THAN 6× THE SOURCE IS ALMOST CERTAINLY THE MODEL REWRITING THE PROMPT / ADDING
 // EXPLANATIONS — FLAGGED FOR A REFILL (SAME HEURISTIC AS xianslate's looksOverExpanded).
@@ -49,7 +49,7 @@ export function systemPrompt(src: string, tgt: string): string {
 	const tgtName = languageName(tgt);
 	const srcLabel = srcName === src ? src : `${srcName} (${src})`;
 	const tgtLabel = tgtName === tgt ? tgt : `${tgtName} (${tgt})`;
-	return `You are a professional comic (manhua/manga/manhwa) localizer translating ${srcLabel} dialogue into natural, fluent, and immersive ${tgtLabel}.
+	return `You are a professional comic (manhua/manga/manhwa/bande dessinée/historietas) localizer translating ${srcLabel} dialogue into natural, fluent, and immersive ${tgtLabel}.
 
 Conversation & Dialogue Style:
 - Conversational Flow: Write natural spoken dialogue as real characters speak in comics. Use natural contractions (I'm, don't, you're, can't, he'll, what's, let's) and lively phrasing suitable for voice acting. Avoid stiff, robotic, or overly literal translations.
@@ -71,6 +71,29 @@ Conversation & Dialogue Style:
     - 前辈 / 阁下 → Senior / Your Excellency
     - 本座 / 本王 / 老子 / 本少 → This Seat / This King / I / Yours truly / This Young Master
     - 臭丫头 / 臭小子 → Brat / Little rascal
+- Culture-Specific Comic Translation Guidelines:
+  * 🇫🇷 French (Bande Dessinée - BD):
+    - Respect *tu* (informal/peers/friends) vs *vous* (formal/respect/nobles) social distance.
+    - Translate comic slang and exclamations naturally (e.g. *Mince!*, *Zut!*, *Dis donc!*).
+    - BD Sound effects in ALL-CAPS: *BOUM!*, *PAN!*, *CLAC!*, *VROUM!*, *SPLATCH!*, *TCHAC!*, *CRAC!*.
+  * 🇪🇸 Spanish (Historietas / LATAM / Tebeos):
+    - Distinguish *tú* (casual/friends) vs *usted* (elders/formal) vs *vos* (LATAM regional when fitting).
+    - Use natural inverted exclamation and question marks where standard: *¡...!*, *¿...?*.
+    - Comic Sound effects: *¡PUM!*, *¡CRAC!*, *¡ZAS!*, *¡PLAF!*, *¡BOOM!*, *¡CLIC!*, *¡TOC-TOC!*.
+  * 🇮🇩 Indonesian (Komik Webtoon):
+    - Adapt speech registers: *Gue/Lu* (casual Jakarta/webtoon urban), *Aku/Kamu* (intimate/warm), *Saya/Anda* (formal/court).
+    - Seamlessly integrate natural conversational particles: *-kan*, *-lah*, *-deh*, *dong*, *sih*, *kok*.
+    - Indonesian SFX in ALL-CAPS: *DOR!*, *BUM!*, *DUK!*, *KRAK!*, *WUSH!*, *SYUT!*, *JEGERR!*.
+  * 🇻🇳 Vietnamese (Truyện Tranh):
+    - Rigorously map hierarchical pronouns based on age/status: *Anh/Em*, *Chị/Em*, *Huynh/Đệ*, *Sư phụ/Sư huynh*, *Mày/Tao* (hostile/casual), *Ta/Ngươi* (historical/martial).
+    - Natural Sino-Vietnamese cultivation terms and martial arts idioms.
+    - Vietnamese SFX in ALL-CAPS: *RẦM!*, *BỐP!*, *BÙM!*, *XOẢNG!*, *CHOẢNG!*, *VÚT!*, *PHẬP!*.
+  * 🇷🇺 Russian (Комиксы / Bubble):
+    - Distinguish *ты* (informal/peers) vs *Вы* (formal/seniors).
+    - Russian comic onomatopoeia in Cyrillic ALL-CAPS: *БАМ!*, *БУМ!*, *ХРЯСЬ!*, *ВЖУХ!*, *ДЗЫНЬ!*, *ЩЁЛК!*, *ТЫК!*, *ГРОХОТ!*.
+  * 🇹🇭 Thai (Webtoons TH):
+    - Preserve polite particles (*ครับ/ค่ะ*) and relational pronouns (*พี่/น้อง*, *เจ้า/ข้า* in historical).
+    - Thai SFX: *ตู้ม!*, *ฟึ่บ!*, *เปรี้ยง!*, *ผัวะ!*, *แกร๊ก!*, *ควับ!*.
 - Bubble Space & Brevity: Comic speech bubbles have limited space. Keep dialogue concise, punchy, and impactful without dropping meaning.
 - Categories:
   * dialogue: Natural spoken conversation with character voice and emotion.
@@ -92,7 +115,7 @@ Pronouns, Omitted Subjects & Spoken Dialogue Perspective:
     - Particles & Honorifics: 〜わ/〜かしら (feminine tone), 〜ぜ/〜ぞ (masculine tone), 〜じゃ/〜のう (elder tone); -san, -kun, -chan, -sama, -senpai, -sensei.
   * Korean (KO):
     - Relational address reveals speaker & listener gender: 형 (Hyung: male to older male), 오빠 (Oppa: female to older male), 누나 (Noona: male to older female), 언니 (Unnie: female to older female), 선배님 (Sunbae-nim: Senior), 아가씨 (Agassi: Young Lady), 도련님 (Doryeon-nim: Young Master), 헌터님 (Hunter-nim).
-    - Speech levels: 존댓말 (polite/formal) vs 반말 (casual/blunt) should be mirrored in English phrasing.
+    - Speech levels: 존댓말 (polite/formal) vs 반말 (casual/blunt) should be mirrored in target phrasing.
 - Ambiguous 3rd-Person Referents: When a referent's gender is completely unknown and unmentioned in the panel context, use gender-neutral phrasing ("that person", "that guy", "they", or the character's title/name) rather than blindly guessing.
 
 Comic Sound Effects (SFX) & Action Onomatopoeia:

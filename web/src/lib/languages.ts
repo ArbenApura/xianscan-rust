@@ -35,7 +35,7 @@ export interface TargetOption {
 	rtl: boolean;
 }
 
-export const DEFAULT_SOURCE_LANG = 'auto';
+export const DEFAULT_SOURCE_LANG = 'zh-Hans';
 export const DEFAULT_TARGET_LANG = 'en';
 export const NO_TRANSLATION = 'none';
 
@@ -68,15 +68,18 @@ export const LANGUAGES: Record<string, Language> = {
 	fi: { code: 'fi', name: 'Finnish', endonym: 'Suomi', script: 'latin', romanization: null, wordDelimited: true, tier: 3 },
 };
 
-export const AUTO_SOURCE_LANG = 'auto';
-
 export const SOURCE_LANGUAGE_OPTIONS = [
-	{ value: 'auto', label: 'Auto Detect Language', name: 'Auto Detect Language', endonym: '' },
-	{ value: 'zh-Hans', label: '简体中文 (Simplified)', name: 'Simplified Chinese', endonym: '简体中文' },
-	{ value: 'zh-Hant', label: '繁體中文 (Traditional)', name: 'Traditional Chinese', endonym: '繁體中文' },
-	{ value: 'ja', label: '日本語 (Japanese)', name: 'Japanese', endonym: '日本語' },
-	{ value: 'ko', label: '한국어 (Korean)', name: 'Korean', endonym: '한국어' },
-	{ value: 'en', label: 'English', name: 'English', endonym: 'English' },
+	{ value: 'zh-Hans', label: '🇨🇳 简体中文 (Chinese Manhua)', name: 'Simplified Chinese', endonym: '简体中文' },
+	{ value: 'zh-Hant', label: '🇹🇼 繁體中文 (Traditional Manhua)', name: 'Traditional Chinese', endonym: '繁體中文' },
+	{ value: 'ja', label: '🇯🇵 日本語 (Japanese Manga)', name: 'Japanese', endonym: '日本語' },
+	{ value: 'ko', label: '🇰🇷 한국어 (Korean Manhwa)', name: 'Korean', endonym: '한국어' },
+	{ value: 'fr', label: '🇫🇷 Français (Bande Dessinée)', name: 'French', endonym: 'Français' },
+	{ value: 'es', label: '🇪🇸 Español (Historietas / Tebeos)', name: 'Spanish', endonym: 'Español' },
+	{ value: 'id', label: '🇮🇩 Bahasa Indonesia (Komik Webtoon)', name: 'Indonesian', endonym: 'Bahasa Indonesia' },
+	{ value: 'vi', label: '🇻🇳 Tiếng Việt (Truyện Tranh)', name: 'Vietnamese', endonym: 'Tiếng Việt' },
+	{ value: 'ru', label: '🇷🇺 Русский (Russian Comics)', name: 'Russian', endonym: 'Русский' },
+	{ value: 'th', label: '🇹🇭 ไทย (Thai Webtoons)', name: 'Thai', endonym: 'ไทย' },
+	{ value: 'en', label: '🇺🇸 English (Western Comics)', name: 'English', endonym: 'English' },
 ];
 
 export const TARGET_LANGUAGE_OPTIONS = [

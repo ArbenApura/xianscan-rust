@@ -18,7 +18,7 @@ import { createCanvas } from '@napi-rs/canvas';
 describe('Language Registry & Auto-Detection', () => {
 	it('has source language options including Japanese and Korean', () => {
 		const codes = SOURCE_LANGUAGE_OPTIONS.map((o) => o.value);
-		expect(codes).toEqual(['auto', 'zh-Hans', 'zh-Hant', 'ja', 'ko', 'en']);
+		expect(codes).toEqual(['zh-Hans', 'zh-Hant', 'ja', 'ko', 'fr', 'es', 'id', 'vi', 'ru', 'th', 'en']);
 	});
 
 	it('auto-detects Simplified Chinese from text', () => {
@@ -86,7 +86,7 @@ describe('Language Registry & Auto-Detection', () => {
 		expect(getLanguage('zh-TW').code).toBe('zh-Hant');
 		expect(getLanguage('auto').code).toBe('zh-Hans');
 		expect(getLanguage(undefined).code).toBe('zh-Hans');
-		expect(DEFAULT_SOURCE_LANG).toBe('auto');
+		expect(DEFAULT_SOURCE_LANG).toBe('zh-Hans');
 	});
 
 	it('returns correct display names via languageName', () => {
