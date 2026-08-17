@@ -392,6 +392,10 @@ impl RapidOcr {
 
     /// OCR on a crop with 32px padding, multi-line reading-order sorting, and substring deduplication.
     pub fn recognize_crop(&mut self, crop: &DynamicImage) -> Result<Option<OcrResult>> {
+        self.recognize_crop_with_lang(crop, None)
+    }
+
+    pub fn recognize_crop_with_lang(&mut self, crop: &DynamicImage, source_lang: Option<&str>) -> Result<Option<OcrResult>> {
         let (w, h) = crop.dimensions();
         if w < 8 || h < 8 {
             return Ok(None);
@@ -413,15 +417,15 @@ impl RapidOcr {
             }
         }
 
-        let mut raw_lines = self.detect_and_recognize(&DynamicImage::ImageRgb8(padded))?;
+        let mut raw_lines = self.detect_and_recognize_tiled_with_lang(&DynamicImage::ImageRgb8(padded), false, source_lang)?;
         if raw_lines.is_empty() {
-            raw_lines = self.detect_and_recognize(crop)?;
+            raw_lines = self.detect_and_recognize_tiled_with_lang(crop, false, source_lang)?;
         }
 
         if raw_lines.is_empty() {
             // Strict regex-gated fallback for compact single-glyph punctuation crops
             if w <= 60 || h <= 60 || (h >= 2 * w && w <= 80) {
-                if let Ok(Some(line_res)) = self.recognize_line(crop) {
+                if let Ok(Some(line_res)) = self.recognize_line_with_lang(crop, source_lang) {
                     if PUNCT_ONLY.is_match(&line_res.text) {
                         let poly = vec![
                             [0, 0],
@@ -448,25 +452,28 @@ impl RapidOcr {
         let is_vertical_crop = vertical_count * 2 >= raw_lines.len() && !raw_lines.is_empty();
 
         if is_vertical_crop {
-            // Right-to-left column reading order for vertical text
+            // Sort predominantly vertical reading order (Right-to-Left columns, Top-to-Bottom lines)
             raw_lines.sort_by(|a, b| {
-                let (ax, ay, aw, _) = super::geometry::polygon_bounds(&a.polygon);
-                let (bx, by, bw, _) = super::geometry::polygon_bounds(&b.polygon);
-                let a_right = ax + aw;
-                let b_right = bx + bw;
-                let x_close = (a_right - b_right).abs() <= 10;
-                if x_close {
-                    ay.cmp(&by)
+                let (ax, ay, _, _) = super::geometry::polygon_bounds(&a.polygon);
+                let (bx, by, _, _) = super::geometry::polygon_bounds(&b.polygon);
+                let x_diff = bx - ax; // larger X first (rightmost column first)
+                if x_diff.abs() > 30 {
+                    x_diff.cmp(&0)
                 } else {
-                    b_right.cmp(&a_right)
+                    ay.cmp(&by)
                 }
             });
         } else {
-            // Top-to-bottom, left-to-right reading order for horizontal text
+            // Horizontal reading order (Top-to-Bottom, Left-to-Right)
             raw_lines.sort_by(|a, b| {
-                let ya = a.polygon[0][1];
-                let yb = b.polygon[0][1];
-                ya.cmp(&yb).then(a.polygon[0][0].cmp(&b.polygon[0][0]))
+                let (ax, ay, _, _) = super::geometry::polygon_bounds(&a.polygon);
+                let (bx, by, _, _) = super::geometry::polygon_bounds(&b.polygon);
+                let y_diff = ay - by;
+                if y_diff.abs() > 20 {
+                    y_diff.cmp(&0)
+                } else {
+                    ax.cmp(&bx)
+                }
             });
         }
 
@@ -475,8 +482,8 @@ impl RapidOcr {
         for line in raw_lines {
             let mut duplicate = false;
             for existing in &dedup_lines {
-                let iou = box_iou_pts(&line.polygon, &existing.polygon);
                 let same_text = line.text == existing.text || line.text.contains(&existing.text) || existing.text.contains(&line.text);
+                let iou = box_iou_pts(&line.polygon, &existing.polygon);
                 if (same_text && iou >= 0.25) || iou >= 0.65 {
                     duplicate = true;
                     break;
@@ -518,6 +525,10 @@ impl RapidOcr {
     }
 
     pub fn detect_and_recognize_tiled(&mut self, img: &DynamicImage, tiled: bool) -> Result<Vec<OcrLine>> {
+        self.detect_and_recognize_tiled_with_lang(img, tiled, None)
+    }
+
+    pub fn detect_and_recognize_tiled_with_lang(&mut self, img: &DynamicImage, tiled: bool, source_lang: Option<&str>) -> Result<Vec<OcrLine>> {
         let (w, h) = img.dimensions();
         if w < 16 || h < 16 {
             return Ok(Vec::new());
@@ -598,7 +609,7 @@ impl RapidOcr {
 
                 if crop_w >= 4 && crop_h >= 4 {
                     let crop = img.crop_imm(crop_x, crop_y, crop_w, crop_h);
-                    if let Ok(Some(line_res)) = self.recognize_line(&crop) {
+                    if let Ok(Some(line_res)) = self.recognize_line_with_lang(&crop, source_lang) {
                         if !line_res.text.is_empty() {
                             lines.push(OcrLine {
                                 polygon: poly,
@@ -623,7 +634,7 @@ impl RapidOcr {
 
                 if cur_slice_h >= 32 {
                     let tile_crop = img.crop_imm(0, y, w, cur_slice_h);
-                    if let Ok(tile_lines) = self.detect_and_recognize_tiled(&tile_crop, false) {
+                    if let Ok(tile_lines) = self.detect_and_recognize_tiled_with_lang(&tile_crop, false, source_lang) {
                         for mut tl in tile_lines {
                             for p in &mut tl.polygon {
                                 p[1] += y as i32;
