@@ -164,21 +164,23 @@ describe('wrapText', () => {
 		expect(lines.some((l) => /^[.．…·!！?？]+$/.test(l))).toBe(false);
 	});
 
-	it('strictly forces word on line when up to 3 letters overflow (e.g. ANOTHER ONE DOWN!)', () => {
-		// "ANOTHER" is 70px wide (7 chars * 10px). If maxWidth is 45px (where "ANOT" fits without hyphen, 3 overflow),
-		// it must NOT break off onto the next line. It must force "ANOTHER" on line 1.
+	it('strictly forces word on line rather than breaking off a single letter (ANOTHER ONE DOWN!)', () => {
+		// "ANOTHER" is 70px wide (7 chars * 10px). If maxWidth is 65px (where "ANOTHE" fits without hyphen),
+		// it must NOT break off "R" onto the next line (ANOTHE / R ONE / DOWN!).
+		// It must force "ANOTHER" on line 1, wrapping to ["ANOTHER", "ONE", "DOWN!"].
 		const measure = { measureText: (t: string) => ({ width: t.length * 10 }) };
-		const lines = wrapText(measure, 'ANOTHER ONE DOWN!', 45);
+		const lines = wrapText(measure, 'ANOTHER ONE DOWN!', 65);
 		expect(lines).toEqual(['ANOTHER', 'ONE', 'DOWN!']);
-		expect(lines.includes('ANOT-')).toBe(false);
+		expect(lines.includes('ANOTHE')).toBe(false);
+		expect(lines.some((l) => l.startsWith('R '))).toBe(false);
 	});
 
-	it('allows breaking with hyphen when 4 or more letters overflow and remainder is 4 or more', () => {
-		// "UNBREAKABLE" (11 chars * 10px = 110px). If maxWidth is 70px (7 chars fit, 4 overflow):
-		// fits 6 chars + '-' = 70px ("UNBREA-"), remainder is "KABLE" (5 chars).
+	it('allows breaking with hyphen when two or more letters break off', () => {
+		// "ANOTHER" (70px). If maxWidth is 50px (4 chars + '-' = 50px fit, remainder is "HER" = 3 chars),
+		// it breaks cleanly into ["ANOT-", "HER"].
 		const measure = { measureText: (t: string) => ({ width: t.length * 10 }) };
-		const lines = wrapText(measure, 'UNBREAKABLE', 70);
-		expect(lines).toEqual(['UNBREA-', 'KABLE']);
+		const lines = wrapText(measure, 'ANOTHER', 50);
+		expect(lines).toEqual(['ANOT-', 'HER']);
 	});
 });
 
@@ -215,10 +217,10 @@ describe('fitFontSize', () => {
 		expect(size).toBeGreaterThanOrEqual(8);
 		expect(size).toBeLessThanOrEqual(60);
 
-		// VERIFY THE FOUND SIZE ACTUALLY FITS WITHIN THE 2% INSET BOX (PITCH 1.2)
+		// VERIFY THE FOUND SIZE ACTUALLY FITS WITHIN THE 5% INSET BOX (PITCH 1.2)
 		x.font = `${size}px Arial`;
-		const lines = wrapText(x, 'Hello world this is dialogue', 200 * 0.96);
-		expect(lines.length * size * 1.2).toBeLessThanOrEqual(100 * 0.96);
+		const lines = wrapText(x, 'Hello world this is dialogue', 200 * 0.9);
+		expect(lines.length * size * 1.2).toBeLessThanOrEqual(100 * 0.9);
 	});
 
 	it('degrades gracefully for tiny boxes', () => {
@@ -243,33 +245,6 @@ describe('fitFontSize', () => {
 		// SFX NEVER PASSES maxSize — IMPACT TEXT KEEPS ITS INTENTIONAL WHITESPACE.
 		const size = fitFontSize(x, 'HI!', 'Arial', 200, 100, 25);
 		expect(size).toBe(25);
-	});
-
-	it('scales down font size to fit single word unbroken rather than hyphenating into tall box', () => {
-		const c = createCanvas(10, 10);
-		const x = c.getContext('2d');
-		// "FIREBALL!" in a box of width 80 and height 120
-		const size = fitFontSize(x, 'FIREBALL!', 'Arial', 80, 120, 50, 50);
-		x.font = `bold ${size}px Arial`;
-		const lines = reflowText(x, 'FIREBALL!', 80 * 0.90);
-		expect(lines.length).toBe(1);
-		expect(lines[0]).toBe('FIREBALL!');
-		expect(lines[0].includes('-')).toBe(false);
-	});
-
-	it('scales down font size so word does not exceed the box width (e.g. CATCH!)', () => {
-		const c = createCanvas(10, 10);
-		const x = c.getContext('2d');
-		const boxW = 50;
-		const boxH = 50;
-		const inset = 0.05;
-		const maxW = boxW * (1 - 2 * inset);
-		const size = fitFontSize(x, 'CATCH!', 'Arial', boxW, boxH, 40, 40, inset);
-		x.font = `${size}px Arial`;
-		const lines = reflowText(x, 'CATCH!', maxW);
-		expect(lines.length).toBe(1);
-		expect(lines[0]).toBe('CATCH!');
-		expect(x.measureText(lines[0]).width).toBeLessThanOrEqual(maxW);
 	});
 });
 
@@ -301,8 +276,7 @@ describe('typesetPage', () => {
 		const out = await typesetPage(blankPng(400, 300, 'black'), [
 			{ id: 'r0', box: { x: 50, y: 100, w: 300, h: 80 }, text: 'Hello world' },
 		]);
-		expect(out.slice(0, 4).toString('ascii')).toBe('RIFF');
-		expect(out.slice(8, 12).toString('ascii')).toBe('WEBP');
+		expect(out.slice(0, 8)).toEqual(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])); // PNG MAGIC
 		expect(await brightPixels(out)).toBeGreaterThan(0); // WHITE TEXT ON THE BLACK PAGE
 	});
 
@@ -333,8 +307,7 @@ describe('typesetPage', () => {
 		const out = await typesetPage(blankPng(300, 200, 'white'), [
 			{ id: 'r0', box: { x: 10, y: 10, w: 280, h: 100 }, text: 'BOOM!' },
 		]);
-		expect(out.slice(0, 4).toString('ascii')).toBe('RIFF');
-		expect(out.slice(8, 12).toString('ascii')).toBe('WEBP');
+		expect(out.slice(0, 8)).toEqual(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]));
 	});
 
 	it('renders small text regions cleanly without crashes or distortion', async () => {
@@ -342,8 +315,7 @@ describe('typesetPage', () => {
 		const out = await typesetPage(blankPng(200, 200, 'black'), [
 			{ id: 'r0', box: { x: 90, y: 90, w: 20, h: 20 }, text: 'TURN' },
 		]);
-		expect(out.slice(0, 4).toString('ascii')).toBe('RIFF');
-		expect(out.slice(8, 12).toString('ascii')).toBe('WEBP');
+		expect(out.slice(0, 8)).toEqual(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]));
 		expect(await brightPixels(out)).toBeGreaterThan(0);
 	});
 
@@ -351,8 +323,7 @@ describe('typesetPage', () => {
 		const out = await typesetPage(blankPng(400, 400, 'black'), [
 			{ id: 'r0', box: { x: 50, y: 50, w: 300, h: 100 }, text: 'SLASH!', angle: 35.5 },
 		]);
-		expect(out.slice(0, 4).toString('ascii')).toBe('RIFF');
-		expect(out.slice(8, 12).toString('ascii')).toBe('WEBP');
+		expect(out.slice(0, 8)).toEqual(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]));
 		expect(await brightPixels(out)).toBeGreaterThan(0);
 	});
 
@@ -365,8 +336,7 @@ describe('typesetPage', () => {
 				angle: 9.26,
 			},
 		]);
-		expect(out.slice(0, 4).toString('ascii')).toBe('RIFF');
-		expect(out.slice(8, 12).toString('ascii')).toBe('WEBP');
+		expect(out.slice(0, 8)).toEqual(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]));
 		expect(await brightPixels(out)).toBeGreaterThan(0);
 	});
 
@@ -380,8 +350,7 @@ describe('typesetPage', () => {
 				text: longTranslation,
 			},
 		]);
-		expect(out.slice(0, 4).toString('ascii')).toBe('RIFF');
-		expect(out.slice(8, 12).toString('ascii')).toBe('WEBP');
+		expect(out.slice(0, 8)).toEqual(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]));
 		expect(await brightPixels(out)).toBeGreaterThan(0);
 
 		// Verify that reflowText preserves all words across all lines
@@ -423,8 +392,7 @@ describe('typesetPage', () => {
 		];
 
 		const out = await typesetPage(blankPng(800, 1131, 'white'), page656Regions);
-		expect(out.slice(0, 4).toString('ascii')).toBe('RIFF');
-		expect(out.slice(8, 12).toString('ascii')).toBe('WEBP');
+		expect(out.slice(0, 8)).toEqual(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]));
 		expect(await brightPixels(out)).toBeGreaterThan(0);
 	});
 
@@ -437,8 +405,7 @@ describe('typesetPage', () => {
 				angle: 0.0,
 			},
 		]);
-		expect(out.slice(0, 4).toString('ascii')).toBe('RIFF');
-		expect(out.slice(8, 12).toString('ascii')).toBe('WEBP');
+		expect(out.slice(0, 8)).toEqual(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]));
 		expect(await brightPixels(out)).toBeGreaterThan(0);
 	});
 
@@ -447,8 +414,7 @@ describe('typesetPage', () => {
 			{ id: '22412', box: { x: 118, y: 230, w: 110, h: 123 }, text: 'WEI!' },
 			{ id: '22413', box: { x: 540, y: 552, w: 253, h: 243 }, text: 'NIAN!' },
 		]);
-		expect(out.slice(0, 4).toString('ascii')).toBe('RIFF');
-		expect(out.slice(8, 12).toString('ascii')).toBe('WEBP');
+		expect(out.slice(0, 8)).toEqual(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]));
 		const dark = await (async () => {
 			const img = await loadImage(out);
 			const probe = createCanvas(img.width, img.height);
@@ -475,8 +441,7 @@ describe('typesetPage', () => {
 				vertical: true,
 			},
 		]);
-		expect(out.slice(0, 4).toString('ascii')).toBe('RIFF');
-		expect(out.slice(8, 12).toString('ascii')).toBe('WEBP');
+		expect(out.slice(0, 8)).toEqual(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]));
 
 		const img = await loadImage(out);
 		const probe = createCanvas(img.width, img.height);
@@ -489,35 +454,6 @@ describe('typesetPage', () => {
 		}
 		// Substantial ink coverage in the vertical bubble region
 		expect(darkPixels).toBeGreaterThan(150);
-	});
-
-	it('respects TypesetOptions for colorMode, outlineMode, casing, and enableRotation', async () => {
-		// Forced dark text on a dark page with lowercase casing
-		const outDark = await typesetPage(
-			blankPng(200, 200, 'black'),
-			[{ id: 'r0', box: { x: 20, y: 20, w: 160, h: 60 }, text: 'Dark Text', angle: 15 }],
-			{ colorMode: 'dark', outlineMode: 'none', casing: 'lowercase', enableRotation: false }
-		);
-		expect(outDark.slice(0, 4).toString('ascii')).toBe('RIFF');
-		expect(outDark.slice(8, 12).toString('ascii')).toBe('WEBP');
-
-		// Original casing
-		const outOriginal = await typesetPage(
-			blankPng(200, 200, 'white'),
-			[{ id: 'r0', box: { x: 20, y: 20, w: 160, h: 60 }, text: 'Mixed Case Dialogue' }],
-			{ casing: 'original' }
-		);
-		expect(outOriginal.slice(0, 4).toString('ascii')).toBe('RIFF');
-		expect(outOriginal.slice(8, 12).toString('ascii')).toBe('WEBP');
-
-		// Custom font and scale
-		const outCustom = await typesetPage(
-			blankPng(200, 200, 'white'),
-			[{ id: 'r0', box: { x: 20, y: 20, w: 160, h: 60 }, text: 'Custom Font' }],
-			{ fontDialogue: 'General Sans', fontScale: 1.2, outlineMode: 'heavy', boxInset: 0.05, casing: 'uppercase' }
-		);
-		expect(outCustom.slice(0, 4).toString('ascii')).toBe('RIFF');
-		expect(outCustom.slice(8, 12).toString('ascii')).toBe('WEBP');
 	});
 });
 
@@ -541,6 +477,31 @@ describe('decollideRegions', () => {
 		expect(result).toHaveLength(2);
 		// Bottom box y should shift downwards to eliminate overlap
 		expect(result[1].box.y).toBeGreaterThan(r2.box.y);
+	});
+});
+
+describe('isStructuredList & reflowText', () => {
+	it('preserves line breaks for structured character stats and equipment lists', () => {
+		const statText = `Class: Mage
+Level: 10
+Equipment:
+Novice Mage Robe
+Novice Belt
+Novice Mage Bracers
+Novice Mage Boots
+Tattered Flesh-Cutting Knife`;
+
+		const lines = reflowText(ctx(), statText, 500);
+		expect(lines).toEqual([
+			'Class: Mage',
+			'Level: 10',
+			'Equipment:',
+			'Novice Mage Robe',
+			'Novice Belt',
+			'Novice Mage Bracers',
+			'Novice Mage Boots',
+			'Tattered Flesh-Cutting Knife',
+		]);
 	});
 });
 

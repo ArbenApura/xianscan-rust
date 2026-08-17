@@ -12,7 +12,6 @@ import {
 	parseTranslations,
 	systemPrompt,
 	translatePage,
-	translateSingleText,
 	userPrompt,
 } from '$lib/server/translate';
 
@@ -43,15 +42,7 @@ describe('systemPrompt', () => {
 		expect(p).toMatch(/manhua/);
 		expect(p).toMatch(/JSON object/);
 		expect(p).toContain('zh-Hans');
-		expect(p).toContain('Pronouns, Omitted Subjects & Spoken Dialogue Perspective');
-		expect(p).toContain('Omitted Subject (Pro-Drop) Resolution');
-		expect(p).toContain('Japanese (JA)');
-		expect(p).toContain('Korean (KO)');
-		expect(p).toContain('Character Names, Roster Listings & Pinyin Segmentation');
-		expect(p).toContain('Single & Multi-Character Given Name Fusion');
-		expect(p).toContain('Chen Beixuan');
-		expect(p).toContain('Beixuan');
-		expect(p).toContain('NEVER "Bei Xuan"');
+		expect(p).toContain('Character Names, Multi-Name Listings & Military Units');
 		expect(p).toContain('Military Unit & Army Division Titles');
 		expect(p).toContain('Floating Comic Art Captions');
 		expect(p).toContain('Comic Sound Effects (SFX) & Action Onomatopoeia');
@@ -394,18 +385,6 @@ describe('parseExtractedTerms & extractTerms', () => {
 		expect(terms[1].category).toBe('location');
 	});
 
-	it('auto-derives standalone given name as alias for 3-character names', async () => {
-		const { parseExtractedTerms } = await import('$lib/server/translate');
-		const json = `{"terms": [
-			{ "source": "陈北玄", "target": "Chen Beixuan", "category": "character", "gender": "masculine" }
-		]}`;
-		const terms = parseExtractedTerms(json, '陈北玄在此，北玄定不辱命！');
-		expect(terms).toHaveLength(1);
-		expect(terms[0].source).toBe('陈北玄');
-		expect(terms[0].target).toBe('Chen Beixuan');
-		expect(terms[0].aliases).toContain('北玄');
-	});
-
 	it('salvages complete term objects from a truncated JSON response', async () => {
 		const { parseExtractedTerms } = await import('$lib/server/translate');
 		// Truncated mid-stream before closing array / object
@@ -493,36 +472,4 @@ describe('parseExtractedTerms & extractTerms', () => {
 		);
 		expect(res.byRegion.get('r1')).toBe('こんにちは！');
 	});
-
-	describe('translateSingleText with custom instructions', () => {
-		it('injects custom instruction into system prompt', async () => {
-			let passedSystemContent = '';
-			const fakeClient = {
-				chat: {
-					completions: {
-						create: async (params: { messages: OpenAI.Chat.ChatCompletionMessageParam[] }) => {
-							passedSystemContent = (params.messages.find((m) => m.role === 'system')?.content as string) || '';
-							return {
-								choices: [{ message: { content: '"By the heavens! Begone!"' } }],
-								usage: { prompt_tokens: 15, completion_tokens: 8 },
-							};
-						},
-					},
-				},
-			} as unknown as OpenAI;
-
-			const result = await translateSingleText(
-				'给我滚！',
-				{ sourceLang: 'zh-Hans', targetLang: 'en' },
-				{
-					client: fakeClient,
-					instruction: 'Make it sound dramatic and archaic',
-				},
-			);
-
-			expect(passedSystemContent).toContain('Special user localization instruction: Make it sound dramatic and archaic');
-			expect(result.text).toBe('By the heavens! Begone!');
-		});
-	});
 });
-

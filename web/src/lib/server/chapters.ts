@@ -1,6 +1,6 @@
 // CHAPTER / PAGE CREATION HELPERS — SHARED BY THE API ROUTES.
 import { randomUUID } from 'node:crypto';
-import { existsSync, mkdirSync, readFileSync, writeFileSync, unlinkSync } from 'node:fs';
+import { mkdirSync, readFileSync, writeFileSync, unlinkSync } from 'node:fs';
 import { join, extname } from 'node:path';
 // IMPORTED DEP-MODULES
 import { error } from '@sveltejs/kit';
@@ -12,7 +12,6 @@ import { books, chapters, pages, regions, translations } from './db/schema';
 import { clearChapterJob } from './translation-service';
 import { DATA_ROOT } from './paths';
 import type { PipelineClient } from './pipeline-client';
-import { typesetPage, type TypesetOptions, type TypesetRegion } from './typeset';
 
 // -- CONSTANTS -- //
 
@@ -139,10 +138,10 @@ async function convertBufferToWebP(
 	}
 }
 
-export async function uploadPages(chapterId: number, files: File[], dataRoot: string = DATA_ROOT): Promise<number> {
+export async function uploadPages(chapterId: number, files: File[]): Promise<number> {
 	let count = 0;
 	let seq = nextPageSeq(chapterId);
-	const uploadDir = join(dataRoot, 'uploads', String(chapterId));
+	const uploadDir = join(DATA_ROOT, 'uploads', String(chapterId));
 	mkdirSync(uploadDir, { recursive: true });
 	for (const file of files) {
 		const ext = extname(file.name).toLowerCase();
@@ -259,46 +258,6 @@ export function reorderPages(chapterId: number, pageIds: number[]): void {
 	});
 }
 
-// GET A SINGLE PAGE WITH ITS REGIONS FOR FAST REAL-TIME SYNC & INSPECT
-export function getPageWithRegions(pageId: number) {
-	const pageRow = db.select().from(pages).where(eq(pages.id, pageId)).get();
-	if (!pageRow) throw error(404, 'Page not found.');
-
-	const regionRows = db
-		.select()
-		.from(regions)
-		.where(eq(regions.pageId, pageId))
-		.orderBy(regions.seq)
-		.all();
-
-	return {
-		page: {
-			id: pageRow.id,
-			chapterId: pageRow.chapterId,
-			seq: pageRow.seq,
-			filePath: pageRow.filePath,
-			cleanedPath: pageRow.cleanedPath,
-			outputPath: pageRow.outputPath,
-			status: pageRow.status,
-			error: pageRow.error,
-			width: pageRow.width,
-			height: pageRow.height,
-			regions: regionRows.map((r) => ({
-				id: r.id,
-				seq: r.seq,
-				box: r.box,
-				polygon: r.polygon,
-				textSource: r.textSource,
-				textTarget: r.textTarget,
-				originalTarget: r.originalTarget,
-				conf: r.conf,
-				angle: (r as any).angle ?? 0,
-				vertical: (r as any).vertical ?? false,
-			})),
-		},
-	};
-}
-
 // DELETE A SINGLE PAGE, ITS REGIONS, DISK ASSETS, AND RE-INDEX REMAINING PAGES TO PREVENT GAPS.
 export function deletePage(pageId: number, dataRoot: string = DATA_ROOT): { chapterId: number; seq: number } {
 	const [p] = db.select().from(pages).where(eq(pages.id, pageId)).all();
@@ -409,14 +368,8 @@ export async function stitchPageWithNext(
 
 // CLEAR ONE PAGE'S PIPELINE PROGRESS — DETECTED REGIONS, MEMOIZED TRANSLATIONS (SO A RE-RUN DOES A
 // FRESH LLM CALL INSTEAD OF A CACHE HIT), AND OUTPUT PATHS — BACK TO 'pending' FOR A CLEAN RETRY.
-export function resetPageProgress(pageId: number, dataRoot: string = DATA_ROOT): void {
-	const [p] = db.select({ cleanedPath: pages.cleanedPath, outputPath: pages.outputPath }).from(pages).where(eq(pages.id, pageId)).all();
-	if (p) {
-		const toUnlink = [p.cleanedPath, p.outputPath].filter(Boolean) as string[];
-		for (const rel of toUnlink) {
-			try { unlinkSync(join(dataRoot, rel)); } catch {}
-		}
-	}
+// DISK FILES ARE LEFT IN PLACE: THE PIPELINE OVERWRITES clean/ AND output/ ON RE-RUN.
+export function resetPageProgress(pageId: number): void {
 	db.delete(translations).where(eq(translations.pageId, pageId)).run();
 	db.delete(regions).where(eq(regions.pageId, pageId)).run();
 	db.update(pages)
@@ -433,9 +386,9 @@ export function resetPageProgress(pageId: number, dataRoot: string = DATA_ROOT):
 }
 
 // CLEAR EVERY PAGE OF A CHAPTER. RETURNS HOW MANY PAGES WERE RESET.
-export function resetChapterProgress(chapterId: number, dataRoot: string = DATA_ROOT): number {
+export function resetChapterProgress(chapterId: number): number {
 	const rows = db.select({ id: pages.id }).from(pages).where(eq(pages.chapterId, chapterId)).all();
-	for (const row of rows) resetPageProgress(row.id, dataRoot);
+	for (const row of rows) resetPageProgress(row.id);
 	return rows.length;
 }
 
@@ -475,13 +428,8 @@ export async function resliceChapterPages(
 	const uploadDir = join(dataRoot, 'uploads', String(chapterId));
 	mkdirSync(uploadDir, { recursive: true });
 
-	// OLD FILES TO REMOVE AFTER SUCCESS (UPLOADS, CLEANED, OUTPUTS)
-	const oldFilePaths: string[] = [];
-	for (const p of pageRows) {
-		if (p.filePath) oldFilePaths.push(join(dataRoot, p.filePath));
-		if (p.cleanedPath) oldFilePaths.push(join(dataRoot, p.cleanedPath));
-		if (p.outputPath) oldFilePaths.push(join(dataRoot, p.outputPath));
-	}
+	// OLD FILES TO REMOVE AFTER SUCCESS
+	const oldFilePaths = pageRows.map((p) => join(dataRoot, p.filePath));
 
 	const newPageRows: { chapterId: number; seq: number; filePath: string; width: number | null; height: number | null }[] = [];
 	for (let seq = 0; seq < slicedBuffers.length; seq++) {
@@ -524,7 +472,7 @@ export async function resliceChapterPages(
 		}
 	});
 
-	// CLEAN UP OLD UPLOADED / CLEANED / OUTPUT IMAGE FILES
+	// CLEAN UP OLD UPLOADED IMAGE FILES
 	for (const oldPath of oldFilePaths) {
 		try {
 			unlinkSync(oldPath);
@@ -542,17 +490,12 @@ export async function deleteAllChapterPages(
 	dataRoot: string = DATA_ROOT,
 ): Promise<{ deletedCount: number }> {
 	const pageRows = db
-		.select({ id: pages.id, filePath: pages.filePath, cleanedPath: pages.cleanedPath, outputPath: pages.outputPath })
+		.select({ id: pages.id, filePath: pages.filePath })
 		.from(pages)
 		.where(eq(pages.chapterId, chapterId))
 		.all();
 
-	const oldFilePaths: string[] = [];
-	for (const p of pageRows) {
-		if (p.filePath) oldFilePaths.push(join(dataRoot, p.filePath));
-		if (p.cleanedPath) oldFilePaths.push(join(dataRoot, p.cleanedPath));
-		if (p.outputPath) oldFilePaths.push(join(dataRoot, p.outputPath));
-	}
+	const oldFilePaths = pageRows.map((p) => join(dataRoot, p.filePath));
 
 	db.transaction(() => {
 		for (const p of pageRows) {
@@ -569,7 +512,7 @@ export async function deleteAllChapterPages(
 	// CANCEL & CLEAR ANY ACTIVE JOBS
 	clearChapterJob(chapterId);
 
-	// CLEAN UP OLD UPLOADED, CLEANED, OUTPUT IMAGE FILES
+	// CLEAN UP OLD UPLOADED IMAGE FILES
 	for (const oldPath of oldFilePaths) {
 		try {
 			unlinkSync(oldPath);
@@ -609,7 +552,6 @@ export interface ChapterRegionData {
 	box: unknown;
 	textSource: string;
 	textTarget: string | null;
-	originalTarget?: string | null;
 	conf: number | null;
 }
 
@@ -791,69 +733,150 @@ export async function getChapterReaderData(chapterId: number): Promise<ChapterRe
 				id: r.id,
 				seq: r.seq,
 				box: safeJson(r.box),
-				category: (r as any).category ?? 'dialogue',
 				textSource: r.textSource,
 				textTarget: r.textTarget,
-				originalTarget: r.originalTarget ?? r.textTarget,
+				originalTarget: (r as any).originalTarget ?? r.textTarget,
 				conf: r.conf,
 			})),
 		})),
 	};
 }
 
-// RE-TYPESET A SINGLE PAGE WITH ITS CURRENT REGIONS AND SAVED INPAINT/CLEAN CANVAS
-export async function retypesetPage(
+// UPDATE A REGION'S TRANSLATION MANUALLY AND RE-RENDER TYPESET PAGE OUTPUT
+export async function updateRegionTranslation(
 	pageId: number,
-	typesetOpts?: TypesetOptions,
+	regionId: number,
+	textTarget: string,
 	dataRoot: string = DATA_ROOT,
-): Promise<{ outputPath: string }> {
-	const [page] = db.select().from(pages).where(eq(pages.id, pageId)).all();
-	if (!page) throw error(404, 'Page not found.');
+): Promise<{ textTarget: string; outputPath: string | null }> {
+	const pageRow = db.select().from(pages).where(eq(pages.id, pageId)).get();
+	if (!pageRow) throw error(404, 'Page not found.');
 
-	const regionRows = db.select().from(regions).where(eq(regions.pageId, pageId)).orderBy(asc(regions.seq)).all();
-	const baseRel = page.cleanedPath || page.filePath;
-	if (!baseRel) throw error(400, 'Page base image not found.');
+	const regionRow = db.select().from(regions).where(and(eq(regions.id, regionId), eq(regions.pageId, pageId))).get();
+	if (!regionRow) throw error(404, 'Region not found.');
 
-	const baseAbs = join(dataRoot, baseRel);
-	if (!existsSync(baseAbs)) throw error(404, 'Base image file not found on disk.');
-
-	const baseBuf = readFileSync(baseAbs);
-	const typesetRegions: TypesetRegion[] = regionRows
-		.filter((r) => Boolean(r.textTarget?.trim()))
-		.map((r) => {
-			const b = safeJson(r.box) as any;
-			return {
-				id: String(r.id),
-				box: b || { x: 0, y: 0, w: 100, h: 100 },
-				text: r.textTarget!,
-				vertical: b?.vertical,
-				angle: b?.angle,
-			};
-		});
-
-	const outBuf = await typesetPage(baseBuf, typesetRegions, typesetOpts);
-
-	const chapterId = page.chapterId;
-	const outDir = join(dataRoot, 'output', String(chapterId));
-	mkdirSync(outDir, { recursive: true });
-
-	if (page.outputPath) {
-		try {
-			unlinkSync(join(dataRoot, page.outputPath));
-		} catch {}
-	}
-
-	const newOutputPath = `output/${chapterId}/${randomUUID()}.webp`;
-	writeFileSync(join(dataRoot, newOutputPath), outBuf);
-
-	db.update(pages)
-		.set({
-			outputPath: newOutputPath,
-			status: 'done',
-		})
-		.where(eq(pages.id, pageId))
+	// 1. Update region in database
+	db.update(regions)
+		.set({ textTarget: textTarget.trim() || null, status: textTarget.trim() ? 'translated' : 'failed' })
+		.where(eq(regions.id, regionId))
 		.run();
 
-	return { outputPath: newOutputPath };
+	// 2. If cleaned page exists, re-typeset the page
+	if (pageRow.cleanedPath) {
+		const cleanAbs = join(dataRoot, pageRow.cleanedPath);
+		try {
+			const cleanedBuf = readFileSync(cleanAbs);
+			const allRegions = db
+				.select()
+				.from(regions)
+				.where(eq(regions.pageId, pageId))
+				.orderBy(asc(regions.seq))
+				.all();
+
+			const typesetRegions = allRegions
+				.filter((r) => Boolean(r.textTarget?.trim()))
+				.map((r) => ({
+					id: String(r.id),
+					box: safeJson(r.box) as any,
+					text: r.textTarget!,
+					vertical: (r as any).vertical,
+					angle: (r as any).angle,
+				}));
+
+			const { typesetPage } = await import('./typeset');
+			const out = await typesetPage(cleanedBuf, typesetRegions);
+			const outputPath = `output/${pageRow.chapterId}/${pageRow.seq}.png`;
+			mkdirSync(join(dataRoot, 'output', String(pageRow.chapterId)), { recursive: true });
+			writeFileSync(join(dataRoot, outputPath), out);
+
+			db.update(pages).set({ outputPath }).where(eq(pages.id, pageId)).run();
+			return { textTarget: textTarget.trim(), outputPath };
+		} catch (err) {
+			console.error('Failed to re-typeset page on manual translation update:', err);
+		}
+	}
+
+	return { textTarget: textTarget.trim(), outputPath: pageRow.outputPath };
 }
+
+// RETYPESET AN ENTIRE PAGE CANVAS USING ITS CURRENT DATABASE REGIONS
+export async function retypesetPage(
+	pageId: number,
+	_opts?: any,
+	dataRoot: string = DATA_ROOT,
+): Promise<{ outputPath: string | null }> {
+	const pageRow = db.select().from(pages).where(eq(pages.id, pageId)).get();
+	if (!pageRow) throw error(404, 'Page not found.');
+	if (!pageRow.cleanedPath) return { outputPath: pageRow.outputPath };
+
+	const cleanAbs = join(dataRoot, pageRow.cleanedPath);
+	try {
+		const cleanedBuf = readFileSync(cleanAbs);
+		const allRegions = db
+			.select()
+			.from(regions)
+			.where(eq(regions.pageId, pageId))
+			.orderBy(asc(regions.seq))
+			.all();
+
+		const typesetRegions = allRegions
+			.filter((r) => Boolean(r.textTarget?.trim()))
+			.map((r) => ({
+				id: String(r.id),
+				box: safeJson(r.box) as any,
+				text: r.textTarget!,
+				vertical: (r as any).vertical,
+				angle: (r as any).angle,
+			}));
+
+		const { typesetPage } = await import('./typeset');
+		const out = await typesetPage(cleanedBuf, typesetRegions);
+		const outputPath = `output/${pageRow.chapterId}/${pageRow.seq}.png`;
+		mkdirSync(join(dataRoot, 'output', String(pageRow.chapterId)), { recursive: true });
+		writeFileSync(join(dataRoot, outputPath), out);
+
+		db.update(pages).set({ outputPath }).where(eq(pages.id, pageId)).run();
+		return { outputPath };
+	} catch (err) {
+		console.error('Failed to retypeset page:', err);
+		return { outputPath: pageRow.outputPath };
+	}
+}
+
+// GET SINGLE PAGE WITH ALL ITS REGIONS
+export function getPageWithRegions(pageId: number) {
+	const pageRow = db.select().from(pages).where(eq(pages.id, pageId)).get();
+	if (!pageRow) return null;
+
+	const allRegions = db
+		.select()
+		.from(regions)
+		.where(eq(regions.pageId, pageId))
+		.orderBy(asc(regions.seq))
+		.all();
+
+	return {
+		id: pageRow.id,
+		chapterId: pageRow.chapterId,
+		seq: pageRow.seq,
+		filePath: pageRow.filePath,
+		cleanedPath: pageRow.cleanedPath,
+		outputPath: pageRow.outputPath,
+		status: pageRow.status,
+		error: pageRow.error,
+		width: pageRow.width,
+		height: pageRow.height,
+		regions: allRegions.map((r) => ({
+			id: r.id,
+			seq: r.seq,
+			box: safeJson(r.box),
+			textSource: r.textSource,
+			textTarget: r.textTarget,
+			originalTarget: (r as any).originalTarget ?? r.textTarget,
+			conf: r.conf,
+		})),
+	};
+}
+
+
 

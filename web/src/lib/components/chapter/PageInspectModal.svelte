@@ -162,6 +162,8 @@
 		}
 		reloadKey = Date.now();
 		page = { ...page };
+		editModalOpen = false;
+		editingRegion = null;
 		dispatch('update', { page, region: updatedReg, reloadKey });
 	}
 

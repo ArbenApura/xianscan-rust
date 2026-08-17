@@ -5,7 +5,7 @@
 
 <script lang="ts">
 	// IMPORTED DEP-MODULES
-	import { createEventDispatcher, onDestroy } from 'svelte';
+	import { createEventDispatcher } from 'svelte';
 	import { fade, fly } from 'svelte/transition';
 	import { cubicOut } from 'svelte/easing';
 	// IMPORTED MODULES
@@ -13,7 +13,6 @@
 	import { focusTrap } from '$lib/actions/focusTrap';
 	import { ripple } from '$lib/actions/ripple';
 	import { scrollLock } from '$lib/actions/scrollLock';
-	import { registerModalDismiss, unregisterModalDismiss } from '$lib/utils/modal-stack';
 	import { settings, THEME_PANEL, THEME_PANEL_BORDER } from '$lib/stores/settings';
 	// IMPORTED DEP-COMPONENTS
 	import X from 'lucide-svelte/icons/x';
@@ -52,17 +51,6 @@
 	$: panel = THEME_PANEL[$settings.theme];
 	$: panelBorder = THEME_PANEL_BORDER[$settings.theme];
 
-	// HIERARCHICAL ESCAPE KEY REGISTRATION (DEPTH-AWARE DISMISSAL)
-	$: if (open && closable) {
-		registerModalDismiss(titleId, () => close());
-	} else {
-		unregisterModalDismiss(titleId);
-	}
-
-	onDestroy(() => {
-		unregisterModalDismiss(titleId);
-	});
-
 	// -- FUNCTIONS -- //
 
 	function close() {
@@ -70,6 +58,8 @@
 		dispatch('close');
 	}
 </script>
+
+<svelte:window on:keydown={(e) => open && closable && e.key === 'Escape' && close()} />
 
 {#if open}
 	<!-- DIALOG: BOTTOM SHEET ON MOBILE, TOP-ANCHORED OR CENTERED CARD ON DESKTOP. use:scrollLock FREEZES THE PAGE BEHIND. -->

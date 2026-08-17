@@ -25,19 +25,6 @@ const Body = z.object({
 	pageIds: z.array(z.number().int().positive()).optional(),
 	inpaintMode: z.string().optional(),
 	pageConcurrency: z.number().int().min(1).max(16).optional(),
-	typesetOptions: z
-		.object({
-			fontDialogue: z.string().optional(),
-			fontCjk: z.string().optional(),
-			boxInset: z.number().optional(),
-			fontScale: z.number().optional(),
-			outlineMode: z.enum(['none', 'thin', 'standard', 'heavy']).optional(),
-			colorMode: z.enum(['auto', 'dark', 'light']).optional(),
-			casing: z.enum(['uppercase', 'original', 'lowercase']).optional(),
-			allCaps: z.boolean().optional(),
-			enableRotation: z.boolean().optional(),
-		})
-		.optional(),
 });
 
 function createSseStream(handle: JobHandle): Response {
@@ -115,39 +102,11 @@ export const POST: RequestHandler = async ({ params, request, cookies }) => {
 		? Math.max(1, Math.min(16, parsed.data.pageConcurrency))
 		: Math.max(1, Math.min(16, Number(cookies.get('mt_parallel_processes') ?? '3') || 3));
 
-	const typesetOptions = {
-		fontDialogue: parsed.success && parsed.data.typesetOptions?.fontDialogue
-			? parsed.data.typesetOptions.fontDialogue
-			: cookies.get('mt_ts_font'),
-		fontCjk: parsed.success && parsed.data.typesetOptions?.fontCjk
-			? parsed.data.typesetOptions.fontCjk
-			: cookies.get('mt_ts_cjk_font'),
-		boxInset: parsed.success && typeof parsed.data.typesetOptions?.boxInset === 'number'
-			? parsed.data.typesetOptions.boxInset
-			: cookies.get('mt_ts_padding') ? Number(cookies.get('mt_ts_padding')) : undefined,
-		fontScale: parsed.success && typeof parsed.data.typesetOptions?.fontScale === 'number'
-			? parsed.data.typesetOptions.fontScale
-			: cookies.get('mt_ts_scale') ? Number(cookies.get('mt_ts_scale')) : undefined,
-		outlineMode: parsed.success && parsed.data.typesetOptions?.outlineMode
-			? parsed.data.typesetOptions.outlineMode
-			: (cookies.get('mt_ts_outline') as any),
-		colorMode: parsed.success && parsed.data.typesetOptions?.colorMode
-			? parsed.data.typesetOptions.colorMode
-			: (cookies.get('mt_ts_contrast') as any),
-		casing: parsed.success && parsed.data.typesetOptions?.casing
-			? parsed.data.typesetOptions.casing
-			: (cookies.get('mt_ts_casing') as any),
-		enableRotation: parsed.success && typeof parsed.data.typesetOptions?.enableRotation === 'boolean'
-			? parsed.data.typesetOptions.enableRotation
-			: cookies.get('mt_ts_rot') ? cookies.get('mt_ts_rot') === 'true' : undefined,
-	};
-
 	// RECORD AI SPEND ON THE LEDGER (THE JOB STAYS DETACHED — FAILURES LOG, NOT THROW)
 	const deps = {
 		pipeline: createPipelineClient(),
 		inpaintMode,
 		pageConcurrency,
-		typesetOptions,
 		dataRoot: DATA_ROOT,
 		// THE CACHE MUST NEVER MIX PROVIDERS: MOCK ↔ REAL SWITCHES PRODUCE A FRESH KEY
 		cacheSalt: getActiveProvider().baseUrl,

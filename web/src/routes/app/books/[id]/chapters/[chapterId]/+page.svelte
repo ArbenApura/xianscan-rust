@@ -22,9 +22,6 @@
 	import AlertCircle from 'lucide-svelte/icons/alert-circle';
 	import Loader2 from 'lucide-svelte/icons/loader-2';
 	import Sparkles from 'lucide-svelte/icons/sparkles';
-	import Folder from 'lucide-svelte/icons/folder';
-	import HardDrive from 'lucide-svelte/icons/hard-drive';
-	import BookOpen from 'lucide-svelte/icons/book-open';
 	import { apiJson } from '$lib/api';
 	import type { PageData as ServerPageData } from './$types';
 
@@ -354,7 +351,6 @@
 			pg.error = null;
 			pages = [...pages];
 			toast.info(`Cancelled translation for Page ${pg.seq + 1}.`);
-			await reload();
 		} catch {
 			toast.error(`Could not cancel translation for Page ${pg.seq + 1}.`);
 		}
@@ -767,18 +763,12 @@
 	page={inspectPage}
 	{reloadKey}
 	on:close={() => (inspectModalOpen = false)}
-	on:update={(e) => {
+	on:updated={(e) => {
 		const updatedPg = e.detail.page;
 		if (updatedPg) {
+			pageVersions[updatedPg.id] = Date.now();
 			const idx = pages.findIndex((p) => p.id === updatedPg.id);
-			if (idx !== -1) {
-				pages[idx] = { ...pages[idx], ...updatedPg };
-				pages = [...pages];
-			}
-			pageVersions[updatedPg.id] = e.detail.reloadKey || Date.now();
-			pageVersions = { ...pageVersions };
-			reloadKey = e.detail.reloadKey || Date.now();
-			inspectPage = pages[idx] || updatedPg;
+			if (idx >= 0) pages[idx] = { ...pages[idx], ...updatedPg };
 		}
 	}}
 />
@@ -945,18 +935,15 @@
 
 		<!-- STATS BADGES -->
 		<div class="flex items-center gap-2 text-xs flex-wrap">
-			<span class="inline-flex items-center gap-1.5 rounded-lg bg-black/5 dark:bg-white/5 px-2.5 py-1 font-medium">
-				<Folder size={13} class="opacity-70" />
-				<span><strong>{uploadFilesList.length}</strong> {uploadFilesList.length === 1 ? 'file' : 'files'}</span>
+			<span class="rounded-lg bg-black/5 dark:bg-white/5 px-2.5 py-1 font-medium">
+				📁 <strong>{uploadFilesList.length}</strong> {uploadFilesList.length === 1 ? 'file' : 'files'}
 			</span>
-			<span class="inline-flex items-center gap-1.5 rounded-lg bg-black/5 dark:bg-white/5 px-2.5 py-1 font-medium">
-				<HardDrive size={13} class="opacity-70" />
-				<span><strong>{formatBytes(uploadTotalBytes)}</strong> total</span>
+			<span class="rounded-lg bg-black/5 dark:bg-white/5 px-2.5 py-1 font-medium">
+				💾 <strong>{formatBytes(uploadTotalBytes)}</strong> total
 			</span>
 			{#if chapter}
-				<span class="inline-flex items-center gap-1.5 rounded-lg bg-black/5 dark:bg-white/5 px-2.5 py-1 font-medium truncate max-w-xs">
-					<BookOpen size={13} class="opacity-70" />
-					<span><strong>Chapter {chapter.seq + 1}</strong></span>
+				<span class="rounded-lg bg-black/5 dark:bg-white/5 px-2.5 py-1 font-medium truncate max-w-xs">
+					📖 <strong>Chapter {chapter.seq + 1}</strong>
 				</span>
 			{/if}
 		</div>

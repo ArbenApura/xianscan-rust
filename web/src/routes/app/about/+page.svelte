@@ -26,11 +26,11 @@
 	const faqs = [
 		{
 			q: 'Is XianScan open source and free to use?',
-			a: 'Yes. XianScan is free and open-source software under the MIT License. The complete Rust engine, pipeline code, and web studio are publicly hosted on GitHub at https://github.com/ArbenApura/xianscan-rust.',
+			a: 'Yes. XianScan is free and open-source software. The complete codebase, pipeline scripts, and web studio are publicly hosted on GitHub at https://github.com/ArbenApura/xianscan under an open license.',
 		},
 		{
 			q: 'Can I use XianScan completely offline?',
-			a: 'Yes. The unified native Rust server runs ComicTextDetector, RapidOCR, and LaMa neural inpainting locally on your GPU/CPU without needing Python or an internet connection. If paired with a local LLM runner (like Ollama), the entire translation and typesetting pipeline works 100% offline.',
+			a: 'Yes. The machine learning sidecar runs OCR and LaMa neural inpainting locally on your GPU/CPU without needing an internet connection. If paired with a local LLM runner (like Ollama), the entire translation and typesetting pipeline works offline.',
 		},
 		{
 			q: 'Does XianScan require a dedicated GPU?',
@@ -122,7 +122,7 @@
 		<div class="flex flex-wrap items-center gap-3 pt-1">
 			<!-- GITHUB REPO -->
 			<a
-				href="https://github.com/ArbenApura/xianscan-rust"
+				href="https://github.com/ArbenApura/xianscan"
 				target="_blank"
 				rel="noopener noreferrer"
 				class="inline-flex items-center gap-2 rounded-xl border border-black/10 bg-white px-3.5 py-2 text-xs font-semibold text-neutral-800 shadow-2xs transition hover:border-black/30 hover:bg-neutral-50 dark:border-white/15 dark:bg-white/5 dark:text-neutral-200 dark:hover:border-white/30 dark:hover:bg-white/10"

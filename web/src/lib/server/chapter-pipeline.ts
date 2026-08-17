@@ -14,14 +14,13 @@
 //   - PER-PAGE ERROR ISOLATION: ONE BAD PAGE MARKS ITSELF 'error' AND THE JOB CONTINUES.
 //   - THE WORK FUNCTION FITS startChapterJob() (translation-service) — signal + emit.
 //   - ALL FILE PATHS ARE RELATIVE TO dataRoot (web/data/); THE API LAYER PASSES IT.
-import { randomUUID } from 'node:crypto';
-import { mkdirSync, readFileSync, writeFileSync, unlinkSync } from 'node:fs';
+import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import type OpenAI from 'openai';
 // IMPORTED ENVS ($env/...)
 import { env } from '$env/dynamic/private';
 // IMPORTED DEP-MODULES
-import PQueue from './queue';
+import PQueue from 'p-queue';
 import { and, asc, eq } from 'drizzle-orm';
 // IMPORTED TYPES
 import type { TranslationUsage, PipelineStep, PipelinePhase, LangPair } from '$lib/types';
@@ -33,7 +32,7 @@ import type { AnalyzeResult, PipelineClient, PipelineRegion } from './pipeline-c
 import { db } from './db';
 import { chapters, pages, regions, books, type Page } from './db/schema';
 import { extractTerms, translatePage } from './translate';
-import { typesetPage, type TypesetOptions } from './typeset';
+import { typesetPage } from './typeset';
 import { detectSourceLanguage } from '$lib/languages';
 
 // -- TYPES -- //
@@ -44,7 +43,6 @@ export interface ChapterPipelineDeps {
 	llm?: OpenAI;
 	model?: string;
 	inpaintMode?: string;
-	typesetOptions?: TypesetOptions;
 	/**
 	 * OPACQUE PROVIDER DISCRIMINATOR FOR THE TRANSLATION CACHE — THE API LAYER SETS IT FROM
 	 * DEEPSEEK_BASE_URL SO SWITCHING PROVIDERS (e.g. MOCK ↔ REAL) NEVER SERVES STALE CACHED TEXT.
@@ -110,14 +108,9 @@ const MAX_EXTRACT_CHARS = 20_000;
 // -- INTERNALS -- //
 
 function regionRow(region: PipelineRegion, seq: number) {
-	const boxObj = {
-		...region.box,
-		angle: region.angle,
-		vertical: region.vertical,
-	};
 	return {
 		seq,
-		box: JSON.stringify(boxObj),
+		box: JSON.stringify(region.box),
 		polygon: JSON.stringify(region.polygon),
 		textSource: region.text,
 		conf: region.confidence,
@@ -236,15 +229,12 @@ export async function runChapterPipeline(
 			void pool.add(async () => {
 				if (signal.aborted || deps.isPageCancelled?.(injectRow.id)) return;
 				try {
-					const image = readFileSync(join(deps.dataRoot, injectRow.filePath));
 					db.update(pages).set({ status: 'processing', error: null }).where(eq(pages.id, injectRow.id)).run();
 					// PHASE 1: ANALYZE
 					emit({ type: 'page-step-start', chapterId, page: injectIdx, pageId: injectRow.id, step: 'analyze' });
 					const tA0 = performance.now();
-					const analyzed = await deps.pipeline.analyze(image, signal, {
-						sourceLang: pair.sourceLang,
-						targetLang: pair.targetLang,
-					});
+					const image = readFileSync(join(deps.dataRoot, injectRow.filePath));
+					const analyzed = await deps.pipeline.analyze(image, signal);
 					if (signal.aborted || deps.isPageCancelled?.(injectRow.id)) return;
 					emit({ type: 'page-step-end', chapterId, page: injectIdx, pageId: injectRow.id, step: 'analyze', stepStatus: 'completed', durationMs: performance.now() - tA0, stepDetails: { regionsCount: analyzed.regions.length } });
 					emit({ type: 'page-step-start', chapterId, page: injectIdx, pageId: injectRow.id, step: 'persist_regions' });
@@ -291,7 +281,7 @@ export async function runChapterPipeline(
 						for (const region of analyzed.regions) {
 							let target = byRegion.get(region.id)?.trim() ?? '';
 							if (!target) { const punct = resolveDialoguePunctuation(region.text); if (punct) { target = punct; byRegion.set(region.id, target); } }
-							tx.update(regions).set({ textTarget: target || null, originalTarget: target || null, status: target ? 'translated' : 'failed' }).where(and(eq(regions.pageId, injectRow.id), eq(regions.seq, seqById.get(region.id) ?? -1))).run();
+							tx.update(regions).set({ textTarget: target || null, status: target ? 'translated' : 'failed' }).where(and(eq(regions.pageId, injectRow.id), eq(regions.seq, seqById.get(region.id) ?? -1))).run();
 						}
 					});
 					emit({ type: 'page-step-end', chapterId, page: injectIdx, pageId: injectRow.id, step: 'persist_translations', stepStatus: 'completed' });
@@ -304,10 +294,7 @@ export async function runChapterPipeline(
 					const cleanRegions = analyzed.regions.filter((r) => Boolean(byRegion.get(r.id)?.trim())).map((r) => ({ id: r.id, box: r.box, polygon: r.polygon }));
 					const cleaned = cleanRegions.length > 0 ? await deps.pipeline.clean(image, cleanRegions, deps.inpaintMode ?? 'patch', signal) : image;
 					if (signal.aborted || deps.isPageCancelled?.(injectRow.id)) return;
-					if (injectRow.cleanedPath) {
-						try { unlinkSync(join(deps.dataRoot, injectRow.cleanedPath)); } catch {}
-					}
-					const cleanPath = `clean/${chapterId}/${randomUUID()}.webp`;
+					const cleanPath = `clean/${chapterId}/${injectRow.seq}.png`;
 					const cleanAbs = join(deps.dataRoot, cleanPath);
 					cleanDir(join(deps.dataRoot, 'clean', String(chapterId)));
 					writeFileSync(cleanAbs, cleaned);
@@ -319,12 +306,9 @@ export async function runChapterPipeline(
 					emit({ type: 'page-step-start', chapterId, page: injectIdx, pageId: injectRow.id, step: 'typeset' });
 					const tTy0 = performance.now();
 					const typesetRegions = analyzed.regions.filter((r) => Boolean(byRegion.get(r.id)?.trim())).map((r) => ({ id: r.id, box: r.box, text: byRegion.get(r.id)!, vertical: r.vertical, angle: r.angle }));
-					const out = await typesetPage(cleaned, typesetRegions, deps.typesetOptions);
+					const out = await typesetPage(cleaned, typesetRegions);
 					if (signal.aborted || deps.isPageCancelled?.(injectRow.id)) return;
-					if (injectRow.outputPath) {
-						try { unlinkSync(join(deps.dataRoot, injectRow.outputPath)); } catch {}
-					}
-					const outputPath = `output/${chapterId}/${randomUUID()}.webp`;
+					const outputPath = `output/${chapterId}/${injectRow.seq}.png`;
 					cleanDir(join(deps.dataRoot, 'output', String(chapterId)));
 					writeFileSync(join(deps.dataRoot, outputPath), out);
 					emit({ type: 'page-step-end', chapterId, page: injectIdx, pageId: injectRow.id, step: 'typeset', stepStatus: 'completed', durationMs: performance.now() - tTy0 });
@@ -424,10 +408,7 @@ export async function runChapterPipeline(
 			emit({ type: 'page-step-start', chapterId, page: i, pageId: page.id, step: 'analyze' });
 			const tAnalyze0 = performance.now();
 			const image = readFileSync(join(deps.dataRoot, page.filePath));
-			const analyzed = await deps.pipeline.analyze(image, signal, {
-				sourceLang: pair.sourceLang,
-				targetLang: pair.targetLang,
-			});
+			const analyzed = await deps.pipeline.analyze(image, signal);
 			signal.throwIfAborted();
 			if (deps.isPageCancelled?.(page.id)) return;
 			const tAnalyze = performance.now() - tAnalyze0;
@@ -601,10 +582,7 @@ export async function runChapterPipeline(
 				cleanRegions.length > 0 ? await deps.pipeline.clean(image, cleanRegions, deps.inpaintMode ?? 'patch', signal) : image;
 			signal.throwIfAborted();
 			if (deps.isPageCancelled?.(page.id)) return;
-			if (page.cleanedPath) {
-				try { unlinkSync(join(deps.dataRoot, page.cleanedPath)); } catch {}
-			}
-			const cleanPath = `clean/${chapterId}/${randomUUID()}.webp`;
+			const cleanPath = `clean/${chapterId}/${page.seq}.png`;
 			const cleanAbs = join(deps.dataRoot, cleanPath);
 			cleanDir(join(deps.dataRoot, 'clean', String(chapterId)));
 			writeFileSync(cleanAbs, cleaned);
@@ -635,13 +613,10 @@ export async function runChapterPipeline(
 					vertical: r.vertical,
 					angle: r.angle,
 				}));
-			const out = await typesetPage(cleaned, typesetRegions, deps.typesetOptions);
+			const out = await typesetPage(cleaned, typesetRegions);
 			signal.throwIfAborted();
 			if (deps.isPageCancelled?.(page.id)) return;
-			if (page.outputPath) {
-				try { unlinkSync(join(deps.dataRoot, page.outputPath)); } catch {}
-			}
-			const outputPath = `output/${chapterId}/${randomUUID()}.webp`;
+			const outputPath = `output/${chapterId}/${page.seq}.png`;
 			cleanDir(join(deps.dataRoot, 'output', String(chapterId)));
 			writeFileSync(join(deps.dataRoot, outputPath), out);
 			const tType = performance.now() - tType0;

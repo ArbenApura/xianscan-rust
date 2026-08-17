@@ -2,11 +2,8 @@
 import { createCanvas, GlobalFonts, loadImage, type Image, type SKRSContext2D } from '@napi-rs/canvas';
 import { fileURLToPath } from 'node:url';
 import { join } from 'node:path';
-import { existsSync } from 'node:fs';
 
 // -- TYPES -- //
-
-
 
 export interface TypesetBox {
 	x: number;
@@ -37,24 +34,9 @@ export interface TextSegment {
 	text: string;
 }
 
-function findFontDir(): string {
-	const candidates = [
-		fileURLToPath(new URL('../../../static/fonts', import.meta.url)),
-		fileURLToPath(new URL('../../static/fonts', import.meta.url)),
-		fileURLToPath(new URL('../../../../static/fonts', import.meta.url)),
-		join(process.cwd(), 'static', 'fonts'),
-		join(process.cwd(), 'web', 'static', 'fonts'),
-		join(process.env.APPDATA || '', 'XianScan', 'app', 'static', 'fonts'),
-	];
-	for (const dir of candidates) {
-		if (existsSync(join(dir, 'CCWildWords-Roman.ttf'))) {
-			return dir;
-		}
-	}
-	return candidates[0];
-}
+// -- CONSTANTS -- //
 
-const FONT_DIR = findFontDir();
+const FONT_DIR = fileURLToPath(new URL('../../../static/fonts', import.meta.url));
 
 export const FONT_DIALOGUE = 'CC Wild Words';
 export const FONT_SFX = 'CC Wild Words';
@@ -62,9 +44,9 @@ export const FONT_MONO = 'CC Wild Words';
 export const FONT_FALLBACK_NAME = 'Friendly Sans';
 export const FONT_FALLBACK = ', "Friendly Sans", "Yu Gothic Bold", "Yu Gothic", "Microsoft YaHei Bold", "Microsoft YaHei", Arial, "Segoe UI", sans-serif';
 
-// RENDER MARGINS INSIDE THE DETECTED BOX — 5% INSET (0.05) GIVES BALANCED BOUNDARY UTILIZATION WITH CLEAN EDGE PADDING
+// RENDER MARGINS INSIDE THE DETECTED BOX — 5% INSET (0.05) GIVES MAXIMUM BOUNDARY UTILIZATION WITH CLEAN EDGE PADDING
 const BOX_INSET = 0.05;
-const SFX_BOX_INSET = 0.02;
+const SFX_BOX_INSET = 0.05;
 const MIN_FONT_SIZE = 6;
 const LINE_HEIGHT = 1.2;
 // TEXT OUTLINE (THE BLACK/WHITE STROKE DRAWN UNDER THE FILL) — SIZED RELATIVE TO THE FONT WITH A
@@ -89,9 +71,8 @@ let fontsRegistered = false;
 function registerFonts(): void {
 	if (fontsRegistered) return;
 	fontsRegistered = true;
-	const fontDir = findFontDir();
-	GlobalFonts.registerFromPath(join(fontDir, 'CCWildWords-Roman.ttf'), FONT_DIALOGUE);
-	GlobalFonts.registerFromPath(join(fontDir, 'FriendlySans-Regular.ttf'), FONT_FALLBACK_NAME);
+	GlobalFonts.registerFromPath(join(FONT_DIR, 'CCWildWords-Roman.ttf'), FONT_DIALOGUE);
+	GlobalFonts.registerFromPath(join(FONT_DIR, 'FriendlySans-Regular.ttf'), FONT_FALLBACK_NAME);
 	try {
 		if (process.platform === 'win32') {
 			GlobalFonts.registerFromPath('C:\\Windows\\Fonts\\arial.ttf', 'Arial');
@@ -108,7 +89,7 @@ function registerFonts(): void {
 	}
 	if (!GlobalFonts.has(FONT_DIALOGUE) || !GlobalFonts.has(FONT_FALLBACK_NAME)) {
 		fontsRegistered = false;
-		throw new Error(`typeset fonts not found in ${fontDir} — run the font download step`);
+		throw new Error(`typeset fonts not found in ${FONT_DIR} — run the font download step`);
 	}
 }
 
@@ -117,24 +98,24 @@ const CJK_REGEX = /[\u3040-\u30ff\u3400-\u4dbf\u4e00-\u9fff\uf900-\ufaff\uac00-\
 // Characters remapped to arrow glyphs in CC Wild Words (e.g. [ and ] are comic bubble arrows)
 const UNSUPPORTED_WILDWORDS_REGEX = /[\[\]{}|\\]/;
 
-export function fontFor(text?: string, fontDialogue = FONT_DIALOGUE, fontCjk = FONT_FALLBACK_NAME): string {
-	if (text && (CJK_REGEX.test(text) || (fontDialogue === FONT_DIALOGUE && UNSUPPORTED_WILDWORDS_REGEX.test(text)))) {
-		return fontCjk;
+export function fontFor(text?: string): string {
+	if (text && (CJK_REGEX.test(text) || UNSUPPORTED_WILDWORDS_REGEX.test(text))) {
+		return FONT_FALLBACK_NAME;
 	}
-	return fontDialogue;
+	return FONT_DIALOGUE;
 }
 
-export function fontSpec(size: number, fontNameOrText?: string, text?: string, fontCjk = FONT_FALLBACK_NAME): string {
+export function fontSpec(size: number, fontNameOrText?: string, text?: string): string {
 	let fontName: string;
-	if (fontNameOrText && fontNameOrText !== FONT_DIALOGUE && fontNameOrText !== FONT_FALLBACK_NAME && fontNameOrText !== fontCjk) {
+	if (fontNameOrText && fontNameOrText !== FONT_DIALOGUE && fontNameOrText !== FONT_FALLBACK_NAME) {
 		fontName = fontNameOrText;
 	} else if (text && (CJK_REGEX.test(text) || UNSUPPORTED_WILDWORDS_REGEX.test(text))) {
-		fontName = fontCjk;
+		fontName = FONT_FALLBACK_NAME;
 	} else {
 		fontName = fontNameOrText ?? FONT_DIALOGUE;
 	}
-	if (fontName === fontCjk || fontName === FONT_FALLBACK_NAME) {
-		return `bold ${size}px "${fontName}", "Yu Gothic Bold", "Yu Gothic", "Microsoft YaHei Bold", "Microsoft YaHei", Arial, "Segoe UI", sans-serif`;
+	if (fontName === FONT_FALLBACK_NAME) {
+		return `bold ${size}px "${FONT_FALLBACK_NAME}", "Yu Gothic Bold", "Yu Gothic", "Microsoft YaHei Bold", "Microsoft YaHei", Arial, "Segoe UI", sans-serif`;
 	}
 	return `${size}px "${fontName}"${FONT_FALLBACK}`;
 }
@@ -261,13 +242,13 @@ export function wrapText(ctx: { measureText(t: string): { width: number } }, tex
 				kRaw--;
 			}
 			const overflowLetters = current.length - kRaw;
-			// STRICT RULE: If up to 3 letters overflow the boundary rect,
-			// force the whole word on the line without breaking! If 4 or more, break.
-			if (overflowLetters <= 3) {
+			// STRICT RULE: If only 1 letter overflows the boundary rect (e.g. "ANOTHE" fits, only "R" overflows),
+			// force the whole word on the line without breaking!
+			if (overflowLetters <= 1) {
 				break;
 			}
 
-			// If 4 or more letters overflow, proceed to break off with a hyphen '-'
+			// If 2 or more letters overflow, proceed to break off with a hyphen '-'
 			let k = current.length - 2;
 			while (k > 0 && ctx.measureText(current.slice(0, k) + '-').width > maxWidth) {
 				k--;
@@ -279,7 +260,7 @@ export function wrapText(ctx: { measureText(t: string): { width: number } }, tex
 				}
 			}
 			const remainderLen = current.length - k;
-			if (remainderLen <= 3) {
+			if (remainderLen <= 1) {
 				break;
 			}
 			if (k >= 2) {
@@ -386,17 +367,43 @@ export function balancedWrapText(
 }
 
 /**
+ * Checks if the text represents a structured list or key-value property block
+ * (e.g. "Class: Mage\nLevel: 10\nEquipment:\nNovice Mage Robe...").
+ */
+export function isStructuredList(text: string): boolean {
+	const rawLines = text.split('\n').map((l) => l.trim()).filter(Boolean);
+	if (rawLines.length < 3) return false;
+	const colonCount = rawLines.filter((l) => /^[a-zA-Z\u4e00-\u9fa5\s]+[:：]/.test(l) || l.endsWith(':') || l.endsWith('：')).length;
+	// If at least 2 lines start/end with colons (key-value properties)
+	if (colonCount >= 2) return true;
+	// Or lines start with list bullets / numbering (1., 2., -, •)
+	const bulletCount = rawLines.filter((l) => /^[-*•\d+.]\s+/.test(l)).length;
+	if (bulletCount >= 2 && bulletCount >= rawLines.length / 2) return true;
+	return false;
+}
+
+/**
  * THE STANDARD DIALOGUE/MONO WRAP: source '\n' breaks are OCR artifacts (one bubble's
  * paragraph split across detected lines), not layout — join them into one paragraph and
- * re-wrap BALANCED. Greedy-at-minimal-width means the upper lines come out as full as
- * possible and the LAST line is the shortest (the desired manhua bubble look) — an
- * orphaned single word like "Xin" on its own line can never happen.
+ * re-wrap BALANCED.
+ *
+ * EXCEPTION: When text is an intentional structured list (e.g. character stat/equipment lists),
+ * wrap each line independently to preserve intentional line structure!
  */
 export function reflowText(
 	ctx: { measureText(t: string): { width: number } },
 	text: string,
 	maxWidth: number,
 ): string[] {
+	if (isStructuredList(text)) {
+		const rawLines = text.split('\n').map((l) => l.trim()).filter(Boolean);
+		const out: string[] = [];
+		for (const line of rawLines) {
+			const wrapped = wrapText(ctx, line, maxWidth);
+			out.push(...wrapped);
+		}
+		return out;
+	}
 	const paragraph = text.replace(/\s*\n+\s*/g, ' ').replace(/\s+/g, ' ').trim();
 	return balancedWrapText(ctx, paragraph, maxWidth);
 }
@@ -409,52 +416,17 @@ export function fitFontSize(
 	boxH: number,
 	startSize: number,
 	maxSize?: number,
-	boxInset: number = BOX_INSET,
 ): number {
-	const maxW = Math.max(10, boxW * (1 - 2 * boxInset));
-	const maxH = Math.max(10, boxH * (1 - 2 * boxInset));
-	const ceil = Math.max(MIN_FONT_SIZE, maxSize ?? startSize);
-
-	const fitsWidth = (lines: string[]) => lines.every((l) => ctx.measureText(l).width <= maxW);
-
-	// Pass 1: Try to find the largest font size where text fits BOTH horizontally and vertically WITHOUT hyphenating
+	const maxW = Math.max(10, boxW * (1 - 2 * BOX_INSET));
+	const maxH = Math.max(10, boxH * (1 - 2 * BOX_INSET));
 	let lo = MIN_FONT_SIZE;
-	let hi = ceil;
-	let foundUnbroken = false;
+	let hi = Math.max(lo, maxSize ?? startSize);
 	while (lo < hi) {
 		const mid = Math.ceil((lo + hi) / 2);
 		ctx.font = fontSpec(mid, fontFamily);
 		const lines = reflowText(ctx, text, maxW);
 		const lineH = mid * LINE_HEIGHT;
-		const hasHyphen = lines.some((l) => l.endsWith('-'));
-		if (!hasHyphen && lines.length * lineH <= maxH && fitsWidth(lines)) {
-			lo = mid;
-			foundUnbroken = true;
-		} else {
-			hi = mid - 1;
-		}
-	}
-
-	if (foundUnbroken) {
-		return lo;
-	}
-
-	// Check if MIN_FONT_SIZE fits unbroken
-	ctx.font = fontSpec(MIN_FONT_SIZE, fontFamily);
-	const minLines = reflowText(ctx, text, maxW);
-	if (!minLines.some((l) => l.endsWith('-')) && minLines.length * (MIN_FONT_SIZE * LINE_HEIGHT) <= maxH && fitsWidth(minLines)) {
-		return MIN_FONT_SIZE;
-	}
-
-	// Pass 2: Fallback — word is too long to fit without hyphenation even at small sizes, allow hyphenation
-	lo = MIN_FONT_SIZE;
-	hi = ceil;
-	while (lo < hi) {
-		const mid = Math.ceil((lo + hi) / 2);
-		ctx.font = fontSpec(mid, fontFamily);
-		const lines = reflowText(ctx, text, maxW);
-		const lineH = mid * LINE_HEIGHT;
-		if (lines.length * lineH <= maxH && fitsWidth(lines)) lo = mid;
+		if (lines.length * lineH <= maxH) lo = mid;
 		else hi = mid - 1;
 	}
 	return lo;
@@ -533,20 +505,8 @@ export function renderText(r: TypesetRegion): string {
 	return sanitized.toUpperCase();
 }
 
-export type TypesetOutline = 'none' | 'thin' | 'standard' | 'heavy';
-export type TypesetContrast = 'auto' | 'dark' | 'light';
-export type TypesetCasing = 'uppercase' | 'original' | 'lowercase';
-
 export interface TypesetOptions {
 	fontScale?: number;
-	fontDialogue?: string;
-	fontCjk?: string;
-	boxInset?: number;
-	outlineMode?: TypesetOutline;
-	colorMode?: TypesetContrast;
-	casing?: TypesetCasing;
-	allCaps?: boolean; // backwards-compatible alias
-	enableRotation?: boolean;
 }
 
 // -- STAT-PANEL RENDERER -- //
@@ -575,103 +535,124 @@ export function typesetStatPanel(
 	};
 
 	const gap = Math.max(2, h * 0.012);
+	const gapTotal = gap * (segments.length - 1);
 
-	let lo = MIN_FONT_SIZE;
-	let hi = Math.max(lo, Math.round(h * 0.40));
-	while (lo < hi) {
-		const base = Math.ceil((lo + hi) / 2);
-		let fits = true;
-		let totalHeight = 0;
+	// Brackets extend outward from the text edge, so they don't reduce text width.
+	// Only reserve the small gutter between text and bracket spine (0.20 each side).
+	const BRACKET_GUTTER_RATIO = 0.40; // 2 × gutter (size * 0.20 each side)
 
+	function totalAtBase(base: number): number {
+		let h2 = gapTotal;
 		for (const seg of segments) {
 			const sz = Math.max(MIN_FONT_SIZE, Math.round(base * SEG_SCALE[seg.kind]));
-			ctx.font = fontSpec(sz, FONT_DIALOGUE, seg.text);
-			const lines = reflowText(ctx, seg.text, insetW);
-			const segH = lines.length * (sz * LINE_HEIGHT);
-			totalHeight += segH + gap;
-			if (totalHeight - gap > insetH) {
-				fits = false;
-				break;
+			const segFont = fontFor(seg.text);
+			ctx.font = fontSpec(sz, segFont);
+			if (seg.kind === 'title') {
+				// Title stays on one line; brackets extend outward so only reserve gutter space
+				const maxTitleW = insetW - sz * BRACKET_GUTTER_RATIO;
+				const textFits = ctx.measureText(seg.text).width <= Math.max(10, maxTitleW);
+				if (!textFits) return Infinity; // base too large for title
+
+				h2 += sz * LINE_HEIGHT;
+			} else {
+				const lines = balancedWrapText(ctx, seg.text, insetW);
+				h2 += lines.length * sz * LINE_HEIGHT;
 			}
 		}
-
-		if (fits) lo = base;
-		else hi = base - 1;
+		return h2;
 	}
 
+	let lo = MIN_FONT_SIZE;
+	let hi = 80; // no comic page needs body text > 80px
+	while (lo < hi) {
+		const mid = Math.ceil((lo + hi) / 2);
+		if (totalAtBase(mid) <= insetH) lo = mid;
+		else hi = mid - 1;
+	}
 	const baseSize = lo;
 
-	// -- RENDER: draw each segment top-to-bottom --
-	const rendered: Array<{ lines: string[]; size: number; font: string; isTitle: boolean; isRarity: boolean }> = [];
-	let contentHeight = 0;
+	// Build the measured array at the found baseSize
+	type MeasuredSeg = { seg: TextSegment; lines: string[]; size: number; color: string; stroke: string; font: string };
+	const measured: MeasuredSeg[] = [];
+	let totalH = gapTotal;
+
 	for (const seg of segments) {
 		const size = Math.max(MIN_FONT_SIZE, Math.round(baseSize * SEG_SCALE[seg.kind]));
-		const font = fontSpec(size, FONT_DIALOGUE, seg.text);
-		ctx.font = font;
-		const lines = reflowText(ctx, seg.text, insetW);
-		const segH = lines.length * (size * LINE_HEIGHT);
-		contentHeight += segH + gap;
-		rendered.push({
-			lines,
-			size,
-			font,
-			isTitle: seg.kind === 'title',
-			isRarity: seg.kind === 'rarity',
-		});
-	}
-	contentHeight -= gap; // remove trailing gap
+		const segFont = fontFor(seg.text);
+		ctx.font = fontSpec(size, segFont);
+		const lines = seg.kind === 'title' ? [seg.text] : balancedWrapText(ctx, seg.text, insetW);
+		totalH += lines.length * size * LINE_HEIGHT;
 
-	// Centre the entire block vertically inside the bounding box
-	let curY = y + (h - contentHeight) / 2;
+		measured.push({ seg, lines, size, color: bgColor.fill, stroke: bgColor.stroke, font: segFont });
+	}
+
+	// --- Pass 2: draw --- //
+	const angleDeg = r.angle ?? 0;
+	const hasRotation = Math.abs(angleDeg) >= 2.0;
 
 	ctx.save();
-	ctx.textAlign = 'center';
-	ctx.textBaseline = 'alphabetic';
-
-	for (const seg of rendered) {
-		ctx.font = seg.font;
-		const lineH = seg.size * LINE_HEIGHT;
-		for (const line of seg.lines) {
-			const baselineY = curY + seg.size * 0.85;
-			const tx = x + w / 2;
-
-			// Stroke outline for contrast
-			ctx.lineWidth = Math.max(2.0, seg.size * OUTLINE_FACTOR);
-			ctx.lineJoin = 'round';
-			ctx.strokeStyle = bgColor.stroke;
-			ctx.strokeText(line, tx, baselineY);
-
-			// Fill
-			ctx.fillStyle = bgColor.fill;
-			ctx.fillText(line, tx, baselineY);
-
-			curY += lineH;
-		}
-		curY += gap;
+	if (hasRotation) {
+		const cx = x + w / 2;
+		const cy = y + h / 2;
+		ctx.translate(cx, cy);
+		ctx.rotate((angleDeg * Math.PI) / 180);
 	}
 
+	const renderH = Math.min(totalH, insetH);
+	let ty = hasRotation ? -renderH / 2 : y + (h - renderH) / 2;
+
+	for (let i = 0; i < measured.length; i++) {
+		const { seg, lines, size, color, stroke, font: segFont } = measured[i];
+		const lineH = size * LINE_HEIGHT;
+		ctx.font = fontSpec(size, segFont);
+		ctx.textAlign = 'center';
+		ctx.textBaseline = 'alphabetic';
+
+		const tx = hasRotation ? 0 : x + w / 2;
+		const isDarkStroke = stroke === 'black' || stroke === '#000000' || stroke === '#111111';
+		for (const line of lines) {
+			const drawY = ty + size * 0.85;
+			ctx.lineWidth = Math.max(OUTLINE_MIN, size * OUTLINE_FACTOR);
+			ctx.lineJoin = 'round';
+			ctx.strokeStyle = stroke;
+			ctx.shadowColor = isDarkStroke ? 'rgba(0, 0, 0, 0.85)' : 'rgba(255, 255, 255, 0.85)';
+			ctx.shadowBlur = Math.max(2.5, size * 0.18);
+			ctx.shadowOffsetX = isDarkStroke ? 1.0 : 0;
+			ctx.shadowOffsetY = isDarkStroke ? 1.5 : 0;
+			ctx.strokeText(line, tx, drawY);
+
+			// Reset shadow for crisp fill rendering
+			ctx.shadowColor = 'transparent';
+			ctx.shadowBlur = 0;
+			ctx.shadowOffsetX = 0;
+			ctx.shadowOffsetY = 0;
+			ctx.fillStyle = color;
+			ctx.fillText(line, tx, drawY);
+			ty += lineH;
+		}
+		if (i < measured.length - 1) ty += gap;
+	}
 	ctx.restore();
 }
 
 /**
- * Adjust bounding boxes of vertically or horizontally adjacent regions that overlap or nearly touch,
- * eliminating the visual "collision" where two bubbles render on top of each other.
+ * Automatically adjusts bounding boxes of overlapping text regions on a page to prevent text collisions.
  */
-export function decollideRegions(regions: TypesetRegion[], margin: number = 4): TypesetRegion[] {
-	if (regions.length < 2) return regions;
-
-	// Deep clone to avoid mutating input objects
+export function decollideRegions(regions: TypesetRegion[]): TypesetRegion[] {
+	if (regions.length <= 1) return regions;
 	const adjusted = regions.map((r) => ({
 		...r,
 		box: { ...r.box },
 	}));
+
+	const margin = 4; // minimum separation margin in pixels
 
 	for (let i = 0; i < adjusted.length; i++) {
 		for (let j = i + 1; j < adjusted.length; j++) {
 			const a = adjusted[i];
 			const b = adjusted[j];
 
-			// Check bounding box intersection with safety margin
+			// Check axis-aligned overlap
 			const xOverlap = Math.min(a.box.x + a.box.w, b.box.x + b.box.w) - Math.max(a.box.x, b.box.x);
 			const yOverlap = Math.min(a.box.y + a.box.h, b.box.y + b.box.h) - Math.max(a.box.y, b.box.y);
 
@@ -716,14 +697,6 @@ export function decollideRegions(regions: TypesetRegion[], margin: number = 4): 
 export async function typesetPage(cleanedPng: Buffer, regions: TypesetRegion[], opts: TypesetOptions = {}): Promise<Buffer> {
 	registerFonts();
 	const scale = opts.fontScale ?? 1;
-	const fontDialogue = opts.fontDialogue || FONT_DIALOGUE;
-	const fontCjk = opts.fontCjk || FONT_FALLBACK_NAME;
-	const inset = opts.boxInset ?? BOX_INSET;
-	const outlineMode = opts.outlineMode ?? 'standard';
-	const colorMode = opts.colorMode ?? 'auto';
-	const casing = opts.casing ?? (opts.allCaps === false ? 'original' : 'uppercase');
-	const enableRotation = opts.enableRotation ?? true;
-
 	const img = await loadImage(cleanedPng);
 	const canvas = createCanvas(img.width, img.height);
 	const ctx = canvas.getContext('2d');
@@ -733,7 +706,8 @@ export async function typesetPage(cleanedPng: Buffer, regions: TypesetRegion[], 
 		const rawText = sanitizeForFont(r.text.trim());
 		const isVerticalDialogue =
 			(r.vertical || (r.box.h / r.box.w >= 1.6 && r.box.h >= 60)) &&
-			!CJK_REGEX.test(rawText);
+			!CJK_REGEX.test(rawText) &&
+			!isSfxOrShout(rawText);
 		if (isVerticalDialogue) {
 			const renderW = Math.min(img.width, Math.max(r.box.w, Math.min(Math.round(r.box.h * 0.75), Math.round(r.box.w * 2.5), 160)));
 			const renderX = Math.max(0, Math.min(img.width - renderW, Math.round(r.box.x + r.box.w / 2 - renderW / 2)));
@@ -755,15 +729,8 @@ export async function typesetPage(cleanedPng: Buffer, regions: TypesetRegion[], 
 		const rawText = sanitizeForFont(r.text.trim());
 		if (!rawText) continue;
 
-		let color: TextColor;
-		if (colorMode === 'dark') {
-			color = { fill: 'black', stroke: 'white' };
-		} else if (colorMode === 'light') {
-			color = { fill: 'white', stroke: 'black' };
-		} else {
-			const bg = sampleBackground(ctx, r.box.x, r.box.y, r.box.w, r.box.h);
-			color = pickTextColor(bg);
-		}
+		const bg = sampleBackground(ctx, r.box.x, r.box.y, r.box.w, r.box.h);
+		let color = pickTextColor(bg);
 
 		// STAT-PANEL PATH — structured multi-segment rendering
 		const statSegments = parseStatPanel(rawText);
@@ -772,32 +739,32 @@ export async function typesetPage(cleanedPng: Buffer, regions: TypesetRegion[], 
 			continue;
 		}
 
-		// STANDARD PATH — unified natural multi-line wrapping
-		const isCjk = CJK_REGEX.test(rawText);
-		let text: string;
-		if (isCjk) {
-			text = rawText;
-		} else if (casing === 'lowercase') {
-			text = rawText.toLowerCase();
-		} else if (casing === 'original') {
-			text = rawText;
-		} else {
-			text = rawText.toUpperCase();
-		}
+		// STANDARD PATH — flat word-wrap
+		const text = CJK_REGEX.test(rawText) ? rawText : rawText.toUpperCase();
 		const { x, y, w, h } = r.box;
 
 		const angleDeg = r.angle ?? 0;
-		const hasRotation = enableRotation && Math.abs(angleDeg) >= 2.0 && Math.abs(angleDeg) <= 45.0;
+		const hasRotation = Math.abs(angleDeg) >= 2.0 && Math.abs(angleDeg) <= 45.0;
 
-		const font = fontFor(text, fontDialogue, fontCjk);
-		const maxW = Math.max(10, w * (1 - 2 * inset));
-		const maxH = Math.max(10, h * (1 - 2 * inset));
+		const font = fontFor(text);
+		const isSfx = isSfxOrShout(text);
 
-		const sizeCap = Math.max(100, Math.max(w, h)) * scale;
-		const size = fitFontSize(ctx, text, font, w, h, sizeCap, sizeCap, inset);
+		// FULL BOUNDARY UTILIZATION — 0% INSET
+		const maxW = Math.max(10, w * (1 - 2 * BOX_INSET));
+		const maxH = Math.max(10, h * (1 - 2 * BOX_INSET));
 
-		ctx.font = fontSpec(size, font, text, fontCjk);
-		const lines = reflowText(ctx, text, maxW);
+		const sizeCap = Math.max(MAX_SFX_FONT_SIZE, Math.max(w, h)) * scale;
+		let size: number;
+		if (isSfx) {
+			// Single-line fitting maximizes SFX to fill full width/height without wrapping
+			size = fitSingleLineSize(ctx, text, font, maxW, maxH, sizeCap);
+		} else {
+			// Fit dialogue font size to fill the maximum boundary dimensions
+			size = fitFontSize(ctx, text, font, w, h, sizeCap, sizeCap);
+		}
+
+		ctx.font = fontSpec(size, font, text);
+		const lines = isSfx ? [text] : reflowText(ctx, text, maxW);
 		const lineH = size * LINE_HEIGHT;
 		const totalH = lines.length * lineH;
 
@@ -808,20 +775,9 @@ export async function typesetPage(cleanedPng: Buffer, regions: TypesetRegion[], 
 		// High-contrast stroke + shadow for maximum legibility on comics and floating captions
 		const isBlackOnLight = color.fill === 'black' || color.fill === '#111111';
 		const isDarkStroke = color.stroke === 'black' || color.stroke === '#000000' || color.stroke === '#111111';
-
-		let strokeWidth: number;
-		if (outlineMode === 'none') {
-			strokeWidth = 0;
-		} else if (outlineMode === 'thin') {
-			strokeWidth = isBlackOnLight ? Math.max(1.0, size * 0.06) : Math.max(1.5, size * 0.10);
-		} else if (outlineMode === 'heavy') {
-			strokeWidth = isBlackOnLight ? Math.max(3.0, size * 0.16) : Math.max(5.0, size * 0.26);
-		} else {
-			// standard
-			strokeWidth = isBlackOnLight
-				? Math.max(1.8, size * 0.10)
-				: Math.max(3.0, size * OUTLINE_FACTOR);
-		}
+		const strokeWidth = isBlackOnLight
+			? Math.max(1.8, size * 0.10)
+			: Math.max(3.0, size * OUTLINE_FACTOR);
 
 		ctx.lineWidth = strokeWidth;
 		ctx.lineJoin = 'round';
@@ -835,13 +791,11 @@ export async function typesetPage(cleanedPng: Buffer, regions: TypesetRegion[], 
 			ctx.rotate((angleDeg * Math.PI) / 180);
 			let ty = -totalH / 2 + size * 0.85;
 			for (const line of lines) {
-				if (strokeWidth > 0) {
-					ctx.shadowColor = isDarkStroke ? 'rgba(0, 0, 0, 0.85)' : 'rgba(255, 255, 255, 0.85)';
-					ctx.shadowBlur = Math.max(2.5, size * 0.18);
-					ctx.shadowOffsetX = isDarkStroke ? 1.0 : 0;
-					ctx.shadowOffsetY = isDarkStroke ? 1.5 : 0;
-					ctx.strokeText(line, 0, ty);
-				}
+				ctx.shadowColor = isDarkStroke ? 'rgba(0, 0, 0, 0.85)' : 'rgba(255, 255, 255, 0.85)';
+				ctx.shadowBlur = Math.max(2.5, size * 0.18);
+				ctx.shadowOffsetX = isDarkStroke ? 1.0 : 0;
+				ctx.shadowOffsetY = isDarkStroke ? 1.5 : 0;
+				ctx.strokeText(line, 0, ty);
 
 				ctx.shadowColor = 'transparent';
 				ctx.shadowBlur = 0;
@@ -854,13 +808,11 @@ export async function typesetPage(cleanedPng: Buffer, regions: TypesetRegion[], 
 			const tx = x + w / 2;
 			let ty = y + (h - totalH) / 2 + size * 0.85;
 			for (const line of lines) {
-				if (strokeWidth > 0) {
-					ctx.shadowColor = isDarkStroke ? 'rgba(0, 0, 0, 0.85)' : 'rgba(255, 255, 255, 0.85)';
-					ctx.shadowBlur = Math.max(2.5, size * 0.18);
-					ctx.shadowOffsetX = isDarkStroke ? 1.0 : 0;
-					ctx.shadowOffsetY = isDarkStroke ? 1.5 : 0;
-					ctx.strokeText(line, tx, ty);
-				}
+				ctx.shadowColor = isDarkStroke ? 'rgba(0, 0, 0, 0.85)' : 'rgba(255, 255, 255, 0.85)';
+				ctx.shadowBlur = Math.max(2.5, size * 0.18);
+				ctx.shadowOffsetX = isDarkStroke ? 1.0 : 0;
+				ctx.shadowOffsetY = isDarkStroke ? 1.5 : 0;
+				ctx.strokeText(line, tx, ty);
 
 				ctx.shadowColor = 'transparent';
 				ctx.shadowBlur = 0;
@@ -872,7 +824,7 @@ export async function typesetPage(cleanedPng: Buffer, regions: TypesetRegion[], 
 		}
 		ctx.restore();
 	}
-	return await canvas.encode('webp', 90);
+	return canvas.toBuffer('image/png');
 }
 
 export function sampleBackground(

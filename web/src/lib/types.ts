@@ -123,7 +123,7 @@ export type PipelineStep =
 
 export const PIPELINE_STEP_LABELS: Record<PipelineStep, string> = {
 	queued: 'Queued',
-	preprocess: 'Preprocess Image',
+	preprocess: 'Watermark Clean',
 	analyze: 'Detect & OCR',
 	persist_regions: 'Save Regions',
 	term_extract: 'Glossary AI Extract',

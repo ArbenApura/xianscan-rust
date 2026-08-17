@@ -31,14 +31,12 @@ export const PATCH: RequestHandler = async ({ params, request }) => {
 	}
 
 	let targetToSave: string | null = null;
+	let origTarget = existingRegion.originalTarget ?? existingRegion.textTarget;
 	if (parsed.data.action === 'reset_ai') {
-		targetToSave = existingRegion.originalTarget ?? existingRegion.textTarget;
+		targetToSave = origTarget;
 	} else {
 		targetToSave = (parsed.data.textTarget ?? '').trim() || null;
 	}
-
-	// Preserve originalTarget if not already set
-	const origTarget = existingRegion.originalTarget ?? existingRegion.textTarget;
 
 	db.update(regions)
 		.set({
@@ -62,10 +60,7 @@ export const PATCH: RequestHandler = async ({ params, request }) => {
 
 	return json({
 		success: true,
-		region: {
-			...updatedRegion,
-			originalTarget: updatedRegion.originalTarget ?? updatedRegion.textTarget,
-		},
+		region: updatedRegion,
 		outputPath: newOutputPath,
 	});
 };

@@ -9,7 +9,6 @@ import type { LangPair } from '$lib/types';
 const schema = z.object({
 	text: z.string().min(1).max(2000),
 	kind: z.enum(['title', 'chapter', 'term', 'general']).optional().default('general'),
-	instruction: z.string().max(1000).optional(),
 	bookId: z.union([z.number(), z.string()]).optional(),
 	chapterId: z.union([z.number(), z.string()]).optional(),
 	sourceLang: z.string().optional(),
@@ -26,7 +25,7 @@ export const POST: RequestHandler = async ({ request }) => {
 			return json({ message: 'Invalid input: text is required' }, { status: 400 });
 		}
 
-		const { text, kind, instruction, bookId, chapterId, model } = parsed.data;
+		const { text, kind, bookId, chapterId, model } = parsed.data;
 		let sourceLang = parsed.data.sourceLang;
 		let targetLang = parsed.data.targetLang;
 
@@ -73,7 +72,6 @@ export const POST: RequestHandler = async ({ request }) => {
 
 		const result = await translateSingleText(text, pair, {
 			kind,
-			instruction,
 			model,
 		});
 

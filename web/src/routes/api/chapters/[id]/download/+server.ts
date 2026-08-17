@@ -3,7 +3,7 @@
 import { error } from '@sveltejs/kit';
 import { eq } from 'drizzle-orm';
 import { readFileSync } from 'node:fs';
-import { extname, join } from 'node:path';
+import { join } from 'node:path';
 import { zipSync } from 'fflate';
 // IMPORTED MODULES
 import { assertChapterExists } from '$lib/server/chapters';
@@ -23,9 +23,8 @@ export const GET: RequestHandler = async ({ params }) => {
 	let exported = 0;
 	for (const p of done) {
 		const outPath = p.outputPath ?? p.filePath; // FALL BACK TO THE ORIGINAL WHEN NOT TRANSLATED
-		const ext = extname(outPath).toLowerCase() || '.webp';
 		const bytes = readFileSync(join(DATA_ROOT, outPath));
-		files[`${String(p.seq).padStart(3, '0')}${ext}`] = new Uint8Array(bytes);
+		files[`${String(p.seq).padStart(3, '0')}.png`] = new Uint8Array(bytes);
 		exported++;
 	}
 	if (exported === 0) throw error(404, 'This chapter has no pages yet.');

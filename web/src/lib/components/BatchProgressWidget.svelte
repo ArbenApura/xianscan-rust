@@ -21,9 +21,6 @@
 	import Layers from 'lucide-svelte/icons/layers';
 	import Clock from 'lucide-svelte/icons/clock';
 	import BookOpen from 'lucide-svelte/icons/book-open';
-	import Check from 'lucide-svelte/icons/check';
-	import Scissors from 'lucide-svelte/icons/scissors';
-	import Loader2 from 'lucide-svelte/icons/loader-2';
 
 	let expanded = false;
 	let now = Date.now();
@@ -335,21 +332,13 @@
 
 									<div class="flex items-center gap-1.5 shrink-0">
 										{#if item.status === 'done'}
-											<span class="inline-flex items-center gap-1 text-[10px] font-mono font-bold text-emerald-600 dark:text-emerald-400">
-												<Check size={11} strokeWidth={2.5} /> Done
-											</span>
+											<span class="text-[10px] font-mono font-bold text-emerald-600 dark:text-emerald-400">✓ Done</span>
 										{:else if item.status === 'reslicing'}
-											<span class="inline-flex items-center gap-1 text-[10px] font-mono font-bold text-[#b23a2e] dark:text-[#e08a63] animate-pulse">
-												<Scissors size={10} /> Re-slicing
-											</span>
+											<span class="text-[10px] font-mono font-bold text-[#b23a2e] dark:text-[#e08a63] animate-pulse">✂ Re-slicing</span>
 										{:else if item.status === 'processing'}
-											<span class="inline-flex items-center gap-1 text-[10px] font-mono font-bold animate-pulse">
-												<Loader2 size={10} class="animate-spin" /> {item.translatedPages || 0}/{item.pageCount}
-											</span>
+											<span class="text-[10px] font-mono font-bold animate-pulse">⚙ {item.translatedPages || 0}/{item.pageCount}</span>
 										{:else if item.status === 'error'}
-											<span class="inline-flex items-center gap-1 text-[10px] font-mono font-bold text-red-500">
-												<X size={10} strokeWidth={2.5} /> Error
-											</span>
+											<span class="text-[10px] font-mono font-bold text-red-500">✕ Error</span>
 										{:else if item.status === 'skipped'}
 											<span class="text-[10px] font-mono opacity-50">Skipped</span>
 										{:else if item.status === 'cancelled'}

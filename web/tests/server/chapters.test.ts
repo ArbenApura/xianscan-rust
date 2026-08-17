@@ -173,27 +173,26 @@ describe('nextPageSeq & reorderPages', () => {
 
 	it('uploadPages never reuses a file name still referenced by another page (regression: after a stitch, re-uploading clobbered the last page\'s image)', async () => {
 		const fs = await import('node:fs');
-		const os = await import('node:os');
 		const path = await import('node:path');
 		const { uploadPages } = await import('$lib/server/chapters');
+		const { DATA_ROOT } = await import('$lib/server/paths');
 
-		const dataRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'xianscan-test-upload-'));
 		// THE DIVERGENT STATE AFTER STITCHING THE FIRST TWO OF FIVE PAGES: DB seqs ARE RENUMBERED
 		// (0-3) BUT FILES KEEP THEIR ORIGINAL NAMES (0, 2, 3, 4) — SO seq 3 STILL POINTS AT "4.png".
 		seedBook(db, { id: 'b1' });
 		const chapter = seedChapter(db, { id: 1, bookId: 'b1', seq: 0 });
 		const legacyFiles = ['0.png', '2.png', '3.png', '4.png'];
-		const uploadDir = path.join(dataRoot, 'uploads', '1');
+		const uploadDir = path.join(DATA_ROOT, 'uploads', '1');
 		fs.mkdirSync(uploadDir, { recursive: true });
 		try {
 			for (const f of legacyFiles) {
 				const filePath = `uploads/1/${f}`;
 				seedPage(db, { chapterId: chapter.id, seq: legacyFiles.indexOf(f), filePath });
-				fs.writeFileSync(path.join(dataRoot, filePath), Buffer.from(`content-${f}`));
+				fs.writeFileSync(path.join(DATA_ROOT, filePath), Buffer.from(`content-${f}`));
 			}
 
 			const file = new File([Buffer.from('brand-new-image')], 'new.png', { type: 'image/png' });
-			await uploadPages(chapter.id, [file], dataRoot);
+			await uploadPages(chapter.id, [file]);
 
 			const rows = db.select().from(pages).where(eq(pages.chapterId, chapter.id)).orderBy(pages.seq).all();
 			expect(rows).toHaveLength(5);
@@ -203,13 +202,13 @@ describe('nextPageSeq & reorderPages', () => {
 			const newPage = rows[4];
 			const existing = new Set(rows.slice(0, 4).map((p) => p.filePath));
 			expect(existing.has(newPage.filePath)).toBe(false);
-			expect(newPage.filePath).toMatch(/^uploads\/1\/[0-9a-f-]{36}\.(?:webp|png)$/);
+			expect(newPage.filePath).toMatch(/^uploads\/1\/[0-9a-f-]{36}\.png$/);
 
 			// AND THE OLD FILE'S CONTENT MUST BE UNTOUCHED ON DISK
-			expect(fs.readFileSync(path.join(dataRoot, 'uploads/1/4.png')).toString()).toBe('content-4.png');
-			expect(fs.readFileSync(path.join(dataRoot, newPage.filePath)).toString()).toBe('brand-new-image');
+			expect(fs.readFileSync(path.join(DATA_ROOT, 'uploads/1/4.png')).toString()).toBe('content-4.png');
+			expect(fs.readFileSync(path.join(DATA_ROOT, newPage.filePath)).toString()).toBe('brand-new-image');
 		} finally {
-			fs.rmSync(dataRoot, { recursive: true, force: true });
+			fs.rmSync(uploadDir, { recursive: true, force: true });
 		}
 	});
 

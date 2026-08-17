@@ -43,11 +43,19 @@
 		{ label: 'Exclamatory', prompt: 'Emphasize urgency, exclamation, and emotional intensity' },
 	];
 
-	$: if (region && open) {
-		editTargetText = region.textTarget ?? '';
-		customInstruction = '';
-		isRerolling = false;
-		isSaving = false;
+	let lastInitializedKey: string | null = null;
+
+	$: if (open && region) {
+		const key = `${region.id}_${open}`;
+		if (lastInitializedKey !== key) {
+			lastInitializedKey = key;
+			editTargetText = region.textTarget ?? '';
+			customInstruction = '';
+			isRerolling = false;
+			isSaving = false;
+		}
+	} else if (!open) {
+		lastInitializedKey = null;
 	}
 
 	$: isModified = Boolean(

@@ -283,11 +283,8 @@ function createJobTrackerStore() {
 						};
 
 						const updatedSnapshot = applyEventToSnapshot(baseSnapshot, event);
-						const hasActivePages = updatedSnapshot.pages.some((p) => p.status === 'processing');
 						const isTerminal =
-							event.type === 'done' ||
-							(event.type === 'error' && event.page === undefined) ||
-							(event.type === 'page-cancelled' && !hasActivePages);
+							event.type === 'done' || (event.type === 'error' && event.page === undefined);
 
 						return {
 							...state,
@@ -295,7 +292,7 @@ function createJobTrackerStore() {
 								...state.jobs,
 								[chapterId]: {
 									...existing,
-									running: !isTerminal && (event.type === 'start' || hasActivePages),
+									running: !isTerminal,
 									connectionState: isTerminal ? 'idle' : 'connected',
 									snapshot: updatedSnapshot,
 									reconnectAttempts: 0,
@@ -403,16 +400,6 @@ function createJobTrackerStore() {
 				pageIds: opts.pageIds,
 				inpaintMode: curSettings?.inpaintMode,
 				pageConcurrency: opts.pageConcurrency ?? curSettings?.parallelProcesses,
-				typesetOptions: {
-					fontDialogue: curSettings?.typesetFont,
-					fontCjk: curSettings?.typesetCjkFont,
-					boxInset: curSettings?.typesetPadding,
-					fontScale: curSettings?.typesetFontScale,
-					outlineMode: curSettings?.typesetOutline,
-					colorMode: curSettings?.typesetContrast,
-					casing: curSettings?.typesetCasing,
-					enableRotation: curSettings?.enableTextRotation,
-				},
 			};
 
 			// If a job is already running and we're NOT forcing a supersede, just POST
@@ -535,20 +522,14 @@ function createJobTrackerStore() {
 					}
 					return p;
 				});
-				const hasProcessingPages = updatedPages.some((p) => p.status === 'processing');
-				const isStillRunning = hasProcessingPages;
-
 				return {
 					...state,
 					jobs: {
 						...state.jobs,
 						[chapterId]: {
 							...existing,
-							running: isStillRunning,
-							connectionState: isStillRunning ? existing.connectionState : 'idle',
 							snapshot: {
 								...existing.snapshot,
-								status: isStillRunning ? existing.snapshot.status : 'done',
 								pages: updatedPages,
 							},
 						},
