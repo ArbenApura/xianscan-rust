@@ -261,13 +261,13 @@ export function wrapText(ctx: { measureText(t: string): { width: number } }, tex
 				kRaw--;
 			}
 			const overflowLetters = current.length - kRaw;
-			// STRICT RULE: If only 1 letter overflows the boundary rect (e.g. "ANOTHE" fits, only "R" overflows),
-			// force the whole word on the line without breaking!
-			if (overflowLetters <= 1) {
+			// STRICT RULE: If up to 3 letters overflow the boundary rect,
+			// force the whole word on the line without breaking! If 4 or more, break.
+			if (overflowLetters <= 3) {
 				break;
 			}
 
-			// If 2 or more letters overflow, proceed to break off with a hyphen '-'
+			// If 4 or more letters overflow, proceed to break off with a hyphen '-'
 			let k = current.length - 2;
 			while (k > 0 && ctx.measureText(current.slice(0, k) + '-').width > maxWidth) {
 				k--;
@@ -279,7 +279,7 @@ export function wrapText(ctx: { measureText(t: string): { width: number } }, tex
 				}
 			}
 			const remainderLen = current.length - k;
-			if (remainderLen <= 1) {
+			if (remainderLen <= 3) {
 				break;
 			}
 			if (k >= 2) {
@@ -413,14 +413,48 @@ export function fitFontSize(
 ): number {
 	const maxW = Math.max(10, boxW * (1 - 2 * boxInset));
 	const maxH = Math.max(10, boxH * (1 - 2 * boxInset));
+	const ceil = Math.max(MIN_FONT_SIZE, maxSize ?? startSize);
+
+	const fitsWidth = (lines: string[]) => lines.every((l) => ctx.measureText(l).width <= maxW);
+
+	// Pass 1: Try to find the largest font size where text fits BOTH horizontally and vertically WITHOUT hyphenating
 	let lo = MIN_FONT_SIZE;
-	let hi = Math.max(lo, maxSize ?? startSize);
+	let hi = ceil;
+	let foundUnbroken = false;
 	while (lo < hi) {
 		const mid = Math.ceil((lo + hi) / 2);
 		ctx.font = fontSpec(mid, fontFamily);
 		const lines = reflowText(ctx, text, maxW);
 		const lineH = mid * LINE_HEIGHT;
-		if (lines.length * lineH <= maxH) lo = mid;
+		const hasHyphen = lines.some((l) => l.endsWith('-'));
+		if (!hasHyphen && lines.length * lineH <= maxH && fitsWidth(lines)) {
+			lo = mid;
+			foundUnbroken = true;
+		} else {
+			hi = mid - 1;
+		}
+	}
+
+	if (foundUnbroken) {
+		return lo;
+	}
+
+	// Check if MIN_FONT_SIZE fits unbroken
+	ctx.font = fontSpec(MIN_FONT_SIZE, fontFamily);
+	const minLines = reflowText(ctx, text, maxW);
+	if (!minLines.some((l) => l.endsWith('-')) && minLines.length * (MIN_FONT_SIZE * LINE_HEIGHT) <= maxH && fitsWidth(minLines)) {
+		return MIN_FONT_SIZE;
+	}
+
+	// Pass 2: Fallback — word is too long to fit without hyphenation even at small sizes, allow hyphenation
+	lo = MIN_FONT_SIZE;
+	hi = ceil;
+	while (lo < hi) {
+		const mid = Math.ceil((lo + hi) / 2);
+		ctx.font = fontSpec(mid, fontFamily);
+		const lines = reflowText(ctx, text, maxW);
+		const lineH = mid * LINE_HEIGHT;
+		if (lines.length * lineH <= maxH && fitsWidth(lines)) lo = mid;
 		else hi = mid - 1;
 	}
 	return lo;

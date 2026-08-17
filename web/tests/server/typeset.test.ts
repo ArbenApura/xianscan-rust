@@ -164,23 +164,21 @@ describe('wrapText', () => {
 		expect(lines.some((l) => /^[.．…·!！?？]+$/.test(l))).toBe(false);
 	});
 
-	it('strictly forces word on line rather than breaking off a single letter (ANOTHER ONE DOWN!)', () => {
-		// "ANOTHER" is 70px wide (7 chars * 10px). If maxWidth is 65px (where "ANOTHE" fits without hyphen),
-		// it must NOT break off "R" onto the next line (ANOTHE / R ONE / DOWN!).
-		// It must force "ANOTHER" on line 1, wrapping to ["ANOTHER", "ONE", "DOWN!"].
+	it('strictly forces word on line when up to 3 letters overflow (e.g. ANOTHER ONE DOWN!)', () => {
+		// "ANOTHER" is 70px wide (7 chars * 10px). If maxWidth is 45px (where "ANOT" fits without hyphen, 3 overflow),
+		// it must NOT break off onto the next line. It must force "ANOTHER" on line 1.
 		const measure = { measureText: (t: string) => ({ width: t.length * 10 }) };
-		const lines = wrapText(measure, 'ANOTHER ONE DOWN!', 65);
+		const lines = wrapText(measure, 'ANOTHER ONE DOWN!', 45);
 		expect(lines).toEqual(['ANOTHER', 'ONE', 'DOWN!']);
-		expect(lines.includes('ANOTHE')).toBe(false);
-		expect(lines.some((l) => l.startsWith('R '))).toBe(false);
+		expect(lines.includes('ANOT-')).toBe(false);
 	});
 
-	it('allows breaking with hyphen when two or more letters break off', () => {
-		// "ANOTHER" (70px). If maxWidth is 50px (4 chars + '-' = 50px fit, remainder is "HER" = 3 chars),
-		// it breaks cleanly into ["ANOT-", "HER"].
+	it('allows breaking with hyphen when 4 or more letters overflow and remainder is 4 or more', () => {
+		// "UNBREAKABLE" (11 chars * 10px = 110px). If maxWidth is 70px (7 chars fit, 4 overflow):
+		// fits 6 chars + '-' = 70px ("UNBREA-"), remainder is "KABLE" (5 chars).
 		const measure = { measureText: (t: string) => ({ width: t.length * 10 }) };
-		const lines = wrapText(measure, 'ANOTHER', 50);
-		expect(lines).toEqual(['ANOT-', 'HER']);
+		const lines = wrapText(measure, 'UNBREAKABLE', 70);
+		expect(lines).toEqual(['UNBREA-', 'KABLE']);
 	});
 });
 
@@ -245,6 +243,33 @@ describe('fitFontSize', () => {
 		// SFX NEVER PASSES maxSize — IMPACT TEXT KEEPS ITS INTENTIONAL WHITESPACE.
 		const size = fitFontSize(x, 'HI!', 'Arial', 200, 100, 25);
 		expect(size).toBe(25);
+	});
+
+	it('scales down font size to fit single word unbroken rather than hyphenating into tall box', () => {
+		const c = createCanvas(10, 10);
+		const x = c.getContext('2d');
+		// "FIREBALL!" in a box of width 80 and height 120
+		const size = fitFontSize(x, 'FIREBALL!', 'Arial', 80, 120, 50, 50);
+		x.font = `bold ${size}px Arial`;
+		const lines = reflowText(x, 'FIREBALL!', 80 * 0.90);
+		expect(lines.length).toBe(1);
+		expect(lines[0]).toBe('FIREBALL!');
+		expect(lines[0].includes('-')).toBe(false);
+	});
+
+	it('scales down font size so word does not exceed the box width (e.g. CATCH!)', () => {
+		const c = createCanvas(10, 10);
+		const x = c.getContext('2d');
+		const boxW = 50;
+		const boxH = 50;
+		const inset = 0.05;
+		const maxW = boxW * (1 - 2 * inset);
+		const size = fitFontSize(x, 'CATCH!', 'Arial', boxW, boxH, 40, 40, inset);
+		x.font = `${size}px Arial`;
+		const lines = reflowText(x, 'CATCH!', maxW);
+		expect(lines.length).toBe(1);
+		expect(lines[0]).toBe('CATCH!');
+		expect(x.measureText(lines[0]).width).toBeLessThanOrEqual(maxW);
 	});
 });
 
