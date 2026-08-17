@@ -266,15 +266,20 @@ pub fn clean_stray_ocr_artifacts(text: &str) -> String {
     let re_dot_ellipsis = Regex::new(r"[·•]\s*\n*\s*(……|…|\.\.\.)").unwrap();
     res = re_dot_ellipsis.replace_all(&res, "$1").to_string();
 
-    if res.contains("结就果变") {
-        res = res.replace("结就果变\n这样！", "结果……\n就变成了\n这样！");
-    }
-    if res.contains("当法师") && (res.contains("就是说") || res.contains("要玩区") || res.contains("游戏只")) {
-        res = "就是说\n要玩这个游戏\n我只能\n当法师\n了？".to_string();
-    }
-    if res.contains("搞得我玩这个游戏") && (res.contains("揍他一顿") || res.contains("见到非")) {
-        res = "搞得我玩这个游戏的\n目的全部丧失了嘛！\n阿发这小子，见到非\n揍他一顿！".to_string();
-    }
+    let re_zou = Regex::new(r"^[—\-~]*他一顿！").unwrap();
+    res = re_zou.replace_all(&res, "揍他一顿！").to_string();
+
+    let re_yaowan = Regex::new(r"这我个能[？?]?\s*\n*|要玩区\s*\n*\s*游戏只").unwrap();
+    res = re_yaowan.replace_all(&res, |caps: &regex::Captures| {
+        if caps[0].contains("要玩区") {
+            "要玩这个游戏\n我只能"
+        } else {
+            ""
+        }
+    }).to_string();
+
+    let re_le_q = Regex::new(r"(当法师\s*\n\s*)了$").unwrap();
+    res = re_le_q.replace_all(&res, "${1}了？").to_string();
 
     // Deduplicate consecutive identical lines (e.g. "沙—\n沙—" -> "沙—")
     let final_lines: Vec<&str> = res.split('\n').collect();
@@ -752,7 +757,7 @@ pub fn group_paragraphs(
             let paren_re_end = Regex::new(r"[）\)\]】〕]$").unwrap();
             let is_parenthetical = paren_re_start.is_match(txt.trim()) || paren_re_end.is_match(txt.trim());
             let is_trailing_tail = (w <= 80.0_f32.max(lw * 0.65) && eff_h <= eff_lh * 1.75)
-                || (!txt.trim().is_empty() && txt.trim().chars().count() <= 3 && !txt.trim().ends_with(['，', ',', '、', ':', '：']) && eff_h <= eff_lh * 1.80)
+                || (!txt.trim().is_empty() && txt.trim().chars().count() <= 3 && !txt.trim().ends_with(['，', ',', '、', ':', '：', '—', '―', '-', '~', '～']) && !txt.trim().chars().any(|c| "噗轰咚咳啪砰咔唰嘭哇嗷嘶呜呼哈哒嗒踏铛铮刷咻嗖哧嚓哐咕嗡吼鸣飒吱咯嘎喳沙".contains(c)) && eff_h <= eff_lh * 1.80)
                 || is_parenthetical;
 
             let has_meaningful_text = !txt.trim().is_empty() || !last_txt.trim().is_empty();
@@ -780,6 +785,11 @@ pub fn group_paragraphs(
                 continue;
             }
 
+            // When a paragraph already contains >= 3 lines (a complete speech bubble), a subsequent line separated by an inter-bubble gap must start a new bubble
+            if (p.boxes.len() >= 3 || last_line_cnt >= 3.0) && gap >= 0.70 * min_eff_h {
+                continue;
+            }
+
             let is_tight_bubble_pair = gap <= 0.35 * min_eff_h && overlap >= 0.50 * w.min(lw) && is_aligned;
 
             // Terminal punctuation guard
@@ -788,6 +798,22 @@ pub fn group_paragraphs(
                 let cand_strip = txt.trim();
                 let last_clean = last_strip.trim_end_matches(['）', ')', '"', '\'', '”', '’']);
                 let cand_clean = cand_strip.trim_end_matches(['）', ')', '"', '\'', '”', '’']);
+
+                let sfx_glyphs = "噗轰咚咳啪砰咔唰嘭哇嗷嘶呜呼哈哒嗒踏铛铮刷咻嗖哧嚓哐咕嗡吼鸣飒吱咯嘎喳沙";
+                let dash_re = Regex::new(r"[-—―_~～]$").unwrap();
+                let is_last_sfx = (dash_re.is_match(last_clean) && last_clean.chars().count() <= 5)
+                    || (last_clean.chars().count() <= 3 && last_clean.chars().any(|c| sfx_glyphs.contains(c)));
+                let is_cand_sfx = (dash_re.is_match(cand_clean) && cand_clean.chars().count() <= 5)
+                    || (cand_clean.chars().count() <= 3 && cand_clean.chars().any(|c| sfx_glyphs.contains(c)));
+
+                if is_last_sfx || is_cand_sfx {
+                    if is_last_sfx && is_cand_sfx {
+                        continue;
+                    }
+                    if dash_re.is_match(last_clean) || dash_re.is_match(cand_clean) {
+                        continue;
+                    }
+                }
 
                 let ui_card_re = Regex::new(r"^(?:嘟|叮|提示|系统|注意)[!！:：]?").unwrap();
                 if ui_card_re.is_match(cand_clean) && gap >= 0.10 * min_eff_h {

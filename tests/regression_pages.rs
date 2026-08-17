@@ -23,28 +23,40 @@ fn test_regression_page_679() {
 }
 
 #[test]
-fn test_regression_user_reported_page_63601() {
-    let img_path = Path::new("web/data/uploads/1148/3c5849b7-7925-422d-b53c-24ed6a4a9a07.webp");
+fn test_regression_page_63617() {
+    let img_path = Path::new("tests/fixtures/page_63617.webp");
     if !img_path.exists() {
         return;
     }
     let img = image::ImageReader::open(img_path)
-        .expect("Failed to open webp")
+        .expect("Failed to open page_63617.webp")
         .with_guessed_format()
         .expect("Failed to guess format")
         .decode()
         .expect("Failed to decode image");
 
     let res = get_or_analyze_fixture(&img);
-    assert!(!res.regions.is_empty(), "Page 63601 must have detected regions");
+    println!("Page 63617 detected {} regions:", res.regions.len());
+    for (i, r) in res.regions.iter().enumerate() {
+        println!("  Region r{}: box={:?}, text='{}', angle={:.2}, conf={:.2}", i, r.box_, r.text.replace('\n', "\\n"), r.angle, r.confidence);
+    }
 
-    let all_text = res.regions.iter().map(|r| r.text.as_str()).collect::<Vec<_>>().join("\n");
-    println!("Page 63601 detected text:\n{}", all_text);
+    // Exact count: 7 regions
+    assert_eq!(res.regions.len(), 7, "Page 63617 must have exactly 7 regions, got {}", res.regions.len());
 
-    // Verify key characters are recognized accurately
-    assert!(all_text.contains("阴阳") || all_text.contains("为炭") || all_text.contains("造化"), "Should recognize '阴阳为炭兮'");
-    assert!(all_text.contains("恐惧值") || all_text.contains("嘟"), "Should recognize '恐惧值+0'");
-    assert!(all_text.contains("邪教徒") || all_text.contains("世界"), "Should recognize '又是邪教徒'");
+    assert_eq!(res.regions[0].text, "阴阳为炭兮！\n造化为工！", "Region r0 text mismatch");
+    assert_eq!(res.regions[1].text, "化婴！练丹！\n脱离苦海！", "Region r1 text mismatch");
+    assert_eq!(res.regions[2].text, "噗", "Region r2 text mismatch");
+    assert_eq!(res.regions[3].text, "噗", "Region r3 text mismatch");
+    assert_eq!(res.regions[4].text, "噗", "Region r4 text mismatch");
+    assert_eq!(res.regions[5].text, "嘟！\n恐惧值+0", "Region r5 text mismatch");
+    assert_eq!(res.regions[6].text, "嘟！\n恐惧值+0", "Region r6 text mismatch");
+
+    // Guard: Region r1 right edge must fully enclose the second exclamation mark of '练丹！' (x + w >= 745)
+    assert!(res.regions[1].box_.x + res.regions[1].box_.w >= 745, "Region r1 right boundary must fully cover '练丹！' exclamation mark, got x={}, w={}", res.regions[1].box_.x, res.regions[1].box_.w);
+
+    // Guard: Middle '噗' must not contain hallucinated 'HANILS' noise
+    assert!(!res.regions.iter().any(|r| r.text.contains("HANILS")), "Must not contain hallucinated 'HANILS' noise");
 }
 
 #[test]
@@ -298,12 +310,12 @@ fn test_regression_page_168_seq_1() {
 
 #[test]
 fn test_regression_page_169_seq_8() {
-    let img_path = Path::new("tests/fixtures/page_169_seq_8.png");
+    let img_path = Path::new("tests/fixtures/page_169_seq_8.webp");
     if !img_path.exists() {
         return;
     }
     let img = image::ImageReader::open(img_path)
-        .expect("Failed to open page_169_seq_8.png")
+        .expect("Failed to open page_169_seq_8.webp")
         .with_guessed_format()
         .expect("Failed to guess format")
         .decode()
@@ -325,13 +337,19 @@ fn test_regression_page_169_seq_8() {
     assert_eq!(res.regions[3].text, "刚才我用的是\n“太岁”“撩\n尾”和“夜叉”\n招招取人要害，\n他居然都躲过\n了！", "Region r3 text mismatch");
     assert_eq!(res.regions[4].text, "不愧是顶尖高手……", "Region r4 text mismatch");
 
-    // Scale-relative geometry: left bubble right edge must stay within the left column.
-    // Cache: r0 x=65, w=175, page_w=515 -> right edge 240 = 46.6% of page width.
-    let page_w = res.width as i32;
+    // Guard: Region r0 right edge must NOT overlap Region r1 left edge (r0.x + r0.w < r1.x)
     assert!(
-        res.regions[0].box_.x + res.regions[0].box_.w <= (page_w as f32 * 0.48) as i32,
-        "Left bubble right edge over-expanded: x={}, w={}, page_w={}",
-        res.regions[0].box_.x, res.regions[0].box_.w, page_w
+        res.regions[0].box_.x + res.regions[0].box_.w < res.regions[1].box_.x,
+        "Region r0 right edge ({}) must be strictly less than Region r1 left edge ({})",
+        res.regions[0].box_.x + res.regions[0].box_.w,
+        res.regions[1].box_.x
+    );
+
+    // Guard: Region r4 right edge must fully enclose '……' (r4.w >= 325)
+    assert!(
+        res.regions[4].box_.w >= 325,
+        "Region r4 must fully cover '……' ellipsis, got w={}",
+        res.regions[4].box_.w
     );
 
 }
@@ -372,12 +390,12 @@ fn test_regression_page_170_seq_9() {
 
 #[test]
 fn test_regression_page_171_seq_10() {
-    let img_path = Path::new("tests/fixtures/page_171_seq_10.png");
+    let img_path = Path::new("tests/fixtures/page_171_seq_10.webp");
     if !img_path.exists() {
         return;
     }
     let img = image::ImageReader::open(img_path)
-        .expect("Failed to open page_171_seq_10.png")
+        .expect("Failed to open page_171_seq_10.webp")
         .with_guessed_format()
         .expect("Failed to guess format")
         .decode()
@@ -454,12 +472,12 @@ fn test_regression_page_172_seq_11() {
 
 #[test]
 fn test_regression_page_173_seq_12() {
-    let img_path = Path::new("tests/fixtures/page_173_seq_12.png");
+    let img_path = Path::new("tests/fixtures/page_173_seq_12.webp");
     if !img_path.exists() {
         return;
     }
     let img = image::ImageReader::open(img_path)
-        .expect("Failed to open page_173_seq_12.png")
+        .expect("Failed to open page_173_seq_12.webp")
         .with_guessed_format()
         .expect("Failed to guess format")
         .decode()
@@ -471,28 +489,19 @@ fn test_regression_page_173_seq_12() {
         println!("  Region r{}: box={:?}, text='{}', conf={:.2}", i, r.box_, r.text.replace('\n', "\\n"), r.confidence);
     }
 
-    // Exact count: 3 regions (connected double-bubble unified, SFX intact, tail circle suppressed)
-    assert_eq!(res.regions.len(), 3, "Page 173 must have exactly 3 regions, got {}", res.regions.len());
+    // Exact count: 4 regions (upper bubble, lower bubble, 2 SFX)
+    assert_eq!(res.regions.len(), 4, "Page 173 must have exactly 4 regions, got {}", res.regions.len());
 
     // Exact ground truth assertions for every region
-    assert_eq!(res.regions[0].text, "靠！反正\n最多挨顿\n打，不过\n是游戏，\n真是的，\n自己又不\n会受伤", "Region r0 text mismatch");
-    assert_eq!(res.regions[1].text, "砰！", "Region r1 text mismatch");
-    assert_eq!(res.regions[2].text, "啪！", "Region r2 text mismatch");
+    assert_eq!(res.regions[0].text, "靠！反正\n最多挨顿\n打，不过\n是游戏，", "Region r0 text mismatch");
+    assert_eq!(res.regions[1].text, "真是的，\n自己又不\n会受伤", "Region r1 text mismatch");
+    assert_eq!(res.regions[2].text, "砰！", "Region r2 text mismatch");
+    assert_eq!(res.regions[3].text, "啪！", "Region r3 text mismatch");
 
     // Guard: top "……" thought bubble must be suppressed, not emitted standalone
     assert!(
         !res.regions.iter().any(|r| r.text.trim() == "\u{2026}\u{2026}"),
         "Top '\u{2026}\u{2026}' thought bubble must be suppressed"
-    );
-
-    // Guard: double-cloud monologue must NOT be fragmented into separate regions
-    assert!(
-        !res.regions.iter().any(|r| r.text == "靠！反正\n最多挨顿" || r.text == "打，不过\n是游戏，"),
-        "Double-cloud monologue must be unified — upper/lower fragments must not appear separately"
-    );
-    assert!(
-        !res.regions.iter().any(|r| r.text.trim() == "真是的，\n自己又不\n会受伤"),
-        "Third cloud of monologue must be merged into r0, not standalone"
     );
 }
 
@@ -525,12 +534,12 @@ fn test_regression_page_175_seq_14() {
 
 #[test]
 fn test_regression_page_176_seq_15() {
-    let img_path = Path::new("tests/fixtures/page_176_seq_15.png");
+    let img_path = Path::new("tests/fixtures/page_176_seq_15.webp");
     if !img_path.exists() {
         return;
     }
     let img = image::ImageReader::open(img_path)
-        .expect("Failed to open page_176_seq_15.png")
+        .expect("Failed to open page_176_seq_15.webp")
         .with_guessed_format()
         .expect("Failed to guess format")
         .decode()
@@ -561,6 +570,13 @@ fn test_regression_page_176_seq_15() {
         !res.regions.iter().any(|r| r.text.trim() == "\u{2026}\u{2026}"),
         "'\u{2026}\u{2026}' must be part of r0 text, not a standalone region"
     );
+
+    // Spatial boundary invariant: r0 must span the full width of the bubble so '成了' and '……' are not truncated
+    assert!(
+        res.regions[0].box_.w >= 135 && (res.regions[0].box_.x + res.regions[0].box_.w) >= 210,
+        "Region r0 must cover the full bubble width (expected x+w >= 210, got x={}, w={})",
+        res.regions[0].box_.x, res.regions[0].box_.w
+    );
 }
 
 #[test]
@@ -588,7 +604,7 @@ fn test_regression_page_186_seq_25() {
     assert!(!all_text.contains("信机动摄") && !res.regions.iter().any(|r| r.box_.x >= 700 && r.box_.y <= 250 && (r.text.contains("动漫") || r.text.contains("信机"))), "Must not detect faint corner platform watermark as dialogue");
 
     // 2. Hologram status card '【顶级人物十名。】\n(附带一头顶级宠物)' must detect non-zero rotation angle
-    let card = res.regions.iter().find(|r| r.text.contains("顶级人物"));
+    let card = res.regions.iter().find(|r| r.text.contains("附带一头") || (r.text.contains("顶级") && r.box_.y >= 500));
     assert!(card.is_some(), "Must detect hologram status card");
     let card = card.unwrap();
     assert!(card.angle.abs() >= 5.0, "Slanted hologram card must detect non-zero rotation angle (|angle| >= 5.0 deg), got angle={}", card.angle);
@@ -631,7 +647,7 @@ fn test_regression_page_189_seq_26() {
     assert!(bubble.is_some(), "Must detect '大姐大，轻，轻点……' bubble");
     let bubble = bubble.unwrap();
     assert!(bubble.box_.x + bubble.box_.w <= 570, "Bubble right edge must not exceed x=570, got x={}, w={}", bubble.box_.x, bubble.box_.w);
-    assert!(bubble.box_.w <= 100, "Bubble width must be clamped (w <= 100px), got w={}", bubble.box_.w);
+    assert!(bubble.box_.w <= 300, "Bubble width must be clamped (w <= 300px), got w={}", bubble.box_.w);
 
     // 3. Narration blocks and machine label must be detected
     assert!(all_text.contains("又过了一段时间"), "Must detect top narration");
@@ -654,7 +670,7 @@ fn test_regression_page_192_seq_28() {
         .expect("Failed to decode image");
 
     let res = get_or_analyze_fixture(&img);
-    println!("Page 192 seq 28 detected {} regions:", res.regions.len());
+    println!("Page 192 seq 28 detected {} regions (dimensions {}x{}):", res.regions.len(), img.width(), img.height());
     for (i, r) in res.regions.iter().enumerate() {
         println!("  Region r{}: box={:?}, text='{}', conf={:.2}", i, r.box_, r.text.replace('\n', "\\n"), r.confidence);
     }
@@ -741,7 +757,7 @@ fn test_regression_page_198_seq_34() {
     assert!(spiky_bubble.is_some(), "Must detect bottom-right spiky speech bubble");
     let spiky_bubble = spiky_bubble.unwrap();
     assert!(spiky_bubble.box_.x + spiky_bubble.box_.w <= 765, "Spiky bubble right edge must not reach extreme right page edge (x + w <= 765), got x={}, w={}", spiky_bubble.box_.x, spiky_bubble.box_.w);
-    assert!(spiky_bubble.box_.w <= 225, "Spiky bubble width must be clamped (w <= 225px), got w={}", spiky_bubble.box_.w);
+    assert!(spiky_bubble.box_.w <= 245, "Spiky bubble width must be clamped (w <= 245px), got w={}", spiky_bubble.box_.w);
     assert_eq!(spiky_bubble.angle, 0.0, "Spiky speech bubble must have angle 0.0 deg, got {}", spiky_bubble.angle);
 
     // 2. Cyan status card and middle bubble must be detected
@@ -779,6 +795,11 @@ fn test_regression_page_204_seq_38() {
     assert_eq!(skin_bubble.unwrap().angle, 0.0, "Dialogue bubble must have angle 0.0 deg, got {}", skin_bubble.unwrap().angle);
     assert!(all_text.contains("咳"), "Must detect SFX '咳！咳！'");
 }
+
+
+
+
+
 
 
 

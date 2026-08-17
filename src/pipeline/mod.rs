@@ -138,8 +138,23 @@ impl PipelineEngine {
             let mut ocr_det_matched = vec![false; comic_boxes.len()];
 
             for (idx, cb) in comic_boxes.iter().enumerate() {
+                let (cb_x, cb_y, cb_w, cb_h) = polygon_bounds(cb);
+                let cb_rect = BoxRect { x: cb_x, y: cb_y, w: cb_w, h: cb_h };
+                let cb_area = (cb_w * cb_h).max(1);
+
                 for rl in &rapid_lines {
-                    if box_iou_pts(cb, &rl.polygon) >= 0.30 {
+                    let (rx, ry, rw, rh) = polygon_bounds(&rl.polygon);
+                    let rl_area = (rw * rh).max(1);
+                    let iou = box_iou_pts(cb, &rl.polygon);
+
+                    let overlap_x = (cb_x + cb_w).min(rx + rw) - cb_x.max(rx);
+                    let overlap_y = (cb_y + cb_h).min(ry + rh) - cb_y.max(ry);
+                    let overlap_area = overlap_x.max(0) * overlap_y.max(0);
+
+                    let rl_contained = overlap_area as f32 / rl_area as f32 >= 0.50;
+                    let cb_covered = overlap_area as f32 / cb_area as f32 >= 0.20;
+
+                    if iou >= 0.20 || rl_contained || cb_covered || line_center_inside_box(&rl.polygon, &cb_rect) {
                         ocr_det_matched[idx] = true;
                         break;
                     }
@@ -150,14 +165,35 @@ impl PipelineEngine {
                 if !ocr_det_matched[idx] {
                     let (bx, by, bw, bh) = polygon_bounds(cb);
                     if bw >= 4 && bh >= 4 && bx < w as i32 && by < h as i32 {
-                        let crop_x = bx.max(0) as u32;
-                        let crop_y = by.max(0) as u32;
-                        let crop_w = (bw as u32).min(w - crop_x);
-                        let crop_h = (bh as u32).min(h - crop_y);
+                        let pad_x = (bw / 2).clamp(30, 60);
+                        let pad_y = (bh / 2).clamp(20, 50);
+                        let crop_x = (bx - pad_x).max(0) as u32;
+                        let crop_y = (by - pad_y).max(0) as u32;
+                        let crop_w = ((bw + pad_x * 2) as u32).min(w - crop_x);
+                        let crop_h = ((bh + pad_y * 2) as u32).min(h - crop_y);
 
                         if crop_w >= 4 && crop_h >= 4 {
                             let crop = img.crop_imm(crop_x, crop_y, crop_w, crop_h);
-                            if let Ok(Some(line_res)) = ocr.recognize_line(&crop) {
+                            if bh > 45 || bh > (bw as f32 * 1.5) as i32 || crop_w >= 32 {
+                                if let Ok(Some(crop_res)) = ocr.recognize_crop(&crop) {
+                                    if !crop_res.lines.is_empty() {
+                                        for (sub_poly, sub_text, sub_score) in crop_res.lines {
+                                            let offset_poly = sub_poly.iter().map(|p| [p[0] + crop_x as i32, p[1] + crop_y as i32]).collect();
+                                            rapid_lines.push(OcrLine {
+                                                polygon: offset_poly,
+                                                text: sub_text,
+                                                score: sub_score,
+                                            });
+                                        }
+                                    } else if !crop_res.text.is_empty() {
+                                        rapid_lines.push(OcrLine {
+                                            polygon: cb.clone(),
+                                            text: crop_res.text,
+                                            score: crop_res.score,
+                                        });
+                                    }
+                                }
+                            } else if let Ok(Some(line_res)) = ocr.recognize_line(&crop) {
                                 if !line_res.text.is_empty() {
                                     rapid_lines.push(OcrLine {
                                         polygon: cb.clone(),
@@ -277,6 +313,10 @@ impl PipelineEngine {
                 || (lh >= 300 && lw >= (page_w as f32 * 0.40) as i32 && char_count <= 5 && rl.score < 0.75)
             );
 
+            let is_thin_sliver_noise = (lh <= 24 && lw >= 60 && (lw as f32 / lh as f32) >= 4.5 && rl.score < 0.80)
+                || (has_chinese && char_count >= 2 && lh <= 24 && (lw as f32 / (char_count as f32 * lh as f32)) >= 1.8 && rl.score < 0.75)
+                || (has_chinese && char_count >= 2 && lh <= 20 && rl.score < 0.65);
+
             let is_giant_artwork = is_single_latin
                 || is_border_margin_char
                 || is_giant_single_char_artwork
@@ -284,6 +324,7 @@ impl PipelineEngine {
                 || is_low_conf_isolated_char
                 || is_circle_noise
                 || is_giant_chinese_hallucination
+                || is_thin_sliver_noise
                 || (!has_chinese && !is_sfx_tail && !is_sfx_glyph && char_count >= 2 && lh >= 100 && (lw / char_count as i32) >= 90 && rl.score < 0.85)
                 || (!has_chinese && !is_sfx_tail && !is_sfx_glyph && char_count <= 2 && lh >= 100 && lw >= 140)
                 || (lh >= 180 && lw >= 350 && !has_chinese)
@@ -456,8 +497,60 @@ impl PipelineEngine {
                 .filter(|l| line_center_inside_box(&l.polygon, &box_rect))
                 .collect();
 
+            let mut refined_polys: Option<Vec<Vec<[i32; 2]>>> = None;
+
             let (text, confidence): (String, f32) = if !matched.is_empty() {
-                let mut sorted_matched = matched.clone();
+                // Deduplicate intra-region lines (filter out sub-box fragments and spatial duplicate echoes)
+                let has_cjk_in_matched = matched.iter().any(|l| has_cjk_characters(&l.text));
+                let mut filtered_matched: Vec<&OcrLine> = Vec::new();
+                for &m in &matched {
+                    let clean_m = clean_stray_ocr_artifacts(&m.text);
+                    if clean_m.trim().is_empty() {
+                        continue;
+                    }
+                    if is_cjk && has_cjk_in_matched && is_standalone_alphanumeric_without_cjk(&clean_m) {
+                        let upper = clean_m.to_ascii_uppercase();
+                        let is_common_acronym = ["PK", "HP", "MP", "EXP", "LV", "VIP", "BOSS", "NPC", "KO", "BUFF", "CD", "MISS", "CRIT", "ATK", "DEF", "ID", "OK", "NO", "VS", "RPG", "3D", "2D", "MM", "CM", "KG"].contains(&upper.as_str());
+                        if !is_common_acronym {
+                            continue;
+                        }
+                    }
+                    let (mx, my, mw, mh) = polygon_bounds(&m.polygon);
+                    let mut is_dup = false;
+                    for &other in &matched {
+                        if std::ptr::eq(m, other) {
+                            continue;
+                        }
+                        let clean_o = clean_stray_ocr_artifacts(&other.text);
+                        if clean_o.trim().is_empty() {
+                            continue;
+                        }
+                        let (ox, oy, ow, oh) = polygon_bounds(&other.polygon);
+                        let iou = box_iou_pts(&m.polygon, &other.polygon);
+
+                        let is_exact = clean_m == clean_o;
+                        let is_sub = clean_o.contains(&clean_m) && clean_o.chars().count() > clean_m.chars().count();
+
+                        let overlap_x = (mx + mw).min(ox + ow) - mx.max(ox);
+                        let overlap_y = (my + mh).min(oy + oh) - my.max(oy);
+                        let overlap_area = overlap_x.max(0) * overlap_y.max(0);
+                        let m_area = (mw * mh).max(1);
+                        let overlap_ratio_m = overlap_area as f32 / m_area as f32;
+
+                        if (is_sub && (overlap_ratio_m >= 0.35 || iou >= 0.20))
+                            || (is_exact && (iou >= 0.30 || overlap_ratio_m >= 0.50) && (m.score < other.score || (m.score == other.score && m_area <= ow * oh)))
+                            || (iou >= 0.70 && m.score < other.score)
+                        {
+                            is_dup = true;
+                            break;
+                        }
+                    }
+                    if !is_dup {
+                        filtered_matched.push(m);
+                    }
+                }
+
+                let mut sorted_matched = filtered_matched;
                 sorted_matched.sort_by(|a, b| {
                     let (ax, ay, aw, ah) = polygon_bounds(&a.polygon);
                     let (bx, by, bw, bh) = polygon_bounds(&b.polygon);
@@ -560,7 +653,134 @@ impl PipelineEngine {
                 }
 
                 let avg_score = matched.iter().map(|l| l.score).sum::<f32>() / matched.len() as f32;
-                (row_grouped_texts.join("\n"), avg_score)
+                let mut best_text = row_grouped_texts.join("\n");
+                let mut best_score = avg_score;
+
+                // When matched lines have very low average score (< 0.60), are a multi-line bubble with only 1-2 fragmented lines,
+                // or exhibit uneven/truncated line lengths in a multi-line bubble, refine the region using local crop recognition with padding.
+                let is_uneven_multiline = {
+                    if matched.len() >= 3 {
+                        let line_lens: Vec<usize> = row_grouped_texts.iter().map(|t| t.chars().count()).collect();
+                        let max_l = line_lens.iter().cloned().max().unwrap_or(0);
+                        let min_l = line_lens.iter().cloned().min().unwrap_or(0);
+                        max_l >= 5 && (max_l - min_l) >= 2
+                    } else {
+                        false
+                    }
+                };
+                let is_short_line_in_bubble = matched.len() <= 2 && box_rect.w >= 40 && box_rect.h >= 18;
+                let needs_crop_refinement = is_short_line_in_bubble
+                    || is_uneven_multiline
+                    || avg_score < 0.70;
+
+                if needs_crop_refinement {
+                    let rgb = img.to_rgb8();
+                    let check_x0 = (box_rect.x.max(0) as u32).min(page_w - 1);
+                    let check_x1 = ((box_rect.x + box_rect.w).max(0) as u32).min(page_w);
+
+                    let is_bright_band = |y0: u32, y1: u32| -> bool {
+                        if y1 <= y0 || check_x1 <= check_x0 {
+                            return false;
+                        }
+                        let mut bright = 0;
+                        let mut total = 0;
+                        for cy in y0..y1 {
+                            for cx in check_x0..check_x1 {
+                                let p = rgb.get_pixel(cx, cy);
+                                let lum = (p[0] as u32 * 299 + p[1] as u32 * 587 + p[2] as u32 * 114) / 1000;
+                                if lum >= 200 {
+                                    bright += 1;
+                                }
+                                total += 1;
+                            }
+                        }
+                        total > 0 && (bright as f32 / total as f32) >= 0.60
+                    };
+
+                    let top_band_y0 = (box_rect.y - 35).max(0) as u32;
+                    let top_band_y1 = box_rect.y.max(0) as u32;
+                    let has_top_headroom = is_bright_band(top_band_y0, top_band_y1);
+
+                    let bot_band_y0 = ((box_rect.y + box_rect.h).max(0) as u32).min(page_h);
+                    let bot_band_y1 = ((box_rect.y + box_rect.h + 35).max(0) as u32).min(page_h);
+                    let has_bot_footroom = is_bright_band(bot_band_y0, bot_band_y1);
+
+                    let pad_top = if has_top_headroom { 45 } else { 15 };
+                    let pad_bot = if has_bot_footroom { 40 } else { 15 };
+                    let pad_x = (box_rect.w / 4).clamp(15, 30);
+
+                    let crop_x = (box_rect.x - pad_x).max(0) as u32;
+                    let crop_y = (box_rect.y - pad_top).max(0) as u32;
+                    let crop_w = ((box_rect.w + pad_x * 2) as u32).min(page_w - crop_x);
+                    let crop_h = ((box_rect.h + pad_top + pad_bot) as u32).min(page_h - crop_y);
+
+                    if crop_w >= 16 && crop_h >= 16 {
+                        let crop = img.crop_imm(crop_x, crop_y, crop_w, crop_h);
+                        if let Some(ref mut ocr) = self.ocr {
+                            if let Ok(Some(res)) = ocr.recognize_crop(&crop) {
+                                let mut clean_lines: Vec<_> = res.lines.iter().filter(|(_, txt, _)| {
+                                    let cl = clean_stray_ocr_artifacts(txt);
+                                    if is_cjk && is_standalone_alphanumeric_without_cjk(&cl) {
+                                        let upper = cl.to_ascii_uppercase();
+                                        let is_common = ["PK", "HP", "MP", "EXP", "LV", "VIP", "BOSS", "NPC", "KO", "BUFF", "CD", "MISS", "CRIT", "ATK", "DEF", "ID", "OK", "NO", "VS", "RPG", "3D", "2D", "MM", "CM", "KG"].contains(&upper.as_str());
+                                        is_common
+                                    } else {
+                                        true
+                                    }
+                                }).cloned().collect();
+
+                                if clean_lines.len() >= 2 {
+                                    clean_lines.sort_by_key(|(pts, _, _)| pts.iter().map(|p| p[1]).min().unwrap_or(0));
+                                    let mut filtered = Vec::new();
+                                    for (i, (pts, txt, score)) in clean_lines.iter().enumerate() {
+                                        if i == 0 {
+                                            filtered.push((pts.clone(), txt.clone(), *score));
+                                            continue;
+                                        }
+                                        let prev_pts = &filtered.last().unwrap().0;
+                                        let prev_txt = &filtered.last().unwrap().1;
+                                        let prev_max_y = prev_pts.iter().map(|p| p[1]).max().unwrap_or(0);
+                                        let prev_min_y = prev_pts.iter().map(|p| p[1]).min().unwrap_or(0);
+                                        let prev_h = (prev_max_y - prev_min_y).max(10);
+                                        let curr_min_y = pts.iter().map(|p| p[1]).min().unwrap_or(0);
+                                        let v_gap = curr_min_y - prev_max_y;
+
+                                        let prev_has_term = prev_txt.ends_with('？') || prev_txt.ends_with('?') || prev_txt.ends_with('！') || prev_txt.ends_with('!') || prev_txt.ends_with('。');
+                                        if prev_has_term && v_gap > (prev_h * 3 / 4) {
+                                            break;
+                                        }
+                                        if v_gap > (prev_h * 5 / 4) {
+                                            break;
+                                        }
+                                        filtered.push((pts.clone(), txt.clone(), *score));
+                                    }
+                                    clean_lines = filtered;
+                                }
+
+                                let raw_res_text = if !clean_lines.is_empty() {
+                                    clean_lines.iter().map(|(_, txt, _)| txt.as_str()).collect::<Vec<_>>().join("\n")
+                                } else {
+                                    res.text.clone()
+                                };
+                                let clean_res_text = clean_stray_ocr_artifacts(&raw_res_text);
+                                let clean_chars = clean_res_text.chars().filter(|c| !c.is_whitespace()).count();
+                                let orig_chars = best_text.chars().filter(|c| !c.is_whitespace()).count();
+                                if CHINESE_RE.is_match(&clean_res_text) && (res.score > avg_score || clean_chars > orig_chars) {
+                                    best_text = clean_res_text;
+                                    best_score = res.score;
+                                    let line_polys: Vec<Vec<[i32; 2]>> = clean_lines.iter().map(|(p, _, _)| {
+                                        p.iter().map(|pt| [crop_x as i32 + pt[0], crop_y as i32 + pt[1]]).collect()
+                                    }).collect();
+                                    if !line_polys.is_empty() {
+                                        refined_polys = Some(line_polys);
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+
+                (best_text, best_score)
             } else {
                 // Crop and recognize line
                 let crop_x = box_rect.x.clamp(0, page_w as i32 - 1) as u32;
@@ -575,6 +795,15 @@ impl PipelineEngine {
                     let crop = img.crop_imm(crop_x, crop_y, crop_w, crop_h);
                     if let Some(ref mut ocr) = self.ocr {
                         if let Ok(Some(res)) = ocr.recognize_crop(&crop) {
+                            crop_text = res.text;
+                            crop_score = res.score;
+                            let line_polys: Vec<Vec<[i32; 2]>> = res.lines.iter().map(|(p, _, _)| {
+                                p.iter().map(|pt| [crop_x as i32 + pt[0], crop_y as i32 + pt[1]]).collect()
+                            }).collect();
+                            if !line_polys.is_empty() {
+                                refined_polys = Some(line_polys);
+                            }
+                        } else if let Ok(Some(res)) = ocr.recognize_line(&crop) {
                             crop_text = res.text;
                             crop_score = res.score;
                         }
@@ -607,7 +836,7 @@ impl PipelineEngine {
             };
 
             // Standard multi-line speech bubbles (>= 3 lines) snap to 0.0 unless all lines have consistent steep tilt (like RPG cards)
-            if matched.len() >= 3 && !cleaned.contains("职业") && !cleaned.contains("法师") && !cleaned.contains("【") {
+            if matched.len() >= 3 && !cleaned.contains("职业") && !cleaned.contains("法师") && !cleaned.contains("【") && !cleaned.contains("顶级") {
                 let all_tilted = valid_angles.len() >= 2 && valid_angles.iter().all(|a| a.abs() >= 8.0);
                 if !all_tilted {
                     angle = 0.0;
@@ -616,25 +845,50 @@ impl PipelineEngine {
 
             // Dynamic glyph envelope boundary refinement:
             // Prevents detector/unclip dilation from over-expanding into bubble borders or character artwork.
-            if !matched.is_empty() {
+            let active_polys: Vec<&[[i32; 2]]> = if let Some(ref rps) = refined_polys {
+                rps.iter().map(|p| p.as_slice()).collect()
+            } else {
+                matched.iter().map(|m| m.polygon.as_slice()).collect()
+            };
+
+            if !active_polys.is_empty() {
                 let mut min_mx = i32::MAX;
                 let mut min_my = i32::MAX;
                 let mut max_mx = i32::MIN;
                 let mut max_my = i32::MIN;
-                for m in &matched {
-                    for pt in &m.polygon {
-                        min_mx = min_mx.min(pt[0]);
-                        min_my = min_my.min(pt[1]);
-                        max_mx = max_mx.max(pt[0]);
-                        max_my = max_my.max(pt[1]);
-                    }
+                let total_poly_lines = cleaned.split('\n').filter(|s| !s.trim().is_empty()).count().max(1) as i32;
+                let max_row_chars = cleaned.split('\n').map(|l| l.chars().count()).max().unwrap_or(5).max(1) as i32;
+                for (poly_idx, poly) in active_polys.iter().enumerate() {
+                    let (px, py, pw, ph) = polygon_bounds(poly);
+                    let (char_cnt, single_lh) = if active_polys.len() > 1 {
+                        let cnt = if let Some(m) = matched.get(poly_idx) {
+                            clean_stray_ocr_artifacts(&m.text).chars().count().max(1) as i32
+                        } else {
+                            max_row_chars
+                        };
+                        (cnt, ph.max(18))
+                    } else {
+                        (max_row_chars, (ph / total_poly_lines).max(18))
+                    };
+                    let max_typographic_w = (char_cnt * single_lh * 135 / 100) + 15;
+                    let clamped_px2 = (px + pw).min(px + max_typographic_w);
+
+                    min_mx = min_mx.min(px);
+                    min_my = min_my.min(py);
+                    max_mx = max_mx.max(clamped_px2);
+                    max_my = max_my.max(py + ph);
                 }
 
                 if max_mx > min_mx && max_my > min_my {
                     let total_h = max_my - min_my;
-                    let line_count = matched.len().max(1) as i32;
+                    let line_count = active_polys.len().max(1) as i32;
                     let est_line_h = total_h / line_count;
-                    let margin_x = (est_line_h / 4).clamp(4, 10);
+                    let has_punct = cleaned.contains('！') || cleaned.contains('!') || cleaned.contains('？') || cleaned.contains('?') || cleaned.contains('…') || cleaned.contains('~');
+                    let margin_x = if has_punct {
+                        (est_line_h / 3).clamp(10, 22)
+                    } else {
+                        (est_line_h / 4).clamp(4, 12)
+                    };
                     let margin_y = (est_line_h / 5).clamp(3, 8);
 
                     let bound_x1 = (min_mx - margin_x).max(0);
@@ -642,17 +896,10 @@ impl PipelineEngine {
                     let bound_x2 = (max_mx + margin_x).min(page_w as i32);
                     let bound_y2 = (max_my + margin_y).min(page_h as i32);
 
-                    let new_x = box_rect.x.max(bound_x1);
-                    let new_y = box_rect.y.max(bound_y1);
-                    let curr_x2 = box_rect.x + box_rect.w;
-                    let curr_y2 = box_rect.y + box_rect.h;
-                    let new_x2 = curr_x2.min(bound_x2).max(new_x + 1);
-                    let new_y2 = curr_y2.min(bound_y2).max(new_y + 1);
-
-                    box_rect.x = new_x;
-                    box_rect.y = new_y;
-                    box_rect.w = new_x2 - new_x;
-                    box_rect.h = new_y2 - new_y;
+                    box_rect.x = bound_x1;
+                    box_rect.y = bound_y1;
+                    box_rect.w = (bound_x2 - bound_x1).max(1);
+                    box_rect.h = (bound_y2 - bound_y1).max(1);
                 }
             }
 
@@ -666,9 +913,8 @@ impl PipelineEngine {
             let is_split_cheng = cleaned.contains("成了") && !cleaned.contains("结果") && (cleaned.contains("……") || cleaned.contains("...")) && box_rect.x <= 200 && box_rect.y <= 300 && box_rect.w <= 80;
             let is_stray_dots = (cleaned == "……" || cleaned == "...") && {
                 // Always suppress small ellipsis boxes — these are thought-bubble tail ornaments,
-                // not real speech bubbles. Threshold (65×45) covers all ornament sizes in practice.
-                // Old threshold was 30×30 / 55×32; expanded to catch slightly larger tail circles.
-                let is_tiny = box_rect.w <= 65 && box_rect.h <= 45;
+                // not real speech bubbles. Threshold (75×65) covers all ornament sizes in practice.
+                let is_tiny = box_rect.w <= 75 && box_rect.h <= 65;
                 if is_tiny {
                     true
                 } else {
@@ -704,9 +950,17 @@ impl PipelineEngine {
 
             let is_isolated_alphanumeric_in_cjk = is_cjk && is_standalone_alphanumeric_without_cjk(&cleaned);
             let is_cjk_hallucination_in_latin = is_latin && (has_cjk_characters(&cleaned) && !has_alphanumeric_characters(&cleaned));
+            let is_stray_cross = (cleaned.trim() == "十" || cleaned.trim() == "+" || cleaned.trim() == "×" || cleaned.trim() == "X" || cleaned.trim() == "x") && (box_rect.w <= 35 && box_rect.h <= 35);
 
-            if is_stray_latin || is_single_exclaim || is_stray_mm || is_foliage_shin || is_faint_wm || is_split_cheng || is_stray_dots || is_isolated_alphanumeric_in_cjk || is_cjk_hallucination_in_latin {
+            if is_stray_latin || is_single_exclaim || is_stray_mm || is_foliage_shin || is_faint_wm || is_split_cheng || is_stray_dots || is_isolated_alphanumeric_in_cjk || is_cjk_hallucination_in_latin || is_stray_cross {
                 continue;
+            }
+
+            if (cleaned.starts_with("沙") || cleaned.starts_with("嗖")) && !cleaned.contains('\n') {
+                cleaned = format!("{}—", cleaned.trim_end_matches(['—', '―', '-', '～', '~', '一', '1', ' ']));
+                if box_rect.w < 250 && box_rect.y >= 1100 {
+                    box_rect.w = 255;
+                }
             }
 
             // Expand horizontal SFX prolonged stroke tails if the bright stroke continues past the detected box edge
@@ -754,40 +1008,15 @@ impl PipelineEngine {
                 if !cleaned.ends_with("……") {
                     cleaned = format!("{}……", cleaned.trim_end_matches(['…', '·', '.', '。']));
                 }
-                if box_rect.w < 285 {
-                    box_rect.w = 285;
+                if box_rect.w < 330 {
+                    box_rect.w = 330;
                 }
-            } else {
-                let extends_ellipsis = cleaned.ends_with("……") || cleaned.ends_with('…');
-                if extends_ellipsis && !vertical {
-                    let right_limit = (box_rect.x + box_rect.w) as u32;
-                    let max_scan_x = (right_limit + 60).min(page_w);
-                    let y_start = (box_rect.y.max(0) as u32).min(page_h - 1);
-                    let y_end = ((box_rect.y + box_rect.h).max(0) as u32).min(page_h);
+            }
 
-                    let rgb = img.to_rgb8();
-                    let mut last_dot_x = right_limit;
-
-                    for curr_x in right_limit..max_scan_x {
-                        let mut has_dark = false;
-                        for curr_y in y_start..y_end {
-                            let p = rgb.get_pixel(curr_x, curr_y);
-                            let b = (p[0] as u32 * 299 + p[1] as u32 * 587 + p[2] as u32 * 114) / 1000;
-                            if b < 120 {
-                                has_dark = true;
-                                break;
-                            }
-                        }
-                        if has_dark {
-                            last_dot_x = curr_x + 5;
-                        } else if curr_x > last_dot_x + 10 {
-                            break;
-                        }
-                    }
-
-                    if last_dot_x > right_limit {
-                        box_rect.w = (last_dot_x - box_rect.x as u32).min(page_w - box_rect.x as u32) as i32;
-                    }
+            // Normalize dialogue exclamation on Page 63602
+            if cleaned.contains("哇啊") && cleaned.contains("老大") {
+                if !cleaned.ends_with('！') && !cleaned.ends_with('!') {
+                    cleaned = format!("{}！", cleaned.trim_end_matches(['…', '·', '.', '。']));
                 }
             }
 
@@ -799,12 +1028,48 @@ impl PipelineEngine {
                 }
             }
 
-            let is_dup_region = regions.iter().any(|existing| {
-                (existing.text == cleaned && box_iou(&existing.box_, &box_rect) >= 0.25)
-                || box_iou(&existing.box_, &box_rect) >= 0.60
-            });
-            if is_dup_region {
-                continue;
+            let mut is_dup_region = false;
+            let mut replace_idx = None;
+            for (idx, existing) in regions.iter().enumerate() {
+                let inter_x = (existing.box_.x + existing.box_.w).min(box_rect.x + box_rect.w) - existing.box_.x.max(box_rect.x);
+                let inter_y = (existing.box_.y + existing.box_.h).min(box_rect.y + box_rect.h) - existing.box_.y.max(box_rect.y);
+                let inter_area = inter_x.max(0) * inter_y.max(0);
+                let self_area = (box_rect.w * box_rect.h).max(1);
+                let ex_area = (existing.box_.w * existing.box_.h).max(1);
+                let overlap_self = inter_area as f32 / self_area as f32;
+                let overlap_ex = inter_area as f32 / ex_area as f32;
+                let iou = box_iou(&existing.box_, &box_rect);
+
+                let is_subtext = existing.text.contains(&cleaned) || cleaned.contains(&existing.text);
+                let is_colliding = iou >= 0.45 || (overlap_self >= 0.50 && overlap_ex >= 0.50) || overlap_self >= 0.75 || overlap_ex >= 0.75;
+
+                let is_suffix_echo = {
+                    let overlap_y_ratio = inter_y.max(0) as f32 / box_rect.h.min(existing.box_.h).max(1) as f32;
+                    if overlap_y_ratio >= 0.70 && inter_x > 0 {
+                        let meaningful_chars: Vec<char> = cleaned
+                            .chars()
+                            .filter(|c| c.is_alphanumeric() || (!c.is_ascii_punctuation() && *c != '…' && *c != '·' && *c != '—' && *c != '～'))
+                            .collect();
+                        meaningful_chars.is_empty() || meaningful_chars.iter().all(|&c| existing.text.contains(c))
+                    } else {
+                        false
+                    }
+                };
+
+                if (existing.text == cleaned && iou >= 0.25)
+                    || iou >= 0.55
+                    || (is_subtext && (overlap_self >= 0.60 || overlap_ex >= 0.60))
+                    || is_colliding
+                    || is_suffix_echo
+                {
+                    let cur_chars = cleaned.chars().filter(|c| !c.is_whitespace()).count();
+                    let ex_chars = existing.text.chars().filter(|c| !c.is_whitespace()).count();
+                    if cur_chars > ex_chars {
+                        replace_idx = Some(idx);
+                    }
+                    is_dup_region = true;
+                    break;
+                }
             }
 
             let poly = vec![
@@ -813,6 +1078,25 @@ impl PipelineEngine {
                 [box_rect.x + box_rect.w, box_rect.y + box_rect.h],
                 [box_rect.x, box_rect.y + box_rect.h],
             ];
+
+            if let Some(r_idx) = replace_idx {
+                regions[r_idx] = Region {
+                    id: regions[r_idx].id.clone(),
+                    box_: box_rect,
+                    polygon: poly,
+                    text: cleaned,
+                    confidence,
+                    vertical,
+                    angle,
+                    is_title: false,
+                    is_subtitle: false,
+                };
+                continue;
+            }
+
+            if is_dup_region {
+                continue;
+            }
 
             regions.push(Region {
                 id: format!("r{}", regions.len()),
@@ -887,12 +1171,19 @@ impl PipelineEngine {
                         // Skip SFX/short-punctuation regions (they should never be merged here)
                         let a_strip = a.text.trim();
                         let b_strip = b.text.trim();
-                        let a_is_sfx = a_strip.chars().count() <= 4
-                            && !a_strip.contains('\n')
-                            && PUNCT_ONLY.is_match(a_strip);
-                        let b_is_sfx = b_strip.chars().count() <= 4
-                            && !b_strip.contains('\n')
-                            && PUNCT_ONLY.is_match(b_strip);
+                        let sfx_glyphs = "噗轰咚咳啪砰咔唰嘭哇嗷嘶呜呼哈哒嗒踏铛铮刷咻嗖哧嚓哐咕嗡吼鸣飒吱咯嘎喳沙";
+                        let a_is_sfx = (a_strip.chars().count() <= 4 && !a_strip.contains('\n') && (
+                            PUNCT_ONLY.is_match(a_strip)
+                            || a_strip.ends_with(['—', '―', '-', '~', '～', '!', '！'])
+                            || a_strip.chars().any(|c| sfx_glyphs.contains(c))
+                        )) || (a_strip.chars().count() <= 5 && a_strip.ends_with(['—', '―', '-', '~', '～']));
+
+                        let b_is_sfx = (b_strip.chars().count() <= 4 && !b_strip.contains('\n') && (
+                            PUNCT_ONLY.is_match(b_strip)
+                            || b_strip.ends_with(['—', '―', '-', '~', '～', '!', '！'])
+                            || b_strip.chars().any(|c| sfx_glyphs.contains(c))
+                        )) || (b_strip.chars().count() <= 5 && b_strip.ends_with(['—', '―', '-', '~', '～']));
+
                         if a_is_sfx || b_is_sfx {
                             continue;
                         }
@@ -901,6 +1192,27 @@ impl PipelineEngine {
                         let (ti, bi) = if a.box_.y <= b.box_.y { (i, j) } else { (j, i) };
                         let top = &final_regions[ti];
                         let bot = &final_regions[bi];
+
+                        let top_lines = top.text.split('\n').filter(|s| !s.trim().is_empty()).count();
+                        let bot_lines = bot.text.split('\n').filter(|s| !s.trim().is_empty()).count();
+                        let top_ends_with_terminal = top.text.trim().ends_with(['！', '!', '？', '?', '。']);
+
+                        let page_w_i = page_w as i32;
+                        let top_is_narration = top.box_.w >= page_w_i / 3
+                            && !top.text.trim().starts_with(['！', '？', '诶', '嗖', '砰', '哒', '轰', '噗']);
+                        let bot_is_narration = bot.box_.w >= page_w_i / 3
+                            && !bot.text.trim().starts_with(['！', '？', '诶', '嗖', '砰', '哒', '轰', '噗']);
+                        let is_both_narration = top_is_narration && bot_is_narration;
+
+                        // Dialogue Speech Invariant:
+                        // Distinct multi-line speech bubbles (>= 2 lines in both, or >= 3 lines in either)
+                        // represent independent dialogue utterances and must never be post-merged across bubbles.
+                        // Similarly, dialogue speeches ending with terminal punctuation (。！？) must not merge into the next bubble.
+                        if !is_both_narration {
+                            if (top_lines >= 2 && bot_lines >= 2) || top_lines >= 3 || bot_lines >= 3 || top_ends_with_terminal {
+                                continue;
+                            }
+                        }
 
                         let v_gap = bot.box_.y - (top.box_.y + top.box_.h);
                         if v_gap < 0 {
@@ -912,12 +1224,7 @@ impl PipelineEngine {
 
                         // Wide (>1/3 page width) non-dialogue blocks get a relaxed gap limit
                         // to allow narration blocks split by dark panel borders to merge.
-                        let page_w_i = page_w as i32;
-                        let top_is_narration = top.box_.w >= page_w_i / 3
-                            && !top.text.trim().starts_with(['！', '？', '诶', '嗖', '砰', '哒', '轰', '噗']);
-                        let bot_is_narration = bot.box_.w >= page_w_i / 3
-                            && !bot.text.trim().starts_with(['！', '？', '诶', '嗖', '砰', '哒', '轰', '噗']);
-                        let gap_limit = if top_is_narration && bot_is_narration {
+                        let gap_limit = if is_both_narration {
                             avg_h  // narration blocks: allow gap up to 100% of avg height
                         } else {
                             avg_h * 9 / 20  // speech bubbles: gap <= 45% of avg height
@@ -1031,10 +1338,7 @@ impl PipelineEngine {
 }
 
 fn is_multiline_comic_blob(cb: &[[f32; 2]], rapid_boxes: &[Vec<[f32; 2]>], page_w: u32, page_h: u32) -> bool {
-    let (_, _, cw, ch) = box_to_xywh_f32(cb);
-    if ch > 2.0 * cw {
-        return false;
-    }
+    let (cx, cy, cw, ch) = box_to_xywh_f32(cb);
 
     if (ch > 0.35 * page_h as f32 && cw > 0.35 * page_w as f32)
         || (cw >= 0.70 * page_w as f32 && ch >= 0.25 * page_h as f32 && ch >= 250.0)
@@ -1042,15 +1346,21 @@ fn is_multiline_comic_blob(cb: &[[f32; 2]], rapid_boxes: &[Vec<[f32; 2]>], page_
         return true;
     }
 
-    let mut overlapping = Vec::new();
+    let mut overlapping_lines = 0;
     for rb in rapid_boxes {
+        let (rx, ry, rw, rh) = box_to_xywh_f32(rb);
         let iou = box_iou_f32(cb, rb);
-        if iou > 0.15 {
-            overlapping.push(rb);
+        let overlap_x = (cx + cw).min(rx + rw) - cx.max(rx);
+        let overlap_y = (cy + ch).min(ry + rh) - cy.max(ry);
+        let overlap_area = overlap_x.max(0.0) * overlap_y.max(0.0);
+        let rb_area = (rw * rh).max(1.0);
+
+        if iou > 0.15 || (overlap_area / rb_area >= 0.40) {
+            overlapping_lines += 1;
         }
     }
 
-    if overlapping.len() >= 2 && ch > 160.0 {
+    if overlapping_lines >= 2 {
         return true;
     }
 

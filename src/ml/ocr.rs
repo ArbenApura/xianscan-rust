@@ -268,12 +268,35 @@ impl RapidOcr {
             return Ok(None);
         }
 
-        // Sort by (top edge, left edge)
-        raw_lines.sort_by(|a, b| {
-            let ya = a.polygon[0][1];
-            let yb = b.polygon[0][1];
-            ya.cmp(&yb).then(a.polygon[0][0].cmp(&b.polygon[0][0]))
-        });
+        // Detect if crop lines are predominantly vertical
+        let vertical_count = raw_lines.iter().filter(|l| {
+            let (_, _, w, h) = super::geometry::polygon_bounds(&l.polygon);
+            h > (w as f32 * 1.2) as i32
+        }).count();
+        let is_vertical_crop = vertical_count * 2 >= raw_lines.len() && !raw_lines.is_empty();
+
+        if is_vertical_crop {
+            // Right-to-left column reading order for vertical text
+            raw_lines.sort_by(|a, b| {
+                let (ax, ay, aw, _) = super::geometry::polygon_bounds(&a.polygon);
+                let (bx, by, bw, _) = super::geometry::polygon_bounds(&b.polygon);
+                let a_right = ax + aw;
+                let b_right = bx + bw;
+                let x_close = (a_right - b_right).abs() <= 10;
+                if x_close {
+                    ay.cmp(&by)
+                } else {
+                    b_right.cmp(&a_right)
+                }
+            });
+        } else {
+            // Top-to-bottom, left-to-right reading order for horizontal text
+            raw_lines.sort_by(|a, b| {
+                let ya = a.polygon[0][1];
+                let yb = b.polygon[0][1];
+                ya.cmp(&yb).then(a.polygon[0][0].cmp(&b.polygon[0][0]))
+            });
+        }
 
         // Substring & duplicate deduplication
         let mut dedup_lines: Vec<OcrLine> = Vec::new();
