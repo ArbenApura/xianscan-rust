@@ -14,14 +14,22 @@ describe('providers.ts', () => {
 		await resetDb();
 	});
 
-	it('seeds default providers (DeepSeek and Google AI Studio) on empty DB', () => {
+	it('seeds default providers (DeepSeek, Google, Groq, OpenRouter, OpenAI, Ollama, LM Studio, Custom) on empty DB', () => {
 		const db = getTestDb();
 		const providers = getProviders(db);
 
-		expect(providers.length).toBe(2);
+		expect(providers.length).toBe(8);
 		const ids = providers.map((p) => p.id);
-		expect(ids).toContain('deepseek');
-		expect(ids).toContain('google');
+		expect(ids).toEqual([
+			'deepseek',
+			'google',
+			'groq',
+			'openrouter',
+			'openai',
+			'ollama',
+			'lmstudio',
+			'custom',
+		]);
 
 		const deepseek = providers.find((p) => p.id === 'deepseek');
 		expect(deepseek).toBeDefined();
@@ -34,6 +42,14 @@ describe('providers.ts', () => {
 		expect(google?.name).toBe('Google AI Studio');
 		expect(google?.isDefault).toBe(false);
 		expect(google?.activeModel).toBe('gemini-3.7-flash');
+
+		const groq = providers.find((p) => p.id === 'groq');
+		expect(groq).toBeDefined();
+		expect(groq?.name).toContain('Groq');
+
+		const ollama = providers.find((p) => p.id === 'ollama');
+		expect(ollama).toBeDefined();
+		expect(ollama?.name).toContain('Ollama');
 	});
 
 	it('maskApiKey correctly masks long and short keys', () => {

@@ -32,7 +32,7 @@ import type { AnalyzeResult, PipelineClient, PipelineRegion } from './pipeline-c
 import { db } from './db';
 import { chapters, pages, regions, books, type Page } from './db/schema';
 import { extractTerms, translatePage } from './translate';
-import { typesetPage } from './typeset';
+import { typesetPage, type TypesetOptions } from './typeset';
 import { detectSourceLanguage } from '$lib/languages';
 
 // -- TYPES -- //
@@ -43,6 +43,7 @@ export interface ChapterPipelineDeps {
 	llm?: OpenAI;
 	model?: string;
 	inpaintMode?: string;
+	typesetOptions?: TypesetOptions;
 	/**
 	 * OPACQUE PROVIDER DISCRIMINATOR FOR THE TRANSLATION CACHE — THE API LAYER SETS IT FROM
 	 * DEEPSEEK_BASE_URL SO SWITCHING PROVIDERS (e.g. MOCK ↔ REAL) NEVER SERVES STALE CACHED TEXT.
@@ -108,9 +109,14 @@ const MAX_EXTRACT_CHARS = 20_000;
 // -- INTERNALS -- //
 
 function regionRow(region: PipelineRegion, seq: number) {
+	const boxObj = {
+		...region.box,
+		angle: region.angle,
+		vertical: region.vertical,
+	};
 	return {
 		seq,
-		box: JSON.stringify(region.box),
+		box: JSON.stringify(boxObj),
 		polygon: JSON.stringify(region.polygon),
 		textSource: region.text,
 		conf: region.confidence,
@@ -234,7 +240,10 @@ export async function runChapterPipeline(
 					emit({ type: 'page-step-start', chapterId, page: injectIdx, pageId: injectRow.id, step: 'analyze' });
 					const tA0 = performance.now();
 					const image = readFileSync(join(deps.dataRoot, injectRow.filePath));
-					const analyzed = await deps.pipeline.analyze(image, signal);
+					const analyzed = await deps.pipeline.analyze(image, signal, {
+						sourceLang: pair.sourceLang,
+						targetLang: pair.targetLang,
+					});
 					if (signal.aborted || deps.isPageCancelled?.(injectRow.id)) return;
 					emit({ type: 'page-step-end', chapterId, page: injectIdx, pageId: injectRow.id, step: 'analyze', stepStatus: 'completed', durationMs: performance.now() - tA0, stepDetails: { regionsCount: analyzed.regions.length } });
 					emit({ type: 'page-step-start', chapterId, page: injectIdx, pageId: injectRow.id, step: 'persist_regions' });
@@ -281,7 +290,7 @@ export async function runChapterPipeline(
 						for (const region of analyzed.regions) {
 							let target = byRegion.get(region.id)?.trim() ?? '';
 							if (!target) { const punct = resolveDialoguePunctuation(region.text); if (punct) { target = punct; byRegion.set(region.id, target); } }
-							tx.update(regions).set({ textTarget: target || null, status: target ? 'translated' : 'failed' }).where(and(eq(regions.pageId, injectRow.id), eq(regions.seq, seqById.get(region.id) ?? -1))).run();
+							tx.update(regions).set({ textTarget: target || null, originalTarget: target || null, status: target ? 'translated' : 'failed' }).where(and(eq(regions.pageId, injectRow.id), eq(regions.seq, seqById.get(region.id) ?? -1))).run();
 						}
 					});
 					emit({ type: 'page-step-end', chapterId, page: injectIdx, pageId: injectRow.id, step: 'persist_translations', stepStatus: 'completed' });
@@ -306,7 +315,7 @@ export async function runChapterPipeline(
 					emit({ type: 'page-step-start', chapterId, page: injectIdx, pageId: injectRow.id, step: 'typeset' });
 					const tTy0 = performance.now();
 					const typesetRegions = analyzed.regions.filter((r) => Boolean(byRegion.get(r.id)?.trim())).map((r) => ({ id: r.id, box: r.box, text: byRegion.get(r.id)!, vertical: r.vertical, angle: r.angle }));
-					const out = await typesetPage(cleaned, typesetRegions);
+					const out = await typesetPage(cleaned, typesetRegions, deps.typesetOptions);
 					if (signal.aborted || deps.isPageCancelled?.(injectRow.id)) return;
 					const outputPath = `output/${chapterId}/${injectRow.seq}.png`;
 					cleanDir(join(deps.dataRoot, 'output', String(chapterId)));
@@ -408,7 +417,10 @@ export async function runChapterPipeline(
 			emit({ type: 'page-step-start', chapterId, page: i, pageId: page.id, step: 'analyze' });
 			const tAnalyze0 = performance.now();
 			const image = readFileSync(join(deps.dataRoot, page.filePath));
-			const analyzed = await deps.pipeline.analyze(image, signal);
+			const analyzed = await deps.pipeline.analyze(image, signal, {
+				sourceLang: pair.sourceLang,
+				targetLang: pair.targetLang,
+			});
 			signal.throwIfAborted();
 			if (deps.isPageCancelled?.(page.id)) return;
 			const tAnalyze = performance.now() - tAnalyze0;
@@ -613,7 +625,7 @@ export async function runChapterPipeline(
 					vertical: r.vertical,
 					angle: r.angle,
 				}));
-			const out = await typesetPage(cleaned, typesetRegions);
+			const out = await typesetPage(cleaned, typesetRegions, deps.typesetOptions);
 			signal.throwIfAborted();
 			if (deps.isPageCancelled?.(page.id)) return;
 			const outputPath = `output/${chapterId}/${page.seq}.png`;

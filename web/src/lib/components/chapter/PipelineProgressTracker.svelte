@@ -16,18 +16,37 @@
 	import WifiOff from 'lucide-svelte/icons/wifi-off';
 	import Layers from 'lucide-svelte/icons/layers';
 	import Square from 'lucide-svelte/icons/square';
+	import X from 'lucide-svelte/icons/x';
 
 	export let jobState: ChapterJobState;
 	export let onRetryPage: ((pageId: number, pageIndex: number) => void) | undefined = undefined;
 	export let onCancel: (() => void) | undefined = undefined;
 
 	let expanded = true;
+	let dismissed = false;
 	let now = Date.now();
 	let timer: ReturnType<typeof setInterval> | null = null;
+
+	function scrollToPage(pageId?: number, seq?: number) {
+		let el: HTMLElement | null = null;
+		if (pageId !== undefined) {
+			el = document.querySelector(`[data-page-id="${pageId}"]`);
+		}
+		if (!el && seq !== undefined) {
+			el = document.querySelector(`[data-page-seq="${seq}"]`);
+		}
+		if (el) {
+			el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+		}
+	}
 
 	$: snapshot = jobState.snapshot;
 	$: running = jobState.running;
 	$: connectionState = jobState.connectionState;
+
+	$: if (running) {
+		dismissed = false;
+	}
 
 	$: if (running) {
 		if (!timer) {
@@ -101,7 +120,7 @@
 	}
 </script>
 
-{#if snapshot || running}
+{#if (snapshot || running) && !dismissed}
 	<div class="overflow-hidden rounded-2xl border border-black/10 bg-white/70 shadow-sm backdrop-blur-md transition-all dark:border-white/10 dark:bg-[#181511]/80">
 		<!-- HEADER BAR -->
 		<div class="flex flex-wrap items-center justify-between gap-3 border-b border-black/[0.06] px-4 py-3 dark:border-white/[0.06]">
@@ -179,8 +198,8 @@
 				</div>
 			</div>
 
-			<!-- TOP RIGHT STATS + COLLAPSE TOGGLE -->
-			<div class="flex items-center gap-3">
+			<!-- TOP RIGHT STATS + COLLAPSE TOGGLE + CLOSE BUTTON -->
+			<div class="flex items-center gap-2 sm:gap-3">
 				<!-- METRICS PILLS -->
 				<div class="hidden sm:flex items-center gap-2">
 
@@ -217,6 +236,17 @@
 					{:else}
 						<ChevronDown size={13} />
 					{/if}
+				</button>
+
+				<button
+					type="button"
+					on:click={() => (dismissed = true)}
+					class="flex h-7 w-7 items-center justify-center rounded-lg border border-black/10 text-neutral-500 transition hover:bg-black/5 hover:text-black dark:border-white/10 dark:text-neutral-400 dark:hover:bg-white/5 dark:hover:text-white"
+					use:ripple
+					title="Close and hide stats table"
+					aria-label="Close stats table"
+				>
+					<X size={14} />
 				</button>
 			</div>
 		</div>
@@ -296,7 +326,14 @@
 								<tr class="hover:bg-black/[0.02] dark:hover:bg-white/[0.02] transition-colors">
 									<!-- PAGE NUMBER -->
 									<td class="py-2 px-3 font-bold whitespace-nowrap">
-										Page {p.seq + 1}
+										<button
+											type="button"
+											on:click={() => scrollToPage(p.pageId, p.seq)}
+											class="inline-flex items-center gap-1 font-bold text-neutral-900 hover:text-[#b23a2e] dark:text-neutral-100 dark:hover:text-[#e08a63] hover:underline cursor-pointer transition-colors text-left"
+											title={`Scroll to Page ${p.seq + 1}`}
+										>
+											<span>Page {p.seq + 1}</span>
+										</button>
 									</td>
 
 									<!-- STATUS BADGE -->

@@ -98,24 +98,24 @@ const CJK_REGEX = /[\u3040-\u30ff\u3400-\u4dbf\u4e00-\u9fff\uf900-\ufaff\uac00-\
 // Characters remapped to arrow glyphs in CC Wild Words (e.g. [ and ] are comic bubble arrows)
 const UNSUPPORTED_WILDWORDS_REGEX = /[\[\]{}|\\]/;
 
-export function fontFor(text?: string): string {
+export function fontFor(text?: string, customDialogue?: string, customCjk?: string): string {
 	if (text && (CJK_REGEX.test(text) || UNSUPPORTED_WILDWORDS_REGEX.test(text))) {
-		return FONT_FALLBACK_NAME;
+		return customCjk || FONT_FALLBACK_NAME;
 	}
-	return FONT_DIALOGUE;
+	return customDialogue || FONT_DIALOGUE;
 }
 
-export function fontSpec(size: number, fontNameOrText?: string, text?: string): string {
+export function fontSpec(size: number, fontNameOrText?: string, text?: string, customCjk?: string): string {
 	let fontName: string;
-	if (fontNameOrText && fontNameOrText !== FONT_DIALOGUE && fontNameOrText !== FONT_FALLBACK_NAME) {
+	if (fontNameOrText && fontNameOrText !== FONT_DIALOGUE && fontNameOrText !== FONT_FALLBACK_NAME && fontNameOrText !== customCjk) {
 		fontName = fontNameOrText;
 	} else if (text && (CJK_REGEX.test(text) || UNSUPPORTED_WILDWORDS_REGEX.test(text))) {
-		fontName = FONT_FALLBACK_NAME;
+		fontName = customCjk || FONT_FALLBACK_NAME;
 	} else {
 		fontName = fontNameOrText ?? FONT_DIALOGUE;
 	}
-	if (fontName === FONT_FALLBACK_NAME) {
-		return `bold ${size}px "${FONT_FALLBACK_NAME}", "Yu Gothic Bold", "Yu Gothic", "Microsoft YaHei Bold", "Microsoft YaHei", Arial, "Segoe UI", sans-serif`;
+	if (fontName === (customCjk || FONT_FALLBACK_NAME)) {
+		return `bold ${size}px "${fontName}", "${FONT_FALLBACK_NAME}", "Yu Gothic Bold", "Yu Gothic", "Microsoft YaHei Bold", "Microsoft YaHei", Arial, "Segoe UI", sans-serif`;
 	}
 	return `${size}px "${fontName}"${FONT_FALLBACK}`;
 }
@@ -416,9 +416,11 @@ export function fitFontSize(
 	boxH: number,
 	startSize: number,
 	maxSize?: number,
+	boxInset?: number,
 ): number {
-	const maxW = Math.max(10, boxW * (1 - 2 * BOX_INSET));
-	const maxH = Math.max(10, boxH * (1 - 2 * BOX_INSET));
+	const inset = boxInset ?? BOX_INSET;
+	const maxW = Math.max(10, boxW * (1 - 2 * inset));
+	const maxH = Math.max(10, boxH * (1 - 2 * inset));
 	let lo = MIN_FONT_SIZE;
 	let hi = Math.max(lo, maxSize ?? startSize);
 	while (lo < hi) {
@@ -507,6 +509,15 @@ export function renderText(r: TypesetRegion): string {
 
 export interface TypesetOptions {
 	fontScale?: number;
+	fontDialogue?: string;
+	fontCjk?: string;
+	boxInset?: number;
+	outlineMode?: 'none' | 'thin' | 'standard' | 'heavy';
+	colorMode?: 'auto' | 'dark' | 'light';
+	casing?: 'uppercase' | 'original' | 'lowercase';
+	allCaps?: boolean;
+	enableRotation?: boolean;
+	format?: 'png' | 'webp';
 }
 
 // -- STAT-PANEL RENDERER -- //
@@ -697,6 +708,14 @@ export function decollideRegions(regions: TypesetRegion[]): TypesetRegion[] {
 export async function typesetPage(cleanedPng: Buffer, regions: TypesetRegion[], opts: TypesetOptions = {}): Promise<Buffer> {
 	registerFonts();
 	const scale = opts.fontScale ?? 1;
+	const fontDialogue = opts.fontDialogue || FONT_DIALOGUE;
+	const fontCjk = opts.fontCjk || FONT_FALLBACK_NAME;
+	const inset = opts.boxInset ?? BOX_INSET;
+	const outlineMode = opts.outlineMode ?? 'standard';
+	const colorMode = opts.colorMode ?? 'auto';
+	const casing = opts.casing ?? (opts.allCaps === false ? 'original' : 'uppercase');
+	const enableRotation = opts.enableRotation ?? true;
+
 	const img = await loadImage(cleanedPng);
 	const canvas = createCanvas(img.width, img.height);
 	const ctx = canvas.getContext('2d');
@@ -729,8 +748,15 @@ export async function typesetPage(cleanedPng: Buffer, regions: TypesetRegion[], 
 		const rawText = sanitizeForFont(r.text.trim());
 		if (!rawText) continue;
 
-		const bg = sampleBackground(ctx, r.box.x, r.box.y, r.box.w, r.box.h);
-		let color = pickTextColor(bg);
+		let color: TextColor;
+		if (colorMode === 'dark') {
+			color = { fill: 'black', stroke: 'white' };
+		} else if (colorMode === 'light') {
+			color = { fill: 'white', stroke: 'black' };
+		} else {
+			const bg = sampleBackground(ctx, r.box.x, r.box.y, r.box.w, r.box.h);
+			color = pickTextColor(bg);
+		}
 
 		// STAT-PANEL PATH — structured multi-segment rendering
 		const statSegments = parseStatPanel(rawText);
@@ -739,19 +765,28 @@ export async function typesetPage(cleanedPng: Buffer, regions: TypesetRegion[], 
 			continue;
 		}
 
-		// STANDARD PATH — flat word-wrap
-		const text = CJK_REGEX.test(rawText) ? rawText : rawText.toUpperCase();
+		// STANDARD PATH — unified natural multi-line wrapping with user casing
+		const isCjk = CJK_REGEX.test(rawText);
+		let text: string;
+		if (isCjk) {
+			text = rawText;
+		} else if (casing === 'lowercase') {
+			text = rawText.toLowerCase();
+		} else if (casing === 'original') {
+			text = rawText;
+		} else {
+			text = rawText.toUpperCase();
+		}
 		const { x, y, w, h } = r.box;
 
 		const angleDeg = r.angle ?? 0;
-		const hasRotation = Math.abs(angleDeg) >= 2.0 && Math.abs(angleDeg) <= 45.0;
+		const hasRotation = enableRotation && Math.abs(angleDeg) >= 2.0 && Math.abs(angleDeg) <= 45.0;
 
-		const font = fontFor(text);
+		const font = fontFor(text, fontDialogue, fontCjk);
 		const isSfx = isSfxOrShout(text);
 
-		// FULL BOUNDARY UTILIZATION — 0% INSET
-		const maxW = Math.max(10, w * (1 - 2 * BOX_INSET));
-		const maxH = Math.max(10, h * (1 - 2 * BOX_INSET));
+		const maxW = Math.max(10, w * (1 - 2 * inset));
+		const maxH = Math.max(10, h * (1 - 2 * inset));
 
 		const sizeCap = Math.max(MAX_SFX_FONT_SIZE, Math.max(w, h)) * scale;
 		let size: number;
@@ -760,10 +795,10 @@ export async function typesetPage(cleanedPng: Buffer, regions: TypesetRegion[], 
 			size = fitSingleLineSize(ctx, text, font, maxW, maxH, sizeCap);
 		} else {
 			// Fit dialogue font size to fill the maximum boundary dimensions
-			size = fitFontSize(ctx, text, font, w, h, sizeCap, sizeCap);
+			size = fitFontSize(ctx, text, font, w, h, sizeCap, sizeCap, inset);
 		}
 
-		ctx.font = fontSpec(size, font, text);
+		ctx.font = fontSpec(size, font, text, fontCjk);
 		const lines = isSfx ? [text] : reflowText(ctx, text, maxW);
 		const lineH = size * LINE_HEIGHT;
 		const totalH = lines.length * lineH;
@@ -775,9 +810,20 @@ export async function typesetPage(cleanedPng: Buffer, regions: TypesetRegion[], 
 		// High-contrast stroke + shadow for maximum legibility on comics and floating captions
 		const isBlackOnLight = color.fill === 'black' || color.fill === '#111111';
 		const isDarkStroke = color.stroke === 'black' || color.stroke === '#000000' || color.stroke === '#111111';
-		const strokeWidth = isBlackOnLight
-			? Math.max(1.8, size * 0.10)
-			: Math.max(3.0, size * OUTLINE_FACTOR);
+
+		let strokeWidth: number;
+		if (outlineMode === 'none') {
+			strokeWidth = 0;
+		} else if (outlineMode === 'thin') {
+			strokeWidth = isBlackOnLight ? Math.max(1.0, size * 0.06) : Math.max(1.5, size * 0.10);
+		} else if (outlineMode === 'heavy') {
+			strokeWidth = isBlackOnLight ? Math.max(3.0, size * 0.16) : Math.max(5.0, size * 0.26);
+		} else {
+			// standard
+			strokeWidth = isBlackOnLight
+				? Math.max(1.8, size * 0.10)
+				: Math.max(3.0, size * OUTLINE_FACTOR);
+		}
 
 		ctx.lineWidth = strokeWidth;
 		ctx.lineJoin = 'round';
@@ -791,11 +837,13 @@ export async function typesetPage(cleanedPng: Buffer, regions: TypesetRegion[], 
 			ctx.rotate((angleDeg * Math.PI) / 180);
 			let ty = -totalH / 2 + size * 0.85;
 			for (const line of lines) {
-				ctx.shadowColor = isDarkStroke ? 'rgba(0, 0, 0, 0.85)' : 'rgba(255, 255, 255, 0.85)';
-				ctx.shadowBlur = Math.max(2.5, size * 0.18);
-				ctx.shadowOffsetX = isDarkStroke ? 1.0 : 0;
-				ctx.shadowOffsetY = isDarkStroke ? 1.5 : 0;
-				ctx.strokeText(line, 0, ty);
+				if (strokeWidth > 0) {
+					ctx.shadowColor = isDarkStroke ? 'rgba(0, 0, 0, 0.85)' : 'rgba(255, 255, 255, 0.85)';
+					ctx.shadowBlur = Math.max(2.5, size * 0.18);
+					ctx.shadowOffsetX = isDarkStroke ? 1.0 : 0;
+					ctx.shadowOffsetY = isDarkStroke ? 1.5 : 0;
+					ctx.strokeText(line, 0, ty);
+				}
 
 				ctx.shadowColor = 'transparent';
 				ctx.shadowBlur = 0;
@@ -808,11 +856,13 @@ export async function typesetPage(cleanedPng: Buffer, regions: TypesetRegion[], 
 			const tx = x + w / 2;
 			let ty = y + (h - totalH) / 2 + size * 0.85;
 			for (const line of lines) {
-				ctx.shadowColor = isDarkStroke ? 'rgba(0, 0, 0, 0.85)' : 'rgba(255, 255, 255, 0.85)';
-				ctx.shadowBlur = Math.max(2.5, size * 0.18);
-				ctx.shadowOffsetX = isDarkStroke ? 1.0 : 0;
-				ctx.shadowOffsetY = isDarkStroke ? 1.5 : 0;
-				ctx.strokeText(line, tx, ty);
+				if (strokeWidth > 0) {
+					ctx.shadowColor = isDarkStroke ? 'rgba(0, 0, 0, 0.85)' : 'rgba(255, 255, 255, 0.85)';
+					ctx.shadowBlur = Math.max(2.5, size * 0.18);
+					ctx.shadowOffsetX = isDarkStroke ? 1.0 : 0;
+					ctx.shadowOffsetY = isDarkStroke ? 1.5 : 0;
+					ctx.strokeText(line, tx, ty);
+				}
 
 				ctx.shadowColor = 'transparent';
 				ctx.shadowBlur = 0;
@@ -823,6 +873,9 @@ export async function typesetPage(cleanedPng: Buffer, regions: TypesetRegion[], 
 			}
 		}
 		ctx.restore();
+	}
+	if (opts.format === 'webp') {
+		return await canvas.encode('webp', 90);
 	}
 	return canvas.toBuffer('image/png');
 }

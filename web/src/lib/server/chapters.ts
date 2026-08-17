@@ -434,9 +434,11 @@ export async function resliceChapterPages(
 	const newPageRows: { chapterId: number; seq: number; filePath: string; width: number | null; height: number | null }[] = [];
 	for (let seq = 0; seq < slicedBuffers.length; seq++) {
 		signal?.throwIfAborted();
-		const fileName = `${randomUUID()}.png`;
-		const absPath = join(uploadDir, fileName);
 		const sliceBuf = slicedBuffers[seq];
+		const isWebP = sliceBuf.length >= 12 && sliceBuf.toString('ascii', 0, 4) === 'RIFF' && sliceBuf.toString('ascii', 8, 12) === 'WEBP';
+		const ext = isWebP ? 'webp' : 'png';
+		const fileName = `${randomUUID()}.${ext}`;
+		const absPath = join(uploadDir, fileName);
 		writeFileSync(absPath, sliceBuf);
 		const dims = getImageDimensionsFromBuffer(sliceBuf);
 		let w: number | null = dims.width;

@@ -55,6 +55,87 @@ export const DEFAULT_PROVIDERS: Array<Omit<AiProvider, 'createdAt' | 'updatedAt'
 		enabled: true,
 		isDefault: false,
 	},
+	{
+		id: 'groq',
+		name: 'Groq (Ultra-Fast)',
+		apiKey: '',
+		baseUrl: 'https://api.groq.com/openai/v1',
+		activeModel: 'llama-3.3-70b-versatile',
+		availableModels: JSON.stringify([
+			'llama-3.3-70b-versatile',
+			'qwen-2.5-32b',
+			'deepseek-r1-distill-llama-70b',
+		]),
+		enabled: true,
+		isDefault: false,
+	},
+	{
+		id: 'openrouter',
+		name: 'OpenRouter',
+		apiKey: '',
+		baseUrl: 'https://openrouter.ai/api/v1',
+		activeModel: 'google/gemini-2.5-flash',
+		availableModels: JSON.stringify([
+			'google/gemini-2.5-flash',
+			'anthropic/claude-3.5-sonnet',
+			'deepseek/deepseek-v4-flash',
+			'meta-llama/llama-3.3-70b-instruct',
+		]),
+		enabled: true,
+		isDefault: false,
+	},
+	{
+		id: 'openai',
+		name: 'OpenAI',
+		apiKey: '',
+		baseUrl: 'https://api.openai.com/v1',
+		activeModel: 'gpt-4o-mini',
+		availableModels: JSON.stringify([
+			'gpt-4o-mini',
+			'gpt-4o',
+		]),
+		enabled: true,
+		isDefault: false,
+	},
+	{
+		id: 'ollama',
+		name: 'Ollama (Local)',
+		apiKey: '',
+		baseUrl: 'http://localhost:11434/v1',
+		activeModel: 'qwen2.5:14b',
+		availableModels: JSON.stringify([
+			'qwen2.5:14b',
+			'qwen2.5:7b',
+			'llama3.2',
+			'deepseek-r1:8b',
+		]),
+		enabled: true,
+		isDefault: false,
+	},
+	{
+		id: 'lmstudio',
+		name: 'LM Studio (Local)',
+		apiKey: '',
+		baseUrl: 'http://localhost:1234/v1',
+		activeModel: 'local-model',
+		availableModels: JSON.stringify([
+			'local-model',
+		]),
+		enabled: true,
+		isDefault: false,
+	},
+	{
+		id: 'custom',
+		name: 'Custom (OpenAI-Compatible)',
+		apiKey: '',
+		baseUrl: 'http://localhost:8000/v1',
+		activeModel: 'default',
+		availableModels: JSON.stringify([
+			'default',
+		]),
+		enabled: true,
+		isDefault: false,
+	},
 ];
 
 export function maskApiKey(key?: string | null): string {
@@ -270,6 +351,26 @@ export function updateProvider(
 	};
 }
 
+function isLocalProvider(idOrBase?: string): boolean {
+	if (!idOrBase) return false;
+	const lower = idOrBase.toLowerCase();
+	return (
+		lower === 'ollama' ||
+		lower === 'lmstudio' ||
+		lower.includes('localhost') ||
+		lower.includes('127.0.0.1') ||
+		lower.includes('0.0.0.0')
+	);
+}
+
+const NON_CHAT_MODEL_PATTERN =
+	/(?:embed|embedding|bge|nomic|text-similarity|text-search|instructor|whisper|tts|speech|audio|dall-e|imagen|flux|sdxl|stable-diffusion|moderation|guard|rerank|davinci-002|babbage-002|realtime-preview)/i;
+
+export function filterUsableChatModels(rawModels: string[]): string[] {
+	const filtered = rawModels.filter((m) => !NON_CHAT_MODEL_PATTERN.test(m));
+	return filtered.length > 0 ? filtered : rawModels;
+}
+
 export async function testProviderConnection(params: {
 	id?: string;
 	apiKey?: string;
@@ -291,23 +392,29 @@ export async function testProviderConnection(params: {
 		}
 	}
 
+	const isLocal = isLocalProvider(params.id) || isLocalProvider(base);
+
 	if (!key || key.trim().length === 0) {
-		return {
-			ok: false,
-			message: 'API Key is empty. Please provide a valid API key.',
-			latencyMs: 0,
-			modelUsed: model || 'unknown',
-		};
+		if (isLocal) {
+			key = 'local-dummy-key';
+		} else {
+			return {
+				ok: false,
+				message: 'API Key is empty. Please provide a valid API key.',
+				latencyMs: 0,
+				modelUsed: model || 'unknown',
+			};
+		}
 	}
 
 	if (!base || base.trim().length === 0) {
-		base = params.id === 'google'
-			? 'https://generativelanguage.googleapis.com/v1beta/openai/'
-			: 'https://api.deepseek.com';
+		const def = DEFAULT_PROVIDERS.find((p) => p.id === params.id);
+		base = def?.baseUrl || 'https://api.deepseek.com';
 	}
 
 	if (!model || model.trim().length === 0) {
-		model = params.id === 'google' ? 'gemini-3.7-flash' : 'deepseek-v4-flash';
+		const def = DEFAULT_PROVIDERS.find((p) => p.id === params.id);
+		model = def?.activeModel || 'deepseek-v4-flash';
 	}
 
 	try {
@@ -357,7 +464,9 @@ export async function testProviderConnection(params: {
 		const errorMsg = e?.message || e?.toString() || 'Unknown error';
 		return {
 			ok: false,
-			message: `Connection failed: ${errorMsg}`,
+			message: isLocal
+				? `Connection failed to ${base}: ${errorMsg}. Please ensure your local server is started.`
+				: `Connection failed: ${errorMsg}`,
 			latencyMs,
 			modelUsed: model,
 		};
@@ -368,22 +477,25 @@ export async function fetchAvailableModels(params: {
 	id: string;
 	apiKey?: string;
 	baseUrl?: string;
-}): Promise<{ models: string[] }> {
+}): Promise<{ ok: boolean; models: string[]; message?: string }> {
 	const prov = getProviderById(params.id);
-	const key = params.apiKey !== undefined && params.apiKey !== ''
+	let key = params.apiKey !== undefined && params.apiKey !== ''
 		? params.apiKey
 		: (prov ? prov.apiKey || '' : '');
 
 	let base = params.baseUrl || prov?.baseUrl;
 	if (!base || base.trim().length === 0) {
-		base = params.id === 'google'
-			? 'https://generativelanguage.googleapis.com/v1beta/openai/'
-			: 'https://api.deepseek.com';
+		const def = DEFAULT_PROVIDERS.find((p) => p.id === params.id);
+		base = def?.baseUrl || 'https://api.deepseek.com';
 	}
 
+	const isLocal = isLocalProvider(params.id) || isLocalProvider(base);
 	if (!key || key.trim().length === 0) {
-		const existing = prov?.availableModels ? JSON.parse(prov.availableModels) : [];
-		return { models: existing };
+		if (isLocal) {
+			key = 'local-dummy-key';
+		} else {
+			return { ok: false, models: [], message: 'API key is required to query cloud models.' };
+		}
 	}
 
 	try {
@@ -394,14 +506,26 @@ export async function fetchAvailableModels(params: {
 		});
 
 		const list = await client.models.list();
-		const models: string[] = [];
+		const rawModels: string[] = [];
 		for await (const m of list) {
-			models.push(m.id);
+			if (m && m.id && typeof m.id === 'string') {
+				rawModels.push(m.id);
+			}
 		}
-		return { models: models.length > 0 ? models : (prov?.availableModels ? JSON.parse(prov.availableModels) : []) };
-	} catch {
-		const existing = prov?.availableModels ? JSON.parse(prov.availableModels) : [];
-		return { models: existing };
+		const models = filterUsableChatModels(rawModels);
+		if (models.length === 0) {
+			return { ok: false, models: [], message: 'No chat models returned by the provider.' };
+		}
+		return { ok: true, models: models.sort((a, b) => a.localeCompare(b)) };
+	} catch (e: any) {
+		const err = e?.message || e?.toString() || 'Failed to list models';
+		return {
+			ok: false,
+			models: [],
+			message: isLocal
+				? `Cannot connect to local server (${base}): ${err}. Make sure your local runner is running.`
+				: `Failed to query models: ${err}`,
+		};
 	}
 }
 

@@ -49,7 +49,7 @@ export interface HardwareStatus {
 
 export interface PipelineClient {
 	preprocess(image: Buffer, signal?: AbortSignal): Promise<Buffer>;
-	analyze(image: Buffer, signal?: AbortSignal): Promise<AnalyzeResult>;
+	analyze(image: Buffer, signal?: AbortSignal, opts?: { sourceLang?: string; targetLang?: string }): Promise<AnalyzeResult>;
 	clean(image: Buffer, regions: CleanRegionInput[], inpaintMode?: string, signal?: AbortSignal): Promise<Buffer>;
 	health(): Promise<{ status: string; detector: string; inpainter: string }>;
 	getHardware?(signal?: AbortSignal): Promise<HardwareStatus>;
@@ -100,9 +100,11 @@ export class HttpPipelineClient implements PipelineClient {
 		return Buffer.from(await resp.arrayBuffer());
 	}
 
-	async analyze(image: Buffer, signal?: AbortSignal): Promise<AnalyzeResult> {
+	async analyze(image: Buffer, signal?: AbortSignal, opts?: { sourceLang?: string; targetLang?: string }): Promise<AnalyzeResult> {
 		const form = new FormData();
 		form.append('image', new Blob([new Uint8Array(image)]), 'page.png');
+		if (opts?.sourceLang) form.append('source_lang', opts.sourceLang);
+		if (opts?.targetLang) form.append('target_lang', opts.targetLang);
 		const resp = await this.request('/pages/analyze', { method: 'POST', body: form }, signal);
 		if (!resp.ok) throw new PipelineError(`analyze failed (${resp.status}): ${await resp.text()}`, resp.status);
 		return (await resp.json()) as AnalyzeResult;
@@ -157,10 +159,10 @@ export class HttpPipelineClient implements PipelineClient {
 		const zipBuf = Buffer.from(await resp.arrayBuffer());
 		const unzipped = unzipSync(new Uint8Array(zipBuf));
 		const keys = Object.keys(unzipped)
-			.filter((k) => k.endsWith('.png'))
+			.filter((k) => /\.(webp|png|jpe?g)$/i.test(k))
 			.sort((a, b) => {
-				const numA = parseInt(a.replace(/\.png$/, ''), 10);
-				const numB = parseInt(b.replace(/\.png$/, ''), 10);
+				const numA = parseInt(a.replace(/\.(webp|png|jpe?g)$/i, ''), 10);
+				const numB = parseInt(b.replace(/\.(webp|png|jpe?g)$/i, ''), 10);
 				return numA - numB;
 			});
 		return keys.map((k) => Buffer.from(unzipped[k]));

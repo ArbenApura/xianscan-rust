@@ -13,7 +13,7 @@ import type { LangPair, TermDraft, TranslationUsage } from '$lib/types';
 import type OpenAI from 'openai';
 import { languageName } from '$lib/languages';
 // IMPORTED MODULES
-import { computeUsage, createClient, queued, resolveModel, thinkingParam, withRetry } from './deepseek';
+import { computeUsage, createClient, queued, resolveModel, stripThinkingTags, thinkingParam, withRetry } from './deepseek';
 
 export interface RegionSource {
 	id: string;
@@ -207,7 +207,8 @@ export function parseTranslations(
 	knownIds: Set<string>,
 	regions?: RegionSource[],
 ): Map<string, string> | null {
-	const cleaned = raw.replace(/```(?:json)?/gi, '').trim();
+	const sanitized = stripThinkingTags(raw);
+	const cleaned = sanitized.replace(/```(?:json)?/gi, '').trim();
 	const out = new Map<string, string>();
 	const rawMap = new Map<string, string>();
 
@@ -507,6 +508,7 @@ Rules:
 // ROBUST PARSE: ACCEPT CLEAN JSON, A BARE ARRAY, OR A TRUNCATED RESPONSE (SALVAGE COMPLETE {…} OBJECTS)
 // SO A SLIGHTLY MALFORMED / CUT-OFF REPLY STILL YIELDS THE TERMS IT DID CONTAIN INSTEAD OF ZERO.
 export function parseTermObjects(text: string): unknown[] {
+	const sanitized = stripThinkingTags(text);
 	const tryParse = (s: string): unknown => {
 		try {
 			return JSON.parse(s);
@@ -514,7 +516,7 @@ export function parseTermObjects(text: string): unknown[] {
 			return undefined;
 		}
 	};
-	const cleaned = text.replace(/```(?:json)?/gi, '').trim();
+	const cleaned = sanitized.replace(/```(?:json)?/gi, '').trim();
 	const whole = tryParse(cleaned);
 	if (Array.isArray(whole)) return whole;
 	const terms = (whole as { terms?: unknown })?.terms ?? (whole as { newTerms?: unknown })?.newTerms;
@@ -593,6 +595,14 @@ export function parseExtractedTerms(raw: string, contentSource?: string): TermDr
 					),
 				].slice(0, 8)
 			: [];
+
+		// Auto-derive standalone given name alias for 3-character personal names (e.g. 陈北玄 -> 北玄)
+		if (category === 'character' && sourceTerm.length === 3) {
+			const givenName = sourceTerm.slice(1);
+			if (!aliases.includes(givenName) && (!contentSource || contentSource.includes(givenName))) {
+				aliases.push(givenName);
+			}
+		}
 
 		results.push({
 			source: sourceTerm,
@@ -701,6 +711,7 @@ export async function translateSingleText(
 	pair: LangPair,
 	opts: {
 		kind?: 'title' | 'chapter' | 'term' | 'general';
+		instruction?: string;
 		client?: OpenAI;
 		model?: string;
 		signal?: AbortSignal;
@@ -733,12 +744,18 @@ Rules:
 	} else if (opts.kind === 'term') {
 		systemContent = `You are a professional localization translator. Translate the provided term, character name, technique, or proper noun from ${srcName} to natural ${tgtName}.
 Rules:
-- For personal names, use capitalized romanization / Pinyin with proper spacing (e.g. 叶凡 -> Ye Fan).
+- For personal names, use capitalized romanization / Pinyin with proper spacing (e.g. 叶凡 -> Ye Fan, 陈北玄 -> Chen Beixuan). Always fuse 2-character standalone given names into a single word (e.g. 北玄 -> Beixuan, NEVER "Bei Xuan").
 - For terms / items / techniques, translate the meaning into natural ${tgtName}.
 - Output ONLY the translated term without quotes or explanation.`;
 	} else {
-		systemContent = `You are a professional translator translating text from ${srcName} to natural ${tgtName}.
-Output ONLY the translated text without commentary, quotes, or markdown fences.`;
+		systemContent = `You are a professional comic and manhua translator translating dialogue/speech bubbles from ${srcName} to natural ${tgtName}.
+Rules:
+- Preserve speech nuance, comic tone, exclamations, sound effects, and character voice.
+- Output ONLY the translated text without commentary, quotes, or markdown fences.`;
+	}
+
+	if (opts.instruction?.trim()) {
+		systemContent += `\nSpecial user localization instruction: ${opts.instruction.trim()}`;
 	}
 
 	try {
@@ -752,7 +769,7 @@ Output ONLY the translated text without commentary, quotes, or markdown fences.`
 								{ role: 'system', content: systemContent },
 								{ role: 'user', content: trimmed },
 							],
-							temperature: 0.2,
+							temperature: opts.instruction?.trim() ? 0.4 : 0.2,
 							...thinkingParam(model),
 						},
 						{ signal: opts.signal },

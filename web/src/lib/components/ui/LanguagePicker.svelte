@@ -75,7 +75,7 @@
 
 	$: isSource = mode === 'source';
 	$: isNone = value === NO_TRANSLATION;
-	$: selectedName = isSource && value === 'auto' ? 'Auto Detect Language' : languageName(value);
+	$: selectedName = languageName(value);
 	$: selectedEndonym = isNone
 		? ''
 		: isSource
@@ -206,7 +206,7 @@
 			<Languages size={15} class="shrink-0 opacity-60 text-[#b23a2e] dark:text-[#e08a63]" />
 		{/if}
 		<span class="min-w-0 flex-1 truncate">
-			{selectedName}{#if selectedEndonym && selectedEndonym !== selectedName && value !== 'auto'}<span class="opacity-50">
+			{selectedName}{#if selectedEndonym && selectedEndonym !== selectedName}<span class="opacity-50">
 					· {selectedEndonym}</span
 				>{/if}
 		</span>
@@ -285,7 +285,7 @@
 						)}
 					>
 						<span class="min-w-0 flex-1 truncate">
-							{lang.name}{#if lang.endonym && lang.endonym !== lang.name && lang.value !== 'auto'}<span class="opacity-50">
+							{lang.name}{#if lang.endonym && lang.endonym !== lang.name}<span class="opacity-50">
 									· {lang.endonym}</span
 								>{/if}
 						</span>

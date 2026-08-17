@@ -36,7 +36,7 @@
 	let editingRegion: any | null = null;
 	let editModalOpen = false;
 	let loadingDetails = false;
-	let lastFetchedPageId: number | null = null;
+	let lastFetchedKey: string | null = null;
 
 	$: if (page) {
 		if (page.outputPath) inspectTab = 'output';
@@ -53,7 +53,6 @@
 			const data = await res.json();
 			if (data.page && data.page.id === pageId) {
 				page = { ...page, ...data.page };
-				lastFetchedPageId = pageId;
 				if (page.outputPath && inspectTab === 'original' && !page.cleanedPath) {
 					inspectTab = 'output';
 				}
@@ -66,10 +65,15 @@
 		}
 	}
 
-	// Auto-sync whenever inspect modal opens or targets a page
-	$: if (open && page?.id && (page.id !== lastFetchedPageId || !page.regions || page.regions.length === 0)) {
-		lastFetchedPageId = page.id;
-		void fetchFreshPageData(page.id, false);
+	// Auto-sync ONCE whenever inspect modal opens or targets a different page
+	$: if (open && page?.id) {
+		const key = `${page.id}_${open}`;
+		if (lastFetchedKey !== key) {
+			lastFetchedKey = key;
+			void fetchFreshPageData(page.id, false);
+		}
+	} else if (!open) {
+		lastFetchedKey = null;
 	}
 
 	function getBox(rawBox: any): { x: number; y: number; w: number; h: number } | null {

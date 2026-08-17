@@ -691,9 +691,9 @@
 				}`}
 				use:ripple
 			>
-				<Languages size={13} class={`shrink-0 ${activeSettingsTab === 'general' ? 'text-[#b23a2e] dark:text-[#e08a63]' : ''}`} />
+				<SlidersHorizontal size={13} class={`shrink-0 ${activeSettingsTab === 'general' ? 'text-[#b23a2e] dark:text-[#e08a63]' : ''}`} />
 				<span class="truncate px-0.5">
-					General<span class="hidden sm:inline"> & Lang</span>
+					Preferences<span class="hidden sm:inline"> & Config</span>
 				</span>
 			</button>
 		</div>

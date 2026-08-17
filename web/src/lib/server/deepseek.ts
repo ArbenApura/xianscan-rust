@@ -200,6 +200,11 @@ export async function withRetry<T>(fn: () => Promise<T>, retries = 4): Promise<T
 	throw lastErr;
 }
 
+export function stripThinkingTags(text: string): string {
+	if (!text) return '';
+	return text.replace(/<think>[\s\S]*?<\/think>/gi, '').trim();
+}
+
 function pricingFor(model: string): ModelPricing {
 	return PRICING[model] ?? PRICING['deepseek-v4-flash'];
 }

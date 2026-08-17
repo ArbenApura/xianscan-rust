@@ -763,12 +763,18 @@
 	page={inspectPage}
 	{reloadKey}
 	on:close={() => (inspectModalOpen = false)}
-	on:updated={(e) => {
+	on:update={(e) => {
 		const updatedPg = e.detail.page;
 		if (updatedPg) {
-			pageVersions[updatedPg.id] = Date.now();
 			const idx = pages.findIndex((p) => p.id === updatedPg.id);
-			if (idx >= 0) pages[idx] = { ...pages[idx], ...updatedPg };
+			if (idx !== -1) {
+				pages[idx] = { ...pages[idx], ...updatedPg };
+				pages = [...pages];
+			}
+			pageVersions[updatedPg.id] = e.detail.reloadKey || Date.now();
+			pageVersions = { ...pageVersions };
+			reloadKey = e.detail.reloadKey || Date.now();
+			inspectPage = pages[idx] || updatedPg;
 		}
 	}}
 />

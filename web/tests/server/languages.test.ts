@@ -16,9 +16,21 @@ import { typesetPage, wrapText } from '$lib/server/typeset';
 import { createCanvas } from '@napi-rs/canvas';
 
 describe('Language Registry & Auto-Detection', () => {
-	it('has exactly four source language options (auto, zh-Hans, zh-Hant, en)', () => {
+	it('includes major comic source language options', () => {
 		const codes = SOURCE_LANGUAGE_OPTIONS.map((o) => o.value);
-		expect(codes).toEqual(['auto', 'zh-Hans', 'zh-Hant', 'en']);
+		expect(codes).toEqual([
+			'zh-Hans',
+			'zh-Hant',
+			'ja',
+			'ko',
+			'fr',
+			'es',
+			'id',
+			'vi',
+			'ru',
+			'th',
+			'en',
+		]);
 	});
 
 	it('auto-detects Simplified Chinese from text', () => {
@@ -31,6 +43,28 @@ describe('Language Registry & Auto-Detection', () => {
 		expect(detectSourceLanguage('妖神記 第1話 重生')).toBe('zh-Hant');
 		expect(detectSourceLanguage('全職法師 莫凡')).toBe('zh-Hant');
 		expect(detectSourceLanguage('這裡有很多人')).toBe('zh-Hant');
+	});
+
+	it('auto-detects Japanese from text', () => {
+		expect(detectSourceLanguage('ワンピース 第1話')).toBe('ja');
+		expect(detectSourceLanguage('こんにちは世界')).toBe('ja');
+	});
+
+	it('auto-detects Korean from text', () => {
+		expect(detectSourceLanguage('나 혼자만 레벨업')).toBe('ko');
+		expect(detectSourceLanguage('안녕하세요')).toBe('ko');
+	});
+
+	it('auto-detects Russian from text', () => {
+		expect(detectSourceLanguage('Глава 1: Начало')).toBe('ru');
+	});
+
+	it('auto-detects Thai from text', () => {
+		expect(detectSourceLanguage('ตอนที่ 1: การเริ่มต้น')).toBe('th');
+	});
+
+	it('auto-detects Vietnamese from text', () => {
+		expect(detectSourceLanguage('Truyện Tranh Mới')).toBe('vi');
 	});
 
 	it('auto-detects English from text', () => {
@@ -76,11 +110,11 @@ describe('Language Registry & Auto-Detection', () => {
 		expect(getLanguage('zh-TW').code).toBe('zh-Hant');
 		expect(getLanguage('auto').code).toBe('zh-Hans');
 		expect(getLanguage(undefined).code).toBe('zh-Hans');
-		expect(DEFAULT_SOURCE_LANG).toBe('auto');
+		expect(DEFAULT_SOURCE_LANG).toBe('zh-Hans');
 	});
 
 	it('returns correct display names via languageName', () => {
-		expect(languageName('auto')).toBe('Auto Detect Language');
+		expect(languageName('zh-Hans')).toBe('Simplified Chinese');
 		expect(languageName('en')).toBe('English');
 		expect(languageName('ja')).toBe('Japanese');
 		expect(languageName('ko')).toBe('Korean');
