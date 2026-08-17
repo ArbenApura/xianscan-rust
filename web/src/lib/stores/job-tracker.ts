@@ -400,6 +400,16 @@ function createJobTrackerStore() {
 				pageIds: opts.pageIds,
 				inpaintMode: curSettings?.inpaintMode,
 				pageConcurrency: opts.pageConcurrency ?? curSettings?.parallelProcesses,
+				typesetOptions: {
+					fontDialogue: curSettings?.typesetFont,
+					fontCjk: curSettings?.typesetCjkFont,
+					boxInset: curSettings?.typesetPadding,
+					fontScale: curSettings?.typesetFontScale,
+					outlineMode: curSettings?.typesetOutline,
+					colorMode: curSettings?.typesetContrast,
+					casing: curSettings?.typesetCasing,
+					enableRotation: curSettings?.enableTextRotation,
+				},
 			};
 
 			// If a job is already running and we're NOT forcing a supersede, just POST

@@ -1156,7 +1156,9 @@
 													Translating: {liveProg.completedPages}/{liveProg.totalPages} pgs ({liveProg.percent}%)
 												</span>
 											{:else if liveProg.isComplete}
-												<span class="text-emerald-600 dark:text-emerald-400 font-semibold">✓ Translated</span>
+												<span class="inline-flex items-center gap-1 text-emerald-600 dark:text-emerald-400 font-semibold">
+													<Check size={11} strokeWidth={2.5} /> Translated
+												</span>
 											{:else}
 												{chapter.translatedPageCount || 0}/{chapter.pageCount} pgs ({liveProg.percent}%)
 											{/if}

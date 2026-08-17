@@ -217,10 +217,10 @@ describe('fitFontSize', () => {
 		expect(size).toBeGreaterThanOrEqual(8);
 		expect(size).toBeLessThanOrEqual(60);
 
-		// VERIFY THE FOUND SIZE ACTUALLY FITS WITHIN THE 5% INSET BOX (PITCH 1.2)
+		// VERIFY THE FOUND SIZE ACTUALLY FITS WITHIN THE 2% INSET BOX (PITCH 1.2)
 		x.font = `${size}px Arial`;
-		const lines = wrapText(x, 'Hello world this is dialogue', 200 * 0.9);
-		expect(lines.length * size * 1.2).toBeLessThanOrEqual(100 * 0.9);
+		const lines = wrapText(x, 'Hello world this is dialogue', 200 * 0.96);
+		expect(lines.length * size * 1.2).toBeLessThanOrEqual(100 * 0.96);
 	});
 
 	it('degrades gracefully for tiny boxes', () => {
@@ -276,7 +276,8 @@ describe('typesetPage', () => {
 		const out = await typesetPage(blankPng(400, 300, 'black'), [
 			{ id: 'r0', box: { x: 50, y: 100, w: 300, h: 80 }, text: 'Hello world' },
 		]);
-		expect(out.slice(0, 8)).toEqual(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])); // PNG MAGIC
+		expect(out.slice(0, 4).toString('ascii')).toBe('RIFF');
+		expect(out.slice(8, 12).toString('ascii')).toBe('WEBP');
 		expect(await brightPixels(out)).toBeGreaterThan(0); // WHITE TEXT ON THE BLACK PAGE
 	});
 
@@ -307,7 +308,8 @@ describe('typesetPage', () => {
 		const out = await typesetPage(blankPng(300, 200, 'white'), [
 			{ id: 'r0', box: { x: 10, y: 10, w: 280, h: 100 }, text: 'BOOM!' },
 		]);
-		expect(out.slice(0, 8)).toEqual(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]));
+		expect(out.slice(0, 4).toString('ascii')).toBe('RIFF');
+		expect(out.slice(8, 12).toString('ascii')).toBe('WEBP');
 	});
 
 	it('renders small text regions cleanly without crashes or distortion', async () => {
@@ -315,7 +317,8 @@ describe('typesetPage', () => {
 		const out = await typesetPage(blankPng(200, 200, 'black'), [
 			{ id: 'r0', box: { x: 90, y: 90, w: 20, h: 20 }, text: 'TURN' },
 		]);
-		expect(out.slice(0, 8)).toEqual(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]));
+		expect(out.slice(0, 4).toString('ascii')).toBe('RIFF');
+		expect(out.slice(8, 12).toString('ascii')).toBe('WEBP');
 		expect(await brightPixels(out)).toBeGreaterThan(0);
 	});
 
@@ -323,7 +326,8 @@ describe('typesetPage', () => {
 		const out = await typesetPage(blankPng(400, 400, 'black'), [
 			{ id: 'r0', box: { x: 50, y: 50, w: 300, h: 100 }, text: 'SLASH!', angle: 35.5 },
 		]);
-		expect(out.slice(0, 8)).toEqual(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]));
+		expect(out.slice(0, 4).toString('ascii')).toBe('RIFF');
+		expect(out.slice(8, 12).toString('ascii')).toBe('WEBP');
 		expect(await brightPixels(out)).toBeGreaterThan(0);
 	});
 
@@ -336,7 +340,8 @@ describe('typesetPage', () => {
 				angle: 9.26,
 			},
 		]);
-		expect(out.slice(0, 8)).toEqual(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]));
+		expect(out.slice(0, 4).toString('ascii')).toBe('RIFF');
+		expect(out.slice(8, 12).toString('ascii')).toBe('WEBP');
 		expect(await brightPixels(out)).toBeGreaterThan(0);
 	});
 
@@ -350,7 +355,8 @@ describe('typesetPage', () => {
 				text: longTranslation,
 			},
 		]);
-		expect(out.slice(0, 8)).toEqual(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]));
+		expect(out.slice(0, 4).toString('ascii')).toBe('RIFF');
+		expect(out.slice(8, 12).toString('ascii')).toBe('WEBP');
 		expect(await brightPixels(out)).toBeGreaterThan(0);
 
 		// Verify that reflowText preserves all words across all lines
@@ -392,7 +398,8 @@ describe('typesetPage', () => {
 		];
 
 		const out = await typesetPage(blankPng(800, 1131, 'white'), page656Regions);
-		expect(out.slice(0, 8)).toEqual(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]));
+		expect(out.slice(0, 4).toString('ascii')).toBe('RIFF');
+		expect(out.slice(8, 12).toString('ascii')).toBe('WEBP');
 		expect(await brightPixels(out)).toBeGreaterThan(0);
 	});
 
@@ -405,7 +412,8 @@ describe('typesetPage', () => {
 				angle: 0.0,
 			},
 		]);
-		expect(out.slice(0, 8)).toEqual(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]));
+		expect(out.slice(0, 4).toString('ascii')).toBe('RIFF');
+		expect(out.slice(8, 12).toString('ascii')).toBe('WEBP');
 		expect(await brightPixels(out)).toBeGreaterThan(0);
 	});
 
@@ -414,7 +422,8 @@ describe('typesetPage', () => {
 			{ id: '22412', box: { x: 118, y: 230, w: 110, h: 123 }, text: 'WEI!' },
 			{ id: '22413', box: { x: 540, y: 552, w: 253, h: 243 }, text: 'NIAN!' },
 		]);
-		expect(out.slice(0, 8)).toEqual(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]));
+		expect(out.slice(0, 4).toString('ascii')).toBe('RIFF');
+		expect(out.slice(8, 12).toString('ascii')).toBe('WEBP');
 		const dark = await (async () => {
 			const img = await loadImage(out);
 			const probe = createCanvas(img.width, img.height);
@@ -441,7 +450,8 @@ describe('typesetPage', () => {
 				vertical: true,
 			},
 		]);
-		expect(out.slice(0, 8)).toEqual(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]));
+		expect(out.slice(0, 4).toString('ascii')).toBe('RIFF');
+		expect(out.slice(8, 12).toString('ascii')).toBe('WEBP');
 
 		const img = await loadImage(out);
 		const probe = createCanvas(img.width, img.height);
@@ -454,6 +464,35 @@ describe('typesetPage', () => {
 		}
 		// Substantial ink coverage in the vertical bubble region
 		expect(darkPixels).toBeGreaterThan(150);
+	});
+
+	it('respects TypesetOptions for colorMode, outlineMode, casing, and enableRotation', async () => {
+		// Forced dark text on a dark page with lowercase casing
+		const outDark = await typesetPage(
+			blankPng(200, 200, 'black'),
+			[{ id: 'r0', box: { x: 20, y: 20, w: 160, h: 60 }, text: 'Dark Text', angle: 15 }],
+			{ colorMode: 'dark', outlineMode: 'none', casing: 'lowercase', enableRotation: false }
+		);
+		expect(outDark.slice(0, 4).toString('ascii')).toBe('RIFF');
+		expect(outDark.slice(8, 12).toString('ascii')).toBe('WEBP');
+
+		// Original casing
+		const outOriginal = await typesetPage(
+			blankPng(200, 200, 'white'),
+			[{ id: 'r0', box: { x: 20, y: 20, w: 160, h: 60 }, text: 'Mixed Case Dialogue' }],
+			{ casing: 'original' }
+		);
+		expect(outOriginal.slice(0, 4).toString('ascii')).toBe('RIFF');
+		expect(outOriginal.slice(8, 12).toString('ascii')).toBe('WEBP');
+
+		// Custom font and scale
+		const outCustom = await typesetPage(
+			blankPng(200, 200, 'white'),
+			[{ id: 'r0', box: { x: 20, y: 20, w: 160, h: 60 }, text: 'Custom Font' }],
+			{ fontDialogue: 'General Sans', fontScale: 1.2, outlineMode: 'heavy', boxInset: 0.05, casing: 'uppercase' }
+		);
+		expect(outCustom.slice(0, 4).toString('ascii')).toBe('RIFF');
+		expect(outCustom.slice(8, 12).toString('ascii')).toBe('WEBP');
 	});
 });
 

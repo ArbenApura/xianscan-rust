@@ -74,6 +74,8 @@ export const SOURCE_LANGUAGE_OPTIONS = [
 	{ value: 'auto', label: 'Auto Detect Language', name: 'Auto Detect Language', endonym: '' },
 	{ value: 'zh-Hans', label: '简体中文 (Simplified)', name: 'Simplified Chinese', endonym: '简体中文' },
 	{ value: 'zh-Hant', label: '繁體中文 (Traditional)', name: 'Traditional Chinese', endonym: '繁體中文' },
+	{ value: 'ja', label: '日本語 (Japanese)', name: 'Japanese', endonym: '日本語' },
+	{ value: 'ko', label: '한국어 (Korean)', name: 'Korean', endonym: '한국어' },
 	{ value: 'en', label: 'English', name: 'English', endonym: 'English' },
 ];
 
@@ -94,14 +96,22 @@ export const TARGET_LANGUAGE_OPTIONS = [
 const TRADITIONAL_CHAR_PATTERN = /[們這為會經說國動時現實體學業發問門沒進聽階級歡迎龍鳳飛鳥馬魚車書長萬與變並單當點對讓頭儘幾後畫兒極總處愛鐵無樂義氣開專鬥蒼術靈斬寶閣莊記話職師歸來劍聖陣傳廣導應隊戰惡獸護衛歷險煉]/;
 const SIMPLIFIED_CHAR_PATTERN = /[们这为会经说国动时现实体学业发问门没进听阶级欢迎龙凤飞鸟马鱼车书长万与变并单当点对让头尽几后画儿极总处爱铁无乐义气开专斗苍术灵斩宝阁庄记话职师归来剑圣阵传广导应队战恶兽护卫历险炼]/;
 const ENGLISH_WORD_PATTERN = /^[a-zA-Z0-9\s.,!?'"()\-–—:;]+$/;
+const JAPANESE_CHAR_PATTERN = /[\u3040-\u30ff]/;
+const KOREAN_CHAR_PATTERN = /[\uac00-\ud7af]/;
 
 /**
  * Auto-detect the source language of a text string (defaults to Chinese variants for manhua).
  */
-export function detectSourceLanguage(text: string, fallback = 'zh-Hans'): 'zh-Hans' | 'zh-Hant' | 'en' {
+export function detectSourceLanguage(text: string, fallback = 'zh-Hans'): 'zh-Hans' | 'zh-Hant' | 'ja' | 'ko' | 'en' {
 	const trimmed = (text || '').trim();
-	if (!trimmed) return fallback as 'zh-Hans' | 'zh-Hant' | 'en';
+	if (!trimmed) return fallback as 'zh-Hans' | 'zh-Hant' | 'ja' | 'ko' | 'en';
 
+	if (JAPANESE_CHAR_PATTERN.test(trimmed)) {
+		return 'ja';
+	}
+	if (KOREAN_CHAR_PATTERN.test(trimmed)) {
+		return 'ko';
+	}
 	if (ENGLISH_WORD_PATTERN.test(trimmed) && !/[\u4e00-\u9fff]/.test(trimmed)) {
 		return 'en';
 	}
@@ -115,7 +125,7 @@ export function detectSourceLanguage(text: string, fallback = 'zh-Hans'): 'zh-Ha
 
 	if (tradCount > simpCount) return 'zh-Hant';
 	if (simpCount > 0) return 'zh-Hans';
-	return fallback as 'zh-Hans' | 'zh-Hant' | 'en';
+	return fallback as 'zh-Hans' | 'zh-Hant' | 'ja' | 'ko' | 'en';
 }
 
 export function getLanguage(code: string | null | undefined): Language {
@@ -123,6 +133,8 @@ export function getLanguage(code: string | null | undefined): Language {
 	if (LANGUAGES[code]) return LANGUAGES[code];
 	if (code === 'zh-CN' || code === 'zh_CN' || code === 'zh') return LANGUAGES['zh-Hans'];
 	if (code === 'zh-TW' || code === 'zh_TW' || code === 'zh-HK') return LANGUAGES['zh-Hant'];
+	if (code === 'ja-JP' || code === 'ja_JP') return LANGUAGES['ja'];
+	if (code === 'ko-KR' || code === 'ko_KR') return LANGUAGES['ko'];
 	return LANGUAGES['zh-Hans'];
 }
 

@@ -97,9 +97,9 @@ describe('resolveModel', () => {
 
 describe('thinkingParam', () => {
 	it('disables reasoning/thinking mode for DeepSeek', () => {
-		expect(thinkingParam('deepseek-v4-flash')).toEqual({ thinking: { type: 'disabled' } });
-		expect(thinkingParam('deepseek-v4-pro')).toEqual({ thinking: { type: 'disabled' } });
-		expect(thinkingParam()).toEqual({ thinking: { type: 'disabled' } });
+		expect(thinkingParam('deepseek-v4-flash')).toEqual({ extra_body: { thinking: { type: 'disabled' } } });
+		expect(thinkingParam('deepseek-v4-pro')).toEqual({ extra_body: { thinking: { type: 'disabled' } } });
+		expect(thinkingParam()).toEqual({ extra_body: { thinking: { type: 'disabled' } } });
 	});
 
 	it('disables reasoning/thinking mode for Google Gemini', () => {

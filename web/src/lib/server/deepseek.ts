@@ -120,13 +120,22 @@ export function resolveModel(model?: string | null): string {
 
 export function createClient(key?: string, base?: string): OpenAI {
 	if (key !== undefined && base !== undefined) {
-		return new OpenAI({ apiKey: key, baseURL: base });
+		const isLocal = base.includes('localhost') || base.includes('127.0.0.1');
+		return new OpenAI({
+			apiKey: key || (isLocal ? 'local-dummy-key' : 'missing-key'),
+			baseURL: base,
+		});
 	}
 
 	try {
 		const active = getActiveProvider();
+		const isLocal =
+			active.id === 'ollama' ||
+			active.id === 'lmstudio' ||
+			active.baseUrl.includes('localhost') ||
+			active.baseUrl.includes('127.0.0.1');
 		return new OpenAI({
-			apiKey: active.apiKey || 'missing-key',
+			apiKey: active.apiKey || (isLocal ? 'local-dummy-key' : 'missing-key'),
 			baseURL: active.baseUrl,
 		});
 	} catch {
@@ -139,8 +148,13 @@ export function createClient(key?: string, base?: string): OpenAI {
 
 export function getClientForActiveProvider(): { client: OpenAI; model: string; providerId: string } {
 	const active = getActiveProvider();
+	const isLocal =
+		active.id === 'ollama' ||
+		active.id === 'lmstudio' ||
+		active.baseUrl.includes('localhost') ||
+		active.baseUrl.includes('127.0.0.1');
 	const client = new OpenAI({
-		apiKey: active.apiKey || '',
+		apiKey: active.apiKey || (isLocal ? 'local-dummy-key' : ''),
 		baseURL: active.baseUrl,
 	});
 	return {
@@ -155,22 +169,102 @@ export const deepseek = createClient();
 export function hasApiKey(): boolean {
 	try {
 		const active = getActiveProvider();
+		const isLocal =
+			active.id === 'ollama' ||
+			active.id === 'lmstudio' ||
+			active.baseUrl.includes('localhost') ||
+			active.baseUrl.includes('127.0.0.1');
+		if (isLocal) return true;
 		return Boolean(active.apiKey && active.apiKey.trim().length > 0);
 	} catch {
 		return false;
 	}
 }
 
-export function thinkingParam(model?: string): Record<string, unknown> {
-	// Strictly disable thinking/reasoning mode for all providers (DeepSeek & Google Gemini)
-	if (model && model.startsWith('gemini')) {
+export function thinkingParam(providerIdOrModel?: string, maybeModel?: string): Record<string, unknown> {
+	let p = '';
+	let m = '';
+
+	if (maybeModel !== undefined) {
+		p = (providerIdOrModel || '').toLowerCase();
+		m = (maybeModel || '').toLowerCase();
+	} else if (providerIdOrModel) {
+		const val = providerIdOrModel.toLowerCase();
+		if (
+			val.startsWith('gemini') ||
+			val.startsWith('deepseek') ||
+			val.startsWith('gpt') ||
+			val.startsWith('llama') ||
+			val.startsWith('qwen') ||
+			val.includes('/') ||
+			val.includes(':') ||
+			val.includes('-')
+		) {
+			m = val;
+		} else {
+			p = val;
+		}
+	}
+
+	// 1. Ollama local reasoning suppression
+	if (p === 'ollama') {
+		return {
+			extra_body: { think: false },
+		};
+	}
+
+	// 2. Google Gemini
+	if (p === 'google' || m.startsWith('gemini')) {
 		return {
 			reasoning_effort: 'none',
 		};
 	}
+
+	// 3. OpenRouter unified reasoning suppression
+	if (p === 'openrouter') {
+		return {
+			extra_body: {
+				reasoning: {
+					effort: 'none',
+					exclude: true,
+				},
+			},
+		};
+	}
+
+	// 4. Groq reasoning suppression
+	if (p === 'groq') {
+		return {
+			reasoning_effort: 'none',
+		};
+	}
+
+	// 5. OpenAI o-series
+	if (p === 'openai' && (m.startsWith('o1') || m.startsWith('o3') || m.startsWith('o4'))) {
+		return {
+			reasoning_effort: 'low',
+		};
+	}
+
+	// 6. DeepSeek API default (needs extra_body for OpenAI JS SDK to transmit to api.deepseek.com)
+	if (p === 'deepseek' || m.startsWith('deepseek')) {
+		return {
+			extra_body: {
+				thinking: { type: 'disabled' },
+			},
+		};
+	}
+
 	return {
-		thinking: { type: 'disabled' },
+		extra_body: {
+			thinking: { type: 'disabled' },
+		},
 	};
+}
+
+export function stripThinkingTags(text: string): string {
+	if (!text) return '';
+	return text.replace(/<think>[\s\S]*?<\/think>/gi, '').trim();
 }
 
 export function queued<T>(fn: () => Promise<T>): Promise<T> {

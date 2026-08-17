@@ -138,10 +138,10 @@ async function convertBufferToWebP(
 	}
 }
 
-export async function uploadPages(chapterId: number, files: File[]): Promise<number> {
+export async function uploadPages(chapterId: number, files: File[], dataRoot: string = DATA_ROOT): Promise<number> {
 	let count = 0;
 	let seq = nextPageSeq(chapterId);
-	const uploadDir = join(DATA_ROOT, 'uploads', String(chapterId));
+	const uploadDir = join(dataRoot, 'uploads', String(chapterId));
 	mkdirSync(uploadDir, { recursive: true });
 	for (const file of files) {
 		const ext = extname(file.name).toLowerCase();

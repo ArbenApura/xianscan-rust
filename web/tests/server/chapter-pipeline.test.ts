@@ -130,8 +130,8 @@ describe('runChapterPipeline', () => {
 
 		const got = db.select().from(pages).where(eq(pages.id, page.id)).get();
 		expect(got?.status).toBe('done');
-		expect(got?.cleanedPath).toBe(`clean/${chapter.id}/0.png`);
-		expect(got?.outputPath).toBe(`output/${chapter.id}/0.png`);
+		expect(got?.cleanedPath).toBe(`clean/${chapter.id}/0.webp`);
+		expect(got?.outputPath).toBe(`output/${chapter.id}/0.webp`);
 		expect(got?.width).toBe(200);
 
 		// ARTIFACTS EXIST ON DISK
@@ -194,7 +194,7 @@ describe('runChapterPipeline', () => {
 		const got0 = db.select().from(pages).where(eq(pages.id, p0.id)).get();
 		const got1 = db.select().from(pages).where(eq(pages.id, p1.id)).get();
 		expect(got0?.status).toBe('done');
-		expect(got0?.outputPath).toBe(`output/${chapter.id}/0.png`); // UNTOUCHED
+		expect(got0?.outputPath).toBe(`output/${chapter.id}/0.webp`); // UNTOUCHED
 		expect(got1?.status).toBe('done');
 	});
 

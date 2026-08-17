@@ -62,9 +62,9 @@ export const FONT_MONO = 'CC Wild Words';
 export const FONT_FALLBACK_NAME = 'Friendly Sans';
 export const FONT_FALLBACK = ', "Friendly Sans", "Yu Gothic Bold", "Yu Gothic", "Microsoft YaHei Bold", "Microsoft YaHei", Arial, "Segoe UI", sans-serif';
 
-// RENDER MARGINS INSIDE THE DETECTED BOX — 5% INSET (0.05) GIVES MAXIMUM BOUNDARY UTILIZATION WITH CLEAN EDGE PADDING
-const BOX_INSET = 0.05;
-const SFX_BOX_INSET = 0.05;
+// RENDER MARGINS INSIDE THE DETECTED BOX — 2% INSET (0.02) GIVES MAXIMUM BOUNDARY UTILIZATION WITH CLEAN EDGE PADDING
+const BOX_INSET = 0.02;
+const SFX_BOX_INSET = 0.02;
 const MIN_FONT_SIZE = 6;
 const LINE_HEIGHT = 1.2;
 // TEXT OUTLINE (THE BLACK/WHITE STROKE DRAWN UNDER THE FILL) — SIZED RELATIVE TO THE FONT WITH A
@@ -117,24 +117,24 @@ const CJK_REGEX = /[\u3040-\u30ff\u3400-\u4dbf\u4e00-\u9fff\uf900-\ufaff\uac00-\
 // Characters remapped to arrow glyphs in CC Wild Words (e.g. [ and ] are comic bubble arrows)
 const UNSUPPORTED_WILDWORDS_REGEX = /[\[\]{}|\\]/;
 
-export function fontFor(text?: string): string {
-	if (text && (CJK_REGEX.test(text) || UNSUPPORTED_WILDWORDS_REGEX.test(text))) {
-		return FONT_FALLBACK_NAME;
+export function fontFor(text?: string, fontDialogue = FONT_DIALOGUE, fontCjk = FONT_FALLBACK_NAME): string {
+	if (text && (CJK_REGEX.test(text) || (fontDialogue === FONT_DIALOGUE && UNSUPPORTED_WILDWORDS_REGEX.test(text)))) {
+		return fontCjk;
 	}
-	return FONT_DIALOGUE;
+	return fontDialogue;
 }
 
-export function fontSpec(size: number, fontNameOrText?: string, text?: string): string {
+export function fontSpec(size: number, fontNameOrText?: string, text?: string, fontCjk = FONT_FALLBACK_NAME): string {
 	let fontName: string;
-	if (fontNameOrText && fontNameOrText !== FONT_DIALOGUE && fontNameOrText !== FONT_FALLBACK_NAME) {
+	if (fontNameOrText && fontNameOrText !== FONT_DIALOGUE && fontNameOrText !== FONT_FALLBACK_NAME && fontNameOrText !== fontCjk) {
 		fontName = fontNameOrText;
 	} else if (text && (CJK_REGEX.test(text) || UNSUPPORTED_WILDWORDS_REGEX.test(text))) {
-		fontName = FONT_FALLBACK_NAME;
+		fontName = fontCjk;
 	} else {
 		fontName = fontNameOrText ?? FONT_DIALOGUE;
 	}
-	if (fontName === FONT_FALLBACK_NAME) {
-		return `bold ${size}px "${FONT_FALLBACK_NAME}", "Yu Gothic Bold", "Yu Gothic", "Microsoft YaHei Bold", "Microsoft YaHei", Arial, "Segoe UI", sans-serif`;
+	if (fontName === fontCjk || fontName === FONT_FALLBACK_NAME) {
+		return `bold ${size}px "${fontName}", "Yu Gothic Bold", "Yu Gothic", "Microsoft YaHei Bold", "Microsoft YaHei", Arial, "Segoe UI", sans-serif`;
 	}
 	return `${size}px "${fontName}"${FONT_FALLBACK}`;
 }
@@ -409,9 +409,10 @@ export function fitFontSize(
 	boxH: number,
 	startSize: number,
 	maxSize?: number,
+	boxInset: number = BOX_INSET,
 ): number {
-	const maxW = Math.max(10, boxW * (1 - 2 * BOX_INSET));
-	const maxH = Math.max(10, boxH * (1 - 2 * BOX_INSET));
+	const maxW = Math.max(10, boxW * (1 - 2 * boxInset));
+	const maxH = Math.max(10, boxH * (1 - 2 * boxInset));
 	let lo = MIN_FONT_SIZE;
 	let hi = Math.max(lo, maxSize ?? startSize);
 	while (lo < hi) {
@@ -498,8 +499,20 @@ export function renderText(r: TypesetRegion): string {
 	return sanitized.toUpperCase();
 }
 
+export type TypesetOutline = 'none' | 'thin' | 'standard' | 'heavy';
+export type TypesetContrast = 'auto' | 'dark' | 'light';
+export type TypesetCasing = 'uppercase' | 'original' | 'lowercase';
+
 export interface TypesetOptions {
 	fontScale?: number;
+	fontDialogue?: string;
+	fontCjk?: string;
+	boxInset?: number;
+	outlineMode?: TypesetOutline;
+	colorMode?: TypesetContrast;
+	casing?: TypesetCasing;
+	allCaps?: boolean; // backwards-compatible alias
+	enableRotation?: boolean;
 }
 
 // -- STAT-PANEL RENDERER -- //
@@ -528,124 +541,103 @@ export function typesetStatPanel(
 	};
 
 	const gap = Math.max(2, h * 0.012);
-	const gapTotal = gap * (segments.length - 1);
-
-	// Brackets extend outward from the text edge, so they don't reduce text width.
-	// Only reserve the small gutter between text and bracket spine (0.20 each side).
-	const BRACKET_GUTTER_RATIO = 0.40; // 2 × gutter (size * 0.20 each side)
-
-	function totalAtBase(base: number): number {
-		let h2 = gapTotal;
-		for (const seg of segments) {
-			const sz = Math.max(MIN_FONT_SIZE, Math.round(base * SEG_SCALE[seg.kind]));
-			const segFont = fontFor(seg.text);
-			ctx.font = fontSpec(sz, segFont);
-			if (seg.kind === 'title') {
-				// Title stays on one line; brackets extend outward so only reserve gutter space
-				const maxTitleW = insetW - sz * BRACKET_GUTTER_RATIO;
-				const textFits = ctx.measureText(seg.text).width <= Math.max(10, maxTitleW);
-				if (!textFits) return Infinity; // base too large for title
-
-				h2 += sz * LINE_HEIGHT;
-			} else {
-				const lines = balancedWrapText(ctx, seg.text, insetW);
-				h2 += lines.length * sz * LINE_HEIGHT;
-			}
-		}
-		return h2;
-	}
 
 	let lo = MIN_FONT_SIZE;
-	let hi = 80; // no comic page needs body text > 80px
+	let hi = Math.max(lo, Math.round(h * 0.40));
 	while (lo < hi) {
-		const mid = Math.ceil((lo + hi) / 2);
-		if (totalAtBase(mid) <= insetH) lo = mid;
-		else hi = mid - 1;
+		const base = Math.ceil((lo + hi) / 2);
+		let fits = true;
+		let totalHeight = 0;
+
+		for (const seg of segments) {
+			const sz = Math.max(MIN_FONT_SIZE, Math.round(base * SEG_SCALE[seg.kind]));
+			ctx.font = fontSpec(sz, FONT_DIALOGUE, seg.text);
+			const lines = reflowText(ctx, seg.text, insetW);
+			const segH = lines.length * (sz * LINE_HEIGHT);
+			totalHeight += segH + gap;
+			if (totalHeight - gap > insetH) {
+				fits = false;
+				break;
+			}
+		}
+
+		if (fits) lo = base;
+		else hi = base - 1;
 	}
+
 	const baseSize = lo;
 
-	// Build the measured array at the found baseSize
-	type MeasuredSeg = { seg: TextSegment; lines: string[]; size: number; color: string; stroke: string; font: string };
-	const measured: MeasuredSeg[] = [];
-	let totalH = gapTotal;
-
+	// -- RENDER: draw each segment top-to-bottom --
+	const rendered: Array<{ lines: string[]; size: number; font: string; isTitle: boolean; isRarity: boolean }> = [];
+	let contentHeight = 0;
 	for (const seg of segments) {
 		const size = Math.max(MIN_FONT_SIZE, Math.round(baseSize * SEG_SCALE[seg.kind]));
-		const segFont = fontFor(seg.text);
-		ctx.font = fontSpec(size, segFont);
-		const lines = seg.kind === 'title' ? [seg.text] : balancedWrapText(ctx, seg.text, insetW);
-		totalH += lines.length * size * LINE_HEIGHT;
-
-		measured.push({ seg, lines, size, color: bgColor.fill, stroke: bgColor.stroke, font: segFont });
+		const font = fontSpec(size, FONT_DIALOGUE, seg.text);
+		ctx.font = font;
+		const lines = reflowText(ctx, seg.text, insetW);
+		const segH = lines.length * (size * LINE_HEIGHT);
+		contentHeight += segH + gap;
+		rendered.push({
+			lines,
+			size,
+			font,
+			isTitle: seg.kind === 'title',
+			isRarity: seg.kind === 'rarity',
+		});
 	}
+	contentHeight -= gap; // remove trailing gap
 
-	// --- Pass 2: draw --- //
-	const angleDeg = r.angle ?? 0;
-	const hasRotation = Math.abs(angleDeg) >= 2.0;
+	// Centre the entire block vertically inside the bounding box
+	let curY = y + (h - contentHeight) / 2;
 
 	ctx.save();
-	if (hasRotation) {
-		const cx = x + w / 2;
-		const cy = y + h / 2;
-		ctx.translate(cx, cy);
-		ctx.rotate((angleDeg * Math.PI) / 180);
-	}
+	ctx.textAlign = 'center';
+	ctx.textBaseline = 'alphabetic';
 
-	const renderH = Math.min(totalH, insetH);
-	let ty = hasRotation ? -renderH / 2 : y + (h - renderH) / 2;
+	for (const seg of rendered) {
+		ctx.font = seg.font;
+		const lineH = seg.size * LINE_HEIGHT;
+		for (const line of seg.lines) {
+			const baselineY = curY + seg.size * 0.85;
+			const tx = x + w / 2;
 
-	for (let i = 0; i < measured.length; i++) {
-		const { seg, lines, size, color, stroke, font: segFont } = measured[i];
-		const lineH = size * LINE_HEIGHT;
-		ctx.font = fontSpec(size, segFont);
-		ctx.textAlign = 'center';
-		ctx.textBaseline = 'alphabetic';
-
-		const tx = hasRotation ? 0 : x + w / 2;
-		const isDarkStroke = stroke === 'black' || stroke === '#000000' || stroke === '#111111';
-		for (const line of lines) {
-			const drawY = ty + size * 0.85;
-			ctx.lineWidth = Math.max(OUTLINE_MIN, size * OUTLINE_FACTOR);
+			// Stroke outline for contrast
+			ctx.lineWidth = Math.max(2.0, seg.size * OUTLINE_FACTOR);
 			ctx.lineJoin = 'round';
-			ctx.strokeStyle = stroke;
-			ctx.shadowColor = isDarkStroke ? 'rgba(0, 0, 0, 0.85)' : 'rgba(255, 255, 255, 0.85)';
-			ctx.shadowBlur = Math.max(2.5, size * 0.18);
-			ctx.shadowOffsetX = isDarkStroke ? 1.0 : 0;
-			ctx.shadowOffsetY = isDarkStroke ? 1.5 : 0;
-			ctx.strokeText(line, tx, drawY);
+			ctx.strokeStyle = bgColor.stroke;
+			ctx.strokeText(line, tx, baselineY);
 
-			// Reset shadow for crisp fill rendering
-			ctx.shadowColor = 'transparent';
-			ctx.shadowBlur = 0;
-			ctx.shadowOffsetX = 0;
-			ctx.shadowOffsetY = 0;
-			ctx.fillStyle = color;
-			ctx.fillText(line, tx, drawY);
-			ty += lineH;
+			// Fill
+			ctx.fillStyle = bgColor.fill;
+			ctx.fillText(line, tx, baselineY);
+
+			curY += lineH;
 		}
-		if (i < measured.length - 1) ty += gap;
+		curY += gap;
 	}
+
 	ctx.restore();
 }
 
 /**
- * Automatically adjusts bounding boxes of overlapping text regions on a page to prevent text collisions.
+ * Adjust bounding boxes of vertically or horizontally adjacent regions that overlap or nearly touch,
+ * eliminating the visual "collision" where two bubbles render on top of each other.
  */
-export function decollideRegions(regions: TypesetRegion[]): TypesetRegion[] {
-	if (regions.length <= 1) return regions;
+export function decollideRegions(regions: TypesetRegion[], margin: number = 4): TypesetRegion[] {
+	if (regions.length < 2) return regions;
+
+	// Deep clone to avoid mutating input objects
 	const adjusted = regions.map((r) => ({
 		...r,
 		box: { ...r.box },
 	}));
-
-	const margin = 4; // minimum separation margin in pixels
 
 	for (let i = 0; i < adjusted.length; i++) {
 		for (let j = i + 1; j < adjusted.length; j++) {
 			const a = adjusted[i];
 			const b = adjusted[j];
 
-			// Check axis-aligned overlap
+			// Check bounding box intersection with safety margin
 			const xOverlap = Math.min(a.box.x + a.box.w, b.box.x + b.box.w) - Math.max(a.box.x, b.box.x);
 			const yOverlap = Math.min(a.box.y + a.box.h, b.box.y + b.box.h) - Math.max(a.box.y, b.box.y);
 
@@ -690,6 +682,14 @@ export function decollideRegions(regions: TypesetRegion[]): TypesetRegion[] {
 export async function typesetPage(cleanedPng: Buffer, regions: TypesetRegion[], opts: TypesetOptions = {}): Promise<Buffer> {
 	registerFonts();
 	const scale = opts.fontScale ?? 1;
+	const fontDialogue = opts.fontDialogue || FONT_DIALOGUE;
+	const fontCjk = opts.fontCjk || FONT_FALLBACK_NAME;
+	const inset = opts.boxInset ?? BOX_INSET;
+	const outlineMode = opts.outlineMode ?? 'standard';
+	const colorMode = opts.colorMode ?? 'auto';
+	const casing = opts.casing ?? (opts.allCaps === false ? 'original' : 'uppercase');
+	const enableRotation = opts.enableRotation ?? true;
+
 	const img = await loadImage(cleanedPng);
 	const canvas = createCanvas(img.width, img.height);
 	const ctx = canvas.getContext('2d');
@@ -699,8 +699,7 @@ export async function typesetPage(cleanedPng: Buffer, regions: TypesetRegion[], 
 		const rawText = sanitizeForFont(r.text.trim());
 		const isVerticalDialogue =
 			(r.vertical || (r.box.h / r.box.w >= 1.6 && r.box.h >= 60)) &&
-			!CJK_REGEX.test(rawText) &&
-			!isSfxOrShout(rawText);
+			!CJK_REGEX.test(rawText);
 		if (isVerticalDialogue) {
 			const renderW = Math.min(img.width, Math.max(r.box.w, Math.min(Math.round(r.box.h * 0.75), Math.round(r.box.w * 2.5), 160)));
 			const renderX = Math.max(0, Math.min(img.width - renderW, Math.round(r.box.x + r.box.w / 2 - renderW / 2)));
@@ -722,8 +721,15 @@ export async function typesetPage(cleanedPng: Buffer, regions: TypesetRegion[], 
 		const rawText = sanitizeForFont(r.text.trim());
 		if (!rawText) continue;
 
-		const bg = sampleBackground(ctx, r.box.x, r.box.y, r.box.w, r.box.h);
-		let color = pickTextColor(bg);
+		let color: TextColor;
+		if (colorMode === 'dark') {
+			color = { fill: 'black', stroke: 'white' };
+		} else if (colorMode === 'light') {
+			color = { fill: 'white', stroke: 'black' };
+		} else {
+			const bg = sampleBackground(ctx, r.box.x, r.box.y, r.box.w, r.box.h);
+			color = pickTextColor(bg);
+		}
 
 		// STAT-PANEL PATH — structured multi-segment rendering
 		const statSegments = parseStatPanel(rawText);
@@ -732,32 +738,32 @@ export async function typesetPage(cleanedPng: Buffer, regions: TypesetRegion[], 
 			continue;
 		}
 
-		// STANDARD PATH — flat word-wrap
-		const text = CJK_REGEX.test(rawText) ? rawText : rawText.toUpperCase();
+		// STANDARD PATH — unified natural multi-line wrapping
+		const isCjk = CJK_REGEX.test(rawText);
+		let text: string;
+		if (isCjk) {
+			text = rawText;
+		} else if (casing === 'lowercase') {
+			text = rawText.toLowerCase();
+		} else if (casing === 'original') {
+			text = rawText;
+		} else {
+			text = rawText.toUpperCase();
+		}
 		const { x, y, w, h } = r.box;
 
 		const angleDeg = r.angle ?? 0;
-		const hasRotation = Math.abs(angleDeg) >= 2.0 && Math.abs(angleDeg) <= 45.0;
+		const hasRotation = enableRotation && Math.abs(angleDeg) >= 2.0 && Math.abs(angleDeg) <= 45.0;
 
-		const font = fontFor(text);
-		const isSfx = isSfxOrShout(text);
+		const font = fontFor(text, fontDialogue, fontCjk);
+		const maxW = Math.max(10, w * (1 - 2 * inset));
+		const maxH = Math.max(10, h * (1 - 2 * inset));
 
-		// FULL BOUNDARY UTILIZATION — 0% INSET
-		const maxW = Math.max(10, w * (1 - 2 * BOX_INSET));
-		const maxH = Math.max(10, h * (1 - 2 * BOX_INSET));
+		const sizeCap = Math.max(100, Math.max(w, h)) * scale;
+		const size = fitFontSize(ctx, text, font, w, h, sizeCap, sizeCap, inset);
 
-		const sizeCap = Math.max(MAX_SFX_FONT_SIZE, Math.max(w, h)) * scale;
-		let size: number;
-		if (isSfx) {
-			// Single-line fitting maximizes SFX to fill full width/height without wrapping
-			size = fitSingleLineSize(ctx, text, font, maxW, maxH, sizeCap);
-		} else {
-			// Fit dialogue font size to fill the maximum boundary dimensions
-			size = fitFontSize(ctx, text, font, w, h, sizeCap, sizeCap);
-		}
-
-		ctx.font = fontSpec(size, font, text);
-		const lines = isSfx ? [text] : reflowText(ctx, text, maxW);
+		ctx.font = fontSpec(size, font, text, fontCjk);
+		const lines = reflowText(ctx, text, maxW);
 		const lineH = size * LINE_HEIGHT;
 		const totalH = lines.length * lineH;
 
@@ -768,9 +774,20 @@ export async function typesetPage(cleanedPng: Buffer, regions: TypesetRegion[], 
 		// High-contrast stroke + shadow for maximum legibility on comics and floating captions
 		const isBlackOnLight = color.fill === 'black' || color.fill === '#111111';
 		const isDarkStroke = color.stroke === 'black' || color.stroke === '#000000' || color.stroke === '#111111';
-		const strokeWidth = isBlackOnLight
-			? Math.max(1.8, size * 0.10)
-			: Math.max(3.0, size * OUTLINE_FACTOR);
+
+		let strokeWidth: number;
+		if (outlineMode === 'none') {
+			strokeWidth = 0;
+		} else if (outlineMode === 'thin') {
+			strokeWidth = isBlackOnLight ? Math.max(1.0, size * 0.06) : Math.max(1.5, size * 0.10);
+		} else if (outlineMode === 'heavy') {
+			strokeWidth = isBlackOnLight ? Math.max(3.0, size * 0.16) : Math.max(5.0, size * 0.26);
+		} else {
+			// standard
+			strokeWidth = isBlackOnLight
+				? Math.max(1.8, size * 0.10)
+				: Math.max(3.0, size * OUTLINE_FACTOR);
+		}
 
 		ctx.lineWidth = strokeWidth;
 		ctx.lineJoin = 'round';
@@ -784,11 +801,13 @@ export async function typesetPage(cleanedPng: Buffer, regions: TypesetRegion[], 
 			ctx.rotate((angleDeg * Math.PI) / 180);
 			let ty = -totalH / 2 + size * 0.85;
 			for (const line of lines) {
-				ctx.shadowColor = isDarkStroke ? 'rgba(0, 0, 0, 0.85)' : 'rgba(255, 255, 255, 0.85)';
-				ctx.shadowBlur = Math.max(2.5, size * 0.18);
-				ctx.shadowOffsetX = isDarkStroke ? 1.0 : 0;
-				ctx.shadowOffsetY = isDarkStroke ? 1.5 : 0;
-				ctx.strokeText(line, 0, ty);
+				if (strokeWidth > 0) {
+					ctx.shadowColor = isDarkStroke ? 'rgba(0, 0, 0, 0.85)' : 'rgba(255, 255, 255, 0.85)';
+					ctx.shadowBlur = Math.max(2.5, size * 0.18);
+					ctx.shadowOffsetX = isDarkStroke ? 1.0 : 0;
+					ctx.shadowOffsetY = isDarkStroke ? 1.5 : 0;
+					ctx.strokeText(line, 0, ty);
+				}
 
 				ctx.shadowColor = 'transparent';
 				ctx.shadowBlur = 0;
@@ -801,11 +820,13 @@ export async function typesetPage(cleanedPng: Buffer, regions: TypesetRegion[], 
 			const tx = x + w / 2;
 			let ty = y + (h - totalH) / 2 + size * 0.85;
 			for (const line of lines) {
-				ctx.shadowColor = isDarkStroke ? 'rgba(0, 0, 0, 0.85)' : 'rgba(255, 255, 255, 0.85)';
-				ctx.shadowBlur = Math.max(2.5, size * 0.18);
-				ctx.shadowOffsetX = isDarkStroke ? 1.0 : 0;
-				ctx.shadowOffsetY = isDarkStroke ? 1.5 : 0;
-				ctx.strokeText(line, tx, ty);
+				if (strokeWidth > 0) {
+					ctx.shadowColor = isDarkStroke ? 'rgba(0, 0, 0, 0.85)' : 'rgba(255, 255, 255, 0.85)';
+					ctx.shadowBlur = Math.max(2.5, size * 0.18);
+					ctx.shadowOffsetX = isDarkStroke ? 1.0 : 0;
+					ctx.shadowOffsetY = isDarkStroke ? 1.5 : 0;
+					ctx.strokeText(line, tx, ty);
+				}
 
 				ctx.shadowColor = 'transparent';
 				ctx.shadowBlur = 0;
@@ -817,7 +838,7 @@ export async function typesetPage(cleanedPng: Buffer, regions: TypesetRegion[], 
 		}
 		ctx.restore();
 	}
-	return canvas.toBuffer('image/png');
+	return await canvas.encode('webp', 90);
 }
 
 export function sampleBackground(

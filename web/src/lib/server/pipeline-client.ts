@@ -20,6 +20,11 @@ export interface PipelineRegion {
 	angle?: number;
 }
 
+export interface AnalyzeOptions {
+	sourceLang?: string;
+	targetLang?: string;
+}
+
 export interface AnalyzeResult {
 	width: number;
 	height: number;
@@ -49,7 +54,7 @@ export interface HardwareStatus {
 
 export interface PipelineClient {
 	preprocess(image: Buffer, signal?: AbortSignal): Promise<Buffer>;
-	analyze(image: Buffer, signal?: AbortSignal): Promise<AnalyzeResult>;
+	analyze(image: Buffer, signal?: AbortSignal, options?: AnalyzeOptions): Promise<AnalyzeResult>;
 	clean(image: Buffer, regions: CleanRegionInput[], inpaintMode?: string, signal?: AbortSignal): Promise<Buffer>;
 	health(): Promise<{ status: string; detector: string; inpainter: string }>;
 	getHardware?(signal?: AbortSignal): Promise<HardwareStatus>;
@@ -100,9 +105,15 @@ export class HttpPipelineClient implements PipelineClient {
 		return Buffer.from(await resp.arrayBuffer());
 	}
 
-	async analyze(image: Buffer, signal?: AbortSignal): Promise<AnalyzeResult> {
+	async analyze(image: Buffer, signal?: AbortSignal, options?: AnalyzeOptions): Promise<AnalyzeResult> {
 		const form = new FormData();
 		form.append('image', new Blob([new Uint8Array(image)]), 'page.png');
+		if (options?.sourceLang) {
+			form.append('source_lang', options.sourceLang);
+		}
+		if (options?.targetLang) {
+			form.append('target_lang', options.targetLang);
+		}
 		const resp = await this.request('/pages/analyze', { method: 'POST', body: form }, signal);
 		if (!resp.ok) throw new PipelineError(`analyze failed (${resp.status}): ${await resp.text()}`, resp.status);
 		return (await resp.json()) as AnalyzeResult;
@@ -150,17 +161,17 @@ export class HttpPipelineClient implements PipelineClient {
 	async reslice(images: Buffer[], signal?: AbortSignal): Promise<Buffer[]> {
 		const form = new FormData();
 		for (let i = 0; i < images.length; i++) {
-			form.append('files', new Blob([new Uint8Array(images[i])]), `slice_${i}.png`);
+			form.append('files', new Blob([new Uint8Array(images[i])]), `slice_${i}.webp`);
 		}
 		const resp = await this.request('/pages/reslice', { method: 'POST', body: form }, signal);
 		if (!resp.ok) throw new PipelineError(`reslice failed (${resp.status}): ${await resp.text()}`, resp.status);
 		const zipBuf = Buffer.from(await resp.arrayBuffer());
 		const unzipped = unzipSync(new Uint8Array(zipBuf));
 		const keys = Object.keys(unzipped)
-			.filter((k) => k.endsWith('.png'))
+			.filter((k) => k.endsWith('.webp') || k.endsWith('.png'))
 			.sort((a, b) => {
-				const numA = parseInt(a.replace(/\.png$/, ''), 10);
-				const numB = parseInt(b.replace(/\.png$/, ''), 10);
+				const numA = parseInt(a.replace(/\.(webp|png)$/, ''), 10);
+				const numB = parseInt(b.replace(/\.(webp|png)$/, ''), 10);
 				return numA - numB;
 			});
 		return keys.map((k) => Buffer.from(unzipped[k]));

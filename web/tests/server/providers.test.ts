@@ -14,14 +14,20 @@ describe('providers.ts', () => {
 		await resetDb();
 	});
 
-	it('seeds default providers (DeepSeek and Google AI Studio) on empty DB', () => {
+	it('seeds default providers (DeepSeek, Google AI Studio, Groq, OpenRouter, OpenAI, Ollama, LM Studio, Custom) on empty DB', () => {
 		const db = getTestDb();
 		const providers = getProviders(db);
 
-		expect(providers.length).toBe(2);
+		expect(providers.length).toBe(8);
 		const ids = providers.map((p) => p.id);
 		expect(ids).toContain('deepseek');
 		expect(ids).toContain('google');
+		expect(ids).toContain('groq');
+		expect(ids).toContain('openrouter');
+		expect(ids).toContain('openai');
+		expect(ids).toContain('ollama');
+		expect(ids).toContain('lmstudio');
+		expect(ids).toContain('custom');
 
 		const deepseek = providers.find((p) => p.id === 'deepseek');
 		expect(deepseek).toBeDefined();
@@ -34,6 +40,10 @@ describe('providers.ts', () => {
 		expect(google?.name).toBe('Google AI Studio');
 		expect(google?.isDefault).toBe(false);
 		expect(google?.activeModel).toBe('gemini-3.7-flash');
+
+		const ollama = providers.find((p) => p.id === 'ollama');
+		expect(ollama).toBeDefined();
+		expect(ollama?.baseUrl).toBe('http://localhost:11434/v1');
 	});
 
 	it('maskApiKey correctly masks long and short keys', () => {
@@ -90,5 +100,22 @@ describe('providers.ts', () => {
 
 		const deepseek = getProviderById('deepseek', db);
 		expect(deepseek?.isDefault).toBe(false);
+	});
+
+	it('filterUsableChatModels filters out embeddings, audio, image, and moderation models', async () => {
+		const { filterUsableChatModels } = await import('$lib/server/providers');
+		const raw = [
+			'gpt-4o-mini',
+			'text-embedding-3-small',
+			'whisper-1',
+			'tts-1',
+			'dall-e-3',
+			'text-moderation-latest',
+			'qwen2.5:32b',
+			'bge-m3',
+			'deepseek-v3',
+		];
+		const filtered = filterUsableChatModels(raw);
+		expect(filtered).toEqual(['gpt-4o-mini', 'qwen2.5:32b', 'deepseek-v3']);
 	});
 });

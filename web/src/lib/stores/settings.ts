@@ -11,6 +11,9 @@ export type Theme = 'light' | 'sepia' | 'dark';
 export type AppFont = 'comic' | 'clash' | 'general' | 'poppins' | 'proxima' | 'nunito' | 'montserrat' | 'lexend';
 export type InpaintMode = 'patch' | 'scaled' | 'full';
 export type ExecutionDevice = 'auto' | 'cuda' | 'dml' | 'cpu';
+export type TypesetOutline = 'none' | 'thin' | 'standard' | 'heavy';
+export type TypesetContrast = 'auto' | 'dark' | 'light';
+export type TypesetCasing = 'uppercase' | 'original' | 'lowercase';
 
 export interface AppSettings {
 	version: number;
@@ -35,6 +38,18 @@ export interface AppSettings {
 	readerViewMode: 'reader' | 'grid' | 'compare';
 	webtoonKind: 'output' | 'original';
 	webtoonWidth: 'sm' | 'md' | 'lg';
+	// TYPESETTING & LETTERING STUDIO CONFIGURATIONS
+	typesetFont: string; // Primary Latin dialogue font (default 'CC Wild Words')
+	typesetCjkFont: string; // CJK East Asian fallback font (default 'Friendly Sans')
+	typesetPadding: number; // Bubble inset padding margin ratio (default 0.02)
+	typesetFontScale: number; // Sizing multiplier (default 1.0)
+	typesetOutline: TypesetOutline; // Outline stroke weight ('none' | 'thin' | 'standard' | 'heavy')
+	typesetContrast: TypesetContrast; // Color contrast mode ('auto' | 'dark' | 'light')
+	typesetCasing: TypesetCasing; // Casing mode ('uppercase' | 'original' | 'lowercase')
+	typesetPreviewText: string; // Persistent preview dialogue text
+	typesetPreviewPreset: string; // Active preview language preset ('en' | 'zh-hans' | 'zh-hant' | 'ja' | 'ko' | 'custom')
+	typesetAllCaps?: boolean; // Deprecated alias
+	enableTextRotation: boolean; // Follow detected bubble angle (default true)
 }
 
 // CLIENT-FACING MODEL CHOICES FOR THE GLOBAL PICKER. THE IDS MIRROR THE SERVER DEFAULTS IN
@@ -145,11 +160,27 @@ export const FONT_STACKS: Record<AppFont, string> = {
 	lexend: "'Lexend', sans-serif",
 };
 
+export const AVAILABLE_TYPESET_FONTS = [
+	{ id: 'CC Wild Words', label: 'CC Wild Words', sub: 'Classic Comic All-Caps', stack: "'CC Wild Words', 'WildWorld', sans-serif", allCapsOnly: true },
+	{ id: 'General Sans', label: 'General Sans', sub: 'Clean Modern Sans', stack: "'General Sans', sans-serif" },
+	{ id: 'Poppins', label: 'Poppins', sub: 'Geometric Rounded', stack: "'Poppins', sans-serif" },
+	{ id: 'Proxima Nova', label: 'Proxima Nova', sub: 'Editorial Clean', stack: "'Proxima Nova', sans-serif" },
+	{ id: 'Montserrat', label: 'Montserrat', sub: 'Bold Contemporary', stack: "'Montserrat', sans-serif" },
+	{ id: 'Lexend', label: 'Lexend', sub: 'High Legibility', stack: "'Lexend', sans-serif" },
+];
+
+export const AVAILABLE_CJK_FONTS = [
+	{ id: 'Friendly Sans', label: 'Friendly Sans', sub: 'Clean Universal CJK & Latin Fallback' },
+	{ id: 'Yu Gothic', label: 'Yu Gothic', sub: 'Japanese Manga Standard' },
+	{ id: 'Microsoft YaHei', label: 'Microsoft YaHei', sub: 'Chinese Simplified & Traditional' },
+	{ id: 'Malgun Gothic', label: 'Malgun Gothic', sub: 'Korean Hangul Manhwa' },
+];
+
 // -- CONSTANTS -- //
 
 // BUMP version WHEN DEFAULTS CHANGE — TRIGGERS A ONE-TIME MIGRATION OF SAVED SETTINGS
 export const DEFAULTS: AppSettings = {
-	version: 8,
+	version: 9,
 	theme: 'sepia',
 	appFont: 'comic',
 	model: 'deepseek-v4-flash',
@@ -163,6 +194,17 @@ export const DEFAULTS: AppSettings = {
 	readerViewMode: 'reader',
 	webtoonKind: 'output',
 	webtoonWidth: 'md',
+	typesetFont: 'CC Wild Words',
+	typesetCjkFont: 'Friendly Sans',
+	typesetPadding: 0.02,
+	typesetFontScale: 1.0,
+	typesetOutline: 'standard',
+	typesetContrast: 'auto',
+	typesetCasing: 'uppercase',
+	typesetPreviewText: 'Hold on! What is this Cultivation Realm...?!',
+	typesetPreviewPreset: 'en',
+	typesetAllCaps: true,
+	enableTextRotation: true,
 };
 
 const KEY = 'xianscan:settings';
@@ -180,6 +222,15 @@ export const EXEC_DEVICE_COOKIE = 'mt_exec_device';
 export const PARALLEL_PROCESSES_COOKIE = 'mt_parallel_processes';
 export const PARALLEL_CHAPTERS_COOKIE = 'mt_parallel_chapters';
 export const RESLICE_BEFORE_BATCH_COOKIE = 'mt_reslice_batch';
+export const TYPESET_FONT_COOKIE = 'mt_ts_font';
+export const TYPESET_CJK_FONT_COOKIE = 'mt_ts_cjk_font';
+export const TYPESET_PADDING_COOKIE = 'mt_ts_padding';
+export const TYPESET_SCALE_COOKIE = 'mt_ts_scale';
+export const TYPESET_OUTLINE_COOKIE = 'mt_ts_outline';
+export const TYPESET_CONTRAST_COOKIE = 'mt_ts_contrast';
+export const TYPESET_CASING_COOKIE = 'mt_ts_casing';
+export const TYPESET_ALL_CAPS_COOKIE = 'mt_ts_allcaps';
+export const TYPESET_ROTATION_COOKIE = 'mt_ts_rot';
 
 export function setCookie(name: string, value: string): void {
 	if (typeof document === 'undefined') return;
@@ -308,6 +359,23 @@ function mergeKnown(parsed: unknown): AppSettings {
 	if (!['reader', 'grid', 'compare'].includes(out.readerViewMode)) out.readerViewMode = 'reader';
 	if (!['output', 'original'].includes(out.webtoonKind)) out.webtoonKind = 'output';
 	if (!['sm', 'md', 'lg'].includes(out.webtoonWidth)) out.webtoonWidth = 'md';
+	if (!out.typesetFont || typeof out.typesetFont !== 'string') out.typesetFont = 'CC Wild Words';
+	if (!out.typesetCjkFont || typeof out.typesetCjkFont !== 'string') out.typesetCjkFont = 'Friendly Sans';
+	out.typesetPadding = Math.max(0.01, Math.min(0.15, Number(out.typesetPadding) || 0.02));
+	out.typesetFontScale = Math.max(0.6, Math.min(2.0, Number(out.typesetFontScale) || 1.0));
+	if (!['none', 'thin', 'standard', 'heavy'].includes(out.typesetOutline)) out.typesetOutline = 'standard';
+	if (!['auto', 'dark', 'light'].includes(out.typesetContrast)) out.typesetContrast = 'auto';
+	if (!['uppercase', 'original', 'lowercase'].includes(out.typesetCasing)) {
+		out.typesetCasing = (parsed as any)?.typesetAllCaps === false ? 'original' : 'uppercase';
+	}
+	out.typesetPreviewText = typeof (parsed as any)?.typesetPreviewText === 'string' && (parsed as any).typesetPreviewText.trim().length > 0
+		? (parsed as any).typesetPreviewText
+		: DEFAULTS.typesetPreviewText;
+	out.typesetPreviewPreset = typeof (parsed as any)?.typesetPreviewPreset === 'string'
+		? (parsed as any).typesetPreviewPreset
+		: DEFAULTS.typesetPreviewPreset;
+	out.typesetAllCaps = out.typesetCasing === 'uppercase';
+	out.enableTextRotation = typeof (parsed as any)?.enableTextRotation === 'boolean' ? (parsed as any).enableTextRotation : true;
 	if ((parsed as any)?.version < 5 || out.sourceLang === 'zh-CN' || out.sourceLang === 'zh-Hans') {
 		out.sourceLang = DEFAULT_SOURCE_LANG;
 	}
@@ -358,6 +426,15 @@ function createSettings() {
 				setCookie(READER_VIEW_COOKIE, s.readerViewMode);
 				setCookie(WEBTOON_KIND_COOKIE, s.webtoonKind);
 				setCookie(WEBTOON_WIDTH_COOKIE, s.webtoonWidth);
+				setCookie(TYPESET_FONT_COOKIE, s.typesetFont);
+				setCookie(TYPESET_CJK_FONT_COOKIE, s.typesetCjkFont);
+				setCookie(TYPESET_PADDING_COOKIE, String(s.typesetPadding));
+				setCookie(TYPESET_SCALE_COOKIE, String(s.typesetFontScale));
+				setCookie(TYPESET_OUTLINE_COOKIE, s.typesetOutline);
+				setCookie(TYPESET_CONTRAST_COOKIE, s.typesetContrast);
+				setCookie(TYPESET_CASING_COOKIE, s.typesetCasing);
+				setCookie(TYPESET_ALL_CAPS_COOKIE, String(s.typesetAllCaps));
+				setCookie(TYPESET_ROTATION_COOKIE, String(s.enableTextRotation));
 			} catch {
 				// IGNORE STORAGE ERRORS (PRIVATE MODE / QUOTA)
 			}

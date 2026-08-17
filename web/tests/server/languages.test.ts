@@ -16,9 +16,9 @@ import { typesetPage, wrapText } from '$lib/server/typeset';
 import { createCanvas } from '@napi-rs/canvas';
 
 describe('Language Registry & Auto-Detection', () => {
-	it('has exactly four source language options (auto, zh-Hans, zh-Hant, en)', () => {
+	it('has source language options including Japanese and Korean', () => {
 		const codes = SOURCE_LANGUAGE_OPTIONS.map((o) => o.value);
-		expect(codes).toEqual(['auto', 'zh-Hans', 'zh-Hant', 'en']);
+		expect(codes).toEqual(['auto', 'zh-Hans', 'zh-Hant', 'ja', 'ko', 'en']);
 	});
 
 	it('auto-detects Simplified Chinese from text', () => {
@@ -31,6 +31,16 @@ describe('Language Registry & Auto-Detection', () => {
 		expect(detectSourceLanguage('妖神記 第1話 重生')).toBe('zh-Hant');
 		expect(detectSourceLanguage('全職法師 莫凡')).toBe('zh-Hant');
 		expect(detectSourceLanguage('這裡有很多人')).toBe('zh-Hant');
+	});
+
+	it('auto-detects Japanese from text', () => {
+		expect(detectSourceLanguage('鬼滅の刃 第1話')).toBe('ja');
+		expect(detectSourceLanguage('こんにちは世界')).toBe('ja');
+	});
+
+	it('auto-detects Korean from text', () => {
+		expect(detectSourceLanguage('나 혼자만 레벨업')).toBe('ko');
+		expect(detectSourceLanguage('안녕하세요 세계')).toBe('ko');
 	});
 
 	it('auto-detects English from text', () => {

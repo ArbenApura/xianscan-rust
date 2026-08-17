@@ -1078,7 +1078,10 @@
 			<table class="w-full text-left text-xs border-collapse">
 				<thead>
 					<tr class="border-b border-black/[0.06] bg-black/[0.02] text-[11px] font-semibold opacity-60 dark:border-white/[0.06] dark:bg-white/[0.02]">
-						<th class="py-2.5 pl-4 pr-2 w-10">★</th>
+						<th class="py-2.5 pl-4 pr-2 w-10">
+							<span class="sr-only">Pinned</span>
+							<Pin size={12} class="rotate-45" />
+						</th>
 						<th class="py-2.5 px-3">Title</th>
 						<th class="py-2.5 px-3 hidden md:table-cell">Original Title</th>
 						<th class="py-2.5 px-3 w-28">Languages</th>

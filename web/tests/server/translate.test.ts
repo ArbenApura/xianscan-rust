@@ -42,7 +42,15 @@ describe('systemPrompt', () => {
 		expect(p).toMatch(/manhua/);
 		expect(p).toMatch(/JSON object/);
 		expect(p).toContain('zh-Hans');
-		expect(p).toContain('Character Names, Multi-Name Listings & Military Units');
+		expect(p).toContain('Pronouns, Omitted Subjects & Spoken Dialogue Perspective');
+		expect(p).toContain('Omitted Subject (Pro-Drop) Resolution');
+		expect(p).toContain('Japanese (JA)');
+		expect(p).toContain('Korean (KO)');
+		expect(p).toContain('Character Names, Roster Listings & Pinyin Segmentation');
+		expect(p).toContain('Single & Multi-Character Given Name Fusion');
+		expect(p).toContain('Chen Beixuan');
+		expect(p).toContain('Beixuan');
+		expect(p).toContain('NEVER "Bei Xuan"');
 		expect(p).toContain('Military Unit & Army Division Titles');
 		expect(p).toContain('Floating Comic Art Captions');
 		expect(p).toContain('Comic Sound Effects (SFX) & Action Onomatopoeia');
@@ -383,6 +391,18 @@ describe('parseExtractedTerms & extractTerms', () => {
 		expect(terms[0].aliases).toEqual(['小凡']);
 		expect(terms[0].status).toBe('ai');
 		expect(terms[1].category).toBe('location');
+	});
+
+	it('auto-derives standalone given name as alias for 3-character names', async () => {
+		const { parseExtractedTerms } = await import('$lib/server/translate');
+		const json = `{"terms": [
+			{ "source": "陈北玄", "target": "Chen Beixuan", "category": "character", "gender": "masculine" }
+		]}`;
+		const terms = parseExtractedTerms(json, '陈北玄在此，北玄定不辱命！');
+		expect(terms).toHaveLength(1);
+		expect(terms[0].source).toBe('陈北玄');
+		expect(terms[0].target).toBe('Chen Beixuan');
+		expect(terms[0].aliases).toContain('北玄');
 	});
 
 	it('salvages complete term objects from a truncated JSON response', async () => {

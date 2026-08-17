@@ -36,9 +36,12 @@ export default defineConfig({
 		include: ['tests/**/*.test.ts'],
 		// ONE WORKER PER TEST FILE IS ENOUGH HERE AND KEEPS IN-MEMORY SQLITE INSTANCES ISOLATED.
 		fileParallelism: false,
-		// THE APP'S db SINGLETON (IMPORTED BY tests/server/db.test.ts VIA createDb) MUST NEVER TOUCH THE
-		// REAL DATA DIR DURING TESTS — FORCE EVERY TEST PROCESS ONTO AN IN-MEMORY DATABASE.
-		env: { DATABASE_PATH: ':memory:' },
+		// THE APP'S db SINGLETON (IMPORTED BY tests/server/db.test.ts VIA createDb) AND DATA_ROOT MUST NEVER
+		// TOUCH THE REAL APP DATA DIR DURING TESTS — FORCE EVERY TEST PROCESS ONTO IN-MEMORY / TMP PATHS.
+		env: {
+			DATABASE_PATH: ':memory:',
+			DATA_ROOT: fileURLToPath(new URL('./tests/.tmp-data', import.meta.url)),
+		},
 		// COVERAGE IS OPT-IN (npm run test:coverage) — CI GATES ON THE THRESHOLDS BELOW.
 		coverage: {
 			provider: 'v8',

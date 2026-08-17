@@ -13,7 +13,7 @@ import type { LangPair, TermDraft, TranslationUsage } from '$lib/types';
 import type OpenAI from 'openai';
 import { languageName } from '$lib/languages';
 // IMPORTED MODULES
-import { computeUsage, createClient, queued, resolveModel, thinkingParam, withRetry } from './deepseek';
+import { computeUsage, createClient, queued, resolveModel, stripThinkingTags, thinkingParam, withRetry } from './deepseek';
 
 export interface RegionSource {
 	id: string;
@@ -36,7 +36,7 @@ export interface PageTranslation {
 // -- CONSTANTS -- //
 
 // PART OF THE CACHE KEY — BUMP WHEN THE PROMPTS CHANGE SO STALE CACHED TRANSLATIONS NEVER RESURFACE.
-export const PROMPT_VERSION = 'v12';
+export const PROMPT_VERSION = 'v14';
 
 // A TRANSLATION LONGER THAN 6× THE SOURCE IS ALMOST CERTAINLY THE MODEL REWRITING THE PROMPT / ADDING
 // EXPLANATIONS — FLAGGED FOR A REFILL (SAME HEURISTIC AS xianslate's looksOverExpanded).
@@ -49,9 +49,9 @@ export function systemPrompt(src: string, tgt: string): string {
 	const tgtName = languageName(tgt);
 	const srcLabel = srcName === src ? src : `${srcName} (${src})`;
 	const tgtLabel = tgtName === tgt ? tgt : `${tgtName} (${tgt})`;
-	return `You are a professional manhua (comic) localizer translating ${srcLabel} dialogue into natural, fluent, and immersive ${tgtLabel}.
+	return `You are a professional comic (manhua/manga/manhwa) localizer translating ${srcLabel} dialogue into natural, fluent, and immersive ${tgtLabel}.
 
-Manhua Conversation & Dialogue Style:
+Conversation & Dialogue Style:
 - Conversational Flow: Write natural spoken dialogue as real characters speak in comics. Use natural contractions (I'm, don't, you're, can't, he'll, what's, let's) and lively phrasing suitable for voice acting. Avoid stiff, robotic, or overly literal translations.
 - Tone & Character Personality: Reflect the speaker's personality, emotion, age, and social standing (e.g. arrogant young masters, wise masters, energetic protagonists, stern villains, flustered heroines, playful sidekicks).
 - Wuxia / Xianxia / Cultivation Dialogue & Idioms:
@@ -78,6 +78,23 @@ Manhua Conversation & Dialogue Style:
   * sfx: Comic onomatopoeia in ALL-CAPS (e.g. 轰 → BOOM!, 呼 → WHOOSH!, 唰 → SWOOSH!, 砰 → THUD!, 咔嚓 → CRACK!, 哐当 → CLANG!).
   * other: UI, system prompts, stat cards, or narrator captions.
 
+Pronouns, Omitted Subjects & Spoken Dialogue Perspective:
+- Omitted Subject (Pro-Drop) Resolution: In comic dialogue where the source language drops the subject/pronoun, default to direct conversational address ("You" / "I" / "We") or active imperatives rather than inventing an arbitrary 3rd-person pronoun ("he" / "she"):
+  * Questions & Commands: "去哪了？" / "どこ行ってた？" / "어디 갔었어?" → "Where did you go?" (NOT "Where did he go?")
+  * Urgency & Warnings: "快跑！" / "逃げろ！" / "도망쳐!" → "Run!" / "Get out of here!"
+  * Self-defense / Distress: "别管我！" / "構うな！" / "날 내버려 둬!" → "Don't worry about me!" / "Leave me alone!"
+- Passive & Reflexive Team Expressions:
+  * Expressions like "中计了！" (ZH) / "やられた！" (JA) / "당했다！" (KO) represent reflexive reaction to an ambush or attack. Translate as active team distress: "We've been hit!" / "It's a trap!" / "Damn it!" (NEVER literal passive forms like "I was suffered").
+- Gender & Relationship Anchoring:
+  * Chinese (ZH): Feminine anchors (师姐/师妹, 圣女, 仙子, 姑娘, 丫头 → she/her); Masculine anchors (师兄/师弟, 圣子, 少爷, 兄弟, 臭小子 → he/him).
+  * Japanese (JA):
+    - First-person pronouns reveal speaker persona: 俺 (Ore / rough male), 僕 (Boku / polite male), 私 (Watashi / neutral-polite), あたし (Atashi / casual female), 拙者 (Sessha / samurai).
+    - Particles & Honorifics: 〜わ/〜かしら (feminine tone), 〜ぜ/〜ぞ (masculine tone), 〜じゃ/〜のう (elder tone); -san, -kun, -chan, -sama, -senpai, -sensei.
+  * Korean (KO):
+    - Relational address reveals speaker & listener gender: 형 (Hyung: male to older male), 오빠 (Oppa: female to older male), 누나 (Noona: male to older female), 언니 (Unnie: female to older female), 선배님 (Sunbae-nim: Senior), 아가씨 (Agassi: Young Lady), 도련님 (Doryeon-nim: Young Master), 헌터님 (Hunter-nim).
+    - Speech levels: 존댓말 (polite/formal) vs 반말 (casual/blunt) should be mirrored in English phrasing.
+- Ambiguous 3rd-Person Referents: When a referent's gender is completely unknown and unmentioned in the panel context, use gender-neutral phrasing ("that person", "that guy", "they", or the character's title/name) rather than blindly guessing.
+
 Comic Sound Effects (SFX) & Action Onomatopoeia:
 - Isolated Action Sounds: Single or short repeated characters without sentence punctuation (e.g. 哒, 嗒, 啪, 咚, 咚咚, 哐, 哐当, 嗖, 唰, 砰, 嘭, 咔, 咔嚓, 轰, 轰隆, 嘶, 呼, 哧, 嗡, 踏, 铛) represent action sound effects (SFX), footsteps, landings, impacts, swings, or movements.
 - NEVER convert isolated SFX characters into ellipses ("..."), pauses, or empty strings.
@@ -94,10 +111,22 @@ Comic Sound Effects (SFX) & Action Onomatopoeia:
   * 嗡 → HUM! / BUZZ!
   * 踏 → STEP! / STOMP!
 
-Character Names, Multi-Name Listings & Military Units:
-- Chinese Name Segmentation: Chinese personal names (courtesy names, given names, full names) are typically 2 or 3 characters each (e.g. 子龙, 童菲, 张飞/张肥, 关羽/关鱼, 赵云, 诸葛亮).
-- Consecutive Name Listings & Sparse Punctuation: In military orders, roster listings, and dialogue, multiple names are frequently written back-to-back with sparse or missing punctuation (e.g. "子龙童菲，张肥关鱼" or "刘关张").
-  * NEVER combine adjacent 2-character names into a single 4-character compound name (e.g. "子龙童菲" represents TWO separate persons "Zilong" and "Tong Fei", NOT "Zilong Tongfei"; "张肥关鱼" represents TWO separate persons "Zhang Fei" and "Guan Yu", NOT "Zhang Fei Guan Yu").
+Character Names, Roster Listings & Pinyin Segmentation:
+- Single & Multi-Character Given Name Fusion:
+  * In Chinese personal names, 2-character given names (名) and courtesy names (字) must ALWAYS be fused into a single capitalized word without spaces, whether the surname is present or omitted:
+    - Full name: 陈北玄 → "Chen Beixuan" | Standalone given name: 北玄 → "Beixuan" (NEVER "Bei Xuan")
+    - Full name: 诸葛孔明 → "Zhuge Kongming" | Standalone courtesy name: 孔明 → "Kongming" (NEVER "Kong Ming")
+    - Full name: 萧炎 → "Xiao Yan" | Standalone / Diminutive: 炎儿 → "Yan'er"
+    - With prefixes, suffixes & titles: 尘哥 → "Brother Chen", 小北玄 → "Xiao Beixuan" / "Little Beixuan", 北玄师弟 → "Junior Brother Beixuan" (NEVER "Bei Xuan")
+  * Consistency: Always use the exact same fused romanized spelling for a character when addressed by their given name, nickname, or full name.
+- Dense / Unpunctuated Multi-Name Series (Rosters, Battle Orders, Roll Calls):
+  * In military orders, roster listings, and dialogue, multiple character names are frequently written back-to-back with minimal or no punctuation.
+  * Segment each individual person before translating:
+    - 2+2 name series: "子龙童菲" represents TWO separate persons "Zilong" and "Tong Fei" (NOT "Zilong Tongfei").
+    - 3+2+2 name series: "陈北玄林动萧炎" represents THREE separate persons "Chen Beixuan, Lin Dong, and Xiao Yan".
+    - 4-character compound surnames: "诸葛孔明司马懿" represents TWO persons with compound surnames "Zhuge Kongming and Sima Yi" (NOT "Zhuge, Kongming, Sima, Yi").
+    - 1+1+1 abbreviations: "刘关张" represents THREE leaders "Liu, Guan, and Zhang" (NOT one compound person "Liu Guanzhang").
+  * Action verbs vs. names: Separate command verbs (命, 召, 带, 率, 派, 战, 破) from the names themselves (e.g. "命子龙童菲出战！" → "Order Zilong and Tong Fei to march out!").
   * When translating name series, render all individuals clearly separated with proper punctuation and conjunctions (e.g. "子龙童菲，张肥关鱼" → "Zilong, Tong Fei, Zhang Fei, and Guan Yu").
 - Parody, Homophone & OCR Typo Names: In comedic, parody, or OCR'd manhua, character names may appear as homophones or humorous variants (e.g. 张肥 for 张飞 / Zhang Fei, 关鱼 for 关羽 / Guan Yu). Recognize these as individual character names rather than literal common nouns ("fat", "fish") and translate them cleanly as names.
 - Military Unit & Army Division Titles: In war, military, or historical manhua, army divisions, brigades, or squads named after characters/monikers (e.g. 龙字军, 肥字军, 鱼字军, 虎字营, 豹字部) represent legitimate in-universe armed forces (e.g. "The Long Army / Dragon Division", "The Fei Army / Fat Division", "The Yu Army / Fish Division"). ALWAYS translate them.
@@ -207,7 +236,8 @@ export function parseTranslations(
 	knownIds: Set<string>,
 	regions?: RegionSource[],
 ): Map<string, string> | null {
-	const cleaned = raw.replace(/```(?:json)?/gi, '').trim();
+	const sanitized = stripThinkingTags(raw);
+	const cleaned = sanitized.replace(/```(?:json)?/gi, '').trim();
 	const out = new Map<string, string>();
 	const rawMap = new Map<string, string>();
 
@@ -494,19 +524,20 @@ Return ONLY a JSON object of exactly this shape — no markdown fences, no comme
 Rules:
 1. "source": MUST be copied EXACTLY as it appears in the text (identical characters, no added or removed spaces) so exact string match will find it on every page.
 2. "target":
-   - Personal character names: Romanize into Pinyin / Latin script with Title Case (e.g. 叶凡 → Ye Fan; 李澈 → Li Che). Space-separate family and given names.
+   - Personal character names: Romanize into Pinyin / Latin script with Title Case (e.g. 叶凡 → Ye Fan; 李澈 → Li Che; 陈北玄 → Chen Beixuan; 北玄 → Beixuan). Space-separate family and given names. ALWAYS fuse 2-character given names into a single word (e.g. 北玄 → Beixuan, NEVER "Bei Xuan").
    - Place names: Romanize the proper name and translate the place type (e.g. 雲霄村 → Yunxiao Village; 紫山 → Purple Mountain).
    - Descriptive terms (techniques, martial arts, cultivation realms, weapons, items, artifacts): Translate by MEANING into natural ${tgtName} (e.g. 斩龙剑 → Dragon Slaying Sword; 筑基期 → Foundation Establishment).
 3. "category": 'character', 'location', 'organization', 'technique', 'item', 'realm', 'creature', 'title', 'concept', 'other'.
 4. "gender": 'masculine' or 'feminine' ONLY when the text explicitly indicates it (pronouns, titles like master/sister/brother/prince); otherwise 'neuter'.
-5. "aliases": Array of other short forms, nicknames, or forms of address in the text (e.g. for 叶凡, aliases: ["小凡", "凡儿"]).
+5. "aliases": Array of other short forms, standalone given names, nicknames, or forms of address in the text (e.g. for 陈北玄, aliases: ["北玄", "小北玄"]; for 叶凡, aliases: ["小凡", "凡儿"]). For 3-character full names, ALWAYS include the 2-character standalone given name in "aliases".
 6. Skip generic words, common dialogue phrases, numbers, and pronouns. Focus on recurring proper nouns, character names, and unique terminology.
-7. Multi-name listings: In dialogue or narration where multiple character names are listed back-to-back with minimal or no punctuation (e.g. 子龙童菲, 张肥关鱼), extract each individual 2-3 character name separately (e.g. 子龙, 童菲, 张肥, 关鱼), never combine them into a single compound entry.`;
+7. Multi-name listings: In dialogue or narration where multiple character names are listed back-to-back with minimal or no punctuation (e.g. 子龙童菲, 陈北玄林动, 张肥关鱼), extract each individual 2-3 character name separately (e.g. 子龙, 童菲, 陈北玄, 林动, 张肥, 关鱼), never combine them into a single compound entry.`;
 }
 
 // ROBUST PARSE: ACCEPT CLEAN JSON, A BARE ARRAY, OR A TRUNCATED RESPONSE (SALVAGE COMPLETE {…} OBJECTS)
 // SO A SLIGHTLY MALFORMED / CUT-OFF REPLY STILL YIELDS THE TERMS IT DID CONTAIN INSTEAD OF ZERO.
 export function parseTermObjects(text: string): unknown[] {
+	const sanitized = stripThinkingTags(text);
 	const tryParse = (s: string): unknown => {
 		try {
 			return JSON.parse(s);
@@ -514,7 +545,7 @@ export function parseTermObjects(text: string): unknown[] {
 			return undefined;
 		}
 	};
-	const cleaned = text.replace(/```(?:json)?/gi, '').trim();
+	const cleaned = sanitized.replace(/```(?:json)?/gi, '').trim();
 	const whole = tryParse(cleaned);
 	if (Array.isArray(whole)) return whole;
 	const terms = (whole as { terms?: unknown })?.terms ?? (whole as { newTerms?: unknown })?.newTerms;
@@ -593,6 +624,14 @@ export function parseExtractedTerms(raw: string, contentSource?: string): TermDr
 					),
 				].slice(0, 8)
 			: [];
+
+		// Auto-derive standalone given name alias for 3-character personal names (e.g. 陈北玄 -> 北玄)
+		if (category === 'character' && sourceTerm.length === 3) {
+			const givenName = sourceTerm.slice(1);
+			if (!aliases.includes(givenName) && (!contentSource || contentSource.includes(givenName))) {
+				aliases.push(givenName);
+			}
+		}
 
 		results.push({
 			source: sourceTerm,
@@ -733,7 +772,7 @@ Rules:
 	} else if (opts.kind === 'term') {
 		systemContent = `You are a professional localization translator. Translate the provided term, character name, technique, or proper noun from ${srcName} to natural ${tgtName}.
 Rules:
-- For personal names, use capitalized romanization / Pinyin with proper spacing (e.g. 叶凡 -> Ye Fan).
+- For personal names, use capitalized romanization / Pinyin with proper spacing (e.g. 叶凡 -> Ye Fan, 陈北玄 -> Chen Beixuan). Always fuse 2-character standalone given names into a single word (e.g. 北玄 -> Beixuan, NEVER "Bei Xuan").
 - For terms / items / techniques, translate the meaning into natural ${tgtName}.
 - Output ONLY the translated term without quotes or explanation.`;
 	} else {

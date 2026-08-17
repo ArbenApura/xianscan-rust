@@ -13,6 +13,7 @@
 		type InpaintMode,
 		type ExecutionDevice,
 	} from '$lib/stores/settings';
+	import { mlStatus } from '$lib/stores/ml-status';
 	// IMPORTED ICONS
 	import Languages from 'lucide-svelte/icons/languages';
 	import Check from 'lucide-svelte/icons/check';
@@ -32,11 +33,24 @@
 	import RefreshCw from 'lucide-svelte/icons/refresh-cw';
 	import AlertCircle from 'lucide-svelte/icons/alert-circle';
 	import CheckCircle2 from 'lucide-svelte/icons/check-circle-2';
+	import Palette from 'lucide-svelte/icons/palette';
+	import SlidersHorizontal from 'lucide-svelte/icons/sliders-horizontal';
+	import Server from 'lucide-svelte/icons/server';
+	import HardDrive from 'lucide-svelte/icons/hard-drive';
+	import Search from 'lucide-svelte/icons/search';
+	import Plus from 'lucide-svelte/icons/plus';
+	import Trash2 from 'lucide-svelte/icons/trash-2';
+	import ShieldCheck from 'lucide-svelte/icons/shield-check';
+	import Info from 'lucide-svelte/icons/info';
+	import RotateCcw from 'lucide-svelte/icons/rotate-ccw';
+	import X from 'lucide-svelte/icons/x';
 
 	// IMPORTED UI COMPONENTS
 	import Modal from '$lib/components/ui/Modal.svelte';
 	import Button from '$lib/components/ui/Button.svelte';
 	import LanguagePicker from '$lib/components/ui/LanguagePicker.svelte';
+	import TypesetSettingsModal from '$lib/components/TypesetSettingsModal.svelte';
+	import ProviderLogo from '$lib/components/ui/ProviderLogo.svelte';
 
 	// -- PROPS & EVENTS -- //
 	export let open = false;
@@ -44,6 +58,7 @@
 
 	// -- STATES -- //
 	let activeSettingsTab: 'ai' | 'compute' | 'general' = initialTab;
+	let typesetModalOpen = false;
 
 	interface HardwareInfo {
 		device_label: string;
@@ -77,6 +92,7 @@
 	// AI PROVIDERS STATE
 	let providers: ProviderInfo[] = [];
 	let selectedProviderId = 'deepseek';
+	let providerCategoryFilter: 'all' | 'cloud' | 'local' | 'custom' = 'all';
 	let apiKeyDraft: Record<string, string> = {};
 	let baseUrlDraft: Record<string, string> = {};
 	let activeModelDraft: Record<string, string> = {};
@@ -84,8 +100,21 @@
 	let showAdvancedBaseUrl: Record<string, boolean> = {};
 	let providersLoading = false;
 	let testingProvider = false;
+	let scanningModels = false;
 	let savingProvider = false;
+	let customModelInput = '';
+	let modelSearch = '';
 	let testResult: { ok: boolean; message: string; latencyMs: number } | null = null;
+
+	function isLocal(id: string): boolean {
+		return id === 'ollama' || id === 'lmstudio';
+	}
+
+	function getProviderCategory(id: string): 'cloud' | 'local' | 'custom' {
+		if (id === 'ollama' || id === 'lmstudio') return 'local';
+		if (id === 'custom') return 'custom';
+		return 'cloud';
+	}
 
 	async function loadHardwareStatus() {
 		hardwareLoading = true;
@@ -134,6 +163,7 @@
 		activeSettingsTab = initialTab;
 		apiKeyDraft = {};
 		testResult = null;
+		customModelInput = '';
 		loadHardwareStatus();
 		loadProviders();
 	}
@@ -277,9 +307,10 @@
 				throw new Error(err.message || 'Failed to save provider');
 			}
 
+			const prov = providers.find((p) => p.id === providerId);
 			toast.success(
 				setAsDefault
-					? `${providerId === 'google' ? 'Google AI Studio' : 'DeepSeek'} set as active provider!`
+					? `${prov?.name || providerId} set as active translation engine!`
 					: 'Provider settings saved successfully',
 			);
 
@@ -317,6 +348,156 @@
 		}
 	}
 
+	const DEFAULT_PROVIDER_MODELS: Record<string, string[]> = {
+		deepseek: ['deepseek-v4-flash', 'deepseek-v4-pro'],
+		google: ['gemini-3.7-flash', 'gemini-3.5-flash'],
+		groq: ['llama-3.3-70b-versatile', 'qwen-2.5-32b', 'deepseek-r1-distill-llama-70b'],
+		openrouter: [
+			'google/gemini-2.5-flash',
+			'anthropic/claude-3.5-sonnet',
+			'deepseek/deepseek-chat',
+			'meta-llama/llama-3.3-70b-instruct',
+		],
+		openai: ['gpt-4o-mini', 'gpt-4o'],
+		ollama: ['qwen2.5:14b', 'qwen2.5:7b', 'llama3.2', 'deepseek-r1:8b'],
+		lmstudio: ['local-model'],
+		custom: ['custom-model'],
+	};
+
+	function formatModelLabel(modelId: string): string {
+		if (MODEL_DESCRIPTIONS[modelId]?.label) return MODEL_DESCRIPTIONS[modelId].label;
+		const base = modelId.includes('/') ? modelId.split('/').pop()! : modelId;
+		return base
+			.replace(/[-_]/g, ' ')
+			.replace(/\b([a-z])/g, (_, c) => c.toUpperCase())
+			.replace(/(\d+b)/i, (_, s) => s.toUpperCase());
+	}
+
+	function formatModelBadge(modelId: string, isLocalProv: boolean): string {
+		if (MODEL_DESCRIPTIONS[modelId]?.badge) return MODEL_DESCRIPTIONS[modelId].badge;
+		if (isLocalProv) return 'Local Model';
+		if (modelId.includes('/')) return modelId.split('/')[0];
+		const match = modelId.match(/(\d+b)/i);
+		if (match) return `${match[1].toUpperCase()} Model`;
+		return 'Discovered Model';
+	}
+
+	function getFilteredModels(models: string[], query: string): string[] {
+		if (!query || !query.trim()) return models;
+		const q = query.trim().toLowerCase();
+		return models.filter((m) => {
+			const info = MODEL_DESCRIPTIONS[m];
+			const label = info?.label || formatModelLabel(m);
+			const badge = info?.badge || '';
+			const desc = info?.desc || '';
+			return (
+				m.toLowerCase().includes(q) ||
+				label.toLowerCase().includes(q) ||
+				badge.toLowerCase().includes(q) ||
+				desc.toLowerCase().includes(q)
+			);
+		});
+	}
+
+	async function resetModelsToDefault(providerId: string) {
+		const defaults = DEFAULT_PROVIDER_MODELS[providerId];
+		if (!defaults) return;
+		const prov = providers.find((p) => p.id === providerId);
+		if (prov) {
+			prov.availableModels = [...defaults];
+			if (!defaults.includes(activeModelDraft[providerId])) {
+				activeModelDraft[providerId] = defaults[0];
+			}
+			providers = [...providers];
+			await fetch('/api/system/providers', {
+				method: 'POST',
+				headers: { 'content-type': 'application/json' },
+				body: JSON.stringify({ id: providerId, availableModels: defaults }),
+			});
+			toast.success(`Reset models to defaults for ${prov.name}`);
+		}
+	}
+
+	async function removeModel(providerId: string, modelId: string) {
+		const prov = providers.find((p) => p.id === providerId);
+		if (!prov || prov.availableModels.length <= 1) {
+			toast.error('Cannot remove the only remaining model');
+			return;
+		}
+		const nextModels = prov.availableModels.filter((m) => m !== modelId);
+		prov.availableModels = nextModels;
+		if (activeModelDraft[providerId] === modelId) {
+			activeModelDraft[providerId] = nextModels[0];
+		}
+		providers = [...providers];
+		try {
+			await fetch('/api/system/providers', {
+				method: 'POST',
+				headers: { 'content-type': 'application/json' },
+				body: JSON.stringify({ id: providerId, availableModels: nextModels }),
+			});
+			toast.success(`Removed model "${modelId}"`);
+		} catch {
+			// silent fallback
+		}
+	}
+
+	async function scanModels(providerId: string) {
+		scanningModels = true;
+		try {
+			const key = apiKeyDraft[providerId];
+			const base = baseUrlDraft[providerId];
+			const res = await fetch('/api/system/providers/models', {
+				method: 'POST',
+				headers: { 'content-type': 'application/json' },
+				body: JSON.stringify({
+					id: providerId,
+					apiKey: key || undefined,
+					baseUrl: base || undefined,
+				}),
+			});
+			const data = await res.json();
+			if (data.ok && Array.isArray(data.models) && data.models.length > 0) {
+				const prov = providers.find((p) => p.id === providerId);
+				if (prov) {
+					const merged = Array.from(new Set([...prov.availableModels, ...data.models]));
+					prov.availableModels = merged;
+					if (!activeModelDraft[providerId] || !merged.includes(activeModelDraft[providerId])) {
+						activeModelDraft[providerId] = data.models[0];
+					}
+					providers = [...providers];
+					await fetch('/api/system/providers', {
+						method: 'POST',
+						headers: { 'content-type': 'application/json' },
+						body: JSON.stringify({ id: providerId, availableModels: merged }),
+					});
+				}
+				toast.success(`Discovered ${data.models.length} model(s)!`);
+			} else {
+				toast.error(data.message || 'No models found on endpoint');
+			}
+		} catch (e: any) {
+			toast.error(e.message || 'Failed to scan models');
+		} finally {
+			scanningModels = false;
+		}
+	}
+
+	function addCustomModel(providerId: string) {
+		const raw = customModelInput.trim();
+		if (!raw) return;
+		const prov = providers.find((p) => p.id === providerId);
+		if (prov) {
+			if (!prov.availableModels.includes(raw)) {
+				prov.availableModels = [raw, ...prov.availableModels];
+			}
+			activeModelDraft[providerId] = raw;
+			providers = [...providers];
+			customModelInput = '';
+			toast.success(`Model "${raw}" selected`);
+		}
+	}
+
 	async function testConnection(providerId: string) {
 		testingProvider = true;
 		testResult = null;
@@ -340,7 +521,7 @@
 			testResult = data;
 
 			if (data.ok) {
-				toast.success(`Connection successful (${data.latencyMs}ms)`);
+				toast.success(`Connection verified (${data.latencyMs}ms)`);
 			} else {
 				toast.error(`Connection test failed: ${data.message}`);
 			}
@@ -365,7 +546,7 @@
 		},
 		'deepseek-v4-pro': {
 			label: 'DeepSeek V4 Pro',
-			badge: 'Flagship · Maximum Accuracy',
+			badge: 'Flagship · High Accuracy',
 			desc: 'Highest literary precision and context reasoning for complex cultivation idioms.',
 		},
 		// Google Gemini
@@ -378,6 +559,87 @@
 			label: 'Gemini 3.5 Flash',
 			badge: 'High Speed',
 			desc: 'Next-gen multimodal translation engine for long webtoon sequences.',
+		},
+		// Groq
+		'llama-3.3-70b-versatile': {
+			label: 'Llama 3.3 70B',
+			badge: 'Ultra-Fast · 500+ t/s',
+			desc: 'Flagship Meta open-source model running at extreme LPU throughput on Groq.',
+		},
+		'qwen-2.5-32b': {
+			label: 'Qwen 2.5 32B',
+			badge: 'High Accuracy · Fast',
+			desc: 'High multilingual precision and strong Asian language comic localization context.',
+		},
+		'deepseek-r1-distill-llama-70b': {
+			label: 'DeepSeek R1 Distill 70B',
+			badge: 'Distilled Intelligence',
+			desc: 'Distilled DeepSeek model running on Groq LPUs with high translation fluency.',
+		},
+		// OpenRouter
+		'google/gemini-2.5-flash': {
+			label: 'Gemini 2.5 Flash',
+			badge: 'OpenRouter · Fast',
+			desc: 'Cost-effective, high-speed multi-lingual translation through OpenRouter.',
+		},
+		'anthropic/claude-3.5-sonnet': {
+			label: 'Claude 3.5 Sonnet',
+			badge: 'Literary Flagship',
+			desc: 'Unmatched prose quality, character dialogue nuance, and natural localization tone.',
+		},
+		'deepseek/deepseek-chat': {
+			label: 'DeepSeek Chat (V3)',
+			badge: 'Affordable & Smart',
+			desc: 'DeepSeek V3 general model accessed via OpenRouter routing.',
+		},
+		'meta-llama/llama-3.3-70b-instruct': {
+			label: 'Llama 3.3 70B Instruct',
+			badge: 'Open Source Flagship',
+			desc: 'Standard instruction-tuned Llama 3.3 model on OpenRouter.',
+		},
+		// OpenAI
+		'gpt-4o-mini': {
+			label: 'GPT-4o Mini',
+			badge: 'Recommended · Fast',
+			desc: 'Affordable, low-latency OpenAI multimodal model with sharp conversational dialogue.',
+		},
+		'gpt-4o': {
+			label: 'GPT-4o',
+			badge: 'OpenAI Flagship',
+			desc: 'Top-tier multimodal model with nuanced conversational phrasing and slang preservation.',
+		},
+		// Ollama Local
+		'qwen2.5:14b': {
+			label: 'Qwen 2.5 14B',
+			badge: 'Recommended Local',
+			desc: 'Exceptional Chinese, Japanese, and Korean manhua localization quality on local GPUs.',
+		},
+		'qwen2.5:7b': {
+			label: 'Qwen 2.5 7B',
+			badge: 'Lightweight Local',
+			desc: 'Fast local model running smoothly on lower VRAM GPUs or CPU offload.',
+		},
+		'llama3.2': {
+			label: 'Llama 3.2',
+			badge: 'Fast Local',
+			desc: 'Compact Meta local model with quick inference generation.',
+		},
+		'deepseek-r1:8b': {
+			label: 'DeepSeek R1 8B',
+			badge: 'Local Reasoning',
+			desc: 'Local quantized distilled model with reasoning suppressed for rapid translation.',
+		},
+		// LM Studio
+		'local-model': {
+			label: 'Active LM Studio Model',
+			badge: 'Loaded Model',
+			desc: 'Directly routes translations to whatever model is currently loaded in LM Studio.',
+		},
+		// Custom
+		'custom-model': {
+			label: 'Custom Model Identifier',
+			badge: 'Custom',
+			desc: 'Custom target model for self-hosted or reverse proxy endpoints.',
 		},
 	};
 </script>
@@ -439,27 +701,124 @@
 		<!-- TAB 1: AI & PROVIDERS -->
 		{#if activeSettingsTab === 'ai'}
 			<div class="flex flex-col gap-6 py-1">
-				<!-- TRANSLATION AI PROVIDERS -->
-				<div class="space-y-3.5">
+				<!-- INPAINTING STRATEGY (NOW PLACED FIRST) -->
+				<div>
+					<div class="mb-2.5 sm:mb-3">
+						<div class="text-xs font-bold uppercase tracking-wider opacity-80 pl-0.5">Inpainting Strategy</div>
+						<p class="text-[11px] opacity-60 pl-0.5">Choose how original comic text is erased and the background artwork is reconstructed</p>
+					</div>
+
+					<div class="grid grid-cols-1 gap-2.5 sm:grid-cols-3 sm:gap-3">
+						{#each INPAINT_MODES as mode}
+							<button
+								type="button"
+								on:click={() => setInpaintMode(mode.id)}
+								class={`relative flex flex-col justify-between rounded-xl border p-3 sm:p-3.5 text-left transition-all duration-200 ${
+									$settings.inpaintMode === mode.id
+										? 'border-[#b23a2e] bg-[#b23a2e]/[0.08] text-[#b23a2e] dark:text-[#e08a63] ring-2 ring-[#b23a2e]/30 shadow-xs'
+										: 'border-black/10 hover:border-black/20 hover:bg-black/[0.02] dark:border-white/10 dark:hover:border-white/20 dark:hover:bg-white/[0.02]'
+								}`}
+								use:ripple
+							>
+								<div>
+									<div class="flex items-center justify-between">
+										<div class="flex items-center gap-1.5 font-bold text-xs">
+											{#if mode.id === 'patch'}
+												<Zap size={14} class="text-emerald-500 shrink-0" />
+											{:else if mode.id === 'scaled'}
+												<Layers size={14} class="text-amber-500 shrink-0" />
+											{:else}
+												<Maximize2 size={14} class="text-sky-500 shrink-0" />
+											{/if}
+											<span>{mode.label}</span>
+										</div>
+										{#if $settings.inpaintMode === mode.id}
+											<Check size={14} class="text-[#b23a2e] dark:text-[#e08a63] shrink-0" />
+										{/if}
+									</div>
+									<div class="mt-1.5 inline-flex items-center rounded-full border px-2 py-0.5 text-[9px] font-bold tracking-wide whitespace-nowrap max-w-full truncate {mode.badgeColor}">
+										{mode.tag}
+									</div>
+								</div>
+								<div class="mt-2.5 text-[11px] opacity-75 leading-relaxed">{mode.blurb}</div>
+							</button>
+						{/each}
+					</div>
+				</div>
+
+				<!-- TRANSLATION AI PROVIDERS (WITH SVG LOGOS) -->
+				<div class="border-t border-black/10 pt-4 dark:border-white/10 space-y-4">
 					<div>
 						<div class="text-xs font-bold uppercase tracking-wider opacity-80 flex items-center justify-between">
 							<span>AI Translation Provider</span>
-							<span class="text-[10px] font-mono font-normal opacity-50">SQLite Stored</span>
+							<span class="text-[10px] font-mono font-normal opacity-50">Multi-Provider Engine</span>
 						</div>
-						<p class="text-[11px] opacity-60">Select translation provider and configure API credentials</p>
+						<p class="text-[11px] opacity-60">Select your preferred local or cloud LLM inference engine for comic localization</p>
 					</div>
 
-					<!-- PROVIDER SELECTION TABS (DEEPSEEK & GOOGLE AI STUDIO) -->
-					<div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
-						{#each providers as prov}
+					<!-- CATEGORY FILTER PILLS -->
+					<div class="flex flex-wrap items-center gap-1.5 border-b border-black/10 pb-2.5 dark:border-white/10">
+						<button
+							type="button"
+							on:click={() => (providerCategoryFilter = 'all')}
+							class={`rounded-lg px-2.5 py-1 text-[11px] font-bold transition-all ${
+								providerCategoryFilter === 'all'
+									? 'bg-[#b23a2e] text-white shadow-xs dark:bg-[#e08a63] dark:text-neutral-950'
+									: 'bg-black/5 hover:bg-black/10 dark:bg-white/5 dark:hover:bg-white/10 opacity-70 hover:opacity-100'
+							}`}
+						>
+							All Providers ({providers.length})
+						</button>
+						<button
+							type="button"
+							on:click={() => (providerCategoryFilter = 'cloud')}
+							class={`inline-flex items-center gap-1 rounded-lg px-2.5 py-1 text-[11px] font-bold transition-all ${
+								providerCategoryFilter === 'cloud'
+									? 'bg-[#b23a2e] text-white shadow-xs dark:bg-[#e08a63] dark:text-neutral-950'
+									: 'bg-black/5 hover:bg-black/10 dark:bg-white/5 dark:hover:bg-white/10 opacity-70 hover:opacity-100'
+							}`}
+						>
+							<Zap size={11} />
+							<span>Cloud Fast</span>
+						</button>
+						<button
+							type="button"
+							on:click={() => (providerCategoryFilter = 'local')}
+							class={`inline-flex items-center gap-1 rounded-lg px-2.5 py-1 text-[11px] font-bold transition-all ${
+								providerCategoryFilter === 'local'
+									? 'bg-teal-600 text-white shadow-xs dark:bg-teal-500 dark:text-neutral-950'
+									: 'bg-black/5 hover:bg-black/10 dark:bg-white/5 dark:hover:bg-white/10 opacity-70 hover:opacity-100'
+							}`}
+						>
+							<Server size={11} />
+							<span>Local & Offline (Free)</span>
+						</button>
+						<button
+							type="button"
+							on:click={() => (providerCategoryFilter = 'custom')}
+							class={`inline-flex items-center gap-1 rounded-lg px-2.5 py-1 text-[11px] font-bold transition-all ${
+								providerCategoryFilter === 'custom'
+									? 'bg-[#b23a2e] text-white shadow-xs dark:bg-[#e08a63] dark:text-neutral-950'
+									: 'bg-black/5 hover:bg-black/10 dark:bg-white/5 dark:hover:bg-white/10 opacity-70 hover:opacity-100'
+							}`}
+						>
+							<SlidersHorizontal size={11} />
+							<span>Custom Endpoint</span>
+						</button>
+					</div>
+
+					<!-- PROVIDER SELECTION GRID WITH SVG LOGOS -->
+					<div class="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+						{#each providers.filter((p) => providerCategoryFilter === 'all' || getProviderCategory(p.id) === providerCategoryFilter) as prov}
 							{@const isSelected = selectedProviderId === prov.id}
+							{@const isLoc = isLocal(prov.id)}
 							<button
 								type="button"
 								on:click={() => {
 									selectedProviderId = prov.id;
 									testResult = null;
 								}}
-								class={`relative flex flex-col justify-between rounded-xl border p-3.5 text-left transition-all duration-200 ${
+								class={`relative flex flex-col justify-between rounded-xl border p-3 text-left transition-all duration-200 ${
 									isSelected
 										? 'border-[#b23a2e] bg-[#b23a2e]/[0.06] text-current ring-2 ring-[#b23a2e]/30 shadow-xs dark:border-[#e08a63] dark:bg-[#e08a63]/[0.08]'
 										: 'border-black/10 hover:border-black/20 hover:bg-black/[0.02] dark:border-white/10 dark:hover:border-white/20 dark:hover:bg-white/[0.02]'
@@ -469,12 +828,26 @@
 								<div>
 									<div class="flex items-center justify-between">
 										<div class="flex items-center gap-2 font-bold text-xs">
-											{#if prov.id === 'google'}
-												<Sparkles size={15} class="text-[#b23a2e] dark:text-[#e08a63] shrink-0" />
-											{:else}
-												<Zap size={15} class="text-sky-500 shrink-0" />
-											{/if}
-											<span>{prov.name}</span>
+											<ProviderLogo
+												providerId={prov.id}
+												size={15}
+												className={prov.id === 'deepseek'
+													? 'text-sky-500 shrink-0'
+													: prov.id === 'google'
+														? 'text-[#b23a2e] dark:text-[#e08a63] shrink-0'
+														: prov.id === 'groq'
+															? 'text-orange-500 shrink-0'
+															: prov.id === 'openrouter'
+																? 'text-purple-500 shrink-0'
+																: prov.id === 'openai'
+																	? 'text-emerald-500 shrink-0'
+																	: prov.id === 'ollama'
+																		? 'text-teal-500 shrink-0'
+																		: prov.id === 'lmstudio'
+																			? 'text-indigo-500 shrink-0'
+																			: 'text-amber-500 shrink-0'}
+											/>
+											<span class="pl-0.5 truncate">{prov.name}</span>
 										</div>
 
 										<div class="flex items-center gap-1.5">
@@ -489,10 +862,14 @@
 										</div>
 									</div>
 
-									<div class="mt-2.5 flex items-center gap-2 text-[10px]">
-										{#if prov.hasKey}
-											<span class="inline-flex items-center gap-1.5 rounded-full bg-emerald-500/15 border border-emerald-500/30 px-2 py-0.5 font-bold text-emerald-700 dark:text-emerald-300">
-												<Check size={11} class="stroke-[3]" /> Key Configured ({prov.maskedKey})
+									<div class="mt-2 flex items-center gap-1.5 text-[10px] pl-0.5">
+										{#if isLoc}
+											<span class="inline-flex items-center gap-1 rounded-full bg-teal-500/15 border border-teal-500/30 px-2 py-0.5 font-bold text-teal-700 dark:text-teal-300">
+												<Server size={10} /> Local Daemon
+											</span>
+										{:else if prov.hasKey}
+											<span class="inline-flex items-center gap-1 rounded-full bg-emerald-500/15 border border-emerald-500/30 px-2 py-0.5 font-bold text-emerald-700 dark:text-emerald-300">
+												<Check size={10} class="stroke-[3]" /> Key Configured ({prov.maskedKey})
 											</span>
 										{:else}
 											<span class="inline-flex items-center gap-1 rounded-full bg-amber-500/10 border border-amber-500/25 px-2 py-0.5 font-medium text-amber-700 dark:text-amber-300">
@@ -502,7 +879,7 @@
 									</div>
 								</div>
 
-								<div class="mt-2 text-[11px] font-mono opacity-60">
+								<div class="mt-2 text-[10.5px] font-mono opacity-60 truncate pl-0.5">
 									Active: {prov.activeModel}
 								</div>
 							</button>
@@ -513,149 +890,337 @@
 					{#if selectedProviderId}
 						{@const currentP = providers.find((p) => p.id === selectedProviderId)}
 						{#if currentP}
+							{@const currentIsLocal = isLocal(currentP.id)}
+							{@const filteredModels = getFilteredModels(currentP.availableModels, modelSearch)}
+							{@const canReset = currentP.availableModels.length > (DEFAULT_PROVIDER_MODELS[currentP.id]?.length || 2)}
 							<div class="rounded-2xl border border-black/10 bg-black/[0.02] p-4 sm:p-5 dark:border-white/10 dark:bg-white/[0.02] space-y-4">
-								<div class="flex items-center justify-between">
+								<div class="flex flex-wrap items-center justify-between gap-2">
 									<div class="flex items-center gap-2 text-xs font-bold text-neutral-900 dark:text-neutral-100">
-										<Key size={14} class="text-[#b23a2e] dark:text-[#e08a63]" />
-										<span>{currentP.name} Settings</span>
+										<ProviderLogo
+											providerId={currentP.id}
+											size={16}
+											className={currentP.id === 'deepseek'
+												? 'text-sky-500 shrink-0'
+												: currentP.id === 'google'
+													? 'text-[#b23a2e] dark:text-[#e08a63] shrink-0'
+													: currentP.id === 'groq'
+														? 'text-orange-500 shrink-0'
+														: currentP.id === 'openrouter'
+															? 'text-purple-500 shrink-0'
+															: currentP.id === 'openai'
+																? 'text-emerald-500 shrink-0'
+																: currentP.id === 'ollama'
+																	? 'text-teal-500 shrink-0'
+																	: currentP.id === 'lmstudio'
+																		? 'text-indigo-500 shrink-0'
+																		: 'text-amber-500 shrink-0'}
+										/>
+										<span class="pl-0.5">{currentP.name} Configuration</span>
+										{#if currentIsLocal}
+											<span class="rounded-md bg-teal-500/15 border border-teal-500/30 px-1.5 py-0.5 text-[9px] font-bold text-teal-700 dark:text-teal-300">
+												FREE & OFFLINE
+											</span>
+										{/if}
 									</div>
 
-									{#if selectedProviderId === 'google'}
+									{#if currentP.id === 'google'}
 										<a
 											href="https://aistudio.google.com/api-keys"
 											target="_blank"
 											rel="noopener noreferrer"
-											class="inline-flex items-center gap-1 text-[11px] text-[#b23a2e] dark:text-[#e08a63] hover:underline font-semibold"
+											class="inline-flex items-center gap-1 text-[11px] text-[#b23a2e] dark:text-[#e08a63] hover:underline font-semibold pl-0.5"
 										>
 											<span>Get Google AI API Key</span>
 											<ExternalLink size={11} />
 										</a>
-									{:else if selectedProviderId === 'deepseek'}
+									{:else if currentP.id === 'deepseek'}
 										<a
 											href="https://platform.deepseek.com/api_keys"
 											target="_blank"
 											rel="noopener noreferrer"
-											class="inline-flex items-center gap-1 text-[#b23a2e] dark:text-[#e08a63] hover:underline text-[11px] font-semibold"
+											class="inline-flex items-center gap-1 text-[#b23a2e] dark:text-[#e08a63] hover:underline text-[11px] font-semibold pl-0.5"
 										>
 											<span>Get DeepSeek API Key</span>
+											<ExternalLink size={11} />
+										</a>
+									{:else if currentP.id === 'groq'}
+										<a
+											href="https://console.groq.com/keys"
+											target="_blank"
+											rel="noopener noreferrer"
+											class="inline-flex items-center gap-1 text-orange-600 dark:text-orange-400 hover:underline text-[11px] font-semibold pl-0.5"
+										>
+											<span>Get Groq API Key</span>
+											<ExternalLink size={11} />
+										</a>
+									{:else if currentP.id === 'openrouter'}
+										<a
+											href="https://openrouter.ai/keys"
+											target="_blank"
+											rel="noopener noreferrer"
+											class="inline-flex items-center gap-1 text-purple-600 dark:text-purple-400 hover:underline text-[11px] font-semibold pl-0.5"
+										>
+											<span>Get OpenRouter API Key</span>
+											<ExternalLink size={11} />
+										</a>
+									{:else if currentP.id === 'openai'}
+										<a
+											href="https://platform.openai.com/api-keys"
+											target="_blank"
+											rel="noopener noreferrer"
+											class="inline-flex items-center gap-1 text-emerald-600 dark:text-emerald-400 hover:underline text-[11px] font-semibold pl-0.5"
+										>
+											<span>Get OpenAI API Key</span>
 											<ExternalLink size={11} />
 										</a>
 									{/if}
 								</div>
 
-								<!-- API KEY INPUT & STATUS -->
-								<div class="space-y-2">
-									<div class="flex items-center justify-between">
-										<label for={`provider-key-${currentP.id}`} class="text-[11px] font-semibold opacity-80">
-											API Key
-										</label>
-										{#if currentP.hasKey}
-											<span class="inline-flex items-center gap-1 text-emerald-600 dark:text-emerald-400 font-mono text-[10px] font-semibold">
-												<Check size={11} class="stroke-[3]" /> Stored in SQLite: {currentP.maskedKey}
-											</span>
-										{:else}
-											<span class="text-amber-600 dark:text-amber-400 text-[10px] font-medium">
-												No key saved
-											</span>
-										{/if}
+								<!-- LOCAL RUNNER HELPER CALLOUT -->
+								{#if currentIsLocal}
+									<div class="flex items-start gap-2.5 rounded-xl border border-teal-500/25 bg-teal-500/10 p-3 text-teal-900 dark:text-teal-200 text-xs leading-relaxed">
+										<Server size={15} class="shrink-0 mt-0.5 text-teal-600 dark:text-teal-400" />
+										<div>
+											<strong class="font-bold pl-0.5">Zero-Cost Local Server:</strong>
+											<p class="mt-0.5 text-[11px] opacity-90 pl-0.5">
+												Connects directly to your local {currentP.id === 'ollama' ? 'Ollama daemon (default http://localhost:11434)' : 'LM Studio server (default http://localhost:1234)'}. No cloud API keys or external network requests needed.
+											</p>
+										</div>
 									</div>
+								{/if}
 
-									<!-- STORED KEY BANNER IF PRESENT -->
-									{#if currentP.hasKey}
-										<div class="flex items-center justify-between rounded-xl bg-emerald-500/10 border border-emerald-500/25 px-3 py-2 text-xs">
-											<div class="flex items-center gap-2 text-emerald-800 dark:text-emerald-300 font-medium">
-												<CheckCircle2 size={14} class="text-emerald-600 dark:text-emerald-400 shrink-0" />
-												<span>Active key: <code class="font-mono font-bold bg-black/5 dark:bg-white/10 px-1.5 py-0.5 rounded text-[11px]">{currentP.maskedKey}</code></span>
+								<!-- HIGH SPEED ZERO-REASONING NOTICE -->
+								<div class="flex items-center gap-2 rounded-xl bg-black/[0.03] border border-black/10 px-3 py-2 text-[11px] dark:bg-white/[0.03] dark:border-white/10 text-neutral-700 dark:text-neutral-300">
+									<Zap size={13} class="text-amber-500 shrink-0" />
+									<span class="pl-0.5">
+										<strong>High-Speed Mode Active:</strong> Thinking & reasoning tokens are automatically suppressed for rapid translation output and reduced token consumption.
+									</span>
+								</div>
+
+								<!-- API KEY INPUT & STATUS (FOR CLOUD OR CUSTOM PROVIDERS) -->
+								{#if !currentIsLocal}
+									<div class="space-y-2">
+										<div class="flex items-center justify-between">
+											<label for={`provider-key-${currentP.id}`} class="text-[11px] font-semibold opacity-80 pl-0.5">
+												API Key
+											</label>
+											{#if currentP.hasKey}
+												<span class="inline-flex items-center gap-1 text-emerald-600 dark:text-emerald-400 font-mono text-[10px] font-semibold pr-0.5">
+													<Check size={11} class="stroke-[3]" /> Stored in SQLite: {currentP.maskedKey}
+												</span>
+											{:else}
+												<span class="text-amber-600 dark:text-amber-400 text-[10px] font-medium pr-0.5">
+													No key saved
+												</span>
+											{/if}
+										</div>
+
+										<!-- STORED KEY BANNER IF PRESENT -->
+										{#if currentP.hasKey}
+											<div class="flex items-center justify-between rounded-xl bg-emerald-500/10 border border-emerald-500/25 px-3 py-2 text-xs">
+												<div class="flex items-center gap-2 text-emerald-800 dark:text-emerald-300 font-medium pl-0.5">
+													<CheckCircle2 size={14} class="text-emerald-600 dark:text-emerald-400 shrink-0" />
+													<span>Active key: <code class="font-mono font-bold bg-black/5 dark:bg-white/10 px-1.5 py-0.5 rounded text-[11px]">{currentP.maskedKey}</code></span>
+												</div>
+												<button
+													type="button"
+													on:click={() => clearKey(currentP.id)}
+													class="text-[11px] font-semibold text-red-600 hover:text-red-700 dark:text-red-400 hover:underline cursor-pointer pr-0.5"
+												>
+													Remove Key
+												</button>
 											</div>
+										{/if}
+
+										<div class="relative flex items-center">
+											{#if showApiKey[currentP.id]}
+												<input
+													id={`provider-key-${currentP.id}`}
+													type="text"
+													bind:value={apiKeyDraft[currentP.id]}
+													placeholder={currentP.hasKey ? `Replace key (Currently: ${currentP.maskedKey})...` : 'Enter API Key...'}
+													class="w-full rounded-xl border border-black/15 bg-white px-3 py-2 pr-10 text-xs text-neutral-900 shadow-2xs focus:border-[#b23a2e] focus:outline-hidden dark:border-white/15 dark:bg-black/30 dark:text-neutral-100 font-mono"
+												/>
+											{:else}
+												<input
+													id={`provider-key-${currentP.id}`}
+													type="password"
+													bind:value={apiKeyDraft[currentP.id]}
+													placeholder={currentP.hasKey ? `Replace key (Currently: ${currentP.maskedKey})...` : 'Enter API Key...'}
+													class="w-full rounded-xl border border-black/15 bg-white px-3 py-2 pr-10 text-xs text-neutral-900 shadow-2xs focus:border-[#b23a2e] focus:outline-hidden dark:border-white/15 dark:bg-black/30 dark:text-neutral-100 font-mono"
+												/>
+											{/if}
 											<button
 												type="button"
-												on:click={() => clearKey(currentP.id)}
-												class="text-[11px] font-semibold text-red-600 hover:text-red-700 dark:text-red-400 hover:underline cursor-pointer"
+												on:click={() => (showApiKey[currentP.id] = !showApiKey[currentP.id])}
+												class="absolute right-2.5 p-1 text-neutral-400 hover:text-neutral-600 dark:hover:text-neutral-200"
+												title={showApiKey[currentP.id] ? 'Hide Key' : 'Show Key'}
 											>
-												Remove Key
+												{#if showApiKey[currentP.id]}
+													<EyeOff size={14} />
+												{:else}
+													<Eye size={14} />
+												{/if}
 											</button>
+										</div>
+									</div>
+								{/if}
+
+								<!-- MODEL SELECTION & DISCOVERY -->
+								<div class="space-y-2.5">
+									<div class="flex items-center justify-between">
+										<div class="flex items-center gap-1.5 pl-0.5">
+											<label class="text-[11px] font-semibold opacity-80">
+												Active Model
+											</label>
+											<span class="rounded-full bg-black/5 dark:bg-white/10 px-2 py-0.2 text-[10px] font-mono font-medium opacity-70">
+												{currentP.availableModels.length} {currentP.availableModels.length === 1 ? 'model' : 'models'}
+											</span>
+										</div>
+										<div class="flex items-center gap-2 pr-0.5">
+											{#if canReset}
+												<button
+													type="button"
+													on:click={() => resetModelsToDefault(currentP.id)}
+													title="Reset to default curated models"
+													class="inline-flex items-center gap-1 text-[10px] font-semibold text-neutral-500 hover:text-neutral-800 dark:hover:text-neutral-200 transition"
+												>
+													<RotateCcw size={11} />
+													<span>Reset</span>
+												</button>
+											{/if}
+											<button
+												type="button"
+												on:click={() => scanModels(currentP.id)}
+												disabled={scanningModels}
+												class="inline-flex items-center gap-1 text-[11px] font-bold text-[#b23a2e] dark:text-[#e08a63] hover:underline disabled:opacity-50"
+											>
+												<RefreshCw size={11} class={scanningModels ? 'animate-spin' : ''} />
+												<span>{scanningModels ? 'Scanning Endpoint...' : currentIsLocal ? 'Scan Installed Models' : 'Scan Models via API'}</span>
+											</button>
+										</div>
+									</div>
+
+									<!-- SEARCH FILTER (FOR SCAN RESULTS WITH > 3 MODELS OR ACTIVE SEARCH) -->
+									{#if currentP.availableModels.length > 3 || modelSearch.trim()}
+										<div class="relative flex items-center">
+											<Search size={13} class="absolute left-2.5 text-neutral-400 pointer-events-none" />
+											<input
+												type="text"
+												bind:value={modelSearch}
+												placeholder={`Filter ${currentP.availableModels.length} models (e.g. qwen, flash, 70b)...`}
+												class="w-full rounded-xl border border-black/10 bg-white/70 pl-8 pr-8 py-1.5 text-xs text-neutral-900 shadow-2xs focus:border-[#b23a2e] focus:outline-hidden dark:border-white/10 dark:bg-black/30 dark:text-neutral-100"
+											/>
+											{#if modelSearch.trim()}
+												<button
+													type="button"
+													on:click={() => (modelSearch = '')}
+													class="absolute right-2.5 p-0.5 text-neutral-400 hover:text-neutral-600 dark:hover:text-neutral-200"
+													title="Clear search"
+												>
+													<X size={13} />
+												</button>
+											{/if}
 										</div>
 									{/if}
 
-									<div class="relative flex items-center">
-										{#if showApiKey[currentP.id]}
-											<input
-												id={`provider-key-${currentP.id}`}
-												type="text"
-												bind:value={apiKeyDraft[currentP.id]}
-												placeholder={currentP.hasKey ? `Replace key (Currently: ${currentP.maskedKey})...` : selectedProviderId === 'google' ? 'AIzaSy...' : 'sk-...'}
-												class="w-full rounded-xl border border-black/15 bg-white px-3 py-2 pr-10 text-xs text-neutral-900 shadow-2xs focus:border-[#b23a2e] focus:outline-hidden dark:border-white/15 dark:bg-black/30 dark:text-neutral-100 font-mono"
-											/>
+									<!-- MODEL LIST / GRID (SCROLLABLE TO PREVENT MODAL BLOAT) -->
+									<div class="max-h-[290px] overflow-y-auto pr-1 space-y-1.5">
+										{#if filteredModels.length === 0}
+											<div class="rounded-xl border border-dashed border-black/15 dark:border-white/15 p-4 text-center">
+												<p class="text-xs opacity-60">No models match "{modelSearch}".</p>
+												<button
+													type="button"
+													on:click={() => (modelSearch = '')}
+													class="mt-1 text-xs font-semibold text-[#b23a2e] dark:text-[#e08a63] hover:underline"
+												>
+													Clear search filter
+												</button>
+											</div>
 										{:else}
-											<input
-												id={`provider-key-${currentP.id}`}
-												type="password"
-												bind:value={apiKeyDraft[currentP.id]}
-												placeholder={currentP.hasKey ? `Replace key (Currently: ${currentP.maskedKey})...` : selectedProviderId === 'google' ? 'AIzaSy...' : 'sk-...'}
-												class="w-full rounded-xl border border-black/15 bg-white px-3 py-2 pr-10 text-xs text-neutral-900 shadow-2xs focus:border-[#b23a2e] focus:outline-hidden dark:border-white/15 dark:bg-black/30 dark:text-neutral-100 font-mono"
-											/>
+											<div class="grid grid-cols-1 sm:grid-cols-2 gap-2">
+												{#each filteredModels as modelId}
+													{@const label = formatModelLabel(modelId)}
+													{@const badge = formatModelBadge(modelId, currentIsLocal)}
+													{@const desc = MODEL_DESCRIPTIONS[modelId]?.desc || ''}
+													{@const isModelSelected = (activeModelDraft[currentP.id] || currentP.activeModel) === modelId}
+													<div
+														class={`group relative flex flex-col justify-between rounded-xl border p-2.5 text-left transition-all ${
+															isModelSelected
+																? 'border-[#b23a2e] bg-[#b23a2e]/[0.08] ring-1 ring-[#b23a2e]/30 dark:border-[#e08a63] dark:bg-[#e08a63]/[0.08]'
+																: 'border-black/10 bg-white/40 hover:bg-white hover:border-black/20 dark:border-white/10 dark:bg-white/[0.02] dark:hover:bg-white/[0.05]'
+														}`}
+													>
+														<button
+															type="button"
+															on:click={() => (activeModelDraft[currentP.id] = modelId)}
+															class="w-full text-left cursor-pointer focus:outline-hidden"
+														>
+															<div class="flex items-center justify-between gap-1">
+																<span class="text-xs font-bold truncate pr-1 pl-0.5">{label}</span>
+																{#if isModelSelected}
+																	<Check size={13} class="text-[#b23a2e] dark:text-[#e08a63] shrink-0" />
+																{/if}
+															</div>
+															{#if label !== modelId}
+																<p class="font-mono text-[9px] opacity-50 truncate pl-0.5 mt-0.5">{modelId}</p>
+															{/if}
+															<div class="mt-1.5 flex items-center gap-1.5 pl-0.5">
+																<span class="rounded-md bg-black/5 dark:bg-white/5 px-1.5 py-0.5 text-[9px] font-mono font-semibold opacity-70">
+																	{badge}
+																</span>
+															</div>
+															{#if desc}
+																<p class="mt-1 text-[10px] opacity-60 leading-tight pl-0.5">{desc}</p>
+															{/if}
+														</button>
+
+														<!-- DELETE / REMOVE MODEL ICON (IF NOT SELECTED & MULTIPLE MODELS EXIST) -->
+														{#if !isModelSelected && currentP.availableModels.length > 1}
+															<button
+																type="button"
+																on:click|stopPropagation={() => removeModel(currentP.id, modelId)}
+																title={`Remove "${modelId}" from list`}
+																class="absolute top-2 right-2 p-1 text-neutral-300 hover:text-red-600 dark:text-neutral-600 dark:hover:text-red-400 opacity-0 group-hover:opacity-100 transition cursor-pointer rounded"
+															>
+																<Trash2 size={12} />
+															</button>
+														{/if}
+													</div>
+												{/each}
+											</div>
 										{/if}
+									</div>
+
+									<!-- QUICK CUSTOM MODEL ENTRY -->
+									<div class="flex items-center gap-1.5 pt-1">
+										<input
+											type="text"
+											bind:value={customModelInput}
+											placeholder="Add specific model tag (e.g. qwen2.5:32b, deepseek-ai/DeepSeek-V3)..."
+											on:keydown={(e) => e.key === 'Enter' && addCustomModel(currentP.id)}
+											class="w-full rounded-xl border border-black/15 bg-white px-3 py-1.5 text-xs text-neutral-900 shadow-2xs focus:border-[#b23a2e] focus:outline-hidden dark:border-white/15 dark:bg-black/30 dark:text-neutral-100 font-mono"
+										/>
 										<button
 											type="button"
-											on:click={() => (showApiKey[currentP.id] = !showApiKey[currentP.id])}
-											class="absolute right-2.5 p-1 text-neutral-400 hover:text-neutral-600 dark:hover:text-neutral-200"
-											title={showApiKey[currentP.id] ? 'Hide Key' : 'Show Key'}
+											on:click={() => addCustomModel(currentP.id)}
+											disabled={!customModelInput.trim()}
+											class="inline-flex items-center gap-1 rounded-xl border border-black/15 bg-white px-3 py-1.5 text-xs font-bold hover:bg-neutral-50 dark:border-white/15 dark:bg-white/5 dark:hover:bg-white/10 disabled:opacity-40 shadow-2xs transition shrink-0 cursor-pointer"
 										>
-											{#if showApiKey[currentP.id]}
-												<EyeOff size={14} />
-											{:else}
-												<Eye size={14} />
-											{/if}
+											<Plus size={13} />
+											<span>Add</span>
 										</button>
 									</div>
 								</div>
 
-								<!-- MODEL SELECTION -->
-								<div class="space-y-2">
-									<label class="text-[11px] font-semibold opacity-80">
-										Active Model
-									</label>
-
-									<div class="grid grid-cols-1 sm:grid-cols-2 gap-2">
-										{#each currentP.availableModels as modelId}
-											{@const info = MODEL_DESCRIPTIONS[modelId] || { label: modelId, badge: 'Model', desc: '' }}
-											{@const isModelSelected = (activeModelDraft[currentP.id] || currentP.activeModel) === modelId}
-											<button
-												type="button"
-												on:click={() => (activeModelDraft[currentP.id] = modelId)}
-												class={`flex flex-col justify-between rounded-xl border p-2.5 text-left transition-all ${
-													isModelSelected
-														? 'border-[#b23a2e] bg-[#b23a2e]/[0.08] ring-1 ring-[#b23a2e]/30 dark:border-[#e08a63] dark:bg-[#e08a63]/[0.08]'
-														: 'border-black/10 bg-white/40 hover:bg-white hover:border-black/20 dark:border-white/10 dark:bg-white/[0.02] dark:hover:bg-white/[0.05]'
-												}`}
-											>
-												<div class="flex items-center justify-between">
-													<span class="text-xs font-bold">{info.label}</span>
-													{#if isModelSelected}
-														<Check size={13} class="text-[#b23a2e] dark:text-[#e08a63]" />
-													{/if}
-												</div>
-												<div class="mt-1 flex items-center gap-1.5">
-													<span class="rounded-md bg-black/5 dark:bg-white/5 px-1.5 py-0.5 text-[9px] font-mono font-semibold opacity-70">
-														{info.badge}
-													</span>
-												</div>
-												{#if info.desc}
-													<p class="mt-1 text-[10px] opacity-60 leading-tight">{info.desc}</p>
-												{/if}
-											</button>
-										{/each}
-									</div>
-								</div>
-
 								<!-- ADVANCED: CUSTOM BASE URL -->
-								<div class="space-y-2 pt-1">
+								<div class="space-y-2 pt-1 border-t border-black/10 dark:border-white/10">
 									<button
 										type="button"
 										on:click={() => (showAdvancedBaseUrl[currentP.id] = !showAdvancedBaseUrl[currentP.id])}
 										class="flex items-center gap-1 text-[11px] opacity-60 hover:opacity-100 font-semibold"
 									>
-										<span>{showAdvancedBaseUrl[currentP.id] ? 'Hide' : 'Show'} Custom Base URL / Proxy</span>
+										<span>{showAdvancedBaseUrl[currentP.id] ? 'Hide' : 'Show'} Endpoint URL ({currentP.baseUrl})</span>
 									</button>
 
 									{#if showAdvancedBaseUrl[currentP.id]}
@@ -700,7 +1265,7 @@
 									<button
 										type="button"
 										on:click={() => testConnection(currentP.id)}
-										disabled={testingProvider || (!currentP.hasKey && !apiKeyDraft[currentP.id])}
+										disabled={testingProvider || (!currentIsLocal && !currentP.hasKey && !apiKeyDraft[currentP.id])}
 										class="inline-flex items-center gap-1.5 rounded-xl border border-black/15 bg-white px-3 py-2 text-xs font-semibold hover:bg-neutral-50 dark:border-white/15 dark:bg-white/5 dark:hover:bg-white/10 disabled:opacity-40 transition shadow-2xs"
 									>
 										<RefreshCw size={13} class={testingProvider ? 'animate-spin' : ''} />
@@ -725,7 +1290,7 @@
 												class="inline-flex items-center gap-1.5 rounded-xl bg-[#b23a2e] hover:bg-[#962f25] text-white px-3.5 py-2 text-xs font-bold transition shadow-xs"
 											>
 												<Check size={14} />
-												<span>Set as Active</span>
+												<span>Set as Active Engine</span>
 											</button>
 										{/if}
 									</div>
@@ -733,51 +1298,6 @@
 							</div>
 						{/if}
 					{/if}
-				</div>
-
-				<!-- INPAINTING STRATEGY -->
-				<div class="border-t border-black/10 pt-4 dark:border-white/10">
-					<div class="mb-2.5 sm:mb-3">
-						<div class="text-xs font-bold uppercase tracking-wider opacity-80">Inpainting Strategy</div>
-						<p class="text-[11px] opacity-60">Choose how comic text bubbles and watermarks are erased and reconstructed</p>
-					</div>
-
-					<div class="grid grid-cols-1 gap-2.5 sm:grid-cols-3 sm:gap-3">
-						{#each INPAINT_MODES as mode}
-							<button
-								type="button"
-								on:click={() => setInpaintMode(mode.id)}
-								class={`relative flex flex-col justify-between rounded-xl border p-3 sm:p-3.5 text-left transition-all duration-200 ${
-									$settings.inpaintMode === mode.id
-										? 'border-[#b23a2e] bg-[#b23a2e]/[0.08] text-[#b23a2e] dark:text-[#e08a63] ring-2 ring-[#b23a2e]/30 shadow-xs'
-										: 'border-black/10 hover:border-black/20 hover:bg-black/[0.02] dark:border-white/10 dark:hover:border-white/20 dark:hover:bg-white/[0.02]'
-								}`}
-								use:ripple
-							>
-								<div>
-									<div class="flex items-center justify-between">
-										<div class="flex items-center gap-1.5 font-bold text-xs">
-											{#if mode.id === 'patch'}
-												<Zap size={14} class="text-emerald-500 shrink-0" />
-											{:else if mode.id === 'scaled'}
-												<Layers size={14} class="text-amber-500 shrink-0" />
-											{:else}
-												<Maximize2 size={14} class="text-sky-500 shrink-0" />
-											{/if}
-											<span>{mode.label}</span>
-										</div>
-										{#if $settings.inpaintMode === mode.id}
-											<Check size={14} class="text-[#b23a2e] dark:text-[#e08a63] shrink-0" />
-										{/if}
-									</div>
-									<div class="mt-1.5 inline-flex items-center rounded-full border px-2 py-0.5 text-[9px] font-bold tracking-wide whitespace-nowrap max-w-full truncate {mode.badgeColor}">
-										{mode.tag}
-									</div>
-								</div>
-								<div class="mt-2.5 text-[11px] opacity-75 leading-relaxed">{mode.blurb}</div>
-							</button>
-						{/each}
-					</div>
 				</div>
 			</div>
 
@@ -1023,7 +1543,34 @@
 						</div>
 					</div>
 				</div>
+
+				<!-- TYPESETTING & LETTERING STUDIO -->
+				<div class="border-t border-black/10 pt-4 dark:border-white/10">
+					<div class="flex items-center justify-between gap-4">
+						<div>
+							<div class="text-xs font-bold uppercase tracking-wider opacity-80 flex items-center gap-1.5">
+								<Palette size={14} class="text-[#b23a2e] dark:text-[#e08a63]" />
+								<span>Typesetting & Lettering Studio</span>
+							</div>
+							<p class="text-[11px] opacity-60 mt-0.5 max-w-md">
+								Configure dialogue fonts, CJK fallback engine, bubble padding margins, text stroke outlines, and angle tilt rotation.
+							</p>
+						</div>
+
+						<button
+							type="button"
+							on:click={() => (typesetModalOpen = true)}
+							class="inline-flex items-center gap-1.5 rounded-xl border border-black/15 bg-white px-3.5 py-2 text-xs font-bold hover:bg-neutral-50 dark:border-white/15 dark:bg-white/5 dark:hover:bg-white/10 transition shadow-2xs shrink-0 cursor-pointer"
+							use:ripple
+						>
+							<SlidersHorizontal size={13} class="text-[#b23a2e] dark:text-[#e08a63]" />
+							<span>Customize</span>
+						</button>
+					</div>
+				</div>
 			</div>
 		{/if}
 	</div>
 </Modal>
+
+<TypesetSettingsModal bind:open={typesetModalOpen} />

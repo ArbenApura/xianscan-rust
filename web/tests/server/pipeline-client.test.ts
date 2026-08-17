@@ -50,6 +50,20 @@ describe('HttpPipelineClient', () => {
 		expect(result.width).toBe(800);
 	});
 
+	it('analyze passes source_lang and target_lang form fields', async () => {
+		const fetchImpl = mockFetch(200, { width: 800, height: 1200, backend: 'comic-ctd', regions: [] });
+		const client = new HttpPipelineClient('http://sidecar:8001', fetchImpl);
+
+		await client.analyze(Buffer.from('png-bytes'), undefined, { sourceLang: 'zh-Hans', targetLang: 'en' });
+
+		expect(fetchImpl).toHaveBeenCalledTimes(1);
+		const [url, init] = fetchImpl.mock.calls[0];
+		expect(String(url)).toBe('http://sidecar:8001/pages/analyze');
+		const body = init?.body as FormData;
+		expect(body.get('source_lang')).toBe('zh-Hans');
+		expect(body.get('target_lang')).toBe('en');
+	});
+
 	it('clean POSTs image + regions JSON and returns the PNG buffer', async () => {
 		const fetchImpl = mockFetch(200, () => Buffer.from('png-bytes'));
 		const client = new HttpPipelineClient('http://sidecar:8001/', fetchImpl); // TRAILING SLASH STRIPPED

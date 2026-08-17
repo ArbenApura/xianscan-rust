@@ -3,6 +3,14 @@
 	import { toast } from 'svelte-sonner';
 	import { Modal, Button } from '$lib/components/ui';
 	import Copy from 'lucide-svelte/icons/copy';
+	import Target from 'lucide-svelte/icons/target';
+	import ArrowLeftRight from 'lucide-svelte/icons/arrow-left-right';
+	import Compass from 'lucide-svelte/icons/compass';
+	import Sparkles from 'lucide-svelte/icons/sparkles';
+	import Eye from 'lucide-svelte/icons/eye';
+	import Layers from 'lucide-svelte/icons/layers';
+	import List from 'lucide-svelte/icons/list';
+	import ImageIcon from 'lucide-svelte/icons/image';
 
 	export let open = false;
 	export let page: any | null = null;
@@ -13,6 +21,7 @@
 	}>();
 
 	let inspectTab: 'output' | 'cleaned' | 'original' = 'output';
+	let mobileSection: 'image' | 'regions' = 'image';
 	let showRegions = true;
 	let hoveredRegionId: number | null = null;
 	let imageScrollContainer: HTMLDivElement | null = null;
@@ -36,6 +45,46 @@
 		return null;
 	}
 
+	function getRegionAngle(region: any): number | null {
+		if (typeof region.angle === 'number') return region.angle;
+		const b = getBox(region.box);
+		if (b && typeof (b as any).angle === 'number') return (b as any).angle;
+		if (region.polygon) {
+			try {
+				const poly = typeof region.polygon === 'string' ? JSON.parse(region.polygon) : region.polygon;
+				if (Array.isArray(poly) && poly.length >= 2) {
+					const [p0, p1] = poly;
+					if (Array.isArray(p0) && Array.isArray(p1) && p0.length >= 2 && p1.length >= 2) {
+						const dx = p1[0] - p0[0];
+						const dy = p1[1] - p0[1];
+						const deg = (Math.atan2(dy, dx) * 180) / Math.PI;
+						if (Math.abs(deg) >= 0.5) return Math.round(deg * 10) / 10;
+						return 0;
+					}
+				}
+			} catch {
+				return null;
+			}
+		}
+		return null;
+	}
+
+	function isRegionVertical(region: any): boolean {
+		if (region.vertical === true) return true;
+		const b = getBox(region.box);
+		if (b && (b as any).vertical === true) return true;
+		return false;
+	}
+
+	function toggleOriginalOutput() {
+		if (!page) return;
+		if (inspectTab === 'original') {
+			inspectTab = page.outputPath ? 'output' : page.cleanedPath ? 'cleaned' : 'original';
+		} else {
+			inspectTab = 'original';
+		}
+	}
+
 	function scrollToRegion(region: any) {
 		const b = getBox(region.box);
 		if (!b || !imageScrollContainer || !page?.height) return;
@@ -45,6 +94,15 @@
 			top: Math.max(0, scrollTarget),
 			behavior: 'smooth',
 		});
+	}
+
+	function selectRegionOnMobile(region: any) {
+		hoveredRegionId = region.id;
+		mobileSection = 'image';
+		// Delay slightly to allow tab switch rendering
+		setTimeout(() => {
+			scrollToRegion(region);
+		}, 60);
 	}
 
 	function copyInspectDebugInfo() {
@@ -60,6 +118,8 @@
 				id: r.id,
 				seq: r.seq,
 				confidence: r.conf,
+				angle: getRegionAngle(r),
+				vertical: isRegionVertical(r),
 				box: getBox(r.box),
 				sourceOcr: r.textSource,
 				translation: r.textTarget,
@@ -74,86 +134,137 @@
 	{open}
 	title={`Inspect Page ${page ? page.seq + 1 : ''} (ID: ${page?.id ?? ''})`}
 	size="3xl"
-	bodyClass="p-4 sm:p-5 overflow-hidden flex flex-col h-[82vh] max-h-[82vh]"
+	bodyClass="p-3 sm:p-5 overflow-hidden flex flex-col h-[88vh] sm:h-[82vh] max-h-[92dvh]"
 	on:close={() => dispatch('close')}
 >
 	{#if page}
 		{@const pw = page.width}
 		{@const ph = page.height}
-		<div class="grid grid-cols-1 gap-5 lg:grid-cols-12 flex-1 min-h-0 h-full">
-			<!-- IMAGE / OVERLAY COLUMN -->
-			<div class="flex flex-col gap-2.5 lg:col-span-7 h-full min-h-0">
-				<!-- TAB STRIP -->
-				<div class="flex flex-wrap items-center gap-1.5 text-xs shrink-0">
-					{#if page.outputPath}
+
+		<!-- MOBILE-ONLY SECTION SWITCHER (VISIBLE ON < LG SCREENS) -->
+		<div class="mb-2.5 flex lg:hidden items-center justify-center bg-black/5 dark:bg-white/5 p-1 rounded-xl shrink-0">
+			<button
+				type="button"
+				class={`flex-1 inline-flex items-center justify-center gap-1.5 rounded-lg py-1.5 text-xs font-semibold transition-all cursor-pointer ${
+					mobileSection === 'image'
+						? 'bg-white text-black shadow-2xs dark:bg-neutral-800 dark:text-white'
+						: 'text-neutral-600 dark:text-neutral-400'
+				}`}
+				on:click={() => (mobileSection = 'image')}
+			>
+				<ImageIcon size={13} />
+				<span>Page Canvas</span>
+			</button>
+
+			<button
+				type="button"
+				class={`flex-1 inline-flex items-center justify-center gap-1.5 rounded-lg py-1.5 text-xs font-semibold transition-all cursor-pointer ${
+					mobileSection === 'regions'
+						? 'bg-white text-black shadow-2xs dark:bg-neutral-800 dark:text-white'
+						: 'text-neutral-600 dark:text-neutral-400'
+				}`}
+				on:click={() => (mobileSection = 'regions')}
+			>
+				<List size={13} />
+				<span>Regions ({page.regions?.length ?? 0})</span>
+			</button>
+		</div>
+
+		<div class="grid grid-cols-1 gap-4 lg:gap-5 lg:grid-cols-12 flex-1 min-h-0 h-full">
+			<!-- 1. IMAGE & OVERLAY CANVAS COLUMN -->
+			<div class={`flex flex-col gap-2 lg:col-span-7 h-full min-h-0 ${mobileSection === 'image' ? 'flex' : 'hidden lg:flex'}`}>
+				<!-- INTERACTIVE COMBINED VIEW & TOGGLE CONTROLS -->
+				<div class="flex flex-wrap items-center justify-between gap-1.5 sm:gap-2 text-xs shrink-0 bg-black/[0.03] dark:bg-white/[0.03] p-1.5 rounded-xl border border-black/10 dark:border-white/10">
+					<!-- SEGMENTED VIEW SWITCHER -->
+					<div class="flex flex-wrap items-center gap-1 bg-black/5 dark:bg-white/5 p-0.5 rounded-lg">
+						<!-- ORIGINAL IMAGE -->
 						<button
 							type="button"
-							class={`rounded-lg px-3 py-1.5 font-medium transition ${
-								inspectTab === 'output'
-									? 'bg-[#b23a2e] text-white'
-									: 'bg-black/5 dark:bg-white/5 hover:bg-black/10 dark:hover:bg-white/10'
+							class={`inline-flex items-center gap-1 rounded-md px-2 sm:px-2.5 py-1 text-[11px] sm:text-xs font-semibold transition-all cursor-pointer ${
+								inspectTab === 'original'
+									? 'bg-white text-black shadow-2xs dark:bg-neutral-800 dark:text-white'
+									: 'text-neutral-600 hover:text-black dark:text-neutral-400 dark:hover:text-white'
 							}`}
-							on:click={() => (inspectTab = 'output')}
+							on:click={() => (inspectTab = 'original')}
 						>
-							Typeset Output
+							<Eye size={11} class="sm:w-3 sm:h-3" />
+							<span>Original</span>
 						</button>
-					{/if}
 
-					{#if page.cleanedPath}
+						<!-- TRANSLATED OUTPUT -->
+						{#if page.outputPath}
+							<button
+								type="button"
+								class={`inline-flex items-center gap-1 rounded-md px-2 sm:px-2.5 py-1 text-[11px] sm:text-xs font-semibold transition-all cursor-pointer ${
+									inspectTab === 'output'
+										? 'bg-[#b23a2e] text-white shadow-2xs dark:bg-[#e08a63]'
+										: 'text-neutral-600 hover:text-black dark:text-neutral-400 dark:hover:text-white'
+								}`}
+								on:click={() => (inspectTab = 'output')}
+							>
+								<Sparkles size={11} class="sm:w-3 sm:h-3" />
+								<span><span class="hidden xs:inline">Translated</span> Output</span>
+							</button>
+						{/if}
+
+						<!-- LAMA CLEANED (OPTIONAL) -->
+						{#if page.cleanedPath}
+							<button
+								type="button"
+								class={`inline-flex items-center gap-1 rounded-md px-1.5 sm:px-2 py-1 text-[11px] sm:text-xs font-semibold transition-all cursor-pointer ${
+									inspectTab === 'cleaned'
+										? 'bg-neutral-900 text-white shadow-2xs dark:bg-neutral-100 dark:text-neutral-900'
+										: 'text-neutral-600 hover:text-black dark:text-neutral-400 dark:hover:text-white'
+								}`}
+								on:click={() => (inspectTab = 'cleaned')}
+							>
+								<Layers size={11} class="sm:w-3 sm:h-3" />
+								<span>Cleaned</span>
+							</button>
+						{/if}
+					</div>
+
+					<div class="flex items-center gap-1.5">
+						<!-- QUICK FLIP TOGGLE BUTTON (ORIGINAL <-> TRANSLATED) -->
+						{#if page.outputPath}
+							<button
+								type="button"
+								class="inline-flex items-center gap-1 rounded-lg border border-black/10 bg-white px-2 sm:px-2.5 py-1 text-[10.5px] sm:text-[11px] font-semibold text-neutral-700 shadow-2xs hover:bg-neutral-50 dark:border-white/10 dark:bg-neutral-800 dark:text-neutral-200 dark:hover:bg-neutral-700 cursor-pointer"
+								title="Flip view between Original and Translated Output"
+								on:click={toggleOriginalOutput}
+							>
+								<ArrowLeftRight size={11} class="text-[#b23a2e] dark:text-[#e08a63]" />
+								<span>{inspectTab === 'original' ? 'Output' : 'Original'}</span>
+							</button>
+						{/if}
+
+						<!-- REGION MAP OVERLAY TOGGLE -->
 						<button
 							type="button"
-							class={`rounded-lg px-3 py-1.5 font-medium transition ${
-								inspectTab === 'cleaned'
-									? 'bg-[#b23a2e] text-white'
-									: 'bg-black/5 dark:bg-white/5 hover:bg-black/10 dark:hover:bg-white/10'
-							}`}
-							on:click={() => (inspectTab = 'cleaned')}
-						>
-							LaMa Cleaned
-						</button>
-					{/if}
-
-					<button
-						type="button"
-						class={`rounded-lg px-3 py-1.5 font-medium transition ${
-							inspectTab === 'original'
-								? 'bg-[#b23a2e] text-white'
-								: 'bg-black/5 dark:bg-white/5 hover:bg-black/10 dark:hover:bg-white/10'
-						}`}
-						on:click={() => (inspectTab = 'original')}
-					>
-						Original Image
-					</button>
-
-					<div class="mx-1 h-4 w-px bg-black/10 dark:bg-white/10"></div>
-
-					<!-- REGION MAP TOGGLE -->
-					<button
-						type="button"
-						class={`flex items-center gap-1.5 rounded-lg px-3 py-1.5 font-medium transition ${
-							showRegions
-								? 'bg-emerald-600 text-white shadow-sm hover:bg-emerald-700'
-								: 'bg-black/5 text-black/60 hover:bg-black/10 dark:bg-white/5 dark:text-white/60 dark:hover:bg-white/10'
-						}`}
-						on:click={() => (showRegions = !showRegions)}
-					>
-						<span>🎯 Region Map</span>
-						<span
-							class={`rounded-full px-1.5 py-0.5 text-[10px] font-bold uppercase ${
+							class={`inline-flex items-center gap-1 rounded-lg px-2 sm:px-2.5 py-1 text-[10.5px] sm:text-[11px] font-semibold transition-all cursor-pointer ${
 								showRegions
-									? 'bg-black/20 text-white'
-									: 'bg-black/10 text-black/60 dark:bg-white/10 dark:text-white/60'
+									? 'bg-emerald-600 text-white shadow-2xs hover:bg-emerald-700'
+									: 'border border-black/10 bg-white text-neutral-600 hover:bg-black/5 dark:border-white/10 dark:bg-neutral-800 dark:text-neutral-400 dark:hover:bg-white/5'
 							}`}
+							on:click={() => (showRegions = !showRegions)}
 						>
-							{showRegions ? 'On' : 'Off'}
-						</span>
-					</button>
+							<Target size={11} class="shrink-0" />
+							<span class="hidden sm:inline">Regions</span>
+							<span
+								class={`rounded px-1 py-0.2 text-[8.5px] sm:text-[9px] font-bold uppercase ${
+									showRegions ? 'bg-black/25 text-white' : 'bg-black/10 dark:bg-white/10'
+								}`}
+							>
+								{showRegions ? 'On' : 'Off'}
+							</span>
+						</button>
+					</div>
 				</div>
 
 				<!-- SCROLLABLE IMAGE CONTAINER -->
 				<div
 					bind:this={imageScrollContainer}
-					class="relative flex-1 min-h-0 overflow-y-auto rounded-xl border border-black/10 bg-neutral-950/[0.03] dark:border-white/10 dark:bg-neutral-950/40"
+					class="relative flex-1 min-h-0 overflow-y-auto rounded-xl border border-black/10 bg-neutral-950/[0.03] dark:border-white/10 dark:bg-neutral-950/40 overscroll-contain"
 				>
 					<div class="relative w-full">
 						<img
@@ -178,6 +289,7 @@
 										{@const by = b?.y ?? 0}
 										{@const bw = b?.w ?? 0}
 										{@const bh = b?.h ?? 0}
+										{@const angle = getRegionAngle(region)}
 										{@const stroke = '#b23a2e'}
 										<rect
 											x={bx}
@@ -200,6 +312,18 @@
 											stroke-width="4"
 											paint-order="stroke"
 										>#{region.seq + 1}</text>
+										{#if angle !== null && Math.abs(angle) >= 0.5}
+											<text
+												x={bx + 6}
+												y={by + 38}
+												font-size="13"
+												font-weight="bold"
+												fill="#f59e0b"
+												stroke="#000"
+												stroke-width="3"
+												paint-order="stroke"
+											>∠{angle > 0 ? `+${angle}°` : `${angle}°`}</text>
+										{/if}
 									{/if}
 								{/each}
 							</svg>
@@ -214,28 +338,36 @@
 				</div>
 
 				{#if pw && ph}
-					<p class="shrink-0 text-[10px] opacity-40 font-mono">{pw} × {ph} px · {page.regions?.length ?? 0} regions</p>
+					<div class="flex items-center justify-between shrink-0 text-[10px] opacity-60 font-mono">
+						<span>{pw} × {ph} px · {page.regions?.length ?? 0} regions</span>
+						<span class="capitalize">Active: {inspectTab === 'output' ? 'Typeset Output' : inspectTab === 'original' ? 'Original RAW' : 'Cleaned Mask'}</span>
+					</div>
 				{/if}
 			</div>
 
-			<!-- REGIONS LIST COLUMN -->
-			<div class="flex flex-col gap-2.5 lg:col-span-5 h-full min-h-0">
+			<!-- 2. DETECTED REGIONS LIST COLUMN -->
+			<div class={`flex flex-col gap-2.5 lg:col-span-5 h-full min-h-0 ${mobileSection === 'regions' ? 'flex' : 'hidden lg:flex'}`}>
 				<div class="flex items-center justify-between gap-2 shrink-0">
-					<h3 class="text-sm font-bold">
-						Detected Regions ({page.regions?.length ?? 0})
+					<h3 class="text-xs sm:text-sm font-bold flex items-center gap-1.5">
+						<List size={14} class="text-[#b23a2e] dark:text-[#e08a63]" />
+						<span>Detected Regions ({page.regions?.length ?? 0})</span>
 					</h3>
 				</div>
 
 				{#if !page.regions || page.regions.length === 0}
-					<p class="text-xs opacity-60">No text regions detected on this page yet.</p>
+					<div class="flex flex-1 items-center justify-center p-6 text-center text-xs opacity-60 rounded-xl border border-dashed border-black/10 dark:border-white/10">
+						No text regions detected on this page yet. Run the pipeline to detect dialogue speech bubbles.
+					</div>
 				{:else}
-					<div class="flex-1 min-h-0 space-y-2 overflow-y-auto pr-1">
+					<div class="flex-1 min-h-0 space-y-2 overflow-y-auto pr-1 overscroll-contain">
 						{#each page.regions as region (region.id)}
 							{@const b = getBox(region.box)}
+							{@const angle = getRegionAngle(region)}
+							{@const isVertical = isRegionVertical(region)}
 							<!-- svelte-ignore a11y-no-static-element-interactions -->
 							<!-- svelte-ignore a11y-click-events-have-key-events -->
 							<div
-								class={`rounded-lg border p-3 text-xs transition-all cursor-pointer ${
+								class={`rounded-xl border p-2.5 sm:p-3 text-xs transition-all cursor-pointer ${
 									hoveredRegionId === region.id
 										? 'border-[#b23a2e]/50 bg-[#b23a2e]/5 dark:border-[#e08a63]/40 dark:bg-[#e08a63]/5 shadow-sm'
 										: 'border-black/10 bg-black/[0.02] dark:border-white/10 dark:bg-white/[0.02] hover:border-black/20 dark:hover:border-white/20'
@@ -243,28 +375,53 @@
 								on:mouseenter={() => (hoveredRegionId = region.id)}
 								on:mouseleave={() => (hoveredRegionId = null)}
 								on:click={() => {
-									hoveredRegionId = hoveredRegionId === region.id ? null : region.id;
-									scrollToRegion(region);
+									if (hoveredRegionId === region.id) {
+										hoveredRegionId = null;
+									} else {
+										hoveredRegionId = region.id;
+										scrollToRegion(region);
+									}
 								}}
 							>
-								<!-- HEADER ROW: sequence badge + confidence + box size -->
-								<div class="flex items-center justify-between">
-									<span class="rounded px-1.5 py-0.5 text-[10px] font-bold text-[#b23a2e] bg-[#b23a2e]/10 dark:text-[#e08a63]">
-										#{region.seq + 1}
-									</span>
-									<div class="flex items-center gap-2 font-mono text-[10px] opacity-50">
+								<!-- HEADER ROW: sequence badge + confidence + rotation angle + box size -->
+								<div class="flex flex-wrap items-center justify-between gap-1.5">
+									<div class="flex items-center gap-1.5">
+										<span class="rounded px-1.5 py-0.5 text-[10px] font-bold text-[#b23a2e] bg-[#b23a2e]/10 dark:text-[#e08a63]">
+											#{region.seq + 1}
+										</span>
 										{#if region.conf !== null}
-											<span>{(region.conf * 100).toFixed(0)}% conf</span>
+											<span class="text-[10px] font-mono opacity-50">
+												{(region.conf * 100).toFixed(0)}% conf
+											</span>
 										{/if}
+									</div>
+
+									<div class="flex items-center gap-1.5 font-mono text-[10px]">
+										<!-- ROTATION ANGLE BADGE -->
+										{#if angle !== null && Math.abs(angle) >= 0.5}
+											<span class="inline-flex items-center gap-0.5 rounded bg-amber-500/15 border border-amber-500/30 px-1.5 py-0.5 text-[9px] font-bold text-amber-700 dark:text-amber-300">
+												<Compass size={10} />
+												<span>{angle > 0 ? `+${angle}°` : `${angle}°`}</span>
+											</span>
+										{:else if isVertical}
+											<span class="inline-flex items-center rounded bg-indigo-500/15 border border-indigo-500/30 px-1.5 py-0.5 text-[9px] font-bold text-indigo-700 dark:text-indigo-300">
+												Vertical
+											</span>
+										{:else}
+											<span class="text-[9px] opacity-40">
+												0° (Horizontal)
+											</span>
+										{/if}
+
 										{#if b}
-											<span>{b.w}×{b.h}</span>
+											<span class="opacity-50">{b.w}×{b.h}</span>
 										{/if}
 									</div>
 								</div>
 
 								{#if b}
-									<div class="mt-1 font-mono text-[9px] opacity-30">
-										({b.x}, {b.y}) {b.w}×{b.h} px
+									<div class="mt-1 font-mono text-[9px] opacity-35">
+										Box: ({b.x}, {b.y}) · {b.w}×{b.h} px
 									</div>
 								{/if}
 
@@ -272,16 +429,22 @@
 								<div class="mt-2">
 									<div class="mb-0.5 text-[10px] opacity-50">Source OCR</div>
 									<div class="flex items-start gap-1">
-										<span class="flex-1 break-words font-mono leading-snug">
+										<span class="flex-1 break-words font-mono leading-snug text-[11px]">
 											{region.textSource || '—'}
 										</span>
 										{#if region.textSource}
 											<button
 												type="button"
 												title="Copy source text"
-												class="mt-0.5 flex-shrink-0 rounded p-0.5 opacity-30 transition hover:bg-black/10 hover:opacity-80 dark:hover:bg-white/10"
-												on:click={() => navigator.clipboard?.writeText(region.textSource)}
-											>📋</button>
+												aria-label="Copy source text"
+												class="mt-0.5 flex-shrink-0 rounded p-1 opacity-50 transition hover:bg-black/10 hover:opacity-100 dark:hover:bg-white/10 active:scale-95"
+												on:click|stopPropagation={() => {
+													navigator.clipboard?.writeText(region.textSource);
+													toast.success(`Copied OCR text for #${region.seq + 1}`);
+												}}
+											>
+												<Copy size={12} />
+											</button>
 										{/if}
 									</div>
 								</div>
@@ -293,16 +456,34 @@
 											AI Translation
 										</div>
 										<div class="flex items-start gap-1">
-											<span class="flex-1 break-words leading-snug">{region.textTarget}</span>
+											<span class="flex-1 break-words leading-snug text-[11px]">{region.textTarget}</span>
 											<button
 												type="button"
 												title="Copy translation"
-												class="mt-0.5 flex-shrink-0 rounded p-0.5 opacity-30 transition hover:bg-black/10 hover:opacity-80 dark:hover:bg-white/10"
-												on:click={() => navigator.clipboard?.writeText(region.textTarget ?? '')}
-											>📋</button>
+												aria-label="Copy translation"
+												class="mt-0.5 flex-shrink-0 rounded p-1 opacity-50 transition hover:bg-black/10 hover:opacity-100 dark:hover:bg-white/10 active:scale-95"
+												on:click|stopPropagation={() => {
+													navigator.clipboard?.writeText(region.textTarget ?? '');
+													toast.success(`Copied translation for #${region.seq + 1}`);
+												}}
+											>
+												<Copy size={12} />
+											</button>
 										</div>
 									</div>
 								{/if}
+
+								<!-- MOBILE FOCUS IN CANVAS ACTION -->
+								<div class="mt-2 pt-1.5 flex lg:hidden items-center justify-end border-t border-black/[0.04] dark:border-white/[0.04]">
+									<button
+										type="button"
+										class="inline-flex items-center gap-1 text-[10px] font-semibold text-[#b23a2e] dark:text-[#e08a63] hover:underline"
+										on:click|stopPropagation={() => selectRegionOnMobile(region)}
+									>
+										<Target size={11} />
+										<span>Locate on Page Canvas</span>
+									</button>
+								</div>
 							</div>
 						{/each}
 					</div>
@@ -312,12 +493,16 @@
 	{/if}
 
 	<svelte:fragment slot="footer">
-		{#if page}
-			<Button variant="secondary" on:click={copyInspectDebugInfo}>
-				<Copy size={14} class="mr-1.5" />
-				Copy Debug Data
-			</Button>
-		{/if}
-		<Button on:click={() => dispatch('close')}>Close</Button>
+		<div class="flex items-center justify-between w-full gap-2">
+			{#if page}
+				<Button variant="secondary" size="sm" on:click={copyInspectDebugInfo}>
+					<Copy size={13} class="mr-1 sm:mr-1.5" />
+					<span>Copy Debug Data</span>
+				</Button>
+			{:else}
+				<div></div>
+			{/if}
+			<Button variant="primary" size="sm" on:click={() => dispatch('close')}>Close</Button>
+		</div>
 	</svelte:fragment>
 </Modal>
