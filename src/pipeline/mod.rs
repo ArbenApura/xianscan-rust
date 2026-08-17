@@ -59,11 +59,30 @@ impl PipelineEngine {
         } else {
             #[cfg(feature = "embed-models")]
             {
-                RapidOcr::from_bytes(
+                let mut emb_ocr = RapidOcr::from_bytes(
                     Some(crate::ml::embedded_models::PPOCR_DET_BYTES),
                     crate::ml::embedded_models::PPOCR_REC_BYTES,
                     crate::ml::embedded_models::RAPIDOCR_KEYS,
-                ).ok()
+                ).ok();
+                if let Some(ref mut engine) = emb_ocr {
+                    let _ = engine.load_korean_from_bytes(
+                        crate::ml::embedded_models::KOREAN_REC_BYTES,
+                        crate::ml::embedded_models::KOREAN_DICT,
+                    );
+                    let _ = engine.load_cyrillic_from_bytes(
+                        crate::ml::embedded_models::CYRILLIC_REC_BYTES,
+                        crate::ml::embedded_models::CYRILLIC_DICT,
+                    );
+                    let _ = engine.load_vietnamese_from_bytes(
+                        crate::ml::embedded_models::VIETNAMESE_REC_BYTES,
+                        crate::ml::embedded_models::VIETNAMESE_DICT,
+                    );
+                    let _ = engine.load_thai_from_bytes(
+                        crate::ml::embedded_models::THAI_REC_BYTES,
+                        crate::ml::embedded_models::THAI_DICT,
+                    );
+                }
+                emb_ocr
             }
             #[cfg(not(feature = "embed-models"))]
             {

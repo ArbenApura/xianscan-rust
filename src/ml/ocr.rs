@@ -101,60 +101,76 @@ impl RapidOcr {
         })
     }
 
-    pub fn load_korean_model<P: AsRef<Path>, D: AsRef<Path>>(&mut self, model_path: P, dict_path: D) -> Result<()> {
-        let bytes = std::fs::read(model_path.as_ref())?;
-        let dict_str = std::fs::read_to_string(dict_path.as_ref())?;
+    pub fn load_korean_from_bytes(&mut self, bytes: &[u8], dict_str: &str) -> Result<()> {
         let session = Session::builder()
             .map_err(|e| anyhow::anyhow!("Korean session error: {}", e))?
             .with_intra_threads(num_cpus::get().min(4))
             .map_err(|e| anyhow::anyhow!("Korean intra threads error: {}", e))?
-            .commit_from_memory(&bytes)
+            .commit_from_memory(bytes)
             .map_err(|e| anyhow::anyhow!("Commit korean rec error: {}", e))?;
         self.korean_rec_session = Some(session);
-        self.characters_korean = Some(parse_dict_string(&dict_str));
+        self.characters_korean = Some(parse_dict_string(dict_str));
+        Ok(())
+    }
+
+    pub fn load_korean_model<P: AsRef<Path>, D: AsRef<Path>>(&mut self, model_path: P, dict_path: D) -> Result<()> {
+        let bytes = std::fs::read(model_path.as_ref())?;
+        let dict_str = std::fs::read_to_string(dict_path.as_ref())?;
+        self.load_korean_from_bytes(&bytes, &dict_str)
+    }
+
+    pub fn load_cyrillic_from_bytes(&mut self, bytes: &[u8], dict_str: &str) -> Result<()> {
+        let session = Session::builder()
+            .map_err(|e| anyhow::anyhow!("Cyrillic session error: {}", e))?
+            .with_intra_threads(num_cpus::get().min(4))
+            .map_err(|e| anyhow::anyhow!("Cyrillic intra threads error: {}", e))?
+            .commit_from_memory(bytes)
+            .map_err(|e| anyhow::anyhow!("Commit cyrillic rec error: {}", e))?;
+        self.cyrillic_rec_session = Some(session);
+        self.characters_cyrillic = Some(parse_dict_string(dict_str));
         Ok(())
     }
 
     pub fn load_cyrillic_model<P: AsRef<Path>, D: AsRef<Path>>(&mut self, model_path: P, dict_path: D) -> Result<()> {
         let bytes = std::fs::read(model_path.as_ref())?;
         let dict_str = std::fs::read_to_string(dict_path.as_ref())?;
+        self.load_cyrillic_from_bytes(&bytes, &dict_str)
+    }
+
+    pub fn load_vietnamese_from_bytes(&mut self, bytes: &[u8], dict_str: &str) -> Result<()> {
         let session = Session::builder()
-            .map_err(|e| anyhow::anyhow!("Cyrillic session error: {}", e))?
+            .map_err(|e| anyhow::anyhow!("Vietnamese session error: {}", e))?
             .with_intra_threads(num_cpus::get().min(4))
-            .map_err(|e| anyhow::anyhow!("Cyrillic intra threads error: {}", e))?
-            .commit_from_memory(&bytes)
-            .map_err(|e| anyhow::anyhow!("Commit cyrillic rec error: {}", e))?;
-        self.cyrillic_rec_session = Some(session);
-        self.characters_cyrillic = Some(parse_dict_string(&dict_str));
+            .map_err(|e| anyhow::anyhow!("Vietnamese intra threads error: {}", e))?
+            .commit_from_memory(bytes)
+            .map_err(|e| anyhow::anyhow!("Commit vietnamese rec error: {}", e))?;
+        self.vietnamese_rec_session = Some(session);
+        self.characters_vietnamese = Some(parse_dict_string(dict_str));
         Ok(())
     }
 
     pub fn load_vietnamese_model<P: AsRef<Path>, D: AsRef<Path>>(&mut self, model_path: P, dict_path: D) -> Result<()> {
         let bytes = std::fs::read(model_path.as_ref())?;
         let dict_str = std::fs::read_to_string(dict_path.as_ref())?;
+        self.load_vietnamese_from_bytes(&bytes, &dict_str)
+    }
+
+    pub fn load_thai_from_bytes(&mut self, bytes: &[u8], dict_str: &str) -> Result<()> {
         let session = Session::builder()
-            .map_err(|e| anyhow::anyhow!("Vietnamese session error: {}", e))?
+            .map_err(|e| anyhow::anyhow!("Thai session error: {}", e))?
             .with_intra_threads(num_cpus::get().min(4))
-            .map_err(|e| anyhow::anyhow!("Vietnamese intra threads error: {}", e))?
-            .commit_from_memory(&bytes)
-            .map_err(|e| anyhow::anyhow!("Commit vietnamese rec error: {}", e))?;
-        self.vietnamese_rec_session = Some(session);
-        self.characters_vietnamese = Some(parse_dict_string(&dict_str));
+            .map_err(|e| anyhow::anyhow!("Thai intra threads error: {}", e))?
+            .commit_from_memory(bytes)
+            .map_err(|e| anyhow::anyhow!("Commit thai rec error: {}", e))?;
+        self.thai_rec_session = Some(session);
+        self.characters_thai = Some(parse_dict_string(dict_str));
         Ok(())
     }
 
     pub fn load_thai_model<P: AsRef<Path>, D: AsRef<Path>>(&mut self, model_path: P, dict_path: D) -> Result<()> {
         let bytes = std::fs::read(model_path.as_ref())?;
         let dict_str = std::fs::read_to_string(dict_path.as_ref())?;
-        let session = Session::builder()
-            .map_err(|e| anyhow::anyhow!("Thai session error: {}", e))?
-            .with_intra_threads(num_cpus::get().min(4))
-            .map_err(|e| anyhow::anyhow!("Thai intra threads error: {}", e))?
-            .commit_from_memory(&bytes)
-            .map_err(|e| anyhow::anyhow!("Commit thai rec error: {}", e))?;
-        self.thai_rec_session = Some(session);
-        self.characters_thai = Some(parse_dict_string(&dict_str));
-        Ok(())
+        self.load_thai_from_bytes(&bytes, &dict_str)
     }
 
     /// Direct text recognition on a line crop
