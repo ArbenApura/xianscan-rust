@@ -962,7 +962,15 @@ impl PipelineEngine {
                 }
             }
 
-            let vertical = box_rect.h > (box_rect.w as f32 * 1.2) as i32;
+            let vertical = if !matched.is_empty() {
+                let vert_lines = matched.iter().filter(|l| {
+                    let (_, _, lw, lh) = polygon_bounds(&l.polygon);
+                    lh > (lw as f32 * 1.2) as i32
+                }).count();
+                vert_lines * 2 > matched.len()
+            } else {
+                box_rect.h > (box_rect.w as f32 * 1.5) as i32
+            };
 
             let is_stray_latin = !CHINESE_RE.is_match(&cleaned) && confidence <= 0.65 && (box_rect.h <= 18 || box_rect.w <= 50);
             let is_single_exclaim = (cleaned == "！" || cleaned == "!") && (matched.is_empty() || confidence < 0.70 || box_rect.h >= (box_rect.w * 2));
@@ -1115,15 +1123,24 @@ impl PipelineEngine {
                     }
                 };
 
+                let is_shared_bubble_fragment = {
+                    let has_v_overlap = inter_y > 0 && (inter_y as f32 / box_rect.h.min(existing.box_.h).max(1) as f32 >= 0.50);
+                    let has_h_proximity = inter_x >= -30 && (box_rect.x.max(existing.box_.x) - (box_rect.x.min(existing.box_.x) + box_rect.w.min(existing.box_.w))) <= 40;
+                    let both_short_lines = cleaned.lines().count() <= 2 && existing.text.lines().count() <= 2;
+                    let bubble_scale = box_rect.w <= 130 && existing.box_.w <= 130 && box_rect.h <= 130 && existing.box_.h <= 130;
+                    has_v_overlap && has_h_proximity && both_short_lines && bubble_scale
+                };
+
                 if (existing.text == cleaned && iou >= 0.25)
                     || iou >= 0.55
                     || (is_subtext && (overlap_self >= 0.60 || overlap_ex >= 0.60))
                     || is_colliding
                     || is_suffix_echo
+                    || is_shared_bubble_fragment
                 {
                     let cur_chars = cleaned.chars().filter(|c| !c.is_whitespace()).count();
                     let ex_chars = existing.text.chars().filter(|c| !c.is_whitespace()).count();
-                    if cur_chars > ex_chars {
+                    if cur_chars > ex_chars || is_shared_bubble_fragment {
                         replace_idx = Some(idx);
                     }
                     is_dup_region = true;
@@ -1139,11 +1156,43 @@ impl PipelineEngine {
             ];
 
             if let Some(r_idx) = replace_idx {
+                let ex = &regions[r_idx];
+                let mx = ex.box_.x.min(box_rect.x);
+                let my = ex.box_.y.min(box_rect.y);
+                let mx2 = (ex.box_.x + ex.box_.w).max(box_rect.x + box_rect.w);
+                let my2 = (ex.box_.y + ex.box_.h).max(box_rect.y + box_rect.h);
+
+                let pad_x = 25;
+                let pad_y = 20;
+                let crop_x = (mx - pad_x).max(0) as u32;
+                let crop_y = (my - pad_y).max(0) as u32;
+                let crop_w = ((mx2 - mx + pad_x * 2) as u32).min(page_w - crop_x);
+                let crop_h = ((my2 - my + pad_y * 2) as u32).min(page_h - crop_y);
+
+                let mut unified_text = None;
+                if crop_w >= 16 && crop_h >= 16 {
+                    let crop = img.crop_imm(crop_x, crop_y, crop_w, crop_h);
+                    if let Some(ref mut ocr) = self.ocr {
+                        if let Ok(Some(res)) = ocr.recognize_crop(&crop) {
+                            let clean_c = clean_stray_ocr_artifacts(&res.text);
+                            if clean_c.chars().count() >= cleaned.chars().count() {
+                                unified_text = Some(clean_c);
+                            }
+                        }
+                    }
+                }
+
+                let final_t = unified_text.unwrap_or(cleaned);
+                let unified_box = BoxRect { x: mx, y: my, w: mx2 - mx, h: my2 - my };
+                let unified_poly = vec![
+                    [mx, my], [mx2, my], [mx2, my2], [mx, my2],
+                ];
+
                 regions[r_idx] = Region {
                     id: regions[r_idx].id.clone(),
-                    box_: box_rect,
-                    polygon: poly,
-                    text: cleaned,
+                    box_: unified_box,
+                    polygon: unified_poly,
+                    text: final_t,
                     confidence,
                     vertical,
                     angle,
@@ -1289,6 +1338,27 @@ impl PipelineEngine {
                             avg_h * 9 / 20  // speech bubbles: gap <= 45% of avg height
                         };
 
+                        // Side-by-side / column-split speech bubble check (e.g. 2-column vertical text inside same bubble)
+                        let is_side_by_side_bubble = {
+                            let (left, right) = if a.box_.x <= b.box_.x { (a, b) } else { (b, a) };
+                            let h_gap = right.box_.x - (left.box_.x + left.box_.w);
+                            let v_inter_top = left.box_.y.max(right.box_.y);
+                            let v_inter_bot = (left.box_.y + left.box_.h).min(right.box_.y + right.box_.h);
+                            let v_inter = v_inter_bot - v_inter_top;
+                            let min_h = left.box_.h.min(right.box_.h);
+                            let v_overlap_ratio = v_inter.max(0) as f32 / min_h.max(1) as f32;
+                            let same_bubble_bounds = (left.box_.w + right.box_.w <= 240) && (left.box_.h.max(right.box_.h) <= 150);
+                            let both_short_utterance = top_lines <= 2 && bot_lines <= 2;
+                            (h_gap >= -30 && h_gap <= 25) && v_overlap_ratio >= 0.50 && same_bubble_bounds && both_short_utterance
+                        };
+
+                        if is_side_by_side_bubble {
+                            // Sort reading order (for standard Chinese multi-column speech bubbles, columns read right-to-left or left-to-right)
+                            let (first_i, second_i) = if a.box_.x <= b.box_.x { (i, j) } else { (j, i) };
+                            merged_pair = Some((first_i, second_i));
+                            break 'outer;
+                        }
+
                         if v_gap > gap_limit {
                             continue;
                         }
@@ -1320,16 +1390,40 @@ impl PipelineEngine {
                         // Merge bi into ti. Remove bi first (higher index) to keep ti valid.
                         let b_removed = final_regions.remove(bi);
                         let a = &mut final_regions[ti];
-                        let merged_text = format!("{}\n{}", a.text.trim(), b_removed.text.trim());
                         let mx  = a.box_.x.min(b_removed.box_.x);
                         let my  = a.box_.y.min(b_removed.box_.y);
                         let mx2 = (a.box_.x + a.box_.w).max(b_removed.box_.x + b_removed.box_.w);
                         let my2 = (a.box_.y + a.box_.h).max(b_removed.box_.y + b_removed.box_.h);
-                        a.text   = merged_text;
                         a.box_   = BoxRect { x: mx, y: my, w: mx2 - mx, h: my2 - my };
                         a.polygon = vec![
                             [mx, my], [mx2, my], [mx2, my2], [mx, my2],
                         ];
+
+                        let pad_x = 25;
+                        let pad_y = 20;
+                        let crop_x = (mx - pad_x).max(0) as u32;
+                        let crop_y = (my - pad_y).max(0) as u32;
+                        let crop_w = ((mx2 - mx + pad_x * 2) as u32).min(page_w - crop_x);
+                        let crop_h = ((my2 - my + pad_y * 2) as u32).min(page_h - crop_y);
+
+                        let mut unified_text = None;
+                        if crop_w >= 16 && crop_h >= 16 {
+                            let crop = img.crop_imm(crop_x, crop_y, crop_w, crop_h);
+                            if let Some(ref mut ocr) = self.ocr {
+                                if let Ok(Some(res)) = ocr.recognize_crop(&crop) {
+                                    let clean_c = clean_stray_ocr_artifacts(&res.text);
+                                    if clean_c.chars().count() >= a.text.chars().count() {
+                                        unified_text = Some(clean_c);
+                                    }
+                                }
+                            }
+                        }
+
+                        if let Some(ut) = unified_text {
+                            a.text = ut;
+                        } else {
+                            a.text = format!("{}\n{}", a.text.trim(), b_removed.text.trim());
+                        }
                     }
                 }
             }

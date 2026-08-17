@@ -245,6 +245,9 @@ pub fn clean_stray_ocr_artifacts(text: &str) -> String {
         let re_chiting_3lines = Regex::new(r"那边池塘旁边有片空地").unwrap();
         cleaned = re_chiting_3lines.replace_all(&cleaned, "那边池塘旁边有\n片空地").to_string();
 
+        let re_xinfeng = Regex::new(r"新丰(法师|腰带|护手|靴|剑|杖|袍|装|武器|装备|道具)").unwrap();
+        cleaned = re_xinfeng.replace_all(&cleaned, "新手$1").to_string();
+
         let re_fa = Regex::new(r"^发这小子").unwrap();
         cleaned = re_fa.replace_all(&cleaned, "阿发这小子").to_string();
 

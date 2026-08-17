@@ -610,3 +610,63 @@ fn test_regression_page_204_seq_38() {
     assert_eq!(skin_bubble.unwrap().angle, 0.0, "Dialogue bubble must have angle 0.0 deg, got {}", skin_bubble.unwrap().angle);
     assert!(all_text.contains("咳"), "Must detect SFX '咳！咳！'");
 }
+
+/// # Regression Test: Novice Mage Equipment & Speech Bubble Page (Resolution: 560 × 1024 WebP)
+///
+/// ## Purpose & Behavior Tested:
+/// - **Speech Bubble Unification vs. Column Split**:
+///   Guarantees that the lower panel speech bubble containing 3 vertical lines:
+///   `哼，这么胡\n来，菜鸟一\n个！` is unified into a single speech bubble region
+///   rather than being incorrectly split across columns into fractured fragments (`哼来个/这菜` and `这么胡/菜鸟一`).
+/// - **Equipment Stats Card Detection**:
+///   Ensures the upper character stats/equipment window (`职业：法师...残破的割肉小刀`) is cleanly detected as a single region.
+///
+/// ## Key Invariants:
+/// - Exactly 2 regions.
+/// - Region 0: Upper stats card containing `职业：法师` and `残破的割肉小刀`.
+/// - Region 1: Speech bubble containing `哼，这么胡\n来，菜鸟一\n个！` (or full unified text `哼，这么胡`, `菜鸟一个`).
+/// - Negative guard: No fractured sub-boxes (e.g. separate regions containing `哼来个` or `这菜`).
+#[test]
+fn test_regression_page_novice_mage_split_bubble() {
+    let img_path = Path::new("tests/fixtures/page_novice_mage_split_bubble.webp");
+    if !img_path.exists() {
+        return;
+    }
+    let img = image::ImageReader::open(img_path)
+        .expect("Failed to open page_novice_mage_split_bubble.webp")
+        .with_guessed_format()
+        .expect("Failed to guess format")
+        .decode()
+        .expect("Failed to decode image");
+
+    let res = get_or_analyze_fixture(&img);
+    println!("Novice Mage Page detected {} regions:", res.regions.len());
+    for (i, r) in res.regions.iter().enumerate() {
+        println!("  Region r{}: box={:?}, text='{}', angle={:.2}, conf={:.2}", i, r.box_, r.text.replace('\n', "\\n"), r.angle, r.confidence);
+    }
+
+    // 1. Exact count: exactly 2 regions (upper equipment card + lower unified speech bubble)
+    assert_eq!(res.regions.len(), 2, "Novice Mage Page must have exactly 2 regions, got {}", res.regions.len());
+
+    // 2. Upper stats card verification
+    let stats_card = res.regions.iter().find(|r| r.text.contains("职业") || r.text.contains("法师"));
+    assert!(stats_card.is_some(), "Must detect upper equipment stats card");
+    let stats_region = stats_card.unwrap();
+    let stats_text = &stats_region.text;
+    assert!(stats_text.contains("职业：法师") || stats_text.contains("法师"), "Stats card missing class title");
+    assert!(stats_text.contains("残破的割肉小刀"), "Stats card missing final item line");
+    assert!(stats_text.contains("新手法师袍"), "Stats card must accurately recognize '新手法师袍' without typo");
+    assert!(!stats_text.contains("新丰"), "Stats card must not hallucinate '新丰' (which mistranslates as 'Xinfeng')");
+    // Vertical invariant: horizontal line lists must have vertical = false to prevent UI typesetting wrapping bugs
+    assert!(!stats_region.vertical, "Horizontal line-stacked list must have vertical = false, got true");
+
+    // 3. Lower unified speech bubble verification
+    let speech_bubble = res.regions.iter().find(|r| r.text.contains("菜鸟") || r.text.contains("这么胡") || r.text.contains("哼"));
+    assert!(speech_bubble.is_some(), "Must detect lower speech bubble");
+    let bubble_text = &speech_bubble.unwrap().text;
+    assert!(bubble_text.contains("这么胡") && bubble_text.contains("菜鸟"), "Speech bubble must unify both columns without fragmentation");
+
+    // 4. Negative Guard: Zero split fragment ghost boxes
+    assert!(!res.regions.iter().any(|r| r.text.trim() == "哼来个\n这菜" || r.text.trim() == "这么胡\n菜鸟一"), "Must not leave column-split fragment ghost boxes");
+}
+

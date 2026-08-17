@@ -76,15 +76,19 @@ This document defines the strict protocol for adding, compiling, and resolving M
 
 ## 🧠 Key Operational Learnings & Pitfall Preventions
 
-### 1. Source Image Ingestion: Always Query SQLite Database for Native File
-* **Pitfall**: Chat UI attachments, clipboard uploads, and screenshots are frequently downscaled or re-compressed by client software (e.g., downscaling an 800×1429 image to 573×1024).
-* **Prevention**: Whenever a test case is reported with a `pageId` (e.g. `pageId: 63620`):
-  1. Query the local SQLite database to find the exact source file path:
+### 1. Source Image Ingestion & Traceable Test Identity (Never Rely on `pageId` in Tests)
+* **Pitfall**: Auto-incrementing database `pageId`s are volatile and change across database re-creations, re-scans, or migrations. Furthermore, chat UI attachments, clipboard uploads, and screenshots are frequently downscaled or re-compressed by client software (e.g., downscaling an 800×1429 image to 573×1024).
+* **Prevention & Rules**:
+  1. **Locating Native Asset**: When a live bug report references a transient `pageId` (e.g. `pageId: 63620`):
      ```powershell
      sqlite3 "$env:APPDATA\XianScan\data\xianscan.db" "SELECT file_path FROM pages WHERE id = <pageId>;"
      ```
-  2. Copy that exact bit-for-bit file (`$env:APPDATA\XianScan\data\<file_path>`) directly into `tests/fixtures/`.
-  3. Never rely on chat attachments when the native database asset exists locally.
+     Copy that exact bit-for-bit file (`$env:APPDATA\XianScan\data\<file_path>`) directly into `tests/fixtures/`.
+  2. **Do NOT Rely on `pageId` in Test Cases / Code**: Never name test functions or write test assertions around ephemeral database `pageId` numbers.
+  3. **Rely on Traceable Data**: Always identify test cases and fixtures by deterministic, traceable characteristics:
+     * **Content / Dialogue Snippets**: e.g., `test_case_5_clean_stray_ocr_artifacts_normal`, `test_case_flesh_cutting_knife_and_novice_mage_split`, or matching on key text lines like `哼，这么胡\n来，菜鸟一\n个！` and `残破的割肉小刀`.
+     * **Image Content Hashing & Fixture Filenames**: Use descriptive fixture names (e.g., `tests/fixtures/novice_mage_equipment_stat_bubble.webp` or SHA256 hashes).
+     * **Semantic Problem Domain**: Category/behavior-based names and documentation matching the exact failure mode.
 
 ### 2. Never Synthesize or Resize Fixtures in Tests
 * **Pitfall**: Calling `.resize_exact()` or interpolation filters in test files alters subpixel edge contrast and line heights, masking real edge hallucinations.
@@ -126,8 +130,9 @@ This document defines the strict protocol for adding, compiling, and resolving M
 * **Pitfall**: Unconditionally forcing local crop recognition (`recognize_crop`) on large candidate boxes ($h \ge 75, w \ge 75$) even when full-page RapidOCR already detected $\ge 3$ or 4 clean, high-confidence lines can cause crop padding to over-extend into neighboring panels, introducing noise.
 * **Prevention**: Crop refinement should be targeted specifically at low-confidence regions ($score < 0.60$) or fragmented bubbles ($\le 2$ lines detected within an envelope tall enough for $\ge 3$ lines). When full-page OCR has already isolated $\ge 3$ clean lines with high confidence ($\ge 0.65$), trust the full-page text detection lines.
 
-### 12. Typographic Envelope Clamping vs. Unbounded Pixel Scanning
-* **Pitfall**: Attempting to expand trailing ellipsis dots (`……`) or punctuation via unconstrained horizontal pixel scanning across the image causes the scanning window to detect dark speech bubble contours, panel borders, or adjacent character strokes, inflating the bounding box across panel gutters and overlapping neighboring speech bubbles (e.g. Region 0 expanding from $w=195$ to $w=259$ and colliding with Region 1).
-* **Invariant**: Bounding box geometry must be strictly derived from typographic character envelopes (`active_polys` sub-line bounds + controlled character margin $\min(20, \text{line\_height}/3)$). Never scan raw pixel luminance across full vertical slices to determine horizontal bounding box bounds. Replacement of existing regions during deduplication must require strictly greater character counts (`cur_chars > ex_chars`) to prevent loose proposal boxes from overwriting tightly clamped glyph envelopes.
+### 13. Strict Single-Repository Root Invariant (`xianscan-rust` Only)
+* **Rule**: **NEVER edit, modify, or run builds in the legacy `c:\Users\Admin\Desktop\xianscan` directory.**
+* **Context**: All active frontend code (`web/`), backend server (`src/server/`), ML inference engine (`src/ml/`), and test suites (`tests/`) live exclusively inside `c:\Users\Admin\Desktop\xianscan-rust`.
+* **Reasoning**: `xianscan-rust` is a self-contained unified repository with embedded/local SSR. Editing the legacy `xianscan` folder causes changes to be invisible to `cargo watch` / `cargo run` and causes desynchronization. All file edits, `yarn build`s, and `cargo test`s must occur strictly within `c:\Users\Admin\Desktop\xianscan-rust`.
 
 
