@@ -173,8 +173,29 @@ impl RapidOcr {
         self.load_thai_from_bytes(&bytes, &dict_str)
     }
 
+    pub fn get_rec_session_and_dict(&mut self, source_lang: Option<&str>) -> (&mut Session, &[String]) {
+        let lang = source_lang.unwrap_or("").trim().to_ascii_lowercase();
+        if (lang.starts_with("ko") || lang == "korean") && self.korean_rec_session.is_some() && self.characters_korean.is_some() {
+            return (self.korean_rec_session.as_mut().unwrap(), self.characters_korean.as_ref().unwrap());
+        }
+        if (lang.starts_with("ru") || lang.starts_with("cyrillic") || lang == "russian") && self.cyrillic_rec_session.is_some() && self.characters_cyrillic.is_some() {
+            return (self.cyrillic_rec_session.as_mut().unwrap(), self.characters_cyrillic.as_ref().unwrap());
+        }
+        if (lang.starts_with("vi") || lang == "vietnamese") && self.vietnamese_rec_session.is_some() && self.characters_vietnamese.is_some() {
+            return (self.vietnamese_rec_session.as_mut().unwrap(), self.characters_vietnamese.as_ref().unwrap());
+        }
+        if (lang.starts_with("th") || lang == "thai") && self.thai_rec_session.is_some() && self.characters_thai.is_some() {
+            return (self.thai_rec_session.as_mut().unwrap(), self.characters_thai.as_ref().unwrap());
+        }
+        (&mut self.rec_session, &self.characters)
+    }
+
     /// Direct text recognition on a line crop
     pub fn recognize_line(&mut self, crop: &DynamicImage) -> Result<Option<OcrResult>> {
+        self.recognize_line_with_lang(crop, None)
+    }
+
+    pub fn recognize_line_with_lang(&mut self, crop: &DynamicImage, source_lang: Option<&str>) -> Result<Option<OcrResult>> {
         let (w, h) = crop.dimensions();
         if w < 4 || h < 4 {
             return Ok(None);
@@ -183,18 +204,22 @@ impl RapidOcr {
         // If vertical crop (h >= 1.3 * w), try rotated 270 (top-to-bottom -> left-to-right)
         if h as f32 >= 1.3 * w as f32 {
             let rot = crop.rotate270();
-            if let Ok(Some(rot_res)) = self.recognize_line_horizontal(&rot) {
+            if let Ok(Some(rot_res)) = self.recognize_line_horizontal_with_lang(&rot, source_lang) {
                 if CHINESE_RE.is_match(&rot_res.text) || rot_res.score >= 0.70 {
                     return Ok(Some(rot_res));
                 }
             }
         }
 
-        self.recognize_line_horizontal(crop)
+        self.recognize_line_horizontal_with_lang(crop, source_lang)
     }
 
     /// Batched text recognition on multiple line crops (up to batch size 16)
     pub fn recognize_lines_batched(&mut self, crops: &[DynamicImage]) -> Result<Vec<Option<OcrResult>>> {
+        self.recognize_lines_batched_with_lang(crops, None)
+    }
+
+    pub fn recognize_lines_batched_with_lang(&mut self, crops: &[DynamicImage], source_lang: Option<&str>) -> Result<Vec<Option<OcrResult>>> {
         if crops.is_empty() {
             return Ok(Vec::new());
         }
@@ -269,7 +294,8 @@ impl RapidOcr {
             let input_tensor = Tensor::from_array(([batch_len, 3, target_h, target_w], tensor_vec))
                 .map_err(|e| anyhow::anyhow!("Batched tensor create error: {}", e))?;
 
-            let outputs = self.rec_session.run(ort::inputs![input_tensor])
+            let (rec_session, characters) = self.get_rec_session_and_dict(source_lang);
+            let outputs = rec_session.run(ort::inputs![input_tensor])
                 .map_err(|e| anyhow::anyhow!("Batched rec session run error: {}", e))?;
 
             let (out_shape, out_slice) = outputs[0].try_extract_tensor::<f32>()
@@ -295,7 +321,7 @@ impl RapidOcr {
                 let slice_start = b_idx * batch_slice_stride;
                 let slice_end = slice_start + batch_slice_stride;
                 let item_out = &out_slice[slice_start..slice_end];
-                let ocr_res = decode_ctc_slice(item_out, time_steps, num_classes, &self.characters);
+                let ocr_res = decode_ctc_slice(item_out, time_steps, num_classes, characters);
                 results.push(ocr_res);
             }
         }
@@ -303,7 +329,11 @@ impl RapidOcr {
         Ok(results)
     }
 
-    fn recognize_line_horizontal(&mut self, crop: &DynamicImage) -> Result<Option<OcrResult>> {
+    pub fn recognize_line_horizontal(&mut self, crop: &DynamicImage) -> Result<Option<OcrResult>> {
+        self.recognize_line_horizontal_with_lang(crop, None)
+    }
+
+    fn recognize_line_horizontal_with_lang(&mut self, crop: &DynamicImage, source_lang: Option<&str>) -> Result<Option<OcrResult>> {
         let (w, h) = crop.dimensions();
         if w < 4 || h < 4 {
             return Ok(None);
@@ -342,7 +372,8 @@ impl RapidOcr {
         let input_tensor = Tensor::from_array(([1, 3, target_h as usize, target_w as usize], tensor_vec))
             .map_err(|e| anyhow::anyhow!("Tensor create error: {}", e))?;
 
-        let outputs = self.rec_session.run(ort::inputs![input_tensor])
+        let (rec_session, characters) = self.get_rec_session_and_dict(source_lang);
+        let outputs = rec_session.run(ort::inputs![input_tensor])
             .map_err(|e| anyhow::anyhow!("Session run error: {}", e))?;
 
         let (out_shape, out_slice) = outputs[0].try_extract_tensor::<f32>()
@@ -356,7 +387,7 @@ impl RapidOcr {
         let time_steps = dims[1];
         let num_classes = dims[2];
 
-        Ok(decode_ctc_slice(out_slice, time_steps, num_classes, &self.characters))
+        Ok(decode_ctc_slice(out_slice, time_steps, num_classes, characters))
     }
 
     /// OCR on a crop with 32px padding, multi-line reading-order sorting, and substring deduplication.

@@ -101,19 +101,31 @@ const SIMPLIFIED_CHAR_PATTERN = /[们这为会经说国动时现实体学业发�
 const ENGLISH_WORD_PATTERN = /^[a-zA-Z0-9\s.,!?'"()\-–—:;]+$/;
 const JAPANESE_CHAR_PATTERN = /[\u3040-\u30ff]/;
 const KOREAN_CHAR_PATTERN = /[\uac00-\ud7af]/;
+const CYRILLIC_CHAR_PATTERN = /[\u0400-\u04ff]/;
+const THAI_CHAR_PATTERN = /[\u0e00-\u0e7f]/;
+const VIETNAMESE_CHAR_PATTERN = /[àáạảãâầấậẩẫăằắặẳẵèéẹẻẽêềếệểễìíịỉĩòóọỏõôồốộổỗơờớợởỡùúụủũưừứựửữỳýỵỷỹđÀÁẠẢÃÂẦẤẬẨẪĂẰẮẶẲẴÈÉẸẺẼÊỀẾỆỂỄÌÍỊỈĨÒÓỌỎÕÔỒỐỘỔỖƠỜỚỢỞỠÙÚỤỦŨƯỪỨỰỬỮỲÝỴỶỸĐ]/;
 
 /**
  * Auto-detect the source language of a text string (defaults to Chinese variants for manhua).
  */
-export function detectSourceLanguage(text: string, fallback = 'zh-Hans'): 'zh-Hans' | 'zh-Hant' | 'ja' | 'ko' | 'en' {
+export function detectSourceLanguage(text: string, fallback = 'zh-Hans'): string {
 	const trimmed = (text || '').trim();
-	if (!trimmed) return fallback as 'zh-Hans' | 'zh-Hant' | 'ja' | 'ko' | 'en';
+	if (!trimmed) return fallback;
 
 	if (JAPANESE_CHAR_PATTERN.test(trimmed)) {
 		return 'ja';
 	}
 	if (KOREAN_CHAR_PATTERN.test(trimmed)) {
 		return 'ko';
+	}
+	if (CYRILLIC_CHAR_PATTERN.test(trimmed)) {
+		return 'ru';
+	}
+	if (THAI_CHAR_PATTERN.test(trimmed)) {
+		return 'th';
+	}
+	if (VIETNAMESE_CHAR_PATTERN.test(trimmed)) {
+		return 'vi';
 	}
 	if (ENGLISH_WORD_PATTERN.test(trimmed) && !/[\u4e00-\u9fff]/.test(trimmed)) {
 		return 'en';
@@ -128,7 +140,7 @@ export function detectSourceLanguage(text: string, fallback = 'zh-Hans'): 'zh-Ha
 
 	if (tradCount > simpCount) return 'zh-Hant';
 	if (simpCount > 0) return 'zh-Hans';
-	return fallback as 'zh-Hans' | 'zh-Hant' | 'ja' | 'ko' | 'en';
+	return fallback;
 }
 
 export function getLanguage(code: string | null | undefined): Language {
