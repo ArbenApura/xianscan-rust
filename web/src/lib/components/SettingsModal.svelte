@@ -1324,7 +1324,7 @@
 					</div>
 
 					<div class="grid grid-cols-1 gap-2 sm:grid-cols-2 sm:gap-2.5">
-						{#each EXECUTION_DEVICES as dev}
+						{#each EXECUTION_DEVICES as dev (dev.id)}
 							{@const available = isDeviceAvailable(dev.id)}
 							{@const reason = getDeviceAvailabilityReason(dev.id)}
 							<button
@@ -1337,7 +1337,6 @@
 											? 'border-[#b23a2e] bg-[#b23a2e]/[0.08] text-[#b23a2e] dark:text-[#e08a63] ring-2 ring-[#b23a2e]/30 shadow-xs'
 											: 'border-black/10 hover:border-black/20 hover:bg-black/[0.02] dark:border-white/10 dark:hover:border-white/20 dark:hover:bg-white/[0.02]'
 								}`}
-								use:ripple
 							>
 								<div>
 									<div class="flex items-center justify-between gap-2">
@@ -1410,7 +1409,7 @@
 					</div>
 
 					<div class="grid grid-cols-4 gap-2">
-						{#each [1, 2, 3, 4] as count}
+						{#each [1, 2, 3, 4] as count (count)}
 							<button
 								type="button"
 								on:click={() => setParallelProcesses(count)}
@@ -1419,7 +1418,6 @@
 										? 'border-[#b23a2e] bg-[#b23a2e]/[0.08] text-[#b23a2e] dark:text-[#e08a63] ring-2 ring-[#b23a2e]/30 shadow-xs'
 										: 'border-black/10 hover:border-black/20 hover:bg-black/[0.02] dark:border-white/10 dark:hover:border-white/20 dark:hover:bg-white/[0.02]'
 								}`}
-								use:ripple
 							>
 								{count} {count === 1 ? 'Worker' : 'Workers'}
 							</button>
@@ -1435,7 +1433,7 @@
 					</div>
 
 					<div class="grid grid-cols-4 gap-2">
-						{#each [1, 2, 3, 4] as count}
+						{#each [1, 2, 3, 4] as count (count)}
 							<button
 								type="button"
 								on:click={() => setParallelChapters(count)}
@@ -1444,7 +1442,6 @@
 										? 'border-[#b23a2e] bg-[#b23a2e]/[0.08] text-[#b23a2e] dark:text-[#e08a63] ring-2 ring-[#b23a2e]/30 shadow-xs'
 										: 'border-black/10 hover:border-black/20 hover:bg-black/[0.02] dark:border-white/10 dark:hover:border-white/20 dark:hover:bg-white/[0.02]'
 								}`}
-								use:ripple
 							>
 								{count} {count === 1 ? 'Chapter' : 'Chapters'}
 							</button>

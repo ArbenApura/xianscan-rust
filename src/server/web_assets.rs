@@ -84,12 +84,12 @@ static FILE_URI_TO_PATH_PKG: Dir<'static> =
 /// better-sqlite3 native addon for the current platform.
 /// Path discovered by build.rs → BETTER_SQLITE3_NODE_PATH.
 #[cfg(feature = "embed-web")]
-const BETTER_SQLITE3_NODE: &[u8] = include_bytes!(env!("BETTER_SQLITE3_NODE_PATH"));
+static BETTER_SQLITE3_NODE: &[u8] = include_bytes!(env!("BETTER_SQLITE3_NODE_PATH"));
 
 /// Skia canvas native addon for the current platform.
 /// Path discovered by build.rs → SKIA_NODE_PATH.
 #[cfg(feature = "embed-web")]
-const SKIA_NODE: &[u8] = include_bytes!(env!("SKIA_NODE_PATH"));
+static SKIA_NODE: &[u8] = include_bytes!(env!("SKIA_NODE_PATH"));
 
 /// Filename of the Skia .node binary (e.g. `skia.win32-x64-msvc.node`).
 /// js-binding.js uses `require('./<SKIA_NODE_FILENAME>')` to load it, so the
@@ -101,12 +101,12 @@ const SKIA_NODE_FILENAME: &str = env!("SKIA_NODE_FILENAME");
 /// Skia ICU data file for Unicode / SkParagraph text rendering.
 /// Path discovered by build.rs → SKIA_ICU_PATH.
 #[cfg(feature = "embed-web")]
-const SKIA_ICU_BYTES: &[u8] = include_bytes!(env!("SKIA_ICU_PATH"));
+static SKIA_ICU_BYTES: &[u8] = include_bytes!(env!("SKIA_ICU_PATH"));
 
 /// Optional bundled standalone Node.js binary for the current platform.
 /// Path discovered by build.rs → NODE_BIN_PATH.
 #[cfg(feature = "embed-web")]
-const NODE_BINARY: &[u8] = include_bytes!(env!("NODE_BIN_PATH"));
+static NODE_BINARY: &[u8] = include_bytes!(env!("NODE_BIN_PATH"));
 
 
 

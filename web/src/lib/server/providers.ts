@@ -369,10 +369,10 @@ export async function fetchAvailableModels(params: {
 	apiKey?: string;
 	baseUrl?: string;
 }): Promise<{ models: string[] }> {
-	const prov = await getProvider(params.id);
+	const prov = getProviderById(params.id);
 	const key = params.apiKey !== undefined && params.apiKey !== ''
 		? params.apiKey
-		: (prov ? await getDecryptedKey(prov) : '');
+		: (prov ? prov.apiKey || '' : '');
 
 	let base = params.baseUrl || prov?.baseUrl;
 	if (!base || base.trim().length === 0) {
