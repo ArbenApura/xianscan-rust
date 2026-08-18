@@ -58,4 +58,12 @@
 	<slot />
 </div>
 
-<Toaster position="top-center" richColors closeButton />
+<Toaster
+	position="top-center"
+	richColors
+	closeButton
+	theme={$settings.theme === 'dark' ? 'dark' : 'light'}
+	toastOptions={{
+		style: 'font-family: var(--app-font-family, inherit);',
+	}}
+/>

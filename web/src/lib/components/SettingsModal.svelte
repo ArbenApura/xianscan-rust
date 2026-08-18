@@ -267,7 +267,10 @@
 	}
 
 	function updateSourceLang(lang: string) {
-		settings.update((s) => ({ ...s, sourceLang: lang }));
+		settings.update((s) => {
+			const nextTarget = s.targetLang === lang ? (lang === 'en' ? 'zh-Hans' : 'en') : s.targetLang;
+			return { ...s, sourceLang: lang, targetLang: nextTarget };
+		});
 	}
 
 	function updateTargetLang(lang: string) {
@@ -1524,7 +1527,7 @@
 						<div class="space-y-1">
 							<label class="text-[11px] font-semibold opacity-75">Source Language</label>
 							<LanguagePicker
-								value={$settings.sourceLang || 'zh'}
+								value={$settings.sourceLang || 'zh-Hans'}
 								mode="source"
 								on:change={(e) => updateSourceLang(e.detail)}
 							/>
@@ -1535,6 +1538,7 @@
 							<LanguagePicker
 								value={$settings.targetLang || 'en'}
 								mode="target"
+								excludeCode={$settings.sourceLang || 'zh-Hans'}
 								on:change={(e) => updateTargetLang(e.detail)}
 							/>
 						</div>

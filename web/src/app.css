@@ -32,6 +32,18 @@
 		font-weight: 550;
 	}
 
+	/* Ensure svelte-sonner toasts inherit the active app font family preference */
+	[data-sonner-toaster],
+	[data-sonner-toaster] *,
+	[data-sonner-toast],
+	[data-sonner-toast] *,
+	[data-sonner-toast] [data-title],
+	[data-sonner-toast] [data-description],
+	[data-sonner-toast] [data-button],
+	[data-sonner-toast] [data-cancel] {
+		font-family: var(--app-font-family, inherit) !important;
+	}
+
 
 	/* THEMED SCROLLBARS — TRANSLUCENT THUMBS BLEND OVER WHATEVER THEME BACKGROUND IS ACTIVE
 	   (LIGHT/SEPIA → DARK THUMB, DARK → LIGHT THUMB), SO THEY MATCH EVERY THEME. */

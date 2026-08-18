@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { eq } from 'drizzle-orm';
 import { getTestDb, resetDb, seedBook, seedChapter, seedPage, type TestDb } from '../helpers/db';
 import { nextPageSeq, reorderPages, deletePage, compactChapterPageSeqs } from '$lib/server/chapters';
-import { pages, regions, translations } from '$lib/server/db/schema';
+import { chapters, pages, regions, translations } from '$lib/server/db/schema';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 
@@ -266,6 +266,32 @@ describe('nextPageSeq & reorderPages', () => {
 		expect(reset).toBe(2);
 		const rows = db.select().from(pages).where(eq(pages.chapterId, chapter.id)).orderBy(pages.seq).all();
 		expect(rows.every((r) => r.status === 'pending' && r.outputPath === null && r.error === null)).toBe(true);
+	});
+
+	it('resetAllBookProgress clears progress across all chapters in a book while preserving pages', async () => {
+		const { resetAllBookProgress } = await import('$lib/server/chapters');
+
+		seedBook(db, { id: 'b_multi' });
+		const ch1 = seedChapter(db, { bookId: 'b_multi', seq: 0 });
+		const ch2 = seedChapter(db, { bookId: 'b_multi', seq: 1 });
+		const p0 = seedPage(db, { chapterId: ch1.id, seq: 0 });
+		const p1 = seedPage(db, { chapterId: ch2.id, seq: 0 });
+
+		db.update(pages).set({ status: 'done', outputPath: 'output/1/0.png' }).where(eq(pages.id, p0.id)).run();
+		db.update(pages).set({ status: 'done', outputPath: 'output/2/0.png' }).where(eq(pages.id, p1.id)).run();
+		db.update(chapters).set({ status: 'done', translatedAt: Date.now() }).where(eq(chapters.bookId, 'b_multi')).run();
+
+		const result = resetAllBookProgress('b_multi');
+
+		expect(result.chaptersReset).toBe(2);
+		expect(result.pagesReset).toBe(2);
+
+		const remainingPages = db.select().from(pages).all();
+		expect(remainingPages.filter((p) => p.id === p0.id || p.id === p1.id)).toHaveLength(2);
+		expect(remainingPages.every((p) => p.status === 'pending' && p.outputPath === null)).toBe(true);
+
+		const updatedChs = db.select().from(chapters).where(eq(chapters.bookId, 'b_multi')).all();
+		expect(updatedChs.every((c) => c.status === 'pending' && c.translatedAt === null)).toBe(true);
 	});
 
 	it('resliceChapterPages combines slices and swaps them for newly sliced pages', async () => {

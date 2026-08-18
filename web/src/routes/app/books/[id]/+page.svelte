@@ -1,6 +1,6 @@
 <script lang="ts">
 	// IMPORTED DEP-COMPONENTS
-	import { goto } from '$app/navigation';
+	import { goto, invalidateAll } from '$app/navigation';
 	import { page } from '$app/stores';
 	import { onMount } from 'svelte';
 	import { toast } from 'svelte-sonner';
@@ -161,6 +161,7 @@
 
 	async function reload() {
 		try {
+			await invalidateAll();
 			const resp = await fetch(`/api/books/${$page.params.id}`);
 			if (!resp.ok) throw new Error('not found');
 			const data = await resp.json();
@@ -412,6 +413,36 @@
 			toast.error(e.message || 'Could not clear pages.');
 		} finally {
 			clearingPages = false;
+		}
+	}
+
+	// CLEAR PROGRESS STATES
+	let clearProgressConfirmOpen = false;
+	let clearingProgress = false;
+
+	async function confirmClearProgress() {
+		if (!book) return;
+		clearingProgress = true;
+		const toastId = toast.loading('Clearing all translation progress...');
+		try {
+			const resp = await fetch(`/api/books/${book.id}/clear-progress`, {
+				method: 'POST',
+			});
+			if (!resp.ok) {
+				const err = await resp.json().catch(() => ({}));
+				throw new Error(err.message || 'Failed to clear progress');
+			}
+			const res = await resp.json();
+			toast.success(
+				`Cleared translation progress for ${res.chaptersReset} chapter${res.chaptersReset === 1 ? '' : 's'} (${res.pagesReset} page${res.pagesReset === 1 ? '' : 's'}). All pages preserved.`,
+				{ id: toastId },
+			);
+			clearProgressConfirmOpen = false;
+			await reload();
+		} catch (e: any) {
+			toast.error(e.message || 'Could not clear progress.', { id: toastId });
+		} finally {
+			clearingProgress = false;
 		}
 	}
 
@@ -771,6 +802,23 @@
 					>
 						<BookOpen size={14} /> <span>Glossary</span>
 					</Button>
+
+					{#if chapters.length > 0}
+						<Button
+							variant="secondary"
+							size="md"
+							loading={clearingProgress}
+							disabled={clearingProgress}
+							class="h-9 sm:h-10 px-3 sm:px-3.5 text-xs sm:text-sm font-medium border-red-500/30 bg-red-500/5 text-red-600 hover:bg-red-500 hover:text-white dark:text-red-400 dark:border-red-400/30 dark:bg-red-400/5 dark:hover:bg-red-500 dark:hover:text-white transition-all shadow-xs"
+							on:click={() => (clearProgressConfirmOpen = true)}
+							title="Clear all translations and OCR progress while keeping all pages intact"
+						>
+							{#if !clearingProgress}
+								<RotateCw size={14} />
+							{/if}
+							<span>{clearingProgress ? 'Clearing...' : 'Clear Progress'}</span>
+						</Button>
+					{/if}
 				</div>
 			</div>
 		</div>
@@ -1831,4 +1879,16 @@
 	variant="danger"
 	on:confirm={confirmClearPages}
 	on:cancel={() => (clearPagesConfirmOpen = false)}
+/>
+
+<!-- CLEAR PROGRESS CONFIRMATION DIALOG -->
+<ConfirmDialog
+	open={clearProgressConfirmOpen}
+	title={`Clear Progress from "${book?.titleTarget || book?.title || 'Book'}"?`}
+	message={`Are you sure you want to clear translation and OCR progress from all ${chapters.length} chapter(s)? All translations, detected regions, and output images will be reset back to pending, but all original page images will be preserved.`}
+	confirmLabel="Clear Progress"
+	requireVerificationCode={true}
+	variant="danger"
+	on:confirm={confirmClearProgress}
+	on:cancel={() => (clearProgressConfirmOpen = false)}
 />

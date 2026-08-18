@@ -1,6 +1,6 @@
 // CHAPTER / PAGE CREATION HELPERS — SHARED BY THE API ROUTES.
 import { randomUUID } from 'node:crypto';
-import { mkdirSync, readFileSync, writeFileSync, unlinkSync } from 'node:fs';
+import { mkdirSync, readFileSync, writeFileSync, unlinkSync, rmSync } from 'node:fs';
 import { join, extname } from 'node:path';
 // IMPORTED DEP-MODULES
 import { error } from '@sveltejs/kit';
@@ -364,12 +364,26 @@ export async function stitchPageWithNext(
 	reorderPages(topPage.chapterId, remainingIds);
 }
 
-// -- PROGRESS RESET -- //
+// CLEAR ONE PAGE'S PIPELINE PROGRESS — DETECTED REGIONS, MEMOIZED TRANSLATIONS, AND DISK OUTPUTS.
+// ORIGINAL UPLOADED IMAGES (filePath) ARE PRESERVED; GENERATED clean/ AND output/ FILES ARE UNLINKED.
+export function resetPageProgress(pageId: number, dataRoot: string = DATA_ROOT): void {
+	const pageRow = db
+		.select({ cleanedPath: pages.cleanedPath, outputPath: pages.outputPath })
+		.from(pages)
+		.where(eq(pages.id, pageId))
+		.get();
 
-// CLEAR ONE PAGE'S PIPELINE PROGRESS — DETECTED REGIONS, MEMOIZED TRANSLATIONS (SO A RE-RUN DOES A
-// FRESH LLM CALL INSTEAD OF A CACHE HIT), AND OUTPUT PATHS — BACK TO 'pending' FOR A CLEAN RETRY.
-// DISK FILES ARE LEFT IN PLACE: THE PIPELINE OVERWRITES clean/ AND output/ ON RE-RUN.
-export function resetPageProgress(pageId: number): void {
+	if (pageRow) {
+		const filesToUnlink = [pageRow.cleanedPath, pageRow.outputPath].filter(Boolean) as string[];
+		for (const rel of filesToUnlink) {
+			try {
+				unlinkSync(join(dataRoot, rel));
+			} catch {
+				// ignore if file already missing
+			}
+		}
+	}
+
 	db.delete(translations).where(eq(translations.pageId, pageId)).run();
 	db.delete(regions).where(eq(regions.pageId, pageId)).run();
 	db.update(pages)
@@ -386,10 +400,44 @@ export function resetPageProgress(pageId: number): void {
 }
 
 // CLEAR EVERY PAGE OF A CHAPTER. RETURNS HOW MANY PAGES WERE RESET.
-export function resetChapterProgress(chapterId: number): number {
+export function resetChapterProgress(chapterId: number, dataRoot: string = DATA_ROOT): number {
+	clearChapterJob(chapterId);
 	const rows = db.select({ id: pages.id }).from(pages).where(eq(pages.chapterId, chapterId)).all();
-	for (const row of rows) resetPageProgress(row.id);
+	for (const row of rows) resetPageProgress(row.id, dataRoot);
+
+	// Remove generated clean and output directories for this chapter to prevent disk bloat
+	for (const folder of ['clean', 'output']) {
+		const dir = join(dataRoot, folder, String(chapterId));
+		try {
+			rmSync(dir, { recursive: true, force: true });
+		} catch {
+			// ignore
+		}
+	}
+
+	db.update(chapters)
+		.set({
+			status: 'pending',
+			translatedAt: null,
+		})
+		.where(eq(chapters.id, chapterId))
+		.run();
 	return rows.length;
+}
+
+// CLEAR TRANSLATION & OCR PROGRESS FOR ALL CHAPTERS OF A BOOK WHILE KEEPING PAGES INTACT.
+export function resetAllBookProgress(bookId: string, dataRoot: string = DATA_ROOT): { chaptersReset: number; pagesReset: number } {
+	const chapterRows = db
+		.select({ id: chapters.id })
+		.from(chapters)
+		.where(eq(chapters.bookId, bookId))
+		.all();
+
+	let pagesReset = 0;
+	for (const ch of chapterRows) {
+		pagesReset += resetChapterProgress(ch.id, dataRoot);
+	}
+	return { chaptersReset: chapterRows.length, pagesReset };
 }
 
 // SMART RE-SLICE CHAPTER PAGES: COMBINE ALL SLICES, CUT AT NATURAL GUTTERS, AND ATOMICALLY SWAP
@@ -514,12 +562,20 @@ export async function deleteAllChapterPages(
 	// CANCEL & CLEAR ANY ACTIVE JOBS
 	clearChapterJob(chapterId);
 
-	// CLEAN UP OLD UPLOADED IMAGE FILES
+	// CLEAN UP OLD UPLOADED IMAGE FILES & CHAPTER FOLDERS
 	for (const oldPath of oldFilePaths) {
 		try {
 			unlinkSync(oldPath);
 		} catch {
 			// ignore missing files
+		}
+	}
+	for (const folder of ['uploads', 'clean', 'output']) {
+		const dir = join(dataRoot, folder, String(chapterId));
+		try {
+			rmSync(dir, { recursive: true, force: true });
+		} catch {
+			// ignore
 		}
 	}
 
