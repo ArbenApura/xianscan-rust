@@ -324,4 +324,84 @@ fn test_regression_manga_kotatsu_timing_tea_club_lottery() {
     assert!(hmm.is_some(), "Must detect 'えー？ うーん…' bubble");
 }
 
+/// # Japanese Real-Page Regression: `page_school_phone_rule_e_bubble.webp` (Resolution: 810 × 737 WebP)
+///
+/// ## Purpose & Behavior Tested:
+/// - **Isolated Single-Character Bubble Detection (`え。`)**:
+///   Guarantees that isolated, high-contrast single-glyph speech bubbles are detected and not pruned as noise.
+/// - **Adjacent Speech Bubble Separation**:
+///   Ensures that the bottom-left upper bubble (`いつも\nつるんでる\nやつらでも…`) and lower bubble
+///   (`だれでもいい。\n友だち\nたくさん\nいるだろう。`) are preserved as two distinct regions, preventing
+///   monolithic bounding box merges and interleaved/garbled OCR reading orders.
+/// - **Strict 8-Region Accounting**:
+///   Guarantees that all 8 speech bubbles across both panels are cleanly detected with exact text invariants.
+#[test]
+fn test_regression_page_school_phone_rule_e_bubble() {
+    let img_path = Path::new("tests/fixtures/ja/page_school_phone_rule_e_bubble.webp");
+    if !img_path.exists() {
+        eprintln!("Fixture {:?} not found, skipping test", img_path);
+        return;
+    }
+
+    let img = image::ImageReader::open(img_path)
+        .expect("Failed to open page_school_phone_rule_e_bubble.webp")
+        .with_guessed_format()
+        .expect("Failed to guess format")
+        .decode()
+        .expect("Failed to decode image");
+
+    let res = get_or_analyze_fixture_with_lang(&img, Some("ja"));
+    println!("=== Japanese Native 810x737 Page Results ({} regions) ===", res.regions.len());
+    for (i, r) in res.regions.iter().enumerate() {
+        println!("  Region r{}: box={:?}, text='{}', conf={:.2}, vert={}", i, r.box_, r.text.replace('\n', "\\n"), r.confidence, r.vertical);
+    }
+
+    // 0. Strict 8-region accounting (Rule #12)
+    assert_eq!(res.regions.len(), 8, "Must detect exactly 8 speech bubbles across the page");
+
+    // 1. Top-Right Bubble: '気が\nぬけたら\n意識\nトびそうに\nなった…'
+    let top_right = res.regions.iter().find(|r| r.text.contains("気が") && r.text.contains("ぬけたら"));
+    assert!(top_right.is_some(), "Must detect top-right bubble '気が ぬけたら 意識 トびそうに なった…'");
+    let tr_text = &top_right.unwrap().text;
+    assert!(tr_text.contains("意識") && (tr_text.contains("トびそう") || tr_text.contains("トひそう") || tr_text.contains("卜びそう")), "Must preserve consciousness fade text: {}", tr_text);
+
+    // 2. Top-Center Single-Character Bubble: 'え。'
+    let e_bubble = res.regions.iter().find(|r| {
+        let t = r.text.trim();
+        t == "え。" || t == "え" || t.starts_with("え")
+    });
+    assert!(e_bubble.is_some(), "Must detect top-center single-character bubble 'え。'");
+
+    // 3. Top-Middle Right Bubble: '学校内で\nスマホ持ち歩くの\n校則違反じゃん。'
+    let school_rule = res.regions.iter().find(|r| r.text.contains("学校内") || r.text.contains("校則違反"));
+    assert!(school_rule.is_some(), "Must detect '学校内で スマホ持ち歩くの 校則違反じゃん。' bubble");
+    let sr_text = &school_rule.unwrap().text;
+    assert!(sr_text.contains("スマホ") && sr_text.contains("持ち歩く"), "Must contain full phone rule dialogue: {}", sr_text);
+
+    // 4. Top-Middle Left Bubble: 'あ…\nうん。'
+    let ah_un = res.regions.iter().find(|r| r.text.contains("あ…") || (r.text.contains("あ") && r.text.contains("うん")));
+    assert!(ah_un.is_some(), "Must detect 'あ… うん。' bubble");
+
+    // 5. Top-Left Bubble: '万事解決だ。\nスマホが\nあれば外に\n助けが呼べる。'
+    let all_solved = res.regions.iter().find(|r| r.text.contains("万事解決") || r.text.contains("助けが呼べる"));
+    assert!(all_solved.is_some(), "Must detect top-left bubble '万事解決だ。 スマホが あれば外に 助けが呼べる。'");
+
+    // 6. Bottom-Middle Bubble: '職員室に\nつないで\n先生にきて\nもらうか…'
+    let staff_room = res.regions.iter().find(|r| r.text.contains("職員室") || r.text.contains("先生にきて"));
+    assert!(staff_room.is_some(), "Must detect bottom-middle bubble '職員室に つないで 先生にきてもらうか…'");
+
+    // 7. Bottom-Left Upper Bubble: 'いつも\nつるんでる\nやつらでも…'
+    let hanging_out = res.regions.iter().find(|r| r.text.contains("つるんでる") || (r.text.contains("いつも") && r.text.contains("やつら")));
+    assert!(hanging_out.is_some(), "Must detect bottom-left upper bubble 'いつも つるんでる やつらでも…'");
+    let ho_text = &hanging_out.unwrap().text;
+    assert!(!ho_text.contains("だれでもいい"), "Upper bubble must NOT be merged with lower bubble: {}", ho_text);
+
+    // 8. Bottom-Left Lower Bubble: 'だれでもいい。\n友だち\nたくさん\nいるだろう。'
+    let anyone_fine = res.regions.iter().find(|r| r.text.contains("だれでもいい") || (r.text.contains("友だち") && r.text.contains("いるだろう")));
+    assert!(anyone_fine.is_some(), "Must detect bottom-left lower bubble 'だれでもいい。 友だち たくさん いるだろう。'");
+    let af_text = &anyone_fine.unwrap().text;
+    assert!(!af_text.contains("つるんでる"), "Lower bubble must NOT be merged with upper bubble: {}", af_text);
+}
+
+
 

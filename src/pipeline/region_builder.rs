@@ -272,10 +272,11 @@ pub fn build_regions(
                     false
                 }
             };
-            let is_clean_vert_multiline = is_vert_cluster && filtered_matched.len() >= 2 && avg_score >= 0.65;
+            let is_clean_multiline = (filtered_matched.len() >= 3 && avg_score >= 0.65)
+                || (is_vert_cluster && filtered_matched.len() >= 2 && avg_score >= 0.65);
             let is_short_line_in_bubble = (filtered_matched.len() <= 2 && box_rect.w >= 30 && box_rect.h >= 18)
                 || (box_rect.h >= (box_rect.w as f32 * 1.5) as i32 && box_rect.h >= 40);
-            let needs_crop_refinement = !is_clean_vert_multiline && (is_short_line_in_bubble
+            let needs_crop_refinement = !is_clean_multiline && (is_short_line_in_bubble
                 || is_uneven_multiline
                 || has_mixed_orientations
                 || avg_score < 0.70);
@@ -392,7 +393,14 @@ pub fn build_regions(
                                     }
                                 }
                                 if !is_crop_ruby {
-                                    clean_lines.push((c_poly.clone(), c_txt.clone(), *c_score));
+                                    // Ensure crop line belongs to this region and didn't bleed from an adjacent speech bubble
+                                    let global_cx = crop_x as i32 + cx + cw / 2;
+                                    let global_cy = crop_y as i32 + cy + ch / 2;
+                                    let inside_x = global_cx >= (box_rect.x - 20) && global_cx <= (box_rect.x + box_rect.w + 20);
+                                    let inside_y = global_cy >= (box_rect.y - 20) && global_cy <= (box_rect.y + box_rect.h + 20);
+                                    if inside_x && inside_y {
+                                        clean_lines.push((c_poly.clone(), c_txt.clone(), *c_score));
+                                    }
                                 }
                             }
 
@@ -604,7 +612,7 @@ pub fn build_regions(
         };
 
         // ISOLATED SINGLE-CHARACTER NON-SFX ARTWORK / WATERMARK HALLUCINATION FILTER
-        let sfx_onomatopoeia = "啊呀哇嗷嘶呜呼哈噗轰咚咳啪砰咔唰嘭哒嗒踏铛铮刷咻嗖哧嚓哐咕嗡吼鸣飒吱咯嘎喳沙";
+        let sfx_onomatopoeia = "啊呀哇嗷嘶呜呼哈噗轰咚咳啪砰咔唰嘭哒嗒踏铛铮刷咻嗖哧嚓哐咕嗡吼鸣飒吱咯嘎喳沙えエおオあアいイうウ";
         let char_count = cleaned.chars().filter(|c| !c.is_whitespace()).count();
         let has_cyrillic = crate::ml::detect::CYRILLIC_CHAR_RE.is_match(&cleaned);
         let has_thai = crate::ml::detect::THAI_CHAR_RE.is_match(&cleaned);
@@ -847,12 +855,17 @@ pub fn build_regions(
             let y_ratio_inter = inter_y.max(0) as f32 / box_rect.h.min(existing.box_.h).max(1) as f32;
             let is_contained_subtext = is_subtext && x_ratio_inter >= 0.50 && y_ratio_inter >= 0.30;
             let is_same_bubble_vertical_chain = {
-                let top_has_term = if box_rect.y >= existing.box_.y {
-                    existing.text.trim().ends_with(['！', '!', '？', '?', '。'])
+                let (top_txt, bot_txt) = if box_rect.y >= existing.box_.y {
+                    (existing.text.trim(), cleaned.trim())
                 } else {
-                    cleaned.trim().ends_with(['！', '!', '？', '?', '。'])
+                    (cleaned.trim(), existing.text.trim())
                 };
-                if top_has_term {
+                let top_lines = top_txt.lines().filter(|s| !s.trim().is_empty()).count();
+                let bot_lines = bot_txt.lines().filter(|s| !s.trim().is_empty()).count();
+                let top_has_term = top_txt.ends_with(['！', '!', '？', '?', '。', '…', '~', '～']);
+
+                // Complete multi-line speech bubbles (>= 2 lines) or single utterances ending with terminal punct must not merge
+                if top_has_term || top_lines >= 2 || bot_lines >= 2 {
                     false
                 } else {
                     let v_gap = if box_rect.y >= existing.box_.y {

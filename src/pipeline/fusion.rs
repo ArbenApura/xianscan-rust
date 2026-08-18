@@ -110,8 +110,8 @@ pub fn fuse_detections(
             if !ocr_det_matched[idx] {
                 let (bx, by, bw, bh) = polygon_bounds(cb);
                 if bw >= 4 && bh >= 4 && bx < w as i32 && by < h as i32 {
-                    let pad_x = (bw / 2).clamp(30, 60);
-                    let pad_y = (bh / 2).clamp(20, 50);
+                    let pad_x = (bw / 2).clamp(10, 25);
+                    let pad_y = (bh / 2).clamp(10, 20);
                     let crop_x = (bx - pad_x).max(0) as u32;
                     let crop_y = (by - pad_y).max(0) as u32;
                     let crop_w = ((bw + pad_x * 2) as u32).min(w - crop_x);

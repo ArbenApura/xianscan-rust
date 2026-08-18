@@ -157,12 +157,13 @@ pub fn post_process_regions(
                 let top_cx_pre = top.box_.x + top.box_.w / 2;
                 let bot_cx_pre = bot.box_.x + bot.box_.w / 2;
                 let is_same_bubble_continuation = !top_ends_with_terminal
+                    && top_lines <= 1 && bot_lines <= 1
                     && x_overlap_pre >= min_w_pre * 3 / 5
                     && (top_cx_pre - bot_cx_pre).abs() <= min_w_pre * 2 / 5
                     && (bot.box_.y - (top.box_.y + top.box_.h)) <= ((top.box_.h + bot.box_.h) / 2) * 2 / 5;
 
                 if !is_both_narration && !is_same_bubble_continuation {
-                    if (top_lines >= 2 && bot_lines >= 2) || top_lines >= 3 || bot_lines >= 3 || top_ends_with_terminal {
+                    if (top_lines >= 2 && bot_lines >= 2) || top_lines >= 2 || bot_lines >= 2 || top_ends_with_terminal {
                         continue;
                     }
                 }
@@ -193,7 +194,7 @@ pub fn post_process_regions(
                     let min_h = left.box_.h.min(right.box_.h);
                     let v_overlap_ratio = v_inter.max(0) as f32 / min_h.max(1) as f32;
                     let same_bubble_bounds = (left.box_.w + right.box_.w <= 240) && (left.box_.h.max(right.box_.h) <= 150);
-                    let both_short_utterance = top_lines <= 2 && bot_lines <= 2;
+                    let both_short_utterance = top_lines <= 2 && bot_lines <= 2 && !top_ends_with_terminal;
                     (h_gap >= -30 && h_gap <= 25) && v_overlap_ratio >= 0.50 && same_bubble_bounds && both_short_utterance
                 };
 

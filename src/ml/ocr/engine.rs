@@ -422,10 +422,11 @@ impl RapidOcr {
         }
 
         if raw_lines.is_empty() {
-            // Strict regex-gated fallback for compact single-glyph punctuation crops
-            if w <= 60 || h <= 60 || (h >= 2 * w && w <= 80) {
+            // Fallback for compact single/short utterance speech bubble crops (e.g. isolated 'え。', '！？')
+            if w <= 120 && h <= 120 {
                 if let Ok(Some(line_res)) = self.recognize_line_with_lang(crop, source_lang) {
-                    if PUNCT_ONLY.is_match(&line_res.text) {
+                    let clean_t = line_res.text.trim();
+                    if !clean_t.is_empty() && (PUNCT_ONLY.is_match(clean_t) || crate::ml::detect::has_cjk_characters(clean_t) || crate::ml::detect::has_alphanumeric_characters(clean_t)) {
                         let poly = vec![
                             [0, 0],
                             [w as i32, 0],
