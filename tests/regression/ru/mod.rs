@@ -88,3 +88,63 @@ fn test_regression_page_she_clearly_russian_bubble() {
     assert!(b.y >= 250 && b.y <= 450, "Bubble Y ({}) must be in upper half of page", b.y);
     assert!(b.w >= 100 && b.w <= 300, "Bubble width ({}) must be tight", b.w);
 }
+
+/// # Russian Real-Page Regression: `page_girl_shiver_curved_sfx_tyayan.webp` (Resolution: 720 × 2054)
+///
+/// ## Purpose & Behavior Tested:
+/// - **Curved Russian SFX (`ТЯ-ЯНЬ`)**:
+///   Ensures slanted sound effect is recognized as Cyrillic `ТЯ-ЯНЬ` / `тя-янь` without misreading as Latin `ЛаН`/`Lan`.
+/// - **Handwritten Cyrillic Action SFX (`вздрог`)**:
+///   Ensures the startle/shiver SFX is recognized in Russian Cyrillic `вздрог` rather than Latin noise (`e3tfo`).
+/// - **Negative Guards**:
+///   Strictly forbids Latin hallucination slivers (`e3tfo`, `ЛаН`).
+#[test]
+fn test_regression_page_girl_shiver_curved_sfx_tyayan() {
+    let img_path = Path::new("tests/fixtures/ru/page_girl_shiver_curved_sfx_tyayan.webp");
+    if !img_path.exists() {
+        eprintln!("Fixture {:?} not found, skipping test", img_path);
+        return;
+    }
+
+    let img = image::ImageReader::open(img_path)
+        .expect("Failed to open page_girl_shiver_curved_sfx_tyayan.webp")
+        .with_guessed_format()
+        .expect("Failed to guess format")
+        .decode()
+        .expect("Failed to decode image");
+
+    let res = get_or_analyze_fixture_with_lang(&img, Some("ru"));
+    println!("Russian Page detected {} regions:", res.regions.len());
+    for (i, r) in res.regions.iter().enumerate() {
+        println!("  Region r{}: box={:?}, text='{}', conf={:.2}", i, r.box_, r.text.replace('\n', "\\n"), r.confidence);
+    }
+
+    // 1. NO LATIN HALLUCINATIONS OR WRONG GLYPH SLIVERS
+    assert!(
+        !res.regions.iter().any(|r| r.text.to_lowercase().contains("e3tfo") || r.text.contains("ЛаН")),
+        "Must not contain hallucinated Latin noise 'e3tfo' or 'ЛаН'"
+    );
+
+    // 2. CURVED SFX: «ТЯ-ЯНЬ» / «тя-янь»
+    let tyayan_region = res.regions.iter().find(|r| {
+        let t = r.text.to_uppercase();
+        (t.contains("ТЯ") && t.contains("ЯНЬ")) || t.contains("ТЯ-ЯНЬ") || t.contains("ТЯЯНЬ")
+    });
+    assert!(
+        tyayan_region.is_some(),
+        "Must recognize curved Cyrillic SFX 'ТЯ-ЯНЬ', got: {:?}",
+        res.regions.iter().map(|r| &r.text).collect::<Vec<_>>()
+    );
+
+    // 3. HANDWRITTEN REACTION SFX: «вздрог»
+    let vzdrog_region = res.regions.iter().find(|r| {
+        let t = r.text.to_lowercase();
+        t.contains("вздрог") || t.contains("взgрог") || t.contains("взд")
+    });
+    assert!(
+        vzdrog_region.is_some(),
+        "Must recognize handwritten Russian SFX 'вздрог', got: {:?}",
+        res.regions.iter().map(|r| &r.text).collect::<Vec<_>>()
+    );
+}
+

@@ -37,16 +37,36 @@ function fakeClient(responses: Array<string | Error>, usage: unknown = { prompt_
 // -- PROMPT CONSTRUCTION -- //
 
 describe('systemPrompt', () => {
-	it('covers the manhua localization rules, SFX rules, and story captions', () => {
+	it('covers the manhua localization rules, SFX rules, and story captions for Chinese', () => {
 		const p = systemPrompt('zh-Hans', 'en');
-		expect(p).toMatch(/manhua/);
+		expect(p).toMatch(/comic/i);
 		expect(p).toMatch(/JSON object/);
 		expect(p).toContain('zh-Hans');
 		expect(p).toContain('Character Names, Multi-Name Listings & Military Units');
 		expect(p).toContain('Military Unit & Army Division Titles');
 		expect(p).toContain('Floating Comic Art Captions');
 		expect(p).toContain('Comic Sound Effects (SFX) & Action Onomatopoeia');
-		expect(p).toContain('TAP! / STEP! / CLACK!');
+		expect(p).toContain('Wuxia / Xianxia / Cultivation Dialogue & Idioms');
+		expect(p).toContain('Intelligent OCR Noise & Stylized Comic Font Recovery');
+	});
+
+	it('produces specialized Russian/Cyrillic prompt without Chinese Wuxia rules', () => {
+		const p = systemPrompt('ru', 'en');
+		expect(p).toContain('Russian & Cyrillic Comic Localization Rules');
+		expect(p).toContain('хрусть / хрусь / хрясь / щелк → CRACK! / SNAP! / CRUNCH! / CLICK!');
+		expect(p).toContain('Cyrillic Comic OCR Font Confusions & Leetspeak Recovery');
+		expect(p).toContain('(4PyCTb');
+		// Token efficiency: Chinese Wuxia rules MUST NOT leak into Russian prompt
+		expect(p).not.toContain('Wuxia / Xianxia / Cultivation Dialogue & Idioms');
+		expect(p).not.toContain('【铁滑车】');
+		expect(p).not.toContain('师尊');
+	});
+
+	it('produces specialized Japanese Manga prompt', () => {
+		const p = systemPrompt('ja', 'en');
+		expect(p).toContain('Japanese Manga Localization Rules');
+		expect(p).toContain('ドキドキ → BA-DUMP!');
+		expect(p).not.toContain('Wuxia / Xianxia');
 	});
 });
 
@@ -108,13 +128,17 @@ describe('glossaryBlock', () => {
 });
 
 describe('userPrompt', () => {
-	it('carries ids and text for every region', () => {
+	it('carries ids, text, kind, and vertical flags for regions', () => {
 		const p = userPrompt([
-			{ id: 'r0', text: '轰' },
-			{ id: 'r1', text: '你好' },
+			{ id: 'r0', text: 'хрусть', kind: 'free_text' },
+			{ id: 'r1', text: '你好', kind: 'dialogue_bubble', vertical: true },
 		]);
 		expect(p).toContain('"id": "r0"');
-		expect(p).toContain('"text": "轰"');
+		expect(p).toContain('"text": "хрусть"');
+		expect(p).toContain('"kind": "free_text"');
+		expect(p).toContain('"vertical": true');
+		// Default 'dialogue_bubble' is omitted to save prompt tokens
+		expect(p).not.toContain('"kind": "dialogue_bubble"');
 	});
 });
 
@@ -207,7 +231,7 @@ describe('parseTranslations', () => {
 });
 
 describe('getKnownSfxTranslation', () => {
-	it('maps known onomatopoeia to canonical ALL-CAPS translations', () => {
+	it('maps known Chinese onomatopoeia to canonical ALL-CAPS translations', () => {
 		expect(getKnownSfxTranslation('哒')).toBe('TAP!');
 		expect(getKnownSfxTranslation('哒！')).toBe('TAP!');
 		expect(getKnownSfxTranslation('嗒')).toBe('STEP!');
@@ -219,8 +243,28 @@ describe('getKnownSfxTranslation', () => {
 		expect(getKnownSfxTranslation('咔嚓')).toBe('CRACK!');
 	});
 
+	it('maps known Russian onomatopoeia and recovers Cyrillic OCR noise', () => {
+		expect(getKnownSfxTranslation('хрусть', 'ru')).toBe('CRACK!');
+		expect(getKnownSfxTranslation('хрусь', 'ru')).toBe('SNAP!');
+		expect(getKnownSfxTranslation('бум', 'ru')).toBe('BOOM!');
+		expect(getKnownSfxTranslation('вжух', 'ru')).toBe('SWOOSH!');
+		expect(getKnownSfxTranslation('бабах', 'ru')).toBe('KABOOM!');
+		// OCR leetspeak recovery for (4PyCTb
+		expect(getKnownSfxTranslation('(4PyCTb', 'ru')).toBe('CRACK!');
+		expect(getKnownSfxTranslation('4PyCTb')).toBe('CRACK!');
+	});
+
+	it('maps Japanese, Korean, French, and Spanish onomatopoeia', () => {
+		expect(getKnownSfxTranslation('ドキドキ', 'ja')).toBe('BA-DUMP!');
+		expect(getKnownSfxTranslation('ドン', 'ja')).toBe('BOOM!');
+		expect(getKnownSfxTranslation('쿵', 'ko')).toBe('THUD!');
+		expect(getKnownSfxTranslation('vlan', 'fr')).toBe('WHAM!');
+		expect(getKnownSfxTranslation('pum', 'es')).toBe('BOOM!');
+	});
+
 	it('returns null for non-SFX text', () => {
 		expect(getKnownSfxTranslation('正在建造伐木场')).toBeNull();
+		expect(getKnownSfxTranslation('Привет, как дела?')).toBeNull();
 		expect(getKnownSfxTranslation('你好')).toBeNull();
 		expect(getKnownSfxTranslation('')).toBeNull();
 	});
@@ -471,5 +515,49 @@ describe('parseExtractedTerms & extractTerms', () => {
 			{ client: fakeClient },
 		);
 		expect(res.byRegion.get('r1')).toBe('こんにちは！');
+	});
+
+	it('supports Russian source language translation and resolves Cyrillic OCR noise on SFX', async () => {
+		const ruPair = { sourceLang: 'ru', targetLang: 'en' };
+		const ruRegions = [
+			{ id: '34671', text: 'ДОНОВАН В ПОСЛЕДНЕЕ ВРЕМЯ И ПРАВДА КАКОЙ-ТО ДЁРГАНЫЙ...' },
+			{ id: '34673', text: '(4PyCTb', kind: 'free_text' },
+		];
+
+		// Case 1: LLM recognizes and translates (4PyCTb -> CRACK!
+		const fakeClient1 = {
+			chat: {
+				completions: {
+					create: async (params: { messages: OpenAI.Chat.ChatCompletionMessageParam[] }) => {
+						const sysMsg = params.messages.find((m) => m.role === 'system')?.content as string;
+						expect(sysMsg).toContain('Russian & Cyrillic Comic Localization Rules');
+						return {
+							choices: [{ message: { content: '{"34671": "Donovan has been really jumpy lately...", "34673": "CRACK!"}' } }],
+							usage: { prompt_tokens: 15, completion_tokens: 8 },
+						};
+					},
+				},
+			},
+		} as unknown as OpenAI;
+
+		const res1 = await translatePage(ruRegions, [], ruPair, { client: fakeClient1 });
+		expect(res1.byRegion.get('34671')).toBe('Donovan has been really jumpy lately...');
+		expect(res1.byRegion.get('34673')).toBe('CRACK!');
+
+		// Case 2: LLM fails / returns degenerate on (4PyCTb, fallback resolves via getKnownSfxTranslation
+		const fakeClient2 = {
+			chat: {
+				completions: {
+					create: async () => ({
+						choices: [{ message: { content: '{"34671": "Donovan has been really jumpy lately...", "34673": "..."}' } }],
+						usage: { prompt_tokens: 15, completion_tokens: 8 },
+					}),
+				},
+			},
+		} as unknown as OpenAI;
+
+		const res2 = await translatePage(ruRegions, [], ruPair, { client: fakeClient2 });
+		expect(res2.byRegion.get('34671')).toBe('Donovan has been really jumpy lately...');
+		expect(res2.byRegion.get('34673')).toBe('CRACK!');
 	});
 });

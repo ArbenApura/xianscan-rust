@@ -18,6 +18,8 @@ import { computeUsage, createClient, queued, resolveModel, stripThinkingTags, th
 export interface RegionSource {
 	id: string;
 	text: string;
+	kind?: string;
+	vertical?: boolean;
 }
 
 export interface PageTranslationOptions {
@@ -36,7 +38,7 @@ export interface PageTranslation {
 // -- CONSTANTS -- //
 
 // PART OF THE CACHE KEY — BUMP WHEN THE PROMPTS CHANGE SO STALE CACHED TRANSLATIONS NEVER RESURFACE.
-export const PROMPT_VERSION = 'v12';
+export const PROMPT_VERSION = 'v13';
 
 // A TRANSLATION LONGER THAN 6× THE SOURCE IS ALMOST CERTAINLY THE MODEL REWRITING THE PROMPT / ADDING
 // EXPLANATIONS — FLAGGED FOR A REFILL (SAME HEURISTIC AS xianslate's looksOverExpanded).
@@ -44,16 +46,10 @@ const MAX_EXPANSION = 6;
 
 // -- PROMPTS -- //
 
-export function systemPrompt(src: string, tgt: string): string {
-	const srcName = languageName(src);
-	const tgtName = languageName(tgt);
-	const srcLabel = srcName === src ? src : `${srcName} (${src})`;
-	const tgtLabel = tgtName === tgt ? tgt : `${tgtName} (${tgt})`;
-	return `You are a professional manhua (comic) localizer translating ${srcLabel} dialogue into natural, fluent, and immersive ${tgtLabel}.
-
-Manhua Conversation & Dialogue Style:
-- Conversational Flow: Write natural spoken dialogue as real characters speak in comics. Use natural contractions (I'm, don't, you're, can't, he'll, what's, let's) and lively phrasing suitable for voice acting. Avoid stiff, robotic, or overly literal translations.
-- Tone & Character Personality: Reflect the speaker's personality, emotion, age, and social standing (e.g. arrogant young masters, wise masters, energetic protagonists, stern villains, flustered heroines, playful sidekicks).
+function getSourceLanguageProfile(src: string, tgtName: string): string {
+	const primary = src.split('-')[0].toLowerCase();
+	if (primary === 'zh') {
+		return `Manhua & Chinese Culture Localization Rules:
 - Wuxia / Xianxia / Cultivation Dialogue & Idioms:
   * Localize common Chinese idioms into punchy, idiomatic ${tgtName}:
     - 找死！ → "You're asking for death!" / "You have a death wish!"
@@ -71,71 +67,158 @@ Manhua Conversation & Dialogue Style:
     - 前辈 / 阁下 → Senior / Your Excellency
     - 本座 / 本王 / 老子 / 本少 → This Seat / This King / I / Yours truly / This Young Master
     - 臭丫头 / 臭小子 → Brat / Little rascal
+- Character Names, Multi-Name Listings & Military Units:
+  * Chinese Name Segmentation: Chinese personal names (courtesy names, given names, full names) are typically 2 or 3 characters each (e.g. 子龙, 童菲, 张飞/张肥, 关羽/关鱼, 赵云, 诸葛亮).
+  * Consecutive Name Listings & Sparse Punctuation: In military orders, roster listings, and dialogue, multiple names are frequently written back-to-back with sparse or missing punctuation (e.g. "子龙童菲，张肥关鱼" or "刘关张").
+    - NEVER combine adjacent 2-character names into a single 4-character compound name (e.g. "子龙童菲" represents TWO separate persons "Zilong" and "Tong Fei", NOT "Zilong Tongfei"; "张肥关鱼" represents TWO separate persons "Zhang Fei" and "Guan Yu", NOT "Zhang Fei Guan Yu").
+    - When translating name series, render all individuals clearly separated with proper punctuation and conjunctions (e.g. "子龙童菲，张肥关鱼" → "Zilong, Tong Fei, Zhang Fei, and Guan Yu").
+  * Parody, Homophone & OCR Typo Names: In comedic, parody, or OCR'd manhua, character names may appear as homophones or humorous variants (e.g. 张肥 for 张飞 / Zhang Fei, 关鱼 for 关羽 / Guan Yu). Recognize these as individual character names rather than literal common nouns ("fat", "fish") and translate them cleanly as names.
+  * Military Unit & Army Division Titles: In war, military, or historical manhua, army divisions, brigades, or squads named after characters/monikers (e.g. 龙字军, 肥字军, 鱼字军, 虎字营, 豹字部) represent legitimate in-universe armed forces (e.g. "The Long Army / Dragon Division", "The Fei Army / Fat Division", "The Yu Army / Fish Division"). ALWAYS translate them.
+- Chinese Calligraphy & Title OCR Resilience:
+  * For comic title and chapter banner regions, be resilient to common Chinese calligraphy OCR misrecognitions (e.g. 快神记 → 妖神记 / Tales of Demons and Gods). Translate the true canonical title/chapter text accurately.
+- Wuxia/manhua stat-panel and item-card rules (apply when the text has 【】title brackets or a rarity grade):
+  * Title lines enclosed in 【】brackets → output as [${tgtName.toUpperCase()} TITLE IN CAPS] (first line, keep the square brackets). Example: 【铁滑车】→ [IRON CHARIOT]. ONLY add [brackets] when the SOURCE text has 【】 — do NOT add brackets to items that start directly with a rarity grade word.
+  * Rarity-grade items WITHOUT 【】 (e.g. 神话级火箭铁滑车): output the rarity+name as the FIRST line with no brackets. Example: 神话级火箭铁滑车 → MYTHIC ROCKET IRON CHARIOT (no brackets, first line).
+  * Translate vehicle/weapon names accurately: 滑车 = chariot (war vehicle), not sledge or cart; 战刀 = battle saber; 弩 = crossbow, etc.
+  * Rarity grade words (传说级, 史诗级, 稀有级, 精良级, 普通级, 神话级, etc.) → translate as LEGENDARY, EPIC, RARE, FINE, COMMON, MYTHIC etc. Keep fused with item type on same line.
+  * Parenthetical qualifiers （改良版）, （强化版）, （威力加强版）etc. → translate as (IMPROVED VERSION), (ENHANCED VERSION), (POWER-ENHANCED VERSION) etc., on their OWN line immediately after the rarity+type or title line. Always keep the () parentheses in the output.`;
+	}
+
+	if (primary === 'ru' || primary === 'uk' || primary === 'be') {
+		return `Russian & Cyrillic Comic Localization Rules:
+- Cyrillic Sound Effects (SFX) & Action Onomatopoeia:
+  * Render all comic sound effects into punchy ALL-CAPS ${tgtName} onomatopoeia:
+    - хрусть / хрусь / хрясь / щелк → CRACK! / SNAP! / CRUNCH! / CLICK!
+    - бум / бабах / бах / бам → BOOM! / BANG! / KABOOM! / BAM!
+    - вжух / шурх / свист → SWOOSH! / RUSTLE! / WHOOSH!
+    - скрип / стук / тук / стук-стук → CREAK! / THUD! / KNOCK! / KNOCK-KNOCK!
+    - кап / кап-кап → DRIP! / PLOP! / DRIP-DRIP!
+    - чмок / чпок → SMOOCH! / POP!
+    - бряк / дзынь / дзинь / звон → CLATTER! / CLINK! / RING!
+    - топ / топ-топ → STEP! / STOMP! / PITTER-PATTER!
+    - хлоп / шлеп → CLAP! / SLAP! / SMACK!
+    - ах / ох / ух / эх / ай / ой → AH! / OH! / UGH! / OUCH! / OOPS!
+- Cyrillic Comic OCR Font Confusions & Leetspeak Recovery:
+  * Stylized cursive or brush letters frequently cause OCR to misread Cyrillic letters as visually similar digits or Latin glyphs:
+    '4' or 'ч' ↔ 'х', '6' ↔ 'б', '0' ↔ 'о', '3' ↔ 'з', 'P' ↔ 'р', 'C' ↔ 'с', 'T' ↔ 'т', 'b' ↔ 'ь', 'm' ↔ 'т'.
+  * Example: "(4PyCTb" represents the Russian sound effect "хрусть" (CRACK! / SNAP!). Reconstruct the intended word from context and font similarity instead of echoing raw OCR gibberish.
+- Diminutives, Kinship & Natural Flow:
+  * Reflect natural Russian spoken dialogue with lively phrasing.
+  * Translate Russian diminutive/affectionate names (e.g. Маша / Машенька → Masha, Ваня / Ванька → Vanya, Саня → Sanya) and emotional particles (давай, ну-ка, же, ведь) naturally into conversational ${tgtName}.`;
+	}
+
+	if (primary === 'ja') {
+		return `Japanese Manga Localization Rules:
+- Manga Sound Effects (Gitaigo / Giseigo):
+  * Render all manga sound effects into punchy ALL-CAPS ${tgtName} onomatopoeia:
+    - ドキドキ → BA-DUMP! / THUMP-THUMP!
+    - ドン / ドカーン → BOOM! / KABOOM!
+    - ガタッ / ガタガタ → RATTLE! / CLATTER!
+    - ニコ / ニコニコ → SMILE / GRIN
+    - パチパチ → CLAP-CLAP!
+    - ギラッ / ピカッ → FLASH! / GLINT!
+    - ピクッ / ビクッ → TWITCH! / STARTLE!
+    - シーン → *SILENCE*
+    - ハァ / フゥ → HUFF... / SIGH...
+    - ザー / ザァァ → SHHH! / ROAR!
+    - バッ / サッ → SWOOSH! / DASH!
+    - ゴクッ → GULP!
+- Honorifics & Relationships:
+  * Naturally preserve or adapt Japanese honorific suffixes (-san, -kun, -chan, -sama, senpai, sensei) and kinship terms according to the tone and speaker's personality.`;
+	}
+
+	if (primary === 'ko') {
+		return `Korean Manhwa Localization Rules:
+- Manhwa Sound Effects & Action Onomatopoeia:
+  * Render sound effects into punchy ALL-CAPS ${tgtName} onomatopoeia:
+    - 쿵 / 쾅 → THUD! / SLAM! / BANG!
+    - 두근두근 → POUND-POUND! / BA-DUMP!
+    - 슥 / 척 → SWISH! / STEP!
+    - 찰칵 → CLICK! / SNAP!
+    - 으아아 / 꺄아 → AARGH! / EEEEEK!
+    - 씨익 → SMIRK / GRIN
+    - 퍽 / 탁 → SMACK! / CLACK!
+    - 번쩍 → FLASH!
+- Korean Honorifics & Kinship Forms:
+  * Naturally adapt Korean address terms (Hyung, Oppa, Noona, Unnie, Sunbae, Hubae, Nim, Ahjussi) matching the character relationships and localization style.`;
+	}
+
+	if (primary === 'fr' || primary === 'es' || primary === 'de' || primary === 'it' || primary === 'pt') {
+		return `Western & European Comic (Bande Dessinée) Rules:
+- Comic Sound Effects & Onomatopoeia:
+  * Localize European/Western comic sound effects into standard punchy ALL-CAPS ${tgtName}:
+    - Vlan / Bim / Pif / Paf / Zas → WHAM! / POW! / SLAP! / WHACK!
+    - Boum / Pum / Bang / Boom → BOOM! / BANG!
+    - Crac / Crash → CRACK! / CRASH!
+    - Toc / Toc-toc / Tap → KNOCK! / TAP!
+    - Plaf / Plouf / Chof → SPLASH! / PLOP!
+- Accented Character OCR Recovery:
+  * Be resilient to OCR dropping or substituting accents (é, è, ê, à, ç, ñ, ü, ö, etc.). Infer the true intended word naturally.`;
+	}
+
+	if (primary === 'id' || primary === 'vi' || primary === 'th') {
+		return `Southeast Asian Webtoon Rules:
+- Respectful & Kinship Forms:
+  * Naturally adapt regional forms of address, pronouns, and kinship terms into conversational ${tgtName}.
+- Webtoon Sound Effects:
+  * Convert local comic onomatopoeia and action words into punchy ALL-CAPS ${tgtName}.`;
+	}
+
+	return '';
+}
+
+export function systemPrompt(src: string, tgt: string): string {
+	const srcName = languageName(src);
+	const tgtName = languageName(tgt);
+	const srcLabel = srcName === src ? src : `${srcName} (${src})`;
+	const tgtLabel = tgtName === tgt ? tgt : `${tgtName} (${tgt})`;
+	const langProfile = getSourceLanguageProfile(src, tgtName);
+
+	return `You are a professional comic and manga localizer translating ${srcLabel} dialogue into natural, fluent, and immersive ${tgtLabel}.
+
+Comic Conversation & Dialogue Style:
+- Conversational Flow: Write natural spoken dialogue as real characters speak in comics. Use natural contractions (I'm, don't, you're, can't, he'll, what's, let's) and lively phrasing suitable for voice acting. Avoid stiff, robotic, or overly literal translations.
+- Tone & Character Personality: Reflect the speaker's personality, emotion, age, and social standing (e.g. arrogant rivals, wise masters, energetic protagonists, stern villains, flustered heroines, playful sidekicks).
 - Bubble Space & Brevity: Comic speech bubbles have limited space. Keep dialogue concise, punchy, and impactful without dropping meaning.
-- Categories:
-  * dialogue: Natural spoken conversation with character voice and emotion.
-  * mono: Inner thoughts, reflections, or narration in a smooth, introspective tone.
-  * sfx: Comic onomatopoeia in ALL-CAPS (e.g. 轰 → BOOM!, 呼 → WHOOSH!, 唰 → SWOOSH!, 砰 → THUD!, 咔嚓 → CRACK!, 哐当 → CLANG!).
+- Categories & Region Kinds:
+  * dialogue_bubble: Natural spoken conversation with character voice and emotion.
+  * mono / thought: Inner thoughts, reflections, or narration in a smooth, introspective tone.
+  * free_text / sfx: Comic onomatopoeia, floating sound effects, or sketch captions. Render sound effects in ALL-CAPS.
   * other: UI, system prompts, stat cards, or narrator captions.
 
-Comic Sound Effects (SFX) & Action Onomatopoeia:
-- Isolated Action Sounds: Single or short repeated characters without sentence punctuation (e.g. 哒, 嗒, 啪, 咚, 咚咚, 哐, 哐当, 嗖, 唰, 砰, 嘭, 咔, 咔嚓, 轰, 轰隆, 嘶, 呼, 哧, 嗡, 踏, 铛) represent action sound effects (SFX), footsteps, landings, impacts, swings, or movements.
-- NEVER convert isolated SFX characters into ellipses ("..."), pauses, or empty strings.
-- Render all SFX into concise, punchy ALL-CAPS ${tgtName} onomatopoeia:
-  * 哒 / 嗒 → TAP! / STEP! / CLACK! (footsteps, landing on branch/ground, light tap)
-  * 啪 → SNAP! / SLAP! / CLAP!
-  * 咚 / 哐 → THUD! / BOOM! / CLANG!
-  * 嗖 / 唰 → SWOOSH! / SWISH! / DASH!
-  * 砰 / 嘭 → BANG! / THUD! / POW!
-  * 咔 / 咔嚓 → CLICK! / CRACK! / SNAP!
-  * 轰 / 轰隆 → BOOM! / RUMBLE!
-  * 呼 / 哧 → WHOOSH! / HUFF! / GASP!
-  * 嘶 → HISS! / GASP!
-  * 嗡 → HUM! / BUZZ!
-  * 踏 → STEP! / STOMP!
+Intelligent OCR Noise & Stylized Comic Font Recovery:
+- Comic lettering and hand-drawn sound effects frequently suffer from visual OCR character confusions (e.g. brush strokes or cursive glyphs read as digits like '4', '6', '0', '3', '1' or mixed Latin/ASCII characters).
+- When a region contains garbled tokens or leetspeak glyphs (e.g. "(4PyCTb" visually resembling "хрусть" → CRACK! / SNAP!), reconstruct the intended word or sound effect from visual character similarity and comic context.
+- NEVER output raw OCR gibberish if the intended comic word or sound effect can be reasonably identified.
 
-Character Names, Multi-Name Listings & Military Units:
-- Chinese Name Segmentation: Chinese personal names (courtesy names, given names, full names) are typically 2 or 3 characters each (e.g. 子龙, 童菲, 张飞/张肥, 关羽/关鱼, 赵云, 诸葛亮).
-- Consecutive Name Listings & Sparse Punctuation: In military orders, roster listings, and dialogue, multiple names are frequently written back-to-back with sparse or missing punctuation (e.g. "子龙童菲，张肥关鱼" or "刘关张").
-  * NEVER combine adjacent 2-character names into a single 4-character compound name (e.g. "子龙童菲" represents TWO separate persons "Zilong" and "Tong Fei", NOT "Zilong Tongfei"; "张肥关鱼" represents TWO separate persons "Zhang Fei" and "Guan Yu", NOT "Zhang Fei Guan Yu").
-  * When translating name series, render all individuals clearly separated with proper punctuation and conjunctions (e.g. "子龙童菲，张肥关鱼" → "Zilong, Tong Fei, Zhang Fei, and Guan Yu").
-- Parody, Homophone & OCR Typo Names: In comedic, parody, or OCR'd manhua, character names may appear as homophones or humorous variants (e.g. 张肥 for 张飞 / Zhang Fei, 关鱼 for 关羽 / Guan Yu). Recognize these as individual character names rather than literal common nouns ("fat", "fish") and translate them cleanly as names.
-- Military Unit & Army Division Titles: In war, military, or historical manhua, army divisions, brigades, or squads named after characters/monikers (e.g. 龙字军, 肥字军, 鱼字军, 虎字营, 豹字部) represent legitimate in-universe armed forces (e.g. "The Long Army / Dragon Division", "The Fei Army / Fat Division", "The Yu Army / Fish Division"). ALWAYS translate them.
+Comic Sound Effects (SFX) & Action Onomatopoeia:
+- Isolated Action Sounds: Single or short repeated characters without sentence punctuation represent action sound effects (SFX), footsteps, landings, impacts, swings, or movements.
+- NEVER convert isolated SFX characters into ellipses ("..."), pauses, or empty strings.
+- Render all SFX into concise, punchy ALL-CAPS ${tgtName} onomatopoeia.
 
 Story Narration, Sketch Captions & Incomplete Fragments:
-- Floating Comic Art Captions: Handwritten text floating on illustrations, parchment, or battle plan sketches (e.g. "龙字军夜袭“黑风寨”", "肥字军剿灭水贼“混江龙”", "鱼字军剿灭……") is essential story narrative. ALWAYS translate it.
-- Incomplete / Cut-off Phrases: If a story caption or dialogue is cut off or incomplete at the edge of the panel (e.g. "鱼字军剿灭"), translate the partial phrase with a natural trailing ellipsis (e.g. "The Yu Army wipes out..."). NEVER drop incomplete sentences or return empty strings for story text.
+- Floating Comic Art Captions: Handwritten text floating on illustrations, parchment, or battle plan sketches is essential story narrative. ALWAYS translate it.
+- Incomplete / Cut-off Phrases: If a story caption or dialogue is cut off or incomplete at the edge of the panel, translate the partial phrase with a natural trailing ellipsis. NEVER drop incomplete sentences or return empty strings for story text.
 
 Punctuation & Reaction Bubbles:
 - NEVER invent or use em-dashes (— or --) for pauses, thinking, or sentence breaks. Use natural commas (,), periods (.), or ellipses (...) matching the source punctuation.
-- Character Speech & Reaction Bubbles: If a dialogue region contains ellipses, exclamation marks, question marks, or reaction punctuation (e.g. "……", "……！", "……？", "？！", "！", "？"), ALWAYS translate it to natural ${tgtName} punctuation (e.g. "...", "...!", "...?", "?!", "!", "?"). Do NOT return an empty string for character speech or pause bubbles!
-- Spoken Pauses: Preserve ellipses in spoken pauses (e.g. "你……是李婉儿，" → "You... are Li Wan'er,").
+- Character Speech & Reaction Bubbles: If a dialogue region contains ellipses, exclamation marks, question marks, or reaction punctuation (e.g. "……", "……！", "……？", "？！", "！", "？", "...", "!?"), ALWAYS translate it to natural ${tgtName} punctuation (e.g. "...", "...!", "...?", "?!", "!", "?"). Do NOT return an empty string for character speech or pause bubbles!
+- Spoken Pauses: Preserve ellipses in spoken pauses (e.g. "You... are right,").
 - Only output a dash if the original source text explicitly contains a dash/hyphen.
 
 Watermark & Scanlation Tag Filtering:
-- Piracy Watermarks & Aggregator Ads: If a text region is STRICTLY a third-party pirate watermark, scanlation group recruitment ad, website URL/domain, aggregator watermark, scanlation QQ/Discord group, or uploader logo (e.g. BaoziManhua, Colamanga, Qumanku, 速漫库, 包子漫画, "扫图", "汉化组招募", "严禁转载", "独家", "修图", "首发", etc.), return an EMPTY STRING "" for its id.
-- Story Text is NOT a Watermark: In-universe military forces (龙字军, 肥字军, 鱼字军), bandit fortresses (黑风寨), location names, or character sketch captions are NOT watermarks. NEVER filter them out.
-- Official Comic Staff & Production Credits: ALWAYS TRANSLATE official manga/manhua author, artist, and studio production credits (e.g. STAFF, 原作 [Original Work], 主笔 [Main Artist], 助手 [Assistants], 承制 [Production], 分镜 [Storyboard], 线稿 [Line Art], 总监制 [Executive Producer], 监制 [Supervisor], 上色 [Coloring], 出品 [Presented by], 制作 [Production], etc.).
+- Piracy Watermarks & Aggregator Ads: If a text region is STRICTLY a third-party pirate watermark, scanlation group recruitment ad, website URL/domain, aggregator watermark, scanlation QQ/Discord group, or uploader logo, return an EMPTY STRING "" for its id.
+- Story Text is NOT a Watermark: In-universe names, military forces, bandit fortresses, location names, or character sketch captions are NOT watermarks. NEVER filter them out.
+- Official Comic Staff & Production Credits: ALWAYS TRANSLATE official manga/manhua/comic author, artist, and studio production credits (e.g. STAFF, Original Work, Main Artist, Assistants, Production, Storyboard, Line Art, Supervisor, Coloring, etc.).
 - If a dialogue bubble contains legitimate character speech mixed with a trailing watermark or website URL, translate ONLY the dialogue portion and omit the watermark entirely.
-
-Comic Titles & Chapter Headers:
-- For comic title and chapter banner regions, be resilient to common Chinese calligraphy OCR misrecognitions (e.g. 快神记 → 妖神记 / Tales of Demons and Gods). Translate the true canonical title/chapter text accurately.
 
 General Rules:
 - Never add narration, explanations, or stage directions outside the text itself.
 - Never translate glossary terms differently from the glossary block.
 - Preserve names exactly as the glossary says.
-
-Wuxia/manhua stat-panel and item-card rules (apply when the text has 【】title brackets or a rarity grade):
-- Title lines enclosed in 【】brackets → output as [${tgtName.toUpperCase()} TITLE IN CAPS] (first line, keep the square brackets). Example: 【铁滑车】→ [IRON CHARIOT]. ONLY add [brackets] when the SOURCE text has 【】 — do NOT add brackets to items that start directly with a rarity grade word.
-- Rarity-grade items WITHOUT 【】 (e.g. 神话级火箭铁滑车): output the rarity+name as the FIRST line with no brackets. Example: 神话级火箭铁滑车 → MYTHIC ROCKET IRON CHARIOT (no brackets, first line).
-- Translate vehicle/weapon names accurately: 滑车 = chariot (war vehicle), not sledge or cart; 战刀 = battle saber; 弩 = crossbow, etc.
-- Rarity grade words (传说级, 史诗级, 稀有级, 精良级, 普通级, 神话级, etc.) → translate as LEGENDARY, EPIC, RARE, FINE, COMMON, MYTHIC etc. Keep fused with item type on same line.
-- Parenthetical qualifiers （改良版）, （强化版）, （威力加强版）etc. → translate as (IMPROVED VERSION), (ENHANCED VERSION), (POWER-ENHANCED VERSION) etc., on their OWN line immediately after the rarity+type or title line. Always keep the () parentheses in the output.
-- Body/description paragraphs: use natural sentence case (not all-caps). Punctuate naturally.
-- Preserve all \n line breaks from the source text in the translation so the panel layout is maintained.
-- Flavour remarks starting with * (e.g. *食我压路机哒！) → keep the * prefix, translate in the character's voice.
-
+- Preserve all \\n line breaks from the source text in the translation so the panel layout is maintained.
+- Flavour remarks starting with * → keep the * prefix, translate in the character's voice.
+${langProfile ? `\n${langProfile}\n` : ''}
 Reply with ONLY a JSON object; no markdown fences, no commentary.`;
 }
 
@@ -164,7 +247,16 @@ ${lines.join('\n')}`;
 
 export function regionPayload(regions: RegionSource[]): string {
 	return JSON.stringify(
-		regions.map((r) => ({ id: r.id, text: r.text })),
+		regions.map((r) => {
+			const item: Record<string, unknown> = { id: r.id, text: r.text };
+			if (r.kind && r.kind !== 'dialogue_bubble') {
+				item.kind = r.kind;
+			}
+			if (r.vertical) {
+				item.vertical = true;
+			}
+			return item;
+		}),
 		null,
 		1,
 	);
@@ -176,7 +268,7 @@ export function userPrompt(regions: RegionSource[]): string {
 		.map((r, i) => `"${r.id}": "Translation ${i + 1}"`)
 		.join(', ');
 	const exampleJson = exampleEntries ? `{${exampleEntries}}` : '{"r0": "Hello"}';
-	return `Translate the following regions of a manhua page. Each entry has an id and the source text.
+	return `Translate the following regions of a comic/manhua page. Each entry has an id and the source text.
 
 ${regionPayload(regions)}
 
@@ -323,37 +415,181 @@ export function parseTranslations(
 	return out.size > 0 ? out : null;
 }
 
-export const KNOWN_CHINESE_SFX: Record<string, string> = {
-	'哒': 'TAP!',
-	'嗒': 'STEP!',
-	'哒哒': 'TAP-TAP!',
-	'嗒嗒': 'PITTER-PATTER!',
-	'啪': 'SNAP!',
-	'啪啪': 'CLAP-CLAP!',
-	'咚': 'THUD!',
-	'咚咚': 'THUMP-THUMP!',
-	'哐': 'CLANG!',
-	'哐当': 'CLANG!',
-	'嗖': 'SWOOSH!',
-	'唰': 'SWISH!',
-	'砰': 'BANG!',
-	'嘭': 'POW!',
-	'咔': 'CLICK!',
-	'咔嚓': 'CRACK!',
-	'轰': 'BOOM!',
-	'轰隆': 'RUMBLE!',
-	'呼': 'WHOOSH!',
-	'哧': 'CHIRP!',
-	'嘶': 'HISS!',
-	'嗡': 'BUZZ!',
-	'踏': 'STEP!',
-	'铛': 'CLANG!',
+export const KNOWN_MULTILINGUAL_SFX: Record<string, Record<string, string>> = {
+	zh: {
+		'哒': 'TAP!',
+		'嗒': 'STEP!',
+		'哒哒': 'TAP-TAP!',
+		'嗒嗒': 'PITTER-PATTER!',
+		'啪': 'SNAP!',
+		'啪啪': 'CLAP-CLAP!',
+		'咚': 'THUD!',
+		'咚咚': 'THUMP-THUMP!',
+		'哐': 'CLANG!',
+		'哐当': 'CLANG!',
+		'嗖': 'SWOOSH!',
+		'唰': 'SWISH!',
+		'砰': 'BANG!',
+		'嘭': 'POW!',
+		'咔': 'CLICK!',
+		'咔嚓': 'CRACK!',
+		'轰': 'BOOM!',
+		'轰隆': 'RUMBLE!',
+		'呼': 'WHOOSH!',
+		'哧': 'CHIRP!',
+		'嘶': 'HISS!',
+		'嗡': 'BUZZ!',
+		'踏': 'STEP!',
+		'铛': 'CLANG!',
+	},
+	ru: {
+		'хрусть': 'CRACK!',
+		'хрусь': 'SNAP!',
+		'хрясь': 'SMACK!',
+		'щелк': 'CLICK!',
+		'щёлк': 'CLICK!',
+		'бум': 'BOOM!',
+		'бах': 'BANG!',
+		'бабах': 'KABOOM!',
+		'бам': 'BAM!',
+		'вжух': 'SWOOSH!',
+		'шурх': 'RUSTLE!',
+		'кап': 'DRIP!',
+		'кап-кап': 'DRIP-DRIP!',
+		'скрип': 'CREAK!',
+		'чмок': 'SMOOCH!',
+		'чпок': 'POP!',
+		'тук': 'KNOCK!',
+		'тук-тук': 'KNOCK-KNOCK!',
+		'стук': 'THUD!',
+		'дзынь': 'CLINK!',
+		'дзинь': 'RING!',
+		'плюх': 'SPLASH!',
+		'пшик': 'POOF!',
+		'хлоп': 'CLAP!',
+		'шлеп': 'SLAP!',
+		'шлёп': 'SLAP!',
+		'топ': 'STEP!',
+		'топ-топ': 'PITTER-PATTER!',
+		'ах': 'AH!',
+		'ох': 'OH!',
+		'ух': 'UGH!',
+		'ай': 'OUCH!',
+		'ой': 'OOPS!',
+	},
+	ja: {
+		'ドキドキ': 'BA-DUMP!',
+		'ドン': 'BOOM!',
+		'ドカーン': 'KABOOM!',
+		'ニコ': 'SMILE',
+		'ニコニコ': 'GRIN',
+		'ガタッ': 'RATTLE!',
+		'ガタガタ': 'CLATTER!',
+		'パチパチ': 'CLAP-CLAP!',
+		'ハァ': 'HUFF',
+		'フゥ': 'SIGH',
+		'ピクッ': 'TWITCH!',
+		'ギラッ': 'FLASH!',
+		'ゴクッ': 'GULP',
+		'ザッ': 'SWISH!',
+		'シーン': '*SILENCE*',
+		'バッ': 'BAM!',
+		'ビクッ': 'STARTLE!',
+		'フワッ': 'FLOAT',
+		'ボカン': 'BOOM!',
+	},
+	ko: {
+		'쿵': 'THUD!',
+		'쾅': 'SLAM!',
+		'두근두근': 'POUND-POUND!',
+		'하하': 'HAHA!',
+		'흑흑': 'SOB-SOB',
+		'슥': 'SWISH!',
+		'척': 'STEP!',
+		'탁': 'SNAP!',
+		'퍽': 'SMACK!',
+		'우르尔': 'RUMBLE!',
+		'번쩍': 'FLASH!',
+		'찰칵': 'CLICK!',
+		'씨익': 'SMIRK',
+	},
+	fr: {
+		'vlan': 'WHAM!',
+		'bim': 'POW!',
+		'bam': 'BAM!',
+		'boum': 'BOOM!',
+		'pif': 'POW!',
+		'paf': 'SLAP!',
+		'clic': 'CLICK!',
+		'crac': 'CRACK!',
+		'toc': 'KNOCK!',
+		'pan': 'BANG!',
+	},
+	es: {
+		'pum': 'BOOM!',
+		'bang': 'BANG!',
+		'zas': 'WHACK!',
+		'toc': 'KNOCK!',
+		'ñam': 'NOM-NOM',
+		'plaf': 'SPLASH!',
+		'boing': 'BOING!',
+		'chof': 'SQUISH!',
+	},
 };
 
-export function getKnownSfxTranslation(source: string): string | null {
+export const KNOWN_CHINESE_SFX: Record<string, string> = KNOWN_MULTILINGUAL_SFX.zh;
+
+function normalizeCyrillicOcrNoise(text: string): string {
+	return text
+		.toLowerCase()
+		.replace(/4/g, 'х')
+		.replace(/p/g, 'р')
+		.replace(/y/g, 'у')
+		.replace(/c/g, 'с')
+		.replace(/t/g, 'т')
+		.replace(/b/g, 'ь')
+		.replace(/m/g, 'т')
+		.replace(/6/g, 'б')
+		.replace(/0/g, 'о')
+		.replace(/3/g, 'з');
+}
+
+export function getKnownSfxTranslation(source: string, lang?: string): string | null {
 	if (!source) return null;
-	const stripped = source.replace(/[!！?？~～\s]/g, '').trim();
-	return KNOWN_CHINESE_SFX[stripped] ?? null;
+	const stripped = source.replace(/[!！?？~～\s()（）[\]{}'"`«»]/g, '').trim();
+	if (!stripped) return null;
+
+	const langKey = lang ? lang.split('-')[0].toLowerCase() : null;
+
+	// 1. Check primary language table if known
+	if (langKey && KNOWN_MULTILINGUAL_SFX[langKey]) {
+		const dict = KNOWN_MULTILINGUAL_SFX[langKey];
+		if (dict[stripped]) return dict[stripped];
+		const lower = stripped.toLowerCase();
+		if (dict[lower]) return dict[lower];
+
+		if (langKey === 'ru' || langKey === 'uk' || langKey === 'be') {
+			const normalizedCyrillic = normalizeCyrillicOcrNoise(stripped);
+			if (KNOWN_MULTILINGUAL_SFX.ru[normalizedCyrillic]) {
+				return KNOWN_MULTILINGUAL_SFX.ru[normalizedCyrillic];
+			}
+		}
+	}
+
+	// 2. Fallback search across all language tables
+	for (const [, dict] of Object.entries(KNOWN_MULTILINGUAL_SFX)) {
+		if (dict[stripped]) return dict[stripped];
+		const lower = stripped.toLowerCase();
+		if (dict[lower]) return dict[lower];
+	}
+
+	// 3. Fallback search with Cyrillic OCR noise normalization
+	const normCyrillic = normalizeCyrillicOcrNoise(stripped);
+	if (KNOWN_MULTILINGUAL_SFX.ru[normCyrillic]) {
+		return KNOWN_MULTILINGUAL_SFX.ru[normCyrillic];
+	}
+
+	return null;
 }
 
 // DEGENERATE = EMPTY, OR EXPANDED BEYOND REASONABLE RATIO (THE MODEL EXPLAINED INSTEAD OF TRANSLATING),
@@ -446,7 +682,7 @@ export async function translatePage(
 			if (t && !looksDegenerate(t, r.text)) {
 				byRegion.set(r.id, t);
 			} else if (t && looksDegenerate(t, r.text)) {
-				const sfxFallback = getKnownSfxTranslation(r.text);
+				const sfxFallback = getKnownSfxTranslation(r.text, pair.sourceLang);
 				if (sfxFallback) byRegion.set(r.id, sfxFallback);
 				else byRegion.delete(r.id);
 			}
@@ -457,7 +693,7 @@ export async function translatePage(
 	for (const r of regions) {
 		const current = byRegion.get(r.id);
 		if (current && looksDegenerate(current, r.text)) {
-			const sfxFallback = getKnownSfxTranslation(r.text);
+			const sfxFallback = getKnownSfxTranslation(r.text, pair.sourceLang);
 			if (sfxFallback) {
 				byRegion.set(r.id, sfxFallback);
 			} else {

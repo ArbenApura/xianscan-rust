@@ -275,7 +275,9 @@ export async function runChapterPipeline(
 					if (signal.aborted || deps.isPageCancelled?.(injectRow.id)) return;
 
 					// PHASE 2: TRANSLATE
-					const sources = analyzed.regions.filter((r) => r.text.trim().length > 0).map((r) => ({ id: r.id, text: r.text }));
+					const sources = analyzed.regions
+						.filter((r) => r.text.trim().length > 0)
+						.map((r) => ({ id: r.id, text: r.text, kind: r.kind, vertical: r.vertical }));
 					const byRegion = new Map<string, string>();
 					if (sources.length > 0) {
 						emit({ type: 'page-step-start', chapterId, page: injectIdx, pageId: injectRow.id, step: 'match_glossary' });
@@ -506,7 +508,7 @@ export async function runChapterPipeline(
 			// 3) TRANSLATE — LLM SEMANTICALLY TRANSLATES VALID DIALOGUE
 			const sources = analyzed.regions
 				.filter((r) => r.text.trim().length > 0)
-				.map((r) => ({ id: r.id, text: r.text }));
+				.map((r) => ({ id: r.id, text: r.text, kind: r.kind, vertical: r.vertical }));
 			const byRegion = new Map<string, string>();
 
 			if (sources.length > 0) {

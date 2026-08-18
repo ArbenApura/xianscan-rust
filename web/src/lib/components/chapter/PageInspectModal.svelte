@@ -1,7 +1,9 @@
 <script lang="ts">
+	// IMPORTED DEP-MODULES
 	import { createEventDispatcher } from 'svelte';
 	import { toast } from 'svelte-sonner';
-	import { Modal, Button } from '$lib/components/ui';
+
+	// IMPORTED DEP-COMPONENTS
 	import Copy from 'lucide-svelte/icons/copy';
 	import Target from 'lucide-svelte/icons/target';
 	import ArrowLeftRight from 'lucide-svelte/icons/arrow-left-right';
@@ -15,28 +17,34 @@
 	import RotateCcw from 'lucide-svelte/icons/rotate-ccw';
 	import RefreshCw from 'lucide-svelte/icons/refresh-cw';
 	import Loader2 from 'lucide-svelte/icons/loader-2';
+
+	// IMPORTED COMPONENTS
+	import { Modal, Button } from '$lib/components/ui';
 	import EditRegionTranslationModal from './EditRegionTranslationModal.svelte';
 
+	// -- REQUIRED PROPS -- //
+
+	// -- OPTIONAL PROPS -- //
 	export let open = false;
 	export let page: any | null = null;
 	export let reloadKey = Date.now();
 
+	// -- CONSTANTS -- //
 	const dispatch = createEventDispatcher<{
 		close: void;
 		update: { page: any; region?: any; reloadKey: number };
 	}>();
 
+	// -- STATES -- //
 	let inspectTab: 'output' | 'cleaned' | 'original' = 'output';
 	let mobileSection: 'image' | 'regions' = 'image';
 	let showRegions = true;
-	let showBubbles = true;
 	let showTypeset = true;
 	let showInpaint = true;
-	let showCentroids = true;
 	let hoveredRegionId: number | null = null;
 	let imageScrollContainer: HTMLDivElement | null = null;
 
-	// Region Translation Editor State
+	// REGION TRANSLATION EDITOR STATE
 	let editingRegion: any | null = null;
 	let editModalOpen = false;
 	let loadingDetails = false;
@@ -251,44 +259,11 @@
 		}
 	}
 
-	function getBubbleBox(region: any): { x: number; y: number; w: number; h: number } | null {
-		if (!region) return null;
-		if (region.bubble_box) return getBox(region.bubble_box);
-		if (region.bubbleBox) return getBox(region.bubbleBox);
-		const b = getBox(region.box);
-		if (b && (b as any).bubble_box) return getBox((b as any).bubble_box);
-		if (b && (b as any).bubbleBox) return getBox((b as any).bubbleBox);
-		return null;
-	}
-
-	function getCentroid(region: any): { x: number; y: number } | null {
-		if (!region) return null;
-		const raw = region.centroid ?? (getBox(region.box) as any)?.centroid;
-		if (raw) {
-			if (typeof raw === 'string') {
-				try {
-					return JSON.parse(raw);
-				} catch {
-					// fallback
-				}
-			}
-			if (typeof raw === 'object' && typeof raw.x === 'number' && typeof raw.y === 'number') {
-				return raw;
-			}
-		}
-		const bb = getBubbleBox(region);
-		if (bb) return { x: Math.round(bb.x + bb.w / 2), y: Math.round(bb.y + bb.h / 2) };
-		const b = getBox(region.box);
-		if (b) return { x: Math.round(b.x + b.w / 2), y: Math.round(b.y + b.h / 2) };
-		return null;
-	}
-
 	function getRegionKind(region: any): 'dialogue_bubble' | 'free_text' | 'sound_effect' {
 		if (!region) return 'dialogue_bubble';
 		if (region.kind) return region.kind;
 		const b = getBox(region.box);
 		if (b && (b as any).kind) return (b as any).kind;
-		if (getBubbleBox(region)) return 'dialogue_bubble';
 		return 'dialogue_bubble';
 	}
 
@@ -308,8 +283,6 @@
 				confidence: r.conf,
 				angle: getRegionAngle(r),
 				vertical: isRegionVertical(r),
-				centroid: getCentroid(r),
-				bubbleBox: getBubbleBox(r),
 				typesetBox: getBox(r.box),
 				inpaintPolygon: getPolygon(r.polygon),
 				sourceOcr: r.textSource,
@@ -489,9 +462,7 @@
 									{@const active = hoveredRegionId === region.id || editingRegion?.id === region.id}
 									{#if showRegions || active}
 										{@const b = getBox(region.box)}
-										{@const bubbleB = getBubbleBox(region)}
 										{@const poly = getPolygon(region.polygon)}
-										{@const centroid = getCentroid(region)}
 										{@const kind = getRegionKind(region)}
 										{@const bx = b?.x ?? 0}
 										{@const by = b?.y ?? 0}
@@ -500,23 +471,7 @@
 										{@const angle = getRegionAngle(region)}
 										{@const stroke = kind === 'sound_effect' ? '#f59e0b' : '#b23a2e'}
 
-										<!-- 1. SPEECH BUBBLE CONTAINER (EMERALD GREEN) -->
-										{#if showBubbles && bubbleB}
-											<rect
-												x={bubbleB.x}
-												y={bubbleB.y}
-												width={bubbleB.w}
-												height={bubbleB.h}
-												fill={active ? '#10b98125' : '#10b9810d'}
-												stroke="#10b981"
-												stroke-width={active ? 3 : 1.75}
-												stroke-dasharray="6 3"
-												rx="8"
-												opacity={active ? 1 : 0.85}
-											/>
-										{/if}
-
-										<!-- 2. FULL TYPESET CANVAS BOX (RED / AMBER) -->
+										<!-- 1. FULL TYPESET CANVAS BOX (RED / AMBER) -->
 										{#if showTypeset && b}
 											<rect
 												x={bx}
@@ -531,7 +486,7 @@
 											/>
 										{/if}
 
-										<!-- 3. TIGHT INPAINT BOUNDARY REGION (BLUE) -->
+										<!-- 2. TIGHT INPAINT BOUNDARY REGION (BLUE) -->
 										{#if showInpaint && poly}
 											<polygon
 												points={polygonToSvgPoints(poly)}
@@ -541,36 +496,6 @@
 												stroke-linejoin="round"
 												opacity={active ? 1 : 0.85}
 											/>
-										{/if}
-
-										<!-- 4. CENTROID CROSSHAIR (+) -->
-										{#if showCentroids && centroid}
-											<g opacity={active ? 1 : 0.75}>
-												<circle
-													cx={centroid.x}
-													cy={centroid.y}
-													r={active ? 5 : 3.5}
-													fill="#10b981"
-													stroke="#000"
-													stroke-width="1.5"
-												/>
-												<line
-													x1={centroid.x - 7}
-													y1={centroid.y}
-													x2={centroid.x + 7}
-													y2={centroid.y}
-													stroke="#10b981"
-													stroke-width="1.5"
-												/>
-												<line
-													x1={centroid.x}
-													y1={centroid.y - 7}
-													x2={centroid.x}
-													y2={centroid.y + 7}
-													stroke="#10b981"
-													stroke-width="1.5"
-												/>
-											</g>
 										{/if}
 
 										<text
@@ -615,21 +540,6 @@
 
 							<!-- INTERACTIVE LAYER TOGGLE CHIPS -->
 							<div class="flex items-center gap-1 bg-black/5 dark:bg-white/5 p-0.5 rounded-lg">
-								<!-- BUBBLE CONTAINER TOGGLE -->
-								<button
-									type="button"
-									class={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded transition-all cursor-pointer ${
-										showBubbles
-											? 'bg-emerald-600/15 border border-emerald-600/30 text-emerald-700 dark:text-emerald-300 font-semibold'
-											: 'opacity-40 hover:opacity-80 text-neutral-600 dark:text-neutral-400 border border-transparent'
-									}`}
-									title="Toggle Speech Bubble Containers (Green)"
-									on:click={() => (showBubbles = !showBubbles)}
-								>
-									<span class={`inline-block w-2 h-2 rounded-xs border border-emerald-600 border-dashed ${showBubbles ? 'bg-emerald-500' : 'bg-transparent'}`}></span>
-									<span>Bubble</span>
-								</button>
-
 								<!-- TYPESET BOX TOGGLE -->
 								<button
 									type="button"
@@ -658,21 +568,6 @@
 								>
 									<span class={`inline-block w-2 h-2 rounded-xs border border-blue-600 ${showInpaint ? 'bg-blue-500' : 'bg-transparent'}`}></span>
 									<span>Inpaint</span>
-								</button>
-
-								<!-- CENTROID TOGGLE -->
-								<button
-									type="button"
-									class={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded transition-all cursor-pointer ${
-										showCentroids
-											? 'bg-amber-600/15 border border-amber-600/30 text-amber-700 dark:text-amber-300 font-semibold'
-											: 'opacity-40 hover:opacity-80 text-neutral-600 dark:text-neutral-400 border border-transparent'
-									}`}
-									title="Toggle Geometric Centroid Crosshairs (+)"
-									on:click={() => (showCentroids = !showCentroids)}
-								>
-									<span class={`inline-flex items-center justify-center w-2.5 h-2.5 text-[9px] font-bold ${showCentroids ? 'text-amber-600 dark:text-amber-400' : 'text-neutral-400'}`}>+</span>
-									<span>Center</span>
 								</button>
 							</div>
 						</div>
@@ -713,9 +608,6 @@
 					<div class="flex-1 min-h-0 space-y-2.5 overflow-y-auto pr-1 overscroll-contain">
 						{#each page.regions as region (region.id)}
 							{@const b = getBox(region.box)}
-							{@const bubbleB = getBubbleBox(region)}
-							{@const centroid = getCentroid(region)}
-							{@const kind = getRegionKind(region)}
 							{@const angle = getRegionAngle(region)}
 							{@const isVertical = isRegionVertical(region)}
 							{@const isModified = region.originalTarget && region.textTarget && region.textTarget !== region.originalTarget}
@@ -744,19 +636,6 @@
 										<span class="rounded px-1.5 py-0.5 text-[10px] font-bold text-[#b23a2e] bg-[#b23a2e]/10 dark:text-[#e08a63]">
 											#{region.seq + 1}
 										</span>
-										{#if kind === 'dialogue_bubble'}
-											<span class="rounded bg-emerald-500/15 border border-emerald-500/30 px-1.5 py-0.5 text-[9px] font-bold text-emerald-700 dark:text-emerald-300">
-												Bubble
-											</span>
-										{:else if kind === 'sound_effect'}
-											<span class="rounded bg-amber-500/15 border border-amber-500/30 px-1.5 py-0.5 text-[9px] font-bold text-amber-700 dark:text-amber-300">
-												SFX
-											</span>
-										{:else}
-											<span class="rounded bg-neutral-500/15 border border-neutral-500/30 px-1.5 py-0.5 text-[9px] font-bold text-neutral-700 dark:text-neutral-300">
-												Free Text
-											</span>
-										{/if}
 										{#if isModified}
 											<span class="rounded bg-amber-500/15 border border-amber-500/30 px-1.5 py-0.5 text-[9px] font-bold text-amber-700 dark:text-amber-300">
 												Edited
@@ -795,28 +674,18 @@
 								{#if b}
 									{@const poly = getPolygon(region.polygon)}
 									<div class="mt-1 flex flex-wrap items-center gap-x-2.5 gap-y-0.5 font-mono text-[9px]">
-										{#if bubbleB}
-											<span class="text-emerald-600 dark:text-emerald-400 font-medium">
-												Bubble: ({bubbleB.x}, {bubbleB.y}) · {bubbleB.w}×{bubbleB.h}
-											</span>
-										{/if}
 										<span class="text-[#b23a2e] dark:text-[#e08a63]">
 											Typeset: ({b.x}, {b.y}) · {b.w}×{b.h}
 										</span>
 										{#if poly}
-											{@const pxs = poly.map(pt => pt[0])}
-											{@const pys = poly.map(pt => pt[1])}
+											{@const pxs = poly.map((pt) => pt[0])}
+											{@const pys = poly.map((pt) => pt[1])}
 											{@const minPx = Math.min(...pxs)}
 											{@const maxPx = Math.max(...pxs)}
 											{@const minPy = Math.min(...pys)}
 											{@const maxPy = Math.max(...pys)}
 											<span class="text-blue-600 dark:text-blue-400 font-medium">
 												Inpaint: ({minPx}, {minPy}) · {maxPx - minPx}×{maxPy - minPy}
-											</span>
-										{/if}
-										{#if centroid}
-											<span class="text-neutral-500 dark:text-neutral-400">
-												Center: ({centroid.x}, {centroid.y})
 											</span>
 										{/if}
 									</div>
