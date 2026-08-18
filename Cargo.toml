@@ -25,7 +25,7 @@ sha2 = "0.10"
 hex = "0.4"
 
 # Computer Vision, Geometry & Math
-image = { version = "0.25", default-features = false, features = ["png", "jpeg", "webp"] }
+image = { version = "0.25", default-features = false, features = ["png", "jpeg", "webp", "bmp", "tiff"] }
 imageproc = "0.25"
 ndarray = { version = "0.16", features = ["std"] }
 geo = "0.29"
