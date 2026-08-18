@@ -26,7 +26,7 @@ fn test_merge_text_lines_terminal_punct_guard() {
 /// are emitted as separate regions with unique IDs and clean text isolation.
 #[test]
 fn test_page_683_full_pipeline_bubble_separation() {
-    let img_path = Path::new("tests/fixtures/page_683.webp");
+    let img_path = Path::new("tests/fixtures/zh_hans/page_683.webp");
     if !img_path.exists() {
         return;
     }
@@ -62,7 +62,7 @@ fn test_page_683_full_pipeline_bubble_separation() {
 /// without skipping the introductory speech words.
 #[test]
 fn test_page_679_full_pipeline_text_completeness() {
-    let img_path = Path::new("tests/fixtures/page_679.webp");
+    let img_path = Path::new("tests/fixtures/zh_hans/page_679.webp");
     if !img_path.exists() {
         return;
     }

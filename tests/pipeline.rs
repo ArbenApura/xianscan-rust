@@ -14,7 +14,7 @@ use xianscan_rust::pipeline::PipelineEngine;
 /// 3. Executes LaMa inpainting to ensure image dimensions (`w`, `h`) remain preserved.
 #[test]
 fn test_end_to_end_pipeline_on_page_679() {
-    let img_path = Path::new("tests/fixtures/page_679.webp");
+    let img_path = Path::new("tests/fixtures/zh_hans/page_679.webp");
     let img = image::ImageReader::open(img_path)
         .expect("Failed to open page_679.webp")
         .with_guessed_format()
@@ -77,7 +77,7 @@ fn test_end_to_end_pipeline_on_page_679() {
 fn test_pipeline_analyze_with_language_filtering() {
     use xianscan_rust::ml::schemas::AnalyzeOptions;
 
-    let img_path = Path::new("tests/fixtures/page_679.webp");
+    let img_path = Path::new("tests/fixtures/zh_hans/page_679.webp");
     let img = image::ImageReader::open(img_path)
         .expect("Failed to open page_679.webp")
         .with_guessed_format()

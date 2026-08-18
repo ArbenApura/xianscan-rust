@@ -1,7 +1,5 @@
-mod common;
-
 use std::path::Path;
-use common::get_or_analyze_fixture;
+use crate::common::get_or_analyze_fixture;
 
 /// # Regression Test: Page 679 (Resolution: 800 × 1270 WebP)
 ///
@@ -21,7 +19,7 @@ use common::get_or_analyze_fixture;
 /// - Panel 2 bounding box right edge `x + w >= 265` to fully encapsulate `……`.
 #[test]
 fn test_regression_page_679() {
-    let img_path = Path::new("tests/fixtures/page_679.webp");
+    let img_path = Path::new("tests/fixtures/zh_hans/page_679.webp");
     let img = image::ImageReader::open(img_path)
         .expect("Failed to open page_679.webp")
         .with_guessed_format()
@@ -106,7 +104,7 @@ fn test_regression_page_679() {
 /// - Region r1 right boundary must fully cover *"练丹！"* exclamation mark (`x + w >= 745`).
 #[test]
 fn test_regression_page_63617() {
-    let img_path = Path::new("tests/fixtures/page_63617.webp");
+    let img_path = Path::new("tests/fixtures/zh_hans/page_63617.webp");
     if !img_path.exists() {
         return;
     }
@@ -149,7 +147,7 @@ fn test_regression_page_63617() {
 ///   (*"这傻子非得尿裤子上不可！"* vs *"哈哈！"*) are not merged across panels.
 #[test]
 fn test_regression_page_683() {
-    let img_path = Path::new("tests/fixtures/page_683.webp");
+    let img_path = Path::new("tests/fixtures/zh_hans/page_683.webp");
     if !img_path.exists() {
         return;
     }
@@ -173,7 +171,7 @@ fn test_regression_page_683() {
 ///   is preserved and not discarded by watermark or background filtering heuristics.
 #[test]
 fn test_regression_page_688() {
-    let img_path = Path::new("tests/fixtures/page_688.webp");
+    let img_path = Path::new("tests/fixtures/zh_hans/page_688.webp");
     if !img_path.exists() {
         return;
     }
@@ -198,7 +196,7 @@ fn test_regression_page_688() {
 ///   with full bounding box width (`w >= 380px`).
 #[test]
 fn test_regression_page_15_seq_8() {
-    let img_path = Path::new("tests/fixtures/page_15_seq_8.webp");
+    let img_path = Path::new("tests/fixtures/zh_hans/page_15_seq_8.webp");
     if !img_path.exists() {
         return;
     }
@@ -260,7 +258,7 @@ fn test_regression_page_15_seq_8() {
 ///   (*"你可不要\n乱动……"*).
 #[test]
 fn test_regression_page_162_seq_1() {
-    let img_path = Path::new("tests/fixtures/page_162_seq_1.webp");
+    let img_path = Path::new("tests/fixtures/zh_hans/page_162_seq_1.webp");
     if !img_path.exists() {
         return;
     }
@@ -319,7 +317,7 @@ fn test_regression_page_162_seq_1() {
 ///   and suppresses thought bubble tail circles.
 #[test]
 fn test_regression_page_168_seq_1() {
-    let img_path = Path::new("tests/fixtures/page_168_seq_1.webp");
+    let img_path = Path::new("tests/fixtures/zh_hans/page_168_seq_1.webp");
     if !img_path.exists() {
         return;
     }
@@ -361,7 +359,7 @@ fn test_regression_page_168_seq_1() {
 ///   trailing ellipsis (*"不愧是顶尖高手……"* with `w >= 325px`).
 #[test]
 fn test_regression_page_169_seq_8() {
-    let img_path = Path::new("tests/fixtures/page_169_seq_8.webp");
+    let img_path = Path::new("tests/fixtures/zh_hans/page_169_seq_8.webp");
     if !img_path.exists() {
         return;
     }
@@ -412,7 +410,7 @@ fn test_regression_page_169_seq_8() {
 ///   and preserves the full multi-column info block without digit corruption.
 #[test]
 fn test_regression_page_170_seq_9() {
-    let img_path = Path::new("tests/fixtures/page_170_seq_9.webp");
+    let img_path = Path::new("tests/fixtures/zh_hans/page_170_seq_9.webp");
     if !img_path.exists() {
         return;
     }
@@ -452,7 +450,7 @@ fn test_regression_page_170_seq_9() {
 ///   is unified into 1 region instead of fragmenting into ghost boxes (*"水是不\n我坚"*).
 #[test]
 fn test_regression_page_171_seq_10() {
-    let img_path = Path::new("tests/fixtures/page_171_seq_10.webp");
+    let img_path = Path::new("tests/fixtures/zh_hans/page_171_seq_10.webp");
     if !img_path.exists() {
         return;
     }
@@ -497,7 +495,7 @@ fn test_regression_page_171_seq_10() {
 ///   and preserves distinct IDs for all 3 adjacent speech bubbles in panel 2.
 #[test]
 fn test_regression_page_172_seq_11() {
-    let img_path = Path::new("tests/fixtures/page_172_seq_11.webp");
+    let img_path = Path::new("tests/fixtures/zh_hans/page_172_seq_11.webp");
     if !img_path.exists() {
         return;
     }
@@ -545,7 +543,7 @@ fn test_regression_page_172_seq_11() {
 ///   Ensures chapter subtitle (*"第一话·重生"*) is properly separated from stylized cover calligraphy.
 #[test]
 fn test_regression_page_175_seq_14() {
-    let img_path = Path::new("tests/fixtures/page_175_seq_14.webp");
+    let img_path = Path::new("tests/fixtures/zh_hans/page_175_seq_14.webp");
     if !img_path.exists() {
         return;
     }
@@ -578,7 +576,7 @@ fn test_regression_page_175_seq_14() {
 ///   width to `x + w >= 700px` so LaMa inpainting cleanly cleans every dot.
 #[test]
 fn test_regression_page_197_seq_33() {
-    let img_path = Path::new("tests/fixtures/page_197_seq_33.webp");
+    let img_path = Path::new("tests/fixtures/zh_hans/page_197_seq_33.webp");
     if !img_path.exists() {
         return;
     }
@@ -616,7 +614,7 @@ fn test_regression_page_197_seq_33() {
 ///   page edge (`x + w <= 765px`) with `angle = 0.0°`, and preserves cyan status card.
 #[test]
 fn test_regression_page_198_seq_34() {
-    let img_path = Path::new("tests/fixtures/page_198_seq_34.webp");
+    let img_path = Path::new("tests/fixtures/zh_hans/page_198_seq_34.webp");
     if !img_path.exists() {
         return;
     }
@@ -665,8 +663,8 @@ fn test_regression_page_198_seq_34() {
 /// - Negative guard: Zero *"中"* hallucination boxes (`assert!(!res.regions.iter().any(|r| r.text.trim() == "中"))`).
 #[test]
 fn test_regression_page_204_seq_38() {
-    let img_path = Path::new("tests/fixtures/page_63707.webp");
-    let fallback_path = Path::new("tests/fixtures/page_204_seq_38.webp");
+    let img_path = Path::new("tests/fixtures/zh_hans/page_63707.webp");
+    let fallback_path = Path::new("tests/fixtures/zh_hans/page_204_seq_38.webp");
     let active_path = if img_path.exists() { img_path } else if fallback_path.exists() { fallback_path } else { return; };
     let img = image::ImageReader::open(active_path)
         .expect("Failed to open page_63707.webp")
@@ -724,7 +722,7 @@ fn test_regression_page_204_seq_38() {
 /// - Negative guard: No fractured sub-boxes or column cross-reading (`哼来个`).
 #[test]
 fn test_regression_page_novice_mage_split_bubble() {
-    let img_path = Path::new("tests/fixtures/page_novice_mage_split_bubble.webp");
+    let img_path = Path::new("tests/fixtures/zh_hans/page_novice_mage_split_bubble.webp");
     if !img_path.exists() {
         return;
     }
@@ -787,7 +785,7 @@ fn test_regression_page_novice_mage_split_bubble() {
 /// - No duplicate/ghost trailing substring echo boxes (`和服务。\n祥`).
 #[test]
 fn test_regression_page_58375() {
-    let img_path = Path::new("tests/fixtures/page_58375.webp");
+    let img_path = Path::new("tests/fixtures/zh_hans/page_58375.webp");
     if !img_path.exists() {
         return;
     }

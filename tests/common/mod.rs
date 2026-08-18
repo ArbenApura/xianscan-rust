@@ -2,7 +2,7 @@ use std::path::{Path, PathBuf};
 use image::DynamicImage;
 use serde::{de::DeserializeOwned, Serialize};
 use sha2::{Digest, Sha256};
-use xianscan_rust::ml::schemas::AnalyzeResponse;
+use xianscan_rust::ml::schemas::{AnalyzeOptions, AnalyzeResponse};
 use xianscan_rust::pipeline::PipelineEngine;
 
 /// Increment this when a pipeline change alters analyze_image output.
@@ -65,39 +65,74 @@ pub fn write_cache<T: Serialize>(category: &str, key: &str, val: &T) {
 /// Returns the cached result instantly if available; runs the live model otherwise.
 #[allow(dead_code)]
 pub fn get_or_analyze_fixture(img: &DynamicImage) -> AnalyzeResponse {
+    get_or_analyze_fixture_with_lang(img, None)
+}
+
+/// Language-aware helper that checks cache partitioned by language before running pipeline analysis.
+#[allow(dead_code)]
+pub fn get_or_analyze_fixture_with_lang(
+    img: &DynamicImage,
+    source_lang: Option<&str>,
+) -> AnalyzeResponse {
     let key = hash_image(img);
-    if let Some(cached) = read_cache::<AnalyzeResponse>("analyze", &key) {
+    let lang_tag = source_lang.unwrap_or("default");
+    let category = format!("analyze_{}", lang_tag);
+    if let Some(cached) = read_cache::<AnalyzeResponse>(&category, &key) {
         return cached;
     }
     let models_dir = Path::new("models");
     let mut engine = PipelineEngine::new(models_dir);
-    let res = engine.analyze_image(img).expect("Pipeline analyze_image failed");
-    write_cache("analyze", &key, &res);
+    let opts = source_lang.map(|l| AnalyzeOptions {
+        source_lang: Some(l.to_string()),
+        target_lang: Some("en".to_string()),
+    });
+    let res = engine
+        .analyze_image_with_options(img, opts.as_ref())
+        .expect("Pipeline analyze_image failed");
+    write_cache(&category, &key, &res);
+    res
+}
+
+/// Bypasses the cache, runs the live model with language options, and re-seeds the cache entry.
+#[allow(dead_code)]
+pub fn force_analyze_fixture_with_lang(
+    img: &DynamicImage,
+    source_lang: Option<&str>,
+) -> AnalyzeResponse {
+    let key = hash_image(img);
+    let lang_tag = source_lang.unwrap_or("default");
+    let category = format!("analyze_{}", lang_tag);
+    let models_dir = Path::new("models");
+    let mut engine = PipelineEngine::new(models_dir);
+    let opts = source_lang.map(|l| AnalyzeOptions {
+        source_lang: Some(l.to_string()),
+        target_lang: Some("en".to_string()),
+    });
+    let res = engine
+        .analyze_image_with_options(img, opts.as_ref())
+        .expect("Pipeline analyze_image failed");
+    write_cache(&category, &key, &res);
     res
 }
 
 /// Bypasses the cache, runs the live model, and re-seeds the cache entry.
-///
-/// Use this during development to validate a single pipeline fix without clearing
-/// the entire cache. After this call, subsequent `get_or_analyze_fixture` calls
-/// for the same image will return the fresh result instantly.
-///
-/// Equivalent to deleting the cache file and calling `get_or_analyze_fixture`.
 #[allow(dead_code)]
 pub fn force_analyze_fixture(img: &DynamicImage) -> AnalyzeResponse {
+    force_analyze_fixture_with_lang(img, None)
+}
+
+/// Removes the cache entry for a given image and language so the next call will run the live model.
+#[allow(dead_code)]
+pub fn invalidate_cache_with_lang(img: &DynamicImage, source_lang: Option<&str>) {
     let key = hash_image(img);
-    let models_dir = Path::new("models");
-    let mut engine = PipelineEngine::new(models_dir);
-    let res = engine.analyze_image(img).expect("Pipeline analyze_image failed");
-    write_cache("analyze", &key, &res);
-    res
+    let lang_tag = source_lang.unwrap_or("default");
+    let path = ensure_cache_dir().join(format!("analyze_{}_{}.json", lang_tag, key));
+    let _ = std::fs::remove_file(&path);
 }
 
 /// Removes the cache entry for a given image so the next call to
 /// `get_or_analyze_fixture` will run the live model instead.
 #[allow(dead_code)]
 pub fn invalidate_cache(img: &DynamicImage) {
-    let key = hash_image(img);
-    let path = ensure_cache_dir().join(format!("analyze_{}.json", key));
-    let _ = std::fs::remove_file(&path);
+    invalidate_cache_with_lang(img, None);
 }

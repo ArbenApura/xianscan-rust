@@ -12,7 +12,7 @@ use xianscan_rust::ml::ocr::{OcrLine, RapidOcr};
 /// loads and detects bounding boxes on a high-resolution raw manga page.
 #[test]
 fn test_comic_text_detector_on_fixture_page_679() {
-    let img_path = Path::new("tests/fixtures/page_679.webp");
+    let img_path = Path::new("tests/fixtures/zh_hans/page_679.webp");
     assert!(img_path.exists(), "Fixture page_679.webp must exist");
 
     let img = image::ImageReader::open(img_path)
@@ -48,7 +48,7 @@ fn test_comic_text_detector_on_fixture_page_679() {
 /// and confidence scoring on vertical and horizontal Chinese text lines.
 #[test]
 fn test_rapid_ocr_detect_and_recognize_on_page_679() {
-    let img_path = Path::new("tests/fixtures/page_679.webp");
+    let img_path = Path::new("tests/fixtures/zh_hans/page_679.webp");
     let img = image::ImageReader::open(img_path)
         .expect("Failed to open page_679.webp")
         .with_guessed_format()
