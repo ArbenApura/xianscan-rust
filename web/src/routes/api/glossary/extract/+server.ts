@@ -1,16 +1,17 @@
-// MANUAL AI TERM EXTRACTION ENDPOINT — EXTRACTS TERMS FROM CHAPTER TEXT AND SAVES TO BOOK GLOSSARY.
 import { error, json } from '@sveltejs/kit';
 import { eq } from 'drizzle-orm';
 import { db } from '$lib/server/db';
 import { chapters, pages, regions } from '$lib/server/db/schema';
 import { addNewTerms, bookPair, getEffectiveGlossary } from '$lib/server/glossary';
 import { extractTerms } from '$lib/server/translate';
+import { glossaryExtractSchema } from '$lib/schemas';
 import type { RequestHandler } from './$types';
 
 export const POST: RequestHandler = async ({ request }) => {
 	const body = await request.json().catch(() => ({}));
-	const { bookId, chapterId } = body;
-	if (!bookId || typeof bookId !== 'string') throw error(400, 'Invalid bookId.');
+	const parsed = glossaryExtractSchema.safeParse(body);
+	if (!parsed.success) throw error(400, 'Invalid bookId.');
+	const { bookId, chapterId } = parsed.data;
 
 	const pair = await bookPair(bookId);
 	const effective = await getEffectiveGlossary(bookId);

@@ -32,6 +32,8 @@
 	import X from 'lucide-svelte/icons/x';
 	import Languages from 'lucide-svelte/icons/languages';
 	import { apiJson } from '$lib/api';
+	import { validateForm } from '$lib/utils/form';
+	import { createBookSchema, updateBookSchema } from '$lib/schemas';
 	import type { PageData } from './$types';
 
 	export let data: PageData;
@@ -168,19 +170,24 @@
 	}
 
 	async function createBook() {
-		const t = title.trim();
-		if (!t) return;
+		const payload = {
+			title: title.trim(),
+			titleTarget: titleTarget.trim() || undefined,
+			sourceLang,
+			targetLang,
+		};
+		const validation = validateForm(createBookSchema, payload);
+		if (!validation.success) {
+			toast.error(Object.values(validation.errors)[0] || 'Invalid book details.');
+			return;
+		}
+
 		creating = true;
 		try {
 			const resp = await fetch('/api/books', {
 				method: 'POST',
 				headers: { 'content-type': 'application/json' },
-				body: JSON.stringify({
-					title: t,
-					titleTarget: titleTarget.trim() || undefined,
-					sourceLang,
-					targetLang,
-				}),
+				body: JSON.stringify(validation.data),
 			});
 			if (!resp.ok) {
 				const errData = await resp.json().catch(() => ({}));
@@ -212,21 +219,26 @@
 
 	async function updateBook() {
 		if (!editingBook) return;
-		const t = editTitle.trim();
-		if (!t) return;
+		const payload = {
+			title: editTitle.trim(),
+			titleTarget: editTitleTarget.trim() || null,
+			sourceLang: editSourceLang,
+			targetLang: editTargetLang,
+			pinned: editPinned,
+			archived: editArchived,
+		};
+		const validation = validateForm(updateBookSchema, payload);
+		if (!validation.success) {
+			toast.error(Object.values(validation.errors)[0] || 'Invalid book details.');
+			return;
+		}
+
 		updating = true;
 		try {
 			const resp = await fetch(`/api/books/${editingBook.id}`, {
 				method: 'PATCH',
 				headers: { 'content-type': 'application/json' },
-				body: JSON.stringify({
-					title: t,
-					titleTarget: editTitleTarget.trim() || null,
-					sourceLang: editSourceLang,
-					targetLang: editTargetLang,
-					pinned: editPinned,
-					archived: editArchived,
-				}),
+				body: JSON.stringify(validation.data),
 			});
 			if (!resp.ok) {
 				const errData = await resp.json().catch(() => ({}));

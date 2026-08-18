@@ -11,55 +11,12 @@ import type { RequestHandler } from './$types';
 
 // -- CONSTANTS -- //
 
-const scopeSchema = z.enum(['global', 'book']);
-
-const categorySchema = z.enum([
-	'character',
-	'location',
-	'organization',
-	'technique',
-	'item',
-	'realm',
-	'creature',
-	'title',
-	'concept',
-	'other',
-]);
-
-const PostBody = z.object({
-	scope: scopeSchema,
-	bookId: z.string().nullable().optional(),
-	// FOR GLOBAL SCOPE: WHICH LANGUAGE PAIR THIS TERM BELONGS TO (BOOK SCOPE INHERITS THE BOOK'S PAIR).
-	sourceLang: z.string().optional(),
-	targetLang: z.string().optional(),
-	source: z.string().min(1),
-	target: z.string().min(1),
-	gender: z.enum(['neuter', 'masculine', 'feminine']).default('neuter'),
-	context: z.string().nullable().optional(),
-	tags: z.string().nullable().optional(),
-	category: categorySchema.nullable().optional(),
-	pinned: z.boolean().optional(),
-	aliases: z.array(z.string()).nullable().optional(),
-});
-
-const DeleteBody = z.object({
-	ids: z.array(z.number().int()).optional(),
-	clearScope: z.boolean().optional(),
-	scope: scopeSchema.optional(),
-	bookId: z.string().nullable().optional(),
-	sourceLang: z.string().optional(),
-	targetLang: z.string().optional(),
-});
-
-const PatchBody = z.object({
-	ids: z.array(z.number().int()).min(1),
-	scope: scopeSchema.optional(),
-	bookId: z.string().nullable().optional(),
-	pinned: z.boolean().optional(),
-	category: categorySchema.nullable().optional(),
-	gender: z.enum(['neuter', 'masculine', 'feminine']).optional(),
-	status: z.enum(['ai', 'user']).optional(),
-});
+import {
+	createGlossaryTermSchema,
+	batchUpdateGlossaryTermsSchema,
+	deleteGlossaryTermsSchema,
+	glossaryScopeSchema,
+} from '$lib/schemas';
 
 // -- FUNCTIONS -- //
 
@@ -73,7 +30,7 @@ function pairFrom(sourceLang: string | null | undefined, targetLang: string | nu
 
 export const GET: RequestHandler = async ({ url }) => {
 	// safeParse → 400 (NOT AN UNHANDLED ZodError → 500) FOR A BAD ?scope= VALUE.
-	const scopeResult = scopeSchema.safeParse(url.searchParams.get('scope') ?? 'global');
+	const scopeResult = glossaryScopeSchema.safeParse(url.searchParams.get('scope') ?? 'global');
 	if (!scopeResult.success) throw error(400, 'scope must be global or book.');
 	const scope = scopeResult.data;
 	const bookId = url.searchParams.get('bookId');
@@ -100,7 +57,7 @@ export const GET: RequestHandler = async ({ url }) => {
 };
 
 export const POST: RequestHandler = async ({ request }) => {
-	const parsed = PostBody.safeParse(await request.json().catch(() => null));
+	const parsed = createGlossaryTermSchema.safeParse(await request.json().catch(() => null));
 	if (!parsed.success) throw error(400, 'Invalid term.');
 	const { scope, bookId, sourceLang, targetLang, source, target, gender, context, tags, category, pinned, aliases } =
 		parsed.data;
@@ -123,7 +80,7 @@ export const POST: RequestHandler = async ({ request }) => {
 };
 
 export const DELETE: RequestHandler = async ({ request }) => {
-	const parsed = DeleteBody.safeParse(await request.json().catch(() => null));
+	const parsed = deleteGlossaryTermsSchema.safeParse(await request.json().catch(() => null));
 	if (!parsed.success) throw error(400, 'Invalid delete request.');
 	const { ids, clearScope, scope, bookId, sourceLang, targetLang } = parsed.data;
 
@@ -150,7 +107,7 @@ export const DELETE: RequestHandler = async ({ request }) => {
 };
 
 export const PATCH: RequestHandler = async ({ request }) => {
-	const parsed = PatchBody.safeParse(await request.json().catch(() => null));
+	const parsed = batchUpdateGlossaryTermsSchema.safeParse(await request.json().catch(() => null));
 	if (!parsed.success) throw error(400, 'Invalid patch request.');
 	const { ids, scope, bookId, ...patch } = parsed.data;
 	const count = await batchUpdateTerms(ids, patch, scope, bookId ?? null);

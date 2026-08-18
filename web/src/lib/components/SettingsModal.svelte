@@ -1073,9 +1073,9 @@
 								<div class="space-y-2.5">
 									<div class="flex items-center justify-between">
 										<div class="flex items-center gap-1.5 pl-0.5">
-											<label class="text-[11px] font-semibold opacity-80">
+											<div class="text-[11px] font-semibold opacity-80">
 												Active Model
-											</label>
+											</div>
 											<span class="rounded-full bg-black/5 dark:bg-white/10 px-2 py-0.2 text-[10px] font-mono font-medium opacity-70">
 												{currentP.availableModels.length} {currentP.availableModels.length === 1 ? 'model' : 'models'}
 											</span>
@@ -1525,7 +1525,7 @@
 
 					<div class="grid grid-cols-1 gap-3 sm:grid-cols-2">
 						<div class="space-y-1">
-							<label class="text-[11px] font-semibold opacity-75">Source Language</label>
+							<div class="text-[11px] font-semibold opacity-75">Source Language</div>
 							<LanguagePicker
 								value={$settings.sourceLang || 'zh-Hans'}
 								mode="source"
@@ -1534,7 +1534,7 @@
 						</div>
 
 						<div class="space-y-1">
-							<label class="text-[11px] font-semibold opacity-75">Target Language</label>
+							<div class="text-[11px] font-semibold opacity-75">Target Language</div>
 							<LanguagePicker
 								value={$settings.targetLang || 'en'}
 								mode="target"

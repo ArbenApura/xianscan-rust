@@ -341,7 +341,7 @@
 
 			<!-- LATIN DIALOGUE FONTS -->
 			<div class="space-y-1.5">
-				<label class="text-[11px] font-semibold opacity-75 pl-0.5">Latin / English Dialogue Font</label>
+				<div class="text-[11px] font-semibold opacity-75 pl-0.5">Latin / English Dialogue Font</div>
 				<div class="grid grid-cols-2 sm:grid-cols-3 gap-2">
 					{#each AVAILABLE_TYPESET_FONTS as font}
 						{@const isSelected = ($settings.typesetFont || 'CC Wild Words') === font.id}
@@ -374,7 +374,7 @@
 
 			<!-- CJK FALLBACK STACK -->
 			<div class="space-y-1.5 pt-1">
-				<label class="text-[11px] font-semibold opacity-75 pl-0.5">CJK / East Asian Fallback Engine</label>
+				<div class="text-[11px] font-semibold opacity-75 pl-0.5">CJK / East Asian Fallback Engine</div>
 				<div class="grid grid-cols-2 sm:grid-cols-4 gap-2">
 					{#each AVAILABLE_CJK_FONTS as cjk}
 						{@const isSelected = ($settings.typesetCjkFont || 'Friendly Sans') === cjk.id}
@@ -414,7 +414,7 @@
 			<!-- BUBBLE INSET PADDING -->
 			<div class="space-y-1.5">
 				<div class="flex items-center justify-between">
-					<label class="text-[11px] font-semibold opacity-75 pl-0.5">Bubble Edge Inset Padding</label>
+					<div class="text-[11px] font-semibold opacity-75 pl-0.5">Bubble Edge Inset Padding</div>
 					<span class="text-[10px] font-mono opacity-60">{Math.round(($settings.typesetPadding || 0.05) * 100)}% inset</span>
 				</div>
 
@@ -488,7 +488,7 @@
 
 			<!-- CONTRAST MODE -->
 			<div class="space-y-1.5">
-				<label class="text-[11px] font-semibold opacity-75 pl-0.5">Contrast Strategy</label>
+				<div class="text-[11px] font-semibold opacity-75 pl-0.5">Contrast Strategy</div>
 				<div class="grid grid-cols-1 sm:grid-cols-3 gap-2">
 					{#each CONTRAST_PRESETS as cPreset}
 						{@const isSelected = ($settings.typesetContrast || 'auto') === cPreset.id}
@@ -514,7 +514,7 @@
 
 			<!-- STROKE OUTLINE THICKNESS -->
 			<div class="space-y-1.5 pt-1">
-				<label class="text-[11px] font-semibold opacity-75 pl-0.5">Text Stroke Outline</label>
+				<div class="text-[11px] font-semibold opacity-75 pl-0.5">Text Stroke Outline</div>
 				<div class="grid grid-cols-2 sm:grid-cols-4 gap-2">
 					{#each OUTLINE_PRESETS as oPreset}
 						{@const isSelected = ($settings.typesetOutline || 'standard') === oPreset.id}
@@ -577,7 +577,7 @@
 			<!-- DIALOGUE CASING 3-WAY SELECTOR (ONLY SHOWN FOR FONTS SUPPORTING MIXED/LOWER CASE) -->
 			{#if isCasingApplicable}
 				<div class="space-y-1.5 pt-1">
-					<label class="text-[11px] font-semibold opacity-75 pl-0.5">Dialogue Letterform Casing</label>
+					<div class="text-[11px] font-semibold opacity-75 pl-0.5">Dialogue Letterform Casing</div>
 					<div class="grid grid-cols-1 sm:grid-cols-3 gap-2">
 						{#each CASING_PRESETS as cPreset}
 							{@const isSelected = ($settings.typesetCasing || 'uppercase') === cPreset.id}

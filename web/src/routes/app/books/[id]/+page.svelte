@@ -7,6 +7,8 @@
 	import { Button, TextField, Badge, Modal, ConfirmDialog, ActionMenu, LanguagePicker, Toggle, LazyImage, Checkbox } from '$lib/components/ui';
 	import { ripple } from '$lib/actions/ripple';
 	import { apiJson } from '$lib/api';
+	import { validateForm } from '$lib/utils/form';
+	import { updateBookSchema, createChapterSchema, updateChapterSchema } from '$lib/schemas';
 	import { settings, THEME_POPOVER, THEME_PANEL_BORDER, CH_LAYOUT_COOKIE, setCookie } from '$lib/stores/settings';
 	import { jobTracker } from '$lib/stores/job-tracker';
 	import { batchTracker, batchProgress } from '$lib/stores/batch-tracker';
@@ -187,21 +189,26 @@
 
 	async function updateBook() {
 		if (!book) return;
-		const t = editBookTitle.trim();
-		if (!t) return;
+		const payload = {
+			title: editBookTitle.trim(),
+			titleTarget: editBookTitleTarget.trim() || null,
+			sourceLang: editBookSourceLang,
+			targetLang: editBookTargetLang,
+			pinned: editBookPinned,
+			archived: editBookArchived,
+		};
+		const validation = validateForm(updateBookSchema, payload);
+		if (!validation.success) {
+			toast.error(Object.values(validation.errors)[0] || 'Invalid book details.');
+			return;
+		}
+
 		updatingBook = true;
 		try {
 			const resp = await fetch(`/api/books/${book.id}`, {
 				method: 'PATCH',
 				headers: { 'content-type': 'application/json' },
-				body: JSON.stringify({
-					title: t,
-					titleTarget: editBookTitleTarget.trim() || null,
-					sourceLang: editBookSourceLang,
-					targetLang: editBookTargetLang,
-					pinned: editBookPinned,
-					archived: editBookArchived,
-				}),
+				body: JSON.stringify(validation.data),
 			});
 			if (!resp.ok) throw new Error('Update failed');
 			const data = await resp.json();
@@ -216,15 +223,21 @@
 	}
 
 	async function createChapter() {
+		const payload = {
+			title: chapterTitle.trim(),
+		};
+		const validation = validateForm(createChapterSchema, payload);
+		if (!validation.success) {
+			toast.error(Object.values(validation.errors)[0] || 'Invalid chapter details.');
+			return;
+		}
+
 		creating = true;
 		try {
 			const resp = await fetch(`/api/books/${$page.params.id}/chapters`, {
 				method: 'POST',
 				headers: { 'content-type': 'application/json' },
-				body: JSON.stringify({
-					title: chapterTitle.trim(),
-					titleTarget: chapterTitleTarget.trim() || undefined,
-				}),
+				body: JSON.stringify(validation.data),
 			});
 			if (!resp.ok) throw new Error('create failed');
 			const { id: chapterId } = await resp.json();
@@ -250,16 +263,23 @@
 
 	async function updateChapter() {
 		if (!editingChapter) return;
+		const payload = {
+			title: editChapterTitle.trim(),
+			titleTarget: editChapterTitleTarget.trim() || null,
+			seq: Math.max(0, editChapterSeq - 1),
+		};
+		const validation = validateForm(updateChapterSchema, payload);
+		if (!validation.success) {
+			toast.error(Object.values(validation.errors)[0] || 'Invalid chapter details.');
+			return;
+		}
+
 		updatingChapter = true;
 		try {
 			const resp = await fetch(`/api/chapters/${editingChapter.id}`, {
 				method: 'PATCH',
 				headers: { 'content-type': 'application/json' },
-				body: JSON.stringify({
-					title: editChapterTitle.trim(),
-					titleTarget: editChapterTitleTarget.trim() || null,
-					seq: Math.max(0, editChapterSeq - 1),
-				}),
+				body: JSON.stringify(validation.data),
 			});
 			if (!resp.ok) throw new Error('Update failed');
 			const data = await resp.json();

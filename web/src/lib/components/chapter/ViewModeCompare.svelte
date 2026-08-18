@@ -110,6 +110,7 @@
 <div class="flex flex-col gap-6 w-full">
 	{#each pages as page, idx (page.id)}
 		{@const hasRatio = Boolean(page.width && page.height)}
+		<!-- svelte-ignore a11y-no-static-element-interactions -->
 		<div
 			on:dragover={(e) => dispatch('dragOver', { event: e, index: idx })}
 			on:drop={(e) => dispatch('drop', { event: e, index: idx })}
@@ -124,6 +125,7 @@
 		>
 			<div class="mb-3 flex items-center justify-between text-xs font-bold">
 				<div class="flex items-center gap-2">
+					<!-- svelte-ignore a11y-no-static-element-interactions -->
 					<span
 						draggable="true"
 						on:dragstart={(e) => dispatch('dragStart', { event: e, index: idx })}

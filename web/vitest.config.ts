@@ -29,13 +29,20 @@ export default defineConfig({
 		alias: {
 			$lib: fileURLToPath(new URL('./src/lib', import.meta.url)),
 			'$env/dynamic/private': fileURLToPath(new URL('./tests/helpers/env-dynamic.ts', import.meta.url)),
+			'$env/dynamic/public': fileURLToPath(new URL('./tests/helpers/env-dynamic.ts', import.meta.url)),
 			'$app/environment': fileURLToPath(new URL('./tests/helpers/app-environment.ts', import.meta.url)),
+			'$app/navigation': fileURLToPath(new URL('./tests/helpers/app-environment.ts', import.meta.url)),
 		},
 	},
 	test: {
 		include: ['tests/**/*.test.ts'],
-		// ONE WORKER PER TEST FILE IS ENOUGH HERE AND KEEPS IN-MEMORY SQLITE INSTANCES ISOLATED.
-		fileParallelism: false,
+		environment: 'node',
+		environmentMatchGlobs: [
+			['**/*components*/**', 'jsdom'],
+			['**/*ui*/**', 'jsdom'],
+		],
+		// PARALLEL WORKERS RUN TEST FILES CONCURRENTLY WITH THREAD / PROCESS ISOLATION.
+		fileParallelism: true,
 		// THE APP'S db SINGLETON (IMPORTED BY tests/server/db.test.ts VIA createDb) AND DATA_ROOT MUST NEVER
 		// TOUCH THE REAL APP DATA DIR DURING TESTS — FORCE EVERY TEST PROCESS ONTO IN-MEMORY / TMP PATHS.
 		env: {

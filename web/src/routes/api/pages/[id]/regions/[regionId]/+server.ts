@@ -1,15 +1,9 @@
 import { error, json, type RequestHandler } from '@sveltejs/kit';
-import { z } from 'zod';
 import { db } from '$lib/server/db';
 import { pages, regions } from '$lib/server/db/schema';
 import { eq, and } from 'drizzle-orm';
 import { retypesetPage } from '$lib/server/chapters';
-
-const schema = z.object({
-	textTarget: z.string().optional(),
-	action: z.enum(['save', 'reset_ai']).optional().default('save'),
-	typesetOptions: z.record(z.unknown()).optional(),
-});
+import { updateRegionSchema } from '$lib/schemas';
 
 export const PATCH: RequestHandler = async ({ params, request }) => {
 	const pageId = Number(params.id);
@@ -25,7 +19,7 @@ export const PATCH: RequestHandler = async ({ params, request }) => {
 	if (!existingRegion) throw error(404, 'Region not found on this page.');
 
 	const body = await request.json().catch(() => ({}));
-	const parsed = schema.safeParse(body);
+	const parsed = updateRegionSchema.safeParse(body);
 	if (!parsed.success) {
 		throw error(400, 'Invalid request body');
 	}

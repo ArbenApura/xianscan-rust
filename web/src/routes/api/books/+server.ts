@@ -3,20 +3,12 @@
 import { error, json } from '@sveltejs/kit';
 import { randomUUID } from 'node:crypto';
 import { desc } from 'drizzle-orm';
-import { z } from 'zod';
-// IMPORTED MODULES
 import { DEFAULT_SOURCE_LANG, DEFAULT_TARGET_LANG, detectSourceLanguage } from '$lib/languages';
 import { getBooksWithTelemetry } from '$lib/server/books';
 import { db } from '$lib/server/db';
 import { books } from '$lib/server/db/schema';
+import { createBookSchema } from '$lib/schemas';
 import type { RequestHandler } from './$types';
-
-const PostBody = z.object({
-	title: z.string().min(1).max(200),
-	titleTarget: z.string().max(200).optional(),
-	sourceLang: z.string().optional(),
-	targetLang: z.string().optional(),
-});
 
 export const GET: RequestHandler = async () => {
 	const allBooks = await getBooksWithTelemetry();
@@ -24,7 +16,7 @@ export const GET: RequestHandler = async () => {
 };
 
 export const POST: RequestHandler = async ({ request }) => {
-	const parsed = PostBody.safeParse(await request.json().catch(() => null));
+	const parsed = createBookSchema.safeParse(await request.json().catch(() => null));
 	if (!parsed.success) throw error(400, 'Invalid book details.');
 	const rawSource = parsed.data.sourceLang || DEFAULT_SOURCE_LANG;
 	const detectedSource = rawSource === 'auto' ? detectSourceLanguage(parsed.data.title) : rawSource;

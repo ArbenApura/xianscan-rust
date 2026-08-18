@@ -7,7 +7,6 @@
 // AND A (RE)CONNECTING CLIENT REPLAYS EVERYTHING SO FAR. THE STREAM CLOSES ON done/fatal error.
 // IMPORTED DEP-MODULES
 import { error } from '@sveltejs/kit';
-import { z } from 'zod';
 // IMPORTED MODULES
 import { assertChapterExists } from '$lib/server/chapters';
 import { chapterWork } from '$lib/server/chapter-pipeline';
@@ -17,28 +16,9 @@ import { DATA_ROOT } from '$lib/server/paths';
 import { aiUsage } from '$lib/server/db/schema';
 import { db } from '$lib/server/db';
 import { getChapterJob, startChapterJob, setChapterJobAddPage, isChapterPageCancelled, type JobHandle } from '$lib/server/translation-service';
+import { translateChapterSchema } from '$lib/schemas';
 
 import type { RequestHandler } from './$types';
-
-const Body = z.object({
-	force: z.boolean().default(false),
-	pageIds: z.array(z.number().int().positive()).optional(),
-	inpaintMode: z.string().optional(),
-	pageConcurrency: z.number().int().min(1).max(16).optional(),
-	typesetOptions: z
-		.object({
-			fontDialogue: z.string().optional(),
-			fontCjk: z.string().optional(),
-			boxInset: z.number().optional(),
-			fontScale: z.number().optional(),
-			outlineMode: z.enum(['none', 'thin', 'standard', 'heavy']).optional(),
-			colorMode: z.enum(['auto', 'dark', 'light']).optional(),
-			casing: z.enum(['uppercase', 'original', 'lowercase']).optional(),
-			allCaps: z.boolean().optional(),
-			enableRotation: z.boolean().optional(),
-		})
-		.optional(),
-});
 
 function createSseStream(handle: JobHandle): Response {
 	let unsubscribe: () => void = () => {};
@@ -107,7 +87,7 @@ export const POST: RequestHandler = async ({ params, request, cookies }) => {
 	if (!Number.isInteger(chapterId)) throw error(400, 'Invalid chapter id.');
 	await assertChapterExists(chapterId);
 
-	const parsed = Body.safeParse(await request.json().catch(() => null));
+	const parsed = translateChapterSchema.safeParse(await request.json().catch(() => null));
 	const force = parsed.success ? parsed.data.force : false;
 	const pageIds = parsed.success ? parsed.data.pageIds : undefined;
 	const inpaintMode = parsed.success && parsed.data.inpaintMode ? parsed.data.inpaintMode : cookies.get('mt_inpaint_mode') ?? 'patch';

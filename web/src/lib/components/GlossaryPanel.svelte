@@ -12,6 +12,8 @@
 	import { chapterLabel } from '$lib/chapter-label';
 	import { DEFAULT_SOURCE_LANG, DEFAULT_TARGET_LANG } from '$lib/languages';
 	import { settings, THEME_CLASS } from '$lib/stores/settings';
+	import { validateForm } from '$lib/utils/form';
+	import { createGlossaryTermSchema, updateGlossaryTermSchema } from '$lib/schemas';
 	import { fly } from 'svelte/transition';
 	import { cubicOut } from 'svelte/easing';
 	// IMPORTED DEP-COMPONENTS
@@ -446,33 +448,47 @@
 
 	// CREATE (add) OR UPDATE (edit) THE TERM FROM THE DIALOG FIELDS.
 	async function submitForm() {
-		if (!fSource.trim() || !fTarget.trim()) {
-			toast.error('Both source and target are required.');
+		const fields = {
+			source: fSource.trim(),
+			target: fTarget.trim(),
+			gender: fGender,
+			context: fContext.trim() || null,
+			category: fCategory,
+			pinned: fPinned,
+			aliases: splitAliases(fAliases),
+		};
+
+		let validation;
+		if (formMode === 'add') {
+			validation = validateForm(createGlossaryTermSchema, {
+				scope,
+				bookId: bookId || null,
+				sourceLang,
+				targetLang,
+				...fields,
+			});
+		} else {
+			validation = validateForm(updateGlossaryTermSchema, fields);
+		}
+
+		if (!validation.success) {
+			toast.error(Object.values(validation.errors)[0] || 'Invalid term fields.');
 			return;
 		}
+
 		busy = true;
 		try {
-			const fields = {
-				source: fSource,
-				target: fTarget,
-				gender: fGender,
-				context: fContext.trim() || null,
-				category: fCategory,
-				pinned: fPinned,
-				aliases: splitAliases(fAliases),
-			};
 			const res =
 				formMode === 'add'
 					? await apiFetch('/api/glossary', {
 							method: 'POST',
 							headers: { 'content-type': 'application/json' },
-							// LANG PAIR IS ONLY USED FOR GLOBAL SCOPE (BOOK SCOPE INHERITS THE BOOK'S DIRECTION)
-							body: JSON.stringify({ scope, bookId, sourceLang, targetLang, ...fields }),
+							body: JSON.stringify(validation.data),
 						})
 					: await apiFetch(`/api/glossary/${formId}`, {
 							method: 'PUT',
 							headers: { 'content-type': 'application/json' },
-							body: JSON.stringify(fields),
+							body: JSON.stringify(validation.data),
 						});
 			if (!res.ok) throw new Error('Save failed');
 			formOpen = false;

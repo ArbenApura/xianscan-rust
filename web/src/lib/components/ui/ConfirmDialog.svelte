@@ -138,10 +138,11 @@
 			<!-- VERIFICATION INPUT IF REQUIRED -->
 			{#if targetMatch}
 				<div class="mt-4 rounded-lg border border-black/10 bg-black/[0.02] p-3 dark:border-white/10 dark:bg-white/[0.02]">
-					<label class="block text-[11px] font-semibold opacity-70 mb-1.5">
+					<label for="confirm-dialog-input" class="block text-[11px] font-semibold opacity-70 mb-1.5">
 						Type <code class="rounded bg-black/10 px-1.5 py-0.5 font-mono text-xs font-bold text-[#b23a2e] dark:bg-white/10 dark:text-[#e08a63] tracking-widest select-all">{targetMatch}</code> to confirm:
 					</label>
 					<input
+						id="confirm-dialog-input"
 						bind:this={inputEl}
 						type="text"
 						bind:value={inputValue}

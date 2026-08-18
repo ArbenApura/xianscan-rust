@@ -1,13 +1,9 @@
 import { error, json, type RequestHandler } from '@sveltejs/kit';
-import { z } from 'zod';
 import { db } from '$lib/server/db';
 import { pages } from '$lib/server/db/schema';
 import { eq } from 'drizzle-orm';
 import { retypesetPage } from '$lib/server/chapters';
-
-const schema = z.object({
-	typesetOptions: z.record(z.unknown()).optional(),
-}).optional();
+import { retypesetPageSchema } from '$lib/schemas';
 
 export const POST: RequestHandler = async ({ params, request }) => {
 	const pageId = Number(params.id);
@@ -19,7 +15,7 @@ export const POST: RequestHandler = async ({ params, request }) => {
 	if (!existingPage) throw error(404, 'Page not found.');
 
 	const body = await request.json().catch(() => ({}));
-	const parsed = schema.safeParse(body);
+	const parsed = retypesetPageSchema.safeParse(body);
 	const opts = parsed.success ? parsed.data?.typesetOptions : undefined;
 
 	try {

@@ -113,6 +113,7 @@
 	{#each pages as page, idx (page.id)}
 		{@const isOutput = webtoonKind === 'output' && Boolean(page.outputPath)}
 		{@const hasRatio = Boolean(page.width && page.height)}
+		<!-- svelte-ignore a11y-no-static-element-interactions -->
 		<div
 			on:dragover={(e) => dispatch('dragOver', { event: e, index: idx })}
 			on:drop={(e) => dispatch('drop', { event: e, index: idx })}
@@ -129,6 +130,7 @@
 			<div>
 				<div class="mb-2 flex items-center justify-between">
 					<div class="flex items-center gap-2">
+						<!-- svelte-ignore a11y-no-static-element-interactions -->
 						<span
 							draggable="true"
 							on:dragstart={(e) => dispatch('dragStart', { event: e, index: idx })}

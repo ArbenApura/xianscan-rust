@@ -1,5 +1,6 @@
 import { json } from '@sveltejs/kit';
 import { createPipelineClient } from '$lib/server/pipeline-client';
+import { setHardwareDeviceSchema } from '$lib/schemas';
 import type { RequestHandler } from './$types';
 
 export const GET: RequestHandler = async () => {
@@ -39,7 +40,8 @@ export const GET: RequestHandler = async () => {
 export const POST: RequestHandler = async ({ request }) => {
 	try {
 		const body = await request.json().catch(() => ({}));
-		const device = typeof body.device === 'string' ? body.device : 'auto';
+		const parsed = setHardwareDeviceSchema.safeParse(body);
+		const device = parsed.success ? parsed.data.device : 'auto';
 		const pipeline = createPipelineClient();
 		if (pipeline.setDevice) {
 			const res = await pipeline.setDevice(device);

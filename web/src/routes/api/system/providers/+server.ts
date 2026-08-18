@@ -1,6 +1,7 @@
 import { json, error } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
 import { getProviders, updateProvider } from '$lib/server/providers';
+import { updateProviderSchema } from '$lib/schemas';
 
 export const GET: RequestHandler = async () => {
 	try {
@@ -13,12 +14,13 @@ export const GET: RequestHandler = async () => {
 
 export const POST: RequestHandler = async ({ request }) => {
 	try {
-		const body = await request.json();
-		const { id, apiKey, clearApiKey, baseUrl, activeModel, availableModels, enabled, isDefault } = body;
-
-		if (!id || typeof id !== 'string') {
+		const body = await request.json().catch(() => ({}));
+		const parsed = updateProviderSchema.safeParse(body);
+		if (!parsed.success) {
 			throw error(400, 'Provider ID is required');
 		}
+
+		const { id, apiKey, clearApiKey, baseUrl, activeModel, availableModels, enabled, isDefault } = parsed.data;
 
 		const updated = updateProvider(id, {
 			apiKey,

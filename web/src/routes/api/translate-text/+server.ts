@@ -1,28 +1,15 @@
 import { json, type RequestHandler } from '@sveltejs/kit';
-import { z } from 'zod';
 import { db } from '$lib/server/db';
 import { books, chapters, pages } from '$lib/server/db/schema';
 import { eq } from 'drizzle-orm';
 import { translateSingleText } from '$lib/server/translate';
+import { translateTextSchema } from '$lib/schemas';
 import type { LangPair } from '$lib/types';
-
-const schema = z.object({
-	text: z.string().min(1).max(2000),
-	kind: z.enum(['title', 'chapter', 'term', 'general']).optional().default('general'),
-	bookId: z.union([z.number(), z.string()]).optional(),
-	chapterId: z.union([z.number(), z.string()]).optional(),
-	pageId: z.union([z.number(), z.string()]).optional(),
-	sourceLang: z.string().optional(),
-	targetLang: z.string().optional(),
-	model: z.string().optional(),
-	instruction: z.string().optional(),
-	fresh: z.boolean().optional(),
-});
 
 export const POST: RequestHandler = async ({ request }) => {
 	try {
 		const raw = await request.json();
-		const parsed = schema.safeParse(raw);
+		const parsed = translateTextSchema.safeParse(raw);
 		if (!parsed.success) {
 			return json({ message: 'Invalid input: text is required' }, { status: 400 });
 		}

@@ -2,38 +2,9 @@
 import type { RequestHandler } from './$types';
 // IMPORTED DEP-MODULES
 import { error, json } from '@sveltejs/kit';
-import { z } from 'zod';
+import { updateGlossaryTermSchema } from '$lib/schemas';
 // IMPORTED MODULES
 import { deleteTerm, updateTerm } from '$lib/server/glossary';
-
-// -- CONSTANTS -- //
-
-const PutBody = z.object({
-	source: z.string().min(1).optional(),
-	target: z.string().min(1).optional(),
-	gender: z.enum(['neuter', 'masculine', 'feminine']).optional(),
-	// AN EMPTY STRING CLEARS THE NOTE; OMITTING THE FIELD LEAVES IT UNCHANGED
-	context: z.string().nullable().optional(),
-	tags: z.string().nullable().optional(),
-	// OMITTING LEAVES UNCHANGED; null CLEARS category / aliases.
-	category: z
-		.enum([
-			'character',
-			'location',
-			'organization',
-			'technique',
-			'item',
-			'realm',
-			'creature',
-			'title',
-			'concept',
-			'other',
-		])
-		.nullable()
-		.optional(),
-	pinned: z.boolean().optional(),
-	aliases: z.array(z.string()).nullable().optional(),
-});
 
 // -- FUNCTIONS -- //
 
@@ -47,7 +18,7 @@ function parseId(s: string): number | null {
 export const PUT: RequestHandler = async ({ params, request }) => {
 	const id = parseId(params.id);
 	if (id === null) throw error(400, 'Invalid id.');
-	const parsed = PutBody.safeParse(await request.json().catch(() => null));
+	const parsed = updateGlossaryTermSchema.safeParse(await request.json().catch(() => null));
 	if (!parsed.success) throw error(400, 'Invalid update.');
 	// updateTerm RETURNS null FOR A MISSING id → 404.
 	const row = await updateTerm(id, parsed.data);

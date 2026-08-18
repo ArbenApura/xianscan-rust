@@ -9,6 +9,8 @@
 	import { scrollLock } from '$lib/actions/scrollLock';
 	import { registerModalDismiss, unregisterModalDismiss } from '$lib/utils/modal-stack';
 	import { settings, THEME_PANEL, THEME_PANEL_BORDER } from '$lib/stores/settings';
+	import { validateForm } from '$lib/utils/form';
+	import { translateTextSchema, updateRegionSchema } from '$lib/schemas';
 	import Button from '$lib/components/ui/Button.svelte';
 	import Copy from 'lucide-svelte/icons/copy';
 	import Sparkles from 'lucide-svelte/icons/sparkles';
@@ -93,17 +95,24 @@
 
 	async function handleRerunAi() {
 		if (!region?.textSource) return;
+		const payload = {
+			text: region.textSource,
+			kind: 'general' as const,
+			instruction: customInstruction.trim() || undefined,
+			pageId,
+		};
+		const validation = validateForm(translateTextSchema, payload);
+		if (!validation.success) {
+			toast.error(Object.values(validation.errors)[0] || 'Invalid translation request');
+			return;
+		}
+
 		isRerolling = true;
 		try {
 			const res = await fetch('/api/translate-text', {
 				method: 'POST',
 				headers: { 'Content-Type': 'application/json' },
-				body: JSON.stringify({
-					text: region.textSource,
-					kind: 'general',
-					instruction: customInstruction.trim() || undefined,
-					pageId,
-				}),
+				body: JSON.stringify(validation.data),
 			});
 			if (!res.ok) {
 				const err = await res.json().catch(() => ({}));
@@ -123,15 +132,22 @@
 
 	async function handleSave(action: 'save' | 'reset_ai' = 'save') {
 		if (!region || !pageId) return;
+		const payload = {
+			textTarget: action === 'reset_ai' ? (region.originalTarget ?? region.textTarget) : editTargetText,
+			action,
+		};
+		const validation = validateForm(updateRegionSchema, payload);
+		if (!validation.success) {
+			toast.error(Object.values(validation.errors)[0] || 'Invalid update request');
+			return;
+		}
+
 		isSaving = true;
 		try {
 			const res = await fetch(`/api/pages/${pageId}/regions/${region.id}`, {
 				method: 'PATCH',
 				headers: { 'Content-Type': 'application/json' },
-				body: JSON.stringify({
-					textTarget: action === 'reset_ai' ? (region.originalTarget ?? region.textTarget) : editTargetText,
-					action,
-				}),
+				body: JSON.stringify(validation.data),
 			});
 			if (!res.ok) {
 				const err = await res.json().catch(() => ({}));

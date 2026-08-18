@@ -2,18 +2,11 @@
 // IMPORTED DEP-MODULES
 import { error, json } from '@sveltejs/kit';
 import { eq, inArray } from 'drizzle-orm';
-import { z } from 'zod';
-// IMPORTED MODULES
 import { assertChapterExists, getChapterReaderData } from '$lib/server/chapters';
 import { db } from '$lib/server/db';
 import { chapters } from '$lib/server/db/schema';
+import { updateChapterSchema } from '$lib/schemas';
 import type { RequestHandler } from './$types';
-
-const PatchChapterBody = z.object({
-	title: z.string().max(200).optional(),
-	titleTarget: z.string().max(200).nullable().optional(),
-	seq: z.number().int().min(0).optional(),
-});
 
 export const GET: RequestHandler = async ({ params }) => {
 	const chapterId = Number(params.id);
@@ -27,7 +20,7 @@ export const PATCH: RequestHandler = async ({ params, request }) => {
 	if (!Number.isInteger(chapterId)) throw error(400, 'Invalid chapter id.');
 	await assertChapterExists(chapterId);
 
-	const parsed = PatchChapterBody.safeParse(await request.json().catch(() => null));
+	const parsed = updateChapterSchema.safeParse(await request.json().catch(() => null));
 	if (!parsed.success) throw error(400, 'Invalid update data.');
 
 	const updates: Record<string, unknown> = {};
