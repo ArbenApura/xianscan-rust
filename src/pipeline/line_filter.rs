@@ -77,10 +77,8 @@ pub fn filter_artwork_and_artifacts(lines: Vec<OcrLine>, page_w: u32, source_lan
             || (lh >= 300 && lw >= (page_w as f32 * 0.40) as i32 && char_count <= 5 && rl.score < 0.75)
         );
 
-        let is_thin_sliver_noise = rl.score < 0.85 && (
-            (lh <= 24 && lw >= 60 && (lw as f32 / lh as f32) >= 4.5 && rl.score < 0.80)
-            || (has_chinese && char_count >= 2 && lh <= 24 && (lw as f32 / (char_count as f32 * lh as f32)) >= 1.8 && rl.score < 0.75)
-            || (has_chinese && char_count >= 2 && lh <= 20 && rl.score < 0.65)
+        let is_thin_sliver_noise = !has_valid_text && rl.score < 0.85 && (
+            (lh <= 16 && lw >= 60 && (lw as f32 / lh.max(1) as f32) >= 5.0 && rl.score < 0.80)
         );
 
         let is_tilted_alnum_scribble = crate::ml::detect::is_cjk_source(source_lang)

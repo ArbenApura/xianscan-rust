@@ -9,6 +9,9 @@ use crate::ml::detect::{clean_stray_ocr_artifacts, is_watermark_line, CHINESE_RE
 pub struct DetectionFusionResult {
     pub comic_boxes: Vec<Vec<[i32; 2]>>,
     pub comic_scores: Vec<f32>,
+    pub bubbles: Vec<BoxRect>,
+    pub text_bubbles: Vec<(BoxRect, f32)>,
+    pub text_free: Vec<(BoxRect, f32)>,
     pub rapid_lines: Vec<OcrLine>,
     pub backend: String,
 }
@@ -22,15 +25,21 @@ pub fn fuse_detections(
 ) -> DetectionFusionResult {
     let (page_w, page_h) = img.dimensions();
 
-    // 1. ComicTextDetector Detection
+    // 1. ComicTextDetector / RT-DETR Detection
     let mut comic_boxes: Vec<Vec<[i32; 2]>> = Vec::new();
     let mut comic_scores: Vec<f32> = Vec::new();
+    let mut bubbles: Vec<BoxRect> = Vec::new();
+    let mut text_bubbles: Vec<(BoxRect, f32)> = Vec::new();
+    let mut text_free: Vec<(BoxRect, f32)> = Vec::new();
     let mut backend = "rapidocr-fallback".to_string();
 
     if let Some(ref mut det) = detector {
         if let Ok(res) = det.detect(img) {
             comic_boxes = res.boxes;
             comic_scores = res.scores;
+            bubbles = res.bubbles;
+            text_bubbles = res.text_bubbles;
+            text_free = res.text_free;
             backend = res.backend;
         }
     }
@@ -240,6 +249,9 @@ pub fn fuse_detections(
     DetectionFusionResult {
         comic_boxes,
         comic_scores,
+        bubbles,
+        text_bubbles,
+        text_free,
         rapid_lines,
         backend,
     }

@@ -16,6 +16,8 @@ pub fn build_regions(
     dedup_boxes: &[Vec<[f32; 2]>],
     order: &[usize],
     split_lines: &[OcrLine],
+    bubbles: &[BoxRect],
+    text_free_boxes: &[(BoxRect, f32)],
     page_w: u32,
     page_h: u32,
     is_cjk: bool,
@@ -718,28 +720,7 @@ pub fn build_regions(
                     max_my = max_my.max(box_rect.y + box_rect.h);
                 }
 
-                // 1. FULL CANVAS FOR TYPESETTING (Generous envelope so text wraps and centers properly)
-                let (margin_x, margin_y) = if vertical {
-                    let my = if has_punct { (est_line_dim / 3).clamp(10, 22) } else { (est_line_dim / 4).clamp(4, 12) };
-                    let mx = (est_line_dim / 5).clamp(3, 8);
-                    (mx, my)
-                } else {
-                    let mx = if has_punct { (est_line_dim / 3).clamp(10, 22) } else { (est_line_dim / 4).clamp(4, 12) };
-                    let my = (est_line_dim / 5).clamp(3, 8);
-                    (mx, my)
-                };
-
-                let bound_x1 = (min_mx - margin_x).max(0);
-                let bound_y1 = (min_my - margin_y).max(0);
-                let bound_x2 = (max_mx + margin_x).min(page_w as i32);
-                let bound_y2 = (max_my + margin_y).min(page_h as i32);
-
-                box_rect.x = bound_x1;
-                box_rect.y = bound_y1;
-                box_rect.w = (bound_x2 - bound_x1).max(1);
-                box_rect.h = (bound_y2 - bound_y1).max(1);
-
-                // 2. TIGHT GLYPH ENVELOPE FOR INPAINTING (Clean erasure without erasing balloon walls or surrounding art)
+                // 1. INPAINT GLYPH ENVELOPE (Tight mask covering glyph ink with 2px anti-alias buffer)
                 let ends_with_punct = cleaned.ends_with('！')
                     || cleaned.ends_with('!')
                     || cleaned.ends_with('？')
@@ -749,14 +730,14 @@ pub fn build_regions(
                     || cleaned.ends_with('―')
                     || cleaned.ends_with('ー');
                 let (t_pad_left, t_pad_right, t_pad_top, t_pad_bottom) = if vertical {
-                    let bx = (est_line_dim / 12).clamp(1, 3);
-                    let by = (est_line_dim / 10).clamp(1, 3);
-                    let ty = if ends_with_punct { (est_line_dim / 5).clamp(4, 10) } else { by };
+                    let bx = (est_line_dim / 16).clamp(1, 2);
+                    let by = (est_line_dim / 16).clamp(1, 2);
+                    let ty = if ends_with_punct { (est_line_dim / 8).clamp(2, 4) } else { by };
                     (bx, bx, by, ty)
                 } else {
-                    let bx = (est_line_dim / 12).clamp(1, 3);
-                    let by = (est_line_dim / 12).clamp(1, 3);
-                    let tx = if ends_with_punct { (est_line_dim / 5).clamp(4, 10) } else { bx };
+                    let bx = (est_line_dim / 16).clamp(1, 2);
+                    let by = (est_line_dim / 16).clamp(1, 2);
+                    let tx = if ends_with_punct { (est_line_dim / 8).clamp(2, 4) } else { bx };
                     (bx, tx, by, by)
                 };
 
@@ -771,6 +752,27 @@ pub fn build_regions(
                     [tight_x2, tight_y2],
                     [tight_x1, tight_y2],
                 ]);
+
+                // 2. TYPESET BOUNDING BOX (Outer frame enclosing the inpaint inset with balanced layout margins)
+                let (inset_x, inset_y) = if vertical {
+                    let my = if has_punct { (est_line_dim / 4).clamp(5, 12) } else { (est_line_dim / 6).clamp(3, 7) };
+                    let mx = (est_line_dim / 6).clamp(3, 7);
+                    (mx, my)
+                } else {
+                    let mx = if has_punct { (est_line_dim / 4).clamp(5, 12) } else { (est_line_dim / 6).clamp(3, 7) };
+                    let my = (est_line_dim / 6).clamp(3, 7);
+                    (mx, my)
+                };
+
+                let bound_x1 = (tight_x1 - inset_x).max(0);
+                let bound_y1 = (tight_y1 - inset_y).max(0);
+                let bound_x2 = (tight_x2 + inset_x).min(page_w as i32);
+                let bound_y2 = (tight_y2 + inset_y).min(page_h as i32);
+
+                box_rect.x = bound_x1;
+                box_rect.y = bound_y1;
+                box_rect.w = (bound_x2 - bound_x1).max(1);
+                box_rect.h = (bound_y2 - bound_y1).max(1);
             }
         }
 
@@ -1085,10 +1087,10 @@ pub fn build_regions(
             } else {
                 (box_rect.x, box_rect.y, box_rect.w, box_rect.h)
             };
-            let u_px1 = ex_px.min(cur_px).min(mx);
-            let u_py1 = ex_py.min(cur_py).min(my);
-            let u_px2 = (ex_px + ex_pw).max(cur_px + cur_pw).max(mx2);
-            let u_py2 = (ex_py + ex_ph).max(cur_py + cur_ph).max(my2);
+            let u_px1 = ex_px.min(cur_px);
+            let u_py1 = ex_py.min(cur_py);
+            let u_px2 = (ex_px + ex_pw).max(cur_px + cur_pw);
+            let u_py2 = (ex_py + ex_ph).max(cur_py + cur_ph);
 
             let unified_poly = vec![
                 [u_px1, u_py1],
@@ -1097,10 +1099,44 @@ pub fn build_regions(
                 [u_px1, u_py2],
             ];
 
+            let (u_mid_x, u_mid_y) = (unified_box.x + unified_box.w / 2, unified_box.y + unified_box.h / 2);
+            let u_matched_bubble = bubbles.iter().find(|b| {
+                let contains = u_mid_x >= b.x && u_mid_x <= b.x + b.w && u_mid_y >= b.y && u_mid_y <= b.y + b.h;
+                let iou = box_iou(b, &unified_box);
+                contains || iou >= 0.20
+            });
+            let u_bubble_box = u_matched_bubble.cloned().or_else(|| regions[r_idx].bubble_box.clone());
+            let u_bubble_poly = u_bubble_box.as_ref().map(|b| vec![
+                [b.x, b.y],
+                [b.x + b.w, b.y],
+                [b.x + b.w, b.y + b.h],
+                [b.x, b.y + b.h],
+            ]);
+            let u_centroid = if let Some(ref bb) = u_bubble_box {
+                Some(crate::ml::schemas::Point2D {
+                    x: bb.x as f32 + bb.w as f32 / 2.0,
+                    y: bb.y as f32 + bb.h as f32 / 2.0,
+                })
+            } else {
+                Some(crate::ml::schemas::Point2D {
+                    x: unified_box.x as f32 + unified_box.w as f32 / 2.0,
+                    y: unified_box.y as f32 + unified_box.h as f32 / 2.0,
+                })
+            };
+            let u_kind = if u_bubble_box.is_some() {
+                crate::ml::schemas::RegionKind::DialogueBubble
+            } else {
+                regions[r_idx].kind
+            };
+
             regions[r_idx] = Region {
                 id: regions[r_idx].id.clone(),
                 box_: unified_box,
                 polygon: unified_poly,
+                bubble_box: u_bubble_box,
+                bubble_polygon: u_bubble_poly,
+                centroid: u_centroid,
+                kind: u_kind,
                 text: final_t,
                 confidence,
                 vertical,
@@ -1122,10 +1158,63 @@ pub fn build_regions(
             [box_rect.x, box_rect.y + box_rect.h],
         ]);
 
+        let (bx_mid, by_mid) = (box_rect.x + box_rect.w / 2, box_rect.y + box_rect.h / 2);
+        let matched_bubble = bubbles.iter().find(|b| {
+            let contains = bx_mid >= b.x && bx_mid <= b.x + b.w && by_mid >= b.y && by_mid <= b.y + b.h;
+            let iou = box_iou(b, &box_rect);
+            contains || iou >= 0.20
+        });
+
+        let fallback_bubble = if matched_bubble.is_none() && is_cjk {
+            extract_bubble_geometry_fallback(img, &box_rect, page_w, page_h)
+        } else {
+            None
+        };
+
+        let is_sfx = matched_bubble.is_none() && fallback_bubble.is_none() && (
+            text_free_boxes.iter().any(|(fb, _)| {
+                let contains = bx_mid >= fb.x && bx_mid <= fb.x + fb.w && by_mid >= fb.y && by_mid <= fb.y + fb.h;
+                let iou = box_iou(fb, &box_rect);
+                contains || iou >= 0.20
+            }) || (cleaned.chars().count() <= 4 && sfx_onomatopoeia.chars().any(|c| cleaned.contains(c)))
+        );
+
+        let (bubble_box, bubble_polygon, kind) = if let Some(b) = matched_bubble {
+            let poly = vec![
+                [b.x, b.y],
+                [b.x + b.w, b.y],
+                [b.x + b.w, b.y + b.h],
+                [b.x, b.y + b.h],
+            ];
+            (Some(b.clone()), Some(poly), crate::ml::schemas::RegionKind::DialogueBubble)
+        } else if let Some((fb_b, fb_p)) = fallback_bubble {
+            (Some(fb_b), Some(fb_p), crate::ml::schemas::RegionKind::DialogueBubble)
+        } else if is_sfx {
+            (None, None, crate::ml::schemas::RegionKind::SoundEffect)
+        } else {
+            (None, None, crate::ml::schemas::RegionKind::FreeText)
+        };
+
+        let centroid = if let Some(ref bb) = bubble_box {
+            Some(crate::ml::schemas::Point2D {
+                x: bb.x as f32 + bb.w as f32 / 2.0,
+                y: bb.y as f32 + bb.h as f32 / 2.0,
+            })
+        } else {
+            Some(crate::ml::schemas::Point2D {
+                x: box_rect.x as f32 + box_rect.w as f32 / 2.0,
+                y: box_rect.y as f32 + box_rect.h as f32 / 2.0,
+            })
+        };
+
         regions.push(Region {
             id: format!("r{}", regions.len()),
             box_: box_rect,
             polygon: poly,
+            bubble_box,
+            bubble_polygon,
+            centroid,
+            kind,
             text: cleaned,
             confidence,
             vertical,
@@ -1136,4 +1225,141 @@ pub fn build_regions(
     }
 
     regions
+}
+
+/// Algorithmic fallback to extract speech bubble bounding box & polygon
+/// by scanning the light/white balloon background around a detected text region.
+pub fn extract_bubble_geometry_fallback(
+    img: &DynamicImage,
+    box_rect: &BoxRect,
+    page_w: u32,
+    page_h: u32,
+) -> Option<(BoxRect, Vec<[i32; 2]>)> {
+    let pad_x = (box_rect.w as f32 * 0.50).clamp(16.0, 100.0) as i32;
+    let pad_y = (box_rect.h as f32 * 0.50).clamp(16.0, 100.0) as i32;
+
+    let crop_x = (box_rect.x - pad_x).max(0) as u32;
+    let crop_y = (box_rect.y - pad_y).max(0) as u32;
+    let crop_w = ((box_rect.w + pad_x * 2) as u32).min(page_w - crop_x);
+    let crop_h = ((box_rect.h + pad_y * 2) as u32).min(page_h - crop_y);
+
+    if crop_w < 16 || crop_h < 16 {
+        return None;
+    }
+
+    let gray = img.crop_imm(crop_x, crop_y, crop_w, crop_h).to_luma8();
+
+    let rel_tx = (box_rect.x - crop_x as i32).max(0) as u32;
+    let rel_ty = (box_rect.y - crop_y as i32).max(0) as u32;
+    let rel_tw = (box_rect.w as u32).min(crop_w - rel_tx);
+    let rel_th = (box_rect.h as u32).min(crop_h - rel_ty);
+
+    // Sample background luminance near text perimeter
+    let mut white_samples = 0;
+    let mut total_samples = 0;
+    for dy in [0, rel_th / 2, rel_th.saturating_sub(1)] {
+        for dx in [0, rel_tw / 2, rel_tw.saturating_sub(1)] {
+            let px = (rel_tx + dx).min(crop_w - 1);
+            let py = (rel_ty + dy).min(crop_h - 1);
+            let luma = gray.get_pixel(px, py)[0];
+            if luma >= 200 {
+                white_samples += 1;
+            }
+            total_samples += 1;
+        }
+    }
+
+    if white_samples < (total_samples / 2).max(1) {
+        return None;
+    }
+
+    // Expand Left
+    let mut min_x = rel_tx;
+    while min_x > 0 {
+        let mut col_white = true;
+        for y in rel_ty..(rel_ty + rel_th).min(crop_h) {
+            if gray.get_pixel(min_x - 1, y)[0] < 140 {
+                col_white = false;
+                break;
+            }
+        }
+        if !col_white {
+            break;
+        }
+        min_x -= 1;
+    }
+
+    // Expand Right
+    let mut max_x = rel_tx + rel_tw;
+    while max_x < crop_w {
+        let mut col_white = true;
+        for y in rel_ty..(rel_ty + rel_th).min(crop_h) {
+            if gray.get_pixel(max_x, y)[0] < 140 {
+                col_white = false;
+                break;
+            }
+        }
+        if !col_white {
+            break;
+        }
+        max_x += 1;
+    }
+
+    // Expand Top
+    let mut min_y = rel_ty;
+    while min_y > 0 {
+        let mut row_white = true;
+        for x in min_x..max_x.min(crop_w) {
+            if gray.get_pixel(x, min_y - 1)[0] < 140 {
+                row_white = false;
+                break;
+            }
+        }
+        if !row_white {
+            break;
+        }
+        min_y -= 1;
+    }
+
+    // Expand Bottom
+    let mut max_y = rel_ty + rel_th;
+    while max_y < crop_h {
+        let mut row_white = true;
+        for x in min_x..max_x.min(crop_w) {
+            if gray.get_pixel(x, max_y)[0] < 140 {
+                row_white = false;
+                break;
+            }
+        }
+        if !row_white {
+            break;
+        }
+        max_y += 1;
+    }
+
+    let b_w = max_x - min_x;
+    let b_h = max_y - min_y;
+
+    if b_w >= rel_tw + 6 || b_h >= rel_th + 6 {
+        let abs_x = crop_x as i32 + min_x as i32;
+        let abs_y = crop_y as i32 + min_y as i32;
+        let abs_w = b_w as i32;
+        let abs_h = b_h as i32;
+
+        let b_box = BoxRect {
+            x: abs_x,
+            y: abs_y,
+            w: abs_w,
+            h: abs_h,
+        };
+        let b_poly = vec![
+            [abs_x, abs_y],
+            [abs_x + abs_w, abs_y],
+            [abs_x + abs_w, abs_y + abs_h],
+            [abs_x, abs_y + abs_h],
+        ];
+        return Some((b_box, b_poly));
+    }
+
+    None
 }

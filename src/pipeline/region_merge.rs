@@ -86,6 +86,14 @@ pub fn post_process_regions(
                 existing.polygon = vec![
                     [x0, y0], [x1, y0], [x1, y1], [x0, y1],
                 ];
+                if existing.bubble_box.is_none() {
+                    existing.bubble_box = r.bubble_box.clone();
+                    existing.bubble_polygon = r.bubble_polygon.clone();
+                    existing.centroid = r.centroid.clone();
+                }
+                if existing.kind == crate::ml::schemas::RegionKind::FreeText && r.kind != crate::ml::schemas::RegionKind::FreeText {
+                    existing.kind = r.kind;
+                }
                 if r_chars > ex_chars || (r_chars == ex_chars && r.confidence > existing.confidence) || is_sup {
                     existing.text = r.text.clone();
                     existing.confidence = r.confidence;
@@ -243,6 +251,14 @@ pub fn post_process_regions(
                 a.polygon = vec![
                     [mx, my], [mx2, my], [mx2, my2], [mx, my2],
                 ];
+                if a.bubble_box.is_none() {
+                    a.bubble_box = b_removed.bubble_box;
+                    a.bubble_polygon = b_removed.bubble_polygon;
+                    a.centroid = b_removed.centroid;
+                }
+                if a.kind == crate::ml::schemas::RegionKind::FreeText && b_removed.kind != crate::ml::schemas::RegionKind::FreeText {
+                    a.kind = b_removed.kind;
+                }
 
                 let pad_x = 25;
                 let pad_y = 20;

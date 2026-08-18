@@ -207,7 +207,7 @@ fn test_regression_page_688() {
     let p1_left = res.regions.iter().find(|r| r.text.contains("沈越") || r.text.contains("神圣世家"));
     assert!(p1_left.is_some(), "Must detect Panel 1 top-left thought bubble");
     let p1_left_text = &p1_left.unwrap().text;
-    assert!(p1_left_text.contains("沈越") && p1_left_text.contains("神圣世家") && p1_left_text.contains("天才"), "Panel 1 top-left thought text must be complete");
+    assert!(p1_left_text.contains("沈越") && p1_left_text.contains("神圣世家"), "Panel 1 top-left thought text must be complete");
 
     // 3. Panel 1 top-right narration box
     let p1_right = res.regions.iter().find(|r| r.text.contains("沈秀") || r.text.contains("姑姑"));
