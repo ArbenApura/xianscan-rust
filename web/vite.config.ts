@@ -16,6 +16,6 @@ export default defineConfig(({ command }) => ({
 		// IN DEV MODE: ONLY TRANSFORM PACKAGES WITH .svelte FILES (lucide-svelte) TO AVOID
 		// COMMONJS EVALUATION CONFLICTS IN NODE-FETCH / OPENAI.
 		noExternal: command === 'build' ? true : ['lucide-svelte'],
-		external: ['better-sqlite3', '@napi-rs/canvas'],
+		external: ['better-sqlite3', '@napi-rs/canvas', '@napi-rs/image'],
 	},
 }));

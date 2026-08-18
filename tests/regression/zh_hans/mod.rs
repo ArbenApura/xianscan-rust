@@ -1090,6 +1090,81 @@ fn test_regression_page_825() {
     );
 }
 
+/// # Regression Test: Page 690 / PageId 690 (Resolution: 800 × 1131 WebP)
+///
+/// ## Purpose & Behavior Tested:
+/// - **Narration Box & Dialogue Panel Ground Truth**:
+///   Guarantees clean, precise detection of all 3 narration/dialogue regions across panels:
+///   1. Panel 1 Top-Right Narration Box (Upper):
+///      `叶紫芸可是城主之女，\n传奇妖灵师叶墨大人的孙女！\n而且已经凝聚了青色灵魂海`
+///   2. Panel 1 Top-Right Narration Box (Lower):
+///      `是极为罕见的天才！`
+///   3. Panel 2 Middle-Left Continuous Narration Block:
+///      `沈越若是能够娶到\n叶紫芸为妻，将会极大的\n加强神圣世家在光辉之城\n的话语权！\n所以才把沈越安排到这个班。`
+/// - **Watermark Suppression & Zero Noise**:
+///   Guarantees that the bottom-right `漫客栈` publisher watermark stamp is suppressed.
+///
+/// ## Key Invariants:
+/// - Exactly 3 regions (`assert_eq!(res.regions.len(), 3)`).
+/// - Exact text matching for all 3 regions.
+/// - Negative guard: Zero watermark `漫客栈` regions.
+#[test]
+fn test_regression_page_690() {
+    let img_path = Path::new("tests/fixtures/zh_hans/page_ye_ziyun_sacred_family_genius.webp");
+    if !img_path.exists() {
+        return;
+    }
+    let img = image::ImageReader::open(img_path)
+        .expect("Failed to open page_ye_ziyun_sacred_family_genius.webp")
+        .with_guessed_format()
+        .expect("Failed to guess format")
+        .decode()
+        .expect("Failed to decode image");
+
+    let res = get_or_analyze_fixture(&img);
+    println!("Page 690 detected {} regions:", res.regions.len());
+    for (i, r) in res.regions.iter().enumerate() {
+        println!("  Region r{}: box={:?}, text='{}', angle={:.2}, conf={:.2}", i, r.box_, r.text.replace('\n', "\\n"), r.angle, r.confidence);
+    }
+
+    // 1. Exact count: exactly 3 regions
+    assert_eq!(res.regions.len(), 3, "Page 690 must have exactly 3 regions, got {}", res.regions.len());
+
+    // 2. Top-right upper narration box
+    let top_upper = res.regions.iter().find(|r| r.text.contains("城主之女") || r.text.contains("叶墨大人") || r.text.contains("青色灵魂海"));
+    assert!(top_upper.is_some(), "Must detect top-right upper narration box");
+    assert_eq!(
+        top_upper.unwrap().text.trim(),
+        "叶紫芸可是城主之女，\n传奇妖灵师叶墨大人的孙女！\n而且已经凝聚了青色灵魂海",
+        "Top-right upper narration box text mismatch"
+    );
+
+    // 3. Top-right lower narration box
+    let top_lower = res.regions.iter().find(|r| r.text.contains("罕见的天才"));
+    assert!(top_lower.is_some(), "Must detect top-right lower narration box");
+    assert_eq!(
+        top_lower.unwrap().text.trim(),
+        "是极为罕见的天才！",
+        "Top-right lower narration box text mismatch"
+    );
+
+    // 4. Middle-left narration block
+    let mid_left = res.regions.iter().find(|r| r.text.contains("神圣世家") || r.text.contains("话语权") || r.text.contains("安排到这个班"));
+    assert!(mid_left.is_some(), "Must detect middle-left narration block");
+    assert_eq!(
+        mid_left.unwrap().text.trim(),
+        "沈越若是能够娶到\n叶紫芸为妻，将会极大的\n加强神圣世家在光辉之城\n的话语权！\n所以才把沈越安排到这个班。",
+        "Middle-left narration block text mismatch"
+    );
+
+    // 5. Negative Guard: Zero watermark detection ('漫客栈')
+    assert!(
+        !res.regions.iter().any(|r| r.text.contains("漫客") || r.text.contains("漫客栈")),
+        "Must not detect bottom-right watermark '漫客栈'"
+    );
+}
+
+
 
 
 

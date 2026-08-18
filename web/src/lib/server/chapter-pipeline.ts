@@ -138,6 +138,18 @@ type PageSlot = {
 	totalDurationMs?: number;
 };
 
+async function ensureWebPBuffer(rawBuf: Buffer): Promise<Buffer> {
+	if (rawBuf.length >= 12 && rawBuf.toString('ascii', 4, 8) === 'ftyp') {
+		try {
+			const { Transformer } = await import('@napi-rs/image');
+			return await new Transformer(rawBuf).webp(90);
+		} catch {
+			return rawBuf;
+		}
+	}
+	return rawBuf;
+}
+
 // -- THE WORK FUNCTION (FITS startChapterJob) -- //
 
 export async function runChapterPipeline(
@@ -239,7 +251,8 @@ export async function runChapterPipeline(
 					// PHASE 1: ANALYZE
 					emit({ type: 'page-step-start', chapterId, page: injectIdx, pageId: injectRow.id, step: 'analyze' });
 					const tA0 = performance.now();
-					const image = readFileSync(join(deps.dataRoot, injectRow.filePath));
+					const rawImage = readFileSync(join(deps.dataRoot, injectRow.filePath));
+					const image = await ensureWebPBuffer(rawImage);
 					const analyzed = await deps.pipeline.analyze(image, signal, {
 						sourceLang: pair.sourceLang,
 						targetLang: pair.targetLang,
@@ -416,7 +429,8 @@ export async function runChapterPipeline(
 			// 1) ANALYZE — DETECT + OCR VIA THE SIDECAR
 			emit({ type: 'page-step-start', chapterId, page: i, pageId: page.id, step: 'analyze' });
 			const tAnalyze0 = performance.now();
-			const image = readFileSync(join(deps.dataRoot, page.filePath));
+			const rawImage = readFileSync(join(deps.dataRoot, page.filePath));
+			const image = await ensureWebPBuffer(rawImage);
 			const analyzed = await deps.pipeline.analyze(image, signal, {
 				sourceLang: pair.sourceLang,
 				targetLang: pair.targetLang,

@@ -112,7 +112,7 @@ export function getImageDimensionsFromBuffer(buf: Buffer): { width: number | nul
 // OVERWROTE THE LAST REMAINING PAGE'S IMAGE ON THE NEXT UPLOAD, MAKING THE LAST TWO PAGES SHOW THE
 // SAME PICTURE (EVERY RE-UPLOAD RE-DUPLICATED IT).
 // CONVERT ARBITRARY IMAGE BUFFER (PNG/JPEG/AVIF) TO OPTIMIZED WEBP & EXTRACT INTRINSIC DIMENSIONS.
-async function convertBufferToWebP(
+export async function convertBufferToWebP(
 	buffer: Buffer,
 	originalExt: string,
 ): Promise<{ data: Buffer; ext: string; width: number | null; height: number | null }> {
@@ -122,19 +122,32 @@ async function convertBufferToWebP(
 	}
 
 	try {
-		const { loadImage, createCanvas } = await import('@napi-rs/canvas');
-		const img = await loadImage(buffer);
-		const width = fastDims.width ?? (img.width || null);
-		const height = fastDims.height ?? (img.height || null);
-		if (originalExt === '.webp') return { data: buffer, ext: '.webp', width, height };
-		const canvas = createCanvas(img.width, img.height);
-		const ctx = canvas.getContext('2d');
-		ctx.drawImage(img, 0, 0);
-		const webpBuf = await canvas.encode('webp', 85);
-		return { data: webpBuf, ext: '.webp', width, height };
+		const { Transformer } = await import('@napi-rs/image');
+		const transformer = new Transformer(buffer);
+		const meta = await transformer.metadata();
+		const webpBuf = await transformer.webp(90);
+		return {
+			data: webpBuf,
+			ext: '.webp',
+			width: meta.width || fastDims.width || null,
+			height: meta.height || fastDims.height || null,
+		};
 	} catch {
-		// FALLBACK TO ORIGINAL BUFFER IF ENCODER FAILS
-		return { data: buffer, ext: originalExt, width: fastDims.width, height: fastDims.height };
+		try {
+			const { loadImage, createCanvas } = await import('@napi-rs/canvas');
+			const img = await loadImage(buffer);
+			const width = fastDims.width ?? (img.width || null);
+			const height = fastDims.height ?? (img.height || null);
+			if (originalExt === '.webp') return { data: buffer, ext: '.webp', width, height };
+			const canvas = createCanvas(img.width, img.height);
+			const ctx = canvas.getContext('2d');
+			ctx.drawImage(img, 0, 0);
+			const webpBuf = await canvas.encode('webp', 85);
+			return { data: webpBuf, ext: '.webp', width, height };
+		} catch {
+			// FALLBACK TO ORIGINAL BUFFER IF ENCODER FAILS
+			return { data: buffer, ext: originalExt, width: fastDims.width, height: fastDims.height };
+		}
 	}
 }
 

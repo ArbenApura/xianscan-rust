@@ -55,6 +55,7 @@
 		"@fontsource/inter": "^5.1.0",
 		"@fontsource/lora": "^5.1.0",
 		"@napi-rs/canvas": "^1.0.5",
+		"@napi-rs/image": "^1.14.0",
 		"ahocorasick": "^1.0.2",
 		"better-sqlite3": "^11.10.0",
 		"clsx": "^2.1.1",

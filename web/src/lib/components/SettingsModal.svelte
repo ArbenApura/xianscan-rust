@@ -1328,13 +1328,11 @@
 
 					<div class="grid grid-cols-1 gap-2 sm:grid-cols-2 sm:gap-2.5">
 						{#each EXECUTION_DEVICES as dev (dev.id)}
-							{@const available = isDeviceAvailable(dev.id)}
-							{@const reason = getDeviceAvailabilityReason(dev.id)}
 							<button
 								type="button"
 								on:click={() => setExecutionDevice(dev.id)}
 								class={`relative flex flex-col justify-between rounded-xl border p-3 text-left transition-all duration-200 ${
-									!available
+									!isDeviceAvailable(dev.id)
 										? 'opacity-45 hover:opacity-60 border-black/5 bg-black/[0.01] dark:border-white/5 dark:bg-white/[0.01] cursor-not-allowed'
 										: $settings.executionDevice === dev.id
 											? 'border-[#b23a2e] bg-[#b23a2e]/[0.08] text-[#b23a2e] dark:text-[#e08a63] ring-2 ring-[#b23a2e]/30 shadow-xs'
@@ -1344,7 +1342,7 @@
 								<div>
 									<div class="flex items-center justify-between gap-2">
 										<div class="flex items-center gap-1.5 font-bold text-xs">
-											<Cpu size={13} class={`shrink-0 ${available ? 'opacity-80' : 'opacity-40'}`} />
+											<Cpu size={13} class={`shrink-0 ${isDeviceAvailable(dev.id) ? 'opacity-80' : 'opacity-40'}`} />
 											<span>{dev.label}</span>
 										</div>
 										{#if $settings.executionDevice === dev.id}
@@ -1353,9 +1351,9 @@
 									</div>
 									<div class="mt-1 text-[10px] opacity-70 leading-relaxed">{dev.blurb}</div>
 								</div>
-								{#if !available && reason}
+								{#if !isDeviceAvailable(dev.id) && getDeviceAvailabilityReason(dev.id)}
 									<div class="mt-1.5 text-[9px] font-semibold text-amber-600 dark:text-amber-400">
-										{reason}
+										{getDeviceAvailabilityReason(dev.id)}
 									</div>
 								{/if}
 							</button>
