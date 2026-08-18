@@ -204,16 +204,65 @@ pub fn group_paragraphs(
 
     let mut paragraphs: Vec<Paragraph> = Vec::new();
 
-    // Standalone vertical stripes (h > 2.2 * w) never group
-    for ((b, &s), t) in boxes.iter().zip(scores.iter()).zip(txt_slice.iter()) {
-        let (x, _, w, h) = box_to_xywh_f32(b);
-        if h > w * 2.2 {
+    // 1. Group adjacent vertical columns into multi-column vertical speech bubbles (Japanese/CJK)
+    let mut vert_candidates: Vec<(&Vec<[f32; 2]>, f32, &String)> = boxes
+        .iter()
+        .zip(scores.iter())
+        .zip(txt_slice.iter())
+        .filter(|((b, _), _)| {
+            let (_, _, w, h) = box_to_xywh_f32(b);
+            h > w * 1.2
+        })
+        .map(|((b, &s), t)| (b, s, t))
+        .collect();
+
+    vert_candidates.sort_by(|a, b| {
+        let (ax, _, _, _) = box_to_xywh_f32(a.0);
+        let (bx, _, _, _) = box_to_xywh_f32(b.0);
+        ax.total_cmp(&bx)
+    });
+
+    for (box_pts, score, txt) in vert_candidates {
+        let (x, y, w, h) = box_to_xywh_f32(box_pts);
+        let x1 = x + w;
+        let y1 = y + h;
+        let box_url = is_watermark_line(txt);
+        let mut placed = false;
+
+        for p in &mut paragraphs {
+            if box_url != p.is_url {
+                continue;
+            }
+            for b in &p.boxes {
+                let (bx, by, bw, bh) = box_to_xywh_f32(b);
+                let bx1 = bx + bw;
+                let by1 = by + bh;
+
+                let v_overlap = y1.min(by1) - y.max(by);
+                let min_h = h.min(bh);
+                let h_gap = (x - bx1).abs().min((bx - x1).abs());
+
+                if v_overlap >= 0.40 * min_h && h_gap <= 35.0 && (w + bw) <= 250.0 {
+                    p.boxes.push(box_pts.clone());
+                    p.cx_list.push(x + w / 2.0);
+                    p.texts.push(txt.clone());
+                    p.score = p.score.max(score);
+                    placed = true;
+                    break;
+                }
+            }
+            if placed {
+                break;
+            }
+        }
+
+        if !placed {
             paragraphs.push(Paragraph {
-                boxes: vec![b.clone()],
-                score: s,
-                is_url: is_watermark_line(t),
+                boxes: vec![box_pts.clone()],
+                score,
+                is_url: box_url,
                 cx_list: vec![x + w / 2.0],
-                texts: vec![t.clone()],
+                texts: vec![txt.clone()],
             });
         }
     }
@@ -224,7 +273,7 @@ pub fn group_paragraphs(
         .zip(txt_slice.iter())
         .filter(|((b, _), _)| {
             let (_, _, w, h) = box_to_xywh_f32(b);
-            h <= w * 2.2
+            h <= w * 1.2
         })
         .map(|((b, &s), t)| (b, s, t))
         .collect();

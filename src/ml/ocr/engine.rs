@@ -142,7 +142,7 @@ impl RapidOcr {
         (&mut self.rec_session, &self.characters)
     }
 
-    /// Direct text recognition on a line crop
+    /// DIRECT TEXT RECOGNITION ON A LINE CROP
     pub fn recognize_line(&mut self, crop: &DynamicImage) -> Result<Option<OcrResult>> {
         self.recognize_line_with_lang(crop, None)
     }
@@ -153,13 +153,30 @@ impl RapidOcr {
             return Ok(None);
         }
 
-        // If vertical crop (h >= 1.3 * w), try both rotated 270 and 90 (top-to-bottom vertical line)
+        // FOR VERTICAL CROPS (H >= 1.3 * W), TEST UPRIGHT PROJECTION SLICING FIRST (NO SIDEWAYS ROTATION DISTORTION)
         if h as f32 >= 1.3 * w as f32 {
             let mut best_res: Option<OcrResult> = None;
+
+            // 1. UPRIGHT HORIZONTAL PROJECTION SLICING (VALLEY-CUT)
+            if let Some(upright_strip) = vertical_to_upright_horizontal_strip(crop) {
+                if let Ok(Some(res_upright)) = self.recognize_line_horizontal_with_lang(&upright_strip, source_lang) {
+                    if CHINESE_RE.is_match(&res_upright.text) || res_upright.score >= 0.60 {
+                        best_res = Some(res_upright);
+                    }
+                }
+            }
+
+            // 2. ROTATION FALLBACK (ROT 270)
             let rot270 = crop.rotate270();
             if let Ok(Some(res270)) = self.recognize_line_horizontal_with_lang(&rot270, source_lang) {
-                best_res = Some(res270);
+                let r270_chars = res270.text.chars().filter(|c| !c.is_whitespace()).count();
+                let prev_chars = best_res.as_ref().map(|r| r.text.chars().filter(|c| !c.is_whitespace()).count()).unwrap_or(0);
+                if (r270_chars > prev_chars && CHINESE_RE.is_match(&res270.text)) || (r270_chars == prev_chars && res270.score > best_res.as_ref().map(|r| r.score).unwrap_or(0.0)) {
+                    best_res = Some(res270);
+                }
             }
+
+            // 3. ROTATION FALLBACK (ROT 90)
             let rot90 = crop.rotate90();
             if let Ok(Some(res90)) = self.recognize_line_horizontal_with_lang(&rot90, source_lang) {
                 let r90_chars = res90.text.chars().filter(|c| !c.is_whitespace()).count();
@@ -168,8 +185,9 @@ impl RapidOcr {
                     best_res = Some(res90);
                 }
             }
+
             if let Some(r) = best_res {
-                if CHINESE_RE.is_match(&r.text) || r.score >= 0.70 {
+                if CHINESE_RE.is_match(&r.text) || r.score >= 0.65 {
                     return Ok(Some(r));
                 }
             }
@@ -202,8 +220,12 @@ impl RapidOcr {
                     continue;
                 }
                 if h as f32 >= 1.3 * w as f32 {
-                    let rot = c.rotate270();
-                    processed_crops.push(Some(rot));
+                    if let Some(upright) = vertical_to_upright_horizontal_strip(c) {
+                        processed_crops.push(Some(upright));
+                    } else {
+                        let rot = c.rotate270();
+                        processed_crops.push(Some(rot));
+                    }
                 } else {
                     processed_crops.push(Some(c.clone()));
                 }
@@ -431,10 +453,13 @@ impl RapidOcr {
         if is_vertical_crop {
             // Sort predominantly vertical reading order (Right-to-Left columns, Top-to-Bottom lines)
             raw_lines.sort_by(|a, b| {
-                let (ax, ay, _, _) = polygon_bounds(&a.polygon);
-                let (bx, by, _, _) = polygon_bounds(&b.polygon);
-                let x_diff = bx - ax; // larger X first (rightmost column first)
-                if x_diff.abs() > 30 {
+                let (ax, ay, aw, _) = polygon_bounds(&a.polygon);
+                let (bx, by, bw, _) = polygon_bounds(&b.polygon);
+                let a_mid_x = ax + aw / 2;
+                let b_mid_x = bx + bw / 2;
+                let min_col_w = aw.min(bw).max(8);
+                let x_diff = b_mid_x - a_mid_x; // larger X first (rightmost column first)
+                if x_diff.abs() >= (min_col_w * 2 / 5).max(6) {
                     x_diff.cmp(&0)
                 } else {
                     ay.cmp(&by)
@@ -665,7 +690,7 @@ impl RapidOcr {
         Ok(lines)
     }
 
-    /// Crop an ROI with small margin
+    /// CROP AN ROI WITH SMALL MARGIN
     pub fn crop_region(img: &DynamicImage, polygon: &[[i32; 2]], margin: i32) -> DynamicImage {
         let (w, h) = img.dimensions();
         let (min_x, min_y, bw, bh) = polygon_bounds(polygon);
@@ -680,4 +705,100 @@ impl RapidOcr {
 
         img.crop_imm(x0, y0, crop_w, crop_h)
     }
+}
+
+// -- FUNCTIONS & ALGORITHMS -- //
+
+/// SLICE VERTICAL TEXT STRIPS AT PROJECTION VALLEYS AND TILE THEM UPRIGHT HORIZONTALLY
+pub fn vertical_to_upright_horizontal_strip(crop: &DynamicImage) -> Option<DynamicImage> {
+    let (w, h) = crop.dimensions();
+    if w < 4 || h < 4 || (h as f32) < 1.3 * (w as f32) {
+        return None;
+    }
+
+    let rgb = crop.to_rgb8();
+
+    // 1. COMPUTE HORIZONTAL INK PROJECTION PROFILE
+    let mut proj = vec![0_u32; h as usize];
+    let mut total_lum = 0_u64;
+    for y in 0..h {
+        for x in 0..w {
+            let p = rgb.get_pixel(x, y);
+            let lum = (p[0] as u32 * 299 + p[1] as u32 * 587 + p[2] as u32 * 114) / 1000;
+            total_lum += lum as u64;
+        }
+    }
+    let mean_lum = (total_lum / (w as u64 * h as u64).max(1)) as u32;
+    let is_dark_bg = mean_lum < 128;
+
+    for y in 0..h {
+        let mut ink_count = 0;
+        for x in 0..w {
+            let p = rgb.get_pixel(x, y);
+            let lum = (p[0] as u32 * 299 + p[1] as u32 * 587 + p[2] as u32 * 114) / 1000;
+            let is_ink = if is_dark_bg { lum >= 150 } else { lum <= 180 };
+            if is_ink {
+                ink_count += 1;
+            }
+        }
+        proj[y as usize] = ink_count;
+    }
+
+    // 2. FIND CUT VALLEYS APPROXIMATELY EVERY W PIXELS
+    let est_char_count = ((h as f32 / w.max(1) as f32).round() as usize).max(1);
+    let ideal_h = (h as f32 / est_char_count as f32) as usize;
+    if ideal_h < 4 {
+        return None;
+    }
+
+    let mut cut_points = vec![0_u32];
+    for k in 1..est_char_count {
+        let expected_y = k * ideal_h;
+        let search_start = (expected_y.saturating_sub(ideal_h / 3)).max(1);
+        let search_end = (expected_y + ideal_h / 3).min(h as usize - 1);
+
+        let mut min_ink = u32::MAX;
+        let mut best_y = expected_y;
+        for y in search_start..=search_end {
+            if proj[y] < min_ink {
+                min_ink = proj[y];
+                best_y = y;
+            }
+        }
+        cut_points.push(best_y as u32);
+    }
+    cut_points.push(h);
+
+    // 3. ASSEMBLE UPRIGHT HORIZONTAL STRIP
+    let num_slices = cut_points.len() - 1;
+    let max_slice_h = (0..num_slices)
+        .map(|i| cut_points[i + 1] - cut_points[i])
+        .max()
+        .unwrap_or(w)
+        .max(w);
+    let target_h = max_slice_h;
+    let total_w = w * num_slices as u32;
+
+    let bg_color = if is_dark_bg { Rgb([0, 0, 0]) } else { Rgb([255, 255, 255]) };
+    let mut strip = ImageBuffer::from_pixel(total_w, target_h, bg_color);
+
+    for i in 0..num_slices {
+        let y0 = cut_points[i];
+        let y1 = cut_points[i + 1];
+        let slice_h = y1.saturating_sub(y0);
+        if slice_h == 0 {
+            continue;
+        }
+        let paste_x = i as u32 * w;
+        let paste_y = (target_h - slice_h) / 2;
+
+        for cy in 0..slice_h {
+            for cx in 0..w {
+                let p = rgb.get_pixel(cx, y0 + cy);
+                strip.put_pixel(paste_x + cx, paste_y + cy, *p);
+            }
+        }
+    }
+
+    Some(DynamicImage::ImageRgb8(strip))
 }

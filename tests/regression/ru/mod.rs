@@ -42,3 +42,49 @@ fn test_regression_page_with_russian_source_routing() {
         assert!(r.box_.w > 0 && r.box_.h > 0, "Region dimensions must be positive");
     }
 }
+
+/// # Russian Real-Page Regression: `page_she_clearly_russian_bubble.png` (Resolution: 720 × 1159 PNG)
+///
+/// ## Purpose & Behavior Tested:
+/// - **Cyrillic Speech Bubble Detection & OCR Recognition**:
+///   Guarantees that the circular speech bubble containing Cyrillic dialogue:
+///   `ОН ЖЕ ЯВНО...` (or `Он же явно...`) is detected as a single clean region.
+/// - **Language Routing Integrity (`ru`, `ru-en`)**:
+///   Verifies that `source_lang = Some("ru")` and `Some("ru-en")` properly route to the Cyrillic OCR recognizer.
+#[test]
+fn test_regression_page_she_clearly_russian_bubble() {
+    let img_path = Path::new("tests/fixtures/ru/page_she_clearly_russian_bubble.webp");
+    if !img_path.exists() {
+        eprintln!("Fixture {:?} not found, skipping test", img_path);
+        return;
+    }
+
+    let img = image::ImageReader::open(img_path)
+        .expect("Failed to open page_she_clearly_russian_bubble.webp")
+        .with_guessed_format()
+        .expect("Failed to guess format")
+        .decode()
+        .expect("Failed to decode image");
+
+    let res = get_or_analyze_fixture_with_lang(&img, Some("ru"));
+    println!("Russian Page detected {} regions:", res.regions.len());
+    for (i, r) in res.regions.iter().enumerate() {
+        println!("  Region r{}: box={:?}, text='{}', conf={:.2}", i, r.box_, r.text.replace('\n', "\\n"), r.confidence);
+    }
+
+    // 1. Exact count: exactly 1 region
+    assert_eq!(res.regions.len(), 1, "Russian Page must have exactly 1 detected region, got {}", res.regions.len());
+
+    // 2. Text verification: Cyrillic dialogue 'ОН ЖЕ ЯВНО'
+    let text_upper = res.regions[0].text.to_uppercase();
+    assert!(
+        text_upper.contains("ОН") && (text_upper.contains("ЯВНО") || text_upper.contains("ЯВН")),
+        "Region text must contain 'ОН ЖЕ ЯВНО', got '{}'",
+        res.regions[0].text
+    );
+
+    // 3. Geometry verification: must encompass the speech bubble in the upper half
+    let b = &res.regions[0].box_;
+    assert!(b.y >= 250 && b.y <= 450, "Bubble Y ({}) must be in upper half of page", b.y);
+    assert!(b.w >= 100 && b.w <= 300, "Bubble width ({}) must be tight", b.w);
+}

@@ -72,12 +72,11 @@ pub fn post_process_regions(
             let is_exact = r_text == ex_text;
             let is_sub = ex_text.contains(r_text) && ex_text.chars().count() > r_text.chars().count();
             let is_sup = r_text.contains(ex_text) && r_text.chars().count() > ex_text.chars().count();
+            let is_spatial_dup = (x_ratio >= 0.50 && y_ratio >= 0.50) || (x_ratio >= 0.70 && y_ratio >= 0.35) || (y_ratio >= 0.70 && x_ratio >= 0.35);
 
-            if (is_sub && x_ratio >= 0.50 && y_ratio >= 0.30) || (is_exact && x_ratio >= 0.50 && y_ratio >= 0.40) {
-                is_subsumed = true;
-                break;
-            } else if is_sup && x_ratio >= 0.50 && y_ratio >= 0.30 {
-                existing.text = r.text.clone();
+            if is_spatial_dup || (is_sub && x_ratio >= 0.40 && y_ratio >= 0.30) || (is_exact && x_ratio >= 0.40 && y_ratio >= 0.30) {
+                let r_chars = r_text.chars().count();
+                let ex_chars = ex_text.chars().count();
                 let x0 = existing.box_.x.min(r.box_.x);
                 let y0 = existing.box_.y.min(r.box_.y);
                 let x1 = (existing.box_.x + existing.box_.w).max(r.box_.x + r.box_.w);
@@ -86,6 +85,10 @@ pub fn post_process_regions(
                 existing.polygon = vec![
                     [x0, y0], [x1, y0], [x1, y1], [x0, y1],
                 ];
+                if r_chars > ex_chars || (r_chars == ex_chars && r.confidence > existing.confidence) || is_sup {
+                    existing.text = r.text.clone();
+                    existing.confidence = r.confidence;
+                }
                 is_subsumed = true;
                 break;
             }
@@ -153,7 +156,8 @@ pub fn post_process_regions(
                 let min_w_pre = top.box_.w.min(bot.box_.w);
                 let top_cx_pre = top.box_.x + top.box_.w / 2;
                 let bot_cx_pre = bot.box_.x + bot.box_.w / 2;
-                let is_same_bubble_continuation = x_overlap_pre >= min_w_pre * 3 / 5
+                let is_same_bubble_continuation = !top_ends_with_terminal
+                    && x_overlap_pre >= min_w_pre * 3 / 5
                     && (top_cx_pre - bot_cx_pre).abs() <= min_w_pre * 2 / 5
                     && (bot.box_.y - (top.box_.y + top.box_.h)) <= ((top.box_.h + bot.box_.h) / 2) * 2 / 5;
 
@@ -246,7 +250,12 @@ pub fn post_process_regions(
                 let crop_h = ((my2 - my + pad_y * 2) as u32).min(page_h - crop_y);
 
                 let total_chars = a.text.chars().count() + b_removed.text.chars().count();
-                let fallback_text = format!("{}\n{}", a.text.trim(), b_removed.text.trim());
+                let is_vert_merge = is_cjk && (a.vertical || b_removed.vertical || a.box_.h > a.box_.w);
+                let fallback_text = if is_vert_merge && (b_removed.box_.x > a.box_.x) {
+                    format!("{}\n{}", b_removed.text.trim(), a.text.trim())
+                } else {
+                    format!("{}\n{}", a.text.trim(), b_removed.text.trim())
+                };
                 let mut unified_text = None;
                 if crop_w >= 16 && crop_h >= 16 {
                     let crop = img.crop_imm(crop_x, crop_y, crop_w, crop_h);

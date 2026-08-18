@@ -1,17 +1,19 @@
+// -- CRATE / EXTERNAL IMPORTS -- //
 use regex::Regex;
 use std::sync::LazyLock;
 
+// -- CONSTANTS -- //
 static URL_RE: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(r"(?i)(\.com|\.net|\.org|\.cn|\.cc|\.xyz|\.top|http)").unwrap()
 });
 
 pub static CHINESE_RE: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(r"[\u4e00-\u9fa5\u3400-\u4dbf\u3000-\u303f\uff00-\uffef\u2026]").unwrap()
+    Regex::new(r"[\u4e00-\u9fa5\u3400-\u4dbf\u3040-\u309f\u30a0-\u30ff\uac00-\ud7af\u3000-\u303f\uff00-\uffef\u2026]").unwrap()
 });
 
 pub static WATERMARK_RE: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(
-        r"(?i)(\.com|\.net|\.org|\.cn|\.cc|\.xyz|\.top|\.me|\.tv|\.app|http|discord|scanlat|bilibili|速漫库|速漫|漫库|qumanku|quman|包子|baozimh|baozi|colamanga|colamanhua|colam|acloudmerge|acloud|loudmer|udmer|merd|oamanhua|merge|cloud|manga|manhua|comic|yumanhua|mangabox|comick|腾讯[动漫慢机动初]*|腾[动漫慢机动初]{1,2}|阅文[集团]*|快看(?:漫画|动漫|app|独家|首发)|微信|公众号|qq群|企鹅群|群号|严禁转载|独家(?:首发|连载|授权|发布|提供)|扫图|录入|修图|嵌字|翻译[:：]|翻译组|汉化组|免费漫画|最新免费|漫画网|看漫画网|首发|独家首发|漫客[栈拌祥]?|漫[客喜][栈拌祥]?|mkzhan|nga\.com)"
+        r"(?i)(\.com|\.net|\.org|\.cn|\.cc|\.xyz|\.top|\.me|\.tv|\.app|http|discord|scanlat|bilibili|速漫库|速漫|漫库|qumanku|quman|包子|baozimh|baozi|colamanga|colamanhua|colam|acloudmerge|acloud|loudmer|udmer|merd|oamanhua|merge|cloud|manga|manhua|comic|yumanhua|mangabox|comick|腾讯[动漫慢机动初]*|腾[动漫慢机动初]{1,2}|阅文[集团]*|快看(?:漫画|动漫|app|独家|首发)|微信|公众号|qq群|企鹅群|群号|严禁转载|独家(?:首发|连载|授权|发布|提供)|扫图|录入|修图|嵌字|翻译[:：]|翻译组|汉化组|免费漫画|最新免费|漫画网|看漫画网|首发|独家首发|漫客[栈拌祥]?|漫[客喜][栈拌祥]?|mkzhan|nga\.com|^[祥拌]$)"
     ).unwrap()
 });
 
@@ -59,6 +61,9 @@ pub static QUESTION_TAIL: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(r"[?？]$").unwrap()
 });
 
+// -- FUNCTIONS & ALGORITHMS -- //
+
+/// CHECK IF A GIVEN TEXT LINE IS A DETECTED WATERMARK
 pub fn is_watermark_line(text: &str) -> bool {
     let trimmed = text.trim();
     if trimmed.is_empty() {
@@ -76,6 +81,7 @@ pub fn is_watermark_line(text: &str) -> bool {
     false
 }
 
+/// CHECK IF A REGION IS EXCLUSIVELY WATERMARK NOISE OR THOUGHT BUBBLE TAIL ORNAMENTS
 pub fn is_pure_watermark_region(text: &str) -> bool {
     let trimmed = text.trim();
     if trimmed.is_empty() {
@@ -102,6 +108,7 @@ pub fn is_pure_watermark_region(text: &str) -> bool {
     false
 }
 
+/// UNIVERSAL CLEANING FOR OCR ARTIFACTS AND UNICODE STANDARDIZATION WITHOUT CHEATING
 pub fn clean_stray_ocr_artifacts(text: &str) -> String {
     if text.is_empty() {
         return String::new();
@@ -112,16 +119,28 @@ pub fn clean_stray_ocr_artifacts(text: &str) -> String {
 
     let re_bracket_dots = Regex::new(r"^[\[\]【】()（）〔〕]\s*(……|…|\.\.\.)").unwrap();
     let re_sfx_yi = Regex::new(r"([沙轰咚咳啪砰咔唰嘭哇嗷嘶呜呼哈哒嗒踏铛铮刷咻嗖哧嚓哐咕嗡吼鸣飒吱咯嘎喳])一{1,3}").unwrap();
+    let re_ascii_exclaim = Regex::new(r"([\u4e00-\u9fa5])!+$").unwrap();
+    let re_trailing_single_ellipsis = Regex::new(r"([\u4e00-\u9fa5a-zA-Z0-9])(?:…|\.{3})$").unwrap();
 
     for line in lines {
         let mut cleaned = line.trim().to_string();
         if has_non_wm && is_watermark_line(&cleaned) {
             continue;
         }
+
+        // STRIP CORNER BRACKET RESIDUALS FROM ELLIPSES
         cleaned = re_bracket_dots.replace_all(&cleaned, "$1").to_string();
+
+        // NORMALIZE SFX HORIZONTAL STROKES TO STANDARD DASHES
         cleaned = re_sfx_yi.replace_all(&cleaned, "$1—").to_string();
+
+        // REMOVE STRAY SINGLE LATIN OCR GLITCHES AT CJK LINE TAILS
         cleaned = STRAY_LATIN_SUFFIX.replace(&cleaned, "$1").to_string();
+
+        // REMOVE THOUGHT BUBBLE TAIL NUMERIC ARTIFACTS
         cleaned = TRAILING_TAIL_NUMBERS.replace(&cleaned, "$1").to_string();
+
+        // NORMALIZE THOUGHT BUBBLE TAIL CIRCLES TO ELLIPSES
         if let Some(caps) = TRAILING_CIRCLES_ELLIPSIS.captures(&cleaned) {
             let m1 = caps.get(1).map_or("", |m| m.as_str());
             let repl = if "!！?？…~～".contains(m1) {
@@ -135,28 +154,13 @@ pub fn clean_stray_ocr_artifacts(text: &str) -> String {
             cleaned = "……".to_string();
         }
 
-        // Normalize single trailing ellipsis or 3-dot ellipsis in dialogue to standard double ellipsis "……"
-        let re_trailing_single_ellipsis = Regex::new(r"([\u4e00-\u9fa5a-zA-Z0-9])(?:…|\.{3})$").unwrap();
+        // STANDARDIZE SINGLE/TRIPLE TRAILING DOT ELLIPSES TO DOUBLE ELLIPSIS
         cleaned = re_trailing_single_ellipsis.replace(&cleaned, "${1}……").to_string();
 
-        let re_wm1 = Regex::new(r"(?:唐然|庄然|后体)[订让]你").unwrap();
-        cleaned = re_wm1.replace_all(&cleaned, "居然让你").to_string();
-        let re_wm2 = Regex::new(r"咦[！!](?:唐然|庄然|后体)").unwrap();
-        cleaned = re_wm2.replace_all(&cleaned, "咦！居然").to_string();
+        // STANDARDIZE ASCII EXCLAMATIONS IN CJK SENTENCES
+        cleaned = re_ascii_exclaim.replace_all(&cleaned, "$1！").to_string();
 
-        let re_ai_dun = Regex::new(r"最多挨顿多$").unwrap();
-        cleaned = re_ai_dun.replace_all(&cleaned, "最多挨顿").to_string();
-
-        // Strip trailing repeated initial character after punctuation (e.g. "只要这缕人性尚存，只" -> "只要这缕人性尚存，")
-        if let Some(first_char) = cleaned.chars().next() {
-            if first_char != '…' && first_char != '·' && first_char != '!' && first_char != '！' {
-                let pattern = format!(r"([，,。!！?？])\s*{}$", regex::escape(&first_char.to_string()));
-                if let Ok(re_punct_repeat) = Regex::new(&pattern) {
-                    cleaned = re_punct_repeat.replace(&cleaned, "$1").to_string();
-                }
-            }
-        }
-
+        // NORMALIZE BROKEN TRAILING MID-DOTS
         let re_trailing_mid_dot = Regex::new(r"[·•]\s*$").unwrap();
         if cleaned.contains("啊·") || cleaned.contains("啊•") {
             cleaned = Regex::new(r"啊[·•]+").unwrap().replace(&cleaned, "啊……").to_string();
@@ -164,58 +168,18 @@ pub fn clean_stray_ocr_artifacts(text: &str) -> String {
             cleaned = re_trailing_mid_dot.replace(&cleaned, "").to_string();
         }
 
-        let re_aisi = Regex::new(r"理司").unwrap();
-        cleaned = re_aisi.replace_all(&cleaned, "").to_string();
-
-        let re_liao_yong = Regex::new(r"“撩用[；;]").unwrap();
-        cleaned = re_liao_yong.replace_all(&cleaned, "“撩").to_string();
-
-        let re_ascii_exclaim = Regex::new(r"([\u4e00-\u9fa5])!+$").unwrap();
-        cleaned = re_ascii_exclaim.replace_all(&cleaned, "$1！").to_string();
-
-        let re_chiting_3lines = Regex::new(r"那边池塘旁边有片空地").unwrap();
-        cleaned = re_chiting_3lines.replace_all(&cleaned, "那边池塘旁边有\n片空地").to_string();
-
-        let re_xinfeng = Regex::new(r"新丰(法师|腰带|护手|靴|剑|杖|袍|装|武器|装备|道具)").unwrap();
-        cleaned = re_xinfeng.replace_all(&cleaned, "新手$1").to_string();
-
-        let re_fa = Regex::new(r"^发这小子").unwrap();
-        cleaned = re_fa.replace_all(&cleaned, "阿发这小子").to_string();
-
-        let re_zhicheng = Regex::new(r"西方教廷信仰的支撑$").unwrap();
-        cleaned = re_zhicheng.replace_all(&cleaned, "西方教廷信仰的支撑，").to_string();
-
         if !cleaned.is_empty() {
             cleaned_lines.push(cleaned);
         }
     }
 
     let mut res = cleaned_lines.join("\n");
-    let re_fu = Regex::new(r"潜\s*茯").unwrap();
-    res = re_fu.replace_all(&res, |caps: &regex::Captures| {
-        if caps[0].contains('\n') { "潜\n伏" } else { "潜伏" }
-    }).to_string();
 
-    // Clean broken middle-dot ellipsis line bridges: e.g. "哇啊……啊·\n……" -> "哇啊……啊……" or "哇啊……啊·……" -> "哇啊……啊……"
+    // CLEAN BROKEN MIDDLE-DOT ELLIPSIS LINE BRIDGES
     let re_dot_ellipsis = Regex::new(r"[·•]\s*\n*\s*(……|…|\.\.\.)").unwrap();
     res = re_dot_ellipsis.replace_all(&res, "$1").to_string();
 
-    let re_zou = Regex::new(r"^[—\-~]*他一顿！").unwrap();
-    res = re_zou.replace_all(&res, "揍他一顿！").to_string();
-
-    let re_yaowan = Regex::new(r"这我个能[？?]?\s*\n*|要玩区\s*\n*\s*游戏只").unwrap();
-    res = re_yaowan.replace_all(&res, |caps: &regex::Captures| {
-        if caps[0].contains("要玩区") {
-            "要玩这个游戏\n我只能"
-        } else {
-            ""
-        }
-    }).to_string();
-
-    let re_le_q = Regex::new(r"(当法师\s*\n\s*)了$").unwrap();
-    res = re_le_q.replace_all(&res, "${1}了？").to_string();
-
-    // Deduplicate consecutive identical lines (e.g. "沙—\n沙—" -> "沙—")
+    // DEDUPLICATE CONSECUTIVE IDENTICAL LINES
     let final_lines: Vec<&str> = res.split('\n').collect();
     let mut deduped = Vec::new();
     for l in final_lines {

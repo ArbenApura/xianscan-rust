@@ -44,3 +44,50 @@ fn test_regression_page_with_indonesian_source_routing() {
         );
     }
 }
+
+/// # Indonesian Real-Page Regression: `page_who_is_she_bottom_box.png` (Resolution: 720 × 1801 PNG)
+///
+/// ## Purpose & Behavior Tested:
+/// - **Tall Manhwa Strip Bottom-Box Boundary Capture**:
+///   Guarantees that both narration/dialogue boxes across the tall strip:
+///   1. Top Box (left-center): `PEREMPUAN...?`
+///   2. Bottom Box (bottom-right edge): `SIAPA DIA...?`
+///   are cleanly detected and recognized as distinct regions.
+/// - **Language Routing Integrity (`id`)**:
+///   Verifies that `source_lang = Some("id")` cleanly processes Latin uppercase text.
+#[test]
+fn test_regression_page_who_is_she_bottom_box() {
+    let img_path = Path::new("tests/fixtures/id/page_who_is_she_bottom_box.webp");
+    if !img_path.exists() {
+        eprintln!("Fixture {:?} not found, skipping test", img_path);
+        return;
+    }
+
+    let img = image::ImageReader::open(img_path)
+        .expect("Failed to open page_who_is_she_bottom_box.webp")
+        .with_guessed_format()
+        .expect("Failed to guess format")
+        .decode()
+        .expect("Failed to decode image");
+
+    let res = get_or_analyze_fixture_with_lang(&img, Some("id"));
+    println!("Indonesian Page detected {} regions:", res.regions.len());
+    for (i, r) in res.regions.iter().enumerate() {
+        println!("  Region r{}: box={:?}, text='{}', conf={:.2}", i, r.box_, r.text.replace('\n', "\\n"), r.confidence);
+    }
+
+    // 1. Exact count: exactly 2 regions
+    assert_eq!(res.regions.len(), 2, "Indonesian Page must have exactly 2 detected regions, got {}", res.regions.len());
+
+    // 2. Upper box: 'PEREMPUAN...?'
+    let top_box = res.regions.iter().find(|r| r.text.to_uppercase().contains("PEREMPUAN"));
+    assert!(top_box.is_some(), "Must detect upper box 'PEREMPUAN...?'");
+    let top_box = top_box.unwrap();
+    assert!(top_box.box_.y < (res.height as f32 * 0.65) as i32, "Upper box must be in top half of image");
+
+    // 3. Bottom box: 'SIAPA DIA...?'
+    let bottom_box = res.regions.iter().find(|r| r.text.to_uppercase().contains("SIAPA") || r.text.to_uppercase().contains("DIA"));
+    assert!(bottom_box.is_some(), "Must detect bottom box 'SIAPA DIA...?'");
+    let bottom_box = bottom_box.unwrap();
+    assert!(bottom_box.box_.y >= (res.height as f32 * 0.70) as i32, "Bottom box must be in bottom panel of image, got y={}", bottom_box.box_.y);
+}

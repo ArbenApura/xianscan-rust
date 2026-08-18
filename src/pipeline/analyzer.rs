@@ -1,5 +1,6 @@
 use anyhow::Result;
 use image::{DynamicImage, GenericImageView};
+// -- INTERNAL IMPORTS -- //
 use crate::ml::detect::{
     deduplicate_boxes, group_paragraphs, is_cjk_source, is_latin_source,
     merge_text_lines, sort_regions_top_to_bottom,
@@ -8,14 +9,18 @@ use crate::ml::geometry::{box_to_xywh_f32, line_center_inside_box};
 use crate::ml::schemas::{AnalyzeOptions, AnalyzeResponse, BoxRect};
 use super::engine::PipelineEngine;
 use super::fusion::{fuse_detections, is_multiline_comic_blob};
-use super::line_filter::{filter_artwork_and_artifacts, normalize_stray_latin, recover_missing_interjections, split_fused_lines};
+use super::line_filter::{filter_artwork_and_artifacts, normalize_stray_latin, split_fused_lines};
 use super::region_builder::build_regions;
 use super::region_merge::post_process_regions;
 
+// -- FUNCTIONS & ALGORITHMS -- //
+
+/// ANALYZE IMAGE WITH DEFAULT OPTIONS
 pub fn analyze_image(engine: &mut PipelineEngine, img: &DynamicImage) -> Result<AnalyzeResponse> {
     analyze_image_with_options(engine, img, None)
 }
 
+/// ANALYZE IMAGE WITH LANGUAGE ROUTING OPTIONS
 pub fn analyze_image_with_options(
     engine: &mut PipelineEngine,
     img: &DynamicImage,
@@ -26,7 +31,7 @@ pub fn analyze_image_with_options(
     let is_cjk = is_cjk_source(source_lang);
     let is_latin = is_latin_source(source_lang);
 
-    // Stage 1: Detection & OCR Fusion (Comic detector, RapidOCR, fallback crops, chromatic watermarks)
+    // STAGE 1: DETECTION & OCR FUSION (COMIC DETECTOR, RAPIDOCR, FALLBACK CROPS, CHROMATIC WATERMARKS)
     let fusion_res = fuse_detections(
         &mut engine.detector,
         &mut engine.ocr,
@@ -35,11 +40,10 @@ pub fn analyze_image_with_options(
         source_lang,
     );
 
-    // Stage 2: Line Normalization, Filtering, Splitting, and Interjection Recovery
-    let normalized_lines = normalize_stray_latin(fusion_res.rapid_lines);
-    let clean_lines = filter_artwork_and_artifacts(normalized_lines, page_w);
-    let mut split_lines = split_fused_lines(clean_lines);
-    recover_missing_interjections(img, &mut split_lines);
+    // STAGE 2: LINE NORMALIZATION, FILTERING, AND SPLITTING
+    let normalized_lines = normalize_stray_latin(fusion_res.rapid_lines, is_cjk);
+    let clean_lines = filter_artwork_and_artifacts(normalized_lines, page_w, source_lang);
+    let split_lines = split_fused_lines(clean_lines);
 
     // Stage 3: Comic blob suppression & spatial line concatenation
     let rapid_f32_boxes: Vec<Vec<[f32; 2]>> = split_lines
