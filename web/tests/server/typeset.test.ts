@@ -11,6 +11,7 @@ import {
 	renderText,
 	sampleBackground,
 	sanitizeForFont,
+	splitTextRuns,
 	typesetPage,
 	wrapText,
 } from '$lib/server/typeset';
@@ -34,17 +35,30 @@ describe('pickTextColor', () => {
 	});
 });
 
-describe('fontFor', () => {
+describe('fontFor & splitTextRuns', () => {
 	it('uses CC Wild Words even when text contains tildes or special punctuation', () => {
 		expect(fontFor()).toBe('CC Wild Words');
 		expect(fontFor("And those heroines' scandalous news, heh heh heh~")).toBe('CC Wild Words');
 		expect(fontFor('Boss, you don\'t know!')).toBe('CC Wild Words');
 	});
 
-	it('uses fallback font for square brackets and unsupported symbols (Page 58670)', () => {
-		expect(fontFor('[LORD OF LIANGZHOU] Arc ends,')).toBe('Friendly Sans');
-		expect(fontFor('[GU GOD ARC] begins')).toBe('Friendly Sans');
-		expect(fontFor('Item: {Skill}')).toBe('Friendly Sans');
+	it('keeps CC Wild Words as primary font while splitTextRuns isolates unsupported symbols to fallback (Page 58670 & Page 59166)', () => {
+		expect(fontFor('[LORD OF LIANGZHOU] Arc ends,')).toBe('CC Wild Words');
+		expect(fontFor('[GU GOD ARC] begins')).toBe('CC Wild Words');
+		expect(fontFor('Item: {Skill}')).toBe('CC Wild Words');
+
+		const runs1 = splitTextRuns('[SIMA QIAN - PEERLESS]');
+		expect(runs1).toEqual([
+			{ text: '[', font: 'Friendly Sans', isFallbackSymbol: true },
+			{ text: 'SIMA QIAN - PEERLESS', font: 'CC Wild Words', isFallbackSymbol: false },
+			{ text: ']', font: 'Friendly Sans', isFallbackSymbol: true },
+		]);
+
+		const runs2 = splitTextRuns('[Alive just to eat, drink, crap, and sleep!');
+		expect(runs2).toEqual([
+			{ text: '[', font: 'Friendly Sans', isFallbackSymbol: true },
+			{ text: 'Alive just to eat, drink, crap, and sleep!', font: 'CC Wild Words', isFallbackSymbol: false },
+		]);
 	});
 
 	it('uses CC Wild Words as primary font for dialogue with em-dashes while dashes resolve via font stack (Page 45358)', () => {

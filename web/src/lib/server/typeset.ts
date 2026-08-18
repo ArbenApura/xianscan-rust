@@ -96,13 +96,45 @@ function registerFonts(): void {
 	}
 }
 
-// Matches Japanese Hiragana, Katakana, Kanji, and Korean Hangul
+// MATCHES JAPANESE HIRAGANA, KATAKANA, KANJI, AND KOREAN HANGUL
 const CJK_REGEX = /[\u3040-\u30ff\u3400-\u4dbf\u4e00-\u9fff\uf900-\ufaff\uac00-\ud7af]/;
-// Characters remapped to arrow glyphs in CC Wild Words (e.g. [ and ] are comic bubble arrows)
+// CHARACTERS REMAPPED TO ARROW GLYPHS IN CC WILD WORDS (e.g. [ AND ] ARE COMIC BUBBLE ARROWS)
 const UNSUPPORTED_WILDWORDS_REGEX = /[\[\]{}|\\]/;
 
+export interface TextRun {
+	text: string;
+	font: string;
+	isFallbackSymbol: boolean;
+}
+
+/**
+ * SPLITS A STRING INTO RUNS SO COMPATIBLE CHARACTERS STAY IN CC WILD WORDS
+ * WHILE ONLY UNMATCHED/REMAPPED SYMBOLS (e.g. [ ], { }, |, \) USE THE FALLBACK FONT STACK.
+ */
+export function splitTextRuns(text: string, primaryFont?: string, fallbackFont?: string): TextRun[] {
+	const fontMain = primaryFont || FONT_DIALOGUE;
+	const fontFb = fallbackFont || FONT_FALLBACK_NAME;
+	if (CJK_REGEX.test(text) || (fontMain !== FONT_DIALOGUE && fontMain !== 'WildWorld' && fontMain !== 'CCWildWords')) {
+		return [{ text, font: fontMain, isFallbackSymbol: false }];
+	}
+	if (!UNSUPPORTED_WILDWORDS_REGEX.test(text)) {
+		return [{ text, font: fontMain, isFallbackSymbol: false }];
+	}
+	const tokens = text.split(/([\[\]{}|\\]+)/);
+	const runs: TextRun[] = [];
+	for (const token of tokens) {
+		if (!token) continue;
+		if (UNSUPPORTED_WILDWORDS_REGEX.test(token)) {
+			runs.push({ text: token, font: fontFb, isFallbackSymbol: true });
+		} else {
+			runs.push({ text: token, font: fontMain, isFallbackSymbol: false });
+		}
+	}
+	return runs;
+}
+
 export function fontFor(text?: string, customDialogue?: string, customCjk?: string): string {
-	if (text && (CJK_REGEX.test(text) || UNSUPPORTED_WILDWORDS_REGEX.test(text))) {
+	if (text && CJK_REGEX.test(text)) {
 		return customCjk || FONT_FALLBACK_NAME;
 	}
 	return customDialogue || FONT_DIALOGUE;
@@ -112,7 +144,7 @@ export function fontSpec(size: number, fontNameOrText?: string, text?: string, c
 	let fontName: string;
 	if (fontNameOrText && fontNameOrText !== FONT_DIALOGUE && fontNameOrText !== FONT_FALLBACK_NAME && fontNameOrText !== customCjk) {
 		fontName = fontNameOrText;
-	} else if (text && (CJK_REGEX.test(text) || UNSUPPORTED_WILDWORDS_REGEX.test(text))) {
+	} else if (text && CJK_REGEX.test(text)) {
 		fontName = customCjk || FONT_FALLBACK_NAME;
 	} else {
 		fontName = fontNameOrText ?? FONT_DIALOGUE;
@@ -121,6 +153,76 @@ export function fontSpec(size: number, fontNameOrText?: string, text?: string, c
 		return `bold ${size}px "${fontName}", "${FONT_FALLBACK_NAME}", "Yu Gothic Bold", "Yu Gothic", "Microsoft YaHei Bold", "Microsoft YaHei", Arial, "Segoe UI", sans-serif`;
 	}
 	return `${size}px "${fontName}"${FONT_FALLBACK}`;
+}
+
+export function measureTextWithRuns(
+	ctx: { font: string; measureText(t: string): { width: number } },
+	text: string,
+	size: number,
+	primaryFont?: string,
+	fallbackFont?: string,
+	customCjk?: string,
+): number {
+	const runs = splitTextRuns(text, primaryFont, fallbackFont);
+	if (runs.length === 1 && !runs[0].isFallbackSymbol) {
+		ctx.font = fontSpec(size, runs[0].font, text, customCjk);
+		return ctx.measureText(text).width;
+	}
+	let totalW = 0;
+	for (const run of runs) {
+		ctx.font = fontSpec(size, run.font, run.isFallbackSymbol ? run.text : undefined, customCjk);
+		totalW += ctx.measureText(run.text).width;
+	}
+	return totalW;
+}
+
+export function drawTextLineWithRuns(
+	ctx: SKRSContext2D | CanvasRenderingContext2D,
+	line: string,
+	centerX: number,
+	y: number,
+	size: number,
+	primaryFont: string,
+	fallbackFont: string,
+	textColor: TextColor,
+	strokeWidth: number,
+	isDarkStroke: boolean,
+	customCjk?: string,
+	align: 'center' | 'left' = 'center',
+): void {
+	const runs = splitTextRuns(line, primaryFont, fallbackFont);
+	let totalW = 0;
+	for (const run of runs) {
+		ctx.font = fontSpec(size, run.font, run.isFallbackSymbol ? run.text : undefined, customCjk);
+		totalW += ctx.measureText(run.text).width;
+	}
+
+	let curX = align === 'center' ? centerX - totalW / 2 : centerX;
+	ctx.textAlign = 'left';
+	ctx.textBaseline = 'alphabetic';
+
+	for (const run of runs) {
+		ctx.font = fontSpec(size, run.font, run.isFallbackSymbol ? run.text : undefined, customCjk);
+		if (strokeWidth > 0) {
+			ctx.lineWidth = strokeWidth;
+			ctx.lineJoin = 'round';
+			ctx.strokeStyle = textColor.stroke;
+			ctx.shadowColor = isDarkStroke ? 'rgba(0, 0, 0, 0.85)' : 'rgba(255, 255, 255, 0.85)';
+			ctx.shadowBlur = Math.max(2.5, size * 0.18);
+			ctx.shadowOffsetX = isDarkStroke ? 1.0 : 0;
+			ctx.shadowOffsetY = isDarkStroke ? 1.5 : 0;
+			ctx.strokeText(run.text, curX, y);
+		}
+
+		ctx.shadowColor = 'transparent';
+		ctx.shadowBlur = 0;
+		ctx.shadowOffsetX = 0;
+		ctx.shadowOffsetY = 0;
+		ctx.fillStyle = textColor.fill;
+		ctx.fillText(run.text, curX, y);
+
+		curX += ctx.measureText(run.text).width;
+	}
 }
 
 // -- COLOR / CONTRAST (PURE) -- //
@@ -654,30 +756,26 @@ export function typesetStatPanel(
 	for (let i = 0; i < measured.length; i++) {
 		const { seg, lines, size, color, stroke, font: segFont } = measured[i];
 		const lineH = size * LINE_HEIGHT;
-		ctx.font = fontSpec(size, segFont);
-		ctx.textAlign = 'center';
-		ctx.textBaseline = 'alphabetic';
-
 		const tx = hasRotation ? 0 : x + w / 2;
 		const isDarkStroke = stroke === 'black' || stroke === '#000000' || stroke === '#111111';
+		const strokeWidth = Math.max(OUTLINE_MIN, size * OUTLINE_FACTOR);
+
 		for (const line of lines) {
 			const drawY = ty + size * 0.85;
-			ctx.lineWidth = Math.max(OUTLINE_MIN, size * OUTLINE_FACTOR);
-			ctx.lineJoin = 'round';
-			ctx.strokeStyle = stroke;
-			ctx.shadowColor = isDarkStroke ? 'rgba(0, 0, 0, 0.85)' : 'rgba(255, 255, 255, 0.85)';
-			ctx.shadowBlur = Math.max(2.5, size * 0.18);
-			ctx.shadowOffsetX = isDarkStroke ? 1.0 : 0;
-			ctx.shadowOffsetY = isDarkStroke ? 1.5 : 0;
-			ctx.strokeText(line, tx, drawY);
-
-			// Reset shadow for crisp fill rendering
-			ctx.shadowColor = 'transparent';
-			ctx.shadowBlur = 0;
-			ctx.shadowOffsetX = 0;
-			ctx.shadowOffsetY = 0;
-			ctx.fillStyle = color;
-			ctx.fillText(line, tx, drawY);
+			drawTextLineWithRuns(
+				ctx,
+				line,
+				tx,
+				drawY,
+				size,
+				segFont,
+				FONT_FALLBACK_NAME,
+				{ fill: color, stroke },
+				strokeWidth,
+				isDarkStroke,
+				undefined,
+				'center',
+			);
 			ty += lineH;
 		}
 		if (i < measured.length - 1) ty += gap;
@@ -855,38 +953,40 @@ export async function typesetPage(cleanedPng: Buffer, regions: TypesetRegion[], 
 			ctx.rotate((angleDeg * Math.PI) / 180);
 			let ty = -totalH / 2 + size * 0.85;
 			for (const line of lines) {
-				if (strokeWidth > 0) {
-					ctx.shadowColor = isDarkStroke ? 'rgba(0, 0, 0, 0.85)' : 'rgba(255, 255, 255, 0.85)';
-					ctx.shadowBlur = Math.max(2.5, size * 0.18);
-					ctx.shadowOffsetX = isDarkStroke ? 1.0 : 0;
-					ctx.shadowOffsetY = isDarkStroke ? 1.5 : 0;
-					ctx.strokeText(line, 0, ty);
-				}
-
-				ctx.shadowColor = 'transparent';
-				ctx.shadowBlur = 0;
-				ctx.shadowOffsetX = 0;
-				ctx.shadowOffsetY = 0;
-				ctx.fillText(line, 0, ty);
+				drawTextLineWithRuns(
+					ctx,
+					line,
+					0,
+					ty,
+					size,
+					font,
+					FONT_FALLBACK_NAME,
+					color,
+					strokeWidth,
+					isDarkStroke,
+					fontCjk,
+					'center',
+				);
 				ty += lineH;
 			}
 		} else {
 			const tx = x + w / 2;
 			let ty = y + (h - totalH) / 2 + size * 0.85;
 			for (const line of lines) {
-				if (strokeWidth > 0) {
-					ctx.shadowColor = isDarkStroke ? 'rgba(0, 0, 0, 0.85)' : 'rgba(255, 255, 255, 0.85)';
-					ctx.shadowBlur = Math.max(2.5, size * 0.18);
-					ctx.shadowOffsetX = isDarkStroke ? 1.0 : 0;
-					ctx.shadowOffsetY = isDarkStroke ? 1.5 : 0;
-					ctx.strokeText(line, tx, ty);
-				}
-
-				ctx.shadowColor = 'transparent';
-				ctx.shadowBlur = 0;
-				ctx.shadowOffsetX = 0;
-				ctx.shadowOffsetY = 0;
-				ctx.fillText(line, tx, ty);
+				drawTextLineWithRuns(
+					ctx,
+					line,
+					tx,
+					ty,
+					size,
+					font,
+					FONT_FALLBACK_NAME,
+					color,
+					strokeWidth,
+					isDarkStroke,
+					fontCjk,
+					'center',
+				);
 				ty += lineH;
 			}
 		}

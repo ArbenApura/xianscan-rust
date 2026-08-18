@@ -41,8 +41,8 @@
 			a: 'Everything is stored 100% locally on your computer in the app data directory. XianScan does not upload your raw comic images or SQLite database to any external cloud servers.',
 		},
 		{
-			q: 'Does XianScan support Japanese (Manga) or Korean (Manhwa) source languages?',
-			a: 'For now, XianScan is specialized and optimized primarily for Chinese Manhua. However, dedicated text detection and OCR pipelines for Japanese Manga and Korean Manhwa are planned and will expand in future releases.',
+			q: 'Does XianScan support Japanese (Manga), Korean (Manhwa), and other source languages?',
+			a: 'Yes! XianScan natively supports Japanese Manga, Korean Manhwa, Chinese Manhua (Simplified and Traditional), as well as French (Bande Dessinée), Spanish, Indonesian, Vietnamese, Russian, Thai, and English comics with dedicated OCR routing, directional layout segmentation, and language-aware typesetting.',
 		},
 		{
 			q: 'How does Smart Re-slicing work?',
@@ -178,7 +178,7 @@
 					<span class="text-[11px] font-mono opacity-50 pl-9 sm:pl-0">Comic-CTD · PaddleOCR</span>
 				</div>
 				<p class="text-xs sm:text-sm text-neutral-600 dark:text-neutral-400 leading-relaxed pl-9 sm:pl-9">
-					Identifies vertical and horizontal dialogue bubbles, narrative boxes, and SFX text boundaries using local neural segmentation models, extracting Chinese or Japanese characters with layout orientation tags.
+					Identifies vertical and horizontal dialogue bubbles, narrative boxes, and SFX text boundaries using local neural segmentation models, extracting text across 11+ source languages with layout orientation tags.
 				</p>
 			</div>
 
