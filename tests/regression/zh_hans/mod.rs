@@ -845,4 +845,83 @@ fn test_regression_page_58375() {
     );
 }
 
+/// # Regression Test: Parallel World & Extra Account Dialogue Page (Native Resolution: 800 × 1239 WebP/PNG)
+///
+/// ## Purpose & Behavior Tested:
+/// - **Cross-Bubble Bleeding & Hallucinated Trailing Suffix Suppression**:
+///   Guarantees that the main lower dialogue bubble (*"啊？老师想\n玩吗？我有一\n个多余的账号\n送给你！"*)
+///   does not bleed downward into the adjacent lower speech bubble (*"拍马屁！"*), preventing hallucinated
+///   cross-bubble trailing fragments like `\n拍卫尺` from attaching to the teacher dialogue box.
+/// - **Adjacent Small Speech Bubble Isolation**:
+///   Ensures that both smaller reaction bubbles (*"拍马屁！"* and *"鄙视你！"*) are recognized as clean,
+///   independent speech bubbles.
+/// - **Full-Page Multi-Bubble Detection**:
+///   Cleanly identifies all 5 dialogue regions across the page:
+///   1. Top panel speech bubble: `这个游戏叫“平\n行世界”！需要\n购买全息装备才\n能玩，挺贵的！`
+///   2. Bottom-left dialogue bubble: `贵倒无\n所谓。`
+///   3. Bottom-center main dialogue bubble: `啊？老师想\n玩吗？我有一\n个多余的账号\n送给你！`
+///   4. Bottom-center-right oval reaction bubble: `拍马屁！`
+///   5. Bottom far-right oval reaction bubble: `鄙视你！`
+///
+/// ## Key Invariants:
+/// - Exactly 5 regions (`assert_eq!(res.regions.len(), 5)`).
+/// - Region 2 must not contain `拍卫尺` or `拍马屁`.
+/// - Negative guard: Zero trailing collision `拍卫尺` lines.
+#[test]
+fn test_regression_page_parallel_world_extra_account() {
+    let img_path = Path::new("tests/fixtures/zh_hans/parallel_world_extra_account_suck_up.png");
+    if !img_path.exists() {
+        return;
+    }
+    let img = image::ImageReader::open(img_path)
+        .expect("Failed to open parallel_world_extra_account_suck_up.png")
+        .with_guessed_format()
+        .expect("Failed to guess format")
+        .decode()
+        .expect("Failed to decode image");
+
+    let res = get_or_analyze_fixture(&img);
+    println!("Parallel World Page detected {} regions:", res.regions.len());
+    for (i, r) in res.regions.iter().enumerate() {
+        println!("  Region r{}: box={:?}, text='{}', angle={:.2}, conf={:.2}", i, r.box_, r.text.replace('\n', "\\n"), r.angle, r.confidence);
+    }
+
+    // 1. Exact count: exactly 5 regions
+    assert_eq!(res.regions.len(), 5, "Parallel World Page must have exactly 5 regions, got {}", res.regions.len());
+
+    // 2. Top panel bubble: "这个游戏叫“平\n行世界”！\n需要\n购买全息装备才\n能玩，挺贵的！"
+    let top_bubble = res.regions.iter().find(|r| r.text.contains("游戏") || r.text.contains("装备") || r.text.contains("挺贵的"));
+    assert!(top_bubble.is_some(), "Must detect top panel speech bubble");
+    let top_text = &top_bubble.unwrap().text;
+    assert!(top_text.contains("游戏") && top_text.contains("装备") && top_text.contains("挺贵的"), "Top bubble text must be complete");
+
+    // 3. Bottom left dialogue: "贵倒无所谓。"
+    let left_bubble = res.regions.iter().find(|r| r.text.contains("贵倒无") || r.text.contains("所谓"));
+    assert!(left_bubble.is_some(), "Must detect bottom left dialogue bubble '贵倒无所谓。'");
+    assert_eq!(left_bubble.unwrap().text.trim(), "贵倒无\n所谓。", "Left bubble text mismatch");
+
+    // 4. Bottom center main dialogue: "啊？老师想玩吗？我有一个多余的账号送给你！"
+    let teacher_bubble = res.regions.iter().find(|r| r.text.contains("老师想") || r.text.contains("多余的账号"));
+    assert!(teacher_bubble.is_some(), "Must detect bottom center teacher dialogue bubble");
+    let teacher_region = teacher_bubble.unwrap();
+    let teacher_text = &teacher_region.text;
+    assert!(teacher_text.contains("老师想") && teacher_text.contains("送给你！"), "Teacher dialogue text must be complete");
+    assert!(!teacher_text.contains("拍卫尺"), "Teacher dialogue must not append hallucinated cross-bubble text '拍卫尺'");
+    assert!(!teacher_text.contains("拍马屁"), "Teacher dialogue must not merge adjacent '拍马屁' bubble");
+
+    // 5. Reaction bubbles: "拍马屁！" and "鄙视你！"
+    let suck_up_bubble = res.regions.iter().find(|r| r.text.trim() == "拍马屁！" || r.text.trim() == "拍马屁");
+    assert!(suck_up_bubble.is_some(), "Must detect separate '拍马屁！' reaction bubble");
+
+    let look_down_bubble = res.regions.iter().find(|r| r.text.trim() == "鄙视你！" || r.text.trim() == "鄙视你");
+    assert!(look_down_bubble.is_some(), "Must detect separate '鄙视你！' reaction bubble");
+
+    // 6. Negative Guard: Zero trailing collision / cross-bubble leakage boxes or text
+    assert!(
+        !res.regions.iter().any(|r| r.text.contains("拍卫尺")),
+        "Must not contain hallucinated cross-bubble text '拍卫尺'"
+    );
+}
+
+
 

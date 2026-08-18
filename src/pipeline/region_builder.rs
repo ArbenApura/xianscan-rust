@@ -257,12 +257,29 @@ pub fn build_regions(
                 let bot_band_y1 = ((box_rect.y + box_rect.h + 35).max(0) as u32).min(page_h);
                 let has_bot_footroom = is_bright_band(bot_band_y0, bot_band_y1);
 
-                let max_top_allowed = regions.iter()
-                    .filter(|r| {
-                        let rx_overlap = (r.box_.x + r.box_.w).min(box_rect.x + box_rect.w) - r.box_.x.max(box_rect.x);
-                        rx_overlap > 0 && r.box_.y + r.box_.h <= box_rect.y
+                let max_top_allowed = dedup_boxes.iter()
+                    .map(|b| crate::ml::geometry::box_to_xywh_f32(b))
+                    .filter(|&(bx, by, bw, bh)| {
+                        let b_x0 = bx as i32;
+                        let b_x1 = (bx + bw) as i32;
+                        let b_y1 = (by + bh) as i32;
+                        let rx_overlap = b_x1.min(box_rect.x + box_rect.w) - b_x0.max(box_rect.x);
+                        rx_overlap > 0 && b_y1 <= box_rect.y
                     })
-                    .map(|r| (box_rect.y - (r.box_.y + r.box_.h)).max(0) as u32)
+                    .map(|(_bx, by, _bw, bh)| (box_rect.y - ((by + bh) as i32)).max(0) as u32)
+                    .min()
+                    .unwrap_or(100);
+
+                let max_bot_allowed = dedup_boxes.iter()
+                    .map(|b| crate::ml::geometry::box_to_xywh_f32(b))
+                    .filter(|&(bx, by, bw, _bh)| {
+                        let b_x0 = bx as i32;
+                        let b_x1 = (bx + bw) as i32;
+                        let b_y0 = by as i32;
+                        let rx_overlap = b_x1.min(box_rect.x + box_rect.w) - b_x0.max(box_rect.x);
+                        rx_overlap > 0 && b_y0 >= box_rect.y + box_rect.h
+                    })
+                    .map(|(_bx, by, _bw, _bh)| ((by as i32) - (box_rect.y + box_rect.h)).max(0) as u32)
                     .min()
                     .unwrap_or(100);
 
@@ -271,7 +288,11 @@ pub fn build_regions(
                 } else {
                     (if has_top_headroom { 45 } else { 15 }) as i32
                 };
-                let pad_bot = (if has_bot_footroom { 40 } else { 15 }) as i32;
+                let pad_bot = if max_bot_allowed < 50 {
+                    ((if has_bot_footroom { 40 } else { 15 }).min(max_bot_allowed.max(4) / 2).max(4)) as i32
+                } else {
+                    (if has_bot_footroom { 40 } else { 15 }) as i32
+                };
                 let pad_x = (box_rect.w / 4).clamp(15, 30);
 
                 let crop_x = (box_rect.x - pad_x).max(0) as u32;
@@ -366,7 +387,7 @@ pub fn build_regions(
                                     let v_gap = curr_min_y - prev_max_y;
 
                                     let prev_has_term = prev_txt.ends_with('？') || prev_txt.ends_with('?') || prev_txt.ends_with('！') || prev_txt.ends_with('!') || prev_txt.ends_with('。');
-                                    if prev_has_term && prev_txt.chars().count() >= 6 && v_gap > (prev_h * 5 / 4).max(25) {
+                                    if prev_has_term && (prev_txt.chars().count() >= 4 || filtered.len() >= 2) && v_gap > (prev_h * 3 / 4).max(12) {
                                         break;
                                     }
                                     if v_gap > (prev_h * 6 / 4).max(35) {
