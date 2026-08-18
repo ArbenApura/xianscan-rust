@@ -118,6 +118,7 @@ pub fn clean_stray_ocr_artifacts(text: &str) -> String {
     let mut cleaned_lines = Vec::new();
 
     let re_bracket_dots = Regex::new(r"^[\[\]【】()（）〔〕]\s*(……|…|\.\.\.)").unwrap();
+    let re_chapter_frame_prefix = Regex::new(r"^(?:#[a-zA-Z\u3040-\u309F]?|[\[【〔][\s\S]*?[\]】〕])\s*([第番][\u4e00-\u9fa50-9]+[話话編编章回])").unwrap();
     let re_sfx_yi = Regex::new(r"([沙轰咚咳啪砰咔唰嘭哇嗷嘶呜呼哈哒嗒踏铛铮刷咻嗖哧嚓哐咕嗡吼鸣飒吱咯嘎喳])一{1,3}").unwrap();
     let re_ascii_exclaim = Regex::new(r"([\u4e00-\u9fa5])!+$").unwrap();
     let re_trailing_single_ellipsis = Regex::new(r"([\u4e00-\u9fa5a-zA-Z0-9])(?:…|\.{3})$").unwrap();
@@ -130,6 +131,9 @@ pub fn clean_stray_ocr_artifacts(text: &str) -> String {
 
         // STRIP CORNER BRACKET RESIDUALS FROM ELLIPSES
         cleaned = re_bracket_dots.replace_all(&cleaned, "$1").to_string();
+
+        // NORMALIZE CHAPTER TAG GRAPHIC FRAMING PREFIX (E.G. #い\n番外編 -> 番外編)
+        cleaned = re_chapter_frame_prefix.replace_all(&cleaned, "$1").to_string();
 
         // NORMALIZE SFX HORIZONTAL STROKES TO STANDARD DASHES
         cleaned = re_sfx_yi.replace_all(&cleaned, "$1—").to_string();

@@ -81,6 +81,16 @@ pub fn filter_artwork_and_artifacts(lines: Vec<OcrLine>, page_w: u32, source_lan
             || (has_chinese && char_count >= 2 && lh <= 24 && (lw as f32 / (char_count as f32 * lh as f32)) >= 1.8 && rl.score < 0.75)
             || (has_chinese && char_count >= 2 && lh <= 20 && rl.score < 0.65);
 
+        let is_tilted_alnum_scribble = crate::ml::detect::is_cjk_source(source_lang)
+            && rl.score < 0.72
+            && !has_chinese
+            && !is_sfx_glyph
+            && {
+                let ang = crate::ml::geometry::calculate_box_angle_i32(&rl.polygon);
+                let has_digit_or_punct = clean_t.chars().any(|c| c.is_ascii_digit() || c.is_ascii_punctuation());
+                ang.abs() >= 8.0 && has_digit_or_punct && clean_t.chars().count() <= 6
+            };
+
         let is_giant_artwork = is_single_latin
             || is_border_margin_char
             || is_giant_single_char_artwork
@@ -88,6 +98,7 @@ pub fn filter_artwork_and_artifacts(lines: Vec<OcrLine>, page_w: u32, source_lan
             || is_low_conf_isolated_char
             || is_circle_noise
             || is_giant_chinese_hallucination
+            || is_tilted_alnum_scribble
             || is_thin_sliver_noise
             || (!has_valid_text && !is_sfx_tail && !is_sfx_glyph && char_count >= 2 && lh >= 100 && (lw / char_count as i32) >= 90 && rl.score < 0.85)
             || (!has_valid_text && !is_sfx_tail && !is_sfx_glyph && char_count <= 2 && lh >= 100 && lw >= 140)

@@ -50,6 +50,7 @@ pub fn build_regions(
         };
 
         let mut refined_polys: Option<Vec<Vec<[i32; 2]>>> = None;
+        let mut active_line_polys: Vec<Vec<[i32; 2]>> = Vec::new();
 
         let (text, confidence): (String, f32) = if !matched.is_empty() {
             // Deduplicate intra-region lines (filter out sub-box fragments and spatial duplicate echoes)
@@ -99,14 +100,23 @@ pub fn build_regions(
                 }
                 let is_ruby_sliver = if is_cjk {
                     let mut is_ruby = false;
-                    let cjk_in_m = clean_m.chars().filter(|c| has_cjk_characters(&c.to_string())).count();
+                    let has_kanji = clean_m.chars().any(|c| ('\u{4e00}'..='\u{9fa5}').contains(&c));
                     for &other in &matched {
                         if std::ptr::eq(m, other) { continue; }
                         let (ox, oy, ow, oh) = polygon_bounds(&other.polygon);
                         let v_inter = (my + mh).min(oy + oh) - my.max(oy);
                         let v_ratio = v_inter.max(0) as f32 / mh.max(1) as f32;
                         let h_gap = (mx - (ox + ow)).abs().min((ox - (mx + mw)).abs());
-                        if v_ratio >= 0.50 && h_gap <= 18 && mw <= 25 && (mw as f32) <= (ow as f32 * 0.65) && cjk_in_m <= 1 {
+                        let other_clean = clean_stray_ocr_artifacts(&other.text);
+                        let other_has_kanji = other_clean.chars().any(|c| ('\u{4e00}'..='\u{9fa5}').contains(&c));
+
+                        // Parallel vertical ruby column (Furigana): narrow line running beside main line with kanji
+                        if v_ratio >= 0.45 && h_gap <= 28 && mw <= 30 && (mw as f32) <= (ow as f32 * 0.70) && (!has_kanji || m.score < 0.70) && other_has_kanji {
+                            is_ruby = true;
+                            break;
+                        }
+                        // Short horizontal ruby line
+                        if v_ratio >= 0.50 && h_gap <= 18 && mw <= 25 && (mw as f32) <= (ow as f32 * 0.65) && clean_m.chars().count() <= 3 && !has_kanji {
                             is_ruby = true;
                             break;
                         }
@@ -121,6 +131,8 @@ pub fn build_regions(
                 }
             }
 
+            active_line_polys = filtered_matched.iter().map(|m| m.polygon.clone()).collect();
+
             let is_vert_cluster = {
                 let vert_count = filtered_matched.iter().filter(|l| {
                     let (_, _, lw, lh) = polygon_bounds(&l.polygon);
@@ -129,7 +141,7 @@ pub fn build_regions(
                 vert_count * 2 >= filtered_matched.len() || (box_rect.h > (box_rect.w as f32 * 1.2) as i32 && is_cjk)
             };
 
-            let mut sorted_matched = filtered_matched;
+            let mut sorted_matched = filtered_matched.clone();
             sorted_matched.sort_by(|a, b| {
                 let (ax, ay, aw, ah) = polygon_bounds(&a.polygon);
                 let (bx, by, bw, bh) = polygon_bounds(&b.polygon);
@@ -251,7 +263,7 @@ pub fn build_regions(
             };
 
             let is_uneven_multiline = {
-                if matched.len() >= 3 && matched.len() <= 6 {
+                if filtered_matched.len() >= 3 && filtered_matched.len() <= 6 {
                     let line_lens: Vec<usize> = row_grouped_texts.iter().map(|t| t.chars().count()).collect();
                     let max_l = line_lens.iter().cloned().max().unwrap_or(0);
                     let min_l = line_lens.iter().cloned().min().unwrap_or(0);
@@ -260,8 +272,8 @@ pub fn build_regions(
                     false
                 }
             };
-            let is_clean_vert_multiline = is_vert_cluster && matched.len() >= 2 && avg_score >= 0.65;
-            let is_short_line_in_bubble = (matched.len() <= 2 && box_rect.w >= 30 && box_rect.h >= 18)
+            let is_clean_vert_multiline = is_vert_cluster && filtered_matched.len() >= 2 && avg_score >= 0.65;
+            let is_short_line_in_bubble = (filtered_matched.len() <= 2 && box_rect.w >= 30 && box_rect.h >= 18)
                 || (box_rect.h >= (box_rect.w as f32 * 1.5) as i32 && box_rect.h >= 40);
             let needs_crop_refinement = !is_clean_vert_multiline && (is_short_line_in_bubble
                 || is_uneven_multiline
@@ -346,7 +358,7 @@ pub fn build_regions(
                     let crop = img.crop_imm(crop_x, crop_y, crop_w, crop_h);
                     if let Some(ref mut o) = ocr {
                         if let Ok(Some(res)) = o.recognize_crop_with_lang(&crop, source_lang) {
-                            let mut clean_lines: Vec<_> = res.lines.iter().filter(|(_, txt, _)| {
+                            let initial_lines: Vec<_> = res.lines.iter().filter(|(_, txt, _)| {
                                 let cl = clean_stray_ocr_artifacts(txt);
                                 if is_cjk && is_standalone_alphanumeric_without_cjk(&cl) {
                                     let upper = cl.to_ascii_uppercase();
@@ -355,6 +367,34 @@ pub fn build_regions(
                                     true
                                 }
                             }).cloned().collect();
+
+                            let mut clean_lines: Vec<_> = Vec::new();
+                            for (c_idx, (c_poly, c_txt, c_score)) in initial_lines.iter().enumerate() {
+                                let clean_c = clean_stray_ocr_artifacts(c_txt);
+                                if clean_c.trim().is_empty() {
+                                    continue;
+                                }
+                                let (cx, cy, cw, ch) = polygon_bounds(c_poly);
+                                let has_c_kanji = clean_c.chars().any(|c| ('\u{4e00}'..='\u{9fa5}').contains(&c));
+                                let mut is_crop_ruby = false;
+                                for (o_idx, (o_poly, o_txt, _)) in initial_lines.iter().enumerate() {
+                                    if c_idx == o_idx { continue; }
+                                    let (ox, oy, ow, oh) = polygon_bounds(o_poly);
+                                    let v_inter = (cy + ch).min(oy + oh) - cy.max(oy);
+                                    let v_ratio = v_inter.max(0) as f32 / ch.max(1) as f32;
+                                    let h_gap = (cx - (ox + ow)).abs().min((ox - (cx + cw)).abs());
+                                    let clean_o = clean_stray_ocr_artifacts(o_txt);
+                                    let has_o_kanji = clean_o.chars().any(|c| ('\u{4e00}'..='\u{9fa5}').contains(&c));
+
+                                    if is_cjk && v_ratio >= 0.45 && h_gap <= 28 && cw <= 30 && (cw as f32) <= (ow as f32 * 0.70) && (!has_c_kanji || *c_score < 0.70) && has_o_kanji {
+                                        is_crop_ruby = true;
+                                        break;
+                                    }
+                                }
+                                if !is_crop_ruby {
+                                    clean_lines.push((c_poly.clone(), c_txt.clone(), *c_score));
+                                }
+                            }
 
                             if clean_lines.len() >= 2 {
                                 let rad = median_angle.to_radians();
@@ -613,6 +653,8 @@ pub fn build_regions(
         // DYNAMIC GLYPH ENVELOPE BOUNDARY REFINEMENT
         let active_polys: Vec<&[[i32; 2]]> = if let Some(ref rps) = refined_polys {
             rps.iter().map(|p| p.as_slice()).collect()
+        } else if !active_line_polys.is_empty() {
+            active_line_polys.iter().map(|p| p.as_slice()).collect()
         } else {
             matched.iter().map(|m| m.polygon.as_slice()).collect()
         };
@@ -622,40 +664,33 @@ pub fn build_regions(
             let mut min_my = i32::MAX;
             let mut max_mx = i32::MIN;
             let mut max_my = i32::MIN;
-            let total_poly_lines = cleaned.split('\n').filter(|s| !s.trim().is_empty()).count().max(1) as i32;
-            let max_row_chars = cleaned.split('\n').map(|l| l.chars().count()).max().unwrap_or(5).max(1) as i32;
-            for (poly_idx, poly) in active_polys.iter().enumerate() {
+            for poly in &active_polys {
                 let (px, py, pw, ph) = polygon_bounds(poly);
-                let (char_cnt, single_lh) = if active_polys.len() > 1 {
-                    let cnt = if let Some(m) = matched.get(poly_idx) {
-                        clean_stray_ocr_artifacts(&m.text).chars().count().max(1) as i32
-                    } else {
-                        max_row_chars
-                    };
-                    (cnt, ph.max(18))
-                } else {
-                    (max_row_chars, (ph / total_poly_lines).max(18))
-                };
-                let max_typographic_w = (char_cnt * single_lh * 135 / 100) + 15;
-                let clamped_px2 = (px + pw).min(px + max_typographic_w);
-
                 min_mx = min_mx.min(px);
                 min_my = min_my.min(py);
-                max_mx = max_mx.max(clamped_px2);
+                max_mx = max_mx.max(px + pw);
                 max_my = max_my.max(py + ph);
             }
 
             if max_mx > min_mx && max_my > min_my {
+                let total_w = max_mx - min_mx;
                 let total_h = max_my - min_my;
                 let line_count = active_polys.len().max(1) as i32;
-                let est_line_h = total_h / line_count;
-                let has_punct = cleaned.contains('！') || cleaned.contains('!') || cleaned.contains('？') || cleaned.contains('?') || cleaned.contains('…') || cleaned.contains('~');
-                let margin_x = if has_punct {
-                    (est_line_h / 3).clamp(10, 22)
+                let (est_line_dim, has_punct) = if vertical {
+                    (total_w / line_count, cleaned.contains('！') || cleaned.contains('!') || cleaned.contains('？') || cleaned.contains('?') || cleaned.contains('…') || cleaned.contains('~') || cleaned.contains('―') || cleaned.contains('ー'))
                 } else {
-                    (est_line_h / 4).clamp(4, 12)
+                    (total_h / line_count, cleaned.contains('！') || cleaned.contains('!') || cleaned.contains('？') || cleaned.contains('?') || cleaned.contains('…') || cleaned.contains('~'))
                 };
-                let margin_y = (est_line_h / 5).clamp(3, 8);
+
+                let (margin_x, margin_y) = if vertical {
+                    let my = if has_punct { (est_line_dim / 3).clamp(10, 22) } else { (est_line_dim / 4).clamp(4, 12) };
+                    let mx = (est_line_dim / 5).clamp(3, 8);
+                    (mx, my)
+                } else {
+                    let mx = if has_punct { (est_line_dim / 3).clamp(10, 22) } else { (est_line_dim / 4).clamp(4, 12) };
+                    let my = (est_line_dim / 5).clamp(3, 8);
+                    (mx, my)
+                };
 
                 let bound_x1 = (min_mx - margin_x).max(0);
                 let bound_y1 = (min_my - margin_y).max(0);
@@ -674,7 +709,11 @@ pub fn build_regions(
         let is_stray_mm = cleaned.trim().eq_ignore_ascii_case("mm") && confidence < 0.70;
         let is_stray_dots = (cleaned == "……" || cleaned == "...") && (box_rect.w <= 75 && box_rect.h <= 65);
 
-        let is_isolated_alphanumeric_in_cjk = is_cjk && is_standalone_alphanumeric_without_cjk(&cleaned);
+        let is_isolated_alphanumeric_in_cjk = is_cjk && is_standalone_alphanumeric_without_cjk(&cleaned) && {
+            let upper = cleaned.to_ascii_uppercase();
+            let is_common_acronym = ["PK", "HP", "MP", "EXP", "LV", "VIP", "BOSS", "NPC", "KO", "BUFF", "CD", "MISS", "CRIT", "ATK", "DEF", "ID", "OK", "NO", "VS", "RPG", "3D", "2D", "MM", "CM", "KG"].contains(&upper.as_str());
+            !is_common_acronym && (confidence < 0.75 || cleaned.chars().any(|c| c.is_ascii_punctuation()) || cleaned.chars().any(|c| c.is_ascii_digit()))
+        };
         let is_cjk_hallucination_in_latin = is_latin && (has_cjk_characters(&cleaned) && !has_alphanumeric_characters(&cleaned));
         let is_stray_cross = (cleaned.trim() == "十" || cleaned.trim() == "+" || cleaned.trim() == "×" || cleaned.trim() == "X" || cleaned.trim() == "x") && (box_rect.w <= 35 && box_rect.h <= 35);
 
@@ -904,13 +943,6 @@ pub fn build_regions(
             }
         }
 
-        let poly = vec![
-            [box_rect.x, box_rect.y],
-            [box_rect.x + box_rect.w, box_rect.y],
-            [box_rect.x + box_rect.w, box_rect.y + box_rect.h],
-            [box_rect.x, box_rect.y + box_rect.h],
-        ];
-
         if let Some(r_idx) = replace_idx {
             let ex = &regions[r_idx];
             let mx = ex.box_.x.min(box_rect.x);
@@ -993,6 +1025,13 @@ pub fn build_regions(
         if is_dup_region {
             continue;
         }
+
+        let poly = vec![
+            [box_rect.x, box_rect.y],
+            [box_rect.x + box_rect.w, box_rect.y],
+            [box_rect.x + box_rect.w, box_rect.y + box_rect.h],
+            [box_rect.x, box_rect.y + box_rect.h],
+        ];
 
         regions.push(Region {
             id: format!("r{}", regions.len()),
