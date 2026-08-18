@@ -503,6 +503,25 @@ Tattered Flesh-Cutting Knife`;
 			'Tattered Flesh-Cutting Knife',
 		]);
 	});
+
+	it('collapses vertical single-letter sequences from vertical OCR into cohesive words', () => {
+		expect(sanitizeForFont('...\nY\ne\na\nh\n...')).toBe('...\nYeah\n...');
+		expect(sanitizeForFont('H\ne\nl\nl\no')).toBe('Hello');
+	});
+
+	it('prioritizes intact whole words over mid-word hyphenation in fitFontSize', () => {
+		const c = createCanvas(10, 10);
+		const x = c.getContext('2d');
+		// "ALREADY AT AKAN LAKE..." in a vertical bubble box
+		const text = 'ALREADY AT AKAN LAKE...';
+		const size = fitFontSize(x, text, 'Arial', 180, 220, 60);
+		x.font = `${size}px Arial`;
+		const lines = reflowText(x, text, 180 * 0.9);
+		// ALREADY must not be split into ALRE- / ADY
+		expect(lines.some((l) => l.includes('ALRE-'))).toBe(false);
+		expect(lines.some((l) => l.includes('ALREADY'))).toBe(true);
+	});
 });
+
 
 

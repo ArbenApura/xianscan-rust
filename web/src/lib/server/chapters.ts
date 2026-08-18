@@ -901,7 +901,7 @@ export async function retypesetPage(
 			}));
 
 		const { typesetPage } = await import('./typeset');
-		const out = await typesetPage(cleanedBuf, typesetRegions);
+		const out = await typesetPage(cleanedBuf, typesetRegions, _opts);
 		const outputPath = `output/${pageRow.chapterId}/${pageRow.seq}.png`;
 		mkdirSync(join(dataRoot, 'output', String(pageRow.chapterId)), { recursive: true });
 		writeFileSync(join(dataRoot, outputPath), out);

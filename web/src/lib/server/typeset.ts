@@ -242,38 +242,20 @@ export function wrapText(ctx: { measureText(t: string): { width: number } }, tex
 				kRaw--;
 			}
 			const overflowLetters = current.length - kRaw;
-			// STRICT RULE: If only 1 letter overflows the boundary rect (e.g. "ANOTHE" fits, only "R" overflows),
-			// force the whole word on the line without breaking!
 			if (overflowLetters <= 1) {
 				break;
 			}
 
-			// If 2 or more letters overflow, proceed to break off with a hyphen '-'
 			let k = current.length - 2;
 			while (k > 0 && ctx.measureText(current.slice(0, k) + '-').width > maxWidth) {
 				k--;
 			}
 			if (k <= 0) {
-				k = current.length - 2;
-				while (k > 0 && ctx.measureText(current.slice(0, k)).width > maxWidth) {
-					k--;
-				}
+				k = 1;
 			}
-			const remainderLen = current.length - k;
-			if (remainderLen <= 1) {
-				break;
-			}
-			if (k >= 2) {
-				const prefix = current.slice(0, k);
-				heads.push(prefix.endsWith('-') ? prefix : `${prefix}-`);
-				current = current.slice(k);
-			} else if (current.length >= 4) {
-				const prefix = current.slice(0, 2);
-				heads.push(prefix.endsWith('-') ? prefix : `${prefix}-`);
-				current = current.slice(2);
-			} else {
-				break; // Force remaining short token
-			}
+			const prefix = current.slice(0, k);
+			heads.push(prefix.endsWith('-') ? prefix : `${prefix}-`);
+			current = current.slice(k);
 		}
 		return { head: heads, tail: current };
 	}
@@ -421,8 +403,38 @@ export function fitFontSize(
 	const inset = boxInset ?? BOX_INSET;
 	const maxW = Math.max(10, boxW * (1 - 2 * inset));
 	const maxH = Math.max(10, boxH * (1 - 2 * inset));
+
+	// PASS 1: ZERO-HYPHENATION PRIORITY — PREFER LARGEST FONT SIZE WHERE WHOLE WORDS STAY INTACT
+	const words = text.split(/[\s\n]+/).filter(Boolean);
 	let lo = MIN_FONT_SIZE;
 	let hi = Math.max(lo, maxSize ?? startSize);
+	let foundClean = false;
+
+	while (lo < hi) {
+		const mid = Math.ceil((lo + hi) / 2);
+		ctx.font = fontSpec(mid, fontFamily);
+
+		// Check if the widest single word fits on maxW without hyphenation
+		const maxWordWidth = Math.max(0, ...words.map((w) => ctx.measureText(w).width));
+		if (maxWordWidth <= maxW) {
+			const lines = reflowText(ctx, text, maxW);
+			const lineH = mid * LINE_HEIGHT;
+			if (lines.length * lineH <= maxH) {
+				lo = mid;
+				foundClean = true;
+				continue;
+			}
+		}
+		hi = mid - 1;
+	}
+
+	if (foundClean) {
+		return lo;
+	}
+
+	// PASS 2: FALLBACK — IF BOX IS TOO NARROW EVEN FOR MIN_FONT_SIZE, ALLOW HYPHENATION
+	lo = MIN_FONT_SIZE;
+	hi = Math.max(lo, maxSize ?? startSize);
 	while (lo < hi) {
 		const mid = Math.ceil((lo + hi) / 2);
 		ctx.font = fontSpec(mid, fontFamily);
@@ -465,16 +477,27 @@ export function fitSingleLineSize(
 
 /**
  * Normalizes text to replace symbols unsupported by CC Wild Words (em-dashes, curly quotes,
- * ellipsis unicode glyphs, brackets, etc.) with supported ASCII equivalents.
+ * ellipsis unicode glyphs, brackets, etc.) with supported ASCII equivalents and collapses
+ * OCR single-character vertical sequences.
  */
 export function sanitizeForFont(text: string): string {
 	if (!text) return '';
-	const trimmed = text.trim();
+	let trimmed = text.trim();
 	if (CJK_REGEX.test(trimmed)) {
 		return trimmed
 			.replace(/[ \t]{2,}/g, ' ')
 			.trim();
 	}
+
+	// COLLAPSE VERTICAL OCR SINGLE-LETTER SEQUENCES (e.g. "Y\ne\na\nh" or "Y e a h" -> "Yeah")
+	trimmed = trimmed.replace(/\b([a-zA-Z](?:\s+[a-zA-Z])+)\b/g, (match) => {
+		const tokens = match.split(/\s+/);
+		if (tokens.length >= 2 && tokens.every((t) => t.length === 1)) {
+			return tokens.join('');
+		}
+		return match;
+	});
+
 	return trimmed
 		.replace(/[【〔]/g, '[')
 		.replace(/[】〕]/g, ']')
@@ -721,28 +744,7 @@ export async function typesetPage(cleanedPng: Buffer, regions: TypesetRegion[], 
 	const ctx = canvas.getContext('2d');
 	ctx.drawImage(img, 0, 0);
 
-	const adjustedRegions = regions.map((r) => {
-		const rawText = sanitizeForFont(r.text.trim());
-		const isVerticalDialogue =
-			(r.vertical || (r.box.h / r.box.w >= 1.6 && r.box.h >= 60)) &&
-			!CJK_REGEX.test(rawText) &&
-			!isSfxOrShout(rawText);
-		if (isVerticalDialogue) {
-			const renderW = Math.min(img.width, Math.max(r.box.w, Math.min(Math.round(r.box.h * 0.75), Math.round(r.box.w * 2.5), 160)));
-			const renderX = Math.max(0, Math.min(img.width - renderW, Math.round(r.box.x + r.box.w / 2 - renderW / 2)));
-			return {
-				...r,
-				box: {
-					...r.box,
-					x: renderX,
-					w: renderW,
-				},
-			};
-		}
-		return r;
-	});
-
-	const decollided = decollideRegions(adjustedRegions);
+	const decollided = decollideRegions(regions);
 
 	for (const r of decollided) {
 		const rawText = sanitizeForFont(r.text.trim());

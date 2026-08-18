@@ -198,6 +198,37 @@
 		}
 	}
 
+	let retypesetting = false;
+
+	async function handleRetypesetPage() {
+		if (!page?.id || retypesetting) return;
+		retypesetting = true;
+		try {
+			const res = await fetch(`/api/pages/${page.id}/typeset`, {
+				method: 'POST',
+				headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify({}),
+			});
+			if (!res.ok) {
+				const errData = await res.json().catch(() => ({}));
+				throw new Error(errData.message || 'Failed to retypeset page');
+			}
+			const data = await res.json();
+			if (data.outputPath) {
+				page.outputPath = data.outputPath;
+			}
+			inspectTab = 'output';
+			reloadKey = Date.now();
+			page = { ...page };
+			toast.success(`Page ${page.seq + 1} re-typeset successfully`);
+			dispatch('update', { page, reloadKey });
+		} catch (e: any) {
+			toast.error(e?.message || 'Failed to re-typeset page');
+		} finally {
+			retypesetting = false;
+		}
+	}
+
 	function copyInspectDebugInfo() {
 		if (!page) return;
 		const debug = {
@@ -670,10 +701,27 @@
 	<svelte:fragment slot="footer">
 		<div class="flex items-center justify-between w-full gap-2">
 			{#if page}
-				<Button variant="secondary" size="sm" on:click={copyInspectDebugInfo}>
-					<Copy size={13} class="mr-1 sm:mr-1.5" />
-					<span>Copy Debug Data</span>
-				</Button>
+				<div class="flex items-center gap-2">
+					<Button variant="secondary" size="sm" on:click={copyInspectDebugInfo}>
+						<Copy size={13} class="mr-1 sm:mr-1.5" />
+						<span>Copy Debug Data</span>
+					</Button>
+					<Button
+						variant="secondary"
+						size="sm"
+						disabled={retypesetting || !page.cleanedPath}
+						title={page.cleanedPath ? 'Re-render page typesetting with current settings' : 'Cleaned mask not available'}
+						on:click={handleRetypesetPage}
+					>
+						{#if retypesetting}
+							<Loader2 size={13} class="mr-1 sm:mr-1.5 animate-spin text-[#b23a2e] dark:text-[#e08a63]" />
+							<span>Typesetting...</span>
+						{:else}
+							<RotateCcw size={13} class="mr-1 sm:mr-1.5" />
+							<span>Refresh Typesetting</span>
+						{/if}
+					</Button>
+				</div>
 			{:else}
 				<div></div>
 			{/if}
