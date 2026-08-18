@@ -1,4 +1,3 @@
-use std::path::Path;
 use crate::common::get_or_analyze_fixture_with_lang;
 use xianscan_rust::ml::detect::filter_text_by_source_lang;
 
@@ -22,18 +21,15 @@ fn test_regression_indonesian_script_handling() {
 /// # Indonesian Real-Page Regression: `page_zhang_yude_chengdu_cemetery.webp` with `id` Source Routing
 #[test]
 fn test_regression_page_with_indonesian_source_routing() {
-    let mut img_path = Path::new("tests/fixtures/id/sample.webp"); if !img_path.exists() { img_path = Path::new("tests/fixtures/zh_hans/page_zhang_yude_chengdu_cemetery.webp"); };
-    if !img_path.exists() {
-        eprintln!("Fixture {:?} not found, skipping test", img_path);
-        return;
-    }
-
-    let img = image::ImageReader::open(img_path)
-        .expect("Failed to open fixture image")
-        .with_guessed_format()
-        .expect("Failed to guess format")
-        .decode()
-        .expect("Failed to decode image");
+    let img = match crate::common::load_fixture_or_skip("id", "sample.webp")
+        .or_else(|| crate::common::load_fixture_or_skip("zh_hans", "page_zhang_yude_chengdu_cemetery.webp"))
+    {
+        Some(i) => i,
+        None => {
+            eprintln!("[INFO] Skipping test_regression_page_with_indonesian_source_routing: fixture not found");
+            return;
+        }
+    };
 
     let res = get_or_analyze_fixture_with_lang(&img, Some("id"));
     for r in &res.regions {
@@ -57,18 +53,13 @@ fn test_regression_page_with_indonesian_source_routing() {
 ///   Verifies that `source_lang = Some("id")` cleanly processes Latin uppercase text.
 #[test]
 fn test_regression_page_who_is_she_bottom_box() {
-    let img_path = Path::new("tests/fixtures/id/page_who_is_she_bottom_box.webp");
-    if !img_path.exists() {
-        eprintln!("Fixture {:?} not found, skipping test", img_path);
-        return;
-    }
-
-    let img = image::ImageReader::open(img_path)
-        .expect("Failed to open page_who_is_she_bottom_box.webp")
-        .with_guessed_format()
-        .expect("Failed to guess format")
-        .decode()
-        .expect("Failed to decode image");
+    let img = match crate::common::load_fixture_or_skip("id", "page_who_is_she_bottom_box.webp") {
+        Some(i) => i,
+        None => {
+            eprintln!("[INFO] Skipping test_regression_page_who_is_she_bottom_box: fixture not found");
+            return;
+        }
+    };
 
     let res = get_or_analyze_fixture_with_lang(&img, Some("id"));
     println!("Indonesian Page detected {} regions:", res.regions.len());
@@ -102,18 +93,13 @@ fn test_regression_page_who_is_she_bottom_box() {
 ///   Asserts that total detected regions count is exactly 0.
 #[test]
 fn test_regression_page_rising_aura_particle_noise() {
-    let img_path = Path::new("tests/fixtures/id/page_rising_aura_particle_noise.webp");
-    if !img_path.exists() {
-        eprintln!("Fixture {:?} not found, skipping test", img_path);
-        return;
-    }
-
-    let img = image::ImageReader::open(img_path)
-        .expect("Failed to open page_rising_aura_particle_noise.webp")
-        .with_guessed_format()
-        .expect("Failed to guess format")
-        .decode()
-        .expect("Failed to decode image");
+    let img = match crate::common::load_fixture_or_skip("id", "page_rising_aura_particle_noise.webp") {
+        Some(i) => i,
+        None => {
+            eprintln!("[INFO] Skipping test_regression_page_rising_aura_particle_noise: fixture not found");
+            return;
+        }
+    };
 
     let res = get_or_analyze_fixture_with_lang(&img, Some("id"));
     println!("Indonesian Particle Noise Page detected {} regions:", res.regions.len());

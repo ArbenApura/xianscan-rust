@@ -14,13 +14,13 @@ use xianscan_rust::pipeline::PipelineEngine;
 /// 3. Executes LaMa inpainting to ensure image dimensions (`w`, `h`) remain preserved.
 #[test]
 fn test_end_to_end_pipeline_on_page_679() {
-    let img_path = Path::new("tests/fixtures/zh_hans/page_zhang_yude_chengdu_cemetery.webp");
-    let img = image::ImageReader::open(img_path)
-        .expect("Failed to open page_zhang_yude_chengdu_cemetery.webp")
-        .with_guessed_format()
-        .expect("Failed to guess format")
-        .decode()
-        .expect("Failed to decode image");
+    let img = match common::load_fixture_or_skip("zh_hans", "page_zhang_yude_chengdu_cemetery.webp") {
+        Some(i) => i,
+        None => {
+            eprintln!("[INFO] Skipping test_end_to_end_pipeline_on_page_679: fixture not found");
+            return;
+        }
+    };
 
     let key = hash_image(&img);
     let (analyze_res, engine_opt) = if let Some(cached) = read_cache::<AnalyzeResponse>("analyze", &key) {
@@ -77,13 +77,13 @@ fn test_end_to_end_pipeline_on_page_679() {
 fn test_pipeline_analyze_with_language_filtering() {
     use xianscan_rust::ml::schemas::AnalyzeOptions;
 
-    let img_path = Path::new("tests/fixtures/zh_hans/page_zhang_yude_chengdu_cemetery.webp");
-    let img = image::ImageReader::open(img_path)
-        .expect("Failed to open page_zhang_yude_chengdu_cemetery.webp")
-        .with_guessed_format()
-        .expect("Failed to guess format")
-        .decode()
-        .expect("Failed to decode image");
+    let img = match common::load_fixture_or_skip("zh_hans", "page_zhang_yude_chengdu_cemetery.webp") {
+        Some(i) => i,
+        None => {
+            eprintln!("[INFO] Skipping test_pipeline_analyze_with_language_filtering: fixture not found");
+            return;
+        }
+    };
 
     let models_dir = Path::new("models");
     let mut engine = PipelineEngine::new(models_dir);

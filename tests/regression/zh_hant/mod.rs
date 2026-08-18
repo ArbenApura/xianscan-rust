@@ -1,4 +1,3 @@
-use std::path::Path;
 use crate::common::get_or_analyze_fixture_with_lang;
 use xianscan_rust::ml::detect::filter_text_by_source_lang;
 
@@ -26,18 +25,15 @@ fn test_regression_traditional_chinese_script_handling() {
 /// # Traditional Chinese Real-Page Regression: `page_zhang_yude_chengdu_cemetery.webp` with `zh-Hant` Routing
 #[test]
 fn test_regression_page_with_zh_hant_source_routing() {
-    let mut img_path = Path::new("tests/fixtures/zh_hant/sample.webp"); if !img_path.exists() { img_path = Path::new("tests/fixtures/zh_hans/page_zhang_yude_chengdu_cemetery.webp"); };
-    if !img_path.exists() {
-        eprintln!("Fixture {:?} not found, skipping test", img_path);
-        return;
-    }
-
-    let img = image::ImageReader::open(img_path)
-        .expect("Failed to open fixture image")
-        .with_guessed_format()
-        .expect("Failed to guess format")
-        .decode()
-        .expect("Failed to decode image");
+    let img = match crate::common::load_fixture_or_skip("zh_hant", "sample.webp")
+        .or_else(|| crate::common::load_fixture_or_skip("zh_hans", "page_zhang_yude_chengdu_cemetery.webp"))
+    {
+        Some(i) => i,
+        None => {
+            eprintln!("[INFO] Skipping test_regression_page_with_zh_hant_source_routing: fixture not found");
+            return;
+        }
+    };
 
     let res = get_or_analyze_fixture_with_lang(&img, Some("zh-Hant"));
     assert!(!res.regions.is_empty(), "Pipeline in Traditional Chinese mode must detect text regions");

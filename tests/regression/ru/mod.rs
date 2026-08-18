@@ -1,4 +1,3 @@
-use std::path::Path;
 use crate::common::get_or_analyze_fixture_with_lang;
 use xianscan_rust::ml::detect::filter_text_by_source_lang;
 
@@ -22,18 +21,15 @@ fn test_regression_russian_script_handling() {
 /// # Russian Real-Page Regression: `page_zhang_yude_chengdu_cemetery.webp` with `ru` Source Routing
 #[test]
 fn test_regression_page_with_russian_source_routing() {
-    let mut img_path = Path::new("tests/fixtures/ru/sample.webp"); if !img_path.exists() { img_path = Path::new("tests/fixtures/zh_hans/page_zhang_yude_chengdu_cemetery.webp"); };
-    if !img_path.exists() {
-        eprintln!("Fixture {:?} not found, skipping test", img_path);
-        return;
-    }
-
-    let img = image::ImageReader::open(img_path)
-        .expect("Failed to open fixture image")
-        .with_guessed_format()
-        .expect("Failed to guess format")
-        .decode()
-        .expect("Failed to decode image");
+    let img = match crate::common::load_fixture_or_skip("ru", "sample.webp")
+        .or_else(|| crate::common::load_fixture_or_skip("zh_hans", "page_zhang_yude_chengdu_cemetery.webp"))
+    {
+        Some(i) => i,
+        None => {
+            eprintln!("[INFO] Skipping test_regression_page_with_russian_source_routing: fixture not found");
+            return;
+        }
+    };
 
     let res = get_or_analyze_fixture_with_lang(&img, Some("ru"));
     assert!(!res.regions.is_empty(), "Pipeline in Russian mode must detect text regions");
@@ -53,18 +49,13 @@ fn test_regression_page_with_russian_source_routing() {
 ///   Verifies that `source_lang = Some("ru")` and `Some("ru-en")` properly route to the Cyrillic OCR recognizer.
 #[test]
 fn test_regression_page_she_clearly_russian_bubble() {
-    let img_path = Path::new("tests/fixtures/ru/page_she_clearly_russian_bubble.webp");
-    if !img_path.exists() {
-        eprintln!("Fixture {:?} not found, skipping test", img_path);
-        return;
-    }
-
-    let img = image::ImageReader::open(img_path)
-        .expect("Failed to open page_she_clearly_russian_bubble.webp")
-        .with_guessed_format()
-        .expect("Failed to guess format")
-        .decode()
-        .expect("Failed to decode image");
+    let img = match crate::common::load_fixture_or_skip("ru", "page_she_clearly_russian_bubble.webp") {
+        Some(i) => i,
+        None => {
+            eprintln!("[INFO] Skipping test_regression_page_she_clearly_russian_bubble: fixture not found");
+            return;
+        }
+    };
 
     let res = get_or_analyze_fixture_with_lang(&img, Some("ru"));
     println!("Russian Page detected {} regions:", res.regions.len());
@@ -100,18 +91,13 @@ fn test_regression_page_she_clearly_russian_bubble() {
 ///   Strictly forbids Latin hallucination slivers (`e3tfo`, `ЛаН`).
 #[test]
 fn test_regression_page_girl_shiver_curved_sfx_tyayan() {
-    let img_path = Path::new("tests/fixtures/ru/page_girl_shiver_curved_sfx_tyayan.webp");
-    if !img_path.exists() {
-        eprintln!("Fixture {:?} not found, skipping test", img_path);
-        return;
-    }
-
-    let img = image::ImageReader::open(img_path)
-        .expect("Failed to open page_girl_shiver_curved_sfx_tyayan.webp")
-        .with_guessed_format()
-        .expect("Failed to guess format")
-        .decode()
-        .expect("Failed to decode image");
+    let img = match crate::common::load_fixture_or_skip("ru", "page_girl_shiver_curved_sfx_tyayan.webp") {
+        Some(i) => i,
+        None => {
+            eprintln!("[INFO] Skipping test_regression_page_girl_shiver_curved_sfx_tyayan: fixture not found");
+            return;
+        }
+    };
 
     let res = get_or_analyze_fixture_with_lang(&img, Some("ru"));
     println!("Russian Page detected {} regions:", res.regions.len());
@@ -159,18 +145,13 @@ fn test_regression_page_girl_shiver_curved_sfx_tyayan() {
 ///   Guarantees `«КАКОЙ ЖЕ ОН\nКРАСАВЧИК.»` is cleanly extracted across 2 lines.
 #[test]
 fn test_regression_page_girl_hair_touch_sfx_trog() {
-    let img_path = Path::new("tests/fixtures/ru/page_girl_hair_touch_sfx_trog.webp");
-    if !img_path.exists() {
-        eprintln!("Fixture {:?} not found, skipping test", img_path);
-        return;
-    }
-
-    let img = image::ImageReader::open(img_path)
-        .expect("Failed to open page_girl_hair_touch_sfx_trog.webp")
-        .with_guessed_format()
-        .expect("Failed to guess format")
-        .decode()
-        .expect("Failed to decode image");
+    let img = match crate::common::load_fixture_or_skip("ru", "page_girl_hair_touch_sfx_trog.webp") {
+        Some(i) => i,
+        None => {
+            eprintln!("[INFO] Skipping test_regression_page_girl_hair_touch_sfx_trog: fixture not found");
+            return;
+        }
+    };
 
     let res = get_or_analyze_fixture_with_lang(&img, Some("ru"));
     println!("Russian Page detected {} regions:", res.regions.len());

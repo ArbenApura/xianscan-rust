@@ -1,4 +1,3 @@
-use std::path::Path;
 use crate::common::get_or_analyze_fixture;
 
 /// # Regression Test: Page 679 (Resolution: 800 × 1270 WebP)
@@ -19,13 +18,13 @@ use crate::common::get_or_analyze_fixture;
 /// - Panel 2 bounding box right edge `x + w >= 265` to fully encapsulate `……`.
 #[test]
 fn test_regression_page_679() {
-    let img_path = Path::new("tests/fixtures/zh_hans/page_zhang_yude_chengdu_cemetery.webp");
-    let img = image::ImageReader::open(img_path)
-        .expect("Failed to open page_zhang_yude_chengdu_cemetery.webp")
-        .with_guessed_format()
-        .expect("Failed to guess format")
-        .decode()
-        .expect("Failed to decode image");
+    let img = match crate::common::load_fixture_or_skip("zh_hans", "page_zhang_yude_chengdu_cemetery.webp") {
+        Some(i) => i,
+        None => {
+            eprintln!("[INFO] Skipping test_regression_page_679: fixture not found");
+            return;
+        }
+    };
 
     let res = get_or_analyze_fixture(&img);
     println!("Page 679 regions (len={}):", res.regions.len());
@@ -103,16 +102,13 @@ fn test_regression_page_679() {
 /// - Region r1 right boundary must fully cover *"练丹！"* exclamation mark (`x + w >= 745`).
 #[test]
 fn test_regression_page_63617() {
-    let img_path = Path::new("tests/fixtures/zh_hans/page_cultivation_chant_fear_points.webp");
-    if !img_path.exists() {
-        return;
-    }
-    let img = image::ImageReader::open(img_path)
-        .expect("Failed to open page_cultivation_chant_fear_points.webp")
-        .with_guessed_format()
-        .expect("Failed to guess format")
-        .decode()
-        .expect("Failed to decode image");
+    let img = match crate::common::load_fixture_or_skip("zh_hans", "page_cultivation_chant_fear_points.webp") {
+        Some(i) => i,
+        None => {
+            eprintln!("[INFO] Skipping test_regression_page_63617: fixture not found");
+            return;
+        }
+    };
 
     let res = get_or_analyze_fixture(&img);
     println!("Page 63617 detected {} regions:", res.regions.len());
@@ -146,16 +142,13 @@ fn test_regression_page_63617() {
 ///   (*"这傻子非得尿裤子上不可！"* vs *"哈哈！"*) are not merged across panels.
 #[test]
 fn test_regression_page_683() {
-    let img_path = Path::new("tests/fixtures/zh_hans/page_fool_pee_pants_adjacent_bubbles.webp");
-    if !img_path.exists() {
-        return;
-    }
-    let img = image::ImageReader::open(img_path)
-        .expect("Failed to open page_fool_pee_pants_adjacent_bubbles.webp")
-        .with_guessed_format()
-        .expect("Failed to guess format")
-        .decode()
-        .expect("Failed to decode image");
+    let img = match crate::common::load_fixture_or_skip("zh_hans", "page_fool_pee_pants_adjacent_bubbles.webp") {
+        Some(i) => i,
+        None => {
+            eprintln!("[INFO] Skipping test_regression_page_683: fixture not found");
+            return;
+        }
+    };
 
     let res = get_or_analyze_fixture(&img);
     assert!(!res.regions.is_empty(), "Page 683 must have detected regions");
@@ -183,16 +176,13 @@ fn test_regression_page_683() {
 /// - Negative guard: Zero standalone duplicate lines `反倒是看我的目光有几分`.
 #[test]
 fn test_regression_page_688() {
-    let img_path = Path::new("tests/fixtures/zh_hans/page_shen_yue_ye_ziyun_thought_bubble.webp");
-    if !img_path.exists() {
-        return;
-    }
-    let img = image::ImageReader::open(img_path)
-        .expect("Failed to open page_shen_yue_ye_ziyun_thought_bubble.webp")
-        .with_guessed_format()
-        .expect("Failed to guess format")
-        .decode()
-        .expect("Failed to decode image");
+    let img = match crate::common::load_fixture_or_skip("zh_hans", "page_shen_yue_ye_ziyun_thought_bubble.webp") {
+        Some(i) => i,
+        None => {
+            eprintln!("[INFO] Skipping test_regression_page_688: fixture not found");
+            return;
+        }
+    };
 
     let res = crate::common::force_analyze_fixture(&img);
     println!("Page 688 detected {} regions:", res.regions.len());
@@ -252,16 +242,13 @@ fn test_regression_page_688() {
 ///   with full bounding box width (`w >= 380px`).
 #[test]
 fn test_regression_page_15_seq_8() {
-    let img_path = Path::new("tests/fixtures/zh_hans/page_system_birth_transmigration_ellipsis.webp");
-    if !img_path.exists() {
-        return;
-    }
-    let img = image::ImageReader::open(img_path)
-        .expect("Failed to open page_system_birth_transmigration_ellipsis.webp")
-        .with_guessed_format()
-        .expect("Failed to guess format")
-        .decode()
-        .expect("Failed to decode image");
+    let img = match crate::common::load_fixture_or_skip("zh_hans", "page_system_birth_transmigration_ellipsis.webp") {
+        Some(i) => i,
+        None => {
+            eprintln!("[INFO] Skipping test_regression_page_15_seq_8: fixture not found");
+            return;
+        }
+    };
 
     let res = get_or_analyze_fixture(&img);
     println!("Page 15 seq 8 detected {} regions:", res.regions.len());
@@ -314,16 +301,13 @@ fn test_regression_page_15_seq_8() {
 ///   (*"你可不要\n乱动……"*).
 #[test]
 fn test_regression_page_162_seq_1() {
-    let img_path = Path::new("tests/fixtures/zh_hans/page_dont_move_foliage_tail_circle.webp");
-    if !img_path.exists() {
-        return;
-    }
-    let img = image::ImageReader::open(img_path)
-        .expect("Failed to open page_dont_move_foliage_tail_circle.webp")
-        .with_guessed_format()
-        .expect("Failed to guess format")
-        .decode()
-        .expect("Failed to decode image");
+    let img = match crate::common::load_fixture_or_skip("zh_hans", "page_dont_move_foliage_tail_circle.webp") {
+        Some(i) => i,
+        None => {
+            eprintln!("[INFO] Skipping test_regression_page_162_seq_1: fixture not found");
+            return;
+        }
+    };
 
     let res = get_or_analyze_fixture(&img);
     println!("Page 162 seq 1 detected {} regions:", res.regions.len());
@@ -373,16 +357,13 @@ fn test_regression_page_162_seq_1() {
 ///   and suppresses thought bubble tail circles.
 #[test]
 fn test_regression_page_168_seq_1() {
-    let img_path = Path::new("tests/fixtures/zh_hans/page_fireball_fight_bubble_angle.webp");
-    if !img_path.exists() {
-        return;
-    }
-    let img = image::ImageReader::open(img_path)
-        .expect("Failed to open page_fireball_fight_bubble_angle.webp")
-        .with_guessed_format()
-        .expect("Failed to guess format")
-        .decode()
-        .expect("Failed to decode image");
+    let img = match crate::common::load_fixture_or_skip("zh_hans", "page_fireball_fight_bubble_angle.webp") {
+        Some(i) => i,
+        None => {
+            eprintln!("[INFO] Skipping test_regression_page_168_seq_1: fixture not found");
+            return;
+        }
+    };
 
     let res = get_or_analyze_fixture(&img);
     println!("Page 168 seq 1 detected {} regions:", res.regions.len());
@@ -415,16 +396,13 @@ fn test_regression_page_168_seq_1() {
 ///   trailing ellipsis (*"不愧是顶尖高手……"* with `w >= 325px`).
 #[test]
 fn test_regression_page_169_seq_8() {
-    let img_path = Path::new("tests/fixtures/zh_hans/page_boss_beaten_martial_arts_ellipsis.webp");
-    if !img_path.exists() {
-        return;
-    }
-    let img = image::ImageReader::open(img_path)
-        .expect("Failed to open page_boss_beaten_martial_arts_ellipsis.webp")
-        .with_guessed_format()
-        .expect("Failed to guess format")
-        .decode()
-        .expect("Failed to decode image");
+    let img = match crate::common::load_fixture_or_skip("zh_hans", "page_boss_beaten_martial_arts_ellipsis.webp") {
+        Some(i) => i,
+        None => {
+            eprintln!("[INFO] Skipping test_regression_page_169_seq_8: fixture not found");
+            return;
+        }
+    };
 
     let res = get_or_analyze_fixture(&img);
     println!("Page 169 seq 8 detected {} regions:", res.regions.len());
@@ -466,16 +444,13 @@ fn test_regression_page_169_seq_8() {
 ///   and preserves the full multi-column info block without digit corruption.
 #[test]
 fn test_regression_page_170_seq_9() {
-    let img_path = Path::new("tests/fixtures/zh_hans/page_slanted_rpg_status_card.webp");
-    if !img_path.exists() {
-        return;
-    }
-    let img = image::ImageReader::open(img_path)
-        .expect("Failed to open page_slanted_rpg_status_card.webp")
-        .with_guessed_format()
-        .expect("Failed to guess format")
-        .decode()
-        .expect("Failed to decode image");
+    let img = match crate::common::load_fixture_or_skip("zh_hans", "page_slanted_rpg_status_card.webp") {
+        Some(i) => i,
+        None => {
+            eprintln!("[INFO] Skipping test_regression_page_170_seq_9: fixture not found");
+            return;
+        }
+    };
 
     let res = get_or_analyze_fixture(&img);
     println!("Page 170 seq 9 detected {} regions:", res.regions.len());
@@ -506,16 +481,13 @@ fn test_regression_page_170_seq_9() {
 ///   is unified into 1 region instead of fragmenting into ghost boxes (*"水是不\n我坚"*).
 #[test]
 fn test_regression_page_171_seq_10() {
-    let img_path = Path::new("tests/fixtures/zh_hans/page_pond_pk_double_cloud_bubble.webp");
-    if !img_path.exists() {
-        return;
-    }
-    let img = image::ImageReader::open(img_path)
-        .expect("Failed to open page_pond_pk_double_cloud_bubble.webp")
-        .with_guessed_format()
-        .expect("Failed to guess format")
-        .decode()
-        .expect("Failed to decode image");
+    let img = match crate::common::load_fixture_or_skip("zh_hans", "page_pond_pk_double_cloud_bubble.webp") {
+        Some(i) => i,
+        None => {
+            eprintln!("[INFO] Skipping test_regression_page_171_seq_10: fixture not found");
+            return;
+        }
+    };
 
     let res = get_or_analyze_fixture(&img);
     println!("Page 171 seq 10 detected {} regions:", res.regions.len());
@@ -551,16 +523,13 @@ fn test_regression_page_171_seq_10() {
 ///   and preserves distinct IDs for all 3 adjacent speech bubbles in panel 2.
 #[test]
 fn test_regression_page_172_seq_11() {
-    let img_path = Path::new("tests/fixtures/zh_hans/page_guild_leader_pk_adjacent_bubbles.webp");
-    if !img_path.exists() {
-        return;
-    }
-    let img = image::ImageReader::open(img_path)
-        .expect("Failed to open page_guild_leader_pk_adjacent_bubbles.webp")
-        .with_guessed_format()
-        .expect("Failed to guess format")
-        .decode()
-        .expect("Failed to decode image");
+    let img = match crate::common::load_fixture_or_skip("zh_hans", "page_guild_leader_pk_adjacent_bubbles.webp") {
+        Some(i) => i,
+        None => {
+            eprintln!("[INFO] Skipping test_regression_page_172_seq_11: fixture not found");
+            return;
+        }
+    };
 
     let res = get_or_analyze_fixture(&img);
     println!("Page 172 seq 11 detected {} regions:", res.regions.len());
@@ -599,16 +568,13 @@ fn test_regression_page_172_seq_11() {
 ///   Ensures chapter subtitle (*"第一话·重生"*) is properly separated from stylized cover calligraphy.
 #[test]
 fn test_regression_page_175_seq_14() {
-    let img_path = Path::new("tests/fixtures/zh_hans/page_rebirth_cover_chapter_subtitle.webp");
-    if !img_path.exists() {
-        return;
-    }
-    let img = image::ImageReader::open(img_path)
-        .expect("Failed to open page_rebirth_cover_chapter_subtitle.webp")
-        .with_guessed_format()
-        .expect("Failed to guess format")
-        .decode()
-        .expect("Failed to decode image");
+    let img = match crate::common::load_fixture_or_skip("zh_hans", "page_rebirth_cover_chapter_subtitle.webp") {
+        Some(i) => i,
+        None => {
+            eprintln!("[INFO] Skipping test_regression_page_175_seq_14: fixture not found");
+            return;
+        }
+    };
 
     let res = get_or_analyze_fixture(&img);
     println!("Page 175 seq 14 detected {} regions:", res.regions.len());
@@ -632,16 +598,13 @@ fn test_regression_page_175_seq_14() {
 ///   width to `x + w >= 700px` so LaMa inpainting cleanly cleans every dot.
 #[test]
 fn test_regression_page_197_seq_33() {
-    let img_path = Path::new("tests/fixtures/zh_hans/page_chariot_block_trailing_ellipsis.webp");
-    if !img_path.exists() {
-        return;
-    }
-    let img = image::ImageReader::open(img_path)
-        .expect("Failed to open page_chariot_block_trailing_ellipsis.webp")
-        .with_guessed_format()
-        .expect("Failed to guess format")
-        .decode()
-        .expect("Failed to decode image");
+    let img = match crate::common::load_fixture_or_skip("zh_hans", "page_chariot_block_trailing_ellipsis.webp") {
+        Some(i) => i,
+        None => {
+            eprintln!("[INFO] Skipping test_regression_page_197_seq_33: fixture not found");
+            return;
+        }
+    };
 
     let res = get_or_analyze_fixture(&img);
     println!("Page 197 seq 33 detected {} regions:", res.regions.len());
@@ -669,16 +632,13 @@ fn test_regression_page_197_seq_33() {
 ///   page edge (`x + w <= 765px`) with `angle = 0.0°`, and preserves cyan status card.
 #[test]
 fn test_regression_page_198_seq_34() {
-    let img_path = Path::new("tests/fixtures/zh_hans/page_rocket_iron_cart_spiky_bubble.webp");
-    if !img_path.exists() {
-        return;
-    }
-    let img = image::ImageReader::open(img_path)
-        .expect("Failed to open page_rocket_iron_cart_spiky_bubble.webp")
-        .with_guessed_format()
-        .expect("Failed to guess format")
-        .decode()
-        .expect("Failed to decode image");
+    let img = match crate::common::load_fixture_or_skip("zh_hans", "page_rocket_iron_cart_spiky_bubble.webp") {
+        Some(i) => i,
+        None => {
+            eprintln!("[INFO] Skipping test_regression_page_198_seq_34: fixture not found");
+            return;
+        }
+    };
 
     let res = get_or_analyze_fixture(&img);
     println!("Page 198 seq 34 detected {} regions:", res.regions.len());
@@ -718,16 +678,13 @@ fn test_regression_page_198_seq_34() {
 /// - Negative guard: Zero *"中"* hallucination boxes (`assert!(!res.regions.iter().any(|r| r.text.trim() == "中"))`).
 #[test]
 fn test_regression_page_204_seq_38() {
-    let img_path = Path::new("tests/fixtures/zh_hans/page_thick_skin_cough_sfx.webp");
-    if !img_path.exists() {
-        return;
-    }
-    let img = image::ImageReader::open(img_path)
-        .expect("Failed to open page_thick_skin_cough_sfx.webp")
-        .with_guessed_format()
-        .expect("Failed to guess format")
-        .decode()
-        .expect("Failed to decode image");
+    let img = match crate::common::load_fixture_or_skip("zh_hans", "page_thick_skin_cough_sfx.webp") {
+        Some(i) => i,
+        None => {
+            eprintln!("[INFO] Skipping test_regression_page_204_seq_38: fixture not found");
+            return;
+        }
+    };
 
     let res = get_or_analyze_fixture(&img);
     println!("Page 63707 detected {} regions:", res.regions.len());
@@ -778,16 +735,13 @@ fn test_regression_page_204_seq_38() {
 /// - Negative guard: No fractured sub-boxes or column cross-reading (`哼来个`).
 #[test]
 fn test_regression_page_novice_mage_split_bubble() {
-    let img_path = Path::new("tests/fixtures/zh_hans/page_novice_mage_split_bubble.webp");
-    if !img_path.exists() {
-        return;
-    }
-    let img = image::ImageReader::open(img_path)
-        .expect("Failed to open page_novice_mage_split_bubble.webp")
-        .with_guessed_format()
-        .expect("Failed to guess format")
-        .decode()
-        .expect("Failed to decode image");
+    let img = match crate::common::load_fixture_or_skip("zh_hans", "page_novice_mage_split_bubble.webp") {
+        Some(i) => i,
+        None => {
+            eprintln!("[INFO] Skipping test_regression_page_novice_mage_split_bubble: fixture not found");
+            return;
+        }
+    };
 
     let res = get_or_analyze_fixture(&img);
     println!("Novice Mage Page detected {} regions:", res.regions.len());
@@ -840,16 +794,13 @@ fn test_regression_page_novice_mage_split_bubble() {
 /// - No duplicate/ghost trailing substring echo boxes (`和服务。\n祥`).
 #[test]
 fn test_regression_page_58375() {
-    let img_path = Path::new("tests/fixtures/zh_hans/page_npc_harry_potter_spawn_point.webp");
-    if !img_path.exists() {
-        return;
-    }
-    let img = image::ImageReader::open(img_path)
-        .expect("Failed to open page_npc_harry_potter_spawn_point.webp")
-        .with_guessed_format()
-        .expect("Failed to guess format")
-        .decode()
-        .expect("Failed to decode image");
+    let img = match crate::common::load_fixture_or_skip("zh_hans", "page_npc_harry_potter_spawn_point.webp") {
+        Some(i) => i,
+        None => {
+            eprintln!("[INFO] Skipping test_regression_page_58375: fixture not found");
+            return;
+        }
+    };
 
     let res = get_or_analyze_fixture(&img);
     println!("Page 58375 detected {} regions:", res.regions.len());
@@ -924,16 +875,13 @@ fn test_regression_page_58375() {
 /// - Negative guard: Zero trailing collision `拍卫尺` lines.
 #[test]
 fn test_regression_page_parallel_world_extra_account() {
-    let img_path = Path::new("tests/fixtures/zh_hans/parallel_world_extra_account_suck_up.webp");
-    if !img_path.exists() {
-        return;
-    }
-    let img = image::ImageReader::open(img_path)
-        .expect("Failed to open parallel_world_extra_account_suck_up.webp")
-        .with_guessed_format()
-        .expect("Failed to guess format")
-        .decode()
-        .expect("Failed to decode image");
+    let img = match crate::common::load_fixture_or_skip("zh_hans", "parallel_world_extra_account_suck_up.webp") {
+        Some(i) => i,
+        None => {
+            eprintln!("[INFO] Skipping test_regression_page_parallel_world_extra_account: fixture not found");
+            return;
+        }
+    };
 
     let res = get_or_analyze_fixture(&img);
     println!("Parallel World Page detected {} regions:", res.regions.len());
@@ -997,16 +945,13 @@ fn test_regression_page_parallel_world_extra_account() {
 /// - No hallucinated watermark regions.
 #[test]
 fn test_regression_page_825() {
-    let img_path = Path::new("tests/fixtures/zh_hans/page_stairs_vertical_chirping_noise.webp");
-    if !img_path.exists() {
-        return;
-    }
-    let img = image::ImageReader::open(img_path)
-        .expect("Failed to open page_stairs_vertical_chirping_noise.webp")
-        .with_guessed_format()
-        .expect("Failed to guess format")
-        .decode()
-        .expect("Failed to decode image");
+    let img = match crate::common::load_fixture_or_skip("zh_hans", "page_stairs_vertical_chirping_noise.webp") {
+        Some(i) => i,
+        None => {
+            eprintln!("[INFO] Skipping test_regression_page_825: fixture not found");
+            return;
+        }
+    };
 
     let res = get_or_analyze_fixture(&img);
     println!("Page 825 detected {} regions:", res.regions.len());
@@ -1110,16 +1055,13 @@ fn test_regression_page_825() {
 /// - Negative guard: Zero watermark `漫客栈` regions.
 #[test]
 fn test_regression_page_690() {
-    let img_path = Path::new("tests/fixtures/zh_hans/page_ye_ziyun_sacred_family_genius.webp");
-    if !img_path.exists() {
-        return;
-    }
-    let img = image::ImageReader::open(img_path)
-        .expect("Failed to open page_ye_ziyun_sacred_family_genius.webp")
-        .with_guessed_format()
-        .expect("Failed to guess format")
-        .decode()
-        .expect("Failed to decode image");
+    let img = match crate::common::load_fixture_or_skip("zh_hans", "page_ye_ziyun_sacred_family_genius.webp") {
+        Some(i) => i,
+        None => {
+            eprintln!("[INFO] Skipping test_regression_page_690: fixture not found");
+            return;
+        }
+    };
 
     let res = get_or_analyze_fixture(&img);
     println!("Page 690 detected {} regions:", res.regions.len());

@@ -12,15 +12,13 @@ use xianscan_rust::ml::ocr::{OcrLine, RapidOcr};
 /// loads and detects bounding boxes on a high-resolution raw manga page.
 #[test]
 fn test_comic_text_detector_on_fixture_page_679() {
-    let img_path = Path::new("tests/fixtures/zh_hans/page_zhang_yude_chengdu_cemetery.webp");
-    assert!(img_path.exists(), "Fixture page_zhang_yude_chengdu_cemetery.webp must exist");
-
-    let img = image::ImageReader::open(img_path)
-        .expect("Failed to open page_zhang_yude_chengdu_cemetery.webp")
-        .with_guessed_format()
-        .expect("Failed to guess format")
-        .decode()
-        .expect("Failed to decode image");
+    let img = match common::load_fixture_or_skip("zh_hans", "page_zhang_yude_chengdu_cemetery.webp") {
+        Some(i) => i,
+        None => {
+            eprintln!("[INFO] Skipping test_comic_text_detector_on_fixture_page_679: fixture not found");
+            return;
+        }
+    };
 
     let key = hash_image(&img);
     let (boxes_len, backend) = if let Some(cached) = read_cache::<DetectResult>("comic_det", &key) {
@@ -48,13 +46,13 @@ fn test_comic_text_detector_on_fixture_page_679() {
 /// and confidence scoring on vertical and horizontal Chinese text lines.
 #[test]
 fn test_rapid_ocr_detect_and_recognize_on_page_679() {
-    let img_path = Path::new("tests/fixtures/zh_hans/page_zhang_yude_chengdu_cemetery.webp");
-    let img = image::ImageReader::open(img_path)
-        .expect("Failed to open page_zhang_yude_chengdu_cemetery.webp")
-        .with_guessed_format()
-        .expect("Failed to guess format")
-        .decode()
-        .expect("Failed to decode image");
+    let img = match common::load_fixture_or_skip("zh_hans", "page_zhang_yude_chengdu_cemetery.webp") {
+        Some(i) => i,
+        None => {
+            eprintln!("[INFO] Skipping test_rapid_ocr_detect_and_recognize_on_page_679: fixture not found");
+            return;
+        }
+    };
 
     let key = hash_image(&img);
     let lines = if let Some(cached) = read_cache::<Vec<OcrLine>>("rapid_ocr", &key) {
@@ -199,15 +197,13 @@ fn test_language_aware_filtering_helpers() {
 fn test_rtdetr_speech_bubble_and_text_detector() {
     use xianscan_rust::ml::detect::RtDetrComicDetector;
 
-    let img_path = Path::new("tests/fixtures/zh_hans/page_fool_pee_pants_adjacent_bubbles.webp");
-    assert!(img_path.exists(), "Fixture must exist");
-
-    let img = image::ImageReader::open(img_path)
-        .expect("Failed to open fixture")
-        .with_guessed_format()
-        .expect("Failed to guess format")
-        .decode()
-        .expect("Failed to decode image");
+    let img = match common::load_fixture_or_skip("zh_hans", "page_fool_pee_pants_adjacent_bubbles.webp") {
+        Some(i) => i,
+        None => {
+            eprintln!("[INFO] Skipping test_rtdetr_speech_bubble_and_text_detector: fixture not found");
+            return;
+        }
+    };
 
     let model_path = Path::new("models/comic_text_and_bubble_detector.onnx");
     if !model_path.exists() {

@@ -1,4 +1,3 @@
-use std::path::Path;
 use crate::common::get_or_analyze_fixture_with_lang;
 use xianscan_rust::ml::detect::filter_text_by_source_lang;
 
@@ -27,18 +26,15 @@ fn test_regression_korean_script_handling() {
 /// # Korean Real-Page Regression: `page_zhang_yude_chengdu_cemetery.webp` with `ko` Source Routing
 #[test]
 fn test_regression_page_with_korean_source_routing() {
-    let mut img_path = Path::new("tests/fixtures/ko/sample.webp"); if !img_path.exists() { img_path = Path::new("tests/fixtures/zh_hans/page_zhang_yude_chengdu_cemetery.webp"); };
-    if !img_path.exists() {
-        eprintln!("Fixture {:?} not found, skipping test", img_path);
-        return;
-    }
-
-    let img = image::ImageReader::open(img_path)
-        .expect("Failed to open fixture image")
-        .with_guessed_format()
-        .expect("Failed to guess format")
-        .decode()
-        .expect("Failed to decode image");
+    let img = match crate::common::load_fixture_or_skip("ko", "sample.webp")
+        .or_else(|| crate::common::load_fixture_or_skip("zh_hans", "page_zhang_yude_chengdu_cemetery.webp"))
+    {
+        Some(i) => i,
+        None => {
+            eprintln!("[INFO] Skipping test_regression_page_with_korean_source_routing: fixture not found");
+            return;
+        }
+    };
 
     let res = get_or_analyze_fixture_with_lang(&img, Some("ko"));
     assert!(!res.regions.is_empty(), "Pipeline in Korean mode must detect text regions");

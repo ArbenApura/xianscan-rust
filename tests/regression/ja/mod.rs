@@ -1,4 +1,3 @@
-use std::path::Path;
 use crate::common::get_or_analyze_fixture_with_lang;
 use xianscan_rust::ml::detect::filter_text_by_source_lang;
 
@@ -27,18 +26,15 @@ fn test_regression_japanese_script_handling() {
 /// # Japanese Real-Page Regression: `page_zhang_yude_chengdu_cemetery.webp` with `ja` Source Routing
 #[test]
 fn test_regression_page_with_japanese_source_routing() {
-    let mut img_path = Path::new("tests/fixtures/ja/sample.webp"); if !img_path.exists() { img_path = Path::new("tests/fixtures/zh_hans/page_zhang_yude_chengdu_cemetery.webp"); };
-    if !img_path.exists() {
-        eprintln!("Fixture {:?} not found, skipping test", img_path);
-        return;
-    }
-
-    let img = image::ImageReader::open(img_path)
-        .expect("Failed to open fixture image")
-        .with_guessed_format()
-        .expect("Failed to guess format")
-        .decode()
-        .expect("Failed to decode image");
+    let img = match crate::common::load_fixture_or_skip("ja", "sample.webp")
+        .or_else(|| crate::common::load_fixture_or_skip("zh_hans", "page_zhang_yude_chengdu_cemetery.webp"))
+    {
+        Some(i) => i,
+        None => {
+            eprintln!("[INFO] Skipping test_regression_page_with_japanese_source_routing: fixture not found");
+            return;
+        }
+    };
 
     let res = get_or_analyze_fixture_with_lang(&img, Some("ja"));
     assert!(!res.regions.is_empty(), "Pipeline in Japanese mode must detect text regions");
@@ -61,18 +57,13 @@ fn test_regression_page_with_japanese_source_routing() {
 ///   Prevents ruby text (Furigana) from producing duplicate line echoes.
 #[test]
 fn test_regression_page_lucky_me_first_place_vertical() {
-    let img_path = Path::new("tests/fixtures/ja/page_lucky_me_first_place_vertical.webp");
-    if !img_path.exists() {
-        eprintln!("Fixture {:?} not found, skipping test", img_path);
-        return;
-    }
-
-    let img = image::ImageReader::open(img_path)
-        .expect("Failed to open page_lucky_me_first_place_vertical.webp")
-        .with_guessed_format()
-        .expect("Failed to guess format")
-        .decode()
-        .expect("Failed to decode image");
+    let img = match crate::common::load_fixture_or_skip("ja", "page_lucky_me_first_place_vertical.webp") {
+        Some(i) => i,
+        None => {
+            eprintln!("[INFO] Skipping test_regression_page_lucky_me_first_place_vertical: fixture not found");
+            return;
+        }
+    };
 
     let res = get_or_analyze_fixture_with_lang(&img, Some("ja"));
     println!("=== Japanese Native 1129x1600 Page Results ({} regions) ===", res.regions.len());
@@ -153,18 +144,13 @@ fn test_regression_page_lucky_me_first_place_vertical() {
 /// - Signboard `茶道部` must be detected.
 #[test]
 fn test_regression_manga_kotatsu_timing_tea_club_lottery() {
-    let img_path = Path::new("tests/fixtures/ja/manga_kotatsu_timing_tea_club_lottery.webp");
-    if !img_path.exists() {
-        eprintln!("Fixture {:?} not found, skipping test", img_path);
-        return;
-    }
-
-    let img = image::ImageReader::open(img_path)
-        .expect("Failed to open manga_kotatsu_timing_tea_club_lottery.webp")
-        .with_guessed_format()
-        .expect("Failed to guess format")
-        .decode()
-        .expect("Failed to decode image");
+    let img = match crate::common::load_fixture_or_skip("ja", "manga_kotatsu_timing_tea_club_lottery.webp") {
+        Some(i) => i,
+        None => {
+            eprintln!("[INFO] Skipping test_regression_manga_kotatsu_timing_tea_club_lottery: fixture not found");
+            return;
+        }
+    };
 
     let res = get_or_analyze_fixture_with_lang(&img, Some("ja"));
     println!("Manga Kotatsu Timing (len={}):", res.regions.len());
@@ -244,18 +230,13 @@ fn test_regression_manga_kotatsu_timing_tea_club_lottery() {
 ///   Guarantees that all 8 speech bubbles across both panels are cleanly detected with exact text invariants.
 #[test]
 fn test_regression_page_school_phone_rule_e_bubble() {
-    let img_path = Path::new("tests/fixtures/ja/page_school_phone_rule_e_bubble.webp");
-    if !img_path.exists() {
-        eprintln!("Fixture {:?} not found, skipping test", img_path);
-        return;
-    }
-
-    let img = image::ImageReader::open(img_path)
-        .expect("Failed to open page_school_phone_rule_e_bubble.webp")
-        .with_guessed_format()
-        .expect("Failed to guess format")
-        .decode()
-        .expect("Failed to decode image");
+    let img = match crate::common::load_fixture_or_skip("ja", "page_school_phone_rule_e_bubble.webp") {
+        Some(i) => i,
+        None => {
+            eprintln!("[INFO] Skipping test_regression_page_school_phone_rule_e_bubble: fixture not found");
+            return;
+        }
+    };
 
     let res = get_or_analyze_fixture_with_lang(&img, Some("ja"));
     println!("=== Japanese Native 810x737 Page Results ({} regions) ===", res.regions.len());

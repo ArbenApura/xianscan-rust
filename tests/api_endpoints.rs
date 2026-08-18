@@ -15,7 +15,7 @@ use xianscan_rust::server::router::{create_router, AppState};
 /// when the server is online and ready to receive requests.
 #[tokio::test]
 async fn test_health_endpoint() {
-    let engine = PipelineEngine::new(Path::new("tests/fixtures"));
+    let engine = PipelineEngine::new(Path::new("models"));
     let state = AppState {
         engine: Arc::new(Mutex::new(engine)),
     };
@@ -41,7 +41,7 @@ async fn test_health_endpoint() {
 /// can be queried over HTTP and returns status `200 OK`.
 #[tokio::test]
 async fn test_system_hardware_endpoint() {
-    let engine = PipelineEngine::new(Path::new("tests/fixtures"));
+    let engine = PipelineEngine::new(Path::new("models"));
     let state = AppState {
         engine: Arc::new(Mutex::new(engine)),
     };
@@ -67,7 +67,7 @@ async fn test_system_hardware_endpoint() {
 /// `inpaint_mode` fields (e.g. "scaled", "patch", "lama") alongside region masks.
 #[tokio::test]
 async fn test_clean_endpoint_respects_inpaint_strategy_modes() {
-    let engine = PipelineEngine::new(Path::new("tests/fixtures"));
+    let engine = PipelineEngine::new(Path::new("models"));
     let state = AppState {
         engine: Arc::new(Mutex::new(engine)),
     };
@@ -105,7 +105,7 @@ async fn test_clean_endpoint_respects_inpaint_strategy_modes() {
 /// from multipart form fields to configure OCR language routing and filtering.
 #[tokio::test]
 async fn test_analyze_endpoint_with_language_parameters() {
-    let engine = PipelineEngine::new(Path::new("tests/fixtures"));
+    let engine = PipelineEngine::new(Path::new("models"));
     let state = AppState {
         engine: Arc::new(Mutex::new(engine)),
     };
