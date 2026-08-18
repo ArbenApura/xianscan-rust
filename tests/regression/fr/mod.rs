@@ -19,10 +19,10 @@ fn test_regression_french_script_handling() {
     assert_eq!(cleaned.trim(), "« Bonjour ! »");
 }
 
-/// # French Real-Page Regression: `page_679.webp` with `fr` Source Routing
+/// # French Real-Page Regression: `page_zhang_yude_chengdu_cemetery.webp` with `fr` Source Routing
 #[test]
 fn test_regression_page_with_french_source_routing() {
-    let mut img_path = Path::new("tests/fixtures/fr/sample.webp"); if !img_path.exists() { img_path = Path::new("tests/fixtures/zh_hans/page_679.webp"); };
+    let mut img_path = Path::new("tests/fixtures/fr/sample.webp"); if !img_path.exists() { img_path = Path::new("tests/fixtures/zh_hans/page_zhang_yude_chengdu_cemetery.webp"); };
     if !img_path.exists() {
         eprintln!("Fixture {:?} not found, skipping test", img_path);
         return;

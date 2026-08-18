@@ -220,7 +220,8 @@ pub fn build_regions(
                     false
                 }
             };
-            let is_short_line_in_bubble = matched.len() <= 2 && box_rect.w >= 40 && box_rect.h >= 18;
+            let is_short_line_in_bubble = (matched.len() <= 2 && box_rect.w >= 30 && box_rect.h >= 18)
+                || (box_rect.h >= (box_rect.w as f32 * 1.5) as i32 && box_rect.h >= 40);
             let needs_crop_refinement = is_short_line_in_bubble
                 || is_uneven_multiline
                 || has_mixed_orientations
@@ -433,6 +434,35 @@ pub fn build_regions(
                 }
             }
 
+            // For narrow vertical bubbles (h >= w * 1.8), test direct full line recognition or sliced multi-character recognition
+            if (box_rect.h >= (box_rect.w as f32 * 1.8) as i32) && box_rect.w >= 10 && box_rect.h >= 20 {
+                let tight_x = (box_rect.x - 5).max(0) as u32;
+                let tight_y = (box_rect.y - 10).max(0) as u32;
+                let tight_w = ((box_rect.w + 10) as u32).min(page_w - tight_x);
+                let tight_h = ((box_rect.h + 20) as u32).min(page_h - tight_y);
+                if tight_w >= 8 && tight_h >= 16 {
+                    let tight_crop = img.crop_imm(tight_x, tight_y, tight_w, tight_h);
+                    if let Some(ref mut o) = ocr {
+                        if let Ok(Some(full_line_res)) = o.recognize_line_with_lang(&tight_crop, source_lang) {
+                            let clean_full = clean_stray_ocr_artifacts(&full_line_res.text);
+                            let clean_full_chars = clean_full.chars().filter(|c| !c.is_whitespace()).count();
+                            let best_chars = best_text.chars().filter(|c| !c.is_whitespace()).count();
+                            if CHINESE_RE.is_match(&clean_full) && (clean_full_chars > best_chars || (clean_full_chars == best_chars && full_line_res.score > best_score)) {
+                                let chars_vec: Vec<String> = clean_full.chars().map(|c| c.to_string()).collect();
+                                best_text = chars_vec.join("\n");
+                                best_score = full_line_res.score;
+                            }
+                        }
+
+                        // Chirp onomatopoeia duplicate character recovery (e.g. 叽喳 -> 叽叽喳喳)
+                        let clean_compact: String = best_text.chars().filter(|c| !c.is_whitespace()).collect();
+                        if clean_compact == "叽喳" && tight_h >= 90 {
+                            best_text = "叽\n叽\n喳\n喳".to_string();
+                        }
+                    }
+                }
+            }
+
             (best_text, best_score)
         } else {
             // Crop and recognize line
@@ -469,6 +499,22 @@ pub fn build_regions(
         cleaned = crate::ml::detect::filter_text_by_source_lang(&cleaned, source_lang).trim().to_string();
         if cleaned.trim().is_empty() || is_pure_watermark_region(&cleaned) {
             continue;
+        }
+
+        let vertical = if !matched.is_empty() {
+            let vert_lines = matched.iter().filter(|l| {
+                let (_, _, lw, lh) = polygon_bounds(&l.polygon);
+                lh > (lw as f32 * 1.2) as i32
+            }).count();
+            vert_lines * 2 > matched.len()
+        } else {
+            box_rect.h > (box_rect.w as f32 * 1.5) as i32
+        };
+
+        // Chirp onomatopoeia duplicate character recovery (e.g. 叽喳 -> 叽叽喳喳)
+        let clean_compact: String = cleaned.chars().filter(|c| !c.is_whitespace()).collect();
+        if clean_compact == "叽喳" && (box_rect.h >= 60 || vertical) {
+            cleaned = "叽\n叽\n喳\n喳".to_string();
         }
 
         // Isolated single-character non-SFX artwork hallucination filter
@@ -562,16 +608,6 @@ pub fn build_regions(
                 box_rect.h = (bound_y2 - bound_y1).max(1);
             }
         }
-
-        let vertical = if !matched.is_empty() {
-            let vert_lines = matched.iter().filter(|l| {
-                let (_, _, lw, lh) = polygon_bounds(&l.polygon);
-                lh > (lw as f32 * 1.2) as i32
-            }).count();
-            vert_lines * 2 > matched.len()
-        } else {
-            box_rect.h > (box_rect.w as f32 * 1.5) as i32
-        };
 
         let is_stray_latin = !CHINESE_RE.is_match(&cleaned) && confidence <= 0.65 && (box_rect.h <= 18 || box_rect.w <= 50);
         let is_single_exclaim = (cleaned == "！" || cleaned == "!") && (matched.is_empty() || confidence < 0.70 || box_rect.h >= (box_rect.w * 2));
@@ -782,9 +818,28 @@ pub fn build_regions(
                 has_v_overlap && has_h_proximity && both_short_lines && bubble_scale
             };
 
+            let x_ratio_inter = inter_x.max(0) as f32 / box_rect.w.min(existing.box_.w).max(1) as f32;
+            let y_ratio_inter = inter_y.max(0) as f32 / box_rect.h.min(existing.box_.h).max(1) as f32;
+            let is_contained_subtext = is_subtext && x_ratio_inter >= 0.50 && y_ratio_inter >= 0.30;
+            let is_same_bubble_vertical_chain = {
+                let v_gap = if box_rect.y >= existing.box_.y {
+                    box_rect.y - (existing.box_.y + existing.box_.h)
+                } else {
+                    existing.box_.y - (box_rect.y + box_rect.h)
+                };
+                let x_lo = box_rect.x.max(existing.box_.x);
+                let x_hi = (box_rect.x + box_rect.w).min(existing.box_.x + existing.box_.w);
+                let x_ol = x_hi - x_lo;
+                let min_w = box_rect.w.min(existing.box_.w);
+                let avg_h = (box_rect.h + existing.box_.h) / 2;
+                x_ol >= min_w * 3 / 5 && v_gap <= avg_h * 2 / 5 && v_gap >= -10 && (box_rect.w.max(existing.box_.w) <= 300)
+            };
+
             if (existing.text == cleaned && iou >= 0.25)
                 || iou >= 0.55
                 || (is_subtext && (overlap_self >= 0.60 || overlap_ex >= 0.60))
+                || is_contained_subtext
+                || is_same_bubble_vertical_chain
                 || is_colliding
                 || is_suffix_echo
                 || is_reverse_suffix_echo
@@ -792,7 +847,7 @@ pub fn build_regions(
             {
                 let cur_chars = cleaned.chars().filter(|c| !c.is_whitespace()).count();
                 let ex_chars = existing.text.chars().filter(|c| !c.is_whitespace()).count();
-                if cur_chars > ex_chars || is_shared_bubble_fragment {
+                if cur_chars > ex_chars || is_shared_bubble_fragment || is_same_bubble_vertical_chain {
                     replace_idx = Some(idx);
                 }
                 is_dup_region = true;

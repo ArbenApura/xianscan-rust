@@ -19,20 +19,20 @@ fn test_merge_text_lines_terminal_punct_guard() {
     assert_eq!(merged.len(), 2, "Terminal punctuation guard must prevent horizontal merge of distinct utterances");
 }
 
-/// # Bubble Split Test: Full Pipeline Adjacent Bubble Separation on `page_683.webp`
+/// # Bubble Split Test: Full Pipeline Adjacent Bubble Separation on `page_fool_pee_pants_adjacent_bubbles.webp`
 ///
 /// ## Purpose:
 /// Verifies that side-by-side dialogue bubbles in panel 2 (*"这傻子非得尿裤子上不可！"* vs *"哈哈！"*)
 /// are emitted as separate regions with unique IDs and clean text isolation.
 #[test]
 fn test_page_683_full_pipeline_bubble_separation() {
-    let img_path = Path::new("tests/fixtures/zh_hans/page_683.webp");
+    let img_path = Path::new("tests/fixtures/zh_hans/page_fool_pee_pants_adjacent_bubbles.webp");
     if !img_path.exists() {
         return;
     }
 
     let img = image::ImageReader::open(img_path)
-        .expect("Failed to open page_683.webp")
+        .expect("Failed to open page_fool_pee_pants_adjacent_bubbles.webp")
         .with_guessed_format()
         .expect("Failed to guess format")
         .decode()
@@ -55,20 +55,20 @@ fn test_page_683_full_pipeline_bubble_separation() {
     assert!(!right.text.contains("裤子"), "Right bubble must not contain '裤子'");
 }
 
-/// # Bubble Split Test: Multi-Line Paragraph Completeness on `page_679.webp`
+/// # Bubble Split Test: Multi-Line Paragraph Completeness on `page_zhang_yude_chengdu_cemetery.webp`
 ///
 /// ## Purpose:
 /// Verifies that conversational dialogue lines spanning multiple rows are unified
 /// without skipping the introductory speech words.
 #[test]
 fn test_page_679_full_pipeline_text_completeness() {
-    let img_path = Path::new("tests/fixtures/zh_hans/page_679.webp");
+    let img_path = Path::new("tests/fixtures/zh_hans/page_zhang_yude_chengdu_cemetery.webp");
     if !img_path.exists() {
         return;
     }
 
     let img = image::ImageReader::open(img_path)
-        .expect("Failed to open page_679.webp")
+        .expect("Failed to open page_zhang_yude_chengdu_cemetery.webp")
         .with_guessed_format()
         .expect("Failed to guess format")
         .decode()

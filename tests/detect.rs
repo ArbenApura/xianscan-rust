@@ -5,18 +5,18 @@ use common::{hash_image, read_cache, write_cache};
 use xianscan_rust::ml::detect::{ComicTextDetector, DetectResult};
 use xianscan_rust::ml::ocr::{OcrLine, RapidOcr};
 
-/// # Detector Test: `ComicTextDetector` on `page_679.webp`
+/// # Detector Test: `ComicTextDetector` on `page_zhang_yude_chengdu_cemetery.webp`
 ///
 /// ## Purpose:
 /// Verifies that the specialized manga text detector ONNX model (`comictextdetector.pt.onnx`)
 /// loads and detects bounding boxes on a high-resolution raw manga page.
 #[test]
 fn test_comic_text_detector_on_fixture_page_679() {
-    let img_path = Path::new("tests/fixtures/zh_hans/page_679.webp");
-    assert!(img_path.exists(), "Fixture page_679.webp must exist");
+    let img_path = Path::new("tests/fixtures/zh_hans/page_zhang_yude_chengdu_cemetery.webp");
+    assert!(img_path.exists(), "Fixture page_zhang_yude_chengdu_cemetery.webp must exist");
 
     let img = image::ImageReader::open(img_path)
-        .expect("Failed to open page_679.webp")
+        .expect("Failed to open page_zhang_yude_chengdu_cemetery.webp")
         .with_guessed_format()
         .expect("Failed to guess format")
         .decode()
@@ -37,20 +37,20 @@ fn test_comic_text_detector_on_fixture_page_679() {
         (res.boxes.len(), res.backend)
     };
 
-    println!("Detected {} text lines on page_679.webp ({})", boxes_len, backend);
-    assert!(boxes_len > 0, "Must detect text boxes on page_679.webp");
+    println!("Detected {} text lines on page_zhang_yude_chengdu_cemetery.webp ({})", boxes_len, backend);
+    assert!(boxes_len > 0, "Must detect text boxes on page_zhang_yude_chengdu_cemetery.webp");
 }
 
-/// # OCR Test: `RapidOcr` Tiled Detection & Recognition on `page_679.webp`
+/// # OCR Test: `RapidOcr` Tiled Detection & Recognition on `page_zhang_yude_chengdu_cemetery.webp`
 ///
 /// ## Purpose:
 /// Verifies that RapidOCR (`PP-OCRv6`) performs tiled text line detection, CTC argmax decoding,
 /// and confidence scoring on vertical and horizontal Chinese text lines.
 #[test]
 fn test_rapid_ocr_detect_and_recognize_on_page_679() {
-    let img_path = Path::new("tests/fixtures/zh_hans/page_679.webp");
+    let img_path = Path::new("tests/fixtures/zh_hans/page_zhang_yude_chengdu_cemetery.webp");
     let img = image::ImageReader::open(img_path)
-        .expect("Failed to open page_679.webp")
+        .expect("Failed to open page_zhang_yude_chengdu_cemetery.webp")
         .with_guessed_format()
         .expect("Failed to guess format")
         .decode()

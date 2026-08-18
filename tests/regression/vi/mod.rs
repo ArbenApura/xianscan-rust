@@ -19,10 +19,10 @@ fn test_regression_vietnamese_script_handling() {
     assert_eq!(cleaned.trim(), "Xin chào!");
 }
 
-/// # Vietnamese Real-Page Regression: `page_679.webp` with `vi` Source Routing
+/// # Vietnamese Real-Page Regression: `page_zhang_yude_chengdu_cemetery.webp` with `vi` Source Routing
 #[test]
 fn test_regression_page_with_vietnamese_source_routing() {
-    let mut img_path = Path::new("tests/fixtures/vi/sample.webp"); if !img_path.exists() { img_path = Path::new("tests/fixtures/zh_hans/page_679.webp"); };
+    let mut img_path = Path::new("tests/fixtures/vi/sample.webp"); if !img_path.exists() { img_path = Path::new("tests/fixtures/zh_hans/page_zhang_yude_chengdu_cemetery.webp"); };
     if !img_path.exists() {
         eprintln!("Fixture {:?} not found, skipping test", img_path);
         return;

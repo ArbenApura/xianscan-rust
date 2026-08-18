@@ -24,10 +24,10 @@ fn test_regression_japanese_script_handling() {
     assert_eq!(cleaned.trim(), "魔王を討伐する！");
 }
 
-/// # Japanese Real-Page Regression: `page_679.webp` with `ja` Source Routing
+/// # Japanese Real-Page Regression: `page_zhang_yude_chengdu_cemetery.webp` with `ja` Source Routing
 #[test]
 fn test_regression_page_with_japanese_source_routing() {
-    let mut img_path = Path::new("tests/fixtures/ja/sample.webp"); if !img_path.exists() { img_path = Path::new("tests/fixtures/zh_hans/page_679.webp"); };
+    let mut img_path = Path::new("tests/fixtures/ja/sample.webp"); if !img_path.exists() { img_path = Path::new("tests/fixtures/zh_hans/page_zhang_yude_chengdu_cemetery.webp"); };
     if !img_path.exists() {
         eprintln!("Fixture {:?} not found, skipping test", img_path);
         return;

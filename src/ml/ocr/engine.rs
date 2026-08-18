@@ -153,12 +153,24 @@ impl RapidOcr {
             return Ok(None);
         }
 
-        // If vertical crop (h >= 1.3 * w), try rotated 270 (top-to-bottom -> left-to-right)
+        // If vertical crop (h >= 1.3 * w), try both rotated 270 and 90 (top-to-bottom vertical line)
         if h as f32 >= 1.3 * w as f32 {
-            let rot = crop.rotate270();
-            if let Ok(Some(rot_res)) = self.recognize_line_horizontal_with_lang(&rot, source_lang) {
-                if CHINESE_RE.is_match(&rot_res.text) || rot_res.score >= 0.70 {
-                    return Ok(Some(rot_res));
+            let mut best_res: Option<OcrResult> = None;
+            let rot270 = crop.rotate270();
+            if let Ok(Some(res270)) = self.recognize_line_horizontal_with_lang(&rot270, source_lang) {
+                best_res = Some(res270);
+            }
+            let rot90 = crop.rotate90();
+            if let Ok(Some(res90)) = self.recognize_line_horizontal_with_lang(&rot90, source_lang) {
+                let r90_chars = res90.text.chars().filter(|c| !c.is_whitespace()).count();
+                let prev_chars = best_res.as_ref().map(|r| r.text.chars().filter(|c| !c.is_whitespace()).count()).unwrap_or(0);
+                if (r90_chars > prev_chars && CHINESE_RE.is_match(&res90.text)) || (r90_chars == prev_chars && res90.score > best_res.as_ref().map(|r| r.score).unwrap_or(0.0)) {
+                    best_res = Some(res90);
+                }
+            }
+            if let Some(r) = best_res {
+                if CHINESE_RE.is_match(&r.text) || r.score >= 0.70 {
+                    return Ok(Some(r));
                 }
             }
         }

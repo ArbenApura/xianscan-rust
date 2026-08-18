@@ -68,9 +68,11 @@ pub fn fuse_detections(
                 if iou >= 0.20 || rl_contained || cb_covered || crate::ml::geometry::line_center_inside_box(&rl.polygon, &cb_rect) {
                     ocr_det_matched[idx] = true;
 
-                    // If ComicTextDetector box is significantly wider than RapidLine (e.g. ellipsis truncated on right)
-                    // test if recognizing ComicBox yields full text (including ellipsis).
-                    if cb_w >= rw + 25 || (cb_w as f32) >= (rw as f32 * 1.25) {
+                    // If ComicTextDetector box is significantly wider or taller than RapidLine (e.g. ellipsis truncated on right or vertical line truncated)
+                    // test if recognizing ComicBox yields full text (including ellipsis / full vertical onomatopoeia).
+                    let is_wider = cb_w >= rw + 25 || (cb_w as f32) >= (rw as f32 * 1.25);
+                    let is_taller = cb_h >= rh + 25 || (cb_h as f32) >= (rh as f32 * 1.25);
+                    if is_wider || is_taller {
                         let pad_x = 15;
                         let pad_y = 10;
                         let cx = (cb_x - pad_x).max(0) as u32;

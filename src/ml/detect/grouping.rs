@@ -284,7 +284,7 @@ pub fn group_paragraphs(
 
             let has_meaningful_text = !txt.trim().is_empty() || !last_txt.trim().is_empty();
             let is_multiline_para = cand_line_cnt > 1.0 || last_line_cnt > 1.0 || (has_meaningful_text && (txt.chars().count() >= 10 || last_txt.chars().count() >= 10));
-            let is_same_bubble_paragraphs = is_multiline_para && overlap >= 0.70 * w.min(lw) && (new_cx - para_mean_cx).abs() <= 0.20 * w.min(lw);
+            let is_same_bubble_paragraphs = is_multiline_para && overlap >= 0.60 * w.min(lw) && (new_cx - para_mean_cx).abs() <= 0.30 * w.min(lw);
 
             let gap_multiplier = if is_parenthetical {
                 2.8
@@ -348,7 +348,8 @@ pub fn group_paragraphs(
                     let is_short = last_clean.chars().count() <= 5;
                     let has_gap = gap >= 0.30 * min_eff_h && !(is_aligned && overlap >= 0.50 * w.min(lw));
                     let has_offset = (new_cx - para_mean_cx).abs() > 0.40 * w.min(lw) && !(is_left_aligned || is_right_aligned);
-                    if !is_same_bubble_paragraphs && (
+                    let is_continuous_speech_sentence = is_aligned && overlap >= 0.60 * w.min(lw) && gap <= 0.60 * min_eff_h;
+                    if !is_same_bubble_paragraphs && !is_continuous_speech_sentence && (
                         (is_both_single && gap >= 0.15 * min_eff_h)
                         || (is_short && !(is_aligned && overlap >= 0.50 * w.min(lw)) && gap >= 0.15 * min_eff_h)
                         || has_gap

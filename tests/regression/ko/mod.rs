@@ -24,10 +24,10 @@ fn test_regression_korean_script_handling() {
     assert_eq!(cleaned.trim(), "안녕하세요!");
 }
 
-/// # Korean Real-Page Regression: `page_679.webp` with `ko` Source Routing
+/// # Korean Real-Page Regression: `page_zhang_yude_chengdu_cemetery.webp` with `ko` Source Routing
 #[test]
 fn test_regression_page_with_korean_source_routing() {
-    let mut img_path = Path::new("tests/fixtures/ko/sample.webp"); if !img_path.exists() { img_path = Path::new("tests/fixtures/zh_hans/page_679.webp"); };
+    let mut img_path = Path::new("tests/fixtures/ko/sample.webp"); if !img_path.exists() { img_path = Path::new("tests/fixtures/zh_hans/page_zhang_yude_chengdu_cemetery.webp"); };
     if !img_path.exists() {
         eprintln!("Fixture {:?} not found, skipping test", img_path);
         return;

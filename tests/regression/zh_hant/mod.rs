@@ -23,10 +23,10 @@ fn test_regression_traditional_chinese_script_handling() {
     assert_eq!(cleaned.trim(), "「難道這麼多年」");
 }
 
-/// # Traditional Chinese Real-Page Regression: `page_679.webp` with `zh-Hant` Routing
+/// # Traditional Chinese Real-Page Regression: `page_zhang_yude_chengdu_cemetery.webp` with `zh-Hant` Routing
 #[test]
 fn test_regression_page_with_zh_hant_source_routing() {
-    let mut img_path = Path::new("tests/fixtures/zh_hant/sample.webp"); if !img_path.exists() { img_path = Path::new("tests/fixtures/zh_hans/page_679.webp"); };
+    let mut img_path = Path::new("tests/fixtures/zh_hant/sample.webp"); if !img_path.exists() { img_path = Path::new("tests/fixtures/zh_hans/page_zhang_yude_chengdu_cemetery.webp"); };
     if !img_path.exists() {
         eprintln!("Fixture {:?} not found, skipping test", img_path);
         return;

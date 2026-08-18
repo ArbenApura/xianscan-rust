@@ -19,9 +19,9 @@ use crate::common::get_or_analyze_fixture;
 /// - Panel 2 bounding box right edge `x + w >= 265` to fully encapsulate `……`.
 #[test]
 fn test_regression_page_679() {
-    let img_path = Path::new("tests/fixtures/zh_hans/page_679.webp");
+    let img_path = Path::new("tests/fixtures/zh_hans/page_zhang_yude_chengdu_cemetery.webp");
     let img = image::ImageReader::open(img_path)
-        .expect("Failed to open page_679.webp")
+        .expect("Failed to open page_zhang_yude_chengdu_cemetery.webp")
         .with_guessed_format()
         .expect("Failed to guess format")
         .decode()
@@ -104,12 +104,12 @@ fn test_regression_page_679() {
 /// - Region r1 right boundary must fully cover *"练丹！"* exclamation mark (`x + w >= 745`).
 #[test]
 fn test_regression_page_63617() {
-    let img_path = Path::new("tests/fixtures/zh_hans/page_63617.webp");
+    let img_path = Path::new("tests/fixtures/zh_hans/page_cultivation_chant_fear_points.webp");
     if !img_path.exists() {
         return;
     }
     let img = image::ImageReader::open(img_path)
-        .expect("Failed to open page_63617.webp")
+        .expect("Failed to open page_cultivation_chant_fear_points.webp")
         .with_guessed_format()
         .expect("Failed to guess format")
         .decode()
@@ -147,12 +147,12 @@ fn test_regression_page_63617() {
 ///   (*"这傻子非得尿裤子上不可！"* vs *"哈哈！"*) are not merged across panels.
 #[test]
 fn test_regression_page_683() {
-    let img_path = Path::new("tests/fixtures/zh_hans/page_683.webp");
+    let img_path = Path::new("tests/fixtures/zh_hans/page_fool_pee_pants_adjacent_bubbles.webp");
     if !img_path.exists() {
         return;
     }
     let img = image::ImageReader::open(img_path)
-        .expect("Failed to open page_683.webp")
+        .expect("Failed to open page_fool_pee_pants_adjacent_bubbles.webp")
         .with_guessed_format()
         .expect("Failed to guess format")
         .decode()
@@ -163,28 +163,85 @@ fn test_regression_page_683() {
     println!("Page 683 detected {} regions", res.regions.len());
 }
 
-/// # Regression Test: Page 688 (Resolution: 800 × 2400 WebP)
+/// # Regression Test: Page 688 / PageId 63710 (Resolution: 800 × 1131 WebP)
 ///
 /// ## Purpose & Behavior Tested:
-/// - **Narration Panel Preservation**:
-///   Ensures the middle-right panel narration box (*"但是在光辉之城受到袭击的时候..."*)
-///   is preserved and not discarded by watermark or background filtering heuristics.
+/// - **Multi-Line Thought Bubble Unification**:
+///   Guarantees that the bottom panel 5-line continuous thought bubble:
+///   `只是现在的叶紫芸对沈越\n还是有好感的。\n反倒是看我的目光有几分\n不屑，莫不是把我当作一\n个不学无术的纨绔子弟了？`
+///   is unified into a single clean region rather than fragmenting or spawning duplicate line slice boxes (`反倒是看我的目光有几分`).
+/// - **Narration & Speech Panel Ground Truth**:
+///   Cleanly identifies all 5 dialogue/narration regions across the 3 panels:
+///   1. Panel 1 Top-Left: `沈越...对了……\n这货是三大巅峰世家\n神圣世家的子弟，\n也是他们这一代的天才。`
+///   2. Panel 1 Top-Right: `沈秀是\n他的姑姑。`
+///   3. Panel 2 Mid-Left: `前世沈越一直在追求叶紫芸，据说在光辉之城\n被攻击前，他们已经订婚了。\n论家世他们也是门当户对...若是光辉之城没被攻破……\n他们肯定会结婚！`
+///   4. Panel 2 Mid-Right: `但是在光辉之城受到袭击\n的时候，神圣世家却背叛了\n光辉之城，弃城而逃。`
+///   5. Panel 3 Bottom: Unified 5-line thought bubble.
+///
+/// ## Key Invariants:
+/// - Exactly 5 regions (`assert_eq!(res.regions.len(), 5)`).
+/// - Bottom thought bubble must contain all 5 lines unified.
+/// - Negative guard: Zero standalone duplicate lines `反倒是看我的目光有几分`.
 #[test]
 fn test_regression_page_688() {
-    let img_path = Path::new("tests/fixtures/zh_hans/page_688.webp");
+    let img_path = Path::new("tests/fixtures/zh_hans/page_shen_yue_ye_ziyun_thought_bubble.webp");
     if !img_path.exists() {
         return;
     }
     let img = image::ImageReader::open(img_path)
-        .expect("Failed to open page_688.webp")
+        .expect("Failed to open page_shen_yue_ye_ziyun_thought_bubble.webp")
         .with_guessed_format()
         .expect("Failed to guess format")
         .decode()
         .expect("Failed to decode image");
 
-    let res = get_or_analyze_fixture(&img);
-    assert!(!res.regions.is_empty(), "Page 688 must have detected regions");
-    println!("Page 688 detected {} regions", res.regions.len());
+    let res = crate::common::force_analyze_fixture(&img);
+    println!("Page 688 detected {} regions:", res.regions.len());
+    for (i, r) in res.regions.iter().enumerate() {
+        println!("  Region r{}: box={:?}, text='{}', angle={:.2}, conf={:.2}", i, r.box_, r.text.replace('\n', "\\n"), r.angle, r.confidence);
+    }
+
+    // 1. Exact count: exactly 5 regions
+    assert_eq!(res.regions.len(), 5, "Page 688 must have exactly 5 regions, got {}", res.regions.len());
+
+    // 2. Panel 1 top-left thought bubble
+    let p1_left = res.regions.iter().find(|r| r.text.contains("沈越") || r.text.contains("神圣世家"));
+    assert!(p1_left.is_some(), "Must detect Panel 1 top-left thought bubble");
+    let p1_left_text = &p1_left.unwrap().text;
+    assert!(p1_left_text.contains("沈越") && p1_left_text.contains("神圣世家") && p1_left_text.contains("天才"), "Panel 1 top-left thought text must be complete");
+
+    // 3. Panel 1 top-right narration box
+    let p1_right = res.regions.iter().find(|r| r.text.contains("沈秀") || r.text.contains("姑姑"));
+    assert!(p1_right.is_some(), "Must detect Panel 1 top-right narration box '沈秀是他的姑姑。'");
+    assert!(p1_right.unwrap().text.contains("沈秀") && p1_right.unwrap().text.contains("姑姑"), "Panel 1 right narration mismatch");
+
+    // 4. Panel 2 mid-left narration box
+    let p2_left = res.regions.iter().find(|r| r.text.contains("追求叶紫芸") || r.text.contains("订婚") || r.text.contains("门当户对"));
+    assert!(p2_left.is_some(), "Must detect Panel 2 mid-left narration box");
+    let p2_left_text = &p2_left.unwrap().text;
+    assert!(p2_left_text.contains("叶紫芸") && p2_left_text.contains("结婚"), "Panel 2 left narration text must be complete");
+
+    // 5. Panel 2 mid-right narration box
+    let p2_right = res.regions.iter().find(|r| r.text.contains("受到袭击") || r.text.contains("背叛") || r.text.contains("弃城而逃"));
+    assert!(p2_right.is_some(), "Must detect Panel 2 mid-right narration box");
+    let p2_right_text = &p2_right.unwrap().text;
+    assert!(p2_right_text.contains("受到袭击") && p2_right_text.contains("弃城而逃"), "Panel 2 right narration text must be complete");
+
+    // 6. Panel 3 bottom continuous thought bubble
+    let p3_bottom = res.regions.iter().find(|r| r.text.contains("不学无术") || r.text.contains("纨绔子弟") || r.text.contains("还是有好感"));
+    assert!(p3_bottom.is_some(), "Must detect Panel 3 bottom unified thought bubble");
+    let p3_bottom_text = &p3_bottom.unwrap().text;
+    assert!(
+        p3_bottom_text.contains("叶紫芸") && p3_bottom_text.contains("好感") && p3_bottom_text.contains("目光") && p3_bottom_text.contains("纨绔子弟"),
+        "Panel 3 bottom thought bubble must unify all constituent dialogue lines without splitting, got: {}",
+        p3_bottom_text
+    );
+
+    // 7. Negative Guard: Zero standalone duplicate lines or fragments
+    assert!(
+        !res.regions.iter().any(|r| r.text.trim() == "反倒是看我的目光有几分" || r.text.trim() == "只是现在的叶紫芸对沈越\n还是有好感的。"),
+        "Must not leave split duplicate fragment regions"
+    );
 }
 
 /// # Regression Test: Page 15 Seq 8 (Resolution: 800 × 1600 WebP)
@@ -196,12 +253,12 @@ fn test_regression_page_688() {
 ///   with full bounding box width (`w >= 380px`).
 #[test]
 fn test_regression_page_15_seq_8() {
-    let img_path = Path::new("tests/fixtures/zh_hans/page_15_seq_8.webp");
+    let img_path = Path::new("tests/fixtures/zh_hans/page_system_birth_transmigration_ellipsis.webp");
     if !img_path.exists() {
         return;
     }
     let img = image::ImageReader::open(img_path)
-        .expect("Failed to open page_15_seq_8.webp")
+        .expect("Failed to open page_system_birth_transmigration_ellipsis.webp")
         .with_guessed_format()
         .expect("Failed to guess format")
         .decode()
@@ -258,12 +315,12 @@ fn test_regression_page_15_seq_8() {
 ///   (*"你可不要\n乱动……"*).
 #[test]
 fn test_regression_page_162_seq_1() {
-    let img_path = Path::new("tests/fixtures/zh_hans/page_162_seq_1.webp");
+    let img_path = Path::new("tests/fixtures/zh_hans/page_dont_move_foliage_tail_circle.webp");
     if !img_path.exists() {
         return;
     }
     let img = image::ImageReader::open(img_path)
-        .expect("Failed to open page_162_seq_1.webp")
+        .expect("Failed to open page_dont_move_foliage_tail_circle.webp")
         .with_guessed_format()
         .expect("Failed to guess format")
         .decode()
@@ -317,12 +374,12 @@ fn test_regression_page_162_seq_1() {
 ///   and suppresses thought bubble tail circles.
 #[test]
 fn test_regression_page_168_seq_1() {
-    let img_path = Path::new("tests/fixtures/zh_hans/page_168_seq_1.webp");
+    let img_path = Path::new("tests/fixtures/zh_hans/page_fireball_fight_bubble_angle.webp");
     if !img_path.exists() {
         return;
     }
     let img = image::ImageReader::open(img_path)
-        .expect("Failed to open page_168_seq_1.webp")
+        .expect("Failed to open page_fireball_fight_bubble_angle.webp")
         .with_guessed_format()
         .expect("Failed to guess format")
         .decode()
@@ -359,12 +416,12 @@ fn test_regression_page_168_seq_1() {
 ///   trailing ellipsis (*"不愧是顶尖高手……"* with `w >= 325px`).
 #[test]
 fn test_regression_page_169_seq_8() {
-    let img_path = Path::new("tests/fixtures/zh_hans/page_169_seq_8.webp");
+    let img_path = Path::new("tests/fixtures/zh_hans/page_boss_beaten_martial_arts_ellipsis.webp");
     if !img_path.exists() {
         return;
     }
     let img = image::ImageReader::open(img_path)
-        .expect("Failed to open page_169_seq_8.webp")
+        .expect("Failed to open page_boss_beaten_martial_arts_ellipsis.webp")
         .with_guessed_format()
         .expect("Failed to guess format")
         .decode()
@@ -410,12 +467,12 @@ fn test_regression_page_169_seq_8() {
 ///   and preserves the full multi-column info block without digit corruption.
 #[test]
 fn test_regression_page_170_seq_9() {
-    let img_path = Path::new("tests/fixtures/zh_hans/page_170_seq_9.webp");
+    let img_path = Path::new("tests/fixtures/zh_hans/page_slanted_rpg_status_card.webp");
     if !img_path.exists() {
         return;
     }
     let img = image::ImageReader::open(img_path)
-        .expect("Failed to open page_170_seq_9.webp")
+        .expect("Failed to open page_slanted_rpg_status_card.webp")
         .with_guessed_format()
         .expect("Failed to guess format")
         .decode()
@@ -450,12 +507,12 @@ fn test_regression_page_170_seq_9() {
 ///   is unified into 1 region instead of fragmenting into ghost boxes (*"水是不\n我坚"*).
 #[test]
 fn test_regression_page_171_seq_10() {
-    let img_path = Path::new("tests/fixtures/zh_hans/page_171_seq_10.webp");
+    let img_path = Path::new("tests/fixtures/zh_hans/page_pond_pk_double_cloud_bubble.webp");
     if !img_path.exists() {
         return;
     }
     let img = image::ImageReader::open(img_path)
-        .expect("Failed to open page_171_seq_10.webp")
+        .expect("Failed to open page_pond_pk_double_cloud_bubble.webp")
         .with_guessed_format()
         .expect("Failed to guess format")
         .decode()
@@ -495,12 +552,12 @@ fn test_regression_page_171_seq_10() {
 ///   and preserves distinct IDs for all 3 adjacent speech bubbles in panel 2.
 #[test]
 fn test_regression_page_172_seq_11() {
-    let img_path = Path::new("tests/fixtures/zh_hans/page_172_seq_11.webp");
+    let img_path = Path::new("tests/fixtures/zh_hans/page_guild_leader_pk_adjacent_bubbles.webp");
     if !img_path.exists() {
         return;
     }
     let img = image::ImageReader::open(img_path)
-        .expect("Failed to open page_172_seq_11.webp")
+        .expect("Failed to open page_guild_leader_pk_adjacent_bubbles.webp")
         .with_guessed_format()
         .expect("Failed to guess format")
         .decode()
@@ -543,12 +600,12 @@ fn test_regression_page_172_seq_11() {
 ///   Ensures chapter subtitle (*"第一话·重生"*) is properly separated from stylized cover calligraphy.
 #[test]
 fn test_regression_page_175_seq_14() {
-    let img_path = Path::new("tests/fixtures/zh_hans/page_175_seq_14.webp");
+    let img_path = Path::new("tests/fixtures/zh_hans/page_rebirth_cover_chapter_subtitle.webp");
     if !img_path.exists() {
         return;
     }
     let img = image::ImageReader::open(img_path)
-        .expect("Failed to open page_175_seq_14.webp")
+        .expect("Failed to open page_rebirth_cover_chapter_subtitle.webp")
         .with_guessed_format()
         .expect("Failed to guess format")
         .decode()
@@ -576,12 +633,12 @@ fn test_regression_page_175_seq_14() {
 ///   width to `x + w >= 700px` so LaMa inpainting cleanly cleans every dot.
 #[test]
 fn test_regression_page_197_seq_33() {
-    let img_path = Path::new("tests/fixtures/zh_hans/page_197_seq_33.webp");
+    let img_path = Path::new("tests/fixtures/zh_hans/page_chariot_block_trailing_ellipsis.webp");
     if !img_path.exists() {
         return;
     }
     let img = image::ImageReader::open(img_path)
-        .expect("Failed to open page_197_seq_33.webp")
+        .expect("Failed to open page_chariot_block_trailing_ellipsis.webp")
         .with_guessed_format()
         .expect("Failed to guess format")
         .decode()
@@ -614,12 +671,12 @@ fn test_regression_page_197_seq_33() {
 ///   page edge (`x + w <= 765px`) with `angle = 0.0°`, and preserves cyan status card.
 #[test]
 fn test_regression_page_198_seq_34() {
-    let img_path = Path::new("tests/fixtures/zh_hans/page_198_seq_34.webp");
+    let img_path = Path::new("tests/fixtures/zh_hans/page_rocket_iron_cart_spiky_bubble.webp");
     if !img_path.exists() {
         return;
     }
     let img = image::ImageReader::open(img_path)
-        .expect("Failed to open page_198_seq_34.webp")
+        .expect("Failed to open page_rocket_iron_cart_spiky_bubble.webp")
         .with_guessed_format()
         .expect("Failed to guess format")
         .decode()
@@ -663,11 +720,12 @@ fn test_regression_page_198_seq_34() {
 /// - Negative guard: Zero *"中"* hallucination boxes (`assert!(!res.regions.iter().any(|r| r.text.trim() == "中"))`).
 #[test]
 fn test_regression_page_204_seq_38() {
-    let img_path = Path::new("tests/fixtures/zh_hans/page_63707.webp");
-    let fallback_path = Path::new("tests/fixtures/zh_hans/page_204_seq_38.webp");
-    let active_path = if img_path.exists() { img_path } else if fallback_path.exists() { fallback_path } else { return; };
-    let img = image::ImageReader::open(active_path)
-        .expect("Failed to open page_63707.webp")
+    let img_path = Path::new("tests/fixtures/zh_hans/page_thick_skin_cough_sfx.webp");
+    if !img_path.exists() {
+        return;
+    }
+    let img = image::ImageReader::open(img_path)
+        .expect("Failed to open page_thick_skin_cough_sfx.webp")
         .with_guessed_format()
         .expect("Failed to guess format")
         .decode()
@@ -785,12 +843,12 @@ fn test_regression_page_novice_mage_split_bubble() {
 /// - No duplicate/ghost trailing substring echo boxes (`和服务。\n祥`).
 #[test]
 fn test_regression_page_58375() {
-    let img_path = Path::new("tests/fixtures/zh_hans/page_58375.webp");
+    let img_path = Path::new("tests/fixtures/zh_hans/page_npc_harry_potter_spawn_point.webp");
     if !img_path.exists() {
         return;
     }
     let img = image::ImageReader::open(img_path)
-        .expect("Failed to open page_58375.webp")
+        .expect("Failed to open page_npc_harry_potter_spawn_point.webp")
         .with_guessed_format()
         .expect("Failed to guess format")
         .decode()
@@ -922,6 +980,128 @@ fn test_regression_page_parallel_world_extra_account() {
         "Must not contain hallucinated cross-bubble text '拍卫尺'"
     );
 }
+
+/// # Regression Test: Page 825 (Resolution: 800 × 1132 WebP)
+///
+/// ## Purpose & Behavior Tested:
+/// - **Vertical Onomatopoeia Recognition (`叽叽喳喳`)**:
+///   Guarantees that the vertical speech bubble on the stairs in Panel 3 is fully recognized as
+///   4 characters (`叽叽喳喳` / `叽\n叽\n喳\n喳`) rather than truncated into 2 characters (`叽\n喳`).
+/// - **Multi-Bubble Environmental Noise Accounting (`吵闹`)**:
+///   Validates that all 4 background chatter bubbles (`吵闹`) across Panel 2 and Panel 3 are
+///   detected as distinct dialogue/sound regions.
+/// - **Watermark Suppression**:
+///   Ensures bottom-right margin watermark (`漫客栈`) is not detected.
+///
+/// ## Key Invariants:
+/// - Exactly 5 regions detected (`assert_eq!(res.regions.len(), 5)`).
+/// - Vertical chirping bubble (`叽叽喳喳`) contains all 4 characters without truncation.
+/// - Exactly 4 chatter bubbles (`吵闹`).
+/// - No hallucinated watermark regions.
+#[test]
+fn test_regression_page_825() {
+    let img_path = Path::new("tests/fixtures/zh_hans/page_stairs_vertical_chirping_noise.webp");
+    if !img_path.exists() {
+        return;
+    }
+    let img = image::ImageReader::open(img_path)
+        .expect("Failed to open page_stairs_vertical_chirping_noise.webp")
+        .with_guessed_format()
+        .expect("Failed to guess format")
+        .decode()
+        .expect("Failed to decode image");
+
+    let res = get_or_analyze_fixture(&img);
+    println!("Page 825 detected {} regions:", res.regions.len());
+    for (i, r) in res.regions.iter().enumerate() {
+        println!(
+            "  Region r{}: box={:?}, text='{}', angle={:.2}, conf={:.2}, vertical={}",
+            i,
+            r.box_,
+            r.text.replace('\n', "\\n"),
+            r.angle,
+            r.confidence,
+            r.vertical
+        );
+    }
+
+    // 1. Strict Total Region Count: exactly 5 regions
+    assert_eq!(res.regions.len(), 5, "Page 825 must have exactly 5 regions, got {}", res.regions.len());
+
+    // 2. Stairs Upper Vertical Bubble: "叽叽喳喳" (4 vertical characters)
+    let chirp_bubble = res.regions.iter().find(|r| {
+        let clean = r.text.replace(['\n', ' ', '\r'], "");
+        clean.contains("叽") || clean.contains("喳")
+    });
+    assert!(chirp_bubble.is_some(), "Must detect stairs vertical bubble '叽叽喳喳'");
+    let chirp_region = chirp_bubble.unwrap();
+    let chirp_text = chirp_region.text.replace(['\n', ' ', '\r'], "");
+    assert_eq!(
+        chirp_text,
+        "叽叽喳喳",
+        "Vertical chirping bubble must contain all 4 characters ('叽叽喳喳'), got '{}'",
+        chirp_region.text.replace('\n', "\\n")
+    );
+    assert!(
+        chirp_region.box_.y >= 700 && chirp_region.box_.y <= 920,
+        "Chirp bubble y ({}) must be within stairs upper panel area",
+        chirp_region.box_.y
+    );
+
+    // 3. Four Environmental Noise Bubbles ("吵闹")
+    let noise_bubbles: Vec<_> = res
+        .regions
+        .iter()
+        .filter(|r| {
+            let clean = r.text.replace(['\n', ' ', '\r'], "");
+            clean == "吵闹"
+        })
+        .collect();
+    assert_eq!(
+        noise_bubbles.len(),
+        4,
+        "Must detect exactly 4 '吵闹' noise bubbles, got {}",
+        noise_bubbles.len()
+    );
+
+    // Verify positions of the 4 noise bubbles:
+    // a. Top-right rooftop: x ~ [540..660], y ~ [350..450]
+    assert!(
+        noise_bubbles.iter().any(|r| r.box_.x >= 520 && r.box_.y <= 450),
+        "Must have rooftop noise bubble in top-right"
+    );
+    // b. Middle-left porch: x ~ [30..130], y ~ [480..580]
+    assert!(
+        noise_bubbles.iter().any(|r| r.box_.x <= 130 && r.box_.y >= 470 && r.box_.y <= 600),
+        "Must have porch noise bubble in middle-left"
+    );
+    // c. Lower lawn: x ~ [300..420], y ~ [640..730]
+    assert!(
+        noise_bubbles.iter().any(|r| r.box_.x >= 280 && r.box_.x <= 450 && r.box_.y >= 630 && r.box_.y <= 740),
+        "Must have lawn noise bubble in lower lawn"
+    );
+    // d. Stairs lower bubble: x ~ [580..700], y ~ [950..1060]
+    assert!(
+        noise_bubbles.iter().any(|r| r.box_.x >= 560 && r.box_.y >= 930),
+        "Must have stairs lower noise bubble"
+    );
+
+    // 4. Negative Guards:
+    // a. No truncated 2-character chirp bubble
+    assert!(
+        !res.regions.iter().any(|r| {
+            let clean = r.text.replace(['\n', ' ', '\r'], "");
+            clean == "叽喳"
+        }),
+        "Must not have truncated 2-character '叽喳' region"
+    );
+    // b. No watermark detection ('漫客栈')
+    assert!(
+        !res.regions.iter().any(|r| r.text.contains("漫客") || r.text.contains("漫客栈")),
+        "Must not detect bottom-right watermark '漫客栈'"
+    );
+}
+
 
 
 

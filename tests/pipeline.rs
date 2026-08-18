@@ -5,7 +5,7 @@ use common::{hash_image, read_cache, write_cache};
 use xianscan_rust::ml::schemas::{AnalyzeResponse, CleanRequestRegion};
 use xianscan_rust::pipeline::PipelineEngine;
 
-/// # End-to-End Pipeline Test: Detection, OCR & Inpainting on `page_679.webp`
+/// # End-to-End Pipeline Test: Detection, OCR & Inpainting on `page_zhang_yude_chengdu_cemetery.webp`
 ///
 /// ## Purpose:
 /// Tests the full multi-stage processing pipeline on a real manga page:
@@ -14,9 +14,9 @@ use xianscan_rust::pipeline::PipelineEngine;
 /// 3. Executes LaMa inpainting to ensure image dimensions (`w`, `h`) remain preserved.
 #[test]
 fn test_end_to_end_pipeline_on_page_679() {
-    let img_path = Path::new("tests/fixtures/zh_hans/page_679.webp");
+    let img_path = Path::new("tests/fixtures/zh_hans/page_zhang_yude_chengdu_cemetery.webp");
     let img = image::ImageReader::open(img_path)
-        .expect("Failed to open page_679.webp")
+        .expect("Failed to open page_zhang_yude_chengdu_cemetery.webp")
         .with_guessed_format()
         .expect("Failed to guess format")
         .decode()
@@ -77,9 +77,9 @@ fn test_end_to_end_pipeline_on_page_679() {
 fn test_pipeline_analyze_with_language_filtering() {
     use xianscan_rust::ml::schemas::AnalyzeOptions;
 
-    let img_path = Path::new("tests/fixtures/zh_hans/page_679.webp");
+    let img_path = Path::new("tests/fixtures/zh_hans/page_zhang_yude_chengdu_cemetery.webp");
     let img = image::ImageReader::open(img_path)
-        .expect("Failed to open page_679.webp")
+        .expect("Failed to open page_zhang_yude_chengdu_cemetery.webp")
         .with_guessed_format()
         .expect("Failed to guess format")
         .decode()

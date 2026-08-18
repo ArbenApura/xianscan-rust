@@ -53,6 +53,50 @@ pub fn post_process_regions(
         final_regions.push(r);
     }
 
+    // 1b. Duplicate / Subsumed Sub-Box Deduplication
+    let mut deduped_regions: Vec<Region> = Vec::new();
+    for r in final_regions {
+        let r_text = r.text.trim();
+        let mut is_subsumed = false;
+
+        for existing in &mut deduped_regions {
+            let ex_text = existing.text.trim();
+            let x_overlap = ((r.box_.x + r.box_.w).min(existing.box_.x + existing.box_.w) - r.box_.x.max(existing.box_.x)).max(0);
+            let y_overlap = ((r.box_.y + r.box_.h).min(existing.box_.y + existing.box_.h) - r.box_.y.max(existing.box_.y)).max(0);
+            let min_w = r.box_.w.min(existing.box_.w);
+            let min_h = r.box_.h.min(existing.box_.h);
+
+            let x_ratio = x_overlap as f32 / min_w as f32;
+            let y_ratio = y_overlap as f32 / min_h as f32;
+
+            let is_exact = r_text == ex_text;
+            let is_sub = ex_text.contains(r_text) && ex_text.chars().count() > r_text.chars().count();
+            let is_sup = r_text.contains(ex_text) && r_text.chars().count() > ex_text.chars().count();
+
+            if (is_sub && x_ratio >= 0.50 && y_ratio >= 0.30) || (is_exact && x_ratio >= 0.50 && y_ratio >= 0.40) {
+                is_subsumed = true;
+                break;
+            } else if is_sup && x_ratio >= 0.50 && y_ratio >= 0.30 {
+                existing.text = r.text.clone();
+                let x0 = existing.box_.x.min(r.box_.x);
+                let y0 = existing.box_.y.min(r.box_.y);
+                let x1 = (existing.box_.x + existing.box_.w).max(r.box_.x + r.box_.w);
+                let y1 = (existing.box_.y + existing.box_.h).max(r.box_.y + r.box_.h);
+                existing.box_ = BoxRect { x: x0, y: y0, w: x1 - x0, h: y1 - y0 };
+                existing.polygon = vec![
+                    [x0, y0], [x1, y0], [x1, y1], [x0, y1],
+                ];
+                is_subsumed = true;
+                break;
+            }
+        }
+
+        if !is_subsumed {
+            deduped_regions.push(r);
+        }
+    }
+    final_regions = deduped_regions;
+
     // 2. Post-merge: unify split double-cloud speech bubble monologues and narration blocks
     loop {
         let n = final_regions.len();
@@ -102,8 +146,18 @@ pub fn post_process_regions(
                 // Dialogue Speech Invariant:
                 // Distinct multi-line speech bubbles (>= 2 lines in both, or >= 3 lines in either)
                 // represent independent dialogue utterances and must never be post-merged across bubbles.
-                // Similarly, dialogue speeches ending with terminal punctuation (。！？) must not merge into the next bubble.
-                if !is_both_narration {
+                // Similarly, dialogue speeches ending with terminal punctuation (。！？) must not merge into the next bubble unless it's a tight continuous sentence in the same bubble.
+                let x_lo_pre = top.box_.x.max(bot.box_.x);
+                let x_hi_pre = (top.box_.x + top.box_.w).min(bot.box_.x + bot.box_.w);
+                let x_overlap_pre = x_hi_pre - x_lo_pre;
+                let min_w_pre = top.box_.w.min(bot.box_.w);
+                let top_cx_pre = top.box_.x + top.box_.w / 2;
+                let bot_cx_pre = bot.box_.x + bot.box_.w / 2;
+                let is_same_bubble_continuation = x_overlap_pre >= min_w_pre * 3 / 5
+                    && (top_cx_pre - bot_cx_pre).abs() <= min_w_pre * 2 / 5
+                    && (bot.box_.y - (top.box_.y + top.box_.h)) <= ((top.box_.h + bot.box_.h) / 2) * 2 / 5;
+
+                if !is_both_narration && !is_same_bubble_continuation {
                     if (top_lines >= 2 && bot_lines >= 2) || top_lines >= 3 || bot_lines >= 3 || top_ends_with_terminal {
                         continue;
                     }
