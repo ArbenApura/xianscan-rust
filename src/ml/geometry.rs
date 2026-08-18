@@ -607,3 +607,97 @@ pub fn dilate_mask(mask: &[u8], width: usize, height: usize, radius: i32) -> Vec
 
     dilated
 }
+
+/// ORDERS 4 CORNER POINTS INTO [TOP-LEFT, TOP-RIGHT, BOTTOM-RIGHT, BOTTOM-LEFT]
+pub fn order_points_clockwise(pts: &[[f32; 2]]) -> [[f32; 2]; 4] {
+    let mut sorted_x = pts.to_vec();
+    sorted_x.sort_by(|a, b| a[0].total_cmp(&b[0]).then(a[1].total_cmp(&b[1])));
+
+    let (tl, bl) = if sorted_x[0][1] < sorted_x[1][1] {
+        (sorted_x[0], sorted_x[1])
+    } else {
+        (sorted_x[1], sorted_x[0])
+    };
+
+    let (tr, br) = if sorted_x[2][1] < sorted_x[3][1] {
+        (sorted_x[2], sorted_x[3])
+    } else {
+        (sorted_x[3], sorted_x[2])
+    };
+
+    [tl, tr, br, bl]
+}
+
+/// RECTIFIES A ROTATED 4-POINT BOUNDING QUAD INTO AN UPRIGHT HORIZONTAL CROP USING BILINEAR INTERPOLATION
+pub fn get_rotate_crop_image(img: &image::DynamicImage, pts: &[[i32; 2]]) -> Option<image::DynamicImage> {
+    if pts.len() != 4 {
+        return None;
+    }
+
+    let f32_pts: Vec<[f32; 2]> = pts.iter().map(|p| [p[0] as f32, p[1] as f32]).collect();
+    let [tl, tr, br, bl] = order_points_clockwise(&f32_pts);
+
+    let top_w = ((tr[0] - tl[0]).powi(2) + (tr[1] - tl[1]).powi(2)).sqrt();
+    let bot_w = ((br[0] - bl[0]).powi(2) + (br[1] - bl[1]).powi(2)).sqrt();
+    let left_h = ((bl[0] - tl[0]).powi(2) + (bl[1] - tl[1]).powi(2)).sqrt();
+    let right_h = ((br[0] - tr[0]).powi(2) + (br[1] - tr[1]).powi(2)).sqrt();
+
+    let crop_w = (top_w.max(bot_w).round() as u32).max(4);
+    let crop_h = (left_h.max(right_h).round() as u32).max(4);
+
+    let (img_w, img_h) = image::GenericImageView::dimensions(img);
+    if img_w == 0 || img_h == 0 {
+        return None;
+    }
+
+    let rgb = img.to_rgb8();
+    let mut out = image::ImageBuffer::from_pixel(crop_w, crop_h, image::Rgb([255_u8, 255, 255]));
+
+    let max_x_idx = (img_w - 1) as f32;
+    let max_y_idx = (img_h - 1) as f32;
+
+    for y in 0..crop_h {
+        let v = (y as f32 + 0.5) / crop_h as f32;
+        let left_x = tl[0] * (1.0 - v) + bl[0] * v;
+        let left_y = tl[1] * (1.0 - v) + bl[1] * v;
+        let right_x = tr[0] * (1.0 - v) + br[0] * v;
+        let right_y = tr[1] * (1.0 - v) + br[1] * v;
+
+        for x in 0..crop_w {
+            let u = (x as f32 + 0.5) / crop_w as f32;
+            let src_x = (left_x * (1.0 - u) + right_x * u).clamp(0.0, max_x_idx);
+            let src_y = (left_y * (1.0 - u) + right_y * u).clamp(0.0, max_y_idx);
+
+            let x0 = src_x.floor() as u32;
+            let y0 = src_y.floor() as u32;
+            let x1 = (x0 + 1).min(img_w - 1);
+            let y1 = (y0 + 1).min(img_h - 1);
+
+            let fx = src_x - x0 as f32;
+            let fy = src_y - y0 as f32;
+
+            let p00 = rgb.get_pixel(x0, y0);
+            let p10 = rgb.get_pixel(x1, y0);
+            let p01 = rgb.get_pixel(x0, y1);
+            let p11 = rgb.get_pixel(x1, y1);
+
+            let mut out_rgb = [0_u8; 3];
+            for c in 0..3 {
+                let top = (p00[c] as f32) * (1.0 - fx) + (p10[c] as f32) * fx;
+                let bot = (p01[c] as f32) * (1.0 - fx) + (p11[c] as f32) * fx;
+                let val = top * (1.0 - fy) + bot * fy;
+                out_rgb[c] = val.round().clamp(0.0, 255.0) as u8;
+            }
+
+            out.put_pixel(x, y, image::Rgb(out_rgb));
+        }
+    }
+
+    let dynamic_out = image::DynamicImage::ImageRgb8(out);
+    if crop_h as f32 >= 1.5 * crop_w as f32 {
+        Some(dynamic_out.rotate270())
+    } else {
+        Some(dynamic_out)
+    }
+}
+

@@ -38,7 +38,7 @@ export interface PageTranslation {
 // -- CONSTANTS -- //
 
 // PART OF THE CACHE KEY — BUMP WHEN THE PROMPTS CHANGE SO STALE CACHED TRANSLATIONS NEVER RESURFACE.
-export const PROMPT_VERSION = 'v13';
+export const PROMPT_VERSION = 'v14';
 
 // A TRANSLATION LONGER THAN 6× THE SOURCE IS ALMOST CERTAINLY THE MODEL REWRITING THE PROMPT / ADDING
 // EXPLANATIONS — FLAGGED FOR A REFILL (SAME HEURISTIC AS xianslate's looksOverExpanded).
@@ -211,6 +211,11 @@ Watermark & Scanlation Tag Filtering:
 - Story Text is NOT a Watermark: In-universe names, military forces, bandit fortresses, location names, or character sketch captions are NOT watermarks. NEVER filter them out.
 - Official Comic Staff & Production Credits: ALWAYS TRANSLATE official manga/manhua/comic author, artist, and studio production credits (e.g. STAFF, Original Work, Main Artist, Assistants, Production, Storyboard, Line Art, Supervisor, Coloring, etc.).
 - If a dialogue bubble contains legitimate character speech mixed with a trailing watermark or website URL, translate ONLY the dialogue portion and omit the watermark entirely.
+
+Corrupted & Unrecognizable Sound Effects (SFX) / Artwork Noise Suppression:
+- If a free-text or background sound effect region is severely garbled, distorted lettering, non-lexical OCR noise (e.g. "нбьблу"), or illegible handwriting where the true meaning cannot be reliably deciphered with high confidence, return an EMPTY STRING "" for its id.
+- Returning "" tags the region as unrecognized and automatically preserves the original artist's background drawing, hair, and clothing without hallucinating fake translations (e.g. "Mumble...", "CLOP") or causing damaging inpainting over character art.
+- Legitimate dialogue bubbles and clearly decipherable sound effects (e.g. "ого...", "ПОГОДИ НЕМНОГО...", "БАМ!", "ВСПЫХ!") must ALWAYS be translated.
 
 General Rules:
 - Never add narration, explanations, or stage directions outside the text itself.

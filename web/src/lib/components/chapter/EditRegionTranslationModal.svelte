@@ -237,6 +237,10 @@
 								<span class="rounded-md bg-amber-500/15 border border-amber-500/30 px-2 py-0.5 text-[10px] font-bold text-amber-700 dark:text-amber-300">
 									Manual Edit
 								</span>
+							{:else if !region.textTarget && !region.originalTarget}
+								<span class="rounded-md bg-amber-500/15 border border-amber-500/30 px-2 py-0.5 text-[10px] font-bold text-amber-700 dark:text-amber-300">
+									Unrecognized SFX (Bypassed)
+								</span>
 							{/if}
 							{#if b}
 								<span class="text-[10px] font-mono opacity-50">

@@ -148,3 +148,67 @@ fn test_regression_page_girl_shiver_curved_sfx_tyayan() {
     );
 }
 
+/// # Russian Real-Page Regression: `page_girl_hair_touch_sfx_trog.webp` (Resolution: 720 × 2046)
+///
+/// ## Purpose & Behavior Tested:
+/// - **Upper Dialogue Bubble**:
+///   Guarantees `«ого...»` is cleanly extracted.
+/// - **Slanted Cyrillic SFX**:
+///   Guarantees curved action SFX `«трог...»` / `«хлоп...»` is recognized in Cyrillic without Latin `"кlоп"`.
+/// - **Lower Dialogue Bubble**:
+///   Guarantees `«КАКОЙ ЖЕ ОН\nКРАСАВЧИК.»` is cleanly extracted across 2 lines.
+#[test]
+fn test_regression_page_girl_hair_touch_sfx_trog() {
+    let img_path = Path::new("tests/fixtures/ru/page_girl_hair_touch_sfx_trog.webp");
+    if !img_path.exists() {
+        eprintln!("Fixture {:?} not found, skipping test", img_path);
+        return;
+    }
+
+    let img = image::ImageReader::open(img_path)
+        .expect("Failed to open page_girl_hair_touch_sfx_trog.webp")
+        .with_guessed_format()
+        .expect("Failed to guess format")
+        .decode()
+        .expect("Failed to decode image");
+
+    let res = get_or_analyze_fixture_with_lang(&img, Some("ru"));
+    println!("Russian Page detected {} regions:", res.regions.len());
+    for (i, r) in res.regions.iter().enumerate() {
+        println!("  Region r{}: box={:?}, text='{}', conf={:.2}", i, r.box_, r.text.replace('\n', "\\n"), r.confidence);
+    }
+
+    // 1. EXACT REGION COUNT
+    assert_eq!(res.regions.len(), 3, "Must have exactly 3 detected regions, got {}", res.regions.len());
+
+    // 2. UPPER DIALOGUE BUBBLE: «ого...»
+    assert!(
+        res.regions[0].text.to_lowercase().contains("ого"),
+        "Region 0 must be 'ого...', got '{}'",
+        res.regions[0].text
+    );
+
+    // 3. SLANTED SFX: Must recognize Cyrillic action SFX 'трог' without 'клоп' / 'кlоп'
+    let sfx_text = res.regions[1].text.to_lowercase();
+    assert!(
+        !sfx_text.contains("клоп") && !sfx_text.contains("кlоп"),
+        "Region 1 must not contain 'клоп' or 'кlоп', got '{}'",
+        res.regions[1].text
+    );
+    assert!(
+        sfx_text.contains("трог"),
+        "Region 1 must recognize 'трог', got '{}'",
+        res.regions[1].text
+    );
+
+    // 4. LOWER DIALOGUE BUBBLE: «КАКОЙ ЖЕ ОН\nКРАСАВЧИК.»
+    let bottom_text = res.regions[2].text.to_uppercase();
+    assert!(
+        bottom_text.contains("КАКОЙ") && bottom_text.contains("КРАСАВЧИК"),
+        "Region 2 must contain 'КАКОЙ ЖЕ ОН КРАСАВЧИК', got '{}'",
+        res.regions[2].text
+    );
+}
+
+
+

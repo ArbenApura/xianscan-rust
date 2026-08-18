@@ -603,24 +603,40 @@ impl RapidOcr {
         };
 
         for poly in detected_boxes {
-            let (x0, y0, bw, bh) = polygon_bounds(&poly);
-            if bw >= 4 && bh >= 4 && x0 < w as i32 && y0 < h as i32 {
-                let crop_x = x0.max(0) as u32;
-                let crop_y = y0.max(0) as u32;
-                let crop_w = (bw as u32).min(w - crop_x);
-                let crop_h = (bh as u32).min(h - crop_y);
+            let ang = crate::ml::geometry::calculate_box_angle_i32(&poly);
+            let crop_opt = if ang.abs() >= 2.0 && poly.len() == 4 {
+                crate::ml::geometry::get_rotate_crop_image(img, &poly)
+            } else {
+                None
+            };
 
-                if crop_w >= 4 && crop_h >= 4 {
-                    let crop = img.crop_imm(crop_x, crop_y, crop_w, crop_h);
-                    if let Ok(Some(line_res)) = self.recognize_line_with_lang(&crop, source_lang) {
-                        if !line_res.text.is_empty() {
-                            lines.push(OcrLine {
-                                polygon: poly,
-                                text: line_res.text,
-                                score: line_res.score,
-                            });
-                        }
+            let crop = if let Some(rc) = crop_opt {
+                rc
+            } else {
+                let (x0, y0, bw, bh) = polygon_bounds(&poly);
+                if bw >= 4 && bh >= 4 && x0 < w as i32 && y0 < h as i32 {
+                    let crop_x = x0.max(0) as u32;
+                    let crop_y = y0.max(0) as u32;
+                    let crop_w = (bw as u32).min(w - crop_x);
+                    let crop_h = (bh as u32).min(h - crop_y);
+
+                    if crop_w >= 4 && crop_h >= 4 {
+                        img.crop_imm(crop_x, crop_y, crop_w, crop_h)
+                    } else {
+                        continue;
                     }
+                } else {
+                    continue;
+                }
+            };
+
+            if let Ok(Some(line_res)) = self.recognize_line_with_lang(&crop, source_lang) {
+                if !line_res.text.is_empty() {
+                    lines.push(OcrLine {
+                        polygon: poly,
+                        text: line_res.text,
+                        score: line_res.score,
+                    });
                 }
             }
         }

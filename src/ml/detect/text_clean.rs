@@ -87,7 +87,7 @@ pub fn is_pure_watermark_region(text: &str) -> bool {
     if trimmed.is_empty() {
         return false;
     }
-    let num_re = Regex::new(r"^(?:200|300|500|000|ooo|OOO|[0oO·•]{2,4})$").unwrap();
+    let num_re = Regex::new(r"^(?:200|300|500|000|ooo|OOO|[0oO·•]{2,4}|[0oO·•][.\s…]+[0oO·•]?|[0oO·•]?\s*[.\s…]+[0oO·•]?)$").unwrap();
     if num_re.is_match(trimmed) {
         return true;
     }

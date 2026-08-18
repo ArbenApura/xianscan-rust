@@ -640,6 +640,10 @@
 											<span class="rounded bg-amber-500/15 border border-amber-500/30 px-1.5 py-0.5 text-[9px] font-bold text-amber-700 dark:text-amber-300">
 												Edited
 											</span>
+										{:else if !region.textTarget}
+											<span class="rounded bg-neutral-500/15 border border-neutral-500/30 px-1.5 py-0.5 text-[9px] font-bold text-neutral-600 dark:text-neutral-400">
+												Unrecognized SFX
+											</span>
 										{/if}
 										{#if region.conf !== null}
 											<span class="text-[10px] font-mono opacity-50">
@@ -768,8 +772,13 @@
 										</div>
 									</div>
 								{:else}
-									<div class="mt-2 border-t border-black/[0.05] pt-1.5 dark:border-white/[0.05] flex items-center justify-between">
-										<span class="text-[10px] opacity-40 italic">No translation yet</span>
+									<div class="mt-2 border-t border-black/[0.05] pt-1.5 dark:border-white/[0.05] flex flex-wrap items-center justify-between gap-1.5">
+										<div class="flex items-center gap-1.5">
+											<span class="rounded bg-amber-500/15 border border-amber-500/30 px-1.5 py-0.5 text-[9px] font-bold text-amber-700 dark:text-amber-300">
+												Unrecognized SFX
+											</span>
+											<span class="text-[10px] opacity-50 italic">Bypassed during typesetting (original art preserved)</span>
+										</div>
 										<button
 											type="button"
 											class="inline-flex items-center gap-1 text-[10px] font-semibold text-[#b23a2e] dark:text-[#e08a63] hover:underline"

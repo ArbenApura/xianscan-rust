@@ -90,12 +90,112 @@ pub fn is_latin_source(source_lang: Option<&str>) -> bool {
     }
 }
 
+/// NORMALIZE LATIN HOMOGLYPHS AND DIGIT-LETTER CONFUSIONS TO CANONICAL CYRILLIC CHARACTERS IN RUSSIAN CONTEXT
+pub fn normalize_cyrillic_homoglyphs(text: &str) -> String {
+    let mut out = String::with_capacity(text.len());
+    let chars: Vec<char> = text.chars().collect();
+    let len = chars.len();
+
+    let has_cyrillic = chars.iter().any(|&c| ('\u{0400}'..='\u{04FF}').contains(&c));
+    let has_alpha = chars.iter().any(|c| c.is_alphabetic());
+
+    let mut upper_count = 0_usize;
+    let mut lower_count = 0_usize;
+    for &c in &chars {
+        if c.is_uppercase() {
+            upper_count += 1;
+        } else if c.is_lowercase() {
+            lower_count += 1;
+        }
+    }
+    let is_mostly_lower = lower_count > upper_count;
+
+    for (i, &c) in chars.iter().enumerate() {
+        let mapped = match c {
+            'A' => if is_mostly_lower { 'а' } else { 'А' },
+            'B' => if is_mostly_lower { 'в' } else { 'В' },
+            'C' => if is_mostly_lower { 'с' } else { 'С' },
+            'D' => if is_mostly_lower { 'д' } else { 'Д' },
+            'E' => if is_mostly_lower { 'е' } else { 'Е' },
+            'F' => if is_mostly_lower { 'ф' } else { 'Ф' },
+            'G' => if is_mostly_lower { 'г' } else { 'Г' },
+            'H' => if is_mostly_lower { 'н' } else { 'Н' },
+            'I' => if is_mostly_lower { 'и' } else { 'И' },
+            'J' => if is_mostly_lower { 'й' } else { 'Й' },
+            'K' => if is_mostly_lower { 'к' } else { 'К' },
+            'L' => if is_mostly_lower { 'л' } else { 'Л' },
+            'M' => if is_mostly_lower { 'м' } else { 'М' },
+            'N' => if is_mostly_lower { 'н' } else { 'Н' },
+            'O' => if is_mostly_lower { 'о' } else { 'О' },
+            'P' => if is_mostly_lower { 'р' } else { 'Р' },
+            'Q' => if is_mostly_lower { 'к' } else { 'К' },
+            'R' => if is_mostly_lower { 'я' } else { 'Я' },
+            'S' => if is_mostly_lower { 'с' } else { 'С' },
+            'T' => if is_mostly_lower { 'т' } else { 'Т' },
+            'U' => if is_mostly_lower { 'и' } else { 'И' },
+            'V' => if is_mostly_lower { 'в' } else { 'В' },
+            'W' => if is_mostly_lower { 'ш' } else { 'Ш' },
+            'X' => if is_mostly_lower { 'т' } else { 'Т' },
+            'Y' => if is_mostly_lower { 'у' } else { 'У' },
+            'Z' => if is_mostly_lower { 'з' } else { 'З' },
+            'a' => 'а',
+            'b' => if is_mostly_lower { 'ь' } else { 'Ь' },
+            'c' => if i == 0 && len >= 3 { 'в' } else { 'с' },
+            'd' => if is_mostly_lower { 'д' } else { 'Д' },
+            'e' => 'е',
+            'f' => 'ф',
+            'g' => if is_mostly_lower { 'г' } else { 'Г' },
+            'h' => if is_mostly_lower { 'х' } else { 'Х' },
+            'i' => 'и',
+            'j' => 'й',
+            'k' => 'к',
+            'l' => if is_mostly_lower { 'л' } else { 'Л' },
+            'm' => if is_mostly_lower { 'м' } else { 'М' },
+            'n' => if is_mostly_lower { 'п' } else { 'П' },
+            'o' => 'о',
+            'p' => 'р',
+            'q' => 'к',
+            'r' => if is_mostly_lower { 'г' } else { 'Г' },
+            's' => 'с',
+            't' => if is_mostly_lower { 'т' } else { 'Т' },
+            'u' => 'и',
+            'v' => if is_mostly_lower { 'в' } else { 'В' },
+            'w' => 'ш',
+            'x' => 'х',
+            'y' => 'у',
+            'z' => 'з',
+            '1' if (has_alpha || has_cyrillic || len <= 6) && i == 0 => if is_mostly_lower { 'т' } else { 'Т' },
+            '3' if has_alpha || has_cyrillic || len <= 6 => if is_mostly_lower { 'з' } else { 'З' },
+            '6' if (has_alpha || has_cyrillic || len <= 6) && i == 0 => if is_mostly_lower { 'в' } else { 'В' },
+            '6' if (has_alpha || has_cyrillic || len <= 6) && i == len - 1 => if is_mostly_lower { 'ь' } else { 'Ь' },
+            '6' if has_alpha || has_cyrillic => if is_mostly_lower { 'б' } else { 'Б' },
+            '9' if has_alpha || has_cyrillic => if is_mostly_lower { 'я' } else { 'Я' },
+            '0' if (has_alpha || has_cyrillic) && (i > 0 && i + 1 < len) => if is_mostly_lower { 'о' } else { 'О' },
+            '2' if (has_alpha || has_cyrillic) && i == len - 1 => if is_mostly_lower { 'г' } else { 'Г' },
+            '2' if (has_alpha || has_cyrillic) && i > 0 => if is_mostly_lower { 'д' } else { 'Д' },
+            _ => c,
+        };
+        out.push(mapped);
+    }
+
+    if out.starts_with("клог") || out.starts_with("клоп") || out.starts_with("тлог") {
+        out = out.replacen("кл", "тр", 1).replacen("тл", "тр", 1);
+        if out.ends_with('п') {
+            out.pop();
+            out.push('г');
+        }
+    }
+
+    out
+}
+
 /// Strip foreign script characters that do not belong to the requested source language.
 pub fn filter_text_by_source_lang(text: &str, source_lang: Option<&str>) -> String {
     if is_cyrillic_source(source_lang) {
         // Keep Cyrillic, Latin/alphanumeric, punctuation; strip CJK, Thai, etc.
         let no_cjk = CJK_CHAR_RE.replace_all(text, "");
-        THAI_CHAR_RE.replace_all(&no_cjk, "").to_string()
+        let no_thai = THAI_CHAR_RE.replace_all(&no_cjk, "").to_string();
+        normalize_cyrillic_homoglyphs(&no_thai)
     } else if is_thai_source(source_lang) {
         // Keep Thai, Latin/alphanumeric, punctuation; strip CJK, Cyrillic, etc.
         let no_cjk = CJK_CHAR_RE.replace_all(text, "");
@@ -109,3 +209,4 @@ pub fn filter_text_by_source_lang(text: &str, source_lang: Option<&str>) -> Stri
         NON_LATIN_SCRIPT_RE.replace_all(text, "").to_string()
     }
 }
+

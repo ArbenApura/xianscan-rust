@@ -91,3 +91,41 @@ fn test_regression_page_who_is_she_bottom_box() {
     let bottom_box = bottom_box.unwrap();
     assert!(bottom_box.box_.y >= (res.height as f32 * 0.70) as i32, "Bottom box must be in bottom panel of image, got y={}", bottom_box.box_.y);
 }
+
+/// # Indonesian Real-Page Regression: `page_rising_aura_particle_noise.webp` (Resolution: 720 × 2080 WebP)
+///
+/// ## Purpose & Behavior Tested:
+/// - **Zero Hallucination Filter on Ambient Particle / Magical Aura Artwork**:
+///   Guarantees that magical aura crystal shards and floating particle rings
+///   are not hallucinated as `"0.0"`, `"0"`, or `"……"` speech regions.
+/// - **Pure Artwork Assertions**:
+///   Asserts that total detected regions count is exactly 0.
+#[test]
+fn test_regression_page_rising_aura_particle_noise() {
+    let img_path = Path::new("tests/fixtures/id/page_rising_aura_particle_noise.webp");
+    if !img_path.exists() {
+        eprintln!("Fixture {:?} not found, skipping test", img_path);
+        return;
+    }
+
+    let img = image::ImageReader::open(img_path)
+        .expect("Failed to open page_rising_aura_particle_noise.webp")
+        .with_guessed_format()
+        .expect("Failed to guess format")
+        .decode()
+        .expect("Failed to decode image");
+
+    let res = get_or_analyze_fixture_with_lang(&img, Some("id"));
+    println!("Indonesian Particle Noise Page detected {} regions:", res.regions.len());
+    for (i, r) in res.regions.iter().enumerate() {
+        println!("  Region r{}: box={:?}, text='{}', conf={:.2}", i, r.box_, r.text.replace('\n', "\\n"), r.confidence);
+    }
+
+    // 1. Exact count: exactly 0 regions
+    assert_eq!(res.regions.len(), 0, "Artwork-only particle page must have 0 detected regions, got {}", res.regions.len());
+
+    // 2. Explicit negative guards against hallucinated artifacts
+    assert!(!res.regions.iter().any(|r| r.text.contains("0.0") || r.text.contains("O.O")), "Must not detect '0.0' or 'O.O'");
+    assert!(!res.regions.iter().any(|r| r.text.trim() == "0" || r.text.trim() == "O"), "Must not detect isolated '0' or 'O'");
+}
+

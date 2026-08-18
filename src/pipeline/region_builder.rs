@@ -634,6 +634,13 @@ pub fn build_regions(
         let has_latin_alnum = crate::ml::detect::has_alphanumeric_characters(&cleaned);
         let cjk_count = cleaned.chars().filter(|c| CHINESE_RE.is_match(&c.to_string()) && !c.is_ascii_punctuation() && *c != '！' && *c != '!' && *c != '？' && *c != '?' && *c != '…' && *c != '~').count();
 
+        // NON-CJK / LATIN LOW-CONFIDENCE NOISE FILTER
+        let alpha_count = cleaned.chars().filter(|c| c.is_alphabetic()).count();
+        let digit_count = cleaned.chars().filter(|c| c.is_ascii_digit()).count();
+        let punct_count = cleaned.chars().filter(|c| c.is_ascii_punctuation() || *c == '…' || *c == '°' || *c == '·' || *c == '•').count();
+        let has_pure_particle_noise = (alpha_count == 0 && (digit_count > 0 || punct_count > 0) && (digit_count + punct_count) <= 6)
+            || (alpha_count <= 2 && (box_rect.w <= 40 || box_rect.h <= 40) && confidence < 0.70);
+
         if is_cjk && (char_count <= 1 || (cjk_count <= 1 && (box_rect.w <= 50 || box_rect.h <= 50)))
             && !cleaned.chars().any(|c| sfx_onomatopoeia.contains(c))
             && confidence < 0.73
@@ -641,11 +648,15 @@ pub fn build_regions(
             continue;
         }
 
-        if !is_cjk && (char_count <= 1 && !has_cyrillic && !has_thai && !has_latin_alnum)
-            && confidence < 0.73
-        {
-            continue;
+        if !is_cjk {
+            if has_pure_particle_noise && confidence < 0.75 {
+                continue;
+            }
+            if (char_count <= 1 && !has_cyrillic && !has_thai && !has_latin_alnum) && confidence < 0.73 {
+                continue;
+            }
         }
+
 
         // CALCULATE ROTATION ANGLE DIRECTLY FROM OCR LINE ORIENTATION
         let mut valid_angles: Vec<f32> = matched
