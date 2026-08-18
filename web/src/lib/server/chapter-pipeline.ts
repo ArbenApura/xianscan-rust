@@ -111,6 +111,10 @@ const MAX_EXTRACT_CHARS = 20_000;
 function regionRow(region: PipelineRegion, seq: number) {
 	const boxObj = {
 		...region.box,
+		bubble_box: region.bubble_box ?? null,
+		bubble_polygon: region.bubble_polygon ?? null,
+		centroid: region.centroid ?? null,
+		kind: region.kind ?? 'dialogue_bubble',
 		angle: region.angle,
 		vertical: region.vertical,
 	};

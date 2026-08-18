@@ -662,7 +662,8 @@ export interface ChapterReaderResult {
 	pages: ChapterPageData[];
 }
 
-function safeJson(raw: string): unknown {
+function safeJson(raw: string | null | undefined): unknown {
+	if (!raw) return null;
 	try {
 		return JSON.parse(raw);
 	} catch {
@@ -800,16 +801,23 @@ export async function getChapterReaderData(chapterId: number): Promise<ChapterRe
 			error: p.error,
 			width: p.width,
 			height: p.height,
-			regions: (byPage.get(p.id) ?? []).map((r) => ({
-				id: r.id,
-				seq: r.seq,
-				box: safeJson(r.box),
-				polygon: safeJson(r.polygon),
-				textSource: r.textSource,
-				textTarget: r.textTarget,
-				originalTarget: (r as any).originalTarget ?? r.textTarget,
-				conf: r.conf,
-			})),
+			regions: (byPage.get(p.id) ?? []).map((r) => {
+				const parsedBox = safeJson(r.box) as any;
+				return {
+					id: r.id,
+					seq: r.seq,
+					box: parsedBox,
+					polygon: safeJson(r.polygon),
+					bubble_box: parsedBox?.bubble_box ?? null,
+					bubble_polygon: parsedBox?.bubble_polygon ?? null,
+					centroid: parsedBox?.centroid ?? null,
+					kind: parsedBox?.kind ?? 'dialogue_bubble',
+					textSource: r.textSource,
+					textTarget: r.textTarget,
+					originalTarget: (r as any).originalTarget ?? r.textTarget,
+					conf: r.conf,
+				};
+			}),
 		})),
 	};
 }
@@ -938,16 +946,23 @@ export function getPageWithRegions(pageId: number) {
 		error: pageRow.error,
 		width: pageRow.width,
 		height: pageRow.height,
-		regions: allRegions.map((r) => ({
-			id: r.id,
-			seq: r.seq,
-			box: safeJson(r.box),
-			polygon: safeJson(r.polygon),
-			textSource: r.textSource,
-			textTarget: r.textTarget,
-			originalTarget: (r as any).originalTarget ?? r.textTarget,
-			conf: r.conf,
-		})),
+		regions: allRegions.map((r) => {
+			const parsedBox = safeJson(r.box) as any;
+			return {
+				id: r.id,
+				seq: r.seq,
+				box: parsedBox,
+				polygon: safeJson(r.polygon),
+				bubble_box: parsedBox?.bubble_box ?? null,
+				bubble_polygon: parsedBox?.bubble_polygon ?? null,
+				centroid: parsedBox?.centroid ?? null,
+				kind: parsedBox?.kind ?? 'dialogue_bubble',
+				textSource: r.textSource,
+				textTarget: r.textTarget,
+				originalTarget: (r as any).originalTarget ?? r.textTarget,
+				conf: r.conf,
+			};
+		}),
 	};
 }
 

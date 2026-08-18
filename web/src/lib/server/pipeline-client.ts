@@ -14,6 +14,10 @@ export interface PipelineRegion {
 	id: string;
 	box: PipelineBox;
 	polygon: number[][];
+	bubble_box?: PipelineBox | null;
+	bubble_polygon?: number[][] | null;
+	centroid?: { x: number; y: number } | null;
+	kind?: 'dialogue_bubble' | 'free_text' | 'sound_effect';
 	text: string;
 	confidence: number;
 	vertical: boolean;

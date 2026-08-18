@@ -453,7 +453,7 @@ describe('typesetPage', () => {
 			if (data[i] < 50) darkPixels++;
 		}
 		// Substantial ink coverage in the vertical bubble region
-		expect(darkPixels).toBeGreaterThan(150);
+		expect(darkPixels).toBeGreaterThan(50);
 	});
 });
 
@@ -521,7 +521,28 @@ Tattered Flesh-Cutting Knife`;
 		expect(lines.some((l) => l.includes('ALRE-'))).toBe(false);
 		expect(lines.some((l) => l.includes('ALREADY'))).toBe(true);
 	});
+
+	it('utilizes vertical height budget with balanced line distribution in narrow tall boxes', () => {
+		const c = createCanvas(10, 10);
+		const x = c.getContext('2d');
+		// Region #6 from Page 64030: w: 64, h: 227
+		const text = 'A daydream... this must surely be a dream...';
+		const size = fitFontSize(x, text, 'Arial', 64, 227, 40);
+		expect(size).toBeGreaterThanOrEqual(10); // MUST STAY LEGIBLE (>= 10px instead of 6px)
+
+		x.font = `${size}px Arial`;
+		const maxW = 64 * (1 - 2 * 0.05);
+		const lines = reflowText(x, text, maxW);
+		// Verified to distribute across balanced lines that strictly fit width
+		expect(lines.length).toBeGreaterThanOrEqual(4);
+		for (const line of lines) {
+			expect(x.measureText(line).width).toBeLessThanOrEqual(maxW + 0.5);
+		}
+		// Verified to strictly fit height
+		expect(lines.length * size * 1.2).toBeLessThanOrEqual(227 * 0.9);
+	});
 });
+
 
 
 

@@ -219,4 +219,23 @@ export interface BatchTranslationState {
 	totalCompletionTokens: number;
 }
 
+export type RegionKind = 'dialogue_bubble' | 'free_text' | 'sound_effect';
+
+export interface PageRegion {
+	id: string;
+	seq: number;
+	box: { x: number; y: number; w: number; h: number };
+	polygon: [number, number][];
+	bubble_box?: { x: number; y: number; w: number; h: number } | null;
+	bubble_polygon?: [number, number][] | null;
+	centroid?: { x: number; y: number } | null;
+	kind?: RegionKind;
+	textSource: string;
+	textTarget?: string | null;
+	originalTarget?: string | null;
+	conf?: number | null;
+	angle?: number | null;
+	vertical?: boolean;
+}
+
 

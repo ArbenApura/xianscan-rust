@@ -29,6 +29,10 @@
 	let inspectTab: 'output' | 'cleaned' | 'original' = 'output';
 	let mobileSection: 'image' | 'regions' = 'image';
 	let showRegions = true;
+	let showBubbles = true;
+	let showTypeset = true;
+	let showInpaint = true;
+	let showCentroids = true;
 	let hoveredRegionId: number | null = null;
 	let imageScrollContainer: HTMLDivElement | null = null;
 
@@ -247,6 +251,47 @@
 		}
 	}
 
+	function getBubbleBox(region: any): { x: number; y: number; w: number; h: number } | null {
+		if (!region) return null;
+		if (region.bubble_box) return getBox(region.bubble_box);
+		if (region.bubbleBox) return getBox(region.bubbleBox);
+		const b = getBox(region.box);
+		if (b && (b as any).bubble_box) return getBox((b as any).bubble_box);
+		if (b && (b as any).bubbleBox) return getBox((b as any).bubbleBox);
+		return null;
+	}
+
+	function getCentroid(region: any): { x: number; y: number } | null {
+		if (!region) return null;
+		const raw = region.centroid ?? (getBox(region.box) as any)?.centroid;
+		if (raw) {
+			if (typeof raw === 'string') {
+				try {
+					return JSON.parse(raw);
+				} catch {
+					// fallback
+				}
+			}
+			if (typeof raw === 'object' && typeof raw.x === 'number' && typeof raw.y === 'number') {
+				return raw;
+			}
+		}
+		const bb = getBubbleBox(region);
+		if (bb) return { x: Math.round(bb.x + bb.w / 2), y: Math.round(bb.y + bb.h / 2) };
+		const b = getBox(region.box);
+		if (b) return { x: Math.round(b.x + b.w / 2), y: Math.round(b.y + b.h / 2) };
+		return null;
+	}
+
+	function getRegionKind(region: any): 'dialogue_bubble' | 'free_text' | 'sound_effect' {
+		if (!region) return 'dialogue_bubble';
+		if (region.kind) return region.kind;
+		const b = getBox(region.box);
+		if (b && (b as any).kind) return (b as any).kind;
+		if (getBubbleBox(region)) return 'dialogue_bubble';
+		return 'dialogue_bubble';
+	}
+
 	function copyInspectDebugInfo() {
 		if (!page) return;
 		const debug = {
@@ -259,10 +304,13 @@
 			regions: (page.regions || []).map((r: any) => ({
 				id: r.id,
 				seq: r.seq,
+				kind: getRegionKind(r),
 				confidence: r.conf,
 				angle: getRegionAngle(r),
 				vertical: isRegionVertical(r),
-				box: getBox(r.box),
+				centroid: getCentroid(r),
+				bubbleBox: getBubbleBox(r),
+				typesetBox: getBox(r.box),
 				inpaintPolygon: getPolygon(r.polygon),
 				sourceOcr: r.textSource,
 				translation: r.textTarget,
@@ -394,12 +442,12 @@
 							</button>
 						{/if}
 
-						<!-- REGION MAP OVERLAY TOGGLE -->
+						<!-- REGION MAP MASTER OVERLAY TOGGLE -->
 						<button
 							type="button"
 							class={`inline-flex items-center gap-1 rounded-lg px-2 sm:px-2.5 py-1 text-[10.5px] sm:text-[11px] font-semibold transition-all cursor-pointer ${
 								showRegions
-									? 'bg-emerald-600 text-white shadow-2xs hover:bg-emerald-700'
+									? 'bg-neutral-900 text-white shadow-2xs dark:bg-neutral-100 dark:text-neutral-900'
 									: 'border border-black/10 bg-white text-neutral-600 hover:bg-black/5 dark:border-white/10 dark:bg-neutral-800 dark:text-neutral-400 dark:hover:bg-white/5'
 							}`}
 							on:click={() => (showRegions = !showRegions)}
@@ -408,7 +456,7 @@
 							<span class="hidden sm:inline">Regions</span>
 							<span
 								class={`rounded px-1 py-0.2 text-[8.5px] sm:text-[9px] font-bold uppercase ${
-									showRegions ? 'bg-black/25 text-white' : 'bg-black/10 dark:bg-white/10'
+									showRegions ? 'bg-black/25 dark:bg-black/15 text-white dark:text-black' : 'bg-black/10 dark:bg-white/10'
 								}`}
 							>
 								{showRegions ? 'On' : 'Off'}
@@ -441,29 +489,50 @@
 									{@const active = hoveredRegionId === region.id || editingRegion?.id === region.id}
 									{#if showRegions || active}
 										{@const b = getBox(region.box)}
+										{@const bubbleB = getBubbleBox(region)}
 										{@const poly = getPolygon(region.polygon)}
+										{@const centroid = getCentroid(region)}
+										{@const kind = getRegionKind(region)}
 										{@const bx = b?.x ?? 0}
 										{@const by = b?.y ?? 0}
 										{@const bw = b?.w ?? 0}
 										{@const bh = b?.h ?? 0}
 										{@const angle = getRegionAngle(region)}
-										{@const stroke = '#b23a2e'}
+										{@const stroke = kind === 'sound_effect' ? '#f59e0b' : '#b23a2e'}
 
-										<!-- 1. FULL TYPESET CANVAS BOX (RED) -->
-										<rect
-											x={bx}
-											y={by}
-											width={bw}
-											height={bh}
-											fill={active ? `${stroke}20` : 'none'}
-											stroke={stroke}
-											stroke-width={active ? 3 : 1.75}
-											rx="3"
-											opacity={active ? 1 : 0.65}
-										/>
+										<!-- 1. SPEECH BUBBLE CONTAINER (EMERALD GREEN) -->
+										{#if showBubbles && bubbleB}
+											<rect
+												x={bubbleB.x}
+												y={bubbleB.y}
+												width={bubbleB.w}
+												height={bubbleB.h}
+												fill={active ? '#10b98125' : '#10b9810d'}
+												stroke="#10b981"
+												stroke-width={active ? 3 : 1.75}
+												stroke-dasharray="6 3"
+												rx="8"
+												opacity={active ? 1 : 0.85}
+											/>
+										{/if}
 
-										<!-- 2. TIGHT INPAINT BOUNDARY REGION (BLUE) -->
-										{#if poly}
+										<!-- 2. FULL TYPESET CANVAS BOX (RED / AMBER) -->
+										{#if showTypeset && b}
+											<rect
+												x={bx}
+												y={by}
+												width={bw}
+												height={bh}
+												fill={active ? `${stroke}20` : 'none'}
+												stroke={stroke}
+												stroke-width={active ? 3 : 1.75}
+												rx="3"
+												opacity={active ? 1 : 0.65}
+											/>
+										{/if}
+
+										<!-- 3. TIGHT INPAINT BOUNDARY REGION (BLUE) -->
+										{#if showInpaint && poly}
 											<polygon
 												points={polygonToSvgPoints(poly)}
 												fill={active ? '#2563eb35' : '#3b82f618'}
@@ -472,6 +541,36 @@
 												stroke-linejoin="round"
 												opacity={active ? 1 : 0.85}
 											/>
+										{/if}
+
+										<!-- 4. CENTROID CROSSHAIR (+) -->
+										{#if showCentroids && centroid}
+											<g opacity={active ? 1 : 0.75}>
+												<circle
+													cx={centroid.x}
+													cy={centroid.y}
+													r={active ? 5 : 3.5}
+													fill="#10b981"
+													stroke="#000"
+													stroke-width="1.5"
+												/>
+												<line
+													x1={centroid.x - 7}
+													y1={centroid.y}
+													x2={centroid.x + 7}
+													y2={centroid.y}
+													stroke="#10b981"
+													stroke-width="1.5"
+												/>
+												<line
+													x1={centroid.x}
+													y1={centroid.y - 7}
+													x2={centroid.x}
+													y2={centroid.y + 7}
+													stroke="#10b981"
+													stroke-width="1.5"
+												/>
+											</g>
 										{/if}
 
 										<text
@@ -510,21 +609,74 @@
 				</div>
 
 				{#if pw && ph}
-					<div class="flex items-center justify-between shrink-0 text-[10px] font-mono">
-						<div class="flex items-center gap-3">
+					<div class="flex flex-wrap items-center justify-between gap-2 shrink-0 text-[10px] font-mono">
+						<div class="flex flex-wrap items-center gap-2 sm:gap-3">
 							<span class="opacity-60">{pw} × {ph} px · {page.regions?.length ?? 0} regions</span>
-							<div class="flex items-center gap-2">
-								<span class="inline-flex items-center gap-1 text-[#b23a2e] dark:text-[#e08a63]">
-									<span class="inline-block w-2 h-2 rounded-xs border border-[#b23a2e] bg-[#b23a2e]/30"></span>
-									<span>Typeset Box</span>
-								</span>
-								<span class="inline-flex items-center gap-1 text-blue-600 dark:text-blue-400">
-									<span class="inline-block w-2 h-2 rounded-xs border border-blue-600 bg-blue-500/30"></span>
-									<span>Inpaint Region</span>
-								</span>
+
+							<!-- INTERACTIVE LAYER TOGGLE CHIPS -->
+							<div class="flex items-center gap-1 bg-black/5 dark:bg-white/5 p-0.5 rounded-lg">
+								<!-- BUBBLE CONTAINER TOGGLE -->
+								<button
+									type="button"
+									class={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded transition-all cursor-pointer ${
+										showBubbles
+											? 'bg-emerald-600/15 border border-emerald-600/30 text-emerald-700 dark:text-emerald-300 font-semibold'
+											: 'opacity-40 hover:opacity-80 text-neutral-600 dark:text-neutral-400 border border-transparent'
+									}`}
+									title="Toggle Speech Bubble Containers (Green)"
+									on:click={() => (showBubbles = !showBubbles)}
+								>
+									<span class={`inline-block w-2 h-2 rounded-xs border border-emerald-600 border-dashed ${showBubbles ? 'bg-emerald-500' : 'bg-transparent'}`}></span>
+									<span>Bubble</span>
+								</button>
+
+								<!-- TYPESET BOX TOGGLE -->
+								<button
+									type="button"
+									class={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded transition-all cursor-pointer ${
+										showTypeset
+											? 'bg-[#b23a2e]/15 border border-[#b23a2e]/30 text-[#b23a2e] dark:text-[#e08a63] font-semibold'
+											: 'opacity-40 hover:opacity-80 text-neutral-600 dark:text-neutral-400 border border-transparent'
+									}`}
+									title="Toggle Typeset Canvas Bounding Boxes (Red)"
+									on:click={() => (showTypeset = !showTypeset)}
+								>
+									<span class={`inline-block w-2 h-2 rounded-xs border border-[#b23a2e] ${showTypeset ? 'bg-[#b23a2e]' : 'bg-transparent'}`}></span>
+									<span>Typeset</span>
+								</button>
+
+								<!-- INPAINT REGION TOGGLE -->
+								<button
+									type="button"
+									class={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded transition-all cursor-pointer ${
+										showInpaint
+											? 'bg-blue-600/15 border border-blue-600/30 text-blue-700 dark:text-blue-300 font-semibold'
+											: 'opacity-40 hover:opacity-80 text-neutral-600 dark:text-neutral-400 border border-transparent'
+									}`}
+									title="Toggle Inpaint Glyph Boundary Polygons (Blue)"
+									on:click={() => (showInpaint = !showInpaint)}
+								>
+									<span class={`inline-block w-2 h-2 rounded-xs border border-blue-600 ${showInpaint ? 'bg-blue-500' : 'bg-transparent'}`}></span>
+									<span>Inpaint</span>
+								</button>
+
+								<!-- CENTROID TOGGLE -->
+								<button
+									type="button"
+									class={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded transition-all cursor-pointer ${
+										showCentroids
+											? 'bg-amber-600/15 border border-amber-600/30 text-amber-700 dark:text-amber-300 font-semibold'
+											: 'opacity-40 hover:opacity-80 text-neutral-600 dark:text-neutral-400 border border-transparent'
+									}`}
+									title="Toggle Geometric Centroid Crosshairs (+)"
+									on:click={() => (showCentroids = !showCentroids)}
+								>
+									<span class={`inline-flex items-center justify-center w-2.5 h-2.5 text-[9px] font-bold ${showCentroids ? 'text-amber-600 dark:text-amber-400' : 'text-neutral-400'}`}>+</span>
+									<span>Center</span>
+								</button>
 							</div>
 						</div>
-						<span class="capitalize opacity-60">Active: {inspectTab === 'output' ? 'Typeset Output' : inspectTab === 'original' ? 'Original RAW' : 'Cleaned Mask'}</span>
+						<span class="capitalize opacity-60 text-[9.5px]">View: {inspectTab === 'output' ? 'Typeset Output' : inspectTab === 'original' ? 'Original RAW' : 'Cleaned Mask'}</span>
 					</div>
 				{/if}
 			</div>
@@ -548,25 +700,22 @@
 					<!-- SKELETON LOADING STATE -->
 					<div class="flex-1 min-h-0 space-y-3 overflow-y-auto pr-1">
 						{#each [1, 2, 3] as _}
-							<div class="rounded-xl border border-black/10 bg-black/[0.02] p-3.5 space-y-2.5 animate-pulse dark:border-white/10 dark:bg-white/[0.02]">
-								<div class="flex items-center justify-between">
-									<div class="h-4 w-16 rounded bg-black/10 dark:bg-white/10"></div>
-									<div class="h-3 w-20 rounded bg-black/10 dark:bg-white/10"></div>
-								</div>
-								<div class="h-3 w-full rounded bg-black/10 dark:bg-white/10"></div>
-								<div class="h-3 w-3/4 rounded bg-black/10 dark:bg-white/10"></div>
-							</div>
+							<div class="h-24 animate-pulse rounded-xl bg-black/5 dark:bg-white/5"></div>
 						{/each}
 					</div>
 				{:else if !page.regions || page.regions.length === 0}
-					<div class="flex flex-1 flex-col items-center justify-center p-6 text-center text-xs opacity-60 rounded-xl border border-dashed border-black/10 dark:border-white/10 gap-2">
-						<p>No text regions detected on this page yet.</p>
-						<p class="text-[11px] opacity-75">If translation is in progress or just finished, click <strong>Sync</strong> above to pull latest regions.</p>
+					<div class="flex flex-1 flex-col items-center justify-center rounded-xl border border-dashed border-black/15 p-6 text-center text-xs opacity-60 dark:border-white/15">
+						<List size={24} class="mb-2 opacity-40" />
+						<p>No regions detected on this page yet.</p>
+						<p class="mt-1 text-[11px] opacity-75">Process this page in the chapter pipeline to run text detection.</p>
 					</div>
 				{:else}
 					<div class="flex-1 min-h-0 space-y-2.5 overflow-y-auto pr-1 overscroll-contain">
 						{#each page.regions as region (region.id)}
 							{@const b = getBox(region.box)}
+							{@const bubbleB = getBubbleBox(region)}
+							{@const centroid = getCentroid(region)}
+							{@const kind = getRegionKind(region)}
 							{@const angle = getRegionAngle(region)}
 							{@const isVertical = isRegionVertical(region)}
 							{@const isModified = region.originalTarget && region.textTarget && region.textTarget !== region.originalTarget}
@@ -589,12 +738,25 @@
 									}
 								}}
 							>
-								<!-- HEADER ROW: sequence badge + confidence + rotation angle + box size -->
+								<!-- HEADER ROW: sequence badge + kind + confidence + rotation angle + box size -->
 								<div class="flex flex-wrap items-center justify-between gap-1.5">
 									<div class="flex items-center gap-1.5">
 										<span class="rounded px-1.5 py-0.5 text-[10px] font-bold text-[#b23a2e] bg-[#b23a2e]/10 dark:text-[#e08a63]">
 											#{region.seq + 1}
 										</span>
+										{#if kind === 'dialogue_bubble'}
+											<span class="rounded bg-emerald-500/15 border border-emerald-500/30 px-1.5 py-0.5 text-[9px] font-bold text-emerald-700 dark:text-emerald-300">
+												Bubble
+											</span>
+										{:else if kind === 'sound_effect'}
+											<span class="rounded bg-amber-500/15 border border-amber-500/30 px-1.5 py-0.5 text-[9px] font-bold text-amber-700 dark:text-amber-300">
+												SFX
+											</span>
+										{:else}
+											<span class="rounded bg-neutral-500/15 border border-neutral-500/30 px-1.5 py-0.5 text-[9px] font-bold text-neutral-700 dark:text-neutral-300">
+												Free Text
+											</span>
+										{/if}
 										{#if isModified}
 											<span class="rounded bg-amber-500/15 border border-amber-500/30 px-1.5 py-0.5 text-[9px] font-bold text-amber-700 dark:text-amber-300">
 												Edited
@@ -633,6 +795,11 @@
 								{#if b}
 									{@const poly = getPolygon(region.polygon)}
 									<div class="mt-1 flex flex-wrap items-center gap-x-2.5 gap-y-0.5 font-mono text-[9px]">
+										{#if bubbleB}
+											<span class="text-emerald-600 dark:text-emerald-400 font-medium">
+												Bubble: ({bubbleB.x}, {bubbleB.y}) · {bubbleB.w}×{bubbleB.h}
+											</span>
+										{/if}
 										<span class="text-[#b23a2e] dark:text-[#e08a63]">
 											Typeset: ({b.x}, {b.y}) · {b.w}×{b.h}
 										</span>
@@ -645,6 +812,11 @@
 											{@const maxPy = Math.max(...pys)}
 											<span class="text-blue-600 dark:text-blue-400 font-medium">
 												Inpaint: ({minPx}, {minPy}) · {maxPx - minPx}×{maxPy - minPy}
+											</span>
+										{/if}
+										{#if centroid}
+											<span class="text-neutral-500 dark:text-neutral-400">
+												Center: ({centroid.x}, {centroid.y})
 											</span>
 										{/if}
 									</div>

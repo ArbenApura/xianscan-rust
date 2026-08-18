@@ -15,6 +15,9 @@ export interface TypesetBox {
 export interface TypesetRegion {
 	id: string;
 	box: TypesetBox;
+	bubble_box?: TypesetBox | null;
+	centroid?: { x: number; y: number } | null;
+	kind?: 'dialogue_bubble' | 'free_text' | 'sound_effect';
 	text: string;
 	vertical?: boolean;
 	angle?: number;
@@ -333,12 +336,8 @@ export function balancedWrapText(
 	const N = greedy.length;
 	if (N <= 1) return greedy; // nothing to balance
 
-	// Lower bound: widest single word (target width can never be narrower)
-	const allWords = text.split(/[\n\s]+/).filter(Boolean);
-	const minW = Math.max(...allWords.map((w) => ctx.measureText(w).width));
-
 	// Binary search for the minimum target width that still wraps into N lines
-	let lo = Math.min(maxWidth, Math.ceil(minW));
+	let lo = Math.max(10, Math.floor(maxWidth / N));
 	let hi = maxWidth;
 	while (lo < hi - 1) {
 		const mid = Math.floor((lo + hi) / 2);
@@ -408,10 +407,12 @@ export function fitFontSize(
 	const words = text.split(/[\s\n]+/).filter(Boolean);
 	let lo = MIN_FONT_SIZE;
 	let hi = Math.max(lo, maxSize ?? startSize);
+	let cleanBest = MIN_FONT_SIZE;
 	let foundClean = false;
 
-	while (lo < hi) {
-		const mid = Math.ceil((lo + hi) / 2);
+	while (lo <= hi) {
+		const mid = Math.floor((lo + hi) / 2);
+		if (mid === 0) break;
 		ctx.font = fontSpec(mid, fontFamily);
 
 		// Check if the widest single word fits on maxW without hyphenation
@@ -419,31 +420,46 @@ export function fitFontSize(
 		if (maxWordWidth <= maxW) {
 			const lines = reflowText(ctx, text, maxW);
 			const lineH = mid * LINE_HEIGHT;
-			if (lines.length * lineH <= maxH) {
-				lo = mid;
+			const allLinesFitW = lines.every((l) => ctx.measureText(l).width <= maxW + 0.5);
+			if (allLinesFitW && lines.length * lineH <= maxH) {
+				cleanBest = mid;
 				foundClean = true;
+				lo = mid + 1;
 				continue;
 			}
 		}
 		hi = mid - 1;
 	}
 
-	if (foundClean) {
-		return lo;
+	// If clean fitting produced a readable font size (>= 11px) or if the box is not tall/narrow,
+	// keep the clean whole-word font size.
+	const isNarrowVertical = boxH / boxW >= 1.4 && boxH >= 65;
+	if (foundClean && (cleanBest >= 11 || !isNarrowVertical)) {
+		return cleanBest;
 	}
 
-	// PASS 2: FALLBACK — IF BOX IS TOO NARROW EVEN FOR MIN_FONT_SIZE, ALLOW HYPHENATION
-	lo = MIN_FONT_SIZE;
+	// PASS 2: FOR TALL NARROW VERTICAL BOXES (WHERE PASS 1 PRODUCED UNREADABLE <11PX TEXT),
+	// UTILIZE THE VERTICAL HEIGHT BUDGET BY PERMITTING BALANCED HYPHENATION TO KEEP FONT SIZE READABLE!
+	lo = Math.max(cleanBest, MIN_FONT_SIZE);
 	hi = Math.max(lo, maxSize ?? startSize);
-	while (lo < hi) {
-		const mid = Math.ceil((lo + hi) / 2);
+	let best = cleanBest;
+
+	while (lo <= hi) {
+		const mid = Math.floor((lo + hi) / 2);
+		if (mid === 0) break;
 		ctx.font = fontSpec(mid, fontFamily);
 		const lines = reflowText(ctx, text, maxW);
 		const lineH = mid * LINE_HEIGHT;
-		if (lines.length * lineH <= maxH) lo = mid;
-		else hi = mid - 1;
+		const allLinesFitW = lines.every((l) => ctx.measureText(l).width <= maxW + 0.5);
+		if (allLinesFitW && lines.length * lineH <= maxH) {
+			best = mid;
+			lo = mid + 1;
+		} else {
+			hi = mid - 1;
+		}
 	}
-	return lo;
+
+	return best;
 }
 
 /**

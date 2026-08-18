@@ -4,9 +4,9 @@
 	"private": true,
 	"type": "module",
 	"scripts": {
-		"dev": "vite dev --host 0.0.0.0",
+		"dev": "vite dev --host 0.0.0.0 --port 8125",
 		"build": "vite build",
-		"preview": "node --env-file-if-exists=.env build --host 0.0.0.0",
+		"preview": "node --env-file-if-exists=.env build --host 0.0.0.0 --port 8124",
 		"start": "node --env-file-if-exists=.env build",
 		"check": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json",
 		"lint": "prettier --check . && eslint .",
