@@ -24,9 +24,6 @@ mod es;
 #[path = "regression/id/mod.rs"]
 mod id;
 
-#[path = "regression/vi/mod.rs"]
-mod vi;
-
 #[path = "regression/ru/mod.rs"]
 mod ru;
 

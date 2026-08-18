@@ -14,7 +14,7 @@ use xianscan_rust::pipeline::PipelineEngine;
 /// CHANGING THIS VALUE INVALIDATES ALL EXISTING CACHE ENTRIES AUTOMATICALLY
 /// (OLD HASHES BECOME UNREACHABLE) WITHOUT DELETING ANY FILES.
 #[allow(dead_code)]
-const CACHE_VERSION: u8 = 1;
+const CACHE_VERSION: u8 = 8;
 
 // -- FUNCTIONS & ALGORITHMS -- //
 
@@ -154,7 +154,7 @@ pub fn read_cache<T: DeserializeOwned>(category: &str, key: &str) -> Option<T> {
     if is_cache_disabled() {
         return None;
     }
-    let path = ensure_cache_dir().join(format!("{}_{}.json", category, key));
+    let path = ensure_cache_dir().join(format!("v{}_{}_{}.json", CACHE_VERSION, category, key));
     if !path.exists() {
         return None;
     }
@@ -167,7 +167,7 @@ pub fn write_cache<T: Serialize>(category: &str, key: &str, val: &T) {
     if is_cache_disabled() {
         return;
     }
-    let path = ensure_cache_dir().join(format!("{}_{}.json", category, key));
+    let path = ensure_cache_dir().join(format!("v{}_{}_{}.json", CACHE_VERSION, category, key));
     if let Ok(json_str) = serde_json::to_string(val) {
         let _ = std::fs::write(path, json_str);
     }

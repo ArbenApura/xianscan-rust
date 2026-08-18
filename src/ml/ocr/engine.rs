@@ -15,8 +15,6 @@ pub struct RapidOcr {
     characters_korean: Option<Vec<String>>,
     cyrillic_rec_session: Option<Session>,
     characters_cyrillic: Option<Vec<String>>,
-    vietnamese_rec_session: Option<Session>,
-    characters_vietnamese: Option<Vec<String>>,
     thai_rec_session: Option<Session>,
     characters_thai: Option<Vec<String>>,
 }
@@ -66,8 +64,6 @@ impl RapidOcr {
             characters_korean: None,
             cyrillic_rec_session: None,
             characters_cyrillic: None,
-            vietnamese_rec_session: None,
-            characters_vietnamese: None,
             thai_rec_session: None,
             characters_thai: None,
         })
@@ -99,19 +95,6 @@ impl RapidOcr {
         self.load_cyrillic_from_bytes(&bytes, &dict_str)
     }
 
-    pub fn load_vietnamese_from_bytes(&mut self, bytes: &[u8], dict_str: &str) -> Result<()> {
-        let session = crate::ml::device::create_session_from_memory(bytes, "rapid_ocr_vietnamese")?;
-        self.vietnamese_rec_session = Some(session);
-        self.characters_vietnamese = Some(parse_dict_string(dict_str));
-        Ok(())
-    }
-
-    pub fn load_vietnamese_model<P: AsRef<Path>, D: AsRef<Path>>(&mut self, model_path: P, dict_path: D) -> Result<()> {
-        let bytes = std::fs::read(model_path.as_ref())?;
-        let dict_str = std::fs::read_to_string(dict_path.as_ref())?;
-        self.load_vietnamese_from_bytes(&bytes, &dict_str)
-    }
-
     pub fn load_thai_from_bytes(&mut self, bytes: &[u8], dict_str: &str) -> Result<()> {
         let session = crate::ml::device::create_session_from_memory(bytes, "rapid_ocr_thai")?;
         self.thai_rec_session = Some(session);
@@ -132,9 +115,6 @@ impl RapidOcr {
         }
         if (lang.starts_with("ru") || lang.starts_with("cyrillic") || lang == "russian") && self.cyrillic_rec_session.is_some() && self.characters_cyrillic.is_some() {
             return (self.cyrillic_rec_session.as_mut().unwrap(), self.characters_cyrillic.as_ref().unwrap());
-        }
-        if (lang.starts_with("vi") || lang == "vietnamese") && self.vietnamese_rec_session.is_some() && self.characters_vietnamese.is_some() {
-            return (self.vietnamese_rec_session.as_mut().unwrap(), self.characters_vietnamese.as_ref().unwrap());
         }
         if (lang.starts_with("th") || lang == "thai") && self.thai_rec_session.is_some() && self.characters_thai.is_some() {
             return (self.thai_rec_session.as_mut().unwrap(), self.characters_thai.as_ref().unwrap());

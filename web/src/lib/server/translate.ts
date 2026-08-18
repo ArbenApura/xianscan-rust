@@ -38,7 +38,7 @@ export interface PageTranslation {
 // -- CONSTANTS -- //
 
 // PART OF THE CACHE KEY — BUMP WHEN THE PROMPTS CHANGE SO STALE CACHED TRANSLATIONS NEVER RESURFACE.
-export const PROMPT_VERSION = 'v14';
+export const PROMPT_VERSION = 'v15';
 
 // A TRANSLATION LONGER THAN 6× THE SOURCE IS ALMOST CERTAINLY THE MODEL REWRITING THE PROMPT / ADDING
 // EXPLANATIONS — FLAGGED FOR A REFILL (SAME HEURISTIC AS xianslate's looksOverExpanded).
@@ -156,8 +156,22 @@ function getSourceLanguageProfile(src: string, tgtName: string): string {
   * Be resilient to OCR dropping or substituting accents (é, è, ê, à, ç, ñ, ü, ö, etc.). Infer the true intended word naturally.`;
 	}
 
-	if (primary === 'id' || primary === 'vi' || primary === 'th') {
-		return `Southeast Asian Webtoon Rules:
+	if (primary === 'id' || primary === 'ms') {
+		return `Indonesian & Malay Webtoon Localization Rules:
+- Dialogue Particles, Slang & Colloquialisms:
+  * Reflect natural spoken Indonesian dialogue particles (dong, kok, sih, lho, deh, kan, ya, nih, tuh, masa) smoothly into idiomatic ${tgtName}.
+  * Translate fantasy and comic honorific titles accurately:
+    - Gadis Suci / Wanita Suci → Holy Maiden / Saintess
+    - Kesatria / Pendekar → Knight / Warrior
+    - Raja Iblis / Iblis → Demon King / Demon
+    - Yang Mulia → Your Highness / Your Majesty
+    - Tuan Muda / Nona → Young Master / Lady / Miss
+- Webtoon Sound Effects & Exclamations:
+  * Render reaction sounds (Hooo, Hah, Wah, Cih, Hmph, Aaargh, Hebat) into punchy ALL-CAPS ${tgtName} onomatopoeia.`;
+	}
+
+	if (primary === 'th') {
+		return `Thai Webtoon Rules:
 - Respectful & Kinship Forms:
   * Naturally adapt regional forms of address, pronouns, and kinship terms into conversational ${tgtName}.
 - Webtoon Sound Effects:
@@ -216,6 +230,12 @@ Corrupted & Unrecognizable Sound Effects (SFX) / Artwork Noise Suppression:
 - If a free-text or background sound effect region is severely garbled, distorted lettering, non-lexical OCR noise (e.g. "нбьблу"), or illegible handwriting where the true meaning cannot be reliably deciphered with high confidence, return an EMPTY STRING "" for its id.
 - Returning "" tags the region as unrecognized and automatically preserves the original artist's background drawing, hair, and clothing without hallucinating fake translations (e.g. "Mumble...", "CLOP") or causing damaging inpainting over character art.
 - Legitimate dialogue bubbles and clearly decipherable sound effects (e.g. "ого...", "ПОГОДИ НЕМНОГО...", "БАМ!", "ВСПЫХ!") must ALWAYS be translated.
+
+Latin-Script & Universal Sound Effects (SFX) Preservation:
+- For comics where the source SFX is ALREADY in Latin letters (e.g. Indonesian, Spanish, French, Italian, or English loanwords):
+  * If a free-text SFX is already natural, universally recognizable, or self-explanatory in ${tgtName} (e.g. "CRING", "BOOM", "BANG", "SLASH", "WUSH", "SWOOSH", "CRASH", "KLIK", "SZZZ", "BLAM", "DUM", "DUAR"), return an EMPTY STRING "" for its id.
+  * Returning "" preserves the original artist's custom stylized lettering, glowing aura, gradients, and illustration intact without destructive inpainting or generic font replacement.
+  * Only translate free-text sound effects if they are in a non-Latin script (e.g. CJK, Cyrillic, Thai) or consist of source-language words that readers cannot understand without translation. Dialogues inside speech bubbles must always be translated.
 
 General Rules:
 - Never add narration, explanations, or stage directions outside the text itself.

@@ -136,15 +136,17 @@ pub fn fuse_detections(
                             if let Ok(Some(crop_res)) = o.recognize_crop_with_lang(&crop, source_lang) {
                                 if !crop_res.lines.is_empty() {
                                     for (sub_poly, sub_text, sub_score) in crop_res.lines {
-                                        let offset_poly = sub_poly.iter().map(|p| [p[0] + crop_x as i32, p[1] + crop_y as i32]).collect();
-                                        rapid_lines.push(OcrLine {
-                                            polygon: offset_poly,
-                                            text: sub_text,
-                                            score: sub_score,
-                                        });
+                                        if sub_score >= 0.65 {
+                                            let offset_poly = sub_poly.iter().map(|p| [p[0] + crop_x as i32, p[1] + crop_y as i32]).collect();
+                                            rapid_lines.push(OcrLine {
+                                                polygon: offset_poly,
+                                                text: sub_text,
+                                                score: sub_score,
+                                            });
+                                        }
                                     }
                                     recognized_from_crop = true;
-                                } else if !crop_res.text.is_empty() {
+                                } else if !crop_res.text.is_empty() && crop_res.score >= 0.65 {
                                     rapid_lines.push(OcrLine {
                                         polygon: cb.clone(),
                                         text: crop_res.text,
@@ -156,7 +158,7 @@ pub fn fuse_detections(
                         }
                         if !recognized_from_crop {
                             if let Ok(Some(line_res)) = o.recognize_line_with_lang(&crop, source_lang) {
-                                if !line_res.text.is_empty() {
+                                if !line_res.text.is_empty() && line_res.score >= 0.65 {
                                     rapid_lines.push(OcrLine {
                                         polygon: cb.clone(),
                                         text: line_res.text,

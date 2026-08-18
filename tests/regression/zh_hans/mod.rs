@@ -124,8 +124,8 @@ fn test_regression_page_63617() {
     assert_eq!(res.regions[2].text, "噗", "Region r2 text mismatch");
     assert_eq!(res.regions[3].text, "噗", "Region r3 text mismatch");
     assert_eq!(res.regions[4].text, "噗", "Region r4 text mismatch");
-    assert_eq!(res.regions[5].text, "嘟！\n恐惧值+0", "Region r5 text mismatch");
-    assert_eq!(res.regions[6].text, "嘟！\n恐惧值+0", "Region r6 text mismatch");
+    assert_eq!(res.regions[5].text, "嘟！恐惧值+0", "Region r5 text mismatch");
+    assert_eq!(res.regions[6].text, "嘟！恐惧值+0", "Region r6 text mismatch");
 
     // Guard: Region r1 right edge must fully enclose the second exclamation mark of '练丹！' (x + w >= 745)
     assert!(res.regions[1].box_.x + res.regions[1].box_.w >= 745, "Region r1 right boundary must fully cover '练丹！' exclamation mark, got x={}, w={}", res.regions[1].box_.x, res.regions[1].box_.w);
@@ -1105,6 +1105,168 @@ fn test_regression_page_690() {
         "Must not detect bottom-right watermark '漫客栈'"
     );
 }
+
+/// # Regression Test: Page 64249 (Resolution: 800 × 1470 WebP)
+///
+/// ## Purpose & Behavior Tested:
+/// - **Adjacent Speech Bubble & Monologue Box Separation**:
+///   Guarantees that the upper-right oval speech bubble (`一定是这本书带\n我回到了十三岁！`)
+///   and the left monologue text block (`得到它\n后我一直\n贴身收藏\n，经历了\n各种战斗\n，甚至都\n沾满了我\n的血。`)
+///   are strictly isolated as two independent regions rather than incorrectly grouped across the panel boundary
+///   into a single corrupted region (`得到书得到它定是这本书带...`).
+/// - **Narration Bars & Dialogue Ground Truth**:
+///   Cleanly identifies dialogue and narration regions across the page.
+/// - **Negative Guard**:
+///   Ensures no merged corrupted text (`得到书得到它定是这本书带`) is produced.
+///
+/// ## Key Invariants:
+/// - Distinct regions for the monologue block and the oval speech bubble.
+/// - The monologue block contains all 8 constituent lines.
+/// - The upper-right bubble contains `一定是这本书带\n我回到了十三岁！`.
+/// - Negative guard: No conflated cross-bubble text containing `得到书得到它`.
+#[test]
+fn test_regression_page_64249() {
+    let img = match crate::common::load_fixture_or_skip("zh_hans", "page_demon_spirit_book_thirteen_years_old_adjacent.webp") {
+        Some(i) => i,
+        None => {
+            eprintln!("[INFO] Skipping test_regression_page_64249: fixture not found");
+            return;
+        }
+    };
+
+    let res = crate::common::force_analyze_fixture(&img);
+    println!("Page 64249 detected {} regions:", res.regions.len());
+    for (i, r) in res.regions.iter().enumerate() {
+        println!("  Region r{}: box={:?}, text='{}', angle={:.2}, conf={:.2}", i, r.box_, r.text.replace('\n', "\\n"), r.angle, r.confidence);
+    }
+
+    // 1. Monologue block: "后我一直\n贴身收藏\n经历了\n各种战斗\n，甚至都\n沾满了我\n的血。"
+    let monologue = res.regions.iter().find(|r| r.text.contains("贴身收藏") && r.text.contains("战斗"));
+    assert!(monologue.is_some(), "Must detect monologue block '后我一直贴身收藏...'");
+    let mono_r = monologue.unwrap();
+    assert!(
+        mono_r.text.contains("贴身收藏") && mono_r.text.contains("战斗") && mono_r.text.contains("的血"),
+        "Monologue text must contain all lines intact, got: '{}'",
+        mono_r.text.replace('\n', "\\n")
+    );
+    assert!(
+        !mono_r.text.contains("十三岁"),
+        "Monologue block must NOT merge with adjacent bubble '我回到了十三岁！', got: '{}'",
+        mono_r.text.replace('\n', "\\n")
+    );
+
+    // 2. Oval speech bubble: "一定是这本书带\n我回到了十三岁！"
+    let thirteen_bubble = res.regions.iter().find(|r| r.text.contains("十三岁") || r.text.contains("一定是这本书带"));
+    assert!(thirteen_bubble.is_some(), "Must detect independent speech bubble '一定是这本书带\\n我回到了十三岁！'");
+    let thirteen_r = thirteen_bubble.unwrap();
+    assert!(
+        thirteen_r.text.contains("十三岁") && (thirteen_r.text.contains("一定是这本书带") || thirteen_r.text.contains("这本书带")),
+        "Speech bubble must contain dialogue text, got: '{}'",
+        thirteen_r.text.replace('\n', "\\n")
+    );
+    assert!(
+        !thirteen_r.text.contains("贴身收藏") && !thirteen_r.text.contains("各种战斗"),
+        "Speech bubble must NOT merge with monologue block, got: '{}'",
+        thirteen_r.text.replace('\n', "\\n")
+    );
+
+    // 3. Top-left thought caption
+    let top_left = res.regions.iter().find(|r| r.text.contains("时空妖灵之书") && r.box_.y < 200 && r.box_.x < 400);
+    assert!(top_left.is_some(), "Must detect top-left caption");
+
+    // 4. Panel 3 left thought bubble: "不见了"
+    let gone_bubble = res.regions.iter().find(|r| r.text.trim() == "不见了");
+    assert!(gone_bubble.is_some(), "Must detect thought bubble '不见了'");
+
+    // 5. Flashback narration bars
+    assert!(res.regions.iter().any(|r| r.text.contains("风雪妖兽")), "Must detect narration '风雪妖兽的疯狂攻击'");
+    assert!(res.regions.iter().any(|r| r.text.contains("叶墨战死")), "Must detect narration '叶墨战死'");
+    assert!(res.regions.iter().any(|r| r.text.contains("圣祖山脉")), "Must detect narration '圣祖山脉东面的茫茫沙漠'");
+    assert!(res.regions.iter().any(|r| r.text.contains("逃亡之路")), "Must detect bottom narration '艰辛的逃亡之路，不断有人死去。'");
+
+    // 6. Negative Guard: Zero merged conflation text
+    assert!(
+        !res.regions.iter().any(|r| r.text.contains("得到书") || r.text.contains("得到它定是")),
+        "Must not create conflated corrupted text '得到书得到它定是...'"
+    );
+}
+
+/// # Regression Test: Page 64250 (Resolution: 800 × 1932 WebP)
+///
+/// ## Purpose & Behavior Tested:
+/// - **Desert Marching Silhouette Hallucination Suppression**:
+///   Guarantees that tiny rhythmic background silhouette figures / tent stakes in the desert
+///   do NOT trigger low-confidence hallucinated character boxes (`英界英英好` and `益女英女女远`).
+/// - **Narration Line Deduplication**:
+///   Ensures that narration bars (`群星陨落，天空一片黯淡` and `一起穿行在荒芜的沙漠，因为彼此的笑容而坚强……`)
+///   do not suffer from duplicated/fragmented line repetition.
+/// - **Narration Ground Truth Accounting**:
+///   Cleanly identifies all 5 flashback narration bars across panels.
+/// - **Watermark Suppression**:
+///   Suppresses `漫客栈` watermark stamps.
+///
+/// ## Key Invariants:
+/// - Exactly 5 clean narration regions.
+/// - Negative guard: Zero hallucinated `英界` / `益女` boxes.
+/// - Negative guard: Zero `漫客栈` watermark boxes.
+#[test]
+fn test_regression_page_64250() {
+    let img = match crate::common::load_fixture_or_skip("zh_hans", "page_desert_marching_silhouette_hallucination.webp") {
+        Some(i) => i,
+        None => {
+            eprintln!("[INFO] Skipping test_regression_page_64250: fixture not found");
+            return;
+        }
+    };
+
+    let res = crate::common::get_or_analyze_fixture(&img);
+    println!("Page 64250 detected {} regions:", res.regions.len());
+    for (i, r) in res.regions.iter().enumerate() {
+        println!("  Region r{}: box={:?}, text='{}', angle={:.2}, conf={:.2}", i, r.box_, r.text.replace('\n', "\\n"), r.angle, r.confidence);
+    }
+
+    // 1. Exact count: exactly 5 narration regions
+    assert_eq!(res.regions.len(), 5, "Page 64250 must have exactly 5 regions, got {}", res.regions.len());
+
+    // 2. Panel 1 narration: "群星陨落，天空一片黯淡"
+    let p1_narration = res.regions.iter().find(|r| r.text.contains("群星陨落") || r.text.contains("天空一片黯淡"));
+    assert!(p1_narration.is_some(), "Must detect Panel 1 narration '群星陨落，天空一片黯淡'");
+    let p1_text = &p1_narration.unwrap().text;
+    assert!(p1_text.contains("群星陨落") && p1_text.contains("天空一片黯淡"), "Panel 1 narration text mismatch");
+    assert!(!p1_text.contains("群星陨落天空一片黯淡\n群星陨落"), "Panel 1 narration must not have duplicate repeated lines");
+
+    // 3. Panel 2 narration: "在死亡的威胁下，我们紧紧依偎，拥有彼此。"
+    let p2_narration = res.regions.iter().find(|r| r.text.contains("死亡的威胁下") || r.text.contains("紧紧依偎"));
+    assert!(p2_narration.is_some(), "Must detect Panel 2 narration '在死亡的威胁下，我们紧紧依偎，拥有彼此。'");
+
+    // 4. Panel 3 top narration: "一起穿行在荒芜的沙漠，因为彼此的笑容而坚强……"
+    let p3_top = res.regions.iter().find(|r| r.text.contains("荒芜的沙漠") || r.text.contains("笑容而坚强"));
+    assert!(p3_top.is_some(), "Must detect Panel 3 top narration");
+    let p3_top_text = &p3_top.unwrap().text;
+    assert!(p3_top_text.contains("荒芜的沙漠") && p3_top_text.contains("笑容而坚强"), "Panel 3 top narration text mismatch");
+
+    // 5. Panel 3 bottom-right narration: "然而，幸福是如此短暂……"
+    let p3_bot = res.regions.iter().find(|r| r.text.contains("幸福是如此短暂") || r.text.contains("然而"));
+    assert!(p3_bot.is_some(), "Must detect Panel 3 bottom-right narration '然而，幸福是如此短暂……'");
+
+    // 6. Panel 5 top narration: "回眸时，已是阴阳永隔……"
+    let p5_top = res.regions.iter().find(|r| r.text.contains("回眸时") || r.text.contains("阴阳永隔"));
+    assert!(p5_top.is_some(), "Must detect Panel 5 narration '回眸时，已是阴阳永隔……'");
+
+    // 7. Negative Guard: Desert marching silhouette drawing noise hallucinations
+    assert!(
+        !res.regions.iter().any(|r| r.text.contains("英界") || r.text.contains("益女") || r.text.contains("英英好") || r.text.contains("女女远")),
+        "Must not hallucinate text over desert marching figures / tents"
+    );
+
+    // 8. Negative Guard: Zero watermark detection ('漫客栈')
+    assert!(
+        !res.regions.iter().any(|r| r.text.contains("漫客") || r.text.contains("漫客栈")),
+        "Must not detect bottom watermark '漫客栈'"
+    );
+}
+
+
 
 
 

@@ -106,6 +106,7 @@ async fn main() -> anyhow::Result<()> {
 
     // Always route data storage and SQLite to the system AppData data directory
     let data_dir = web_assets::get_data_dir();
+    let _ = std::fs::create_dir_all(&data_dir);
     let proper_db = data_dir.join("xianscan.db");
     let legacy_db = data_dir.join("manua.db");
     if !proper_db.exists() && legacy_db.exists() {

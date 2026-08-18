@@ -179,6 +179,14 @@ pub fn build_regions(
                 }
             });
 
+            if sorted_matched.iter().any(|m| m.text.contains("池塘")) {
+                println!("DEBUG sorted_matched for 池塘:");
+                for (idx, m) in sorted_matched.iter().enumerate() {
+                    let (mx, my, mw, mh) = polygon_bounds(&m.polygon);
+                    println!("  [{}] text='{}', clean='{}', box=[{}, {}, {}, {}], mid_y={}", idx, m.text, clean_stray_ocr_artifacts(&m.text), mx, my, mw, mh, my + mh / 2);
+                }
+            }
+
             let mut row_grouped_texts: Vec<String> = Vec::new();
             let mut last_mid_y: Option<i32> = None;
 
@@ -246,8 +254,38 @@ pub fn build_regions(
                 }
             }
 
+            let mut deduped_rows: Vec<String> = Vec::new();
+            for row in &row_grouped_texts {
+                let clean_r = clean_stray_ocr_artifacts(row);
+                if clean_r.trim().is_empty() {
+                    continue;
+                }
+                let clean_compact: String = clean_r.chars().filter(|c| !c.is_whitespace()).collect();
+                let mut replaced = false;
+                for existing in &mut deduped_rows {
+                    let ex_compact: String = existing.chars().filter(|c| !c.is_whitespace()).collect();
+                    if ex_compact == clean_compact {
+                        if clean_r.chars().count() > existing.chars().count() {
+                            *existing = clean_r.clone();
+                        }
+                        replaced = true;
+                        break;
+                    } else if clean_compact.contains(&ex_compact) && clean_compact.chars().count() >= ex_compact.chars().count() + 2 {
+                        *existing = clean_r.clone();
+                        replaced = true;
+                        break;
+                    } else if ex_compact.contains(&clean_compact) && ex_compact.chars().count() >= clean_compact.chars().count() + 2 {
+                        replaced = true;
+                        break;
+                    }
+                }
+                if !replaced {
+                    deduped_rows.push(clean_r);
+                }
+            }
+
             let avg_score = matched.iter().map(|l| l.score).sum::<f32>() / matched.len() as f32;
-            let mut best_text = row_grouped_texts.join("\n");
+            let mut best_text = deduped_rows.join("\n");
             let mut best_score = avg_score;
             let mut valid_angles: Vec<f32> = matched
                 .iter()
@@ -287,14 +325,16 @@ pub fn build_regions(
                     false
                 }
             };
-            let is_clean_multiline = (filtered_matched.len() >= 3 && avg_score >= 0.65)
-                || (is_vert_cluster && filtered_matched.len() >= 2 && avg_score >= 0.65);
+            let is_clean_multiline = !has_mixed_orientations
+                && ((filtered_matched.len() >= 3 && avg_score >= 0.65)
+                    || (is_vert_cluster && filtered_matched.len() >= 2 && avg_score >= 0.65));
             let is_short_line_in_bubble = (filtered_matched.len() <= 2 && box_rect.w >= 30 && box_rect.h >= 18)
                 || (box_rect.h >= (box_rect.w as f32 * 1.5) as i32 && box_rect.h >= 40);
-            let needs_crop_refinement = !is_clean_multiline && (is_short_line_in_bubble
-                || is_uneven_multiline
-                || has_mixed_orientations
-                || avg_score < 0.70);
+            let needs_crop_refinement = has_mixed_orientations
+                || (!is_clean_multiline
+                    && (is_short_line_in_bubble
+                        || is_uneven_multiline
+                        || avg_score < 0.70));
 
             if needs_crop_refinement {
                 let rgb = img.to_rgb8();
@@ -587,7 +627,7 @@ pub fn build_regions(
             let crop_h = (box_rect.h as u32).min(page_h - crop_y);
 
             let mut crop_text = String::new();
-            let mut crop_score = 0.85_f32;
+            let mut crop_score = 0.50_f32;
 
             if crop_w >= 4 && crop_h >= 4 {
                 let crop = img.crop_imm(crop_x, crop_y, crop_w, crop_h);
@@ -609,6 +649,7 @@ pub fn build_regions(
             }
             (crop_text, crop_score)
         };
+
 
         let mut cleaned = clean_stray_ocr_artifacts(&text);
         cleaned = crate::ml::detect::filter_text_by_source_lang(&cleaned, source_lang).trim().to_string();
@@ -641,10 +682,16 @@ pub fn build_regions(
         let has_pure_particle_noise = (alpha_count == 0 && (digit_count > 0 || punct_count > 0) && (digit_count + punct_count) <= 6)
             || (alpha_count <= 2 && (box_rect.w <= 40 || box_rect.h <= 40) && confidence < 0.70);
 
+        let is_kana_or_hangul = cleaned.chars().any(|c| ('\u{3040}'..='\u{30ff}').contains(&c) || ('\u{ac00}'..='\u{d7af}').contains(&c));
         if is_cjk && (char_count <= 1 || (cjk_count <= 1 && (box_rect.w <= 50 || box_rect.h <= 50)))
             && !cleaned.chars().any(|c| sfx_onomatopoeia.contains(c))
+            && !is_kana_or_hangul
             && confidence < 0.73
         {
+            continue;
+        }
+
+        if is_cjk && confidence < 0.65 && !cleaned.chars().any(|c| sfx_onomatopoeia.contains(c)) && !matches!(source_lang, Some("ko") | Some("ja") | Some("zh_hans") | Some("zh_hant")) {
             continue;
         }
 
@@ -839,14 +886,27 @@ pub fn build_regions(
         }
 
         // TRAILING ELLIPSIS ENCLOSURE: MERGE ADJACENT SPLIT ELLIPSIS LINES
-        if cleaned.ends_with("……") || cleaned.ends_with("...") {
+        let is_terminal_sentence = cleaned.ends_with('！') || cleaned.ends_with('!') || cleaned.ends_with('？') || cleaned.ends_with('?') || cleaned.ends_with('。');
+        if !is_terminal_sentence {
             for line in split_lines {
-                if line.text.contains('…') || line.text.contains("...") || line.text.contains('·') {
+                if (line.text.contains('…') || line.text.contains("...") || line.text.contains('·')) && !line.text.chars().any(|c| c.is_ascii_digit()) {
                     let (lx, ly, lw, lh) = polygon_bounds(&line.polygon);
                     let v_overlap = (ly + lh).min(box_rect.y + box_rect.h) - ly.max(box_rect.y);
-                    if v_overlap > 0 && lx >= box_rect.x && (lx + lw) > (box_rect.x + box_rect.w) && (lx - (box_rect.x + box_rect.w)) <= 30 {
-                        box_rect.w = (lx + lw + 4) - box_rect.x;
+                    if v_overlap > 0 && lx >= box_rect.x && (lx + lw) > (box_rect.x + box_rect.w) && (lx - (box_rect.x + box_rect.w)) <= 45 {
+                        box_rect.w = (lx + lw + 8) - box_rect.x;
+                        if !cleaned.ends_with("……") && !cleaned.ends_with("...") {
+                            cleaned = format!("{}……", cleaned.trim_end());
+                        }
                     }
+                }
+            }
+        }
+        if cleaned.ends_with("……") && !vertical {
+            let max_line_chars = cleaned.lines().map(|l| l.chars().filter(|c| !c.is_whitespace()).count()).max().unwrap_or(0);
+            if cleaned.lines().count() <= 1 {
+                let estimated_min_w = (max_line_chars as i32 * 36 + 10).min(page_w as i32 - box_rect.x);
+                if box_rect.w < estimated_min_w {
+                    box_rect.w = estimated_min_w;
                 }
             }
         }
@@ -1008,10 +1068,20 @@ pub fn build_regions(
                     h_overlap_ratio >= 0.70 && v_gap <= 12 && v_gap >= -50 && (box_rect.w.max(existing.box_.w) <= 300)
                 }
             };
+            let cur_has_terminal = cleaned.trim().ends_with(['！', '!', '？', '?', '。']);
+            let ex_has_terminal = existing.text.trim().ends_with(['！', '!', '？', '?', '。']);
+            let cur_lines_count = cleaned.lines().filter(|s| !s.trim().is_empty()).count();
+            let ex_lines_count = existing.text.lines().filter(|s| !s.trim().is_empty()).count();
+            let is_distinct_multi_utterance = (cur_has_terminal || ex_has_terminal || cur_lines_count >= 2 || ex_lines_count >= 2)
+                && !is_subtext
+                && !is_suffix_echo
+                && !is_reverse_suffix_echo
+                && iou < 0.40;
 
-            if (existing.text == cleaned && iou >= 0.25)
+            if !is_distinct_multi_utterance && (
+                (existing.text == cleaned && iou >= 0.25)
                 || iou >= 0.55
-                || (is_subtext && (overlap_self >= 0.60 || overlap_ex >= 0.60))
+                || (is_subtext && (overlap_self >= 0.70 || overlap_ex >= 0.70))
                 || is_contained_subtext
                 || is_same_bubble_vertical_chain
                 || is_overlapping_sliding_tile
@@ -1020,7 +1090,7 @@ pub fn build_regions(
                 || is_suffix_echo
                 || is_reverse_suffix_echo
                 || is_shared_bubble_fragment
-            {
+            ) {
                 let cur_chars = cleaned.chars().filter(|c| !c.is_whitespace()).count();
                 let ex_chars = existing.text.chars().filter(|c| !c.is_whitespace()).count();
                 if cur_chars > ex_chars || is_shared_bubble_fragment || is_same_bubble_vertical_chain || is_overlapping_sliding_tile || is_adjacent_vertical_bubble_split {
@@ -1054,7 +1124,9 @@ pub fn build_regions(
             for l in ex_clean.lines().chain(cur_clean.lines()) {
                 let tr = l.trim();
                 if !tr.is_empty() {
-                    let is_sub = combined_lines.iter().any(|existing| existing.contains(tr));
+                    let is_sub = combined_lines.iter().any(|existing| {
+                        existing.trim() == tr || existing.contains(tr) || tr.contains(*existing)
+                    });
                     if !is_sub {
                         combined_lines.push(tr);
                     }
@@ -1233,6 +1305,73 @@ pub fn build_regions(
             is_title: false,
             is_subtitle: false,
         });
+    }
+
+    // Recover any legitimate orphan OCR lines (e.g. single-character dialogue speech bubbles)
+    for line in split_lines {
+        let (lx, ly, lw, lh) = polygon_bounds(&line.polygon);
+        let line_rect = BoxRect { x: lx, y: ly, w: lw, h: lh };
+        let covered = regions.iter().any(|r| {
+            let iou = box_iou(&r.box_, &line_rect);
+            iou >= 0.15 || (line.text == r.text || r.text.contains(&line.text))
+        });
+        let clean_t = clean_stray_ocr_artifacts(&line.text);
+        let is_stray_dots = (clean_t == "……" || clean_t == "...") && (line_rect.w <= 75 && line_rect.h <= 65);
+        let is_pure_wm = crate::ml::detect::is_pure_watermark_region(&clean_t);
+        if !covered && is_cjk && line.score >= 0.65 && !is_stray_dots && !is_pure_wm && !crate::ml::detect::is_watermark_line(&line.text) {
+            if !clean_t.trim().is_empty() {
+                let (bx_mid, by_mid) = (lx + lw / 2, ly + lh / 2);
+                let matched_b = bubbles.iter().find(|b| {
+                    (bx_mid >= b.x && bx_mid <= b.x + b.w && by_mid >= b.y && by_mid <= b.y + b.h) || box_iou(b, &line_rect) >= 0.10
+                });
+                let fallback_b = if matched_b.is_none() {
+                    extract_bubble_geometry_fallback(img, &line_rect, page_w, page_h)
+                } else {
+                    None
+                };
+                if matched_b.is_some() || fallback_b.is_some() {
+                    let (b_box, b_poly, kind) = if let Some(b) = matched_b {
+                        let poly = vec![
+                            [b.x, b.y],
+                            [b.x + b.w, b.y],
+                            [b.x + b.w, b.y + b.h],
+                            [b.x, b.y + b.h],
+                        ];
+                        (Some(b.clone()), Some(poly), crate::ml::schemas::RegionKind::DialogueBubble)
+                    } else if let Some((fb_b, fb_p)) = fallback_b {
+                        (Some(fb_b), Some(fb_p), crate::ml::schemas::RegionKind::DialogueBubble)
+                    } else {
+                        (None, None, crate::ml::schemas::RegionKind::DialogueBubble)
+                    };
+                    let centroid = if let Some(ref bb) = b_box {
+                        Some(crate::ml::schemas::Point2D {
+                            x: bb.x as f32 + bb.w as f32 / 2.0,
+                            y: bb.y as f32 + bb.h as f32 / 2.0,
+                        })
+                    } else {
+                        Some(crate::ml::schemas::Point2D {
+                            x: lx as f32 + lw as f32 / 2.0,
+                            y: ly as f32 + lh as f32 / 2.0,
+                        })
+                    };
+                    regions.push(Region {
+                        id: format!("r{}", regions.len()),
+                        box_: line_rect,
+                        polygon: line.polygon.clone(),
+                        bubble_box: b_box,
+                        bubble_polygon: b_poly,
+                        centroid,
+                        kind,
+                        text: clean_t,
+                        confidence: line.score,
+                        vertical: lh > (lw as f32 * 1.2) as i32,
+                        angle: 0.0,
+                        is_title: false,
+                        is_subtitle: false,
+                    });
+                }
+            }
+        }
     }
 
     regions

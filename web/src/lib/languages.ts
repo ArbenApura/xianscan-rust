@@ -55,7 +55,6 @@ export const LANGUAGES: Record<string, Language> = {
 	pt: { code: 'pt', name: 'Portuguese', endonym: 'Português', script: 'latin', romanization: null, wordDelimited: true, tier: 2 },
 	it: { code: 'it', name: 'Italian', endonym: 'Italiano', script: 'latin', romanization: null, wordDelimited: true, tier: 2 },
 	id: { code: 'id', name: 'Indonesian', endonym: 'Bahasa Indonesia', script: 'latin', romanization: null, wordDelimited: true, tier: 2 },
-	vi: { code: 'vi', name: 'Vietnamese', endonym: 'Tiếng Việt', script: 'latin', romanization: null, wordDelimited: true, tier: 2 },
 
 	// TIER 3: Moderate corpora (good grammar, but less specialized comic/nuanced phrasing)
 	tr: { code: 'tr', name: 'Turkish', endonym: 'Türkçe', script: 'latin', romanization: null, wordDelimited: true, tier: 3 },
@@ -76,7 +75,6 @@ export const SOURCE_LANGUAGE_OPTIONS = [
 	{ value: 'fr', label: '🇫🇷 Français (Bande Dessinée)', name: 'French', endonym: 'Français' },
 	{ value: 'es', label: '🇪🇸 Español (Historietas / Tebeos)', name: 'Spanish', endonym: 'Español' },
 	{ value: 'id', label: '🇮🇩 Bahasa Indonesia (Komik Webtoon)', name: 'Indonesian', endonym: 'Bahasa Indonesia' },
-	{ value: 'vi', label: '🇻🇳 Tiếng Việt (Truyện Tranh)', name: 'Vietnamese', endonym: 'Tiếng Việt' },
 	{ value: 'ru', label: '🇷🇺 Русский (Russian Comics)', name: 'Russian', endonym: 'Русский' },
 	{ value: 'th', label: '🇹🇭 ไทย (Thai Webtoons)', name: 'Thai', endonym: 'ไทย' },
 	{ value: 'en', label: '🇺🇸 English (Western Comics)', name: 'English', endonym: 'English' },
@@ -93,7 +91,6 @@ export const TARGET_LANGUAGE_OPTIONS = [
 	{ value: 'de', label: 'Deutsch (German - Tier 2)' },
 	{ value: 'ru', label: 'Русский (Russian - Tier 2)' },
 	{ value: 'id', label: 'Bahasa Indonesia (Indonesian - Tier 2)' },
-	{ value: 'vi', label: 'Tiếng Việt (Vietnamese - Tier 2)' },
 ];
 
 const TRADITIONAL_CHAR_PATTERN = /[們這為會經說國動時現實體學業發問門沒進聽階級歡迎龍鳳飛鳥馬魚車書長萬與變並單當點對讓頭儘幾後畫兒極總處愛鐵無樂義氣開專鬥蒼術靈斬寶閣莊記話職師歸來劍聖陣傳廣導應隊戰惡獸護衛歷險煉]/;
@@ -103,7 +100,6 @@ const JAPANESE_CHAR_PATTERN = /[\u3040-\u30ff]/;
 const KOREAN_CHAR_PATTERN = /[\uac00-\ud7af]/;
 const CYRILLIC_CHAR_PATTERN = /[\u0400-\u04ff]/;
 const THAI_CHAR_PATTERN = /[\u0e00-\u0e7f]/;
-const VIETNAMESE_CHAR_PATTERN = /[àáạảãâầấậẩẫăằắặẳẵèéẹẻẽêềếệểễìíịỉĩòóọỏõôồốộổỗơờớợởỡùúụủũưừứựửữỳýỵỷỹđÀÁẠẢÃÂẦẤẬẨẪĂẰẮẶẲẴÈÉẸẺẼÊỀẾỆỂỄÌÍỊỈĨÒÓỌỎÕÔỒỐỘỔỖƠỜỚỢỞỠÙÚỤỦŨƯỪỨỰỬỮỲÝỴỶỸĐ]/;
 
 /**
  * Auto-detect the source language of a text string (defaults to Chinese variants for manhua).
@@ -123,9 +119,6 @@ export function detectSourceLanguage(text: string, fallback = 'zh-Hans'): string
 	}
 	if (THAI_CHAR_PATTERN.test(trimmed)) {
 		return 'th';
-	}
-	if (VIETNAMESE_CHAR_PATTERN.test(trimmed)) {
-		return 'vi';
 	}
 	if (ENGLISH_WORD_PATTERN.test(trimmed) && !/[\u4e00-\u9fff]/.test(trimmed)) {
 		return 'en';

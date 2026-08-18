@@ -228,8 +228,8 @@ pub fn extract_if_needed() -> anyhow::Result<Option<PathBuf>> {
 
         if !already_current {
             tracing::info!("Extracting embedded web assets to {:?} …", app_dir);
-            extract_all(&app_dir)?;
             std::fs::create_dir_all(&app_dir)?;
+            extract_all(&app_dir)?;
             std::fs::write(&version_stamp, APP_VERSION)?;
             tracing::info!("Web assets extracted successfully.");
         }
@@ -246,6 +246,8 @@ pub fn extract_if_needed() -> anyhow::Result<Option<PathBuf>> {
 #[cfg(feature = "embed-web")]
 fn extract_all(app_dir: &std::path::Path) -> anyhow::Result<()> {
     use std::fs;
+
+    fs::create_dir_all(app_dir)?;
 
     // 0. App package.json — declares ES module type so Node loads build/index.js as ESM
     fs::write(app_dir.join("package.json"), r#"{"type":"module"}"#)?;

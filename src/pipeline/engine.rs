@@ -71,10 +71,6 @@ impl PipelineEngine {
                         crate::ml::embedded_models::CYRILLIC_REC_BYTES,
                         crate::ml::embedded_models::CYRILLIC_DICT,
                     );
-                    let _ = engine.load_vietnamese_from_bytes(
-                        crate::ml::embedded_models::VIETNAMESE_REC_BYTES,
-                        crate::ml::embedded_models::VIETNAMESE_DICT,
-                    );
                     let _ = engine.load_thai_from_bytes(
                         crate::ml::embedded_models::THAI_REC_BYTES,
                         crate::ml::embedded_models::THAI_DICT,
@@ -94,9 +90,6 @@ impl PipelineEngine {
             }
             if dir.join("cyrillic_mobile_v2.0_rec.onnx").exists() && dir.join("cyrillic_dict.txt").exists() {
                 let _ = ocr_engine.load_cyrillic_model(dir.join("cyrillic_mobile_v2.0_rec.onnx"), dir.join("cyrillic_dict.txt"));
-            }
-            if dir.join("vi_PP-OCRv3_rec.onnx").exists() && dir.join("vi_dict.txt").exists() {
-                let _ = ocr_engine.load_vietnamese_model(dir.join("vi_PP-OCRv3_rec.onnx"), dir.join("vi_dict.txt"));
             }
             if dir.join("th_PP-OCRv5_mobile_rec.onnx").exists() && dir.join("th_dict.txt").exists() {
                 let _ = ocr_engine.load_thai_model(dir.join("th_PP-OCRv5_mobile_rec.onnx"), dir.join("th_dict.txt"));

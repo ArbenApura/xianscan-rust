@@ -85,7 +85,7 @@ pub fn is_latin_source(source_lang: Option<&str>) -> bool {
         None => false,
         Some(s) => {
             let trimmed = s.trim().to_ascii_lowercase();
-            ["en", "eng", "english", "es", "spanish", "fr", "french", "de", "german", "pt", "portuguese", "it", "italian", "id", "indonesian", "vi", "vietnamese", "nl", "dutch", "tr", "turkish", "pl", "polish"].iter().any(|&l| trimmed == l || trimmed.starts_with(&format!("{}-", l)) || trimmed.starts_with(&format!("{}_", l)))
+            ["en", "eng", "english", "es", "spanish", "fr", "french", "de", "german", "pt", "portuguese", "it", "italian", "id", "indonesian", "nl", "dutch", "tr", "turkish", "pl", "polish"].iter().any(|&l| trimmed == l || trimmed.starts_with(&format!("{}-", l)) || trimmed.starts_with(&format!("{}_", l)))
         }
     }
 }
@@ -205,7 +205,7 @@ pub fn filter_text_by_source_lang(text: &str, source_lang: Option<&str>) -> Stri
         let no_cyrillic = CYRILLIC_CHAR_RE.replace_all(text, "");
         THAI_CHAR_RE.replace_all(&no_cyrillic, "").to_string()
     } else {
-        // Latin / alphanumeric (Vietnamese, Indonesian, English, Spanish, etc.): strip all non-Latin foreign scripts
+        // Latin / alphanumeric (Indonesian, English, Spanish, French, etc.): strip all non-Latin foreign scripts
         NON_LATIN_SCRIPT_RE.replace_all(text, "").to_string()
     }
 }

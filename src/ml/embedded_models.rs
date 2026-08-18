@@ -34,10 +34,4 @@ pub static THAI_REC_BYTES: &[u8] = include_bytes!("../../models/th_PP-OCRv5_mobi
 pub static THAI_DICT: &str = include_str!("../../models/th_dict.txt");
 
 #[cfg(feature = "embed-models")]
-pub static VIETNAMESE_REC_BYTES: &[u8] = include_bytes!("../../models/vi_PP-OCRv3_rec.onnx");
-
-#[cfg(feature = "embed-models")]
-pub static VIETNAMESE_DICT: &str = include_str!("../../models/vi_dict.txt");
-
-#[cfg(feature = "embed-models")]
 pub static PPOCR_CLS_BYTES: &[u8] = include_bytes!("../../models/ch_ppocr_mobile_v2.0_cls_mobile.onnx");

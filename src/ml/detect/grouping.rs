@@ -240,9 +240,11 @@ pub fn group_paragraphs(
 
                 let v_overlap = y1.min(by1) - y.max(by);
                 let min_h = h.min(bh);
+                let max_h = h.max(bh);
                 let h_gap = (x - bx1).abs().min((bx - x1).abs());
 
-                if v_overlap >= 0.40 * min_h && h_gap <= 35.0 && (w + bw) <= 250.0 {
+                // Restrict grouping to legitimate multi-column bubbles of similar line heights
+                if v_overlap >= 0.40 * min_h && h_gap <= 24.0 && (w + bw) <= 220.0 && max_h <= 3.2 * min_h {
                     p.boxes.push(box_pts.clone());
                     p.cx_list.push(x + w / 2.0);
                     p.texts.push(txt.clone());
@@ -400,7 +402,7 @@ pub fn group_paragraphs(
                     continue;
                 }
 
-                let period_re = Regex::new(r"[。;；]$").unwrap();
+                let period_re = Regex::new(r"[。;；.]$").unwrap();
                 if period_re.is_match(last_clean) {
                     let is_both_single = cand_line_cnt == 1.0 && last_line_cnt == 1.0 && period_re.is_match(cand_clean);
                     let is_short = last_clean.chars().count() <= 5;

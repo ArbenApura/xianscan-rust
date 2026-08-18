@@ -238,7 +238,15 @@ fn test_regression_page_school_phone_rule_e_bubble() {
         }
     };
 
-    let res = get_or_analyze_fixture_with_lang(&img, Some("ja"));
+    let models_dir = std::path::Path::new("models");
+    let mut engine = xianscan_rust::pipeline::PipelineEngine::new(models_dir);
+    let fusion_res = xianscan_rust::pipeline::fusion::fuse_detections(&mut engine.detector, &mut engine.ocr, &engine.watermark, &img, Some("ja"));
+    println!("DEBUG ja: fusion_res.rapid_lines count = {}", fusion_res.rapid_lines.len());
+    for (idx, l) in fusion_res.rapid_lines.iter().enumerate() {
+        println!("  rapid line [{}]: text='{}', score={:.2}, poly={:?}", idx, l.text.replace('\n', "\\n"), l.score, l.polygon);
+    }
+
+    let res = crate::common::force_analyze_fixture_with_lang(&img, Some("ja"));
     println!("=== Japanese Native 810x737 Page Results ({} regions) ===", res.regions.len());
     for (i, r) in res.regions.iter().enumerate() {
         println!("  Region r{}: box={:?}, text='{}', conf={:.2}, vert={}", i, r.box_, r.text.replace('\n', "\\n"), r.confidence, r.vertical);

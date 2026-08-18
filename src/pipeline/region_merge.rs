@@ -123,17 +123,19 @@ pub fn post_process_regions(
                 let a_strip = a.text.trim();
                 let b_strip = b.text.trim();
                 let sfx_glyphs = "噗轰咚咳啪砰咔唰嘭哇嗷嘶呜呼哈哒嗒踏铛铮刷咻嗖哧嚓哐咕嗡吼鸣飒吱咯嘎喳沙";
-                let a_is_sfx = (a_strip.chars().count() <= 4 && !a_strip.contains('\n') && (
-                    PUNCT_ONLY.is_match(a_strip)
-                    || a_strip.ends_with(['—', '―', '-', '~', '～', '!', '！'])
-                    || a_strip.chars().any(|c| sfx_glyphs.contains(c))
-                )) || (a_strip.chars().count() <= 5 && a_strip.ends_with(['—', '―', '-', '~', '～']));
-
-                let b_is_sfx = (b_strip.chars().count() <= 4 && !b_strip.contains('\n') && (
-                    PUNCT_ONLY.is_match(b_strip)
-                    || b_strip.ends_with(['—', '―', '-', '~', '～', '!', '！'])
-                    || b_strip.chars().any(|c| sfx_glyphs.contains(c))
-                )) || (b_strip.chars().count() <= 5 && b_strip.ends_with(['—', '―', '-', '~', '～']));
+                let is_short_exclamation_or_sfx = |s: &str| -> bool {
+                    let trimmed = s.trim();
+                    if trimmed.contains('\n') { return false; }
+                    let chars_cnt = trimmed.chars().count();
+                    chars_cnt <= 7 && (
+                        PUNCT_ONLY.is_match(trimmed)
+                        || trimmed.ends_with(['—', '―', '-', '~', '～', '!', '！', '?', '？', '。', '.'])
+                        || trimmed.chars().any(|c| sfx_glyphs.contains(c))
+                        || (trimmed.chars().all(|c| c.is_ascii_alphabetic()) && trimmed.to_uppercase() == trimmed)
+                    )
+                };
+                let a_is_sfx = is_short_exclamation_or_sfx(a_strip) || (a_strip.chars().count() <= 5 && a_strip.ends_with(['—', '―', '-', '~', '～']));
+                let b_is_sfx = is_short_exclamation_or_sfx(b_strip) || (b_strip.chars().count() <= 5 && b_strip.ends_with(['—', '―', '-', '~', '～']));
 
                 if a_is_sfx || b_is_sfx {
                     continue;
@@ -146,19 +148,21 @@ pub fn post_process_regions(
 
                 let top_lines = top.text.split('\n').filter(|s| !s.trim().is_empty()).count();
                 let bot_lines = bot.text.split('\n').filter(|s| !s.trim().is_empty()).count();
-                let top_ends_with_terminal = top.text.trim().ends_with(['！', '!', '？', '?', '。']);
+                let top_ends_with_terminal = top.text.trim().ends_with(['！', '!', '？', '?', '。', '.']);
 
                 let page_w_i = page_w as i32;
                 let top_is_narration = top.box_.w >= page_w_i / 3
+                    && top_lines <= 2
                     && !top.text.trim().starts_with(['！', '？', '诶', '嗖', '砰', '哒', '轰', '噗']);
                 let bot_is_narration = bot.box_.w >= page_w_i / 3
+                    && bot_lines <= 2
                     && !bot.text.trim().starts_with(['！', '？', '诶', '嗖', '砰', '哒', '轰', '噗']);
-                let is_both_narration = top_is_narration && bot_is_narration;
+                let is_both_narration = top_is_narration && bot_is_narration && !top_ends_with_terminal;
 
                 // Dialogue Speech Invariant:
                 // Distinct multi-line speech bubbles (>= 2 lines in both, or >= 3 lines in either)
                 // represent independent dialogue utterances and must never be post-merged across bubbles.
-                // Similarly, dialogue speeches ending with terminal punctuation (。！？) must not merge into the next bubble unless it's a tight continuous sentence in the same bubble.
+                // Similarly, dialogue speeches ending with terminal punctuation (。！？.) must not merge into the next bubble unless it's a tight continuous sentence in the same bubble.
                 let x_lo_pre = top.box_.x.max(bot.box_.x);
                 let x_hi_pre = (top.box_.x + top.box_.w).min(bot.box_.x + bot.box_.w);
                 let x_overlap_pre = x_hi_pre - x_lo_pre;
@@ -297,6 +301,7 @@ pub fn post_process_regions(
     }
 
     // 3. Final language-specific filtering pass
+    let sfx_onomatopoeia = "啊呀哇嗷嘶呜呼哈噗轰咚咳啪砰咔唰嘭哒嗒踏铛铮刷咻嗖哧嚓哐咕嗡吼鸣飒吱咯嘎喳沙えエおオあアいイうウ";
     let mut final_regions: Vec<Region> = final_regions
         .into_iter()
         .filter(|r| {
@@ -308,6 +313,9 @@ pub fn post_process_regions(
                 return false;
             }
             if is_latin && has_cjk_characters(text) && !has_alphanumeric_characters(text) {
+                return false;
+            }
+            if is_cjk && r.confidence < 0.65 && !text.chars().any(|c| sfx_onomatopoeia.contains(c)) && !matches!(source_lang, Some("ko") | Some("ja") | Some("zh_hans") | Some("zh_hant")) {
                 return false;
             }
             true

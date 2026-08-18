@@ -641,8 +641,8 @@
 												Edited
 											</span>
 										{:else if !region.textTarget}
-											<span class="rounded bg-neutral-500/15 border border-neutral-500/30 px-1.5 py-0.5 text-[9px] font-bold text-neutral-600 dark:text-neutral-400">
-												Unrecognized SFX
+											<span class="rounded bg-sky-500/15 border border-sky-500/30 px-1.5 py-0.5 text-[9px] font-bold text-sky-700 dark:text-sky-300">
+												Preserved Art / SFX
 											</span>
 										{/if}
 										{#if region.conf !== null}
@@ -772,21 +772,18 @@
 										</div>
 									</div>
 								{:else}
-									<div class="mt-2 border-t border-black/[0.05] pt-1.5 dark:border-white/[0.05] flex flex-wrap items-center justify-between gap-1.5">
-										<div class="flex items-center gap-1.5">
-											<span class="rounded bg-amber-500/15 border border-amber-500/30 px-1.5 py-0.5 text-[9px] font-bold text-amber-700 dark:text-amber-300">
-												Unrecognized SFX
+									<div class="mt-2.5 rounded-lg border border-sky-500/20 bg-sky-500/5 p-2.5 dark:border-sky-500/15 dark:bg-sky-500/5">
+										<div class="flex items-center gap-1.5 min-w-0">
+											<span class="rounded bg-sky-500/15 border border-sky-500/30 px-1.5 py-0.5 text-[9px] font-bold text-sky-700 dark:text-sky-300 shrink-0">
+												Preserved Art / SFX
 											</span>
-											<span class="text-[10px] opacity-50 italic">Bypassed during typesetting (original art preserved)</span>
+											<span class="text-[10.5px] font-semibold text-sky-800 dark:text-sky-200 truncate">
+												Protected Original Artwork
+											</span>
 										</div>
-										<button
-											type="button"
-											class="inline-flex items-center gap-1 text-[10px] font-semibold text-[#b23a2e] dark:text-[#e08a63] hover:underline"
-											on:click|stopPropagation={() => openEdit(region)}
-										>
-											<Pencil size={11} />
-											<span>Add Translation</span>
-										</button>
+										<p class="mt-1 text-[10px] text-neutral-600 dark:text-neutral-300 leading-normal">
+											Bypassed by inpainting and typesetting to preserve original artist lettering, graphics, and background.
+										</p>
 									</div>
 								{/if}
 

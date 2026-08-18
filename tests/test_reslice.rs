@@ -100,8 +100,34 @@ fn test_smart_reslice_chapter() {
     let slice3 = DynamicImage::ImageRgb8(ImageBuffer::from_pixel(300, 800, Rgb([120, 120, 120])));
     let slice4 = DynamicImage::ImageRgb8(ImageBuffer::from_pixel(300, 800, Rgb([120, 120, 120])));
 
-    let pages = smart_reslice_chapter(&[slice1, slice2, slice3, slice4], 1600, 1000, 2200);
+    let pages = smart_reslice_chapter(&[slice1, slice2, slice3, slice4], 1600, 1000, 2200, None, None);
     assert!(pages.len() >= 2);
     let total_h: u32 = pages.iter().map(|p| p.height()).sum();
     assert_eq!(total_h, 3200);
+}
+
+/// # Reslice Test: Dialogue Bubble Exclusion Zone Avoidance
+///
+/// ## Purpose:
+/// Verifies that cut points never fall inside dialogue bubble exclusion ranges,
+/// even when a dialogue bubble is positioned right at target_height.
+#[test]
+fn test_find_optimal_cut_points_avoids_dialogue_bubbles() {
+    let canvas_buf = ImageBuffer::from_pixel(400, 3200, Rgb([200_u8, 200, 200]));
+    let canvas = DynamicImage::ImageRgb8(canvas_buf);
+
+    // SPEECH BUBBLE LOCATED PRECISELY AT TARGET_HEIGHT (1550..1650)
+    let forbidden_zones = vec![(1550, 1650)];
+    let cuts = find_optimal_cut_points(&canvas, 1600, 1000, 2200, &forbidden_zones);
+
+    assert!(cuts.len() >= 2);
+    for &cut_y in &cuts {
+        if cut_y < 3200 {
+            assert!(
+                !is_point_forbidden(cut_y as i32, &forbidden_zones),
+                "Cut point {} fell inside forbidden dialogue bubble zone!",
+                cut_y
+            );
+        }
+    }
 }

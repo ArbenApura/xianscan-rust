@@ -115,3 +115,93 @@ fn test_regression_page_rising_aura_particle_noise() {
     assert!(!res.regions.iter().any(|r| r.text.trim() == "0" || r.text.trim() == "O"), "Must not detect isolated '0' or 'O'");
 }
 
+/// # Indonesian Real-Page Regression: `page_summon_holy_maiden_cheer_sfx.webp` (Resolution: 720 × 2239 WebP)
+///
+/// ## Purpose & Behavior Tested:
+/// - **Disparate Element Separation (Bubble vs. SFX vs. Distinct Reaction Bubble)**:
+///   Guarantees that:
+///   1. Top Maiden Speech Bubble (`BER-BERHASIL...`)
+///   2. Free-floating Sound Effect / Exclamation (`HOOO`)
+///   3. Distinct Right Spiky Bubble (`HEBAT!!`)
+///   are never unified into a single giant monologue box.
+/// - **Artwork Hallucination Filtering**:
+///   Guarantees that isolated suit fold artifact `"Dr"` is filtered.
+/// - **Full Dialogue Unification**:
+///   Guarantees middle speech bubble (`KAU BENAR-BENAR GADIS SUCI!`) and bottom
+///   monologue (`KITA TELAH BERHASIL MEMANGGIL PARA KESATRIA...`) are captured intact.
+#[test]
+fn test_regression_page_summon_holy_maiden_cheer_sfx() {
+    let img = match crate::common::load_fixture_or_skip("id", "page_summon_holy_maiden_cheer_sfx.webp") {
+        Some(i) => i,
+        None => {
+            eprintln!("[INFO] Skipping test_regression_page_summon_holy_maiden_cheer_sfx: fixture not found");
+            return;
+        }
+    };
+
+    let res = get_or_analyze_fixture_with_lang(&img, Some("id"));
+    println!("Holy Maiden Cheer Page detected {} regions:", res.regions.len());
+    for (i, r) in res.regions.iter().enumerate() {
+        println!("  Region r{}: box={:?}, text='{}', conf={:.2}", i, r.box_, r.text.replace('\n', "\\n"), r.confidence);
+    }
+
+    // 1. Exact count: 4 or 5 regions (depending on whether HOOO SFX is detected as separate free text or preserved)
+    assert!(
+        res.regions.len() >= 4 && res.regions.len() <= 5,
+        "Holy Maiden Cheer Page must have 4 or 5 clean detected regions, got {}",
+        res.regions.len()
+    );
+
+    // 2. Top Bubble (Holy Maiden): 'BER-BERHASIL...'
+    let top_bubble = res.regions.iter().find(|r| {
+        let t = r.text.to_uppercase();
+        t.contains("BERHASIL") && (t.contains("MEMANGGIL") || t.contains("MEREKA"))
+    });
+    assert!(top_bubble.is_some(), "Must detect top Holy Maiden speech bubble");
+    let top_bubble = top_bubble.unwrap();
+    // Top bubble must NOT be bloated to include HEBAT or the lower panel
+    assert!(
+        top_bubble.box_.y + top_bubble.box_.h <= 1050,
+        "Top bubble bottom edge ({}) must not bleed into lower panel / SFX / HEBAT bubble (expected <= 1050)",
+        top_bubble.box_.y + top_bubble.box_.h
+    );
+    assert!(
+        !top_bubble.text.to_uppercase().contains("HEBAT"),
+        "Top speech bubble must not merge with 'HEBAT!!' bubble"
+    );
+
+    // 3. Separate Right Spiky Bubble: 'HEBAT!!'
+    let hebat_bubble = res.regions.iter().find(|r| r.text.to_uppercase().contains("HEBAT"));
+    assert!(hebat_bubble.is_some(), "Must detect separate 'HEBAT!!' bubble");
+    let hebat_bubble = hebat_bubble.unwrap();
+    assert!(
+        !hebat_bubble.text.to_uppercase().contains("MEMANGGIL"),
+        "'HEBAT!!' bubble must be separate from maiden speech bubble"
+    );
+
+    // 4. Middle Left Bubble: 'KAU BENAR-BENAR GADIS SUCI!'
+    let middle_bubble = res.regions.iter().find(|r| {
+        let t = r.text.to_uppercase();
+        t.contains("GADIS SUCI") || (t.contains("BENAR") && t.contains("KAU"))
+    });
+    assert!(middle_bubble.is_some(), "Must detect middle 'GADIS SUCI' bubble");
+
+    // 5. Bottom Bubble: 'KITA TELAH BERHASIL MEMANGGIL PARA KESATRIA...'
+    let bottom_bubble = res.regions.iter().find(|r| {
+        let t = r.text.to_uppercase();
+        t.contains("KESATRIA") || t.contains("TERSELAMATKAN")
+    });
+    assert!(bottom_bubble.is_some(), "Must detect bottom speech bubble");
+
+    // 6. Explicit negative guards against hallucinated artifacts & giant merges
+    assert!(!res.regions.iter().any(|r| r.text.trim() == "Dr"), "Must filter isolated 'Dr' artwork artifact");
+    assert!(
+        !res.regions.iter().any(|r| {
+            let t = r.text.to_uppercase();
+            t.contains("MEMANGGIL MEREKA") && t.contains("HEBAT")
+        }),
+        "Must never produce giant merged box containing both maiden speech and HEBAT"
+    );
+}
+
+

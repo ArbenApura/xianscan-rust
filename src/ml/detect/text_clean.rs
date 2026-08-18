@@ -164,13 +164,11 @@ pub fn clean_stray_ocr_artifacts(text: &str) -> String {
         // STANDARDIZE ASCII EXCLAMATIONS IN CJK SENTENCES
         cleaned = re_ascii_exclaim.replace_all(&cleaned, "$1！").to_string();
 
-        // NORMALIZE BROKEN TRAILING MID-DOTS
+        // NORMALIZE BROKEN TRAILING MID-DOTS IN CJK AS DOUBLE ELLIPSIS
+        let re_cjk_trailing_mid_dot = Regex::new(r"([\u4e00-\u9fa5\u3040-\u309f\u30a0-\u30ff])[·•]+\s*$").unwrap();
+        cleaned = re_cjk_trailing_mid_dot.replace_all(&cleaned, "$1……").to_string();
         let re_trailing_mid_dot = Regex::new(r"[·•]\s*$").unwrap();
-        if cleaned.contains("啊·") || cleaned.contains("啊•") {
-            cleaned = Regex::new(r"啊[·•]+").unwrap().replace(&cleaned, "啊……").to_string();
-        } else {
-            cleaned = re_trailing_mid_dot.replace(&cleaned, "").to_string();
-        }
+        cleaned = re_trailing_mid_dot.replace(&cleaned, "").to_string();
 
         if !cleaned.is_empty() {
             cleaned_lines.push(cleaned);
@@ -183,13 +181,60 @@ pub fn clean_stray_ocr_artifacts(text: &str) -> String {
     let re_dot_ellipsis = Regex::new(r"[·•]\s*\n*\s*(……|…|\.\.\.)").unwrap();
     res = re_dot_ellipsis.replace_all(&res, "$1").to_string();
 
-    // DEDUPLICATE CONSECUTIVE IDENTICAL LINES
+    // DEDUPLICATE CONSECUTIVE OR SUBSTRING/SUPERSTRING REPEATED LINES (E.G. UNPUNCTUATED & PUNCTUATED VERSIONS)
     let final_lines: Vec<&str> = res.split('\n').collect();
-    let mut deduped = Vec::new();
+    let mut deduped: Vec<String> = Vec::new();
     for l in final_lines {
         let trimmed = l.trim();
-        if !trimmed.is_empty() && (deduped.is_empty() || deduped.last() != Some(&trimmed)) {
-            deduped.push(trimmed);
+        if trimmed.is_empty() {
+            continue;
+        }
+        let clean_compact: String = trimmed.chars().filter(|c| !c.is_whitespace()).collect();
+        let clean_unpunct: String = trimmed.chars().filter(|c| c.is_alphanumeric() || CHINESE_RE.is_match(&c.to_string()) && !c.is_ascii_punctuation() && *c != '，' && *c != '。' && *c != '！' && *c != '？' && *c != '、' && *c != '…').collect();
+        
+        let mut replaced = false;
+        for existing in &mut deduped {
+            let ex_compact: String = existing.chars().filter(|c| !c.is_whitespace()).collect();
+            let ex_unpunct: String = existing.chars().filter(|c| c.is_alphanumeric() || CHINESE_RE.is_match(&c.to_string()) && !c.is_ascii_punctuation() && *c != '，' && *c != '。' && *c != '！' && *c != '？' && *c != '、' && *c != '…').collect();
+
+            if ex_compact == clean_compact || (!clean_unpunct.is_empty() && ex_unpunct == clean_unpunct) {
+                if trimmed.chars().count() > existing.chars().count() {
+                    *existing = trimmed.to_string();
+                }
+                replaced = true;
+                break;
+            } else if clean_compact.contains(&ex_compact) || (!clean_unpunct.is_empty() && clean_unpunct.contains(&ex_unpunct) && ex_unpunct.chars().count() >= 3) {
+                *existing = trimmed.to_string();
+                replaced = true;
+                break;
+            } else if ex_compact.contains(&clean_compact) || (!clean_unpunct.is_empty() && ex_unpunct.contains(&clean_unpunct) && clean_unpunct.chars().count() >= 3) {
+                replaced = true;
+                break;
+            } else if !clean_unpunct.is_empty() && !ex_unpunct.is_empty() {
+                // Check substring prefix/suffix overlap between existing and new line
+                let ex_chars: Vec<char> = ex_unpunct.chars().collect();
+                let cl_chars: Vec<char> = clean_unpunct.chars().collect();
+                let min_len = ex_chars.len().min(cl_chars.len());
+                let mut max_common = 0;
+                for k in (4..=min_len).rev() {
+                    let sub_cl: String = cl_chars[..k].iter().collect();
+                    let sub_ex: String = ex_chars[..k].iter().collect();
+                    if ex_unpunct.contains(&sub_cl) || clean_unpunct.contains(&sub_ex) {
+                        max_common = k;
+                        break;
+                    }
+                }
+                if max_common >= 5 || (min_len >= 4 && max_common >= min_len * 4 / 5) {
+                    if trimmed.chars().count() > existing.chars().count() {
+                        *existing = trimmed.to_string();
+                    }
+                    replaced = true;
+                    break;
+                }
+            }
+        }
+        if !replaced {
+            deduped.push(trimmed.to_string());
         }
     }
 

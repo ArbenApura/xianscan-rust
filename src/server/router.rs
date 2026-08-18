@@ -271,6 +271,7 @@ async fn stitch_handler(
 }
 
 async fn reslice_handler(
+    State(state): State<AppState>,
     mut multipart: Multipart,
 ) -> Result<Response, (StatusCode, String)> {
     let mut images = Vec::new();
@@ -287,9 +288,22 @@ async fn reslice_handler(
         return Err((StatusCode::BAD_REQUEST, "No valid images in upload".to_string()));
     }
 
-    let slices = smart_reslice_chapter(&images, 1600, 1000, 2400);
+    let slices = {
+        let mut engine_guard = state.engine.lock().map_err(|e| {
+            (StatusCode::INTERNAL_SERVER_ERROR, format!("Failed to lock engine: {}", e))
+        })?;
+        let engine = &mut *engine_guard;
+        smart_reslice_chapter(
+            &images,
+            1600,
+            1000,
+            2400,
+            engine.detector.as_mut(),
+            engine.ocr.as_mut(),
+        )
+    };
 
-    // Create in-memory ZIP archive
+    // CREATE IN-MEMORY ZIP ARCHIVE
     let mut zip_buffer = std::io::Cursor::new(Vec::new());
     {
         let mut zip = zip::ZipWriter::new(&mut zip_buffer);

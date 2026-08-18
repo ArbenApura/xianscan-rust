@@ -61,20 +61,21 @@ pub fn filter_artwork_and_artifacts(lines: Vec<OcrLine>, page_w: u32, source_lan
         let clean_t = rl.text.trim();
 
         let is_single_latin = crate::ml::detect::is_cjk_source(source_lang) && !has_chinese && char_count <= 1 && single_latin_re.is_match(clean_t);
-        let is_border_margin_char = (lx <= 30 || (lx + lw) >= (page_w as i32 - 30)) && char_count <= 1 && !is_sfx_glyph;
+        let is_border_margin_char = (lx <= 15 || (lx + lw) >= (page_w as i32 - 15)) && char_count <= 1 && !is_sfx_glyph && !crate::ml::detect::has_cjk_characters(&rl.text);
         let is_giant_single_char_artwork = char_count <= 1 && !is_sfx_glyph && (
             (lh >= 90 && lw >= 90 && rl.score < 0.75)
             || (lh >= 60 && lw >= 60 && rl.score < 0.60)
             || (lh * lw >= 10000 && rl.score < 0.80)
         );
         let is_isolated_dash_noise = char_count <= 1 && ["一", "1", "丨", "I", "l", "|", "-"].contains(&clean_t) && rl.score < 0.75 && (lw <= 60 || lh <= 25 || (lh as f32 / lw.max(1) as f32) < 0.40);
-        let is_low_conf_isolated_char = char_count <= 1 && !is_sfx_glyph && rl.score < 0.73 && !is_sfx_tail;
+        let is_low_conf_isolated_char = char_count <= 1 && !is_sfx_glyph && rl.score < 0.73 && !is_sfx_tail && !crate::ml::detect::has_cjk_characters(&rl.text);
 
         let is_giant_chinese_hallucination = has_chinese && !is_sfx_glyph && (
             (lw >= (page_w as f32 * 0.60) as i32 && lh >= 120 && char_count <= 4 && rl.score < 0.75)
             || (lh >= 200 && lw >= 300 && char_count <= 3 && rl.score < 0.70)
             || (lh >= 100 && (lw as f32 / char_count as f32) >= 150.0 && rl.score < 0.65)
             || (lh >= 300 && lw >= (page_w as f32 * 0.40) as i32 && char_count <= 5 && rl.score < 0.75)
+            || (lw >= (page_w as f32 * 0.50) as i32 && lh <= 30 && char_count <= 4 && (lw as f32 / char_count as f32) >= 90.0 && rl.score < 0.75)
         );
 
         let is_thin_sliver_noise = !has_valid_text && rl.score < 0.85 && (
@@ -91,11 +92,26 @@ pub fn filter_artwork_and_artifacts(lines: Vec<OcrLine>, page_w: u32, source_lan
                 ang.abs() >= 8.0 && has_digit_or_punct && clean_t.chars().count() <= 6
             };
 
+        let is_low_conf_isolated_latin = !crate::ml::detect::is_cjk_source(source_lang)
+            && char_count <= 2
+            && rl.score < 0.72
+            && (lh >= 50 || lw >= 60 || (lh as f32 / lw.max(1) as f32) >= 1.3)
+            && !is_sfx_tail
+            && !is_sfx_glyph;
+
+        let is_low_conf_cjk_drawing_noise = crate::ml::detect::is_cjk_source(source_lang)
+            && rl.score < 0.65
+            && !is_sfx_glyph
+            && !is_sfx_tail
+            && !rl.text.chars().any(|c| sfx_glyphs.contains(c));
+
         let is_giant_artwork = is_single_latin
             || is_border_margin_char
             || is_giant_single_char_artwork
             || is_isolated_dash_noise
             || is_low_conf_isolated_char
+            || is_low_conf_cjk_drawing_noise
+            || is_low_conf_isolated_latin
             || is_circle_noise
             || is_giant_chinese_hallucination
             || is_tilted_alnum_scribble
@@ -136,44 +152,6 @@ pub fn split_fused_lines(lines: Vec<OcrLine>) -> Vec<OcrLine> {
                 score: line.score,
             });
             continue;
-        }
-
-        let mut split_idx = None;
-        let chars: Vec<(usize, char)> = text_str.char_indices().collect();
-        for i in 0..chars.len() {
-            let (_byte_idx, c) = chars[i];
-            if "。!！?？".contains(c) && i + 1 < chars.len() {
-                let next_c = chars[i + 1].1;
-                if !next_c.is_whitespace() && !"。!！?？".contains(next_c) {
-                    let next_byte = chars[i + 1].0;
-                    split_idx = Some(next_byte);
-                    break;
-                }
-            }
-        }
-
-        if let Some(s_idx) = split_idx {
-            let part1 = text_str[..s_idx].trim();
-            let part2 = text_str[s_idx..].trim();
-
-            let len1 = part1.chars().count();
-            let len2 = part2.chars().count();
-            let total_len = len1 + len2;
-
-            if total_len > 0 && len1 >= 2 && len2 >= 1 && w >= 180 && w > 3 * h.max(1) {
-                let prop_x = ((w as f32 * (len1 as f32 / total_len as f32)).round() as i32).max(1);
-                split_lines.push(OcrLine {
-                    polygon: vec![[x, y], [x + prop_x, y], [x + prop_x, y + h], [x, y + h]],
-                    text: part1.to_string(),
-                    score: line.score,
-                });
-                split_lines.push(OcrLine {
-                    polygon: vec![[x + prop_x, y], [x + w, y], [x + w, y + h], [x + prop_x, y + h]],
-                    text: part2.to_string(),
-                    score: line.score,
-                });
-                continue;
-            }
         }
 
         split_lines.push(line);

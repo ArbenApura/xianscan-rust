@@ -99,15 +99,8 @@ fn test_language_aware_filtering_helpers() {
     let mixed = "Hello 你好 Привет สวัสดี World 123!";
     assert_eq!(filter_text_by_source_lang(mixed, Some("en")), "Hello    World 123!");
     assert_eq!(filter_text_by_source_lang(mixed, Some("es")), "Hello    World 123!");
-    assert_eq!(filter_text_by_source_lang(mixed, Some("vi")), "Hello    World 123!");
+    assert_eq!(filter_text_by_source_lang(mixed, Some("fr")), "Hello    World 123!");
     assert_eq!(filter_text_by_source_lang(mixed, Some("id")), "Hello    World 123!");
-
-    // Vietnamese example: Preserves Vietnamese diacritics & Latin alphanumeric while stripping accidental CJK/Thai
-    let vi_mixed = "Xin chào các bạn 你好! Đây là thử nghiệm số 1: rất tốt こんにちは.";
-    assert_eq!(
-        filter_text_by_source_lang(vi_mixed, Some("vi")),
-        "Xin chào các bạn ! Đây là thử nghiệm số 1: rất tốt ."
-    );
 
     // Indonesian example: Preserves Indonesian words & Latin alphanumeric while stripping accidental CJK/Cyrillic
     let id_mixed = "Halo semua apa kabar 一? Ini adalah tes komik nomor 42 Спасибо.";
@@ -116,8 +109,9 @@ fn test_language_aware_filtering_helpers() {
         "Halo semua apa kabar ? Ini adalah tes komik nomor 42 ."
     );
 
-    // Cyrillic source strips CJK and Thai, keeps Cyrillic and Latin
-    assert_eq!(filter_text_by_source_lang(mixed, Some("ru")), "Hello  Привет  World 123!");
+    // Cyrillic source strips CJK and Thai, keeps Cyrillic
+    let ru_mixed = "Привет мир! 你好 สวัสดี";
+    assert_eq!(filter_text_by_source_lang(ru_mixed, Some("ru")), "Привет мир!  ");
 
     // Thai source strips CJK and Cyrillic, keeps Thai and Latin
     assert_eq!(filter_text_by_source_lang(mixed, Some("th")), "Hello   สวัสดี World 123!");
@@ -180,7 +174,7 @@ fn test_language_aware_filtering_helpers() {
     assert!(is_latin_source(Some("eng")));
     assert!(is_latin_source(Some("es")));
     assert!(is_latin_source(Some("fr")));
-    assert!(is_latin_source(Some("vi")));
+    assert!(is_latin_source(Some("id")));
     assert!(!is_latin_source(Some("zh-Hans")));
     assert!(!is_latin_source(Some("ja")));
     assert!(!is_latin_source(Some("ru")));

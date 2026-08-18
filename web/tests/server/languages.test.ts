@@ -26,7 +26,6 @@ describe('Language Registry & Auto-Detection', () => {
 			'fr',
 			'es',
 			'id',
-			'vi',
 			'ru',
 			'th',
 			'en',
@@ -61,10 +60,6 @@ describe('Language Registry & Auto-Detection', () => {
 
 	it('auto-detects Thai from text', () => {
 		expect(detectSourceLanguage('ตอนที่ 1: การเริ่มต้น')).toBe('th');
-	});
-
-	it('auto-detects Vietnamese from text', () => {
-		expect(detectSourceLanguage('Truyện Tranh Mới')).toBe('vi');
 	});
 
 	it('auto-detects English from text', () => {
