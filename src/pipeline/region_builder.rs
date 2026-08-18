@@ -680,6 +680,8 @@ pub fn build_regions(
             matched.iter().map(|m| m.polygon.as_slice()).collect()
         };
 
+        let mut tight_poly_envelope: Option<Vec<[i32; 2]>> = None;
+
         if !active_polys.is_empty() {
             let mut min_mx = i32::MAX;
             let mut min_my = i32::MAX;
@@ -703,6 +705,20 @@ pub fn build_regions(
                     (total_h / line_count, cleaned.contains('！') || cleaned.contains('!') || cleaned.contains('？') || cleaned.contains('?') || cleaned.contains('…') || cleaned.contains('~'))
                 };
 
+                // PROTECT LONG TEXT LINES FROM BEING TRUNCATED IF ACTIVE_POLYS ONLY MATCHED A SUB-FRAGMENT
+                let text_char_count = cleaned.chars().filter(|c| !c.is_whitespace()).count() as i32;
+                let est_char_dim = est_line_dim.max(16);
+                let min_expected_span = (text_char_count * est_char_dim * 2 / 3) / line_count.max(1);
+
+                if !vertical && total_w < min_expected_span && box_rect.w > total_w {
+                    min_mx = min_mx.min(box_rect.x);
+                    max_mx = max_mx.max(box_rect.x + box_rect.w);
+                } else if vertical && total_h < min_expected_span && box_rect.h > total_h {
+                    min_my = min_my.min(box_rect.y);
+                    max_my = max_my.max(box_rect.y + box_rect.h);
+                }
+
+                // 1. FULL CANVAS FOR TYPESETTING (Generous envelope so text wraps and centers properly)
                 let (margin_x, margin_y) = if vertical {
                     let my = if has_punct { (est_line_dim / 3).clamp(10, 22) } else { (est_line_dim / 4).clamp(4, 12) };
                     let mx = (est_line_dim / 5).clamp(3, 8);
@@ -722,6 +738,39 @@ pub fn build_regions(
                 box_rect.y = bound_y1;
                 box_rect.w = (bound_x2 - bound_x1).max(1);
                 box_rect.h = (bound_y2 - bound_y1).max(1);
+
+                // 2. TIGHT GLYPH ENVELOPE FOR INPAINTING (Clean erasure without erasing balloon walls or surrounding art)
+                let ends_with_punct = cleaned.ends_with('！')
+                    || cleaned.ends_with('!')
+                    || cleaned.ends_with('？')
+                    || cleaned.ends_with('?')
+                    || cleaned.ends_with('…')
+                    || cleaned.ends_with('~')
+                    || cleaned.ends_with('―')
+                    || cleaned.ends_with('ー');
+                let (t_pad_left, t_pad_right, t_pad_top, t_pad_bottom) = if vertical {
+                    let bx = (est_line_dim / 12).clamp(1, 3);
+                    let by = (est_line_dim / 10).clamp(1, 3);
+                    let ty = if ends_with_punct { (est_line_dim / 5).clamp(4, 10) } else { by };
+                    (bx, bx, by, ty)
+                } else {
+                    let bx = (est_line_dim / 12).clamp(1, 3);
+                    let by = (est_line_dim / 12).clamp(1, 3);
+                    let tx = if ends_with_punct { (est_line_dim / 5).clamp(4, 10) } else { bx };
+                    (bx, tx, by, by)
+                };
+
+                let tight_x1 = (min_mx - t_pad_left).max(0);
+                let tight_y1 = (min_my - t_pad_top).max(0);
+                let tight_x2 = (max_mx + t_pad_right).min(page_w as i32);
+                let tight_y2 = (max_my + t_pad_bottom).min(page_h as i32);
+
+                tight_poly_envelope = Some(vec![
+                    [tight_x1, tight_y1],
+                    [tight_x2, tight_y1],
+                    [tight_x2, tight_y2],
+                    [tight_x1, tight_y2],
+                ]);
             }
         }
 
@@ -1030,8 +1079,22 @@ pub fn build_regions(
 
             let final_t = unified_text.unwrap_or(fallback_text);
             let unified_box = BoxRect { x: mx, y: my, w: mx2 - mx, h: my2 - my };
+            let (ex_px, ex_py, ex_pw, ex_ph) = polygon_bounds(&ex.polygon);
+            let (cur_px, cur_py, cur_pw, cur_ph) = if let Some(ref tp) = tight_poly_envelope {
+                polygon_bounds(tp)
+            } else {
+                (box_rect.x, box_rect.y, box_rect.w, box_rect.h)
+            };
+            let u_px1 = ex_px.min(cur_px).min(mx);
+            let u_py1 = ex_py.min(cur_py).min(my);
+            let u_px2 = (ex_px + ex_pw).max(cur_px + cur_pw).max(mx2);
+            let u_py2 = (ex_py + ex_ph).max(cur_py + cur_ph).max(my2);
+
             let unified_poly = vec![
-                [mx, my], [mx2, my], [mx2, my2], [mx, my2],
+                [u_px1, u_py1],
+                [u_px2, u_py1],
+                [u_px2, u_py2],
+                [u_px1, u_py2],
             ];
 
             regions[r_idx] = Region {
@@ -1052,12 +1115,12 @@ pub fn build_regions(
             continue;
         }
 
-        let poly = vec![
+        let poly = tight_poly_envelope.unwrap_or_else(|| vec![
             [box_rect.x, box_rect.y],
             [box_rect.x + box_rect.w, box_rect.y],
             [box_rect.x + box_rect.w, box_rect.y + box_rect.h],
             [box_rect.x, box_rect.y + box_rect.h],
-        ];
+        ]);
 
         regions.push(Region {
             id: format!("r{}", regions.len()),
