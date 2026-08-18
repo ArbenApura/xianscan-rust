@@ -103,10 +103,10 @@
 	];
 
 	// -- CONTRAST PRESETS -- //
-	const CONTRAST_PRESETS: { id: TypesetContrast; label: string; icon: any; desc: string }[] = [
-		{ id: 'auto', label: 'Auto Contrast', icon: Contrast, desc: 'Luminance sensing chooses black or white fill' },
-		{ id: 'dark', label: 'Always Dark', icon: Moon, desc: 'Black text with white stroke border' },
-		{ id: 'light', label: 'Always Light', icon: Sun, desc: 'White text with black stroke border' },
+	const CONTRAST_PRESETS: { id: TypesetContrast; label: string; desc: string }[] = [
+		{ id: 'auto', label: 'Auto Contrast', desc: 'Luminance sensing chooses black or white fill' },
+		{ id: 'dark', label: 'Always Dark', desc: 'Black text with white stroke border' },
+		{ id: 'light', label: 'Always Light', desc: 'White text with black stroke border' },
 	];
 
 	// -- CASING PRESETS -- //
@@ -502,7 +502,13 @@
 							}`}
 							use:ripple
 						>
-							<svelte:component this={cPreset.icon} size={15} class="shrink-0 mt-0.5" />
+							{#if cPreset.id === 'auto'}
+								<Contrast size={15} class="shrink-0 mt-0.5" />
+							{:else if cPreset.id === 'dark'}
+								<Moon size={15} class="shrink-0 mt-0.5" />
+							{:else}
+								<Sun size={15} class="shrink-0 mt-0.5" />
+							{/if}
 							<div>
 								<div class="text-xs font-bold pl-0.5">{cPreset.label}</div>
 								<div class="text-[10px] opacity-60 leading-tight mt-0.5 pl-0.5">{cPreset.desc}</div>

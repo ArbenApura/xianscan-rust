@@ -1574,4 +1574,6 @@
 	</div>
 </Modal>
 
-<TypesetSettingsModal bind:open={typesetModalOpen} />
+{#if typesetModalOpen}
+	<TypesetSettingsModal bind:open={typesetModalOpen} />
+{/if}
