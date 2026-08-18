@@ -89,6 +89,24 @@
 		return null;
 	}
 
+	function getPolygon(rawPoly: any): [number, number][] | null {
+		if (!rawPoly) return null;
+		if (typeof rawPoly === 'string') {
+			try {
+				const parsed = JSON.parse(rawPoly);
+				if (Array.isArray(parsed) && parsed.length >= 3) return parsed;
+			} catch {
+				return null;
+			}
+		}
+		if (Array.isArray(rawPoly) && rawPoly.length >= 3) return rawPoly;
+		return null;
+	}
+
+	function polygonToSvgPoints(poly: [number, number][]): string {
+		return poly.map((p) => `${p[0]},${p[1]}`).join(' ');
+	}
+
 	function getRegionAngle(region: any): number | null {
 		if (typeof region.angle === 'number') return region.angle;
 		const b = getBox(region.box);
@@ -245,6 +263,7 @@
 				angle: getRegionAngle(r),
 				vertical: isRegionVertical(r),
 				box: getBox(r.box),
+				inpaintPolygon: getPolygon(r.polygon),
 				sourceOcr: r.textSource,
 				translation: r.textTarget,
 				originalTarget: r.originalTarget,
@@ -422,38 +441,54 @@
 									{@const active = hoveredRegionId === region.id || editingRegion?.id === region.id}
 									{#if showRegions || active}
 										{@const b = getBox(region.box)}
+										{@const poly = getPolygon(region.polygon)}
 										{@const bx = b?.x ?? 0}
 										{@const by = b?.y ?? 0}
 										{@const bw = b?.w ?? 0}
 										{@const bh = b?.h ?? 0}
 										{@const angle = getRegionAngle(region)}
 										{@const stroke = '#b23a2e'}
+
+										<!-- 1. FULL TYPESET CANVAS BOX (RED) -->
 										<rect
 											x={bx}
 											y={by}
 											width={bw}
 											height={bh}
-											fill={active ? `${stroke}30` : 'none'}
+											fill={active ? `${stroke}20` : 'none'}
 											stroke={stroke}
-											stroke-width={active ? 5 : 2.5}
-											rx="4"
-											opacity={active ? 1 : 0.75}
+											stroke-width={active ? 3 : 1.75}
+											rx="3"
+											opacity={active ? 1 : 0.65}
 										/>
+
+										<!-- 2. TIGHT INPAINT BOUNDARY REGION (BLUE) -->
+										{#if poly}
+											<polygon
+												points={polygonToSvgPoints(poly)}
+												fill={active ? '#2563eb35' : '#3b82f618'}
+												stroke="#2563eb"
+												stroke-width={active ? 3.5 : 2}
+												stroke-linejoin="round"
+												opacity={active ? 1 : 0.85}
+											/>
+										{/if}
+
 										<text
 											x={bx + 6}
-											y={by + 20}
-											font-size="18"
+											y={by + 18}
+											font-size="16"
 											font-weight="bold"
 											fill={stroke}
 											stroke="#000"
-											stroke-width="4"
+											stroke-width="3.5"
 											paint-order="stroke"
 										>#{region.seq + 1}</text>
 										{#if angle !== null && Math.abs(angle) >= 0.5}
 											<text
 												x={bx + 6}
-												y={by + 38}
-												font-size="13"
+												y={by + 34}
+												font-size="12"
 												font-weight="bold"
 												fill="#f59e0b"
 												stroke="#000"
@@ -475,9 +510,21 @@
 				</div>
 
 				{#if pw && ph}
-					<div class="flex items-center justify-between shrink-0 text-[10px] opacity-60 font-mono">
-						<span>{pw} × {ph} px · {page.regions?.length ?? 0} regions</span>
-						<span class="capitalize">Active: {inspectTab === 'output' ? 'Typeset Output' : inspectTab === 'original' ? 'Original RAW' : 'Cleaned Mask'}</span>
+					<div class="flex items-center justify-between shrink-0 text-[10px] font-mono">
+						<div class="flex items-center gap-3">
+							<span class="opacity-60">{pw} × {ph} px · {page.regions?.length ?? 0} regions</span>
+							<div class="flex items-center gap-2">
+								<span class="inline-flex items-center gap-1 text-[#b23a2e] dark:text-[#e08a63]">
+									<span class="inline-block w-2 h-2 rounded-xs border border-[#b23a2e] bg-[#b23a2e]/30"></span>
+									<span>Typeset Box</span>
+								</span>
+								<span class="inline-flex items-center gap-1 text-blue-600 dark:text-blue-400">
+									<span class="inline-block w-2 h-2 rounded-xs border border-blue-600 bg-blue-500/30"></span>
+									<span>Inpaint Region</span>
+								</span>
+							</div>
+						</div>
+						<span class="capitalize opacity-60">Active: {inspectTab === 'output' ? 'Typeset Output' : inspectTab === 'original' ? 'Original RAW' : 'Cleaned Mask'}</span>
 					</div>
 				{/if}
 			</div>
@@ -584,8 +631,22 @@
 								</div>
 
 								{#if b}
-									<div class="mt-1 font-mono text-[9px] opacity-35">
-										Box: ({b.x}, {b.y}) · {b.w}×{b.h} px
+									{@const poly = getPolygon(region.polygon)}
+									<div class="mt-1 flex flex-wrap items-center gap-x-2.5 gap-y-0.5 font-mono text-[9px]">
+										<span class="text-[#b23a2e] dark:text-[#e08a63]">
+											Typeset: ({b.x}, {b.y}) · {b.w}×{b.h}
+										</span>
+										{#if poly}
+											{@const pxs = poly.map(pt => pt[0])}
+											{@const pys = poly.map(pt => pt[1])}
+											{@const minPx = Math.min(...pxs)}
+											{@const maxPx = Math.max(...pxs)}
+											{@const minPy = Math.min(...pys)}
+											{@const maxPy = Math.max(...pys)}
+											<span class="text-blue-600 dark:text-blue-400 font-medium">
+												Inpaint: ({minPx}, {minPy}) · {maxPx - minPx}×{maxPy - minPy}
+											</span>
+										{/if}
 									</div>
 								{/if}
 
