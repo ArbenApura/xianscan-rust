@@ -295,6 +295,15 @@ pub fn group_paragraphs(
                 continue;
             }
 
+            // Do not merge horizontal line into a strictly vertical column paragraph
+            let is_target_vert_para = p.boxes.iter().any(|b| {
+                let (_, _, bw, bh) = box_to_xywh_f32(b);
+                bh > bw * 1.5
+            });
+            if is_target_vert_para {
+                continue;
+            }
+
             let last = p.boxes.last().unwrap();
             let (lx, ly, lw, lh) = box_to_xywh_f32(last);
             let lx1 = lx + lw;

@@ -64,8 +64,11 @@ pub fn fuse_detections(
 
                 let rl_contained = overlap_area as f32 / rl_area as f32 >= 0.50;
                 let cb_covered = overlap_area as f32 / cb_area as f32 >= 0.20;
+                let is_cb_vert = cb_h > (cb_w as f32 * 1.3) as i32;
+                let is_rl_vert = rh > (rw as f32 * 1.3) as i32;
+                let is_aspect_compatible = is_cb_vert == is_rl_vert;
 
-                if iou >= 0.20 || rl_contained || cb_covered || crate::ml::geometry::line_center_inside_box(&rl.polygon, &cb_rect) {
+                if is_aspect_compatible && (iou >= 0.20 || rl_contained || cb_covered || crate::ml::geometry::line_center_inside_box(&rl.polygon, &cb_rect)) {
                     ocr_det_matched[idx] = true;
 
                     // If ComicTextDetector box is significantly wider or taller than RapidLine (e.g. ellipsis truncated on right or vertical line truncated)
@@ -110,8 +113,8 @@ pub fn fuse_detections(
             if !ocr_det_matched[idx] {
                 let (bx, by, bw, bh) = polygon_bounds(cb);
                 if bw >= 4 && bh >= 4 && bx < w as i32 && by < h as i32 {
-                    let pad_x = (bw / 2).clamp(10, 25);
-                    let pad_y = (bh / 2).clamp(10, 20);
+                    let pad_x = (bw / 2).clamp(4, 25);
+                    let pad_y = (bh / 2).clamp(4, 20);
                     let crop_x = (bx - pad_x).max(0) as u32;
                     let crop_y = (by - pad_y).max(0) as u32;
                     let crop_w = ((bw + pad_x * 2) as u32).min(w - crop_x);
@@ -119,7 +122,8 @@ pub fn fuse_detections(
 
                     if crop_w >= 4 && crop_h >= 4 {
                         let crop = img.crop_imm(crop_x, crop_y, crop_w, crop_h);
-                        if bh > 45 || bh > (bw as f32 * 1.5) as i32 || crop_w >= 32 {
+                        let mut recognized_from_crop = false;
+                        if bh > 45 || bh > (bw as f32 * 1.5) as i32 || (crop_w >= 45 && crop_h >= 45) {
                             if let Ok(Some(crop_res)) = o.recognize_crop_with_lang(&crop, source_lang) {
                                 if !crop_res.lines.is_empty() {
                                     for (sub_poly, sub_text, sub_score) in crop_res.lines {
@@ -130,21 +134,26 @@ pub fn fuse_detections(
                                             score: sub_score,
                                         });
                                     }
+                                    recognized_from_crop = true;
                                 } else if !crop_res.text.is_empty() {
                                     rapid_lines.push(OcrLine {
                                         polygon: cb.clone(),
                                         text: crop_res.text,
                                         score: crop_res.score,
                                     });
+                                    recognized_from_crop = true;
                                 }
                             }
-                        } else if let Ok(Some(line_res)) = o.recognize_line_with_lang(&crop, source_lang) {
-                            if !line_res.text.is_empty() {
-                                rapid_lines.push(OcrLine {
-                                    polygon: cb.clone(),
-                                    text: line_res.text,
-                                    score: line_res.score,
-                                });
+                        }
+                        if !recognized_from_crop {
+                            if let Ok(Some(line_res)) = o.recognize_line_with_lang(&crop, source_lang) {
+                                if !line_res.text.is_empty() {
+                                    rapid_lines.push(OcrLine {
+                                        polygon: cb.clone(),
+                                        text: line_res.text,
+                                        score: line_res.score,
+                                    });
+                                }
                             }
                         }
                     }

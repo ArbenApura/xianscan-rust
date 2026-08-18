@@ -72,9 +72,10 @@ pub fn post_process_regions(
             let is_exact = r_text == ex_text;
             let is_sub = ex_text.contains(r_text) && ex_text.chars().count() > r_text.chars().count();
             let is_sup = r_text.contains(ex_text) && r_text.chars().count() > ex_text.chars().count();
-            let is_spatial_dup = (x_ratio >= 0.50 && y_ratio >= 0.50) || (x_ratio >= 0.70 && y_ratio >= 0.35) || (y_ratio >= 0.70 && x_ratio >= 0.35);
+            let is_orientation_match = r.vertical == existing.vertical;
+            let is_spatial_dup = is_orientation_match && ((x_ratio >= 0.50 && y_ratio >= 0.50) || (x_ratio >= 0.70 && y_ratio >= 0.35) || (y_ratio >= 0.70 && x_ratio >= 0.35));
 
-            if is_spatial_dup || (is_sub && x_ratio >= 0.40 && y_ratio >= 0.30) || (is_exact && x_ratio >= 0.40 && y_ratio >= 0.30) {
+            if is_spatial_dup || (is_sub && is_orientation_match && x_ratio >= 0.40 && y_ratio >= 0.30) || (is_exact && x_ratio >= 0.40 && y_ratio >= 0.30) {
                 let r_chars = r_text.chars().count();
                 let ex_chars = ex_text.chars().count();
                 let x0 = existing.box_.x.min(r.box_.x);

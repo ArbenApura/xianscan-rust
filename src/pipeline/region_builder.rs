@@ -90,7 +90,16 @@ pub fn build_regions(
                     let m_area = (mw * mh).max(1);
                     let overlap_ratio_m = overlap_area as f32 / m_area as f32;
 
+                    // Trailing phantom echo line (e.g. "这此" colliding with "这些……")
+                    let is_echo_noise = is_cjk
+                        && clean_m.chars().count() <= 3
+                        && (overlap_ratio_m >= 0.40 || (my - oy).abs() <= 20)
+                        && (mx - ox).abs() <= 25
+                        && clean_m.chars().any(|c| clean_o.contains(c))
+                        && other.score > m.score;
+
                     if (is_sub && (overlap_ratio_m >= 0.35 || iou >= 0.20))
+                        || is_echo_noise
                         || (is_exact && (iou >= 0.30 || overlap_ratio_m >= 0.50) && (m.score < other.score || (m.score == other.score && m_area <= ow * oh)))
                         || (iou >= 0.70 && m.score < other.score)
                     {
@@ -243,6 +252,10 @@ pub fn build_regions(
                 .map(|l| calculate_box_angle_i32(&l.polygon))
                 .filter(|a| a.abs() >= 1.5)
                 .collect();
+            let box_ang = calculate_box_angle(box_pts);
+            if box_ang.abs() >= 1.5 {
+                valid_angles.push(box_ang);
+            }
             valid_angles.sort_by(|a, b| a.total_cmp(b));
             let median_angle = if !valid_angles.is_empty() {
                 valid_angles[valid_angles.len() / 2]

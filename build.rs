@@ -160,10 +160,14 @@ fn main() {
         println!("cargo:rustc-env=NODE_BIN_PATH={}", abs_str);
     }
 
-    // Rerun if node_modules or web/bin layout changes.
+    // RERUN IF NODE_MODULES, WEB/BIN LAYOUT, OR WEB ASSETS CHANGE
+    let web_dir = manifest_dir.join("web");
     println!("cargo:rerun-if-changed={}", node_modules.join("better-sqlite3").display());
     println!("cargo:rerun-if-changed={}", node_modules.join("@napi-rs").display());
     println!("cargo:rerun-if-changed={}", web_bin_dir.display());
+    println!("cargo:rerun-if-changed={}", web_dir.join("build").display());
+    println!("cargo:rerun-if-changed={}", web_dir.join("static").display());
+    println!("cargo:rerun-if-changed={}", web_dir.join("drizzle").display());
 }
 
 /// Strip the Windows extended-length path prefix (`\\?\`) that

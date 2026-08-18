@@ -72,7 +72,7 @@ impl ComicTextDetector {
             0.6,
             1.5,
             1000,
-            5,
+            3,
         );
 
         // Convert unpadded mask to u8 and resize back to original resolution
