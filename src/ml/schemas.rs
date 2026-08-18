@@ -1,4 +1,29 @@
+// -- CRATE / EXTERNAL IMPORTS -- //
 use serde::{Deserialize, Serialize};
+
+// -- TYPES & STRUCTS -- //
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+pub enum RegionKind {
+    #[serde(rename = "dialogue_bubble")]
+    DialogueBubble,
+    #[serde(rename = "free_text")]
+    FreeText,
+    #[serde(rename = "sound_effect")]
+    SoundEffect,
+}
+
+impl Default for RegionKind {
+    fn default() -> Self {
+        Self::DialogueBubble
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct Point2D {
+    pub x: f32,
+    pub y: f32,
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct BoxRect {
@@ -14,6 +39,14 @@ pub struct Region {
     #[serde(rename = "box")]
     pub box_: BoxRect,
     pub polygon: Vec<[i32; 2]>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub bubble_box: Option<BoxRect>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub bubble_polygon: Option<Vec<[i32; 2]>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub centroid: Option<Point2D>,
+    #[serde(default)]
+    pub kind: RegionKind,
     pub text: String,
     pub confidence: f32,
     pub vertical: bool,

@@ -21,8 +21,14 @@ impl PipelineEngine {
     pub fn new<P: AsRef<Path>>(models_dir: P) -> Self {
         let dir = models_dir.as_ref();
 
-        // 1. ComicTextDetector
-        let detector = if dir.join("comictextdetector.pt.onnx").exists() {
+        // 1. ComicTextDetector / RT-DETR Comic Bubble & Text Detector
+        let detector = if dir.join("comic_text_and_bubble_detector.onnx").exists() {
+            ComicTextDetector::new(dir.join("comic_text_and_bubble_detector.onnx")).ok()
+        } else if dir.join("detector.onnx").exists() {
+            ComicTextDetector::new(dir.join("detector.onnx")).ok()
+        } else if dir.join("detector_int8.onnx").exists() {
+            ComicTextDetector::new(dir.join("detector_int8.onnx")).ok()
+        } else if dir.join("comictextdetector.pt.onnx").exists() {
             ComicTextDetector::new(dir.join("comictextdetector.pt.onnx")).ok()
         } else {
             #[cfg(feature = "embed-models")]

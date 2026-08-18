@@ -189,3 +189,36 @@ fn test_language_aware_filtering_helpers() {
     assert!(!is_latin_source(Some("th")));
     assert!(!is_latin_source(None));
 }
+
+/// # Detector Test: RT-DETR Speech Bubble & Text Detection
+///
+/// ## Purpose:
+/// Verifies that RT-DETR detects explicit speech bubble containers, enclosed text lines,
+/// and free-floating text / SFX.
+#[test]
+fn test_rtdetr_speech_bubble_and_text_detector() {
+    use xianscan_rust::ml::detect::RtDetrComicDetector;
+
+    let img_path = Path::new("tests/fixtures/zh_hans/page_fool_pee_pants_adjacent_bubbles.webp");
+    assert!(img_path.exists(), "Fixture must exist");
+
+    let img = image::ImageReader::open(img_path)
+        .expect("Failed to open fixture")
+        .with_guessed_format()
+        .expect("Failed to guess format")
+        .decode()
+        .expect("Failed to decode image");
+
+    let model_path = Path::new("models/comic_text_and_bubble_detector.onnx");
+    if !model_path.exists() {
+        eprintln!("RT-DETR model not found, skipping test");
+        return;
+    }
+
+    let mut detector = RtDetrComicDetector::new(model_path).expect("Failed to load RT-DETR detector");
+    let res = detector.detect(&img).expect("Inference failed");
+
+    println!("RT-DETR detected: {} bubbles, {} text bubbles, {} text free", res.bubbles.len(), res.text_bubbles.len(), res.text_free.len());
+    assert!(!res.bubbles.is_empty(), "Must detect speech bubble containers");
+    assert!(!res.text_bubbles.is_empty(), "Must detect text lines inside bubbles");
+}

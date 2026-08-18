@@ -2,10 +2,12 @@ pub mod dbnet;
 pub mod detector;
 pub mod grouping;
 pub mod lang;
+pub mod rtdetr;
 pub mod text_clean;
 
 pub use dbnet::lines_map_to_boxes;
 pub use detector::{preprocess_for_onnx, ComicTextDetector, DetectResult};
+pub use rtdetr::{RtDetrClass, RtDetrComicDetector, RtDetrDetection, RtDetrResult};
 pub use grouping::{deduplicate_boxes, group_paragraphs, merge_text_lines, sort_regions_top_to_bottom};
 pub use lang::{
     filter_text_by_source_lang, has_alphanumeric_characters, has_cjk_characters, is_cjk_source,

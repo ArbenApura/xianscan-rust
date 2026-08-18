@@ -54,13 +54,15 @@ pub fn analyze_image_with_options(
     let mut kept_comic_boxes = Vec::new();
     let mut kept_comic_scores = Vec::new();
 
-    for (cb, &cs) in fusion_res.comic_boxes.iter().zip(fusion_res.comic_scores.iter()) {
-        let f32_cb: Vec<[f32; 2]> = cb.iter().map(|p| [p[0] as f32, p[1] as f32]).collect();
-        if is_multiline_comic_blob(&f32_cb, &rapid_f32_boxes, page_w, page_h) {
-            continue;
+    if fusion_res.backend != "rtdetr-v2" {
+        for (cb, &cs) in fusion_res.comic_boxes.iter().zip(fusion_res.comic_scores.iter()) {
+            let f32_cb: Vec<[f32; 2]> = cb.iter().map(|p| [p[0] as f32, p[1] as f32]).collect();
+            if is_multiline_comic_blob(&f32_cb, &rapid_f32_boxes, page_w, page_h) {
+                continue;
+            }
+            kept_comic_boxes.push(f32_cb);
+            kept_comic_scores.push(cs);
         }
-        kept_comic_boxes.push(f32_cb);
-        kept_comic_scores.push(cs);
     }
 
     let mut all_f32_boxes = rapid_f32_boxes;
@@ -124,6 +126,8 @@ pub fn analyze_image_with_options(
         &dedup_boxes,
         &order,
         &split_lines,
+        &fusion_res.bubbles,
+        &fusion_res.text_free,
         page_w,
         page_h,
         is_cjk,

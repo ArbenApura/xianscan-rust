@@ -1,110 +1,186 @@
+// -- CRATE / EXTERNAL IMPORTS -- //
 use std::path::Path;
 use anyhow::{Context, Result};
 use image::{DynamicImage, GenericImageView, ImageBuffer};
 use ort::{session::Session, value::Tensor};
 use serde::{Deserialize, Serialize};
 
+// -- INTERNAL IMPORTS -- //
 use super::dbnet::lines_map_to_boxes;
+use super::rtdetr::{RtDetrComicDetector, RtDetrResult};
+use crate::ml::schemas::BoxRect;
 
-pub struct ComicTextDetector {
-    session: Session,
-    pub input_size: u32,
-}
+// -- TYPES & STRUCTS -- //
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DetectResult {
     pub boxes: Vec<Vec<[i32; 2]>>,
     pub scores: Vec<f32>,
+    pub bubbles: Vec<BoxRect>,
+    pub text_bubbles: Vec<(BoxRect, f32)>,
+    pub text_free: Vec<(BoxRect, f32)>,
     pub mask: Vec<u8>,
     pub mask_width: u32,
     pub mask_height: u32,
     pub backend: String,
 }
 
+enum DetectorEngine {
+    RtDetr(RtDetrComicDetector),
+    LegacyCtd { session: Session, input_size: u32 },
+}
+
+pub struct ComicTextDetector {
+    engine: DetectorEngine,
+}
+
+// -- TRAITS & IMPLEMENTATIONS -- //
+
 impl ComicTextDetector {
     pub fn new<P: AsRef<Path>>(model_path: P) -> Result<Self> {
         let bytes = std::fs::read(model_path.as_ref())
-            .context("Failed to read ONNX model file")?;
+            .context("FAILED TO READ ONNX MODEL FILE")?;
         Self::from_bytes(&bytes)
     }
 
     pub fn from_bytes(bytes: &[u8]) -> Result<Self> {
+        // 1. ATTEMPT INITIALIZING AS RT-DETR (BUBBLE + TEXT TRANSFORMER DETECTOR)
+        if let Ok(rtdetr) = RtDetrComicDetector::from_bytes(bytes) {
+            return Ok(Self {
+                engine: DetectorEngine::RtDetr(rtdetr),
+            });
+        }
+
+        // 2. FALLBACK TO LEGACY COMIC TEXT DETECTOR (DBNET)
         let session = crate::ml::device::create_session_from_memory(bytes, "comic_text_detector")?;
-        Ok(Self { session, input_size: 1024 })
+        Ok(Self {
+            engine: DetectorEngine::LegacyCtd {
+                session,
+                input_size: 1024,
+            },
+        })
     }
 
     pub fn detect(&mut self, img: &DynamicImage) -> Result<DetectResult> {
         let (orig_w, orig_h) = img.dimensions();
-        let (tensor_vec, pad_w, pad_h) = preprocess_for_onnx(img, self.input_size);
 
-        let input_tensor = Tensor::from_array(([1, 3, self.input_size as usize, self.input_size as usize], tensor_vec))
-            .map_err(|e| anyhow::anyhow!("Tensor create error: {}", e))?;
+        match &mut self.engine {
+            DetectorEngine::RtDetr(rtdetr) => {
+                let res: RtDetrResult = rtdetr.detect(img)?;
+                let mut boxes: Vec<Vec<[i32; 2]>> = Vec::new();
+                let mut scores: Vec<f32> = Vec::new();
 
-        let outputs = self.session.run(ort::inputs![input_tensor])
-            .map_err(|e| anyhow::anyhow!("Session run error: {}", e))?;
+                // ADD ENCLOSED TEXT BUBBLES
+                for (b, s) in &res.text_bubbles {
+                    boxes.push(vec![
+                        [b.x, b.y],
+                        [b.x + b.w, b.y],
+                        [b.x + b.w, b.y + b.h],
+                        [b.x, b.y + b.h],
+                    ]);
+                    scores.push(*s);
+                }
 
-        // Output [1]: Mask (1, 1024, 1024)
-        // Output [2]: Lines Map (1, 2, 1024, 1024)
-        let (_mask_shape, mask_slice) = outputs[1].try_extract_tensor::<f32>()
-            .map_err(|e| anyhow::anyhow!("Extract mask tensor error: {}", e))?;
-        let (_lines_shape, lines_slice) = outputs[2].try_extract_tensor::<f32>()
-            .map_err(|e| anyhow::anyhow!("Extract lines tensor error: {}", e))?;
+                // ADD FREE-FLOATING TEXT / SFX
+                for (b, s) in &res.text_free {
+                    boxes.push(vec![
+                        [b.x, b.y],
+                        [b.x + b.w, b.y],
+                        [b.x + b.w, b.y + b.h],
+                        [b.x, b.y + b.h],
+                    ]);
+                    scores.push(*s);
+                }
 
-        let unpad_w = (self.input_size - pad_w) as usize;
-        let unpad_h = (self.input_size - pad_h) as usize;
+                Ok(DetectResult {
+                    boxes,
+                    scores,
+                    bubbles: res.bubbles,
+                    text_bubbles: res.text_bubbles,
+                    text_free: res.text_free,
+                    mask: Vec::new(),
+                    mask_width: orig_w,
+                    mask_height: orig_h,
+                    backend: "rtdetr-v2".to_string(),
+                })
+            }
+            DetectorEngine::LegacyCtd { session, input_size } => {
+                let (tensor_vec, pad_w, pad_h) = preprocess_for_onnx(img, *input_size);
 
-        let mut lines_map = vec![0.0_f32; unpad_w * unpad_h];
-        for y in 0..unpad_h {
-            for x in 0..unpad_w {
-                // lines_map channel 0 is text line prob
-                let idx = y * 1024 + x;
-                lines_map[y * unpad_w + x] = lines_slice[idx];
+                let input_tensor = Tensor::from_array(([1, 3, *input_size as usize, *input_size as usize], tensor_vec))
+                    .map_err(|e| anyhow::anyhow!("TENSOR CREATE ERROR: {}", e))?;
+
+                let outputs = session.run(ort::inputs![input_tensor])
+                    .map_err(|e| anyhow::anyhow!("SESSION RUN ERROR: {}", e))?;
+
+                // OUTPUT [1]: MASK (1, 1024, 1024)
+                // OUTPUT [2]: LINES MAP (1, 2, 1024, 1024)
+                let (_mask_shape, mask_slice) = outputs[1].try_extract_tensor::<f32>()
+                    .map_err(|e| anyhow::anyhow!("EXTRACT MASK TENSOR ERROR: {}", e))?;
+                let (_lines_shape, lines_slice) = outputs[2].try_extract_tensor::<f32>()
+                    .map_err(|e| anyhow::anyhow!("EXTRACT LINES TENSOR ERROR: {}", e))?;
+
+                let unpad_w = (*input_size - pad_w) as usize;
+                let unpad_h = (*input_size - pad_h) as usize;
+
+                let mut lines_map = vec![0.0_f32; unpad_w * unpad_h];
+                for y in 0..unpad_h {
+                    for x in 0..unpad_w {
+                        let idx = y * 1024 + x;
+                        lines_map[y * unpad_w + x] = lines_slice[idx];
+                    }
+                }
+
+                let (boxes, scores) = lines_map_to_boxes(
+                    &lines_map,
+                    unpad_w,
+                    unpad_h,
+                    orig_w as usize,
+                    orig_h as usize,
+                    0.3,
+                    0.6,
+                    1.5,
+                    1000,
+                    3,
+                );
+
+                // CONVERT UNPADDED MASK TO U8 AND RESIZE BACK TO ORIGINAL RESOLUTION
+                let mut unpad_mask = vec![0_u8; unpad_w * unpad_h];
+                for y in 0..unpad_h {
+                    for x in 0..unpad_w {
+                        let prob = mask_slice[y * 1024 + x];
+                        unpad_mask[y * unpad_w + x] = (prob * 255.0).clamp(0.0, 255.0) as u8;
+                    }
+                }
+
+                let mask_img: ImageBuffer<image::Luma<u8>, _> =
+                    ImageBuffer::from_raw(unpad_w as u32, unpad_h as u32, unpad_mask)
+                        .context("FAILED TO CONSTRUCT UNPADDED MASK IMAGE")?;
+
+                let resized_mask = image::imageops::resize(
+                    &mask_img,
+                    orig_w,
+                    orig_h,
+                    image::imageops::FilterType::Triangle,
+                );
+
+                Ok(DetectResult {
+                    boxes,
+                    scores,
+                    bubbles: Vec::new(),
+                    text_bubbles: Vec::new(),
+                    text_free: Vec::new(),
+                    mask: resized_mask.into_raw(),
+                    mask_width: orig_w,
+                    mask_height: orig_h,
+                    backend: "comic-ctd".to_string(),
+                })
             }
         }
-
-        let (boxes, scores) = lines_map_to_boxes(
-            &lines_map,
-            unpad_w,
-            unpad_h,
-            orig_w as usize,
-            orig_h as usize,
-            0.3,
-            0.6,
-            1.5,
-            1000,
-            3,
-        );
-
-        // Convert unpadded mask to u8 and resize back to original resolution
-        let mut unpad_mask = vec![0_u8; unpad_w * unpad_h];
-        for y in 0..unpad_h {
-            for x in 0..unpad_w {
-                let prob = mask_slice[y * 1024 + x];
-                unpad_mask[y * unpad_w + x] = (prob * 255.0).clamp(0.0, 255.0) as u8;
-            }
-        }
-
-        let mask_img: ImageBuffer<image::Luma<u8>, _> =
-            ImageBuffer::from_raw(unpad_w as u32, unpad_h as u32, unpad_mask)
-                .context("Failed to construct unpadded mask image")?;
-
-        let resized_mask = image::imageops::resize(
-            &mask_img,
-            orig_w,
-            orig_h,
-            image::imageops::FilterType::Triangle,
-        );
-
-        Ok(DetectResult {
-            boxes,
-            scores,
-            mask: resized_mask.into_raw(),
-            mask_width: orig_w,
-            mask_height: orig_h,
-            backend: "comic-ctd".to_string(),
-        })
     }
 }
+
+// -- FUNCTIONS & ALGORITHMS -- //
 
 pub fn preprocess_for_onnx(img: &DynamicImage, input_size: u32) -> (Vec<f32>, u32, u32) {
     let (w, h) = img.dimensions();
@@ -121,7 +197,7 @@ pub fn preprocess_for_onnx(img: &DynamicImage, input_size: u32) -> (Vec<f32>, u3
 
     let mut tensor = vec![0.0_f32; 1 * 3 * input_size as usize * input_size as usize];
 
-    // ComicTextDetector expects BGR channel order normalized to [0, 1]
+    // COMIC TEXT DETECTOR EXPECTS BGR CHANNEL ORDER NORMALIZED TO [0, 1]
     let stride_c = input_size as usize * input_size as usize;
     let stride_y = input_size as usize;
     let unpad_w_usize = new_unpad_w as usize;
@@ -136,7 +212,7 @@ pub fn preprocess_for_onnx(img: &DynamicImage, input_size: u32) -> (Vec<f32>, u3
             let b_val = raw_bytes[raw_idx + 2] as f32 / 255.0;
 
             let tensor_idx = row_offset + x;
-            // Channel 0: B, Channel 1: G, Channel 2: R
+            // CHANNEL 0: B, CHANNEL 1: G, CHANNEL 2: R
             tensor[0 * stride_c + tensor_idx] = b_val;
             tensor[1 * stride_c + tensor_idx] = g_val;
             tensor[2 * stride_c + tensor_idx] = r_val;

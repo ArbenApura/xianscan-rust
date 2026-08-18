@@ -143,7 +143,7 @@ async fn main() -> anyhow::Result<()> {
     println!(
         "  [+] Detector:    {}",
         if engine.detector.is_some() {
-            if models_dir.join("comictextdetector.pt.onnx").exists() { "ComicTextDetector (Disk: Ready)" } else { "ComicTextDetector (Embedded: Ready)" }
+            if models_dir.join("comic_text_and_bubble_detector.onnx").exists() { "RT-DETR Detector (Disk: Ready)" } else { "RT-DETR Detector (Embedded: Ready)" }
         } else { "Missing weights" }
     );
     println!(
