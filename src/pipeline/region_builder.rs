@@ -34,10 +34,20 @@ pub fn build_regions(
             h: bh.max(1.0) as i32,
         };
 
-        let matched: Vec<&OcrLine> = split_lines
+        let raw_matched: Vec<&OcrLine> = split_lines
             .iter()
             .filter(|l| line_center_inside_box(&l.polygon, &box_rect))
             .collect();
+
+        let has_non_wm = raw_matched.iter().any(|l| !crate::ml::detect::is_watermark_line(&l.text) && !crate::ml::detect::is_watermark_line(&clean_stray_ocr_artifacts(&l.text)));
+        let matched: Vec<&OcrLine> = if has_non_wm {
+            raw_matched
+                .into_iter()
+                .filter(|l| !crate::ml::detect::is_watermark_line(&l.text) && !crate::ml::detect::is_watermark_line(&clean_stray_ocr_artifacts(&l.text)))
+                .collect()
+        } else {
+            raw_matched
+        };
 
         let mut refined_polys: Option<Vec<Vec<[i32; 2]>>> = None;
 
@@ -94,23 +104,22 @@ pub fn build_regions(
 
             let mut sorted_matched = filtered_matched;
             sorted_matched.sort_by(|a, b| {
-                let (ax, ay, aw, ah) = polygon_bounds(&a.polygon);
-                let (bx, by, bw, bh) = polygon_bounds(&b.polygon);
+                let (ax, ay, _aw, ah) = polygon_bounds(&a.polygon);
+                let (bx, by, _bw, bh) = polygon_bounds(&b.polygon);
                 let a_mid_y = ay + ah / 2;
                 let b_mid_y = by + bh / 2;
                 let y_close = (a_mid_y - b_mid_y).abs() <= 8;
-                let x_overlap_amt = (ax + aw).min(bx + bw) - ax.max(bx);
-                if y_close && x_overlap_amt > 0 {
-                    ax.cmp(&bx)  // same row with shared X space: sort left-to-right
+                if y_close {
+                    ax.cmp(&bx)  // same row: sort left-to-right
                 } else {
-                    ay.cmp(&by)  // different rows or parallel columns: sort top-to-bottom
+                    ay.cmp(&by)  // different rows: sort top-to-bottom
                 }
             });
 
             let mut row_grouped_texts: Vec<String> = Vec::new();
             let mut last_mid_y: Option<i32> = None;
 
-            for m in &sorted_matched {
+            for (m_idx, m) in sorted_matched.iter().enumerate() {
                 let (_, my, _, mh) = polygon_bounds(&m.polygon);
                 let mid_y = my + mh / 2;
                 let clean_t = clean_stray_ocr_artifacts(&m.text);
@@ -120,17 +129,11 @@ pub fn build_regions(
 
                 let is_same_row = if let Some(prev_y_val) = last_mid_y {
                     if (mid_y - prev_y_val).abs() <= 8 {
-                        let prev_line = sorted_matched.iter().rev()
-                            .skip(1)
-                            .find(|lm| {
-                                let (_, lmy, _, lmh) = polygon_bounds(&lm.polygon);
-                                let lm_mid = lmy + lmh / 2;
-                                (lm_mid - prev_y_val).abs() <= 4
-                            });
+                        let prev_line = if m_idx > 0 { Some(&sorted_matched[m_idx - 1]) } else { None };
                         if let Some(pl) = prev_line {
                             let (plx, _, plw, _) = polygon_bounds(&pl.polygon);
                             let (mx, _, mw, _) = polygon_bounds(&m.polygon);
-                            (plx + plw).min(mx + mw) - plx.max(mx) > 0
+                            (plx + plw).min(mx + mw) - plx.max(mx) <= 5
                         } else {
                             true
                         }
@@ -162,6 +165,8 @@ pub fn build_regions(
                                 if best_overlap > 0 {
                                     let remainder: String = next_chars[best_overlap..].iter().collect();
                                     format!("{}{}", last_row.trim_end(), remainder)
+                                } else if last_row.ends_with(['！', '!', '？', '?', '。']) && !clean_t.ends_with(['！', '!', '？', '?', '。']) {
+                                    format!("{}\n{}", last_row.trim_end(), clean_t.trim_start())
                                 } else {
                                     format!("{}{}", last_row.trim_end(), clean_t.trim_start())
                                 }
@@ -248,13 +253,25 @@ pub fn build_regions(
                 let top_band_y0 = (box_rect.y - 35).max(0) as u32;
                 let top_band_y1 = box_rect.y.max(0) as u32;
                 let has_top_headroom = is_bright_band(top_band_y0, top_band_y1);
-
-                let bot_band_y0 = ((box_rect.y + box_rect.h).max(0) as u32).min(page_h);
+                    let bot_band_y0 = ((box_rect.y + box_rect.h).max(0) as u32).min(page_h);
                 let bot_band_y1 = ((box_rect.y + box_rect.h + 35).max(0) as u32).min(page_h);
                 let has_bot_footroom = is_bright_band(bot_band_y0, bot_band_y1);
 
-                let pad_top = if has_top_headroom { 45 } else { 15 };
-                let pad_bot = if has_bot_footroom { 40 } else { 15 };
+                let max_top_allowed = regions.iter()
+                    .filter(|r| {
+                        let rx_overlap = (r.box_.x + r.box_.w).min(box_rect.x + box_rect.w) - r.box_.x.max(box_rect.x);
+                        rx_overlap > 0 && r.box_.y + r.box_.h <= box_rect.y
+                    })
+                    .map(|r| (box_rect.y - (r.box_.y + r.box_.h)).max(0) as u32)
+                    .min()
+                    .unwrap_or(100);
+
+                let pad_top = if max_top_allowed < 50 {
+                    ((if has_top_headroom { 45 } else { 15 }).min(max_top_allowed.max(4) / 2).max(4)) as i32
+                } else {
+                    (if has_top_headroom { 45 } else { 15 }) as i32
+                };
+                let pad_bot = (if has_bot_footroom { 40 } else { 15 }) as i32;
                 let pad_x = (box_rect.w / 4).clamp(15, 30);
 
                 let crop_x = (box_rect.x - pad_x).max(0) as u32;
@@ -349,10 +366,10 @@ pub fn build_regions(
                                     let v_gap = curr_min_y - prev_max_y;
 
                                     let prev_has_term = prev_txt.ends_with('？') || prev_txt.ends_with('?') || prev_txt.ends_with('！') || prev_txt.ends_with('!') || prev_txt.ends_with('。');
-                                    if prev_has_term && v_gap > (prev_h * 3 / 4) {
+                                    if prev_has_term && prev_txt.chars().count() >= 6 && v_gap > (prev_h * 5 / 4).max(25) {
                                         break;
                                     }
-                                    if v_gap > (prev_h * 5 / 4) {
+                                    if v_gap > (prev_h * 6 / 4).max(35) {
                                         break;
                                     }
                                     filtered.push((pts.clone(), txt.clone(), *score));
@@ -368,7 +385,13 @@ pub fn build_regions(
                             let clean_res_text = clean_stray_ocr_artifacts(&raw_res_text);
                             let clean_chars = clean_res_text.chars().filter(|c| !c.is_whitespace()).count();
                             let orig_chars = best_text.chars().filter(|c| !c.is_whitespace()).count();
-                            if CHINESE_RE.is_match(&clean_res_text) && (res.score > avg_score || clean_chars > orig_chars || has_mixed_orientations) {
+                            let clean_line_count = clean_res_text.split('\n').filter(|s| !s.trim().is_empty()).count();
+                            let orig_line_count = best_text.split('\n').filter(|s| !s.trim().is_empty()).count();
+                            let is_text_accepted = clean_chars > orig_chars
+                                || (clean_chars == orig_chars && clean_line_count >= orig_line_count)
+                                || (res.score > avg_score && clean_chars >= (orig_chars * 4 / 5).max(1) && clean_line_count >= orig_line_count)
+                                || (has_mixed_orientations && clean_chars >= 2);
+                            if CHINESE_RE.is_match(&clean_res_text) && is_text_accepted {
                                 best_text = clean_res_text;
                                 best_score = res.score;
                                 let line_polys: Vec<Vec<[i32; 2]>> = clean_lines.iter().map(|(p, _, _)| {
@@ -424,6 +447,13 @@ pub fn build_regions(
         let mut cleaned = clean_stray_ocr_artifacts(&text);
         cleaned = crate::ml::detect::filter_text_by_source_lang(&cleaned, source_lang).trim().to_string();
         if cleaned.trim().is_empty() || is_pure_watermark_region(&cleaned) {
+            continue;
+        }
+
+        // Isolated single-character non-SFX artwork hallucination filter
+        let sfx_glyphs = "噗轰咚咳啪砰咔唰嘭哇嗷嘶呜呼哈哒嗒踏铛铮刷咻嗖哧嚓哐咕嗡吼鸣飒吱咯嘎喳沙！!？?…~～";
+        let char_count = cleaned.chars().filter(|c| !c.is_whitespace()).count();
+        if char_count == 1 && !cleaned.chars().any(|c| sfx_glyphs.contains(c)) && confidence < 0.73 {
             continue;
         }
 
@@ -611,6 +641,19 @@ pub fn build_regions(
             }
         }
 
+        // Trailing ellipsis enclosure: expand box right boundary if trailing ellipsis line sits adjacent
+        if cleaned.ends_with("……") || cleaned.ends_with("...") {
+            for line in split_lines {
+                if line.text.contains('…') || line.text.contains("...") || line.text.contains('·') {
+                    let (lx, ly, lw, lh) = polygon_bounds(&line.polygon);
+                    let v_overlap = (ly + lh).min(box_rect.y + box_rect.h) - ly.max(box_rect.y);
+                    if v_overlap > 0 && lx >= box_rect.x && (lx + lw) > (box_rect.x + box_rect.w) && (lx - (box_rect.x + box_rect.w)) <= 40 {
+                        box_rect.w = (lx + lw + 4) - box_rect.x;
+                    }
+                }
+            }
+        }
+
         // Ellipsis expansion fixes
         if cleaned.contains("明车易挡") {
             if !cleaned.ends_with("……") {
@@ -665,7 +708,46 @@ pub fn build_regions(
                         .chars()
                         .filter(|c| c.is_alphanumeric() || (!c.is_ascii_punctuation() && *c != '…' && *c != '·' && *c != '—' && *c != '～'))
                         .collect();
-                    meaningful_chars.is_empty() || meaningful_chars.iter().all(|&c| existing.text.contains(c))
+                    let all_chars_in_existing = !meaningful_chars.is_empty() && meaningful_chars.iter().all(|&c| existing.text.contains(c));
+
+                    let lines: Vec<&str> = cleaned.lines().map(|l| l.trim()).filter(|l| !l.is_empty()).collect();
+                    let has_substantial_lines = lines.iter().any(|l| l.chars().count() >= 2);
+                    let all_lines_in_existing = has_substantial_lines && lines.iter().all(|l| {
+                        let cjk_only: String = l.chars().filter(|c| CHINESE_RE.is_match(&c.to_string()) || c.is_alphanumeric()).collect();
+                        if cjk_only.chars().count() <= 1 {
+                            true
+                        } else {
+                            existing.text.contains(&cjk_only) || existing.text.contains(*l)
+                        }
+                    });
+
+                    meaningful_chars.is_empty() || all_chars_in_existing || all_lines_in_existing
+                } else {
+                    false
+                }
+            };
+
+            let is_reverse_suffix_echo = {
+                let overlap_y_ratio = inter_y.max(0) as f32 / box_rect.h.min(existing.box_.h).max(1) as f32;
+                if overlap_y_ratio >= 0.70 && inter_x > 0 {
+                    let ex_meaningful: Vec<char> = existing.text
+                        .chars()
+                        .filter(|c| c.is_alphanumeric() || (!c.is_ascii_punctuation() && *c != '…' && *c != '·' && *c != '—' && *c != '～'))
+                        .collect();
+                    let all_ex_chars_in_cur = !ex_meaningful.is_empty() && ex_meaningful.iter().all(|&c| cleaned.contains(c));
+
+                    let ex_lines: Vec<&str> = existing.text.lines().map(|l| l.trim()).filter(|l| !l.is_empty()).collect();
+                    let has_substantial_lines = ex_lines.iter().any(|l| l.chars().count() >= 2);
+                    let all_ex_lines_in_cur = has_substantial_lines && ex_lines.iter().all(|l| {
+                        let cjk_only: String = l.chars().filter(|c| CHINESE_RE.is_match(&c.to_string()) || c.is_alphanumeric()).collect();
+                        if cjk_only.chars().count() <= 1 {
+                            true
+                        } else {
+                            cleaned.contains(&cjk_only) || cleaned.contains(*l)
+                        }
+                    });
+
+                    ex_meaningful.is_empty() || all_ex_chars_in_cur || all_ex_lines_in_cur
                 } else {
                     false
                 }
@@ -684,6 +766,7 @@ pub fn build_regions(
                 || (is_subtext && (overlap_self >= 0.60 || overlap_ex >= 0.60))
                 || is_colliding
                 || is_suffix_echo
+                || is_reverse_suffix_echo
                 || is_shared_bubble_fragment
             {
                 let cur_chars = cleaned.chars().filter(|c| !c.is_whitespace()).count();
@@ -717,20 +800,41 @@ pub fn build_regions(
             let crop_w = ((mx2 - mx + pad_x * 2) as u32).min(page_w - crop_x);
             let crop_h = ((my2 - my + pad_y * 2) as u32).min(page_h - crop_y);
 
+            let ex_clean = ex.text.trim();
+            let cur_clean = cleaned.trim();
+            let ex_compact: String = ex_clean.chars().filter(|c| !c.is_whitespace()).collect();
+            let cur_compact: String = cur_clean.chars().filter(|c| !c.is_whitespace()).collect();
+
+            let fallback_text = if cur_compact.contains(&ex_compact) || ex_compact.is_empty() {
+                cleaned.clone()
+            } else if ex_compact.contains(&cur_compact) || cur_compact.is_empty() {
+                ex.text.clone()
+            } else {
+                format!("{}\n{}", ex_clean, cur_clean)
+            };
+
+            let total_chars = if cur_compact.contains(&ex_compact) {
+                cleaned.chars().count()
+            } else if ex_compact.contains(&cur_compact) {
+                ex.text.chars().count()
+            } else {
+                ex.text.chars().count() + cleaned.chars().count()
+            };
+
             let mut unified_text = None;
             if crop_w >= 16 && crop_h >= 16 {
                 let crop = img.crop_imm(crop_x, crop_y, crop_w, crop_h);
                 if let Some(ref mut o) = ocr {
                     if let Ok(Some(res)) = o.recognize_crop_with_lang(&crop, source_lang) {
                         let clean_c = clean_stray_ocr_artifacts(&res.text);
-                        if clean_c.chars().count() >= cleaned.chars().count() {
+                        if clean_c.chars().count() > total_chars || (clean_c.chars().count() >= total_chars && clean_c.contains('\n')) {
                             unified_text = Some(clean_c);
                         }
                     }
                 }
             }
 
-            let final_t = unified_text.unwrap_or(cleaned);
+            let final_t = unified_text.unwrap_or(fallback_text);
             let unified_box = BoxRect { x: mx, y: my, w: mx2 - mx, h: my2 - my };
             let unified_poly = vec![
                 [mx, my], [mx2, my], [mx2, my2], [mx, my2],

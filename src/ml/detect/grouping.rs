@@ -363,7 +363,7 @@ pub fn group_paragraphs(
                     let is_sfx = last_clean.chars().count() <= 2;
                     let has_gap = gap >= 0.30 * min_eff_h && !(is_aligned && overlap >= 0.50 * w.min(lw));
                     let has_offset = (new_cx - para_mean_cx).abs() > 0.45 * w.min(lw) && !(is_left_aligned || is_right_aligned);
-                    if (is_sfx && gap >= 0.15 * min_eff_h)
+                    if (is_sfx && gap >= 0.15 * min_eff_h && !(is_aligned && overlap >= 0.40 * w.min(lw)) && !is_left_aligned)
                         || (last_clean.chars().count() <= 5 && !(is_aligned && overlap >= 0.50 * w.min(lw)) && gap >= 0.15 * min_eff_h)
                         || has_gap
                         || (has_offset && gap > 0.10 * min_eff_h)

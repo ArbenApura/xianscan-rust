@@ -11,12 +11,12 @@ pub static CHINESE_RE: LazyLock<Regex> = LazyLock::new(|| {
 
 pub static WATERMARK_RE: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(
-        r"(?i)(\.com|\.net|\.org|\.cn|\.cc|\.xyz|\.top|\.me|\.tv|\.app|http|discord|scanlat|bilibili|速漫库|速漫|漫库|qumanku|quman|包子|baozimh|baozi|colamanga|colamanhua|colam|acloudmerge|acloud|loudmer|udmer|merd|oamanhua|merge|cloud|manga|manhua|comic|yumanhua|mangabox|comick|腾讯[动漫慢]*|腾[动漫慢]{1,2}|阅文[集团]*|快看(?:漫画|动漫|app|独家|首发)|微信|公众号|qq群|企鹅群|群号|严禁转载|独家(?:首发|连载|授权|发布|提供)|扫图|录入|修图|嵌字|翻译[:：]|翻译组|汉化组|免费漫画|最新免费|漫画网|看漫画网|首发|独家首发|漫客[栈拌祥]?|漫[客喜][栈拌祥]?|mkzhan|nga\.com)"
+        r"(?i)(\.com|\.net|\.org|\.cn|\.cc|\.xyz|\.top|\.me|\.tv|\.app|http|discord|scanlat|bilibili|速漫库|速漫|漫库|qumanku|quman|包子|baozimh|baozi|colamanga|colamanhua|colam|acloudmerge|acloud|loudmer|udmer|merd|oamanhua|merge|cloud|manga|manhua|comic|yumanhua|mangabox|comick|腾讯[动漫慢机动初]*|腾[动漫慢机动初]{1,2}|阅文[集团]*|快看(?:漫画|动漫|app|独家|首发)|微信|公众号|qq群|企鹅群|群号|严禁转载|独家(?:首发|连载|授权|发布|提供)|扫图|录入|修图|嵌字|翻译[:：]|翻译组|汉化组|免费漫画|最新免费|漫画网|看漫画网|首发|独家首发|漫客[栈拌祥]?|漫[客喜][栈拌祥]?|mkzhan|nga\.com)"
     ).unwrap()
 });
 
 static PLATFORM_WATERMARK_RE: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(r"(?i)(?:COLAMANGA\.com|Acloudmerge\.com|qumanku\.com|www\.[a-z0-9\-_.]+\.[a-z]{2,}|https?://[^\s]+|乐漫件|速漫库|腾讯动漫|信机动摄|漫客栈|本章完|下回待续)").unwrap()
+    Regex::new(r"(?i)(?:COLAMANGA\.com|Acloudmerge\.com|qumanku\.com|www\.[a-z0-9\-_.]+\.[a-z]{2,}|https?://[^\s]+|乐漫件|速漫库|腾讯动漫|腾[机初]动[漫]?|信机动摄|漫客栈|本章完|下回待续)").unwrap()
 });
 
 static STRAY_LATIN_SUFFIX: LazyLock<Regex> = LazyLock::new(|| {
@@ -107,6 +107,7 @@ pub fn clean_stray_ocr_artifacts(text: &str) -> String {
         return String::new();
     }
     let lines: Vec<&str> = text.split('\n').collect();
+    let has_non_wm = lines.iter().any(|l| !is_watermark_line(l));
     let mut cleaned_lines = Vec::new();
 
     let re_bracket_dots = Regex::new(r"^[\[\]【】()（）〔〕]\s*(……|…|\.\.\.)").unwrap();
@@ -114,6 +115,9 @@ pub fn clean_stray_ocr_artifacts(text: &str) -> String {
 
     for line in lines {
         let mut cleaned = line.trim().to_string();
+        if has_non_wm && is_watermark_line(&cleaned) {
+            continue;
+        }
         cleaned = re_bracket_dots.replace_all(&cleaned, "$1").to_string();
         cleaned = re_sfx_yi.replace_all(&cleaned, "$1—").to_string();
         cleaned = STRAY_LATIN_SUFFIX.replace(&cleaned, "$1").to_string();

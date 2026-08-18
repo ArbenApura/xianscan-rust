@@ -191,13 +191,15 @@ pub fn post_process_regions(
                 let crop_w = ((mx2 - mx + pad_x * 2) as u32).min(page_w - crop_x);
                 let crop_h = ((my2 - my + pad_y * 2) as u32).min(page_h - crop_y);
 
+                let total_chars = a.text.chars().count() + b_removed.text.chars().count();
+                let fallback_text = format!("{}\n{}", a.text.trim(), b_removed.text.trim());
                 let mut unified_text = None;
                 if crop_w >= 16 && crop_h >= 16 {
                     let crop = img.crop_imm(crop_x, crop_y, crop_w, crop_h);
                     if let Some(ref mut o) = ocr {
                         if let Ok(Some(res)) = o.recognize_crop_with_lang(&crop, source_lang) {
                             let clean_c = clean_stray_ocr_artifacts(&res.text);
-                            if clean_c.chars().count() >= a.text.chars().count() {
+                            if clean_c.chars().count() > total_chars || (clean_c.chars().count() >= total_chars && clean_c.contains('\n')) {
                                 unified_text = Some(clean_c);
                             }
                         }
@@ -207,7 +209,7 @@ pub fn post_process_regions(
                 if let Some(ut) = unified_text {
                     a.text = ut;
                 } else {
-                    a.text = format!("{}\n{}", a.text.trim(), b_removed.text.trim());
+                    a.text = fallback_text;
                 }
             }
         }

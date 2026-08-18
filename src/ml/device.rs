@@ -66,9 +66,7 @@ pub fn probe_hardware() -> (Vec<String>, String) {
     let override_dev = OVERRIDE_DEVICE.lock().unwrap().clone();
     let env_override = override_dev.or_else(|| std::env::var("MT_DEVICE").ok()).unwrap_or_default().to_lowercase();
 
-    let detected_gpus = enumerate_system_gpus();
     let dedicated_gpu = get_dedicated_gpu();
-    let has_only_igpu = !detected_gpus.is_empty() && dedicated_gpu.is_none();
 
     if env_override == "cpu" || env_override == "none" {
         return (vec!["CPUExecutionProvider".to_string()], "CPU Multi-threaded".to_string());
@@ -89,12 +87,6 @@ pub fn probe_hardware() -> (Vec<String>, String) {
             format!("DirectML Dedicated GPU ({})", dgpu.name),
         )
     } else {
-        if has_only_igpu {
-            info!(
-                "Integrated GPU detected ({:?}). Banning iGPU from ML inference to prevent DWM freezes and driver TDR; using CPU Multi-threaded.",
-                detected_gpus[0].name
-            );
-        }
         (vec!["CPUExecutionProvider".to_string()], "CPU Multi-threaded".to_string())
     }
 }

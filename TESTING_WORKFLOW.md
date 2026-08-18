@@ -32,12 +32,13 @@ This document defines the strict protocol for adding, compiling, and resolving M
 
 * **Strict Assertion Invariants**:
   1. **Exact Native Image Resolution**: Fixture images must match the **exact width and height** of the raw uploaded page provided by the user. Never downscale, downsample, or compress test images—neural feature maps, OCR line aspect ratios, and spatial clustering thresholds depend strictly on native pixel scale.
-  2. **Exact Region Count**: Always assert `assert_eq!(res.regions.len(), expected_count)` to catch ghost, duplicate, or split boxes immediately.
-  3. **Full Text Unification**: Assert that multi-line bubbles, connected double-bubbles, and continuous sentences contain all constituent lines in proper reading order without mid-sentence truncations.
-  4. **No Fragment/Duplicate Sub-Boxes**: Explicitly assert negative checks (`assert!(!res.regions.iter().any(...))`) against split fragments (e.g., ensuring a 3-line bubble didn't spawn an extra 2-line ghost box).
-  5. **Strict Spatial/Boundary Clamping**: Assert geometric invariants (e.g., `box_.x + box_.w <= limit`) to guarantee bounding boxes do not dilate into character artwork or bubble borders.
-  6. **Zero Stray/Hallucination Artifacts**: Explicitly verify that artwork noise, thought bubble tail circles, and margin stamps are eliminated.
-  7. **No Superficial/Loose Checks**: Never use loose assertions (e.g. `all_text.contains(...)`) that could pass even if the bubble is fragmented or duplicated.
+  2. **Exact Total Region Count**: Always assert `assert_eq!(res.regions.len(), expected_count)` as the very first check to catch ghost, duplicate, split boxes, or stray artwork hallucinations immediately.
+  3. **Exhaustive Exact Region Text Matching**: Every single region in the expected count must be explicitly verified with exact text matching (`assert_eq!(r.text.trim(), expected_exact_text)`). Never leave any region unaccounted for.
+  4. **Full Text Unification**: Assert that multi-line bubbles, connected double-bubbles, and continuous sentences contain all constituent lines in proper reading order without mid-sentence truncations.
+  5. **No Fragment/Duplicate Sub-Boxes**: Explicitly assert negative checks (`assert!(!res.regions.iter().any(...))`) against split fragments (e.g., ensuring a 3-line bubble didn't spawn an extra 2-line ghost box).
+  6. **Strict Spatial/Boundary Clamping**: Assert geometric invariants (e.g., `box_.x + box_.w <= limit`) to guarantee bounding boxes do not dilate into character artwork or bubble borders.
+  7. **Zero Stray/Hallucination Artifacts**: Explicitly verify that artwork noise, stray single characters (e.g. `"中"` on clothes/beards), thought bubble tail circles, and margin stamps are eliminated (`assert!(!res.regions.iter().any(|r| r.text.trim() == "中"))`).
+  8. **No Superficial/Loose Checks**: Never use loose assertions (e.g. `all_text.contains(...)` or `text.contains("part")`) that could pass even if the text contains appended watermarks (e.g. `\n漫客`) or phantom characters.
 * **Constraint**: Do **not** run the test yet. Only compile/save the test case to maintain the compilation batch.
 
 ### Step 4: Repeat for All New Test Cases
@@ -129,6 +130,16 @@ This document defines the strict protocol for adding, compiling, and resolving M
 ### 11. Selective Crop Refinement: Preserving Clean High-Line Detections
 * **Pitfall**: Unconditionally forcing local crop recognition (`recognize_crop`) on large candidate boxes ($h \ge 75, w \ge 75$) even when full-page RapidOCR already detected $\ge 3$ or 4 clean, high-confidence lines can cause crop padding to over-extend into neighboring panels, introducing noise.
 * **Prevention**: Crop refinement should be targeted specifically at low-confidence regions ($score < 0.60$) or fragmented bubbles ($\le 2$ lines detected within an envelope tall enough for $\ge 3$ lines). When full-page OCR has already isolated $\ge 3$ clean lines with high confidence ($\ge 0.65$), trust the full-page text detection lines.
+
+### 12. Exhaustive Region Accounting & Exact String Assertions (No Loose Substrings)
+* **Pitfall**: Writing tests with loose assertions like `all_text.contains("skin")` or `caption.contains("NPC")` allows tests to pass falsely even when:
+  1. Stray single-character artwork hallucinations (e.g. `"中"` on clothes/beards) exist silently as extra regions.
+  2. Watermarks (e.g. `\n漫客`) are appended to legitimate speech text.
+  3. Bubbles are fragmented or duplicated into extra ghost boxes.
+* **Prevention & Rules**:
+  1. **Strict Total Count**: Always start with `assert_eq!(res.regions.len(), expected_count)`.
+  2. **Every Region Explicitly Checked**: For every region $0 \le i < expected\_count$, find the region and assert `assert_eq!(region.text.trim(), "exact text")`.
+  3. **Explicit Negative Guards**: Assert `assert!(!res.regions.iter().any(|r| ...))` against the exact hallucinations or watermarks reported.
 
 ### 13. Strict Single-Repository Root Invariant (`xianscan-rust` Only)
 * **Rule**: **NEVER edit, modify, or run builds in the legacy `c:\Users\Admin\Desktop\xianscan` directory.**

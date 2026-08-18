@@ -30,6 +30,10 @@ fn test_regression_page_679() {
         .expect("Failed to decode image");
 
     let res = get_or_analyze_fixture(&img);
+    println!("Page 679 regions (len={}):", res.regions.len());
+    for (i, r) in res.regions.iter().enumerate() {
+        println!("  r{}: box={:?}, text='{}'", i, r.box_, r.text.replace('\n', "\\n"));
+    }
     assert_eq!(res.regions.len(), 5, "Page 679 must have exactly 5 detected regions");
 
     // 1. Panel 1: Upper speech bubble (Zhang Yude dialogue)
@@ -644,42 +648,63 @@ fn test_regression_page_198_seq_34() {
     assert!(all_text.contains("第三辆"), "Must detect middle speech bubble '第三辆……'");
 }
 
-/// # Regression Test: Page 204 Seq 38 (Resolution: 800 × 1143 WebP)
+/// # Regression Test: Page 63707 / Page 204 Seq 38 (Native: 716 × 1024 WebP)
 ///
 /// ## Purpose & Behavior Tested:
-/// - **Background Surprise Emotion Mark Suppression**:
-///   Suppresses background illustration exclamation/surprise graphic (*"！"*) in panel 2
-///   while cleanly preserving speech bubble (*"没事！俺皮厚得很！"* with `angle = 0.0°`)
-///   and cough SFX (*"咳！咳！"*).
+/// - **Zero Single-Character Artwork Hallucinations**:
+///   Guarantees that dark contrast vertical clothing/beard lines on the top character
+///   do NOT spawn isolated single-character hallucination boxes (*"中"*).
+/// - **Dialogue Bubble Preservation & Exact Angles**:
+///   Cleanly detects speech bubble (*"没事！\n俺\n皮厚得很！"* with `angle = 0.0°`)
+///   and cough SFX (*"咳！咳！"* with `angle = 0.0°`).
+///
+/// ## Key Invariants:
+/// - Exactly 2 regions (`assert_eq!(res.regions.len(), 2)`).
+/// - Region 0: Dialogue bubble containing *"没事！\n俺\n皮厚得很！"*.
+/// - Region 1: SFX *"咳！咳！"*.
+/// - Negative guard: Zero *"中"* hallucination boxes (`assert!(!res.regions.iter().any(|r| r.text.trim() == "中"))`).
 #[test]
 fn test_regression_page_204_seq_38() {
-    let img_path = Path::new("tests/fixtures/page_204_seq_38.webp");
-    if !img_path.exists() {
-        return;
-    }
-    let img = image::ImageReader::open(img_path)
-        .expect("Failed to open page_204_seq_38.webp")
+    let img_path = Path::new("tests/fixtures/page_63707.webp");
+    let fallback_path = Path::new("tests/fixtures/page_204_seq_38.webp");
+    let active_path = if img_path.exists() { img_path } else if fallback_path.exists() { fallback_path } else { return; };
+    let img = image::ImageReader::open(active_path)
+        .expect("Failed to open page_63707.webp")
         .with_guessed_format()
         .expect("Failed to guess format")
         .decode()
         .expect("Failed to decode image");
 
     let res = get_or_analyze_fixture(&img);
-    println!("Page 204 seq 38 detected {} regions:", res.regions.len());
-    for r in &res.regions {
-        println!("  Region {}: box={:?}, angle={:.2}, text='{}', conf={:.2}", r.id, r.box_, r.angle, r.text.replace('\n', "\\n"), r.confidence);
+    println!("Page 63707 detected {} regions:", res.regions.len());
+    for (i, r) in res.regions.iter().enumerate() {
+        println!("  Region r{}: box={:?}, angle={:.2}, text='{}', conf={:.2}", i, r.box_, r.angle, r.text.replace('\n', "\\n"), r.confidence);
     }
 
-    let all_text = res.regions.iter().map(|r| r.text.as_str()).collect::<Vec<_>>().join("\n");
+    // 1. Exact total region count: exactly 2 regions
+    assert_eq!(res.regions.len(), 2, "Page 63707 must have exactly 2 regions (dialogue + SFX), got {}", res.regions.len());
 
-    // 1. Must suppress background illustration emotion surprise mark '！' in panel 2 (near x=513, y=784)
-    assert!(!res.regions.iter().any(|r| (r.text.trim() == "！" || r.text.trim() == "!") && r.box_.y >= 700 && r.box_.y <= 1000 && r.box_.x >= 450 && r.box_.x <= 600), "Must not detect background surprise illustration graphic as dialogue '！'");
-
-    // 2. Dialogue bubble and cough SFX must be detected, dialogue bubble must have angle 0.0
+    // 2. Dialogue bubble: '没事！\n俺\n皮厚得很！' with angle 0.0
     let skin_bubble = res.regions.iter().find(|r| r.text.contains("皮厚") || r.text.contains("没事"));
     assert!(skin_bubble.is_some(), "Must detect dialogue bubble '没事！俺皮厚得很！'");
-    assert_eq!(skin_bubble.unwrap().angle, 0.0, "Dialogue bubble must have angle 0.0 deg, got {}", skin_bubble.unwrap().angle);
-    assert!(all_text.contains("咳"), "Must detect SFX '咳！咳！'");
+    let skin_r = skin_bubble.unwrap();
+    assert_eq!(skin_r.angle, 0.0, "Dialogue bubble must have angle 0.0 deg, got {}", skin_r.angle);
+    assert!(skin_r.text.contains("没事！") && skin_r.text.contains("皮厚得很！"), "Dialogue bubble text must be complete");
+
+    // 3. Cough SFX: '咳！咳！'
+    let cough_sfx = res.regions.iter().find(|r| r.text.contains("咳"));
+    assert!(cough_sfx.is_some(), "Must detect SFX '咳！咳！'");
+    assert_eq!(cough_sfx.unwrap().text.trim(), "咳！咳！", "SFX must match '咳！咳！'");
+
+    // 4. Negative Guard: Zero '中' single-character artwork hallucinations
+    assert!(
+        !res.regions.iter().any(|r| r.text.trim() == "中"),
+        "Must not detect character artwork strokes as isolated character '中'"
+    );
+    assert!(
+        !res.regions.iter().any(|r| (r.text.trim() == "！" || r.text.trim() == "!") && r.box_.y >= 700),
+        "Must not detect background surprise graphic as dialogue '！'"
+    );
 }
 
 /// # Regression Test: Novice Mage Equipment & Speech Bubble Page (Resolution: 800 × 1461 WebP)
@@ -741,4 +766,85 @@ fn test_regression_page_novice_mage_split_bubble() {
     // 4. Negative Guard: Zero split fragment ghost boxes
     assert!(!res.regions.iter().any(|r| r.text.trim() == "哼来个\n这菜" || r.text.trim() == "这么胡\n菜鸟一"), "Must not leave column-split fragment ghost boxes");
 }
+
+/// # Regression Test: Page 58375 (Resolution: 800 × 1060 WebP)
+///
+/// ## Purpose & Behavior Tested:
+/// - **Ghost Suffix Echo & Watermark Cleanup**:
+///   Prevents trailing text detection echo + watermark collision (`和服务。\n祥`) on long horizontal gutter captions.
+/// - **Single Unified Gutter Caption**:
+///   Guarantees `NPC：游戏中不受玩家控制的角色，一般用做剧情推动和服务。` is detected as a single clean region.
+/// - **Complete Character Dialogue Capture**:
+///   Accurately detects all 5 character dialogue regions:
+///   1. `法师玩家出生点`
+///   2. `哈哈哈\n我是哈利\n波特！`
+///   3. `我也是！`
+///   4. `我买！`
+///   5. `我也买！`
+///
+/// ## Key Invariants:
+/// - Exactly 6 regions detected (`assert_eq!(res.regions.len(), 6)`).
+/// - No duplicate/ghost trailing substring echo boxes (`和服务。\n祥`).
+#[test]
+fn test_regression_page_58375() {
+    let img_path = Path::new("tests/fixtures/page_58375.webp");
+    if !img_path.exists() {
+        return;
+    }
+    let img = image::ImageReader::open(img_path)
+        .expect("Failed to open page_58375.webp")
+        .with_guessed_format()
+        .expect("Failed to guess format")
+        .decode()
+        .expect("Failed to decode image");
+
+    let res = get_or_analyze_fixture(&img);
+    println!("Page 58375 detected {} regions:", res.regions.len());
+    for (i, r) in res.regions.iter().enumerate() {
+        println!("  Region r{}: box={:?}, text='{}', angle={:.2}, conf={:.2}", i, r.box_, r.text.replace('\n', "\\n"), r.angle, r.confidence);
+    }
+
+    // 1. Exact count: exactly 6 regions
+    assert_eq!(res.regions.len(), 6, "Page 58375 must have exactly 6 regions, got {}", res.regions.len());
+
+    // 2. Middle gutter caption verification
+    let npc_caption = res.regions.iter().find(|r| r.text.contains("不受玩家控制") || r.text.contains("剧情推动"));
+    assert!(npc_caption.is_some(), "Must detect middle gutter NPC caption line");
+    let caption_text = &npc_caption.unwrap().text;
+    assert_eq!(
+        caption_text.trim(),
+        "NPC：游戏中不受玩家控制的角色，一般用做剧情推动和服务。",
+        "NPC caption line must be clean and not contain watermark '漫客'"
+    );
+    assert!(!caption_text.contains("漫客") && !caption_text.contains("漫客栈"), "Must not contain watermark in caption text");
+
+    // 3. Dialogue regions verification
+    let spawn_point = res.regions.iter().find(|r| r.text.contains("出生点") || r.text.contains("法师玩家"));
+    assert!(spawn_point.is_some(), "Must detect '法师玩家出生点'");
+
+    let harry_potter = res.regions.iter().find(|r| r.text.contains("哈利") || r.text.contains("波特"));
+    assert!(harry_potter.is_some(), "Must detect '哈哈哈\\n我是哈利\\n波特！'");
+
+    let me_too_1 = res.regions.iter().find(|r| r.text.contains("我也是"));
+    assert!(me_too_1.is_some(), "Must detect '我也是！'");
+
+    let buy_1 = res.regions.iter().find(|r| r.text.trim() == "我买！" || r.text.trim() == "我买");
+    assert!(buy_1.is_some(), "Must detect '我买！'");
+
+    let buy_2 = res.regions.iter().find(|r| r.text.contains("我也买"));
+    assert!(buy_2.is_some(), "Must detect '我也买！'");
+
+    // 4. Negative Guard: Zero ghost suffix echo / watermark collision boxes
+    assert!(
+        !res.regions.iter().any(|r| {
+            r.text.contains("和服务。\n祥")
+                || (r.text.contains("和服务") && !r.text.contains("不受玩家控制"))
+                || r.text.trim() == "祥"
+                || r.text.contains("漫客")
+                || r.text.contains("漫客栈")
+        }),
+        "Must not spawn trailing ghost suffix echo box or watermark artifacts"
+    );
+}
+
 

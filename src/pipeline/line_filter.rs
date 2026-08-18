@@ -56,7 +56,7 @@ pub fn filter_artwork_and_artifacts(lines: Vec<OcrLine>, page_w: u32) -> Vec<Ocr
             || (lh * lw >= 10000 && rl.score < 0.80)
         );
         let is_isolated_dash_noise = char_count <= 1 && ["一", "1", "丨", "I", "l", "|", "-"].contains(&clean_t) && rl.score < 0.75 && (lw <= 60 || lh <= 25 || (lh as f32 / lw.max(1) as f32) < 0.40);
-        let is_low_conf_isolated_char = char_count <= 1 && !is_sfx_glyph && rl.score < 0.70 && !is_sfx_tail;
+        let is_low_conf_isolated_char = char_count <= 1 && !is_sfx_glyph && rl.score < 0.73 && !is_sfx_tail;
 
         let is_giant_chinese_hallucination = has_chinese && !is_sfx_glyph && (
             (lw >= (page_w as f32 * 0.60) as i32 && lh >= 120 && char_count <= 4 && rl.score < 0.75)
