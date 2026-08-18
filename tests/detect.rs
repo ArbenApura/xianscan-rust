@@ -86,9 +86,47 @@ fn test_rapid_ocr_detect_and_recognize_on_page_679() {
 #[test]
 fn test_language_aware_filtering_helpers() {
     use xianscan_rust::ml::detect::{
-        has_alphanumeric_characters, has_cjk_characters, is_cjk_source, is_latin_source,
-        is_standalone_alphanumeric_without_cjk,
+        filter_text_by_source_lang, has_alphanumeric_characters, has_cjk_characters,
+        is_cjk_source, is_cyrillic_source, is_latin_source,
+        is_standalone_alphanumeric_without_cjk, is_thai_source, strip_cjk_characters,
     };
+
+    // Script stripping & source language filtering
+    assert_eq!(strip_cjk_characters("Hello 你好 World"), "Hello  World");
+    assert_eq!(strip_cjk_characters("Chapter 1 话"), "Chapter 1 ");
+    assert_eq!(strip_cjk_characters("こんにちは English 안녕하세요"), " English ");
+    assert_eq!(strip_cjk_characters("Only English! 123"), "Only English! 123");
+
+    // Latin source strips all non-Latin scripts (CJK, Cyrillic, Thai, Greek, Arabic)
+    let mixed = "Hello 你好 Привет สวัสดี World 123!";
+    assert_eq!(filter_text_by_source_lang(mixed, Some("en")), "Hello    World 123!");
+    assert_eq!(filter_text_by_source_lang(mixed, Some("es")), "Hello    World 123!");
+    assert_eq!(filter_text_by_source_lang(mixed, Some("vi")), "Hello    World 123!");
+    assert_eq!(filter_text_by_source_lang(mixed, Some("id")), "Hello    World 123!");
+
+    // Vietnamese example: Preserves Vietnamese diacritics & Latin alphanumeric while stripping accidental CJK/Thai
+    let vi_mixed = "Xin chào các bạn 你好! Đây là thử nghiệm số 1: rất tốt こんにちは.";
+    assert_eq!(
+        filter_text_by_source_lang(vi_mixed, Some("vi")),
+        "Xin chào các bạn ! Đây là thử nghiệm số 1: rất tốt ."
+    );
+
+    // Indonesian example: Preserves Indonesian words & Latin alphanumeric while stripping accidental CJK/Cyrillic
+    let id_mixed = "Halo semua apa kabar 一? Ini adalah tes komik nomor 42 Спасибо.";
+    assert_eq!(
+        filter_text_by_source_lang(id_mixed, Some("id")),
+        "Halo semua apa kabar ? Ini adalah tes komik nomor 42 ."
+    );
+
+    // Cyrillic source strips CJK and Thai, keeps Cyrillic and Latin
+    assert_eq!(filter_text_by_source_lang(mixed, Some("ru")), "Hello  Привет  World 123!");
+
+    // Thai source strips CJK and Cyrillic, keeps Thai and Latin
+    assert_eq!(filter_text_by_source_lang(mixed, Some("th")), "Hello   สวัสดี World 123!");
+
+    // CJK source strips Cyrillic and Thai, keeps CJK and Latin
+    assert_eq!(filter_text_by_source_lang(mixed, Some("zh-Hans")), "Hello 你好   World 123!");
+    assert_eq!(filter_text_by_source_lang(mixed, None), "Hello 你好   World 123!");
 
     // CJK detection
     assert!(has_cjk_characters("你好世界"));
@@ -126,12 +164,28 @@ fn test_language_aware_filtering_helpers() {
     assert!(is_cjk_source(None));
     assert!(!is_cjk_source(Some("en")));
     assert!(!is_cjk_source(Some("english")));
+    assert!(!is_cjk_source(Some("ru")));
+    assert!(!is_cjk_source(Some("th")));
+
+    assert!(is_cyrillic_source(Some("ru")));
+    assert!(is_cyrillic_source(Some("russian")));
+    assert!(is_cyrillic_source(Some("uk")));
+    assert!(!is_cyrillic_source(Some("en")));
+    assert!(!is_cyrillic_source(Some("zh")));
+
+    assert!(is_thai_source(Some("th")));
+    assert!(is_thai_source(Some("thai")));
+    assert!(!is_thai_source(Some("en")));
+    assert!(!is_thai_source(Some("ru")));
 
     assert!(is_latin_source(Some("en")));
     assert!(is_latin_source(Some("eng")));
     assert!(is_latin_source(Some("es")));
     assert!(is_latin_source(Some("fr")));
+    assert!(is_latin_source(Some("vi")));
     assert!(!is_latin_source(Some("zh-Hans")));
     assert!(!is_latin_source(Some("ja")));
+    assert!(!is_latin_source(Some("ru")));
+    assert!(!is_latin_source(Some("th")));
     assert!(!is_latin_source(None));
 }

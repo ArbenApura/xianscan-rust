@@ -273,7 +273,13 @@ impl RapidOcr {
                 let slice_start = b_idx * batch_slice_stride;
                 let slice_end = slice_start + batch_slice_stride;
                 let item_out = &out_slice[slice_start..slice_end];
-                let ocr_res = decode_ctc_slice(item_out, time_steps, num_classes, characters);
+                let mut ocr_res = decode_ctc_slice(item_out, time_steps, num_classes, characters);
+                if let Some(ref mut res) = ocr_res {
+                    res.text = crate::ml::detect::filter_text_by_source_lang(&res.text, source_lang).trim().to_string();
+                    if res.text.is_empty() {
+                        ocr_res = None;
+                    }
+                }
                 results.push(ocr_res);
             }
         }
@@ -339,7 +345,14 @@ impl RapidOcr {
         let time_steps = dims[1];
         let num_classes = dims[2];
 
-        Ok(decode_ctc_slice(out_slice, time_steps, num_classes, characters))
+        let mut res = decode_ctc_slice(out_slice, time_steps, num_classes, characters);
+        if let Some(ref mut r) = res {
+            r.text = crate::ml::detect::filter_text_by_source_lang(&r.text, source_lang).trim().to_string();
+            if r.text.is_empty() {
+                return Ok(None);
+            }
+        }
+        Ok(res)
     }
 
     /// OCR on a crop with 32px padding, multi-line reading-order sorting, and substring deduplication.

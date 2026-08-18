@@ -201,7 +201,7 @@ pub fn fuse_detections(
                             }
                         }
 
-                        if overlap_pix >= 15 && CHINESE_RE.is_match(&cl.text) && !is_watermark_line(&cl.text) {
+                        if overlap_pix >= 15 && (CHINESE_RE.is_match(&cl.text) || !crate::ml::detect::is_cjk_source(source_lang)) && !is_watermark_line(&cl.text) {
                             let mut replaced = false;
                             for rl in &mut rapid_lines {
                                 let iou = box_iou_pts(&cl.polygon, &rl.polygon);

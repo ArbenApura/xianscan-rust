@@ -265,7 +265,7 @@ pub fn build_regions(
                 if crop_w >= 16 && crop_h >= 16 {
                     let crop = img.crop_imm(crop_x, crop_y, crop_w, crop_h);
                     if let Some(ref mut o) = ocr {
-                        if let Ok(Some(res)) = o.recognize_crop(&crop) {
+                        if let Ok(Some(res)) = o.recognize_crop_with_lang(&crop, source_lang) {
                             let mut clean_lines: Vec<_> = res.lines.iter().filter(|(_, txt, _)| {
                                 let cl = clean_stray_ocr_artifacts(txt);
                                 if is_cjk && is_standalone_alphanumeric_without_cjk(&cl) {
@@ -403,7 +403,7 @@ pub fn build_regions(
             if crop_w >= 4 && crop_h >= 4 {
                 let crop = img.crop_imm(crop_x, crop_y, crop_w, crop_h);
                 if let Some(ref mut o) = ocr {
-                    if let Ok(Some(res)) = o.recognize_crop(&crop) {
+                    if let Ok(Some(res)) = o.recognize_crop_with_lang(&crop, source_lang) {
                         crop_text = res.text;
                         crop_score = res.score;
                         let line_polys: Vec<Vec<[i32; 2]>> = res.lines.iter().map(|(p, _, _)| {
@@ -412,7 +412,7 @@ pub fn build_regions(
                         if !line_polys.is_empty() {
                             refined_polys = Some(line_polys);
                         }
-                    } else if let Ok(Some(res)) = o.recognize_line(&crop) {
+                    } else if let Ok(Some(res)) = o.recognize_line_with_lang(&crop, source_lang) {
                         crop_text = res.text;
                         crop_score = res.score;
                     }
@@ -422,6 +422,7 @@ pub fn build_regions(
         };
 
         let mut cleaned = clean_stray_ocr_artifacts(&text);
+        cleaned = crate::ml::detect::filter_text_by_source_lang(&cleaned, source_lang).trim().to_string();
         if cleaned.trim().is_empty() || is_pure_watermark_region(&cleaned) {
             continue;
         }
