@@ -102,6 +102,7 @@
 					text: region.textSource,
 					kind: 'general',
 					instruction: customInstruction.trim() || undefined,
+					pageId,
 				}),
 			});
 			if (!res.ok) {
@@ -109,7 +110,7 @@
 				throw new Error(err.message || 'AI retranslation failed');
 			}
 			const data = await res.json();
-			if (data.text) {
+			if (typeof data.text === 'string') {
 				editTargetText = data.text;
 				toast.success('AI translation re-rolled successfully');
 			}

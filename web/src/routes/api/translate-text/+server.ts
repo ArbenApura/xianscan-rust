@@ -1,7 +1,7 @@
 import { json, type RequestHandler } from '@sveltejs/kit';
 import { z } from 'zod';
 import { db } from '$lib/server/db';
-import { books, chapters } from '$lib/server/db/schema';
+import { books, chapters, pages } from '$lib/server/db/schema';
 import { eq } from 'drizzle-orm';
 import { translateSingleText } from '$lib/server/translate';
 import type { LangPair } from '$lib/types';
@@ -11,9 +11,11 @@ const schema = z.object({
 	kind: z.enum(['title', 'chapter', 'term', 'general']).optional().default('general'),
 	bookId: z.union([z.number(), z.string()]).optional(),
 	chapterId: z.union([z.number(), z.string()]).optional(),
+	pageId: z.union([z.number(), z.string()]).optional(),
 	sourceLang: z.string().optional(),
 	targetLang: z.string().optional(),
 	model: z.string().optional(),
+	instruction: z.string().optional(),
 	fresh: z.boolean().optional(),
 });
 
@@ -25,25 +27,55 @@ export const POST: RequestHandler = async ({ request }) => {
 			return json({ message: 'Invalid input: text is required' }, { status: 400 });
 		}
 
-		const { text, kind, bookId, chapterId, model } = parsed.data;
+		const { text, kind, bookId, chapterId, pageId, model, instruction } = parsed.data;
 		let sourceLang = parsed.data.sourceLang;
 		let targetLang = parsed.data.targetLang;
+
+		// Resolve language pair from page if provided
+		if ((!sourceLang || !targetLang) && pageId) {
+			const pageIdNum = Number(pageId);
+			if (!Number.isNaN(pageIdNum)) {
+				const [pg] = db
+					.select({ chapterId: pages.chapterId })
+					.from(pages)
+					.where(eq(pages.id, pageIdNum))
+					.all();
+				if (pg && pg.chapterId) {
+					const [chap] = db
+						.select({ bookId: chapters.bookId })
+						.from(chapters)
+						.where(eq(chapters.id, pg.chapterId))
+						.all();
+					if (chap && chap.bookId) {
+						const [book] = db
+							.select({ sourceLang: books.sourceLang, targetLang: books.targetLang })
+							.from(books)
+							.where(eq(books.id, chap.bookId))
+							.all();
+						if (book) {
+							sourceLang = sourceLang || book.sourceLang;
+							targetLang = targetLang || book.targetLang;
+						}
+					}
+				}
+			}
+		}
 
 		// Resolve language pair from chapter or book if not directly provided
 		if ((!sourceLang || !targetLang) && chapterId) {
 			const chapIdNum = Number(chapterId);
 			if (!Number.isNaN(chapIdNum)) {
-				const [chap] = await db
+				const [chap] = db
 					.select({ bookId: chapters.bookId })
 					.from(chapters)
 					.where(eq(chapters.id, chapIdNum))
-					.limit(1);
+					.all();
 				if (chap && chap.bookId) {
-					const [book] = await db
+					const [book] = db
 						.select({ sourceLang: books.sourceLang, targetLang: books.targetLang })
 						.from(books)
 						.where(eq(books.id, chap.bookId))
-						.limit(1);
+						.all();
 					if (book) {
 						sourceLang = sourceLang || book.sourceLang;
 						targetLang = targetLang || book.targetLang;
@@ -54,11 +86,11 @@ export const POST: RequestHandler = async ({ request }) => {
 
 		if ((!sourceLang || !targetLang) && bookId) {
 			const bookIdStr = String(bookId);
-			const [book] = await db
+			const [book] = db
 				.select({ sourceLang: books.sourceLang, targetLang: books.targetLang })
 				.from(books)
 				.where(eq(books.id, bookIdStr))
-				.limit(1);
+				.all();
 			if (book) {
 				sourceLang = sourceLang || book.sourceLang;
 				targetLang = targetLang || book.targetLang;
@@ -73,6 +105,7 @@ export const POST: RequestHandler = async ({ request }) => {
 		const result = await translateSingleText(text, pair, {
 			kind,
 			model,
+			instruction,
 		});
 
 		return json({
