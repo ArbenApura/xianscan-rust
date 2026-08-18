@@ -2,7 +2,7 @@ import { eq, sql } from 'drizzle-orm';
 import { db as defaultDb } from './db';
 import { aiProviders, type AiProvider } from './db/schema';
 import OpenAI from 'openai';
-import { thinkingParam } from './deepseek';
+import { thinkingParam } from './llm';
 
 export interface ProviderPublicInfo {
 	id: string;

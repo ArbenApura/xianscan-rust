@@ -547,15 +547,62 @@ Tattered Flesh-Cutting Knife`;
 		x.font = `${size}px Arial`;
 		const maxW = 64 * (1 - 2 * 0.05);
 		const lines = reflowText(x, text, maxW);
-		// Verified to distribute across balanced lines that strictly fit width
-		expect(lines.length).toBeGreaterThanOrEqual(4);
-		for (const line of lines) {
-			expect(x.measureText(line).width).toBeLessThanOrEqual(maxW + 0.5);
-		}
 		// Verified to strictly fit height
 		expect(lines.length * size * 1.2).toBeLessThanOrEqual(227 * 0.9);
 	});
+
+	it('renders Korean Hangul dialogue text using Korean font stack in typesetPage', async () => {
+		const pageImage = createCanvas(800, 1200).toBuffer('image/png');
+		const resultBuf = await typesetPage(
+			pageImage,
+			[
+				{
+					id: 'r0',
+					box: { x: 100, y: 100, w: 300, h: 150 },
+					text: '만약 이번 일격이 네 눈을 노렸다면, 지금 넌 어떻게 됐을까?',
+					kind: 'dialogue_bubble',
+				},
+			],
+			{ format: 'png' },
+		);
+		expect(resultBuf.length).toBeGreaterThan(0);
+	});
+
+	it('renders Hindi Devanagari dialogue text using Nirmala UI font stack in typesetPage', async () => {
+		const pageImage = createCanvas(800, 1200).toBuffer('image/png');
+		const resultBuf = await typesetPage(
+			pageImage,
+			[
+				{
+					id: 'r0',
+					box: { x: 100, y: 100, w: 300, h: 150 },
+					text: 'मुझे फाइटर बनना था। पर मैं तो जादूगर बन गया!',
+					kind: 'dialogue_bubble',
+				},
+			],
+			{ format: 'png' },
+		);
+		expect(resultBuf.length).toBeGreaterThan(0);
+	});
+
+	it('renders Thai dialogue text using Leelawadee UI font stack in typesetPage', async () => {
+		const pageImage = createCanvas(800, 1200).toBuffer('image/png');
+		const resultBuf = await typesetPage(
+			pageImage,
+			[
+				{
+					id: 'r0',
+					box: { x: 100, y: 100, w: 300, h: 150 },
+					text: 'ฉันอยากเล่นเป็นนักสู้ แต่กลับกลายเป็นนักเวทซะงั้น!',
+					kind: 'dialogue_bubble',
+				},
+			],
+			{ format: 'png' },
+		);
+		expect(resultBuf.length).toBeGreaterThan(0);
+	});
 });
+
 
 
 

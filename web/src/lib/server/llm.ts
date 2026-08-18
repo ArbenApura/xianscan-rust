@@ -1,10 +1,18 @@
-// TRANSLATION LLM CLIENT & PROVIDER RUNTIME
-// OPENAI-COMPATIBLE SDK + QUEUE + AUTO-RETRY + REASONING SUPPRESSION.
+// UNIVERSAL TRANSLATION LLM RUNTIME CLIENT
+// OPENAI-COMPATIBLE SDK + QUEUE + AUTO-RETRY + REASONING SUPPRESSION + PRICING MATH.
 // SUPPORTS ALL CONFIGURED PROVIDERS: DEEPSEEK, GOOGLE AI STUDIO, GROQ, OPENROUTER, OPENAI, OLLAMA, LM STUDIO, CUSTOM.
 import type { TranslationUsage } from '$lib/types';
 import OpenAI from 'openai';
 import PQueue from './queue';
 import { getActiveProvider } from './providers';
+
+// -- TYPES -- //
+
+export interface ModelPricing {
+	inputMiss: number;
+	inputHit: number;
+	output: number;
+}
 
 // -- CONSTANTS -- //
 
@@ -24,7 +32,66 @@ export const MODEL_CHOICES: { id: string; label: string; blurb: string }[] = [
 const CONCURRENCY = 64;
 const queue = new PQueue({ concurrency: CONCURRENCY });
 
-// -- FUNCTIONS -- //
+// MODEL PRICING TABLE (USD PER 1M TOKENS)
+export const PRICING: Record<string, ModelPricing> = {
+	// DeepSeek V4
+	'deepseek-v4-flash': {
+		inputMiss: 0.14 / 1_000_000,
+		inputHit: 0.014 / 1_000_000,
+		output: 0.28 / 1_000_000,
+	},
+	'deepseek-v4-pro': {
+		inputMiss: 0.435 / 1_000_000,
+		inputHit: 0.003625 / 1_000_000,
+		output: 0.87 / 1_000_000,
+	},
+	// Google Gemini
+	'gemini-3.7-flash': {
+		inputMiss: 0.075 / 1_000_000,
+		inputHit: 0.01875 / 1_000_000,
+		output: 0.30 / 1_000_000,
+	},
+	'gemini-3.5-flash': {
+		inputMiss: 0.075 / 1_000_000,
+		inputHit: 0.01875 / 1_000_000,
+		output: 0.30 / 1_000_000,
+	},
+	'gemini-3.5-flash-lite': {
+		inputMiss: 0.0375 / 1_000_000,
+		inputHit: 0.009375 / 1_000_000,
+		output: 0.15 / 1_000_000,
+	},
+	'gemini-3.1-pro-preview': {
+		inputMiss: 1.25 / 1_000_000,
+		inputHit: 0.3125 / 1_000_000,
+		output: 5.00 / 1_000_000,
+	},
+	'gemini-3.1-pro': {
+		inputMiss: 1.25 / 1_000_000,
+		inputHit: 0.3125 / 1_000_000,
+		output: 5.00 / 1_000_000,
+	},
+	'gemini-2.5-flash': {
+		inputMiss: 0.075 / 1_000_000,
+		inputHit: 0.01875 / 1_000_000,
+		output: 0.30 / 1_000_000,
+	},
+	'gemini-2.0-flash': {
+		inputMiss: 0.10 / 1_000_000,
+		inputHit: 0.025 / 1_000_000,
+		output: 0.40 / 1_000_000,
+	},
+	'gemini-1.5-pro': {
+		inputMiss: 1.25 / 1_000_000,
+		inputHit: 0.3125 / 1_000_000,
+		output: 5.00 / 1_000_000,
+	},
+	'gemini-1.5-flash': {
+		inputMiss: 0.075 / 1_000_000,
+		inputHit: 0.01875 / 1_000_000,
+		output: 0.30 / 1_000_000,
+	},
+};
 
 const ALLOWED_MODELS = new Set([
 	'deepseek-v4-flash',
@@ -39,6 +106,8 @@ const ALLOWED_MODELS = new Set([
 	'gemini-1.5-pro',
 	'gemini-1.5-flash',
 ]);
+
+// -- FUNCTIONS -- //
 
 export function resolveModel(model?: string | null): string {
 	if (model && ALLOWED_MODELS.has(model.trim())) return model.trim();
@@ -227,6 +296,10 @@ export async function withRetry<T>(fn: () => Promise<T>, retries = 4): Promise<T
 	throw lastErr;
 }
 
+function pricingFor(model: string): ModelPricing {
+	return PRICING[model] ?? PRICING['deepseek-v4-flash'];
+}
+
 export function computeUsage(
 	usage: OpenAI.Completions.CompletionUsage | undefined,
 	model: string = 'deepseek-v4-flash',
@@ -235,8 +308,12 @@ export function computeUsage(
 	const completionTokens = usage?.completion_tokens ?? 0;
 	const u = usage as unknown as {
 		prompt_cache_hit_tokens?: number;
+		prompt_cache_miss_tokens?: number;
 		prompt_tokens_details?: { cached_tokens?: number };
 	};
 	const cachedTokens = u?.prompt_cache_hit_tokens ?? u?.prompt_tokens_details?.cached_tokens ?? 0;
-	return { model, promptTokens, cachedTokens, completionTokens, costUsd: 0 };
+	const missTokens = u?.prompt_cache_miss_tokens ?? Math.max(0, promptTokens - cachedTokens);
+	const price = pricingFor(model);
+	const costUsd = missTokens * price.inputMiss + cachedTokens * price.inputHit + completionTokens * price.output;
+	return { model, promptTokens, cachedTokens, completionTokens, costUsd };
 }

@@ -53,7 +53,7 @@ describe('systemPrompt', () => {
 	it('produces specialized Russian/Cyrillic prompt without Chinese Wuxia rules', () => {
 		const p = systemPrompt('ru', 'en');
 		expect(p).toContain('Russian & Cyrillic Comic Localization Rules');
-		expect(p).toContain('хрусть / хрусь / хрясь / щелк → CRACK! / SNAP! / CRUNCH! / CLICK!');
+		expect(p).toContain('Cyrillic Sound Effects (SFX) & Action Onomatopoeia');
 		expect(p).toContain('Cyrillic Comic OCR Font Confusions & Leetspeak Recovery');
 		expect(p).toContain('(4PyCTb');
 		// Token efficiency: Chinese Wuxia rules MUST NOT leak into Russian prompt
@@ -65,8 +65,16 @@ describe('systemPrompt', () => {
 	it('produces specialized Japanese Manga prompt', () => {
 		const p = systemPrompt('ja', 'en');
 		expect(p).toContain('Japanese Manga Localization Rules');
-		expect(p).toContain('ドキドキ → BA-DUMP!');
+		expect(p).toContain('ドキドキ');
 		expect(p).not.toContain('Wuxia / Xianxia');
+	});
+
+	it('enforces strict target language rules when translating zh-Hans to Korean', () => {
+		const p = systemPrompt('zh-Hans', 'ko');
+		expect(p).toContain('Target Language Invariant');
+		expect(p).toContain('Korean (ko)');
+		expect(p).toContain('Do NOT output English or any other language unless the target language is explicitly English');
+		expect(p).toContain('Wuxia / Xianxia / Cultivation Dialogue & Idioms');
 	});
 });
 
@@ -560,4 +568,35 @@ describe('parseExtractedTerms & extractTerms', () => {
 		expect(res2.byRegion.get('34671')).toBe('Donovan has been really jumpy lately...');
 		expect(res2.byRegion.get('34673')).toBe('CRACK!');
 	});
+
+	it('supports Korean target language translation for Chinese dialogue', async () => {
+		const koPair = { sourceLang: 'zh-Hans', targetLang: 'ko' };
+		const p = systemPrompt(koPair.sourceLang, koPair.targetLang);
+		expect(p).toContain('Korean (ko)');
+		expect(p).toContain('Target Language Invariant');
+
+		const koRegions = [
+			{ id: '35477', text: '老师老师，你没\n受伤吧？' },
+			{ id: '35478', text: '当然没有，他们\n这些三脚猫的功夫\n哪儿能跟我比！' },
+			{ id: '35479', text: '老师，你真的会\n功夫啊？' },
+		];
+
+		const uPrompt = userPrompt(koRegions, koPair.targetLang);
+		expect(uPrompt).toContain('into Korean');
+
+		const { client } = fakeClient([
+			JSON.stringify({
+				'35477': '선생님, 선생님, 다치지 않으셨어요?',
+				'35478': '당연히 안 다쳤지, 저런 어설픈 실력들이 감히 나랑 상대가 되겠냐!',
+				'35479': '선생님, 진짜 무공 할 줄 아세요?',
+			}),
+		]);
+
+		const res = await translatePage(koRegions, [], koPair, { client });
+		expect(res.byRegion.size).toBe(3);
+		expect(res.byRegion.get('35477')).toBe('선생님, 선생님, 다치지 않으셨어요?');
+		expect(res.byRegion.get('35478')).toBe('당연히 안 다쳤지, 저런 어설픈 실력들이 감히 나랑 상대가 되겠냐!');
+		expect(res.byRegion.get('35479')).toBe('선생님, 진짜 무공 할 줄 아세요?');
+	});
 });
+

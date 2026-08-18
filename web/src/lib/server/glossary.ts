@@ -125,7 +125,16 @@ export async function getEffectiveGlossary(bookId: string): Promise<TermDraft[]>
 				eq(glossary.targetLang, pair.targetLang),
 			),
 		);
-	const bookRows = await db.select().from(glossary).where(and(eq(glossary.scope, 'book'), eq(glossary.bookId, bookId)));
+	const bookRows = await db
+		.select()
+		.from(glossary)
+		.where(
+			and(
+				eq(glossary.scope, 'book'),
+				eq(glossary.bookId, bookId),
+				eq(glossary.targetLang, pair.targetLang),
+			),
+		);
 
 	const map = new Map<string, TermDraft>();
 	for (const g of globals) map.set(g.source, rowToDraft(g));

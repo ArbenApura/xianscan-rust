@@ -1,0 +1,350 @@
+// CHAPTER READER SSR AND REGION RETYPESETTING HELPERS
+import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { join } from 'node:path';
+import { error } from '@sveltejs/kit';
+import { and, asc, eq, inArray } from 'drizzle-orm';
+import { db } from '../db';
+import { books, chapters, pages, regions } from '../db/schema';
+import { DATA_ROOT } from '../paths';
+import { getImageDimensionsFromBuffer } from './dimensions';
+import { assertChapterExists, compactChapterPageSeqs } from './mutations';
+
+export interface ChapterRegionData {
+	id: number;
+	seq: number;
+	box: unknown;
+	textSource: string;
+	textTarget: string | null;
+	conf: number | null;
+}
+
+export interface ChapterPageData {
+	id: number;
+	seq: number;
+	filePath: string;
+	cleanedPath: string | null;
+	outputPath: string | null;
+	status: 'pending' | 'processing' | 'done' | 'error';
+	error: string | null;
+	width?: number | null;
+	height?: number | null;
+	regions: ChapterRegionData[];
+}
+
+export interface ChapterNavSummary {
+	id: number;
+	seq: number;
+	title: string | null;
+	titleTarget?: string | null;
+}
+
+export interface ChapterReaderResult {
+	chapter: {
+		id: number;
+		bookId: string;
+		seq: number;
+		title: string | null;
+		titleTarget?: string | null;
+		sourceLang: string;
+		targetLang: string;
+	};
+	allChapters: ChapterNavSummary[];
+	prevChapter: ChapterNavSummary | null;
+	nextChapter: ChapterNavSummary | null;
+	pages: ChapterPageData[];
+}
+
+function safeJson(raw: string | null | undefined): unknown {
+	if (!raw) return null;
+	try {
+		return JSON.parse(raw);
+	} catch {
+		return null;
+	}
+}
+
+export async function getChapterReaderData(chapterId: number): Promise<ChapterReaderResult> {
+	await assertChapterExists(chapterId);
+
+	try {
+		compactChapterPageSeqs(chapterId);
+	} catch {
+		// Non-blocking
+	}
+
+	const pageRows = db
+		.select()
+		.from(pages)
+		.where(eq(pages.chapterId, chapterId))
+		.orderBy(pages.seq)
+		.all();
+
+	const missingDims: { id: number; width: number; height: number }[] = [];
+	for (const p of pageRows) {
+		if ((p.width === null || p.height === null) && p.filePath) {
+			const absPath = join(DATA_ROOT, p.filePath);
+			try {
+				const buf = readFileSync(absPath);
+				const dims = getImageDimensionsFromBuffer(buf);
+				let w = dims.width;
+				let h = dims.height;
+				if (!w || !h) {
+					const { loadImage } = await import('@napi-rs/canvas');
+					const img = await loadImage(buf);
+					w = img.width || null;
+					h = img.height || null;
+				}
+				if (w && h) {
+					p.width = w;
+					p.height = h;
+					missingDims.push({ id: p.id, width: w, height: h });
+				}
+			} catch {
+				// ignore if file is missing or unreadable
+			}
+		}
+	}
+
+	if (missingDims.length > 0) {
+		try {
+			db.transaction((tx) => {
+				for (const item of missingDims) {
+					tx.update(pages)
+						.set({ width: item.width, height: item.height })
+						.where(eq(pages.id, item.id))
+						.run();
+				}
+			});
+		} catch {
+			// Non-blocking
+		}
+	}
+
+	const pageIds = pageRows.map((p) => p.id);
+	const regionRows =
+		pageIds.length > 0
+			? db
+					.select()
+					.from(regions)
+					.where(inArray(regions.pageId, pageIds))
+					.orderBy(regions.seq)
+					.all()
+			: [];
+	const byPage = new Map<number, typeof regionRows>();
+	for (const r of regionRows) {
+		const arr = byPage.get(r.pageId) ?? [];
+		arr.push(r);
+		byPage.set(r.pageId, arr);
+	}
+
+	const chapterRow = db
+		.select()
+		.from(chapters)
+		.where(eq(chapters.id, chapterId))
+		.get();
+
+	if (!chapterRow) throw error(404, 'Chapter not found.');
+
+	const bookRow = db.select().from(books).where(eq(books.id, chapterRow.bookId)).get();
+
+	const allChaptersInBook = db
+		.select({
+			id: chapters.id,
+			seq: chapters.seq,
+			title: chapters.title,
+			titleTarget: chapters.titleTarget,
+		})
+		.from(chapters)
+		.where(eq(chapters.bookId, chapterRow.bookId))
+		.orderBy(chapters.seq)
+		.all();
+
+	const currentIndex = allChaptersInBook.findIndex((c) => c.id === chapterId);
+	const prevChapter = currentIndex > 0 ? allChaptersInBook[currentIndex - 1] : null;
+	const nextChapter =
+		currentIndex >= 0 && currentIndex < allChaptersInBook.length - 1
+			? allChaptersInBook[currentIndex + 1]
+			: null;
+
+	return {
+		chapter: {
+			id: chapterRow.id,
+			bookId: chapterRow.bookId,
+			seq: chapterRow.seq,
+			title: chapterRow.title,
+			titleTarget: chapterRow.titleTarget,
+			sourceLang: bookRow?.sourceLang || 'zh-CN',
+			targetLang: bookRow?.targetLang || 'en',
+		},
+		allChapters: allChaptersInBook,
+		prevChapter,
+		nextChapter,
+		pages: pageRows.map((p) => ({
+			id: p.id,
+			seq: p.seq,
+			filePath: p.filePath,
+			cleanedPath: p.cleanedPath,
+			outputPath: p.outputPath,
+			status: p.status,
+			error: p.error,
+			width: p.width,
+			height: p.height,
+			regions: (byPage.get(p.id) ?? []).map((r) => {
+				const parsedBox = safeJson(r.box) as any;
+				return {
+					id: r.id,
+					seq: r.seq,
+					box: parsedBox,
+					polygon: safeJson(r.polygon),
+					bubble_box: parsedBox?.bubble_box ?? null,
+					bubble_polygon: parsedBox?.bubble_polygon ?? null,
+					centroid: parsedBox?.centroid ?? null,
+					kind: parsedBox?.kind ?? 'dialogue_bubble',
+					textSource: r.textSource,
+					textTarget: r.textTarget,
+					originalTarget: (r as any).originalTarget ?? r.textTarget,
+					conf: r.conf,
+				};
+			}),
+		})),
+	};
+}
+
+export async function updateRegionTranslation(
+	pageId: number,
+	regionId: number,
+	textTarget: string,
+	dataRoot: string = DATA_ROOT,
+): Promise<{ textTarget: string; outputPath: string | null }> {
+	const pageRow = db.select().from(pages).where(eq(pages.id, pageId)).get();
+	if (!pageRow) throw error(404, 'Page not found.');
+
+	const regionRow = db.select().from(regions).where(and(eq(regions.id, regionId), eq(regions.pageId, pageId))).get();
+	if (!regionRow) throw error(404, 'Region not found.');
+
+	db.update(regions)
+		.set({ textTarget: textTarget.trim() || null, status: textTarget.trim() ? 'translated' : 'failed' })
+		.where(eq(regions.id, regionId))
+		.run();
+
+	if (pageRow.cleanedPath) {
+		const cleanAbs = join(dataRoot, pageRow.cleanedPath);
+		try {
+			const cleanedBuf = readFileSync(cleanAbs);
+			const allRegions = db
+				.select()
+				.from(regions)
+				.where(eq(regions.pageId, pageId))
+				.orderBy(asc(regions.seq))
+				.all();
+
+			const typesetRegions = allRegions
+				.filter((r) => Boolean(r.textTarget?.trim()))
+				.map((r) => ({
+					id: String(r.id),
+					box: safeJson(r.box) as any,
+					text: r.textTarget!,
+					vertical: (r as any).vertical,
+					angle: (r as any).angle,
+				}));
+
+			const { typesetPage } = await import('../typeset');
+			const out = await typesetPage(cleanedBuf, typesetRegions);
+			const outputPath = `output/${pageRow.chapterId}/${pageRow.seq}.png`;
+			mkdirSync(join(dataRoot, 'output', String(pageRow.chapterId)), { recursive: true });
+			writeFileSync(join(dataRoot, outputPath), out);
+
+			db.update(pages).set({ outputPath }).where(eq(pages.id, pageId)).run();
+			return { textTarget: textTarget.trim(), outputPath };
+		} catch (err) {
+			console.error('Failed to re-typeset page on manual translation update:', err);
+		}
+	}
+
+	return { textTarget: textTarget.trim(), outputPath: pageRow.outputPath };
+}
+
+export async function retypesetPage(
+	pageId: number,
+	_opts?: any,
+	dataRoot: string = DATA_ROOT,
+): Promise<{ outputPath: string | null }> {
+	const pageRow = db.select().from(pages).where(eq(pages.id, pageId)).get();
+	if (!pageRow) throw error(404, 'Page not found.');
+	if (!pageRow.cleanedPath) return { outputPath: pageRow.outputPath };
+
+	const cleanAbs = join(dataRoot, pageRow.cleanedPath);
+	try {
+		const cleanedBuf = readFileSync(cleanAbs);
+		const allRegions = db
+			.select()
+			.from(regions)
+			.where(eq(regions.pageId, pageId))
+			.orderBy(asc(regions.seq))
+			.all();
+
+		const typesetRegions = allRegions
+			.filter((r) => Boolean(r.textTarget?.trim()))
+			.map((r) => ({
+				id: String(r.id),
+				box: safeJson(r.box) as any,
+				text: r.textTarget!,
+				vertical: (r as any).vertical,
+				angle: (r as any).angle,
+			}));
+
+		const { typesetPage } = await import('../typeset');
+		const out = await typesetPage(cleanedBuf, typesetRegions, _opts);
+		const outputPath = `output/${pageRow.chapterId}/${pageRow.seq}.png`;
+		mkdirSync(join(dataRoot, 'output', String(pageRow.chapterId)), { recursive: true });
+		writeFileSync(join(dataRoot, outputPath), out);
+
+		db.update(pages).set({ outputPath }).where(eq(pages.id, pageId)).run();
+		return { outputPath };
+	} catch (err) {
+		console.error('Failed to retypeset page:', err);
+		return { outputPath: pageRow.outputPath };
+	}
+}
+
+export function getPageWithRegions(pageId: number) {
+	const pageRow = db.select().from(pages).where(eq(pages.id, pageId)).get();
+	if (!pageRow) return null;
+
+	const allRegions = db
+		.select()
+		.from(regions)
+		.where(eq(regions.pageId, pageId))
+		.orderBy(asc(regions.seq))
+		.all();
+
+	return {
+		id: pageRow.id,
+		chapterId: pageRow.chapterId,
+		seq: pageRow.seq,
+		filePath: pageRow.filePath,
+		cleanedPath: pageRow.cleanedPath,
+		outputPath: pageRow.outputPath,
+		status: pageRow.status,
+		error: pageRow.error,
+		width: pageRow.width,
+		height: pageRow.height,
+		regions: allRegions.map((r) => {
+			const parsedBox = safeJson(r.box) as any;
+			return {
+				id: r.id,
+				seq: r.seq,
+				box: parsedBox,
+				polygon: safeJson(r.polygon),
+				bubble_box: parsedBox?.bubble_box ?? null,
+				bubble_polygon: parsedBox?.bubble_polygon ?? null,
+				centroid: parsedBox?.centroid ?? null,
+				kind: parsedBox?.kind ?? 'dialogue_bubble',
+				textSource: r.textSource,
+				textTarget: r.textTarget,
+				originalTarget: (r as any).originalTarget ?? r.textTarget,
+				conf: r.conf,
+			};
+		}),
+	};
+}
