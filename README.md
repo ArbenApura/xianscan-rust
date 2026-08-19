@@ -136,30 +136,36 @@ Translate using lightweight local models or high-throughput cloud APIs:
 ---
 
 <a id="quick-start"></a>
-## 🏁 Quick Start
+## 🚀 Quick Start (For Users)
 
-### 1. Standalone Executable (Recommended)
+### 1. Download & Launch
+Download the pre-compiled standalone binary for your system from [Releases](https://github.com/ArbenApura/xianscan-rust/releases) and open it:
 
-Download the pre-compiled standalone binary for your operating system from [Releases](https://github.com/ArbenApura/xianscan-rust/releases) and launch:
+- **Windows**: Double-click `xianscan.exe` *(If Windows SmartScreen prompts on first run: click **More info** → **Run anyway**)*.
+- **Linux / macOS**: Make executable and run:
+  ```bash
+  chmod +x xianscan && ./xianscan
+  ```
 
-```powershell
-# Windows
-.\xianscan.exe
-
-# Linux / macOS
-chmod +x xianscan && ./xianscan
-```
-
+### 2. Open Web Studio
 - Open **[http://localhost:8124](http://localhost:8124)** in your web browser.
-- **Mobile & LAN Access**: Access XianScan from your phone or tablet on the same Wi-Fi by opening `http://<your-computer-ip>:8124`.
+- **Mobile / Tablet (LAN Access)**: Access your library from any device on your local Wi-Fi by opening `http://<your-computer-ip>:8124`.
+
+### 3. Start Reading & Translating
+1. **Create a Series**: Click **+ New Book**, select source language (e.g. Chinese/Japanese/Korean) and target language (e.g. English).
+2. **Import Chapters**:
+   - **Folder Import**: Drag-and-drop a manga series folder or chapter subfolder directly into the browser.
+   - **Browser Extension**: Use the 1-Click Importer extension on your favorite web comic site.
+3. **Translate & Read**: Select your translation provider (free local Ollama / LM Studio or cloud API), and enjoy automated speech bubble detection, inpainting, OCR, and typesetting!
 
 ---
 
-### 2. Building from Source
+<a id="developer-guide"></a>
+## 🛠️ Building from Source (For Developers)
 
 #### Prerequisites
 - **Rust 1.80+** (`rustup install stable`)
-- **Node.js 18+** & **Yarn**
+- **Node.js 20+** & **Yarn**
 
 #### Standalone Release Build
 ```bash
