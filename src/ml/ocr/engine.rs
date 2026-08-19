@@ -436,9 +436,10 @@ impl RapidOcr {
         }).count();
         let is_vertical_crop = vertical_count > horiz_count && !raw_lines.is_empty();
 
-        // FOR HORIZONTAL MULTI-LINE CROPS (W >= 60, H >= 40, !is_vertical_crop):
-        // TEST PROJECTION-BASED HORIZONTAL ROW SLICING
-        if !is_vertical_crop && w >= 60 && h >= 40 {
+        let is_ja = matches!(source_lang, Some("ja") | Some("japanese"));
+        // FOR MULTI-LINE CROPS (W >= 60, H >= 40):
+        // TEST PROJECTION-BASED HORIZONTAL ROW SLICING (FOR NON-JAPANESE OR EXPLICIT HORIZONTAL CROPS)
+        if (!is_vertical_crop || !is_ja) && w >= 60 && h >= 40 {
             let proj_strips = horizontal_paragraph_to_line_strips(crop);
             if proj_strips.len() >= 2 {
                 let mut proj_lines = Vec::new();

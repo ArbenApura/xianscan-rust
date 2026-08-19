@@ -1,11 +1,10 @@
 // TYPESET FONT REGISTRATION, CJK DETECTION, AND RUN SPLITTING
 import { GlobalFonts, type Image, type SKRSContext2D } from '@napi-rs/canvas';
+import { existsSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
-import { join } from 'node:path';
+import { join, resolve } from 'node:path';
 
 // -- CONSTANTS -- //
-
-const FONT_DIR = fileURLToPath(new URL('../../../../static/fonts', import.meta.url));
 
 export const FONT_DIALOGUE = 'CC Wild Words';
 export const FONT_SFX = 'CC Wild Words';
@@ -34,11 +33,42 @@ export interface TextColor {
 
 let fontsRegistered = false;
 
+// -- FUNCTIONS & RESOLUTION -- //
+
+export function resolveFontDir(): string {
+	const candidates = [
+		// 1. Process cwd relative (standard in production node app where cwd is app root)
+		resolve(process.cwd(), 'static/fonts'),
+		// 2. Monorepo cwd relative (when running from xianscan-rust root)
+		resolve(process.cwd(), 'web/static/fonts'),
+		// 3. User AppData standard desktop application paths
+		join(process.env.APPDATA || '', 'XianScan', 'app', 'static', 'fonts'),
+		join(process.env.APPDATA || '', 'XianScan', 'static', 'fonts'),
+		// 4. Source URL relative (Vite / Dev server)
+		fileURLToPath(new URL('../../../../static/fonts', import.meta.url)),
+		// 5. Build chunks relative (SvelteKit node adapter build)
+		fileURLToPath(new URL('../../../static/fonts', import.meta.url)),
+		fileURLToPath(new URL('../../static/fonts', import.meta.url)),
+		fileURLToPath(new URL('../static/fonts', import.meta.url)),
+		// 6. Build client asset directories
+		resolve(process.cwd(), 'build/client/fonts'),
+		resolve(process.cwd(), 'client/fonts')
+	];
+
+	for (const dir of candidates) {
+		if (existsSync(join(dir, 'CCWildWords-Roman.ttf')) && existsSync(join(dir, 'FriendlySans-Regular.ttf'))) {
+			return dir;
+		}
+	}
+
+	return candidates[0];
+}
+
 export function registerFonts(): void {
 	if (fontsRegistered) return;
-	fontsRegistered = true;
-	GlobalFonts.registerFromPath(join(FONT_DIR, 'CCWildWords-Roman.ttf'), FONT_DIALOGUE);
-	GlobalFonts.registerFromPath(join(FONT_DIR, 'FriendlySans-Regular.ttf'), FONT_FALLBACK_NAME);
+	const fontDir = resolveFontDir();
+	GlobalFonts.registerFromPath(join(fontDir, 'CCWildWords-Roman.ttf'), FONT_DIALOGUE);
+	GlobalFonts.registerFromPath(join(fontDir, 'FriendlySans-Regular.ttf'), FONT_FALLBACK_NAME);
 	try {
 		if (process.platform === 'win32') {
 			GlobalFonts.registerFromPath('C:\\Windows\\Fonts\\arial.ttf', 'Arial');
@@ -65,8 +95,9 @@ export function registerFonts(): void {
 	}
 	if (!GlobalFonts.has(FONT_DIALOGUE) || !GlobalFonts.has(FONT_FALLBACK_NAME)) {
 		fontsRegistered = false;
-		throw new Error(`typeset fonts not found in ${FONT_DIR} — run the font download step`);
+		throw new Error(`typeset fonts not found in ${fontDir} — run the font download step`);
 	}
+	fontsRegistered = true;
 }
 
 /**

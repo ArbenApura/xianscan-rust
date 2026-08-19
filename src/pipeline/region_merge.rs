@@ -75,7 +75,7 @@ pub fn post_process_regions(
             let is_orientation_match = r.vertical == existing.vertical;
             let is_spatial_dup = is_orientation_match && ((x_ratio >= 0.50 && y_ratio >= 0.50) || (x_ratio >= 0.70 && y_ratio >= 0.35) || (y_ratio >= 0.70 && x_ratio >= 0.35));
 
-            if is_spatial_dup || (is_sub && is_orientation_match && x_ratio >= 0.40 && y_ratio >= 0.30) || (is_exact && x_ratio >= 0.40 && y_ratio >= 0.30) {
+            if is_spatial_dup || (is_sub && ((is_orientation_match && x_ratio >= 0.40 && y_ratio >= 0.30) || (x_ratio >= 0.70 && y_ratio >= 0.70))) || (is_exact && x_ratio >= 0.40 && y_ratio >= 0.30) {
                 let r_chars = r_text.chars().count();
                 let ex_chars = ex_text.chars().count();
                 let x0 = existing.box_.x.min(r.box_.x);
