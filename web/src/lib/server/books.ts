@@ -146,13 +146,28 @@ export async function getBooksWithTelemetry(
 			}
 		}
 
-		// COVER THUMBNAIL: FIRST PAGE FROM EARLIEST CHAPTER WITH PAGES
+		// LAST READ CHAPTER (RESOLVED FROM COOKIE MAP IF PRESENT)
+		const cookieTarget = lastReadMap ? lastReadMap[b.id] : null;
+		const lastReadCh = cookieTarget?.chapterId
+			? bookChapters.find((c) => c.id === cookieTarget.chapterId) ?? null
+			: null;
+
+		// COVER THUMBNAIL: PREFER LAST READ CHAPTER IF IT HAS PAGES, ELSE FIRST CHAPTER WITH PAGES
 		let coverPage: (typeof allPages)[0] | null = null;
-		for (const c of bookChapters) {
-			const pgs = pagesByChapter.get(c.id) ?? [];
+		if (lastReadCh) {
+			const pgs = pagesByChapter.get(lastReadCh.id) ?? [];
 			if (pgs.length > 0) {
 				coverPage = pgs[0];
-				break;
+			}
+		}
+
+		if (!coverPage) {
+			for (const c of bookChapters) {
+				const pgs = pagesByChapter.get(c.id) ?? [];
+				if (pgs.length > 0) {
+					coverPage = pgs[0];
+					break;
+				}
 			}
 		}
 
@@ -161,12 +176,6 @@ export async function getBooksWithTelemetry(
 
 		// LATEST CHAPTER
 		const lastChapter = bookChapters[bookChapters.length - 1] ?? null;
-
-		// LAST READ CHAPTER (RESOLVED FROM COOKIE MAP IF PRESENT)
-		const cookieTarget = lastReadMap ? lastReadMap[b.id] : null;
-		const lastReadCh = cookieTarget?.chapterId
-			? bookChapters.find((c) => c.id === cookieTarget.chapterId) ?? null
-			: null;
 
 		return {
 			id: b.id,

@@ -8,7 +8,7 @@ import { extname, join } from 'node:path';
 import { createCanvas, loadImage } from '@napi-rs/canvas';
 // IMPORTED MODULES
 import { db } from '$lib/server/db';
-import { pages } from '$lib/server/db/schema';
+import { chapters, pages } from '$lib/server/db/schema';
 import { DATA_ROOT } from '$lib/server/paths';
 import type { RequestHandler } from './$types';
 
@@ -138,11 +138,25 @@ export const GET: RequestHandler = async ({ params, url, request }) => {
 	}
 
 	const bytes = await readFile(fullPath);
-	const mime = MIME_BY_EXT[extname(rel).toLowerCase()] ?? 'application/octet-stream';
+	const ext = extname(rel).toLowerCase() || '.webp';
+	const mime = MIME_BY_EXT[ext] ?? 'application/octet-stream';
+
+	// QUERY CHAPTER RECORD TO GENERATE DESCRIPTIVE DOWNLOADING FILE NAME
+	const chapter = db.select({ title: chapters.title, titleTarget: chapters.titleTarget, seq: chapters.seq })
+		.from(chapters)
+		.where(eq(chapters.id, page.chapterId))
+		.get();
+
+	const chNumber = (chapter?.seq ?? 0) + 1;
+	const padChapter = String(chNumber).padStart(2, '0');
+	const padPage = String(page.seq + 1).padStart(3, '0');
+	const kindLabel = kind === 'output' ? 'translated' : kind === 'cleaned' ? 'cleaned' : 'source';
+	const safeDownloadName = `Ch_${padChapter}_P${padPage}_${kindLabel}${ext}`;
 
 	return new Response(bytes, {
 		headers: {
 			'content-type': mime,
+			'content-disposition': `inline; filename="${safeDownloadName}"`,
 			etag,
 			...NO_CACHE_HEADERS,
 		},

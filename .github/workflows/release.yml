@@ -143,4 +143,72 @@ jobs:
           files: ${{ matrix.release_asset }}
           generate_release_notes: true
 
+  build-extension:
+    name: Build Browser Extension
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Install Extension Dependencies
+        working-directory: extensions/xianscan-importer
+        run: yarn install
+
+      - name: Run Extension Unit Tests
+        working-directory: extensions/xianscan-importer
+        run: yarn test
+
+      - name: Package Extension (Chrome ZIP + Firefox XPI)
+        working-directory: extensions/xianscan-importer
+        run: yarn package
+
+      - name: Upload Extension Artifacts to GitHub Release
+        uses: softprops/action-gh-release@v2
+        if: startsWith(github.ref, 'refs/tags/') || github.event_name == 'workflow_dispatch'
+        with:
+          tag_name: ${{ github.event.inputs.tag_name || github.ref_name }}
+          files: |
+            extensions/xianscan-importer/store/*.zip
+            extensions/xianscan-importer/store/*.xpi
+
+  virustotal-scan:
+    name: VirusTotal Security Scan
+    needs: [build-release, build-extension]
+    runs-on: ubuntu-latest
+    if: (startsWith(github.ref, 'refs/tags/') || github.event_name == 'workflow_dispatch')
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Download GitHub Release Assets
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG_NAME: ${{ github.event.inputs.tag_name || github.ref_name }}
+        run: |
+          mkdir -p release-assets
+          gh release download "$TAG_NAME" --dir release-assets || true
+          ls -lh release-assets/
+
+      - name: VirusTotal Analysis
+        if: env.VT_API_KEY != ''
+        uses: crazy-max/ghaction-virustotal@v5
+        env:
+          VT_API_KEY: ${{ secrets.VT_API_KEY }}
+        with:
+          vt_api_key: ${{ secrets.VT_API_KEY }}
+          files: |
+            release-assets/*.zip
+            release-assets/*.tar.gz
+            release-assets/*.xpi
+          update_release_body: true
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+
+
 

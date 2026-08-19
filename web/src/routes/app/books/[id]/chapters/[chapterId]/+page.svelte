@@ -21,8 +21,9 @@
 	import CheckCircle2 from 'lucide-svelte/icons/check-circle-2';
 	import AlertCircle from 'lucide-svelte/icons/alert-circle';
 	import Loader2 from 'lucide-svelte/icons/loader-2';
-	import Sparkles from 'lucide-svelte/icons/sparkles';
 	import { apiJson } from '$lib/api';
+	import { parseDataTransferItems, type DiscoveredChapter } from '$lib/utils/folder-drop';
+	import MultiChapterImportModal from '$lib/components/chapter/MultiChapterImportModal.svelte';
 	import type { PageData as ServerPageData } from './$types';
 
 	export let data: ServerPageData;
@@ -97,6 +98,13 @@
 	let uploadFilesList: UploadFileInfo[] = [];
 	let uploadErrorMessage = '';
 	let uploadAddedCount = 0;
+
+	// MULTI-CHAPTER DETECTED DROP STATES
+	let multiChapterModalOpen = false;
+	let detectedChapters: DiscoveredChapter[] = [];
+	let detectedTotalImages = 0;
+	let detectedFlatFiles: File[] = [];
+	let importingMultiChapters = false;
 
 	function formatBytes(bytes: number): string {
 		if (bytes === 0) return '0 B';
@@ -618,13 +626,98 @@
 	}
 
 	// FILE DROP ON PAGE ROOT
-	function handleRootDrop(e: DragEvent) {
+	async function handleRootDrop(e: DragEvent) {
 		e.preventDefault();
 		e.stopPropagation();
 		isDraggingOver = false;
 		if (draggedPageIndex !== null) return;
+
+		if (e.dataTransfer?.items && e.dataTransfer.items.length > 0) {
+			const scanToastId = toast.loading('Scanning dropped files and folders...');
+			try {
+				const scanResult = await parseDataTransferItems(e.dataTransfer.items, (count) => {
+					toast.loading(`Scanning folder... (${count} images found)`, { id: scanToastId });
+				});
+				toast.dismiss(scanToastId);
+
+				if (scanResult.isMultiChapter && scanResult.chapters.length >= 2) {
+					detectedChapters = scanResult.chapters;
+					detectedTotalImages = scanResult.totalImages;
+					detectedFlatFiles = scanResult.flatFiles;
+					multiChapterModalOpen = true;
+					return;
+				}
+
+				if (scanResult.flatFiles.length > 0) {
+					uploadFiles(scanResult.flatFiles);
+					return;
+				}
+			} catch {
+				toast.dismiss(scanToastId);
+				// FALLBACK TO STANDARD FILE DROP
+			}
+		}
+
 		if (e.dataTransfer?.files && e.dataTransfer.files.length > 0) {
 			uploadFiles(e.dataTransfer.files);
+		}
+	}
+
+	// EXECUTE MULTI-CHAPTER BATCH IMPORT INTO THE CURRENT BOOK
+	async function executeMultiChapterImport(bookTargetId: string, chaptersToImport: DiscoveredChapter[]) {
+		if (chaptersToImport.length === 0) return;
+		multiChapterModalOpen = false;
+		importingMultiChapters = true;
+
+		const toastId = toast.loading(`Importing ${chaptersToImport.length} chapters... (0/${chaptersToImport.length})`);
+		let completed = 0;
+
+		try {
+			for (let i = 0; i < chaptersToImport.length; i++) {
+				const ch = chaptersToImport[i];
+				toast.loading(`Importing ${ch.title || `Chapter ${i + 1}`} (${i + 1}/${chaptersToImport.length})...`, { id: toastId });
+
+				// 1. CREATE CHAPTER RECORD IN BOOK
+				const createRes = await fetch(`/api/books/${bookTargetId}/chapters`, {
+					method: 'POST',
+					headers: { 'content-type': 'application/json' },
+					body: JSON.stringify({
+						title: ch.title || ch.folderName,
+						seq: ch.seqHint !== null ? ch.seqHint - 1 : undefined,
+					}),
+				});
+
+				if (!createRes.ok) {
+					throw new Error(`Failed to create chapter "${ch.title}"`);
+				}
+
+				const { id: newChapterId } = await createRes.json();
+
+				// 2. UPLOAD CHAPTER PAGES CHUNKED TO AVOID HTTP BODY OVERFLOW
+				const CHUNK_SIZE = 40;
+				for (let p = 0; p < ch.files.length; p += CHUNK_SIZE) {
+					const chunk = ch.files.slice(p, p + CHUNK_SIZE);
+					const form = new FormData();
+					for (const file of chunk) {
+						form.append('files', file);
+					}
+					const uploadRes = await fetch(`/api/chapters/${newChapterId}/pages`, {
+						method: 'POST',
+						body: form,
+					});
+					if (!uploadRes.ok) {
+						throw new Error(`Failed to upload images for "${ch.title}"`);
+					}
+				}
+
+				completed++;
+			}
+
+			toast.success(`Successfully imported ${completed} chapters!`, { id: toastId });
+		} catch (err: any) {
+			toast.error(err?.message || 'Multi-chapter import encountered an error.', { id: toastId });
+		} finally {
+			importingMultiChapters = false;
 		}
 	}
 
@@ -653,7 +746,7 @@
 		<div class="pointer-events-none fixed inset-0 z-50 flex items-center justify-center bg-[#b23a2e]/20 backdrop-blur-sm">
 			<div class="flex flex-col items-center gap-3 rounded-2xl border-2 border-dashed border-[#b23a2e] bg-white/90 p-8 shadow-2xl dark:bg-[#1a1713]/90">
 				<Upload size={36} class="text-[#b23a2e] dark:text-[#e08a63] animate-bounce" />
-				<p class="text-sm font-bold">Drop page images to add to Chapter {chapter ? chapter.seq + 1 : ''}</p>
+				<p class="text-sm font-bold">Drop page images or chapter folders</p>
 			</div>
 		</div>
 	{/if}
@@ -708,7 +801,7 @@
 				<Upload size={24} />
 			</div>
 			<h2 class="mt-4 text-base font-semibold">No chapter pages uploaded yet</h2>
-			<p class="mt-1 max-w-sm text-xs opacity-60">Drag and drop manhua page images here or click 'Add Images' above.</p>
+			<p class="mt-1 max-w-sm text-xs opacity-60">Drag and drop images or chapter folders here, or click 'Add Images' above.</p>
 		</div>
 	{:else if activeViewMode === 'reader'}
 		<ViewModeWebtoon
@@ -995,3 +1088,21 @@
 		{/if}
 	</svelte:fragment>
 </Modal>
+
+<!-- MULTI-CHAPTER DETECTED CONFIRMATION MODAL -->
+<MultiChapterImportModal
+	open={multiChapterModalOpen}
+	chapters={detectedChapters}
+	totalImages={detectedTotalImages}
+	showFlattenOption={true}
+	currentChapterSeq={chapter?.seq ?? 0}
+	onImportChapters={() => executeMultiChapterImport(bookId ?? '', detectedChapters)}
+	onFlattenCurrent={() => {
+		multiChapterModalOpen = false;
+		if (detectedFlatFiles.length > 0) {
+			uploadFiles(detectedFlatFiles);
+		}
+	}}
+	onClose={() => (multiChapterModalOpen = false)}
+/>
+

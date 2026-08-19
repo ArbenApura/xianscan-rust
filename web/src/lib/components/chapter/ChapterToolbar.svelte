@@ -192,6 +192,7 @@
 			variant="secondary"
 			size="sm"
 			disabled={uploading || running}
+			title="Add images or drop folders"
 			on:click={() => fileInput?.click()}
 		>
 			<Upload size={14} />

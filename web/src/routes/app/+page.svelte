@@ -1336,8 +1336,9 @@
 <ConfirmDialog
 	open={deleteConfirmOpen}
 	title="Delete Book Series?"
-	message={`Are you sure you want to delete "${bookToDelete?.title}"? All chapters, pages, and cached translations for this book will be permanently deleted.`}
+	message={`Are you sure you want to delete "${bookToDelete?.titleTarget || bookToDelete?.title || 'Book'}"? All chapters, pages, and cached translations for this book will be permanently deleted.`}
 	confirmLabel="Delete Book"
+	requireVerificationCode={true}
 	variant="danger"
 	on:confirm={confirmDeleteBook}
 	on:cancel={() => (deleteConfirmOpen = false)}

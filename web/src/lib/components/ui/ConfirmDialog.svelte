@@ -114,7 +114,7 @@
 			tabindex="-1"
 			transition:fly={{ y: 16, duration: 220, easing: cubicOut }}
 			class={cn(
-				'relative z-10 w-full max-w-sm rounded-xl border p-5 shadow-2xl outline-none',
+				'relative z-10 w-full max-w-lg rounded-2xl border p-5 sm:p-6 shadow-2xl outline-none',
 				panel,
 				panelBorder,
 			)}
@@ -123,23 +123,23 @@
 			<div class="flex gap-4">
 				<div
 					class={cn(
-						'flex h-10 w-10 shrink-0 items-center justify-center rounded-full',
+						'flex h-11 w-11 shrink-0 items-center justify-center rounded-xl',
 						STYLES[variant].iconBg,
 					)}
 				>
-					<TriangleAlert size={20} class={STYLES[variant].icon} />
+					<TriangleAlert size={22} class={STYLES[variant].icon} />
 				</div>
 				<div class="min-w-0 flex-1">
-					<h3 class="text-sm font-semibold">{title}</h3>
-					<p class="mt-1 text-xs opacity-60 leading-relaxed">{message}</p>
+					<h3 class="text-base font-semibold leading-snug">{title}</h3>
+					<p class="mt-1.5 text-xs sm:text-sm opacity-70 leading-relaxed">{message}</p>
 				</div>
 			</div>
 
 			<!-- VERIFICATION INPUT IF REQUIRED -->
 			{#if targetMatch}
-				<div class="mt-4 rounded-lg border border-black/10 bg-black/[0.02] p-3 dark:border-white/10 dark:bg-white/[0.02]">
-					<label for="confirm-dialog-input" class="block text-[11px] font-semibold opacity-70 mb-1.5">
-						Type <code class="rounded bg-black/10 px-1.5 py-0.5 font-mono text-xs font-bold text-[#b23a2e] dark:bg-white/10 dark:text-[#e08a63] tracking-widest select-all">{targetMatch}</code> to confirm:
+				<div class="mt-4 rounded-xl border border-black/10 bg-black/[0.02] p-3.5 dark:border-white/10 dark:bg-white/[0.02]">
+					<label for="confirm-dialog-input" class="block text-xs font-semibold opacity-80 mb-2">
+						Type <code class="rounded bg-black/10 px-2 py-0.5 font-mono text-xs font-bold text-[#b23a2e] dark:bg-white/10 dark:text-[#e08a63] tracking-widest select-all">{targetMatch}</code> to confirm:
 					</label>
 					<input
 						id="confirm-dialog-input"
@@ -148,16 +148,16 @@
 						bind:value={inputValue}
 						placeholder={inputPlaceholder || `Type ${targetMatch}`}
 						on:keydown={handleKeydown}
-						class="w-full rounded-lg border border-black/15 bg-transparent px-3 py-1.5 font-mono text-xs outline-none transition placeholder:opacity-40 focus:border-[#b23a2e] focus:ring-2 focus:ring-[#b23a2e]/30 dark:border-white/15"
+						class="w-full rounded-xl border border-black/15 bg-transparent px-3.5 py-2 font-mono text-sm outline-none transition placeholder:opacity-40 focus:border-[#b23a2e] focus:ring-2 focus:ring-[#b23a2e]/30 dark:border-white/15"
 					/>
 				</div>
 			{/if}
 
 			<!-- ACTION BUTTONS -->
-			<div class="mt-5 flex justify-end gap-2">
+			<div class="mt-6 flex justify-end gap-2.5">
 				<button
 					use:ripple
-					class="hover:bg-current/5 rounded-lg border border-black/10 px-4 py-2 text-xs font-medium opacity-70 transition-colors hover:opacity-100 dark:border-white/[0.08]"
+					class="hover:bg-current/5 rounded-xl border border-black/10 px-4 py-2 text-sm font-medium opacity-70 transition-colors hover:opacity-100 dark:border-white/[0.08]"
 					on:click={cancel}
 				>
 					{cancelLabel}
@@ -166,7 +166,7 @@
 					use:ripple
 					disabled={!isMatch}
 					class={cn(
-						'rounded-lg px-4 py-2 text-xs font-medium transition-all duration-150',
+						'rounded-xl px-4 py-2 text-sm font-medium transition-all duration-150 shadow-sm',
 						STYLES[variant].confirm,
 						!isMatch && 'opacity-40 cursor-not-allowed pointer-events-none'
 					)}

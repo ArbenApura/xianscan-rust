@@ -10,6 +10,7 @@
 	import { validateForm } from '$lib/utils/form';
 	import { updateBookSchema, createChapterSchema, updateChapterSchema } from '$lib/schemas';
 	import { settings, THEME_POPOVER, THEME_PANEL_BORDER, CH_LAYOUT_COOKIE, setCookie } from '$lib/stores/settings';
+	import { readingHistory } from '$lib/stores/reading-history';
 	import { jobTracker } from '$lib/stores/job-tracker';
 	import { batchTracker, batchProgress } from '$lib/stores/batch-tracker';
 	import { cn } from '$lib/utils/cn';
@@ -41,6 +42,11 @@
 	import CheckSquare from 'lucide-svelte/icons/check-square';
 	import Square from 'lucide-svelte/icons/square';
 	import RotateCw from 'lucide-svelte/icons/rotate-cw';
+	import FolderUp from 'lucide-svelte/icons/folder-up';
+	import Upload from 'lucide-svelte/icons/upload';
+	import { parseDataTransferItems, parseFileList, type DiscoveredChapter } from '$lib/utils/folder-drop';
+	import MultiChapterImportModal from '$lib/components/chapter/MultiChapterImportModal.svelte';
+	import FolderUploadGuideModal from '$lib/components/book/FolderUploadGuideModal.svelte';
 	import type { PageData } from './$types';
 
 	export let data: PageData;
@@ -129,9 +135,195 @@
 	let deleteConfirmOpen = false;
 	let deleting = false;
 
+	let batchDeleteConfirmOpen = false;
+	let batchDeleting = false;
+
 	let chapterToClearPages: Chapter | null = null;
 	let clearPagesConfirmOpen = false;
 	let clearingPages = false;
+
+	// FOLDER UPLOAD & DRAG STATES
+	let folderGuideModalOpen = false;
+	let multiChapterModalOpen = false;
+	let isDraggingOverBook = false;
+	let detectedChapters: DiscoveredChapter[] = [];
+	let detectedTotalImages = 0;
+	let importingFolders = false;
+	let folderPickerInput: HTMLInputElement;
+
+	async function handleBookFolderSelected(e: Event) {
+		const target = e.target as HTMLInputElement;
+		if (!target.files || target.files.length === 0) return;
+		const scanToastId = toast.loading('Scanning selected folder...');
+		try {
+			const scanResult = await parseFileList(target.files, (count) => {
+				toast.loading(`Scanning folder... (${count} images found)`, { id: scanToastId });
+			});
+			toast.dismiss(scanToastId);
+
+			if (scanResult.isMultiChapter && scanResult.chapters.length >= 2) {
+				detectedChapters = scanResult.chapters;
+				detectedTotalImages = scanResult.totalImages;
+				multiChapterModalOpen = true;
+			} else if (scanResult.flatFiles.length > 0) {
+				// CREATE A SINGLE CHAPTER WITH THESE FILES
+				await executeSingleChapterImport(scanResult.flatFiles);
+			} else {
+				toast.info('No images found in the selected folder.');
+			}
+		} catch (err: any) {
+			toast.dismiss(scanToastId);
+			toast.error(err?.message || 'Could not parse selected folder.');
+		} finally {
+			target.value = '';
+		}
+	}
+
+	async function handleBookDragOver(e: DragEvent) {
+		if (!e.dataTransfer?.types?.includes('Files')) return;
+		e.preventDefault();
+		isDraggingOverBook = true;
+	}
+
+	async function handleBookDrop(e: DragEvent) {
+		e.preventDefault();
+		e.stopPropagation();
+		isDraggingOverBook = false;
+
+		if (e.dataTransfer?.items && e.dataTransfer.items.length > 0) {
+			const scanToastId = toast.loading('Scanning dropped files and folders...');
+			try {
+				const scanResult = await parseDataTransferItems(e.dataTransfer.items, (count) => {
+					toast.loading(`Scanning folder... (${count} images found)`, { id: scanToastId });
+				});
+				toast.dismiss(scanToastId);
+
+				if (scanResult.isMultiChapter && scanResult.chapters.length >= 2) {
+					detectedChapters = scanResult.chapters;
+					detectedTotalImages = scanResult.totalImages;
+					multiChapterModalOpen = true;
+					return;
+				} else if (scanResult.flatFiles.length > 0) {
+					await executeSingleChapterImport(scanResult.flatFiles);
+					return;
+				} else {
+					toast.info('No images found in dropped files.');
+					return;
+				}
+			} catch {
+				toast.dismiss(scanToastId);
+				// FALLBACK
+			}
+		}
+
+		if (e.dataTransfer?.files && e.dataTransfer.files.length > 0) {
+			const scanToastId = toast.loading('Scanning dropped files...');
+			const scanResult = await parseFileList(e.dataTransfer.files, (count) => {
+				toast.loading(`Scanning... (${count} images found)`, { id: scanToastId });
+			});
+			toast.dismiss(scanToastId);
+
+			if (scanResult.isMultiChapter && scanResult.chapters.length >= 2) {
+				detectedChapters = scanResult.chapters;
+				detectedTotalImages = scanResult.totalImages;
+				multiChapterModalOpen = true;
+			} else if (scanResult.flatFiles.length > 0) {
+				await executeSingleChapterImport(scanResult.flatFiles);
+			} else {
+				toast.info('No images found in dropped files.');
+			}
+		}
+	}
+
+	async function executeSingleChapterImport(files: File[]) {
+		if (files.length === 0 || !book) return;
+		const toastId = toast.loading('Creating chapter from files...');
+		try {
+			const createRes = await fetch(`/api/books/${book.id}/chapters`, {
+				method: 'POST',
+				headers: { 'content-type': 'application/json' },
+				body: JSON.stringify({
+					title: `Chapter ${chapters.length + 1}`,
+				}),
+			});
+			if (!createRes.ok) throw new Error('Failed to create chapter');
+			const { id: newChapterId } = await createRes.json();
+
+			const CHUNK_SIZE = 40;
+			for (let p = 0; p < files.length; p += CHUNK_SIZE) {
+				const chunk = files.slice(p, p + CHUNK_SIZE);
+				const form = new FormData();
+				for (const file of chunk) form.append('files', file);
+				const uploadRes = await fetch(`/api/chapters/${newChapterId}/pages`, {
+					method: 'POST',
+					body: form,
+				});
+				if (!uploadRes.ok) throw new Error('Failed to upload images');
+			}
+			toast.success('Chapter created and images uploaded!', { id: toastId });
+			await reload();
+		} catch (err: any) {
+			toast.error(err?.message || 'Failed to import chapter.', { id: toastId });
+		}
+	}
+
+	async function executeMultiChapterImport(chaptersToImport: DiscoveredChapter[]) {
+		if (chaptersToImport.length === 0 || !book) return;
+		multiChapterModalOpen = false;
+		importingFolders = true;
+
+		const toastId = toast.loading(`Importing ${chaptersToImport.length} chapters... (0/${chaptersToImport.length})`);
+		let completed = 0;
+
+		try {
+			for (let i = 0; i < chaptersToImport.length; i++) {
+				const ch = chaptersToImport[i];
+				toast.loading(`Importing ${ch.title || `Chapter ${i + 1}`} (${i + 1}/${chaptersToImport.length})...`, { id: toastId });
+
+				// 1. CREATE CHAPTER RECORD IN BOOK
+				const createRes = await fetch(`/api/books/${book.id}/chapters`, {
+					method: 'POST',
+					headers: { 'content-type': 'application/json' },
+					body: JSON.stringify({
+						title: ch.title || ch.folderName,
+						seq: ch.seqHint !== null ? ch.seqHint - 1 : undefined,
+					}),
+				});
+
+				if (!createRes.ok) {
+					throw new Error(`Failed to create chapter "${ch.title}"`);
+				}
+
+				const { id: newChapterId } = await createRes.json();
+
+				// 2. UPLOAD CHAPTER PAGES CHUNKED TO AVOID HTTP BODY OVERFLOW
+				const CHUNK_SIZE = 40;
+				for (let p = 0; p < ch.files.length; p += CHUNK_SIZE) {
+					const chunk = ch.files.slice(p, p + CHUNK_SIZE);
+					const form = new FormData();
+					for (const file of chunk) {
+						form.append('files', file);
+					}
+					const uploadRes = await fetch(`/api/chapters/${newChapterId}/pages`, {
+						method: 'POST',
+						body: form,
+					});
+					if (!uploadRes.ok) {
+						throw new Error(`Failed to upload images for "${ch.title}"`);
+					}
+				}
+
+				completed++;
+			}
+
+			toast.success(`Successfully imported ${completed} chapters!`, { id: toastId });
+			await reload();
+		} catch (err: any) {
+			toast.error(err?.message || 'Multi-chapter import encountered an error.', { id: toastId });
+		} finally {
+			importingFolders = false;
+		}
+	}
 
 	// -- LIFECYCLES -- //
 
@@ -420,6 +612,32 @@
 		}
 	}
 
+	async function confirmBatchDeleteChapters() {
+		if (selectedChapterIds.size === 0) return;
+		batchDeleting = true;
+		const count = selectedChapterIds.size;
+		const toastId = toast.loading(`Deleting ${count} chapter(s)...`);
+		const toDelete = Array.from(selectedChapterIds);
+
+		try {
+			let deleted = 0;
+			for (const id of toDelete) {
+				const resp = await fetch(`/api/chapters/${id}`, { method: 'DELETE' });
+				if (resp.ok) {
+					deleted++;
+				}
+			}
+			toast.success(`Successfully deleted ${deleted} chapter${deleted === 1 ? '' : 's'}.`, { id: toastId });
+			selectedChapterIds = new Set();
+			batchDeleteConfirmOpen = false;
+			await reload();
+		} catch {
+			toast.error('Encountered an error while deleting chapters.', { id: toastId });
+		} finally {
+			batchDeleting = false;
+		}
+	}
+
 	function promptClearPages(ch: Chapter) {
 		chapterToClearPages = ch;
 		clearPagesConfirmOpen = true;
@@ -679,7 +897,11 @@
 	$: translatedPages = chapters.reduce((sum, c) => sum + (c.translatedPageCount || 0), 0);
 	$: translatedChapters = chapters.filter((c) => (c.pageCount || 0) > 0 && (c.status === 'done' || (c.translatedPageCount ?? 0) === c.pageCount)).length;
 	$: overallProgress = totalPages > 0 ? Math.round((translatedPages / totalPages) * 100) : (chapters.length > 0 ? Math.round((translatedChapters / chapters.length) * 100) : 0);
-	$: bookCoverPageId = chapters.find((c) => c.coverPageId)?.coverPageId ?? null;
+	$: lastReadRecord = book ? ($readingHistory[book.id] ?? null) : null;
+	$: lastReadChapter = lastReadRecord
+		? chapters.find((c) => c.id === lastReadRecord?.chapterId && c.coverPageId)
+		: null;
+	$: bookCoverPageId = lastReadChapter?.coverPageId ?? chapters.find((c) => c.coverPageId)?.coverPageId ?? null;
 	$: errorChapters = chapters.filter((c) => c.status === 'error').length;
 	$: pendingChapters = chapters.filter((c) => (c.pageCount || 0) > 0 && (c.status !== 'done' || (c.translatedPageCount || 0) < (c.pageCount || 0))).length;
 	$: popover = THEME_POPOVER[$settings.theme];
@@ -694,7 +916,22 @@
 </svelte:head>
 
 <!-- BOOK DETAIL & CHAPTER MANAGEMENT -->
-<div class="flex flex-col gap-6">
+<!-- svelte-ignore a11y-no-static-element-interactions -->
+<div
+	class="flex flex-col gap-6"
+	on:dragover={handleBookDragOver}
+	on:dragleave={() => (isDraggingOverBook = false)}
+	on:drop={handleBookDrop}
+>
+	<!-- DRAG OVERLAY -->
+	{#if isDraggingOverBook}
+		<div class="pointer-events-none fixed inset-0 z-50 flex items-center justify-center bg-[#b23a2e]/20 backdrop-blur-sm">
+			<div class="flex flex-col items-center gap-3 rounded-2xl border-2 border-dashed border-[#b23a2e] bg-white/90 p-8 shadow-2xl dark:bg-[#1a1713]/90">
+				<Upload size={36} class="text-[#b23a2e] dark:text-[#e08a63] animate-bounce" />
+				<p class="text-sm font-bold">Drop chapter folders or images to import into {book?.titleTarget || book?.title || 'Book'}</p>
+			</div>
+		</div>
+	{/if}
 	<!-- BREADCRUMB NAVIGATION -->
 	<nav aria-label="Breadcrumb" class="flex items-center gap-1.5 text-xs sm:text-sm">
 		<a
@@ -725,32 +962,59 @@
 	{:else}
 		<!-- HERO CARD: METADATA, COVER ART, & ACTIONS -->
 		<div class="relative overflow-hidden rounded-2xl border border-black/[0.08] bg-white/70 p-3.5 sm:p-6 backdrop-blur-md dark:border-white/[0.08] dark:bg-white/[0.02]">
-			<div class="grid grid-cols-[auto_1fr] gap-x-3.5 sm:gap-x-6 gap-y-3 sm:gap-y-4 items-start">
-				<!-- COVER THUMBNAIL (ROW 1 ON MOBILE; FULL-HEIGHT SIDEBAR ON WIDE) -->
-				<div class="w-20 xs:w-24 sm:w-32 md:w-36 shrink-0 sm:row-span-3">
+			<div class="grid grid-cols-[auto_1fr] gap-x-3.5 sm:gap-x-6 gap-y-3 sm:gap-y-4 items-stretch">
+				<!-- COVER THUMBNAIL (FULL HEIGHT ON BOTH MOBILE & WIDE SCREENS) -->
+				<div class="w-20 xs:w-24 sm:w-32 md:w-36 shrink-0 sm:row-span-3 flex flex-col self-stretch">
 					<LazyImage
 						src={bookCoverPageId ? `/api/pages/${bookCoverPageId}/file?kind=thumb&w=320` : ''}
 						alt={book.titleTarget || book.title}
-						aspectRatio="aspect-[2/3]"
-						class="shadow-md rounded-xl"
+						aspectRatio="aspect-[2/3] sm:aspect-auto"
+						class="shadow-md rounded-xl h-full w-full object-cover"
 					/>
 				</div>
 
 				<!-- METADATA & STATS (ROW 1, COL 2) -->
 				<div class="min-w-0 flex flex-col justify-start">
 					<div class="space-y-1.5 sm:space-y-2">
-						<div class="flex items-center gap-1.5 sm:gap-2 flex-wrap">
-							<Badge variant="neutral" class="font-mono text-[10px] sm:text-xs">
-								{book.sourceLang} → {book.targetLang}
-							</Badge>
-							{#if book.pinned}
-								<Badge variant="cinnabar" class="gap-1 text-[10px] sm:text-xs">
-									<Pin size={10} class="rotate-45" /> Pinned
+						<div class="flex items-center justify-between gap-1.5 flex-wrap">
+							<div class="flex items-center gap-1.5 flex-wrap">
+								<Badge variant="neutral" class="font-mono text-[10px] sm:text-xs">
+									{book.sourceLang} → {book.targetLang}
 								</Badge>
-							{/if}
-							{#if book.archived}
-								<Badge variant="neutral" class="text-[10px] sm:text-xs">Archived</Badge>
-							{/if}
+								{#if book.pinned}
+									<Badge variant="cinnabar" class="gap-1 text-[10px] sm:text-xs">
+										<Pin size={10} class="rotate-45" /> Pinned
+									</Badge>
+								{/if}
+								{#if book.archived}
+									<Badge variant="neutral" class="text-[10px] sm:text-xs">Archived</Badge>
+								{/if}
+							</div>
+
+							<!-- TOP RIGHT CARD ACTIONS: GLOSSARY & EDIT -->
+							<div class="flex items-center gap-1.5 shrink-0">
+								<Button
+									variant="secondary"
+									size="sm"
+									class="h-6 sm:h-7 px-2 text-[10px] sm:text-xs font-medium gap-1 shadow-2xs shrink-0"
+									on:click={() => goto(`/app/glossary/?scope=book&bookId=${book?.id}`)}
+									title="Open book glossary terms"
+								>
+									<BookOpen size={12} />
+									<span>Glossary</span>
+								</Button>
+
+								<Button
+									variant="secondary"
+									size="sm"
+									class="h-6 sm:h-7 px-2 text-[10px] sm:text-xs font-medium gap-1 shadow-2xs shrink-0"
+									on:click={openEditBookModal}
+									title="Edit book details and target language"
+								>
+									<Pencil size={11} />
+									<span>Edit</span>
+								</Button>
+							</div>
 						</div>
 
 						<h1 class="text-base sm:text-2xl font-bold tracking-tight leading-snug sm:leading-normal line-clamp-2">
@@ -789,21 +1053,47 @@
 				{/if}
 
 				<!-- ACTION BUTTONS ROW (FULL-WIDTH ON MOBILE; ROW 3 COL 2 ON WIDE) -->
-				<div class="col-span-2 sm:col-span-1 sm:col-start-2 flex items-center gap-2 pt-1 border-t border-black/[0.04] dark:border-white/[0.04] sm:border-t-0 sm:pt-0 flex-wrap">
+				<div class="col-span-2 sm:col-span-1 sm:col-start-2 flex items-center gap-1.5 sm:gap-2 max-w-full">
+					<!-- HIDDEN FOLDER PICKER INPUT -->
+					<input
+						type="file"
+						webkitdirectory
+						directory
+						multiple
+						class="hidden"
+						bind:this={folderPickerInput}
+						on:change={handleBookFolderSelected}
+					/>
+
+					<!-- 1. PRIMARY ACTION: NEW CHAPTER -->
 					<Button
 						variant="primary"
 						size="md"
-						class="flex-1 sm:flex-initial h-9 sm:h-10 px-3.5 sm:px-4 text-xs sm:text-sm font-semibold shadow-sm"
+						class="h-8 sm:h-9 md:h-10 px-2.5 sm:px-3.5 text-xs sm:text-sm font-semibold shadow-sm shrink-0 gap-1 sm:gap-1.5 flex-1 sm:flex-initial"
 						on:click={openCreateChapterModal}
 					>
-						<Plus size={15} /> <span>New Chapter</span>
+						<Plus size={14} /> <span>New Chapter</span>
 					</Button>
 
+					<!-- 2. IMPORT FOLDER -->
+					<Button
+						variant="secondary"
+						size="md"
+						class="h-8 sm:h-9 md:h-10 px-2 sm:px-3 text-xs sm:text-sm font-medium shrink-0 gap-1 sm:gap-1.5"
+						on:click={() => (folderGuideModalOpen = true)}
+						title="Batch import chapter folders directly into this book"
+					>
+						<FolderUp size={13} class="text-amber-500" />
+						<span class="hidden sm:inline">Import Folder</span>
+						<span class="sm:hidden">Folder</span>
+					</Button>
+
+					<!-- 3. TRANSLATE PENDING (SHOWN INLINE ON LG+, IN POPOVER ON SMALLER SCREENS) -->
 					{#if pendingChapters > 0}
 						<Button
 							variant="secondary"
 							size="md"
-							class={`h-9 sm:h-10 px-3 sm:px-3.5 text-xs sm:text-sm font-semibold border-[#b23a2e]/30 bg-[#b23a2e]/10 text-[#b23a2e] hover:bg-[#b23a2e] hover:text-white dark:text-[#e08a63] dark:hover:bg-[#e08a63] dark:hover:text-black transition-all shadow-xs ${
+							class={`h-8 sm:h-9 md:h-10 px-2.5 sm:px-3 text-xs sm:text-sm font-semibold border-[#b23a2e]/30 bg-[#b23a2e]/10 text-[#b23a2e] hover:bg-[#b23a2e] hover:text-white dark:text-[#e08a63] dark:hover:bg-[#e08a63] dark:hover:text-black transition-all shadow-xs shrink-0 gap-1 sm:gap-1.5 hidden lg:inline-flex ${
 								isBatchActiveForOtherBook ? 'opacity-80' : ''
 							}`}
 							on:click={startBatchAllPending}
@@ -811,44 +1101,66 @@
 								? `Batch translation is currently running for "${$batchTracker.bookTitle || 'another book'}"`
 								: `Translate all ${pendingChapters} pending chapters sequentially`}
 						>
-							<Sparkles size={14} class="text-amber-500" />
+							<Sparkles size={13} class="text-amber-500" />
 							<span>Translate Pending ({pendingChapters})</span>
 						</Button>
 					{/if}
 
-					<Button
-						variant="secondary"
-						size="md"
-						class="h-9 sm:h-10 px-3 sm:px-3.5 text-xs sm:text-sm font-medium"
-						on:click={openEditBookModal}
-					>
-						<Pencil size={14} /> <span>Edit</span>
-					</Button>
-					<Button
-						variant="secondary"
-						size="md"
-						class="h-9 sm:h-10 px-3 sm:px-3.5 text-xs sm:text-sm font-medium"
-						on:click={() => goto(`/app/glossary/?scope=book&bookId=${book?.id}`)}
-					>
-						<BookOpen size={14} /> <span>Glossary</span>
-					</Button>
-
+					<!-- 4. CLEAR PROGRESS BUTTON: INLINE ON WIDE SCREENS (LG+) -->
 					{#if chapters.length > 0}
 						<Button
 							variant="secondary"
 							size="md"
 							loading={clearingProgress}
 							disabled={clearingProgress}
-							class="h-9 sm:h-10 px-3 sm:px-3.5 text-xs sm:text-sm font-medium border-red-500/30 bg-red-500/5 text-red-600 hover:bg-red-500 hover:text-white dark:text-red-400 dark:border-red-400/30 dark:bg-red-400/5 dark:hover:bg-red-500 dark:hover:text-white transition-all shadow-xs"
+							class="h-8 sm:h-9 md:h-10 px-2.5 sm:px-3 text-xs sm:text-sm font-medium border-red-500/30 bg-red-500/5 text-red-600 hover:bg-red-500 hover:text-white dark:text-red-400 dark:border-red-400/30 dark:bg-red-400/5 dark:hover:bg-red-500 dark:hover:text-white transition-all shadow-xs shrink-0 gap-1 sm:gap-1.5 hidden lg:inline-flex"
 							on:click={() => (clearProgressConfirmOpen = true)}
 							title="Clear all translations and OCR progress while keeping all pages intact"
 						>
 							{#if !clearingProgress}
-								<RotateCw size={14} />
+								<RotateCw size={13} />
 							{/if}
 							<span>{clearingProgress ? 'Clearing...' : 'Clear Progress'}</span>
 						</Button>
 					{/if}
+
+					<!-- 5. MORE ACTIONS POPOVER: VISIBLE ONLY ON SMALLER SCREENS (<LG) -->
+					<div class="lg:hidden shrink-0">
+						<ActionMenu
+							label="More Book Actions"
+							iconSize={15}
+							class="h-8 sm:h-9 md:h-10 px-2 border border-black/10 dark:border-white/10 hover:bg-black/5 dark:hover:bg-white/5 rounded-xl flex items-center justify-center transition"
+							items={[
+								...(pendingChapters > 0
+									? [
+											{
+												value: 'translate-pending',
+												label: `Translate Pending (${pendingChapters})`,
+												icon: Sparkles,
+											},
+										]
+									: []),
+								...(chapters.length > 0
+									? [
+											{
+												value: 'clear-progress',
+												label: clearingProgress ? 'Clearing Progress...' : 'Clear All Progress',
+												icon: RotateCw,
+												danger: true,
+												disabled: clearingProgress,
+											},
+										]
+									: []),
+							]}
+							on:select={(e) => {
+								if (e.detail === 'translate-pending') {
+									startBatchAllPending();
+								} else if (e.detail === 'clear-progress') {
+									clearProgressConfirmOpen = true;
+								}
+							}}
+						/>
+					</div>
 				</div>
 			</div>
 		</div>
@@ -1683,6 +1995,17 @@
 				<span class="hidden md:inline">Force All</span>
 			</Button>
 
+			<Button
+				variant="danger"
+				size="sm"
+				class="gap-1 text-xs h-8 sm:h-9 px-2.5"
+				on:click={() => (batchDeleteConfirmOpen = true)}
+				title={`Delete ${selectedChapterIds.size} selected chapters`}
+			>
+				<Trash2 size={12} />
+				<span class="hidden sm:inline">Delete</span>
+			</Button>
+
 			<button
 				type="button"
 				on:click={clearSelection}
@@ -1899,6 +2222,19 @@
 	on:cancel={() => (deleteConfirmOpen = false)}
 />
 
+<!-- BATCH DELETE CHAPTERS CONFIRMATION DIALOG -->
+<ConfirmDialog
+	open={batchDeleteConfirmOpen}
+	title={`Delete ${selectedChapterIds.size} Selected Chapter${selectedChapterIds.size === 1 ? '' : 's'}?`}
+	message={`Are you sure you want to delete ${selectedChapterIds.size} selected chapter${selectedChapterIds.size === 1 ? '' : 's'} (${selectedPagesCount} total pages)? All uploaded images, OCR data, and translations for these chapters will be permanently removed.`}
+	confirmLabel={`Delete ${selectedChapterIds.size} Chapter${selectedChapterIds.size === 1 ? '' : 's'}`}
+	requireVerificationCode={true}
+	variant="danger"
+	on:confirm={confirmBatchDeleteChapters}
+	on:cancel={() => (batchDeleteConfirmOpen = false)}
+/>
+
+
 <!-- CLEAR PAGES CONFIRMATION DIALOG -->
 <ConfirmDialog
 	open={clearPagesConfirmOpen}
@@ -1922,3 +2258,21 @@
 	on:confirm={confirmClearProgress}
 	on:cancel={() => (clearProgressConfirmOpen = false)}
 />
+
+<!-- FOLDER UPLOAD GUIDE MODAL -->
+<FolderUploadGuideModal
+	open={folderGuideModalOpen}
+	onSelectFolder={() => folderPickerInput?.click()}
+	onClose={() => (folderGuideModalOpen = false)}
+/>
+
+<!-- MULTI-CHAPTER DETECTED CONFIRMATION MODAL -->
+<MultiChapterImportModal
+	open={multiChapterModalOpen}
+	chapters={detectedChapters}
+	totalImages={detectedTotalImages}
+	showFlattenOption={false}
+	onImportChapters={() => executeMultiChapterImport(detectedChapters)}
+	onClose={() => (multiChapterModalOpen = false)}
+/>
+
