@@ -222,18 +222,28 @@ async fn main() -> anyhow::Result<()> {
     }
 
     println!("================================================================");
+    let lan_ip = get_local_network_ip();
     if ml_only {
         println!("  🚀 XianScan (ML Backend Mode) is running!");
         println!("     ML Backend:   http://127.0.0.1:{}", ml_port);
         println!("     Web UI (Dev): http://localhost:{} (run 'cd web && yarn dev')", web_port);
     } else if is_dev_mode {
         println!("  🚀 XianScan (Full Dev Mode: ML + Vite HMR) is running!");
-        println!("     Web UI (HMR): http://localhost:{}", web_port);
+        println!("     Local Web UI: http://localhost:{}", web_port);
+        if let Some(ip) = lan_ip {
+            println!("     LAN/Network:  http://{}:{}", ip, web_port);
+        } else {
+            println!("     LAN/Network:  http://0.0.0.0:{}", web_port);
+        }
         println!("     ML Backend:   http://127.0.0.1:{}", ml_port);
     } else {
         println!("  🚀 XianScan is running!");
-        println!("     Web UI:       http://localhost:{}", web_port);
-        println!("     LAN/Network:  http://0.0.0.0:{}", web_port);
+        println!("     Local Web UI: http://localhost:{}", web_port);
+        if let Some(ip) = lan_ip {
+            println!("     LAN/Network:  http://{}:{}", ip, web_port);
+        } else {
+            println!("     LAN/Network:  http://0.0.0.0:{}", web_port);
+        }
         println!("     ML Backend:   http://127.0.0.1:{}", ml_port);
     }
     println!("================================================================");
@@ -245,4 +255,18 @@ async fn main() -> anyhow::Result<()> {
     println!("\n  [+] Shutting down XianScan cleanly...");
 
     Ok(())
+}
+
+/// Resolve the primary local area network (LAN) IP address of the host machine.
+/// Uses a connectionless UDP routing probe to determine the primary outbound interface.
+fn get_local_network_ip() -> Option<std::net::IpAddr> {
+    let socket = std::net::UdpSocket::bind("0.0.0.0:0").ok()?;
+    socket.connect("8.8.8.8:80").ok()?;
+    let addr = socket.local_addr().ok()?;
+    let ip = addr.ip();
+    if ip.is_loopback() || ip.is_unspecified() {
+        None
+    } else {
+        Some(ip)
+    }
 }

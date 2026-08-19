@@ -2,7 +2,6 @@ use std::sync::{LazyLock, Mutex};
 use anyhow::Result;
 use ort::session::builder::GraphOptimizationLevel;
 use ort::session::Session;
-use tracing::info;
 
 use super::schemas::{GpuInfo, HardwareStatus};
 
@@ -154,7 +153,7 @@ pub fn create_session_from_memory(bytes: &[u8], model_tag: &str) -> Result<Sessi
 
             match dml_res {
                 Ok(s) => {
-                    info!("Successfully initialized ONNX model '{}' with DirectML GPU acceleration.", model_tag);
+                    tracing::info!("Successfully initialized ONNX model '{}' with DirectML GPU acceleration.", model_tag);
                     return Ok(s);
                 }
                 Err(e) => {
@@ -168,6 +167,7 @@ pub fn create_session_from_memory(bytes: &[u8], model_tag: &str) -> Result<Sessi
     }
 
     // CPU multi-threaded session with Level 3 graph optimization
+    tracing::debug!("Initializing ONNX model '{}' with CPU execution provider.", model_tag);
     let session = Session::builder()
         .map_err(|e| anyhow::anyhow!("Session builder error: {}", e))?
         .with_intra_threads(num_cpus::get().min(8))
