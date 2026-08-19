@@ -69,7 +69,7 @@ console.log(`Generated assets/icon-1024.png (1024x1024, ${png1024.length} bytes)
 const desktopFile = `[Desktop Entry]
 Name=XianScan
 Comment=Native Comic Translation Server for Chinese Manhua, Korean Manhwa & Japanese Manga
-Exec=xianscan-rust
+Exec=xianscan
 Icon=xianscan
 Terminal=false
 Type=Application

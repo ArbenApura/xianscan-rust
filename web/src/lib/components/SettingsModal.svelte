@@ -72,6 +72,10 @@
 		has_dedicated_gpu?: boolean;
 		detected_gpus?: Array<{ device_id: number; name: string; vram_mb: number; is_dedicated: boolean; is_integrated: boolean }>;
 		gpu_warning?: string | null;
+		version?: string;
+		app_version?: string;
+		web_build_hash?: string;
+		web_build_time?: string;
 	}
 
 	interface ProviderInfo {
@@ -1576,6 +1580,37 @@
 							<SlidersHorizontal size={13} class="text-[#b23a2e] dark:text-[#e08a63]" />
 							<span>Customize</span>
 						</button>
+					</div>
+				</div>
+
+				<!-- SYSTEM & BUILD VERSION INFO -->
+				<div class="border-t border-black/10 pt-4 dark:border-white/10">
+					<div class="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+						<div>
+							<div class="text-xs font-bold uppercase tracking-wider opacity-80 flex items-center gap-1.5">
+								<Info size={14} class="text-[#b23a2e] dark:text-[#e08a63]" />
+								<span>System & Build Information</span>
+							</div>
+							<p class="text-[11px] opacity-60 mt-0.5">
+								XianScan native binary and embedded frontend build fingerprint
+							</p>
+						</div>
+
+						<div class="flex items-center gap-2 self-start sm:self-auto">
+							<div class="flex items-center gap-1.5 rounded-lg border border-black/10 bg-black/[0.03] px-2.5 py-1 text-[11px] font-mono dark:border-white/10 dark:bg-white/[0.03]">
+								<span class="opacity-60">Version:</span>
+								<span class="font-bold text-[#b23a2e] dark:text-[#e08a63]">v{hardwareInfo?.version || '0.1.0'}</span>
+							</div>
+							{#if hardwareInfo?.web_build_hash}
+								<div
+									class="flex items-center gap-1.5 rounded-lg border border-black/10 bg-black/[0.03] px-2.5 py-1 text-[11px] font-mono dark:border-white/10 dark:bg-white/[0.03]"
+									title="Web frontend build hash"
+								>
+									<span class="opacity-60">Web:</span>
+									<span class="font-bold">{hardwareInfo.web_build_hash}</span>
+								</div>
+							{/if}
+						</div>
 					</div>
 				</div>
 			</div>

@@ -101,43 +101,88 @@ export function registerFonts(): void {
 }
 
 /**
- * SPLITS A STRING INTO RUNS SO COMPATIBLE CHARACTERS STAY IN CC WILD WORDS
- * WHILE ONLY UNMATCHED/REMAPPED SYMBOLS (e.g. [ ], { }, |, \) USE THE FALLBACK FONT STACK.
+ * SPLITS A STRING INTO RUNS SO COMPATIBLE CHARACTERS STAY IN PRIMARY DIALOGUE FONT (e.g. CC WILD WORDS)
+ * WHILE NON-LATIN CHARACTERS (HANGUL, CJK, DEVANAGARI, THAI, ETC.) AND UNMATCHED/REMAPPED SYMBOLS
+ * (e.g. [ ], { }, |, \) USE THE DESIGNATED FALLBACK / CJK FONT STACK.
  */
 export function splitTextRuns(text: string, primaryFont?: string, fallbackFont?: string): TextRun[] {
 	const fontMain = primaryFont || FONT_DIALOGUE;
 	const fontFb = fallbackFont || FONT_FALLBACK_NAME;
-	if (NON_LATIN_SCRIPT_REGEX.test(text) || (fontMain !== FONT_DIALOGUE && fontMain !== 'WildWorld' && fontMain !== 'CCWildWords')) {
+
+	if (fontMain === fontFb) {
 		return [{ text, font: fontMain, isFallbackSymbol: false }];
 	}
-	if (!UNSUPPORTED_WILDWORDS_REGEX.test(text)) {
+
+	// MATCHES ANY NON-LATIN SCRIPT CHUNKS OR CC WILD WORDS REMAPPED SYMBOLS ([ ], { }, |, \)
+	const fallbackCharsRegex = /([\u3040-\u30ff\u3400-\u4dbf\u4e00-\u9fff\uf900-\ufaff\uac00-\ud7af\u0900-\u097f\u0e00-\u0e7f\u0400-\u04ff]+|[\[\]{}|\\]+)/g;
+
+	if (!fallbackCharsRegex.test(text)) {
 		return [{ text, font: fontMain, isFallbackSymbol: false }];
 	}
-	const tokens = text.split(/([\[\]{}|\\]+)/);
-	const runs: TextRun[] = [];
-	for (const token of tokens) {
-		if (!token) continue;
-		if (UNSUPPORTED_WILDWORDS_REGEX.test(token)) {
-			runs.push({ text: token, font: fontFb, isFallbackSymbol: true });
+
+	fallbackCharsRegex.lastIndex = 0;
+	const rawRuns: TextRun[] = [];
+	let lastIndex = 0;
+	let match: RegExpExecArray | null;
+
+	while ((match = fallbackCharsRegex.exec(text)) !== null) {
+		const matchStart = match.index;
+		const matchEnd = fallbackCharsRegex.lastIndex;
+
+		if (matchStart > lastIndex) {
+			const slice = text.slice(lastIndex, matchStart);
+			// IF SLICE IS PURE WHITESPACE BETWEEN TWO FALLBACK MATCHES, KEEP IT IN FALLBACK FONT
+			if (slice.trim() === '' && rawRuns.length > 0 && rawRuns[rawRuns.length - 1].isFallbackSymbol) {
+				rawRuns.push({ text: slice, font: fontFb, isFallbackSymbol: true });
+			} else {
+				rawRuns.push({ text: slice, font: fontMain, isFallbackSymbol: false });
+			}
+		}
+
+		rawRuns.push({ text: match[0], font: fontFb, isFallbackSymbol: true });
+		lastIndex = matchEnd;
+	}
+
+	if (lastIndex < text.length) {
+		rawRuns.push({ text: text.slice(lastIndex), font: fontMain, isFallbackSymbol: false });
+	}
+
+	// MERGE CONSECUTIVE RUNS OF THE SAME FONT AND SYMBOL TYPE
+	const merged: TextRun[] = [];
+	for (const run of rawRuns) {
+		if (!run.text) continue;
+		const prev = merged[merged.length - 1];
+		if (prev && prev.font === run.font && prev.isFallbackSymbol === run.isFallbackSymbol) {
+			prev.text += run.text;
 		} else {
-			runs.push({ text: token, font: fontMain, isFallbackSymbol: false });
+			merged.push({ ...run });
 		}
 	}
-	return runs;
+
+	return merged.length > 0 ? merged : [{ text, font: fontMain, isFallbackSymbol: false }];
 }
 
 export function fontFor(text?: string, customDialogue?: string, customCjk?: string): string {
-	if (text && NON_LATIN_SCRIPT_REGEX.test(text)) {
-		return customCjk || FONT_FALLBACK_NAME;
+	const fontDialogue = customDialogue || FONT_DIALOGUE;
+	const fontCjk = customCjk || FONT_FALLBACK_NAME;
+	if (!text) return fontDialogue;
+	// IF TEXT CONTAINS LATIN CHARACTERS ALONGSIDE NON-LATIN SCRIPTS, USE DIALOGUE FONT AS PRIMARY
+	// (RUN SPLITTING WILL ROUTE THE NON-LATIN/CJK WORDS TO FONT_CJK)
+	if (/[a-zA-Z]/.test(text)) {
+		return fontDialogue;
 	}
-	return customDialogue || FONT_DIALOGUE;
+	// PURELY NON-LATIN (CJK / HANGUL / DEVANAGARI)
+	if (NON_LATIN_SCRIPT_REGEX.test(text)) {
+		return fontCjk;
+	}
+	return fontDialogue;
 }
 
 export function fontSpec(size: number, fontNameOrText?: string, text?: string, customCjk?: string): string {
 	let fontName: string;
 	if (fontNameOrText && fontNameOrText !== FONT_DIALOGUE && fontNameOrText !== FONT_FALLBACK_NAME && fontNameOrText !== customCjk) {
 		fontName = fontNameOrText;
-	} else if (text && NON_LATIN_SCRIPT_REGEX.test(text)) {
+	} else if (text && NON_LATIN_SCRIPT_REGEX.test(text) && !/[a-zA-Z]/.test(text)) {
 		fontName = customCjk || FONT_FALLBACK_NAME;
 	} else {
 		fontName = fontNameOrText ?? FONT_DIALOGUE;

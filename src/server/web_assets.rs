@@ -167,15 +167,33 @@ pub fn get_data_dir() -> PathBuf {
 }
 
 // ---------------------------------------------------------------------------
-// Extraction logic
+// Extraction logic & Versioning
 // ---------------------------------------------------------------------------
 
-/// Build version stamp — bumped whenever the crate version changes or the binary
-/// is recompiled with different embedded assets.
-/// Includes a build timestamp (seconds since epoch) so that every `cargo build`
-/// produces a unique stamp, ensuring stale extractions are always refreshed.
+/// UNIQUE WEB BUILD FINGERPRINT DISCOVERED AT COMPILE TIME BY BUILD.RS
 #[cfg(feature = "embed-web")]
-const APP_VERSION: &str = concat!(env!("CARGO_PKG_VERSION"), "+", env!("BUILD_TIMESTAMP"));
+pub const WEB_BUILD_HASH: &str = env!("WEB_BUILD_HASH");
+#[cfg(not(feature = "embed-web"))]
+pub const WEB_BUILD_HASH: &str = "dev";
+
+/// WEB BUILD TIMESTAMP EMITTED BY BUILD.RS
+#[cfg(feature = "embed-web")]
+pub const WEB_BUILD_TIME: &str = env!("WEB_BUILD_TIME");
+#[cfg(not(feature = "embed-web"))]
+pub const WEB_BUILD_TIME: &str = "0";
+
+/// BUILD VERSION STAMP — BUMPED WHENEVER CRATE VERSION OR WEB BUILD HASH CHANGES.
+#[cfg(feature = "embed-web")]
+pub const APP_VERSION: &str = concat!(
+    env!("CARGO_PKG_VERSION"),
+    "+web.",
+    env!("WEB_BUILD_HASH"),
+    ".",
+    env!("BUILD_TIMESTAMP")
+);
+
+#[cfg(not(feature = "embed-web"))]
+pub const APP_VERSION: &str = concat!(env!("CARGO_PKG_VERSION"), "+dev");
 
 /// Extract embedded web assets to [`get_app_dir()`] if needed, then return
 /// the app directory path (used as `web_dir` by `SsrServer`).
@@ -227,11 +245,11 @@ pub fn extract_if_needed() -> anyhow::Result<Option<PathBuf>> {
             && pkg_exist;
 
         if !already_current {
-            tracing::info!("Extracting embedded web assets to {:?} …", app_dir);
+            tracing::debug!("First launch — extracting web app files to {:?}", app_dir);
             std::fs::create_dir_all(&app_dir)?;
             extract_all(&app_dir)?;
             std::fs::write(&version_stamp, APP_VERSION)?;
-            tracing::info!("Web assets extracted successfully.");
+            tracing::debug!("Web app files ready.");
         }
 
         return Ok(Some(app_dir));

@@ -1,6 +1,6 @@
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
-use tracing::info;
+use tracing::debug;
 
 pub struct SsrServer {
     child: Option<Child>,
@@ -52,11 +52,15 @@ impl SsrServer {
             .env("DATABASE_PATH", &db_path)
             .env("NODE_PATH", &node_path)
             .env("BODY_SIZE_LIMIT", "64M")
-            .stdout(Stdio::inherit())
+            .stdout(if verbose_logging() {
+                Stdio::inherit()
+            } else {
+                Stdio::null()
+            })
             .stderr(Stdio::inherit());
 
 
-        info!("Starting SvelteKit SSR Engine on port {}...", port);
+        debug!("Starting SvelteKit SSR Engine on port {}...", port);
         let child = cmd.spawn()?;
 
         Ok(Self { child: Some(child) })
@@ -87,7 +91,7 @@ impl SsrServer {
             .stdout(Stdio::inherit())
             .stderr(Stdio::inherit());
 
-        info!("Starting Vite Live Dev Server on port {}...", port);
+        debug!("Starting Vite Live Dev Server on port {}...", port);
         let child = cmd.spawn()?;
 
         Ok(Self { child: Some(child) })
@@ -114,6 +118,12 @@ impl Drop for SsrServer {
     fn drop(&mut self) {
         self.stop();
     }
+}
+
+/// Whether the SSR child process should stream its stdout to ours.
+/// True only when the user explicitly opts into verbose logging.
+fn verbose_logging() -> bool {
+    std::env::var("LOG_REQUESTS").map(|v| v == "1").unwrap_or(false)
 }
 
 fn normalize_windows_path(path: &Path) -> PathBuf {

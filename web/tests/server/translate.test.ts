@@ -10,6 +10,7 @@ import {
 	glossaryBlock,
 	looksDegenerate,
 	parseTranslations,
+	sanitizeTranslationArtifacts,
 	systemPrompt,
 	translatePage,
 	userPrompt,
@@ -74,7 +75,7 @@ describe('systemPrompt', () => {
 
 	it('enforces strict target language rules when translating zh-Hans to Korean', () => {
 		const p = systemPrompt('zh-Hans', 'ko');
-		expect(p).toContain('Target Language Invariant');
+		expect(p).toContain('Target Language & Zero Untranslated Script Invariant');
 		expect(p).toContain('Korean (ko)');
 		expect(p).toContain('Do NOT output English or any other language unless the target language is explicitly English');
 		expect(p).toContain('Wuxia / Xianxia / Cultivation Dialogue & Idioms');
@@ -576,7 +577,7 @@ describe('parseExtractedTerms & extractTerms', () => {
 		const koPair = { sourceLang: 'zh-Hans', targetLang: 'ko' };
 		const p = systemPrompt(koPair.sourceLang, koPair.targetLang);
 		expect(p).toContain('Korean (ko)');
-		expect(p).toContain('Target Language Invariant');
+		expect(p).toContain('Output Language Requirement');
 
 		const koRegions = [
 			{ id: '35477', text: '老师老师，你没\n受伤吧？' },
@@ -600,6 +601,35 @@ describe('parseExtractedTerms & extractTerms', () => {
 		expect(res.byRegion.get('35477')).toBe('선생님, 선생님, 다치지 않으셨어요?');
 		expect(res.byRegion.get('35478')).toBe('당연히 안 다쳤지, 저런 어설픈 실력들이 감히 나랑 상대가 되겠냐!');
 		expect(res.byRegion.get('35479')).toBe('선생님, 진짜 무공 할 줄 아세요?');
+	});
+
+	it('sanitizes bubble tail OCR digits and stray border parentheses', () => {
+		// Case 1: Trailing bubble tail digits / dots after terminal punctuation
+		const cleanTail1 = sanitizeTranslationArtifacts(
+			"Let's see how long you can keep up that attitude! 20...",
+			'我看你能嚣张\n到什么时候！20……',
+		);
+		expect(cleanTail1).toBe("Let's see how long you can keep up that attitude!");
+
+		// Case 2: Unmatched leading parenthesis from circular speech bubble outline
+		const cleanParen1 = sanitizeTranslationArtifacts(
+			"(You're still traumatized by that pond!)",
+			'(你对池塘都\n有阴影了！',
+		);
+		expect(cleanParen1).toBe("You're still traumatized by that pond!");
+
+		const cleanParen2 = sanitizeTranslationArtifacts(
+			"(You're still traumatized by that pond!",
+			'(你对池塘都\n有阴影了！',
+		);
+		expect(cleanParen2).toBe("You're still traumatized by that pond!");
+
+		// Case 3: Legitimate paired parenthetical remarks should NOT be stripped
+		const cleanLegit = sanitizeTranslationArtifacts(
+			'(whispering) Be quiet!',
+			'（小声）安静点！',
+		);
+		expect(cleanLegit).toBe('(whispering) Be quiet!');
 	});
 });
 

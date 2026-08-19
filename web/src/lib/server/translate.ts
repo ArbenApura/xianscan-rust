@@ -27,7 +27,7 @@ export interface PageTranslation {
 	newTerms?: TermDraft[];
 }
 
-export const PROMPT_VERSION = 'v18';
+export const PROMPT_VERSION = 'v19';
 
 function mergeUsage(acc: TranslationUsage, u: TranslationUsage): void {
 	acc.promptTokens += u.promptTokens;

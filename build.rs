@@ -175,15 +175,94 @@ fn main() {
         println!("cargo:rustc-env=NODE_BIN_PATH={}", abs_str);
     }
 
-    // RERUN IF NODE_MODULES, WEB/BIN LAYOUT, OR WEB ASSETS CHANGE
+    // -----------------------------------------------------------------------
+    // 4. Compute Web Build Fingerprint & Versioning
+    // -----------------------------------------------------------------------
     let web_dir = manifest_dir.join("web");
+    let web_build_dir = web_dir.join("build");
+
+    let (web_build_hash, web_build_time) = if web_build_dir.exists() {
+        let fingerprint = compute_dir_fingerprint(&web_build_dir);
+        let hash_str = format!("{:012x}", fingerprint);
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_secs();
+        (hash_str, now.to_string())
+    } else {
+        ("unbuilt".to_string(), "0".to_string())
+    };
+
+    println!("cargo:rustc-env=WEB_BUILD_HASH={}", web_build_hash);
+    println!("cargo:rustc-env=WEB_BUILD_TIME={}", web_build_time);
+
+    // -----------------------------------------------------------------------
+    // 5. RERUN TRIGGERS (FRONTEND SOURCE, CONFIGS, ASSETS, AND OUTPUTS)
+    // -----------------------------------------------------------------------
     rerun_if_dir_changed(&node_modules.join("better-sqlite3"));
     rerun_if_dir_changed(&node_modules.join("@napi-rs"));
     rerun_if_dir_changed(&web_bin_dir);
-    rerun_if_dir_changed(&web_dir.join("build"));
+    rerun_if_dir_changed(&web_dir.join("src"));
     rerun_if_dir_changed(&web_dir.join("static"));
     rerun_if_dir_changed(&web_dir.join("drizzle"));
+    rerun_if_dir_changed(&web_build_dir);
     println!("cargo:rerun-if-changed={}", web_dir.join("package.json").display());
+    println!("cargo:rerun-if-changed={}", web_dir.join("yarn.lock").display());
+    println!("cargo:rerun-if-changed={}", web_dir.join("vite.config.ts").display());
+    println!("cargo:rerun-if-changed={}", web_dir.join("svelte.config.js").display());
+}
+
+/// COMPUTES FAST 64-BIT FNV-1A FINGERPRINT OF A DIRECTORY'S FILES (NAMES, SIZES, AND BYTES)
+fn compute_dir_fingerprint(dir: &std::path::Path) -> u64 {
+    let mut hash = 0xcbf29ce484222325u64;
+    let prime = 0x100000001b3u64;
+
+    let mut files = Vec::new();
+    collect_files(dir, dir, &mut files);
+    files.sort_by(|a, b| a.cmp(b));
+
+    for (rel_path, full_path) in files {
+        for b in rel_path.as_bytes() {
+            hash ^= *b as u64;
+            hash = hash.wrapping_mul(prime);
+        }
+        if let Ok(metadata) = std::fs::metadata(&full_path) {
+            for b in metadata.len().to_le_bytes() {
+                hash ^= b as u64;
+                hash = hash.wrapping_mul(prime);
+            }
+        }
+        if let Ok(bytes) = std::fs::read(&full_path) {
+            // SAMPLE FIRST AND LAST 256 BYTES FOR SPEED & COMPACTNESS
+            let sample_len = bytes.len().min(256);
+            for b in &bytes[..sample_len] {
+                hash ^= *b as u64;
+                hash = hash.wrapping_mul(prime);
+            }
+            if bytes.len() > 256 {
+                let tail = &bytes[bytes.len() - 256..];
+                for b in tail {
+                    hash ^= *b as u64;
+                    hash = hash.wrapping_mul(prime);
+                }
+            }
+        }
+    }
+    hash
+}
+
+/// RECURSIVELY COLLECTS ALL RELATIVE AND ABSOLUTE PATHS OF FILES IN A DIRECTORY
+fn collect_files(root: &std::path::Path, current: &std::path::Path, out: &mut Vec<(String, PathBuf)>) {
+    if let Ok(entries) = std::fs::read_dir(current) {
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if path.is_dir() {
+                collect_files(root, &path, out);
+            } else if let Ok(rel) = path.strip_prefix(root) {
+                out.push((rel.to_string_lossy().replace('\\', "/"), path));
+            }
+        }
+    }
 }
 
 /// Recursively emit `cargo:rerun-if-changed` for all files in a directory so

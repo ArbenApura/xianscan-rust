@@ -6,9 +6,28 @@ import type { RequestHandler } from './$types';
 export const GET: RequestHandler = async () => {
 	try {
 		const pipeline = createPipelineClient();
+		let healthInfo: { version?: string; app_version?: string; web_build_hash?: string; web_build_time?: string } = {};
+		try {
+			const health = (await pipeline.health()) as {
+				version?: string;
+				app_version?: string;
+				web_build_hash?: string;
+				web_build_time?: string;
+			};
+			healthInfo = health;
+		} catch {
+			// SIDECAR HEALTH QUERY FAILED (NON-FATAL)
+		}
+
 		if (pipeline.getHardware) {
 			const hw = await pipeline.getHardware();
-			return json(hw);
+			return json({
+				...hw,
+				version: healthInfo.version || '0.1.0',
+				app_version: healthInfo.app_version || '0.1.0+dev',
+				web_build_hash: healthInfo.web_build_hash || 'dev',
+				web_build_time: healthInfo.web_build_time || '0',
+			});
 		}
 		const health = await pipeline.health();
 		return json({
@@ -19,6 +38,10 @@ export const GET: RequestHandler = async () => {
 			has_cuda: false,
 			has_directml: false,
 			has_coreml: false,
+			version: healthInfo.version || '0.1.0',
+			app_version: healthInfo.app_version || '0.1.0+dev',
+			web_build_hash: healthInfo.web_build_hash || 'dev',
+			web_build_time: healthInfo.web_build_time || '0',
 		});
 	} catch (e) {
 		return json(
@@ -30,6 +53,10 @@ export const GET: RequestHandler = async () => {
 				has_cuda: false,
 				has_directml: false,
 				has_coreml: false,
+				version: '0.1.0',
+				app_version: '0.1.0+dev',
+				web_build_hash: 'dev',
+				web_build_time: '0',
 				error: (e as Error).message,
 			},
 			{ status: 200 },

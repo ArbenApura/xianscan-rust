@@ -118,7 +118,7 @@ jobs:
         shell: pwsh
         run: |
           New-Item -ItemType Directory -Path staging -Force
-          Copy-Item target/${{ matrix.target }}/release/xianscan-rust.exe staging/xianscan.exe
+          Copy-Item target/${{ matrix.target }}/release/xianscan.exe staging/xianscan.exe
           Copy-Item README.md staging/ -ErrorAction SilentlyContinue
           Copy-Item LICENSE staging/ -ErrorAction SilentlyContinue
           Compress-Archive -Path staging/* -DestinationPath ${{ matrix.release_asset }}
@@ -128,7 +128,7 @@ jobs:
         if: matrix.os != 'windows-latest'
         run: |
           mkdir -p staging
-          cp target/${{ matrix.target }}/release/xianscan-rust staging/xianscan
+          cp target/${{ matrix.target }}/release/xianscan staging/xianscan
           cp README.md staging/ 2>/dev/null || true
           cp LICENSE staging/ 2>/dev/null || true
           chmod +x staging/xianscan

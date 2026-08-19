@@ -3,6 +3,10 @@ name = "xianscan-rust"
 version = "0.1.5"
 edition = "2021"
 
+[[bin]]
+name = "xianscan"
+path = "src/main.rs"
+
 [features]
 default = []
 directml = ["ort/directml"]
@@ -51,9 +55,12 @@ tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 anyhow = "1.0"
 thiserror = "2.0"
 
-# Windows DXGI Adapter Enumeration
+# Terminal output styling
+colored = "2"
+
+# Windows DXGI Adapter Enumeration + ANSI/VT console enablement
 [target.'cfg(windows)'.dependencies]
-windows = { version = "0.58", features = ["Win32_Graphics_Dxgi"] }
+windows = { version = "0.58", features = ["Win32_Graphics_Dxgi", "Win32_System_Console"] }
 
 [target.'cfg(windows)'.build-dependencies]
 winres = "0.1"

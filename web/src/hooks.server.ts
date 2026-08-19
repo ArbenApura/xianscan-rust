@@ -28,8 +28,12 @@ if (!globalThis.__mtProcessGuards) {
 
 // -- HANDLES -- //
 
-// HTTP REQUEST LOGGER
+// HTTP REQUEST LOGGER — QUIET BY DEFAULT. SET LOG_REQUESTS=1 TO RESTORE PER-REQUEST LOGS.
 const loggingHandle: Handle = async ({ event, resolve }) => {
+	if (process.env.LOG_REQUESTS !== '1') {
+		return resolve(event);
+	}
+
 	const start = performance.now();
 	const { method } = event.request;
 	const path = event.url.pathname;

@@ -131,6 +131,72 @@ export function isStructuredList(text: string): boolean {
 	return false;
 }
 
+export function isHardLineBreak(prevLine: string, nextLine: string): boolean {
+	const prev = prevLine.trim();
+	const next = nextLine.trim();
+	if (!prev || !next) return true;
+
+	// 1. PREVIOUS LINE ENDS WITH DEFINITIVE BREAK PUNCTUATION (COLON, BRACKET, EXCLAMATION, QUESTION, QUOTE)
+	if (/[:：)）\]】>》!！?？"”'’]$/.test(prev)) {
+		return true;
+	}
+
+	// 2. PREVIOUS LINE ENDS WITH PERIOD AND NEXT LINE STARTS WITH CAPITAL / SYMBOL / DIGIT
+	if (/[.．]$/.test(prev) && /^([A-Z\u4e00-\u9fa5\uac00-\ud7af\u3040-\u30ff\[<("'\d#-]|\b)/.test(next)) {
+		return true;
+	}
+
+	// 3. PREVIOUS LINE IS A SHORT STANDALONE HEADER / LABEL (E.G. "FLOOR 48", "QUEST ALERT", "WARNING")
+	const prevWords = prev.split(/\s+/);
+	if (prevWords.length <= 4 && prev.length <= 30 && !/[,，;；\-\/]$/.test(prev)) {
+		return true;
+	}
+
+	// 4. NEXT LINE STARTS WITH STRUCTURAL PREFIX (BRACKETS, BULLETS, LIST DIGITS, SPEAKER TAG)
+	if (/^(\[|<|\(|【|《|[-*•]\s+|\d+[.)]\s+|[a-zA-Z\u4e00-\u9fa5\uac00-\ud7af\s]{1,20}[:：])/.test(next)) {
+		return true;
+	}
+
+	return false;
+}
+
+export function splitIntoLogicalParagraphs(text: string): string[] {
+	const rawLines = text.split('\n');
+	if (rawLines.length <= 1) return [text.trim()];
+
+	const paragraphs: string[] = [];
+	let current = '';
+
+	for (let i = 0; i < rawLines.length; i++) {
+		const line = rawLines[i].trim();
+		if (!line) {
+			if (current) {
+				paragraphs.push(current);
+				current = '';
+			}
+			continue;
+		}
+
+		if (!current) {
+			current = line;
+		} else {
+			const prevLine = rawLines[i - 1]?.trim() || '';
+			if (isHardLineBreak(prevLine, line)) {
+				paragraphs.push(current);
+				current = line;
+			} else {
+				current = `${current} ${line}`;
+			}
+		}
+	}
+
+	if (current) {
+		paragraphs.push(current);
+	}
+
+	return paragraphs;
+}
+
 export function reflowText(
 	ctx: { measureText(t: string): { width: number } },
 	text: string,
@@ -145,8 +211,16 @@ export function reflowText(
 		}
 		return out;
 	}
-	const paragraph = text.replace(/\s*\n+\s*/g, ' ').replace(/\s+/g, ' ').trim();
-	return balancedWrapText(ctx, paragraph, maxWidth);
+
+	const paragraphs = splitIntoLogicalParagraphs(text);
+	const out: string[] = [];
+	for (const p of paragraphs) {
+		const cleanedParagraph = p.replace(/\s+/g, ' ').trim();
+		if (!cleanedParagraph) continue;
+		const wrapped = balancedWrapText(ctx, cleanedParagraph, maxWidth);
+		out.push(...wrapped);
+	}
+	return out;
 }
 
 export function fitFontSize(

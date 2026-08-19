@@ -135,6 +135,7 @@ Translate using lightweight local models or high-throughput cloud APIs:
 
 ---
 
+<a id="quick-start"></a>
 ## 🏁 Quick Start
 
 ### 1. Standalone Executable (Recommended)

@@ -44,6 +44,10 @@ async fn health_handler(State(state): State<AppState>) -> Json<serde_json::Value
 
     Json(serde_json::json!({
         "status": "ok",
+        "version": env!("CARGO_PKG_VERSION"),
+        "app_version": crate::server::web_assets::APP_VERSION,
+        "web_build_hash": crate::server::web_assets::WEB_BUILD_HASH,
+        "web_build_time": crate::server::web_assets::WEB_BUILD_TIME,
         "accelerator": hw.device_label,
         "providers": hw.providers,
         "detector": if engine.detector.is_some() { "comic-ctd" } else { "rapidocr-fallback" },

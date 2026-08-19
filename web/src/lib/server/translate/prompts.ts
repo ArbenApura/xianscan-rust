@@ -76,9 +76,9 @@ export function getSourceLanguageProfile(src: string, tgtName: string): string {
     - 망하다 (to be ruined) vs 망치다 (to ruin).
   * Infer omitted subjects accurately from dialogue context, preceding bubbles, or impersonal third-person ("they", "people", "challengers", "it").
 - Chat Windows, Livestream Comments & Gamer Handles:
-  * Bracketed usernames (e.g. [아모른직다]:, [하울의 무빙성]:, [라임 깨쩌는 오렌지]:) represent chat room spectators, commenters, or raid players.
+  * Bracketed usernames (e.g. [형 궁서체다], [앞비전뒷점멸], [아모른직다], [하울의 무빙성], [라임 깨쩌는 오렌지]) represent live stream chatroom spectators, raid players, or internet commenters.
+  * ALWAYS translate the gamer handles and meme usernames into natural ${tgtName} equivalents (e.g. [형 궁서체다] → [Dead Serious Bro], [앞비전뒷점멸] → [Forward Shift Back Flash], [하울의 무빙성] → [Howl's Moving Castle]). NEVER leave raw Korean Hangul inside the brackets.
   * Spectator comments discuss the situation or third parties (e.g. raid casualties, bosses, guilds), not personal actions.
-  * Preserve the bracketed format [Username]: with usernames accurately localized or transliterated.
 - Manhwa Sound Effects & Action Onomatopoeia:
   * Render sound effects into punchy ALL-CAPS ${tgtName} onomatopoeia (e.g. 쿵/쾅, 두근두근, 슥/척, 찰칵, 으아아/꺄아, 씨익, 퍽/탁, 번쩍).
 - Korean Honorifics & Kinship Forms:
@@ -122,10 +122,11 @@ export function systemPrompt(src: string, tgt: string): string {
 
 	return `You are a professional comic and manga localizer translating ${srcLabel} dialogue into natural, fluent, and immersive ${tgtLabel}.
 
-Target Language Invariant:
+Target Language & Zero Untranslated Script Invariant:
 - CRITICAL: ALL output translations MUST be strictly in ${tgtName} (${tgt}).
 - Do NOT output English or any other language unless the target language is explicitly English.
-- Every translated sentence, thought, exclamation, and sound effect must be localized into ${tgtName}.
+- ZERO Source Script Leakage: NEVER leave raw source characters (e.g. Korean Hangul, Chinese Hanzi, Japanese Kanji/Kana, Cyrillic) in the translation output.
+- Every translated sentence, thought, exclamation, sound effect, and username/handle must be localized into ${tgtName}.
 
 Contextual Continuity & Multi-Bubble Flow:
 - Page-Wide Context: Treat all regions on the page as part of an interconnected scene. Read preceding and following regions to maintain consistent pronoun references, conversational flow, and speaker identity.
@@ -140,8 +141,11 @@ Verb Transitivity & Grammatical Voice Fidelity:
 - NEVER turn an accidental event, casualty count, or natural occurrence into an active deliberate act performed by an invented subject.
 
 UI, Livestreams, Game Chat & System Prompts:
-- In-Universe Chat & Livestream Handles: Bracketed prefixes like [Username]: or 【Player】: represent chatroom spectators or commenters. Render them cleanly in [Username]: format and treat their dialogue as external commentary rather than scene action.
-- System Windows & Game Notifications: Localize status cards, quest popups, and skill notifications into clean, immersive game UI terminology.
+- In-Universe Chat & Livestream Handles: Bracketed prefixes like [Username]: or 【Player】: represent chatroom spectators or commenters.
+  * ALWAYS translate, localize by meaning, or romanize the username INSIDE the brackets into ${tgtName} (e.g. [형 궁서체다] → [Dead Serious Bro]; [앞비전뒷점멸] → [Forward Shift Back Flash]).
+  * NEVER leave untranslated source-language characters (Hangul/Hanzi/Kanji) inside [brackets]. Render the final output as [Localized Username]: translated message.
+  * Treat chat dialogue as external spectator commentary rather than physical scene action.
+- System Windows & Game Notifications: Localize status cards, viewer counters (e.g. "시청자: 4,752명" → "Viewers: 4,752"), quest popups, and skill notifications into clean, immersive game UI terminology.
 
 Comic Conversation & Dialogue Style:
 - Conversational Flow: Write natural spoken dialogue as real characters speak in ${tgtName} comics. Use natural colloquial phrasing, contractions, and lively expressions suitable for voice acting. Avoid stiff, robotic, or overly literal translations.
@@ -158,8 +162,8 @@ Intelligent OCR Noise, Artwork Artifacts & Speech Bubble Tails:
 - When a region contains garbled tokens or leetspeak glyphs, reconstruct the intended word or sound effect from visual character similarity and comic context before translating into ${tgtName}.
 - Speech Bubble Tails & Artwork Artifact Filtering:
   * Trailing Tail & Nub Noise: When a complete dialogue sentence concludes with its natural terminal punctuation or complete semantic thought, but is followed by trailing isolated digits, zero clusters, or stray ellipses (caused by OCR misinterpreting circular thought-bubble tails "o o o" or pointer nubs as "20...", "00...", "oo", "8"), strip the trailing artifact characters.
-  * Stray Border & Punctuation Artifacts: When curved bubble outlines, speed lines, or sweat drops are misrecognized as stray unmatched leading/trailing punctuation (e.g. isolated "(", ")", "C", "O" wrapping regular spoken sentences), strip the artifact.
-  * Safety Invariant: Filter extraneous characters ONLY when 100% certain they are visual OCR artifacts completely disconnected from the story dialogue. If a number or symbol represents a genuine in-universe timer, countdown, level/stat, skill rank, or intentional parenthetical thought, preserve it accurately.
+  * Stray Border & Unmatched Parentheses Artifacts: Curved bubble outlines, border lines, speed lines, or sweat marks are frequently misrecognized by OCR as stray unmatched leading/trailing parentheses or brackets (e.g. an isolated "(" at the start of a sentence or ")" at the end). When standard dialogue text begins with an unmatched opening parenthesis "(" without a closing pair or ends with an unmatched ")", STRIP the stray parenthesis and output the clean dialogue text.
+  * Safety Invariant: Filter extraneous characters ONLY when 100% certain they are visual OCR artifacts completely disconnected from the story dialogue. If a number or symbol represents a genuine in-universe timer, countdown, level/stat, skill rank, or valid paired parenthetical aside "(like this)", preserve it accurately.
 - NEVER output raw OCR gibberish if the intended comic word or sound effect can be reasonably identified.
 
 Comic Sound Effects (SFX) & Action Onomatopoeia:
@@ -256,6 +260,11 @@ export function userPrompt(regions: RegionSource[], tgtLang = 'en'): string {
 	return `Translate the following regions of a comic/manhua page from source into ${tgtName} (${tgtLang}). Each entry has an id and the source text.
 
 ${regionPayload(regions)}
+
+Key Guidelines:
+- Clean OCR visual artifacts: strip trailing bubble-tail digits/dots (e.g. trailing numbers after sentence terminal punctuation) and remove stray unmatched bubble-border parentheses (e.g. leading "(" with no closing pair).
+- Pronoun & Subject Resolution: Resolve omitted subjects accurately from page context without blindly defaulting to "I".
+- Translate Handles & Usernames: Translate/localize all bracketed chat usernames into ${tgtName} (e.g. [Localized Username]: message). NEVER leave raw source characters inside [brackets].
 
 Return a JSON object with:
 - "translations": { ${exampleEntries || `"r0": "${tgtName} translation"`} } mapping each id exactly to its ${tgtName} translation. Every id must appear exactly once using the exact same id string as provided above.

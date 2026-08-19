@@ -70,6 +70,31 @@ describe('fontFor & splitTextRuns', () => {
 	it('uses fallback font for CJK text', () => {
 		expect(fontFor('还有那些侠女的花边新闻')).toBe('Friendly Sans');
 	});
+
+	it('splits mixed English and Korean/CJK text into dialogue font and CJK fallback font runs (Page 65013)', () => {
+		const text = "There's someone! [형 궁서체다] : Whoa, for real?";
+		const runs = splitTextRuns(text, 'CC Wild Words', 'Friendly Sans');
+		expect(runs).toEqual([
+			{ text: "There's someone! ", font: 'CC Wild Words', isFallbackSymbol: false },
+			{ text: '[형 궁서체다]', font: 'Friendly Sans', isFallbackSymbol: true },
+			{ text: ' : Whoa, for real?', font: 'CC Wild Words', isFallbackSymbol: false },
+		]);
+	});
+
+	it('respects arbitrary user-chosen font preferences for Latin dialogue and CJK fallback fonts', () => {
+		const text = "Level 99 [절대고수] : Max Power!";
+		const customDialogue = 'Anime Ace';
+		const customCjk = 'Malgun Gothic';
+
+		expect(fontFor(text, customDialogue, customCjk)).toBe('Anime Ace');
+
+		const runs = splitTextRuns(text, customDialogue, customCjk);
+		expect(runs).toEqual([
+			{ text: 'Level 99 ', font: 'Anime Ace', isFallbackSymbol: false },
+			{ text: '[절대고수]', font: 'Malgun Gothic', isFallbackSymbol: true },
+			{ text: ' : Max Power!', font: 'Anime Ace', isFallbackSymbol: false },
+		]);
+	});
 });
 
 // -- SANITIZE & RENDER STRING -- //
@@ -220,6 +245,25 @@ describe('reflowText', () => {
 		// THE FIRST LINE IS THE FULLEST; THE LAST LINE IS THE SHORTEST
 		expect(widths[0]).toBeGreaterThanOrEqual(widths[widths.length - 1]);
 		for (const w of widths) expect(w).toBeLessThanOrEqual(300);
+	});
+
+	it('preserves header line breaks like "Floor 48" separately from subsequent dialogue/narrative (Page 65011)', () => {
+		const c = ctx();
+		const text = 'Floor 48\nA challenger has appeared in the territory of <Red Dragon Destia>.';
+		const lines = reflowText(c, text, 400);
+		expect(lines[0]).toBe('Floor 48');
+		expect(lines.length).toBeGreaterThanOrEqual(2);
+		expect(lines.slice(1).join(' ')).toBe(
+			'A challenger has appeared in the territory of <Red Dragon Destia>.',
+		);
+	});
+
+	it('preserves speaker tags like "[Climber 123]:" on their own line (Page 65011)', () => {
+		const c = ctx();
+		const text = '[Climber 123]:\nThere\'s still someone challenging!';
+		const lines = reflowText(c, text, 400);
+		expect(lines[0]).toBe('[Climber 123]:');
+		expect(lines[1]).toBe("There's still someone challenging!");
 	});
 });
 

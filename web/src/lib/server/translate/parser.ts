@@ -2,6 +2,40 @@
 import { stripThinkingTags } from '../llm';
 import type { RegionSource } from './prompts';
 
+export function sanitizeTranslationArtifacts(translated: string, source: string): string {
+	let t = translated.trim();
+	const s = source.trim();
+	if (!t || !s) return t;
+
+	// 1. UNMATCHED LEADING PARENTHESIS FROM BUBBLE BORDER OCR NOISE:
+	// IF SOURCE STARTS WITH "(" OR "（" BUT HAS NO CLOSING ")" OR "）", IT IS A BORDER ARTIFACT.
+	const sourceHasOpenParen = /^[（(]/.test(s);
+	const sourceHasCloseParen = /[）)]/.test(s);
+	if (sourceHasOpenParen && !sourceHasCloseParen) {
+		// STRIP UNMATCHED LEADING "(" OR WRAPPING "(...)" IN TRANSLATION
+		if (t.startsWith('(') && t.endsWith(')')) {
+			t = t.slice(1, -1).trim();
+		} else if (t.startsWith('(')) {
+			t = t.slice(1).trim();
+		} else if (t.startsWith('（') && t.endsWith('）')) {
+			t = t.slice(1, -1).trim();
+		} else if (t.startsWith('（')) {
+			t = t.slice(1).trim();
+		}
+	}
+
+	// 2. TRAILING BUBBLE TAIL OCR DIGITS (e.g. "! 20..." OR "! 20……" AFTER TERMINAL PUNCTUATION)
+	// IF SOURCE HAD TERMINAL PUNCTUATION FOLLOWED BY STRAY NUMBERS / TAIL ELLIPSES, STRIP IT FROM TRANSLATION.
+	const sourceTailMatch = s.match(/([!！？?。~～])\s*(?:\d{1,3}|oo|o\s*o\s*o)\s*(?:[.．…·]+)?$/i);
+	if (sourceTailMatch) {
+		// STRIP TRAILING MATCHING DIGITS / ELLIPSES FROM TRANSLATION
+		t = t.replace(/([!?.~])\s*(?:\d{1,3}|oo|o\s*o\s*o)\s*(?:[.．…·]+)?$/i, '$1').trim();
+		t = t.replace(/\s+(?:\d{1,3}|oo|o\s*o\s*o)\s*(?:[.．…·]+)?$/i, '').trim();
+	}
+
+	return t;
+}
+
 export function parseTranslations(
 	raw: string,
 	knownIds: Set<string>,
@@ -108,6 +142,15 @@ export function parseTranslations(
 						continue;
 					}
 				}
+			}
+		}
+
+		// SANITIZE ARTIFACTS USING SOURCE REGION METADATA
+		const regMap = new Map(regions.map((r) => [r.id, r.text]));
+		for (const [id, text] of out) {
+			const srcText = regMap.get(id);
+			if (srcText) {
+				out.set(id, sanitizeTranslationArtifacts(text, srcText));
 			}
 		}
 	}
