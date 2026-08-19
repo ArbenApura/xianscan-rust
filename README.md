@@ -36,7 +36,7 @@
 
 **XianScan** is an open-source, local-first translation studio engineered to be **exceptionally portable, lightweight, and effortless to use**.
 
-Our primary mission is to provide an **uninterrupted, automated reading flow** for comic readers, language learners, and translation teams:
+The core mission of XianScan is to provide an **uninterrupted, automated reading flow** for comic readers, language learners, and translation teams:
 - **Zero-Friction Setup**: Delivered as a single standalone executable. No Python environments, no CUDA configuration, and no complex terminal setups required.
 - **Complete Reading Automation**: Eliminates manual busywork by automatically coordinating the entire pipeline—from 1-click browser importing to ML bubble detection, multi-language OCR, background cleaning, and context-aware typesetting.
 - **Hardware Freedom**: Highly optimized multi-threaded SIMD inference (AVX2, AVX-512, ARM NEON) that runs at blistering speed on standard laptops and CPUs, while automatically utilizing DirectML GPU acceleration when a graphics card is available.
@@ -201,8 +201,8 @@ To install:
 
 - **🔄 Enhanced Japanese Manga Recognition**: Continuously optimizing vertical Japanese OCR text extraction, Furigana filtering, multi-column right-to-left reading order clustering, and complex speech bubble grouping.
 - **👥 Contextual Gender & Pronoun Consistency**: Developing intelligent coreference resolution algorithms to accurately track character dialogue and resolve omitted or ambiguous CJK pronouns (Chinese 他/她, Japanese 彼/彼女, Korean 그/그녀/honorifics) across multi-panel conversation flows, extending beyond static glossaries to fit the distinct narrative structures of Manhua, Manga, and Manhwa.
-- **🍎 Expanded macOS Support & Native Bundling**: We provide pre-compiled Apple Silicon builds ([`xianscan-macos-arm64.tar.gz`](https://github.com/ArbenApura/xianscan-rust/releases/download/v0.1.5/xianscan-macos-arm64.tar.gz)). As I currently do not have a dedicated macOS setup for local testing, community feedback and issue reports on macOS are warmly appreciated as we refine native `.app` and DMG distribution.
-- **📖 Xianslate Integration (All-in-One Translation Suite)**: Integrating [Xianslate](https://github.com/ArbenApura/xianslate) — our specialized Light Novel & Web Novel translation tool — into XianScan to create a unified reader and translation suite for both comics (Manga/Manhua/Manhwa) and light novels with shared dynamic terminology glossaries.
+- **🍎 Expanded macOS Support & Native Bundling**: Pre-compiled Apple Silicon builds are available ([`xianscan-macos-arm64.tar.gz`](https://github.com/ArbenApura/xianscan-rust/releases/download/v0.1.5/xianscan-macos-arm64.tar.gz)). As I currently do not have a dedicated macOS setup for local testing, community feedback and issue reports on macOS are warmly appreciated as I refine native `.app` and DMG distribution.
+- **📖 Xianslate Integration (All-in-One Translation Suite)**: Integrating [Xianslate](https://github.com/ArbenApura/xianslate) — my specialized Light Novel & Web Novel translation tool — into XianScan to create a unified reader and translation suite for both comics (Manga/Manhua/Manhwa) and light novels with shared dynamic terminology glossaries.
 
 ---
 
@@ -247,7 +247,7 @@ If XianScan enhances your reading flow, language learning, or translation workfl
 
 **XianScan** is designed strictly as a **local-first personal assistive translation and language-learning tool**.
 
-- **Respect for Original Creators**: We deeply respect the artistry, effort, and intellectual property of original manga artists, manhua authors, manhwa creators, and publishers.
+- **Respect for Original Creators**: Deep respect for the artistry, effort, and intellectual property of original manga artists, manhua authors, manhwa creators, and publishers.
 - **Support Official Releases**: Users are strongly encouraged to purchase official translated releases and support creators directly on licensed digital platforms (such as *Kuaikan Manhua, Bilibili Manga, Naver WEBTOON, KakaoPage, Tapas, Tappytoon, Lezhin, MANGA Plus by Shueisha, VIZ Media, and BookWalker*).
 - **100% Local & Private**: XianScan does not host, re-distribute, or scrape copyrighted works on public servers. All image processing, OCR, inpainting, and translation execution occur entirely on the user's private local hardware.
 - **Fair Use & Personal Study**: This software is intended for personal language learning, accessibility, and translation workflow assistance under applicable Fair Use guidelines.
