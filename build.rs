@@ -7,6 +7,21 @@
 use std::path::PathBuf;
 
 fn main() {
+    // 1. Embed Windows executable icon (.ico) into .exe binary header
+    #[cfg(target_os = "windows")]
+    {
+        let mut res = winres::WindowsResource::new();
+        res.set_icon("assets/icon.ico");
+        res.set("ProductName", "XianScan");
+        res.set("FileDescription", "XianScan Native Comic Translation Server");
+        res.set("LegalCopyright", "Copyright (c) 2026 XianScan");
+        if let Err(e) = res.compile() {
+            println!("cargo:warning=Failed to compile Windows resource icon: {}", e);
+        }
+    }
+
+    println!("cargo:rerun-if-changed=assets/icon.ico");
+
     // Only do discovery work when embed-web is requested.
     if std::env::var("CARGO_FEATURE_EMBED_WEB").is_err() {
         return;

@@ -5,7 +5,7 @@ import { join, extname } from 'node:path';
 import { error } from '@sveltejs/kit';
 import { asc, desc, eq } from 'drizzle-orm';
 import { db } from '../db';
-import { chapters, pages, regions, translations } from '../db/schema';
+import { books, chapters, pages, regions, translations } from '../db/schema';
 import { clearChapterJob } from '../translation-service';
 import { DATA_ROOT } from '../paths';
 import { convertBufferToWebP } from './dimensions';
@@ -27,11 +27,23 @@ export async function createChapter(bookId: string, title: string): Promise<{ id
 		.limit(1)
 		.get();
 	const seq = (max?.seq ?? -1) + 1;
+	const finalTitle = title && title.trim() ? title.trim() : `Chapter ${seq + 1}`;
 	const row = db
 		.insert(chapters)
-		.values({ uuid: randomUUID(), bookId, seq, title })
+		.values({ uuid: randomUUID(), bookId, seq, title: finalTitle })
 		.returning()
 		.get();
+
+	const book = db.select({ id: books.id, title: books.title }).from(books).where(eq(books.id, bookId)).get();
+	const isQuickImports = book?.title === 'Web Quick Imports';
+	db.update(books)
+		.set({
+			updatedAt: Date.now(),
+			...(isQuickImports ? { pinned: true } : {})
+		})
+		.where(eq(books.id, bookId))
+		.run();
+
 	return { id: row.id, seq: row.seq };
 }
 
@@ -106,6 +118,20 @@ export async function uploadPages(chapterId: number, files: File[]): Promise<num
 		count++;
 	}
 	compactChapterPageSeqs(chapterId);
+
+	const ch = db.select({ bookId: chapters.bookId }).from(chapters).where(eq(chapters.id, chapterId)).get();
+	if (ch) {
+		const book = db.select({ id: books.id, title: books.title }).from(books).where(eq(books.id, ch.bookId)).get();
+		const isQuickImports = book?.title === 'Web Quick Imports';
+		db.update(books)
+			.set({
+				updatedAt: Date.now(),
+				...(isQuickImports ? { pinned: true } : {})
+			})
+			.where(eq(books.id, ch.bookId))
+			.run();
+	}
+
 	return count;
 }
 

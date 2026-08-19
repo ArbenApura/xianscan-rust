@@ -15,6 +15,10 @@ web/.svelte-kit/
 web/package/
 web/coverage/
 web/vite.config.ts.timestamp-*
+extensions/**/node_modules/
+extensions/**/dist/
+extensions/**/dist-firefox/
+extensions/**/store/
 
 # Web Environment Files
 web/.env
@@ -57,6 +61,9 @@ Thumbs.db
 staging/
 tests/.cache/
 .agents/
+.reasonix/
+docs/superpowers/
+superpowers/
 
 # ==============================================================================
 # PRIVATE TEST FIXTURES & LOCAL MANGA BENCHMARK DATASETS

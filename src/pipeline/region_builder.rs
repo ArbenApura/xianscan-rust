@@ -191,14 +191,6 @@ pub fn build_regions(
                 }
             });
 
-            if sorted_matched.iter().any(|m| m.text.contains("池塘")) {
-                println!("DEBUG sorted_matched for 池塘:");
-                for (idx, m) in sorted_matched.iter().enumerate() {
-                    let (mx, my, mw, mh) = polygon_bounds(&m.polygon);
-                    println!("  [{}] text='{}', clean='{}', box=[{}, {}, {}, {}], mid_y={}", idx, m.text, clean_stray_ocr_artifacts(&m.text), mx, my, mw, mh, my + mh / 2);
-                }
-            }
-
             let mut row_grouped_texts: Vec<String> = Vec::new();
             let mut last_mid_y: Option<i32> = None;
 
@@ -716,7 +708,14 @@ pub fn build_regions(
             || (alpha_count <= 2 && (box_rect.w <= 40 || box_rect.h <= 40) && confidence < 0.70);
 
         let is_kana_or_hangul = cleaned.chars().any(|c| ('\u{3040}'..='\u{30ff}').contains(&c) || ('\u{ac00}'..='\u{d7af}').contains(&c));
-        if is_cjk && (char_count <= 1 || (cjk_count <= 1 && (box_rect.w <= 50 || box_rect.h <= 50)))
+        // Large standalone glyphs (e.g. matchup emblems '対', card monograms) are real text,
+        // not small artwork strokes, even at moderate confidence.
+        let is_large_single_glyph = char_count <= 1
+            && box_rect.w >= 45
+            && box_rect.h >= 40
+            && (box_rect.w as f32) <= (box_rect.h as f32 * 1.9)
+            && (box_rect.h as f32) <= (box_rect.w as f32 * 1.9);
+        if is_cjk && !is_large_single_glyph && (char_count <= 1 || (cjk_count <= 1 && (box_rect.w <= 50 || box_rect.h <= 50)))
             && !cleaned.chars().any(|c| sfx_onomatopoeia.contains(c))
             && !is_kana_or_hangul
             && confidence < 0.73
@@ -919,8 +918,10 @@ pub fn build_regions(
         }
 
         // TRAILING ELLIPSIS ENCLOSURE: MERGE ADJACENT SPLIT ELLIPSIS LINES
+        // (horizontal lines only: vertical Japanese columns carry their ellipsis inside the column,
+        // so an adjacent vertical column ending in '…' belongs to a neighboring bubble, not a tail)
         let is_terminal_sentence = cleaned.ends_with('！') || cleaned.ends_with('!') || cleaned.ends_with('？') || cleaned.ends_with('?') || cleaned.ends_with('。');
-        if !is_terminal_sentence {
+        if !vertical && !is_terminal_sentence {
             for line in split_lines {
                 if (line.text.contains('…') || line.text.contains("...") || line.text.contains('·')) && !line.text.chars().any(|c| c.is_ascii_digit()) {
                     let (lx, ly, lw, lh) = polygon_bounds(&line.polygon);

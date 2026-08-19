@@ -11,11 +11,11 @@ use xianscan_rust::ml::ocr::{OcrLine, RapidOcr};
 /// Verifies that the specialized manga text detector ONNX model (`comictextdetector.pt.onnx`)
 /// loads and detects bounding boxes on a high-resolution raw manga page.
 #[test]
-fn test_comic_text_detector_on_fixture_page_679() {
+fn test_comic_text_detector_on_fixture_zhang_yude_cemetery() {
     let img = match common::load_fixture_or_skip("zh_hans", "page_zhang_yude_chengdu_cemetery.webp") {
         Some(i) => i,
         None => {
-            eprintln!("[INFO] Skipping test_comic_text_detector_on_fixture_page_679: fixture not found");
+            eprintln!("[INFO] Skipping test_comic_text_detector_on_fixture_zhang_yude_cemetery: fixture not found");
             return;
         }
     };
@@ -45,11 +45,11 @@ fn test_comic_text_detector_on_fixture_page_679() {
 /// Verifies that RapidOCR (`PP-OCRv6`) performs tiled text line detection, CTC argmax decoding,
 /// and confidence scoring on vertical and horizontal Chinese text lines.
 #[test]
-fn test_rapid_ocr_detect_and_recognize_on_page_679() {
+fn test_rapid_ocr_detect_and_recognize_on_zhang_yude_cemetery() {
     let img = match common::load_fixture_or_skip("zh_hans", "page_zhang_yude_chengdu_cemetery.webp") {
         Some(i) => i,
         None => {
-            eprintln!("[INFO] Skipping test_rapid_ocr_detect_and_recognize_on_page_679: fixture not found");
+            eprintln!("[INFO] Skipping test_rapid_ocr_detect_and_recognize_on_zhang_yude_cemetery: fixture not found");
             return;
         }
     };

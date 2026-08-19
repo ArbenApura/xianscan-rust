@@ -1,0 +1,22 @@
+{
+  "name": "xianscan-importer",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "node build.js",
+    "watch": "node build.js --watch",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "generate-icons": "node generate-icons.js",
+    "package": "node build.js && node package.js"
+  },
+  "devDependencies": {
+    "@resvg/resvg-js": "^2.6.2",
+    "@types/chrome": "^0.0.280",
+    "@types/node": "^20.11.0",
+    "esbuild": "^0.25.0",
+    "typescript": "^5.9.3",
+    "vitest": "^1.2.0"
+  }
+}

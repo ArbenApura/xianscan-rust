@@ -1,8 +1,6 @@
-// BOOK ACCESS & TELEMETRY HELPERS — SHARED BY SSR LOADERS AND API ENDPOINTS.
-
 // IMPORTED DEP-MODULES
 import { error } from '@sveltejs/kit';
-import { desc, eq, inArray } from 'drizzle-orm';
+import { desc, eq, inArray, sql } from 'drizzle-orm';
 // IMPORTED MODULES
 import { db } from './db';
 import { books, chapters, pages } from './db/schema';
@@ -39,7 +37,7 @@ export interface BookSummary {
 		titleTarget?: string | null;
 		status: string;
 	} | null;
-	latestChapter: {
+	latestChapter?: {
 		id: number;
 		seq: number;
 		title: string | null;
@@ -89,7 +87,15 @@ export async function assertBookExists(bookId: string): Promise<void> {
 export async function getBooksWithTelemetry(
 	lastReadMap?: Record<string, { chapterId: number; seq?: number }> | null,
 ): Promise<BookSummary[]> {
-	const rows = db.select().from(books).orderBy(desc(books.pinned), desc(books.updatedAt)).all();
+	const rows = db
+		.select()
+		.from(books)
+		.orderBy(
+			sql`CASE WHEN ${books.title} = 'Web Quick Imports' AND ${books.pinned} = 1 THEN 1 ELSE 0 END DESC`,
+			desc(books.pinned),
+			desc(books.updatedAt),
+		)
+		.all();
 
 	const allChapters = db.select().from(chapters).orderBy(chapters.bookId, chapters.seq).all();
 	const allPages = db

@@ -1,0 +1,9 @@
+[Desktop Entry]
+Name=XianScan
+Comment=Native Comic Translation Server for Chinese Manhua, Korean Manhwa & Japanese Manga
+Exec=xianscan-rust
+Icon=xianscan
+Terminal=false
+Type=Application
+Categories=Graphics;Translation;Utility;
+Keywords=comic;manga;manhua;manhwa;ocr;translation;typesetting;

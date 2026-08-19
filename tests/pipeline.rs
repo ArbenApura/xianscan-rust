@@ -13,11 +13,11 @@ use xianscan_rust::pipeline::PipelineEngine;
 /// 2. Converts detected dialogue bubble bounding boxes into clean masks.
 /// 3. Executes LaMa inpainting to ensure image dimensions (`w`, `h`) remain preserved.
 #[test]
-fn test_end_to_end_pipeline_on_page_679() {
+fn test_end_to_end_pipeline_on_zhang_yude_cemetery() {
     let img = match common::load_fixture_or_skip("zh_hans", "page_zhang_yude_chengdu_cemetery.webp") {
         Some(i) => i,
         None => {
-            eprintln!("[INFO] Skipping test_end_to_end_pipeline_on_page_679: fixture not found");
+            eprintln!("[INFO] Skipping test_end_to_end_pipeline_on_zhang_yude_cemetery: fixture not found");
             return;
         }
     };

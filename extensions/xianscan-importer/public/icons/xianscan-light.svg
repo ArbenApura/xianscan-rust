@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64" role="img" aria-label="XianScan">
+	<!-- LIGHT VARIANT: CINNABAR SEAL (印章) -->
+	<rect width="64" height="64" rx="13" fill="#b23a2e" />
+	<!-- CARVED INNER FRAME -->
+	<rect x="7" y="7" width="50" height="50" rx="8" fill="none" stroke="#ffffff" stroke-opacity="0.45" stroke-width="2" />
+	<!-- 仙 (XIAN) -->
+	<text
+		x="32"
+		y="46"
+		text-anchor="middle"
+		font-family="'LXGW WenKai TC','Noto Serif TC','Songti SC','SimSun',serif"
+		font-size="42"
+		font-weight="700"
+		fill="#ffffff">仙</text>
+</svg>

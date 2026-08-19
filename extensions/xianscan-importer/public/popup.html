@@ -1,0 +1,219 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+	<meta charset="UTF-8">
+	<meta name="viewport" content="width=device-width, initial-scale=1.0">
+	<title>XianScan Importer</title>
+	<link rel="stylesheet" href="popup.css">
+</head>
+<body>
+	<div id="main">
+		<!-- HEADER -->
+		<header class="header">
+			<div class="header-title mono">
+				<svg class="header-logo" viewBox="0 0 64 64" width="18" height="18" role="img" aria-label="XianScan">
+					<rect width="64" height="64" rx="13" fill="#b23a2e" />
+					<rect x="7" y="7" width="50" height="50" rx="8" fill="none" stroke="#f7efe0" stroke-opacity="0.35" stroke-width="2" />
+					<text x="32" y="46" text-anchor="middle" font-family="'LXGW WenKai TC','Noto Serif TC','Songti SC','SimSun',serif" font-size="42" font-weight="700" fill="#f7efe0">仙</text>
+				</svg>
+				XianScan <span>Importer</span>
+			</div>
+			<div class="header-actions">
+				<div id="statusDot" class="status-dot error" title="Checking server connection..."></div>
+				<span id="statusText" class="status-text mono">Offline</span>
+				<button class="icon-btn" id="toggleSettingsBtn" aria-label="Settings" title="Server Settings">
+					<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+						<circle cx="12" cy="12" r="3"/>
+						<path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/>
+					</svg>
+				</button>
+			</div>
+		</header>
+
+		<!-- SETTINGS PANEL (COLLAPSIBLE) -->
+		<div id="settingsPanel" class="settings-panel hidden">
+			<label class="field-label mono">XianScan Server Endpoint</label>
+			<div class="input-row">
+				<input type="text" id="serverUrlInput" class="text-input mono" placeholder="http://127.0.0.1:8124">
+				<button id="saveServerUrlBtn" class="ctrl-btn ctrl-btn-sm">Save</button>
+			</div>
+		</div>
+
+		<!-- TARGET SECTION (CUSTOM SELECT DROPDOWNS) -->
+		<div class="target-section">
+			<!-- Series Dropdown -->
+			<div class="dropdown-row">
+				<label class="field-label mono">Series (Book)</label>
+				<div class="select-with-btn">
+					<div class="custom-select" id="bookCustomSelect">
+						<button class="custom-select-btn" id="bookBtn" type="button">
+							<span id="bookLabel">Loading series...</span>
+							<svg class="custom-select-arrow" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+								<polyline points="6 9 12 15 18 9"/>
+							</svg>
+						</button>
+						<div class="custom-select-dropdown" id="bookDropdown"></div>
+					</div>
+					<button id="newBookBtn" class="add-btn" title="Create New Series" type="button">
+						<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+							<line x1="12" y1="5" x2="12" y2="19"/>
+							<line x1="5" y1="12" x2="19" y2="12"/>
+						</svg>
+					</button>
+				</div>
+			</div>
+
+			<!-- Chapter Dropdown -->
+			<div class="dropdown-row">
+				<label class="field-label mono">Target Chapter</label>
+				<div class="select-with-btn">
+					<div class="custom-select" id="chapterCustomSelect">
+						<button class="custom-select-btn" id="chapterBtn" type="button" disabled>
+							<span id="chapterLabel">Select a series first</span>
+							<svg class="custom-select-arrow" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+								<polyline points="6 9 12 15 18 9"/>
+							</svg>
+						</button>
+						<div class="custom-select-dropdown" id="chapterDropdown"></div>
+					</div>
+					<button id="newChapterBtn" class="add-btn" title="Create New Chapter" disabled type="button">
+						<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+							<line x1="12" y1="5" x2="12" y2="19"/>
+							<line x1="5" y1="12" x2="19" y2="12"/>
+						</svg>
+					</button>
+				</div>
+			</div>
+		</div>
+
+		<!-- TOOLBAR / SELECTION BAR -->
+		<div class="toolbar">
+			<label class="check-label mono">
+				<input type="checkbox" id="selectAllCheckbox" checked>
+				<span id="selectionCountText">0 / 0 pages</span>
+			</label>
+			<div class="toolbar-btns">
+				<button id="fastScanBtn" class="ctrl-btn-xs gold" title="Scrolls page to trigger lazy-loads" type="button">
+					<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+						<polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/>
+					</svg>
+					Fast Scan
+				</button>
+			</div>
+		</div>
+
+		<!-- GALLERY PREVIEW -->
+		<div class="gallery-container" id="galleryContainer">
+			<div id="galleryEmptyState" class="empty-state">
+				<svg class="empty-vector" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+					<path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"/>
+					<path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"/>
+				</svg>
+				<p>Scanning active tab for comic reader...</p>
+			</div>
+			<div id="galleryGrid" class="gallery-grid hidden"></div>
+		</div>
+
+		<!-- PROGRESS BAR -->
+		<div id="progressContainer" class="progress-wrap hidden">
+			<div class="progress-info mono">
+				<span id="progressStatusText">Uploading pages...</span>
+				<div class="progress-right">
+					<span id="progressCountText">0 / 0</span>
+					<button id="cancelImportBtn" class="cancel-btn" title="Cancel upload" type="button">
+						<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+							<line x1="18" y1="6" x2="6" y2="18"/>
+							<line x1="6" y1="6" x2="18" y2="18"/>
+						</svg>
+						Cancel
+					</button>
+				</div>
+			</div>
+			<div class="progress-track">
+				<div id="progressBarFill" class="progress-fill" style="width: 0%"></div>
+			</div>
+		</div>
+
+		<!-- FOOTER -->
+		<footer class="footer">
+			<label class="auto-translate-row mono">
+				<input type="checkbox" id="autoTranslateCheckbox">
+				<span>Auto-translate after upload</span>
+			</label>
+			<button id="startImportBtn" class="action-btn" disabled type="button">
+				<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+					<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+					<polyline points="7 10 12 15 17 10"/>
+					<line x1="12" y1="15" x2="12" y2="3"/>
+				</svg>
+				<span id="importBtnText">Import Selected Pages</span>
+			</button>
+		</footer>
+	</div>
+
+	<!-- TOAST NOTIFICATION -->
+	<div id="toast" class="toast"></div>
+
+	<!-- CREATE SERIES MODAL -->
+	<div id="bookModalOverlay" class="modal-backdrop hidden">
+		<div class="modal-card">
+			<div class="modal-header">
+				<h3 class="mono">Create New Series</h3>
+				<button class="icon-btn" id="closeBookModalBtn">
+					<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+						<line x1="18" y1="6" x2="6" y2="18"/>
+						<line x1="6" y1="6" x2="18" y2="18"/>
+					</svg>
+				</button>
+			</div>
+			<div class="modal-body">
+				<label class="field-label mono">Series Title</label>
+				<input type="text" id="newBookTitleInput" class="text-input" placeholder="e.g. Tales of Demons and Gods">
+				
+				<label class="field-label mono" style="margin-top: 8px;">Source Language</label>
+				<select id="newBookSourceLangSelect" class="native-select">
+					<option value="zh-Hans">Chinese (中文 - 国漫)</option>
+					<option value="ko">Korean (한국어 - 웹툰)</option>
+					<option value="ja">Japanese (日本語 - 漫画)</option>
+					<option value="en">English</option>
+					<option value="vi">Vietnamese</option>
+					<option value="th">Thai</option>
+					<option value="fr">French</option>
+				</select>
+			</div>
+			<div class="modal-actions">
+				<button id="cancelBookModalBtn" class="ctrl-btn">Cancel</button>
+				<button id="confirmBookModalBtn" class="action-btn-sm">Create Series</button>
+			</div>
+		</div>
+	</div>
+
+	<!-- CREATE CHAPTER MODAL -->
+	<div id="chapterModalOverlay" class="modal-backdrop hidden">
+		<div class="modal-card">
+			<div class="modal-header">
+				<h3 class="mono">Create New Chapter</h3>
+				<button class="icon-btn" id="closeChapterModalBtn">
+					<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+						<line x1="18" y1="6" x2="6" y2="18"/>
+						<line x1="6" y1="6" x2="18" y2="18"/>
+					</svg>
+				</button>
+			</div>
+			<div class="modal-body">
+				<label class="field-label mono">Chapter Number</label>
+				<input type="number" id="newChapterNumberInput" class="text-input mono" step="any" placeholder="1">
+				
+				<label class="field-label mono" style="margin-top: 8px;">Chapter Title</label>
+				<input type="text" id="newChapterTitleInput" class="text-input" placeholder="e.g. Chapter 42 - The Divine Realm">
+			</div>
+			<div class="modal-actions">
+				<button id="cancelChapterModalBtn" class="ctrl-btn">Cancel</button>
+				<button id="confirmChapterModalBtn" class="action-btn-sm">Create Chapter</button>
+			</div>
+		</div>
+	</div>
+
+	<script src="popup.js"></script>
+</body>
+</html>

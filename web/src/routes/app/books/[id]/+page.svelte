@@ -222,7 +222,14 @@
 		}
 	}
 
+	function openCreateChapterModal() {
+		chapterTitle = `Chapter ${chapters.length + 1}`;
+		chapterTitleTarget = '';
+		createModalOpen = true;
+	}
+
 	async function createChapter() {
+		if (creating) return;
 		const payload = {
 			title: chapterTitle.trim(),
 		};
@@ -239,15 +246,18 @@
 				headers: { 'content-type': 'application/json' },
 				body: JSON.stringify(validation.data),
 			});
-			if (!resp.ok) throw new Error('create failed');
+			if (!resp.ok) {
+				const errData = await resp.json().catch(() => ({}));
+				throw new Error(errData.message || 'Could not create the chapter.');
+			}
 			const { id: chapterId } = await resp.json();
 			toast.success('Chapter created.');
 			chapterTitle = '';
 			chapterTitleTarget = '';
 			createModalOpen = false;
 			goto(`/app/books/${$page.params.id}/chapters/${chapterId}/`);
-		} catch {
-			toast.error('Could not create the chapter.');
+		} catch (err: any) {
+			toast.error(err?.message || 'Could not create the chapter.');
 		} finally {
 			creating = false;
 		}
@@ -493,7 +503,7 @@
 	function selectAllFiltered() {
 		const next = new Set(selectedChapterIds);
 		for (const ch of filteredChapters) {
-			if (ch.pageCount > 0) next.add(ch.id);
+			next.add(ch.id);
 		}
 		selectedChapterIds = next;
 	}
@@ -784,7 +794,7 @@
 						variant="primary"
 						size="md"
 						class="flex-1 sm:flex-initial h-9 sm:h-10 px-3.5 sm:px-4 text-xs sm:text-sm font-semibold shadow-sm"
-						on:click={() => (createModalOpen = true)}
+						on:click={openCreateChapterModal}
 					>
 						<Plus size={15} /> <span>New Chapter</span>
 					</Button>
@@ -1099,7 +1109,7 @@
 				</div>
 				<h2 class="mt-4 text-base font-semibold">No chapters yet</h2>
 				<p class="mt-1 max-w-sm text-xs opacity-60">Create your first chapter to start uploading page images for text detection & translation.</p>
-				<Button variant="primary" size="sm" class="mt-4" on:click={() => (createModalOpen = true)}>
+				<Button variant="primary" size="sm" class="mt-4" on:click={openCreateChapterModal}>
 					<Plus size={14} /> Create Chapter
 				</Button>
 			</div>

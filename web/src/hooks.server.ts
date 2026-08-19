@@ -68,4 +68,24 @@ const themeHandle: Handle = async ({ event, resolve }) => {
 	});
 };
 
-export const handle = sequence(loggingHandle, themeHandle);
+// CORS HANDLE FOR BROWSER EXTENSIONS & LAN ACCESS
+const corsHandle: Handle = async ({ event, resolve }) => {
+	if (event.request.method === 'OPTIONS') {
+		return new Response(null, {
+			status: 204,
+			headers: {
+				'Access-Control-Allow-Origin': '*',
+				'Access-Control-Allow-Methods': 'GET, POST, PUT, PATCH, DELETE, OPTIONS',
+				'Access-Control-Allow-Headers': 'Content-Type, Authorization, X-Requested-With',
+			},
+		});
+	}
+
+	const response = await resolve(event);
+	response.headers.set('Access-Control-Allow-Origin', '*');
+	response.headers.set('Access-Control-Allow-Methods', 'GET, POST, PUT, PATCH, DELETE, OPTIONS');
+	response.headers.set('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Requested-With');
+	return response;
+};
+
+export const handle = sequence(corsHandle, loggingHandle, themeHandle);

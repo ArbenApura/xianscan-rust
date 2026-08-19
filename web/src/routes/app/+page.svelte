@@ -470,6 +470,10 @@
 			);
 		})
 		.sort((a, b) => {
+			const isQuickA = a.title === 'Web Quick Imports' && a.pinned ? 1 : 0;
+			const isQuickB = b.title === 'Web Quick Imports' && b.pinned ? 1 : 0;
+			if (isQuickA !== isQuickB) return isQuickB - isQuickA;
+
 			const pinA = a.pinned ? 1 : 0;
 			const pinB = b.pinned ? 1 : 0;
 			if (pinA !== pinB) return pinB - pinA;

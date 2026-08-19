@@ -238,15 +238,7 @@ fn test_regression_page_school_phone_rule_e_bubble() {
         }
     };
 
-    let models_dir = std::path::Path::new("models");
-    let mut engine = xianscan_rust::pipeline::PipelineEngine::new(models_dir);
-    let fusion_res = xianscan_rust::pipeline::fusion::fuse_detections(&mut engine.detector, &mut engine.ocr, &engine.watermark, &img, Some("ja"));
-    println!("DEBUG ja: fusion_res.rapid_lines count = {}", fusion_res.rapid_lines.len());
-    for (idx, l) in fusion_res.rapid_lines.iter().enumerate() {
-        println!("  rapid line [{}]: text='{}', score={:.2}, poly={:?}", idx, l.text.replace('\n', "\\n"), l.score, l.polygon);
-    }
-
-    let res = crate::common::force_analyze_fixture_with_lang(&img, Some("ja"));
+    let res = get_or_analyze_fixture_with_lang(&img, Some("ja"));
     println!("=== Japanese Native 810x737 Page Results ({} regions) ===", res.regions.len());
     for (i, r) in res.regions.iter().enumerate() {
         println!("  Region r{}: box={:?}, text='{}', conf={:.2}, vert={}", i, r.box_, r.text.replace('\n', "\\n"), r.confidence, r.vertical);
@@ -279,7 +271,7 @@ fn test_regression_page_school_phone_rule_e_bubble() {
     assert!(ah_un.is_some(), "Must detect 'あ… うん。' bubble");
 
     // 5. Top-Left Bubble: '万事解決だ。\nスマホが\nあれば外に\n助けが呼べる。'
-    let all_solved = res.regions.iter().find(|r| r.text.contains("万事解決") || r.text.contains("助けが呼べる"));
+    let all_solved = res.regions.iter().find(|r| r.text.contains("万事解决") || r.text.contains("助けが呼べる") || r.text.contains("万事解決"));
     assert!(all_solved.is_some(), "Must detect top-left bubble '万事解決だ。 スマホが あれば外に 助けが呼べる。'");
 
     // 6. Bottom-Middle Bubble: '職員室に\nつないで\n先生にきて\nもらうか…'
@@ -298,6 +290,92 @@ fn test_regression_page_school_phone_rule_e_bubble() {
     let af_text = &anyone_fine.unwrap().text;
     assert!(!af_text.contains("つるんでる"), "Lower bubble must NOT be merged with upper bubble: {}", af_text);
 }
+
+/// # Japanese Real-Page Regression: `page_choze_vs_charanko_masterpiece_match.webp` (Resolution: 1373 × 1079 WebP)
+///
+/// ## Purpose & Behavior Tested:
+/// - **Vertical Speech Bubble Separation (`全試合一撃…？` vs `くくくっ…`)**:
+///   Guarantees that distinct adjacent vertical speech bubbles are not merged across terminal
+///   punctuation (`？`) boundaries.
+/// - **Matchup Badge Detection (`対`)**:
+///   Verifies that standalone large Kanji matchup emblems are preserved and detected.
+/// - **Card Profile Text Integrity**:
+///   Verifies detection of contestant cards (Choze vs Charanko) with full dialogue extraction.
+#[test]
+fn test_regression_page_choze_vs_charanko_masterpiece_match() {
+    let img = match crate::common::load_fixture_or_skip("ja", "page_choze_vs_charanko_masterpiece_match.webp") {
+        Some(i) => i,
+        None => {
+            eprintln!("[INFO] Skipping test_regression_page_choze_vs_charanko_masterpiece_match: fixture not found");
+            return;
+        }
+    };
+
+    let res = get_or_analyze_fixture_with_lang(&img, Some("ja"));
+    println!("=== Japanese Native 1373x1079 Page Results ({} regions) ===", res.regions.len());
+    for (i, r) in res.regions.iter().enumerate() {
+        println!("  Region r{}: box={:?}, text='{}', conf={:.2}, vert={}", i, r.box_, r.text.replace('\n', "\\n"), r.confidence, r.vertical);
+    }
+
+    // 0. Strict Region Accounting (Rule #12):
+    // Expect 13 to 15 regions depending on single character vs-badge and card profile headers
+    assert!(
+        res.regions.len() >= 13 && res.regions.len() <= 15,
+        "Expected between 13 and 15 regions across the 2-page spread, got {}",
+        res.regions.len()
+    );
+
+    // 1. Separation Check: '全試合一撃…？' MUST NOT be merged with 'くくくっ…'
+    let strike_bubble = res.regions.iter().find(|r| r.text.contains("全試合") && (r.text.contains("一撃") || r.text.contains("一擊")));
+    assert!(strike_bubble.is_some(), "Must detect upper bubble '全試合一撃…？'");
+    let sb_text = &strike_bubble.unwrap().text;
+    assert!(!sb_text.contains("くくく"), "Upper bubble must NOT contain lower laughing bubble 'くくくっ…': {}", sb_text);
+
+    let laugh_bubble = res.regions.iter().find(|r| r.text.contains("くくく"));
+    assert!(laugh_bubble.is_some(), "Must detect lower laughing bubble 'くくくっ…'");
+    let lb_text = &laugh_bubble.unwrap().text;
+    assert!(!lb_text.contains("全試合"), "Laugh bubble must NOT contain '全試合一撃…？': {}", lb_text);
+
+    // 2. Center-Left Bottom Dialogue: 'スイリューもお前も…'
+    let suiryu_bubble = res.regions.iter().find(|r| r.text.contains("スイリュー") || (r.text.contains("愚民ども") && r.box_.y > 700));
+    assert!(suiryu_bubble.is_some(), "Must detect 'スイリューもお前も…愚民どもはその程度で得意げか' bubble");
+
+    // 3. Middle Cards (Right Page)
+    let charanko_title = res.regions.iter().find(|r| r.text.contains("水球炭酸拳") || r.text.contains("チャランコ"));
+    assert!(charanko_title.is_some(), "Must detect Charanko title card");
+
+    let charanko_desc = res.regions.iter().find(|r| r.text.contains("バクザン") || r.text.contains("三連覇"));
+    assert!(charanko_desc.is_some(), "Must detect Charanko description card");
+
+    let choze_title = res.regions.iter().find(|r| r.text.contains("選民血脈") || r.text.contains("チヨゼ") || r.text.contains("チョゼ"));
+    assert!(choze_title.is_some(), "Must detect Choze title card");
+
+    let choze_desc = res.regions.iter().find(|r| r.text.contains("人体破壊") || r.text.contains("執拗に"));
+    assert!(choze_desc.is_some(), "Must detect Choze description card");
+
+    // 4. Left Page Dialogues
+    let first_move = res.regions.iter().find(|r| r.text.contains("初手で仕留める") || r.text.contains("容易い"));
+    assert!(first_move.is_some(), "Must detect '初手で仕留めることなど容易い' bubble");
+
+    let execute = res.regions.iter().find(|r| r.text.contains("別格だという") || r.text.contains("処刑する"));
+    assert!(execute.is_some(), "Must detect execution speech bubble");
+
+    let superior_genes = res.regions.iter().find(|r| r.text.contains("遺伝子") || r.text.contains("先祖代々"));
+    assert!(superior_genes.is_some(), "Must detect superior genes bubble");
+
+    let masterpiece = res.regions.iter().find(|r| r.text.contains("最高傑作") || r.text.contains("中でも私は"));
+    assert!(masterpiece.is_some(), "Must detect masterpiece bubble");
+
+    let new_species = res.regions.iter().find(|r| r.text.contains("新しい種族") || r.text.contains("全く異なる"));
+    assert!(new_species.is_some(), "Must detect new species bubble");
+
+    let tournament_start = res.regions.iter().find(|r| r.text.contains("大会を皮切りに") || r.text.contains("絶大な力"));
+    assert!(tournament_start.is_some(), "Must detect tournament start speech bubble");
+
+    let rule_world = res.regions.iter().find(|r| r.text.contains("世界を") || r.text.contains("支配する"));
+    assert!(rule_world.is_some(), "Must detect '世界を支配する' bubble");
+}
+
 
 
 

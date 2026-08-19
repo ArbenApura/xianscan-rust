@@ -229,11 +229,22 @@ pub fn group_paragraphs(
         let box_url = is_watermark_line(txt);
         let mut placed = false;
 
+        let cand_strip = txt.trim();
+        let cand_ends_terminal = cand_strip.lines().any(|ln| {
+            let s = ln.trim();
+            s.ends_with(['？', '?', '！', '!', '。'])
+                || (s.ends_with('…') && s.chars().count() >= 3)
+        });
+
         for p in &mut paragraphs {
             if box_url != p.is_url {
                 continue;
             }
-            for b in &p.boxes {
+
+            let mut can_group_with_p = true;
+            let mut matches_any_b = false;
+
+            for (b, b_txt) in p.boxes.iter().zip(p.texts.iter()) {
                 let (bx, by, bw, bh) = box_to_xywh_f32(b);
                 let bx1 = bx + bw;
                 let by1 = by + bh;
@@ -243,17 +254,35 @@ pub fn group_paragraphs(
                 let max_h = h.max(bh);
                 let h_gap = (x - bx1).abs().min((bx - x1).abs());
 
-                // Restrict grouping to legitimate multi-column bubbles of similar line heights
-                if v_overlap >= 0.40 * min_h && h_gap <= 24.0 && (w + bw) <= 220.0 && max_h <= 3.2 * min_h {
-                    p.boxes.push(box_pts.clone());
-                    p.cx_list.push(x + w / 2.0);
-                    p.texts.push(txt.clone());
-                    p.score = p.score.max(score);
-                    placed = true;
+                let b_strip = b_txt.trim();
+                let b_ends_terminal = b_strip.lines().any(|ln| {
+                    let s = ln.trim();
+                    s.ends_with(['？', '?', '！', '!', '。'])
+                        || (s.ends_with('…') && s.chars().count() >= 3)
+                });
+
+                // A column ending in terminal punctuation is a complete utterance. It may still
+                // pair with a further column, but only a vertically ALIGNED one (same bubble,
+                // side-by-side columns). A vertically STAGGERED column is a separate bubble below,
+                // and must never be glued to a complete utterance.
+                let vertically_aligned = v_overlap >= 0.70 * min_h;
+                if (b_ends_terminal || cand_ends_terminal) && !vertically_aligned {
+                    can_group_with_p = false;
                     break;
                 }
+
+                // Restrict grouping to legitimate multi-column bubbles of similar line heights
+                if v_overlap >= 0.40 * min_h && h_gap <= 24.0 && (w + bw) <= 220.0 && max_h <= 3.2 * min_h {
+                    matches_any_b = true;
+                }
             }
-            if placed {
+
+            if can_group_with_p && matches_any_b {
+                p.boxes.push(box_pts.clone());
+                p.cx_list.push(x + w / 2.0);
+                p.texts.push(txt.clone());
+                p.score = p.score.max(score);
+                placed = true;
                 break;
             }
         }

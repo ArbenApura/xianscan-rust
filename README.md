@@ -1,6 +1,8 @@
 <div align="center">
 
-# 🏮 XianScan-Rust (仙Scan)
+<img src="assets/icon.png" width="96" height="96" alt="XianScan Cinnabar Seal" style="border-radius: 18px;" />
+
+# XianScan
 
 **Native Comic Translation Server for Chinese Manhua, Korean Manhwa, & Japanese Manga**
 
@@ -8,7 +10,9 @@
 
 <br/>
 
-[![Ko-Fi](https://img.shields.io/badge/Support_on-Ko--Fi-FF5E5B?style=for-the-badge&logo=kofi&logoColor=white)](https://ko-fi.com/arbenapura)
+[![Portfolio](https://img.shields.io/badge/Portfolio-arbenger.com-111827?style=for-the-badge&logo=google-chrome&logoColor=white)](https://arbenger.com/contact/)
+[![Email](https://img.shields.io/badge/Contact-arbenapura.official@gmail.com-EA4335?style=for-the-badge&logo=gmail&logoColor=white)](mailto:arbenapura.official@gmail.com)
+[![Support on Ko-Fi](https://img.shields.io/badge/Support_on-Ko--Fi-FF5E5B?style=for-the-badge&logo=kofi&logoColor=white)](https://ko-fi.com/arbenapura)
 [![Rust](https://img.shields.io/badge/Rust-1.80+-DEA584?style=for-the-badge&logo=rust&logoColor=white)](https://www.rust-lang.org/)
 [![ONNX Runtime](https://img.shields.io/badge/ONNX_Runtime-1.19+-005CED?style=for-the-badge&logo=onnx&logoColor=white)](https://onnxruntime.ai/)
 [![DirectML](https://img.shields.io/badge/Hardware-DirectML_•_CPU_SIMD-0078D4?style=for-the-badge&logo=windows&logoColor=white)](https://learn.microsoft.com/en-us/windows/ai/directml/)
@@ -18,7 +22,7 @@
 <br/>
 <br/>
 
-| 🇨🇳 1. Original Raw | 🎨 2. Neural Inpainted | ✍️ 3. Translated & Typeset |
+| 📖 1. Original Raw Source | 🎨 2. Neural Inpainted Canvas | ✍️ 3. Translated & Typeset Result |
 | :---: | :---: | :---: |
 | <img src="docs/showcase/manhua_raw.jpg" width="260" alt="Original Raw Scan"/> | <img src="docs/showcase/manhua_cleaned.jpg" width="260" alt="Neural Inpainted Page"/> | <img src="docs/showcase/manhua_translated.jpg" width="260" alt="Translated and Typeset Page"/> |
 
@@ -28,29 +32,35 @@
 
 ---
 
-## 📖 Overview
+## 📖 Overview & Mission
 
-**XianScan-Rust** is a native translation tool designed to be as **portable and easy to use as possible** for **Chinese Manhua (国漫)**, **Korean Manhwa (웹툰/만화)**, **Japanese Manga (漫画)**, and **Western Comics**.
+**XianScan** is an open-source, local-first translation studio engineered to be **exceptionally portable, lightweight, and effortless to use**.
 
-It runs on standard multi-core CPUs out of the box—no dedicated GPU is required—while automatically utilizing DirectML GPU acceleration when available on Windows.
+Our primary mission is to provide an **uninterrupted, automated reading flow** for comic readers, language learners, and translation teams:
+- **Zero-Friction Setup**: Delivered as a single standalone executable. No Python environments, no CUDA configuration, and no complex terminal setups required.
+- **Complete Reading Automation**: Eliminates manual busywork by automatically coordinating the entire pipeline—from 1-click browser importing to ML bubble detection, multi-language OCR, background cleaning, and context-aware typesetting.
+- **Hardware Freedom**: Highly optimized multi-threaded SIMD inference (AVX2, AVX-512, ARM NEON) that runs at blistering speed on standard laptops and CPUs, while automatically utilizing DirectML GPU acceleration when a graphics card is available.
 
-The workflow integrates the entire comic translation pipeline into a single application:
-1. **Detection & Segmentation**: Detects speech bubbles, text regions, and on-page sound effects using an RT-DETR model.
-2. **Text Recognition (OCR)**: Extracts text with OCR models supporting horizontal and vertical reading directions.
-3. **Translation**: Translates text using free local LLMs (Ollama, LM Studio) or cloud AI APIs with dynamic glossary matching.
-4. **Artwork Cleaning**: Inpaints text regions using LaMa neural inpainting to restore clean background artwork.
-5. **Typesetting**: Renders translated text into bubbles with automatic font sizing, line balancing, and font fallback.
+---
+
+### 🔄 The Automated 5-Stage Pipeline
+
+1. **Detection & Segmentation**: Detects speech bubbles, sound effects, and text boundaries using an RT-DETR model.
+2. **Text Recognition (OCR)**: Extracts horizontal and vertical typography across 11 CJK and global languages.
+3. **Contextual Translation**: Translates text using free local LLMs (Ollama, LM Studio) or cloud AI APIs with dynamic terminology glossary matching.
+4. **Neural Inpainting**: Erases original text using LaMa neural inpainting to seamlessly restore background artwork.
+5. **Typesetting Studio**: Renders translated dialogue with automatic font sizing, boundary fitting, stroke outlines, and dynamic CJK fallbacks.
 
 ---
 
 ## 📚 Comic Format Support
 
-| Format | Features |
+| Format | Specialized Pipeline Features |
 | :--- | :--- |
-| **🇨🇳 Chinese Manhua** | Vertical scroll strips, cultivation terminology glossaries, and multi-line narrative blocks. |
-| **🇰🇷 Korean Manhwa & Webtoons** | Long-strip gutter splitting (`/pages/reslice`), vertical page stitching, and Korean OCR dictionary support. |
-| **🇯🇵 Japanese Manga** | Right-to-left panel flow, vertical text line OCR, Furigana handling, and multi-column bubble detection. |
-| **🌐 Western & Global Comics** | Horizontal text flow, uppercase comic typography, and paragraph line wrapping. |
+| **🇨🇳 Manhua (国漫)** | Vertical scroll strips, cultivation terminology glossaries, and multi-line narrative blocks. |
+| **🇰🇷 Manhwa & Webtoons (웹툰)** | Long-strip gutter splitting (`/pages/reslice`), vertical page stitching, and Korean OCR dictionary support. |
+| **🇯🇵 Manga (漫画)** | Right-to-left panel flow, vertical text line OCR, Furigana handling, and multi-column bubble detection. |
+| **🌐 Global & Western Comics** | Horizontal text flow, uppercase comic typography, and dynamic paragraph line wrapping. |
 
 ---
 
@@ -70,9 +80,9 @@ The workflow integrates the entire comic translation pipeline into a single appl
 
 Native OCR models and dictionaries are included for **11 languages**:
 
-- **East Asian**: Chinese (Simplified), Chinese (Traditional), Japanese, Korean
-- **Southeast Asian**: Vietnamese, Thai, Indonesian
-- **European & Cyrillic**: English, Spanish, French, Russian
+- **East Asian**: 🇨🇳 Chinese (Simplified & Traditional), 🇯🇵 Japanese, 🇰🇷 Korean
+- **Southeast Asian**: 🇻🇳 Vietnamese, 🇹🇭 Thai, 🇮🇩 Indonesian
+- **European & Global**: 🇬🇧 English, 🇪🇸 Spanish, 🇫🇷 French, 🇷🇺 Russian
 
 ---
 
@@ -169,10 +179,24 @@ cargo run -- --dev
 
 ---
 
+## 🧩 Browser Web Extension (Chrome, Firefox, Edge, Brave)
+
+XianScan includes a high-performance **Web Importer Extension** (`extensions/xianscan-importer/`) to import comic chapters directly from web readers into your self-hosted server with one click:
+
+- **⚡ Fast Scan**: Auto-scrolls progressive webtoon strips to trigger lazy-loads and extract all pages in under 1.5 seconds.
+- **🛡️ 4-Tier Smart Noise Filter**: Automatically detects reader containers and drops advertisements, social widgets, blurhash placeholders, and sidebar thumbnails.
+- **📦 Dual Browser Releases**: Pre-packaged Universal (`.zip` for Chrome/Edge/Brave) and Firefox Add-on (`.xpi`) in `extensions/xianscan-importer/store/`.
+- **🚀 One-Click Auto-Translate**: Automatically queues the newly imported chapter for neural detection, OCR, and AI translation upon upload completion.
+
+To install:
+- **Chrome / Edge / Brave**: Load unpacked from `extensions/xianscan-importer/dist/` in `chrome://extensions/`
+- **Firefox**: Load temporary add-on from `extensions/xianscan-importer/dist-firefox/manifest.json` (or `.xpi`) in `about:debugging#/runtime/this-firefox`
+
+---
+
 ## 🗺️ In Progress & Future Roadmap
 
 - **🔄 Enhanced Japanese Manga Recognition**: Continuously optimizing vertical Japanese OCR text extraction, Furigana filtering, multi-column right-to-left reading order clustering, and complex speech bubble grouping.
-- **🌐 Browser Web Extension**: Developing a browser extension (Chrome / Firefox) to import comic pages and webtoon strips directly from web sources into XianScan with one click.
 - **📖 Xianslate Integration (All-in-One Translation Suite)**: Integrating [Xianslate](https://github.com/ArbenApura/xianslate) — our specialized Light Novel & Web Novel translation tool — into XianScan to create a unified reader and translation suite for both comics (Manga/Manhua/Manhwa) and light novels with shared dynamic terminology glossaries.
 
 ---
@@ -192,9 +216,19 @@ cd web && yarn test
 
 ---
 
-## 💖 Support & Sponsorship
+## 👨‍💻 Author & Opportunities
 
-If XianScan is useful to your translation workflow, scanlation group, or reading experience, consider supporting ongoing development:
+**XianScan** is architected and built by **[Arben Apura](https://arbenger.com/contact/)** as a showcase of end-to-end full-stack web engineering, intuitive UI/UX design, and intelligent application architecture.
+
+### 💼 Open for Roles & Contract Work
+If you are looking for a **Full-Stack Web Developer** with expertise in modern web technologies (**TypeScript, SvelteKit, Node.js, React**), browser extensions, and applied AI workflows:
+- 🎯 **Available for**: Full-time Software Engineering / Full-Stack Developer roles, high-impact contract projects, and web development consulting.
+- 🌐 **Portfolio & Inquiries**: [arbenger.com/contact](https://arbenger.com/contact/)
+- ✉️ **Direct Email**: [arbenapura.official@gmail.com](mailto:arbenapura.official@gmail.com)
+- 🐙 **GitHub Profile**: [@ArbenApura](https://github.com/ArbenApura)
+
+### ☕ Fuel Open-Source Development
+If XianScan enhances your reading flow, language learning, or translation workflow, supporting this project helps fund ongoing independent R&D, model optimization, and future open-source tools:
 
 <div align="center">
 
@@ -204,13 +238,24 @@ If XianScan is useful to your translation workflow, scanlation group, or reading
 
 ---
 
+## ⚖️ Ethical Use & Copyright Notice
+
+**XianScan** is designed strictly as a **local-first personal assistive translation and language-learning tool**.
+
+- **Respect for Original Creators**: We deeply respect the artistry, effort, and intellectual property of original manga artists, manhua authors, manhwa creators, and publishers.
+- **Support Official Releases**: Users are strongly encouraged to purchase official translated releases and support creators directly on licensed digital platforms (such as *Kuaikan Manhua, Bilibili Manga, Naver WEBTOON, KakaoPage, Tapas, Tappytoon, Lezhin, MANGA Plus by Shueisha, VIZ Media, and BookWalker*).
+- **100% Local & Private**: XianScan does not host, re-distribute, or scrape copyrighted works on public servers. All image processing, OCR, inpainting, and translation execution occur entirely on the user's private local hardware.
+- **Fair Use & Personal Study**: This software is intended for personal language learning, accessibility, and translation workflow assistance under applicable Fair Use guidelines.
+
+---
+
 ## 📜 License & Acknowledgments
 
 Licensed under the **[MIT License](LICENSE)** © 2026 Arben Apura.
 
-- **RT-DETR Comic Detector**: Speech bubble and text segmentation models by [ogkalu/comic-text-and-bubble-detector](https://huggingface.co/ogkalu/comic-text-and-bubble-detector) and [manga-image-translator](https://github.com/zyddnys/manga-image-translator) (MIT / Apache-2.0).
+- **RT-DETR Comic Detector**: Speech bubble and text segmentation models by [ogkalu/comic-text-and-bubble-detector](https://huggingface.co/ogkalu/comic-text-and-bubble-detector) (MIT / Apache-2.0) and detection architectures from [manga-image-translator](https://github.com/zyddnys/manga-image-translator) (GPL-3.0 / Apache-2.0).
 - **PaddleOCR & RapidOCR**: Multilingual OCR models (PP-OCRv6, Korean, Cyrillic, Thai) and direction classifier by [PaddlePaddle/PaddleOCR](https://github.com/PaddlePaddle/PaddleOCR), [RapidAI/RapidOCR](https://github.com/RapidAI/RapidOCR), and [xberg-io/paddleocr-onnx-models](https://huggingface.co/xberg-io/paddleocr-onnx-models) (Apache-2.0).
 - **LaMa Inpainting**: Large Mask Inpainting architecture by [advimman/lama](https://github.com/advimman/lama) (Apache-2.0) and manga inpainting weights by [ogkalu/lama-manga-onnx-dynamic](https://huggingface.co/ogkalu/lama-manga-onnx-dynamic).
-- **Typography & Fonts**: CC Wild Words comic typeface under the SIL Open Font License ([OFL-1.1](https://openfontlicense.org/)).
+- **Typography & Fonts**: Open-source dialogue and CJK fonts (Friendly Sans, LXGW WenKai) under the SIL Open Font License ([OFL-1.1](https://openfontlicense.org/)). CC Wild Words is a registered trademark of Comicraft.
 - **ONNX Runtime**: High-performance inference engine by [Microsoft](https://github.com/microsoft/onnxruntime) (MIT License).
 - **Artwork & Trademarks**: All demonstration images are referenced under Fair Use for open-source technical illustration and model benchmarking. All rights and copyrights remain with their respective intellectual property owners.

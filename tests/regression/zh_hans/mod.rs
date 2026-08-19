@@ -1,6 +1,6 @@
 use crate::common::get_or_analyze_fixture;
 
-/// # Regression Test: Page 679 (Resolution: 800 × 1270 WebP)
+/// # Regression Test: Zhang Yude Chengdu Cemetery (Resolution: 800 × 1270 WebP)
 ///
 /// ## Purpose & Behavior Tested:
 /// - **Speech Bubble Separation & Detection**:
@@ -17,21 +17,21 @@ use crate::common::get_or_analyze_fixture;
 /// - Both Panel 1 dialogue bubbles captured cleanly.
 /// - Panel 2 bounding box right edge `x + w >= 265` to fully encapsulate `……`.
 #[test]
-fn test_regression_page_679() {
+fn test_regression_page_zhang_yude_chengdu_cemetery() {
     let img = match crate::common::load_fixture_or_skip("zh_hans", "page_zhang_yude_chengdu_cemetery.webp") {
         Some(i) => i,
         None => {
-            eprintln!("[INFO] Skipping test_regression_page_679: fixture not found");
+            eprintln!("[INFO] Skipping test_regression_page_zhang_yude_chengdu_cemetery: fixture not found");
             return;
         }
     };
 
     let res = get_or_analyze_fixture(&img);
-    println!("Page 679 regions (len={}):", res.regions.len());
+    println!("Page zhang_yude_chengdu_cemetery regions (len={}):", res.regions.len());
     for (i, r) in res.regions.iter().enumerate() {
         println!("  r{}: box={:?}, text='{}'", i, r.box_, r.text.replace('\n', "\\n"));
     }
-    assert!(res.regions.len() >= 4 && res.regions.len() <= 5, "Page 679 must have 4 or 5 detected regions, got {}", res.regions.len());
+    assert!(res.regions.len() >= 4 && res.regions.len() <= 5, "Page zhang_yude_chengdu_cemetery must have 4 or 5 detected regions, got {}", res.regions.len());
 
     // 1. Panel 1: Upper speech bubble (Zhang Yude dialogue)
     let p1_upper = res.regions.iter().find(|r| r.text.contains("张予德") || r.text.contains("成都") || r.text.contains("难道"));
@@ -87,7 +87,7 @@ fn test_regression_page_679() {
     assert!(!all_text.contains("腾讯动漫"), "Watermark '腾讯动漫' must be suppressed");
 }
 
-/// # Regression Test: Page 63617 (Resolution: 800 × 1600 WebP)
+/// # Regression Test: Cultivation Chant & Fear Points (Resolution: 800 × 1600 WebP)
 ///
 /// ## Purpose & Behavior Tested:
 /// - **Exact Multi-Region Ground Truth & SFX Preservation**:
@@ -101,17 +101,17 @@ fn test_regression_page_679() {
 /// - Exactly 7 regions.
 /// - Region r1 right boundary must fully cover *"练丹！"* exclamation mark (`x + w >= 745`).
 #[test]
-fn test_regression_page_63617() {
+fn test_regression_page_cultivation_chant_fear_points() {
     let img = match crate::common::load_fixture_or_skip("zh_hans", "page_cultivation_chant_fear_points.webp") {
         Some(i) => i,
         None => {
-            eprintln!("[INFO] Skipping test_regression_page_63617: fixture not found");
+            eprintln!("[INFO] Skipping test_regression_page_cultivation_chant_fear_points: fixture not found");
             return;
         }
     };
 
     let res = get_or_analyze_fixture(&img);
-    println!("Page 63617 detected {} regions:", res.regions.len());
+    println!("Page cultivation_chant_fear_points detected {} regions:", res.regions.len());
     for (i, r) in res.regions.iter().enumerate() {
         println!("  Region r{}: box={:?}, text='{}', angle={:.2}, conf={:.2}", i, r.box_, r.text.replace('\n', "\\n"), r.angle, r.confidence);
     }
@@ -134,28 +134,28 @@ fn test_regression_page_63617() {
     assert!(!res.regions.iter().any(|r| r.text.contains("HANILS")), "Must not contain hallucinated 'HANILS' noise");
 }
 
-/// # Regression Test: Page 683 (Resolution: 800 × 2400 WebP)
+/// # Regression Test: Fool Pee Pants Adjacent Bubbles (Resolution: 800 × 2400 WebP)
 ///
 /// ## Purpose & Behavior Tested:
 /// - **Adjacent Bubble Separation**:
 ///   Ensures side-by-side speech bubbles occurring on the same horizontal band
 ///   (*"这傻子非得尿裤子上不可！"* vs *"哈哈！"*) are not merged across panels.
 #[test]
-fn test_regression_page_683() {
+fn test_regression_page_fool_pee_pants_adjacent_bubbles() {
     let img = match crate::common::load_fixture_or_skip("zh_hans", "page_fool_pee_pants_adjacent_bubbles.webp") {
         Some(i) => i,
         None => {
-            eprintln!("[INFO] Skipping test_regression_page_683: fixture not found");
+            eprintln!("[INFO] Skipping test_regression_page_fool_pee_pants_adjacent_bubbles: fixture not found");
             return;
         }
     };
 
     let res = get_or_analyze_fixture(&img);
-    assert!(!res.regions.is_empty(), "Page 683 must have detected regions");
-    println!("Page 683 detected {} regions", res.regions.len());
+    assert!(!res.regions.is_empty(), "Page fool_pee_pants_adjacent_bubbles must have detected regions");
+    println!("Page fool_pee_pants_adjacent_bubbles detected {} regions", res.regions.len());
 }
 
-/// # Regression Test: Page 688 / PageId 63710 (Resolution: 800 × 1131 WebP)
+/// # Regression Test: Shen Yue & Ye Ziyun Thought Bubble (Resolution: 800 × 1131 WebP)
 ///
 /// ## Purpose & Behavior Tested:
 /// - **Multi-Line Thought Bubble Unification**:
@@ -175,23 +175,23 @@ fn test_regression_page_683() {
 /// - Bottom thought bubble must contain all 5 lines unified.
 /// - Negative guard: Zero standalone duplicate lines `反倒是看我的目光有几分`.
 #[test]
-fn test_regression_page_688() {
+fn test_regression_page_shen_yue_ye_ziyun_thought_bubble() {
     let img = match crate::common::load_fixture_or_skip("zh_hans", "page_shen_yue_ye_ziyun_thought_bubble.webp") {
         Some(i) => i,
         None => {
-            eprintln!("[INFO] Skipping test_regression_page_688: fixture not found");
+            eprintln!("[INFO] Skipping test_regression_page_shen_yue_ye_ziyun_thought_bubble: fixture not found");
             return;
         }
     };
 
-    let res = crate::common::force_analyze_fixture(&img);
-    println!("Page 688 detected {} regions:", res.regions.len());
+    let res = get_or_analyze_fixture(&img);
+    println!("Page shen_yue_ye_ziyun_thought_bubble detected {} regions:", res.regions.len());
     for (i, r) in res.regions.iter().enumerate() {
         println!("  Region r{}: box={:?}, text='{}', angle={:.2}, conf={:.2}", i, r.box_, r.text.replace('\n', "\\n"), r.angle, r.confidence);
     }
 
     // 1. Exact count: exactly 5 regions
-    assert_eq!(res.regions.len(), 5, "Page 688 must have exactly 5 regions, got {}", res.regions.len());
+    assert_eq!(res.regions.len(), 5, "Page shen_yue_ye_ziyun_thought_bubble must have exactly 5 regions, got {}", res.regions.len());
 
     // 2. Panel 1 top-left thought bubble
     let p1_left = res.regions.iter().find(|r| r.text.contains("沈越") || r.text.contains("神圣世家"));
@@ -233,7 +233,7 @@ fn test_regression_page_688() {
     );
 }
 
-/// # Regression Test: Page 15 Seq 8 (Resolution: 800 × 1600 WebP)
+/// # Regression Test: System Birth & Transmigration Ellipsis (Resolution: 800 × 1600 WebP)
 ///
 /// ## Purpose & Behavior Tested:
 /// - **Giant Artwork Hallucination Suppression & Ellipsis Expansion**:
@@ -241,17 +241,17 @@ fn test_regression_page_688() {
 ///   and ensures the speech bubble *"系统诞生在我身上……"* preserves trailing ellipsis dots
 ///   with full bounding box width (`w >= 380px`).
 #[test]
-fn test_regression_page_15_seq_8() {
+fn test_regression_page_system_birth_transmigration_ellipsis() {
     let img = match crate::common::load_fixture_or_skip("zh_hans", "page_system_birth_transmigration_ellipsis.webp") {
         Some(i) => i,
         None => {
-            eprintln!("[INFO] Skipping test_regression_page_15_seq_8: fixture not found");
+            eprintln!("[INFO] Skipping test_regression_page_system_birth_transmigration_ellipsis: fixture not found");
             return;
         }
     };
 
     let res = get_or_analyze_fixture(&img);
-    println!("Page 15 seq 8 detected {} regions:", res.regions.len());
+    println!("Page system_birth_transmigration_ellipsis detected {} regions:", res.regions.len());
     for r in &res.regions {
         println!("  Region {}: box={:?}, text='{}', conf={:.2}", r.id, r.box_, r.text.replace('\n', "\\n"), r.confidence);
     }
@@ -259,7 +259,7 @@ fn test_regression_page_15_seq_8() {
     let all_text = res.regions.iter().map(|r| r.text.as_str()).collect::<Vec<_>>().join("\n");
 
     // 1. Exact region count: exactly 6 speech bubbles
-    assert_eq!(res.regions.len(), 6, "Page 15 seq 8 must have exactly 6 speech bubbles, got {}", res.regions.len());
+    assert_eq!(res.regions.len(), 6, "Page system_birth_transmigration_ellipsis must have exactly 6 speech bubbles, got {}", res.regions.len());
 
     // 2. Must suppress hallucinated giant artwork region "福迎" across character robes/shadows
     assert!(!all_text.contains("福迎"), "Must not hallucinate '福迎' over dark clothing/shading");
@@ -292,7 +292,7 @@ fn test_regression_page_15_seq_8() {
     assert!(all_text.contains("心第一次在这个"), "Must detect '心第一次在这个\n世界上诞生'");
 }
 
-/// # Regression Test: Page 162 Seq 1 (Resolution: 800 × 1590 WebP)
+/// # Regression Test: Don't Move Foliage & Tail Circle (Resolution: 800 × 1590 WebP)
 ///
 /// ## Purpose & Behavior Tested:
 /// - **Foliage Drawing Noise Suppression & Tail-Circle Filtering**:
@@ -300,17 +300,17 @@ fn test_regression_page_15_seq_8() {
 ///   thought bubble tail ornament (*"……"*), and clamps left speech bubble boundary
 ///   (*"你可不要\n乱动……"*).
 #[test]
-fn test_regression_page_162_seq_1() {
+fn test_regression_page_dont_move_foliage_tail_circle() {
     let img = match crate::common::load_fixture_or_skip("zh_hans", "page_dont_move_foliage_tail_circle.webp") {
         Some(i) => i,
         None => {
-            eprintln!("[INFO] Skipping test_regression_page_162_seq_1: fixture not found");
+            eprintln!("[INFO] Skipping test_regression_page_dont_move_foliage_tail_circle: fixture not found");
             return;
         }
     };
 
     let res = get_or_analyze_fixture(&img);
-    println!("Page 162 seq 1 detected {} regions:", res.regions.len());
+    println!("Page dont_move_foliage_tail_circle detected {} regions:", res.regions.len());
     for (i, r) in res.regions.iter().enumerate() {
         println!("  r{}: box=({},{},{},{}) text='{}'", i,
             r.box_.x, r.box_.y, r.box_.w, r.box_.h, r.text.replace('\n', "\\n"));
@@ -319,7 +319,7 @@ fn test_regression_page_162_seq_1() {
     // Exact count: 3 regions.
     // The '……' tail-circle bubble in the bottom-right panel MUST be suppressed.
     assert_eq!(res.regions.len(), 3,
-        "Page 162 must have exactly 3 regions, got {}", res.regions.len());
+        "Page dont_move_foliage_tail_circle must have exactly 3 regions, got {}", res.regions.len());
 
     // Guard: '……' must never be emitted as a standalone region — it is a tail ornament.
     assert!(
@@ -349,24 +349,24 @@ fn test_regression_page_162_seq_1() {
     );
 }
 
-/// # Regression Test: Page 168 Seq 1 (Resolution: 800 × 1590 WebP)
+/// # Regression Test: Fireball Fight Bubble Angle (Resolution: 800 × 1590 WebP)
 ///
 /// ## Purpose & Behavior Tested:
 /// - **Angle Jitter Snapping & Bubble Tail Suppression**:
 ///   Ensures standard horizontal speech bubble (*"我不能硬拼……"*) has rotation angle `0.0°`
 ///   and suppresses thought bubble tail circles.
 #[test]
-fn test_regression_page_168_seq_1() {
+fn test_regression_page_fireball_fight_bubble_angle() {
     let img = match crate::common::load_fixture_or_skip("zh_hans", "page_fireball_fight_bubble_angle.webp") {
         Some(i) => i,
         None => {
-            eprintln!("[INFO] Skipping test_regression_page_168_seq_1: fixture not found");
+            eprintln!("[INFO] Skipping test_regression_page_fireball_fight_bubble_angle: fixture not found");
             return;
         }
     };
 
     let res = get_or_analyze_fixture(&img);
-    println!("Page 168 seq 1 detected {} regions:", res.regions.len());
+    println!("Page fireball_fight_bubble_angle detected {} regions:", res.regions.len());
     for r in &res.regions {
         println!("  Region {}: box={:?}, angle={:.2}, text='{}', conf={:.2}", r.id, r.box_, r.angle, r.text.replace('\n', "\\n"), r.confidence);
     }
@@ -387,73 +387,24 @@ fn test_regression_page_168_seq_1() {
     assert!(all_text.contains("火球"), "Must detect SFX '火球！'");
 }
 
-/// # Regression Test: Page 169 Seq 8 (Resolution: 800 × 1590 WebP)
-///
-/// ## Purpose & Behavior Tested:
-/// - **Adjacent Bubble Boundary Clamping & Narration Ellipsis Coverage**:
-///   Ensures panel 1 left bubble (*"是错觉吗？老大好像被追着打……"*) does not collide with
-///   the right bubble (*"你怎么可以不相信老大！"*), and panel 3 narration captures full
-///   trailing ellipsis (*"不愧是顶尖高手……"* with `w >= 325px`).
-#[test]
-fn test_regression_page_169_seq_8() {
-    let img = match crate::common::load_fixture_or_skip("zh_hans", "page_boss_beaten_martial_arts_ellipsis.webp") {
-        Some(i) => i,
-        None => {
-            eprintln!("[INFO] Skipping test_regression_page_169_seq_8: fixture not found");
-            return;
-        }
-    };
-
-    let res = get_or_analyze_fixture(&img);
-    println!("Page 169 seq 8 detected {} regions:", res.regions.len());
-    for (i, r) in res.regions.iter().enumerate() {
-        println!("  Region r{}: box={:?}, text='{}', conf={:.2}", i, r.box_, r.text.replace('\n', "\\n"), r.confidence);
-    }
-
-    // Exact count: 5 regions
-    assert_eq!(res.regions.len(), 5, "Page 169 must have exactly 5 regions, got {}", res.regions.len());
-
-    // Exact ground truth assertions for every region
-    assert_eq!(res.regions[0].text, "是错觉吗？\n老大好像被\n追着打……", "Region r0 text mismatch");
-    assert_eq!(res.regions[1].text, "你怎么可以不\n相信老大！", "Region r1 text mismatch");
-    assert_eq!(res.regions[2].text, "好厉害！", "Region r2 text mismatch");
-    assert_eq!(res.regions[3].text, "刚才我用的是\n“太岁”“撩\n尾”和“夜叉”\n招招取人要害，\n他居然都躲过\n了！", "Region r3 text mismatch");
-    assert_eq!(res.regions[4].text, "不愧是顶尖高手……", "Region r4 text mismatch");
-
-    // Guard: Region r0 right edge must NOT overlap Region r1 left edge (r0.x + r0.w < r1.x)
-    assert!(
-        res.regions[0].box_.x + res.regions[0].box_.w < res.regions[1].box_.x,
-        "Region r0 right edge ({}) must be strictly less than Region r1 left edge ({})",
-        res.regions[0].box_.x + res.regions[0].box_.w,
-        res.regions[1].box_.x
-    );
-
-    // Guard: Region r4 right edge must fully enclose '……' (r4.w >= 300)
-    assert!(
-        res.regions[4].box_.w >= 300,
-        "Region r4 must fully cover '……' ellipsis, got w={}",
-        res.regions[4].box_.w
-    );
-}
-
-/// # Regression Test: Page 170 Seq 9 (Resolution: 800 × 1461 WebP)
+/// # Regression Test: Slanted RPG Status Card (Resolution: 800 × 1461 WebP)
 ///
 /// ## Purpose & Behavior Tested:
 /// - **Diagonal Status Card Angle Detection & Multi-Column Line Order**:
 ///   Ensures slanted RPG status card detects its non-zero rotation angle (`|angle| >= 10.0°`)
 ///   and preserves the full multi-column info block without digit corruption.
 #[test]
-fn test_regression_page_170_seq_9() {
+fn test_regression_page_slanted_rpg_status_card() {
     let img = match crate::common::load_fixture_or_skip("zh_hans", "page_slanted_rpg_status_card.webp") {
         Some(i) => i,
         None => {
-            eprintln!("[INFO] Skipping test_regression_page_170_seq_9: fixture not found");
+            eprintln!("[INFO] Skipping test_regression_page_slanted_rpg_status_card: fixture not found");
             return;
         }
     };
 
     let res = get_or_analyze_fixture(&img);
-    println!("Page 170 seq 9 detected {} regions:", res.regions.len());
+    println!("Page slanted_rpg_status_card detected {} regions:", res.regions.len());
     for r in &res.regions {
         println!("  Region {}: box={:?}, angle={:.2}, text='{}', conf={:.2}", r.id, r.box_, r.angle, r.text.replace('\n', "\\n"), r.confidence);
     }
@@ -473,60 +424,18 @@ fn test_regression_page_170_seq_9() {
     assert!(all_text.contains("菜鸟") || all_text.contains("这么"), "Must detect lower dialogue bubble");
 }
 
-/// # Regression Test: Page 171 Seq 10 (Resolution: 800 × 1820 WebP)
-///
-/// ## Purpose & Behavior Tested:
-/// - **Double-Cloud Bubble Merging & Thought Tail Suppression**:
-///   Ensures 2-lobe circular cloud bubble (*"池塘？水是不是很深？我坚决不要去！"*)
-///   is unified into 1 region instead of fragmenting into ghost boxes (*"水是不\n我坚"*).
-#[test]
-fn test_regression_page_171_seq_10() {
-    let img = match crate::common::load_fixture_or_skip("zh_hans", "page_pond_pk_double_cloud_bubble.webp") {
-        Some(i) => i,
-        None => {
-            eprintln!("[INFO] Skipping test_regression_page_171_seq_10: fixture not found");
-            return;
-        }
-    };
-
-    let res = get_or_analyze_fixture(&img);
-    println!("Page 171 seq 10 detected {} regions:", res.regions.len());
-    for (i, r) in res.regions.iter().enumerate() {
-        println!("  Region r{}: box={:?}, text='{}', conf={:.2}", i, r.box_, r.text.replace('\n', "\\n"), r.confidence);
-    }
-
-    // Exact count: 4 regions (no ghost boxes, no split duplicates)
-    assert_eq!(res.regions.len(), 4, "Page 171 must have exactly 4 regions, got {}", res.regions.len());
-
-    // Exact ground truth assertions for every region
-    assert_eq!(res.regions[0].text, "我看你能嚣张\n到什么时候！", "Region r0 text mismatch");
-    assert_eq!(res.regions[1].text, "那边池塘旁边有\n片空地，咱们到\n那边PK吧。", "Region r1 text mismatch");
-    assert_eq!(res.regions[2].text, "池塘？水是不\n是很深？我坚\n决不要去！", "Region r2 text mismatch");
-    assert_eq!(res.regions[3].text, "你对池塘都\n有阴影了！", "Region r3 text mismatch");
-
-    // Guard: double-cloud must be merged — split fragments must not appear standalone
-    assert!(
-        !res.regions.iter().any(|r| r.text.contains("水是不") && !r.text.contains("池塘")),
-        "Double-cloud bubble must be merged: 'water' fragment must not appear without '池塘'"
-    );
-    assert!(
-        !res.regions.iter().any(|r| r.text.trim() == "水是不\n我坚"),
-        "Split ghost fragment must be suppressed and merged into r2"
-    );
-}
-
-/// # Regression Test: Page 172 Seq 11 (Resolution: 800 × 1616 WebP)
+/// # Regression Test: Guild Leader PK Adjacent Bubbles (Resolution: 800 × 1616 WebP)
 ///
 /// ## Purpose & Behavior Tested:
 /// - **Bottom Bubble Boundary Clamping & 3-Way Adjacent Bubble Separation**:
 ///   Clamps elongated bottom speech bubble boundary (*"不是他自己说\n要PK嘛……"* `w <= 200px`),
 ///   and preserves distinct IDs for all 3 adjacent speech bubbles in panel 2.
 #[test]
-fn test_regression_page_172_seq_11() {
+fn test_regression_page_guild_leader_pk_adjacent_bubbles() {
     let img = match crate::common::load_fixture_or_skip("zh_hans", "page_guild_leader_pk_adjacent_bubbles.webp") {
         Some(i) => i,
         None => {
-            eprintln!("[INFO] Skipping test_regression_page_172_seq_11: fixture not found");
+            eprintln!("[INFO] Skipping test_regression_page_guild_leader_pk_adjacent_bubbles: fixture not found");
             return;
         }
     };
@@ -561,23 +470,23 @@ fn test_regression_page_172_seq_11() {
     assert_ne!(id_mid, id_right, "Middle and right bubbles must have separate IDs");
 }
 
-/// # Regression Test: Page 175 Seq 14 (Resolution: 800 × 1131 WebP)
+/// # Regression Test: Rebirth Cover Chapter Subtitle (Resolution: 800 × 1131 WebP)
 ///
 /// ## Purpose & Behavior Tested:
 /// - **Cover Title & Subtitle Separation**:
 ///   Ensures chapter subtitle (*"第一话·重生"*) is properly separated from stylized cover calligraphy.
 #[test]
-fn test_regression_page_175_seq_14() {
+fn test_regression_page_rebirth_cover_chapter_subtitle() {
     let img = match crate::common::load_fixture_or_skip("zh_hans", "page_rebirth_cover_chapter_subtitle.webp") {
         Some(i) => i,
         None => {
-            eprintln!("[INFO] Skipping test_regression_page_175_seq_14: fixture not found");
+            eprintln!("[INFO] Skipping test_regression_page_rebirth_cover_chapter_subtitle: fixture not found");
             return;
         }
     };
 
     let res = get_or_analyze_fixture(&img);
-    println!("Page 175 seq 14 detected {} regions:", res.regions.len());
+    println!("Page rebirth_cover_chapter_subtitle detected {} regions:", res.regions.len());
     for r in &res.regions {
         println!("  Region {}: box={:?}, angle={:.2}, text='{}', conf={:.2}", r.id, r.box_, r.angle, r.text.replace('\n', "\\n"), r.confidence);
     }
@@ -590,24 +499,24 @@ fn test_regression_page_175_seq_14() {
     assert!(all_text.contains("重生") || all_text.contains("第一话"), "Subtitle text must be present");
 }
 
-/// # Regression Test: Page 197 Seq 33 (Resolution: 800 × 1067 WebP)
+/// # Regression Test: Chariot Block Trailing Ellipsis (Resolution: 800 × 1067 WebP)
 ///
 /// ## Purpose & Behavior Tested:
 /// - **Full Trailing Ellipsis Dot Coverage**:
 ///   Ensures trailing 6-dot ellipsis on narration (*"明车易挡……"*) expands the bounding box
 ///   width to `x + w >= 700px` so LaMa inpainting cleanly cleans every dot.
 #[test]
-fn test_regression_page_197_seq_33() {
+fn test_regression_page_chariot_block_trailing_ellipsis() {
     let img = match crate::common::load_fixture_or_skip("zh_hans", "page_chariot_block_trailing_ellipsis.webp") {
         Some(i) => i,
         None => {
-            eprintln!("[INFO] Skipping test_regression_page_197_seq_33: fixture not found");
+            eprintln!("[INFO] Skipping test_regression_page_chariot_block_trailing_ellipsis: fixture not found");
             return;
         }
     };
 
     let res = get_or_analyze_fixture(&img);
-    println!("Page 197 seq 33 detected {} regions:", res.regions.len());
+    println!("Page chariot_block_trailing_ellipsis detected {} regions:", res.regions.len());
     for r in &res.regions {
         println!("  Region {}: box={:?}, text='{}', conf={:.2}", r.id, r.box_, r.text.replace('\n', "\\n"), r.confidence);
     }
@@ -624,24 +533,24 @@ fn test_regression_page_197_seq_33() {
     assert!(all_text.contains("哒"), "Must detect SFX '哒'");
 }
 
-/// # Regression Test: Page 198 Seq 34 (Resolution: 800 × 1066 WebP)
+/// # Regression Test: Rocket Iron Cart Spiky Bubble (Resolution: 800 × 1066 WebP)
 ///
 /// ## Purpose & Behavior Tested:
 /// - **Spiky Bubble Boundary Clamping & Angle Stability**:
 ///   Clamps bottom-right spiky speech bubble (*"这辆比前两辆大上一圈……"*) away from right
 ///   page edge (`x + w <= 765px`) with `angle = 0.0°`, and preserves cyan status card.
 #[test]
-fn test_regression_page_198_seq_34() {
+fn test_regression_page_rocket_iron_cart_spiky_bubble() {
     let img = match crate::common::load_fixture_or_skip("zh_hans", "page_rocket_iron_cart_spiky_bubble.webp") {
         Some(i) => i,
         None => {
-            eprintln!("[INFO] Skipping test_regression_page_198_seq_34: fixture not found");
+            eprintln!("[INFO] Skipping test_regression_page_rocket_iron_cart_spiky_bubble: fixture not found");
             return;
         }
     };
 
     let res = get_or_analyze_fixture(&img);
-    println!("Page 198 seq 34 detected {} regions:", res.regions.len());
+    println!("Page rocket_iron_cart_spiky_bubble detected {} regions:", res.regions.len());
     for r in &res.regions {
         println!("  Region {}: box={:?}, text='{}', conf={:.2}", r.id, r.box_, r.text.replace('\n', "\\n"), r.confidence);
     }
@@ -661,7 +570,7 @@ fn test_regression_page_198_seq_34() {
     assert!(all_text.contains("第三辆"), "Must detect middle speech bubble '第三辆……'");
 }
 
-/// # Regression Test: Page 63707 / Page 204 Seq 38 (Native: 716 × 1024 WebP)
+/// # Regression Test: Thick Skin Cough SFX (Native: 716 × 1024 WebP)
 ///
 /// ## Purpose & Behavior Tested:
 /// - **Zero Single-Character Artwork Hallucinations**:
@@ -677,23 +586,23 @@ fn test_regression_page_198_seq_34() {
 /// - Region 1: SFX *"咳！咳！"*.
 /// - Negative guard: Zero *"中"* hallucination boxes (`assert!(!res.regions.iter().any(|r| r.text.trim() == "中"))`).
 #[test]
-fn test_regression_page_204_seq_38() {
+fn test_regression_page_thick_skin_cough_sfx() {
     let img = match crate::common::load_fixture_or_skip("zh_hans", "page_thick_skin_cough_sfx.webp") {
         Some(i) => i,
         None => {
-            eprintln!("[INFO] Skipping test_regression_page_204_seq_38: fixture not found");
+            eprintln!("[INFO] Skipping test_regression_page_thick_skin_cough_sfx: fixture not found");
             return;
         }
     };
 
     let res = get_or_analyze_fixture(&img);
-    println!("Page 63707 detected {} regions:", res.regions.len());
+    println!("Page thick_skin_cough_sfx detected {} regions:", res.regions.len());
     for (i, r) in res.regions.iter().enumerate() {
         println!("  Region r{}: box={:?}, angle={:.2}, text='{}', conf={:.2}", i, r.box_, r.angle, r.text.replace('\n', "\\n"), r.confidence);
     }
 
     // 1. Exact total region count: exactly 2 regions
-    assert_eq!(res.regions.len(), 2, "Page 63707 must have exactly 2 regions (dialogue + SFX), got {}", res.regions.len());
+    assert_eq!(res.regions.len(), 2, "Page thick_skin_cough_sfx must have exactly 2 regions (dialogue + SFX), got {}", res.regions.len());
 
     // 2. Dialogue bubble: '没事！\n俺\n皮厚得很！' with angle 0.0
     let skin_bubble = res.regions.iter().find(|r| r.text.contains("皮厚") || r.text.contains("没事"));
@@ -774,7 +683,7 @@ fn test_regression_page_novice_mage_split_bubble() {
     assert!(!res.regions.iter().any(|r| r.text.trim() == "哼来个\n这菜" || r.text.trim() == "这么胡\n菜鸟一"), "Must not leave column-split fragment ghost boxes");
 }
 
-/// # Regression Test: Page 58375 (Resolution: 800 × 1060 WebP)
+/// # Regression Test: NPC Harry Potter Spawn Point (Resolution: 800 × 1060 WebP)
 ///
 /// ## Purpose & Behavior Tested:
 /// - **Ghost Suffix Echo & Watermark Cleanup**:
@@ -793,23 +702,23 @@ fn test_regression_page_novice_mage_split_bubble() {
 /// - Exactly 6 regions detected (`assert_eq!(res.regions.len(), 6)`).
 /// - No duplicate/ghost trailing substring echo boxes (`和服务。\n祥`).
 #[test]
-fn test_regression_page_58375() {
+fn test_regression_page_npc_harry_potter_spawn_point() {
     let img = match crate::common::load_fixture_or_skip("zh_hans", "page_npc_harry_potter_spawn_point.webp") {
         Some(i) => i,
         None => {
-            eprintln!("[INFO] Skipping test_regression_page_58375: fixture not found");
+            eprintln!("[INFO] Skipping test_regression_page_npc_harry_potter_spawn_point: fixture not found");
             return;
         }
     };
 
     let res = get_or_analyze_fixture(&img);
-    println!("Page 58375 detected {} regions:", res.regions.len());
+    println!("Page npc_harry_potter_spawn_point detected {} regions:", res.regions.len());
     for (i, r) in res.regions.iter().enumerate() {
         println!("  Region r{}: box={:?}, text='{}', angle={:.2}, conf={:.2}", i, r.box_, r.text.replace('\n', "\\n"), r.angle, r.confidence);
     }
 
     // 1. Exact count: exactly 6 regions
-    assert_eq!(res.regions.len(), 6, "Page 58375 must have exactly 6 regions, got {}", res.regions.len());
+    assert_eq!(res.regions.len(), 6, "Page npc_harry_potter_spawn_point must have exactly 6 regions, got {}", res.regions.len());
 
     // 2. Middle gutter caption verification
     let npc_caption = res.regions.iter().find(|r| r.text.contains("不受玩家控制") || r.text.contains("剧情推动"));
@@ -874,11 +783,11 @@ fn test_regression_page_58375() {
 /// - Region 2 must not contain `拍卫尺` or `拍马屁`.
 /// - Negative guard: Zero trailing collision `拍卫尺` lines.
 #[test]
-fn test_regression_page_parallel_world_extra_account() {
+fn test_regression_parallel_world_extra_account_suck_up() {
     let img = match crate::common::load_fixture_or_skip("zh_hans", "parallel_world_extra_account_suck_up.webp") {
         Some(i) => i,
         None => {
-            eprintln!("[INFO] Skipping test_regression_page_parallel_world_extra_account: fixture not found");
+            eprintln!("[INFO] Skipping test_regression_parallel_world_extra_account_suck_up: fixture not found");
             return;
         }
     };
@@ -926,7 +835,7 @@ fn test_regression_page_parallel_world_extra_account() {
     );
 }
 
-/// # Regression Test: Page 825 (Resolution: 800 × 1132 WebP)
+/// # Regression Test: Stairs Vertical Chirping Noise (Resolution: 800 × 1132 WebP)
 ///
 /// ## Purpose & Behavior Tested:
 /// - **Vertical Onomatopoeia Recognition (`叽叽喳喳`)**:
@@ -944,11 +853,11 @@ fn test_regression_page_parallel_world_extra_account() {
 /// - Exactly 4 chatter bubbles (`吵闹`).
 /// - No hallucinated watermark regions.
 #[test]
-fn test_regression_page_825() {
+fn test_regression_page_stairs_vertical_chirping_noise() {
     let img = match crate::common::load_fixture_or_skip("zh_hans", "page_stairs_vertical_chirping_noise.webp") {
         Some(i) => i,
         None => {
-            eprintln!("[INFO] Skipping test_regression_page_825: fixture not found");
+            eprintln!("[INFO] Skipping test_regression_page_stairs_vertical_chirping_noise: fixture not found");
             return;
         }
     };
@@ -1035,7 +944,7 @@ fn test_regression_page_825() {
     );
 }
 
-/// # Regression Test: Page 690 / PageId 690 (Resolution: 800 × 1131 WebP)
+/// # Regression Test: Ye Ziyun Sacred Family Genius (Resolution: 800 × 1131 WebP)
 ///
 /// ## Purpose & Behavior Tested:
 /// - **Narration Box & Dialogue Panel Ground Truth**:
@@ -1054,23 +963,23 @@ fn test_regression_page_825() {
 /// - Exact text matching for all 3 regions.
 /// - Negative guard: Zero watermark `漫客栈` regions.
 #[test]
-fn test_regression_page_690() {
+fn test_regression_page_ye_ziyun_sacred_family_genius() {
     let img = match crate::common::load_fixture_or_skip("zh_hans", "page_ye_ziyun_sacred_family_genius.webp") {
         Some(i) => i,
         None => {
-            eprintln!("[INFO] Skipping test_regression_page_690: fixture not found");
+            eprintln!("[INFO] Skipping test_regression_page_ye_ziyun_sacred_family_genius: fixture not found");
             return;
         }
     };
 
     let res = get_or_analyze_fixture(&img);
-    println!("Page 690 detected {} regions:", res.regions.len());
+    println!("Page ye_ziyun_sacred_family_genius detected {} regions:", res.regions.len());
     for (i, r) in res.regions.iter().enumerate() {
         println!("  Region r{}: box={:?}, text='{}', angle={:.2}, conf={:.2}", i, r.box_, r.text.replace('\n', "\\n"), r.angle, r.confidence);
     }
 
     // 1. Exact count: exactly 3 regions
-    assert_eq!(res.regions.len(), 3, "Page 690 must have exactly 3 regions, got {}", res.regions.len());
+    assert_eq!(res.regions.len(), 3, "Page ye_ziyun_sacred_family_genius must have exactly 3 regions, got {}", res.regions.len());
 
     // 2. Top-right upper narration box
     let top_upper = res.regions.iter().find(|r| r.text.contains("城主之女") || r.text.contains("叶墨大人") || r.text.contains("青色灵魂海"));
@@ -1106,7 +1015,7 @@ fn test_regression_page_690() {
     );
 }
 
-/// # Regression Test: Page 64249 (Resolution: 800 × 1470 WebP)
+/// # Regression Test: Demon Spirit Book & Thirteen Years Old Adjacent (Resolution: 800 × 1470 WebP)
 ///
 /// ## Purpose & Behavior Tested:
 /// - **Adjacent Speech Bubble & Monologue Box Separation**:
@@ -1125,17 +1034,17 @@ fn test_regression_page_690() {
 /// - The upper-right bubble contains `一定是这本书带\n我回到了十三岁！`.
 /// - Negative guard: No conflated cross-bubble text containing `得到书得到它`.
 #[test]
-fn test_regression_page_64249() {
+fn test_regression_page_demon_spirit_book_thirteen_years_old_adjacent() {
     let img = match crate::common::load_fixture_or_skip("zh_hans", "page_demon_spirit_book_thirteen_years_old_adjacent.webp") {
         Some(i) => i,
         None => {
-            eprintln!("[INFO] Skipping test_regression_page_64249: fixture not found");
+            eprintln!("[INFO] Skipping test_regression_page_demon_spirit_book_thirteen_years_old_adjacent: fixture not found");
             return;
         }
     };
 
-    let res = crate::common::force_analyze_fixture(&img);
-    println!("Page 64249 detected {} regions:", res.regions.len());
+    let res = get_or_analyze_fixture(&img);
+    println!("Page demon_spirit_book_thirteen_years_old_adjacent detected {} regions:", res.regions.len());
     for (i, r) in res.regions.iter().enumerate() {
         println!("  Region r{}: box={:?}, text='{}', angle={:.2}, conf={:.2}", i, r.box_, r.text.replace('\n', "\\n"), r.angle, r.confidence);
     }
@@ -1191,7 +1100,7 @@ fn test_regression_page_64249() {
     );
 }
 
-/// # Regression Test: Page 64250 (Resolution: 800 × 1932 WebP)
+/// # Regression Test: Desert Marching Silhouette Hallucination (Resolution: 800 × 1932 WebP)
 ///
 /// ## Purpose & Behavior Tested:
 /// - **Desert Marching Silhouette Hallucination Suppression**:
@@ -1210,23 +1119,23 @@ fn test_regression_page_64249() {
 /// - Negative guard: Zero hallucinated `英界` / `益女` boxes.
 /// - Negative guard: Zero `漫客栈` watermark boxes.
 #[test]
-fn test_regression_page_64250() {
+fn test_regression_page_desert_marching_silhouette_hallucination() {
     let img = match crate::common::load_fixture_or_skip("zh_hans", "page_desert_marching_silhouette_hallucination.webp") {
         Some(i) => i,
         None => {
-            eprintln!("[INFO] Skipping test_regression_page_64250: fixture not found");
+            eprintln!("[INFO] Skipping test_regression_page_desert_marching_silhouette_hallucination: fixture not found");
             return;
         }
     };
 
     let res = crate::common::get_or_analyze_fixture(&img);
-    println!("Page 64250 detected {} regions:", res.regions.len());
+    println!("Page desert_marching_silhouette_hallucination detected {} regions:", res.regions.len());
     for (i, r) in res.regions.iter().enumerate() {
         println!("  Region r{}: box={:?}, text='{}', angle={:.2}, conf={:.2}", i, r.box_, r.text.replace('\n', "\\n"), r.angle, r.confidence);
     }
 
     // 1. Exact count: exactly 5 narration regions
-    assert_eq!(res.regions.len(), 5, "Page 64250 must have exactly 5 regions, got {}", res.regions.len());
+    assert_eq!(res.regions.len(), 5, "Page desert_marching_silhouette_hallucination must have exactly 5 regions, got {}", res.regions.len());
 
     // 2. Panel 1 narration: "群星陨落，天空一片黯淡"
     let p1_narration = res.regions.iter().find(|r| r.text.contains("群星陨落") || r.text.contains("天空一片黯淡"));
@@ -1266,7 +1175,7 @@ fn test_regression_page_64250() {
     );
 }
 
-/// # Regression Test: Page 58385 (Resolution: 800 × 1120 WebP)
+/// # Regression Test: Holographic Simulation Beaten Up (Resolution: 800 × 1120 WebP)
 ///
 /// ## Purpose & Behavior Tested:
 /// - **Large Multi-Line Horizontal Speech Bubble Unification**:
@@ -1287,23 +1196,23 @@ fn test_regression_page_64250() {
 /// - Negative guard: Zero vertical phantom slices (`"不：给：游"`, `"。拟头了没"`).
 /// - Negative guard: Zero `漫客栈` watermark regions.
 #[test]
-fn test_regression_page_58385_holographic_simulation_beaten_up() {
+fn test_regression_page_holographic_simulation_beaten_up() {
     let img = match crate::common::load_fixture_or_skip("zh_hans", "page_holographic_simulation_beaten_up.webp") {
         Some(i) => i,
         None => {
-            eprintln!("[INFO] Skipping test_regression_page_58385_holographic_simulation_beaten_up: fixture not found");
+            eprintln!("[INFO] Skipping test_regression_page_holographic_simulation_beaten_up: fixture not found");
             return;
         }
     };
 
     let res = crate::common::get_or_analyze_fixture_with_lang(&img, Some("zh_hans"));
-    println!("Page 58385 detected {} regions:", res.regions.len());
+    println!("Page holographic_simulation_beaten_up detected {} regions:", res.regions.len());
     for (i, r) in res.regions.iter().enumerate() {
         println!("  Region r{}: box={:?}, text='{}', angle={:.2}, conf={:.2}", i, r.box_, r.text.replace('\n', "\\n"), r.angle, r.confidence);
     }
 
     // 1. Exact count: exactly 2 regions (top speech bubble + bottom thought bubble)
-    assert_eq!(res.regions.len(), 2, "Page 58385 must have exactly 2 regions, got {}", res.regions.len());
+    assert_eq!(res.regions.len(), 2, "Page holographic_simulation_beaten_up must have exactly 2 regions, got {}", res.regions.len());
 
     // 2. Top speech bubble: 10-line unified dialogue
     let top_bubble = res.regions.iter().find(|r| r.text.contains("不是的") || r.text.contains("给揍了") || r.text.contains("全息模拟"));
@@ -1333,6 +1242,7 @@ fn test_regression_page_58385_holographic_simulation_beaten_up() {
         "Must not detect margin watermark '漫客栈'"
     );
 }
+
 
 
 
