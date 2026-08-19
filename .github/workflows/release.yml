@@ -148,11 +148,11 @@ jobs:
 
             ### 📦 Multi-Platform Downloads
 
-            | Platform | Architecture | File | Acceleration |
+            | Platform | Architecture | File | Acceleration / Hardware Support |
             | :--- | :--- | :--- | :--- |
-            | **Windows** | x86_64 | `xianscan-windows-x86_64.zip` | DirectML (NVIDIA / AMD / Intel GPU) |
-            | **Linux** | x86_64 | `xianscan-linux-x86_64.tar.gz` | CPU / OpenVINO |
-            | **macOS** | Apple Silicon (M1–M4) | `xianscan-macos-arm64.tar.gz` | Metal / CoreML |
+            | **Windows** | x86_64 | `xianscan-windows-x86_64.zip` | **DirectML GPU Acceleration** (NVIDIA / AMD / Intel) + Multi-threaded CPU |
+            | **Linux** | x86_64 | `xianscan-linux-x86_64.tar.gz` | **Multi-threaded CPU** (AVX2 / AVX-512 SIMD) |
+            | **macOS** | Apple Silicon (M1–M4) | `xianscan-macos-arm64.tar.gz` | **Multi-threaded CPU** (Apple Silicon ARM NEON SIMD) |
 
             ### 🧩 Browser Importer Extensions
             - **Chrome / Edge / Brave / Opera**: Download `xianscan-importer-chrome.zip` and extract to load unpacked in `chrome://extensions`.
