@@ -234,7 +234,12 @@
 			if (current.status === 'processing') {
 				inspectModalOpen = false;
 				inspectPage = null;
-			} else {
+			} else if (
+				current.status !== inspectPage.status ||
+				current.outputPath !== inspectPage.outputPath ||
+				current.cleanedPath !== inspectPage.cleanedPath ||
+				current.error !== inspectPage.error
+			) {
 				inspectPage = current;
 			}
 		}

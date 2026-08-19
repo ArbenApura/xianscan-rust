@@ -92,7 +92,7 @@
 	})();
 
 	function formatDuration(ms: number | undefined): string {
-		if (ms === undefined || ms === null) return '-';
+		if (ms === undefined || ms === null || !Number.isFinite(ms)) return '-';
 		if (ms < 1000) return `${Math.round(ms)}ms`;
 		const totalSec = ms / 1000;
 		if (totalSec < 60) return `${totalSec.toFixed(1)}s`;
@@ -107,16 +107,19 @@
 	}
 
 	function getPageTotalDuration(p: PageProgressState): number | undefined {
+		if (typeof p.totalDurationMs === 'number' && Number.isFinite(p.totalDurationMs) && p.totalDurationMs > 0) {
+			return p.totalDurationMs;
+		}
 		if (p.timings) {
 			const values = Object.values(p.timings);
 			const completedDurations = values
-				.filter((t) => t && t.status === 'completed' && typeof t.durationMs === 'number')
+				.filter((t) => t && t.status === 'completed' && typeof t.durationMs === 'number' && Number.isFinite(t.durationMs))
 				.map((t) => t!.durationMs!);
 			if (completedDurations.length > 0) {
 				return completedDurations.reduce((a, b) => a + b, 0);
 			}
 		}
-		return p.totalDurationMs;
+		return undefined;
 	}
 </script>
 
@@ -323,6 +326,7 @@
 								{@const transTiming = p.timings.translate}
 								{@const cleanTiming = p.timings.clean}
 								{@const typeTiming = p.timings.typeset}
+								{@const totalDur = getPageTotalDuration(p)}
 								<tr class="hover:bg-black/[0.02] dark:hover:bg-white/[0.02] transition-colors">
 									<!-- PAGE NUMBER -->
 									<td class="py-2 px-3 font-bold whitespace-nowrap">
@@ -375,12 +379,18 @@
 									<!-- TRANSLATE TIMING -->
 									<td class="py-2 px-3 hidden md:table-cell">
 										{#if transTiming?.status === 'completed'}
-											<span class="font-mono opacity-80">{formatDuration(transTiming.durationMs)}</span>
-											{#if transTiming.details?.cacheHit}
-												<span class="ml-1 rounded bg-emerald-500/10 px-1 py-0.2 text-[9px] font-bold text-emerald-600">HIT</span>
+											{#if transTiming.details?.skipped}
+												<span class="text-[10px] opacity-40 italic">Skipped (0 text)</span>
+											{:else}
+												<span class="font-mono opacity-80">{formatDuration(transTiming.durationMs)}</span>
+												{#if transTiming.details?.cacheHit}
+													<span class="ml-1 rounded bg-emerald-500/10 px-1 py-0.2 text-[9px] font-bold text-emerald-600">HIT</span>
+												{/if}
 											{/if}
 										{:else if transTiming?.status === 'running' && jobState.running}
 											<span class="text-[#b23a2e] font-semibold animate-pulse">Translating...</span>
+										{:else if p.status === 'done' && ocrTiming?.status === 'completed' && (!ocrTiming.details?.regionsCount || ocrTiming.details.regionsCount === 0)}
+											<span class="text-[10px] opacity-40 italic">Skipped (0 text)</span>
 										{:else}
 											<span class="opacity-25">-</span>
 										{/if}
@@ -410,10 +420,10 @@
 
 									<!-- TOTAL DURATION -->
 									<td class="py-2 px-3 text-right font-mono font-bold whitespace-nowrap">
-										{#if getPageTotalDuration(p)}
-											{formatDuration(getPageTotalDuration(p))}
+										{#if totalDur !== undefined}
+											{formatDuration(totalDur)}
 										{:else if p.status === 'processing' && jobState.running}
-											<span class="text-xs text-[#b23a2e] dark:text-[#e08a63] font-sans">...</span>
+											<span class="text-xs text-[#b23a2e] dark:text-[#e08a63] font-sans animate-pulse">...</span>
 										{:else}
 											<span class="opacity-25">-</span>
 										{/if}

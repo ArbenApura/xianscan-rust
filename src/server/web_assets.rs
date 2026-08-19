@@ -253,7 +253,12 @@ fn extract_all(app_dir: &std::path::Path) -> anyhow::Result<()> {
     fs::write(app_dir.join("package.json"), r#"{"type":"module"}"#)?;
 
     // 1. SvelteKit build output → app_dir/build/
-    extract_dir(&WEB_BUILD, &app_dir.join("build"))?;
+    // Clean stale build artifacts to prevent old hashed chunk files from persisting.
+    let build_dest = app_dir.join("build");
+    if build_dest.exists() {
+        let _ = fs::remove_dir_all(&build_dest);
+    }
+    extract_dir(&WEB_BUILD, &build_dest)?;
 
     // 2. Drizzle migration SQL files → app_dir/drizzle/
     //    drizzle-orm reads these at first boot to bring the DB schema up to date.

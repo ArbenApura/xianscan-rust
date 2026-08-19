@@ -177,12 +177,32 @@ fn main() {
 
     // RERUN IF NODE_MODULES, WEB/BIN LAYOUT, OR WEB ASSETS CHANGE
     let web_dir = manifest_dir.join("web");
-    println!("cargo:rerun-if-changed={}", node_modules.join("better-sqlite3").display());
-    println!("cargo:rerun-if-changed={}", node_modules.join("@napi-rs").display());
-    println!("cargo:rerun-if-changed={}", web_bin_dir.display());
-    println!("cargo:rerun-if-changed={}", web_dir.join("build").display());
-    println!("cargo:rerun-if-changed={}", web_dir.join("static").display());
-    println!("cargo:rerun-if-changed={}", web_dir.join("drizzle").display());
+    rerun_if_dir_changed(&node_modules.join("better-sqlite3"));
+    rerun_if_dir_changed(&node_modules.join("@napi-rs"));
+    rerun_if_dir_changed(&web_bin_dir);
+    rerun_if_dir_changed(&web_dir.join("build"));
+    rerun_if_dir_changed(&web_dir.join("static"));
+    rerun_if_dir_changed(&web_dir.join("drizzle"));
+    println!("cargo:rerun-if-changed={}", web_dir.join("package.json").display());
+}
+
+/// Recursively emit `cargo:rerun-if-changed` for all files in a directory so
+/// cargo rebuilds whenever frontend assets or compiled bundles change.
+fn rerun_if_dir_changed(dir: &std::path::Path) {
+    if !dir.exists() {
+        return;
+    }
+    println!("cargo:rerun-if-changed={}", dir.display());
+    if let Ok(entries) = std::fs::read_dir(dir) {
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if path.is_dir() {
+                rerun_if_dir_changed(&path);
+            } else {
+                println!("cargo:rerun-if-changed={}", path.display());
+            }
+        }
+    }
 }
 
 /// Strip the Windows extended-length path prefix (`\\?\`) that

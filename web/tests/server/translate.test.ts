@@ -47,7 +47,10 @@ describe('systemPrompt', () => {
 		expect(p).toContain('Floating Comic Art Captions');
 		expect(p).toContain('Comic Sound Effects (SFX) & Action Onomatopoeia');
 		expect(p).toContain('Wuxia / Xianxia / Cultivation Dialogue & Idioms');
-		expect(p).toContain('Intelligent OCR Noise & Stylized Comic Font Recovery');
+		expect(p).toContain('Intelligent OCR Noise, Artwork Artifacts & Speech Bubble Tails');
+		expect(p).toContain('Pronoun, Subject Resolution & Pro-Drop Accuracy');
+		expect(p).toContain('Verb Transitivity & Grammatical Voice Fidelity');
+		expect(p).toContain('Speech Bubble Tails & Artwork Artifact Filtering');
 	});
 
 	it('produces specialized Russian/Cyrillic prompt without Chinese Wuxia rules', () => {

@@ -49,11 +49,18 @@
 	let editModalOpen = false;
 	let loadingDetails = false;
 	let lastFetchedKey: string | null = null;
+	let lastInspectedPageId: number | null = null;
 
-	$: if (page) {
-		if (page.outputPath) inspectTab = 'output';
-		else if (page.cleanedPath) inspectTab = 'cleaned';
-		else inspectTab = 'original';
+	// INITIALIZE TAB ONCE PER INSPECTED PAGE (NEVER RESET ON BACKGROUND REACTIVE UPDATES)
+	$: if (open && page?.id) {
+		if (lastInspectedPageId !== page.id) {
+			lastInspectedPageId = page.id;
+			if (page.outputPath) inspectTab = 'output';
+			else if (page.cleanedPath) inspectTab = 'cleaned';
+			else inspectTab = 'original';
+		}
+	} else if (!open) {
+		lastInspectedPageId = null;
 	}
 
 	async function fetchFreshPageData(pageId: number, silent = false) {
@@ -65,9 +72,6 @@
 			const data = await res.json();
 			if (data.page && data.page.id === pageId) {
 				page = { ...page, ...data.page };
-				if (page.outputPath && inspectTab === 'original' && !page.cleanedPath) {
-					inspectTab = 'output';
-				}
 				dispatch('update', { page, reloadKey });
 			}
 		} catch (e: any) {

@@ -298,6 +298,17 @@ export async function runChapterPipeline(
 						}
 						emit({ type: 'page-step-end', chapterId, page: injectIdx, pageId: injectRow.id, step: 'translate', stepStatus: 'completed', durationMs: performance.now() - tT0, stepDetails: { cacheHit: false, model: translated.usage.model, tokens: (translated.usage.promptTokens ?? 0) + (translated.usage.completionTokens ?? 0), costUsd: translated.usage.costUsd } });
 						if (translated.usage && deps.onUsage) deps.onUsage(translated.usage);
+					} else {
+						emit({
+							type: 'page-step-end',
+							chapterId,
+							page: injectIdx,
+							pageId: injectRow.id,
+							step: 'translate',
+							stepStatus: 'completed',
+							durationMs: 0,
+							stepDetails: { skipped: true, textCount: 0 },
+						});
 					}
 
 					if (signal.aborted || deps.isPageCancelled?.(injectRow.id)) return;
@@ -566,6 +577,17 @@ export async function runChapterPipeline(
 					},
 				});
 				if (translated.usage && deps.onUsage) deps.onUsage(translated.usage);
+			} else {
+				emit({
+					type: 'page-step-end',
+					chapterId,
+					page: i,
+					pageId: page.id,
+					step: 'translate',
+					stepStatus: 'completed',
+					durationMs: 0,
+					stepDetails: { skipped: true, textCount: 0 },
+				});
 			}
 
 			signal.throwIfAborted();

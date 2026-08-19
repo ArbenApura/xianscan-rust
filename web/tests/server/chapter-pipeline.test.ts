@@ -612,6 +612,46 @@ describe('runChapterPipeline', () => {
 		expect(bookTerms[0].target).toBe('Hello');
 		expect(bookTerms[0].status).toBe('ai');
 	});
+
+	it('emits skipped translate step with durationMs: 0 and page-done durationMs when page has 0 regions', async () => {
+		seedBook(db, { id: 'b_zero_regions' });
+		const chapter = seedChapter(db, { bookId: 'b_zero_regions', seq: 0 });
+		const p0 = seedPage(db, { chapterId: chapter.id, seq: 0, filePath: 'uploads/zero_0.png' });
+		mkdirSync(join(dataRoot, 'uploads'), { recursive: true });
+		writeFileSync(join(dataRoot, 'uploads', 'zero_0.png'), PAGE_PNG);
+
+		class EmptyAnalyzePipeline extends FakePipeline {
+			override async analyze(): Promise<AnalyzeResult> {
+				return {
+					width: 200,
+					height: 300,
+					backend: 'comic-ctd',
+					regions: [],
+				};
+			}
+		}
+
+		const events: any[] = [];
+		await chapterWork(chapter.id, {
+			pipeline: new EmptyAnalyzePipeline(),
+			dataRoot,
+			llm: fakeLlm(),
+		})(new AbortController().signal, (e) => {
+			events.push(e);
+		});
+
+		const transEnd = events.find((e) => e.type === 'page-step-end' && e.step === 'translate');
+		expect(transEnd).toBeDefined();
+		expect(transEnd.stepStatus).toBe('completed');
+		expect(transEnd.durationMs).toBe(0);
+		expect(transEnd.stepDetails?.skipped).toBe(true);
+
+		const pageDone = events.find((e) => e.type === 'page-done' && e.pageId === p0.id);
+		expect(pageDone).toBeDefined();
+		expect(typeof pageDone.durationMs).toBe('number');
+		expect(pageDone.durationMs).toBeGreaterThan(0);
+	});
 });
+
 
 

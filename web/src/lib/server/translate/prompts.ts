@@ -14,6 +14,10 @@ export function getSourceLanguageProfile(src: string, tgtName: string): string {
 	const primary = src.split('-')[0].toLowerCase();
 	if (primary === 'zh') {
 		return `Manhua & Chinese Culture Localization Rules:
+- Pronoun & Omitted Subject Resolution (Pro-drop):
+  * In Chinese conversational dialogue, subjects (我, 你, 他, 她, 他们, 众人) are frequently omitted.
+  * NEVER default to inserting "I" / "my" / "me" unless the speaker is explicitly referring to themselves.
+  * Strictly distinguish intransitive/passive states from active actions (e.g. 死了/破了/不见了 vs 杀了/打破了/弄丢了).
 - Wuxia / Xianxia / Cultivation Dialogue & Idioms:
   * Localize common Chinese idioms, exclamation phrases, and curses into natural, punchy, and idiomatic ${tgtName} (e.g. 找死, 好大的胆子, 手下留情, 雕虫小技, 休想, 废话少说, 多管闲事, 井底之蛙).
   * Naturally adapt or preserve martial and kinship forms of address into natural ${tgtName} honorifics/kinship terms (e.g. 师尊/师父, 师兄/师姐/师弟/师妹, 掌门/宗主, 前辈/阁下, 本座/本王/老子/本少, 臭丫头/臭小子).
@@ -49,6 +53,10 @@ export function getSourceLanguageProfile(src: string, tgtName: string): string {
 
 	if (primary === 'ja') {
 		return `Japanese Manga Localization Rules:
+- Pronoun & Omitted Subject Resolution (Pro-drop):
+  * Japanese dialogue routinely omits subjects and pronouns.
+  * NEVER default to inserting "I" / "my" / "me" into impersonal observations or third-party descriptions.
+  * Strictly distinguish intransitive/passive verbs from transitive/causative actions (e.g. 落ちる/落とす, 消える/消す, 死ぬ/殺す, 倒れる/倒す, 壊れる/壊す).
 - Manga Sound Effects (Gitaigo / Giseigo):
   * Render all manga sound effects into punchy ALL-CAPS ${tgtName} onomatopoeia (e.g. ドキドキ, ドン/ドカーン, ガタッ/ガタガタ, ニコ/ニコニコ, パチパチ, ギラッ/ピカッ, ピクッ/ビクッ, シーン, ハァ/フゥ, ザー/ザァァ, バッ/サッ, ゴクッ).
 - Honorifics & Relationships:
@@ -57,6 +65,20 @@ export function getSourceLanguageProfile(src: string, tgtName: string): string {
 
 	if (primary === 'ko') {
 		return `Korean Manhwa Localization Rules:
+- Pronoun & Omitted Subject Resolution (Pro-drop):
+  * Korean frequently omits grammatical subjects (I, you, he, she, they, people, we).
+  * NEVER default to inserting "I" / "my" / "me" unless the speaker is explicitly referring to themselves.
+  * Transitive vs Intransitive & Passive Distinction: Strictly differentiate intransitive verbs / states from transitive actions:
+    - 죽다 (to die / perish) vs 죽이다 (to kill / slay) -> "많이 죽긴 했어" = "Too many (people/challengers) died", NOT "I killed many".
+    - 다치다 (to get hurt) vs 다치게 하다 (to hurt someone).
+    - 사라지다 (to vanish) vs 없애다 (to eliminate).
+    - 떨어지다 (to fall/fail) vs 떨어뜨리다 (to drop).
+    - 망하다 (to be ruined) vs 망치다 (to ruin).
+  * Infer omitted subjects accurately from dialogue context, preceding bubbles, or impersonal third-person ("they", "people", "challengers", "it").
+- Chat Windows, Livestream Comments & Gamer Handles:
+  * Bracketed usernames (e.g. [아모른직다]:, [하울의 무빙성]:, [라임 깨쩌는 오렌지]:) represent chat room spectators, commenters, or raid players.
+  * Spectator comments discuss the situation or third parties (e.g. raid casualties, bosses, guilds), not personal actions.
+  * Preserve the bracketed format [Username]: with usernames accurately localized or transliterated.
 - Manhwa Sound Effects & Action Onomatopoeia:
   * Render sound effects into punchy ALL-CAPS ${tgtName} onomatopoeia (e.g. 쿵/쾅, 두근두근, 슥/척, 찰칵, 으아아/꺄아, 씨익, 퍽/탁, 번쩍).
 - Korean Honorifics & Kinship Forms:
@@ -105,6 +127,22 @@ Target Language Invariant:
 - Do NOT output English or any other language unless the target language is explicitly English.
 - Every translated sentence, thought, exclamation, and sound effect must be localized into ${tgtName}.
 
+Contextual Continuity & Multi-Bubble Flow:
+- Page-Wide Context: Treat all regions on the page as part of an interconnected scene. Read preceding and following regions to maintain consistent pronoun references, conversational flow, and speaker identity.
+- Speaker Continuity: Ensure replies match the questions asked in earlier bubbles on the same page.
+
+Pronoun, Subject Resolution & Pro-Drop Accuracy:
+- Avoid First-Person Hallucinations: In languages with omitted subjects (Korean, Japanese, Chinese, etc.) or conversational speech, do NOT default to inserting "I" / "me" / "my" unless the speaker is unambiguously referring to themselves.
+- Impersonal & Third-Party Context: When a sentence describes an event, disaster, casualty count, general fact, or environmental state, infer the subject naturally as impersonal ("it", "there is/are") or third-person ("they", "people", "challengers", "everyone").
+
+Verb Transitivity & Grammatical Voice Fidelity:
+- Strictly distinguish intransitive/passive states (e.g. "died", "got lost", "broke", "vanished", "collapsed") from active transitive actions (e.g. "killed", "threw away", "destroyed", "eliminated", "knocked down").
+- NEVER turn an accidental event, casualty count, or natural occurrence into an active deliberate act performed by an invented subject.
+
+UI, Livestreams, Game Chat & System Prompts:
+- In-Universe Chat & Livestream Handles: Bracketed prefixes like [Username]: or 【Player】: represent chatroom spectators or commenters. Render them cleanly in [Username]: format and treat their dialogue as external commentary rather than scene action.
+- System Windows & Game Notifications: Localize status cards, quest popups, and skill notifications into clean, immersive game UI terminology.
+
 Comic Conversation & Dialogue Style:
 - Conversational Flow: Write natural spoken dialogue as real characters speak in ${tgtName} comics. Use natural colloquial phrasing, contractions, and lively expressions suitable for voice acting. Avoid stiff, robotic, or overly literal translations.
 - Tone & Character Personality: Reflect the speaker's personality, emotion, age, and social standing (e.g. arrogant rivals, wise masters, energetic protagonists, stern villains, flustered heroines, playful sidekicks).
@@ -115,9 +153,13 @@ Comic Conversation & Dialogue Style:
   * free_text / sfx: Comic onomatopoeia, floating sound effects, or sketch captions in ${tgtName}. Render sound effects in ALL-CAPS.
   * other: UI, system prompts, stat cards, or narrator captions in ${tgtName}.
 
-Intelligent OCR Noise & Stylized Comic Font Recovery:
+Intelligent OCR Noise, Artwork Artifacts & Speech Bubble Tails:
 - Comic lettering and hand-drawn sound effects frequently suffer from visual OCR character confusions (e.g. brush strokes or cursive glyphs read as digits like '4', '6', '0', '3', '1' or mixed Latin/ASCII characters).
 - When a region contains garbled tokens or leetspeak glyphs, reconstruct the intended word or sound effect from visual character similarity and comic context before translating into ${tgtName}.
+- Speech Bubble Tails & Artwork Artifact Filtering:
+  * Trailing Tail & Nub Noise: When a complete dialogue sentence concludes with its natural terminal punctuation or complete semantic thought, but is followed by trailing isolated digits, zero clusters, or stray ellipses (caused by OCR misinterpreting circular thought-bubble tails "o o o" or pointer nubs as "20...", "00...", "oo", "8"), strip the trailing artifact characters.
+  * Stray Border & Punctuation Artifacts: When curved bubble outlines, speed lines, or sweat drops are misrecognized as stray unmatched leading/trailing punctuation (e.g. isolated "(", ")", "C", "O" wrapping regular spoken sentences), strip the artifact.
+  * Safety Invariant: Filter extraneous characters ONLY when 100% certain they are visual OCR artifacts completely disconnected from the story dialogue. If a number or symbol represents a genuine in-universe timer, countdown, level/stat, skill rank, or intentional parenthetical thought, preserve it accurately.
 - NEVER output raw OCR gibberish if the intended comic word or sound effect can be reasonably identified.
 
 Comic Sound Effects (SFX) & Action Onomatopoeia:
@@ -137,6 +179,10 @@ Punctuation & Reaction Bubbles:
 
 Watermark & Scanlation Tag Filtering:
 - Piracy Watermarks & Aggregator Ads: If a text region is STRICTLY a third-party pirate watermark, scanlation group recruitment ad, website URL/domain, aggregator watermark, scanlation QQ/Discord group, or uploader logo, return an EMPTY STRING "" for its id.
+- Intrusive Mid-Sentence Watermarks & Overlay Noise:
+  * When a third-party watermark, website domain, scanlation logo, or aggregator stamp physically overlaps a dialogue bubble, OCR may erroneously splice foreign watermark characters, site names, or random stamp glyphs directly into the middle, beginning, or end of a sentence.
+  * In such cases, intelligently excise the intrusive watermark characters and translate ONLY the clean, intended underlying story dialogue into ${tgtName}.
+  * 100% Certainty Constraint: Apply this excision ONLY when you are 100% CERTAIN that the inserted characters are a watermark/overlay collision that breaks the natural grammar and has zero semantic connection to the comic story. Never alter or omit genuine in-universe proper nouns, fantasy terms, or intentional dialogue quirks.
 - Story Text is NOT a Watermark: In-universe names, military forces, bandit fortresses, location names, or character sketch captions are NOT watermarks. NEVER filter them out.
 - Official Comic Staff & Production Credits: ALWAYS TRANSLATE official manga/manhua/comic author, artist, and studio production credits into ${tgtName}.
 - If a dialogue bubble contains legitimate character speech mixed with a trailing watermark or website URL, translate ONLY the dialogue portion into ${tgtName} and omit the watermark entirely.

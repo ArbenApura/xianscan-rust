@@ -1,7 +1,7 @@
 // GLOBAL JOB TRACKER STORE — MULTI-CHAPTER BACKGROUND JOB MANAGER WITH SELF-HEALING & SSE REHYDRATION
 import { writable, derived, get } from 'svelte/store';
 import { browser } from '$app/environment';
-import type { ChapterJobSnapshot, JobEventType, PipelineStep, StepTiming } from '$lib/types';
+import type { ChapterJobSnapshot, JobEventType, PageProgressState, PipelineStep, StepTiming } from '$lib/types';
 import { streamSse, type SseEvent } from '$lib/sse';
 import { settings } from '$lib/stores/settings';
 
@@ -40,6 +40,17 @@ function createJobTrackerStore() {
 			lastError: null,
 			reconnectAttempts: 0,
 		};
+	}
+
+	function findTargetPage(pages: PageProgressState[], pageIdx?: number, pageId?: number): PageProgressState | undefined {
+		if (pageId !== undefined) {
+			const found = pages.find((p) => p.pageId === pageId);
+			if (found) return found;
+		}
+		if (pageIdx !== undefined && pageIdx >= 0 && pageIdx < pages.length) {
+			return pages[pageIdx];
+		}
+		return undefined;
 	}
 
 	function applyEventToSnapshot(snapshot: ChapterJobSnapshot, event: SseEvent): ChapterJobSnapshot {
@@ -106,21 +117,13 @@ function createJobTrackerStore() {
 			}
 
 		} else if (event.type === 'page-cancelled') {
-			const pageIdx = event.page as number;
-			const pageId = event.pageId as number | undefined;
-			const targetIdx =
-				pageIdx !== undefined && s.pages[pageIdx]
-					? pageIdx
-					: pageId !== undefined
-						? s.pages.findIndex((p) => p.pageId === pageId)
-						: -1;
-			if (targetIdx >= 0 && s.pages[targetIdx]) {
-				const p = s.pages[targetIdx];
+			const p = findTargetPage(s.pages, event.page as number, event.pageId as number);
+			if (p) {
 				p.status = 'pending';
 				p.currentStep = undefined;
-				for (const [step, t] of Object.entries(p.timings)) {
+				for (const [step, t] of Object.entries(p.timings) as [PipelineStep, StepTiming | undefined][]) {
 					if (t && t.status === 'running') {
-						p.timings[step as PipelineStep] = {
+						p.timings[step] = {
 							...t,
 							status: 'failed',
 							details: { ...t.details, error: 'Cancelled' },
@@ -129,10 +132,9 @@ function createJobTrackerStore() {
 				}
 			}
 		} else if (event.type === 'page-step-start') {
-			const pageIdx = event.page as number;
 			const step = event.step as PipelineStep;
-			if (pageIdx !== undefined && step && s.pages[pageIdx]) {
-				const p = s.pages[pageIdx];
+			const p = findTargetPage(s.pages, event.page as number, event.pageId as number);
+			if (step && p) {
 				p.status = 'processing';
 				p.currentStep = step;
 				p.timings[step] = {
@@ -143,18 +145,17 @@ function createJobTrackerStore() {
 				};
 			}
 		} else if (event.type === 'page-step-end') {
-			const pageIdx = event.page as number;
 			const step = event.step as PipelineStep;
-			if (pageIdx !== undefined && step && s.pages[pageIdx]) {
-				const p = s.pages[pageIdx];
+			const p = findTargetPage(s.pages, event.page as number, event.pageId as number);
+			if (step && p) {
 				const timing = p.timings[step] ?? { step, status: 'completed' };
 				timing.status = (event.stepStatus as any) || 'completed';
 				timing.completedAt = now;
 				timing.durationMs =
-					typeof event.durationMs === 'number'
+					typeof event.durationMs === 'number' && Number.isFinite(event.durationMs)
 						? event.durationMs
 						: timing.startedAt
-							? now - timing.startedAt
+							? Math.max(0, now - timing.startedAt)
 							: undefined;
 				if (event.stepDetails) {
 					timing.details = { ...timing.details, ...(event.stepDetails as any) };
@@ -164,24 +165,22 @@ function createJobTrackerStore() {
 			}
 		} else if (event.type === 'term-extract-step') {
 			if (!s.phase2Stats) s.phase2Stats = {};
-			if (typeof event.durationMs === 'number') s.phase2Stats.durationMs = event.durationMs;
+			if (typeof event.durationMs === 'number' && Number.isFinite(event.durationMs)) s.phase2Stats.durationMs = event.durationMs;
 			if (event.stepDetails && typeof (event.stepDetails as any).regionsCount === 'number') {
 				s.phase2Stats.termCount = (event.stepDetails as any).regionsCount;
 			}
 		} else if (event.type === 'page-done') {
-			const pageIdx = event.page as number;
-			if (pageIdx !== undefined && s.pages[pageIdx]) {
-				const p = s.pages[pageIdx];
+			const p = findTargetPage(s.pages, event.page as number, event.pageId as number);
+			if (p) {
 				p.status = 'done';
 				p.currentStep = 'done';
 				if (typeof event.outputPath === 'string') p.outputPath = event.outputPath;
-				if (typeof event.durationMs === 'number') p.totalDurationMs = event.durationMs;
+				if (typeof event.durationMs === 'number' && Number.isFinite(event.durationMs)) p.totalDurationMs = event.durationMs;
 			}
 			s.completedPages = s.pages.filter((p) => p.status === 'done').length;
 		} else if (event.type === 'error') {
-			const pageIdx = event.page as number;
-			if (pageIdx !== undefined && s.pages[pageIdx]) {
-				const p = s.pages[pageIdx];
+			const p = findTargetPage(s.pages, event.page as number, event.pageId as number);
+			if (p) {
 				p.status = 'error';
 				p.currentStep = 'error';
 				p.failedStep = event.failedStep as PipelineStep;

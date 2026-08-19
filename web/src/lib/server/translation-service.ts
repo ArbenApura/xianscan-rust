@@ -116,6 +116,17 @@ if (typeof setInterval !== 'undefined') {
 	if (pruneInterval.unref) pruneInterval.unref();
 }
 
+function findTargetPage(pages: PageProgressState[], pageIdx?: number, pageId?: number): PageProgressState | undefined {
+	if (pageId !== undefined) {
+		const found = pages.find((p) => p.pageId === pageId);
+		if (found) return found;
+	}
+	if (pageIdx !== undefined && pageIdx >= 0 && pageIdx < pages.length) {
+		return pages[pageIdx];
+	}
+	return undefined;
+}
+
 function updateSnapshot(snapshot: ChapterJobSnapshot, event: JobEvent): void {
 	const now = event.timestamp ?? Date.now();
 
@@ -162,9 +173,8 @@ function updateSnapshot(snapshot: ChapterJobSnapshot, event: JobEvent): void {
 		}
 
 	} else if (event.type === 'page-cancelled') {
-		const pageIdx = event.page;
-		if (pageIdx !== undefined && snapshot.pages[pageIdx]) {
-			const p = snapshot.pages[pageIdx];
+		const p = findTargetPage(snapshot.pages, event.page, event.pageId);
+		if (p) {
 			p.status = 'pending';
 			p.currentStep = undefined;
 			for (const [step, t] of Object.entries(p.timings)) {
@@ -178,10 +188,9 @@ function updateSnapshot(snapshot: ChapterJobSnapshot, event: JobEvent): void {
 			}
 		}
 	} else if (event.type === 'page-step-start') {
-		const pageIdx = event.page;
 		const step = event.step;
-		if (pageIdx !== undefined && step && snapshot.pages[pageIdx]) {
-			const p = snapshot.pages[pageIdx];
+		const p = findTargetPage(snapshot.pages, event.page, event.pageId);
+		if (step && p) {
 			p.status = 'processing';
 			p.currentStep = step;
 			p.timings[step] = {
@@ -192,14 +201,17 @@ function updateSnapshot(snapshot: ChapterJobSnapshot, event: JobEvent): void {
 			};
 		}
 	} else if (event.type === 'page-step-end') {
-		const pageIdx = event.page;
 		const step = event.step;
-		if (pageIdx !== undefined && step && snapshot.pages[pageIdx]) {
-			const p = snapshot.pages[pageIdx];
+		const p = findTargetPage(snapshot.pages, event.page, event.pageId);
+		if (step && p) {
 			const timing = p.timings[step] ?? { step, status: 'completed' };
 			timing.status = event.stepStatus ?? 'completed';
 			timing.completedAt = now;
-			timing.durationMs = event.durationMs ?? (timing.startedAt ? now - timing.startedAt : undefined);
+			timing.durationMs = typeof event.durationMs === 'number' && Number.isFinite(event.durationMs)
+				? event.durationMs
+				: timing.startedAt
+					? Math.max(0, now - timing.startedAt)
+					: undefined;
 			if (event.stepDetails) {
 				timing.details = { ...timing.details, ...event.stepDetails };
 				if (event.stepDetails.cacheHit) snapshot.cacheHitCount++;
@@ -213,19 +225,19 @@ function updateSnapshot(snapshot: ChapterJobSnapshot, event: JobEvent): void {
 			snapshot.phase2Stats.termCount = event.stepDetails?.regionsCount ?? snapshot.phase2Stats.termCount;
 		}
 	} else if (event.type === 'page-done') {
-		const pageIdx = event.page;
-		if (pageIdx !== undefined && snapshot.pages[pageIdx]) {
-			const p = snapshot.pages[pageIdx];
+		const p = findTargetPage(snapshot.pages, event.page, event.pageId);
+		if (p) {
 			p.status = 'done';
 			p.currentStep = 'done';
 			p.outputPath = event.outputPath ?? p.outputPath;
-			if (event.durationMs) p.totalDurationMs = event.durationMs;
+			if (typeof event.durationMs === 'number' && Number.isFinite(event.durationMs)) {
+				p.totalDurationMs = event.durationMs;
+			}
 		}
 		snapshot.completedPages = snapshot.pages.filter((p) => p.status === 'done').length;
 	} else if (event.type === 'error') {
-		const pageIdx = event.page;
-		if (pageIdx !== undefined && snapshot.pages[pageIdx]) {
-			const p = snapshot.pages[pageIdx];
+		const p = findTargetPage(snapshot.pages, event.page, event.pageId);
+		if (p) {
 			p.status = 'error';
 			p.currentStep = 'error';
 			p.failedStep = event.failedStep;

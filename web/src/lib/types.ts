@@ -145,6 +145,8 @@ export interface StepTiming {
 	durationMs?: number;
 	details?: {
 		regionsCount?: number;
+		textCount?: number;
+		skipped?: boolean;
 		cacheHit?: boolean;
 		model?: string;
 		tokens?: number;
