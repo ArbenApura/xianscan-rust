@@ -2,9 +2,9 @@
 
 # 🏮 XianScan-Rust (仙Scan)
 
-**Native High-Performance Translation Suite for Chinese Manhua, Korean Manhwa, & Japanese Manga**
+**Native Comic Translation Server for Chinese Manhua, Korean Manhwa, & Japanese Manga**
 
-*Automated Speech Bubble Detection, Multi-Language OCR, Multi-Provider LLM Translation, AI Inpainting, and Studio Typesetting — Powered by Rust & ONNX Runtime.*
+*Speech bubble detection, multi-language OCR, LLM translation, inpainting, and typesetting built with Rust & ONNX Runtime.*
 
 <br/>
 
@@ -21,45 +21,43 @@
 
 ## 📖 Overview
 
-**XianScan-Rust** is an all-in-one native translation and scanlation suite engineered specifically for **Chinese Manhua (国漫)**, **Korean Manhwa (웹툰/만화)**, **Japanese Manga (漫画)**, and **Western Comics**.
+**XianScan-Rust** is a native translation tool designed for **Chinese Manhua (国漫)**, **Korean Manhwa (웹툰/만화)**, **Japanese Manga (漫画)**, and **Western Comics**.
 
-It brings the entire scanlation pipeline into a single, cohesive workflow:
-1. **Detects & Segments**: Automatically identifies speech bubbles, text boxes, and free-floating SFX (Sound Effects).
-2. **Recognizes Text**: Accurately extracts text with dedicated language-tuned OCR engines across vertical and horizontal reading directions.
-3. **Translates with Context**: Translates dialogue using cutting-edge LLMs guided by dynamic glossaries (cultivation realms, honorifics, character names).
-4. **Cleans Artwork**: Seamlessly inpaints background artwork using deep neural networks to produce spotless raw pages.
-5. **Typesets Automatically**: Fits, balances, and renders dialogue with industry-standard comic typography and per-glyph font fallback.
-
-Built with native Rust and ONNX Runtime, XianScan delivers **instant startup (<30ms)**, a **lean ~45MB idle memory footprint**, and a **fully self-contained, zero-dependency executable**.
+It provides an end-to-end comic translation workflow:
+1. **Detection & Segmentation**: Detects speech bubbles, text boxes, and on-page sound effects.
+2. **Text Recognition (OCR)**: Extracts text with OCR models supporting horizontal and vertical reading orders.
+3. **Translation**: Translates text using customizable LLM providers with glossary support.
+4. **Artwork Cleaning**: Inpaints text regions using LaMa neural inpainting.
+5. **Typesetting**: Renders translated text into bubbles with automatic font sizing, line balancing, and font fallback.
 
 ---
 
-## ✨ Features Tailored for Comic Media
+## 📚 Comic Format Support
 
-| Media Type | Specialized Capabilities |
+| Format | Features |
 | :--- | :--- |
-| **🇨🇳 Chinese Manhua** | Tuned for colorful vertical strips, dense cultivation terminology, watermark suppression, and multi-line narrative blocks. |
-| **🇰🇷 Korean Manhwa & Webtoons** | Smart panel gutter slicing (`/pages/reslice`), continuous vertical stitch mode, and dedicated Korean OCR dictionary routing. |
-| **🇯🇵 Japanese Manga** | Right-to-left reading order detection, vertical text line recognition, Furigana handling, and complex panel layout analysis. |
-| **🌐 Western & Global Comics** | Full Latin script typesetting, uppercase balloon typography, hyphenation, and multi-line paragraph balancing. |
+| **🇨🇳 Chinese Manhua** | Vertical scroll strips, cultivation terminology glossaries, and multi-line narrative blocks. |
+| **🇰🇷 Korean Manhwa & Webtoons** | Long-strip gutter splitting (`/pages/reslice`), vertical page stitching, and Korean OCR dictionary support. |
+| **🇯🇵 Japanese Manga** | Right-to-left panel flow, vertical text line OCR, Furigana handling, and multi-column bubble detection. |
+| **🌐 Western & Global Comics** | Horizontal text flow, uppercase comic typography, and paragraph line wrapping. |
 
 ---
 
-## 🚀 Key Highlights
+## ⚙️ Features
 
-- **⚡ Self-Contained Single Binary**: Download and double-click to launch — all AI models, Web UI, and engines are bundled directly inside.
-- **🚀 Universal Hardware Acceleration**: Instant acceleration out of the box using CPU SIMD (AVX2/AVX-512/NEON) and automatic DirectML GPU acceleration across NVIDIA, AMD, Intel, and Apple Silicon.
-- **🎯 RT-DETR Speech Bubble Detection**: Deep learning object detector identifies speech bubble containers, enclosed text lines, and free-floating text/SFX with polygon precision.
-- **🎨 Neural Background Inpainting**: High-fidelity text erasure powered by Big-LaMa ONNX with seamless texture and gradient reconstruction.
-- **✍️ Studio-Grade Comic Typography**: Automatic font size scaling, dialogue line balancing, text stroke outlines, and CC Wild Words comic typeface support.
-- **📜 Smart Webtoon Stitching & Slicing**: Automatically stitches split images into continuous webtoon rolls or slices long continuous pages along natural panel gutters.
-- **🌐 Accessible LAN & Remote Server**: Embedded web interface accessible from desktop browsers, mobile phones, or local network tablets.
+- **Single Executable**: Available as a standalone binary with embedded models and web interface.
+- **Hardware Acceleration**: Runs on CPU (with SIMD optimizations) or GPU via DirectML (Windows/DirectX-compatible GPUs).
+- **Bubble Detection**: Uses an RT-DETR model to locate speech bubbles, text regions, and sound effects.
+- **Background Inpainting**: Uses LaMa ONNX to erase original text and restore background art.
+- **Comic Typesetting**: Automatic text fitting, line wrapping, outlines, and comic font support (CC Wild Words).
+- **Webtoon Tools**: Functions for stitching pages into long vertical rolls and slicing strips along panel gutters.
+- **Web Interface & LAN Access**: Browser-based UI with chapters management, editor tools, and remote LAN access.
 
 ---
 
-## 🌐 Supported Source & Target Languages
+## 🌐 Supported OCR Languages
 
-XianScan provides native detection, dictionary routing, and OCR models across **11 languages**:
+Native OCR models and dictionaries are included for **11 languages**:
 
 - **East Asian**: Chinese (Simplified), Chinese (Traditional), Japanese, Korean
 - **Southeast Asian**: Vietnamese, Thai, Indonesian
@@ -69,11 +67,11 @@ XianScan provides native detection, dictionary routing, and OCR models across **
 
 ## 🤖 Supported Translation Providers
 
-Connect your preferred AI provider or run completely offline:
+Connect to cloud APIs or local models:
 
-- **Cloud AI**: DeepSeek (V3, R1, V4), Google AI Studio (Gemini 2.5 / 2.0 Flash), Groq (Llama 3.3 70B, Qwen 2.5 32B), OpenRouter (Claude 3.5 Sonnet, etc.), OpenAI (GPT-4o, GPT-4o-mini).
-- **Local & Self-Hosted**: Ollama, LM Studio, vLLM, LocalAI, Aphrodite, and any OpenAI-compatible endpoint.
-- **Dynamic Series Glossaries**: Automatic Aho-Corasick terminology injection ensures 100% consistency for character names, martial arts skills, cultivation ranks, and faction names across chapters.
+- **Cloud AI**: DeepSeek (V3, R1, V4), Google AI Studio (Gemini), Groq, OpenRouter, OpenAI.
+- **Local & Self-Hosted**: Ollama, LM Studio, vLLM, LocalAI, and other OpenAI-compatible endpoints.
+- **Series Glossaries**: Terminology matching (via Aho-Corasick) to maintain consistent character names, techniques, and terms across chapters.
 
 ---
 
