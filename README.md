@@ -21,7 +21,7 @@
 
 ## 📖 Overview
 
-**XianScan-Rust** is a native translation tool designed for **Chinese Manhua (国漫)**, **Korean Manhwa (웹툰/만화)**, **Japanese Manga (漫画)**, and **Western Comics**.
+**XianScan-Rust** is a native translation tool designed to be as **portable and easy-to-use as possible** for **Chinese Manhua (国漫)**, **Korean Manhwa (웹툰/만화)**, **Japanese Manga (漫画)**, and **Western Comics**.
 
 It provides an end-to-end comic translation workflow:
 1. **Detection & Segmentation**: Detects speech bubbles, text boxes, and on-page sound effects.
@@ -45,7 +45,7 @@ It provides an end-to-end comic translation workflow:
 
 ## ⚙️ Features
 
-- **Single Executable**: Available as a standalone binary with embedded models and web interface.
+- **Portable Single Executable**: Designed to be as portable and easy to use as possible — download, run, and start translating immediately with embedded models and web interface.
 - **Hardware Acceleration**: Runs on CPU (with SIMD optimizations) or GPU via DirectML (Windows/DirectX-compatible GPUs).
 - **Bubble Detection**: Uses an RT-DETR model to locate speech bubbles, text regions, and sound effects.
 - **Background Inpainting**: Uses LaMa ONNX to erase original text and restore background art.
