@@ -57,10 +57,10 @@ Our primary mission is to provide an **uninterrupted, automated reading flow** f
 
 | Format | Specialized Pipeline Features |
 | :--- | :--- |
-| **🇨🇳 Manhua (国漫)** | Vertical scroll strips, cultivation terminology glossaries, and multi-line narrative blocks. |
-| **🇰🇷 Manhwa & Webtoons (웹툰)** | Long-strip gutter splitting (`/pages/reslice`), vertical page stitching, and Korean OCR dictionary support. |
-| **🇯🇵 Manga (漫画)** | Right-to-left panel flow, vertical text line OCR, Furigana handling, and multi-column bubble detection. |
-| **🌐 Global & Western Comics** | Horizontal text flow, uppercase comic typography, and dynamic paragraph line wrapping. |
+| <img src="https://flagcdn.com/20x15/cn.png" width="18" height="13" alt="China" /> **Manhua (国漫)** | Vertical scroll strips, cultivation terminology glossaries, and multi-line narrative blocks. |
+| <img src="https://flagcdn.com/20x15/kr.png" width="18" height="13" alt="Korea" /> **Manhwa & Webtoons (웹툰)** | Long-strip gutter splitting (`/pages/reslice`), vertical page stitching, and Korean OCR dictionary support. |
+| <img src="https://flagcdn.com/20x15/jp.png" width="18" height="13" alt="Japan" /> **Manga (漫画)** | Right-to-left panel flow, vertical text line OCR, Furigana handling, and multi-column bubble detection. |
+| 🌐 **Global & Western Comics** | Horizontal text flow, uppercase comic typography, and dynamic paragraph line wrapping. |
 
 ---
 
@@ -80,9 +80,9 @@ Our primary mission is to provide an **uninterrupted, automated reading flow** f
 
 Native OCR models and dictionaries are included for **11 languages**:
 
-- **East Asian**: 🇨🇳 Chinese (Simplified & Traditional), 🇯🇵 Japanese, 🇰🇷 Korean
-- **Southeast Asian**: 🇻🇳 Vietnamese, 🇹🇭 Thai, 🇮🇩 Indonesian
-- **European & Global**: 🇬🇧 English, 🇪🇸 Spanish, 🇫🇷 French, 🇷🇺 Russian
+- **East Asian**: <img src="https://flagcdn.com/20x15/cn.png" width="18" height="13" alt="China" /> Chinese (Simplified & Traditional), <img src="https://flagcdn.com/20x15/jp.png" width="18" height="13" alt="Japan" /> Japanese, <img src="https://flagcdn.com/20x15/kr.png" width="18" height="13" alt="Korea" /> Korean
+- **Southeast Asian**: <img src="https://flagcdn.com/20x15/vn.png" width="18" height="13" alt="Vietnam" /> Vietnamese, <img src="https://flagcdn.com/20x15/th.png" width="18" height="13" alt="Thailand" /> Thai, <img src="https://flagcdn.com/20x15/id.png" width="18" height="13" alt="Indonesia" /> Indonesian
+- **European & Global**: <img src="https://flagcdn.com/20x15/gb.png" width="18" height="13" alt="UK" /> English, <img src="https://flagcdn.com/20x15/es.png" width="18" height="13" alt="Spain" /> Spanish, <img src="https://flagcdn.com/20x15/fr.png" width="18" height="13" alt="France" /> French, <img src="https://flagcdn.com/20x15/ru.png" width="18" height="13" alt="Russia" /> Russian
 
 ---
 
