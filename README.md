@@ -18,18 +18,32 @@
 [![Support on Ko-Fi](https://img.shields.io/badge/Support_on-Ko--Fi-FF5E5B?style=for-the-badge&logo=kofi&logoColor=white)](https://ko-fi.com/arbenapura)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow?style=for-the-badge)](LICENSE)
 
-<br/>
-<br/>
-
 | 📖 1. Original Raw Source | 🎨 2. Neural Inpainted Canvas | ✍️ 3. Translated & Typeset Result |
 | :---: | :---: | :---: |
 | <img src="docs/showcase/manhua_raw.jpg" width="260" alt="Original Raw Scan"/> | <img src="docs/showcase/manhua_cleaned.jpg" width="260" alt="Neural Inpainted Page"/> | <img src="docs/showcase/manhua_translated.jpg" width="260" alt="Translated and Typeset Page"/> |
 
 <sub><em>Disclaimer: Showcase artwork from 《妖神记》 (Tales of Demons and Gods) is used under Fair Use strictly for technical software demonstration and algorithmic benchmarking. All copyrights belong to the respective authors and publishers.</em></sub>
 
-</div>
+<br/>
+<br/>
 
----
+<details>
+  <summary><b>📑 Table of Contents (Click to explore)</b></summary>
+  <br/>
+
+| 📖 Pipeline & Formats | ⚙️ Studio Capabilities | 🚀 Setup & Integration |
+| :--- | :--- | :--- |
+| [Overview & Mission](#-overview--mission) | [Core Features](#%EF%B8%8F-features) | [Quick Start (Users)](#quick-start) |
+| [The Problem vs. How XianScan Solves It](#-the-problem-vs-how-xianscan-solves-it) | [11 Supported OCR Languages](#-supported-ocr-languages) | [Building from Source](#developer-guide) |
+| [The Automated 5-Stage Pipeline](#-the-automated-5-stage-pipeline) | [Neural Inpainting Modes](#-neural-inpainting-strategies) | [REST API Endpoints](#-rest-api-endpoints) |
+| [Comic Format Support](#-comic-format-support) | [Typesetting Studio & Typography](#️-typesetting--studio-controls) | [Browser Web Extension](#-browser-web-extension) |
+| | [Supported Translation Providers](#-supported-translation-providers) | [Testing & Roadmap](#️-in-progress--future-roadmap) |
+
+</details>
+
+<br/>
+
+</div>
 
 ## 📖 Overview & Mission
 
@@ -78,7 +92,7 @@ Reading untranslated CJK comics (Chinese Manhua, Korean Manhwa, Japanese Manga) 
 ## ⚙️ Features
 
 - **Runs on Any CPU (No GPU Required)**: Multi-threaded CPU inference with SIMD acceleration (AVX2, AVX-512, ARM NEON). Runs on standard laptops, desktop PCs, and Apple Silicon, while automatically utilizing DirectML GPU acceleration when a dedicated GPU is available.
-- **Portable Single Executable**: Download, run, and start translating immediately with embedded models and the web interface bundled inside.
+- **Portable Standalone Executable (~450 MB)**: Download, run, and start translating immediately. The release binary embeds all neural network weights (RT-DETR, LaMa, 11-language OCR), the SvelteKit web interface, Skia typography engine, and comic fonts for 100% offline out-of-the-box operation with zero external dependencies.
 - **Bubble Detection**: Uses an RT-DETR model to locate speech bubbles, text regions, and sound effects.
 - **Background Inpainting**: Uses LaMa ONNX to erase original text and restore background art.
 - **Comic Typesetting**: Automatic text fitting, line wrapping, outlines, and comic font support (CC Wild Words).
@@ -146,6 +160,11 @@ Download the pre-compiled standalone binary for your system from [Releases](http
   ```bash
   chmod +x xianscan && ./xianscan
   ```
+
+> [!NOTE]
+> **Zero Network Dependency**: The release executable (~450 MB) embeds all neural network models, OCR dictionaries, Skia rendering libraries, and Web UI. It works completely offline on first launch without downloading extra model files.
+>
+> **Persistent Library Data**: Your book library, chapter images, and SQLite database (`xianscan.db`) are saved in your OS application data folder (`%APPDATA%\XianScan\data` on Windows, `~/.local/share/xianscan/data` on Linux, `~/Library/Application Support/XianScan/data` on macOS) and persist safely across version updates.
 
 ### 2. Open Web Studio
 - Open **[http://localhost:8124](http://localhost:8124)** in your web browser.
