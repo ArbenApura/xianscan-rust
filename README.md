@@ -14,6 +14,7 @@
 [![ONNX Runtime](https://img.shields.io/badge/ONNX_Runtime-1.19+-005CED?style=for-the-badge&logo=onnx&logoColor=white)](https://onnxruntime.ai/)
 [![DirectML](https://img.shields.io/badge/Hardware-DirectML_•_CPU_SIMD-0078D4?style=for-the-badge&logo=windows&logoColor=white)](https://learn.microsoft.com/en-us/windows/ai/directml/)
 [![SvelteKit](https://img.shields.io/badge/SvelteKit-2.x_•_Svelte_5-FF3E00?style=for-the-badge&logo=svelte&logoColor=white)](https://kit.svelte.dev/)
+[![SQLite](https://img.shields.io/badge/SQLite-Local_First-003B57?style=for-the-badge&logo=sqlite&logoColor=white)](https://www.sqlite.org/)
 [![Portfolio](https://img.shields.io/badge/Portfolio-arbenger.com-111827?style=for-the-badge&logo=google-chrome&logoColor=white)](https://arbenger.com/contact/)
 [![Email](https://img.shields.io/badge/Contact-arbenapura.official@gmail.com-EA4335?style=for-the-badge&logo=gmail&logoColor=white)](mailto:arbenapura.official@gmail.com)
 [![Support on Ko-Fi](https://img.shields.io/badge/Support_on-Ko--Fi-FF5E5B?style=for-the-badge&logo=kofi&logoColor=white)](https://ko-fi.com/arbenapura)
