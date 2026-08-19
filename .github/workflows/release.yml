@@ -141,6 +141,24 @@ jobs:
         with:
           tag_name: ${{ github.event.inputs.tag_name || github.ref_name }}
           files: ${{ matrix.release_asset }}
+          body: |
+            ## 🚀 Xianscan ${{ github.event.inputs.tag_name || github.ref_name }}
+
+            Self-hosted AI-powered manga, manhua, and comic localization engine with embedded OCR, neural text detection, LaMa inpainting, and typesetter.
+
+            ### 📦 Multi-Platform Downloads
+
+            | Platform | Architecture | File | Acceleration |
+            | :--- | :--- | :--- | :--- |
+            | **Windows** | x86_64 | `xianscan-windows-x86_64.zip` | DirectML (NVIDIA / AMD / Intel GPU) |
+            | **Linux** | x86_64 | `xianscan-linux-x86_64.tar.gz` | CPU / OpenVINO |
+            | **macOS** | Apple Silicon (M1–M4) | `xianscan-macos-arm64.tar.gz` | Metal / CoreML |
+
+            ### 🧩 Browser Importer Extensions
+            - **Chrome / Edge / Brave / Opera**: Download `xianscan-importer-chrome.zip` and extract to load unpacked in `chrome://extensions`.
+            - **Firefox**: Download `xianscan-importer-firefox.xpi` and install directly in `about:addons`.
+
+            ---
           generate_release_notes: true
 
   build-extension:
@@ -204,9 +222,9 @@ jobs:
         with:
           vt_api_key: ${{ secrets.VT_API_KEY }}
           files: |
-            release-assets/*.zip
-            release-assets/*.tar.gz
-            release-assets/*.xpi
+            release-assets/xianscan-windows-*.zip
+            release-assets/xianscan-linux-*.tar.gz
+            release-assets/xianscan-macos-*.tar.gz
           update_release_body: true
           github_token: ${{ secrets.GITHUB_TOKEN }}
 
