@@ -4,7 +4,7 @@ version = "0.1.5"
 edition = "2021"
 
 [features]
-default = ["directml"]
+default = []
 directml = ["ort/directml"]
 embed-models = []
 embed-web = []

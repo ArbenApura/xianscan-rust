@@ -27,18 +27,21 @@ jobs:
             target: x86_64-pc-windows-msvc
             artifact_name: xianscan.exe
             release_asset: xianscan-windows-x86_64.zip
+            cargo_features: directml,embed-models,embed-web
 
           # Linux x86_64 (Ubuntu / Debian / Fedora)
           - os: ubuntu-latest
             target: x86_64-unknown-linux-gnu
             artifact_name: xianscan
             release_asset: xianscan-linux-x86_64.tar.gz
+            cargo_features: embed-models,embed-web
 
           # macOS Apple Silicon (M1 / M2 / M3 / M4)
           - os: macos-latest
             target: aarch64-apple-darwin
             artifact_name: xianscan
             release_asset: xianscan-macos-arm64.tar.gz
+            cargo_features: embed-models,embed-web
 
     steps:
       - name: Checkout Code
@@ -106,7 +109,7 @@ jobs:
           targets: ${{ matrix.target }}
 
       - name: Build Standalone 1-File Release Binary (Embedded Models + Web UI + Node.js)
-        run: cargo build --release --features embed-models,embed-web --target ${{ matrix.target }}
+        run: cargo build --release --no-default-features --features ${{ matrix.cargo_features }} --target ${{ matrix.target }}
 
 
       # Packaging Windows Archive
