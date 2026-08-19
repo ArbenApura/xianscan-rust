@@ -66,14 +66,22 @@ jobs:
         shell: bash
         run: |
           mkdir -p models
-          echo "Downloading ComicTextDetector (~95MB)..."
-          curl -sSL -o models/comictextdetector.pt.onnx "https://github.com/zyddnys/manga-image-translator/releases/download/beta-0.3/comictextdetector.pt.onnx"
+          echo "Downloading RT-DETR Comic Bubble & Text Detector (~168MB)..."
+          curl -f -sSL -o models/comic_text_and_bubble_detector.onnx "https://huggingface.co/ogkalu/comic-text-and-bubble-detector/resolve/main/detector.onnx"
           echo "Downloading LaMa Inpainting (~206MB)..."
-          curl -sSL -o models/lama.onnx "https://huggingface.co/ogkalu/lama-manga-onnx-dynamic/resolve/main/lama-manga-dynamic.onnx"
+          curl -f -sSL -o models/lama.onnx "https://huggingface.co/ogkalu/lama-manga-onnx-dynamic/resolve/main/lama-manga-dynamic.onnx"
           echo "Downloading PP-OCR Detection (~10MB)..."
-          curl -sSL -o models/PP-OCRv6_det_small.onnx "https://github.com/RapidAI/RapidOCR/releases/download/v1.1.0/ch_PP-OCRv4_det_infer.onnx"
+          curl -f -sSL -o models/PP-OCRv6_det_small.onnx "https://www.modelscope.cn/models/RapidAI/RapidOCR/resolve/v3.9.2/onnx/PP-OCRv6/det/PP-OCRv6_det_small.onnx"
           echo "Downloading PP-OCR Recognition (~21MB)..."
-          curl -sSL -o models/PP-OCRv6_rec_small.onnx "https://github.com/RapidAI/RapidOCR/releases/download/v1.1.0/ch_PP-OCRv4_rec_infer.onnx"
+          curl -f -sSL -o models/PP-OCRv6_rec_small.onnx "https://www.modelscope.cn/models/RapidAI/RapidOCR/resolve/v3.9.2/onnx/PP-OCRv6/rec/PP-OCRv6_rec_small.onnx"
+          echo "Downloading Korean OCR Recognition (~13MB)..."
+          curl -f -sSL -o models/korean_mobile_v2.0_rec.onnx "https://huggingface.co/xberg-io/paddleocr-onnx-models/resolve/main/rec/korean/model.onnx"
+          echo "Downloading Cyrillic OCR Recognition (~8MB)..."
+          curl -f -sSL -o models/cyrillic_mobile_v2.0_rec.onnx "https://huggingface.co/xberg-io/paddleocr-onnx-models/resolve/main/rec/eslav/model.onnx"
+          echo "Downloading Thai OCR Recognition (~8MB)..."
+          curl -f -sSL -o models/th_PP-OCRv5_mobile_rec.onnx "https://huggingface.co/xberg-io/paddleocr-onnx-models/resolve/main/rec/thai/model.onnx"
+          echo "Downloading PP-OCR Direction Classifier (~0.6MB)..."
+          curl -f -sSL -o models/ch_ppocr_mobile_v2.0_cls_mobile.onnx "https://huggingface.co/xberg-io/paddleocr-onnx-models/resolve/main/ch_ppocr_mobile_v2.0_cls_infer.onnx"
           ls -lh models/
 
       - name: Stage Standalone Node.js Runtime for Embedded Binary
