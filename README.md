@@ -240,6 +240,16 @@ cd web && yarn test
 
 ---
 
+## 🗺️ Roadmap & Future Enhancements
+
+- [ ] **📦 Package Manager Distribution**: Official formulas and manifests for **Homebrew** (`brew install xianscan`), **Scoop** (`scoop install xianscan`), and **Windows Package Manager** (`winget install xianscan`).
+- [ ] **🔄 Seamless In-App & CLI Auto-Updates**: Non-disruptive background update detection with built-in `xianscan update` self-updating command.
+- [ ] **⚡ Decoupled Incremental Model Delivery**: Dynamic background self-hydration for AI model weights (`~/.xianscan/models/`) to reduce update payloads down to lightweight ~15 MB application binaries.
+- [ ] **🎨 Advanced Typography Presets**: Customizable comic speech balloon bubble shape templates and multi-style sound effect stylers.
+- [ ] **📱 PWA Offline Client Support**: Progressive Web App caching for seamless mobile reading on local network tablets and phones.
+
+---
+
 ## 👨‍💻 Author & Opportunities
 
 **XianScan** is architected and built by **[Arben Apura](https://arbenger.com/contact/)** as a showcase of end-to-end full-stack web engineering, intuitive UI/UX design, and intelligent application architecture.
