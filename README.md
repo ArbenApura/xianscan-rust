@@ -113,11 +113,14 @@ The embedded Web UI includes comprehensive controls to customize typography and 
 
 ## 🤖 Supported Translation Providers
 
-Translate using either free local models or cloud APIs:
+Translate using lightweight local models or high-throughput cloud APIs:
 
-- **100% Free & Unlimited Local AI**: Run open-weight models locally with **Ollama** or **LM Studio** (e.g. Qwen 2.5, Llama 3.3, DeepSeek-R1 distills) for completely free translations with zero API fees and total privacy.
-- **Cloud AI APIs**: DeepSeek (V3, R1, V4), Google AI Studio (Gemini), Groq, OpenRouter, and OpenAI.
-- **Series Glossaries**: Terminology matching (via Aho-Corasick) to maintain consistent character names, cultivation realms, and skill terms across chapters.
+- **100% Free & Unlimited Local AI (Ollama / LM Studio)**: Run popular lightweight, highly intelligent open-weight models locally with zero API fees and complete privacy:
+  - 🧠 **Qwen 2.5 (3B / 7B / 14B)**: The leading lightweight model for CJK (Chinese, Japanese, Korean) translation, cultural idiom accuracy, and comic dialogue understanding.
+  - ⚡ **Llama 3.2 (1B / 3B)**: Ultra-fast and lightweight inference engineered for low-latency execution on minimal hardware (~2–4 GB RAM).
+  - 💎 **Gemma 2 (2B / 9B)** & **Mistral (7B)**: Clean reasoning and high-fidelity dialogue translation.
+- **Cloud AI APIs**: Compatible with standard OpenAI-compatible endpoints, Google AI Studio (Gemini), Groq (instant ultra-fast inference), OpenRouter, and custom endpoints.
+- **Series Glossaries**: Dynamic multi-pattern terminology matching (via Aho-Corasick) to maintain consistent character names, cultivation realms, and skill terms across chapters.
 
 ---
 
