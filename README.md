@@ -174,7 +174,6 @@ cargo run -- --dev
 - **🔄 Enhanced Japanese Manga Recognition**: Continuously optimizing vertical Japanese OCR text extraction, Furigana filtering, multi-column right-to-left reading order clustering, and complex speech bubble grouping.
 - **🌐 Browser Web Extension**: Developing a browser extension (Chrome / Firefox) to import comic pages and webtoon strips directly from web sources into XianScan with one click.
 - **📖 Xianslate Integration (All-in-One Translation Suite)**: Integrating [Xianslate](https://github.com/ArbenApura/xianslate) — our specialized Light Novel & Web Novel translation tool — into XianScan to create a unified reader and translation suite for both comics (Manga/Manhua/Manhwa) and light novels with shared dynamic terminology glossaries.
-- **📦 Direct Archive Export**: Export translated chapters directly to `.cbz` (Comic Book Zip) and `.epub` formats with optimized compression.
 
 ---
 
