@@ -21,13 +21,15 @@
 
 ## 📖 Overview
 
-**XianScan-Rust** is a native translation tool designed to be as **portable and easy-to-use as possible** for **Chinese Manhua (国漫)**, **Korean Manhwa (웹툰/만화)**, **Japanese Manga (漫画)**, and **Western Comics**.
+**XianScan-Rust** is a native translation tool designed to be as **portable and easy to use as possible** for **Chinese Manhua (国漫)**, **Korean Manhwa (웹툰/만화)**, **Japanese Manga (漫画)**, and **Western Comics**.
 
-It provides an end-to-end comic translation workflow:
-1. **Detection & Segmentation**: Detects speech bubbles, text boxes, and on-page sound effects.
-2. **Text Recognition (OCR)**: Extracts text with OCR models supporting horizontal and vertical reading orders.
-3. **Translation**: Translates text using customizable LLM providers with glossary support.
-4. **Artwork Cleaning**: Inpaints text regions using LaMa neural inpainting.
+It runs on standard multi-core CPUs out of the box—no dedicated GPU is required—while automatically utilizing DirectML GPU acceleration when available on Windows.
+
+The workflow integrates the entire comic translation pipeline into a single application:
+1. **Detection & Segmentation**: Detects speech bubbles, text regions, and on-page sound effects using an RT-DETR model.
+2. **Text Recognition (OCR)**: Extracts text with OCR models supporting horizontal and vertical reading directions.
+3. **Translation**: Translates text using free local LLMs (Ollama, LM Studio) or cloud AI APIs with dynamic glossary matching.
+4. **Artwork Cleaning**: Inpaints text regions using LaMa neural inpainting to restore clean background artwork.
 5. **Typesetting**: Renders translated text into bubbles with automatic font sizing, line balancing, and font fallback.
 
 ---
@@ -45,8 +47,8 @@ It provides an end-to-end comic translation workflow:
 
 ## ⚙️ Features
 
-- **Portable Single Executable**: Designed to be as portable and easy to use as possible — download, run, and start translating immediately with embedded models and web interface.
-- **Hardware Acceleration**: Runs on CPU (with SIMD optimizations) or GPU via DirectML (Windows/DirectX-compatible GPUs).
+- **Runs on Any CPU (No GPU Required)**: Multi-threaded CPU inference with SIMD acceleration (AVX2, AVX-512, ARM NEON). Runs on standard laptops, desktop PCs, and Apple Silicon, while automatically utilizing DirectML GPU acceleration when a dedicated GPU is available.
+- **Portable Single Executable**: Download, run, and start translating immediately with embedded models and the web interface bundled inside.
 - **Bubble Detection**: Uses an RT-DETR model to locate speech bubbles, text regions, and sound effects.
 - **Background Inpainting**: Uses LaMa ONNX to erase original text and restore background art.
 - **Comic Typesetting**: Automatic text fitting, line wrapping, outlines, and comic font support (CC Wild Words).
