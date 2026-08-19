@@ -2,7 +2,7 @@
 
 # 🏮 XianScan-Rust (仙Scan)
 
-**Native High-Performance Comic, Manga & Manhua Translation Server**
+**Native High-Performance Translation Suite for Chinese Manhua, Korean Manhwa, & Japanese Manga**
 
 *Automated Speech Bubble Detection, Multi-Language OCR, Multi-Provider LLM Translation, AI Inpainting, and Studio Typesetting — Powered by Rust & ONNX Runtime.*
 
@@ -21,55 +21,74 @@
 
 ## 📖 Overview
 
-**XianScan-Rust** is a unified, native translation platform built for webtoons, manhua, and manga. It automatically detects speech bubbles, extracts multi-language text, synthesizes clean background art with neural inpainting, translates dialogue using modern LLMs with dynamic glossaries, and renders studio-grade comic typography.
+**XianScan-Rust** is an all-in-one native translation and scanlation suite engineered specifically for **Chinese Manhua (国漫)**, **Korean Manhwa (웹툰/만화)**, **Japanese Manga (漫画)**, and **Western Comics**.
 
-Built from the ground up in native Rust with ONNX Runtime, XianScan eliminates Python runtime overhead to provide **sub-30ms startup**, a **~45MB idle memory footprint**, and a **self-contained zero-dependency executable**.
+It brings the entire scanlation pipeline into a single, cohesive workflow:
+1. **Detects & Segments**: Automatically identifies speech bubbles, text boxes, and free-floating SFX (Sound Effects).
+2. **Recognizes Text**: Accurately extracts text with dedicated language-tuned OCR engines across vertical and horizontal reading directions.
+3. **Translates with Context**: Translates dialogue using cutting-edge LLMs guided by dynamic glossaries (cultivation realms, honorifics, character names).
+4. **Cleans Artwork**: Seamlessly inpaints background artwork using deep neural networks to produce spotless raw pages.
+5. **Typesets Automatically**: Fits, balances, and renders dialogue with industry-standard comic typography and per-glyph font fallback.
 
----
-
-## ✨ Key Highlights
-
-- **⚡ Zero-Dependency Single Binary**: No Python, PyTorch, CUDA toolkit, or Node.js required on the host system.
-- **🚀 Universal Hardware Acceleration**: Instant out-of-the-box performance on any CPU SIMD, with automatic DirectML GPU acceleration for NVIDIA, AMD, Intel, and Apple Silicon.
-- **🎯 Precision Speech Bubble Extraction**: Deep learning bubble segmentation (RT-DETR) with polygon mask expansion to capture delicate punctuation and trailing ellipsis (`……`).
-- **🎨 AI Background Inpainting**: Neural text erasure powered by Big-LaMa ONNX with seamless texture blending.
-- **✍️ Studio-Grade Typesetting**: Automatic font-fitting, line balancing, and dialogue formatting using industry-standard comic typefaces (CC Wild Words).
-- **🌐 Headless LAN & Remote Server**: Accessible directly from browsers on phones, tablets, or remote networks.
+Built with native Rust and ONNX Runtime, XianScan delivers **instant startup (<30ms)**, a **lean ~45MB idle memory footprint**, and a **fully self-contained, zero-dependency executable**.
 
 ---
 
-## 🌐 Supported Languages
+## ✨ Features Tailored for Comic Media
 
-XianScan provides native detection and OCR routing across **10 languages**:
+| Media Type | Specialized Capabilities |
+| :--- | :--- |
+| **🇨🇳 Chinese Manhua** | Tuned for colorful vertical strips, dense cultivation terminology, watermark suppression, and multi-line narrative blocks. |
+| **🇰🇷 Korean Manhwa & Webtoons** | Smart panel gutter slicing (`/pages/reslice`), continuous vertical stitch mode, and dedicated Korean OCR dictionary routing. |
+| **🇯🇵 Japanese Manga** | Right-to-left reading order detection, vertical text line recognition, Furigana handling, and complex panel layout analysis. |
+| **🌐 Western & Global Comics** | Full Latin script typesetting, uppercase balloon typography, hyphenation, and multi-line paragraph balancing. |
+
+---
+
+## 🚀 Key Highlights
+
+- **⚡ Self-Contained Single Binary**: Download and double-click to launch — all AI models, Web UI, and engines are bundled directly inside.
+- **🚀 Universal Hardware Acceleration**: Instant acceleration out of the box using CPU SIMD (AVX2/AVX-512/NEON) and automatic DirectML GPU acceleration across NVIDIA, AMD, Intel, and Apple Silicon.
+- **🎯 RT-DETR Speech Bubble Detection**: Deep learning object detector identifies speech bubble containers, enclosed text lines, and free-floating text/SFX with polygon precision.
+- **🎨 Neural Background Inpainting**: High-fidelity text erasure powered by Big-LaMa ONNX with seamless texture and gradient reconstruction.
+- **✍️ Studio-Grade Comic Typography**: Automatic font size scaling, dialogue line balancing, text stroke outlines, and CC Wild Words comic typeface support.
+- **📜 Smart Webtoon Stitching & Slicing**: Automatically stitches split images into continuous webtoon rolls or slices long continuous pages along natural panel gutters.
+- **🌐 Accessible LAN & Remote Server**: Embedded web interface accessible from desktop browsers, mobile phones, or local network tablets.
+
+---
+
+## 🌐 Supported Source & Target Languages
+
+XianScan provides native detection, dictionary routing, and OCR models across **11 languages**:
 
 - **East Asian**: Chinese (Simplified), Chinese (Traditional), Japanese, Korean
-- **Southeast Asian**: Thai, Indonesian
-- **European / Cyrillic**: English, Spanish, French, Russian
+- **Southeast Asian**: Vietnamese, Thai, Indonesian
+- **European & Cyrillic**: English, Spanish, French, Russian
 
 ---
 
 ## 🤖 Supported Translation Providers
 
-Connect your favorite cloud API or run 100% locally:
+Connect your preferred AI provider or run completely offline:
 
-- **Cloud AI**: DeepSeek (V3, R1, V4), Google AI Studio (Gemini 3.7 / 3.5 Flash), Groq (Llama 3.3 70B, Qwen 2.5 32B), OpenRouter (Claude 3.5 Sonnet, etc.), OpenAI (GPT-4o, GPT-4o-mini).
-- **Local & Self-Hosted**: Ollama, LM Studio, and any custom OpenAI-compatible endpoint (`vLLM`, `LocalAI`, `Aphrodite`).
-- **Dynamic Glossaries**: Automatic Aho-Corasick terminology injection guarantees consistent character names, cultivation ranks, and faction terms across chapters.
+- **Cloud AI**: DeepSeek (V3, R1, V4), Google AI Studio (Gemini 2.5 / 2.0 Flash), Groq (Llama 3.3 70B, Qwen 2.5 32B), OpenRouter (Claude 3.5 Sonnet, etc.), OpenAI (GPT-4o, GPT-4o-mini).
+- **Local & Self-Hosted**: Ollama, LM Studio, vLLM, LocalAI, Aphrodite, and any OpenAI-compatible endpoint.
+- **Dynamic Series Glossaries**: Automatic Aho-Corasick terminology injection ensures 100% consistency for character names, martial arts skills, cultivation ranks, and faction names across chapters.
 
 ---
 
-## 🚀 Quick Start
+## 🏁 Quick Start
 
 ### 1. Standalone Executable (Recommended)
 
-Download the latest pre-compiled release from [Releases](https://github.com/ArbenApura/xianscan-rust/releases) and run:
+Download the pre-compiled standalone binary for your operating system from [Releases](https://github.com/ArbenApura/xianscan-rust/releases) and launch:
 
 ```powershell
 # Windows
-.\xianscan-rust.exe
+.\xianscan.exe
 
 # Linux / macOS
-chmod +x xianscan-rust && ./xianscan-rust
+chmod +x xianscan && ./xianscan
 ```
 
 Open **[http://localhost:8124](http://localhost:8124)** in your web browser.
@@ -82,7 +101,7 @@ Open **[http://localhost:8124](http://localhost:8124)** in your web browser.
 - **Rust 1.80+** (`rustup install stable`)
 - **Node.js 18+** & **Yarn**
 
-#### Standalone 1-File Release Build
+#### Standalone Release Build
 ```bash
 # 1. Build SvelteKit frontend
 cd web && yarn install && yarn build && cd ..
@@ -94,7 +113,7 @@ The compiled binary will be located at `target/release/xianscan-rust` (`.exe` on
 
 #### Fast Iteration Dev Mode
 ```bash
-# Runs the Rust ML engine (:8123) and Vite Live HMR (:8124) in one command:
+# Runs the Rust ML engine (:8123) and Vite Live HMR (:8124) concurrently:
 cargo run -- --dev
 ```
 
@@ -104,14 +123,14 @@ cargo run -- --dev
 
 | Endpoint | Method | Description |
 | :--- | :--- | :--- |
-| `/health` | `GET` | Health check, active hardware backend, and loaded models. |
-| `/system/hardware` | `GET` | Hardware acceleration info and GPU adapters. |
+| `/health` | `GET` | Health status, active hardware backend, and loaded model diagnostics. |
+| `/system/hardware` | `GET` | GPU adapter enumeration and hardware capabilities. |
 | `/system/device` | `POST` | Dynamically switch execution provider (`directml`, `cpu`, `auto`). |
 | `/pages/analyze` | `POST` | Speech bubble detection, polygon segmentation, and multi-language OCR. |
-| `/pages/clean` | `POST` | Neural inpainting to clean text from selected regions. |
-| `/pages/preprocess` | `POST` | Image normalization and preparation. |
-| `/pages/stitch` | `POST` | Vertically stitch multi-page chapters into continuous strips. |
-| `/pages/reslice` | `POST` | Split long-strip webtoons along panel gutters. |
+| `/pages/clean` | `POST` | Neural inpainting to erase text from selected bubble masks. |
+| `/pages/preprocess` | `POST` | Image normalization and contrast optimization. |
+| `/pages/stitch` | `POST` | Vertically stitch individual pages into seamless webtoon strips. |
+| `/pages/reslice` | `POST` | Split tall webtoon strips into pages along panel gutters. |
 
 ---
 
@@ -121,10 +140,10 @@ cargo run -- --dev
 # Run all unit and integration tests
 cargo test -- --nocapture
 
-# Run the 10-language ML regression test suite
+# Run the 11-language ML regression test suite
 cargo test --test regression -- --nocapture
 
-# Run frontend tests
+# Run Web UI frontend tests
 cd web && yarn test
 ```
 
@@ -132,7 +151,7 @@ cd web && yarn test
 
 ## 💖 Support & Sponsorship
 
-If XianScan is useful to you or your translation workflow, consider supporting ongoing development:
+If XianScan is useful to your translation workflow, scanlation group, or reading experience, consider supporting ongoing development:
 
 <div align="center">
 
