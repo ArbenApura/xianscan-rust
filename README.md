@@ -15,6 +15,13 @@
 [![SvelteKit](https://img.shields.io/badge/SvelteKit-2.x_•_Svelte_5-FF3E00?style=for-the-badge&logo=svelte&logoColor=white)](https://kit.svelte.dev/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow?style=for-the-badge)](LICENSE)
 
+<br/>
+<br/>
+
+| 🇨🇳 1. Original Raw | 🎨 2. Neural Inpainted | ✍️ 3. Translated & Typeset |
+| :---: | :---: | :---: |
+| <img src="docs/showcase/manhua_raw.jpg" width="260" alt="Original Raw Scan"/> | <img src="docs/showcase/manhua_cleaned.jpg" width="260" alt="Neural Inpainted Page"/> | <img src="docs/showcase/manhua_translated.jpg" width="260" alt="Translated and Typeset Page"/> |
+
 </div>
 
 ---
