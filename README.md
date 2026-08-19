@@ -10,13 +10,13 @@
 
 <br/>
 
-[![Portfolio](https://img.shields.io/badge/Portfolio-arbenger.com-111827?style=for-the-badge&logo=google-chrome&logoColor=white)](https://arbenger.com/contact/)
-[![Email](https://img.shields.io/badge/Contact-arbenapura.official@gmail.com-EA4335?style=for-the-badge&logo=gmail&logoColor=white)](mailto:arbenapura.official@gmail.com)
-[![Support on Ko-Fi](https://img.shields.io/badge/Support_on-Ko--Fi-FF5E5B?style=for-the-badge&logo=kofi&logoColor=white)](https://ko-fi.com/arbenapura)
 [![Rust](https://img.shields.io/badge/Rust-1.80+-DEA584?style=for-the-badge&logo=rust&logoColor=white)](https://www.rust-lang.org/)
 [![ONNX Runtime](https://img.shields.io/badge/ONNX_Runtime-1.19+-005CED?style=for-the-badge&logo=onnx&logoColor=white)](https://onnxruntime.ai/)
 [![DirectML](https://img.shields.io/badge/Hardware-DirectML_•_CPU_SIMD-0078D4?style=for-the-badge&logo=windows&logoColor=white)](https://learn.microsoft.com/en-us/windows/ai/directml/)
 [![SvelteKit](https://img.shields.io/badge/SvelteKit-2.x_•_Svelte_5-FF3E00?style=for-the-badge&logo=svelte&logoColor=white)](https://kit.svelte.dev/)
+[![Portfolio](https://img.shields.io/badge/Portfolio-arbenger.com-111827?style=for-the-badge&logo=google-chrome&logoColor=white)](https://arbenger.com/contact/)
+[![Email](https://img.shields.io/badge/Contact-arbenapura.official@gmail.com-EA4335?style=for-the-badge&logo=gmail&logoColor=white)](mailto:arbenapura.official@gmail.com)
+[![Support on Ko-Fi](https://img.shields.io/badge/Support_on-Ko--Fi-FF5E5B?style=for-the-badge&logo=kofi&logoColor=white)](https://ko-fi.com/arbenapura)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow?style=for-the-badge)](LICENSE)
 
 <br/>
@@ -169,7 +169,7 @@ cd web && yarn install && yarn build && cd ..
 # 2. Compile standalone binary with embedded models & web UI
 cargo build --release --features embed-models,embed-web
 ```
-The compiled binary will be located at `target/release/xianscan-rust` (`.exe` on Windows).
+The compiled binary will be located at `target/release/xianscan` (`.exe` on Windows).
 
 #### Fast Iteration Dev Mode
 ```bash
