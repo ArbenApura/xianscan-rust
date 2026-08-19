@@ -33,11 +33,11 @@
 
 | 📖 Pipeline & Formats | ⚙️ Studio Capabilities | 🚀 Setup & Integration |
 | :--- | :--- | :--- |
-| [Overview & Mission](#-overview--mission) | [Core Features](#%EF%B8%8F-features) | [Quick Start (Users)](#quick-start) |
-| [The Problem vs. How XianScan Solves It](#-the-problem-vs-how-xianscan-solves-it) | [11 Supported OCR Languages](#-supported-ocr-languages) | [Building from Source](#developer-guide) |
-| [The Automated 5-Stage Pipeline](#-the-automated-5-stage-pipeline) | [Neural Inpainting Modes](#-neural-inpainting-strategies) | [REST API Endpoints](#-rest-api-endpoints) |
-| [Comic Format Support](#-comic-format-support) | [Typesetting Studio & Typography](#️-typesetting--studio-controls) | [Browser Web Extension](#-browser-web-extension) |
-| | [Supported Translation Providers](#-supported-translation-providers) | [Testing & Roadmap](#️-in-progress--future-roadmap) |
+| [Overview & Mission](#overview) | [Core Features](#features) | [Quick Start (Users)](#quick-start) |
+| [The Problem vs. How XianScan Solves It](#problem-solution) | [11 Supported OCR Languages](#ocr-languages) | [Building from Source](#developer-guide) |
+| [The Automated 5-Stage Pipeline](#pipeline) | [Neural Inpainting Modes](#inpainting-strategies) | [REST API Endpoints](#rest-api) |
+| [Comic Format Support](#comic-formats) | [Typesetting Studio & Typography](#typesetting-studio) | [Browser Web Extension](#browser-extension) |
+| | [Supported Translation Providers](#translation-providers) | [Testing & Roadmap](#roadmap) |
 
 </details>
 
@@ -45,6 +45,7 @@
 
 </div>
 
+<a id="overview"></a>
 ## 📖 Overview & Mission
 
 **XianScan** is an open-source, local-first translation studio engineered to be **exceptionally portable, lightweight, and effortless to use**.
@@ -56,6 +57,7 @@ The core mission of XianScan is to provide an **uninterrupted, automated reading
 
 ---
 
+<a id="problem-solution"></a>
 ## 💡 The Problem vs. How XianScan Solves It
 
 Reading untranslated CJK comics (Chinese Manhua, Korean Manhwa, Japanese Manga) has traditionally been frustrating, fragmented, and full of friction. Here is what readers, scanlators, and language learners face—and how XianScan solves it:
@@ -68,6 +70,7 @@ Reading untranslated CJK comics (Chinese Manhua, Korean Manhwa, Japanese Manga) 
 | **💻 Complex Technical Barriers**<br/>Most open-source AI tools require Python, Conda environments, PyTorch compilation, and expensive $1000+ Nvidia GPUs. | **Single Zero-Install Executable**<br/>Runs directly on standard laptops and ordinary CPUs out of the box with zero Python or CUDA configuration. |
 | **🎨 Ugly White-Box Overlays**<br/>Many basic tools slap opaque white rectangles over speech bubbles, destroying the background art and sound effects. | **Neural Artwork Inpainting (LaMa)**<br/>Intelligently reconstructs the original artwork and textures behind text before typesetting clean comic dialogue. |
 
+<a id="pipeline"></a>
 ### 🔄 The Automated 5-Stage Pipeline
 
 1. **Detection & Segmentation**: Detects speech bubbles, sound effects, and text boundaries using an RT-DETR model.
@@ -78,6 +81,7 @@ Reading untranslated CJK comics (Chinese Manhua, Korean Manhwa, Japanese Manga) 
 
 ---
 
+<a id="comic-formats"></a>
 ## 📚 Comic Format Support
 
 | Format | Specialized Pipeline Features |
@@ -89,6 +93,7 @@ Reading untranslated CJK comics (Chinese Manhua, Korean Manhwa, Japanese Manga) 
 
 ---
 
+<a id="features"></a>
 ## ⚙️ Features
 
 - **Runs on Any CPU (No GPU Required)**: Multi-threaded CPU inference with SIMD acceleration (AVX2, AVX-512, ARM NEON). Runs on standard laptops, desktop PCs, and Apple Silicon, while automatically utilizing DirectML GPU acceleration when a dedicated GPU is available.
@@ -101,6 +106,7 @@ Reading untranslated CJK comics (Chinese Manhua, Korean Manhwa, Japanese Manga) 
 
 ---
 
+<a id="ocr-languages"></a>
 ## 🌐 Supported OCR Languages
 
 Native OCR models and dictionaries are included for **11 languages**:
@@ -111,6 +117,7 @@ Native OCR models and dictionaries are included for **11 languages**:
 
 ---
 
+<a id="inpainting-strategies"></a>
 ## 🎨 Neural Inpainting Strategies
 
 XianScan provides 3 configurable inpainting modes in the Web UI to balance throughput and background reconstruction quality:
@@ -123,6 +130,7 @@ XianScan provides 3 configurable inpainting modes in the Web UI to balance throu
 
 ---
 
+<a id="typesetting-studio"></a>
 ## ✍️ Typesetting & Studio Controls
 
 The embedded Web UI includes comprehensive controls to customize typography and translation workflows:
@@ -136,6 +144,7 @@ The embedded Web UI includes comprehensive controls to customize typography and 
 
 ---
 
+<a id="translation-providers"></a>
 ## 🤖 Supported Translation Providers
 
 Translate using lightweight local models or high-throughput cloud APIs:
@@ -204,6 +213,7 @@ cargo run -- --dev
 
 ---
 
+<a id="rest-api"></a>
 ## 🔌 REST API Endpoints
 
 | Endpoint | Method | Description |
@@ -219,6 +229,7 @@ cargo run -- --dev
 
 ---
 
+<a id="browser-extension"></a>
 ## 🧩 Browser Web Extension (Chrome, Firefox, Edge, Brave)
 
 XianScan includes a high-performance **Web Importer Extension** (`extensions/xianscan-importer/`) to import comic chapters directly from web readers into your self-hosted server with one click:
@@ -234,6 +245,7 @@ To install:
 
 ---
 
+<a id="testing"></a>
 ## 🧪 Testing
 
 ```bash
@@ -249,6 +261,7 @@ cd web && yarn test
 
 ---
 
+<a id="roadmap"></a>
 ## 🗺️ In Progress & Future Roadmap
 
 - **🔄 Enhanced Japanese Manga Recognition**: Continuously optimizing vertical Japanese OCR text extraction, Furigana filtering, multi-column right-to-left reading order clustering, and complex speech bubble grouping.
@@ -261,6 +274,7 @@ cd web && yarn test
 
 ---
 
+<a id="author"></a>
 ## 👨‍💻 Author & Opportunities
 
 **XianScan** is architected and built by **[Arben Apura](https://arbenger.com/contact/)** as a showcase of end-to-end full-stack web engineering, intuitive UI/UX design, and intelligent application architecture.
