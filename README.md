@@ -115,11 +115,11 @@ The embedded Web UI includes comprehensive controls to customize typography and 
 
 Translate using lightweight local models or high-throughput cloud APIs:
 
-- **100% Free & Unlimited Local AI (Ollama / LM Studio)**: Run popular lightweight, highly intelligent open-weight models locally with zero API fees and complete privacy:
-  - 🧠 **Qwen 2.5 (3B / 7B / 14B)**: The leading lightweight model for CJK (Chinese, Japanese, Korean) translation, cultural idiom accuracy, and comic dialogue understanding.
-  - ⚡ **Llama 3.2 (1B / 3B)**: Ultra-fast and lightweight inference engineered for low-latency execution on minimal hardware (~2–4 GB RAM).
-  - 💎 **Gemma 2 (2B / 9B)** & **Mistral (7B)**: Clean reasoning and high-fidelity dialogue translation.
-- **Cloud AI APIs**: Compatible with standard OpenAI-compatible endpoints, Google AI Studio (Gemini), Groq (instant ultra-fast inference), OpenRouter, and custom endpoints.
+- **100% Free & Unlimited Local AI** (<img src="https://unpkg.com/@lobehub/icons-static-svg@latest/icons/ollama.svg" width="16" height="16" alt="Ollama" /> **Ollama** / **LM Studio**):
+  - <img src="https://unpkg.com/@lobehub/icons-static-svg@latest/icons/qwen.svg" width="16" height="16" alt="Qwen" /> **Qwen 2.5 (3B / 7B / 14B)**: The leading lightweight model for CJK (Chinese, Japanese, Korean) translation, cultural idiom accuracy, and comic dialogue understanding.
+  - <img src="https://unpkg.com/@lobehub/icons-static-svg@latest/icons/meta.svg" width="16" height="16" alt="Meta Llama" /> **Llama 3.2 (1B / 3B)**: Ultra-fast and lightweight inference engineered for low-latency execution on minimal hardware (~2–4 GB RAM).
+  - <img src="https://unpkg.com/@lobehub/icons-static-svg@latest/icons/gemma.svg" width="16" height="16" alt="Google Gemma" /> **Gemma 2 (2B / 9B)** & <img src="https://unpkg.com/@lobehub/icons-static-svg@latest/icons/mistral.svg" width="16" height="16" alt="Mistral AI" /> **Mistral (7B)**: Clean reasoning and high-fidelity dialogue translation.
+- **Cloud AI APIs**: Compatible with standard OpenAI-compatible endpoints, <img src="https://unpkg.com/@lobehub/icons-static-svg@latest/icons/gemini.svg" width="16" height="16" alt="Google Gemini" /> **Google AI Studio (Gemini)**, <img src="https://unpkg.com/@lobehub/icons-static-svg@latest/icons/groq.svg" width="16" height="16" alt="Groq" /> **Groq** (instant ultra-fast inference), <img src="https://unpkg.com/@lobehub/icons-static-svg@latest/icons/openrouter.svg" width="16" height="16" alt="OpenRouter" /> **OpenRouter**, and <img src="https://unpkg.com/@lobehub/icons-static-svg@latest/icons/openai.svg" width="16" height="16" alt="OpenAI" /> **OpenAI**.
 - **Series Glossaries**: Dynamic multi-pattern terminology matching (via Aho-Corasick) to maintain consistent character names, cultivation realms, and skill terms across chapters.
 
 ---
