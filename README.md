@@ -51,7 +51,7 @@ It provides an end-to-end comic translation workflow:
 - **Background Inpainting**: Uses LaMa ONNX to erase original text and restore background art.
 - **Comic Typesetting**: Automatic text fitting, line wrapping, outlines, and comic font support (CC Wild Words).
 - **Webtoon Tools**: Functions for stitching pages into long vertical rolls and slicing strips along panel gutters.
-- **Web Interface & LAN Access**: Browser-based UI with chapters management, editor tools, and remote LAN access.
+- **Cross-Device Web UI (LAN Access)**: Once the server is running on your PC, you can access the full Web UI from any device connected to the same local Wi-Fi / network (such as your smartphone, tablet, or laptop).
 
 ---
 
@@ -67,11 +67,11 @@ Native OCR models and dictionaries are included for **11 languages**:
 
 ## 🤖 Supported Translation Providers
 
-Connect to cloud APIs or local models:
+Translate using either free local models or cloud APIs:
 
-- **Cloud AI**: DeepSeek (V3, R1, V4), Google AI Studio (Gemini), Groq, OpenRouter, OpenAI.
-- **Local & Self-Hosted**: Ollama, LM Studio, vLLM, LocalAI, and other OpenAI-compatible endpoints.
-- **Series Glossaries**: Terminology matching (via Aho-Corasick) to maintain consistent character names, techniques, and terms across chapters.
+- **100% Free & Unlimited Local AI**: Run open-weight models locally with **Ollama** or **LM Studio** (e.g. Qwen 2.5, Llama 3.3, DeepSeek-R1 distills) for completely free translations with zero API fees and total privacy.
+- **Cloud AI APIs**: DeepSeek (V3, R1, V4), Google AI Studio (Gemini), Groq, OpenRouter, and OpenAI.
+- **Series Glossaries**: Terminology matching (via Aho-Corasick) to maintain consistent character names, cultivation realms, and skill terms across chapters.
 
 ---
 
@@ -89,7 +89,8 @@ Download the pre-compiled standalone binary for your operating system from [Rele
 chmod +x xianscan && ./xianscan
 ```
 
-Open **[http://localhost:8124](http://localhost:8124)** in your web browser.
+- Open **[http://localhost:8124](http://localhost:8124)** in your web browser.
+- **Mobile & LAN Access**: Access XianScan from your phone or tablet on the same Wi-Fi by opening `http://<your-computer-ip>:8124`.
 
 ---
 
