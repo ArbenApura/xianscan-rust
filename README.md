@@ -240,13 +240,15 @@ cd web && yarn test
 
 ---
 
-## 🗺️ Roadmap & Future Enhancements
+## 🗺️ In Progress & Future Roadmap
 
-- [ ] **📦 Package Manager Distribution**: Official formulas and manifests for **Homebrew** (`brew install xianscan`), **Scoop** (`scoop install xianscan`), and **Windows Package Manager** (`winget install xianscan`).
-- [ ] **🔄 Seamless In-App & CLI Auto-Updates**: Non-disruptive background update detection with built-in `xianscan update` self-updating command.
+- [ ] **🔄 Enhanced Japanese Manga Recognition**: Continuously optimizing vertical Japanese OCR text extraction, Furigana filtering, multi-column right-to-left reading order clustering, and complex speech bubble grouping.
+- [ ] **👥 Contextual Gender & Pronoun Consistency**: Developing intelligent coreference resolution algorithms to accurately track character dialogue and resolve omitted or ambiguous CJK pronouns (Chinese 他/她, Japanese 彼/彼女, Korean 그/그녀/honorifics) across multi-panel conversation flows, extending beyond static glossaries to fit the distinct narrative structures of Manhua, Manga, and Manhwa.
+- [ ] **📦 Package Manager Distribution & CLI Updates**: Official formulas and manifests for **Homebrew** (`brew install xianscan`), **Scoop** (`scoop install xianscan`), and **Windows Package Manager** (`winget install xianscan`), paired with a built-in `xianscan update` self-updater.
 - [ ] **⚡ Decoupled Incremental Model Delivery**: Dynamic background self-hydration for AI model weights (`~/.xianscan/models/`) to reduce update payloads down to lightweight ~15 MB application binaries.
-- [ ] **🎨 Advanced Typography Presets**: Customizable comic speech balloon bubble shape templates and multi-style sound effect stylers.
-- [ ] **📱 PWA Offline Client Support**: Progressive Web App caching for seamless mobile reading on local network tablets and phones.
+- [ ] **🍎 Expanded macOS Support & Native Bundling**: Pre-compiled Apple Silicon builds are available ([xianscan-macos-arm64.tar.gz](https://github.com/ArbenApura/xianscan-rust/releases/download/v0.1.6/xianscan-macos-arm64.tar.gz)). As I currently do not have a dedicated macOS setup for local testing, community feedback and issue reports on macOS are warmly appreciated as I refine native .app and DMG distribution.
+- [ ] **📖 Xianslate Integration (All-in-One Translation Suite)**: Integrating [Xianslate](https://github.com/ArbenApura/xianslate) — my specialized Light Novel & Web Novel translation tool — into XianScan to create a unified reader and translation suite for both comics (Manga/Manhua/Manhwa) and light novels with shared dynamic terminology glossaries.
+- [ ] **📱 Mobile Companion Reader (iOS & Android)**: Developing a lightweight mobile reader app that connects to your local XianScan server over Wi-Fi. Features 1-tap offline chapter downloads for travel and commutes, smooth touch-optimized reading modes, and automatic reading progress sync with your home library.
 
 ---
 
