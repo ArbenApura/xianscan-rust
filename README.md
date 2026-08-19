@@ -200,6 +200,7 @@ To install:
 ## 🗺️ In Progress & Future Roadmap
 
 - **🔄 Enhanced Japanese Manga Recognition**: Continuously optimizing vertical Japanese OCR text extraction, Furigana filtering, multi-column right-to-left reading order clustering, and complex speech bubble grouping.
+- **🍎 Expanded macOS Support & Native Bundling**: We provide pre-compiled Apple Silicon builds ([`xianscan-macos-arm64.tar.gz`](https://github.com/ArbenApura/xianscan-rust/releases/download/v0.1.5/xianscan-macos-arm64.tar.gz)). As I currently do not have a dedicated macOS setup for local testing, community feedback and issue reports on macOS are warmly appreciated as we refine native `.app` and DMG distribution.
 - **📖 Xianslate Integration (All-in-One Translation Suite)**: Integrating [Xianslate](https://github.com/ArbenApura/xianslate) — our specialized Light Novel & Web Novel translation tool — into XianScan to create a unified reader and translation suite for both comics (Manga/Manhua/Manhwa) and light novels with shared dynamic terminology glossaries.
 
 ---
