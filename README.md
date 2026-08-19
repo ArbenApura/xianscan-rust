@@ -166,7 +166,8 @@ If XianScan is useful to your translation workflow, scanlation group, or reading
 
 Licensed under the **[MIT License](LICENSE)** © 2026 Arben Apura.
 
-- **RT-DETR & ComicTextDetector**: Bubble segmentation adapted from [manga-image-translator](https://github.com/zyddnys/manga-image-translator).
-- **RapidOCR**: PP-OCR models and decoders by [RapidAI](https://github.com/RapidAI/RapidOCR).
-- **LaMa Inpainting**: Large Mask Inpainting by [advimman/lama](https://github.com/advimman/lama).
-- **Typography**: CC Wild Words comic typeface under the Open Font License (OFL-1.1).
+- **RT-DETR Comic Detector**: Speech bubble and text segmentation models by [ogkalu/comic-text-and-bubble-detector](https://huggingface.co/ogkalu/comic-text-and-bubble-detector) and [manga-image-translator](https://github.com/zyddnys/manga-image-translator) (MIT / Apache-2.0).
+- **PaddleOCR & RapidOCR**: Multilingual OCR models (PP-OCRv6, Korean, Cyrillic, Thai) and direction classifier by [PaddlePaddle/PaddleOCR](https://github.com/PaddlePaddle/PaddleOCR), [RapidAI/RapidOCR](https://github.com/RapidAI/RapidOCR), and [xberg-io/paddleocr-onnx-models](https://huggingface.co/xberg-io/paddleocr-onnx-models) (Apache-2.0).
+- **LaMa Inpainting**: Large Mask Inpainting architecture by [advimman/lama](https://github.com/advimman/lama) (Apache-2.0) and manga inpainting weights by [ogkalu/lama-manga-onnx-dynamic](https://huggingface.co/ogkalu/lama-manga-onnx-dynamic).
+- **Typography & Fonts**: CC Wild Words comic typeface under the SIL Open Font License ([OFL-1.1](https://openfontlicense.org/)).
+- **ONNX Runtime**: High-performance inference engine by [Microsoft](https://github.com/microsoft/onnxruntime) (MIT License).
