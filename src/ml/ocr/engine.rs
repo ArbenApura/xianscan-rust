@@ -400,6 +400,7 @@ impl RapidOcr {
         if raw_lines.is_empty() {
             raw_lines = self.detect_and_recognize_tiled_with_lang(crop, false, source_lang)?;
         }
+        raw_lines = crate::ml::detect::filter_orthogonal_line_conflicts(raw_lines);
 
         if raw_lines.is_empty() {
             // Fallback for compact single/short utterance speech bubble crops (e.g. isolated 'え。', '！？')
@@ -427,9 +428,43 @@ impl RapidOcr {
         // Detect if crop lines are predominantly vertical
         let vertical_count = raw_lines.iter().filter(|l| {
             let (_, _, w, h) = polygon_bounds(&l.polygon);
-            h > (w as f32 * 1.2) as i32
+            h >= (w as f32 * 1.2) as i32
         }).count();
-        let is_vertical_crop = vertical_count * 2 >= raw_lines.len() && !raw_lines.is_empty();
+        let horiz_count = raw_lines.iter().filter(|l| {
+            let (_, _, w, h) = polygon_bounds(&l.polygon);
+            w >= (h as f32 * 1.2) as i32
+        }).count();
+        let is_vertical_crop = vertical_count > horiz_count && !raw_lines.is_empty();
+
+        // FOR HORIZONTAL MULTI-LINE CROPS (W >= 60, H >= 40, !is_vertical_crop):
+        // TEST PROJECTION-BASED HORIZONTAL ROW SLICING
+        if !is_vertical_crop && w >= 60 && h >= 40 {
+            let proj_strips = horizontal_paragraph_to_line_strips(crop);
+            if proj_strips.len() >= 2 {
+                let mut proj_lines = Vec::new();
+                for (poly, strip_img) in proj_strips {
+                    if let Ok(Some(line_res)) = self.recognize_line_horizontal_with_lang(&strip_img, source_lang) {
+                        let clean_t = crate::ml::detect::clean_stray_ocr_artifacts(&line_res.text);
+                        if !clean_t.trim().is_empty() && line_res.score >= 0.55 {
+                            proj_lines.push((poly, clean_t, line_res.score));
+                        }
+                    }
+                }
+                if proj_lines.len() >= 2 {
+                    let proj_chars: usize = proj_lines.iter().map(|(_, t, _)| t.chars().filter(|c| !c.is_whitespace()).count()).sum();
+                    let raw_chars: usize = raw_lines.iter().map(|l| l.text.chars().filter(|c| !c.is_whitespace()).count()).sum();
+                    if proj_chars >= raw_chars || raw_lines.is_empty() {
+                        let text_lines: Vec<String> = proj_lines.iter().map(|(_, t, _)| t.clone()).collect();
+                        let max_score = proj_lines.iter().map(|(_, _, s)| *s).fold(0.0_f32, f32::max);
+                        return Ok(Some(OcrResult {
+                            text: text_lines.join("\n"),
+                            score: max_score,
+                            lines: proj_lines,
+                        }));
+                    }
+                }
+            }
+        }
 
         if is_vertical_crop {
             // Sort predominantly vertical reading order (Right-to-Left columns, Top-to-Bottom lines)
@@ -684,6 +719,8 @@ impl RapidOcr {
             ya.cmp(&yb).then(xa.cmp(&xb))
         });
 
+        let lines = crate::ml::detect::filter_orthogonal_line_conflicts(lines);
+
         Ok(lines)
     }
 
@@ -799,3 +836,125 @@ pub fn vertical_to_upright_horizontal_strip(crop: &DynamicImage) -> Option<Dynam
 
     Some(DynamicImage::ImageRgb8(strip))
 }
+
+/// SLICE A HORIZONTAL MULTI-LINE PARAGRAPH INTO INDIVIDUAL HORIZONTAL ROW STRIPS VIA INK PROJECTION
+pub fn horizontal_paragraph_to_line_strips(crop: &DynamicImage) -> Vec<(Vec<[i32; 2]>, DynamicImage)> {
+    let (w, h) = crop.dimensions();
+    if w < 16 || h < 24 {
+        return Vec::new();
+    }
+
+    let rgb = crop.to_rgb8();
+
+    // 1. COMPUTE HORIZONTAL INK PROJECTION PROFILE
+    let mut total_lum = 0_u64;
+    for y in 0..h {
+        for x in 0..w {
+            let p = rgb.get_pixel(x, y);
+            let lum = (p[0] as u32 * 299 + p[1] as u32 * 587 + p[2] as u32 * 114) / 1000;
+            total_lum += lum as u64;
+        }
+    }
+    let mean_lum = (total_lum / (w as u64 * h as u64).max(1)) as u32;
+    let is_dark_bg = mean_lum < 128;
+
+    let mut proj = vec![0_u32; h as usize];
+    for y in 0..h {
+        let mut ink_count = 0;
+        for x in 0..w {
+            let p = rgb.get_pixel(x, y);
+            let lum = (p[0] as u32 * 299 + p[1] as u32 * 587 + p[2] as u32 * 114) / 1000;
+            let is_ink = if is_dark_bg { lum >= 150 } else { lum <= 180 };
+            if is_ink {
+                ink_count += 1;
+            }
+        }
+        proj[y as usize] = ink_count;
+    }
+
+    // 2. DETECT CONTINUOUS TEXT BANDS
+    let min_ink_threshold = ((w as f32 * 0.04).round() as u32).max(2);
+    let mut in_band = false;
+    let mut band_start = 0_u32;
+    let mut raw_bands = Vec::new();
+
+    for y in 0..h {
+        let has_ink = proj[y as usize] >= min_ink_threshold;
+        if has_ink && !in_band {
+            in_band = true;
+            band_start = y;
+        } else if !has_ink && in_band {
+            in_band = false;
+            let band_h = y - band_start;
+            if band_h >= 10 {
+                raw_bands.push((band_start, y));
+            }
+        }
+    }
+    if in_band {
+        let band_h = h - band_start;
+        if band_h >= 10 {
+            raw_bands.push((band_start, h));
+        }
+    }
+
+    if raw_bands.is_empty() {
+        return Vec::new();
+    }
+
+    // 3. SPLIT OVERSIZED BANDS (WHERE 2 ROWS TOUCHED) AT LOCAL PROJECTION MINIMA
+    let median_h = {
+        let mut hs: Vec<u32> = raw_bands.iter().map(|(y0, y1)| y1 - y0).collect();
+        hs.sort_unstable();
+        hs[hs.len() / 2]
+    };
+
+    let mut final_bands = Vec::new();
+    for (y0, y1) in raw_bands {
+        let bh = y1 - y0;
+        if bh >= (median_h as f32 * 1.8) as u32 && bh >= 45 {
+            // Find valley in the middle 50% of the band
+            let search_start = y0 + bh / 4;
+            let search_end = y1 - bh / 4;
+            let mut min_ink = u32::MAX;
+            let mut best_cut = y0 + bh / 2;
+            for y in search_start..=search_end {
+                if proj[y as usize] < min_ink {
+                    min_ink = proj[y as usize];
+                    best_cut = y;
+                }
+            }
+            if best_cut - y0 >= 12 && y1 - best_cut >= 12 {
+                final_bands.push((y0, best_cut));
+                final_bands.push((best_cut, y1));
+            } else {
+                final_bands.push((y0, y1));
+            }
+        } else {
+            final_bands.push((y0, y1));
+        }
+    }
+
+    // 4. EXTRACT LINE STRIP CROPS WITH PADDING
+    let mut line_strips = Vec::new();
+    for (y0, y1) in final_bands {
+        let pad_y = 4_u32;
+        let crop_y0 = y0.saturating_sub(pad_y);
+        let crop_y1 = (y1 + pad_y).min(h);
+        let crop_h = crop_y1 - crop_y0;
+
+        if crop_h >= 8 && w >= 8 {
+            let strip_img = crop.crop_imm(0, crop_y0, w, crop_h);
+            let poly = vec![
+                [0, y0 as i32],
+                [w as i32, y0 as i32],
+                [w as i32, y1 as i32],
+                [0, y1 as i32],
+            ];
+            line_strips.push((poly, strip_img));
+        }
+    }
+
+    line_strips
+}
+

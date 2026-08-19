@@ -149,7 +149,17 @@ pub fn build_regions(
                     let (_, _, lw, lh) = polygon_bounds(&l.polygon);
                     lh >= (lw as f32 * 1.2) as i32
                 }).count();
-                vert_count * 2 >= filtered_matched.len() || (box_rect.h > (box_rect.w as f32 * 1.2) as i32 && is_cjk)
+                let horiz_count = filtered_matched.iter().filter(|l| {
+                    let (_, _, lw, lh) = polygon_bounds(&l.polygon);
+                    lw >= (lh as f32 * 1.2) as i32
+                }).count();
+                if horiz_count > vert_count {
+                    false
+                } else if vert_count > horiz_count {
+                    true
+                } else {
+                    box_rect.h > (box_rect.w as f32 * 1.3) as i32 && is_cjk
+                }
             };
 
             let mut sorted_matched = filtered_matched.clone();
@@ -170,7 +180,9 @@ pub fn build_regions(
                         bx.cmp(&ax) // Multi-column vertical Japanese/CJK: Right-to-Left (descending X)
                     }
                 } else {
-                    let y_close = (a_mid_y - b_mid_y).abs() <= 8;
+                    let min_h = ah.min(bh).max(8);
+                    let v_overlap = (ay + ah).min(by + bh) - ay.max(by);
+                    let y_close = (a_mid_y - b_mid_y).abs() <= (min_h * 2 / 5).max(8) || v_overlap >= (min_h * 2 / 5).max(6);
                     if y_close {
                         ax.cmp(&bx) // Horizontal: same row left-to-right
                     } else {
@@ -199,24 +211,23 @@ pub fn build_regions(
                 }
 
                 let is_same_row = if let Some(prev_y_val) = last_mid_y {
-                    if (mid_y - prev_y_val).abs() <= 8 {
-                        let prev_line = if m_idx > 0 { Some(&sorted_matched[m_idx - 1]) } else { None };
-                        if let Some(pl) = prev_line {
-                            let (plx, _, plw, _) = polygon_bounds(&pl.polygon);
-                            let (mx, _, mw, _) = polygon_bounds(&m.polygon);
-                            (plx + plw).min(mx + mw) - plx.max(mx) <= 5
-                        } else {
-                            true
-                        }
+                    let prev_line = if m_idx > 0 { Some(&sorted_matched[m_idx - 1]) } else { None };
+                    if let Some(pl) = prev_line {
+                        let (plx, ply, plw, plh) = polygon_bounds(&pl.polygon);
+                        let (mx, my, mw, mh) = polygon_bounds(&m.polygon);
+                        let min_h = plh.min(mh).max(8);
+                        let v_overlap = (ply + plh).min(my + mh) - ply.max(my);
+                        let h_overlap = (plx + plw).min(mx + mw) - plx.max(mx);
+                        ((mid_y - prev_y_val).abs() <= (min_h * 2 / 5).max(8) || v_overlap >= (min_h * 2 / 5).max(6)) && h_overlap <= 5
                     } else {
-                        false
+                        (mid_y - prev_y_val).abs() <= 8
                     }
                 } else {
                     false
                 };
 
                 match last_mid_y {
-                    Some(prev_y) if (mid_y - prev_y).abs() <= 8 && is_same_row => {
+                    Some(_prev_y) if is_same_row => {
                         if let Some(last_row) = row_grouped_texts.last_mut() {
                             let merged = if *last_row == clean_t || last_row.contains(&clean_t) {
                                 last_row.clone()
@@ -316,25 +327,27 @@ pub fn build_regions(
             };
 
             let is_uneven_multiline = {
-                if filtered_matched.len() >= 3 && filtered_matched.len() <= 6 {
-                    let line_lens: Vec<usize> = row_grouped_texts.iter().map(|t| t.chars().count()).collect();
+                if filtered_matched.len() >= 3 {
+                    let line_lens: Vec<usize> = row_grouped_texts.iter().map(|t| t.chars().filter(|c| !c.is_whitespace()).count()).collect();
                     let max_l = line_lens.iter().cloned().max().unwrap_or(0);
                     let min_l = line_lens.iter().cloned().min().unwrap_or(0);
-                    max_l >= 5 && (max_l - min_l) >= 2
+                    let has_short_fragment = line_lens.iter().any(|&l| l <= 2) && max_l >= 5;
+                    (max_l >= 5 && (max_l - min_l) >= 3) || has_short_fragment
                 } else {
                     false
                 }
             };
             let is_clean_multiline = !has_mixed_orientations
+                && !is_uneven_multiline
                 && ((filtered_matched.len() >= 3 && avg_score >= 0.65)
                     || (is_vert_cluster && filtered_matched.len() >= 2 && avg_score >= 0.65));
             let is_short_line_in_bubble = (filtered_matched.len() <= 2 && box_rect.w >= 30 && box_rect.h >= 18)
                 || (box_rect.h >= (box_rect.w as f32 * 1.5) as i32 && box_rect.h >= 40);
             let needs_crop_refinement = has_mixed_orientations
-                || (!is_clean_multiline
-                    && (is_short_line_in_bubble
-                        || is_uneven_multiline
-                        || avg_score < 0.70));
+                || !is_clean_multiline
+                || is_short_line_in_bubble
+                || is_uneven_multiline
+                || avg_score < 0.70;
 
             if needs_crop_refinement {
                 let rgb = img.to_rgb8();
@@ -459,6 +472,16 @@ pub fn build_regions(
                                 }
                             }
 
+                            let ocr_clean_lines: Vec<crate::ml::ocr::OcrLine> = clean_lines
+                                .into_iter()
+                                .map(|(p, t, s)| crate::ml::ocr::OcrLine { polygon: p, text: t, score: s })
+                                .collect();
+                            let deconflicted_crop_lines = crate::pipeline::line_filter::filter_orthogonal_line_conflicts(ocr_clean_lines);
+                            let mut clean_lines: Vec<(Vec<[i32; 2]>, String, f32)> = deconflicted_crop_lines
+                                .into_iter()
+                                .map(|l| (l.polygon, l.text, l.score))
+                                .collect();
+
                             if clean_lines.len() >= 2 {
                                 let rad = median_angle.to_radians();
                                 let cos_a = rad.cos();
@@ -474,7 +497,17 @@ pub fn build_regions(
                                         let (_, _, lw, lh) = polygon_bounds(p);
                                         lh >= (lw as f32 * 1.2) as i32
                                     }).count();
-                                    vert_count * 2 >= clean_lines.len() || (crop_h > (crop_w as f32 * 1.2) as u32 && is_cjk)
+                                    let horiz_count = clean_lines.iter().filter(|(p, _, _)| {
+                                        let (_, _, lw, lh) = polygon_bounds(p);
+                                        lw >= (lh as f32 * 1.2) as i32
+                                    }).count();
+                                    if horiz_count > vert_count {
+                                        false
+                                    } else if vert_count > horiz_count {
+                                        true
+                                    } else {
+                                        crop_h > (crop_w as f32 * 1.3) as u32 && is_cjk
+                                    }
                                 };
 
                                 clean_lines.sort_by(|(pts_a, _, _), (pts_b, _, _)| {

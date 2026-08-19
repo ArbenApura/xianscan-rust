@@ -158,3 +158,95 @@ pub fn split_fused_lines(lines: Vec<OcrLine>) -> Vec<OcrLine> {
     }
     split_lines
 }
+
+/// FILTER OUT ORTHOGONAL CROSS-SLICING ARTIFACTS
+/// (e.g. 1-character-wide vertical columns slicing across a multi-line horizontal paragraph,
+/// or 1-character-tall horizontal rows slicing across multi-line vertical Japanese manga columns).
+pub fn filter_orthogonal_line_conflicts(lines: Vec<OcrLine>) -> Vec<OcrLine> {
+    if lines.len() <= 1 {
+        return lines;
+    }
+
+    let mut to_remove = vec![false; lines.len()];
+
+    for i in 0..lines.len() {
+        if to_remove[i] {
+            continue;
+        }
+        let (ix, iy, iw, ih) = polygon_bounds(&lines[i].polygon);
+        let i_is_vert = ih >= (iw as f32 * 1.25) as i32;
+        let i_is_horiz = iw >= (ih as f32 * 1.25) as i32;
+
+        if !i_is_vert && !i_is_horiz {
+            continue;
+        }
+
+        let mut conflicting_indices = Vec::new();
+        let i_area = (iw * ih).max(1);
+        let mut collides_with_dominant_orthogonal = false;
+
+        for j in 0..lines.len() {
+            if i == j || to_remove[j] {
+                continue;
+            }
+            let (jx, jy, jw, jh) = polygon_bounds(&lines[j].polygon);
+            let j_is_vert = jh >= (jw as f32 * 1.25) as i32;
+            let j_is_horiz = jw >= (jh as f32 * 1.25) as i32;
+
+            if i_is_vert && j_is_horiz {
+                let overlap_x = (ix + iw).min(jx + jw) - ix.max(jx);
+                let overlap_y = (iy + ih).min(jy + jh) - iy.max(jy);
+                if overlap_x > 0 && overlap_y > 0 {
+                    let j_area = (jw * jh).max(1);
+                    let inter_area = overlap_x * overlap_y;
+                    let overlap_ratio_i = inter_area as f32 / i_area as f32;
+                    let overlap_ratio_j = inter_area as f32 / j_area as f32;
+
+                    if overlap_ratio_i >= 0.15 || overlap_ratio_j >= 0.15 {
+                        conflicting_indices.push(j);
+                        // Vertical single-column slice (w <= 60) cutting through a wide horizontal sentence (w >= 70)
+                        if iw <= 60 && jw >= 70 && (jw as f32) >= (iw as f32 * 1.3) && overlap_ratio_i >= 0.20 {
+                            collides_with_dominant_orthogonal = true;
+                        }
+                    }
+                }
+            } else if i_is_horiz && j_is_vert {
+                let overlap_x = (ix + iw).min(jx + jw) - ix.max(jx);
+                let overlap_y = (iy + ih).min(jy + jh) - iy.max(jy);
+                if overlap_x > 0 && overlap_y > 0 {
+                    let j_area = (jw * jh).max(1);
+                    let inter_area = overlap_x * overlap_y;
+                    let overlap_ratio_i = inter_area as f32 / i_area as f32;
+                    let overlap_ratio_j = inter_area as f32 / j_area as f32;
+
+                    if overlap_ratio_i >= 0.15 || overlap_ratio_j >= 0.15 {
+                        conflicting_indices.push(j);
+                        // Horizontal single-row slice (h <= 40) cutting through a tall vertical sentence (h >= 70)
+                        if ih <= 40 && jh >= 70 && (jh as f32) >= (ih as f32 * 1.3) && overlap_ratio_i >= 0.20 {
+                            collides_with_dominant_orthogonal = true;
+                        }
+                    }
+                }
+            }
+        }
+
+        if collides_with_dominant_orthogonal {
+            to_remove[i] = true;
+        } else if conflicting_indices.len() >= 2 {
+            let i_chars = lines[i].text.chars().filter(|c| !c.is_whitespace()).count();
+            let conf_chars: usize = conflicting_indices.iter().map(|&idx| lines[idx].text.chars().filter(|c| !c.is_whitespace()).count()).sum();
+
+            // A narrow vertical slice (w <= 55) or short horizontal slice (h <= 35) crossing multiple orthogonal lines is removed.
+            // A wide horizontal line (w >= 70) or tall vertical column (h >= 70) is preserved.
+            if i_is_vert && iw <= 60 && conf_chars >= i_chars {
+                to_remove[i] = true;
+            } else if i_is_horiz && ih <= 45 && conf_chars >= i_chars {
+                to_remove[i] = true;
+            }
+        }
+    }
+
+    lines.into_iter().enumerate().filter(|(idx, _)| !to_remove[*idx]).map(|(_, l)| l).collect()
+}
+
+

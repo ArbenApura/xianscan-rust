@@ -166,24 +166,27 @@ export function seedDefaultProviders(db = defaultDb): void {
 					})
 					.run();
 			} else {
-				// Sync available models and auto-heal invalid active models
-				const available: string[] = JSON.parse(def.availableModels);
-				let nextActive = current.activeModel;
-				if (!available.includes(current.activeModel)) {
-					nextActive = def.activeModel;
+				// PRESERVE USER-SCANNED, CUSTOM, AND SELECTED MODELS IN DB
+				// ONLY AUTO-HEAL IF availableModels IN DB IS CORRUPTED OR EMPTY
+				let available: string[] = [];
+				try {
+					available = JSON.parse(current.availableModels);
+				} catch {
+					available = [];
 				}
-				db.update(aiProviders)
-					.set({
-						availableModels: def.availableModels,
-						activeModel: nextActive,
-						baseUrl: current.baseUrl || def.baseUrl,
-					})
-					.where(eq(aiProviders.id, def.id))
-					.run();
+				if (!Array.isArray(available) || available.length === 0) {
+					db.update(aiProviders)
+						.set({
+							availableModels: def.availableModels,
+							activeModel: def.activeModel,
+						})
+						.where(eq(aiProviders.id, def.id))
+						.run();
+				}
 			}
 		}
 	} catch {
-		// Silent fallback during in-memory migrations or pre-init
+		// SILENT FALLBACK DURING IN-MEMORY MIGRATIONS OR PRE-INIT
 	}
 }
 

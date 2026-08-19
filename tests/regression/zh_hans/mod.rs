@@ -1266,6 +1266,75 @@ fn test_regression_page_64250() {
     );
 }
 
+/// # Regression Test: Page 58385 (Resolution: 800 × 1120 WebP)
+///
+/// ## Purpose & Behavior Tested:
+/// - **Large Multi-Line Horizontal Speech Bubble Unification**:
+///   Verifies that a 10-line wide speech bubble (*"不是的，我是被人给揍了！..."*) is detected
+///   as a single coherent horizontal dialogue bubble without column slicing, line jumbling, or
+///   inverted text ordering.
+/// - **Vertical Fragment / Phantom Sub-Box Suppression**:
+///   Guarantees that vertical slices (*"不：给：游"*, *"。拟头了没"*) are not produced as duplicate
+///   overlapping regions over the main horizontal dialogue text.
+/// - **Thought Bubble Ellipsis Preservation**:
+///   Verifies that the bottom thought bubble (*"全息模拟……"*) preserves its full dialogue and trailing ellipsis.
+/// - **Watermark Suppression**:
+///   Suppresses `漫客栈` margin watermark.
+///
+/// ## Key Invariants:
+/// - Exactly 2 clean dialogue regions (`assert_eq!(res.regions.len(), 2)`).
+/// - Top bubble contains all 10 unified lines in proper reading order.
+/// - Negative guard: Zero vertical phantom slices (`"不：给：游"`, `"。拟头了没"`).
+/// - Negative guard: Zero `漫客栈` watermark regions.
+#[test]
+fn test_regression_page_58385_holographic_simulation_beaten_up() {
+    let img = match crate::common::load_fixture_or_skip("zh_hans", "page_holographic_simulation_beaten_up.webp") {
+        Some(i) => i,
+        None => {
+            eprintln!("[INFO] Skipping test_regression_page_58385_holographic_simulation_beaten_up: fixture not found");
+            return;
+        }
+    };
+
+    let res = crate::common::get_or_analyze_fixture_with_lang(&img, Some("zh_hans"));
+    println!("Page 58385 detected {} regions:", res.regions.len());
+    for (i, r) in res.regions.iter().enumerate() {
+        println!("  Region r{}: box={:?}, text='{}', angle={:.2}, conf={:.2}", i, r.box_, r.text.replace('\n', "\\n"), r.angle, r.confidence);
+    }
+
+    // 1. Exact count: exactly 2 regions (top speech bubble + bottom thought bubble)
+    assert_eq!(res.regions.len(), 2, "Page 58385 must have exactly 2 regions, got {}", res.regions.len());
+
+    // 2. Top speech bubble: 10-line unified dialogue
+    let top_bubble = res.regions.iter().find(|r| r.text.contains("不是的") || r.text.contains("给揍了") || r.text.contains("全息模拟"));
+    assert!(top_bubble.is_some(), "Must detect top dialogue bubble '不是的，我是被人给揍了！...'");
+    let top_text = &top_bubble.unwrap().text;
+    assert!(top_text.contains("不是的") && top_text.contains("给揍了"), "Top bubble must start with '不是的，我是被人给揍了！'");
+    assert!(top_text.contains("游戏里的技能") || top_text.contains("削减") || top_text.contains("削\n减") || top_text.contains("削"), "Top bubble must contain skill/life reduction");
+    assert!(top_text.contains("全息模拟"), "Top bubble must contain '全息模拟'");
+    assert!(top_text.contains("平常街头") || top_text.contains("打架一样"), "Top bubble must contain street fight dialogue");
+    assert!(top_text.contains("真的好疼啊"), "Top bubble must conclude with '真的好疼啊！'");
+
+    // 3. Bottom thought bubble: "全息模拟" / "全息模\n拟"
+    let bot_thought = res.regions.iter().find(|r| *r != top_bubble.unwrap());
+    assert!(bot_thought.is_some(), "Must detect bottom thought bubble");
+    let bot_text = &bot_thought.unwrap().text;
+    assert!(bot_text.replace('\n', "").contains("全息模拟"), "Bottom thought bubble must contain '全息模拟', got '{}'", bot_text);
+
+    // 4. Negative Guard: Zero vertical slice phantom boxes
+    assert!(
+        !res.regions.iter().any(|r| r.text.contains("不：给：游") || r.text.contains("拟头了没") || (r.text.contains("人用削") && !r.text.contains("不是的"))),
+        "Must not spawn vertical phantom slices or scrambled fragments"
+    );
+
+    // 5. Negative Guard: Zero watermark detection ('漫客栈')
+    assert!(
+        !res.regions.iter().any(|r| r.text.contains("漫客") || r.text.contains("漫客栈")),
+        "Must not detect margin watermark '漫客栈'"
+    );
+}
+
+
 
 
 

@@ -91,7 +91,7 @@
 
 	// AI PROVIDERS STATE
 	let providers: ProviderInfo[] = [];
-	let selectedProviderId = 'deepseek';
+	let selectedProviderId = '';
 	let providerCategoryFilter: 'all' | 'cloud' | 'local' | 'custom' = 'all';
 	let apiKeyDraft: Record<string, string> = {};
 	let baseUrlDraft: Record<string, string> = {};
@@ -124,7 +124,7 @@
 				hardwareInfo = (await res.json()) as HardwareInfo;
 			}
 		} catch {
-			// Silent fallback
+			// SILENT FALLBACK
 		} finally {
 			hardwareLoading = false;
 		}
@@ -138,13 +138,13 @@
 				const data = await res.json();
 				providers = (data.providers || []) as ProviderInfo[];
 
-				// Sync model and baseUrl drafts from database
+				// SYNC MODEL AND BASEURL DRAFTS FROM DATABASE
 				for (const p of providers) {
 					activeModelDraft[p.id] = p.activeModel;
 					baseUrlDraft[p.id] = p.baseUrl;
 				}
 
-				// Select default provider if not set
+				// SELECT ACTIVE DEFAULT PROVIDER IF CURRENT SELECTION IS EMPTY OR NOT FOUND
 				if (!selectedProviderId || !providers.some((p) => p.id === selectedProviderId)) {
 					const defaultP = providers.find((p) => p.isDefault) || providers[0];
 					if (defaultP) {
@@ -153,7 +153,7 @@
 				}
 			}
 		} catch {
-			// Silent fallback
+			// SILENT FALLBACK
 		} finally {
 			providersLoading = false;
 		}
@@ -164,6 +164,7 @@
 		apiKeyDraft = {};
 		testResult = null;
 		customModelInput = '';
+		selectedProviderId = '';
 		loadHardwareStatus();
 		loadProviders();
 	}
@@ -285,11 +286,13 @@
 			const key = apiKeyDraft[providerId];
 			const base = baseUrlDraft[providerId];
 			const model = activeModelDraft[providerId];
+			const prov = providers.find((p) => p.id === providerId);
 
 			const payload: Record<string, unknown> = {
 				id: providerId,
 				activeModel: model,
 				baseUrl: base,
+				availableModels: prov?.availableModels,
 			};
 
 			if (key && key.trim().length > 0) {
@@ -310,14 +313,13 @@
 				throw new Error(err.message || 'Failed to save provider');
 			}
 
-			const prov = providers.find((p) => p.id === providerId);
 			toast.success(
 				setAsDefault
 					? `${prov?.name || providerId} set as active translation engine!`
 					: 'Provider settings saved successfully',
 			);
 
-			// Clear raw apiKey draft after save
+			// CLEAR RAW APIKEY DRAFT AFTER SAVE
 			apiKeyDraft[providerId] = '';
 			await loadProviders();
 		} catch (e: any) {
@@ -486,7 +488,7 @@
 		}
 	}
 
-	function addCustomModel(providerId: string) {
+	async function addCustomModel(providerId: string) {
 		const raw = customModelInput.trim();
 		if (!raw) return;
 		const prov = providers.find((p) => p.id === providerId);
@@ -498,6 +500,15 @@
 			providers = [...providers];
 			customModelInput = '';
 			toast.success(`Model "${raw}" selected`);
+			try {
+				await fetch('/api/system/providers', {
+					method: 'POST',
+					headers: { 'content-type': 'application/json' },
+					body: JSON.stringify({ id: providerId, availableModels: prov.availableModels, activeModel: raw }),
+				});
+			} catch {
+				// SILENT FALLBACK
+			}
 		}
 	}
 

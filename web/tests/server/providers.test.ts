@@ -107,4 +107,33 @@ describe('providers.ts', () => {
 		const deepseek = getProviderById('deepseek', db);
 		expect(deepseek?.isDefault).toBe(false);
 	});
+
+	it('preserves scanned custom models and active model on LM Studio across getProviders calls', () => {
+		const db = getTestDb();
+		// Update LM Studio with scanned models and select one
+		updateProvider(
+			'lmstudio',
+			{
+				availableModels: ['qwen2.5-coder-7b-instruct', 'mistral-7b-instruct-v0.3'],
+				activeModel: 'qwen2.5-coder-7b-instruct',
+				isDefault: true,
+			},
+			db,
+		);
+
+		// Trigger getProviders (which runs seedDefaultProviders)
+		const list = getProviders(db);
+		const lmstudio = list.find((p) => p.id === 'lmstudio');
+		expect(lmstudio).toBeDefined();
+		expect(lmstudio?.isDefault).toBe(true);
+		expect(lmstudio?.activeModel).toBe('qwen2.5-coder-7b-instruct');
+		expect(lmstudio?.availableModels).toEqual([
+			'qwen2.5-coder-7b-instruct',
+			'mistral-7b-instruct-v0.3',
+		]);
+
+		const active = getActiveProvider(db);
+		expect(active.id).toBe('lmstudio');
+		expect(active.activeModel).toBe('qwen2.5-coder-7b-instruct');
+	});
 });

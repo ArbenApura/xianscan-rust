@@ -9,7 +9,7 @@ use crate::ml::geometry::{box_to_xywh_f32, line_center_inside_box};
 use crate::ml::schemas::{AnalyzeOptions, AnalyzeResponse, BoxRect};
 use super::engine::PipelineEngine;
 use super::fusion::{fuse_detections, is_multiline_comic_blob};
-use super::line_filter::{filter_artwork_and_artifacts, normalize_stray_latin, split_fused_lines};
+use super::line_filter::{filter_artwork_and_artifacts, filter_orthogonal_line_conflicts, normalize_stray_latin, split_fused_lines};
 use super::region_builder::build_regions;
 use super::region_merge::post_process_regions;
 
@@ -43,7 +43,8 @@ pub fn analyze_image_with_options(
     // STAGE 2: LINE NORMALIZATION, FILTERING, AND SPLITTING
     let normalized_lines = normalize_stray_latin(fusion_res.rapid_lines, is_cjk);
     let clean_lines = filter_artwork_and_artifacts(normalized_lines, page_w, source_lang);
-    let split_lines = split_fused_lines(clean_lines);
+    let deconflicted_lines = filter_orthogonal_line_conflicts(clean_lines);
+    let split_lines = split_fused_lines(deconflicted_lines);
 
     // Stage 3: Comic blob suppression & spatial line concatenation
     let rapid_f32_boxes: Vec<Vec<[f32; 2]>> = split_lines
