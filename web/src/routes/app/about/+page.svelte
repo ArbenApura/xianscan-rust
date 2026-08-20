@@ -34,7 +34,7 @@
 		},
 		{
 			q: 'Can I use XianScan completely offline?',
-			a: 'Yes. The standalone executable embeds all ML weights (RT-DETR bubble detector, 11-language OCR, and LaMa neural inpainter). Combined with a local LLM runner (such as Ollama or LM Studio), the entire detection, OCR, translation, and typesetting workflow runs 100% offline with zero internet access.',
+			a: 'Yes. The standalone executable embeds all ML weights (RT-DETR bubble detector, 10-language OCR, and LaMa neural inpainter). Combined with a local LLM runner (such as Ollama or LM Studio), the entire detection, OCR, translation, and typesetting workflow runs 100% offline with zero internet access.',
 		},
 		{
 			q: 'Does XianScan require a dedicated GPU or CUDA?',
@@ -46,7 +46,7 @@
 		},
 		{
 			q: 'What comic formats and languages are supported?',
-			a: 'XianScan natively supports Chinese Manhua (Simplified & Traditional), Korean Manhwa & Webtoons, Japanese Manga, and Western/Global comics across 11 OCR languages (Chinese, Japanese, Korean, Vietnamese, Thai, Indonesian, English, Spanish, French, Russian) with automatic CJK font fallbacks.',
+			a: 'XianScan natively supports Chinese Manhua (Simplified & Traditional), Korean Manhwa & Webtoons, Japanese Manga, and Western/Global comics across 10 OCR languages (Simplified Chinese, Traditional Chinese, Japanese, Korean, Thai, Indonesian, English, Spanish, French, Russian) with automatic CJK font fallbacks.',
 		},
 		{
 			q: 'How does Webtoon Smart Gutter Re-slicing work?',
@@ -176,33 +176,47 @@
 		<div>
 			<h2 class="text-base sm:text-lg font-bold text-neutral-900 dark:text-neutral-100 flex items-center gap-2">
 				<Layers size={18} class="text-[#b23a2e] dark:text-[#e08a63]" />
-				Automated 4-Stage Pipeline
+				Automated 5-Stage Pipeline
 			</h2>
 			<p class="text-xs sm:text-sm text-neutral-500 dark:text-neutral-400">
-				Each page streams continuously through four automated neural processing stages:
+				Each page streams continuously through five automated neural processing stages:
 			</p>
 		</div>
 
 		<div class="rounded-2xl border border-black/10 bg-white/50 dark:border-white/10 dark:bg-white/[0.02] backdrop-blur-md overflow-hidden divide-y divide-black/5 dark:divide-white/5">
-			<!-- STAGE 1: DETECTION & OCR -->
+			<!-- STAGE 1: DETECTION & SEGMENTATION -->
 			<div class="p-5 sm:p-6 transition-colors hover:bg-black/[0.01] dark:hover:bg-white/[0.01]">
 				<div class="flex flex-col sm:flex-row sm:items-baseline justify-between gap-1 sm:gap-4 mb-1.5">
 					<div class="flex items-center gap-3">
 						<span class="font-mono text-xs font-bold text-[#b23a2e] dark:text-[#e08a63] bg-[#b23a2e]/10 px-2 py-0.5 rounded-md">01</span>
-						<h3 class="text-sm sm:text-base font-bold text-neutral-900 dark:text-neutral-100">RT-DETR Detection & Multi-Script OCR</h3>
+						<h3 class="text-sm sm:text-base font-bold text-neutral-900 dark:text-neutral-100">RT-DETR Detection & Segmentation</h3>
 					</div>
-					<span class="text-[11px] font-mono opacity-50 pl-9 sm:pl-0">RT-DETR · RapidOCR / PP-OCRv6</span>
+					<span class="text-[11px] font-mono opacity-50 pl-9 sm:pl-0">RT-DETR · Comic Text & Bubble Detector</span>
 				</div>
 				<p class="text-xs sm:text-sm text-neutral-600 dark:text-neutral-400 leading-relaxed pl-9 sm:pl-9">
-					Identifies vertical and horizontal dialogue bubbles, sound effects, and narrative boxes with an RT-DETR model, extracting text across 11 languages (Chinese, Japanese, Korean, Cyrillic, Thai, Latin) with direction classification.
+					Locates vertical and horizontal dialogue bubbles, sound effects, and narrative boxes with an RT-DETR model.
 				</p>
 			</div>
 
-			<!-- STAGE 2: TRANSLATION & GLOSSARY -->
+			<!-- STAGE 2: OCR -->
 			<div class="p-5 sm:p-6 transition-colors hover:bg-black/[0.01] dark:hover:bg-white/[0.01]">
 				<div class="flex flex-col sm:flex-row sm:items-baseline justify-between gap-1 sm:gap-4 mb-1.5">
 					<div class="flex items-center gap-3">
 						<span class="font-mono text-xs font-bold text-[#b23a2e] dark:text-[#e08a63] bg-[#b23a2e]/10 px-2 py-0.5 rounded-md">02</span>
+						<h3 class="text-sm sm:text-base font-bold text-neutral-900 dark:text-neutral-100">Multi-Script OCR Recognition</h3>
+					</div>
+					<span class="text-[11px] font-mono opacity-50 pl-9 sm:pl-0">RapidOCR / PP-OCRv6</span>
+				</div>
+				<p class="text-xs sm:text-sm text-neutral-600 dark:text-neutral-400 leading-relaxed pl-9 sm:pl-9">
+					Extracts horizontal and vertical text across 10 languages (Simplified & Traditional Chinese, Japanese, Korean, Thai, Indonesian, English, Spanish, French, Russian) with direction classification.
+				</p>
+			</div>
+
+			<!-- STAGE 3: TRANSLATION & GLOSSARY -->
+			<div class="p-5 sm:p-6 transition-colors hover:bg-black/[0.01] dark:hover:bg-white/[0.01]">
+				<div class="flex flex-col sm:flex-row sm:items-baseline justify-between gap-1 sm:gap-4 mb-1.5">
+					<div class="flex items-center gap-3">
+						<span class="font-mono text-xs font-bold text-[#b23a2e] dark:text-[#e08a63] bg-[#b23a2e]/10 px-2 py-0.5 rounded-md">03</span>
 						<h3 class="text-sm sm:text-base font-bold text-neutral-900 dark:text-neutral-100">Contextual Translation & Series Glossaries</h3>
 					</div>
 					<span class="text-[11px] font-mono opacity-50 pl-9 sm:pl-0">Ollama / LM Studio · Cloud AI · Aho-Corasick</span>
@@ -212,25 +226,25 @@
 				</p>
 			</div>
 
-			<!-- STAGE 3: INPAINTING -->
+			<!-- STAGE 4: INPAINTING -->
 			<div class="p-5 sm:p-6 transition-colors hover:bg-black/[0.01] dark:hover:bg-white/[0.01]">
 				<div class="flex flex-col sm:flex-row sm:items-baseline justify-between gap-1 sm:gap-4 mb-1.5">
 					<div class="flex items-center gap-3">
-						<span class="font-mono text-xs font-bold text-[#b23a2e] dark:text-[#e08a63] bg-[#b23a2e]/10 px-2 py-0.5 rounded-md">03</span>
+						<span class="font-mono text-xs font-bold text-[#b23a2e] dark:text-[#e08a63] bg-[#b23a2e]/10 px-2 py-0.5 rounded-md">04</span>
 						<h3 class="text-sm sm:text-base font-bold text-neutral-900 dark:text-neutral-100">LaMa Neural Artwork Inpainting</h3>
 					</div>
-					<span class="text-[11px] font-mono opacity-50 pl-9 sm:pl-0">LaMa ONNX · Patch / Dynamic Modes · DirectML</span>
+					<span class="text-[11px] font-mono opacity-50 pl-9 sm:pl-0">LaMa ONNX · Patch / Balanced / Dynamic Modes</span>
 				</div>
 				<p class="text-xs sm:text-sm text-neutral-600 dark:text-neutral-400 leading-relaxed pl-9 sm:pl-9">
 					Erases original source characters seamlessly using Large Mask Inpainting (LaMa), restoring background artwork, textures, screentones, and gradients without destructive white-box overlays.
 				</p>
 			</div>
 
-			<!-- STAGE 4: TYPESETTING -->
+			<!-- STAGE 5: TYPESETTING -->
 			<div class="p-5 sm:p-6 transition-colors hover:bg-black/[0.01] dark:hover:bg-white/[0.01]">
 				<div class="flex flex-col sm:flex-row sm:items-baseline justify-between gap-1 sm:gap-4 mb-1.5">
 					<div class="flex items-center gap-3">
-						<span class="font-mono text-xs font-bold text-[#b23a2e] dark:text-[#e08a63] bg-[#b23a2e]/10 px-2 py-0.5 rounded-md">04</span>
+						<span class="font-mono text-xs font-bold text-[#b23a2e] dark:text-[#e08a63] bg-[#b23a2e]/10 px-2 py-0.5 rounded-md">05</span>
 						<h3 class="text-sm sm:text-base font-bold text-neutral-900 dark:text-neutral-100">Dynamic Skia Typesetting Studio</h3>
 					</div>
 					<span class="text-[11px] font-mono opacity-50 pl-9 sm:pl-0">@napi-rs/canvas · Auto Font Scaling · CJK Fallbacks</span>
@@ -266,7 +280,7 @@
 				<Zap size={16} class="text-[#b23a2e] dark:text-[#e08a63] shrink-0 mt-0.5" />
 				<div>
 					<strong class="font-semibold text-neutral-900 dark:text-neutral-100">Runs on Any CPU (No GPU Required):</strong>
-					<p class="text-neutral-600 dark:text-neutral-400 mt-0.5">Multi-threaded SIMD inference (AVX2, AVX-512, ARM NEON) with automatic DirectML GPU acceleration.</p>
+					<p class="text-neutral-600 dark:text-neutral-400 mt-0.5">Multi-threaded SIMD inference (AVX2, AVX-512, ARM NEON) with automatic DirectML (Windows), CoreML/Metal (macOS), or CUDA (Linux) GPU acceleration.</p>
 				</div>
 			</div>
 
@@ -284,7 +298,7 @@
 				<Cpu size={16} class="text-[#b23a2e] dark:text-[#e08a63] shrink-0 mt-0.5" />
 				<div>
 					<strong class="font-semibold text-neutral-900 dark:text-neutral-100">Parallel Chapter Processing:</strong>
-					<p class="text-neutral-600 dark:text-neutral-400 mt-0.5">Translate 1 to 4 concurrent page worker threads with lookahead background pre-slicing.</p>
+					<p class="text-neutral-600 dark:text-neutral-400 mt-0.5">Translate 1 to 8 concurrent page worker threads with lookahead background pre-slicing.</p>
 				</div>
 			</div>
 
