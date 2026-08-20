@@ -10,7 +10,7 @@ import { DEFAULT_SOURCE_LANG, DEFAULT_TARGET_LANG } from '$lib/languages';
 export type Theme = 'light' | 'sepia' | 'dark';
 export type AppFont = 'comic' | 'clash' | 'general' | 'poppins' | 'proxima' | 'nunito' | 'montserrat' | 'lexend';
 export type InpaintMode = 'patch' | 'scaled' | 'full';
-export type ExecutionDevice = 'auto' | 'cuda' | 'dml' | 'cpu';
+export type ExecutionDevice = 'auto' | 'cuda' | 'dml' | 'coreml' | 'cpu';
 export type TypesetOutline = 'none' | 'thin' | 'standard' | 'heavy';
 export type TypesetContrast = 'auto' | 'dark' | 'light';
 export type TypesetCasing = 'uppercase' | 'original' | 'lowercase';
@@ -86,6 +86,7 @@ export const INPAINT_MODES: { id: InpaintMode; label: string; tag: string; badge
 export const EXECUTION_DEVICES: { id: ExecutionDevice; label: string; blurb: string }[] = [
 	{ id: 'auto', label: 'Auto Detect', blurb: 'Automatically selects Dedicated GPU or CPU Multi-threaded (safely avoids iGPU)' },
 	{ id: 'cuda', label: 'NVIDIA Dedicated GPU (CUDA)', blurb: 'High-performance tensor acceleration on NVIDIA GeForce/RTX GPUs' },
+	{ id: 'coreml', label: 'CoreML (Apple Silicon)', blurb: 'Metal / Neural Engine acceleration on Apple Silicon Macs' },
 	{ id: 'dml', label: 'DirectML (Dedicated GPU)', blurb: 'DirectX 12 acceleration on dedicated AMD Radeon RX, Intel Arc, or NVIDIA GPUs' },
 	{ id: 'cpu', label: 'CPU Multi-threaded', blurb: 'Fast, crash-free execution on multi-core CPU (recommended for non-dGPU)' },
 ];
@@ -352,7 +353,7 @@ function mergeKnown(parsed: unknown): AppSettings {
 	if (!['light', 'sepia', 'dark'].includes(out.theme)) out.theme = 'sepia';
 	if (!['comic', 'poppins', 'proxima', 'nunito', 'montserrat', 'lexend'].includes(out.appFont)) out.appFont = 'comic';
 	if (!['patch', 'scaled', 'full'].includes(out.inpaintMode)) out.inpaintMode = 'patch';
-	if (!['auto', 'cuda', 'dml', 'cpu'].includes(out.executionDevice)) out.executionDevice = 'auto';
+	if (!['auto', 'cuda', 'dml', 'coreml', 'cpu'].includes(out.executionDevice)) out.executionDevice = 'auto';
 	out.parallelProcesses = Math.max(1, Math.min(8, Number(out.parallelProcesses) || 2));
 	out.parallelChapters = Math.max(1, Math.min(4, Number(out.parallelChapters) || 1));
 	out.resliceBeforeBatch = typeof (parsed as any)?.resliceBeforeBatch === 'boolean' ? (parsed as any).resliceBeforeBatch : false;
