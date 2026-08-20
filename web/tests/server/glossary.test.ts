@@ -67,12 +67,17 @@ describe('chunkForExtraction', () => {
 
 describe('addTerm + getGlossaryPage', () => {
 	it('adds a global term and lists it with parsed aliases', async () => {
-		const row = await addTerm('global', null, {
-			source: '系统',
-			target: 'System',
-			gender: 'neuter',
-			aliases: ['系统君'],
-		}, PAIR);
+		const row = await addTerm(
+			'global',
+			null,
+			{
+				source: '系统',
+				target: 'System',
+				gender: 'neuter',
+				aliases: ['系统君'],
+			},
+			PAIR,
+		);
 
 		expect(row.status).toBe('user');
 		expect(row.bookId).toBeNull();
@@ -116,7 +121,12 @@ describe('addTerm + getGlossaryPage', () => {
 		expect(b2.total).toBe(0);
 
 		// A FRENCH GLOBAL TERM MUST NOT LEAK INTO THE zh-Hans → en EDITOR VIEW.
-		await addTerm('global', null, { source: 'Système', target: 'System', gender: 'neuter' }, { sourceLang: 'fr', targetLang: 'en' });
+		await addTerm(
+			'global',
+			null,
+			{ source: 'Système', target: 'System', gender: 'neuter' },
+			{ sourceLang: 'fr', targetLang: 'en' },
+		);
 		const zh = await getGlossaryPage('global', null, { limit: 50, offset: 0, pair: PAIR });
 		expect(zh.rows.map((r) => r.source)).not.toContain('Système');
 	});
@@ -135,13 +145,18 @@ describe('addTerm + getGlossaryPage', () => {
 
 describe('updateTerm', () => {
 	it('patches only provided fields and returns the row', async () => {
-		const row = await addTerm('global', null, {
-			source: '系统',
-			target: 'System',
-			gender: 'neuter',
-			context: 'old note',
-			pinned: false,
-		}, PAIR);
+		const row = await addTerm(
+			'global',
+			null,
+			{
+				source: '系统',
+				target: 'System',
+				gender: 'neuter',
+				context: 'old note',
+				pinned: false,
+			},
+			PAIR,
+		);
 
 		const updated = await updateTerm(row.id, { pinned: true, context: '' });
 		expect(updated?.pinned).toBe(true);
@@ -179,24 +194,39 @@ describe('deleteTerm', () => {
 describe('mergeGlossary (bulk import)', () => {
 	it('reports added/updated and is atomic', async () => {
 		seedBook(db, { id: 'b1' });
-		const first = await mergeGlossary('book', 'b1', [
-			{ source: '主角', target: 'MC', gender: 'neuter' },
-			{ source: '系统', target: 'System', gender: 'neuter' },
-		], PAIR);
+		const first = await mergeGlossary(
+			'book',
+			'b1',
+			[
+				{ source: '主角', target: 'MC', gender: 'neuter' },
+				{ source: '系统', target: 'System', gender: 'neuter' },
+			],
+			PAIR,
+		);
 		expect(first).toEqual({ added: 2, updated: 0 });
 
-		const second = await mergeGlossary('book', 'b1', [
-			{ source: '主角', target: 'Protagonist', gender: 'neuter' },
-			{ source: '新词', target: 'New', gender: 'neuter' },
-		], PAIR);
+		const second = await mergeGlossary(
+			'book',
+			'b1',
+			[
+				{ source: '主角', target: 'Protagonist', gender: 'neuter' },
+				{ source: '新词', target: 'New', gender: 'neuter' },
+			],
+			PAIR,
+		);
 		expect(second).toEqual({ added: 1, updated: 1 });
 	});
 
 	it('de-dupes by source last-wins within one batch', async () => {
-		const { added, updated } = await mergeGlossary('global', null, [
-			{ source: '系统', target: 'First', gender: 'neuter' },
-			{ source: '系统', target: 'Last', gender: 'neuter' },
-		], PAIR);
+		const { added, updated } = await mergeGlossary(
+			'global',
+			null,
+			[
+				{ source: '系统', target: 'First', gender: 'neuter' },
+				{ source: '系统', target: 'Last', gender: 'neuter' },
+			],
+			PAIR,
+		);
 		expect(added).toBe(1);
 		expect(updated).toBe(0);
 		const { rows } = await getGlossaryPage('global', null, { limit: 50, offset: 0, pair: PAIR });
@@ -204,10 +234,15 @@ describe('mergeGlossary (bulk import)', () => {
 	});
 
 	it('skips blank source/target rows entirely', async () => {
-		const result = await mergeGlossary('global', null, [
-			{ source: '   ', target: 'X', gender: 'neuter' },
-			{ source: '系统', target: 'System', gender: 'neuter' },
-		], PAIR);
+		const result = await mergeGlossary(
+			'global',
+			null,
+			[
+				{ source: '   ', target: 'X', gender: 'neuter' },
+				{ source: '系统', target: 'System', gender: 'neuter' },
+			],
+			PAIR,
+		);
 		expect(result).toEqual({ added: 1, updated: 0 });
 	});
 
@@ -215,8 +250,18 @@ describe('mergeGlossary (bulk import)', () => {
 		seedBook(db, { id: 'b1' });
 		const c5 = seedChapter(db, { bookId: 'b1', seq: 5 });
 		const c9 = seedChapter(db, { bookId: 'b1', seq: 9 });
-		await mergeGlossary('book', 'b1', [{ source: '主角', target: 'MC', gender: 'neuter', firstChapterId: c5.id }], PAIR);
-		await mergeGlossary('book', 'b1', [{ source: '主角', target: 'MC2', gender: 'neuter', firstChapterId: c9.id }], PAIR);
+		await mergeGlossary(
+			'book',
+			'b1',
+			[{ source: '主角', target: 'MC', gender: 'neuter', firstChapterId: c5.id }],
+			PAIR,
+		);
+		await mergeGlossary(
+			'book',
+			'b1',
+			[{ source: '主角', target: 'MC2', gender: 'neuter', firstChapterId: c9.id }],
+			PAIR,
+		);
 
 		const { rows } = await getGlossaryPage('book', 'b1', { limit: 50, offset: 0 });
 		expect(rows[0].firstChapterId).toBe(c5.id); // FIRST APPEARANCE IS IMMUTABLE
@@ -231,10 +276,14 @@ describe('addNewTerms', () => {
 		// AN ESTABLISHED GLOBAL TERM (SAME PAIR) MUST BLOCK THE BOOK-LEVEL ADD.
 		await addTerm('global', null, { source: '系统', target: 'System', gender: 'neuter' }, PAIR);
 
-		const result = await addNewTerms('b1', [
-			{ source: '系统', target: 'Tampered', gender: 'neuter' },
-			{ source: '新词', target: 'New', gender: 'neuter' },
-		], chapter.id);
+		const result = await addNewTerms(
+			'b1',
+			[
+				{ source: '系统', target: 'Tampered', gender: 'neuter' },
+				{ source: '新词', target: 'New', gender: 'neuter' },
+			],
+			chapter.id,
+		);
 		expect(result).toEqual({ added: 1, skipped: 1 });
 
 		const { rows } = await getGlossaryPage('book', 'b1', { limit: 50, offset: 0 });
@@ -247,6 +296,52 @@ describe('addNewTerms', () => {
 	it('empty input is a no-op', async () => {
 		seedBook(db, { id: 'b1' });
 		expect(await addNewTerms('b1', [])).toEqual({ added: 0, skipped: 0 });
+	});
+
+	it("dedups against an existing term's alias (alternate form resolves to the canonical entry)", async () => {
+		seedBook(db, { id: 'b1' });
+		const chapter = seedChapter(db, { bookId: 'b1', seq: 0 });
+		// ESTABLISH A TERM WHOSE ALIAS IS A DIFFERENT FORM OF THE SAME ENTITY.
+		await addTerm(
+			'book',
+			'b1',
+			{ source: '烈焰妖狐', target: 'Blazing Fox', gender: 'neuter', aliases: ['欢火足'] },
+			PAIR,
+		);
+
+		// A LATER PAGE RE-DISCOVERS THE ALIAS FORM (AS AN OCR VARIANT) — IT MUST BE FOLDED INTO THE EXISTING
+		// TERM, NOT ADDED AS A DUPLICATE.
+		const result = await addNewTerms(
+			'b1',
+			[{ source: '欢火足', target: 'Huan Huo Zu', gender: 'neuter' }],
+			chapter.id,
+		);
+		expect(result).toEqual({ added: 0, skipped: 1 });
+
+		const { rows } = await getGlossaryPage('book', 'b1', { limit: 50, offset: 0 });
+		expect(rows).toHaveLength(1);
+		expect(rows[0].source).toBe('烈焰妖狐');
+		expect(rows[0].target).toBe('Blazing Fox'); // NOT overwritten by the re-discovered variant
+	});
+
+	it('dedups within the same batch by source and by alias', async () => {
+		seedBook(db, { id: 'b1' });
+		const chapter = seedChapter(db, { bookId: 'b1', seq: 0 });
+
+		// TWO ENTRIES IN ONE CALL: THE SECOND'S source COLLIDES WITH THE FIRST'S ALIAS → DROPPED.
+		const result = await addNewTerms(
+			'b1',
+			[
+				{ source: '妖灵师', target: 'demon spiritualist', gender: 'neuter', aliases: ['妖灵'] },
+				{ source: '妖灵', target: 'DUPLICATE', gender: 'neuter' },
+			],
+			chapter.id,
+		);
+		expect(result).toEqual({ added: 1, skipped: 1 });
+
+		const { rows } = await getGlossaryPage('book', 'b1', { limit: 50, offset: 0 });
+		expect(rows).toHaveLength(1);
+		expect(rows[0].source).toBe('妖灵师');
 	});
 });
 
@@ -268,7 +363,12 @@ describe('getEffectiveGlossary', () => {
 
 	it('ignores global terms of other language pairs', async () => {
 		seedBook(db, { id: 'b1' });
-		await addTerm('global', null, { source: 'Système', target: 'System', gender: 'neuter' }, { sourceLang: 'fr', targetLang: 'en' });
+		await addTerm(
+			'global',
+			null,
+			{ source: 'Système', target: 'System', gender: 'neuter' },
+			{ sourceLang: 'fr', targetLang: 'en' },
+		);
 		expect(await getEffectiveGlossary('b1')).toHaveLength(0);
 	});
 
@@ -323,7 +423,12 @@ describe('batch glossary operations', () => {
 	it('clearGlossaryScope deletes terms for a specific global language pair', async () => {
 		await addTerm('global', null, { source: 'ZH1', target: 'EN1', gender: 'neuter' }, PAIR);
 		await addTerm('global', null, { source: 'ZH2', target: 'EN2', gender: 'neuter' }, PAIR);
-		await addTerm('global', null, { source: 'FR1', target: 'EN1', gender: 'neuter' }, { sourceLang: 'fr', targetLang: 'en' });
+		await addTerm(
+			'global',
+			null,
+			{ source: 'FR1', target: 'EN1', gender: 'neuter' },
+			{ sourceLang: 'fr', targetLang: 'en' },
+		);
 
 		const count = await clearGlossaryScope('global', null, PAIR);
 		expect(count).toBe(2);
@@ -331,7 +436,11 @@ describe('batch glossary operations', () => {
 		const zhGlobals = await getGlossaryPage('global', null, { limit: 10, offset: 0, pair: PAIR });
 		expect(zhGlobals.total).toBe(0);
 
-		const frGlobals = await getGlossaryPage('global', null, { limit: 10, offset: 0, pair: { sourceLang: 'fr', targetLang: 'en' } });
+		const frGlobals = await getGlossaryPage('global', null, {
+			limit: 10,
+			offset: 0,
+			pair: { sourceLang: 'fr', targetLang: 'en' },
+		});
 		expect(frGlobals.total).toBe(1);
 	});
 
@@ -340,7 +449,12 @@ describe('batch glossary operations', () => {
 		const t1 = await addTerm('book', 'b_up', { source: 'C1', target: 'T1', gender: 'neuter', pinned: false }, PAIR);
 		const t2 = await addTerm('book', 'b_up', { source: 'C2', target: 'T2', gender: 'neuter', pinned: false }, PAIR);
 
-		const updatedCount = await batchUpdateTerms([t1.id, t2.id], { pinned: true, category: 'character' }, 'book', 'b_up');
+		const updatedCount = await batchUpdateTerms(
+			[t1.id, t2.id],
+			{ pinned: true, category: 'character' },
+			'book',
+			'b_up',
+		);
 		expect(updatedCount).toBe(2);
 
 		const effective = await getEffectiveGlossary('b_up');

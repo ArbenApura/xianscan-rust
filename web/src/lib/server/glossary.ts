@@ -76,7 +76,10 @@ export async function bookPair(bookId: string): Promise<LangPair> {
 // SPLIT CHAPTER / PASSAGE TEXT INTO LINE-ALIGNED CHUNKS SO EVERY PART IS SCANNED FOR TERMS.
 // EXPORTED FOR UNIT TESTS — THE CHUNK SPLITTER BEHIND THE COST CAP.
 export function chunkForExtraction(content: string, maxChunkChars = EXTRACT_CHUNK_CHARS): string[] {
-	const lines = content.split(/\n+/).map((l) => l.trim()).filter(Boolean);
+	const lines = content
+		.split(/\n+/)
+		.map((l) => l.trim())
+		.filter(Boolean);
 	if (lines.length === 0) return content.trim() ? [content.trim()] : [];
 	const chunks: string[] = [];
 	let cur = '';
@@ -103,7 +106,11 @@ function scopeWhere(scope: GlossaryScope, bookId: string | null, pair?: LangPair
 }
 
 // ROWS FOR A SINGLE SCOPE (EDITOR VIEW)
-export async function getGlossary(scope: GlossaryScope, bookId: string | null, pair?: LangPair): Promise<GlossaryEntry[]> {
+export async function getGlossary(
+	scope: GlossaryScope,
+	bookId: string | null,
+	pair?: LangPair,
+): Promise<GlossaryEntry[]> {
 	return db
 		.select()
 		.from(glossary)
@@ -128,13 +135,7 @@ export async function getEffectiveGlossary(bookId: string): Promise<TermDraft[]>
 	const bookRows = await db
 		.select()
 		.from(glossary)
-		.where(
-			and(
-				eq(glossary.scope, 'book'),
-				eq(glossary.bookId, bookId),
-				eq(glossary.targetLang, pair.targetLang),
-			),
-		);
+		.where(and(eq(glossary.scope, 'book'), eq(glossary.bookId, bookId), eq(glossary.targetLang, pair.targetLang)));
 
 	const map = new Map<string, TermDraft>();
 	for (const g of globals) map.set(g.source, rowToDraft(g));
@@ -178,7 +179,10 @@ export async function getGlossaryPage(
 		.limit(opts.limit)
 		.offset(opts.offset);
 	const rows: GlossaryRow[] = raw.map((r) => ({ ...r, aliases: parseAliases(r.aliases) }));
-	const [c] = await db.select({ n: sql<number>`count(*)` }).from(glossary).where(where);
+	const [c] = await db
+		.select({ n: sql<number>`count(*)` })
+		.from(glossary)
+		.where(where);
 	return { rows, total: Number(c?.n ?? 0) };
 }
 
@@ -245,11 +249,7 @@ export async function deleteTerm(id: number): Promise<void> {
 }
 
 // BATCH DELETE TERMS BY IDS; INVALIDATES CACHE FOR THE SCOPE/BOOK.
-export async function deleteTerms(
-	ids: number[],
-	scope?: GlossaryScope,
-	bookId?: string | null,
-): Promise<number> {
+export async function deleteTerms(ids: number[], scope?: GlossaryScope, bookId?: string | null): Promise<number> {
 	if (ids.length === 0) return 0;
 	let effScope = scope;
 	let effBookId = bookId;
@@ -368,7 +368,13 @@ export async function mergeGlossary(
 	const CHUNK = 200;
 	const counts = db.transaction((tx) => {
 		const where = scopeWhere(scope, bookId, scope === 'global' ? pair : undefined);
-		const before = Number(tx.select({ n: sql<number>`count(*)` }).from(glossary).where(where).get()?.n ?? 0);
+		const before = Number(
+			tx
+				.select({ n: sql<number>`count(*)` })
+				.from(glossary)
+				.where(where)
+				.get()?.n ?? 0,
+		);
 
 		for (let i = 0; i < rows.length; i += CHUNK) {
 			const slice = rows.slice(i, i + CHUNK);
@@ -394,7 +400,13 @@ export async function mergeGlossary(
 			}
 		}
 
-		const after = Number(tx.select({ n: sql<number>`count(*)` }).from(glossary).where(where).get()?.n ?? 0);
+		const after = Number(
+			tx
+				.select({ n: sql<number>`count(*)` })
+				.from(glossary)
+				.where(where)
+				.get()?.n ?? 0,
+		);
 		return { before, after };
 	});
 
@@ -418,29 +430,24 @@ export async function addNewTerms(
 ): Promise<{ added: number; skipped: number }> {
 	if (terms.length === 0) return { added: 0, skipped: 0 };
 	const pair = await bookPair(bookId);
-	// LOOK UP ONLY THE sources WE'RE ABOUT TO ADD (THIS BOOK'S BOOK ∪ GLOBAL-OF-PAIR), NOT THE WHOLE GLOSSARY.
-	const sourceList = [...new Set(terms.map((t) => t.source.trim()).filter(Boolean))];
-	const existing = sourceList.length
-		? await db
-				.select({ source: glossary.source })
-				.from(glossary)
-				.where(
-					and(
-						inArray(glossary.source, sourceList),
-						or(
-							and(
-								eq(glossary.scope, 'global'),
-								isNull(glossary.bookId),
-								eq(glossary.sourceLang, pair.sourceLang),
-								eq(glossary.targetLang, pair.targetLang),
-							),
-							and(eq(glossary.scope, 'book'), eq(glossary.bookId, bookId)),
-						),
-					),
-				)
-		: [];
-	const known = new Set(existing.map((e) => e.source));
-	const freshTerms = terms.filter((t) => !known.has(t.source.trim()));
+	// ALIAS-AWARE DEDUP: A DISCOVERED TERM IS SKIPPED IF ITS `source` COLLIDES WITH ANY EXISTING TERM'S
+	// `source` OR ALIAS (SAME ENTITY, DIFFERENT FORM) IN THIS BOOK'S EFFECTIVE GLOSSARY (BOOK ∪ GLOBAL OF
+	// THE SAME PAIR). THIS PREVENTS OCR VARIANTS / ALTERNATE FORMS FROM CREATING DUPLICATE ENTRIES.
+	const established = new Set<string>();
+	for (const t of await getEffectiveGlossary(bookId)) {
+		if (t.source) established.add(t.source);
+		for (const a of t.aliases ?? []) if (a) established.add(a);
+	}
+	const claimed = new Set<string>();
+	const freshTerms = terms.filter((t) => {
+		const src = t.source.trim();
+		if (!src || established.has(src)) return false;
+		// CLAIM EVERY source AND ALIAS FROM THIS BATCH TOO, SO DUPLICATES *WITHIN* THE SAME CALL ALSO COLLAPSE.
+		if (claimed.has(src)) return false;
+		claimed.add(src);
+		for (const a of t.aliases ?? []) if (a) established.add(a);
+		return true;
+	});
 	const skipped = terms.length - freshTerms.length;
 	// STAMP THE first-appearance CHAPTER AND MARK THESE auto-extracted BEFORE PERSISTING (mergeGlossary KEEPS
 	// first_chapter_id OUT OF ITS CONFLICT set, SO THIS NEVER OVERWRITES AN EARLIER FIRST APPEARANCE).

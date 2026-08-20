@@ -157,9 +157,27 @@ function baseChapterTerms(effective: TermDraft[]): TermDraft[] {
 
 // APPEND-ONLY: TURN FRESHLY-DISCOVERED TERMS INTO A MONOTONIC SUFFIX. DEDUP AGAINST THE CURRENT SET AND
 // PRESERVE DISCOVERY ORDER (NO SORT) SO THE CACHE PREFIX SURVIVES EVERY APPEND.
+//
+// DEDUP IS ALIAS-AWARE: A DISCOVERED TERM IS DROPPED IF ITS `source` COLLIDES WITH ANY KNOWN `source` OR
+// ANY KNOWN TERM'S ALIAS. THIS IS WHAT FOLDS RE-DISCOVERED ALTERNATE FORMS (e.g. a different romanization
+// or an OCR variant) BACK INTO THE EXISTING CANONICAL TERM INSTEAD OF CREATING A DUPLICATE ENTRY — WITHOUT
+// REORDERING THE ALREADY-CACHED PREFIX.
 function appendChapterTerms(current: TermDraft[], discovered: TermDraft[]): TermDraft[] {
-	const known = new Set(current.map((t) => t.source));
-	const fresh = discovered.filter((t) => t && t.source && t.target && !known.has(t.source) && known.add(t.source));
+	// KNOWN KEYS: EVERY source AND EVERY alias OF THE CURRENT SET (A DISCOVERED TERM WHOSE source MATCHES
+	// EITHER IS THE SAME ENTITY AND MUST NOT DUPLICATE).
+	const known = new Set<string>();
+	for (const t of current) {
+		if (t.source) known.add(t.source);
+		for (const a of t.aliases ?? []) if (a) known.add(a);
+	}
+	const fresh = discovered.filter((t) => {
+		if (!t || !t.source || !t.target) return false;
+		if (known.has(t.source)) return false;
+		// CLAIM EVERY NEW source (AND ITS ALIASES) SO LATER TERMS IN THE SAME BATCH DON'T COLLIDE WITH IT.
+		known.add(t.source);
+		for (const a of t.aliases ?? []) if (a) known.add(a);
+		return true;
+	});
 	return [...current, ...fresh];
 }
 
