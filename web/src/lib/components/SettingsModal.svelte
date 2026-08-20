@@ -232,6 +232,7 @@
 		if (!hardwareInfo) return true;
 		if (devId === 'auto' || devId === 'cpu') return true;
 		if (devId === 'cuda') return hardwareInfo.has_cuda;
+		if (devId === 'coreml') return hardwareInfo.has_coreml;
 		if (devId === 'dml') return hardwareInfo.has_directml;
 		return true;
 	}
@@ -239,6 +240,7 @@
 	function getDeviceAvailabilityReason(devId: ExecutionDevice): string | null {
 		if (!hardwareInfo) return null;
 		if (devId === 'cuda' && !hardwareInfo.has_cuda) return 'Dedicated NVIDIA CUDA GPU not detected';
+		if (devId === 'coreml' && !hardwareInfo.has_coreml) return 'Apple Silicon GPU (CoreML) not detected';
 		if (devId === 'dml' && !hardwareInfo.has_directml) {
 			if (hardwareInfo.detected_gpus && hardwareInfo.detected_gpus.some((g) => g.is_integrated)) {
 				const igpuName = hardwareInfo.detected_gpus.find((g) => g.is_integrated)?.name || 'Integrated GPU';
