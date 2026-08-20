@@ -237,3 +237,33 @@ pub fn create_session_from_memory(bytes: &[u8], model_tag: &str) -> Result<Sessi
 
     Ok(session)
 }
+
+// -- TESTS -- //
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn parses_nvidia_gpu_information() {
+        let tmp = tempfile::tempdir().unwrap();
+        let gpu_dir = tmp.path().join("0000:01:00.0");
+        std::fs::create_dir_all(&gpu_dir).unwrap();
+        std::fs::write(gpu_dir.join("information"), "Model:\t\tNVIDIA GeForce RTX 3080\n").unwrap();
+
+        let gpus = parse_nvidia_gpu_root(tmp.path());
+        assert_eq!(gpus.len(), 1);
+        assert_eq!(gpus[0].name, "NVIDIA GeForce RTX 3080");
+        assert!(gpus[0].is_dedicated);
+        assert_eq!(gpus[0].vendor_id, 0x10DE);
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn returns_empty_when_no_nvidia_driver() {
+        let tmp = tempfile::tempdir().unwrap();
+        let gpus = parse_nvidia_gpu_root(tmp.path());
+        assert!(gpus.is_empty());
+    }
+}
