@@ -52,7 +52,63 @@ pub fn enumerate_system_gpus() -> Vec<GpuInfo> {
     gpus
 }
 
-#[cfg(not(windows))]
+#[cfg(target_os = "linux")]
+pub fn enumerate_system_gpus() -> Vec<GpuInfo> {
+    // NVIDIA'S PROPRIETARY DRIVER EXPOSES ONE SUBDIRECTORY PER GPU UNDER
+    // /proc/driver/nvidia/gpus/<PCI-BDF>, EACH CONTAINING AN `information` FILE
+    // WITH A `Model:` LINE. NO EXTERNAL BINARY (nvidia-smi) IS REQUIRED.
+    parse_nvidia_gpu_root(std::path::Path::new("/proc/driver/nvidia/gpus"))
+}
+
+#[cfg(target_os = "linux")]
+fn parse_nvidia_gpu_root(root: &std::path::Path) -> Vec<GpuInfo> {
+    let mut gpus = Vec::new();
+    let Ok(entries) = std::fs::read_dir(root) else {
+        return gpus;
+    };
+    for (i, entry) in entries.flatten().enumerate() {
+        let Ok(info) = std::fs::read_to_string(entry.path().join("information")) else {
+            continue;
+        };
+        let name = info
+            .lines()
+            .find_map(|l| l.strip_prefix("Model:"))
+            .map(|s| s.trim().to_string())
+            .filter(|s| !s.is_empty())
+            .unwrap_or_else(|| "NVIDIA GPU".to_string());
+        gpus.push(GpuInfo {
+            device_id: i as u32,
+            name,
+            vendor_id: 0x10DE,
+            vram_mb: 0.0,
+            is_dedicated: true,
+            is_integrated: false,
+        });
+    }
+    gpus
+}
+
+#[cfg(target_os = "macos")]
+pub fn enumerate_system_gpus() -> Vec<GpuInfo> {
+    // APPLE SILICON EXPOSES A SINGLE UNIFIED-MEMORY GPU VIA METAL. THE RELEASE
+    // BUILDS ONLY TARGET aarch64-apple-darwin, SO THE GPU IS THE ACCELERATOR.
+    let mut gpus = Vec::new();
+    for (i, device) in metal::Device::all().into_iter().enumerate() {
+        let name = device.name().to_string();
+        let is_dedicated = std::env::consts::ARCH == "aarch64";
+        gpus.push(GpuInfo {
+            device_id: i as u32,
+            name,
+            vendor_id: 0x106B,
+            vram_mb: 0.0,
+            is_dedicated,
+            is_integrated: !is_dedicated,
+        });
+    }
+    gpus
+}
+
+#[cfg(not(any(windows, target_os = "linux", target_os = "macos")))]
 pub fn enumerate_system_gpus() -> Vec<GpuInfo> {
     Vec::new()
 }
