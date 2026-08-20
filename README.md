@@ -10,8 +10,8 @@
 
 <br/>
 
-[![Rust](https://img.shields.io/badge/Rust-1.80+-DEA584?style=for-the-badge&logo=rust&logoColor=white)](https://www.rust-lang.org/)
-[![ONNX Runtime](https://img.shields.io/badge/ONNX_Runtime-1.19+-005CED?style=for-the-badge&logo=onnx&logoColor=white)](https://onnxruntime.ai/)
+[![Rust](https://img.shields.io/badge/Rust-1.88+-DEA584?style=for-the-badge&logo=rust&logoColor=white)](https://www.rust-lang.org/)
+[![ONNX Runtime](https://img.shields.io/badge/ONNX_Runtime-1.28-005CED?style=for-the-badge&logo=onnx&logoColor=white)](https://onnxruntime.ai/)
 [![DirectML](https://img.shields.io/badge/Hardware-DirectML_•_CoreML_•_CUDA_•_CPU_SIMD-0078D4?style=for-the-badge&logo=windows&logoColor=white)](https://learn.microsoft.com/en-us/windows/ai/directml/)
 [![SvelteKit](https://img.shields.io/badge/SvelteKit-2.x_•_Svelte_5-FF3E00?style=for-the-badge&logo=svelte&logoColor=white)](https://kit.svelte.dev/)
 [![SQLite](https://img.shields.io/badge/SQLite-Local_First-003B57?style=for-the-badge&logo=sqlite&logoColor=white)](https://www.sqlite.org/)
@@ -84,12 +84,12 @@ Reading untranslated CJK comics (Chinese Manhua, Korean Manhwa, Japanese Manga) 
 
 XianScan prioritizes correctness over raw speed: CPU is always available and never requires configuration. A faster accelerator is selected automatically when one is present:
 
-| Priority | Backend | Platform | Requirement |
-| :--- | :--- | :--- | :--- |
-| 1 | **CoreML / Metal** | macOS (Apple Silicon) | None — ships with the OS |
-| 2 | **CUDA 13** | Linux (NVIDIA) | R580+ driver; CUDA 13 runtime installed |
-| 3 | **DirectML** | Windows | None — embedded in the binary |
-| 4 | **CPU SIMD** | All | None — always available |
+| Backend | Platform | Requirement |
+| :--- | :--- | :--- |
+| **CUDA 13** | Linux (NVIDIA) | R580+ driver; CUDA 13 runtime installed |
+| **CoreML / Metal** | macOS (Apple Silicon) | Ships with the OS |
+| **DirectML** | Windows | Embedded in the binary |
+| **CPU SIMD** | All | Always available |
 
 GPU acceleration is optional and never required. On Linux, the CUDA path has no effect until you install the NVIDIA driver plus a CUDA 13 runtime (matching the R580+ driver requirement); otherwise XianScan silently falls back to the multi-threaded CPU engine.
 
@@ -187,7 +187,7 @@ Download the pre-compiled standalone binary for your system from [Releases](http
 > [!NOTE]
 > **Zero Network Dependency**: The release executable (~450 MB) embeds all neural network models, OCR dictionaries, Skia rendering libraries, and Web UI. It works completely offline on first launch without downloading extra model files.
 >
-> **CPU inference requires no network.** Enabling CUDA acceleration on Linux downloads a small, pinned GPU runtime package once and caches it locally; DirectML (Windows) and CoreML/Metal (macOS) need no extra download.
+> **CPU inference requires no network.** DirectML (Windows) and CoreML/Metal (macOS) need no extra install. CUDA acceleration on Linux requires you to install the NVIDIA R580+ driver and a CUDA 13 runtime (with cuDNN) yourself — XianScan auto-detects it and otherwise falls back to CPU.
 >
 > **Persistent Library Data**: Your book library, chapter images, and SQLite database (`xianscan.db`) are saved in your OS application data folder (`%APPDATA%\XianScan\data` on Windows, `~/.local/share/xianscan/data` on Linux, `~/Library/Application Support/XianScan/data` on macOS) and persist safely across version updates.
 
@@ -208,7 +208,7 @@ Download the pre-compiled standalone binary for your system from [Releases](http
 ## 🛠️ Building from Source (For Developers)
 
 #### Prerequisites
-- **Rust 1.80+** (`rustup install stable`)
+- **Rust 1.88+** (`rustup install stable`)
 - **Node.js 20+** & **Yarn**
 
 #### Standalone Release Build
@@ -220,6 +220,8 @@ cd web && yarn install && yarn build && cd ..
 cargo build --release --features embed-models,embed-web
 ```
 The compiled binary will be located at `target/release/xianscan` (`.exe` on Windows).
+
+> **GPU acceleration**: add a per-platform feature flag to the build — `directml` (Windows), `cuda` (Linux NVIDIA), or `coreml` (macOS Apple Silicon) — e.g. `cargo build --release --features embed-models,embed-web,directml`.
 
 #### Fast Iteration Dev Mode
 ```bash
