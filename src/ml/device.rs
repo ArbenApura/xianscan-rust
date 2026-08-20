@@ -1,4 +1,5 @@
 use std::sync::{LazyLock, Mutex};
+use std::sync::atomic::{AtomicBool, Ordering};
 use anyhow::Result;
 use ort::session::builder::GraphOptimizationLevel;
 use ort::session::Session;
@@ -6,6 +7,11 @@ use ort::session::Session;
 use super::schemas::{GpuInfo, HardwareStatus};
 
 static OVERRIDE_DEVICE: LazyLock<Mutex<Option<String>>> = LazyLock::new(|| Mutex::new(None));
+
+// SET ONCE A CUDA / COREML SESSION FAILS TO INITIALIZE, SO status CAN STOP
+// REPORTING AN ACCELERATOR THAT IS NOT ACTUALLY RUNNING (MISSING RUNTIME).
+static CUDA_RUNTIME_FAILED: AtomicBool = AtomicBool::new(false);
+static COREML_RUNTIME_FAILED: AtomicBool = AtomicBool::new(false);
 
 #[cfg(windows)]
 pub fn enumerate_system_gpus() -> Vec<GpuInfo> {
@@ -126,12 +132,17 @@ pub fn probe_hardware() -> (Vec<String>, String) {
 
     let dedicated_gpu = get_dedicated_gpu();
 
+    // A GPU BACKEND IS ONLY USABLE IF ITS FEATURE IS COMPILED IN AND ITS RUNTIME
+    // HAS NOT ALREADY FAILED TO INITIALIZE (E.G. MISSING CUDA RUNTIME ON LINUX).
+    let cuda_usable = cfg!(feature = "cuda") && !CUDA_RUNTIME_FAILED.load(Ordering::Relaxed);
+    let coreml_usable = cfg!(feature = "coreml") && !COREML_RUNTIME_FAILED.load(Ordering::Relaxed);
+
     if env_override == "cpu" || env_override == "none" {
         return (vec!["CPUExecutionProvider".to_string()], "CPU Multi-threaded".to_string());
     }
 
     // CUDA (NVIDIA) — REQUIRES THE `cuda` FEATURE AND A DETECTED NVIDIA GPU.
-    if env_override == "cuda" && cfg!(feature = "cuda") {
+    if env_override == "cuda" && cuda_usable {
         if let Some(dgpu) = &dedicated_gpu {
             return (
                 vec!["CUDAExecutionProvider".to_string(), "CPUExecutionProvider".to_string()],
@@ -141,7 +152,7 @@ pub fn probe_hardware() -> (Vec<String>, String) {
     }
 
     // CoreML (APPLE SILICON) — REQUIRES THE `coreml` FEATURE AND A DETECTED GPU.
-    if env_override == "coreml" && cfg!(feature = "coreml") {
+    if env_override == "coreml" && coreml_usable {
         if let Some(dgpu) = &dedicated_gpu {
             return (
                 vec!["CoreMLExecutionProvider".to_string(), "CPUExecutionProvider".to_string()],
@@ -163,13 +174,13 @@ pub fn probe_hardware() -> (Vec<String>, String) {
     // AUTO-DETECTION HIERARCHY: PICK THE COMPILED GPU BACKEND, ELSE CPU. A BUILD
     // WITH NONE OF THE GPU FEATURES FALLS THROUGH TO CPU BY CONSTRUCTION.
     if let Some(dgpu) = &dedicated_gpu {
-        if cfg!(feature = "cuda") {
+        if cuda_usable {
             return (
                 vec!["CUDAExecutionProvider".to_string(), "CPUExecutionProvider".to_string()],
                 format!("CUDA Dedicated GPU ({})", dgpu.name),
             );
         }
-        if cfg!(feature = "coreml") {
+        if coreml_usable {
             return (
                 vec!["CoreMLExecutionProvider".to_string(), "CPUExecutionProvider".to_string()],
                 format!("CoreML Apple GPU ({})", dgpu.name),
@@ -192,8 +203,8 @@ pub fn get_hardware_status() -> HardwareStatus {
     let dedicated_gpu = get_dedicated_gpu();
     let has_dedicated_gpu = dedicated_gpu.is_some();
     let dml_active = providers.iter().any(|p| p == "DmlExecutionProvider");
-    let has_cuda = cfg!(feature = "cuda") && has_dedicated_gpu;
-    let has_coreml = cfg!(feature = "coreml") && has_dedicated_gpu;
+    let has_cuda = cfg!(feature = "cuda") && has_dedicated_gpu && !CUDA_RUNTIME_FAILED.load(Ordering::Relaxed);
+    let has_coreml = cfg!(feature = "coreml") && has_dedicated_gpu && !COREML_RUNTIME_FAILED.load(Ordering::Relaxed);
 
     let gpu_warning = if !dml_active && !detected_gpus.is_empty() && !has_dedicated_gpu {
         Some(format!(
@@ -229,7 +240,7 @@ pub fn set_active_provider(mode: &str) -> HardwareStatus {
 }
 
 /// Creates an ONNX Runtime Session from bytes using the active hardware accelerator
-/// (DirectML for dedicated GPUs, with automatic, graceful fallback to multi-threaded CPU).
+/// (CUDA, CoreML, or DirectML for dedicated GPUs, with automatic, graceful fallback to multi-threaded CPU).
 pub fn create_session_from_memory(bytes: &[u8], model_tag: &str) -> Result<Session> {
     let (providers, _) = probe_hardware();
     let wants_cuda = providers.iter().any(|p| p == "CUDAExecutionProvider");
@@ -259,6 +270,7 @@ pub fn create_session_from_memory(bytes: &[u8], model_tag: &str) -> Result<Sessi
                     return Ok(s);
                 }
                 Err(e) => {
+                    CUDA_RUNTIME_FAILED.store(true, Ordering::Relaxed);
                     tracing::warn!(
                         "Failed to initialize ONNX model '{}' with CUDA ({}); falling back to CPU multi-threaded.",
                         model_tag, e
@@ -291,6 +303,7 @@ pub fn create_session_from_memory(bytes: &[u8], model_tag: &str) -> Result<Sessi
                     return Ok(s);
                 }
                 Err(e) => {
+                    COREML_RUNTIME_FAILED.store(true, Ordering::Relaxed);
                     tracing::warn!(
                         "Failed to initialize ONNX model '{}' with CoreML ({}); falling back to CPU multi-threaded.",
                         model_tag, e
