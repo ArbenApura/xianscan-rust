@@ -1,5 +1,4 @@
 use std::path::Path;
-use std::sync::{Arc, Mutex};
 use axum::{
     body::Body,
     http::{Request, StatusCode},
@@ -16,9 +15,7 @@ use xianscan_rust::server::router::{create_router, AppState};
 #[tokio::test]
 async fn test_health_endpoint() {
     let engine = PipelineEngine::new(Path::new("models"));
-    let state = AppState {
-        engine: Arc::new(Mutex::new(engine)),
-    };
+    let state = AppState::new(engine);
     let app = create_router(state);
 
     let response = app
@@ -42,9 +39,7 @@ async fn test_health_endpoint() {
 #[tokio::test]
 async fn test_system_hardware_endpoint() {
     let engine = PipelineEngine::new(Path::new("models"));
-    let state = AppState {
-        engine: Arc::new(Mutex::new(engine)),
-    };
+    let state = AppState::new(engine);
     let app = create_router(state);
 
     let response = app
@@ -68,9 +63,7 @@ async fn test_system_hardware_endpoint() {
 #[tokio::test]
 async fn test_clean_endpoint_respects_inpaint_strategy_modes() {
     let engine = PipelineEngine::new(Path::new("models"));
-    let state = AppState {
-        engine: Arc::new(Mutex::new(engine)),
-    };
+    let state = AppState::new(engine);
     let app = create_router(state);
 
     // Create a 64x64 test image with PNG bytes
@@ -106,9 +99,7 @@ async fn test_clean_endpoint_respects_inpaint_strategy_modes() {
 #[tokio::test]
 async fn test_analyze_endpoint_with_language_parameters() {
     let engine = PipelineEngine::new(Path::new("models"));
-    let state = AppState {
-        engine: Arc::new(Mutex::new(engine)),
-    };
+    let state = AppState::new(engine);
     let app = create_router(state);
 
     let img_buf = image::ImageBuffer::<image::Rgb<u8>, Vec<u8>>::from_pixel(64, 64, image::Rgb([255, 255, 255]));

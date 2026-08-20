@@ -62,6 +62,7 @@ staging/
 tests/.cache/
 .agents/
 .reasonix/
+grounding-lab/
 docs/superpowers/
 superpowers/
 

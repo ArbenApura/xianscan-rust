@@ -100,7 +100,9 @@ export async function resliceChapterPages(
 
 	if (pageRows.length === 0) throw error(400, 'Chapter has no pages to reslice.');
 
-	onProgress?.('read', `Reading ${pageRows.length} chapter image slices...`, 15);
+	// STEP 1 "READ" IS NEAR-INSTANT (readFileSync) — GIVE IT ONLY 2% SO THE LONG
+	// STEP 2 BELOW OWNS THE OVERWHELMING MAJORITY OF THE PROGRESS BAR.
+	onProgress?.('read', `Reading ${pageRows.length} chapter image slices...`, 2);
 	const imageBuffers: Buffer[] = [];
 	for (const p of pageRows) {
 		signal?.throwIfAborted();
@@ -108,12 +110,54 @@ export async function resliceChapterPages(
 		imageBuffers.push(readFileSync(absPath));
 	}
 
-	onProgress?.('reslice', 'Stitching continuous canvas & finding optimal non-text gutters...', 45);
+	// STEP 2 "RESLICE" IS THE DOMINANT COST (STITCH + ROW PROFILE + RT-DETR +
+	// SLICING). START IT AT 2% AND LET IT SPAN 2..97% (95% OF THE BAR) SO THE UI
+	// ANIMATES SMOOTHLY INSTEAD OF JUMPING THEN CRAWLING IN A TINY SLIVER.
+	onProgress?.('reslice', 'Stitching continuous canvas & finding optimal non-text gutters...', 2);
 	signal?.throwIfAborted();
-	const slicedBuffers = await pipeline.reslice(imageBuffers, signal);
+
+	// CLEAR ANY STALE PROGRESS LEFT OVER FROM A PREVIOUS RUN *BEFORE* STARTING THE
+	// POST + POLL LOOP. WITHOUT THIS, THE FIRST POLL CAN READ THE OLD `done=true`
+	// AND INSTANTLY JUMP THE UI TO ~97%.
+	if (pipeline.resetResliceStatus) {
+		await pipeline.resetResliceStatus(signal).catch(() => {
+			// BEST-EFFORT — THE RESLICE POST ALSO RESETS AT ITS START; PROCEED REGARDLESS.
+		});
+	}
+
+	// POLL THE SIDECAR'S CURRENT RESLICE PROGRESS WHILE THE (BLOCKING) POST RUNS.
+	// THE POST HOLDS THE ENGINE LOCK AND DOES THE HEAVY WORK ON A SEPARATE REQUEST;
+	// THIS LIGHTWEIGHT GET RUNS CONCURRENTLY SO THE UI ANIMATES SMOOTHLY.
+	const reslicePromise = pipeline.reslice(imageBuffers, signal);
+
+	let pollTimer: ReturnType<typeof setInterval> | null = null;
+	if (pipeline.pollResliceStatus) {
+		pollTimer = setInterval(async () => {
+			try {
+				const s = await pipeline.pollResliceStatus?.(signal);
+				if (!s) return;
+				// MAP THE SIDECAR'S 0..=100 INTO OUR 2..=97 "STEP 2" BAND (95% SPAN).
+				const mapped = Math.min(97, Math.round(2 + (s.pct / 100) * 95));
+				onProgress?.('reslice', s.message || 'Slicing canvas & protecting dialogue...', mapped);
+				if (s.done && pollTimer) {
+					clearInterval(pollTimer);
+					pollTimer = null;
+				}
+			} catch {
+				// BEST-EFFORT — THE ZIP RESPONSE STILL DRIVES COMPLETION
+			}
+		}, 200);
+	}
+
+	const slicedBuffers = await reslicePromise;
+	if (pollTimer) {
+		clearInterval(pollTimer);
+		pollTimer = null;
+	}
 	if (slicedBuffers.length === 0) throw new Error('Reslice produced zero pages.');
 
-	onProgress?.('save', `Writing ${slicedBuffers.length} clean pages and rebuilding database...`, 85);
+	// STEP 3 "SAVE" IS ALSO NEAR-INSTANT (writeFileSync + DB) — GIVE IT THE FINAL 3%.
+	onProgress?.('save', `Writing ${slicedBuffers.length} clean pages and rebuilding database...`, 97);
 
 	const uploadDir = join(dataRoot, 'uploads', String(chapterId));
 	mkdirSync(uploadDir, { recursive: true });

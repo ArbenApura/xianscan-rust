@@ -17,16 +17,31 @@ struct RowProfile {
     row_edge_energy: Vec<f32>,
 }
 
+/// PROGRESS CALLBACK SIGNATURE: RECEIVES A NORMALIZED 0..=100 PERCENTAGE.
+/// USED TO STREAM REALTIME FEEDBACK TO THE WEB UI (MIRRORING PAGE TRANSLATION).
+pub type ResliceProgressFn = dyn Fn(u32) + Send + Sync;
+
 // -- FUNCTIONS & ALGORITHMS -- //
 
 /// PARALLEL ROW STATISTICAL PROFILING VIA RAYON
-fn compute_row_profile(rgb: &RgbImage) -> RowProfile {
+///
+/// `on_progress` IS CALLED WITH AN ESTIMATED PERCENTAGE (0..=100) AS ROWS ARE
+/// PROCESSED. THE ROW PROFILE COMPUTATION DOMINATES RESLICE COST FOR LARGE
+/// STRIPS, SO THIS IS WHERE REALTIME FEEDBACK IS MOST MEANINGFUL.
+fn compute_row_profile(
+    rgb: &RgbImage,
+    on_progress: Option<&(dyn Fn(u32) + Sync + Send)>,
+) -> RowProfile {
     let (w, total_h) = rgb.dimensions();
     let w_third = (w / 3).max(1);
     let row_stride = w as usize * 3;
     let raw_bytes = rgb.as_raw();
 
     // PARALLEL COMPUTATION OF EACH ROW'S VARIANCE, 3-COLUMN VARIANCE & MEANS
+    let progress_counter = std::sync::atomic::AtomicU32::new(0);
+    let last_reported_pct = std::sync::atomic::AtomicU32::new(0);
+    let total_rows = total_h.max(1) as u32;
+
     let rows_data: Vec<(f32, f32, f32)> = (0..total_h)
         .into_par_iter()
         .map(|y| {
@@ -78,7 +93,21 @@ fn compute_row_profile(rgb: &RgbImage) -> RowProfile {
             let c3_v = ((c3_sq / c3_cnt) - (c3_m * c3_m)).max(0.0);
 
             let max_c_var = c1_v.max(c2_v).max(c3_v);
-            (mean, variance, max_c_var)
+
+            let result = (mean, variance, max_c_var);
+
+            // THROTTLED PROGRESS: REPORT ONLY AT ~1% GRANULARITY TO AVOID CALLBACK STORMS
+            if let Some(cb) = on_progress {
+                let done = progress_counter.fetch_add(1, std::sync::atomic::Ordering::Relaxed) + 1;
+                let pct = (done as f32 / total_rows as f32 * 100.0).min(100.0) as u32;
+                let last = last_reported_pct.load(std::sync::atomic::Ordering::Relaxed);
+                if pct > last && (pct - last >= 2 || pct == 100) {
+                    last_reported_pct.store(pct, std::sync::atomic::Ordering::Relaxed);
+                    cb(pct);
+                }
+            }
+
+            result
         })
         .collect();
 
@@ -203,6 +232,7 @@ pub fn find_forbidden_text_zones(
     safety_margin: i32,
     mut detector: Option<&mut ComicTextDetector>,
     mut ocr: Option<&mut RapidOcr>,
+    on_progress: Option<&(dyn Fn(u32) + Sync + Send)>,
 ) -> Vec<(i32, i32)> {
     let (_w, total_h) = canvas.dimensions();
     let mut raw_intervals: Vec<(i32, i32)> = Vec::new();
@@ -210,6 +240,10 @@ pub fn find_forbidden_text_zones(
     let tile_height = 2000_u32;
     let tile_step = 1400_u32;
     let mut y_top = 0_u32;
+
+    // TOTAL TILE COUNT (UPPER BOUND) FOR GRANULAR DETECTION PROGRESS.
+    let total_tiles = (total_h as f32 / tile_step as f32).ceil().max(1.0) as u32;
+    let mut tile_idx = 0_u32;
 
     while y_top < total_h {
         let y_bottom = (y_top + tile_height).min(total_h);
@@ -225,6 +259,12 @@ pub fn find_forbidden_text_zones(
                 ocr.as_deref_mut(),
             );
             raw_intervals.extend(zones);
+        }
+
+        if let Some(cb) = on_progress {
+            tile_idx += 1;
+            let pct = ((tile_idx as f32 / total_tiles as f32) * 100.0).min(100.0) as u32;
+            cb(pct);
         }
 
         if y_bottom >= total_h {
@@ -250,7 +290,7 @@ pub fn find_optimal_cut_points(
     }
 
     let rgb = canvas.to_rgb8();
-    let profile = compute_row_profile(&rgb);
+    let profile = compute_row_profile(&rgb, None);
 
     let mut cut_points = Vec::new();
     let mut current_y = 0_u32;
@@ -367,14 +407,62 @@ pub fn find_optimal_cut_points_with_detectors(
     max_height: u32,
     mut detector: Option<&mut ComicTextDetector>,
     mut ocr: Option<&mut RapidOcr>,
+    on_progress: Option<&ResliceProgressFn>,
 ) -> Vec<u32> {
     let (_w, total_h) = canvas.dimensions();
     if total_h <= max_height {
+        // SINGLE PAGE — NO CUTS NEEDED; REPORT COMPLETE IMMEDIATELY.
+        if let Some(cb) = on_progress {
+            cb(100);
+        }
         return vec![total_h];
     }
 
     let rgb = canvas.to_rgb8();
-    let profile = compute_row_profile(&rgb);
+
+    // PHASE A (0..=45%): ROW PROFILE — THE DOMINANT COST ON LARGE STRIPS.
+    if let Some(cb) = on_progress {
+        cb(1);
+    }
+    let profile = if let Some(cb) = on_progress {
+        let row_progress = |p: u32| cb((p as f32 * 0.45) as u32);
+        compute_row_profile(&rgb, Some(&row_progress))
+    } else {
+        compute_row_profile(&rgb, None)
+    };
+
+    // PHASE B (45..=70%): FORBIDDEN TEXT ZONE DETECTION OVER THE FULL CANVAS (TILED).
+    if let Some(cb) = on_progress {
+        cb(45);
+    }
+    // COMPUTE FORBIDDEN TEXT ZONES ONCE UPFRONT OVER THE FULL CANVAS (TILED)
+    // THIS MUST BE ENFORCED IN *EVERY* PASS — INCLUDING THE "PURE GUTTER" FAST-PATH.
+    // A HORIZONTALLY FLAT BAND IS NOT PROOF OF A SAFE CUT: THE INTER-LINE GAP INSIDE
+    // A TYPED CHAT / TEXT BLOCK IS FLAT YET SITS IN THE MIDDLE OF A DIALOGUE.
+    // THE DETECTOR (RT-DETR) FINDS THOSE TEXT REGIONS SO NO GUTTER INSIDE A DIALOGUE
+    // IS EVER ACCEPTED.
+    let forbidden_zones: Vec<(i32, i32)> = if detector.is_some() || ocr.is_some() {
+        // GRANULAR DETECTION PROGRESS MAPPED INTO THE 45..=70 BAND (LIKE ROW_PROFILE ABOVE).
+        let det_progress = if let Some(cb) = on_progress {
+            let mapped = |p: u32| cb(45 + (p as f32 * 0.25) as u32);
+            Some(mapped)
+        } else {
+            None
+        };
+        let det_cb: Option<&(dyn Fn(u32) + Sync + Send)> = det_progress.as_ref().map(|c| c as &(dyn Fn(u32) + Sync + Send));
+        find_forbidden_text_zones(
+            canvas,
+            30,
+            detector.as_deref_mut(),
+            ocr.as_deref_mut(),
+            det_cb,
+        )
+    } else {
+        Vec::new()
+    };
+    if let Some(cb) = on_progress {
+        cb(70);
+    }
 
     let mut cut_points = Vec::new();
     let mut current_y = 0_u32;
@@ -390,17 +478,19 @@ pub fn find_optimal_cut_points_with_detectors(
         let search_end = (current_y + max_height).min(total_h - 1);
         let ideal_cut = (current_y + target_height) as f32;
 
-        // 1ST PASS (FAST-PATH ZERO-INFERENCE): PROVABLY SOLID GUTTER BANDS
-        // (ROW_VAR < 10.0 && MAX_COL_VAR < 12.0 && EDGE < 6.0)
-        // BY THE ZERO-TEXT THEOREM, CONTINUOUS HORIZONTAL FLAT BANDS CANNOT CONTAIN DIALOGUE
+        // 1ST PASS (FAST-PATH): SOLID GUTTER BANDS OUTSIDE FORBIDDEN TEXT ZONES.
+        // FORBIDDEN ZONES ARE CHECKED HERE TOO — FLAT BANDS CANNOT BE TRUSTED TO BE
+        // FREE OF DIALOGUE (THE INTER-LINE GAP INSIDE TYPED TEXT IS FLAT).
         let mut pure_gutter_candidates = Vec::new();
         for y in search_start..=search_end {
-            let yi = y as usize;
-            if profile.row_variances[yi] < 10.0
-                && profile.max_col_var[yi] < 12.0
-                && profile.row_edge_energy[yi] < 6.0
-            {
-                pure_gutter_candidates.push(y);
+            if !is_point_forbidden(y as i32, &forbidden_zones) {
+                let yi = y as usize;
+                if profile.row_variances[yi] < 10.0
+                    && profile.max_col_var[yi] < 12.0
+                    && profile.row_edge_energy[yi] < 6.0
+                {
+                    pure_gutter_candidates.push(y);
+                }
             }
         }
 
@@ -437,22 +527,9 @@ pub fn find_optimal_cut_points_with_detectors(
             }
         }
 
-        // 2ND PASS (ON-DEMAND NEURAL VERIFICATION): IF NO CLEAN GUTTER BAND EXISTS, INVOKE RT-DETR ONLY FOR THIS WINDOW
+        // 2ND PASS (RELAXED GUTTER OR LOWEST VISUAL ENERGY ROW OUTSIDE FORBIDDEN ZONES).
+        // FORBIDDEN ZONES WERE COMPUTED ONCE UPFRONT — NO PER-WINDOW RE-INFERENCE NEEDED.
         if best_y.is_none() {
-            let forbidden_zones = if detector.is_some() || ocr.is_some() {
-                detect_forbidden_zones_in_window(
-                    canvas,
-                    search_start,
-                    search_end,
-                    30,
-                    detector.as_deref_mut(),
-                    ocr.as_deref_mut(),
-                )
-            } else {
-                Vec::new()
-            };
-
-            // SEARCH FOR RELAXED GUTTER OR LOWEST VISUAL ENERGY ROW OUTSIDE FORBIDDEN ZONES
             let mut fallback_gutter_candidates = Vec::new();
             for y in search_start..=search_end {
                 if !is_point_forbidden(y as i32, &forbidden_zones) {
@@ -589,14 +666,21 @@ pub fn smart_reslice_chapter(
     max_height: u32,
     detector: Option<&mut ComicTextDetector>,
     ocr: Option<&mut RapidOcr>,
+    on_progress: Option<&ResliceProgressFn>,
 ) -> Vec<DynamicImage> {
     if images.is_empty() {
         return Vec::new();
+    }
+    if let Some(cb) = on_progress {
+        cb(0);
     }
 
     let stitched = stitch_images_vertically(images);
     let (w, total_h) = stitched.dimensions();
     if total_h <= max_height {
+        if let Some(cb) = on_progress {
+            cb(100);
+        }
         return vec![stitched];
     }
 
@@ -607,12 +691,15 @@ pub fn smart_reslice_chapter(
         max_height,
         detector,
         ocr,
+        on_progress,
     );
 
+    // PHASE C (70..=95%): SLICE THE CANVAS INTO PAGES AT THE CHOSEN CUT POINTS.
     let mut pages = Vec::new();
     let mut prev_y = 0_u32;
+    let total_cuts = cut_points.len().max(1) as u32;
 
-    for cut_y in cut_points {
+    for (idx, cut_y) in cut_points.into_iter().enumerate() {
         if cut_y <= prev_y {
             continue;
         }
@@ -622,6 +709,14 @@ pub fn smart_reslice_chapter(
             pages.push(slice);
         }
         prev_y = cut_y;
+        if let Some(cb) = on_progress {
+            let frac = (idx as u32 + 1) as f32 / total_cuts as f32;
+            cb(70 + (frac * 25.0) as u32);
+        }
+    }
+
+    if let Some(cb) = on_progress {
+        cb(95);
     }
 
     pages

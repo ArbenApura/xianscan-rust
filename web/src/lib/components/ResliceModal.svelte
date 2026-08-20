@@ -39,6 +39,9 @@
 		save: 'pending',
 	};
 
+	// LIVE 0..=100 PERCENT FROM THE SIDECAR'S SSE FEED (MIRRORS TRANSLATION PROGRESS).
+	let progressPct = 0;
+
 	let abortController: AbortController | null = null;
 
 	const STEPS: Array<{ id: StepId; label: string; desc: string }> = [
@@ -70,6 +73,7 @@
 		state = 'running';
 		resetStepStatuses();
 		stepStatus.read = 'active';
+		progressPct = 0;
 		message = `Stitching ${pageCount} image slices...`;
 		errorMessage = '';
 		abortController = new AbortController();
@@ -83,6 +87,7 @@
 				} else if (e.type === 'progress') {
 					const backendStep = (e.step as StepId) || 'read';
 					const backendMsg = (e.message as string) || message;
+					if (typeof e.pct === 'number') progressPct = Math.max(0, Math.min(100, e.pct));
 					updateStepFromBackend(backendStep, backendMsg);
 				} else if (e.type === 'done') {
 					originalCount = (e.originalCount as number) || pageCount;
@@ -91,6 +96,7 @@
 
 					// MARK ALL STEPS AS COMPLETED
 					stepStatus = { read: 'done', reslice: 'done', save: 'done' };
+					progressPct = 100;
 					message = finalMsg;
 
 					setTimeout(() => {
@@ -248,6 +254,19 @@
 			<!-- CURRENT STATUS MESSAGE BANNER FROM BACKEND -->
 			<div class="rounded-xl border border-black/[0.08] bg-black/[0.02] p-3 text-center text-xs font-medium dark:border-white/[0.08] dark:bg-white/[0.02]">
 				<span class="font-mono text-[11px] text-current opacity-80">{message}</span>
+			</div>
+
+			<!-- LIVE PERCENT PROGRESS BAR (MIRRORS PAGE-TRANSLATION PROGRESS) -->
+			<div class="flex items-center gap-3">
+				<div class="h-2 flex-1 overflow-hidden rounded-full bg-black/10 dark:bg-white/10">
+					<div
+						class="h-full rounded-full bg-[#b23a2e] dark:bg-[#e08a63] transition-all duration-300"
+						style={`width: ${progressPct}%`}
+					></div>
+				</div>
+				<span class="shrink-0 font-mono text-[11px] font-bold tabular-nums opacity-70">
+					{Math.round(progressPct)}%
+				</span>
 			</div>
 
 			<!-- STEP STATUS CHECKLIST WITH LIVE ROTATING SPINNERS -->

@@ -10,13 +10,52 @@ use tower_http::cors::{Any, CorsLayer};
 use rayon::prelude::*;
 
 use crate::ml::device::{get_hardware_status, set_active_provider};
-use crate::ml::reslice::{smart_reslice_chapter, stitch_images_vertically};
+use crate::ml::reslice::{smart_reslice_chapter, stitch_images_vertically, ResliceProgressFn};
 use crate::ml::schemas::{AnalyzeOptions, AnalyzeResponse, CleanRequestRegion, HardwareStatus};
 use crate::pipeline::PipelineEngine;
 
 #[derive(Clone)]
 pub struct AppState {
     pub engine: Arc<Mutex<PipelineEngine>>,
+    pub reslice_progress: ResliceProgressState,
+}
+
+impl AppState {
+    pub fn new(engine: PipelineEngine) -> Self {
+        Self {
+            engine: Arc::new(Mutex::new(engine)),
+            reslice_progress: ResliceProgressState::default(),
+        }
+    }
+}
+
+/// SHARED, LATEST-VALUE RESLICE PROGRESS FEED FOR THE WEB UI.
+///
+/// A SIMPLE CURRENT-VALUE HOLDER (NOT A STREAM). THE WEB POLLS
+/// `GET /pages/reslice/status` WHILE THE (BLOCKING) RESLICE POST RUNS.
+/// THE RESLICE HANDLER REWRITES THIS VALUE AS IT PROGRESSES AND SETS
+/// `done = true` ON COMPLETION. A PLAIN `std::sync::Mutex` IS USED
+/// BECAUSE THE PROGRESS CALLBACK FIRES FROM RAYON WORKER THREADS.
+#[derive(Clone, Default)]
+pub struct ResliceProgressState {
+    pub current: Arc<std::sync::Mutex<ResliceProgressFrame>>,
+}
+
+#[derive(Clone, serde::Serialize, serde::Deserialize)]
+pub struct ResliceProgressFrame {
+    pub pct: u32,
+    pub message: String,
+    pub done: bool,
+}
+
+impl Default for ResliceProgressFrame {
+    fn default() -> Self {
+        Self {
+            pct: 0,
+            message: "Stitching canvas…".to_string(),
+            done: false,
+        }
+    }
 }
 
 pub fn create_router(state: AppState) -> Router {
@@ -34,6 +73,8 @@ pub fn create_router(state: AppState) -> Router {
         .route("/pages/preprocess", post(preprocess_handler))
         .route("/pages/stitch", post(stitch_handler))
         .route("/pages/reslice", post(reslice_handler))
+        .route("/pages/reslice/status", get(reslice_status_handler))
+        .route("/pages/reslice/reset", post(reslice_reset_handler))
         .layer(DefaultBodyLimit::max(128 * 1024 * 1024))
         .layer(cors)
         .with_state(state)
@@ -279,6 +320,17 @@ async fn reslice_handler(
     State(state): State<AppState>,
     mut multipart: Multipart,
 ) -> Result<Response, (StatusCode, String)> {
+    // RESET THE SHARED PROGRESS STATE AT THE START OF A NEW RUN. WITHOUT THIS,
+    // THE FIRST STATUS POLL READS THE PREVIOUS RUN'S `pct=100, done=true` AND THE
+    // WEB UI INSTANTLY JUMPS TO ~97% BEFORE THIS RUN HAS DONE ANY WORK.
+    if let Ok(mut guard) = state.reslice_progress.current.lock() {
+        *guard = ResliceProgressFrame {
+            pct: 0,
+            message: "Stitching canvas…".to_string(),
+            done: false,
+        };
+    }
+
     let mut images = Vec::new();
 
     while let Ok(Some(field)) = multipart.next_field().await {
@@ -298,6 +350,17 @@ async fn reslice_handler(
             (StatusCode::INTERNAL_SERVER_ERROR, format!("Failed to lock engine: {}", e))
         })?;
         let engine = &mut *engine_guard;
+        let progress = state.reslice_progress.current.clone();
+        let progress_cb: &ResliceProgressFn = &move |pct| {
+            let frame = ResliceProgressFrame {
+                pct,
+                message: reslice_message_for(pct),
+                done: false,
+            };
+            if let Ok(mut guard) = progress.lock() {
+                *guard = frame;
+            }
+        };
         smart_reslice_chapter(
             &images,
             1600,
@@ -305,8 +368,18 @@ async fn reslice_handler(
             2400,
             engine.detector.as_mut(),
             engine.ocr.as_mut(),
+            Some(progress_cb),
         )
     };
+
+    // MARK TERMINAL COMPLETION SO THE WEB STATUS POLL KNOWS TO STOP.
+    if let Ok(mut guard) = state.reslice_progress.current.lock() {
+        *guard = ResliceProgressFrame {
+            pct: 100,
+            message: "Reslice complete.".to_string(),
+            done: true,
+        };
+    }
 
     // PARALLEL MULTI-CORE WEBP ENCODING VIA RAYON
     let encoded_slices: Vec<(usize, Vec<u8>)> = slices
@@ -342,4 +415,43 @@ async fn reslice_handler(
         ],
         zip_buffer.into_inner(),
     ).into_response())
+}
+
+/// HUMAN-READABLE PROGRESS LABEL FOR A NORMALIZED RESLICE PERCENTAGE.
+fn reslice_message_for(pct: u32) -> String {
+    match pct {
+        0..=5 => "Reading & stitching canvas…".to_string(),
+        6..=44 => format!("Analyzing canvas rows… {pct}%"),
+        45..=69 => "Detecting speech bubbles & protecting dialogue…".to_string(),
+        70..=94 => format!("Finding clean gutters & slicing pages… {pct}%"),
+        95..=99 => "Encoding pages…".to_string(),
+        _ => "Reslice complete.".to_string(),
+    }
+}
+
+/// GET /pages/reslice/status — POLLED BY THE WEB WHILE THE RESLICE POST RUNS.
+/// RETURNS THE LATEST `pct` (0..=100), `message`, AND `done` FLAG.
+async fn reslice_status_handler(
+    State(state): State<AppState>,
+) -> Json<ResliceProgressFrame> {
+    let frame = state.reslice_progress.current.lock()
+        .map(|g| g.clone())
+        .unwrap_or_default();
+    Json(frame)
+}
+
+/// POST /pages/reslice/reset — CLEARS STALE PROGRESS FROM A PREVIOUS RUN.
+/// CALLED BY THE WEB *BEFORE* IT STARTS THE RESLICE POST + POLL LOOP, SO THE
+/// FIRST POLL CANNOT READ A LEFTOVER `pct=100, done=true` AND INSTANTLY JUMP.
+async fn reslice_reset_handler(
+    State(state): State<AppState>,
+) -> StatusCode {
+    if let Ok(mut guard) = state.reslice_progress.current.lock() {
+        *guard = ResliceProgressFrame {
+            pct: 0,
+            message: "Stitching canvas…".to_string(),
+            done: false,
+        };
+    }
+    StatusCode::OK
 }

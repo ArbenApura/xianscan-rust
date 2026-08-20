@@ -100,7 +100,7 @@ fn test_smart_reslice_chapter() {
     let slice3 = DynamicImage::ImageRgb8(ImageBuffer::from_pixel(300, 800, Rgb([120, 120, 120])));
     let slice4 = DynamicImage::ImageRgb8(ImageBuffer::from_pixel(300, 800, Rgb([120, 120, 120])));
 
-    let pages = smart_reslice_chapter(&[slice1, slice2, slice3, slice4], 1600, 1000, 2200, None, None);
+    let pages = smart_reslice_chapter(&[slice1, slice2, slice3, slice4], 1600, 1000, 2200, None, None, None);
     assert!(pages.len() >= 2);
     let total_h: u32 = pages.iter().map(|p| p.height()).sum();
     assert_eq!(total_h, 3200);

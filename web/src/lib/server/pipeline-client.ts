@@ -60,6 +60,8 @@ export interface PipelineClient {
 	setDevice?(device: string, signal?: AbortSignal): Promise<HardwareStatus>;
 	stitch?(imageTop: Buffer, imageBottom: Buffer, signal?: AbortSignal): Promise<Buffer>;
 	reslice?(images: Buffer[], signal?: AbortSignal): Promise<Buffer[]>;
+	pollResliceStatus?(signal?: AbortSignal): Promise<{ pct: number; message: string; done: boolean }>;
+	resetResliceStatus?(signal?: AbortSignal): Promise<void>;
 }
 
 // -- ERRORS -- //
@@ -170,6 +172,23 @@ export class HttpPipelineClient implements PipelineClient {
 				return numA - numB;
 			});
 		return keys.map((k) => Buffer.from(unzipped[k]));
+	}
+
+	// POLL THE SIDECAR'S CURRENT RESLICE PROGRESS. LIGHTWEIGHT JSON GET — THE
+	// WEB CALLS THIS ON AN INTERVAL WHILE THE (BLOCKING) RESLICE POST RUNS ON A
+	// SEPARATE REQUEST, SO IT NEVER RACES THE LONG-RUNNING WORK.
+	async pollResliceStatus(
+		signal?: AbortSignal,
+	): Promise<{ pct: number; message: string; done: boolean }> {
+		const resp = await this.request('/pages/reslice/status', { method: 'GET' }, signal);
+		if (!resp.ok) throw new PipelineError(`reslice status failed (${resp.status})`, resp.status);
+		return (await resp.json()) as { pct: number; message: string; done: boolean };
+	}
+
+	// RESET STALE PROGRESS FROM A PREVIOUS RUN BEFORE STARTING A NEW ONE.
+	async resetResliceStatus(signal?: AbortSignal): Promise<void> {
+		const resp = await this.request('/pages/reslice/reset', { method: 'POST', body: undefined }, signal);
+		if (!resp.ok) throw new PipelineError(`reslice reset failed (${resp.status})`, resp.status);
 	}
 
 	async health(): Promise<{ status: string; detector: string; inpainter: string }> {

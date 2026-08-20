@@ -1,7 +1,7 @@
 use std::io::Write;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 use std::time::Duration;
 
 use colored::Colorize;
@@ -283,9 +283,7 @@ async fn main() -> anyhow::Result<()> {
         } else { "missing weights".bright_red() }
     );
 
-    let state = AppState {
-        engine: Arc::new(Mutex::new(engine)),
-    };
+    let state = AppState::new(engine);
 
     let app = create_router(state);
 
