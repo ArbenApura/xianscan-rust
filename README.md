@@ -12,7 +12,7 @@
 
 [![Rust](https://img.shields.io/badge/Rust-1.80+-DEA584?style=for-the-badge&logo=rust&logoColor=white)](https://www.rust-lang.org/)
 [![ONNX Runtime](https://img.shields.io/badge/ONNX_Runtime-1.19+-005CED?style=for-the-badge&logo=onnx&logoColor=white)](https://onnxruntime.ai/)
-[![DirectML](https://img.shields.io/badge/Hardware-DirectML_•_CPU_SIMD-0078D4?style=for-the-badge&logo=windows&logoColor=white)](https://learn.microsoft.com/en-us/windows/ai/directml/)
+[![DirectML](https://img.shields.io/badge/Hardware-DirectML_•_CoreML_•_CUDA_•_CPU_SIMD-0078D4?style=for-the-badge&logo=windows&logoColor=white)](https://learn.microsoft.com/en-us/windows/ai/directml/)
 [![SvelteKit](https://img.shields.io/badge/SvelteKit-2.x_•_Svelte_5-FF3E00?style=for-the-badge&logo=svelte&logoColor=white)](https://kit.svelte.dev/)
 [![SQLite](https://img.shields.io/badge/SQLite-Local_First-003B57?style=for-the-badge&logo=sqlite&logoColor=white)](https://www.sqlite.org/)
 [![Support on Ko-Fi](https://img.shields.io/badge/Support_on-Ko--Fi-FF5E5B?style=for-the-badge&logo=kofi&logoColor=white)](https://ko-fi.com/arbenapura)
@@ -53,7 +53,7 @@
 The core mission of XianScan is to provide an **uninterrupted, automated reading flow** for comic readers, language learners, and translation teams:
 - **Zero-Friction Setup**: Delivered as a single standalone executable. No Python environments, no CUDA configuration, and no complex terminal setups required.
 - **Complete Reading Automation**: Eliminates manual busywork by automatically coordinating the entire pipeline—from 1-click browser importing to ML bubble detection, multi-language OCR, background cleaning, and context-aware typesetting.
-- **Hardware Freedom**: Highly optimized multi-threaded SIMD inference (AVX2, AVX-512, ARM NEON) that runs at blistering speed on standard laptops and CPUs, while automatically utilizing DirectML GPU acceleration when a graphics card is available.
+- **Hardware Freedom**: Highly optimized multi-threaded SIMD inference (AVX2, AVX-512, ARM NEON) that runs at blistering speed on standard laptops and CPUs, while automatically utilizing DirectML (Windows), CoreML/Metal (Apple Silicon), or CUDA (Linux NVIDIA) acceleration when a compatible GPU is present — with a seamless CPU fallback.
 
 ---
 
@@ -79,6 +79,20 @@ Reading untranslated CJK comics (Chinese Manhua, Korean Manhwa, Japanese Manga) 
 4. **Neural Inpainting**: Erases original text using LaMa neural inpainting to seamlessly restore background artwork.
 5. **Typesetting Studio**: Renders translated dialogue with automatic font sizing, boundary fitting, stroke outlines, and dynamic CJK fallbacks.
 
+<a id="hardware-acceleration"></a>
+### 🚀 Hardware Acceleration
+
+XianScan prioritizes correctness over raw speed: CPU is always available and never requires configuration. A faster accelerator is selected automatically when one is present:
+
+| Priority | Backend | Platform | Requirement |
+| :--- | :--- | :--- | :--- |
+| 1 | **CoreML / Metal** | macOS (Apple Silicon) | None — ships with the OS |
+| 2 | **CUDA 13** | Linux (NVIDIA) | R580+ driver; CUDA 13 runtime installed |
+| 3 | **DirectML** | Windows | None — embedded in the binary |
+| 4 | **CPU SIMD** | All | None — always available |
+
+GPU acceleration is optional and never required. On Linux, the CUDA path has no effect until you install the NVIDIA driver plus a CUDA 13 runtime (matching the R580+ driver requirement); otherwise XianScan silently falls back to the multi-threaded CPU engine.
+
 ---
 
 <a id="comic-formats"></a>
@@ -96,7 +110,7 @@ Reading untranslated CJK comics (Chinese Manhua, Korean Manhwa, Japanese Manga) 
 <a id="features"></a>
 ## ⚙️ Features
 
-- **Runs on Any CPU (No GPU Required)**: Multi-threaded CPU inference with SIMD acceleration (AVX2, AVX-512, ARM NEON). Runs on standard laptops, desktop PCs, and Apple Silicon, while automatically utilizing DirectML GPU acceleration when a dedicated GPU is available.
+- **Runs on Any CPU (No GPU Required)**: Multi-threaded CPU inference with SIMD acceleration (AVX2, AVX-512, ARM NEON). Runs on standard laptops, desktop PCs, and Apple Silicon, while automatically utilizing DirectML (Windows), CoreML/Metal (macOS), or CUDA (Linux) acceleration when a compatible GPU and driver are present.
 - **Portable Standalone Executable (~450 MB)**: Download, run, and start translating immediately. The release binary embeds all neural network weights (RT-DETR, LaMa, 11-language OCR), the SvelteKit web interface, Skia typography engine, and comic fonts for 100% offline out-of-the-box operation with zero external dependencies.
 - **Bubble Detection**: Uses an RT-DETR model to locate speech bubbles, text regions, and sound effects.
 - **Background Inpainting**: Uses LaMa ONNX to erase original text and restore background art.
@@ -173,6 +187,8 @@ Download the pre-compiled standalone binary for your system from [Releases](http
 > [!NOTE]
 > **Zero Network Dependency**: The release executable (~450 MB) embeds all neural network models, OCR dictionaries, Skia rendering libraries, and Web UI. It works completely offline on first launch without downloading extra model files.
 >
+> **CPU inference requires no network.** Enabling CUDA acceleration on Linux downloads a small, pinned GPU runtime package once and caches it locally; DirectML (Windows) and CoreML/Metal (macOS) need no extra download.
+>
 > **Persistent Library Data**: Your book library, chapter images, and SQLite database (`xianscan.db`) are saved in your OS application data folder (`%APPDATA%\XianScan\data` on Windows, `~/.local/share/xianscan/data` on Linux, `~/Library/Application Support/XianScan/data` on macOS) and persist safely across version updates.
 
 ### 2. Open Web Studio
@@ -220,7 +236,7 @@ cargo run -- --dev
 | :--- | :--- | :--- |
 | `/health` | `GET` | Health status, active hardware backend, and loaded model diagnostics. |
 | `/system/hardware` | `GET` | GPU adapter enumeration and hardware capabilities. |
-| `/system/device` | `POST` | Dynamically switch execution provider (`directml`, `cpu`, `auto`). |
+| `/system/device` | `POST` | Dynamically switch execution provider (`auto`, `cuda`, `coreml`, `directml`, `cpu`). |
 | `/pages/analyze` | `POST` | Speech bubble detection, polygon segmentation, and multi-language OCR. |
 | `/pages/clean` | `POST` | Neural inpainting to erase text from selected bubble masks. |
 | `/pages/preprocess` | `POST` | Image normalization and contrast optimization. |
@@ -268,8 +284,8 @@ cd web && yarn test
 - **🔄 Enhanced Japanese Manga Recognition**: Continuously optimizing vertical Japanese OCR text extraction, Furigana filtering, multi-column right-to-left reading order clustering, and complex speech bubble grouping.
 - **👥 Contextual Gender & Pronoun Consistency**: Developing intelligent coreference resolution algorithms to accurately track character dialogue and resolve omitted or ambiguous CJK pronouns (Chinese 他/她, Japanese 彼/彼女, Korean 그/그녀/honorifics) across multi-panel conversation flows, extending beyond static glossaries to fit the distinct narrative structures of Manhua, Manga, and Manhwa.
 - **📦 Package Manager Distribution & CLI Updates**: Official formulas and manifests for **Homebrew** (`brew install xianscan`), **Scoop** (`scoop install xianscan`), and **Windows Package Manager** (`winget install xianscan`), paired with a built-in `xianscan update` self-updater.
-- **⚡ Decoupled Incremental Model Delivery**: Dynamic background self-hydration for AI model weights (`~/.xianscan/models/`) to reduce update payloads down to lightweight ~15 MB application binaries.
-- **🍎 Expanded macOS Support & Native Bundling**: Pre-compiled Apple Silicon builds are available ([xianscan-macos-arm64.tar.gz](https://github.com/ArbenApura/xianscan-rust/releases/download/v0.1.6/xianscan-macos-arm64.tar.gz)). As I currently do not have a dedicated macOS setup for local testing, community feedback and issue reports on macOS are warmly appreciated as I refine native .app and DMG distribution.
+- **⚡ Decoupled Incremental Model Delivery**: Dynamic background self-hydration for AI model weights (`~/.xianscan/models/`) and the Linux CUDA runtime package to reduce update payloads down to lightweight ~15 MB application binaries.
+- **🍎 Expanded macOS Support & Native Bundling**: Pre-compiled Apple Silicon builds are available ([xianscan-macos-arm64.tar.gz](https://github.com/ArbenApura/xianscan-rust/releases/download/v0.1.6/xianscan-macos-arm64.tar.gz)) with CoreML/Metal GPU acceleration enabled. As I currently do not have a dedicated macOS setup for local testing, community feedback and issue reports on macOS are warmly appreciated as I refine native .app and DMG distribution.
 - **📖 Xianslate Integration (All-in-One Translation Suite)**: Integrating [Xianslate](https://github.com/ArbenApura/xianslate) — my specialized Light Novel & Web Novel translation tool — into XianScan to create a unified reader and translation suite for both comics (Manga/Manhua/Manhwa) and light novels with shared dynamic terminology glossaries.
 - **📱 Mobile Companion Reader (iOS & Android)**: Developing a lightweight mobile reader app that connects to your local XianScan server over Wi-Fi. Features 1-tap offline chapter downloads for travel and commutes, smooth touch-optimized reading modes, and automatic reading progress sync with your home library.
 

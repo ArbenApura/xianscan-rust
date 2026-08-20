@@ -38,7 +38,7 @@
 		},
 		{
 			q: 'Does XianScan require a dedicated GPU or CUDA?',
-			a: 'No GPU or CUDA is required. XianScan is built with highly optimized multi-threaded SIMD inference (AVX2, AVX-512, ARM NEON) that runs at fast speeds on standard desktop and laptop CPUs. If a dedicated GPU is present, it automatically utilizes DirectML hardware acceleration.',
+			a: 'No GPU or CUDA is required. XianScan runs on highly optimized multi-threaded SIMD inference (AVX2, AVX-512, ARM NEON) on standard CPUs. If a compatible GPU is present, it automatically accelerates via DirectML (Windows), CoreML/Metal (Apple Silicon), or CUDA (Linux NVIDIA).',
 		},
 		{
 			q: 'Where are my comic libraries and chapter data stored?',
