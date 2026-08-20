@@ -264,6 +264,7 @@ cd web && yarn test
 <a id="roadmap"></a>
 ## 🗺️ In Progress & Future Roadmap
 
+- **🎯 Custom XianScan Comic Detection Model**: Training a custom, domain-specialized vision model tailored specifically for XianScan's multi-layout pipeline. Engineered to significantly improve text/bubble detection accuracy, curved and boundary-less text segmentation, sound effect (SFX) classification, and complex multi-speaker bubble splitting across diverse Manhua, Manhwa, and Manga art styles.
 - **🔄 Enhanced Japanese Manga Recognition**: Continuously optimizing vertical Japanese OCR text extraction, Furigana filtering, multi-column right-to-left reading order clustering, and complex speech bubble grouping.
 - **👥 Contextual Gender & Pronoun Consistency**: Developing intelligent coreference resolution algorithms to accurately track character dialogue and resolve omitted or ambiguous CJK pronouns (Chinese 他/她, Japanese 彼/彼女, Korean 그/그녀/honorifics) across multi-panel conversation flows, extending beyond static glossaries to fit the distinct narrative structures of Manhua, Manga, and Manhwa.
 - **📦 Package Manager Distribution & CLI Updates**: Official formulas and manifests for **Homebrew** (`brew install xianscan`), **Scoop** (`scoop install xianscan`), and **Windows Package Manager** (`winget install xianscan`), paired with a built-in `xianscan update` self-updater.
