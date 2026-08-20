@@ -192,6 +192,8 @@ pub fn get_hardware_status() -> HardwareStatus {
     let dedicated_gpu = get_dedicated_gpu();
     let has_dedicated_gpu = dedicated_gpu.is_some();
     let dml_active = providers.iter().any(|p| p == "DmlExecutionProvider");
+    let has_cuda = cfg!(feature = "cuda") && has_dedicated_gpu;
+    let has_coreml = cfg!(feature = "coreml") && has_dedicated_gpu;
 
     let gpu_warning = if !dml_active && !detected_gpus.is_empty() && !has_dedicated_gpu {
         Some(format!(
@@ -207,10 +209,10 @@ pub fn get_hardware_status() -> HardwareStatus {
         active_provider: providers.first().cloned().unwrap_or_else(|| "CPUExecutionProvider".to_string()),
         providers: providers.clone(),
         available_providers: vec!["CPUExecutionProvider".to_string()],
-        has_cuda: false,
+        has_cuda,
         has_directml: dml_active,
         has_directml_raw: true,
-        has_coreml: false,
+        has_coreml,
         has_dedicated_gpu,
         detected_gpus,
         gpu_warning,
