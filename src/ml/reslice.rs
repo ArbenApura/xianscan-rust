@@ -172,6 +172,41 @@ pub fn is_point_forbidden(y: i32, intervals: &[(i32, i32)]) -> bool {
     intervals.iter().any(|&(start, end)| y >= start && y <= end)
 }
 
+/// MINIMUM CLEAN (INK-FREE) ROWS REQUIRED IMMEDIATELY ABOVE AND BELOW A CANDIDATE
+/// CUT. THE DETECTOR + OCR FORBIDDEN ZONES ARE NOT GUARANTEED TO BE EXHAUSTIVE, SO
+/// A FLAT ROW ALONE IS NOT PROOF OF A SAFE CUT: THE INTER-LINE GAP INSIDE AN
+/// UNDETECTED BUBBLE / TEXT BOX IS FLAT YET SITS IN THE MIDDLE OF A DIALOGUE.
+/// REQUIRING CLEAR AIRSPACE ON BOTH SIDES REJECTS SUCH "FAKE GUTTERS".
+const CUT_AIRSPACE_PX: u32 = 10;
+
+/// TRUE WHEN THE ROW IS VISUALLY BLANK (LOW VARIANCE & EDGE ENERGY). USED TO
+/// VERIFY A CANDIDATE CUT IS SURROUNDED BY A CLEAR GUTTER RATHER THAN ART / TEXT.
+fn row_is_blank(profile: &RowProfile, y: usize) -> bool {
+    profile.row_variances[y] < 30.0 && profile.row_edge_energy[y] < 15.0
+}
+
+/// A CUT AT `y` IS ACCEPTABLE ONLY IF THERE IS A BLANK AIRSPACE OF AT LEAST
+/// `CUT_AIRSPACE_PX` ROWS IMMEDIATELY ABOVE AND BELOW IT. THE FLAT BAND ITSELF IS
+/// GUARANTEED BLANK; THIS CHECKS THE ROWS BEYOND IT, SO A CUT CANNOT SLICE THROUGH
+/// THE NARROW GAP BETWEEN TWO TEXT LINES INSIDE ONE MISSED DIALOGUE BOX.
+fn has_clear_airspace(profile: &RowProfile, y: u32, total_h: u32) -> bool {
+    for dy in 1..=CUT_AIRSPACE_PX {
+        if y >= dy {
+            let r = (y - dy) as usize;
+            if !row_is_blank(profile, r) {
+                return false;
+            }
+        }
+        if y + dy < total_h {
+            let r = (y + dy) as usize;
+            if !row_is_blank(profile, r) {
+                return false;
+            }
+        }
+    }
+    true
+}
+
 /// DETECT DIALOGUE BUBBLES AND TEXT REGIONS IN A CANDIDATE CUT WINDOW
 pub fn detect_forbidden_zones_in_window(
     canvas: &DynamicImage,
@@ -192,7 +227,10 @@ pub fn detect_forbidden_zones_in_window(
     let tile = canvas.crop_imm(0, y_min, canvas.width(), h);
     let mut raw_intervals: Vec<(i32, i32)> = Vec::new();
 
-    // 1. FAST COMIC TEXT DETECTOR (RT-DETR / DBNET) — FINDS BOTH BUBBLES AND TEXT POLYGONS
+    // 1. FAST COMIC TEXT DETECTOR (RT-DETR / DBNET) — FINDS BOTH BUBBLES AND TEXT POLYGONS.
+    // NOTE: THIS DOES **NOT** RETURN EARLY ON SUCCESS — OCR BELOW RUNS AS A RECALL
+    // SUPPLEMENT SO TEXT REGIONS MISSED BY THE COMIC DETECTOR (E.G. WIDE OR UNUSUAL
+    // NARRATION / DIALOGUE BOXES) ARE STILL PROTECTED FROM BEING CUT IN HALF.
     if let Some(ref mut det) = detector {
         if let Ok(res) = det.detect(&tile) {
             for box_poly in &res.boxes {
@@ -216,11 +254,12 @@ pub fn detect_forbidden_zones_in_window(
                 let z_max = (tf.y + tf.h + y_min as i32 + safety_margin).min(total_h as i32);
                 raw_intervals.push((z_min, z_max));
             }
-            return merge_intervals(raw_intervals);
         }
     }
 
-    // 2. RAPIDOCR DETECTOR (FALLBACK ONLY WHEN DETECTOR IS ABSENT)
+    // 2. RAPIDOCR DETECTOR — RECALL SUPPLEMENT. PREVIOUSLY USED ONLY AS A FALLBACK
+    // WHEN THE COMIC DETECTOR WAS ABSENT OR ERRORED; NOW ALWAYS RUNS SO ITS TEXT
+    // REGIONS ARE MERGED INTO THE FORBIDDEN ZONES ALONGSIDE THE DETECTOR'S.
     if let Some(ref mut o) = ocr {
         if let Ok(lines) = o.detect_and_recognize_tiled(&tile, false) {
             for line in &lines {
@@ -547,6 +586,12 @@ pub fn find_optimal_cut_points_with_detectors(
                 let mut best_band_score = -f32::INFINITY;
                 for band in valid_bands {
                     let mid_y = band[band.len() / 2];
+                    // REJECT "FAKE GUTTERS": A FLAT BAND IS ONLY A SAFE CUT IF IT IS
+                    // SURROUNDED BY CLEAR AIRSPACE. OTHERWISE IT IS JUST AN INTER-LINE
+                    // GAP INSIDE A BUBBLE / TEXT BOX THE DETECTOR & OCR MISSED.
+                    if !has_clear_airspace(&profile, mid_y, total_h) {
+                        continue;
+                    }
                     let band_len = band.len() as f32;
                     let dist_penalty = (mid_y as f32 - ideal_cut).abs() * 0.05;
                     let band_score = (band_len * 2.5) - dist_penalty;
@@ -565,7 +610,10 @@ pub fn find_optimal_cut_points_with_detectors(
             for y in search_start..=search_end {
                 if !is_point_forbidden(y as i32, &forbidden_zones) {
                     let yi = y as usize;
-                    if profile.row_variances[yi] < 15.0 && profile.max_col_var[yi] < 20.0 {
+                    if profile.row_variances[yi] < 15.0
+                        && profile.max_col_var[yi] < 20.0
+                        && has_clear_airspace(&profile, y, total_h)
+                    {
                         fallback_gutter_candidates.push(y);
                     }
                 }
@@ -586,7 +634,7 @@ pub fn find_optimal_cut_points_with_detectors(
             if best_y.is_none() {
                 let mut best_score = -f32::INFINITY;
                 for y in search_start..=search_end {
-                    if !is_point_forbidden(y as i32, &forbidden_zones) {
+                    if !is_point_forbidden(y as i32, &forbidden_zones) && has_clear_airspace(&profile, y, total_h) {
                         let yi = y as usize;
                         let var_val = profile.row_variances[yi];
                         let diff_val = profile.row_diffs[yi];
@@ -608,14 +656,14 @@ pub fn find_optimal_cut_points_with_detectors(
                 for offset in 1..=600 {
                     if search_start >= offset + current_y + 100 {
                         let y = search_start - offset;
-                        if !is_point_forbidden(y as i32, &forbidden_zones) {
+                        if !is_point_forbidden(y as i32, &forbidden_zones) && has_clear_airspace(&profile, y, total_h) {
                             best_y = Some(y);
                             break;
                         }
                     }
                     if search_end + offset < total_h {
                         let y = search_end + offset;
-                        if !is_point_forbidden(y as i32, &forbidden_zones) {
+                        if !is_point_forbidden(y as i32, &forbidden_zones) && has_clear_airspace(&profile, y, total_h) {
                             best_y = Some(y);
                             break;
                         }
@@ -625,7 +673,7 @@ pub fn find_optimal_cut_points_with_detectors(
         }
 
         let selected_y = best_y.unwrap_or_else(|| {
-            (current_y + target_height).min(search_end).max(search_start)
+            fallback_cut(&profile, &forbidden_zones, search_start, search_end, ideal_cut, total_h)
         });
 
         cut_points.push(selected_y);
@@ -633,6 +681,80 @@ pub fn find_optimal_cut_points_with_detectors(
     }
 
     cut_points
+}
+
+/// LAST-RESORT CUT SELECTION WHEN NO CLEAN GUTTER EXISTS IN THE SEARCH WINDOW.
+///
+/// THE PREVIOUS BLIND DEFAULT — `clamp(current_y + target_height)` — IGNORED THE
+/// FORBIDDEN ZONES ENTIRELY, SO WHEN A WINDOW HAD NO ACCEPTABLE GUTTER (E.G. A
+/// DARK PANEL WITH NO CLEAN HORIZONTAL BAND) IT CUT STRAIGHT THROUGH DETECTED
+/// DIALOGUE, SPLITTING TEXT ACROSS PAGES. THIS FALLBACK ALWAYS AVOIDS FORBIDDEN
+/// (TEXT / BUBBLE) ZONES, AND PREFERS CLEAR AIRSPACE / LOW VISUAL ENERGY WHEN
+/// AVAILABLE, ONLY DEFAULTING TO `target_height` IF *EVERY* ROW IS FORBIDDEN.
+fn fallback_cut(
+    profile: &RowProfile,
+    forbidden_zones: &[(i32, i32)],
+    search_start: u32,
+    search_end: u32,
+    ideal_cut: f32,
+    total_h: u32,
+) -> u32 {
+    // PASS A: NON-FORBIDDEN ROW WITH CLEAR AIRSPACE, CLOSEST TO THE IDEAL CUT.
+    let mut best: Option<u32> = None;
+    let mut best_dist = f32::INFINITY;
+    for y in search_start..=search_end {
+        if !is_point_forbidden(y as i32, forbidden_zones) && has_clear_airspace(profile, y, total_h) {
+            let d = (y as f32 - ideal_cut).abs();
+            if d < best_dist {
+                best_dist = d;
+                best = Some(y);
+            }
+        }
+    }
+    if let Some(y) = best {
+        return y;
+    }
+
+    // PASS B: ANY NON-FORBIDDEN ROW (NO AIRSPACE REQUIRED — NONE EXISTS IN DARK
+    // ART), CLOSEST TO IDEAL, TIE-BROKEN BY LOWEST VISUAL ENERGY.
+    let mut best: Option<u32> = None;
+    let mut best_dist = f32::INFINITY;
+    let mut best_energy = f32::INFINITY;
+    for y in search_start..=search_end {
+        if !is_point_forbidden(y as i32, forbidden_zones) {
+            let yi = y as usize;
+            let energy = profile.row_variances[yi] + profile.row_edge_energy[yi] * 5.0;
+            let d = (y as f32 - ideal_cut).abs();
+            // STRICTEST CLOSEST-TO-IDEAL WINS; EXACT DISTANCE TIES BROKEN BY LOWER ENERGY.
+            if d < best_dist || (d == best_dist && energy < best_energy) {
+                best_dist = d;
+                best_energy = energy;
+                best = Some(y);
+            }
+        }
+    }
+    if let Some(y) = best {
+        return y;
+    }
+
+    // PASS C: EXPAND OUTWARD FOR THE NEAREST NON-FORBIDDEN ROW BEFORE DEFAULTING.
+    for offset in 1..=600 {
+        if search_start >= offset + 100 {
+            let y = search_start - offset;
+            if !is_point_forbidden(y as i32, forbidden_zones) {
+                return y;
+            }
+        }
+        if search_end + offset < total_h {
+            let y = search_end + offset;
+            if !is_point_forbidden(y as i32, forbidden_zones) {
+                return y;
+            }
+        }
+    }
+
+    // LAST RESORT: EVERY CANDIDATE ROW IS FORBIDDEN — CUT AT THE IDEAL HEIGHT.
+    ideal_cut.min(search_end as f32).max(search_start as f32) as u32
 }
 
 /// STITCH MULTIPLE VERTICAL IMAGE STRIPS INTO A SINGLE UNIFIED CANVAS VIA CONTIGUOUS BYTE COPIES
@@ -771,4 +893,66 @@ pub fn smart_reslice_chapter(
     }
 
     pages
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn textured_profile(total_h: u32) -> RowProfile {
+        let n = total_h as usize;
+        // EVERY ROW IS "TEXTURED ART": HIGH VARIANCE & EDGE ENERGY SO NO CLEAR
+        // AIRSPACE EXISTS ANYWHERE (MIMICS A DARK PANEL WITH NO CLEAN GUTTER).
+        RowProfile {
+            row_variances: vec![200.0; n],
+            max_col_var: vec![200.0; n],
+            row_diffs: vec![100.0; n],
+            row_edge_energy: vec![100.0; n],
+        }
+    }
+
+    /// THE LAST-RESORT FALLBACK MUST NEVER CUT THROUGH A FORBIDDEN (TEXT) ZONE.
+    /// REGRESSION FOR A DARK PANEL WHERE NO GUTTER EXISTS AND THE CUT USED TO
+    /// LAND BLINDLY AT `target_height`, SPLITTING DETECTED DIALOGUE.
+    #[test]
+    fn fallback_cut_avoids_forbidden_zones() {
+        let total_h = 2600;
+        let profile = textured_profile(total_h);
+        let forbidden = vec![(1590, 1610)]; // COVERS THE IDEAL CUT (1600)
+
+        let cut = fallback_cut(&profile, &forbidden, 800, 2200, 1600.0, total_h);
+
+        assert!(
+            !is_point_forbidden(cut as i32, &forbidden),
+            "fallback cut {cut} landed inside a forbidden dialogue zone!"
+        );
+        // CLOSEST NON-FORBIDDEN ROW TO THE IDEAL (TIE-BROKEN BY ENERGY — ALL EQUAL).
+        assert!(
+            cut == 1589 || cut == 1611,
+            "fallback cut {cut} is not the closest non-forbidden row to ideal (expected 1589 or 1611)"
+        );
+    }
+
+    /// WHEN A WIDE CLEAN GUTTER EXISTS, THE FALLBACK PREFERS IT (CLEAR AIRSPACE)
+    /// OVER TEXTURED ART — EVEN IF IT IS FURTHER FROM THE IDEAL CUT.
+    #[test]
+    fn fallback_cut_prefers_clean_gutter() {
+        let total_h = 2600;
+        let mut profile = textured_profile(total_h);
+        // ADD A WIDE FLAT GUTTER (1680..1720) WITH CLEAR AIRSPACE ON BOTH SIDES.
+        for y in 1680..1720 {
+            profile.row_variances[y] = 1.0;
+            profile.max_col_var[y] = 1.0;
+            profile.row_diffs[y] = 0.0;
+            profile.row_edge_energy[y] = 0.0;
+        }
+        let forbidden: Vec<(i32, i32)> = Vec::new();
+
+        let cut = fallback_cut(&profile, &forbidden, 800, 2200, 1600.0, total_h);
+
+        assert!(
+            (1680..=1720).contains(&cut),
+            "fallback should prefer the wide clean gutter, got {cut}"
+        );
+    }
 }

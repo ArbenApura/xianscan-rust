@@ -95,6 +95,8 @@ pub struct HardwareStatus {
     pub has_dedicated_gpu: bool,
     pub detected_gpus: Vec<GpuInfo>,
     pub gpu_warning: Option<String>,
+    #[serde(default)]
+    pub reloading: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

@@ -31,6 +31,7 @@
 	import ExternalLink from 'lucide-svelte/icons/external-link';
 	import Globe from 'lucide-svelte/icons/globe';
 	import RefreshCw from 'lucide-svelte/icons/refresh-cw';
+	import Loader2 from 'lucide-svelte/icons/loader-2';
 	import AlertCircle from 'lucide-svelte/icons/alert-circle';
 	import CheckCircle2 from 'lucide-svelte/icons/check-circle-2';
 	import Palette from 'lucide-svelte/icons/palette';
@@ -72,6 +73,7 @@
 		has_dedicated_gpu?: boolean;
 		detected_gpus?: Array<{ device_id: number; name: string; vram_mb: number; is_dedicated: boolean; is_integrated: boolean }>;
 		gpu_warning?: string | null;
+		reloading?: boolean;
 		version?: string;
 		app_version?: string;
 		web_build_hash?: string;
@@ -92,6 +94,8 @@
 
 	let hardwareInfo: HardwareInfo | null = null;
 	let hardwareLoading = false;
+	// WHICH DEVICE IS CURRENTLY BEING SWITCHED TO (SHOWS A SPINNER + DISABLES OTHER CARDS).
+	let switchingDevice: ExecutionDevice | null = null;
 
 	// AI PROVIDERS STATE
 	let providers: ProviderInfo[] = [];
@@ -252,9 +256,11 @@
 			return;
 		}
 
+		if (switchingDevice) return;
+
 		settings.update((s) => ({ ...s, executionDevice: dev }));
 		const found = EXECUTION_DEVICES.find((d) => d.id === dev);
-		toast.success(`Compute hardware set to ${found?.label || dev}`);
+		switchingDevice = dev;
 
 		try {
 			const res = await fetch('/api/system/hardware', {
@@ -264,11 +270,41 @@
 			});
 			if (res.ok) {
 				hardwareInfo = (await res.json()) as HardwareInfo;
-				void mlStatus.checkHealth();
+				toast.success(`Compute hardware set to ${found?.label || dev}`);
+				// THE BACKEND RELOADS ALL ~400MB OF MODELS ASYNCHRONOUSLY; POLL UNTIL IT REPORTS READY.
+				void waitForReloadDone(dev);
+			} else {
+				toast.error(`Failed to switch compute hardware to ${found?.label || dev}`);
+				switchingDevice = null;
 			}
 		} catch {
-			// Ignore offline
+			// IGNORE OFFLINE — CLEAR THE SPINNER SO THE UI ISN'T STUCK.
+			switchingDevice = null;
+			void mlStatus.checkHealth();
 		}
+	}
+
+	async function waitForReloadDone(dev: ExecutionDevice) {
+		const maxWaitMs = 60000;
+		const startedAt = Date.now();
+		while (Date.now() - startedAt < maxWaitMs) {
+			// SHORT DELAY BEFORE THE FIRST POLL SO THE BACKEND HAS TIME TO KICK OFF THE RELOAD.
+			await new Promise((r) => setTimeout(r, 300));
+			try {
+				const res = await fetch('/api/system/hardware');
+				if (res.ok) {
+					const info = (await res.json()) as HardwareInfo;
+					hardwareInfo = info;
+					if (!info.reloading) {
+						break;
+					}
+				}
+			} catch {
+				break;
+			}
+		}
+		switchingDevice = null;
+		void mlStatus.checkHealth();
 	}
 
 	function updateSourceLang(lang: string) {
@@ -1329,14 +1365,23 @@
 							<div class="text-xs font-bold uppercase tracking-wider opacity-80">Hardware Compute Accelerator</div>
 							<p class="text-[11px] opacity-60">Select execution engine for ONNX Runtime models</p>
 						</div>
-						<!-- LIVE STATUS PILL (MOBILE ADAPTIVE) -->
+						<!-- LIVE STATUS PILL (MOBILE ADAPTIVE) — SHOWS A SPINNER WHILE RELOADING MODELS -->
 						{#if hardwareInfo}
 							<div
-								class="self-start sm:self-auto flex items-center gap-1.5 rounded-full border border-emerald-500/30 bg-emerald-500/10 px-2.5 py-0.5 sm:py-1 text-[10px] font-bold text-emerald-700 dark:text-emerald-300 max-w-full"
+								class={`self-start sm:self-auto flex items-center gap-1.5 rounded-full border px-2.5 py-0.5 sm:py-1 text-[10px] font-bold max-w-full ${
+									switchingDevice || hardwareInfo.reloading
+										? 'border-amber-500/30 bg-amber-500/10 text-amber-700 dark:text-amber-300'
+										: 'border-emerald-500/30 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300'
+								}`}
 								title="Active ONNX Runtime Provider"
 							>
-								<Activity size={11} class="text-emerald-500 shrink-0 animate-pulse" />
-								<span class="truncate px-0.5">{formatDeviceLabel(hardwareInfo.device_label)}</span>
+								{#if switchingDevice || hardwareInfo.reloading}
+									<Loader2 size={11} class="text-amber-500 shrink-0 animate-spin" />
+									<span class="truncate px-0.5">Reloading models…</span>
+								{:else}
+									<Activity size={11} class="text-emerald-500 shrink-0 animate-pulse" />
+									<span class="truncate px-0.5">{formatDeviceLabel(hardwareInfo.device_label)}</span>
+								{/if}
 							</div>
 						{/if}
 					</div>
@@ -1345,9 +1390,10 @@
 						{#each EXECUTION_DEVICES as dev (dev.id)}
 							<button
 								type="button"
+								disabled={!!switchingDevice}
 								on:click={() => setExecutionDevice(dev.id)}
 								class={`relative flex flex-col justify-between rounded-xl border p-3 text-left transition-all duration-200 ${
-									!isDeviceAvailable(dev.id)
+									!isDeviceAvailable(dev.id) || switchingDevice
 										? 'opacity-45 hover:opacity-60 border-black/5 bg-black/[0.01] dark:border-white/5 dark:bg-white/[0.01] cursor-not-allowed'
 										: $settings.executionDevice === dev.id
 											? 'border-[#b23a2e] bg-[#b23a2e]/[0.08] text-[#b23a2e] dark:text-[#e08a63] ring-2 ring-[#b23a2e]/30 shadow-xs'
@@ -1357,10 +1403,14 @@
 								<div>
 									<div class="flex items-center justify-between gap-2">
 										<div class="flex items-center gap-1.5 font-bold text-xs">
-											<Cpu size={13} class={`shrink-0 ${isDeviceAvailable(dev.id) ? 'opacity-80' : 'opacity-40'}`} />
+											{#if switchingDevice === dev.id}
+												<Loader2 size={13} class="shrink-0 animate-spin text-[#b23a2e] dark:text-[#e08a63]" />
+											{:else}
+												<Cpu size={13} class={`shrink-0 ${isDeviceAvailable(dev.id) ? 'opacity-80' : 'opacity-40'}`} />
+											{/if}
 											<span>{dev.label}</span>
 										</div>
-										{#if $settings.executionDevice === dev.id}
+										{#if $settings.executionDevice === dev.id && switchingDevice !== dev.id}
 											<Check size={14} class="text-[#b23a2e] dark:text-[#e08a63] shrink-0" />
 										{/if}
 									</div>

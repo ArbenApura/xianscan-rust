@@ -1,4 +1,4 @@
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use axum::{
     extract::{DefaultBodyLimit, Multipart, State},
@@ -19,6 +19,13 @@ use crate::pipeline::PipelineEngine;
 pub struct AppState {
     pub engine: Arc<Mutex<PipelineEngine>>,
     pub reslice_progress: ResliceProgressState,
+    /// TRUE WHILE A DEVICE-SWITCH ENGINE RELOAD IS RUNNING IN THE BACKGROUND. THE WEB UI
+    /// POLLS THIS VIA GET /system/hardware TO SHOW A "RELOADING MODELS" INDICATOR.
+    pub reloading: Arc<AtomicBool>,
+    /// MONOTONIC RELOAD GENERATION. BUMPED ON EVERY DEVICE SWITCH; A RELOAD TASK ONLY CLEARS
+    /// reloading IF IT IS STILL THE LATEST GENERATION, SO A STALE (OVERLAPPED) RELOAD CAN NEVER
+    /// MARK THE ENGINE READY WHILE A NEWER SWITCH IS STILL LOADING.
+    pub reload_gen: Arc<AtomicU64>,
 }
 
 impl AppState {
@@ -26,6 +33,8 @@ impl AppState {
         Self {
             engine: Arc::new(Mutex::new(engine)),
             reslice_progress: ResliceProgressState::default(),
+            reloading: Arc::new(AtomicBool::new(false)),
+            reload_gen: Arc::new(AtomicU64::new(0)),
         }
     }
 }
@@ -126,8 +135,10 @@ async fn health_handler(State(state): State<AppState>) -> Json<serde_json::Value
     }))
 }
 
-async fn hardware_get_handler() -> Json<HardwareStatus> {
-    Json(get_hardware_status())
+async fn hardware_get_handler(State(state): State<AppState>) -> Json<HardwareStatus> {
+    let mut status = get_hardware_status();
+    status.reloading = state.reloading.load(Ordering::SeqCst);
+    Json(status)
 }
 
 #[derive(serde::Deserialize)]
@@ -141,14 +152,33 @@ async fn hardware_set_handler(
     Json(payload): Json<SetDevicePayload>,
 ) -> Json<HardwareStatus> {
     let prov = payload.provider.unwrap_or_else(|| "auto".to_string());
-    let status = set_active_provider(&prov);
+    // SWITCH THE ACTIVE PROVIDER IMMEDIATELY (CHEAP — NO MODEL LOADING) SO THE RESPONSE RETURNS FAST.
+    let mut status = set_active_provider(&prov);
 
-    // Dynamically reload the pipeline engine with the newly active execution provider
-    if let Ok(mut engine) = state.engine.lock() {
-        let models_dir = std::env::var("MODELS_DIR").unwrap_or_else(|_| "models".to_string());
-        *engine = PipelineEngine::new(models_dir);
-    }
+    // RELOAD THE ENGINE (RE-CREATES ALL ONNX SESSIONS ON THE NEW PROVIDER) IN A BACKGROUND TASK.
+    // LOADING ~400MB OF MODEL WEIGHTS IS SLOW; WE MUST NOT BLOCK THE HTTP RESPONSE ON IT. THE
+    // reloading FLAG LETS THE WEB UI SHOW A "RELOADING MODELS" INDICATOR AND POLL FOR COMPLETION.
+    let engine = state.engine.clone();
+    let reloading = state.reloading.clone();
+    let reload_gen = state.reload_gen.clone();
+    let models_dir = std::env::var("MODELS_DIR").unwrap_or_else(|_| "models".to_string());
 
+    // CLAIM A NEW GENERATION FOR THIS SWITCH AND MARK THE ENGINE AS RELOADING.
+    let my_gen = reload_gen.fetch_add(1, Ordering::SeqCst) + 1;
+    reloading.store(true, Ordering::SeqCst);
+
+    tokio::task::spawn_blocking(move || {
+        if let Ok(mut engine_guard) = engine.lock() {
+            *engine_guard = PipelineEngine::new(&models_dir);
+        }
+        // ONLY THE LATEST SWITCH MAY CLEAR THE FLAG — AN OVERLAPPED, STALE RELOAD MUST NOT
+        // REPORT READY WHILE A NEWER SWITCH IS STILL LOADING MODELS.
+        if reload_gen.load(Ordering::SeqCst) == my_gen {
+            reloading.store(false, Ordering::SeqCst);
+        }
+    });
+
+    status.reloading = true;
     Json(status)
 }
 

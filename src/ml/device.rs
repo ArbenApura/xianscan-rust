@@ -95,8 +95,9 @@ pub fn get_hardware_status() -> HardwareStatus {
     let detected_gpus = enumerate_system_gpus();
     let dedicated_gpu = get_dedicated_gpu();
     let has_dedicated_gpu = dedicated_gpu.is_some();
+    let dml_active = providers.iter().any(|p| p == "DmlExecutionProvider");
 
-    let gpu_warning = if !detected_gpus.is_empty() && !has_dedicated_gpu {
+    let gpu_warning = if !dml_active && !detected_gpus.is_empty() && !has_dedicated_gpu {
         Some(format!(
             "Integrated GPU detected ({}). GPU acceleration is disabled to protect against desktop freezing and driver crashes. Running on multi-threaded CPU.",
             detected_gpus[0].name
@@ -111,12 +112,13 @@ pub fn get_hardware_status() -> HardwareStatus {
         providers: providers.clone(),
         available_providers: vec!["CPUExecutionProvider".to_string()],
         has_cuda: false,
-        has_directml: has_dedicated_gpu,
+        has_directml: dml_active,
         has_directml_raw: true,
         has_coreml: false,
         has_dedicated_gpu,
         detected_gpus,
         gpu_warning,
+        reloading: false,
     }
 }
 

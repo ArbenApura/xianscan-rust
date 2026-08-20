@@ -96,4 +96,72 @@ describe('SettingsModal Component UI', () => {
 		expect(hwRes.success).toBe(true);
 		expect(hwRes.data?.device).toBe('directml');
 	});
+
+	it('shows a "Reloading models" indicator and disables cards while switching device', async () => {
+		let reloadCalls = 0;
+		const fetchMock = vi.fn().mockImplementation(async (url: string, init?: RequestInit) => {
+			if (url.includes('/api/system/providers')) {
+				return { ok: true, json: async () => ({ providers: [] }) };
+			}
+			if (url.includes('/api/system/hardware') && init?.method === 'POST') {
+				return {
+					ok: true,
+					json: async () => ({
+						device_label: 'CPU Multi-threaded',
+						active_provider: 'CPUExecutionProvider',
+						providers: ['CPUExecutionProvider'],
+						available_providers: ['CPUExecutionProvider'],
+						has_cuda: false,
+						has_directml: false,
+						has_coreml: false,
+						reloading: true,
+					}),
+				};
+			}
+			if (url.includes('/api/system/hardware') && (!init || init.method === 'GET')) {
+				reloadCalls += 1;
+				// FIRST POLL STILL LOADING; SECOND REPORTS READY SO THE SPINNER CLEARS.
+				const stillReloading = reloadCalls < 2;
+				return {
+					ok: true,
+					json: async () => ({
+						device_label: 'CPU Multi-threaded',
+						active_provider: 'CPUExecutionProvider',
+						providers: ['CPUExecutionProvider'],
+						available_providers: ['CPUExecutionProvider'],
+						has_cuda: false,
+						has_directml: false,
+						has_coreml: false,
+						reloading: stillReloading,
+					}),
+				};
+			}
+			return { ok: true, json: async () => ({}) };
+		});
+		global.fetch = fetchMock;
+
+		render(SettingsModal, {
+			props: {
+				open: true,
+				initialTab: 'compute',
+			},
+		});
+		await tick();
+
+		const cpuButton = screen.getByText('CPU Multi-threaded').closest('button');
+		await fireEvent.click(cpuButton!);
+		await tick();
+
+		// THE STATUS PILL SHOULD SHOW THE RELOADING INDICATOR RIGHT AFTER THE SWITCH.
+		expect(screen.getByText('Reloading models…')).toBeTruthy();
+		// OTHER DEVICE CARDS ARE DISABLED WHILE SWITCHING.
+		const dmlCard = screen.getByText('DirectML (Dedicated GPU)').closest('button');
+		expect(dmlCard?.hasAttribute('disabled')).toBe(true);
+
+		// ADVANCE TIMERS PAST THE 300MS POLL DELAY; SECOND POLL REPORTS READY.
+		await new Promise((r) => setTimeout(r, 700));
+		await tick();
+
+		expect(screen.queryByText('Reloading models…')).toBeNull();
+	});
 });

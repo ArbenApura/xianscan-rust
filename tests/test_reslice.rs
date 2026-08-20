@@ -1,6 +1,7 @@
 use image::{DynamicImage, GenericImageView, ImageBuffer, Rgb};
 use xianscan_rust::ml::reslice::{
-    find_optimal_cut_points, is_point_forbidden, smart_reslice_chapter, stitch_images_vertically,
+    find_optimal_cut_points, find_optimal_cut_points_with_detectors, is_point_forbidden,
+    smart_reslice_chapter, stitch_images_vertically,
 };
 
 /// # Reslice Test: Vertical Strip Canvas Stitching
@@ -130,4 +131,59 @@ fn test_find_optimal_cut_points_avoids_dialogue_bubbles() {
             );
         }
     }
+}
+
+/// # Reslice Test: Clear-Airspace Gutter Guard (Fake-Gutter Rejection)
+///
+/// ## Purpose:
+/// A flat band alone is not proof of a safe cut — the inter-line gap inside an
+/// undetected dialogue / narration box is flat yet sits in the middle of text.
+/// The cut-point search must reject such a "fake gutter" (text close above AND
+/// below) and snap to a genuinely clear, wide gutter instead. This directly
+/// reproduces the reported bug where a cut landed in the gap between two text
+/// lines of a wide narration box that the detector had missed.
+#[test]
+fn test_cut_avoids_fake_gutter_between_text_lines() {
+    fn whiten(buf: &mut ImageBuffer<Rgb<u8>, Vec<u8>>, y0: u32, y1: u32) {
+        for y in y0..y1 {
+            for x in 0..buf.width() {
+                buf.put_pixel(x, y, Rgb([255, 255, 255]));
+            }
+        }
+    }
+
+    let w = 400;
+    let h = 2600;
+    let mut buf = ImageBuffer::from_pixel(w, h, Rgb([0_u8, 0, 0]));
+
+    // Textured "art / text" everywhere so the whole canvas has high row variance,
+    // except where we explicitly cut flat white gutters.
+    for y in 0..h {
+        for x in 0..w {
+            let v = ((x * 13 + y * 7) % 200) as u8;
+            buf.put_pixel(x, y, Rgb([v, v, v]));
+        }
+    }
+
+    // FAKE GUTTER: a narrow white band (1210..1220) between two "text" regions.
+    // Text lines are only ~0-10px away above AND below, so a cut here would split
+    // dialogue across pages — exactly the reported failure.
+    whiten(&mut buf, 1210, 1220);
+
+    // REAL GUTTER: a wide, clearly-blank band with generous blank airspace.
+    whiten(&mut buf, 1590, 1660);
+
+    let canvas = DynamicImage::ImageRgb8(buf);
+    let cuts = find_optimal_cut_points_with_detectors(&canvas, 1200, 800, 2000, None, None, None, None, 0);
+
+    assert!(!cuts.is_empty());
+    let first = cuts[0];
+    assert!(
+        !(1180..=1250).contains(&first),
+        "cut {first} landed in the fake gutter inside the text block (must be rejected by clear-airspace guard)"
+    );
+    assert!(
+        (1590..=1660).contains(&first),
+        "cut {first} did not snap to the real, clearly-blank gutter"
+    );
 }

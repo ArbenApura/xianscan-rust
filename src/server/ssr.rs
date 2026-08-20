@@ -90,7 +90,14 @@ impl SsrServer {
             .env("ML_BASE_URL", format!("http://127.0.0.1:{}", ml_port))
             .env("DATA_ROOT", &data_root)
             .env("DATABASE_PATH", &db_path)
-            .stdout(Stdio::inherit())
+            // STREAM VITE STDOUT ONLY WHEN LOG_REQUESTS=1 — QUIET BY DEFAULT SO BENIGN
+            // BROWSER PROBES (E.G. /.well-known/appspecific/* CHROME DEVTOOLS) DON'T
+            // CLUTTER THE CLI WITH 404 NOISE. STDERR (REAL ERRORS) IS ALWAYS SHOWN.
+            .stdout(if verbose_logging() {
+                Stdio::inherit()
+            } else {
+                Stdio::null()
+            })
             .stderr(Stdio::inherit());
 
         debug!("Starting Vite Live Dev Server on port {}...", port);
