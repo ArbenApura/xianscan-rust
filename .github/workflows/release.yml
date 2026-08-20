@@ -216,6 +216,7 @@ jobs:
 
       - name: VirusTotal Analysis
         if: env.VT_API_KEY != ''
+        id: virustotal
         uses: crazy-max/ghaction-virustotal@v5
         env:
           VT_API_KEY: ${{ secrets.VT_API_KEY }}
@@ -225,8 +226,42 @@ jobs:
             release-assets/xianscan-windows-*.zip
             release-assets/xianscan-linux-*.tar.gz
             release-assets/xianscan-macos-*.tar.gz
-          update_release_body: true
-          github_token: ${{ secrets.GITHUB_TOKEN }}
+            release-assets/xianscan-importer-*.zip
+            release-assets/xianscan-importer-*.xpi
+
+      - name: Append VirusTotal results to release notes
+        if: steps.virustotal.outputs.analysis != ''
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG_NAME: ${{ github.event.inputs.tag_name || github.ref_name }}
+        run: |
+          # BUILD THE MARKDOWN TABLE FROM THE ACTION'S `<filename>=<url>,<filename>=<url>` OUTPUT
+          {
+            echo ''
+            echo '## 🛡️ VirusTotal Scan'
+            echo ''
+            echo '| Artifact | Report |'
+            echo '| :--- | :--- |'
+            IFS=',' read -ra ENTRIES <<< "${{ steps.virustotal.outputs.analysis }}"
+            for e in "${ENTRIES[@]}"; do
+              f="${e%%=*}"; u="${e#*=}"
+              echo "| \`$f\` | [View report]($u) |"
+            done
+          } > /tmp/vt-section.md
+
+          RELEASE=$(gh api "repos/${{ github.repository }}/releases/tags/$TAG_NAME")
+          RELEASE_ID=$(echo "$RELEASE" | jq -r .id)
+          BODY=$(echo "$RELEASE" | jq -r .body)
+
+          # IDEMPOTENT — DON'T DUPLICATE THE SECTION ON A RE-RUN
+          if [[ "$BODY" == *"VirusTotal Scan"* ]]; then
+            echo "VirusTotal section already present; skipping."
+            exit 0
+          fi
+
+          printf '%s\n%s\n' "$BODY" "$(cat /tmp/vt-section.md)" > /tmp/new-body.md
+          gh api --method PATCH "repos/${{ github.repository }}/releases/$RELEASE_ID" \
+            -f body=@/tmp/new-body.md
 
 
 
