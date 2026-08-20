@@ -232,7 +232,73 @@ pub fn set_active_provider(mode: &str) -> HardwareStatus {
 /// (DirectML for dedicated GPUs, with automatic, graceful fallback to multi-threaded CPU).
 pub fn create_session_from_memory(bytes: &[u8], model_tag: &str) -> Result<Session> {
     let (providers, _) = probe_hardware();
+    let wants_cuda = providers.iter().any(|p| p == "CUDAExecutionProvider");
+    let wants_coreml = providers.iter().any(|p| p == "CoreMLExecutionProvider");
     let wants_dml = providers.iter().any(|p| p == "DmlExecutionProvider");
+
+    if wants_cuda {
+        #[cfg(feature = "cuda")]
+        {
+            let cuda_res = (|| -> Result<Session> {
+                let session = Session::builder()
+                    .map_err(|e| anyhow::anyhow!("Builder error: {}", e))?
+                    .with_intra_threads(num_cpus::get().min(8))
+                    .map_err(|e| anyhow::anyhow!("Intra threads error: {}", e))?
+                    .with_optimization_level(GraphOptimizationLevel::Level3)
+                    .map_err(|e| anyhow::anyhow!("Opt level error: {}", e))?
+                    .with_execution_providers([ort::ep::CUDA::default().build()])
+                    .map_err(|e| anyhow::anyhow!("CUDA provider error: {}", e))?
+                    .commit_from_memory(bytes)
+                    .map_err(|e| anyhow::anyhow!("Commit error: {}", e))?;
+                Ok(session)
+            })();
+
+            match cuda_res {
+                Ok(s) => {
+                    tracing::info!("Successfully initialized ONNX model '{}' with CUDA GPU acceleration.", model_tag);
+                    return Ok(s);
+                }
+                Err(e) => {
+                    tracing::warn!(
+                        "Failed to initialize ONNX model '{}' with CUDA ({}); falling back to CPU multi-threaded.",
+                        model_tag, e
+                    );
+                }
+            }
+        }
+    }
+
+    if wants_coreml {
+        #[cfg(feature = "coreml")]
+        {
+            let coreml_res = (|| -> Result<Session> {
+                let session = Session::builder()
+                    .map_err(|e| anyhow::anyhow!("Builder error: {}", e))?
+                    .with_intra_threads(num_cpus::get().min(8))
+                    .map_err(|e| anyhow::anyhow!("Intra threads error: {}", e))?
+                    .with_optimization_level(GraphOptimizationLevel::Level3)
+                    .map_err(|e| anyhow::anyhow!("Opt level error: {}", e))?
+                    .with_execution_providers([ort::ep::CoreML::default().build()])
+                    .map_err(|e| anyhow::anyhow!("CoreML provider error: {}", e))?
+                    .commit_from_memory(bytes)
+                    .map_err(|e| anyhow::anyhow!("Commit error: {}", e))?;
+                Ok(session)
+            })();
+
+            match coreml_res {
+                Ok(s) => {
+                    tracing::info!("Successfully initialized ONNX model '{}' with CoreML acceleration.", model_tag);
+                    return Ok(s);
+                }
+                Err(e) => {
+                    tracing::warn!(
+                        "Failed to initialize ONNX model '{}' with CoreML ({}); falling back to CPU multi-threaded.",
+                        model_tag, e
+                    );
+                }
+            }
+        }
+    }
 
     if wants_dml {
         #[cfg(feature = "directml")]
