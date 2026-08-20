@@ -119,7 +119,10 @@ pub fn get_dedicated_gpu() -> Option<GpuInfo> {
 
 pub fn probe_hardware() -> (Vec<String>, String) {
     let override_dev = OVERRIDE_DEVICE.lock().unwrap().clone();
-    let env_override = override_dev.or_else(|| std::env::var("MT_DEVICE").ok()).unwrap_or_default().to_lowercase();
+    let env_override = override_dev
+        .or_else(|| std::env::var("MT_DEVICE").ok())
+        .unwrap_or_default()
+        .to_lowercase();
 
     let dedicated_gpu = get_dedicated_gpu();
 
@@ -127,23 +130,60 @@ pub fn probe_hardware() -> (Vec<String>, String) {
         return (vec!["CPUExecutionProvider".to_string()], "CPU Multi-threaded".to_string());
     }
 
-    if (env_override == "dml" || env_override == "directml") && dedicated_gpu.is_some() {
-        let dgpu = dedicated_gpu.unwrap();
-        return (
-            vec!["DmlExecutionProvider".to_string(), "CPUExecutionProvider".to_string()],
-            format!("DirectML Dedicated GPU ({})", dgpu.name),
-        );
+    // CUDA (NVIDIA) — REQUIRES THE `cuda` FEATURE AND A DETECTED NVIDIA GPU.
+    if env_override == "cuda" && cfg!(feature = "cuda") {
+        if let Some(dgpu) = &dedicated_gpu {
+            return (
+                vec!["CUDAExecutionProvider".to_string(), "CPUExecutionProvider".to_string()],
+                format!("CUDA Dedicated GPU ({})", dgpu.name),
+            );
+        }
     }
 
-    // Auto-detection hierarchy: only pick dGPU, strictly fallback to CPU for iGPU
-    if let Some(dgpu) = dedicated_gpu {
-        (
-            vec!["DmlExecutionProvider".to_string(), "CPUExecutionProvider".to_string()],
-            format!("DirectML Dedicated GPU ({})", dgpu.name),
-        )
-    } else {
-        (vec!["CPUExecutionProvider".to_string()], "CPU Multi-threaded".to_string())
+    // CoreML (APPLE SILICON) — REQUIRES THE `coreml` FEATURE AND A DETECTED GPU.
+    if env_override == "coreml" && cfg!(feature = "coreml") {
+        if let Some(dgpu) = &dedicated_gpu {
+            return (
+                vec!["CoreMLExecutionProvider".to_string(), "CPUExecutionProvider".to_string()],
+                format!("CoreML Apple GPU ({})", dgpu.name),
+            );
+        }
     }
+
+    // DirectML (WINDOWS) — REQUIRES THE `directml` FEATURE AND A DETECTED dGPU.
+    if (env_override == "dml" || env_override == "directml") && cfg!(feature = "directml") {
+        if let Some(dgpu) = &dedicated_gpu {
+            return (
+                vec!["DmlExecutionProvider".to_string(), "CPUExecutionProvider".to_string()],
+                format!("DirectML Dedicated GPU ({})", dgpu.name),
+            );
+        }
+    }
+
+    // AUTO-DETECTION HIERARCHY: PICK THE COMPILED GPU BACKEND, ELSE CPU. A BUILD
+    // WITH NONE OF THE GPU FEATURES FALLS THROUGH TO CPU BY CONSTRUCTION.
+    if let Some(dgpu) = &dedicated_gpu {
+        if cfg!(feature = "cuda") {
+            return (
+                vec!["CUDAExecutionProvider".to_string(), "CPUExecutionProvider".to_string()],
+                format!("CUDA Dedicated GPU ({})", dgpu.name),
+            );
+        }
+        if cfg!(feature = "coreml") {
+            return (
+                vec!["CoreMLExecutionProvider".to_string(), "CPUExecutionProvider".to_string()],
+                format!("CoreML Apple GPU ({})", dgpu.name),
+            );
+        }
+        if cfg!(feature = "directml") {
+            return (
+                vec!["DmlExecutionProvider".to_string(), "CPUExecutionProvider".to_string()],
+                format!("DirectML Dedicated GPU ({})", dgpu.name),
+            );
+        }
+    }
+
+    (vec!["CPUExecutionProvider".to_string()], "CPU Multi-threaded".to_string())
 }
 
 pub fn get_hardware_status() -> HardwareStatus {
