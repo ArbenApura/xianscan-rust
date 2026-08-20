@@ -13,7 +13,7 @@
 [![Rust](https://img.shields.io/badge/Rust-1.88+-DEA584?style=for-the-badge&logo=rust&logoColor=white)](https://www.rust-lang.org/)
 [![ONNX Runtime](https://img.shields.io/badge/ONNX_Runtime-1.28-005CED?style=for-the-badge&logo=onnx&logoColor=white)](https://onnxruntime.ai/)
 [![DirectML](https://img.shields.io/badge/Hardware-DirectML_•_CoreML_•_CUDA_•_CPU_SIMD-0078D4?style=for-the-badge&logo=windows&logoColor=white)](https://learn.microsoft.com/en-us/windows/ai/directml/)
-[![SvelteKit](https://img.shields.io/badge/SvelteKit-2.x_•_Svelte_5-FF3E00?style=for-the-badge&logo=svelte&logoColor=white)](https://kit.svelte.dev/)
+[![SvelteKit](https://img.shields.io/badge/SvelteKit-2.x_•_Svelte_4-FF3E00?style=for-the-badge&logo=svelte&logoColor=white)](https://kit.svelte.dev/)
 [![SQLite](https://img.shields.io/badge/SQLite-Local_First-003B57?style=for-the-badge&logo=sqlite&logoColor=white)](https://www.sqlite.org/)
 [![Support on Ko-Fi](https://img.shields.io/badge/Support_on-Ko--Fi-FF5E5B?style=for-the-badge&logo=kofi&logoColor=white)](https://ko-fi.com/arbenapura)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow?style=for-the-badge)](LICENSE)
@@ -74,7 +74,7 @@ Reading untranslated CJK comics (Chinese Manhua, Korean Manhwa, Japanese Manga) 
 ### 🔄 The Automated 5-Stage Pipeline
 
 1. **Detection & Segmentation**: Detects speech bubbles, sound effects, and text boundaries using an RT-DETR model.
-2. **Text Recognition (OCR)**: Extracts horizontal and vertical typography across 11 CJK and global languages.
+2. **Text Recognition (OCR)**: Extracts horizontal and vertical typography across 10 CJK and global languages.
 3. **Contextual Translation**: Translates text using free local LLMs (Ollama, LM Studio) or cloud AI APIs with dynamic terminology glossary matching.
 4. **Neural Inpainting**: Erases original text using LaMa neural inpainting to seamlessly restore background artwork.
 5. **Typesetting Studio**: Renders translated dialogue with automatic font sizing, boundary fitting, stroke outlines, and dynamic CJK fallbacks.
@@ -111,7 +111,7 @@ GPU acceleration is optional and never required. On Linux, the CUDA path has no 
 ## ⚙️ Features
 
 - **Runs on Any CPU (No GPU Required)**: Multi-threaded CPU inference with SIMD acceleration (AVX2, AVX-512, ARM NEON). Runs on standard laptops, desktop PCs, and Apple Silicon, while automatically utilizing DirectML (Windows), CoreML/Metal (macOS), or CUDA (Linux) acceleration when a compatible GPU and driver are present.
-- **Portable Standalone Executable (~450 MB)**: Download, run, and start translating immediately. The release binary embeds all neural network weights (RT-DETR, LaMa, 11-language OCR), the SvelteKit web interface, Skia typography engine, and comic fonts for 100% offline out-of-the-box operation with zero external dependencies.
+- **Portable Standalone Executable (~450 MB)**: Download, run, and start translating immediately. The release binary embeds all neural network weights (RT-DETR, LaMa, 10-language OCR), the SvelteKit web interface, Skia typography engine, and comic fonts for 100% offline out-of-the-box operation with zero external dependencies.
 - **Bubble Detection**: Uses an RT-DETR model to locate speech bubbles, text regions, and sound effects.
 - **Background Inpainting**: Uses LaMa ONNX to erase original text and restore background art.
 - **Comic Typesetting**: Automatic text fitting, line wrapping, outlines, and comic font support (CC Wild Words).
@@ -123,10 +123,10 @@ GPU acceleration is optional and never required. On Linux, the CUDA path has no 
 <a id="ocr-languages"></a>
 ## 🌐 Supported OCR Languages
 
-Native OCR models and dictionaries are included for **11 languages**:
+Native OCR models and dictionaries are included for **10 languages**:
 
 - **East Asian**: <img src="https://cdn.jsdelivr.net/gh/lipis/flag-icons/flags/4x3/cn.svg" width="18" alt="China" /> Chinese (Simplified & Traditional), <img src="https://cdn.jsdelivr.net/gh/lipis/flag-icons/flags/4x3/jp.svg" width="18" alt="Japan" /> Japanese, <img src="https://cdn.jsdelivr.net/gh/lipis/flag-icons/flags/4x3/kr.svg" width="18" alt="Korea" /> Korean
-- **Southeast Asian**: <img src="https://cdn.jsdelivr.net/gh/lipis/flag-icons/flags/4x3/vn.svg" width="18" alt="Vietnam" /> Vietnamese, <img src="https://cdn.jsdelivr.net/gh/lipis/flag-icons/flags/4x3/th.svg" width="18" alt="Thailand" /> Thai, <img src="https://cdn.jsdelivr.net/gh/lipis/flag-icons/flags/4x3/id.svg" width="18" alt="Indonesia" /> Indonesian
+- **Southeast Asian**: <img src="https://cdn.jsdelivr.net/gh/lipis/flag-icons/flags/4x3/th.svg" width="18" alt="Thailand" /> Thai, <img src="https://cdn.jsdelivr.net/gh/lipis/flag-icons/flags/4x3/id.svg" width="18" alt="Indonesia" /> Indonesian
 - **European & Global**: <img src="https://cdn.jsdelivr.net/gh/lipis/flag-icons/flags/4x3/gb.svg" width="18" alt="UK" /> English, <img src="https://cdn.jsdelivr.net/gh/lipis/flag-icons/flags/4x3/es.svg" width="18" alt="Spain" /> Spanish, <img src="https://cdn.jsdelivr.net/gh/lipis/flag-icons/flags/4x3/fr.svg" width="18" alt="France" /> French, <img src="https://cdn.jsdelivr.net/gh/lipis/flag-icons/flags/4x3/ru.svg" width="18" alt="Russia" /> Russian
 
 ---
@@ -151,10 +151,10 @@ The embedded Web UI includes comprehensive controls to customize typography and 
 
 - **Typography & CJK Fallbacks**: Primary dialogue fonts (such as `CC Wild Words`, `General Sans`, `Poppins`, `Lexend`) paired with an automatic CJK fallback engine (`Friendly Sans`, `Yu Gothic`, `Microsoft YaHei`, `Malgun Gothic`).
 - **Live Interactive Preview**: Test and preview typography in real time with dark/light scene background contrast, simulated tilt angles, and multi-language presets.
-- **Bubble Fitting & Outlines**: Customize bubble edge padding (2% to 12%), font scaling multipliers (80% to 130%), text stroke outlines (None, Thin, Standard, Heavy), and luminance-sensing contrast.
+- **Bubble Fitting & Outlines**: Customize bubble edge padding (2% to 8%), font scaling multipliers (80% to 130%), text stroke outlines (None, Thin, Standard, Heavy), and luminance-sensing contrast.
 - **Orientation & Letterform Casing**: Toggle automatic tilt rotation along detected diagonal comic bubbles ($\pm 2^\circ$ to $\pm 45^\circ$) and select dialogue letterform casing (`UPPERCASE`, `Normal / As Is`, `lowercase`).
 - **Webtoon Gutter Reslicing**: Automatically recombine and split tall vertical webtoon strips along panel gutters before batch translation to prevent speech bubbles from being bisected across slice seams.
-- **Parallel Processing**: Configure concurrent page worker threads (1–4) and batch chapter queues directly from the settings panel.
+- **Parallel Processing**: Configure concurrent page worker threads (1–8) and batch chapter queues directly from the settings panel.
 
 ---
 
@@ -270,7 +270,7 @@ To install:
 # Run all unit and integration tests
 cargo test -- --nocapture
 
-# Run the 11-language ML regression test suite
+# Run the 10-language ML regression test suite
 cargo test --test regression -- --nocapture
 
 # Run Web UI frontend tests
