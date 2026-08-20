@@ -115,9 +115,7 @@ function seedChapterWithPage(fileName: string) {
 
 async function run(chapterId: number, llm: OpenAI) {
 	const events: string[] = [];
-	await chapterWork(chapterId, { pipeline, dataRoot, llm })(new AbortController().signal, (e) =>
-		events.push(e.type),
-	);
+	await chapterWork(chapterId, { pipeline, dataRoot, llm })(new AbortController().signal, (e) => events.push(e.type));
 	return events;
 }
 
@@ -231,12 +229,7 @@ describe('runChapterPipeline', () => {
 			(e) => events.push(e),
 		);
 
-		const pages2 = db
-			.select()
-			.from(pages)
-			.where(eq(pages.chapterId, chapter.id))
-			.orderBy(pages.seq)
-			.all();
+		const pages2 = db.select().from(pages).where(eq(pages.chapterId, chapter.id)).orderBy(pages.seq).all();
 		expect(pages2[0].status).toBe('done');
 		expect(pages2[1].status).toBe('error');
 		expect(pages2[1].error).toContain('sidecar exploded');
@@ -305,8 +298,22 @@ describe('runChapterPipeline', () => {
 			height: 300,
 			backend: 'comic-ctd',
 			regions: [
-				{ id: 'r0', box: { x: 0, y: 0, w: 50, h: 20 }, polygon: [[0, 0]], text: '甲', confidence: 0.9, vertical: false },
-				{ id: 'r1', box: { x: 0, y: 100, w: 50, h: 20 }, polygon: [[0, 100]], text: '轰', confidence: 0.9, vertical: false },
+				{
+					id: 'r0',
+					box: { x: 0, y: 0, w: 50, h: 20 },
+					polygon: [[0, 0]],
+					text: '甲',
+					confidence: 0.9,
+					vertical: false,
+				},
+				{
+					id: 'r1',
+					box: { x: 0, y: 100, w: 50, h: 20 },
+					polygon: [[0, 100]],
+					text: '轰',
+					confidence: 0.9,
+					vertical: false,
+				},
 			],
 		});
 		await chapterWork(chapter.id, { pipeline: multi, dataRoot, llm: fakeLlm({ r0: 'A', r1: 'BOOM' }) })(
@@ -329,8 +336,22 @@ describe('runChapterPipeline', () => {
 			height: 300,
 			backend: 'comic-ctd',
 			regions: [
-				{ id: 'r0', box: { x: 10, y: 10, w: 50, h: 20 }, polygon: [[10, 10]], text: '你好', confidence: 0.9, vertical: false },
-				{ id: 'r1', box: { x: 100, y: 10, w: 90, h: 20 }, polygon: [[100, 10]], text: 'www.baozimh.com', confidence: 0.9, vertical: false },
+				{
+					id: 'r0',
+					box: { x: 10, y: 10, w: 50, h: 20 },
+					polygon: [[10, 10]],
+					text: '你好',
+					confidence: 0.9,
+					vertical: false,
+				},
+				{
+					id: 'r1',
+					box: { x: 100, y: 10, w: 90, h: 20 },
+					polygon: [[100, 10]],
+					text: 'www.baozimh.com',
+					confidence: 0.9,
+					vertical: false,
+				},
 			],
 		});
 		wmPipeline.clean = async (_image: Buffer, regionsPassed: unknown[]) => {
@@ -376,19 +397,20 @@ describe('runChapterPipeline', () => {
 		// SEND THE PAGE BACK TO 'pending' SO THE SECOND RUN TRANSLATES FRESHLY
 		db.update(pages).set({ status: 'pending' }).where(eq(pages.id, page.id)).run();
 		await chapterWork(chapter.id, deps)(new AbortController().signal, () => {});
-		// RUN 1: CHAPTER EXTRACTION (1) + TRANSLATION (1). RUN 2: EXTRACTION (1) + TRANSLATION (1) -> 4 USAGES.
-		expect(usages.length).toBe(4);
+		// RUN 1: TRANSLATION (1). RUN 2: TRANSLATION (1) -> 2 USAGES. (THE SEPARATE CHAPTER-LEVEL
+		// EXTRACTION CALL IS GONE — TERMS ARE NOW RETURNED BY THE SAME SINGLE-CALL translatePage.)
+		expect(usages.length).toBe(2);
 	});
 
-	it('skips pages entirely on re-run when everything is done (no extraction call either)', async () => {
+	it('skips pages entirely on re-run when everything is done (no translation call either)', async () => {
 		const { chapter } = seedChapterWithPage('c1-p0.png');
 		const llm = fakeLlm();
 		const usages: unknown[] = [];
 		const deps = { pipeline, dataRoot, llm, onUsage: (u: unknown) => usages.push(u) };
 		await chapterWork(chapter.id, deps)(new AbortController().signal, () => {});
 		await chapterWork(chapter.id, deps)(new AbortController().signal, () => {});
-		// RUN 1: EXTRACTION + TRANSLATION = 2. RUN 2: EVERYTHING SKIPPED — NO LLM CALLS AT ALL.
-		expect(usages.length).toBe(2);
+		// RUN 1: TRANSLATION = 1. RUN 2: EVERYTHING SKIPPED — NO LLM CALLS AT ALL.
+		expect(usages.length).toBe(1);
 	});
 
 	it('processes pages concurrently within each phase', async () => {
@@ -423,12 +445,7 @@ describe('runChapterPipeline', () => {
 		})(new AbortController().signal, (e) => events.push(e.type));
 
 		expect(maxInFlight).toBeGreaterThan(1); // ANALYZE CALLS OVERLAPPED
-		const rows = db
-			.select()
-			.from(pages)
-			.where(eq(pages.chapterId, chapter.id))
-			.orderBy(pages.seq)
-			.all();
+		const rows = db.select().from(pages).where(eq(pages.chapterId, chapter.id)).orderBy(pages.seq).all();
 		expect(rows.every((r) => r.status === 'done')).toBe(true);
 		// EVENTS ARRIVE IN PAGE ORDER EVEN THOUGH PAGES FINISH OUT OF ORDER
 		expect(events.filter((t) => t === 'page-done')).toEqual(['page-done', 'page-done', 'page-done']);
@@ -437,9 +454,8 @@ describe('runChapterPipeline', () => {
 	it('emits high-resolution step telemetry events across all pipeline phases', async () => {
 		const { chapter } = seedChapterWithPage('c1-p0.png');
 		const telemetryEvents: any[] = [];
-		await chapterWork(chapter.id, { pipeline, dataRoot, llm: fakeLlm() })(
-			new AbortController().signal,
-			(e) => telemetryEvents.push(e),
+		await chapterWork(chapter.id, { pipeline, dataRoot, llm: fakeLlm() })(new AbortController().signal, (e) =>
+			telemetryEvents.push(e),
 		);
 
 		const stepStartEvents = telemetryEvents.filter((e) => e.type === 'page-step-start');
@@ -474,12 +490,7 @@ describe('runChapterPipeline', () => {
 			(e) => events.push(e),
 		);
 
-		const rows = db
-			.select()
-			.from(pages)
-			.where(eq(pages.chapterId, chapter.id))
-			.orderBy(pages.seq)
-			.all();
+		const rows = db.select().from(pages).where(eq(pages.chapterId, chapter.id)).orderBy(pages.seq).all();
 
 		expect(rows[0].status).toBe('pending'); // p1 remains pending untouched
 		expect(rows[1].status).toBe('done'); // p2 was translated
@@ -532,7 +543,7 @@ describe('runChapterPipeline', () => {
 		expect(finalPages.every((p) => p.status === 'done')).toBe(true);
 	});
 
-	it('streams pages through translation without waiting for all pages to finish analyze', async () => {
+	it('streams: a page translates as soon as its OCR finishes (no full-chapter analyze barrier)', async () => {
 		seedBook(db, { id: 'b_stream' });
 		const chapter = seedChapter(db, { bookId: 'b_stream', seq: 0 });
 		const p0 = seedPage(db, { chapterId: chapter.id, seq: 0, filePath: 'uploads/stream_0.png' });
@@ -554,6 +565,7 @@ describe('runChapterPipeline', () => {
 			}
 		});
 
+		// PAGE 0's TRANSLATE MUST START BEFORE PAGE 1's ANALYZE — i.e. pages stream (no full-chapter wait).
 		const p0Translate = stepEvents.findIndex(
 			(e) => e.pageId === p0.id && e.step === 'translate' && e.type === 'page-step-start',
 		);
@@ -564,6 +576,105 @@ describe('runChapterPipeline', () => {
 		expect(p0Translate).toBeGreaterThanOrEqual(0);
 		expect(p1Analyze).toBeGreaterThanOrEqual(0);
 		expect(p0Translate).toBeLessThan(p1Analyze);
+	});
+
+	it("serializes the LLM step per book: page N+1 reads page N's freshly appended terms", async () => {
+		seedBook(db, { id: 'b_serial' });
+		const chapter = seedChapter(db, { bookId: 'b_serial', seq: 0 });
+		seedPage(db, { chapterId: chapter.id, seq: 0, filePath: 'uploads/s0.png' });
+		seedPage(db, { chapterId: chapter.id, seq: 1, filePath: 'uploads/s1.png' });
+		mkdirSync(join(dataRoot, 'uploads'), { recursive: true });
+		writeFileSync(join(dataRoot, 'uploads', 's0.png'), PAGE_PNG);
+		writeFileSync(join(dataRoot, 'uploads', 's1.png'), PAGE_PNG);
+
+		// SEED A BASE TERM SO THE GLOSSARY SYSTEM MESSAGE ALWAYS EXISTS (pages[1] == glossary block).
+		const { addTerm } = await import('$lib/server/glossary');
+		await addTerm(
+			'book',
+			'b_serial',
+			{ source: '武者', target: 'martial artist', gender: 'neuter', pinned: true },
+			{ sourceLang: 'zh-Hans', targetLang: 'en' },
+		);
+
+		// PAGE 0's OCR MUST CONTAIN 妖灵师 SO translatePage's parseExtractedTerms KEEPS THE DISCOVERED
+		// TERM (IT FILTERS OUT ANY TERM NOT PRESENT IN THE PAGE'S OWN SOURCE TEXT).
+		class SerialPipeline extends FakePipeline {
+			private n = 0;
+			override async analyze(): Promise<AnalyzeResult> {
+				const text = this.n++ === 0 ? '妖灵师' : '你好';
+				return {
+					width: 200,
+					height: 300,
+					backend: 'comic-ctd',
+					regions: [
+						{
+							id: 'r0',
+							box: { x: 20, y: 30, w: 100, h: 40 },
+							polygon: [
+								[20, 30],
+								[120, 30],
+								[120, 70],
+								[20, 70],
+							],
+							text,
+							confidence: 0.95,
+							vertical: false,
+						},
+					],
+				};
+			}
+		}
+
+		// PAGE 0 DISCOVERS A TERM; PAGE 1 MUST SEE IT IN ITS GLOSSARY (PROVES READ→APPEND IS SERIALIZED).
+		const seenGlossaries: string[] = [];
+		let callN = 0;
+		const serialLlm = {
+			chat: {
+				completions: {
+					create: async (params: { messages: { role: string; content: string }[] }) => {
+						callN++;
+						const glossary = String(params.messages[1]?.content ?? '');
+						seenGlossaries.push(glossary);
+						// PAGE 0'S CALL RETURNS A NEW TERM; PAGE 1'S CALL RETURNS NONE.
+						const newTerms =
+							callN === 1
+								? [
+										{
+											source: '妖灵师',
+											target: 'demon spiritualist',
+											category: 'concept',
+											gender: 'neuter',
+										},
+									]
+								: [];
+						return {
+							choices: [
+								{
+									message: {
+										content: JSON.stringify({
+											translations: { r0: `T${callN}` },
+											newTerms,
+										}),
+									},
+								},
+							],
+							usage: { prompt_tokens: 10, completion_tokens: 5, total_tokens: 15 },
+						};
+					},
+				},
+			},
+		} as unknown as OpenAI;
+
+		await chapterWork(chapter.id, { pipeline: new SerialPipeline(), dataRoot, llm: serialLlm, pageConcurrency: 1 })(
+			new AbortController().signal,
+			() => {},
+		);
+
+		// TWO TRANSLATE CALLS. PAGE 2'S GLOSSARY MUST CONTAIN THE TERM PAGE 1 DISCOVERED.
+		expect(callN).toBe(2);
+		expect(seenGlossaries[1]).toContain('★妖灵师 = demon spiritualist');
+		// PAGE 1'S GLOSSARY DID NOT YET HAVE IT (DISCOVERED *ON* PAGE 1).
+		expect(seenGlossaries[0]).not.toContain('★妖灵师 = demon spiritualist');
 	});
 
 	it('persists newly discovered terms from single-call page translation to the book glossary', async () => {
@@ -601,11 +712,7 @@ describe('runChapterPipeline', () => {
 			llm: fakeLlmWithTerms,
 		})(new AbortController().signal, () => {});
 
-		const bookTerms = db
-			.select()
-			.from(glossary)
-			.where(eq(glossary.bookId, 'b_terms'))
-			.all();
+		const bookTerms = db.select().from(glossary).where(eq(glossary.bookId, 'b_terms')).all();
 
 		expect(bookTerms).toHaveLength(1);
 		expect(bookTerms[0].source).toBe('你好');
@@ -651,7 +758,49 @@ describe('runChapterPipeline', () => {
 		expect(typeof pageDone.durationMs).toBe('number');
 		expect(pageDone.durationMs).toBeGreaterThan(0);
 	});
+
+	it('sends a byte-identical glossary block to every page (stable cache prefix + locked terminology)', async () => {
+		seedBook(db, { id: 'b_gloss' });
+		const chapter = seedChapter(db, { bookId: 'b_gloss', seq: 0 });
+		seedPage(db, { chapterId: chapter.id, seq: 0, filePath: 'uploads/g0.png' });
+		seedPage(db, { chapterId: chapter.id, seq: 1, filePath: 'uploads/g1.png' });
+		mkdirSync(join(dataRoot, 'uploads'), { recursive: true });
+		writeFileSync(join(dataRoot, 'uploads', 'g0.png'), PAGE_PNG);
+		writeFileSync(join(dataRoot, 'uploads', 'g1.png'), PAGE_PNG);
+
+		// PRE-SEED A PINNED TERM IN THE BOOK GLOSSARY (THIS MUST REACH BOTH PAGES IDENTICALLY).
+		const { addTerm } = await import('$lib/server/glossary');
+		await addTerm(
+			'book',
+			'b_gloss',
+			{ source: '妖灵师', target: 'demon spiritualist', gender: 'neuter', pinned: true },
+			{ sourceLang: 'zh-Hans', targetLang: 'en' },
+		);
+
+		// CAPTURE THE GLOSSARY SYSTEM MESSAGE (messages[1], BETWEEN system and user) FOR EACH PAGE.
+		const glossaryBlocks: string[] = [];
+		const captureLlm = {
+			chat: {
+				completions: {
+					create: async (params: { messages: { role: string; content: string }[] }) => {
+						glossaryBlocks.push(String(params.messages[1]?.content ?? ''));
+						return {
+							choices: [{ message: { content: JSON.stringify({ r0: 'Hello', r1: 'World' }) } }],
+							usage: { prompt_tokens: 10, completion_tokens: 5, total_tokens: 15 },
+						};
+					},
+				},
+			},
+		} as unknown as OpenAI;
+
+		await chapterWork(chapter.id, { pipeline, dataRoot, llm: captureLlm })(new AbortController().signal, () => {});
+
+		// TWO PAGES → TWO TRANSLATE CALLS → TWO GLOSSARY BLOCKS. (THE PHASE-2 EXTRACTION CALL ALSO EMITS
+		// ITS OWN "ESTABLISHED GLOSSARY" MESSAGE, WHICH USES A DIFFERENT FORMAT — FILTER IT OUT BY THE
+		// translation-glossary `★` marker.)
+		const translationGlossaryBlocks = glossaryBlocks.filter((b) => b.includes('★妖灵师 = demon spiritualist'));
+		expect(translationGlossaryBlocks.length).toBe(2);
+		expect(translationGlossaryBlocks[0]).toBe(translationGlossaryBlocks[1]);
+		expect(translationGlossaryBlocks[0]).toContain('妖灵师 = demon spiritualist');
+	});
 });
-
-
-

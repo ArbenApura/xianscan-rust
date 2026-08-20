@@ -217,18 +217,16 @@ export function glossaryBlock(terms: TermDraft[], src: string, tgt: string): str
 	if (terms.length === 0) return null;
 	const srcName = languageName(src);
 	const tgtName = languageName(tgt);
-	const lines = [...terms]
-		.sort((a, b) => {
-			const pinDiff = Number(b.pinned ?? false) - Number(a.pinned ?? false);
-			if (pinDiff !== 0) return pinDiff;
-			return (a.source || '').localeCompare(b.source || '');
-		})
-		.map((t) => {
-			const aliases = t.aliases && t.aliases.length > 0 ? ` (also: ${t.aliases.join(', ')})` : '';
-			const gender = t.gender === 'masculine' ? ' [masculine]' : t.gender === 'feminine' ? ' [feminine]' : '';
-			const context = t.context ? ` — ${t.context}` : '';
-			return `★${t.source}${aliases} = ${t.target}${gender}${context}`;
-		});
+	// PRESERVE INPUT ORDER — DO NOT RE-SORT. A STABLE, MONOTONIC (APPEND-ONLY) GLOSSARY IS WHAT LETS
+	// GEMINI/OPENAI PREFIX CACHING REUSE THE SYSTEM+GLOSSARY PREFIX ACROSS CONSECUTIVE PAGES: A NEW TERM
+	// DISCOVERED ON PAGE N IS APPENDED (NEVER INTERLEAVED), SO PAGE N+1's GLOSSARY == PAGE N's + A SUFFIX.
+	// THE CALLER OWNS ORDERING (PINNED-FIRST, DETERMINISTICALLY SORTED ONCE, THEN DISCOVERY ORDER).
+	const lines = terms.map((t) => {
+		const aliases = t.aliases && t.aliases.length > 0 ? ` (also: ${t.aliases.join(', ')})` : '';
+		const gender = t.gender === 'masculine' ? ' [masculine]' : t.gender === 'feminine' ? ' [feminine]' : '';
+		const context = t.context ? ` — ${t.context}` : '';
+		return `★${t.source}${aliases} = ${t.target}${gender}${context}`;
+	});
 	return `Glossary (${srcName} → ${tgtName}) — use these exact renderings for the listed terms, even when the context would suggest otherwise:
 ${lines.join('\n')}`;
 }
@@ -273,7 +271,11 @@ Return a JSON object with:
 MANDATORY: All translations in the JSON values MUST be strictly in ${tgtName} (${tgtLang}). Do NOT output in English unless the target is English. Alternatively, a flat JSON object ${exampleJson} is also accepted. No markdown fences.`;
 }
 
-export function buildMessages(regions: RegionSource[], terms: TermDraft[], pair: LangPair): OpenAI.Chat.ChatCompletionMessageParam[] {
+export function buildMessages(
+	regions: RegionSource[],
+	terms: TermDraft[],
+	pair: LangPair,
+): OpenAI.Chat.ChatCompletionMessageParam[] {
 	const messages: OpenAI.Chat.ChatCompletionMessageParam[] = [
 		{ role: 'system', content: systemPrompt(pair.sourceLang, pair.targetLang) },
 	];

@@ -28,9 +28,9 @@ export interface AppSettings {
 	// HARDWARE EXECUTION ACCELERATOR FOR ML MODELS
 	executionDevice: ExecutionDevice;
 	// PARALLEL PROCESSES (WORKERS) FOR BATCH AND CHAPTER TRANSLATION
-	parallelProcesses: number; // Parallel page workers per chapter (1 to 8, default 3)
+	parallelProcesses: number; // Parallel page workers per chapter (1 to 8, default 2)
 	parallelChapters: number; // Parallel chapters in batch queue (1 to 4, default 1)
-	resliceBeforeBatch: boolean; // Auto smart-reslice chapter pages before batch translation begins (default true)
+	resliceBeforeBatch: boolean; // Auto smart-reslice chapter pages before batch translation begins (default false)
 	// DEFAULT TRANSLATION DIRECTION FOR NEWLY CREATED BOOKS (PER-BOOK OVERRIDES AT CREATION)
 	sourceLang: string;
 	targetLang: string;
@@ -180,15 +180,15 @@ export const AVAILABLE_CJK_FONTS = [
 
 // BUMP version WHEN DEFAULTS CHANGE — TRIGGERS A ONE-TIME MIGRATION OF SAVED SETTINGS
 export const DEFAULTS: AppSettings = {
-	version: 10,
+	version: 11,
 	theme: 'sepia',
 	appFont: 'comic',
 	model: 'deepseek-v4-flash',
 	inpaintMode: 'patch',
 	executionDevice: 'auto',
-	parallelProcesses: 3,
+	parallelProcesses: 2,
 	parallelChapters: 1,
-	resliceBeforeBatch: true,
+	resliceBeforeBatch: false,
 	sourceLang: DEFAULT_SOURCE_LANG,
 	targetLang: DEFAULT_TARGET_LANG,
 	readerViewMode: 'reader',
@@ -353,9 +353,9 @@ function mergeKnown(parsed: unknown): AppSettings {
 	if (!['comic', 'poppins', 'proxima', 'nunito', 'montserrat', 'lexend'].includes(out.appFont)) out.appFont = 'comic';
 	if (!['patch', 'scaled', 'full'].includes(out.inpaintMode)) out.inpaintMode = 'patch';
 	if (!['auto', 'cuda', 'dml', 'cpu'].includes(out.executionDevice)) out.executionDevice = 'auto';
-	out.parallelProcesses = Math.max(1, Math.min(8, Number(out.parallelProcesses) || 3));
+	out.parallelProcesses = Math.max(1, Math.min(8, Number(out.parallelProcesses) || 2));
 	out.parallelChapters = Math.max(1, Math.min(4, Number(out.parallelChapters) || 1));
-	out.resliceBeforeBatch = typeof (parsed as any)?.resliceBeforeBatch === 'boolean' ? (parsed as any).resliceBeforeBatch : true;
+	out.resliceBeforeBatch = typeof (parsed as any)?.resliceBeforeBatch === 'boolean' ? (parsed as any).resliceBeforeBatch : false;
 	if (!['reader', 'grid', 'compare'].includes(out.readerViewMode)) out.readerViewMode = 'reader';
 	if (!['output', 'original'].includes(out.webtoonKind)) out.webtoonKind = 'output';
 	if (!['sm', 'md', 'lg'].includes(out.webtoonWidth)) out.webtoonWidth = 'md';
@@ -381,6 +381,9 @@ function mergeKnown(parsed: unknown): AppSettings {
 	}
 	if ((parsed as any)?.version < 10 && out.typesetPadding === 0.02) {
 		out.typesetPadding = 0.05;
+	}
+	if ((parsed as any)?.version < 11 && (parsed as any)?.parallelProcesses === 3) {
+		out.parallelProcesses = 2;
 	}
 	out.version = DEFAULTS.version;
 	return out;

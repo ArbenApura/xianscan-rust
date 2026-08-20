@@ -18,7 +18,10 @@ import {
 
 const PAIR = { sourceLang: 'zh-Hans', targetLang: 'en' };
 
-function fakeClient(responses: Array<string | Error>, usage: unknown = { prompt_tokens: 100, completion_tokens: 20, total_tokens: 120 }) {
+function fakeClient(
+	responses: Array<string | Error>,
+	usage: unknown = { prompt_tokens: 100, completion_tokens: 20, total_tokens: 120 },
+) {
 	let call = 0;
 	const client = {
 		chat: {
@@ -77,7 +80,9 @@ describe('systemPrompt', () => {
 		const p = systemPrompt('zh-Hans', 'ko');
 		expect(p).toContain('Target Language & Zero Untranslated Script Invariant');
 		expect(p).toContain('Korean (ko)');
-		expect(p).toContain('Do NOT output English or any other language unless the target language is explicitly English');
+		expect(p).toContain(
+			'Do NOT output English or any other language unless the target language is explicitly English',
+		);
 		expect(p).toContain('Wuxia / Xianxia / Cultivation Dialogue & Idioms');
 	});
 });
@@ -95,7 +100,7 @@ describe('glossaryBlock', () => {
 		expect(glossaryBlock([], 'zh-Hans', 'en')).toBeNull();
 	});
 
-	it('formats pinned-first with aliases, gender and context', () => {
+	it('preserves input order (append-only) with aliases, gender and context', () => {
 		const block = glossaryBlock(
 			[
 				term({ source: '主角', target: 'MC', gender: 'masculine', context: 'the protagonist' }),
@@ -106,26 +111,29 @@ describe('glossaryBlock', () => {
 		);
 		expect(block).toContain('★系统 (also: 系统君) = System');
 		expect(block).toContain('★主角 = MC [masculine] — the protagonist');
-		// PINNED TERM COMES FIRST
-		expect(block!.indexOf('★系统')).toBeLessThan(block!.indexOf('★主角'));
+		// ORDER IS PRESERVED AS GIVEN (NO RE-SORT) — THE CALLER OWNS PINNED-FIRST ORDERING SO THAT THE
+		// GLOSSARY CAN GROW MONOTONICALLY (APPEND-ONLY) FOR A STABLE CACHE PREFIX ACROSS PAGES.
+		expect(block!.indexOf('★主角')).toBeLessThan(block!.indexOf('★系统'));
 	});
 
-	it('sorts pinned terms first, then deterministically by source alphabetically for KV prompt caching', () => {
+	it('preserves the exact given order (monotonic append prefix for KV caching)', () => {
 		const block = glossaryBlock(
 			[
-				term({ source: '李元', target: 'Li Yuan', pinned: false }),
 				term({ source: '宗门', target: 'Sect', pinned: true }),
-				term({ source: '阿青', target: 'A Qing', pinned: false }),
 				term({ source: '掌门', target: 'Sect Leader', pinned: true }),
+				term({ source: '李元', target: 'Li Yuan', pinned: false }),
+				term({ source: '阿青', target: 'A Qing', pinned: false }),
 			],
 			'zh-Hans',
 			'en',
 		);
-		// Pinned terms come first
-		expect(block!.indexOf('★宗门')).toBeLessThan(block!.indexOf('★李元'));
-		expect(block!.indexOf('★掌门')).toBeLessThan(block!.indexOf('★李元'));
-		// Unpinned terms are sorted deterministically (李 precedes 阿 in code point order)
-		expect(block!.indexOf('★李元')).toBeLessThan(block!.indexOf('★阿青'));
+		// ORDER IS EXACTLY AS GIVEN (CALLER PRE-SORTS PINNED FIRST, DETERMINISTICALLY). glossaryBlock MUST
+		// NOT RE-SORT, OR ELSE APPENDED TERMS WOULD INVALIDATE THE CACHED PREFIX ON EVERY PAGE.
+		const idx = (s: string) => block!.indexOf(s);
+		expect(idx('★宗门')).toBeGreaterThanOrEqual(0);
+		expect(idx('★宗门')).toBeLessThan(idx('★掌门'));
+		expect(idx('★掌门')).toBeLessThan(idx('★李元'));
+		expect(idx('★李元')).toBeLessThan(idx('★阿青'));
 	});
 
 	it('is injected as a separate system message between prompt and user content', () => {
@@ -231,11 +239,7 @@ describe('parseTranslations', () => {
 		expect(mixed!.get('22358')).toBe('The Fish Army wipes out...');
 
 		// Model returned 0, 1, 2
-		const zeroBased = parseTranslations(
-			'{"0": "A", "1": "B", "2": "C"}',
-			numIds,
-			numericRegions,
-		);
+		const zeroBased = parseTranslations('{"0": "A", "1": "B", "2": "C"}', numIds, numericRegions);
 		expect(zeroBased!.get('22356')).toBe('A');
 		expect(zeroBased!.get('22357')).toBe('B');
 		expect(zeroBased!.get('22358')).toBe('C');
@@ -285,7 +289,12 @@ describe('getKnownSfxTranslation', () => {
 describe('looksDegenerate', () => {
 	it('flags empty and over-expanded translations', () => {
 		expect(looksDegenerate('', '你好')).toBe(true);
-		expect(looksDegenerate('This is an extremely long multi-paragraph explanation that far exceeds any reasonable translation ratio for a two-character phrase', '你好')).toBe(true);
+		expect(
+			looksDegenerate(
+				'This is an extremely long multi-paragraph explanation that far exceeds any reasonable translation ratio for a two-character phrase',
+				'你好',
+			),
+		).toBe(true);
 	});
 
 	it('flags pure ellipsis output when the source was not an ellipsis', () => {
@@ -358,10 +367,7 @@ describe('translatePage', () => {
 		// Pass 1: r1 returns degenerate '...'
 		// Refill: r1 still returns degenerate '...'
 		// Expected: r1 gets replaced by KNOWN_CHINESE_SFX canonical 'TAP!'
-		const { client } = fakeClient([
-			'{"r0": "Building the lumber camp", "r1": "..."}',
-			'{"r1": "..."}',
-		]);
+		const { client } = fakeClient(['{"r0": "Building the lumber camp", "r1": "..."}', '{"r1": "..."}']);
 		const result = await translatePage(sfxRegions, [], PAIR, { client });
 		expect(result.byRegion.get('r0')).toBe('Building the lumber camp');
 		expect(result.byRegion.get('r1')).toBe('TAP!');
@@ -468,6 +474,35 @@ describe('parseExtractedTerms & extractTerms', () => {
 		expect(terms[0].source).toBe('萧炎');
 	});
 
+	it('auto-pins recurring multi-char terms even when the model omits pinned:true', async () => {
+		const { parseExtractedTerms } = await import('$lib/server/translate');
+		// 妖灵师 appears 3× across the chapter — a recurring class noun MUST be locked (pinned) so it
+		// renders identically on every page ("demon spiritualist" everywhere, never "Spirit Master").
+		const json = `[
+			{ "source": "妖灵师", "target": "demon spiritualist", "category": "concept" },
+			{ "source": "神圣世家", "target": "Sacred Family", "category": "organization" }
+		]`;
+		const chapterText = '妖灵师和武者都有等级。妖灵师可以吸收妖灵。成为黄金妖灵师！这里属于神圣世家。';
+		const terms = parseExtractedTerms(json, chapterText);
+		const yao = terms.find((t) => t.source === '妖灵师');
+		const sheng = terms.find((t) => t.source === '神圣世家');
+		// 妖灵师 recurs → auto-pinned; 神圣世家 appears once → NOT auto-pinned.
+		expect(yao?.pinned).toBe(true);
+		expect(sheng?.pinned).toBe(false);
+	});
+
+	it('does not auto-pin single-character or single-occurrence terms', async () => {
+		const { parseExtractedTerms } = await import('$lib/server/translate');
+		const json = `[
+			{ "source": "剑", "target": "Blade", "category": "item" },
+			{ "source": "紫山", "target": "Purple Mountain", "category": "location" }
+		]`;
+		// "剑" is 1 char (never auto-pinned); "紫山" appears once (never auto-pinned).
+		const terms = parseExtractedTerms(json, '他拔剑。紫山在远方。');
+		expect(terms.find((t) => t.source === '剑')?.pinned).toBe(false);
+		expect(terms.find((t) => t.source === '紫山')?.pinned).toBe(false);
+	});
+
 	it('extractTerms passes ESTABLISHED GLOSSARY when knownTerms are supplied', async () => {
 		const { extractTerms } = await import('$lib/server/translate');
 		let sentMessages: OpenAI.Chat.ChatCompletionMessageParam[] = [];
@@ -477,7 +512,14 @@ describe('parseExtractedTerms & extractTerms', () => {
 					create: async (params: { messages: OpenAI.Chat.ChatCompletionMessageParam[] }) => {
 						sentMessages = params.messages;
 						return {
-							choices: [{ message: { content: '{"terms": [{"source": "姬紫月", "target": "Ji Ziyue", "category": "character", "gender": "feminine"}]}' } }],
+							choices: [
+								{
+									message: {
+										content:
+											'{"terms": [{"source": "姬紫月", "target": "Ji Ziyue", "category": "character", "gender": "feminine"}]}',
+									},
+								},
+							],
 							usage: { prompt_tokens: 100, completion_tokens: 20, total_tokens: 120 },
 						};
 					},
@@ -485,7 +527,9 @@ describe('parseExtractedTerms & extractTerms', () => {
 			},
 		} as unknown as OpenAI;
 
-		const known = [{ source: '叶凡', target: 'Ye Fan', gender: 'masculine' as const, status: 'user' as const, pinned: true }];
+		const known = [
+			{ source: '叶凡', target: 'Ye Fan', gender: 'masculine' as const, status: 'user' as const, pinned: true },
+		];
 		const { terms, usage } = await extractTerms('姬紫月来到了紫山', PAIR, { client, knownTerms: known });
 		expect(terms).toHaveLength(1);
 		expect(terms[0].source).toBe('姬紫月');
@@ -494,7 +538,9 @@ describe('parseExtractedTerms & extractTerms', () => {
 		expect(usage.promptTokens).toBeGreaterThan(0);
 
 		// Verify established glossary message was sent
-		const establishedMsg = sentMessages.find((m) => typeof m.content === 'string' && m.content.includes('ESTABLISHED GLOSSARY'));
+		const establishedMsg = sentMessages.find(
+			(m) => typeof m.content === 'string' && m.content.includes('ESTABLISHED GLOSSARY'),
+		);
 		expect(establishedMsg).toBeDefined();
 		expect(String(establishedMsg?.content)).toContain('叶凡 = Ye Fan');
 	});
@@ -520,12 +566,7 @@ describe('parseExtractedTerms & extractTerms', () => {
 			},
 		} as unknown as OpenAI;
 
-		const res = await translatePage(
-			[{ id: 'r1', text: '你好！' }],
-			[],
-			jaPair,
-			{ client: fakeClient },
-		);
+		const res = await translatePage([{ id: 'r1', text: '你好！' }], [], jaPair, { client: fakeClient });
 		expect(res.byRegion.get('r1')).toBe('こんにちは！');
 	});
 
@@ -544,7 +585,14 @@ describe('parseExtractedTerms & extractTerms', () => {
 						const sysMsg = params.messages.find((m) => m.role === 'system')?.content as string;
 						expect(sysMsg).toContain('Russian & Cyrillic Comic Localization Rules');
 						return {
-							choices: [{ message: { content: '{"34671": "Donovan has been really jumpy lately...", "34673": "CRACK!"}' } }],
+							choices: [
+								{
+									message: {
+										content:
+											'{"34671": "Donovan has been really jumpy lately...", "34673": "CRACK!"}',
+									},
+								},
+							],
 							usage: { prompt_tokens: 15, completion_tokens: 8 },
 						};
 					},
@@ -561,7 +609,13 @@ describe('parseExtractedTerms & extractTerms', () => {
 			chat: {
 				completions: {
 					create: async () => ({
-						choices: [{ message: { content: '{"34671": "Donovan has been really jumpy lately...", "34673": "..."}' } }],
+						choices: [
+							{
+								message: {
+									content: '{"34671": "Donovan has been really jumpy lately...", "34673": "..."}',
+								},
+							},
+						],
 						usage: { prompt_tokens: 15, completion_tokens: 8 },
 					}),
 				},
@@ -625,11 +679,7 @@ describe('parseExtractedTerms & extractTerms', () => {
 		expect(cleanParen2).toBe("You're still traumatized by that pond!");
 
 		// Case 3: Legitimate paired parenthetical remarks should NOT be stripped
-		const cleanLegit = sanitizeTranslationArtifacts(
-			'(whispering) Be quiet!',
-			'（小声）安静点！',
-		);
+		const cleanLegit = sanitizeTranslationArtifacts('(whispering) Be quiet!', '（小声）安静点！');
 		expect(cleanLegit).toBe('(whispering) Be quiet!');
 	});
 });
-

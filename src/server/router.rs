@@ -7,6 +7,7 @@ use axum::{
     Json, Router,
 };
 use tower_http::cors::{Any, CorsLayer};
+use rayon::prelude::*;
 
 use crate::ml::device::{get_hardware_status, set_active_provider};
 use crate::ml::reslice::{smart_reslice_chapter, stitch_images_vertically};
@@ -307,6 +308,17 @@ async fn reslice_handler(
         )
     };
 
+    // PARALLEL MULTI-CORE WEBP ENCODING VIA RAYON
+    let encoded_slices: Vec<(usize, Vec<u8>)> = slices
+        .par_iter()
+        .enumerate()
+        .map(|(idx, slice)| {
+            let mut webp_buf = std::io::Cursor::new(Vec::new());
+            let _ = slice.write_to(&mut webp_buf, image::ImageFormat::WebP);
+            (idx, webp_buf.into_inner())
+        })
+        .collect();
+
     // CREATE IN-MEMORY ZIP ARCHIVE
     let mut zip_buffer = std::io::Cursor::new(Vec::new());
     {
@@ -315,11 +327,9 @@ async fn reslice_handler(
             .compression_method(zip::CompressionMethod::Stored);
 
         use std::io::Write;
-        for (idx, slice) in slices.iter().enumerate() {
-            let mut webp_buf = std::io::Cursor::new(Vec::new());
-            let _ = slice.write_to(&mut webp_buf, image::ImageFormat::WebP);
+        for (idx, webp_bytes) in &encoded_slices {
             let _ = zip.start_file(format!("{}.webp", idx), options);
-            let _ = zip.write_all(&webp_buf.into_inner());
+            let _ = zip.write_all(webp_bytes);
         }
         let _ = zip.finish();
     }

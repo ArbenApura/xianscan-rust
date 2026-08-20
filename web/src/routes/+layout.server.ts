@@ -73,13 +73,13 @@ export const load: LayoutServerLoad = async ({ cookies }) => {
 	const executionDevice: ExecutionDevice = VALID_EXEC_DEVICES.has(rawDevice as ExecutionDevice) ? (rawDevice as ExecutionDevice) : 'auto';
 
 	const rawParallelProcesses = cookies.get(PARALLEL_PROCESSES_COOKIE);
-	const parallelProcesses = Math.max(1, Math.min(8, Number(rawParallelProcesses) || 3));
+	const parallelProcesses = Math.max(1, Math.min(8, Number(rawParallelProcesses) || 2));
 
 	const rawParallelChapters = cookies.get(PARALLEL_CHAPTERS_COOKIE);
 	const parallelChapters = Math.max(1, Math.min(4, Number(rawParallelChapters) || 1));
 
 	const rawReslice = cookies.get(RESLICE_BEFORE_BATCH_COOKIE);
-	const resliceBeforeBatch = rawReslice !== undefined ? rawReslice !== 'false' : true;
+	const resliceBeforeBatch = rawReslice !== undefined ? rawReslice === 'true' : false;
 
 	const preferences: UserPreferences = {
 		theme,

@@ -112,7 +112,7 @@ function createBatchTrackerStore() {
 	// Lookahead background pre-reslicing: pre-slices upcoming chapters while current ones translate
 	async function lookaheadPreReslice() {
 		if (!browser) return;
-		const shouldReslice = get(settings).resliceBeforeBatch ?? true;
+		const shouldReslice = get(settings).resliceBeforeBatch ?? false;
 		if (!shouldReslice) return;
 
 		const state = get({ subscribe });
@@ -259,7 +259,7 @@ function createBatchTrackerStore() {
 		if (!state.active || state.status !== 'running') return;
 
 		const shouldReslice =
-			(get(settings).resliceBeforeBatch ?? true) &&
+			(get(settings).resliceBeforeBatch ?? false) &&
 			chapter.pageCount > 0 &&
 			!preReslicedChapterIds.has(chapter.id);
 

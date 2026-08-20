@@ -36,7 +36,12 @@ Rules:
 3. "category": 'character', 'location', 'organization', 'technique', 'item', 'realm', 'creature', 'title', 'concept', 'other'.
 4. "gender": 'masculine' or 'feminine' ONLY when the text explicitly indicates it (pronouns, titles like master/sister/brother/prince); otherwise 'neuter'.
 5. "aliases": Array of other short forms, nicknames, or forms of address in the text (e.g. for 叶凡, aliases: ["小凡", "凡儿"]).
-6. Skip generic words, common dialogue phrases, numbers, and pronouns. Focus on recurring proper nouns, character names, and unique terminology.
+6. Term selection — SKIP ONLY truly generic function words (pronouns, numbers, single-use exclamations, everyday verbs like 走/吃/看). You MUST extract recurring story-significant terminology so its rendering is LOCKED once and reused on every page:
+   - CLASS / PROFESSION / FACTION NOUNS that recur (e.g. 妖灵师, 武者, 法师, 格斗家, 剑修) — these are formal in-world titles, NOT "generic words", and MUST be extracted with "pinned": true.
+   - CULTIVATION RANK TIERS (e.g. 青铜/白银/黄金/黑金/传奇, 炼气/筑基/金丹) and realm names — extract each tier with "pinned": true.
+   - ORGANIZATIONS / SECTS / SCHOOLS / FAMILIES (e.g. 神圣世家, 圣兰学院, 青云宗, 天机阁) — extract with "pinned": true.
+   - RECURRING ITEMS / TECHNIQUES / CREATURES that drive the plot or appear on multiple pages (e.g. 烈焰妖狐, 武魂, 妖灵) — extract with "pinned": true.
+   - A term that appears MORE THAN ONCE in the passage (or that you expect to recur across the chapter) is by definition NOT generic — extract it and set "pinned": true so every page renders it identically. Consistency of recurring terminology is more important than not "over-extracting"; err on the side of extracting.
 7. Multi-name listings: In dialogue or narration where multiple character names are listed back-to-back with minimal or no punctuation (e.g. 子龙童菲, 张肥关鱼), extract each individual 2-3 character name separately (e.g. 子龙, 童菲, 张肥, 关鱼), never combine them into a single compound entry.`;
 }
 
@@ -114,7 +119,11 @@ export function parseExtractedTerms(raw: string, contentSource?: string): TermDr
 					: 'neuter';
 
 		const context = typeof t?.context === 'string' && t.context.trim() ? t.context.trim() : null;
-		const pinned = t?.pinned === true;
+		// DETERMINISTIC RECURRENCE PIN: A MULTI-CHARACTER TERM THAT APPEARS ≥2× IN THE CHAPTER TEXT IS
+		// STORY-LEVEL TERMINOLOGY (class / rank / org / creature) AND MUST BE LOCKED ACROSS PAGES — EVEN IF
+		// THE MODEL FORGOT "pinned": true. THIS IS WHAT STOPS "demon spiritualist" vs "Spirit Master" DRIFT.
+		const occurrences = contentSource && sourceTerm.length >= 2 ? contentSource.split(sourceTerm).length - 1 : 0;
+		const pinned = t?.pinned === true || occurrences >= 2;
 
 		const aliases = Array.isArray(t?.aliases)
 			? [

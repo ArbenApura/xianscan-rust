@@ -43,7 +43,9 @@ impl SsrServer {
             })
             .unwrap_or_else(|_| node_modules.display().to_string());
 
-        cmd.arg("build/index.js")
+        // SUPPRESS NODE ENGINE DEPRECATION WARNINGS (E.G. PUNYCODE DEP0040) FROM CLUTTERING PRODUCTION TERMINAL
+        cmd.arg("--no-deprecation")
+            .arg("build/index.js")
             .current_dir(&clean_web_dir)
             .env("PORT", port.to_string())
             .env("HOST", "0.0.0.0")
