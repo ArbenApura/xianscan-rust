@@ -250,7 +250,6 @@ jobs:
           } > /tmp/vt-section.md
 
           RELEASE=$(gh api "repos/${{ github.repository }}/releases/tags/$TAG_NAME")
-          RELEASE_ID=$(echo "$RELEASE" | jq -r .id)
           BODY=$(echo "$RELEASE" | jq -r .body)
 
           # IDEMPOTENT — DON'T DUPLICATE THE SECTION ON A RE-RUN
@@ -260,8 +259,7 @@ jobs:
           fi
 
           printf '%s\n%s\n' "$BODY" "$(cat /tmp/vt-section.md)" > /tmp/new-body.md
-          gh api --method PATCH "repos/${{ github.repository }}/releases/$RELEASE_ID" \
-            -f body=@/tmp/new-body.md
+          gh release edit "$TAG_NAME" --notes-file /tmp/new-body.md
 
 
 
