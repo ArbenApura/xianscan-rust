@@ -59,9 +59,10 @@ export interface PipelineClient {
 	getHardware?(signal?: AbortSignal): Promise<HardwareStatus>;
 	setDevice?(device: string, signal?: AbortSignal): Promise<HardwareStatus>;
 	stitch?(imageTop: Buffer, imageBottom: Buffer, signal?: AbortSignal): Promise<Buffer>;
-	reslice?(images: Buffer[], signal?: AbortSignal): Promise<Buffer[]>;
-	pollResliceStatus?(signal?: AbortSignal): Promise<{ pct: number; message: string; done: boolean }>;
-	resetResliceStatus?(signal?: AbortSignal): Promise<void>;
+	reslice?(images: Buffer[], signal?: AbortSignal, run?: number): Promise<Buffer[]>;
+	pollResliceStatus?(signal?: AbortSignal): Promise<{ pct: number; message: string; done: boolean; run?: number }>;
+	resetResliceStatus?(signal?: AbortSignal): Promise<{ run: number }>;
+	cancelReslice?(run?: number): Promise<void>;
 }
 
 // -- ERRORS -- //
@@ -155,11 +156,14 @@ export class HttpPipelineClient implements PipelineClient {
 		return Buffer.from(await resp.arrayBuffer());
 	}
 
-	async reslice(images: Buffer[], signal?: AbortSignal): Promise<Buffer[]> {
+	async reslice(images: Buffer[], signal?: AbortSignal, run?: number): Promise<Buffer[]> {
 		const form = new FormData();
 		for (let i = 0; i < images.length; i++) {
 			form.append('files', new Blob([new Uint8Array(images[i])]), `slice_${i}.png`);
 		}
+		// TAG THE REQUEST WITH ITS RUN ID (FROM resetResliceStatus) SO THE SIDECAR
+		// MATCHES PROGRESS FRAMES & CANCELS TO THE RIGHT RUN.
+		if (run !== undefined) form.append('run', String(run));
 		const resp = await this.request('/pages/reslice', { method: 'POST', body: form }, signal);
 		if (!resp.ok) throw new PipelineError(`reslice failed (${resp.status}): ${await resp.text()}`, resp.status);
 		const zipBuf = Buffer.from(await resp.arrayBuffer());
@@ -176,19 +180,34 @@ export class HttpPipelineClient implements PipelineClient {
 
 	// POLL THE SIDECAR'S CURRENT RESLICE PROGRESS. LIGHTWEIGHT JSON GET — THE
 	// WEB CALLS THIS ON AN INTERVAL WHILE THE (BLOCKING) RESLICE POST RUNS ON A
-	// SEPARATE REQUEST, SO IT NEVER RACES THE LONG-RUNNING WORK.
+	// SEPARATE REQUEST, SO IT NEVER RACES THE LONG-RUNNING WORK. THE FRAME'S
+	// `run` ID LETS THE CALLER IGNORE FRAMES FROM A STALE RUN.
 	async pollResliceStatus(
 		signal?: AbortSignal,
-	): Promise<{ pct: number; message: string; done: boolean }> {
+	): Promise<{ pct: number; message: string; done: boolean; run?: number }> {
 		const resp = await this.request('/pages/reslice/status', { method: 'GET' }, signal);
 		if (!resp.ok) throw new PipelineError(`reslice status failed (${resp.status})`, resp.status);
-		return (await resp.json()) as { pct: number; message: string; done: boolean };
+		return (await resp.json()) as { pct: number; message: string; done: boolean; run?: number };
 	}
 
 	// RESET STALE PROGRESS FROM A PREVIOUS RUN BEFORE STARTING A NEW ONE.
-	async resetResliceStatus(signal?: AbortSignal): Promise<void> {
+	// RETURNS THE NEW RUN ID USED TO TAG EVERY FRAME OF THE UPCOMING RUN.
+	async resetResliceStatus(signal?: AbortSignal): Promise<{ run: number }> {
 		const resp = await this.request('/pages/reslice/reset', { method: 'POST', body: undefined }, signal);
 		if (!resp.ok) throw new PipelineError(`reslice reset failed (${resp.status})`, resp.status);
+		return (await resp.json()) as { run: number };
+	}
+
+	// ASK THE SIDECAR TO STOP AN IN-FLIGHT RESLICE AT ITS NEXT CHECKPOINT.
+	// DELIBERATELY TAKES NO ABORT SIGNAL — THE CALLER INVOKES THIS *BECAUSE*
+	// ITS OWN SIGNAL WAS ABORTED. `run` TARGETS A SPECIFIC RUN (0 = CURRENT).
+	async cancelReslice(run?: number): Promise<void> {
+		const resp = await this.request('/pages/reslice/cancel', {
+			method: 'POST',
+			headers: { 'content-type': 'application/json' },
+			body: JSON.stringify({ run: run ?? 0 }),
+		});
+		if (!resp.ok) throw new PipelineError(`reslice cancel failed (${resp.status})`, resp.status);
 	}
 
 	async health(): Promise<{ status: string; detector: string; inpainter: string }> {

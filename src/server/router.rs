@@ -1,3 +1,4 @@
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use axum::{
     extract::{DefaultBodyLimit, Multipart, State},
@@ -36,9 +37,18 @@ impl AppState {
 /// THE RESLICE HANDLER REWRITES THIS VALUE AS IT PROGRESSES AND SETS
 /// `done = true` ON COMPLETION. A PLAIN `std::sync::Mutex` IS USED
 /// BECAUSE THE PROGRESS CALLBACK FIRES FROM RAYON WORKER THREADS.
+///
+/// `run` IS A MONOTONIC RUN ID BUMPED BY EVERY `/pages/reslice/reset`.
+/// EVERY FRAME IS TAGGED WITH ITS RUN ID SO THE WEB CAN IGNORE FRAMES
+/// FROM A STALE RUN THAT IS STILL WINDING DOWN AFTER A CANCEL.
+/// `cancelled_run` HOLDS THE RUN ID THE CLIENT ASKED TO STOP (0 = NONE);
+/// HANDLERS COMPARE IT AGAINST THEIR OWN RUN ID AT CHECKPOINTS, SO A
+/// CANCEL OF AN OLD RUN CAN NEVER KILL A NEWER ONE.
 #[derive(Clone, Default)]
 pub struct ResliceProgressState {
     pub current: Arc<std::sync::Mutex<ResliceProgressFrame>>,
+    pub run: Arc<AtomicU64>,
+    pub cancelled_run: Arc<AtomicU64>,
 }
 
 #[derive(Clone, serde::Serialize, serde::Deserialize)]
@@ -46,6 +56,7 @@ pub struct ResliceProgressFrame {
     pub pct: u32,
     pub message: String,
     pub done: bool,
+    pub run: u64,
 }
 
 impl Default for ResliceProgressFrame {
@@ -54,8 +65,23 @@ impl Default for ResliceProgressFrame {
             pct: 0,
             message: "Stitching canvas…".to_string(),
             done: false,
+            run: 0,
         }
     }
+}
+
+/// REQUEST BODY FOR `POST /pages/reslice/cancel`. `run = 0` MEANS "CANCEL
+/// WHATEVER THE CURRENT RUN IS".
+#[derive(serde::Deserialize)]
+struct CancelResliceRequest {
+    #[serde(default)]
+    run: u64,
+}
+
+/// RESPONSE BODY FOR `POST /pages/reslice/reset`.
+#[derive(serde::Serialize)]
+struct ResetResliceResponse {
+    run: u64,
 }
 
 pub fn create_router(state: AppState) -> Router {
@@ -75,6 +101,7 @@ pub fn create_router(state: AppState) -> Router {
         .route("/pages/reslice", post(reslice_handler))
         .route("/pages/reslice/status", get(reslice_status_handler))
         .route("/pages/reslice/reset", post(reslice_reset_handler))
+        .route("/pages/reslice/cancel", post(reslice_cancel_handler))
         .layer(DefaultBodyLimit::max(128 * 1024 * 1024))
         .layer(cors)
         .with_state(state)
@@ -320,20 +347,21 @@ async fn reslice_handler(
     State(state): State<AppState>,
     mut multipart: Multipart,
 ) -> Result<Response, (StatusCode, String)> {
-    // RESET THE SHARED PROGRESS STATE AT THE START OF A NEW RUN. WITHOUT THIS,
-    // THE FIRST STATUS POLL READS THE PREVIOUS RUN'S `pct=100, done=true` AND THE
-    // WEB UI INSTANTLY JUMPS TO ~97% BEFORE THIS RUN HAS DONE ANY WORK.
-    if let Ok(mut guard) = state.reslice_progress.current.lock() {
-        *guard = ResliceProgressFrame {
-            pct: 0,
-            message: "Stitching canvas…".to_string(),
-            done: false,
-        };
-    }
-
+    // RESOLVE THIS RUN'S ID: THE WEB SENDS THE ID IT RECEIVED FROM
+    // `/pages/reslice/reset` SO PROGRESS FRAMES & CANCELS MATCH THE RIGHT RUN.
+    // FALL BACK TO THE CURRENT COUNTER WHEN THE FIELD IS ABSENT.
+    let mut run_id = state.reslice_progress.run.load(Ordering::Relaxed);
     let mut images = Vec::new();
 
     while let Ok(Some(field)) = multipart.next_field().await {
+        if field.name() == Some("run") {
+            if let Ok(text) = field.text().await {
+                if let Ok(parsed) = text.parse::<u64>() {
+                    run_id = parsed;
+                }
+            }
+            continue;
+        }
         if let Ok(bytes) = field.bytes().await {
             if let Ok(img) = image::load_from_memory(&bytes) {
                 images.push(img);
@@ -345,6 +373,25 @@ async fn reslice_handler(
         return Err((StatusCode::BAD_REQUEST, "No valid images in upload".to_string()));
     }
 
+    // RESET THE SHARED PROGRESS STATE AT THE START OF A NEW RUN (TAGGED WITH
+    // THIS RUN'S ID). WITHOUT THIS, THE FIRST STATUS POLL READS THE PREVIOUS
+    // RUN'S `pct=100, done=true` AND THE WEB UI JUMPS TO ~97% PREMATURELY.
+    if let Ok(mut guard) = state.reslice_progress.current.lock() {
+        *guard = ResliceProgressFrame {
+            pct: 0,
+            message: "Stitching canvas…".to_string(),
+            done: false,
+            run: run_id,
+        };
+    }
+
+    // ALREADY CANCELLED WHILE THE UPLOAD WAS IN FLIGHT — BAIL BEFORE BLOCKING ON
+    // THE ENGINE LOCK SO A FRESH RUN IS NOT DELAYED BY A DEAD REQUEST.
+    if state.reslice_progress.cancelled_run.load(Ordering::Relaxed) == run_id {
+        return Err((StatusCode::BAD_REQUEST, "Reslice cancelled.".to_string()));
+    }
+
+    let cancelled_flag = state.reslice_progress.cancelled_run.clone();
     let slices = {
         let mut engine_guard = state.engine.lock().map_err(|e| {
             (StatusCode::INTERNAL_SERVER_ERROR, format!("Failed to lock engine: {}", e))
@@ -356,6 +403,7 @@ async fn reslice_handler(
                 pct,
                 message: reslice_message_for(pct),
                 done: false,
+                run: run_id,
             };
             if let Ok(mut guard) = progress.lock() {
                 *guard = frame;
@@ -369,25 +417,38 @@ async fn reslice_handler(
             engine.detector.as_mut(),
             engine.ocr.as_mut(),
             Some(progress_cb),
+            Some(&cancelled_flag),
+            run_id,
         )
     };
 
-    // MARK TERMINAL COMPLETION SO THE WEB STATUS POLL KNOWS TO STOP.
-    if let Ok(mut guard) = state.reslice_progress.current.lock() {
-        *guard = ResliceProgressFrame {
-            pct: 100,
-            message: "Reslice complete.".to_string(),
-            done: true,
-        };
+    // CANCELLED BY THE CLIENT — BAIL BEFORE ENCODING. NO TERMINAL `done` FRAME:
+    // THIS RUN'S POLLER IS GONE AND A NEWER RUN MAY ALREADY OWN THE FRAME.
+    if state.reslice_progress.cancelled_run.load(Ordering::Relaxed) == run_id {
+        return Err((StatusCode::BAD_REQUEST, "Reslice cancelled.".to_string()));
     }
 
-    // PARALLEL MULTI-CORE WEBP ENCODING VIA RAYON
+    // PHASE D (90..=99%): PARALLEL MULTI-CORE WEBP ENCODING VIA RAYON. REPORT
+    // PER-PAGE PROGRESS SO THE BAR KEEPS MOVING WHILE PAGES ARE ENCODED.
+    let total_slices = slices.len().max(1) as f32;
+    let encoded_counter = std::sync::atomic::AtomicU32::new(0);
+    let encode_progress = state.reslice_progress.current.clone();
     let encoded_slices: Vec<(usize, Vec<u8>)> = slices
         .par_iter()
         .enumerate()
         .map(|(idx, slice)| {
             let mut webp_buf = std::io::Cursor::new(Vec::new());
             let _ = slice.write_to(&mut webp_buf, image::ImageFormat::WebP);
+            let done_count = encoded_counter.fetch_add(1, std::sync::atomic::Ordering::Relaxed) + 1;
+            let pct = (90 + ((done_count as f32 / total_slices) * 9.0) as u32).min(99);
+            if let Ok(mut guard) = encode_progress.lock() {
+                *guard = ResliceProgressFrame {
+                    pct,
+                    message: reslice_message_for(pct),
+                    done: false,
+                    run: run_id,
+                };
+            }
             (idx, webp_buf.into_inner())
         })
         .collect();
@@ -407,6 +468,18 @@ async fn reslice_handler(
         let _ = zip.finish();
     }
 
+    // MARK TERMINAL COMPLETION SO THE WEB STATUS POLL KNOWS TO STOP. SET ONLY
+    // AFTER ENCODING & ZIPPING FINISH — SETTING IT EARLIER HALTS THE POLLS AND
+    // FREEZES THE BAR WHILE ENCODING IS STILL RUNNING.
+    if let Ok(mut guard) = state.reslice_progress.current.lock() {
+        *guard = ResliceProgressFrame {
+            pct: 100,
+            message: "Reslice complete.".to_string(),
+            done: true,
+            run: run_id,
+        };
+    }
+
     Ok((
         StatusCode::OK,
         [
@@ -418,13 +491,15 @@ async fn reslice_handler(
 }
 
 /// HUMAN-READABLE PROGRESS LABEL FOR A NORMALIZED RESLICE PERCENTAGE.
+/// BANDS MIRROR THE PHASE WEIGHTS IN `smart_reslice_chapter` / THE HANDLER:
+/// STITCH 0..=1, ROW PROFILE 2..=9, DETECTION 10..=79, SLICING 80..=89, ENCODE 90..=99.
 fn reslice_message_for(pct: u32) -> String {
     match pct {
-        0..=5 => "Reading & stitching canvas…".to_string(),
-        6..=44 => format!("Analyzing canvas rows… {pct}%"),
-        45..=69 => "Detecting speech bubbles & protecting dialogue…".to_string(),
-        70..=94 => format!("Finding clean gutters & slicing pages… {pct}%"),
-        95..=99 => "Encoding pages…".to_string(),
+        0..=1 => "Reading & stitching canvas…".to_string(),
+        2..=9 => format!("Analyzing canvas rows… {pct}%"),
+        10..=79 => "Detecting speech bubbles & protecting dialogue…".to_string(),
+        80..=89 => format!("Finding clean gutters & slicing pages… {pct}%"),
+        90..=99 => format!("Encoding pages… {pct}%"),
         _ => "Reslice complete.".to_string(),
     }
 }
@@ -440,18 +515,41 @@ async fn reslice_status_handler(
     Json(frame)
 }
 
-/// POST /pages/reslice/reset — CLEARS STALE PROGRESS FROM A PREVIOUS RUN.
-/// CALLED BY THE WEB *BEFORE* IT STARTS THE RESLICE POST + POLL LOOP, SO THE
-/// FIRST POLL CANNOT READ A LEFTOVER `pct=100, done=true` AND INSTANTLY JUMP.
+/// POST /pages/reslice/reset — CLEARS STALE PROGRESS FROM A PREVIOUS RUN AND
+/// MINTS A NEW RUN ID. CALLED BY THE WEB *BEFORE* IT STARTS THE RESLICE POST +
+/// POLL LOOP, SO THE FIRST POLL CANNOT READ A LEFTOVER `pct=100, done=true`
+/// AND INSTANTLY JUMP. THE RETURNED RUN ID TAGS EVERY FRAME OF THE NEW RUN.
 async fn reslice_reset_handler(
     State(state): State<AppState>,
-) -> StatusCode {
+) -> Json<ResetResliceResponse> {
+    let new_run = state.reslice_progress.run.fetch_add(1, Ordering::Relaxed) + 1;
     if let Ok(mut guard) = state.reslice_progress.current.lock() {
         *guard = ResliceProgressFrame {
             pct: 0,
             message: "Stitching canvas…".to_string(),
             done: false,
+            run: new_run,
         };
     }
+    Json(ResetResliceResponse { run: new_run })
+}
+
+/// POST /pages/reslice/cancel — ASKS THE IN-FLIGHT RESLICE RUN TO STOP AT ITS
+/// NEXT CHECKPOINT. THE RESLICE WORK IS SYNCHRONOUS (IT HOLDS THE ENGINE LOCK),
+/// SO IT CANNOT BE INTERRUPTED MID-INFERENCE; CHECKPOINTS BETWEEN PHASES/TILES
+/// OBSERVE THIS FLAG AND BAIL EARLY. WITHOUT THIS, A CANCELLED RUN KEEPS
+/// HOLDING THE ENGINE LOCK AND THE NEXT RESLICE BLOCKS BEHIND IT (UI STUCK AT 2%).
+async fn reslice_cancel_handler(
+    State(state): State<AppState>,
+    body: Option<Json<CancelResliceRequest>>,
+) -> StatusCode {
+    let requested = body.map(|b| b.0.run).unwrap_or(0);
+    // `run = 0` MEANS "CANCEL THE CURRENT RUN".
+    let target = if requested == 0 {
+        state.reslice_progress.run.load(Ordering::Relaxed)
+    } else {
+        requested
+    };
+    state.reslice_progress.cancelled_run.store(target, Ordering::Relaxed);
     StatusCode::OK
 }

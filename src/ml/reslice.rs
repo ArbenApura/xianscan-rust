@@ -1,6 +1,7 @@
 // -- CRATE / EXTERNAL IMPORTS -- //
 use image::{DynamicImage, GenericImageView, ImageBuffer, Rgb, RgbImage};
 use rayon::prelude::*;
+use std::sync::atomic::{AtomicU64, Ordering};
 
 // -- INTERNAL IMPORTS -- //
 use super::detect::ComicTextDetector;
@@ -21,13 +22,21 @@ struct RowProfile {
 /// USED TO STREAM REALTIME FEEDBACK TO THE WEB UI (MIRRORING PAGE TRANSLATION).
 pub type ResliceProgressFn = dyn Fn(u32) + Send + Sync;
 
+/// CHECK WHETHER THE GIVEN RUN HAS BEEN CANCELLED BY THE CLIENT. THE FLAG
+/// HOLDS THE CANCELLED RUN ID, SO A STALE CANCEL CAN NEVER KILL A NEWER RUN.
+/// CALLED AT PHASE / TILE / PAGE BOUNDARIES — THE WORK ITSELF IS SYNCHRONOUS
+/// AND CANNOT BE INTERRUPTED MID-INFERENCE.
+fn is_run_cancelled(cancel: Option<&AtomicU64>, run_id: u64) -> bool {
+    cancel.is_some_and(|c| c.load(Ordering::Relaxed) == run_id)
+}
+
 // -- FUNCTIONS & ALGORITHMS -- //
 
 /// PARALLEL ROW STATISTICAL PROFILING VIA RAYON
 ///
 /// `on_progress` IS CALLED WITH AN ESTIMATED PERCENTAGE (0..=100) AS ROWS ARE
-/// PROCESSED. THE ROW PROFILE COMPUTATION DOMINATES RESLICE COST FOR LARGE
-/// STRIPS, SO THIS IS WHERE REALTIME FEEDBACK IS MOST MEANINGFUL.
+/// PROCESSED. THIS IS A FAST MEMORY-BOUND PHASE, SO THE CALLER MAPS IT INTO A
+/// SMALL BAR BAND AND RESERVES THE BULK OF THE BAR FOR THE SLOW DETECTION PHASE.
 fn compute_row_profile(
     rgb: &RgbImage,
     on_progress: Option<&(dyn Fn(u32) + Sync + Send)>,
@@ -233,6 +242,8 @@ pub fn find_forbidden_text_zones(
     mut detector: Option<&mut ComicTextDetector>,
     mut ocr: Option<&mut RapidOcr>,
     on_progress: Option<&(dyn Fn(u32) + Sync + Send)>,
+    cancel: Option<&AtomicU64>,
+    run_id: u64,
 ) -> Vec<(i32, i32)> {
     let (_w, total_h) = canvas.dimensions();
     let mut raw_intervals: Vec<(i32, i32)> = Vec::new();
@@ -246,6 +257,11 @@ pub fn find_forbidden_text_zones(
     let mut tile_idx = 0_u32;
 
     while y_top < total_h {
+        // CANCELLATION CHECKPOINT — DETECTION IS THE LONGEST PHASE, SO CHECK
+        // PER-TILE TO RELEASE THE ENGINE LOCK PROMPTLY AFTER A CANCEL.
+        if is_run_cancelled(cancel, run_id) {
+            break;
+        }
         let y_bottom = (y_top + tile_height).min(total_h);
         let cur_tile_h = y_bottom - y_top;
 
@@ -408,32 +424,39 @@ pub fn find_optimal_cut_points_with_detectors(
     mut detector: Option<&mut ComicTextDetector>,
     mut ocr: Option<&mut RapidOcr>,
     on_progress: Option<&ResliceProgressFn>,
+    cancel: Option<&AtomicU64>,
+    run_id: u64,
 ) -> Vec<u32> {
     let (_w, total_h) = canvas.dimensions();
     if total_h <= max_height {
-        // SINGLE PAGE — NO CUTS NEEDED; REPORT COMPLETE IMMEDIATELY.
+        // SINGLE PAGE — NO CUTS NEEDED; HAND OFF TO THE ENCODING PHASE (90).
         if let Some(cb) = on_progress {
-            cb(100);
+            cb(90);
         }
         return vec![total_h];
     }
 
+    if is_run_cancelled(cancel, run_id) {
+        return Vec::new();
+    }
+
     let rgb = canvas.to_rgb8();
 
-    // PHASE A (0..=45%): ROW PROFILE — THE DOMINANT COST ON LARGE STRIPS.
+    // PHASE A (2..=10%): ROW PROFILE — FAST PARALLEL ROW STATS, SO IT ONLY OWNS
+    // A SMALL BAR BAND. GIVING IT MORE MAKES THE BAR SPRINT THEN CRAWL UNNATURALLY.
     if let Some(cb) = on_progress {
-        cb(1);
+        cb(2);
     }
     let profile = if let Some(cb) = on_progress {
-        let row_progress = |p: u32| cb((p as f32 * 0.45) as u32);
+        let row_progress = |p: u32| cb(2 + (p as f32 * 0.08) as u32);
         compute_row_profile(&rgb, Some(&row_progress))
     } else {
         compute_row_profile(&rgb, None)
     };
 
-    // PHASE B (45..=70%): FORBIDDEN TEXT ZONE DETECTION OVER THE FULL CANVAS (TILED).
+    // PHASE B (10..=80%): FORBIDDEN TEXT ZONE DETECTION OVER THE FULL CANVAS (TILED).
     if let Some(cb) = on_progress {
-        cb(45);
+        cb(10);
     }
     // COMPUTE FORBIDDEN TEXT ZONES ONCE UPFRONT OVER THE FULL CANVAS (TILED)
     // THIS MUST BE ENFORCED IN *EVERY* PASS — INCLUDING THE "PURE GUTTER" FAST-PATH.
@@ -442,9 +465,9 @@ pub fn find_optimal_cut_points_with_detectors(
     // THE DETECTOR (RT-DETR) FINDS THOSE TEXT REGIONS SO NO GUTTER INSIDE A DIALOGUE
     // IS EVER ACCEPTED.
     let forbidden_zones: Vec<(i32, i32)> = if detector.is_some() || ocr.is_some() {
-        // GRANULAR DETECTION PROGRESS MAPPED INTO THE 45..=70 BAND (LIKE ROW_PROFILE ABOVE).
+        // GRANULAR DETECTION PROGRESS MAPPED INTO THE 10..=80 BAND (LIKE ROW_PROFILE ABOVE).
         let det_progress = if let Some(cb) = on_progress {
-            let mapped = |p: u32| cb(45 + (p as f32 * 0.25) as u32);
+            let mapped = |p: u32| cb(10 + (p as f32 * 0.70) as u32);
             Some(mapped)
         } else {
             None
@@ -456,18 +479,26 @@ pub fn find_optimal_cut_points_with_detectors(
             detector.as_deref_mut(),
             ocr.as_deref_mut(),
             det_cb,
+            cancel,
+            run_id,
         )
     } else {
         Vec::new()
     };
+    if is_run_cancelled(cancel, run_id) {
+        return Vec::new();
+    }
     if let Some(cb) = on_progress {
-        cb(70);
+        cb(80);
     }
 
     let mut cut_points = Vec::new();
     let mut current_y = 0_u32;
 
     while current_y < total_h {
+        if is_run_cancelled(cancel, run_id) {
+            return Vec::new();
+        }
         let remaining = total_h - current_y;
         if remaining <= max_height {
             cut_points.push(total_h);
@@ -659,6 +690,10 @@ pub fn stitch_images_vertically(images: &[DynamicImage]) -> DynamicImage {
 }
 
 /// SMART RESLICE CHAPTER WITH DIALOGUE BUBBLE & TEXT PROTECTION
+///
+/// `cancel` (WHEN PROVIDED) HOLDS THE RUN ID THE CLIENT ASKED TO STOP; THE
+/// WORK BAILS AT THE NEXT CHECKPOINT WHEN IT MATCHES `run_id`. A CANCELLED
+/// RUN RETURNS A PARTIAL/EMPTY PAGE LIST — THE CALLER MUST CHECK THE FLAG.
 pub fn smart_reslice_chapter(
     images: &[DynamicImage],
     target_height: u32,
@@ -667,6 +702,8 @@ pub fn smart_reslice_chapter(
     detector: Option<&mut ComicTextDetector>,
     ocr: Option<&mut RapidOcr>,
     on_progress: Option<&ResliceProgressFn>,
+    cancel: Option<&AtomicU64>,
+    run_id: u64,
 ) -> Vec<DynamicImage> {
     if images.is_empty() {
         return Vec::new();
@@ -676,10 +713,15 @@ pub fn smart_reslice_chapter(
     }
 
     let stitched = stitch_images_vertically(images);
+    if is_run_cancelled(cancel, run_id) {
+        return Vec::new();
+    }
     let (w, total_h) = stitched.dimensions();
     if total_h <= max_height {
+        // SINGLE PAGE — SKIP ANALYSIS & SLICING; HAND STRAIGHT TO THE ENCODING
+        // PHASE (90) SO THE BAR NEVER MOVES BACKWARDS.
         if let Some(cb) = on_progress {
-            cb(100);
+            cb(90);
         }
         return vec![stitched];
     }
@@ -692,14 +734,23 @@ pub fn smart_reslice_chapter(
         detector,
         ocr,
         on_progress,
+        cancel,
+        run_id,
     );
+    if is_run_cancelled(cancel, run_id) {
+        return Vec::new();
+    }
 
-    // PHASE C (70..=95%): SLICE THE CANVAS INTO PAGES AT THE CHOSEN CUT POINTS.
+    // PHASE C (80..=90%): SLICE THE CANVAS INTO PAGES AT THE CHOSEN CUT POINTS.
+    // FAST CROPS ONLY — SMALL BAND. THE ENCODING PHASE IN THE HANDLER OWNS 90..=99.
     let mut pages = Vec::new();
     let mut prev_y = 0_u32;
     let total_cuts = cut_points.len().max(1) as u32;
 
     for (idx, cut_y) in cut_points.into_iter().enumerate() {
+        if is_run_cancelled(cancel, run_id) {
+            break;
+        }
         if cut_y <= prev_y {
             continue;
         }
@@ -711,12 +762,12 @@ pub fn smart_reslice_chapter(
         prev_y = cut_y;
         if let Some(cb) = on_progress {
             let frac = (idx as u32 + 1) as f32 / total_cuts as f32;
-            cb(70 + (frac * 25.0) as u32);
+            cb(80 + (frac * 10.0) as u32);
         }
     }
 
     if let Some(cb) = on_progress {
-        cb(95);
+        cb(90);
     }
 
     pages

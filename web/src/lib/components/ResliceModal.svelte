@@ -76,7 +76,8 @@
 		progressPct = 0;
 		message = `Stitching ${pageCount} image slices...`;
 		errorMessage = '';
-		abortController = new AbortController();
+		const ctrl = new AbortController();
+		abortController = ctrl;
 
 		streamSse(
 			`/api/chapters/${chapterId}/reslice`,
@@ -109,14 +110,19 @@
 					toast.error(errorMessage);
 				}
 			},
-			abortController.signal,
+			ctrl.signal,
 		).catch((err) => {
-			if (abortController?.signal.aborted) {
-				state = 'idle';
-				resetStepStatuses();
-				toast.info('Re-slicing cancelled.');
-				handleClose();
-			} else {
+			// CHECK *THIS* RUN'S CONTROLLER — IF THE USER ALREADY STARTED A NEW
+			// RUN, `abortController` POINTS AT THE NEW ONE AND THIS STALE
+			// REJECTION MUST NOT CLOBBER THE NEW RUN'S STATE.
+			if (ctrl.signal.aborted) {
+				if (abortController === ctrl) {
+					state = 'idle';
+					resetStepStatuses();
+					toast.info('Re-slicing cancelled.');
+					handleClose();
+				}
+			} else if (abortController === ctrl) {
 				state = 'error';
 				errorMessage = err instanceof Error ? err.message : String(err);
 				toast.error(errorMessage);

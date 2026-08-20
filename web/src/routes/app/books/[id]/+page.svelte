@@ -1055,10 +1055,11 @@
 				<!-- ACTION BUTTONS ROW (FULL-WIDTH ON MOBILE; ROW 3 COL 2 ON WIDE) -->
 				<div class="col-span-2 sm:col-span-1 sm:col-start-2 flex items-center gap-1.5 sm:gap-2 max-w-full">
 					<!-- HIDDEN FOLDER PICKER INPUT -->
+					<!-- SPREAD THE NON-STANDARD `webkitdirectory`/`directory` ATTRIBUTES — SVELTE'S
+					     HTML PROP TYPES DO NOT KNOW THEM AS BOOLEAN ATTRIBUTES -->
 					<input
 						type="file"
-						webkitdirectory
-						directory
+						{...{ webkitdirectory: '', directory: '' }}
 						multiple
 						class="hidden"
 						bind:this={folderPickerInput}

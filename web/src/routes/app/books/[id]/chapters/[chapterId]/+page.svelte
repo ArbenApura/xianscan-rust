@@ -21,6 +21,7 @@
 	import CheckCircle2 from 'lucide-svelte/icons/check-circle-2';
 	import AlertCircle from 'lucide-svelte/icons/alert-circle';
 	import Loader2 from 'lucide-svelte/icons/loader-2';
+	import Sparkles from 'lucide-svelte/icons/sparkles';
 	import { apiJson } from '$lib/api';
 	import { parseDataTransferItems, type DiscoveredChapter } from '$lib/utils/folder-drop';
 	import MultiChapterImportModal from '$lib/components/chapter/MultiChapterImportModal.svelte';

@@ -91,6 +91,37 @@ export async function resliceChapterPages(
 	dataRoot: string = DATA_ROOT,
 ): Promise<{ originalCount: number; newCount: number }> {
 	if (!pipeline.reslice) throw new Error('Sidecar reslice operation unavailable.');
+
+	// WHEN THE CLIENT DISCONNECTS, TELL THE SIDECAR TO STOP THE IN-FLIGHT RESLICE
+	// AT ITS NEXT CHECKPOINT. WITHOUT THIS THE OLD JOB RUNS TO COMPLETION, KEEPS
+	// HOLDING THE ENGINE LOCK, AND THE NEXT RESLICE BLOCKS BEHIND IT (UI STUCK AT 2%).
+	let runId: number | undefined;
+	const onAbort = () => {
+		pipeline.cancelReslice?.(runId).catch(() => {
+			// BEST-EFFORT — THE SIDECAR MAY ALREADY BE DOWN OR DONE.
+		});
+	};
+	signal?.addEventListener('abort', onAbort, { once: true });
+
+	try {
+		return await runReslicePipeline(chapterId, pipeline, onProgress, signal, dataRoot, (id) => {
+			runId = id;
+		});
+	} finally {
+		signal?.removeEventListener('abort', onAbort);
+	}
+}
+
+async function runReslicePipeline(
+	chapterId: number,
+	pipeline: PipelineClient,
+	onProgress: ((step: string, message: string, pct: number) => void) | undefined,
+	signal: AbortSignal | undefined,
+	dataRoot: string,
+	setRunId: (id: number | undefined) => void,
+): Promise<{ originalCount: number; newCount: number }> {
+	if (!pipeline.reslice) throw new Error('Sidecar reslice operation unavailable.');
+
 	const pageRows = db
 		.select()
 		.from(pages)
@@ -117,18 +148,24 @@ export async function resliceChapterPages(
 	signal?.throwIfAborted();
 
 	// CLEAR ANY STALE PROGRESS LEFT OVER FROM A PREVIOUS RUN *BEFORE* STARTING THE
-	// POST + POLL LOOP. WITHOUT THIS, THE FIRST POLL CAN READ THE OLD `done=true`
-	// AND INSTANTLY JUMP THE UI TO ~97%.
+	// POST + POLL LOOP. THE RESET ALSO MINTS A RUN ID: FRAMES TAGGED WITH ANY OTHER
+	// RUN (E.G. A CANCELLED RUN STILL WINDING DOWN) ARE IGNORED BY THE POLLS BELOW,
+	// SO A STALE `done=true` CAN NEVER FREEZE THIS RUN'S BAR.
+	let runId: number | undefined;
 	if (pipeline.resetResliceStatus) {
-		await pipeline.resetResliceStatus(signal).catch(() => {
+		try {
+			const reset = await pipeline.resetResliceStatus(signal);
+			runId = reset?.run;
+			setRunId(runId);
+		} catch {
 			// BEST-EFFORT — THE RESLICE POST ALSO RESETS AT ITS START; PROCEED REGARDLESS.
-		});
+		}
 	}
 
 	// POLL THE SIDECAR'S CURRENT RESLICE PROGRESS WHILE THE (BLOCKING) POST RUNS.
 	// THE POST HOLDS THE ENGINE LOCK AND DOES THE HEAVY WORK ON A SEPARATE REQUEST;
 	// THIS LIGHTWEIGHT GET RUNS CONCURRENTLY SO THE UI ANIMATES SMOOTHLY.
-	const reslicePromise = pipeline.reslice(imageBuffers, signal);
+	const reslicePromise = pipeline.reslice(imageBuffers, signal, runId);
 
 	let pollTimer: ReturnType<typeof setInterval> | null = null;
 	if (pipeline.pollResliceStatus) {
@@ -136,6 +173,9 @@ export async function resliceChapterPages(
 			try {
 				const s = await pipeline.pollResliceStatus?.(signal);
 				if (!s) return;
+				// IGNORE FRAMES FROM OTHER RUNS — A CANCELLED RUN MAY STILL BE
+				// WINDING DOWN AND ITS WRITES WOULD CORRUPT THIS RUN'S BAR.
+				if (runId !== undefined && typeof s.run === 'number' && s.run !== runId) return;
 				// MAP THE SIDECAR'S 0..=100 INTO OUR 2..=97 "STEP 2" BAND (95% SPAN).
 				const mapped = Math.min(97, Math.round(2 + (s.pct / 100) * 95));
 				onProgress?.('reslice', s.message || 'Slicing canvas & protecting dialogue...', mapped);
@@ -149,10 +189,15 @@ export async function resliceChapterPages(
 		}, 200);
 	}
 
-	const slicedBuffers = await reslicePromise;
-	if (pollTimer) {
-		clearInterval(pollTimer);
-		pollTimer = null;
+	let slicedBuffers: Buffer[];
+	try {
+		slicedBuffers = await reslicePromise;
+	} finally {
+		// ALWAYS CLEAR THE POLL INTERVAL — INCLUDING ON ABORT/ERROR — OTHERWISE IT LEAKS.
+		if (pollTimer) {
+			clearInterval(pollTimer);
+			pollTimer = null;
+		}
 	}
 	if (slicedBuffers.length === 0) throw new Error('Reslice produced zero pages.');
 
