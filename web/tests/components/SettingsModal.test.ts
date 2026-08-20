@@ -95,6 +95,13 @@ describe('SettingsModal Component UI', () => {
 		const hwRes = validateForm(setHardwareDeviceSchema, hwPayload);
 		expect(hwRes.success).toBe(true);
 		expect(hwRes.data?.device).toBe('directml');
+
+		const coremlPayload = {
+			device: 'coreml',
+		};
+		const coremlRes = validateForm(setHardwareDeviceSchema, coremlPayload);
+		expect(coremlRes.success).toBe(true);
+		expect(coremlRes.data?.device).toBe('coreml');
 	});
 
 	it('shows a "Reloading models" indicator and disables cards while switching device', async () => {
