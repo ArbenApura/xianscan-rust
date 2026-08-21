@@ -12,8 +12,6 @@
 
 	export let pages: any[] = [];
 	export let running = false;
-	export let reloadKey = Date.now();
-	export let pageVersions: Record<number, number> = {};
 	export let webtoonKind: 'output' | 'original' = 'output';
 	export let draggedPageIndex: number | null = null;
 	export let dragOverPageIndex: number | null = null;
@@ -174,7 +172,7 @@
 					<!-- svelte-ignore a11y-click-events-have-key-events -->
 					<!-- svelte-ignore a11y-no-noninteractive-element-interactions -->
 					<img
-						src={`/api/pages/${page.id}/file?kind=thumb&w=480&target=${isOutput ? 'output' : 'original'}&v=${reloadKey}_${page.outputPath || 'orig'}${pageVersions[page.id] ? `_${pageVersions[page.id]}` : ''}`}
+						src={`/api/pages/${page.id}/file?kind=thumb&w=480&target=${isOutput ? 'output' : 'original'}&rev=${isOutput ? page.outputRev ?? 0 : page.originalRev ?? 0}`}
 						alt={`Page ${page.seq + 1}`}
 						loading="lazy"
 						decoding="async"

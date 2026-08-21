@@ -128,8 +128,8 @@ describe('runChapterPipeline', () => {
 
 		const got = db.select().from(pages).where(eq(pages.id, page.id)).get();
 		expect(got?.status).toBe('done');
-		expect(got?.cleanedPath).toBe(`clean/${chapter.id}/0.png`);
-		expect(got?.outputPath).toBe(`output/${chapter.id}/0.png`);
+		expect(got?.cleanedPath).toBe(`clean/${chapter.id}/0.webp`);
+		expect(got?.outputPath).toBe(`output/${chapter.id}/0.webp`);
 		expect(got?.width).toBe(200);
 
 		// ARTIFACTS EXIST ON DISK
@@ -192,7 +192,7 @@ describe('runChapterPipeline', () => {
 		const got0 = db.select().from(pages).where(eq(pages.id, p0.id)).get();
 		const got1 = db.select().from(pages).where(eq(pages.id, p1.id)).get();
 		expect(got0?.status).toBe('done');
-		expect(got0?.outputPath).toBe(`output/${chapter.id}/0.png`); // UNTOUCHED
+		expect(got0?.outputPath).toBe(`output/${chapter.id}/0.webp`); // UNTOUCHED
 		expect(got1?.status).toBe('done');
 	});
 
@@ -203,7 +203,9 @@ describe('runChapterPipeline', () => {
 		const _bad = seedPage(db, { chapterId: chapter.id, seq: 1, filePath: 'uploads/bad.png' });
 		mkdirSync(join(dataRoot, 'uploads'), { recursive: true });
 		writeFileSync(join(dataRoot, 'uploads', 'good.png'), PAGE_PNG);
-		// THE BAD PAGE MUST DIFFER BYTE-WISE SO THE FAILURE INJECTION CAN DISTINGUISH THEM
+		// THE BAD PAGE MUST DIFFER IN PIXEL CONTENT SO THE FAILURE INJECTION CAN
+		// DISTINGUISH THEM. ANALYZE RECEIVES THE UPLOADED FORMAT (PNG/JPEG/WEBP) OR
+		// CONVERTED WEBP — THE PIXEL PROBE BELOW IS FORMAT-AGNOSTIC.
 		const badPng = (() => {
 			const c = createCanvas(200, 300);
 			const x = c.getContext('2d');
@@ -214,10 +216,16 @@ describe('runChapterPipeline', () => {
 		writeFileSync(join(dataRoot, 'uploads', 'bad.png'), badPng);
 
 		const failing = new FakePipeline();
-		const badBytes = readFileSync(join(dataRoot, 'uploads', 'bad.png'));
 		const originalAnalyze = failing.analyze.bind(failing);
 		failing.analyze = async (image, signal) => {
-			if (image.equals(badBytes)) {
+			const { loadImage, createCanvas: probeCanvas } = await import('@napi-rs/canvas');
+			const img = await loadImage(image);
+			const probe = probeCanvas(1, 1);
+			const ctx = probe.getContext('2d');
+			ctx.drawImage(img, 0, 0);
+			// GOOD PAGE IS WHITE (~255), BAD PAGE IS GRAY (~200) — GRAY → EXPLODE
+			const px = ctx.getImageData(0, 0, 1, 1).data;
+			if (px[0] < 250) {
 				throw new Error('sidecar exploded');
 			}
 			return originalAnalyze(image, signal);

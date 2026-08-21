@@ -2,7 +2,7 @@
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { error } from '@sveltejs/kit';
-import { and, asc, eq, inArray } from 'drizzle-orm';
+import { and, asc, eq, inArray, sql } from 'drizzle-orm';
 import { db } from '../db';
 import { books, chapters, pages, regions } from '../db/schema';
 import { DATA_ROOT } from '../paths';
@@ -24,6 +24,9 @@ export interface ChapterPageData {
 	filePath: string;
 	cleanedPath: string | null;
 	outputPath: string | null;
+	cleanedRev: number;
+	outputRev: number;
+	originalRev: number;
 	status: 'pending' | 'processing' | 'done' | 'error';
 	error: string | null;
 	width?: number | null;
@@ -185,6 +188,9 @@ export async function getChapterReaderData(chapterId: number): Promise<ChapterRe
 			filePath: p.filePath,
 			cleanedPath: p.cleanedPath,
 			outputPath: p.outputPath,
+			cleanedRev: p.cleanedRev,
+			outputRev: p.outputRev,
+			originalRev: p.originalRev,
 			status: p.status,
 			error: p.error,
 			width: p.width,
@@ -215,7 +221,7 @@ export async function updateRegionTranslation(
 	regionId: number,
 	textTarget: string,
 	dataRoot: string = DATA_ROOT,
-): Promise<{ textTarget: string; outputPath: string | null }> {
+): Promise<{ textTarget: string; outputPath: string | null; outputRev: number }> {
 	const pageRow = db.select().from(pages).where(eq(pages.id, pageId)).get();
 	if (!pageRow) throw error(404, 'Page not found.');
 
@@ -250,28 +256,36 @@ export async function updateRegionTranslation(
 
 			const { typesetPage } = await import('../typeset');
 			const out = await typesetPage(cleanedBuf, typesetRegions);
-			const outputPath = `output/${pageRow.chapterId}/${pageRow.seq}.png`;
+			const outputPath = `output/${pageRow.chapterId}/${pageRow.seq}.webp`;
 			mkdirSync(join(dataRoot, 'output', String(pageRow.chapterId)), { recursive: true });
 			writeFileSync(join(dataRoot, outputPath), out);
 
-			db.update(pages).set({ outputPath }).where(eq(pages.id, pageId)).run();
-			return { textTarget: textTarget.trim(), outputPath };
+			db.update(pages)
+				.set({ outputPath, outputRev: sql`${pages.outputRev} + 1`, status: 'done' })
+				.where(eq(pages.id, pageId))
+				.run();
+			const fresh = db
+				.select({ outputRev: pages.outputRev })
+				.from(pages)
+				.where(eq(pages.id, pageId))
+				.get();
+			return { textTarget: textTarget.trim(), outputPath, outputRev: fresh?.outputRev ?? pageRow.outputRev + 1 };
 		} catch (err) {
 			console.error('Failed to re-typeset page on manual translation update:', err);
 		}
 	}
 
-	return { textTarget: textTarget.trim(), outputPath: pageRow.outputPath };
+	return { textTarget: textTarget.trim(), outputPath: pageRow.outputPath, outputRev: pageRow.outputRev };
 }
 
 export async function retypesetPage(
 	pageId: number,
 	_opts?: any,
 	dataRoot: string = DATA_ROOT,
-): Promise<{ outputPath: string | null }> {
+): Promise<{ outputPath: string | null; outputRev: number }> {
 	const pageRow = db.select().from(pages).where(eq(pages.id, pageId)).get();
 	if (!pageRow) throw error(404, 'Page not found.');
-	if (!pageRow.cleanedPath) return { outputPath: pageRow.outputPath };
+	if (!pageRow.cleanedPath) return { outputPath: pageRow.outputPath, outputRev: pageRow.outputRev };
 
 	const cleanAbs = join(dataRoot, pageRow.cleanedPath);
 	try {
@@ -295,15 +309,23 @@ export async function retypesetPage(
 
 		const { typesetPage } = await import('../typeset');
 		const out = await typesetPage(cleanedBuf, typesetRegions, _opts);
-		const outputPath = `output/${pageRow.chapterId}/${pageRow.seq}.png`;
+		const outputPath = `output/${pageRow.chapterId}/${pageRow.seq}.webp`;
 		mkdirSync(join(dataRoot, 'output', String(pageRow.chapterId)), { recursive: true });
 		writeFileSync(join(dataRoot, outputPath), out);
 
-		db.update(pages).set({ outputPath }).where(eq(pages.id, pageId)).run();
-		return { outputPath };
+		db.update(pages)
+			.set({ outputPath, outputRev: sql`${pages.outputRev} + 1`, status: 'done' })
+			.where(eq(pages.id, pageId))
+			.run();
+		const fresh = db
+			.select({ outputRev: pages.outputRev })
+			.from(pages)
+			.where(eq(pages.id, pageId))
+			.get();
+		return { outputPath, outputRev: fresh?.outputRev ?? pageRow.outputRev + 1 };
 	} catch (err) {
 		console.error('Failed to retypeset page:', err);
-		return { outputPath: pageRow.outputPath };
+		return { outputPath: pageRow.outputPath, outputRev: pageRow.outputRev };
 	}
 }
 
@@ -325,6 +347,9 @@ export function getPageWithRegions(pageId: number) {
 		filePath: pageRow.filePath,
 		cleanedPath: pageRow.cleanedPath,
 		outputPath: pageRow.outputPath,
+		cleanedRev: pageRow.cleanedRev,
+		outputRev: pageRow.outputRev,
+		originalRev: pageRow.originalRev,
 		status: pageRow.status,
 		error: pageRow.error,
 		width: pageRow.width,

@@ -123,6 +123,24 @@ jobs:
           Copy-Item LICENSE staging/ -ErrorAction SilentlyContinue
           Compress-Archive -Path staging/* -DestinationPath ${{ matrix.release_asset }}
 
+      # Packaging: resolve + ship the ORT CUDA provider libraries with the Linux binary.
+      # With ort's `copy-dylibs` these land in target/ as SYMLINKS pointing into the
+      # ort download cache; a bare symlink does not survive a tarball, and without the
+      # provider .so files the CUDA-enabled build silently falls back to CPU at runtime.
+      - name: Package Linux ORT CUDA Provider Libraries
+        if: matrix.os == 'ubuntu-latest'
+        run: |
+          mkdir -p staging
+          for f in libonnxruntime_providers_cuda.so \
+                   libonnxruntime_providers_shared.so \
+                   libonnxruntime_providers_tensorrt.so \
+                   libonnxruntime_providers_nv_tensorrt_rtx.so; do
+            if [ -e "target/${{ matrix.target }}/release/$f" ]; then
+              cp -L "target/${{ matrix.target }}/release/$f" "staging/$f"
+            fi
+          done
+          ls -lh staging/
+
       # Packaging Linux & macOS Archives
       - name: Package Unix Binary
         if: matrix.os != 'windows-latest'

@@ -82,16 +82,45 @@ fn main() {
     // We scan for any `canvas-*` directory containing a `skia.*.node` file.
     // The filename tells js-binding.js which require() call will succeed.
     let napi_dir = node_modules.join("@napi-rs");
-    let mut skia_path: Option<PathBuf> = None;
-    let mut skia_filename: Option<String> = None;
-    let mut icu_path: Option<PathBuf> = None;
 
+    // TARGET CFG VARS + A SHARED SCORER USED BY BOTH THE SKIA AND IMAGE ADDON
+    // SELECTION BELOW, SO THE CORRECT PLATFORM BINDING IS CHOSEN (GLIBC VS MUSL,
+    // OS, ARCH) INSTEAD OF THE FIRST DIRECTORY FOUND.
+    let target_os = std::env::var("CARGO_CFG_TARGET_OS").unwrap_or_default();
+    let target_arch = std::env::var("CARGO_CFG_TARGET_ARCH").unwrap_or_default();
+    let target_env = std::env::var("CARGO_CFG_TARGET_ENV").unwrap_or_default();
+
+    let match_score = |dir_name: &str| -> i32 {
+        let lower = dir_name.to_lowercase();
+        let mut s = 0;
+        if !target_env.is_empty() && lower.contains(&target_env) {
+            s += 3;
+        }
+        if target_arch == "aarch64" && lower.contains("arm64") {
+            s += 2;
+        }
+        if target_arch == "x86_64" && lower.contains("x64") {
+            s += 2;
+        }
+        // APPLE PACKAGES ARE NAMED `*-darwin-*` WHILE CARGO'S OS TOKEN IS `macos`.
+        let os_token = if target_os == "macos" { "darwin" } else { &target_os };
+        if !os_token.is_empty() && lower.contains(os_token) {
+            s += 1;
+        }
+        s
+    };
+
+    let mut skia_candidates: Vec<(String, PathBuf, String, Option<PathBuf>)> = Vec::new();
     if let Ok(entries) = std::fs::read_dir(&napi_dir) {
         for entry in entries.flatten() {
             let dir_name = entry.file_name();
-            if !dir_name.to_string_lossy().starts_with("canvas-") {
+            let dir_name_str = dir_name.to_string_lossy().to_string();
+            if !dir_name_str.starts_with("canvas-") {
                 continue;
             }
+            let mut skia_path: Option<PathBuf> = None;
+            let mut skia_filename: Option<String> = None;
+            let mut icu_path: Option<PathBuf> = None;
             if let Ok(files) = std::fs::read_dir(entry.path()) {
                 for file in files.flatten() {
                     let fname = file.file_name();
@@ -104,10 +133,25 @@ fn main() {
                     }
                 }
             }
-            if skia_path.is_some() {
-                break;
+            if let (Some(path), Some(filename)) = (skia_path, skia_filename) {
+                skia_candidates.push((dir_name_str, path, filename, icu_path));
             }
         }
+    }
+
+    // PICK THE SKIA BINDING THAT MATCHES THE BUILD TARGET. BOTH GNU AND MUSL
+    // SUBPACKAGES GET INSTALLED ON LINUX, AND THE MUSL .node DOES NOT LOAD UNDER
+    // GLIBC — GlobalFonts ENDS UP UNDEFINED AND TYPESETTING FAILS AT RUNTIME.
+    let best_skia = skia_candidates
+        .iter()
+        .max_by_key(|(dir_name, _, _, _)| match_score(dir_name));
+    let mut skia_path: Option<PathBuf> = None;
+    let mut skia_filename: Option<String> = None;
+    let mut icu_path: Option<PathBuf> = None;
+    if let Some((_, path, filename, icu)) = best_skia {
+        skia_path = Some(path.clone());
+        skia_filename = Some(filename.clone());
+        icu_path = icu.clone();
     }
 
     if let (Some(path), Some(filename)) = (skia_path, skia_filename) {
@@ -123,6 +167,64 @@ fn main() {
         );
         println!("cargo:rustc-env=SKIA_NODE_PATH=MISSING_SKIA_NODE");
         println!("cargo:rustc-env=SKIA_NODE_FILENAME=skia.missing.node");
+    }
+
+    // -----------------------------------------------------------------------
+    // 2b. @napi-rs/image  (AVIF / HEIC -> WebP conversion for uploads)
+    // -----------------------------------------------------------------------
+    // The @napi-rs/image package ships its native binding in a platform-scoped
+    // subpackage (e.g. @napi-rs/image-win32-x64-msvc). We scan for any `image-*`
+    // directory containing an `image.*.node` file and embed it so the standalone
+    // binary can convert AVIF/HEIC uploads to WebP at runtime (without it, only
+    // the @napi-rs/canvas fallback remains, and some AVIF variants cannot be
+    // decoded, leaving raw .avif files that the Rust ML sidecar then rejects).
+    let mut image_candidates: Vec<(String, PathBuf, String)> = Vec::new();
+    if let Ok(entries) = std::fs::read_dir(&napi_dir) {
+        for entry in entries.flatten() {
+            let dir_name = entry.file_name();
+            let dir_name_str = dir_name.to_string_lossy().to_string();
+            if !dir_name_str.starts_with("image-") {
+                continue;
+            }
+            if let Ok(files) = std::fs::read_dir(entry.path()) {
+                for file in files.flatten() {
+                    let fname = file.file_name();
+                    let fname_str = fname.to_string_lossy();
+                    if fname_str.starts_with("image.") && fname_str.ends_with(".node") {
+                        image_candidates.push((dir_name_str.clone(), file.path(), fname_str.to_string()));
+                        break;
+                    }
+                }
+            }
+        }
+    }
+
+    // PICK THE BINDING THAT MATCHES THE BUILD TARGET — SEE THE SKIA SELECTION
+    // ABOVE FOR THE SAME GNU / MUSL PROBLEM AND THE SHARED match_score RULES.
+    let best_image = image_candidates
+        .iter()
+        .max_by_key(|(dir_name, _, _)| match_score(dir_name));
+
+    if let Some((_, path, filename)) = best_image {
+        let abs = path.canonicalize().unwrap_or(path.clone());
+        let abs_str = strip_unc_prefix(abs.display().to_string());
+        println!("cargo:rustc-env=IMAGE_NODE_PATH={}", abs_str);
+        println!("cargo:rustc-env=IMAGE_NODE_FILENAME={}", filename);
+        println!("cargo:rerun-if-changed={}", abs_str);
+    } else {
+        // WRITE AN EMPTY PLACEHOLDER INTO OUT_DIR RATHER THAN POINTING AT A
+        // NON-EXISTENT PATH: include_bytes! IN web_assets.rs REQUIRES A REAL FILE.
+        // THE RUNTIME GUARD (`if !IMAGE_NODE.is_empty()`) THEN SKIPS EXTRACTION AND
+        // AVIF/HEIC CONVERSION GRACEFULLY FALLS BACK TO @napi-rs/canvas.
+        let out_dir = std::env::var("OUT_DIR").unwrap_or_else(|_| ".".to_string());
+        let placeholder = std::path::Path::new(&out_dir).join("image.missing.node");
+        let _ = std::fs::write(&placeholder, b"");
+        println!(
+            "cargo:warning=@napi-rs/image native .node not found under {}. AVIF/HEIC upload conversion will rely on @napi-rs/canvas.",
+            napi_dir.display()
+        );
+        println!("cargo:rustc-env=IMAGE_NODE_PATH={}", placeholder.display());
+        println!("cargo:rustc-env=IMAGE_NODE_FILENAME=image.missing.node");
     }
 
     let out_dir = PathBuf::from(std::env::var("OUT_DIR").unwrap_or_else(|_| ".".to_string()));

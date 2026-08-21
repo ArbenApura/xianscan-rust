@@ -44,7 +44,6 @@ export interface TypesetOptions {
 	casing?: 'uppercase' | 'original' | 'lowercase';
 	allCaps?: boolean;
 	enableRotation?: boolean;
-	format?: 'png' | 'webp';
 }
 
 export async function typesetPage(
@@ -197,8 +196,6 @@ export async function typesetPage(
 		}
 		ctx.restore();
 	}
-	if (opts.format === 'webp') {
-		return await canvas.encode('webp', 90);
-	}
-	return canvas.toBuffer('image/png');
+	// GLOBAL WEBP POLICY: TYPESET OUTPUT IS ALWAYS WEBP.
+	return await canvas.encode('webp', 90);
 }

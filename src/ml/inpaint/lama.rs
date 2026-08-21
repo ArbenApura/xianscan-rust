@@ -118,8 +118,11 @@ impl LamaInpainter {
     pub fn inpaint_scaled_mode(&mut self, img: &DynamicImage, mask: &ImageBuffer<Luma<u8>, Vec<u8>>, target_dim: u32) -> Result<DynamicImage> {
         let (orig_w, orig_h) = img.dimensions();
 
+        // ONE FULL-PAGE RGB COPY REUSED FOR RESIZE SOURCE + RESULT (WAS TWO COPIES).
+        let page_rgb = img.to_rgb8();
+
         let in_img = image::imageops::resize(
-            &img.to_rgb8(),
+            &page_rgb,
             target_dim,
             target_dim,
             image::imageops::FilterType::Triangle,
@@ -141,7 +144,7 @@ impl LamaInpainter {
             image::imageops::FilterType::CatmullRom,
         );
 
-        let mut result = img.to_rgb8();
+        let mut result = page_rgb;
         for y in 0..orig_h {
             for x in 0..orig_w {
                 if mask.get_pixel(x, y)[0] > 0 {

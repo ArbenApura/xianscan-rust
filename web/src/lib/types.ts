@@ -167,6 +167,8 @@ export interface PageProgressState {
 	failedStep?: PipelineStep;
 	errorMessage?: string;
 	outputPath?: string | null;
+	cleanedRev?: number;
+	outputRev?: number;
 }
 
 export type PipelinePhase = 'phase1_analyze' | 'phase2_extract' | 'phase3_typeset' | 'completed';

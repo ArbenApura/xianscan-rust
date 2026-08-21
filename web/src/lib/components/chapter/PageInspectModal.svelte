@@ -187,7 +187,7 @@
 		editModalOpen = true;
 	}
 
-	function handleRegionSaved(e: CustomEvent<{ region: any; outputPath?: string }>) {
+	function handleRegionSaved(e: CustomEvent<{ region: any; outputPath?: string; outputRev?: number }>) {
 		if (!page) return;
 		const updatedReg = e.detail.region;
 		const reg = page.regions?.find((r: any) => r.id === updatedReg.id);
@@ -197,6 +197,9 @@
 		}
 		if (e.detail.outputPath) {
 			page.outputPath = e.detail.outputPath;
+		}
+		if (typeof e.detail.outputRev === 'number') {
+			page.outputRev = e.detail.outputRev;
 		}
 		reloadKey = Date.now();
 		page = { ...page };
@@ -222,6 +225,9 @@
 			}
 			if (data.outputPath) {
 				page.outputPath = data.outputPath;
+			}
+			if (typeof data.outputRev === 'number') {
+				page.outputRev = data.outputRev;
 			}
 			reloadKey = Date.now();
 			page = { ...page };
@@ -250,6 +256,9 @@
 			const data = await res.json();
 			if (data.outputPath) {
 				page.outputPath = data.outputPath;
+			}
+			if (typeof data.outputRev === 'number') {
+				page.outputRev = data.outputRev;
 			}
 			inspectTab = 'output';
 			reloadKey = Date.now();
@@ -449,7 +458,7 @@
 				>
 					<div class="relative w-full">
 						<img
-							src={`/api/pages/${page.id}/file?kind=${inspectTab}&v=${reloadKey}`}
+							src={`/api/pages/${page.id}/file?kind=${inspectTab}&rev=${inspectTab === 'output' ? page.outputRev ?? 0 : inspectTab === 'cleaned' ? page.cleanedRev ?? 0 : page.originalRev ?? 0}&v=${reloadKey}`}
 							alt={`Page ${page.seq + 1} ${inspectTab}`}
 							class="block w-full h-auto select-none"
 							loading="eager"

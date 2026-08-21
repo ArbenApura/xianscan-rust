@@ -1,3 +1,5 @@
+#[cfg(target_os = "linux")]
+use std::collections::HashMap;
 use std::sync::{LazyLock, Mutex};
 use std::sync::atomic::{AtomicBool, Ordering};
 use anyhow::Result;
@@ -62,16 +64,82 @@ pub fn enumerate_system_gpus() -> Vec<GpuInfo> {
 pub fn enumerate_system_gpus() -> Vec<GpuInfo> {
     // NVIDIA'S PROPRIETARY DRIVER EXPOSES ONE SUBDIRECTORY PER GPU UNDER
     // /proc/driver/nvidia/gpus/<PCI-BDF>, EACH CONTAINING AN `information` FILE
-    // WITH A `Model:` LINE. NO EXTERNAL BINARY (nvidia-smi) IS REQUIRED.
-    parse_nvidia_gpu_root(std::path::Path::new("/proc/driver/nvidia/gpus"))
+    // WITH A `Model:` LINE. THE `information` FILE DOES NOT CARRY VRAM, SO WE
+    // POPULATE vram_mb FROM `nvidia-smi` (PRESENT WHENEVER THE DRIVER IS LOADED).
+    let (vram_by_bus, vram_ordered) = query_nvidia_vram_by_bus();
+    let mut gpus = parse_nvidia_gpu_root(
+        std::path::Path::new("/proc/driver/nvidia/gpus"),
+        &vram_by_bus,
+        &vram_ordered,
+    );
+    // AMD GPUS ARE EXPOSED VIA THE OPEN-SOURCE AMDGPU DRIVER AS DRM CARDS UNDER
+    // /sys/class/drm/card*/device, WITH `vendor` = 0x1002. PARSE BOTH SO A MIXED
+    // OR AMD-ONLY SYSTEM REPORTS ITS REAL GPU INSTEAD OF AN EMPTY LIST.
+    gpus.extend(parse_amd_drm_root(std::path::Path::new("/sys/class/drm")));
+    gpus
 }
 
 #[cfg(target_os = "linux")]
-fn parse_nvidia_gpu_root(root: &std::path::Path) -> Vec<GpuInfo> {
+fn normalize_pci_bus_id(raw: &str) -> String {
+    // nvidia-smi EMITS THE FULL 8-HEX PCI DOMAIN ("00000000:01:00.0") WHILE
+    // /proc/driver/nvidia/gpus/ DIR NAMES USE THE 4-HEX FORM ("0000:01:00.0").
+    // NORMALIZE THE DOMAIN TO A BARE HEX VALUE SO BOTH FORMS COLLIDE ON ONE KEY
+    // AND MULTI-GPU SYSTEMS CANNOT MISASSIGN VRAM TO THE WRONG GPU.
+    let s = raw.trim().to_ascii_lowercase();
+    match s.split_once(':') {
+        Some((domain, rest)) => {
+            let dom = u32::from_str_radix(domain.trim_start_matches('0'), 16).unwrap_or(0);
+            format!("{:x}:{}", dom, rest)
+        }
+        None => s,
+    }
+}
+
+#[cfg(target_os = "linux")]
+fn query_nvidia_vram_by_bus() -> (HashMap<String, f64>, Vec<f64>) {
+    let Ok(out) = std::process::Command::new("nvidia-smi")
+        .args(["--query-gpu=memory.total,pci.bus_id", "--format=csv,noheader,nounits"])
+        .output()
+    else {
+        return (HashMap::new(), Vec::new());
+    };
+    if !out.status.success() {
+        return (HashMap::new(), Vec::new());
+    }
+    let Ok(stdout) = String::from_utf8(out.stdout) else {
+        return (HashMap::new(), Vec::new());
+    };
+    // nvidia-smi ORDER IS PCI-SORTED, WHICH MAY DIFFER FROM READDIR ORDER — KEY
+    // BY pci.bus_id SO A MULTI-GPU SYSTEM CANNOT MISASSIGN VRAM TO THE WRONG GPU.
+    let mut by_bus = HashMap::new();
+    let mut ordered = Vec::new();
+    for line in stdout.lines() {
+        let mut it = line.splitn(2, ',');
+        let mem = it
+            .next()
+            .and_then(|s| s.trim().trim_end_matches(" MiB").parse::<f64>().ok());
+        let bus = it.next().map(|s| s.trim().to_string()).filter(|s| !s.is_empty());
+        if let Some(m) = mem {
+            ordered.push(m);
+            if let Some(b) = bus {
+                by_bus.insert(normalize_pci_bus_id(&b), m);
+            }
+        }
+    }
+    (by_bus, ordered)
+}
+
+#[cfg(target_os = "linux")]
+fn parse_nvidia_gpu_root(
+    root: &std::path::Path,
+    vram_by_bus: &HashMap<String, f64>,
+    vram_ordered: &[f64],
+) -> Vec<GpuInfo> {
     let mut gpus = Vec::new();
     let Ok(entries) = std::fs::read_dir(root) else {
         return gpus;
     };
+    let mut ordered_idx = 0usize;
     for (i, entry) in entries.flatten().enumerate() {
         let Ok(info) = std::fs::read_to_string(entry.path().join("information")) else {
             continue;
@@ -82,13 +150,69 @@ fn parse_nvidia_gpu_root(root: &std::path::Path) -> Vec<GpuInfo> {
             .map(|s| s.trim().to_string())
             .filter(|s| !s.is_empty())
             .unwrap_or_else(|| "NVIDIA GPU".to_string());
+        // MATCH VRAM BY PCI BUS ID (THE DIR NAME IS THE PCI-BDF); FALL BACK TO
+        // INDEX POSITION WHEN THE BUS ID IS NOT A CLEAN MATCH. ordered_idx ALWAYS
+        // ADVANCES PER ENTRY SO A MIXED MATCH/FALLBACK CANNOT SKEW POSITIONS.
+        let bus_id = entry.file_name().to_string_lossy().to_string();
+        let vram_mb = match vram_by_bus.get(&normalize_pci_bus_id(&bus_id)) {
+            Some(v) => *v,
+            None => vram_ordered.get(ordered_idx).copied().unwrap_or(0.0),
+        };
+        ordered_idx += 1;
         gpus.push(GpuInfo {
             device_id: i as u32,
             name,
             vendor_id: 0x10DE,
-            vram_mb: 0.0,
+            vram_mb,
             is_dedicated: true,
             is_integrated: false,
+        });
+    }
+    gpus
+}
+
+#[cfg(target_os = "linux")]
+fn parse_amd_drm_root(root: &std::path::Path) -> Vec<GpuInfo> {
+    // THE OPEN-SOURCE AMDGPU KERNEL DRIVER EXPOSES ONE CARD DIRECTORY PER GPU UNDER
+    // /sys/class/drm/card*, AND EACH CARD'S `device/vendor` FILE HOLDS THE PCI VENDOR
+    // ID AS A STRING SUCH AS "0x1002" (AMD). NON-AMD CARDS (E.G. NVIDIA 0x10DE OR
+    // INTEGRATED INTEL 0x8086) ARE SKIPPED. THE FRIENDLY MODEL NAME IS NOT RELIABLY
+    // AVAILABLE VIA SYSFS, SO A GENERIC "AMD Radeon GPU" LABEL IS USED.
+    const AMD_VENDOR_ID: u32 = 0x1002;
+    let mut gpus = Vec::new();
+    let Ok(entries) = std::fs::read_dir(root) else {
+        return gpus;
+    };
+    for (i, entry) in entries.flatten().enumerate() {
+        let name = entry.file_name().to_string_lossy().to_string();
+        if !name.starts_with("card") {
+            continue;
+        }
+        let device_dir = entry.path().join("device");
+        let Ok(vendor_str) = std::fs::read_to_string(device_dir.join("vendor")) else {
+            continue;
+        };
+        let Ok(vendor_id) = u32::from_str_radix(vendor_str.trim().trim_start_matches("0x"), 16) else {
+            continue;
+        };
+        if vendor_id != AMD_VENDOR_ID {
+            continue;
+        }
+        // APUS (INTEGRATED RADEON) SHARE SYSTEM MEMORY AND EXPOSE 0 IN
+        // mem_info_vram_total; DISCRETE CARDS REPORT THEIR DEDICATED VRAM. THIS
+        // DISTINGUISHES A REAL dGPU FROM AN APU, AND FILLS vram_mb FOR AMD.
+        let vram_bytes = std::fs::read_to_string(device_dir.join("mem_info_vram_total"))
+            .ok()
+            .and_then(|s| s.trim().parse::<u64>().ok())
+            .unwrap_or(0);
+        let is_dedicated = vram_bytes > 0;
+        gpus.push(GpuInfo {
+            device_id: i as u32,
+            name: "AMD Radeon GPU".to_string(),
+            vendor_id,
+            vram_mb: (vram_bytes as f64 / (1024.0 * 1024.0 * 1024.0)) * 1024.0,
+            is_dedicated,
+            is_integrated: !is_dedicated,
         });
     }
     gpus
@@ -206,23 +330,47 @@ pub fn get_hardware_status() -> HardwareStatus {
     let has_cuda = cfg!(feature = "cuda") && has_dedicated_gpu && !CUDA_RUNTIME_FAILED.load(Ordering::Relaxed);
     let has_coreml = cfg!(feature = "coreml") && has_dedicated_gpu && !COREML_RUNTIME_FAILED.load(Ordering::Relaxed);
 
+    // DETECT AN AMD DEDICATED GPU THAT IS PRESENT BUT NOT ACCELERATING. THE DEFAULT
+    // LINUX RELEASE RUNS CPU ON ALL GPUS; NVIDIA CUDA NEEDS A SEPARATE BUILD AND AMD
+    // ROCm IS UNSUPPORTED, SO AN AMD GPU MEANS CPU INFERENCE. SURFACE A CLEAR WARNING
+    // INSTEAD OF SILENTLY RUNNING THE CPU ENGINE.
+    let active_is_cpu = !providers.is_empty() && providers.iter().all(|p| p == "CPUExecutionProvider");
+    let amd_gpu = detected_gpus
+        .iter()
+        .find(|g| g.vendor_id == 0x1002 && g.is_dedicated);
+    let amd_warning = if active_is_cpu {
+        amd_gpu.map(|g| {
+            format!(
+                "AMD GPU detected ({}). The default Linux release runs on CPU; NVIDIA CUDA acceleration requires a separate CUDA build, and AMD/ROCm is not yet supported. Running on multi-threaded CPU.",
+                g.name
+            )
+        })
+    } else {
+        None
+    };
+
     let gpu_warning = if !dml_active && !detected_gpus.is_empty() && !has_dedicated_gpu {
         Some(format!(
             "Integrated GPU detected ({}). GPU acceleration is disabled to protect against desktop freezing and driver crashes. Running on multi-threaded CPU.",
             detected_gpus[0].name
         ))
     } else {
-        None
+        amd_warning
     };
 
     HardwareStatus {
         device_label: label,
         active_provider: providers.first().cloned().unwrap_or_else(|| "CPUExecutionProvider".to_string()),
         providers: providers.clone(),
-        available_providers: vec!["CPUExecutionProvider".to_string()],
+        // DERIVED FROM THE ACTUAL RUNNABLE PROVIDERS — NOT A HARDCODED CPU LIST
+        // (THE OLD VALUE REPORTED CPU EVEN WHILE CUDA SESSIONS WERE RUNNING).
+        available_providers: providers.clone(),
         has_cuda,
         has_directml: dml_active,
-        has_directml_raw: true,
+        // "RAW" CAPABILITY: DIRECTML IS COMPILED IN AND A DEDICATED GPU EXISTS
+        // (INDEPENDENT OF THE CURRENT RUNNING PROVIDER — WAS HARDCODED TRUE ON
+        // EVERY PLATFORM INCLUDING LINUX, WHERE DIRECTML DOES NOT EXIST).
+        has_directml_raw: cfg!(feature = "directml") && has_dedicated_gpu,
         has_coreml,
         has_dedicated_gpu,
         detected_gpus,
@@ -373,7 +521,7 @@ mod tests {
         std::fs::create_dir_all(&gpu_dir).unwrap();
         std::fs::write(gpu_dir.join("information"), "Model:\t\tNVIDIA GeForce RTX 3080\n").unwrap();
 
-        let gpus = parse_nvidia_gpu_root(tmp.path());
+        let gpus = parse_nvidia_gpu_root(tmp.path(), &HashMap::new(), &[]);
         assert_eq!(gpus.len(), 1);
         assert_eq!(gpus[0].name, "NVIDIA GeForce RTX 3080");
         assert!(gpus[0].is_dedicated);
@@ -384,7 +532,130 @@ mod tests {
     #[test]
     fn returns_empty_when_no_nvidia_driver() {
         let tmp = tempfile::tempdir().unwrap();
-        let gpus = parse_nvidia_gpu_root(tmp.path());
+        let gpus = parse_nvidia_gpu_root(tmp.path(), &HashMap::new(), &[]);
         assert!(gpus.is_empty());
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn nvidia_vram_matches_by_bus_id() {
+        let tmp = tempfile::tempdir().unwrap();
+        let gpu_dir = tmp.path().join("0000:01:00.0");
+        std::fs::create_dir_all(&gpu_dir).unwrap();
+        std::fs::write(gpu_dir.join("information"), "Model: NVIDIA GeForce RTX 4090\n").unwrap();
+
+        let mut by_bus = HashMap::new();
+        by_bus.insert("0000:01:00.0".to_string(), 24564.0);
+        let gpus = parse_nvidia_gpu_root(tmp.path(), &by_bus, &[]);
+        assert_eq!(gpus.len(), 1);
+        assert_eq!(gpus[0].vram_mb, 24564.0);
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn nvidia_vram_matches_8_hex_domain_bus_id() {
+        // nvidia-smi EMITS THE FULL 8-HEX DOMAIN; THE /proc DIR NAME IS 4-HEX.
+        // THE NORMALIZED KEY MUST STILL MATCH, OR THE FALLBACK MISASSIGNS VRAM.
+        let tmp = tempfile::tempdir().unwrap();
+        let gpu_dir = tmp.path().join("0000:01:00.0");
+        std::fs::create_dir_all(&gpu_dir).unwrap();
+        std::fs::write(gpu_dir.join("information"), "Model: NVIDIA GeForce RTX 4090\n").unwrap();
+
+        let mut by_bus = HashMap::new();
+        by_bus.insert("00000000:01:00.0".to_string(), 24564.0);
+        let gpus = parse_nvidia_gpu_root(tmp.path(), &by_bus, &[]);
+        assert_eq!(gpus.len(), 1);
+        assert_eq!(gpus[0].vram_mb, 24564.0);
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn normalize_pci_bus_id_strips_domain_leading_zeroes() {
+        assert_eq!(normalize_pci_bus_id("00000000:01:00.0"), "0:01:00.0");
+        assert_eq!(normalize_pci_bus_id("0000:01:00.0"), "0:01:00.0");
+        assert_eq!(normalize_pci_bus_id("0000:21:00.1"), "0:21:00.1");
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn parses_amd_gpu_from_drm_root() {
+        let tmp = tempfile::tempdir().unwrap();
+        let card_dir = tmp.path().join("card0").join("device");
+        std::fs::create_dir_all(&card_dir).unwrap();
+        std::fs::write(card_dir.join("vendor"), "0x1002\n").unwrap();
+        std::fs::write(card_dir.join("device"), "0x73c1\n").unwrap();
+        std::fs::write(card_dir.join("mem_info_vram_total"), "8589934592\n").unwrap();
+
+        let gpus = parse_amd_drm_root(tmp.path());
+        assert_eq!(gpus.len(), 1);
+        assert_eq!(gpus[0].vendor_id, 0x1002);
+        assert!(gpus[0].is_dedicated);
+        assert!(!gpus[0].is_integrated);
+        // 8589934592 BYTES == 8192 MiB
+        assert!((gpus[0].vram_mb - 8192.0).abs() < 0.001);
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn amd_apu_without_vram_is_integrated() {
+        let tmp = tempfile::tempdir().unwrap();
+        let card_dir = tmp.path().join("card0").join("device");
+        std::fs::create_dir_all(&card_dir).unwrap();
+        std::fs::write(card_dir.join("vendor"), "0x1002\n").unwrap();
+        std::fs::write(card_dir.join("mem_info_vram_total"), "0\n").unwrap();
+
+        let gpus = parse_amd_drm_root(tmp.path());
+        assert_eq!(gpus.len(), 1);
+        assert!(!gpus[0].is_dedicated);
+        assert!(gpus[0].is_integrated);
+        assert_eq!(gpus[0].vram_mb, 0.0);
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn amd_drm_root_skips_non_amd_cards() {
+        let tmp = tempfile::tempdir().unwrap();
+        let nvidia_card = tmp.path().join("card0").join("device");
+        std::fs::create_dir_all(&nvidia_card).unwrap();
+        std::fs::write(nvidia_card.join("vendor"), "0x10de\n").unwrap();
+
+        let gpus = parse_amd_drm_root(tmp.path());
+        assert!(gpus.is_empty());
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn amd_gpu_present_but_cpu_active_emits_warning() {
+        // FORCE CPU SO THE WARNING BRANCH IS UNMISSABLE REGARDLESS OF HOST GPU.
+        let status = set_active_provider("cpu");
+        let has_amd = status
+            .detected_gpus
+            .iter()
+            .any(|g| g.vendor_id == 0x1002 && g.is_dedicated);
+        if has_amd {
+            assert!(status.gpu_warning.is_some());
+            let warning = status.gpu_warning.as_deref().unwrap_or_default();
+            assert!(warning.contains("AMD"), "expected AMD in warning, got: {}", warning);
+        }
+        // RESTORE AUTO SO LATER TESTS (E.G. /health, /system/hardware) ARE UNAFFECTED.
+        let _ = set_active_provider("auto");
+    }
+
+    #[test]
+    fn hardware_status_derives_available_providers_from_providers() {
+        // FAULT B REGRESSION: available_providers MUST MIRROR THE ACTUAL RUNNABLE
+        // PROVIDERS (E.G. [CUDA, CPU]) — NEVER A HARDCODED CPU-ONLY LIST.
+        let status = get_hardware_status();
+        assert_eq!(status.available_providers, status.providers);
+        assert!(!status.available_providers.is_empty());
+        assert_eq!(status.active_provider, status.providers.first().cloned().unwrap_or_default());
+    }
+
+    #[test]
+    fn hardware_status_directml_raw_tracks_feature_and_dedicated_gpu() {
+        // FAULT B REGRESSION: has_directml_raw MUST BE FALSE WITHOUT THE directml
+        // FEATURE (THE OLD CODE HARDCODED true ON EVERY PLATFORM, INCLUDING LINUX).
+        let status = get_hardware_status();
+        assert_eq!(status.has_directml_raw, cfg!(feature = "directml") && status.has_dedicated_gpu);
     }
 }

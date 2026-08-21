@@ -3,6 +3,7 @@
 	import { browser } from '$app/environment';
 	import { toast } from 'svelte-sonner';
 	import { page } from '$app/stores';
+	import { invalidateAll } from '$app/navigation';
 	import { ConfirmDialog, Modal, TextField, Button } from '$lib/components/ui';
 	import { settings } from '$lib/stores/settings';
 	import { jobTracker } from '$lib/stores/job-tracker';
@@ -44,6 +45,9 @@
 		filePath: string;
 		cleanedPath: string | null;
 		outputPath: string | null;
+		cleanedRev: number;
+		outputRev: number;
+		originalRev: number;
 		status: 'pending' | 'processing' | 'done' | 'error';
 		error: string | null;
 		width?: number | null;
@@ -67,7 +71,7 @@
 	let uploading = false;
 	let isDraggingOver = false;
 	let reloadKey = Date.now();
-	let pageVersions: Record<number, number> = {};
+	let lastPageshowHandler: ((e: PageTransitionEvent) => void) | null = null;
 
 	$: {
 		chapter = data.chapter;
@@ -226,6 +230,13 @@
 				status,
 				currentStep: isProcessing ? sp.currentStep : undefined,
 				outputPath: sp.outputPath || p.outputPath,
+				// REVS ARE MONOTONIC (NEVER RESET). PREFER THE NEWEST OF THE JOB
+				// SNAPSHOT AND THE SERVER/EDITOR VALUE, SO A MANUAL RETYPESET THAT
+				// BUMPS outputRev AFTER A JOB COMPLETES IS NOT MASKED BY THE STALE
+				// SNAPSHOT (WHICH WOULD OTHERWISE SERVE A STALE IMMUTABLE-CACHED URL).
+				cleanedRev: Math.max(sp.cleanedRev ?? 0, p.cleanedRev ?? 0),
+				outputRev: Math.max(sp.outputRev ?? 0, p.outputRev ?? 0),
+				originalRev: p.originalRev,
 				error: isError ? sp.errorMessage || p.error : null,
 			};
 		});
@@ -289,12 +300,23 @@
 
 		window.addEventListener('dragend', handleDragEnd);
 		window.addEventListener('pointerup', handleDragEnd);
+
+		// BFCACHE RESTORE CAN SHOW STALE REVS FROM A FROZEN DOM — REVALIDATE THE DATA AND
+		// LET THE REACTIVE RENDER SWAP IN FRESH URLS.
+		const onPageshow = (e: PageTransitionEvent) => {
+			if (e.persisted) {
+				void invalidateAll();
+			}
+		};
+		window.addEventListener('pageshow', onPageshow);
+		lastPageshowHandler = onPageshow;
 	});
 
 	onDestroy(() => {
 		if (typeof window !== 'undefined') {
 			window.removeEventListener('dragend', handleDragEnd);
 			window.removeEventListener('pointerup', handleDragEnd);
+			if (lastPageshowHandler) window.removeEventListener('pageshow', lastPageshowHandler);
 		}
 	});
 
@@ -399,8 +421,6 @@
 			pg.outputPath = null;
 			pg.error = null;
 			pages = [...pages];
-			pageVersions[pg.id] = Date.now();
-			pageVersions = { ...pageVersions };
 			jobTracker.clearJob(chapterId);
 			toast.success(`Cleared progress on Page ${pg.seq + 1}.`);
 			await reload();
@@ -549,9 +569,6 @@
 				throw new Error(err.message || 'Stitch failed');
 			}
 			toast.success(`Merged Page ${pg.seq + 1} and Page ${nextPg.seq + 1}.`);
-			pageVersions[pg.id] = Date.now();
-			if (nextPg) pageVersions[nextPg.id] = Date.now();
-			pageVersions = { ...pageVersions };
 			await reload();
 		} catch (e) {
 			toast.error((e as Error).message || 'Could not merge pages.');
@@ -805,43 +822,37 @@
 			<p class="mt-1 max-w-sm text-xs opacity-60">Drag and drop images or chapter folders here, or click 'Add Images' above.</p>
 		</div>
 	{:else if activeViewMode === 'reader'}
-		<ViewModeWebtoon
-			pages={displayPages}
-			{webtoonKind}
-			{webtoonWidth}
-			{reloadKey}
-			{pageVersions}
-		/>
+	<ViewModeWebtoon
+		pages={displayPages}
+		{webtoonKind}
+		{webtoonWidth}
+	/>
 	{:else if activeViewMode === 'grid'}
-		<ViewModeGrid
-			pages={displayPages}
-			running={currentJobState.running}
-			{reloadKey}
-			{pageVersions}
-			{webtoonKind}
-			{draggedPageIndex}
-			{dragOverPageIndex}
-			on:inspect={(e) => openInspector(e.detail)}
-			on:menuAction={(e) => handleMenuAction(e.detail.action, e.detail.page)}
-			on:dragStart={(e) => handleDragStart(e.detail.event, e.detail.index)}
-			on:dragOver={(e) => handleDragOver(e.detail.event, e.detail.index)}
-			on:drop={(e) => handleDrop(e.detail.event, e.detail.index)}
-			on:dragEnd={handleDragEnd}
-		/>
+	<ViewModeGrid
+		pages={displayPages}
+		running={currentJobState.running}
+		{webtoonKind}
+		{draggedPageIndex}
+		{dragOverPageIndex}
+		on:inspect={(e) => openInspector(e.detail)}
+		on:menuAction={(e) => handleMenuAction(e.detail.action, e.detail.page)}
+		on:dragStart={(e) => handleDragStart(e.detail.event, e.detail.index)}
+		on:dragOver={(e) => handleDragOver(e.detail.event, e.detail.index)}
+		on:drop={(e) => handleDrop(e.detail.event, e.detail.index)}
+		on:dragEnd={handleDragEnd}
+	/>
 	{:else if activeViewMode === 'compare'}
-		<ViewModeCompare
-			pages={displayPages}
-			running={currentJobState.running}
-			{reloadKey}
-			{pageVersions}
-			{draggedPageIndex}
-			{dragOverPageIndex}
-			on:inspect={(e) => openInspector(e.detail)}
-			on:menuAction={(e) => handleMenuAction(e.detail.action, e.detail.page)}
-			on:dragStart={(e) => handleDragStart(e.detail.event, e.detail.index)}
-			on:dragOver={(e) => handleDragOver(e.detail.event, e.detail.index)}
-			on:drop={(e) => handleDrop(e.detail.event, e.detail.index)}
-		/>
+	<ViewModeCompare
+		pages={displayPages}
+		running={currentJobState.running}
+		{draggedPageIndex}
+		{dragOverPageIndex}
+		on:inspect={(e) => openInspector(e.detail)}
+		on:menuAction={(e) => handleMenuAction(e.detail.action, e.detail.page)}
+		on:dragStart={(e) => handleDragStart(e.detail.event, e.detail.index)}
+		on:dragOver={(e) => handleDragOver(e.detail.event, e.detail.index)}
+		on:drop={(e) => handleDrop(e.detail.event, e.detail.index)}
+	/>
 	{/if}
 
 	<!-- END OF CHAPTER CARD (RENDERED FOR ALL VIEW MODES AT BOTTOM WITH GAP) -->
@@ -870,8 +881,6 @@
 				pages[idx] = { ...pages[idx], ...updatedPg };
 				pages = [...pages];
 			}
-			pageVersions[updatedPg.id] = e.detail.reloadKey || Date.now();
-			pageVersions = { ...pageVersions };
 			reloadKey = e.detail.reloadKey || Date.now();
 			inspectPage = pages[idx] || updatedPg;
 		}

@@ -30,6 +30,12 @@ const NO_CACHE_HEADERS = {
 	'expires': '0',
 };
 
+// IMMUTABLE CACHE — SAFE ONLY BECAUSE THE URL EMBEDS THE CONTENT REVISION: A NEW
+// REV MEANS A NEW URL, SO THE OLD CACHED COPY IS NEVER RE-REQUESTED.
+const IMMUTABLE_HEADERS = {
+	'cache-control': 'public, max-age=31536000, immutable',
+};
+
 export const GET: RequestHandler = async ({ params, url, request }) => {
 	const pageId = Number(params.id);
 	if (!Number.isInteger(pageId)) throw error(400, 'Invalid page id.');
@@ -38,6 +44,20 @@ export const GET: RequestHandler = async ({ params, url, request }) => {
 
 	const page = db.select().from(pages).where(eq(pages.id, pageId)).get();
 	if (!page) throw error(404, 'Page not found.');
+
+	// REV PARAM — WHEN PRESENT THE RESPONSE IS IMMUTABLE-CACHEABLE (THE REV IS THE
+	// CONTENT VERSION, EMBEDDED IN THE URL BY THE CLIENT VIEW COMPONENTS).
+	const revParam = url.searchParams.get('rev');
+	const rev = revParam ? Number(revParam) : null;
+	const isImmutable = rev !== null && Number.isInteger(rev);
+	if (isImmutable) {
+		const stored =
+			kind === 'original' ? page.originalRev : kind === 'cleaned' ? page.cleanedRev : kind === 'output' ? page.outputRev : null;
+		// ORIGINALS CHANGE ONLY VIA STITCH (originalRev BUMP) — VALIDATE LIKE ANY OTHER KIND.
+		if (stored !== null && rev! > stored) {
+			throw error(404, 'Stale image revision.');
+		}
+	}
 
 	// THUMBNAIL SERVING & MEMOIZED DISK CACHING
 	if (kind === 'thumb') {
@@ -49,36 +69,35 @@ export const GET: RequestHandler = async ({ params, url, request }) => {
 		const sourcePath = join(DATA_ROOT, rel);
 		if (!existsSync(sourcePath)) throw error(404, 'Source image file not found on disk.');
 
-		const sourceStat = await stat(sourcePath);
 		const isOutput = rel === page.outputPath;
 		const thumbDir = join(DATA_ROOT, 'cache', 'thumbs');
-		const cacheKey = `${page.id}_${isOutput ? 'out' : 'orig'}_${targetWidth}.jpg`;
+		// THE REV IS THE CONTENT VERSION — IF THE CACHED FILE EXISTS FOR THIS EXACT
+		// KEY IT IS CURRENT (NO MTIME HEURISTIC NEEDED). THUMBS ARE OF OUTPUT OR
+		// ORIGINAL ONLY (cleaned IS NEVER THUMBNAILED).
+		const cacheKey = `${page.id}_${isOutput ? 'out' : 'orig'}_${targetWidth}_${isOutput ? page.outputRev : page.originalRev}.jpg`;
 		const cachePath = join(thumbDir, cacheKey);
 
 		if (existsSync(cachePath)) {
 			const fileStat = await stat(cachePath);
-			// ONLY SERVE CACHED THUMBNAIL IF IT WAS GENERATED AFTER THE SOURCE IMAGE WAS MODIFIED
-			if (fileStat.mtimeMs >= sourceStat.mtimeMs) {
-				const etag = `W/"${fileStat.size.toString(16)}-${Math.floor(fileStat.mtimeMs).toString(16)}"`;
-				if (request.headers.get('if-none-match') === etag) {
-					return new Response(null, {
-						status: 304,
-						headers: {
-							etag,
-							...NO_CACHE_HEADERS,
-						},
-					});
-				}
-
-				const cachedBytes = await readFile(cachePath);
-				return new Response(cachedBytes, {
+			const etag = `W/"${fileStat.size.toString(16)}-${Math.floor(fileStat.mtimeMs).toString(16)}"`;
+			if (request.headers.get('if-none-match') === etag) {
+				return new Response(null, {
+					status: 304,
 					headers: {
-						'content-type': 'image/jpeg',
 						etag,
 						...NO_CACHE_HEADERS,
 					},
 				});
 			}
+
+			const cachedBytes = await readFile(cachePath);
+			return new Response(cachedBytes, {
+				headers: {
+					'content-type': 'image/jpeg',
+					etag,
+					...NO_CACHE_HEADERS,
+				},
+			});
 		}
 
 		try {
@@ -132,7 +151,7 @@ export const GET: RequestHandler = async ({ params, url, request }) => {
 			status: 304,
 			headers: {
 				etag,
-				...NO_CACHE_HEADERS,
+				...(isImmutable ? IMMUTABLE_HEADERS : NO_CACHE_HEADERS),
 			},
 		});
 	}
@@ -158,7 +177,7 @@ export const GET: RequestHandler = async ({ params, url, request }) => {
 			'content-type': mime,
 			'content-disposition': `inline; filename="${safeDownloadName}"`,
 			etag,
-			...NO_CACHE_HEADERS,
+			...(isImmutable ? IMMUTABLE_HEADERS : NO_CACHE_HEADERS),
 		},
 	});
 };

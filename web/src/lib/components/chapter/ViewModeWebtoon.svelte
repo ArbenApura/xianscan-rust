@@ -2,8 +2,6 @@
 	export let pages: any[] = [];
 	export let webtoonKind: 'output' | 'original' = 'output';
 	export let webtoonWidth: 'sm' | 'md' | 'lg' = 'md';
-	export let reloadKey = Date.now();
-	export let pageVersions: Record<number, number> = {};
 
 	const widthClasses = {
 		sm: 'max-w-lg',
@@ -27,7 +25,7 @@
 					style={hasRatio ? `aspect-ratio: ${page.width} / ${page.height};` : ''}
 				>
 					<img
-						src={`/api/pages/${page.id}/file?kind=${webtoonKind === 'output' && page.outputPath ? 'output' : 'original'}&v=${reloadKey}_${page.outputPath || 'orig'}${pageVersions[page.id] ? `_${pageVersions[page.id]}` : ''}`}
+						src={`/api/pages/${page.id}/file?kind=${webtoonKind === 'output' && page.outputPath ? 'output' : 'original'}&rev=${webtoonKind === 'output' && page.outputPath ? page.outputRev ?? 0 : page.originalRev ?? 0}`}
 						alt={`Page ${page.seq + 1}`}
 						width={page.width || undefined}
 						height={page.height || undefined}

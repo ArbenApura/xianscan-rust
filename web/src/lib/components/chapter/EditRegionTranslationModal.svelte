@@ -28,7 +28,7 @@
 	const modalId = `edit-region-modal-${Math.random().toString(36).slice(2)}`;
 	const dispatch = createEventDispatcher<{
 		close: void;
-		saved: { region: any; outputPath?: string };
+		saved: { region: any; outputPath?: string; outputRev?: number };
 	}>();
 
 	let editTargetText = '';
@@ -155,7 +155,7 @@
 			}
 			const data = await res.json();
 			toast.success(action === 'reset_ai' ? 'Reset to default AI translation' : 'Saved and re-typeset page');
-			dispatch('saved', { region: data.region, outputPath: data.outputPath });
+			dispatch('saved', { region: data.region, outputPath: data.outputPath, outputRev: data.outputRev });
 			handleClose();
 		} catch (e: any) {
 			toast.error(e?.message || 'Error saving translation');

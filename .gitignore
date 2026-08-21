@@ -51,6 +51,8 @@ models/*.bin
 # ==============================================================================
 # LOGS, TEMPORARY & OS FILES
 # ==============================================================================
+# OPS NOTES WITH LIVE INFRASTRUCTURE CREDENTIALS — NEVER COMMIT
+FINDINGS.md
 *.log
 *.log.*
 .DS_Store

@@ -75,13 +75,17 @@ function createJobTrackerStore() {
 			if (typeof event.totalPages === 'number') s.totalPages = event.totalPages;
 			if (Array.isArray(event.pages) && event.pages.length > 0) {
 				s.totalPages = event.pages.length;
-				s.pages = event.pages.map((p: { id: number; seq: number; status?: string }, idx: number) => ({
-					pageIndex: idx,
-					pageId: p.id,
-					seq: p.seq,
-					status: (p.status as any) || 'pending',
-					timings: {},
-				}));
+				s.pages = event.pages.map(
+					(p: { id: number; seq: number; status?: string; cleanedRev?: number; outputRev?: number }, idx: number) => ({
+						pageIndex: idx,
+						pageId: p.id,
+						seq: p.seq,
+						status: (p.status as any) || 'pending',
+						timings: {},
+						cleanedRev: p.cleanedRev,
+						outputRev: p.outputRev,
+					}),
+				);
 				s.completedPages = s.pages.filter((p) => p.status === 'done').length;
 			}
 		} else if (event.type === 'phase-change' && typeof event.phase === 'string') {
@@ -175,6 +179,8 @@ function createJobTrackerStore() {
 				p.status = 'done';
 				p.currentStep = 'done';
 				if (typeof event.outputPath === 'string') p.outputPath = event.outputPath;
+				if (typeof event.cleanedRev === 'number') p.cleanedRev = event.cleanedRev;
+				if (typeof event.outputRev === 'number') p.outputRev = event.outputRev;
 				if (typeof event.durationMs === 'number' && Number.isFinite(event.durationMs)) p.totalDurationMs = event.durationMs;
 			}
 			s.completedPages = s.pages.filter((p) => p.status === 'done').length;

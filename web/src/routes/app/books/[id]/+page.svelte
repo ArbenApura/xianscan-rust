@@ -964,12 +964,12 @@
 		<div class="relative overflow-hidden rounded-2xl border border-black/[0.08] bg-white/70 p-3.5 sm:p-6 backdrop-blur-md dark:border-white/[0.08] dark:bg-white/[0.02]">
 			<div class="grid grid-cols-[auto_1fr] gap-x-3.5 sm:gap-x-6 gap-y-3 sm:gap-y-4 items-stretch">
 				<!-- COVER THUMBNAIL (FULL HEIGHT ON BOTH MOBILE & WIDE SCREENS) -->
-				<div class="w-20 xs:w-24 sm:w-32 md:w-36 shrink-0 sm:row-span-3 flex flex-col self-stretch">
+				<div class="relative w-20 xs:w-24 sm:w-32 md:w-36 shrink-0 sm:row-span-3 flex flex-col self-stretch">
 					<LazyImage
 						src={bookCoverPageId ? `/api/pages/${bookCoverPageId}/file?kind=thumb&w=320` : ''}
 						alt={book.titleTarget || book.title}
 						aspectRatio="aspect-[2/3] sm:aspect-auto"
-						class="shadow-md rounded-xl h-full w-full object-cover"
+						class="shadow-md rounded-xl w-full sm:absolute sm:inset-0"
 					/>
 				</div>
 

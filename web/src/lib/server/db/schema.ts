@@ -82,6 +82,15 @@ export const pages = sqliteTable(
 		cleanedPath: text('cleaned_path'),
 		// FINAL TYPESET IMAGE PATH — THE PIPELINE OUTPUT.
 		outputPath: text('output_path'),
+		// MONOTONIC CONTENT REVISIONS — BUMPED IN THE SAME TRANSACTION AS ANY FILE WRITE.
+		// THE CLIENT EMBEDS THEM IN IMAGE URLS (&rev=N) SO BROWSERS CAN CACHE IMMUTABLY
+		// WHILE EDITS ALWAYS FETCH FRESH BYTES.
+		cleanedRev: integer('cleaned_rev').notNull().default(0),
+		outputRev: integer('output_rev').notNull().default(0),
+		// ORIGINAL SOURCE REV — BUMPED WHENEVER filePath BYTES CHANGE IN PLACE
+		// (E.G. PAGE STITCH), SO IMMUTABLE-CACHED kind=original URLS GET A FRESH
+		// VALUE INSTEAD OF SERVING PRE-MERGE PIXELS.
+		originalRev: integer('original_rev').notNull().default(0),
 		error: text('error'),
 		createdAt: epochMs('created_at')
 			.notNull()

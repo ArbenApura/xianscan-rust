@@ -334,7 +334,7 @@ describe('typesetPage', () => {
 		const out = await typesetPage(blankPng(400, 300, 'black'), [
 			{ id: 'r0', box: { x: 50, y: 100, w: 300, h: 80 }, text: 'Hello world' },
 		]);
-		expect(out.slice(0, 8)).toEqual(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])); // PNG MAGIC
+		expect([out.slice(0, 4).toString('ascii'), out.slice(8, 12).toString('ascii')]).toEqual(['RIFF', 'WEBP']); // WEBP MAGIC
 		expect(await brightPixels(out)).toBeGreaterThan(0); // WHITE TEXT ON THE BLACK PAGE
 	});
 
@@ -365,7 +365,7 @@ describe('typesetPage', () => {
 		const out = await typesetPage(blankPng(300, 200, 'white'), [
 			{ id: 'r0', box: { x: 10, y: 10, w: 280, h: 100 }, text: 'BOOM!' },
 		]);
-		expect(out.slice(0, 8)).toEqual(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]));
+		expect([out.slice(0, 4).toString('ascii'), out.slice(8, 12).toString('ascii')]).toEqual(['RIFF', 'WEBP']);
 	});
 
 	it('renders small text regions cleanly without crashes or distortion', async () => {
@@ -373,7 +373,7 @@ describe('typesetPage', () => {
 		const out = await typesetPage(blankPng(200, 200, 'black'), [
 			{ id: 'r0', box: { x: 90, y: 90, w: 20, h: 20 }, text: 'TURN' },
 		]);
-		expect(out.slice(0, 8)).toEqual(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]));
+		expect([out.slice(0, 4).toString('ascii'), out.slice(8, 12).toString('ascii')]).toEqual(['RIFF', 'WEBP']);
 		expect(await brightPixels(out)).toBeGreaterThan(0);
 	});
 
@@ -381,7 +381,7 @@ describe('typesetPage', () => {
 		const out = await typesetPage(blankPng(400, 400, 'black'), [
 			{ id: 'r0', box: { x: 50, y: 50, w: 300, h: 100 }, text: 'SLASH!', angle: 35.5 },
 		]);
-		expect(out.slice(0, 8)).toEqual(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]));
+		expect([out.slice(0, 4).toString('ascii'), out.slice(8, 12).toString('ascii')]).toEqual(['RIFF', 'WEBP']);
 		expect(await brightPixels(out)).toBeGreaterThan(0);
 	});
 
@@ -394,7 +394,7 @@ describe('typesetPage', () => {
 				angle: 9.26,
 			},
 		]);
-		expect(out.slice(0, 8)).toEqual(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]));
+		expect([out.slice(0, 4).toString('ascii'), out.slice(8, 12).toString('ascii')]).toEqual(['RIFF', 'WEBP']);
 		expect(await brightPixels(out)).toBeGreaterThan(0);
 	});
 
@@ -408,7 +408,7 @@ describe('typesetPage', () => {
 				text: longTranslation,
 			},
 		]);
-		expect(out.slice(0, 8)).toEqual(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]));
+		expect([out.slice(0, 4).toString('ascii'), out.slice(8, 12).toString('ascii')]).toEqual(['RIFF', 'WEBP']);
 		expect(await brightPixels(out)).toBeGreaterThan(0);
 
 		// Verify that reflowText preserves all words across all lines
@@ -450,7 +450,7 @@ describe('typesetPage', () => {
 		];
 
 		const out = await typesetPage(blankPng(800, 1131, 'white'), page656Regions);
-		expect(out.slice(0, 8)).toEqual(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]));
+		expect([out.slice(0, 4).toString('ascii'), out.slice(8, 12).toString('ascii')]).toEqual(['RIFF', 'WEBP']);
 		expect(await brightPixels(out)).toBeGreaterThan(0);
 	});
 
@@ -463,7 +463,7 @@ describe('typesetPage', () => {
 				angle: 0.0,
 			},
 		]);
-		expect(out.slice(0, 8)).toEqual(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]));
+		expect([out.slice(0, 4).toString('ascii'), out.slice(8, 12).toString('ascii')]).toEqual(['RIFF', 'WEBP']);
 		expect(await brightPixels(out)).toBeGreaterThan(0);
 	});
 
@@ -472,7 +472,7 @@ describe('typesetPage', () => {
 			{ id: '22412', box: { x: 118, y: 230, w: 110, h: 123 }, text: 'WEI!' },
 			{ id: '22413', box: { x: 540, y: 552, w: 253, h: 243 }, text: 'NIAN!' },
 		]);
-		expect(out.slice(0, 8)).toEqual(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]));
+		expect([out.slice(0, 4).toString('ascii'), out.slice(8, 12).toString('ascii')]).toEqual(['RIFF', 'WEBP']);
 		const dark = await (async () => {
 			const img = await loadImage(out);
 			const probe = createCanvas(img.width, img.height);
@@ -499,7 +499,7 @@ describe('typesetPage', () => {
 				vertical: true,
 			},
 		]);
-		expect(out.slice(0, 8)).toEqual(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]));
+		expect([out.slice(0, 4).toString('ascii'), out.slice(8, 12).toString('ascii')]).toEqual(['RIFF', 'WEBP']);
 
 		const img = await loadImage(out);
 		const probe = createCanvas(img.width, img.height);

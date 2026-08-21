@@ -49,11 +49,13 @@ export interface JobEvent {
 	durationMs?: number;
 	failedStep?: PipelineStep;
 	outputPath?: string | null;
+	cleanedRev?: number;
+	outputRev?: number;
 	usage?: TranslationUsage;
 	message?: string;
 	timestamp?: number;
 	snapshot?: ChapterJobSnapshot;
-	pages?: Array<{ id: number; seq: number; status: string }>;
+	pages?: Array<{ id: number; seq: number; status: string; cleanedRev?: number; outputRev?: number }>;
 }
 
 export interface JobHandle {
@@ -142,6 +144,8 @@ function updateSnapshot(snapshot: ChapterJobSnapshot, event: JobEvent): void {
 				seq: p.seq,
 				status: (p.status as PageProgressState['status']) || 'pending',
 				timings: {},
+				cleanedRev: p.cleanedRev,
+				outputRev: p.outputRev,
 			}));
 		}
 	} else if (event.type === 'phase-change' && event.phase) {
@@ -230,6 +234,8 @@ function updateSnapshot(snapshot: ChapterJobSnapshot, event: JobEvent): void {
 			p.status = 'done';
 			p.currentStep = 'done';
 			p.outputPath = event.outputPath ?? p.outputPath;
+			if (event.cleanedRev !== undefined) p.cleanedRev = event.cleanedRev;
+			if (event.outputRev !== undefined) p.outputRev = event.outputRev;
 			if (typeof event.durationMs === 'number' && Number.isFinite(event.durationMs)) {
 				p.totalDurationMs = event.durationMs;
 			}

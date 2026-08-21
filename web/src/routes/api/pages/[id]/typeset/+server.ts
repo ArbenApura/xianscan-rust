@@ -35,6 +35,7 @@ export const POST: RequestHandler = async ({ params, request, cookies }) => {
 		return json({
 			success: true,
 			outputPath: result.outputPath,
+			outputRev: result.outputRev,
 		});
 	} catch (err: any) {
 		throw error(500, err?.message || 'Failed to retypeset page');

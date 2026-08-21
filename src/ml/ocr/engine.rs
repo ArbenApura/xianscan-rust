@@ -2,6 +2,7 @@ use std::path::Path;
 use anyhow::{Context, Result};
 use image::{DynamicImage, GenericImageView, ImageBuffer, Rgb};
 use ort::{session::Session, value::Tensor};
+use rayon::prelude::*;
 
 use crate::ml::detect::{lines_map_to_boxes, CHINESE_RE, PUNCT_ONLY};
 use crate::ml::geometry::{box_iou_pts, polygon_bounds};
@@ -13,10 +14,15 @@ pub struct RapidOcr {
     characters: Vec<String>,
     korean_rec_session: Option<Session>,
     characters_korean: Option<Vec<String>>,
+    // LAZY REGISTRATION PAYLOAD: BYTES + DICT HELD UNTIL FIRST KOREAN/CYRILLIC/THAI
+    // USE, SO A ZH/JA/EN WORKLOAD NEVER PAYS FOR THESE SESSIONS' RSS.
+    korean_pending: Option<(Vec<u8>, String)>,
     cyrillic_rec_session: Option<Session>,
     characters_cyrillic: Option<Vec<String>>,
+    cyrillic_pending: Option<(Vec<u8>, String)>,
     thai_rec_session: Option<Session>,
     characters_thai: Option<Vec<String>>,
+    thai_pending: Option<(Vec<u8>, String)>,
 }
 
 impl RapidOcr {
@@ -62,17 +68,19 @@ impl RapidOcr {
             characters,
             korean_rec_session: None,
             characters_korean: None,
+            korean_pending: None,
             cyrillic_rec_session: None,
             characters_cyrillic: None,
+            cyrillic_pending: None,
             thai_rec_session: None,
             characters_thai: None,
+            thai_pending: None,
         })
     }
 
     pub fn load_korean_from_bytes(&mut self, bytes: &[u8], dict_str: &str) -> Result<()> {
-        let session = crate::ml::device::create_session_from_memory(bytes, "rapid_ocr_korean")?;
-        self.korean_rec_session = Some(session);
-        self.characters_korean = Some(parse_dict_string(dict_str));
+        // DEFER SESSION CONSTRUCTION TO FIRST KOREAN USE (SEE ensure_korean_rec).
+        self.korean_pending = Some((bytes.to_vec(), dict_str.to_string()));
         Ok(())
     }
 
@@ -83,9 +91,8 @@ impl RapidOcr {
     }
 
     pub fn load_cyrillic_from_bytes(&mut self, bytes: &[u8], dict_str: &str) -> Result<()> {
-        let session = crate::ml::device::create_session_from_memory(bytes, "rapid_ocr_cyrillic")?;
-        self.cyrillic_rec_session = Some(session);
-        self.characters_cyrillic = Some(parse_dict_string(dict_str));
+        // DEFER SESSION CONSTRUCTION TO FIRST CYRILLIC USE (SEE ensure_cyrillic_rec).
+        self.cyrillic_pending = Some((bytes.to_vec(), dict_str.to_string()));
         Ok(())
     }
 
@@ -96,9 +103,8 @@ impl RapidOcr {
     }
 
     pub fn load_thai_from_bytes(&mut self, bytes: &[u8], dict_str: &str) -> Result<()> {
-        let session = crate::ml::device::create_session_from_memory(bytes, "rapid_ocr_thai")?;
-        self.thai_rec_session = Some(session);
-        self.characters_thai = Some(parse_dict_string(dict_str));
+        // DEFER SESSION CONSTRUCTION TO FIRST THAI USE (SEE ensure_thai_rec).
+        self.thai_pending = Some((bytes.to_vec(), dict_str.to_string()));
         Ok(())
     }
 
@@ -110,16 +116,58 @@ impl RapidOcr {
 
     pub fn get_rec_session_and_dict(&mut self, source_lang: Option<&str>) -> (&mut Session, &[String]) {
         let lang = source_lang.unwrap_or("").trim().to_ascii_lowercase();
-        if (lang.starts_with("ko") || lang == "korean") && self.korean_rec_session.is_some() && self.characters_korean.is_some() {
-            return (self.korean_rec_session.as_mut().unwrap(), self.characters_korean.as_ref().unwrap());
+        if lang.starts_with("ko") || lang == "korean" {
+            self.ensure_korean_rec();
+            if self.korean_rec_session.is_some() && self.characters_korean.is_some() {
+                return (self.korean_rec_session.as_mut().unwrap(), self.characters_korean.as_ref().unwrap());
+            }
         }
-        if (lang.starts_with("ru") || lang.starts_with("cyrillic") || lang == "russian") && self.cyrillic_rec_session.is_some() && self.characters_cyrillic.is_some() {
-            return (self.cyrillic_rec_session.as_mut().unwrap(), self.characters_cyrillic.as_ref().unwrap());
+        if lang.starts_with("ru") || lang.starts_with("cyrillic") || lang == "russian" {
+            self.ensure_cyrillic_rec();
+            if self.cyrillic_rec_session.is_some() && self.characters_cyrillic.is_some() {
+                return (self.cyrillic_rec_session.as_mut().unwrap(), self.characters_cyrillic.as_ref().unwrap());
+            }
         }
-        if (lang.starts_with("th") || lang == "thai") && self.thai_rec_session.is_some() && self.characters_thai.is_some() {
-            return (self.thai_rec_session.as_mut().unwrap(), self.characters_thai.as_ref().unwrap());
+        if lang.starts_with("th") || lang == "thai" {
+            self.ensure_thai_rec();
+            if self.thai_rec_session.is_some() && self.characters_thai.is_some() {
+                return (self.thai_rec_session.as_mut().unwrap(), self.characters_thai.as_ref().unwrap());
+            }
         }
         (&mut self.rec_session, &self.characters)
+    }
+
+    fn ensure_korean_rec(&mut self) {
+        if self.korean_rec_session.is_none() {
+            if let Some((bytes, dict)) = self.korean_pending.take() {
+                if let Ok(session) = crate::ml::device::create_session_from_memory(&bytes, "rapid_ocr_korean") {
+                    self.korean_rec_session = Some(session);
+                    self.characters_korean = Some(parse_dict_string(&dict));
+                }
+            }
+        }
+    }
+
+    fn ensure_cyrillic_rec(&mut self) {
+        if self.cyrillic_rec_session.is_none() {
+            if let Some((bytes, dict)) = self.cyrillic_pending.take() {
+                if let Ok(session) = crate::ml::device::create_session_from_memory(&bytes, "rapid_ocr_cyrillic") {
+                    self.cyrillic_rec_session = Some(session);
+                    self.characters_cyrillic = Some(parse_dict_string(&dict));
+                }
+            }
+        }
+    }
+
+    fn ensure_thai_rec(&mut self) {
+        if self.thai_rec_session.is_none() {
+            if let Some((bytes, dict)) = self.thai_pending.take() {
+                if let Ok(session) = crate::ml::device::create_session_from_memory(&bytes, "rapid_ocr_thai") {
+                    self.thai_rec_session = Some(session);
+                    self.characters_thai = Some(parse_dict_string(&dict));
+                }
+            }
+        }
     }
 
     /// DIRECT TEXT RECOGNITION ON A LINE CROP
@@ -212,26 +260,33 @@ impl RapidOcr {
             }
 
             let target_h = 48_usize;
-            let mut max_scaled_w = 320_usize;
-            let mut resized_list = Vec::with_capacity(batch_len);
 
-            for opt_crop in &processed_crops {
-                if let Some(ref c) = opt_crop {
-                    let (w, h) = c.dimensions();
-                    let r = target_h as f32 / h.max(1) as f32;
-                    let scaled_w = ((w as f32 * r).round() as usize).clamp(16, 2048);
-                    max_scaled_w = max_scaled_w.max(scaled_w);
-                    let resized = image::imageops::resize(
-                        c,
-                        scaled_w as u32,
-                        target_h as u32,
-                        image::imageops::FilterType::Triangle,
-                    );
-                    resized_list.push(Some((resized, scaled_w)));
-                } else {
-                    resized_list.push(None);
-                }
-            }
+            // RESIZE EVERY CROP IN PARALLEL (INDEPENDENT WORK), THEN REDUCE THE MAX
+            // SCALED WIDTH ACROSS THE BATCH (FAULT D: PARALLELIZE CPU PREPROCESSING).
+            let resized_list: Vec<Option<(image::RgbaImage, usize)>> = processed_crops
+                .par_iter()
+                .map(|opt_crop| {
+                    opt_crop.as_ref().map(|c| {
+                        let (w, h) = c.dimensions();
+                        let r = target_h as f32 / h.max(1) as f32;
+                        let scaled_w = ((w as f32 * r).round() as usize).clamp(16, 2048);
+                        let resized = image::imageops::resize(
+                            c,
+                            scaled_w as u32,
+                            target_h as u32,
+                            image::imageops::FilterType::Triangle,
+                        );
+                        (resized, scaled_w)
+                    })
+                })
+                .collect();
+
+            let max_scaled_w = resized_list
+                .iter()
+                .filter_map(|item| item.as_ref().map(|(_, sw)| *sw))
+                .max()
+                .unwrap_or(320)
+                .max(320);
 
             let target_w = max_scaled_w;
             let mut tensor_vec = vec![0.0_f32; batch_len * 3 * target_h * target_w];
@@ -239,23 +294,27 @@ impl RapidOcr {
             let stride_c = target_h * target_w;
             let stride_y = target_w;
 
-            for (b_idx, item) in resized_list.iter().enumerate() {
-                if let Some((ref resized, scaled_w)) = item {
-                    let b_offset = b_idx * item_stride;
-                    for y in 0..target_h {
-                        for x in 0..*scaled_w {
-                            let p = resized.get_pixel(x as u32, y as u32);
-                            let r_norm = (p[0] as f32 / 255.0 - 0.5) / 0.5;
-                            let g_norm = (p[1] as f32 / 255.0 - 0.5) / 0.5;
-                            let b_norm = (p[2] as f32 / 255.0 - 0.5) / 0.5;
+            // FILL THE TENSOR IN PARALLEL — EACH BATCH ITEM WRITES ITS OWN DISJOINT
+            // SLICE OF tensor_vec (FAULT D: PARALLELIZE CPU PREPROCESSING).
+            tensor_vec
+                .par_chunks_mut(item_stride)
+                .enumerate()
+                .for_each(|(b_idx, chunk)| {
+                    if let Some((resized, scaled_w)) = resized_list[b_idx].as_ref() {
+                        for y in 0..target_h {
+                            for x in 0..*scaled_w {
+                                let p = resized.get_pixel(x as u32, y as u32);
+                                let r_norm = (p[0] as f32 / 255.0 - 0.5) / 0.5;
+                                let g_norm = (p[1] as f32 / 255.0 - 0.5) / 0.5;
+                                let b_norm = (p[2] as f32 / 255.0 - 0.5) / 0.5;
 
-                            tensor_vec[b_offset + 0 * stride_c + y * stride_y + x] = b_norm;
-                            tensor_vec[b_offset + 1 * stride_c + y * stride_y + x] = g_norm;
-                            tensor_vec[b_offset + 2 * stride_c + y * stride_y + x] = r_norm;
+                                chunk[0 * stride_c + y * stride_y + x] = b_norm;
+                                chunk[1 * stride_c + y * stride_y + x] = g_norm;
+                                chunk[2 * stride_c + y * stride_y + x] = r_norm;
+                            }
                         }
                     }
-                }
-            }
+                });
 
             let input_tensor = Tensor::from_array(([batch_len, 3, target_h, target_w], tensor_vec))
                 .map_err(|e| anyhow::anyhow!("Batched tensor create error: {}", e))?;
@@ -573,18 +632,20 @@ impl RapidOcr {
             let stride_y = resize_w as usize;
 
             // PP-OCR Det normalization in RGB format: (RGB / 255.0 - [0.485, 0.456, 0.406]) / [0.229, 0.224, 0.225]
-            for y in 0..resize_h as usize {
-                for x in 0..resize_w as usize {
-                    let p = resized.get_pixel(x as u32, y as u32);
-                    let r = (p[0] as f32 / 255.0 - 0.485) / 0.229;
-                    let g = (p[1] as f32 / 255.0 - 0.456) / 0.224;
-                    let b = (p[2] as f32 / 255.0 - 0.406) / 0.225;
-
-                    det_vec[0 * stride_c + y * stride_y + x] = r;
-                    det_vec[1 * stride_c + y * stride_y + x] = g;
-                    det_vec[2 * stride_c + y * stride_y + x] = b;
+            // FILL THE THREE CHANNEL PLANES IN PARALLEL (FAULT D: PARALLELIZE CPU PREPROCESSING).
+            det_vec.par_chunks_mut(stride_c).enumerate().for_each(|(c, plane)| {
+                for y in 0..resize_h as usize {
+                    for x in 0..resize_w as usize {
+                        let p = resized.get_pixel(x as u32, y as u32);
+                        let v = match c {
+                            0 => (p[0] as f32 / 255.0 - 0.485) / 0.229,
+                            1 => (p[1] as f32 / 255.0 - 0.456) / 0.224,
+                            _ => (p[2] as f32 / 255.0 - 0.406) / 0.225,
+                        };
+                        plane[y * stride_y + x] = v;
+                    }
                 }
-            }
+            });
 
             let det_tensor = Tensor::from_array(([1, 3, resize_h as usize, resize_w as usize], det_vec))
                 .map_err(|e| anyhow::anyhow!("Det tensor create error: {}", e))?;
@@ -618,6 +679,8 @@ impl RapidOcr {
             Vec::new()
         };
 
+        // FIRST PASS: COLLECT ALL DETECTED LINE CROPS (NO INFERENCE YET)
+        let mut pending: Vec<(Vec<[i32; 2]>, DynamicImage)> = Vec::new();
         for poly in detected_boxes {
             let ang = crate::ml::geometry::calculate_box_angle_i32(&poly);
             let crop_opt = if ang.abs() >= 2.0 && poly.len() == 4 {
@@ -645,11 +708,57 @@ impl RapidOcr {
                     continue;
                 }
             };
+            pending.push((poly, crop));
+        }
 
-            if let Ok(Some(line_res)) = self.recognize_line_with_lang(&crop, source_lang) {
+        // SECOND PASS: BATCH THE HORIZONTAL LINE CROPS INTO ONE ORT CALL INSTEAD
+        // OF ONE BATCH-1 CALL PER CROP — THE PER-CROP BATCH-1 PATH KEEPS THE GPU
+        // IDLE BETWEEN TINY KERNELS, BATCHING AMORTIZES THE LAUNCH OVERHEAD.
+        // VERTICAL CROPS (H >= 1.3 * W) STAY ON THE PER-CROP SMART PATH: THEIR
+        // UPRIGHT-SLICING + ROTATION FALLBACKS ARE LOAD-BEARING FOR TBRL MANGA
+        // TEXT AND THE BATCHED SINGLE-PASS PATH CANNOT REPRODUCE THAT OUTPUT.
+        let batch_slots: Vec<usize> = pending
+            .iter()
+            .enumerate()
+            .filter(|(_, (_, c))| {
+                let (cw, ch) = c.dimensions();
+                (ch as f32) < 1.3 * (cw as f32)
+            })
+            .map(|(idx, _)| idx)
+            .collect();
+        let crops: Vec<DynamicImage> = batch_slots.iter().map(|&i| pending[i].1.clone()).collect();
+        let batch_results = if crops.is_empty() {
+            Vec::new()
+        } else {
+            self.recognize_lines_batched_with_lang(&crops, source_lang)
+                .unwrap_or_else(|_| {
+                    crops
+                        .iter()
+                        .map(|c| self.recognize_line_with_lang(c, source_lang).ok().flatten())
+                        .collect()
+                })
+        };
+
+        // THIRD PASS: RE-ALIGN RESULTS TO THEIR ORIGINAL DETECTION SLOT AND EMIT
+        // IN DETECTION ORDER (HORIZONTAL BATCH + VERTICAL SMART PATH TOGETHER), SO
+        // THE OUTPUT ORDER IS IDENTICAL TO THE PRE-BATCHING BEHAVIOUR.
+        let mut results_by_idx: Vec<Option<OcrResult>> = (0..pending.len()).map(|_| None).collect();
+        for (slot_idx, &pending_idx) in batch_slots.iter().enumerate() {
+            results_by_idx[pending_idx] = batch_results.get(slot_idx).cloned().flatten();
+        }
+        for (idx, (_, crop)) in pending.iter().enumerate() {
+            let (cw, ch) = crop.dimensions();
+            if (ch as f32) >= 1.3 * (cw as f32) {
+                if let Ok(Some(line_res)) = self.recognize_line_with_lang(crop, source_lang) {
+                    results_by_idx[idx] = Some(line_res);
+                }
+            }
+        }
+        for (idx, (poly, _)) in pending.iter().enumerate() {
+            if let Some(line_res) = results_by_idx[idx].take() {
                 if !line_res.text.is_empty() {
                     lines.push(OcrLine {
-                        polygon: poly,
+                        polygon: poly.clone(),
                         text: line_res.text,
                         score: line_res.score,
                     });

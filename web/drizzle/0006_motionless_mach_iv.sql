@@ -1,0 +1,1 @@
+ALTER TABLE `pages` ADD `original_rev` integer DEFAULT 0 NOT NULL;

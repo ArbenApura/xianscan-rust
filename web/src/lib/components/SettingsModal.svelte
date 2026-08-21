@@ -229,8 +229,10 @@
 	}
 
 	function isDeviceAvailable(devId: ExecutionDevice): boolean {
-		if (!hardwareInfo) return true;
 		if (devId === 'auto' || devId === 'cpu') return true;
+		// IF DETECTION IS STILL RUNNING, GPU OPTIONS ARE NOT YET CONFIRMED AVAILABLE.
+		// RETURN FALSE SO AN INVALID ACCELERATOR CANNOT BE SELECTED BEFORE WE KNOW.
+		if (!hardwareInfo) return false;
 		if (devId === 'cuda') return hardwareInfo.has_cuda;
 		if (devId === 'coreml') return hardwareInfo.has_coreml;
 		if (devId === 'dml') return hardwareInfo.has_directml;
@@ -238,7 +240,7 @@
 	}
 
 	function getDeviceAvailabilityReason(devId: ExecutionDevice): string | null {
-		if (!hardwareInfo) return null;
+		if (!hardwareInfo) return 'Detecting available hardware...';
 		if (devId === 'cuda' && !hardwareInfo.has_cuda) return 'Dedicated NVIDIA CUDA GPU not detected';
 		if (devId === 'coreml' && !hardwareInfo.has_coreml) return 'Apple Silicon GPU (CoreML) not detected';
 		if (devId === 'dml' && !hardwareInfo.has_directml) {
@@ -260,7 +262,6 @@
 
 		if (switchingDevice) return;
 
-		settings.update((s) => ({ ...s, executionDevice: dev }));
 		const found = EXECUTION_DEVICES.find((d) => d.id === dev);
 		switchingDevice = dev;
 
@@ -272,7 +273,25 @@
 			});
 			if (res.ok) {
 				hardwareInfo = (await res.json()) as HardwareInfo;
-				toast.success(`Compute hardware set to ${found?.label || dev}`);
+				const expectedEp =
+					dev === 'dml'
+						? 'DmlExecutionProvider'
+						: dev === 'cuda'
+							? 'CUDAExecutionProvider'
+							: dev === 'coreml'
+								? 'CoreMLExecutionProvider'
+								: null;
+				const active = hardwareInfo.providers?.[0] ?? hardwareInfo.active_provider;
+				const resolvedLabel = formatDeviceLabel(hardwareInfo.device_label) || found?.label || dev;
+				if (expectedEp && active && active !== expectedEp) {
+					// THE REQUESTED GPU IS NOT AVAILABLE AND THE BACKEND FELL BACK TO A
+					// DIFFERENT PROVIDER. REPORT THE ACTUAL RESULT AND RESET THE SELECTION.
+					settings.update((s) => ({ ...s, executionDevice: 'auto' }));
+					toast.error(`${found?.label || dev} is not available. Running on ${resolvedLabel}.`);
+				} else {
+					settings.update((s) => ({ ...s, executionDevice: dev }));
+					toast.success(`Compute hardware set to ${resolvedLabel}`);
+				}
 				// THE BACKEND RELOADS ALL ~400MB OF MODELS ASYNCHRONOUSLY; POLL UNTIL IT REPORTS READY.
 				void waitForReloadDone(dev);
 			} else {

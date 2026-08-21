@@ -61,7 +61,9 @@ function createTestState(): TestState {
 export function resetDb(): void {
 	const state = globalThis.__mtTestDb ?? (globalThis.__mtTestDb = createTestState());
 	const tables = ['ai_providers', 'ai_usage', 'translations', 'regions', 'pages', 'glossary', 'chapters', 'books'];
-	state.raw.exec(`DROP TABLE IF EXISTS __drizzle_migrations; ${tables.map((t) => `DROP TABLE IF EXISTS \`${t}\`;`).join(' ')}`);
+	state.raw.exec(
+		`DROP TABLE IF EXISTS __drizzle_migrations; ${tables.map((t) => `DROP TABLE IF EXISTS \`${t}\`;`).join(' ')}`,
+	);
 	migrate(state.db, { migrationsFolder: MIGRATIONS_DIR });
 }
 
@@ -92,22 +94,36 @@ export function seedChapter(db: TestDb, input: { bookId: string; seq: number; ti
 		.get();
 }
 
-export function seedPage(db: TestDb, input: { chapterId: number; seq: number; filePath?: string }) {
+export function seedPage(
+	db: TestDb,
+	input: {
+		chapterId: number;
+		seq: number;
+		filePath?: string;
+		cleanedPath?: string;
+		outputPath?: string;
+		cleanedRev?: number;
+		outputRev?: number;
+		originalRev?: number;
+	},
+) {
 	return db
 		.insert(schema.pages)
 		.values({
 			chapterId: input.chapterId,
 			seq: input.seq,
 			filePath: input.filePath ?? `uploads/c${input.chapterId}/p${input.seq}.png`,
+			cleanedPath: input.cleanedPath ?? undefined,
+			outputPath: input.outputPath ?? undefined,
+			cleanedRev: input.cleanedRev ?? 0,
+			outputRev: input.outputRev ?? 0,
+			originalRev: input.originalRev ?? 0,
 		})
 		.returning()
 		.get();
 }
 
-export function seedRegion(
-	db: TestDb,
-	input: { pageId: number; seq: number; box?: string; textSource?: string },
-) {
+export function seedRegion(db: TestDb, input: { pageId: number; seq: number; box?: string; textSource?: string }) {
 	return db
 		.insert(schema.regions)
 		.values({

@@ -255,6 +255,17 @@ async fn main() -> anyhow::Result<()> {
     println!();
 
     // -----------------------------------------------------------------------
+    // SILENCE ONNX RUNTIME'S NATIVE C-LOGGER (LOUD [W:...] DEVICE / EP WARNINGS
+    // LIKE "Failed to detect devices", "VerifyEachNodeIsAssignedToAnEp", AND
+    // "Memcpy nodes are added"). SET BEFORE THE FIRST SESSION IS CREATED. THIS
+    // SUPPRESSES ONLY THE C LIBRARY'S WARNINGS; OUR OWN tracing::info! MODEL
+    // LOADING MESSAGES BELOW ARE UNAFFECTED.
+    // -----------------------------------------------------------------------
+    if let Ok(env) = ort::environment::Environment::current() {
+        env.set_log_level(ort::logging::LogLevel::Error);
+    }
+
+    // -----------------------------------------------------------------------
     // LOAD ML MODELS WITH ANIMATED CLI SPINNER
     // -----------------------------------------------------------------------
     println!("  {}", "◆ AI INFERENCE PIPELINE".bold().bright_white());
@@ -272,7 +283,7 @@ async fn main() -> anyhow::Result<()> {
         "    {}  OCR Engine     — {}",
         if engine.ocr.is_some() { "✓".bright_green().bold() } else { "✗".bright_red().bold() },
         if engine.ocr.is_some() {
-            if models_dir.join("PP-OCRv6_rec_small.onnx").exists() { "RapidOCR / PP-OCRv4 Multi-language (disk)".white() } else { "RapidOCR / PP-OCRv4 Multi-language (embedded)".white() }
+            if models_dir.join("PP-OCRv6_rec_small.onnx").exists() { "RapidOCR Multi-language (disk)".white() } else { "RapidOCR Multi-language (embedded)".white() }
         } else { "missing weights".bright_red() }
     );
     println!(

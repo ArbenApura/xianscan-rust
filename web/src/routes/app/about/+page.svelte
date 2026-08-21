@@ -271,7 +271,7 @@
 				<ShieldCheck size={16} class="text-emerald-600 dark:text-emerald-400 shrink-0 mt-0.5" />
 				<div>
 					<strong class="font-semibold text-neutral-900 dark:text-neutral-100">100% Local-First & Private:</strong>
-					<p class="text-neutral-600 dark:text-neutral-400 mt-0.5">Standalone binary (~450 MB) running completely offline with SQLite and raw images on your local disk.</p>
+					<p class="text-neutral-600 dark:text-neutral-400 mt-0.5">Standalone binary (self-contained, size varies by platform) running completely offline with SQLite and raw images on your local disk.</p>
 				</div>
 			</div>
 
@@ -334,7 +334,7 @@
 				<Download size={16} class="text-[#b23a2e] dark:text-[#e08a63] shrink-0 mt-0.5" />
 				<div>
 					<strong class="font-semibold text-neutral-900 dark:text-neutral-100">High-Resolution ZIP / CBZ Export:</strong>
-					<p class="text-neutral-600 dark:text-neutral-400 mt-0.5">Download full translated chapters packaged as CBZ/ZIP archives with one click.</p>
+					<p class="text-neutral-600 dark:text-neutral-400 mt-0.5">Download full translated chapters packaged as ZIP archives with one click.</p>
 				</div>
 			</div>
 		</div>

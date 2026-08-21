@@ -72,6 +72,14 @@ static BINDINGS_PKG: Dir<'static> =
 static FILE_URI_TO_PATH_PKG: Dir<'static> =
     include_dir!("$CARGO_MANIFEST_DIR/web/node_modules/file-uri-to-path");
 
+/// Compiled-in copy of the `@napi-rs/image` pure-JS wrapper package.
+/// The JS files (index.js, browser.js, index.d.ts …) must live alongside the
+/// platform `.node` binary so that `require('./image.<platform>.node')` resolves.
+/// Used by the upload path to convert AVIF / HEIC sources to WebP.
+#[cfg(feature = "embed-web")]
+static NAPI_IMAGE_JS: Dir<'static> =
+    include_dir!("$CARGO_MANIFEST_DIR/web/node_modules/@napi-rs/image");
+
 
 // ---------------------------------------------------------------------------
 // Native .node addon binaries
@@ -102,6 +110,18 @@ const SKIA_NODE_FILENAME: &str = env!("SKIA_NODE_FILENAME");
 /// Path discovered by build.rs → SKIA_ICU_PATH.
 #[cfg(feature = "embed-web")]
 static SKIA_ICU_BYTES: &[u8] = include_bytes!(env!("SKIA_ICU_PATH"));
+
+/// @napi-rs/image native addon for the current platform.
+/// Path discovered by build.rs → IMAGE_NODE_PATH.
+#[cfg(feature = "embed-web")]
+static IMAGE_NODE: &[u8] = include_bytes!(env!("IMAGE_NODE_PATH"));
+
+/// Filename of the @napi-rs/image .node binary (e.g. `image.win32-x64-msvc.node`).
+/// index.js uses `require('./<IMAGE_NODE_FILENAME>')` to load it, so the
+/// extracted file must use exactly this name.
+/// Value set by build.rs → IMAGE_NODE_FILENAME.
+#[cfg(feature = "embed-web")]
+const IMAGE_NODE_FILENAME: &str = env!("IMAGE_NODE_FILENAME");
 
 /// Optional bundled standalone Node.js binary for the current platform.
 /// Path discovered by build.rs → NODE_BIN_PATH.
@@ -328,6 +348,18 @@ fn extract_all(app_dir: &std::path::Path) -> anyhow::Result<()> {
     fs::write(canvas_pkg_dir.join(SKIA_NODE_FILENAME), SKIA_NODE)?;
     if !SKIA_ICU_BYTES.is_empty() {
         fs::write(canvas_pkg_dir.join("icudtl.dat"), SKIA_ICU_BYTES)?;
+    }
+
+    // 6b. @napi-rs/image JS wrapper + platform .node binary
+    //    index.js first tries `require('./image.<platform>.node')` — the .node
+    //    file must therefore live in the same directory as index.js.
+    let image_pkg_dir = app_dir
+        .join("node_modules")
+        .join("@napi-rs")
+        .join("image");
+    extract_dir(&NAPI_IMAGE_JS, &image_pkg_dir)?;
+    if !IMAGE_NODE.is_empty() {
+        fs::write(image_pkg_dir.join(IMAGE_NODE_FILENAME), IMAGE_NODE)?;
     }
 
     // 7. Standalone Node.js Runtime (if bundled)

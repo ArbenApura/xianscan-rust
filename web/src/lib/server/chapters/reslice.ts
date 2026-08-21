@@ -3,13 +3,13 @@ import { mkdirSync, readFileSync, writeFileSync, unlinkSync } from 'node:fs';
 import { join } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { error } from '@sveltejs/kit';
-import { and, eq } from 'drizzle-orm';
+import { and, eq, sql } from 'drizzle-orm';
 import { db } from '../db';
 import { pages, regions, translations } from '../db/schema';
 import { DATA_ROOT } from '../paths';
 import type { PipelineClient } from '../pipeline-client';
 import { getImageDimensionsFromBuffer } from './dimensions';
-import { reorderPages } from './mutations';
+import { prunePageThumbs, reorderPages } from './mutations';
 
 export async function stitchPageWithNext(
 	pageId: number,
@@ -59,6 +59,10 @@ export async function stitchPageWithNext(
 			error: null,
 			width: w,
 			height: h,
+			// THE ORIGINAL FILE BYTES WERE REWRITTEN IN PLACE — BUMP THE ORIGINAL
+			// REV SO IMMUTABLE-CACHED kind=original URLS GET A FRESH VALUE INSTEAD
+			// OF SERVING THE PRE-MERGE IMAGE.
+			originalRev: sql`${pages.originalRev} + 1`,
 		})
 		.where(eq(pages.id, topPage.id))
 		.run();
@@ -66,6 +70,11 @@ export async function stitchPageWithNext(
 
 	db.delete(regions).where(eq(regions.pageId, botPage.id)).run();
 	db.delete(pages).where(eq(pages.id, botPage.id)).run();
+
+	// STALE CACHED THUMBS FROM BEFORE THE MERGE WOULD SHOW THE OLD PAGE SPLITS —
+	// PRUNE BOTH PAGES' THUMBS SO THE NEXT REQUEST REGENERATES THEM.
+	prunePageThumbs(topPage.id, dataRoot);
+	prunePageThumbs(botPage.id, dataRoot);
 	try {
 		unlinkSync(botAbs);
 	} catch {

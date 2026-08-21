@@ -1,6 +1,6 @@
 // CHAPTER MUTATIONS: CREATION, UPLOADS, DELETIONS, REORDERING, AND PAGE SEQUENCING
 import { randomUUID } from 'node:crypto';
-import { mkdirSync, writeFileSync, unlinkSync, rmSync } from 'node:fs';
+import { mkdirSync, writeFileSync, unlinkSync, rmSync, readdirSync } from 'node:fs';
 import { join, extname } from 'node:path';
 import { error } from '@sveltejs/kit';
 import { asc, desc, eq } from 'drizzle-orm';
@@ -10,7 +10,11 @@ import { clearChapterJob } from '../translation-service';
 import { DATA_ROOT } from '../paths';
 import { convertBufferToWebP } from './dimensions';
 
-const ALLOWED_EXT = new Set(['.png', '.jpg', '.jpeg', '.webp', '.avif']);
+// GLOBAL WEBP POLICY: EVERY UPLOAD IS CONVERTED TO WEBP ON IMPORT (ONLY A STATIC
+// WEBP IS KEPT AS-IS). THESE ARE THE ACCEPTED INPUT EXTENSIONS. HEIC DECODE IS
+// OS-GATED (ImageIO / WIC) — ON UNSUPPORTED HOSTS THE CONVERSION FAILS CLEANLY
+// WITH A 400 RATHER THAN STORING A RAW FILE.
+const ALLOWED_EXT = new Set(['.png', '.jpg', '.jpeg', '.webp', '.avif', '.heic', '.heif']);
 
 export async function assertChapterExists(chapterId: number): Promise<{ id: number; bookId: string; title: string; seq: number }> {
 	const chapter = db.select().from(chapters).where(eq(chapters.id, chapterId)).get();
@@ -100,9 +104,21 @@ export async function uploadPages(chapterId: number, files: File[]): Promise<num
 	mkdirSync(uploadDir, { recursive: true });
 	for (const file of files) {
 		const ext = extname(file.name).toLowerCase();
-		if (!ALLOWED_EXT.has(ext)) throw error(400, `Unsupported image type "${ext}" — use PNG/JPEG/WebP/AVIF.`);
+		if (!ALLOWED_EXT.has(ext)) throw error(400, `Unsupported image type "${ext}" — use PNG/JPEG/WebP/AVIF/HEIC.`);
 		const rawBuf = Buffer.from(await file.arrayBuffer());
-		const { data: webpBuf, ext: finalExt, width, height } = await convertBufferToWebP(rawBuf, ext);
+		let webpBuf: Buffer;
+		let finalExt: string;
+		let width: number | null = null;
+		let height: number | null = null;
+		try {
+			const converted = await convertBufferToWebP(rawBuf, ext);
+			webpBuf = converted.data;
+			finalExt = converted.ext;
+			width = converted.width;
+			height = converted.height;
+		} catch (e) {
+			throw error(400, `"${file.name}" could not be converted to WebP (${(e as Error).message}). Re-export it as PNG, JPEG, or WebP.`);
+		}
 		const fileName = `${randomUUID()}${finalExt}`;
 		writeFileSync(join(uploadDir, fileName), webpBuf);
 		db.insert(pages)
@@ -178,6 +194,7 @@ export function reorderPages(chapterId: number, pageIds: number[]): void {
 }
 
 export function deletePage(pageId: number, dataRoot: string = DATA_ROOT): { chapterId: number; seq: number } {
+	prunePageThumbs(pageId, dataRoot);
 	const [p] = db.select().from(pages).where(eq(pages.id, pageId)).all();
 	if (!p) throw error(404, 'Page not found.');
 
@@ -202,7 +219,30 @@ export function deletePage(pageId: number, dataRoot: string = DATA_ROOT): { chap
 	return { chapterId, seq: deletedSeq };
 }
 
+// DELETE EVERY CACHED THUMBNAIL FOR A PAGE (THUMBS ARE KEYED BY PAGE ID + REV)
+// SO A RESET, DELETE, OR STITCH CANNOT LEAVE STALE ORPHAN FILES BEHIND.
+export function prunePageThumbs(pageId: number, dataRoot: string = DATA_ROOT): void {
+	const thumbDir = join(dataRoot, 'cache', 'thumbs');
+	let entries: string[];
+	try {
+		entries = readdirSync(thumbDir);
+	} catch {
+		return; // NO CACHE DIR — NOTHING TO PRUNE
+	}
+	const prefix = `${pageId}_`;
+	for (const f of entries) {
+		if (f.startsWith(prefix)) {
+			try {
+				unlinkSync(join(thumbDir, f));
+			} catch {
+				// IGNORE IF ALREADY GONE
+			}
+		}
+	}
+}
+
 export function resetPageProgress(pageId: number, dataRoot: string = DATA_ROOT): void {
+	prunePageThumbs(pageId, dataRoot);
 	const pageRow = db
 		.select({ cleanedPath: pages.cleanedPath, outputPath: pages.outputPath })
 		.from(pages)
@@ -296,6 +336,10 @@ export async function deleteAllChapterPages(
 			.where(eq(chapters.id, chapterId))
 			.run();
 	});
+
+	for (const p of pageRows) {
+		prunePageThumbs(p.id, dataRoot);
+	}
 
 	clearChapterJob(chapterId);
 

@@ -25,6 +25,9 @@ pub fn build_regions(
     source_lang: Option<&str>,
 ) -> Vec<Region> {
     let mut regions: Vec<Region> = Vec::new();
+    // ONE FULL-PAGE RGB COPY REUSED ACROSS EVERY REGION'S REFINEMENT / SFX-TAIL
+    // SCAN, INSTEAD OF A FRESH to_rgb8() PER REGION.
+    let page_rgb = img.to_rgb8();
 
     for &idx in order {
         let box_pts = &dedup_boxes[idx];
@@ -342,7 +345,6 @@ pub fn build_regions(
                 || avg_score < 0.70;
 
             if needs_crop_refinement {
-                let rgb = img.to_rgb8();
                 let check_x0 = (box_rect.x.max(0) as u32).min(page_w - 1);
                 let check_x1 = ((box_rect.x + box_rect.w).max(0) as u32).min(page_w);
 
@@ -354,7 +356,7 @@ pub fn build_regions(
                     let mut total = 0;
                     for cy in y0..y1 {
                         for cx in check_x0..check_x1 {
-                            let p = rgb.get_pixel(cx, cy);
+                            let p = page_rgb.get_pixel(cx, cy);
                             let lum = (p[0] as u32 * 299 + p[1] as u32 * 587 + p[2] as u32 * 114) / 1000;
                             if lum >= 200 {
                                 bright += 1;
@@ -892,13 +894,12 @@ pub fn build_regions(
             let y_start = (box_rect.y.max(0) as u32).min(page_h - 1);
             let y_end = ((box_rect.y + box_rect.h).max(0) as u32).min(page_h);
 
-            let rgb = img.to_rgb8();
             let mut last_valid_x = right_limit;
 
             for curr_x in right_limit..max_scan_x {
                 let mut has_bright_sfx = false;
                 for curr_y in y_start..y_end {
-                    let p = rgb.get_pixel(curr_x, curr_y);
+                    let p = page_rgb.get_pixel(curr_x, curr_y);
                     let b = (p[0] as u32 * 299 + p[1] as u32 * 587 + p[2] as u32 * 114) / 1000;
                     if b >= 180 {
                         has_bright_sfx = true;

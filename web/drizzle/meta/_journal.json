@@ -36,6 +36,20 @@
       "when": 1787000000000,
       "tag": "0004_regions_original_target",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "6",
+      "when": 1787264040461,
+      "tag": "0005_shiny_red_shift",
+      "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "6",
+      "when": 1787266015752,
+      "tag": "0006_motionless_mach_iv",
+      "breakpoints": true
     }
   ]
 }

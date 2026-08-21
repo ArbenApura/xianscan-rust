@@ -43,9 +43,11 @@ export const PATCH: RequestHandler = async ({ params, request }) => {
 
 	// Retypeset the page canvas
 	let newOutputPath = existingPage.outputPath;
+	let newOutputRev = existingPage.outputRev;
 	try {
 		const res = await retypesetPage(pageId, parsed.data.typesetOptions as any);
 		newOutputPath = res.outputPath;
+		if (typeof res.outputRev === 'number') newOutputRev = res.outputRev;
 	} catch (e: any) {
 		console.error('Failed to retypeset page after region edit:', e);
 	}
@@ -56,5 +58,6 @@ export const PATCH: RequestHandler = async ({ params, request }) => {
 		success: true,
 		region: updatedRegion,
 		outputPath: newOutputPath,
+		outputRev: newOutputRev,
 	});
 };

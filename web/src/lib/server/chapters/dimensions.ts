@@ -58,12 +58,40 @@ export function getImageDimensionsFromBuffer(buf: Buffer): { width: number | nul
 	return { width: null, height: null };
 }
 
+// DETECT AN IMAGE FORMAT BY MAGIC BYTES (NOT THE FILE EXTENSION). ONLY STATIC
+// WEBP IS KEPT AS-IS — EVERY OTHER FORMAT IS CONVERTED TO WEBP (GLOBAL WEBP POLICY).
+export function detectImageFormat(buf: Buffer): 'webp' | 'png' | 'jpeg' | null {
+	if (buf.length >= 12 && buf.toString('ascii', 0, 4) === 'RIFF' && buf.toString('ascii', 8, 12) === 'WEBP') return 'webp';
+	if (buf.length >= 8 && buf[0] === 0x89 && buf[1] === 0x50 && buf[2] === 0x4e && buf[3] === 0x47) return 'png';
+	if (buf.length >= 3 && buf[0] === 0xff && buf[1] === 0xd8 && buf[2] === 0xff) return 'jpeg';
+	return null;
+}
+
+// DETECT AN ANIMATED WEBP BY SCANNING RIFF CHUNKS FOR AN "ANIM" CHUNK. THE
+// RUST SIDECAR DECODES ONLY STATIC WEBP, SO ANIMATED FILES MUST BE FLATTENED
+// (CONVERTED) RATHER THAN PASSED THROUGH WITH A SAME-MAGIC `detectImageFormat`.
+export function isAnimatedWebP(buf: Buffer): boolean {
+	if (buf.length < 16 || buf.toString('ascii', 0, 4) !== 'RIFF' || buf.toString('ascii', 8, 12) !== 'WEBP') return false;
+	let off = 12;
+	while (off + 8 <= buf.length) {
+		const fourcc = buf.toString('ascii', off, off + 4);
+		const size = buf.readUInt32LE(off + 4);
+		if (fourcc === 'ANIM') return true;
+		off += 8 + size + (size & 1);
+	}
+	return false;
+}
+
 export async function convertBufferToWebP(
 	buffer: Buffer,
 	originalExt: string,
 ): Promise<{ data: Buffer; ext: string; width: number | null; height: number | null }> {
 	const fastDims = getImageDimensionsFromBuffer(buffer);
-	if (originalExt === '.webp' && fastDims.width && fastDims.height) {
+	const fmt = detectImageFormat(buffer);
+
+	// GLOBAL WEBP POLICY: ONLY A STATIC WEBP PASSES THROUGH UNCHANGED. EVERY OTHER
+	// FORMAT (PNG, JPEG, AVIF, HEIC, GIF, ANIMATED WEBP...) IS CONVERTED TO WEBP HERE.
+	if (fmt === 'webp' && !isAnimatedWebP(buffer) && fastDims.width && fastDims.height) {
 		return { data: buffer, ext: '.webp', width: fastDims.width, height: fastDims.height };
 	}
 
@@ -78,20 +106,23 @@ export async function convertBufferToWebP(
 			width: meta.width || fastDims.width || null,
 			height: meta.height || fastDims.height || null,
 		};
-	} catch {
+	} catch (imageErr) {
 		try {
 			const { loadImage, createCanvas } = await import('@napi-rs/canvas');
 			const img = await loadImage(buffer);
 			const width = fastDims.width ?? (img.width || null);
 			const height = fastDims.height ?? (img.height || null);
-			if (originalExt === '.webp') return { data: buffer, ext: '.webp', width, height };
 			const canvas = createCanvas(img.width, img.height);
 			const ctx = canvas.getContext('2d');
 			ctx.drawImage(img, 0, 0);
 			const webpBuf = await canvas.encode('webp', 85);
 			return { data: webpBuf, ext: '.webp', width, height };
 		} catch {
-			return { data: buffer, ext: originalExt, width: fastDims.width, height: fastDims.height };
+			// NEVER SILENTLY STORE A RAW FILE: AN UNDECODABLE AVIF/HEIC SURVIVES
+			// HERE ONLY TO CRASH THE RUST ML SIDECAR LATER ("AVIF NOT SUPPORTED").
+			throw new Error(
+				`could not convert ${originalExt} to WebP (${(imageErr as Error)?.message ?? 'decode failed'})`,
+			);
 		}
 	}
 }

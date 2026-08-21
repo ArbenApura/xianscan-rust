@@ -26,7 +26,7 @@ import type OpenAI from 'openai';
 import { env } from '$env/dynamic/private';
 // IMPORTED DEP-MODULES
 import PQueue from 'p-queue';
-import { and, asc, eq } from 'drizzle-orm';
+import { and, asc, eq, sql } from 'drizzle-orm';
 // IMPORTED TYPES
 import type { TranslationUsage, PipelineStep, LangPair, TermDraft } from '$lib/types';
 // IMPORTED MODULES
@@ -38,6 +38,7 @@ import { chapters, pages, regions, books, type Page } from './db/schema';
 import { translatePage } from './translate';
 import { typesetPage, type TypesetOptions } from './typeset';
 import { detectSourceLanguage } from '$lib/languages';
+import { detectImageFormat, isAnimatedWebP } from './chapters/dimensions';
 
 // -- TYPES -- //
 
@@ -190,18 +191,37 @@ type PageSlot = {
 	failedStep?: PipelineStep;
 	message?: string;
 	totalDurationMs?: number;
+	startedAt?: number;
 };
 
+// GLOBAL WEBP POLICY: THE SIDECAR MUST RECEIVE WEBP. ONLY A STATIC WEBP PASSES
+// THROUGH UNCHANGED; ANY OTHER FORMAT (PNG, JPEG, AVIF, HEIC, GIF, ANIMATED
+// WEBP...) IS CONVERTED TO WEBP HERE, NOT STORED/RELAYED RAW.
 async function ensureWebPBuffer(rawBuf: Buffer): Promise<Buffer> {
-	if (rawBuf.length >= 12 && rawBuf.toString('ascii', 4, 8) === 'ftyp') {
-		try {
-			const { Transformer } = await import('@napi-rs/image');
-			return await new Transformer(rawBuf).webp(90);
-		} catch {
-			return rawBuf;
-		}
+	// ONLY A STATIC WEBP IS SAFE TO PASS THROUGH — PNG/JPEG AND EVERYTHING ELSE
+	// MUST BE CONVERTED BELOW (ANIMATED WEBP SHARES THE WEBP MAGIC BUT IS NOT
+	// DECODABLE BY THE SIDECAR, SO IT IS FLATTENED TOO).
+	const fmt = detectImageFormat(rawBuf);
+	if (fmt === 'webp' && !isAnimatedWebP(rawBuf)) return rawBuf;
+	try {
+		const { Transformer } = await import('@napi-rs/image');
+		const webp = await new Transformer(rawBuf).webp(90);
+		if (detectImageFormat(webp) === 'webp') return webp;
+	} catch {
+		// FALL THROUGH TO THE CANVAS CONVERTER BELOW
 	}
-	return rawBuf;
+	try {
+		const { loadImage, createCanvas } = await import('@napi-rs/canvas');
+		const img = await loadImage(rawBuf);
+		const canvas = createCanvas(img.width, img.height);
+		const ctx = canvas.getContext('2d');
+		ctx.drawImage(img, 0, 0);
+		const webp = await canvas.encode('webp', 90);
+		if (detectImageFormat(webp) === 'webp') return webp;
+	} catch {
+		// FALL THROUGH TO THE CLEAR ERROR BELOW
+	}
+	throw new Error('Image format not supported by the ML engine — re-upload this page as PNG, JPEG, or WebP.');
 }
 
 // -- THE WORK FUNCTION (FITS startChapterJob) -- //
@@ -238,7 +258,13 @@ export async function runChapterPipeline(
 		type: 'start',
 		chapterId,
 		totalPages: pageRows.length,
-		pages: pageRows.map((p) => ({ id: p.id, seq: p.seq, status: p.status })),
+		pages: pageRows.map((p) => ({
+			id: p.id,
+			seq: p.seq,
+			status: p.status,
+			cleanedRev: p.cleanedRev,
+			outputRev: p.outputRev,
+		})),
 	});
 
 	const pool = new PQueue({ concurrency: deps.pageConcurrency ?? PAGE_CONCURRENCY });
@@ -296,6 +322,8 @@ export async function runChapterPipeline(
 				pageId: slot.page.id,
 				pageCount: slots.length,
 				outputPath: slot.page.outputPath,
+				cleanedRev: slot.page.cleanedRev,
+				outputRev: slot.page.outputRev,
 			});
 		}
 	}
@@ -513,7 +541,7 @@ export async function runChapterPipeline(
 							? await deps.pipeline.clean(image, cleanRegions, deps.inpaintMode ?? 'patch', signal)
 							: image;
 					if (signal.aborted || deps.isPageCancelled?.(injectRow.id)) return;
-					const cleanPath = `clean/${chapterId}/${injectRow.seq}.png`;
+					const cleanPath = `clean/${chapterId}/${injectRow.seq}.webp`;
 					const cleanAbs = join(deps.dataRoot, cleanPath);
 					cleanDir(join(deps.dataRoot, 'clean', String(chapterId)));
 					writeFileSync(cleanAbs, cleaned);
@@ -549,7 +577,7 @@ export async function runChapterPipeline(
 						}));
 					const out = await typesetPage(cleaned, typesetRegions, deps.typesetOptions);
 					if (signal.aborted || deps.isPageCancelled?.(injectRow.id)) return;
-					const outputPath = `output/${chapterId}/${injectRow.seq}.png`;
+					const outputPath = `output/${chapterId}/${injectRow.seq}.webp`;
 					cleanDir(join(deps.dataRoot, 'output', String(chapterId)));
 					writeFileSync(join(deps.dataRoot, outputPath), out);
 					emit({
@@ -577,6 +605,8 @@ export async function runChapterPipeline(
 							status: 'done',
 							cleanedPath: cleanPath,
 							outputPath,
+							cleanedRev: sql`${pages.cleanedRev} + 1`,
+							outputRev: sql`${pages.outputRev} + 1`,
 							width: analyzed.width,
 							height: analyzed.height,
 						})
@@ -590,15 +620,24 @@ export async function runChapterPipeline(
 						step: 'save_output',
 						stepStatus: 'completed',
 					});
-					emit({
-						type: 'page-done',
-						chapterId,
-						page: injectIdx,
-						pageId: injectRow.id,
-						pageCount: slots.length,
-						outputPath,
-						durationMs: performance.now() - tA0,
-					});
+				// RE-READ THE STORED REVS AFTER THE ATOMIC sql +1 BUMP SO THE EMITTED
+				// VALUES MATCH THE DATABASE EVEN UNDER CONCURRENT JOB BUMPS.
+				const freshRow = db
+					.select({ cleanedRev: pages.cleanedRev, outputRev: pages.outputRev })
+					.from(pages)
+					.where(eq(pages.id, injectRow.id))
+					.get();
+				emit({
+					type: 'page-done',
+					chapterId,
+					page: injectIdx,
+					pageId: injectRow.id,
+					pageCount: slots.length,
+					outputPath,
+					cleanedRev: freshRow?.cleanedRev ?? injectRow.cleanedRev + 1,
+					outputRev: freshRow?.outputRev ?? injectRow.outputRev + 1,
+					durationMs: performance.now() - tA0,
+				});
 					slots[injectIdx].outcome = 'done';
 				} catch (e) {
 					if (signal.aborted || deps.isPageCancelled?.(injectRow.id)) return;
@@ -618,6 +657,7 @@ export async function runChapterPipeline(
 		const slot = slots[i];
 		if (slot.outcome !== undefined || deps.isPageCancelled?.(page.id)) return;
 		let activeStep: PipelineStep = 'analyze';
+		slot.startedAt = performance.now();
 
 		try {
 			signal.throwIfAborted();
@@ -717,7 +757,7 @@ export async function runChapterPipeline(
 		if (!analyzed || slot.outcome !== 'analyzed' || deps.isPageCancelled?.(page.id)) return;
 		const image = slot.image!;
 		let activeStep: PipelineStep = 'match_glossary';
-		const pageT0 = performance.now();
+		const pageT0 = slot.startedAt ?? performance.now();
 
 		try {
 			signal.throwIfAborted();
@@ -856,7 +896,7 @@ export async function runChapterPipeline(
 					: image;
 			signal.throwIfAborted();
 			if (deps.isPageCancelled?.(page.id)) return;
-			const cleanPath = `clean/${chapterId}/${page.seq}.png`;
+			const cleanPath = `clean/${chapterId}/${page.seq}.webp`;
 			const cleanAbs = join(deps.dataRoot, cleanPath);
 			cleanDir(join(deps.dataRoot, 'clean', String(chapterId)));
 			writeFileSync(cleanAbs, cleaned);
@@ -890,7 +930,7 @@ export async function runChapterPipeline(
 			const out = await typesetPage(cleaned, typesetRegions, deps.typesetOptions);
 			signal.throwIfAborted();
 			if (deps.isPageCancelled?.(page.id)) return;
-			const outputPath = `output/${chapterId}/${page.seq}.png`;
+			const outputPath = `output/${chapterId}/${page.seq}.webp`;
 			cleanDir(join(deps.dataRoot, 'output', String(chapterId)));
 			writeFileSync(join(deps.dataRoot, outputPath), out);
 			const tType = performance.now() - tType0;
@@ -915,6 +955,8 @@ export async function runChapterPipeline(
 					status: 'done',
 					cleanedPath: cleanPath,
 					outputPath,
+					cleanedRev: sql`${pages.cleanedRev} + 1`,
+					outputRev: sql`${pages.outputRev} + 1`,
 					width: analyzed.width,
 					height: analyzed.height,
 				})
@@ -929,6 +971,13 @@ export async function runChapterPipeline(
 				stepStatus: 'completed',
 			});
 
+			// RE-READ THE STORED REVS AFTER THE ATOMIC sql +1 BUMP SO THE EMITTED
+			// VALUES MATCH THE DATABASE EVEN IF A CONCURRENT JOB BUMPED THEM FIRST.
+			const freshRow = db
+				.select({ cleanedRev: pages.cleanedRev, outputRev: pages.outputRev })
+				.from(pages)
+				.where(eq(pages.id, page.id))
+				.get();
 			slot.page.outputPath = outputPath;
 			slot.totalDurationMs = performance.now() - pageT0;
 			slot.outcome = 'done';
@@ -939,6 +988,8 @@ export async function runChapterPipeline(
 				pageId: page.id,
 				pageCount: slots.length,
 				outputPath,
+				cleanedRev: freshRow?.cleanedRev ?? page.cleanedRev + 1,
+				outputRev: freshRow?.outputRev ?? page.outputRev + 1,
 				durationMs: slot.totalDurationMs,
 			});
 		} catch (e) {

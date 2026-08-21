@@ -11,8 +11,6 @@
 
 	export let pages: any[] = [];
 	export let running = false;
-	export let reloadKey = Date.now();
-	export let pageVersions: Record<number, number> = {};
 	export let draggedPageIndex: number | null = null;
 	export let dragOverPageIndex: number | null = null;
 
@@ -172,7 +170,7 @@
 						<!-- svelte-ignore a11y-click-events-have-key-events -->
 						<!-- svelte-ignore a11y-no-noninteractive-element-interactions -->
 						<img
-							src={`/api/pages/${page.id}/file?kind=original&v=${reloadKey}_orig${pageVersions[page.id] ? `_${pageVersions[page.id]}` : ''}`}
+							src={`/api/pages/${page.id}/file?kind=original&rev=${page.originalRev ?? 0}`}
 							alt={`Page ${page.seq + 1} Original`}
 							loading="lazy"
 							decoding="async"
@@ -198,7 +196,7 @@
 							<!-- svelte-ignore a11y-click-events-have-key-events -->
 							<!-- svelte-ignore a11y-no-noninteractive-element-interactions -->
 							<img
-								src={`/api/pages/${page.id}/file?kind=output&v=${reloadKey}_${page.outputPath || 'out'}${pageVersions[page.id] ? `_${pageVersions[page.id]}` : ''}`}
+								src={`/api/pages/${page.id}/file?kind=output&rev=${page.outputRev ?? 0}`}
 								alt={`Page ${page.seq + 1} Output`}
 								loading="lazy"
 								decoding="async"

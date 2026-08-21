@@ -101,7 +101,7 @@ export class HttpPipelineClient implements PipelineClient {
 
 	async preprocess(image: Buffer, signal?: AbortSignal): Promise<Buffer> {
 		const form = new FormData();
-		form.append('image', new Blob([new Uint8Array(image)]), 'page.png');
+		form.append('image', new Blob([new Uint8Array(image)]), 'page.webp');
 		const resp = await this.request('/pages/preprocess', { method: 'POST', body: form }, signal);
 		if (!resp.ok) throw new PipelineError(`preprocess failed (${resp.status}): ${await resp.text()}`, resp.status);
 		return Buffer.from(await resp.arrayBuffer());
@@ -109,7 +109,7 @@ export class HttpPipelineClient implements PipelineClient {
 
 	async analyze(image: Buffer, signal?: AbortSignal, opts?: { sourceLang?: string; targetLang?: string }): Promise<AnalyzeResult> {
 		const form = new FormData();
-		form.append('image', new Blob([new Uint8Array(image)]), 'page.png');
+		form.append('image', new Blob([new Uint8Array(image)]), 'page.webp');
 		if (opts?.sourceLang) form.append('source_lang', opts.sourceLang);
 		if (opts?.targetLang) form.append('target_lang', opts.targetLang);
 		const resp = await this.request('/pages/analyze', { method: 'POST', body: form }, signal);
@@ -119,7 +119,7 @@ export class HttpPipelineClient implements PipelineClient {
 
 	async clean(image: Buffer, regions: CleanRegionInput[], inpaintMode: string = 'patch', signal?: AbortSignal): Promise<Buffer> {
 		const form = new FormData();
-		form.append('image', new Blob([new Uint8Array(image)]), 'page.png');
+		form.append('image', new Blob([new Uint8Array(image)]), 'page.webp');
 		form.append('regions', JSON.stringify(regions));
 		form.append('inpaint_mode', inpaintMode);
 		const resp = await this.request('/pages/clean', { method: 'POST', body: form }, signal);
@@ -149,8 +149,8 @@ export class HttpPipelineClient implements PipelineClient {
 
 	async stitch(imageTop: Buffer, imageBottom: Buffer, signal?: AbortSignal): Promise<Buffer> {
 		const form = new FormData();
-		form.append('image_top', new Blob([new Uint8Array(imageTop)]), 'top.png');
-		form.append('image_bottom', new Blob([new Uint8Array(imageBottom)]), 'bottom.png');
+		form.append('image_top', new Blob([new Uint8Array(imageTop)]), 'top.webp');
+		form.append('image_bottom', new Blob([new Uint8Array(imageBottom)]), 'bottom.webp');
 		const resp = await this.request('/pages/stitch', { method: 'POST', body: form }, signal);
 		if (!resp.ok) throw new PipelineError(`stitch failed (${resp.status}): ${await resp.text()}`, resp.status);
 		return Buffer.from(await resp.arrayBuffer());
@@ -159,7 +159,7 @@ export class HttpPipelineClient implements PipelineClient {
 	async reslice(images: Buffer[], signal?: AbortSignal, run?: number): Promise<Buffer[]> {
 		const form = new FormData();
 		for (let i = 0; i < images.length; i++) {
-			form.append('files', new Blob([new Uint8Array(images[i])]), `slice_${i}.png`);
+			form.append('files', new Blob([new Uint8Array(images[i])]), `slice_${i}.webp`);
 		}
 		// TAG THE REQUEST WITH ITS RUN ID (FROM resetResliceStatus) SO THE SIDECAR
 		// MATCHES PROGRESS FRAMES & CANCELS TO THE RIGHT RUN.

@@ -12,6 +12,14 @@ vi.mock('$lib/server/db', async () => ({ db: (await import('../helpers/db')).get
 
 let db: TestDb;
 
+// -- CONSTANTS -- //
+
+// VALID 1x1 PNG — THE MINIMAL INPUT THE WEBP CONVERTERS CAN ACTUALLY DECODE.
+const REAL_PNG = Buffer.from(
+	'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=',
+	'base64',
+);
+
 // -- LIFECYCLES -- //
 
 beforeEach(() => {
@@ -191,7 +199,7 @@ describe('nextPageSeq & reorderPages', () => {
 				fs.writeFileSync(path.join(DATA_ROOT, filePath), Buffer.from(`content-${f}`));
 			}
 
-			const file = new File([Buffer.from('brand-new-image')], 'new.png', { type: 'image/png' });
+			const file = new File([REAL_PNG], 'new.png', { type: 'image/png' });
 			await uploadPages(chapter.id, [file]);
 
 			const rows = db.select().from(pages).where(eq(pages.chapterId, chapter.id)).orderBy(pages.seq).all();
@@ -202,11 +210,65 @@ describe('nextPageSeq & reorderPages', () => {
 			const newPage = rows[4];
 			const existing = new Set(rows.slice(0, 4).map((p) => p.filePath));
 			expect(existing.has(newPage.filePath)).toBe(false);
-			expect(newPage.filePath).toMatch(/^uploads\/1\/[0-9a-f-]{36}\.png$/);
+			expect(newPage.filePath).toMatch(/^uploads\/1\/[0-9a-f-]{36}\.webp$/);
 
 			// AND THE OLD FILE'S CONTENT MUST BE UNTOUCHED ON DISK
 			expect(fs.readFileSync(path.join(DATA_ROOT, 'uploads/1/4.png')).toString()).toBe('content-4.png');
-			expect(fs.readFileSync(path.join(DATA_ROOT, newPage.filePath)).toString()).toBe('brand-new-image');
+
+			// GLOBAL WEBP POLICY: A PNG UPLOAD IS CONVERTED TO WEBP ON IMPORT — NEVER STORED RAW.
+			const stored = fs.readFileSync(path.join(DATA_ROOT, newPage.filePath));
+			expect(stored.toString('ascii', 0, 4)).toBe('RIFF');
+			expect(stored.toString('ascii', 8, 12)).toBe('WEBP');
+		} finally {
+			fs.rmSync(uploadDir, { recursive: true, force: true });
+		}
+	});
+
+	it('uploadPages converts unsupported formats (GIF bytes) to WebP instead of storing them raw', async () => {
+		const { uploadPages } = await import('$lib/server/chapters');
+		const { DATA_ROOT } = await import('$lib/server/paths');
+
+		seedBook(db, { id: 'b1' });
+		const chapter = seedChapter(db, { id: 1, bookId: 'b1', seq: 0 });
+		const uploadDir = path.join(DATA_ROOT, 'uploads', '1');
+		fs.mkdirSync(uploadDir, { recursive: true });
+		try {
+			// 1x1 TRANSPARENT GIF (MAGIC "GIF89a") — NOT DECODABLE BY THE RUST SIDECAR.
+			const gif = Buffer.from('R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7', 'base64');
+			const file = new File([gif], 'panel.png', { type: 'image/png' });
+			await uploadPages(chapter.id, [file]);
+
+			const rows = db.select().from(pages).where(eq(pages.chapterId, chapter.id)).all();
+			expect(rows).toHaveLength(1);
+			expect(rows[0].filePath).toMatch(/\.webp$/);
+			const stored = fs.readFileSync(path.join(DATA_ROOT, rows[0].filePath));
+			expect(stored.toString('ascii', 0, 4)).toBe('RIFF');
+			expect(stored.toString('ascii', 8, 12)).toBe('WEBP');
+		} finally {
+			fs.rmSync(uploadDir, { recursive: true, force: true });
+		}
+	});
+
+	it('uploadPages rejects an undecodable image instead of storing a raw file that would crash the ML sidecar', async () => {
+		const { uploadPages } = await import('$lib/server/chapters');
+		const { DATA_ROOT } = await import('$lib/server/paths');
+
+		seedBook(db, { id: 'b1' });
+		const chapter = seedChapter(db, { id: 1, bookId: 'b1', seq: 0 });
+		const uploadDir = path.join(DATA_ROOT, 'uploads', '1');
+		fs.mkdirSync(uploadDir, { recursive: true });
+		try {
+			// GARBAGE BYTES WITH AN .avif NAME — NEITHER CONVERTER CAN DECODE THEM.
+			const file = new File([Buffer.from('not-an-image-at-all')], 'broken.avif', { type: 'image/avif' });
+			await expect(uploadPages(chapter.id, [file])).rejects.toMatchObject({
+				status: 400,
+				body: expect.objectContaining({ message: expect.stringMatching(/could not be converted to WebP/i) }),
+			});
+
+			// NOTHING WAS PERSISTED — NO POISON .avif FILE, NO DB ROW.
+			const rows = db.select().from(pages).where(eq(pages.chapterId, chapter.id)).all();
+			expect(rows).toHaveLength(0);
+			expect(fs.readdirSync(uploadDir)).toHaveLength(0);
 		} finally {
 			fs.rmSync(uploadDir, { recursive: true, force: true });
 		}
