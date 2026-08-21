@@ -68,9 +68,12 @@ jobs:
           
           # COPY BUILT APK TO BOTH ROOT AND APK/ FOR 100% RESOLUTION COMPATIBILITY
           APK_SRC=$(find extensions/xianscan-mihon/app/build/outputs/apk/release -name "*.apk" | head -n 1)
-          APK_NAME="tachiyomi-all.xianscan-v1.6.1.apk"
+          APK_NAME="tachiyomi-all.xianscan-v1.6.2.apk"
           cp "$APK_SRC" "repo-dist/$APK_NAME"
           cp "$APK_SRC" "repo-dist/apk/$APK_NAME"
+          # BACKWARD COMPATIBILITY ALIAS
+          cp "$APK_SRC" "repo-dist/tachiyomi-all.xianscan-v1.6.1.apk"
+          cp "$APK_SRC" "repo-dist/apk/tachiyomi-all.xianscan-v1.6.1.apk"
           
           # GENERATE REPO INDEX JSON
           cat << 'EOF' > repo-dist/index.json
@@ -78,10 +81,10 @@ jobs:
             {
               "name": "XianScan",
               "pkg": "eu.kanade.tachiyomi.extension.all.xianscan",
-              "apk": "tachiyomi-all.xianscan-v1.6.1.apk",
+              "apk": "tachiyomi-all.xianscan-v1.6.2.apk",
               "lang": "all",
-              "code": 1,
-              "version": "1.6.1",
+              "code": 2,
+              "version": "1.6.2",
               "nsfw": 0,
               "hasReadme": 1,
               "hasChangelog": 0,
@@ -146,7 +149,7 @@ jobs:
 
           # 2. Assets (field 3 of extension)
           assets_bytes = (
-              encode_bytes_field(1, 'https://raw.githubusercontent.com/ArbenApura/xianscan-rust/repo/tachiyomi-all.xianscan-v1.6.1.apk') +
+              encode_bytes_field(1, 'https://raw.githubusercontent.com/ArbenApura/xianscan-rust/repo/tachiyomi-all.xianscan-v1.6.2.apk') +
               encode_bytes_field(2, 'https://raw.githubusercontent.com/ArbenApura/xianscan-rust/main/extensions/xianscan-mihon/app/src/main/res/mipmap-xhdpi/ic_launcher.png')
           )
 
@@ -156,8 +159,8 @@ jobs:
               encode_bytes_field(2, 'eu.kanade.tachiyomi.extension.all.xianscan') +
               encode_bytes_field(3, assets_bytes) +
               encode_bytes_field(4, '1.6') +
-              encode_varint_field(5, 1) +
-              encode_bytes_field(6, '1.6.1') +
+              encode_varint_field(5, 2) +
+              encode_bytes_field(6, '1.6.2') +
               encode_varint_field(7, 0) +
               encode_bytes_field(8, source_bytes)
           )

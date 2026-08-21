@@ -1,11 +1,15 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
+    <!-- REQUIRED BY MIHON / TACHIYOMI FOR EXTENSION DISCOVERY -->
+    <uses-feature android:name="tachiyomi.extension" required="false" />
+
     <application
         android:label="${appName}"
         android:icon="@mipmap/ic_launcher"
+        android:hasCode="true"
         android:theme="@android:style/Theme.DeviceDefault.NoActionBar">
-        <!-- LEGACY SOURCE DISCOVERY METADATA — MODERN MIHON ALSO DEX-SCANS FOR SourceFactory. -->
+        <!-- SOURCE CLASS / FACTORY ENTRYPOINT METADATA -->
         <meta-data
             android:name="tachiyomi.extension.class"
             android:value="${extClass}" />
