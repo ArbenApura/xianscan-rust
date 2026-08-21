@@ -301,6 +301,7 @@ jobs:
             release-assets/xianscan-macos-*.tar.gz
             release-assets/xianscan-importer-*.zip
             release-assets/xianscan-importer-*.xpi
+            release-assets/tachiyomi-all.xianscan-*.apk
 
       - name: Append VirusTotal results to release notes
         if: steps.virustotal.outputs.analysis != ''
