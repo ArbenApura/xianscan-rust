@@ -100,6 +100,18 @@ jobs:
           # GENERATE MINIFIED REPO INDEX JSON
           python3 -c "import json; data=json.load(open('repo-dist/index.json')); json.dump(data, open('repo-dist/index.min.json', 'w'), separators=(',', ':'))"
           
+          # GENERATE REPO DEFINITION JSON (REQUIRED BY MIHON FOR REPO DISCOVERY)
+          cat << 'EOF' > repo-dist/repo.json
+          {
+            "meta": {
+              "name": "XianScan",
+              "website": "https://github.com/ArbenApura/xianscan-rust",
+              "signingKeyFingerprint": "2d2bfe33f124f582d6f2f60ed4192b79cb51afc3a17f6dd92d7df87e6886dfa6"
+            }
+          }
+          EOF
+          python3 -c "import json; data=json.load(open('repo-dist/repo.json')); json.dump(data, open('repo-dist/repo.min.json', 'w'), separators=(',', ':'))"
+
           # COPY README FOR THE EXTENSION
           cp extensions/xianscan-mihon/README.md repo-dist/README.md
 
