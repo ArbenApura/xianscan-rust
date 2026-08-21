@@ -50,6 +50,7 @@ describe('file endpoint cache behavior', () => {
 		expect(res.status).toBe(200);
 		expect(res.headers.get('cache-control')).toContain('max-age=31536000');
 		expect(res.headers.get('cache-control')).toContain('immutable');
+		expect(res.headers.get('content-length')).toBe('16');
 	});
 
 	it('serves no-store when rev is absent (legacy/editor callers)', async () => {

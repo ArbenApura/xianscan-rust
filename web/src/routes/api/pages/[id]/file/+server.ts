@@ -94,6 +94,7 @@ export const GET: RequestHandler = async ({ params, url, request }) => {
 			return new Response(cachedBytes, {
 				headers: {
 					'content-type': 'image/jpeg',
+					'content-length': String(cachedBytes.byteLength),
 					etag,
 					...NO_CACHE_HEADERS,
 				},
@@ -116,6 +117,7 @@ export const GET: RequestHandler = async ({ params, url, request }) => {
 			return new Response(new Uint8Array(jpegBuffer), {
 				headers: {
 					'content-type': 'image/jpeg',
+					'content-length': String(jpegBuffer.byteLength),
 					...NO_CACHE_HEADERS,
 				},
 			});
@@ -125,6 +127,7 @@ export const GET: RequestHandler = async ({ params, url, request }) => {
 			return new Response(bytes, {
 				headers: {
 					'content-type': MIME_BY_EXT[extname(rel).toLowerCase()] ?? 'image/jpeg',
+					'content-length': String(bytes.byteLength),
 					...NO_CACHE_HEADERS,
 				},
 			});
@@ -175,6 +178,7 @@ export const GET: RequestHandler = async ({ params, url, request }) => {
 	return new Response(bytes, {
 		headers: {
 			'content-type': mime,
+			'content-length': String(bytes.byteLength),
 			'content-disposition': `inline; filename="${safeDownloadName}"`,
 			etag,
 			...(isImmutable ? IMMUTABLE_HEADERS : NO_CACHE_HEADERS),

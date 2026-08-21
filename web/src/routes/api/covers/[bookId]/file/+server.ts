@@ -40,7 +40,11 @@ export const GET: RequestHandler = async ({ params, url, request }) => {
 	if (isFull) {
 		const bytes = await readFile(sourcePath);
 		return new Response(bytes, {
-			headers: { 'content-type': MIME_BY_EXT[sourceExt] ?? 'image/jpeg', ...NO_CACHE_HEADERS },
+			headers: {
+				'content-type': MIME_BY_EXT[sourceExt] ?? 'image/jpeg',
+				'content-length': String(bytes.byteLength),
+				...NO_CACHE_HEADERS,
+			},
 		});
 	}
 
@@ -56,7 +60,14 @@ export const GET: RequestHandler = async ({ params, url, request }) => {
 			return new Response(null, { status: 304, headers: { etag, ...NO_CACHE_HEADERS } });
 		}
 		const cached = await readFile(cachePath);
-		return new Response(cached, { headers: { 'content-type': 'image/jpeg', etag, ...NO_CACHE_HEADERS } });
+		return new Response(cached, {
+			headers: {
+				'content-type': 'image/jpeg',
+				'content-length': String(cached.byteLength),
+				etag,
+				...NO_CACHE_HEADERS,
+			},
+		});
 	}
 
 	try {
@@ -69,12 +80,22 @@ export const GET: RequestHandler = async ({ params, url, request }) => {
 		ctx.drawImage(img, 0, 0, targetWidth, targetHeight);
 		const jpeg = canvas.toBuffer('image/jpeg', 85);
 		writeFileSync(cachePath, jpeg);
-		return new Response(new Uint8Array(jpeg), { headers: { 'content-type': 'image/jpeg', ...NO_CACHE_HEADERS } });
+		return new Response(new Uint8Array(jpeg), {
+			headers: {
+				'content-type': 'image/jpeg',
+				'content-length': String(jpeg.byteLength),
+				...NO_CACHE_HEADERS,
+			},
+		});
 	} catch {
 		// FALLBACK TO THE FULL IMAGE IF THUMBNAILING FAILS
 		const bytes = await readFile(sourcePath);
 		return new Response(bytes, {
-			headers: { 'content-type': MIME_BY_EXT[sourceExt] ?? 'image/jpeg', ...NO_CACHE_HEADERS },
+			headers: {
+				'content-type': MIME_BY_EXT[sourceExt] ?? 'image/jpeg',
+				'content-length': String(bytes.byteLength),
+				...NO_CACHE_HEADERS,
+			},
 		});
 	}
 };

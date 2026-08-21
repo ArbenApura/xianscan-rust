@@ -19,9 +19,17 @@
 		font-weight: 600;
 		font-synthesis: weight;
 	}
-	button, input, optgroup, select, textarea {
+	button,
+	optgroup {
 		font-family: inherit;
 		font-weight: inherit;
+	}
+	/* INPUT FIELDS AND TEXTAREAS USE READABLE CASING FALLBACK INSTEAD OF ALL-CAPS COMIC FONTS */
+	input,
+	textarea,
+	select {
+		font-family: var(--app-input-font-family, 'Montserrat', 'Inter', system-ui, sans-serif);
+		font-weight: 500;
 	}
 
 	/* Elevate minimum font weight so WildWorld text remains robust and legible */
@@ -43,7 +51,6 @@
 	[data-sonner-toast] [data-cancel] {
 		font-family: var(--app-font-family, inherit) !important;
 	}
-
 
 	/* THEMED SCROLLBARS — TRANSLUCENT THUMBS BLEND OVER WHATEVER THEME BACKGROUND IS ACTIVE
 	   (LIGHT/SEPIA → DARK THUMB, DARK → LIGHT THUMB), SO THEY MATCH EVERY THEME. */

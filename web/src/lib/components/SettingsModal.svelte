@@ -1533,12 +1533,13 @@
 						<p class="text-[11px] opacity-60">Number of comic pages processed simultaneously per chapter</p>
 					</div>
 
-					<div class="grid grid-cols-4 gap-2">
+					<div class="grid grid-cols-2 sm:grid-cols-4 gap-2">
 						{#each [1, 2, 3, 4] as count (count)}
 							<button
 								type="button"
 								on:click={() => setParallelProcesses(count)}
-								class={`rounded-xl border py-2.5 text-center text-xs font-bold transition-all ${
+								use:ripple
+								class={`rounded-xl border py-2.5 px-2 text-center text-xs font-bold transition-all ${
 									($settings.parallelProcesses || 2) === count
 										? 'border-[#b23a2e] bg-[#b23a2e]/[0.08] text-[#b23a2e] dark:text-[#e08a63] ring-2 ring-[#b23a2e]/30 shadow-xs'
 										: 'border-black/10 hover:border-black/20 hover:bg-black/[0.02] dark:border-white/10 dark:hover:border-white/20 dark:hover:bg-white/[0.02]'
@@ -1557,12 +1558,13 @@
 						<p class="text-[11px] opacity-60">Number of chapters translated concurrently during batch jobs</p>
 					</div>
 
-					<div class="grid grid-cols-4 gap-2">
+					<div class="grid grid-cols-2 sm:grid-cols-4 gap-2">
 						{#each [1, 2, 3, 4] as count (count)}
 							<button
 								type="button"
 								on:click={() => setParallelChapters(count)}
-								class={`rounded-xl border py-2.5 text-center text-xs font-bold transition-all ${
+								use:ripple
+								class={`rounded-xl border py-2.5 px-2 text-center text-xs font-bold transition-all ${
 									($settings.parallelChapters || 2) === count
 										? 'border-[#b23a2e] bg-[#b23a2e]/[0.08] text-[#b23a2e] dark:text-[#e08a63] ring-2 ring-[#b23a2e]/30 shadow-xs'
 										: 'border-black/10 hover:border-black/20 hover:bg-black/[0.02] dark:border-white/10 dark:hover:border-white/20 dark:hover:bg-white/[0.02]'

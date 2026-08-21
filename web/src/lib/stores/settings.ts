@@ -161,6 +161,18 @@ export const FONT_STACKS: Record<AppFont, string> = {
 	lexend: "'Lexend', sans-serif",
 };
 
+// INPUT/TEXTAREA FONT STACKS — EXEMPTS ALL-CAPS COMIC FONTS SO TYPING CASE IS CLEAR
+export const INPUT_FONT_STACKS: Record<AppFont, string> = {
+	comic: "'Montserrat', 'Inter', system-ui, sans-serif",
+	clash: "'Clash Grotesk', 'Cabinet Grotesk', sans-serif",
+	general: "'General Sans', sans-serif",
+	poppins: "'Poppins', sans-serif",
+	proxima: "'Proxima Nova', 'Montserrat', sans-serif",
+	nunito: "'Nunito Sans', sans-serif",
+	montserrat: "'Montserrat', sans-serif",
+	lexend: "'Lexend', sans-serif",
+};
+
 export const AVAILABLE_TYPESET_FONTS = [
 	{ id: 'CC Wild Words', label: 'CC Wild Words', sub: 'Classic Comic All-Caps', stack: "'CC Wild Words', 'WildWorld', sans-serif", allCapsOnly: true },
 	{ id: 'General Sans', label: 'General Sans', sub: 'Clean Modern Sans', stack: "'General Sans', sans-serif" },
@@ -324,14 +336,17 @@ export function applyThemeClass(theme: Theme): void {
 	document.querySelector('meta[name="theme-color"]')?.setAttribute('content', THEME_BG[theme]);
 }
 
-// APPLY THE APP-WIDE INTERFACE FONT FAMILY
+// APPLY THE APP-WIDE INTERFACE FONT FAMILY (WITH INPUT/TEXTAREA EXEMPTION FOR ALL-CAPS FONTS)
 export function applyFontFamily(font: AppFont): void {
 	if (!browser || typeof document === 'undefined') return;
 	const stack = FONT_STACKS[font] || FONT_STACKS.comic;
+	const inputStack = INPUT_FONT_STACKS[font] || INPUT_FONT_STACKS.comic;
 	document.documentElement.style.setProperty('--app-font-family', stack);
+	document.documentElement.style.setProperty('--app-input-font-family', inputStack);
 	document.documentElement.style.fontFamily = stack;
 	if (document.body) {
 		document.body.style.setProperty('--app-font-family', stack);
+		document.body.style.setProperty('--app-input-font-family', inputStack);
 		document.body.style.fontFamily = stack;
 	}
 }

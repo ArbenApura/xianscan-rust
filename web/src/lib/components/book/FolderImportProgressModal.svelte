@@ -57,12 +57,13 @@
 	let scanCount = 0;
 	let errorMessage = '';
 	let rows: Row[] = [];
-	let totalImages = 0;
 	let completedChapters = 0;
 
-	// REACTIVE AGGREGATE PROGRESS
+	// -- REACTIVE STATEMENTS -- //
+	// REACTIVE AGGREGATE PROGRESS & PAGE TOTALS
 	let globalPercent = 0;
 	let uploadedBytes = 0;
+	$: totalImages = rows.reduce((sum, r) => sum + r.files.length, 0);
 	$: {
 		const allFiles = rows.flatMap((r) => r.files);
 		globalPercent = computeGlobalPercent(allFiles);
@@ -96,7 +97,6 @@
 
 			if (result.isMultiChapter && result.chapters.length >= 2) {
 				rows = result.chapters.map((c) => buildRow(c.title || c.folderName, c.seqHint, c.files));
-				totalImages = result.totalImages;
 				phase = 'confirm';
 				return;
 			}

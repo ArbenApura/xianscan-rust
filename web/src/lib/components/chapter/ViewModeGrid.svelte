@@ -110,7 +110,7 @@
 	}
 </script>
 
-<div class="grid w-full gap-4 sm:grid-cols-2 lg:grid-cols-3">
+<div class="grid w-full grid-cols-1 gap-3.5 sm:grid-cols-2 lg:grid-cols-3">
 	{#each pages as page, idx (page.id)}
 		{@const isOutput = webtoonKind === 'output' && Boolean(page.outputPath)}
 		{@const hasRatio = Boolean(page.width && page.height)}
@@ -119,7 +119,7 @@
 			on:dragover={(e) => dispatch('dragOver', { event: e, index: idx })}
 			on:drop={(e) => dispatch('drop', { event: e, index: idx })}
 			on:dragend={(e) => dispatch('dragEnd', e)}
-			class={`group relative flex flex-col justify-between rounded-xl border p-3.5 transition-all ${
+			class={`group relative flex flex-col justify-between rounded-xl border p-3 sm:p-3.5 transition-all ${
 				dragOverPageIndex === idx
 					? 'z-10 scale-[1.02] border-[#b23a2e] bg-[#b23a2e]/5 ring-2 ring-[#b23a2e]/40'
 					: 'border-black/[0.08] bg-white/40 hover:border-[#b23a2e]/40 hover:shadow-md dark:border-white/[0.06] dark:bg-white/[0.02]'
@@ -128,21 +128,21 @@
 			data-page-id={page.id}
 			style="content-visibility: auto; contain-intrinsic-size: auto 380px;"
 		>
-			<div>
-				<div class="mb-2 flex items-center justify-between">
-					<div class="flex items-center gap-2">
+			<div class="min-w-0">
+				<div class="mb-2 flex items-center justify-between gap-1.5 min-w-0">
+					<div class="flex items-center gap-1.5 min-w-0 overflow-hidden">
 						<!-- svelte-ignore a11y-no-static-element-interactions -->
 						<span
 							draggable="true"
 							on:dragstart={(e) => dispatch('dragStart', { event: e, index: idx })}
 							on:dragend={(e) => dispatch('dragEnd', e)}
-							class="flex cursor-grab select-none items-center gap-1 rounded px-1.5 py-0.5 text-xs font-bold transition hover:bg-black/5 active:cursor-grabbing dark:hover:bg-white/5"
+							class="flex cursor-grab select-none items-center gap-1 rounded px-1.5 py-0.5 text-xs font-bold transition hover:bg-black/5 active:cursor-grabbing dark:hover:bg-white/5 shrink-0"
 						>
 							<GripVertical size={13} class="opacity-40" /> Page {page.seq + 1}
 						</span>
 						<Badge
 							variant={statusVariant[page.status]}
-							class={page.status === 'processing' ? 'animate-pulse' : ''}
+							class={`truncate text-[10px] sm:text-xs ${page.status === 'processing' ? 'animate-pulse' : ''}`}
 						>
 							{#if page.status === 'processing'}
 								{page.currentStep
@@ -153,14 +153,17 @@
 							{/if}
 						</Badge>
 					</div>
-					<div class="flex items-center gap-1.5">
+					<div class="flex items-center gap-1 shrink-0">
 						<button
 							type="button"
 							disabled={page.status === 'processing'}
 							on:click={() => dispatch('inspect', page)}
+							use:ripple
+							title="Inspect Page"
 							class="flex items-center gap-1 rounded-md bg-black/5 px-2 py-1 text-xs font-semibold transition hover:bg-black/10 disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-black/5 dark:bg-white/5 dark:hover:bg-white/10 dark:disabled:hover:bg-white/5"
 						>
-							<Eye size={12} /> Inspect
+							<Eye size={12} />
+							<span class="hidden min-[400px]:inline">Inspect</span>
 						</button>
 						<ActionMenu
 							items={getMenuItems(page, idx, running)}

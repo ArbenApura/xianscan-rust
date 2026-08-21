@@ -290,15 +290,14 @@ XianScan integrates seamlessly with **[Mihon](https://mihon.app/)** (and Tachiyo
 4. Navigate to **Browse → Extensions** (or **Extension Store**) → find **XianScan** and tap **Install**.
 5. **Trust the Extension**: If Mihon displays an *"Untrusted"* prompt on XianScan, tap **Trust** to authorize it.
 6. **Configure Your Local LAN Server Address**:
-   - In **Browse → Sources**, tap **⚙ (Settings)** next to **XianScan**.
-   - Tap **Server address** and enter your PC's local Wi-Fi / LAN address (port `8124`):
+   - Navigate to **Browse → Extensions** → tap the **⚙ (Settings cog)** to the right of **XianScan** → tap the **⚙ (Multi cog)** on the right → tap **Server address**.
+   - Enter your PC's local Wi-Fi / LAN address (found directly in your XianScan terminal banner under **Network / LAN**, port `8124`):
      ```
      http://<your-pc-lan-ip>:8124
      ```
-     *(Example: `http://192.168.1.50:8124` — no trailing slash).*
-   - *(Tip: To find your PC's IP address, run `ipconfig` on Windows or `hostname -I` on Linux).*
-7. **Enable "All" in Language Filter**:
-   - On the **Browse → Sources** tab, tap the **Filter / Globe 🌐 icon** in the top right and ensure **"All"** (multi-language) is checked.
+     *(Example: `http://192.168.100.98:8124` — no trailing slash).*
+7. **Enable "Multi" in Language Filter**:
+   - On the **Browse → Sources** tab, tap the **Filter / Globe 🌐 icon** in the top right and ensure **"Multi"** is checked (Mihon uses the **Multi** tag for multi-language extensions).
 8. Tap **XianScan** under Sources to browse your manga library, view high-res dedicated series covers, and read translated chapters directly on your mobile device!
 
 ---

@@ -19,6 +19,17 @@ describe('Client Svelte Stores', () => {
 		expect(THEME_CLASS.dark).toBe('bg-[#13100c] text-[#d8cfc2]');
 	});
 
+	it('applyFontFamily exempts input and textarea font stacks for comic all-caps font', async () => {
+		const { applyFontFamily, FONT_STACKS, INPUT_FONT_STACKS } = await import('$lib/stores/settings');
+		applyFontFamily('comic');
+		expect(document.documentElement.style.getPropertyValue('--app-font-family')).toBe(FONT_STACKS.comic);
+		expect(document.documentElement.style.getPropertyValue('--app-input-font-family')).toBe(
+			INPUT_FONT_STACKS.comic,
+		);
+		expect(INPUT_FONT_STACKS.comic).not.toContain('WildWorld');
+		expect(INPUT_FONT_STACKS.comic).toContain('Montserrat');
+	});
+
 	it('readingHistory store records and retrieves last opened chapter per book', () => {
 		readingHistory.recordReading('book-abc', {
 			id: 42,

@@ -43,6 +43,9 @@
 	import Pin from 'lucide-svelte/icons/pin';
 	import Play from 'lucide-svelte/icons/play';
 	import Download from 'lucide-svelte/icons/download';
+	import CheckCircle2 from 'lucide-svelte/icons/check-circle-2';
+	import Clock from 'lucide-svelte/icons/clock';
+	import AlertTriangle from 'lucide-svelte/icons/alert-triangle';
 	import LayoutGrid from 'lucide-svelte/icons/layout-grid';
 	import List from 'lucide-svelte/icons/list';
 	import AlignJustify from 'lucide-svelte/icons/align-justify';
@@ -830,7 +833,7 @@
 <!-- BOOK DETAIL & CHAPTER MANAGEMENT -->
 <!-- svelte-ignore a11y-no-static-element-interactions -->
 <div
-	class="flex flex-col gap-6"
+	class="flex flex-col gap-6 pb-8 sm:pb-0"
 	on:dragover={handleBookDragOver}
 	on:dragleave={() => (isDraggingOverBook = false)}
 	on:drop={handleBookDrop}
@@ -890,7 +893,7 @@
 		<div
 			class="relative overflow-hidden rounded-2xl border border-black/[0.08] bg-white/70 p-3.5 backdrop-blur-md dark:border-white/[0.08] dark:bg-white/[0.02] sm:p-6"
 		>
-			<div class="grid grid-cols-[auto_1fr] items-start gap-x-3.5 gap-y-3 sm:gap-x-6 sm:gap-y-4">
+			<div class="flex flex-row items-start gap-3.5 sm:gap-6">
 				<!-- COVER THUMBNAIL — PINNED TO A 2:3 BOOK COVER RATIO, NEVER STRETCHED BY CONTENT HEIGHT -->
 				<div class="xs:w-24 relative flex w-20 shrink-0 flex-col sm:w-32 md:w-36">
 					<LazyImage
@@ -907,8 +910,8 @@
 					/>
 				</div>
 
-				<!-- METADATA & STATS (ROW 1, COL 2) — NATURALLY COMPACT SO SPARSE CONTENT LEAVES NO GAPS -->
-				<div class="flex min-w-0 flex-col">
+				<!-- RIGHT COLUMN: METADATA, STATS, PROGRESS & ACTIONS -->
+				<div class="flex min-w-0 flex-1 flex-col gap-3 sm:gap-4">
 					<div class="space-y-1.5 sm:space-y-2">
 						<div class="flex flex-wrap items-center justify-between gap-1.5">
 							<div class="flex flex-wrap items-center gap-1.5">
@@ -963,9 +966,15 @@
 						{/if}
 						{#if book.author || book.artist}
 							<p class="truncate text-[11px] opacity-70 sm:text-xs">
-								<span class="font-semibold">Author:</span>
-								{book.author || '—'}{#if book.artist}
-									&nbsp;<span class="font-semibold">Artist:</span> {book.artist}{/if}
+								{#if book.author}
+									<span class="font-semibold">Author:</span> {book.author}
+								{/if}
+								{#if book.author && book.artist}
+									<span class="mx-1.5 opacity-40">•</span>
+								{/if}
+								{#if book.artist}
+									<span class="font-semibold">Artist:</span> {book.artist}
+								{/if}
 							</p>
 						{/if}
 						{#if book.tags && book.tags.length > 0}
@@ -1003,134 +1012,134 @@
 							<span><strong>{translatedChapters}</strong> done</span>
 						</div>
 					</div>
-				</div>
 
-				<!-- PROGRESS BAR (FULL-WIDTH ON MOBILE; ROW 2 COL 2 ON WIDE) -->
-				{#if totalPages > 0 || chapters.length > 0}
-					<div class="col-span-2 max-w-md space-y-1 sm:col-span-1 sm:col-start-2 sm:space-y-1.5">
-						<div class="flex items-center justify-between text-[11px] font-medium sm:text-xs">
-							<span class="opacity-70">Translation Progress</span>
-							<span class="font-mono font-bold text-[#b23a2e] dark:text-[#e08a63]"
-								>{overallProgress}%</span
-							>
+					<!-- PROGRESS BAR -->
+					{#if totalPages > 0 || chapters.length > 0}
+						<div class="max-w-md space-y-1 sm:space-y-1.5">
+							<div class="flex items-center justify-between text-[11px] font-medium sm:text-xs">
+								<span class="opacity-70">Translation Progress</span>
+								<span class="font-mono font-bold text-[#b23a2e] dark:text-[#e08a63]"
+									>{overallProgress}%</span
+								>
+							</div>
+							<div class="h-1.5 w-full overflow-hidden rounded-full bg-black/5 dark:bg-white/10 sm:h-2">
+								<div
+									class="h-full rounded-full bg-[#b23a2e] transition-all duration-500 dark:bg-[#e08a63]"
+									style={`width: ${overallProgress}%`}
+								></div>
+							</div>
 						</div>
-						<div class="h-1.5 w-full overflow-hidden rounded-full bg-black/5 dark:bg-white/10 sm:h-2">
-							<div
-								class="h-full rounded-full bg-[#b23a2e] transition-all duration-500 dark:bg-[#e08a63]"
-								style={`width: ${overallProgress}%`}
-							></div>
-						</div>
-					</div>
-				{/if}
-
-				<!-- ACTION BUTTONS ROW (FULL-WIDTH ON MOBILE; ROW 3 COL 2 ON WIDE) -->
-				<div class="col-span-2 flex max-w-full items-center gap-1.5 sm:col-span-1 sm:col-start-2 sm:gap-2">
-					<!-- HIDDEN FOLDER PICKER INPUT -->
-					<!-- SPREAD THE NON-STANDARD `webkitdirectory`/`directory` ATTRIBUTES — SVELTE'S
-					     HTML PROP TYPES DO NOT KNOW THEM AS BOOLEAN ATTRIBUTES -->
-					<input
-						type="file"
-						{...{ webkitdirectory: true, directory: true }}
-						class="hidden"
-						bind:this={folderPickerInput}
-						on:change={handleBookFolderSelected}
-					/>
-
-					<!-- 1. PRIMARY ACTION: NEW CHAPTER -->
-					<Button
-						variant="primary"
-						size="md"
-						class="h-8 flex-1 shrink-0 gap-1 px-2.5 text-xs font-semibold shadow-sm sm:h-9 sm:flex-initial sm:gap-1.5 sm:px-3.5 sm:text-sm md:h-10"
-						on:click={openCreateChapterModal}
-					>
-						<Plus size={14} /> <span>New Chapter</span>
-					</Button>
-
-					<!-- 2. IMPORT FOLDER -->
-					<Button
-						variant="secondary"
-						size="md"
-						class="h-8 shrink-0 gap-1 px-2 text-xs font-medium sm:h-9 sm:gap-1.5 sm:px-3 sm:text-sm md:h-10"
-						on:click={() => (folderGuideModalOpen = true)}
-						title="Batch import chapter folders directly into this book"
-					>
-						<FolderUp size={13} class="text-amber-500" />
-						<span class="hidden sm:inline">Import Folder</span>
-						<span class="sm:hidden">Folder</span>
-					</Button>
-
-					<!-- 3. TRANSLATE PENDING (SHOWN INLINE ON LG+, IN POPOVER ON SMALLER SCREENS) -->
-					{#if pendingChapters > 0}
-						<Button
-							variant="secondary"
-							size="md"
-							class={`shadow-xs hidden h-8 shrink-0 gap-1 border-[#b23a2e]/30 bg-[#b23a2e]/10 px-2.5 text-xs font-semibold text-[#b23a2e] transition-all hover:bg-[#b23a2e] hover:text-white dark:text-[#e08a63] dark:hover:bg-[#e08a63] dark:hover:text-black sm:h-9 sm:gap-1.5 sm:px-3 sm:text-sm md:h-10 lg:inline-flex ${
-								isBatchActiveForOtherBook ? 'opacity-80' : ''
-							}`}
-							on:click={startBatchAllPending}
-							title={isBatchActiveForOtherBook
-								? `Batch translation is currently running for "${$batchTracker.bookTitle || 'another book'}"`
-								: `Translate all ${pendingChapters} pending chapters sequentially`}
-						>
-							<Sparkles size={13} class="text-amber-500" />
-							<span>Translate Pending ({pendingChapters})</span>
-						</Button>
 					{/if}
 
-					<!-- 4. CLEAR PROGRESS BUTTON: INLINE ON WIDE SCREENS (LG+) -->
-					{#if chapters.length > 0}
-						<Button
-							variant="secondary"
-							size="md"
-							loading={clearingProgress}
-							disabled={clearingProgress}
-							class="shadow-xs hidden h-8 shrink-0 gap-1 border-red-500/30 bg-red-500/5 px-2.5 text-xs font-medium text-red-600 transition-all hover:bg-red-500 hover:text-white dark:border-red-400/30 dark:bg-red-400/5 dark:text-red-400 dark:hover:bg-red-500 dark:hover:text-white sm:h-9 sm:gap-1.5 sm:px-3 sm:text-sm md:h-10 lg:inline-flex"
-							on:click={() => (clearProgressConfirmOpen = true)}
-							title="Clear all translations and OCR progress while keeping all pages intact"
-						>
-							{#if !clearingProgress}
-								<RotateCw size={13} />
-							{/if}
-							<span>{clearingProgress ? 'Clearing...' : 'Clear Progress'}</span>
-						</Button>
-					{/if}
-
-					<!-- 5. MORE ACTIONS POPOVER: VISIBLE ONLY ON SMALLER SCREENS (<LG) -->
-					<div class="shrink-0 lg:hidden">
-						<ActionMenu
-							label="More Book Actions"
-							iconSize={15}
-							class="flex h-8 items-center justify-center rounded-xl border border-black/10 px-2 transition hover:bg-black/5 dark:border-white/10 dark:hover:bg-white/5 sm:h-9 md:h-10"
-							items={[
-								...(pendingChapters > 0
-									? [
-											{
-												value: 'translate-pending',
-												label: `Translate Pending (${pendingChapters})`,
-												icon: Sparkles,
-											},
-										]
-									: []),
-								...(chapters.length > 0
-									? [
-											{
-												value: 'clear-progress',
-												label: clearingProgress ? 'Clearing Progress...' : 'Clear All Progress',
-												icon: RotateCw,
-												danger: true,
-												disabled: clearingProgress,
-											},
-										]
-									: []),
-							]}
-							on:select={(e) => {
-								if (e.detail === 'translate-pending') {
-									startBatchAllPending();
-								} else if (e.detail === 'clear-progress') {
-									clearProgressConfirmOpen = true;
-								}
-							}}
+					<!-- ACTION BUTTONS ROW -->
+					<div class="flex max-w-full flex-wrap items-center gap-1.5 sm:gap-2">
+						<!-- HIDDEN FOLDER PICKER INPUT -->
+						<!-- SPREAD THE NON-STANDARD `webkitdirectory`/`directory` ATTRIBUTES — SVELTE'S
+						     HTML PROP TYPES DO NOT KNOW THEM AS BOOLEAN ATTRIBUTES -->
+						<input
+							type="file"
+							{...{ webkitdirectory: true, directory: true }}
+							class="hidden"
+							bind:this={folderPickerInput}
+							on:change={handleBookFolderSelected}
 						/>
+
+						<!-- 1. PRIMARY ACTION: NEW CHAPTER (DESKTOP ONLY — ON MOBILE IT IS A FIXED FAB) -->
+						<Button
+							variant="primary"
+							size="md"
+							class="hidden h-8 shrink-0 gap-1 px-2.5 text-xs font-semibold shadow-sm sm:inline-flex sm:h-9 sm:gap-1.5 sm:px-3.5 sm:text-sm md:h-10"
+							on:click={openCreateChapterModal}
+						>
+							<Plus size={14} /> <span>New Chapter</span>
+						</Button>
+
+						<!-- 2. IMPORT FOLDER -->
+						<Button
+							variant="secondary"
+							size="md"
+							class="h-8 shrink-0 gap-1 px-2 text-xs font-medium sm:h-9 sm:gap-1.5 sm:px-3 sm:text-sm md:h-10"
+							on:click={() => (folderGuideModalOpen = true)}
+							title="Batch import chapter folders directly into this book"
+						>
+							<FolderUp size={13} class="text-amber-500" />
+							<span class="hidden sm:inline">Import Folder</span>
+							<span class="sm:hidden">Folder</span>
+						</Button>
+
+						<!-- 3. TRANSLATE PENDING (SHOWN INLINE ON LG+, IN POPOVER ON SMALLER SCREENS) -->
+						{#if pendingChapters > 0}
+							<Button
+								variant="secondary"
+								size="md"
+								class={`shadow-xs hidden h-8 shrink-0 gap-1 border-[#b23a2e]/30 bg-[#b23a2e]/10 px-2.5 text-xs font-semibold text-[#b23a2e] transition-all hover:bg-[#b23a2e] hover:text-white dark:text-[#e08a63] dark:hover:bg-[#e08a63] dark:hover:text-black sm:h-9 sm:gap-1.5 sm:px-3 sm:text-sm md:h-10 lg:inline-flex ${
+									isBatchActiveForOtherBook ? 'opacity-80' : ''
+								}`}
+								on:click={startBatchAllPending}
+								title={isBatchActiveForOtherBook
+									? `Batch translation is currently running for "${$batchTracker.bookTitle || 'another book'}"`
+									: `Translate all ${pendingChapters} pending chapters sequentially`}
+							>
+								<Sparkles size={13} class="text-amber-500" />
+								<span>Translate Pending ({pendingChapters})</span>
+							</Button>
+						{/if}
+
+						<!-- 4. CLEAR PROGRESS BUTTON: INLINE ON WIDE SCREENS (LG+) -->
+						{#if chapters.length > 0}
+							<Button
+								variant="secondary"
+								size="md"
+								loading={clearingProgress}
+								disabled={clearingProgress}
+								class="shadow-xs hidden h-8 shrink-0 gap-1 border-red-500/30 bg-red-500/5 px-2.5 text-xs font-medium text-red-600 transition-all hover:bg-red-500 hover:text-white dark:border-red-400/30 dark:bg-red-400/5 dark:text-red-400 dark:hover:bg-red-500 dark:hover:text-white sm:h-9 sm:gap-1.5 sm:px-3 sm:text-sm md:h-10 lg:inline-flex"
+								on:click={() => (clearProgressConfirmOpen = true)}
+								title="Clear all translations and OCR progress while keeping all pages intact"
+							>
+								{#if !clearingProgress}
+									<RotateCw size={13} />
+								{/if}
+								<span>{clearingProgress ? 'Clearing...' : 'Clear Progress'}</span>
+							</Button>
+						{/if}
+
+						<!-- 5. MORE ACTIONS POPOVER: VISIBLE ONLY ON SMALLER SCREENS (<LG) -->
+						<div class="shrink-0 lg:hidden">
+							<ActionMenu
+								label="More Book Actions"
+								iconSize={15}
+								class="flex h-8 items-center justify-center rounded-xl border border-black/10 px-2 transition hover:bg-black/5 dark:border-white/10 dark:hover:bg-white/5 sm:h-9 md:h-10"
+								items={[
+									...(pendingChapters > 0
+										? [
+												{
+													value: 'translate-pending',
+													label: `Translate Pending (${pendingChapters})`,
+													icon: Sparkles,
+												},
+											]
+										: []),
+									...(chapters.length > 0
+										? [
+												{
+													value: 'clear-progress',
+													label: clearingProgress ? 'Clearing Progress...' : 'Clear All Progress',
+													icon: RotateCw,
+													danger: true,
+													disabled: clearingProgress,
+												},
+											]
+										: []),
+								]}
+								on:select={(e) => {
+									if (e.detail === 'translate-pending') {
+										startBatchAllPending();
+									} else if (e.detail === 'clear-progress') {
+										clearProgressConfirmOpen = true;
+									}
+								}}
+							/>
+						</div>
 					</div>
 				</div>
 			</div>
@@ -1139,11 +1148,11 @@
 		<!-- UNIFIED ADAPTIVE COMMAND BAR -->
 		<div class="flex flex-col gap-2.5">
 			<!-- COMMAND BAR CONTAINER -->
-			<div class="flex flex-col gap-2.5 md:flex-row md:items-center md:justify-between">
+			<div class="flex flex-col gap-2.5 md:flex-row md:items-center md:justify-between min-w-0">
 				<!-- CONTROLS ROW (ON MOBILE: PLACED TOP FOR QUICK REACH; ON DESKTOP: SITS ON THE RIGHT) -->
-				<div class="order-1 flex flex-wrap items-center gap-2 md:order-2">
+				<div class="order-1 flex flex-1 items-center justify-end gap-2 md:order-2 min-w-0">
 					<!-- SEARCH INPUT -->
-					<div class="relative flex-1 sm:w-56 md:w-60 lg:w-72">
+					<div class="relative min-w-[120px] flex-1 sm:w-44 md:w-48 lg:w-60">
 						<Search
 							size={14}
 							class="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-black/40 dark:text-white/40"
@@ -1189,7 +1198,7 @@
 							use:ripple
 						>
 							<ArrowUpDown size={14} class="opacity-60" />
-							<span class="xs:inline hidden sm:inline"
+							<span class="hidden sm:inline md:hidden xl:inline"
 								>{sortAscending ? 'Oldest (1 → N)' : 'Newest First'}</span
 							>
 							<ChevronDown
@@ -1273,7 +1282,7 @@
 							use:ripple
 						>
 							<LayoutGrid size={14} />
-							<span class="hidden text-xs lg:inline">Grid</span>
+							<span class="hidden text-xs xl:inline">Grid</span>
 						</button>
 
 						<button
@@ -1289,7 +1298,7 @@
 							use:ripple
 						>
 							<List size={14} />
-							<span class="hidden text-xs lg:inline">List</span>
+							<span class="hidden text-xs xl:inline">List</span>
 						</button>
 
 						<button
@@ -1305,28 +1314,30 @@
 							use:ripple
 						>
 							<AlignJustify size={14} />
-							<span class="hidden text-xs lg:inline">Compact</span>
+							<span class="hidden text-xs xl:inline">Compact</span>
 						</button>
 					</div>
 				</div>
 
 				<!-- FILTER TABS (DESKTOP: SITS ON LEFT; MOBILE: SMOOTH SCROLLABLE RAIL) -->
-				<div class="order-2 flex flex-wrap items-center gap-1.5 md:order-1">
+				<!-- FILTER TABS (MOBILE: FULL-WIDTH RESPONSIVE SEGMENTED GRID; DESKTOP: CLEAN FLEX ROW) -->
+				<div class="order-2 w-full md:order-1 md:w-auto">
 					<div
-						class="no-scrollbar flex max-w-full items-center gap-1 overflow-x-auto rounded-xl bg-black/[0.04] p-1 dark:bg-white/[0.04]"
+						class={`grid ${errorChapters > 0 ? 'grid-cols-4' : 'grid-cols-3'} w-full items-center gap-1 rounded-xl bg-black/[0.04] p-1 dark:bg-white/[0.04] md:flex md:w-auto`}
 					>
 						<button
 							type="button"
 							on:click={() => (statusFilter = 'all')}
-							class={`flex shrink-0 items-center gap-1.5 rounded-lg px-3 py-2 text-xs font-medium transition-all sm:px-3.5 ${
+							class={`flex items-center justify-center gap-1 sm:gap-1.5 rounded-lg px-1.5 sm:px-3.5 py-2 text-xs font-medium transition-all ${
 								statusFilter === 'all'
 									? 'shadow-xs bg-white font-semibold text-black dark:bg-[#201c18] dark:text-white'
 									: 'opacity-60 hover:opacity-100'
 							}`}
 							use:ripple
 						>
-							<span>All</span>
-							<span class="py-0.2 rounded-full bg-black/5 px-1.5 font-mono text-[10px] dark:bg-white/10"
+							<Layers size={12} class="hidden min-[420px]:inline shrink-0" />
+							<span class="truncate">All</span>
+							<span class="py-0.2 rounded-full bg-black/5 px-1 sm:px-1.5 font-mono text-[10px] dark:bg-white/10"
 								>{chapters.length}</span
 							>
 						</button>
@@ -1334,16 +1345,17 @@
 						<button
 							type="button"
 							on:click={() => (statusFilter = 'done')}
-							class={`flex shrink-0 items-center gap-1.5 rounded-lg px-3 py-2 text-xs font-medium transition-all sm:px-3.5 ${
+							class={`flex items-center justify-center gap-1 sm:gap-1.5 rounded-lg px-1.5 sm:px-3.5 py-2 text-xs font-medium transition-all ${
 								statusFilter === 'done'
 									? 'shadow-xs bg-white font-semibold text-black dark:bg-[#201c18] dark:text-white'
 									: 'opacity-60 hover:opacity-100'
 							}`}
 							use:ripple
 						>
-							<span>Translated</span>
+							<CheckCircle2 size={12} class="hidden min-[420px]:inline shrink-0 text-emerald-600 dark:text-emerald-400" />
+							<span class="truncate">Translated</span>
 							<span
-								class="py-0.2 rounded-full bg-emerald-500/10 px-1.5 font-mono text-[10px] text-emerald-700 dark:text-emerald-300"
+								class="py-0.2 rounded-full bg-emerald-500/10 px-1 sm:px-1.5 font-mono text-[10px] text-emerald-700 dark:text-emerald-300"
 								>{translatedChapters}</span
 							>
 						</button>
@@ -1351,15 +1363,16 @@
 						<button
 							type="button"
 							on:click={() => (statusFilter = 'pending')}
-							class={`flex shrink-0 items-center gap-1.5 rounded-lg px-3 py-2 text-xs font-medium transition-all sm:px-3.5 ${
+							class={`flex items-center justify-center gap-1 sm:gap-1.5 rounded-lg px-1.5 sm:px-3.5 py-2 text-xs font-medium transition-all ${
 								statusFilter === 'pending'
 									? 'shadow-xs bg-white font-semibold text-black dark:bg-[#201c18] dark:text-white'
 									: 'opacity-60 hover:opacity-100'
 							}`}
 							use:ripple
 						>
-							<span>Pending</span>
-							<span class="py-0.2 rounded-full bg-black/5 px-1.5 font-mono text-[10px] dark:bg-white/10"
+							<Clock size={12} class="hidden min-[420px]:inline shrink-0 opacity-60" />
+							<span class="truncate">Pending</span>
+							<span class="py-0.2 rounded-full bg-black/5 px-1 sm:px-1.5 font-mono text-[10px] dark:bg-white/10"
 								>{pendingChapters}</span
 							>
 						</button>
@@ -1368,22 +1381,22 @@
 							<button
 								type="button"
 								on:click={() => (statusFilter = 'error')}
-								class={`flex shrink-0 items-center gap-1.5 rounded-lg px-3 py-2 text-xs font-medium transition-all sm:px-3.5 ${
+								class={`flex items-center justify-center gap-1 sm:gap-1.5 rounded-lg px-1.5 sm:px-3.5 py-2 text-xs font-medium transition-all ${
 									statusFilter === 'error'
 										? 'shadow-xs bg-white font-semibold text-black dark:bg-[#201c18] dark:text-white'
 										: 'opacity-60 hover:opacity-100'
 								}`}
 								use:ripple
 							>
-								<span>Error</span>
+								<AlertTriangle size={12} class="hidden min-[420px]:inline shrink-0 text-red-600 dark:text-red-400" />
+								<span class="truncate">Error</span>
 								<span
-									class="py-0.2 rounded-full bg-red-500/10 px-1.5 font-mono text-[10px] text-red-700 dark:text-red-300"
+									class="py-0.2 rounded-full bg-red-500/10 px-1 sm:px-1.5 font-mono text-[10px] text-red-700 dark:text-red-300"
 									>{errorChapters}</span
 								>
 							</button>
 						{/if}
 					</div>
-
 				</div>
 			</div>
 		</div>
@@ -2040,6 +2053,18 @@
 		{/if}
 	{/if}
 </div>
+
+<!-- MOBILE FLOATING ACTION BUTTON (FAB): HUGE '+' BUTTON -->
+<button
+	type="button"
+	on:click={openCreateChapterModal}
+	class="fixed bottom-6 right-6 z-30 flex h-14 w-14 items-center justify-center rounded-full border border-transparent bg-[#b23a2e] text-white shadow-xl shadow-black/20 transition-all duration-200 hover:bg-[#c0392b] hover:shadow-2xl hover:scale-105 active:scale-95 focus:outline-none focus:ring-2 focus:ring-[#b23a2e]/40 sm:hidden"
+	use:ripple
+	title="Create New Chapter"
+	aria-label="Create New Chapter"
+>
+	<Plus size={28} class="shrink-0" />
+</button>
 
 <!-- STICKY BATCH FLOATING ACTION TOOLBAR -->
 {#if selectedChapterIds.size > 0}

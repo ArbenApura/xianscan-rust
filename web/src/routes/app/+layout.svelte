@@ -129,47 +129,47 @@
 				</a>
 
 				<!-- PRIMARY NAVIGATION TABS -->
-				<div class="flex items-center gap-1 pl-1 sm:pl-3 border-l border-black/10 dark:border-white/10">
+				<div class="flex items-center gap-1 sm:gap-1.5 pl-1.5 sm:pl-3 border-l border-black/10 dark:border-white/10">
 					<!-- LIBRARY LINK -->
 					<a
 						href="/app"
-						class={`flex items-center gap-1 sm:gap-1.5 rounded-lg px-2 sm:px-2.5 py-1 text-xs font-semibold transition-all duration-150 active:scale-95 ${
+						class={`flex items-center gap-1.5 rounded-lg px-2.5 sm:px-3 py-1.5 text-xs sm:text-sm font-semibold transition-all duration-150 active:scale-95 ${
 							isLibraryActive
 								? 'bg-black/[0.06] text-[#b23a2e] dark:bg-white/[0.08] dark:text-[#e08a63] shadow-2xs'
 								: 'text-current opacity-70 hover:opacity-100 hover:bg-black/[0.03] dark:hover:bg-white/[0.04]'
 						}`}
 						aria-current={isLibraryActive ? 'page' : undefined}
 					>
-						<BookOpen size={14} class={isLibraryActive ? 'text-[#b23a2e] dark:text-[#e08a63]' : ''} />
-						<span class="hidden min-[480px]:inline">Library</span>
+						<BookOpen size={16} class={isLibraryActive ? 'text-[#b23a2e] dark:text-[#e08a63]' : ''} />
+						<span class="hidden min-[750px]:inline">Library</span>
 					</a>
 
 					<!-- GLOSSARY LINK -->
 					<a
 						href="/app/glossary"
-						class={`flex items-center gap-1 sm:gap-1.5 rounded-lg px-2 sm:px-2.5 py-1 text-xs font-semibold transition-all duration-150 active:scale-95 ${
+						class={`flex items-center gap-1.5 rounded-lg px-2.5 sm:px-3 py-1.5 text-xs sm:text-sm font-semibold transition-all duration-150 active:scale-95 ${
 							isGlossaryActive
 								? 'bg-black/[0.06] text-[#b23a2e] dark:bg-white/[0.08] dark:text-[#e08a63] shadow-2xs'
 								: 'text-current opacity-70 hover:opacity-100 hover:bg-black/[0.03] dark:hover:bg-white/[0.04]'
 						}`}
 						aria-current={isGlossaryActive ? 'page' : undefined}
 					>
-						<Languages size={14} class={isGlossaryActive ? 'text-[#b23a2e] dark:text-[#e08a63]' : ''} />
-						<span class="hidden min-[480px]:inline">Glossary</span>
+						<Languages size={16} class={isGlossaryActive ? 'text-[#b23a2e] dark:text-[#e08a63]' : ''} />
+						<span class="hidden min-[750px]:inline">Glossary</span>
 					</a>
 
 					<!-- ABOUT LINK -->
 					<a
 						href="/app/about"
-						class={`flex items-center gap-1 sm:gap-1.5 rounded-lg px-2 sm:px-2.5 py-1 text-xs font-semibold transition-all duration-150 active:scale-95 ${
+						class={`flex items-center gap-1.5 rounded-lg px-2.5 sm:px-3 py-1.5 text-xs sm:text-sm font-semibold transition-all duration-150 active:scale-95 ${
 							isAboutActive
 								? 'bg-black/[0.06] text-[#b23a2e] dark:bg-white/[0.08] dark:text-[#e08a63] shadow-2xs'
 								: 'text-current opacity-70 hover:opacity-100 hover:bg-black/[0.03] dark:hover:bg-white/[0.04]'
 						}`}
 						aria-current={isAboutActive ? 'page' : undefined}
 					>
-						<Info size={14} class={isAboutActive ? 'text-[#b23a2e] dark:text-[#e08a63]' : ''} />
-						<span class="hidden min-[480px]:inline">About</span>
+						<Info size={16} class={isAboutActive ? 'text-[#b23a2e] dark:text-[#e08a63]' : ''} />
+						<span class="hidden min-[750px]:inline">About</span>
 					</a>
 				</div>
 
@@ -180,7 +180,7 @@
 						title={`Batch translating: ${$batchProgress.completedChapters}/${$batchProgress.totalChapters} chapters complete`}
 					>
 						<span class={`h-1.5 w-1.5 rounded-full bg-[#b23a2e] dark:bg-[#e08a63] ${$batchProgress.status === 'running' ? 'animate-ping' : ''}`}></span>
-						<span class="hidden sm:inline">Batch</span>
+						<span class="hidden min-[750px]:inline">Batch</span>
 						<span class="font-mono text-[10px] sm:text-xs">({$batchProgress.completedChapters}/{$batchProgress.totalChapters} chs)</span>
 					</div>
 				{:else}
@@ -193,7 +193,7 @@
 							title={`Translating chapter (${done}/${total} pages)`}
 						>
 							<span class="h-1.5 w-1.5 rounded-full bg-[#b23a2e] dark:bg-[#e08a63]"></span>
-							<span class="hidden sm:inline">Translating</span>
+							<span class="hidden min-[750px]:inline">Translating</span>
 							<span class="font-mono text-[10px] sm:text-xs">({done}/{total})</span>
 						</div>
 					{/each}
@@ -202,11 +202,11 @@
 
 			<!-- RIGHT: ML SIDECAR STATUS, THEME TOGGLE & SETTINGS BUTTONS -->
 			<div class="flex items-center gap-1.5 sm:gap-2 shrink-0">
-				<!-- ML SIDECAR STATUS PILL (RESPONSIVE: COMPACT ON MOBILE, EXPANDED ON TABLET/DESKTOP) -->
+				<!-- ML SIDECAR STATUS PILL (DESKTOP ONLY — ON MOBILE A STATUS DOT APPEARS ON SETTINGS) -->
 				<button
 					type="button"
 					on:click={() => openSettings('compute')}
-					class={`flex h-8 sm:h-9 items-center gap-1.5 rounded-xl border px-2 sm:px-2.5 text-xs font-semibold shadow-2xs backdrop-blur transition-all duration-200 active:scale-95 ${
+					class={`hidden min-[750px]:flex h-9 items-center gap-1.5 rounded-xl border px-2.5 text-xs font-semibold shadow-2xs backdrop-blur transition-all duration-200 active:scale-95 ${
 						$mlStatus.online
 							? 'border-emerald-500/30 bg-emerald-500/10 text-emerald-700 hover:border-emerald-500/50 hover:bg-emerald-500/15 dark:text-emerald-400 dark:bg-emerald-500/10 dark:hover:bg-emerald-500/20'
 							: $mlStatus.loading
@@ -221,41 +221,53 @@
 					aria-label="ML Sidecar Status"
 					use:ripple
 				>
-					<Cpu size={14} class="opacity-85 shrink-0" />
+					<Cpu size={15} class="opacity-85 shrink-0" />
 
-					<span class="hidden min-[540px]:inline font-mono text-[11px] font-bold tracking-tight px-0.5">
+					<span class="hidden min-[850px]:inline font-mono text-[11px] font-bold tracking-tight px-0.5">
 						{formatSidecarLabel($mlStatus)}
 					</span>
 				</button>
 
-				<!-- THEME QUICK TOGGLE BUTTON (CYCLES ALL THEMES) -->
+				<!-- THEME QUICK TOGGLE BUTTON (DESKTOP ONLY — CONFIGURED IN SETTINGS ON MOBILE) -->
 				<button
 					type="button"
 					on:click={cycleTheme}
-					class="flex h-8 w-8 sm:h-9 sm:w-9 items-center justify-center rounded-xl border border-black/10 bg-white/70 text-current shadow-2xs backdrop-blur transition-all duration-200 hover:border-black/25 hover:bg-white hover:shadow-xs active:scale-95 dark:border-white/10 dark:bg-white/[0.04] dark:hover:border-white/20 dark:hover:bg-white/[0.08]"
+					class="hidden min-[750px]:flex h-9 w-9 items-center justify-center rounded-xl border border-black/10 bg-white/70 text-current shadow-2xs backdrop-blur transition-all duration-200 hover:border-black/25 hover:bg-white hover:shadow-xs active:scale-95 dark:border-white/10 dark:bg-white/[0.04] dark:hover:border-white/20 dark:hover:bg-white/[0.08]"
 					aria-label="Cycle theme"
 					title={`Current theme: ${THEMES.find((item) => item.id === $settings.theme)?.label || $settings.theme}. Click to cycle themes.`}
 					use:ripple
 				>
 					{#if $settings.theme === 'light'}
-						<Sun size={16} class="text-amber-500 transition-transform duration-300 hover:rotate-45" />
+						<Sun size={17} class="text-amber-500 transition-transform duration-300 hover:rotate-45" />
 					{:else if $settings.theme === 'sepia'}
-						<Coffee size={16} class="text-[#8c6b4f] transition-transform duration-300 hover:-rotate-12" />
+						<Coffee size={17} class="text-[#8c6b4f] transition-transform duration-300 hover:-rotate-12" />
 					{:else}
-						<Moon size={16} class="text-indigo-400 transition-transform duration-300 hover:-rotate-12" />
+						<Moon size={17} class="text-indigo-400 transition-transform duration-300 hover:-rotate-12" />
 					{/if}
 				</button>
 
-				<!-- SETTINGS DIALOG BUTTON -->
+				<!-- SETTINGS DIALOG BUTTON (WITH MOBILE ML STATUS DOT) -->
 				<button
 					type="button"
 					on:click={() => openSettings('general')}
-					class="group flex h-8 w-8 sm:h-9 sm:w-9 items-center justify-center rounded-xl border border-black/10 bg-white/70 text-current shadow-2xs backdrop-blur transition-all duration-200 hover:border-black/25 hover:bg-white hover:shadow-xs active:scale-95 dark:border-white/10 dark:bg-white/[0.04] dark:hover:border-white/20 dark:hover:bg-white/[0.08]"
+					class="group relative flex h-9 w-9 items-center justify-center rounded-xl border border-black/10 bg-white/70 text-current shadow-2xs backdrop-blur transition-all duration-200 hover:border-black/25 hover:bg-white hover:shadow-xs active:scale-95 dark:border-white/10 dark:bg-white/[0.04] dark:hover:border-white/20 dark:hover:bg-white/[0.08]"
 					aria-label="Settings"
 					title="Preferences & Model Configuration"
 					use:ripple
 				>
-					<Settings size={16} class="opacity-75 transition-transform duration-300 group-hover:rotate-45 group-hover:opacity-100" />
+					<Settings size={18} class="opacity-75 transition-transform duration-300 group-hover:rotate-45 group-hover:opacity-100" />
+
+					<!-- MOBILE ML STATUS DOT -->
+					<span
+						class={`absolute -top-0.5 -right-0.5 h-2.5 w-2.5 rounded-full ring-2 ring-white dark:ring-[#13100c] min-[750px]:hidden ${
+							$mlStatus.online
+								? 'bg-emerald-500'
+								: $mlStatus.loading
+									? 'bg-amber-500 animate-pulse'
+									: 'bg-red-500'
+						}`}
+						title={$mlStatus.online ? 'ML Online' : $mlStatus.loading ? 'Connecting...' : 'ML Offline'}
+					></span>
 				</button>
 			</div>
 		</nav>

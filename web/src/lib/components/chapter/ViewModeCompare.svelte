@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { createEventDispatcher } from 'svelte';
+	import { ripple } from '$lib/actions/ripple';
 	import { Badge, ActionMenu, type MenuAction } from '$lib/components/ui';
 	import GripVertical from 'lucide-svelte/icons/grip-vertical';
 	import Eye from 'lucide-svelte/icons/eye';
@@ -124,20 +125,20 @@
 			data-page-seq={page.seq}
 			data-page-id={page.id}
 		>
-			<div class="mb-3 flex items-center justify-between text-xs font-bold">
-				<div class="flex items-center gap-2">
+			<div class="mb-3 flex items-center justify-between gap-1.5 min-w-0 text-xs font-bold">
+				<div class="flex items-center gap-1.5 min-w-0 overflow-hidden">
 					<!-- svelte-ignore a11y-no-static-element-interactions -->
 					<span
 						draggable="true"
 						on:dragstart={(e) => dispatch('dragStart', { event: e, index: idx })}
 						on:dragend={(e) => dispatch('dragEnd', e)}
-						class="flex cursor-grab select-none items-center gap-1 rounded px-1.5 py-0.5 transition hover:bg-black/5 active:cursor-grabbing dark:hover:bg-white/5"
+						class="flex cursor-grab select-none items-center gap-1 rounded px-1.5 py-0.5 transition hover:bg-black/5 active:cursor-grabbing dark:hover:bg-white/5 shrink-0"
 					>
 						<GripVertical size={14} class="opacity-40" /> Page {page.seq + 1}
 					</span>
 					<Badge
 						variant={statusVariant[page.status]}
-						class={page.status === 'processing' ? 'animate-pulse' : ''}
+						class={`truncate text-[10px] sm:text-xs ${page.status === 'processing' ? 'animate-pulse' : ''}`}
 					>
 						{#if page.status === 'processing'}
 							{page.currentStep ? stepBadgeLabels[page.currentStep] || page.currentStep : 'Processing...'}
@@ -147,14 +148,17 @@
 					</Badge>
 				</div>
 
-				<div class="flex items-center gap-1.5">
+				<div class="flex items-center gap-1 shrink-0">
 					<button
 						type="button"
 						disabled={page.status === 'processing'}
 						on:click={() => dispatch('inspect', page)}
+						use:ripple
+						title="Inspect Page"
 						class="flex items-center gap-1 rounded-md bg-black/5 px-2 py-1 text-xs font-semibold transition hover:bg-black/10 disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-black/5 dark:bg-white/5 dark:hover:bg-white/10 dark:disabled:hover:bg-white/5"
 					>
-						<Eye size={12} /> Inspect
+						<Eye size={12} />
+						<span class="hidden min-[400px]:inline">Inspect</span>
 					</button>
 					<ActionMenu
 						items={getMenuItems(page, idx, running)}

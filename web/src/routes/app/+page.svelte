@@ -608,7 +608,7 @@
 </svelte:head>
 
 <!-- LIBRARY DASHBOARD -->
-<div class="flex flex-col gap-6">
+<div class="flex flex-col gap-6 pb-8 sm:pb-0">
 	<!-- HEADER SECTION -->
 	<div class="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
 		<div>
@@ -616,7 +616,7 @@
 			<p class="mt-1 text-sm opacity-60">Manage series, track translation progress, and read translated chapters.</p>
 		</div>
 
-		<div class="flex items-center gap-3">
+		<div class="hidden sm:flex items-center gap-3">
 			<Button variant="primary" on:click={() => (createModalOpen = true)}>
 				<Plus size={16} /> New Book
 			</Button>
@@ -626,11 +626,11 @@
 	<!-- UNIFIED ADAPTIVE COMMAND BAR -->
 	<div class="flex flex-col gap-2.5">
 		<!-- COMMAND BAR CONTAINER -->
-		<div class="flex flex-col md:flex-row md:items-center md:justify-between gap-2.5">
+		<div class="flex flex-col md:flex-row md:items-center md:justify-between gap-2.5 min-w-0">
 			<!-- CONTROLS ROW (ON MOBILE: PLACED TOP FOR QUICK REACH; ON DESKTOP: SITS ON THE RIGHT) -->
-			<div class="order-1 md:order-2 flex items-center gap-2">
+			<div class="order-1 md:order-2 flex flex-1 items-center justify-end gap-2 min-w-0">
 				<!-- SEARCH INPUT -->
-				<div class="relative flex-1 sm:w-56 md:w-60 lg:w-72">
+				<div class="relative min-w-[120px] flex-1 sm:w-44 md:w-48 lg:w-60">
 					<Search size={14} class="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-black/40 dark:text-white/40" />
 					<input
 						bind:this={searchInputEl}
@@ -671,7 +671,7 @@
 						use:ripple
 					>
 						<ArrowUpDown size={14} class="opacity-60" />
-						<span class="hidden xs:inline sm:inline">{sortOptions.find((o) => o.value === sortBy)?.shortLabel || 'Sort'}</span>
+						<span class="hidden sm:inline md:hidden xl:inline">{sortOptions.find((o) => o.value === sortBy)?.shortLabel || 'Sort'}</span>
 						<ChevronDown size={12} class={`opacity-40 transition-transform duration-200 ${sortMenuOpen ? 'rotate-180' : ''}`} />
 					</button>
 
@@ -721,7 +721,7 @@
 						use:ripple
 					>
 						<LayoutGrid size={14} />
-						<span class="hidden lg:inline text-xs">Grid</span>
+						<span class="hidden xl:inline text-xs">Grid</span>
 					</button>
 
 					<button
@@ -737,7 +737,7 @@
 						use:ripple
 					>
 						<List size={14} />
-						<span class="hidden lg:inline text-xs">List</span>
+						<span class="hidden xl:inline text-xs">List</span>
 					</button>
 
 					<button
@@ -753,69 +753,71 @@
 						use:ripple
 					>
 						<AlignJustify size={14} />
-						<span class="hidden lg:inline text-xs">Compact</span>
+						<span class="hidden xl:inline text-xs">Compact</span>
 					</button>
 				</div>
 			</div>
 
-			<!-- FILTER TABS (DESKTOP: SITS ON LEFT; MOBILE: SMOOTH SCROLLABLE RAIL) -->
-			<div class="order-2 md:order-1 flex items-center gap-1 rounded-xl bg-black/[0.04] p-1 dark:bg-white/[0.04] overflow-x-auto no-scrollbar max-w-full">
+			<!-- FILTER TABS (MOBILE: FULL-WIDTH 4-COLUMN SEGMENTED GRID; DESKTOP: CLEAN FLEX ROW) -->
+			<div class="order-2 md:order-1 grid grid-cols-4 w-full md:flex md:w-auto items-center gap-1 rounded-xl bg-black/[0.04] p-1 dark:bg-white/[0.04]">
 				<button
 					type="button"
 					on:click={() => (activeTab = 'active')}
-					class={`shrink-0 flex items-center gap-1.5 rounded-lg px-3 sm:px-3.5 py-2 text-xs font-medium transition-all ${
+					class={`flex items-center justify-center gap-1 sm:gap-1.5 rounded-lg px-1.5 sm:px-3.5 py-2 text-xs font-medium transition-all ${
 						activeTab === 'active'
 							? 'bg-white text-black shadow-xs dark:bg-[#201c18] dark:text-white font-semibold'
 							: 'opacity-60 hover:opacity-100'
 					}`}
 					use:ripple
 				>
-					<span>Active</span>
-					<span class="rounded-full bg-black/5 px-1.5 py-0.2 text-[10px] font-mono dark:bg-white/10">{books.filter((b) => !b.archived).length}</span>
+					<BookOpen size={12} class="hidden min-[420px]:inline shrink-0" />
+					<span class="truncate">Active</span>
+					<span class="rounded-full bg-black/5 px-1 sm:px-1.5 py-0.2 text-[10px] font-mono dark:bg-white/10">{books.filter((b) => !b.archived).length}</span>
 				</button>
 
 				<button
 					type="button"
 					on:click={() => (activeTab = 'pinned')}
-					class={`shrink-0 flex items-center gap-1.5 rounded-lg px-3 sm:px-3.5 py-2 text-xs font-medium transition-all ${
+					class={`flex items-center justify-center gap-1 sm:gap-1.5 rounded-lg px-1.5 sm:px-3.5 py-2 text-xs font-medium transition-all ${
 						activeTab === 'pinned'
 							? 'bg-white text-black shadow-xs dark:bg-[#201c18] dark:text-white font-semibold'
 							: 'opacity-60 hover:opacity-100'
 					}`}
 					use:ripple
 				>
-					<Pin size={12} class="rotate-45" />
-					<span>Pinned</span>
-					<span class="rounded-full bg-black/5 px-1.5 py-0.2 text-[10px] font-mono dark:bg-white/10">{pinnedCount}</span>
+					<Pin size={12} class="hidden min-[420px]:inline rotate-45 shrink-0" />
+					<span class="truncate">Pinned</span>
+					<span class="rounded-full bg-black/5 px-1 sm:px-1.5 py-0.2 text-[10px] font-mono dark:bg-white/10">{pinnedCount}</span>
 				</button>
 
 				<button
 					type="button"
 					on:click={() => (activeTab = 'archived')}
-					class={`shrink-0 flex items-center gap-1.5 rounded-lg px-3 sm:px-3.5 py-2 text-xs font-medium transition-all ${
+					class={`flex items-center justify-center gap-1 sm:gap-1.5 rounded-lg px-1.5 sm:px-3.5 py-2 text-xs font-medium transition-all ${
 						activeTab === 'archived'
 							? 'bg-white text-black shadow-xs dark:bg-[#201c18] dark:text-white font-semibold'
 							: 'opacity-60 hover:opacity-100'
 					}`}
 					use:ripple
 				>
-					<Archive size={12} />
-					<span>Archived</span>
-					<span class="rounded-full bg-black/5 px-1.5 py-0.2 text-[10px] font-mono dark:bg-white/10">{archivedCount}</span>
+					<Archive size={12} class="hidden min-[420px]:inline shrink-0" />
+					<span class="truncate">Archived</span>
+					<span class="rounded-full bg-black/5 px-1 sm:px-1.5 py-0.2 text-[10px] font-mono dark:bg-white/10">{archivedCount}</span>
 				</button>
 
 				<button
 					type="button"
 					on:click={() => (activeTab = 'all')}
-					class={`shrink-0 flex items-center gap-1.5 rounded-lg px-3 sm:px-3.5 py-2 text-xs font-medium transition-all ${
+					class={`flex items-center justify-center gap-1 sm:gap-1.5 rounded-lg px-1.5 sm:px-3.5 py-2 text-xs font-medium transition-all ${
 						activeTab === 'all'
 							? 'bg-white text-black shadow-xs dark:bg-[#201c18] dark:text-white font-semibold'
 							: 'opacity-60 hover:opacity-100'
 					}`}
 					use:ripple
 				>
-					<span>All</span>
-					<span class="rounded-full bg-black/5 px-1.5 py-0.2 text-[10px] font-mono dark:bg-white/10">{books.length}</span>
+					<Layers size={12} class="hidden min-[420px]:inline shrink-0" />
+					<span class="truncate">All</span>
+					<span class="rounded-full bg-black/5 px-1 sm:px-1.5 py-0.2 text-[10px] font-mono dark:bg-white/10">{books.length}</span>
 				</button>
 			</div>
 		</div>
@@ -1269,6 +1271,18 @@
 		</div>
 	{/if}
 </div>
+
+<!-- MOBILE FLOATING ACTION BUTTON (FAB): HUGE '+' BUTTON -->
+<button
+	type="button"
+	on:click={() => (createModalOpen = true)}
+	class="fixed bottom-6 right-6 z-30 flex h-14 w-14 items-center justify-center rounded-full border border-transparent bg-[#b23a2e] text-white shadow-xl shadow-black/20 transition-all duration-200 hover:bg-[#c0392b] hover:shadow-2xl hover:scale-105 active:scale-95 focus:outline-none focus:ring-2 focus:ring-[#b23a2e]/40 sm:hidden"
+	use:ripple
+	title="Create New Book Series"
+	aria-label="Create New Book Series"
+>
+	<Plus size={28} class="shrink-0" />
+</button>
 
 <!-- CREATE BOOK MODAL -->
 <Modal open={createModalOpen} title="Create New Book Series" size="md" on:close={() => (createModalOpen = false)}>

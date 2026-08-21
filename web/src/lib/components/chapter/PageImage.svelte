@@ -27,6 +27,7 @@
 	let el: HTMLDivElement;
 	let phase: 'loading' | 'done' | 'error' = 'loading';
 	let percent = 0;
+	let lengthComputable = false;
 	let objectUrl: string | null = null;
 	let xhr: XMLHttpRequest | null = null;
 	let activeSrc = '';
@@ -38,6 +39,7 @@
 	function doLoad(): void {
 		xhr?.abort();
 		percent = 0;
+		lengthComputable = false;
 		phase = 'loading';
 		const url = src;
 		const next = new XMLHttpRequest();
@@ -45,13 +47,17 @@
 		next.responseType = 'blob';
 		next.onprogress = (e) => {
 			if (e.lengthComputable && e.total > 0) {
+				lengthComputable = true;
 				percent = Math.min(99, Math.round((e.loaded / e.total) * 100));
+			} else {
+				lengthComputable = false;
 			}
 		};
 		next.onload = () => {
 			if (next.status >= 200 && next.status < 300 && next.response) {
 				if (objectUrl) URL.revokeObjectURL(objectUrl);
 				objectUrl = URL.createObjectURL(next.response);
+				lengthComputable = true;
 				percent = 100;
 			} else {
 				phase = 'error';
@@ -138,33 +144,59 @@
 			)}
 		>
 			<div class="relative h-12 w-12 text-[#b23a2e] dark:text-[#e08a63]">
-				<!-- PROGRESS RING — DYNAMIC DASHOFFSET AT RUNTIME -->
-				<svg viewBox="0 0 48 48" class="h-full w-full -rotate-90" aria-hidden="true">
-					<circle
-						cx="24"
-						cy="24"
-						r={RING_R}
-						fill="none"
-						stroke-width="3.5"
-						class="opacity-20"
-						stroke="currentColor"
-					/>
-					<circle
-						cx="24"
-						cy="24"
-						r={RING_R}
-						fill="none"
-						stroke-width="3.5"
-						stroke-linecap="round"
-						stroke="currentColor"
-						stroke-dasharray={RING_C}
-						stroke-dashoffset={RING_C * (1 - percent / 100)}
-						class="transition-[stroke-dashoffset] duration-150 ease-out"
-					/>
-				</svg>
-				<span class="absolute inset-0 flex items-center justify-center font-mono text-[11px] font-bold">
-					{percent}%
-				</span>
+				{#if lengthComputable || percent > 0}
+					<!-- PROGRESS RING — DYNAMIC DASHOFFSET AT RUNTIME -->
+					<svg viewBox="0 0 48 48" class="h-full w-full -rotate-90" aria-hidden="true">
+						<circle
+							cx="24"
+							cy="24"
+							r={RING_R}
+							fill="none"
+							stroke-width="3.5"
+							class="opacity-20"
+							stroke="currentColor"
+						/>
+						<circle
+							cx="24"
+							cy="24"
+							r={RING_R}
+							fill="none"
+							stroke-width="3.5"
+							stroke-linecap="round"
+							stroke="currentColor"
+							stroke-dasharray={RING_C}
+							stroke-dashoffset={RING_C * (1 - percent / 100)}
+							class="transition-[stroke-dashoffset] duration-150 ease-out"
+						/>
+					</svg>
+					<span class="absolute inset-0 flex items-center justify-center font-mono text-[11px] font-bold">
+						{percent}%
+					</span>
+				{:else}
+					<!-- INDETERMINATE SPINNER RING WHEN TOTAL LENGTH IS UNKNOWN -->
+					<svg viewBox="0 0 48 48" class="h-full w-full animate-spin" aria-hidden="true">
+						<circle
+							cx="24"
+							cy="24"
+							r={RING_R}
+							fill="none"
+							stroke-width="3.5"
+							class="opacity-20"
+							stroke="currentColor"
+						/>
+						<circle
+							cx="24"
+							cy="24"
+							r={RING_R}
+							fill="none"
+							stroke-width="3.5"
+							stroke-linecap="round"
+							stroke="currentColor"
+							stroke-dasharray={RING_C}
+							stroke-dashoffset={RING_C * 0.75}
+						/>
+					</svg>
+				{/if}
 			</div>
 		</div>
 	{:else if phase === 'error'}

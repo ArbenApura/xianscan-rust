@@ -123,6 +123,7 @@
 		...TERM_CATEGORIES.map((c) => ({ value: c, label: CATEGORY_LABELS[c] })),
 	];
 	const PAGE_SIZE_ITEMS = [10, 25, 50, 100, 200].map((n) => ({ value: String(n), label: `${n} / page` }));
+	const PAGE_SIZE_STORAGE_KEY = 'xianscan:glossaryPageSize';
 
 	// -- STATES -- //
 
@@ -171,10 +172,6 @@
 	// MULTI-SELECTION & BATCH ACTIONS STATES
 	let selectedTermIds = new Set<number>();
 	let batchDeleteConfirmOpen = false;
-
-	// DANGEROUS CLEAR SCOPE CONFIRMATION STATES
-	let clearScopeConfirmOpen = false;
-	let clearingScope = false;
 
 	// -- REACTIVE STATES -- //
 
@@ -284,39 +281,6 @@
 		}
 	}
 
-	function openClearScopeModal() {
-		clearScopeConfirmOpen = true;
-	}
-
-	async function confirmClearScope() {
-		clearingScope = true;
-		try {
-			const res = await apiFetch('/api/glossary', {
-				method: 'DELETE',
-				headers: { 'content-type': 'application/json' },
-				body: JSON.stringify({
-					clearScope: true,
-					scope,
-					bookId: scope === 'book' ? bookId : undefined,
-					sourceLang: scope === 'global' ? sourceLang : undefined,
-					targetLang: scope === 'global' ? targetLang : undefined,
-				}),
-			});
-			if (!res.ok) throw new Error('Clear scope failed');
-			const data = await res.json();
-			const count = data.count ?? total;
-			toast.success(`Cleared ${count} term${count === 1 ? '' : 's'} from ${scope === 'book' ? (bookTitle || 'book') : 'global'} glossary.`);
-			clearScopeConfirmOpen = false;
-			clearSelection();
-			page = 1;
-			await load();
-		} catch {
-			toast.error('Could not clear glossary scope.');
-		} finally {
-			clearingScope = false;
-		}
-	}
-
 	async function load() {
 		const token = ++loadToken;
 		loading = true;
@@ -375,6 +339,13 @@
 	// CHANGE HOW MANY ROWS SHOW PER PAGE — RESET TO THE FIRST PAGE SO THE OFFSET STAYS VALID
 	function setPageSize(v: string) {
 		pageSize = Number(v);
+		if (typeof window !== 'undefined') {
+			try {
+				localStorage.setItem(PAGE_SIZE_STORAGE_KEY, String(pageSize));
+			} catch {
+				// IGNORE
+			}
+		}
 		page = 1;
 		load();
 	}
@@ -600,7 +571,22 @@
 
 	// -- LIFECYCLES -- //
 
-	onMount(load);
+	onMount(() => {
+		if (typeof window !== 'undefined') {
+			try {
+				const saved = localStorage.getItem(PAGE_SIZE_STORAGE_KEY);
+				if (saved) {
+					const parsed = Number(saved);
+					if ([10, 25, 50, 100, 200].includes(parsed)) {
+						pageSize = parsed;
+					}
+				}
+			} catch {
+				// IGNORE
+			}
+		}
+		load();
+	});
 	onDestroy(() => clearTimeout(debounce));
 </script>
 
@@ -609,25 +595,43 @@
 <div class={rootClass}>
 	<!-- FIXED HEADER: TOOLBAR + SEARCH (shrink-0 IN A DIALOG, STICKY ON A STANDALONE PAGE) -->
 	<div class={headerClass}>
-		<!-- TOOLBAR: ACTIONS ON ONE TIDY ROW, TERM COUNT RIGHT-ALIGNED (PREDICTABLE AT EVERY WIDTH) -->
-		<!-- ICON-ONLY ON MOBILE (LABELS sr-only), FULL LABELS FROM sm UP — KEEPS THE BAR COMPACT ON A PHONE -->
+		<!-- TOOLBAR: ACTIONS ON ONE TIDY ROW, TERM COUNT & ADD TERM RIGHT-ALIGNED (PREDICTABLE AT EVERY WIDTH) -->
+		<!-- ICON-ONLY UNDER 750PX (LABELS sr-only), FULL LABELS FROM 750PX UP — PREVENTS OVERFLOW -->
 		<div class="flex flex-wrap items-center gap-2">
-			<Button variant="primary" on:click={openAdd}>
-				<Plus size={14} /><span class="sr-only sm:not-sr-only sm:ml-1.5">Add term</span>
-			</Button>
+			<slot name="prefix" />
+
 			<!-- IMPORT USES Download (ARROW IN), EXPORT USES Upload (ARROW OUT) — ARROWS MATCH THE IN/OUT MEANING -->
 			<Button on:click={() => fileInput.click()} disabled={busy}>
-				<Download size={14} /><span class="sr-only sm:not-sr-only sm:ml-1.5">Import CSV</span>
+				<Download size={14} /><span class="sr-only min-[750px]:not-sr-only min-[750px]:ml-1.5">Import CSV</span>
 			</Button>
 			<Button href={exportHref(scope)}>
-				<Upload size={14} /><span class="sr-only sm:not-sr-only sm:ml-1.5">Export</span>
+				<Upload size={14} /><span class="sr-only min-[750px]:not-sr-only min-[750px]:ml-1.5">Export</span>
 			</Button>
 
+			<!-- RIGHT-ALIGNED ACTIONS: COUNT & ADD TERM -->
+			<div class="ml-auto flex items-center gap-2.5">
+				<span class="hidden text-xs tabular-nums opacity-60 min-[850px]:inline">{total.toLocaleString()} terms</span>
+				<Button variant="primary" on:click={openAdd} class="hidden sm:inline-flex">
+					<Plus size={14} /><span class="ml-1.5">Add term</span>
+				</Button>
+			</div>
+
+			<input bind:this={fileInput} type="file" accept=".csv,text/csv" class="hidden" on:change={onImport} />
+		</div>
+		<!-- SCOPE NOTE -->
+		<p class="text-xs opacity-50">
+			{scope === 'global'
+				? 'Applies to every book.'
+				: `Private to ${bookTitle || 'this book'} — overrides the global glossary.`}
+		</p>
+
+		<!-- SEARCH & SELECTION ROW -->
+		<div class="flex items-center gap-2">
 			{#if rows.length > 0}
 				<button
 					type="button"
 					on:click={toggleSelectAllVisible}
-					class="inline-flex h-[34px] items-center gap-1.5 rounded-lg border border-black/10 bg-black/5 px-2.5 text-xs font-medium transition hover:bg-black/10 dark:border-white/10 dark:bg-white/5 dark:hover:bg-white/10"
+					class="inline-flex h-[38px] shrink-0 items-center gap-1.5 rounded-lg border border-black/10 bg-black/5 px-2.5 text-xs font-medium transition hover:bg-black/10 dark:border-white/10 dark:bg-white/5 dark:hover:bg-white/10"
 					title={allVisibleSelected ? 'Deselect all visible terms' : 'Select all terms on this page'}
 					use:ripple
 				>
@@ -640,37 +644,16 @@
 				</button>
 			{/if}
 
-			<!-- DANGEROUS CLEAR SCOPE BUTTON -->
-			<Button
-				class="text-rose-600 dark:text-rose-400 hover:bg-rose-500/10 border-rose-500/20"
-				disabled={busy || total === 0}
-				on:click={openClearScopeModal}
-				title={`Permanently delete all terms in ${scope === 'book' ? (bookTitle || 'this book') : 'global'} glossary`}
-			>
-				<Trash2 size={14} />
-				<span class="sr-only sm:not-sr-only sm:ml-1.5">Clear Scope</span>
-			</Button>
-
-			<span class="ml-auto text-xs tabular-nums opacity-60">{total.toLocaleString()} terms</span>
-			<input bind:this={fileInput} type="file" accept=".csv,text/csv" class="hidden" on:change={onImport} />
-		</div>
-		<!-- SCOPE NOTE -->
-		<p class="text-xs opacity-50">
-			{scope === 'global'
-				? 'Applies to every book.'
-				: `Private to ${bookTitle || 'this book'} — overrides the global glossary.`}
-		</p>
-
-		<!-- SEARCH -->
-		<div class="relative">
-			<Search size={15} class="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 opacity-40" />
-			<input
-				bind:value={query}
-				on:input={onSearch}
-				type="search"
-				placeholder="Search terms…"
-				class="w-full rounded-lg border border-black/10 bg-transparent py-2 pl-9 pr-3 text-sm outline-none transition-colors placeholder:opacity-40 focus:border-[#c0392b] dark:border-white/[0.06]"
-			/>
+			<div class="relative flex-1">
+				<Search size={15} class="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 opacity-40" />
+				<input
+					bind:value={query}
+					on:input={onSearch}
+					type="search"
+					placeholder="Search terms…"
+					class="w-full rounded-lg border border-black/10 bg-transparent py-2 pl-9 pr-3 text-sm outline-none transition-colors placeholder:opacity-40 focus:border-[#c0392b] dark:border-white/[0.06]"
+				/>
+			</div>
 		</div>
 	</div>
 
@@ -911,18 +894,6 @@
 	</div>
 {/if}
 
-<!-- DANGEROUS CLEAR SCOPE CONFIRMATION DIALOG (USES SHARED APP CONFIRM DIALOG WITH VERIFICATION CODE) -->
-<ConfirmDialog
-	open={clearScopeConfirmOpen}
-	title="Clear Entire Glossary?"
-	message={`Are you sure you want to permanently delete all ${total.toLocaleString()} glossary term${total === 1 ? '' : 's'} in ${scope === 'book' ? (bookTitle || 'this book') : `${sourceLang} → ${targetLang} Global`}? This action cannot be undone.`}
-	confirmLabel={`Clear All (${total.toLocaleString()} terms)`}
-	variant="danger"
-	requireVerificationCode={true}
-	on:confirm={confirmClearScope}
-	on:cancel={() => (clearScopeConfirmOpen = false)}
-/>
-
 <!-- BATCH DELETE CONFIRMATION DIALOG -->
 <ConfirmDialog
 	open={batchDeleteConfirmOpen}
@@ -1022,3 +993,15 @@
 		</Button>
 	</svelte:fragment>
 </Modal>
+
+<!-- MOBILE FLOATING ACTION BUTTON (FAB): ADDS NEW GLOSSARY TERM ON NARROW SCREENS -->
+<button
+	type="button"
+	on:click={openAdd}
+	class="fixed bottom-6 right-6 z-30 flex h-14 w-14 items-center justify-center rounded-full border border-transparent bg-[#b23a2e] text-white shadow-xl shadow-black/20 transition-all duration-200 hover:bg-[#c0392b] hover:shadow-2xl hover:scale-105 active:scale-95 focus:outline-hidden focus:ring-2 focus:ring-[#b23a2e]/40 sm:hidden"
+	use:ripple
+	title="Add Glossary Term"
+	aria-label="Add Glossary Term"
+>
+	<Plus size={28} class="shrink-0" />
+</button>

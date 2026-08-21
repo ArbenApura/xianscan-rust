@@ -105,7 +105,7 @@
 </svelte:head>
 
 <!-- GLOSSARY MANAGEMENT DASHBOARD -->
-<div class="flex flex-col gap-6">
+<div class="flex flex-col gap-6 pb-8 sm:pb-0">
 	<!-- BREADCRUMB NAVIGATION -->
 	<nav aria-label="Breadcrumb" class="flex items-center gap-1.5 text-xs sm:text-sm">
 		<a
@@ -134,7 +134,7 @@
 
 	<!-- HERO HEADER CARD -->
 	<div class="relative overflow-hidden rounded-2xl border border-black/[0.08] bg-white/50 p-6 backdrop-blur dark:border-white/[0.06] dark:bg-white/[0.02]">
-		<div class="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+		<div class="flex flex-col gap-4 min-[750px]:flex-row min-[750px]:items-center min-[750px]:justify-between">
 			<div>
 				<h1 class="text-2xl font-bold tracking-tight sm:text-3xl">Glossary Terms</h1>
 				<p class="mt-1 text-sm opacity-60">
@@ -145,7 +145,7 @@
 			</div>
 
 			<!-- SCOPE SWITCHER TABS -->
-			<div class="flex items-center gap-1 rounded-xl bg-black/[0.04] p-1 dark:bg-white/[0.04]">
+			<div class="flex items-center gap-1 self-start rounded-xl bg-black/[0.04] p-1 dark:bg-white/[0.04] min-[750px]:self-auto">
 				<button
 					type="button"
 					class={`flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-medium transition ${
@@ -202,22 +202,6 @@
 			/>
 		{/key}
 	{:else}
-		<!-- BOOK SCOPE SELECTOR -->
-		<div class="rounded-2xl border border-black/[0.08] bg-white/40 p-4 dark:border-white/[0.06] dark:bg-white/[0.02]">
-			<div class="w-full sm:max-w-xs">
-				<span class="mb-1 block text-xs font-semibold opacity-60">Select Series</span>
-				{#if books.length > 0}
-					<Select
-						items={bookSelectItems}
-						value={selectedBookId}
-						on:change={(e) => onSelectBook(String(e.detail))}
-					/>
-				{:else}
-					<p class="text-xs opacity-50">No books created yet.</p>
-				{/if}
-			</div>
-		</div>
-
 		{#if selectedBookId && selectedBook}
 			{#key selectedBookId}
 				<GlossaryPanel
@@ -226,7 +210,19 @@
 					bookTitle={selectedBook.titleTarget || selectedBook.title}
 					initialRows={data.initialScope === 'book' && data.initialBookId === selectedBookId ? data.initialGlossary.rows : null}
 					initialTotal={data.initialScope === 'book' && data.initialBookId === selectedBookId ? data.initialGlossary.total : null}
-				/>
+				>
+					<svelte:fragment slot="prefix">
+						{#if books.length > 0}
+							<div class="w-40 sm:w-48 min-[750px]:w-60">
+								<Select
+									items={bookSelectItems}
+									value={selectedBookId}
+									on:change={(e) => onSelectBook(String(e.detail))}
+								/>
+							</div>
+						{/if}
+					</svelte:fragment>
+				</GlossaryPanel>
 			{/key}
 		{:else if books.length === 0}
 			<div class="rounded-2xl border border-dashed border-black/15 p-12 text-center text-sm opacity-60 dark:border-white/15">

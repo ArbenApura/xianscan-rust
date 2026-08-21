@@ -3,7 +3,14 @@ import type { Handle } from '@sveltejs/kit';
 // IMPORTED DEP-MODULES
 import { sequence } from '@sveltejs/kit/hooks';
 // IMPORTED MODULES
-import { THEME_BG, THEME_COOKIE, FONT_COOKIE, FONT_STACKS, type AppFont } from '$lib/stores/settings';
+import {
+	THEME_BG,
+	THEME_COOKIE,
+	FONT_COOKIE,
+	FONT_STACKS,
+	INPUT_FONT_STACKS,
+	type AppFont,
+} from '$lib/stores/settings';
 
 // -- TYPES -- //
 
@@ -60,8 +67,9 @@ const themeHandle: Handle = async ({ event, resolve }) => {
 	const isDark = DARK.includes(theme);
 	const bg = (THEME_BG as Record<string, string>)[theme] ?? THEME_BG.sepia;
 	const fontStack = FONT_STACKS[font] ?? FONT_STACKS.comic;
+	const inputFontStack = INPUT_FONT_STACKS[font] ?? INPUT_FONT_STACKS.comic;
 	const htmlClass = isDark ? 'h-full dark' : 'h-full';
-	const fontStyle = `--app-font-family: ${fontStack};`;
+	const fontStyle = `--app-font-family: ${fontStack}; --app-input-font-family: ${inputFontStack};`;
 	return resolve(event, {
 		// SEED THE MOBILE BROWSER-CHROME COLOR AND ROOT FONT ON FIRST PAINT
 		transformPageChunk: ({ html }) =>

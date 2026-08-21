@@ -61,8 +61,10 @@ describe('covers API routes', () => {
 		} as unknown as RequestEvent);
 		expect(thumb.status).toBe(200);
 		expect(thumb.headers.get('content-type')).toBe('image/jpeg');
+		expect(thumb.headers.get('content-length')).toBeTruthy();
 		const thumbBytes = new Uint8Array(await thumb.arrayBuffer());
 		expect(thumbBytes.length).toBeGreaterThan(0);
+		expect(thumb.headers.get('content-length')).toBe(String(thumbBytes.byteLength));
 
 		const fullReq = new Request('http://localhost/api/covers/b1/file?kind=full');
 		const full = await GET({
@@ -71,6 +73,7 @@ describe('covers API routes', () => {
 			params: { bookId: 'b1' },
 		} as unknown as RequestEvent);
 		expect(full.headers.get('content-type')).toBe('image/jpeg');
+		expect(full.headers.get('content-length')).toBeTruthy();
 
 		const del = await DELETE({ params: { bookId: 'b1' } } as unknown as RequestEvent);
 		expect(del.status).toBe(200);

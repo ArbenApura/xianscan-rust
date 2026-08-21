@@ -1161,7 +1161,8 @@
 					{:else if uploadStage === 'processing'}
 						Processing & ingesting into chapter...
 					{:else if uploadStage === 'done'}
-						{uploadAddedCount} page{uploadAddedCount === 1 ? '' : 's'} successfully uploaded!
+						{@const doneCount = uploadAddedCount || uploadFilesList.filter((f) => f.status === 'done').length}
+						{doneCount} page{doneCount === 1 ? '' : 's'} successfully uploaded!
 					{:else}
 						Upload Failed
 					{/if}
