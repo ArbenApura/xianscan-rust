@@ -27,22 +27,27 @@ class XianScan : HttpSource(), ConfigurableSource, UnmeteredSource {
 
     override val supportsLatest = true
 
-    override val baseUrl: String by stringPreferenceLazy(KEY_ADDRESS, DEFAULT_ADDRESS)
+    override val baseUrl: String
+        get() {
+            val pref = getPreferences(id).getString(KEY_ADDRESS, null)
+            return if (!pref.isNullOrBlank()) pref.trimEnd('/') else DEFAULT_ADDRESS
+        }
 
     private val json = Json { ignoreUnknownKeys = true }
 
     // CONFIGURABLE SERVER ADDRESS — A PHONE CANNOT REACH THE DESKTOP'S 127.0.0.1.
     override fun setupPreferenceScreen(screen: PreferenceScreen) {
+        val current = getPreferences(id).getString(KEY_ADDRESS, null) ?: DEFAULT_ADDRESS
         screen.addEditTextPreference(
             title = "Server address",
             key = KEY_ADDRESS,
             default = DEFAULT_ADDRESS,
-            summary = "XianScan server URL — no trailing slash",
-            dialogMessage = "e.g. http://192.168.1.20:8124",
+            summary = "Current: $current\n(e.g. http://192.168.100.98:8124 — no trailing slash)",
+            dialogMessage = "Enter your PC's LAN IP address:\ne.g. http://192.168.100.98:8124",
             inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_URI,
             validate = { it.toHttpUrlOrNull() != null && !it.endsWith("/") },
             validationMessage = "The URL is invalid, malformed, or ends with a slash",
-            restartRequired = true,
+            restartRequired = false,
         )
     }
 
