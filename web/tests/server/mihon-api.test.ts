@@ -64,6 +64,19 @@ describe('mihon API builders', () => {
 		expect(ongoing.books.map((b) => b.id)).toEqual(['b1']);
 	});
 
+	it('excludes archived books from library and search results', () => {
+		const db = getTestDb();
+		seedBook(db, { id: 'active-1', title: 'Active Comic' });
+		seedBook(db, { id: 'archived-1', title: 'Archived Comic' });
+		db.update(books).set({ archived: true }).where(eq(books.id, 'archived-1')).run();
+
+		const library = getLibraryPage(1, {});
+		expect(library.books.map((b) => b.id)).toEqual(['active-1']);
+
+		const search = getSearchPage(1, { q: 'Archived' });
+		expect(search.books.length).toBe(0);
+	});
+
 	it('filters by genre and searches by title', () => {
 		const db = getTestDb();
 		seedBook(db, { id: 'b1', title: 'Tales of Demons' });

@@ -71,7 +71,12 @@ function bookToDto(b: Book): MihonBookDto {
 
 function queryBooks(page: number, opts: MihonListQuery): MihonListResult {
 	const safePage = Math.max(1, Math.floor(page) || 1);
-	let rows = db.select().from(books).orderBy(desc(books.updatedAt)).all();
+	let rows = db
+		.select()
+		.from(books)
+		.where(eq(books.archived, false))
+		.orderBy(desc(books.updatedAt))
+		.all();
 
 	if (opts.q) {
 		const q = opts.q.trim().toLowerCase();
@@ -140,7 +145,7 @@ export function getPagesDto(chapterId: number): MihonPageDto[] {
 }
 
 export function getGenresDto(): string[] {
-	const all = db.select({ tags: books.tags }).from(books).all();
+	const all = db.select({ tags: books.tags }).from(books).where(eq(books.archived, false)).all();
 	const set = new Set<string>();
 	for (const b of all) {
 		for (const t of parseTags(b.tags)) set.add(t);
