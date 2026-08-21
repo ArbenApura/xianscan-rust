@@ -1155,22 +1155,22 @@
 
 								<!-- MODEL SELECTION & DISCOVERY -->
 								<div class="space-y-2.5">
-									<div class="flex items-center justify-between">
-										<div class="flex items-center gap-1.5 pl-0.5">
-											<div class="text-[11px] font-semibold opacity-80">
+									<div class="flex flex-wrap items-center justify-between gap-2">
+										<div class="flex items-center gap-1.5 pl-0.5 shrink-0">
+											<div class="text-[11px] font-semibold opacity-80 whitespace-nowrap">
 												Active Model
 											</div>
-											<span class="rounded-full bg-black/5 dark:bg-white/10 px-2 py-0.2 text-[10px] font-mono font-medium opacity-70">
+											<span class="rounded-full bg-black/5 dark:bg-white/10 px-2 py-0.5 text-[10px] font-mono font-medium opacity-70 whitespace-nowrap">
 												{currentP.availableModels.length} {currentP.availableModels.length === 1 ? 'model' : 'models'}
 											</span>
 										</div>
-										<div class="flex items-center gap-2 pr-0.5">
+										<div class="flex items-center gap-2.5 pr-0.5 shrink-0">
 											{#if canReset}
 												<button
 													type="button"
 													on:click={() => resetModelsToDefault(currentP.id)}
 													title="Reset to default curated models"
-													class="inline-flex items-center gap-1 text-[10px] font-semibold text-neutral-500 hover:text-neutral-800 dark:hover:text-neutral-200 transition"
+													class="inline-flex items-center gap-1 text-[10px] font-semibold text-neutral-500 hover:text-neutral-800 dark:hover:text-neutral-200 transition whitespace-nowrap"
 												>
 													<RotateCcw size={11} />
 													<span>Reset</span>
@@ -1180,10 +1180,12 @@
 												type="button"
 												on:click={() => scanModels(currentP.id)}
 												disabled={scanningModels}
-												class="inline-flex items-center gap-1 text-[11px] font-bold text-[#b23a2e] dark:text-[#e08a63] hover:underline disabled:opacity-50"
+												title={currentIsLocal ? 'Scan Installed Models via local endpoint' : 'Scan Models via API'}
+												class="inline-flex items-center gap-1 text-[11px] font-bold text-[#b23a2e] dark:text-[#e08a63] hover:underline disabled:opacity-50 whitespace-nowrap"
 											>
 												<RefreshCw size={11} class={scanningModels ? 'animate-spin' : ''} />
-												<span>{scanningModels ? 'Scanning Endpoint...' : currentIsLocal ? 'Scan Installed Models' : 'Scan Models via API'}</span>
+												<span>{scanningModels ? 'Scanning...' : 'Scan Models'}</span>
+												<span class="hidden min-[480px]:inline">{!scanningModels && (currentIsLocal ? ' (Local)' : ' (API)')}</span>
 											</button>
 										</div>
 									</div>
