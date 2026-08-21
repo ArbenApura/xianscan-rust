@@ -66,9 +66,10 @@ jobs:
         run: |
           mkdir -p repo-dist/apk
           
-          # COPY BUILT APK TO TARGET ARTIFACTS
+          # COPY BUILT APK TO BOTH ROOT AND APK/ FOR 100% RESOLUTION COMPATIBILITY
           APK_SRC=$(find extensions/xianscan-mihon/app/build/outputs/apk/release -name "*.apk" | head -n 1)
           APK_NAME="tachiyomi-all.xianscan-v1.6.1.apk"
+          cp "$APK_SRC" "repo-dist/$APK_NAME"
           cp "$APK_SRC" "repo-dist/apk/$APK_NAME"
           
           # GENERATE REPO INDEX JSON
