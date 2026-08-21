@@ -50,6 +50,20 @@
       "when": 1787266015752,
       "tag": "0006_motionless_mach_iv",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "6",
+      "when": 1787316638834,
+      "tag": "0007_aberrant_lifeguard",
+      "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "6",
+      "when": 1787337291322,
+      "tag": "0008_small_corsair",
+      "breakpoints": true
     }
   ]
 }

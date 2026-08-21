@@ -1,0 +1,1 @@
+ALTER TABLE `books` ADD `cover_cleared` integer DEFAULT false NOT NULL;

@@ -1,0 +1,89 @@
+plugins {
+    id 'com.android.application'
+    id 'org.jetbrains.kotlin.android'
+    id 'org.jetbrains.kotlin.plugin.serialization'
+}
+
+ext {
+    extName = 'XianScan'
+    pkgNameSuffix = 'all.xianscan'
+    extClass = 'eu.kanade.tachiyomi.extension.all.xianscan.XianScanFactory'
+    extVersionCode = 1
+    libVersion = '1.6'
+}
+
+android {
+    namespace 'eu.kanade.tachiyomi.extension.all.xianscan'
+    compileSdk 34
+
+    defaultConfig {
+        applicationId 'eu.kanade.tachiyomi.extension.all.xianscan'
+        minSdk 23
+        targetSdk 34
+        versionCode extVersionCode
+        versionName "$libVersion.$extVersionCode"
+        manifestPlaceholders = [
+            appName: 'XianScan',
+            extClass: extClass,
+            nsfw: 0,
+        ]
+        setProperty('archivesBaseName', "tachiyomi-$pkgNameSuffix-v$versionName")
+    }
+
+    signingConfigs {
+        release {
+            def propFile = rootProject.file("signing.properties")
+            def props = new Properties()
+            if (propFile.exists()) {
+                propFile.withInputStream { props.load(it) }
+            }
+            def keystorePath = System.getenv("SIGNING_KEYSTORE_PATH") ?: props.getProperty("storeFile") ?: project.findProperty("signingKeystorePath")
+            if (keystorePath) {
+                def kFile = file(keystorePath).isAbsolute() ? file(keystorePath) : rootProject.file(keystorePath)
+                if (kFile.exists()) {
+                    storeFile kFile
+                    storePassword System.getenv("SIGNING_KEYSTORE_PASSWORD") ?: props.getProperty("storePassword") ?: project.findProperty("signingKeystorePassword")
+                    keyAlias System.getenv("SIGNING_KEY_ALIAS") ?: props.getProperty("keyAlias") ?: project.findProperty("signingKeyAlias")
+                    keyPassword System.getenv("SIGNING_KEY_PASSWORD") ?: props.getProperty("keyPassword") ?: project.findProperty("signingKeyPassword")
+                }
+            }
+        }
+    }
+
+    buildTypes {
+        release {
+            minifyEnabled false
+            def hasSigning = signingConfigs.release.storeFile != null
+            signingConfig hasSigning ? signingConfigs.release : signingConfigs.debug
+        }
+    }
+
+    buildFeatures {
+        aidl false
+        renderScript false
+        resValues false
+        shaders false
+    }
+
+    compileOptions {
+        sourceCompatibility = JavaVersion.VERSION_1_8
+        targetCompatibility = JavaVersion.VERSION_1_8
+    }
+
+    kotlinOptions {
+        jvmTarget = JavaVersion.VERSION_1_8.toString()
+        freeCompilerArgs += '-opt-in=kotlinx.serialization.ExperimentalSerializationApi'
+    }
+}
+
+dependencies {
+    // EXTENSION API STUBS — PROVIDED BY THE MIHON HOST AT RUNTIME.
+    compileOnly 'com.github.keiyoushi:extensions-lib:6e0c96cea8'
+    // DI USED TO RESOLVE THE APP CONTEXT INSIDE THE EXTENSION PROCESS.
+    compileOnly 'com.github.null2264.injekt:injekt-core:4135455a2a'
+    compileOnly 'androidx.preference:preference-ktx:1.2.1'
+    compileOnly 'com.squareup.okhttp3:okhttp:5.0.0-alpha.14'
+    compileOnly 'io.reactivex:rxjava:1.3.8'
+    compileOnly 'org.jetbrains.kotlinx:kotlinx-coroutines-android:1.9.0'
+    compileOnly 'org.jetbrains.kotlinx:kotlinx-serialization-json:1.7.3'
+}

@@ -77,7 +77,7 @@
 			{:else}
 				<ImageOff size={18} class="opacity-30" />
 			{/if}
-			<span class="mt-1 text-[10px] font-semibold opacity-40">No preview</span>
+			<span class="mt-1 text-[10px] font-semibold opacity-40">No cover</span>
 		</div>
 	{/if}
 </div>

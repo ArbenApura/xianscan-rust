@@ -82,7 +82,10 @@ if (!globalThis.__mtSqlite) {
 		// ignore
 	}
 
-	// CLEAN DB CHECKPOINT AND SHUTDOWN HOOK
+	// CLEAN DB CHECKPOINT AND SHUTDOWN HOOK — REGISTERED ONLY FOR REAL EXIT SIGNALS.
+	// `beforeExit` IS DELIBERATELY OMITTED: IN DEV/VITE IT CAN FIRE WHEN THE EVENT LOOP
+	// BRIEFLY EMPTIES WITHOUT THE PROCESS EXITING, CLOSING THE SINGLETON CONNECTION AND
+	// CAUSING "The database connection is not open" ON SUBSEQUENT REQUESTS.
 	const closeHandler = () => {
 		try {
 			if (globalThis.__mtSqlite && globalThis.__mtSqlite.open) {
@@ -95,7 +98,6 @@ if (!globalThis.__mtSqlite) {
 	};
 	process.once('SIGINT', closeHandler);
 	process.once('SIGTERM', closeHandler);
-	process.once('beforeExit', closeHandler);
 }
 const sqlite = globalThis.__mtSqlite!;
 

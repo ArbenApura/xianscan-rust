@@ -176,7 +176,7 @@
 			</Button>
 
 			<Button variant="secondary" size="md" loading={reloading} on:click={handleReload}>
-				<RefreshCw size={15} class={reloading ? 'animate-spin' : ''} />
+				<RefreshCw size={15} />
 				<span>Try Again</span>
 			</Button>
 

@@ -20,6 +20,7 @@
 	import Cpu from 'lucide-svelte/icons/cpu';
 	import Sparkles from 'lucide-svelte/icons/sparkles';
 	import Zap from 'lucide-svelte/icons/zap';
+	import ZapOff from 'lucide-svelte/icons/zap-off';
 	import Layers from 'lucide-svelte/icons/layers';
 	import Maximize2 from 'lucide-svelte/icons/maximize-2';
 	import Activity from 'lucide-svelte/icons/activity';
@@ -175,7 +176,12 @@
 		selectedProviderId = '';
 		loadHardwareStatus();
 		loadProviders();
+		void mlStatus.checkHealth();
 	}
+
+	// THE ML SIDECAR IS CONSIDERED OFFLINE ONLY AFTER A COMPLETED HEALTH CHECK SAYS SO — DURING THE
+	// INITIAL LOADING WINDOW WE STAY ENABLED TO AVOID A FLASH OF DISABLED CONTROLS.
+	$: mlOffline = !$mlStatus.loading && !$mlStatus.online;
 
 	const THEMES: { id: Theme; label: string; dot: string }[] = [
 		{ id: 'light', label: 'Light', dot: 'border-slate-300 bg-[#fbfaf7]' },
@@ -254,6 +260,12 @@
 	}
 
 	async function setExecutionDevice(dev: ExecutionDevice) {
+		// THE SIDECAR HOSTS THE ONNX MODELS — WITH IT OFFLINE NO COMPUTE ENGINE CAN BE SWITCHED.
+		if (mlOffline) {
+			toast.error('ML sidecar is offline — cannot switch compute hardware.');
+			return;
+		}
+
 		if (!isDeviceAvailable(dev)) {
 			const reason = getDeviceAvailabilityReason(dev);
 			toast.error(`Cannot select ${dev.toUpperCase()}: ${reason || 'Hardware not supported'}`);
@@ -1392,13 +1404,18 @@
 								class={`self-start sm:self-auto flex items-center gap-1.5 rounded-full border px-2.5 py-0.5 sm:py-1 text-[10px] font-bold max-w-full ${
 									switchingDevice || hardwareInfo.reloading
 										? 'border-amber-500/30 bg-amber-500/10 text-amber-700 dark:text-amber-300'
-										: 'border-emerald-500/30 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300'
+										: mlOffline
+											? 'border-red-500/40 bg-red-500/10 text-red-700 dark:text-red-300'
+											: 'border-emerald-500/30 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300'
 								}`}
-								title="Active ONNX Runtime Provider"
+								title={mlOffline ? 'ML sidecar unreachable — compute accelerator selection disabled' : 'Active ONNX Runtime Provider'}
 							>
 								{#if switchingDevice || hardwareInfo.reloading}
 									<Loader2 size={11} class="text-amber-500 shrink-0 animate-spin" />
 									<span class="truncate px-0.5">Reloading models…</span>
+								{:else if mlOffline}
+									<ZapOff size={11} class="text-red-500 shrink-0" />
+									<span class="truncate px-0.5">Offline (sidecar unreachable)</span>
 								{:else}
 									<Activity size={11} class="text-emerald-500 shrink-0 animate-pulse" />
 									<span class="truncate px-0.5">{formatDeviceLabel(hardwareInfo.device_label)}</span>
@@ -1407,18 +1424,35 @@
 						{/if}
 					</div>
 
+					{#if mlOffline}
+						<div
+							class="mb-3 flex items-start gap-2.5 rounded-xl border border-red-500/30 bg-red-500/10 p-3 text-red-800 dark:text-red-300 text-[11px] leading-relaxed"
+						>
+							<ZapOff size={14} class="shrink-0 text-red-500 mt-0.5" />
+							<div>
+								<span class="font-bold">ML Sidecar Offline:</span>
+								<span>
+									The local OCR/Inpaint sidecar is unreachable, so compute accelerator selection is
+									disabled. Start the sidecar to choose an execution engine.
+								</span>
+							</div>
+						</div>
+					{/if}
+
 					<div class="grid grid-cols-1 gap-2 sm:grid-cols-2 sm:gap-2.5">
 						{#each EXECUTION_DEVICES as dev (dev.id)}
 							<button
 								type="button"
-								disabled={!!switchingDevice}
+								disabled={!!switchingDevice || mlOffline}
 								on:click={() => setExecutionDevice(dev.id)}
 								class={`relative flex flex-col justify-between rounded-xl border p-3 text-left transition-all duration-200 ${
-									!isDeviceAvailable(dev.id) || switchingDevice
-										? 'opacity-45 hover:opacity-60 border-black/5 bg-black/[0.01] dark:border-white/5 dark:bg-white/[0.01] cursor-not-allowed'
-										: $settings.executionDevice === dev.id
-											? 'border-[#b23a2e] bg-[#b23a2e]/[0.08] text-[#b23a2e] dark:text-[#e08a63] ring-2 ring-[#b23a2e]/30 shadow-xs'
-											: 'border-black/10 hover:border-black/20 hover:bg-black/[0.02] dark:border-white/10 dark:hover:border-white/20 dark:hover:bg-white/[0.02]'
+									mlOffline
+										? 'opacity-40 hover:opacity-40 border-black/5 bg-black/[0.01] dark:border-white/5 dark:bg-white/[0.01] cursor-not-allowed'
+										: !isDeviceAvailable(dev.id) || switchingDevice
+											? 'opacity-45 hover:opacity-60 border-black/5 bg-black/[0.01] dark:border-white/5 dark:bg-white/[0.01] cursor-not-allowed'
+											: $settings.executionDevice === dev.id
+												? 'border-[#b23a2e] bg-[#b23a2e]/[0.08] text-[#b23a2e] dark:text-[#e08a63] ring-2 ring-[#b23a2e]/30 shadow-xs'
+												: 'border-black/10 hover:border-black/20 hover:bg-black/[0.02] dark:border-white/10 dark:hover:border-white/20 dark:hover:bg-white/[0.02]'
 								}`}
 							>
 								<div>
@@ -1437,7 +1471,11 @@
 									</div>
 									<div class="mt-1 text-[10px] opacity-70 leading-relaxed">{dev.blurb}</div>
 								</div>
-								{#if !isDeviceAvailable(dev.id) && getDeviceAvailabilityReason(dev.id)}
+								{#if mlOffline}
+									<div class="mt-1.5 text-[9px] font-semibold text-red-600 dark:text-red-400">
+										Unavailable while sidecar is offline
+									</div>
+								{:else if !isDeviceAvailable(dev.id) && getDeviceAvailabilityReason(dev.id)}
 									<div class="mt-1.5 text-[9px] font-semibold text-amber-600 dark:text-amber-400">
 										{getDeviceAvailabilityReason(dev.id)}
 									</div>

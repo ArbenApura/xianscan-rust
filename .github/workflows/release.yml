@@ -176,6 +176,10 @@ jobs:
             - **Chrome / Edge / Brave / Opera**: Download `xianscan-importer-chrome.zip` and extract to load unpacked in `chrome://extensions`.
             - **Firefox**: Download `xianscan-importer-firefox.xpi` and install directly in `about:addons`.
 
+            ### 📱 Mihon / Tachiyomi Android Extension
+            - **1-Click Extension Repository URL**: `https://raw.githubusercontent.com/ArbenApura/xianscan-rust/repo/index.min.json`
+            - **Direct APK**: Download `tachiyomi-all.xianscan-*.apk` below.
+
             ---
           generate_release_notes: true
 
@@ -212,9 +216,60 @@ jobs:
             extensions/xianscan-importer/store/*.zip
             extensions/xianscan-importer/store/*.xpi
 
+  build-mihon-extension:
+    name: Build Mihon Android Extension
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Setup Java 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '21'
+
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Setup Signing Keystore
+        working-directory: extensions/xianscan-mihon
+        env:
+          KEYSTORE_BASE64: ${{ secrets.MIHON_KEYSTORE_BASE64 }}
+          KEYSTORE_PASSWORD: ${{ secrets.MIHON_KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.MIHON_KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.MIHON_KEY_PASSWORD }}
+        run: |
+          if [ -n "$KEYSTORE_BASE64" ]; then
+            echo "$KEYSTORE_BASE64" | base64 -d > xianscan-release.jks
+            echo "storeFile=xianscan-release.jks" > signing.properties
+            echo "storePassword=${KEYSTORE_PASSWORD:-xianscan123}" >> signing.properties
+            echo "keyAlias=${KEY_ALIAS:-xianscan}" >> signing.properties
+            echo "keyPassword=${KEY_PASSWORD:-xianscan123}" >> signing.properties
+          else
+            keytool -genkeypair -v -keystore xianscan-release.jks -alias xianscan -keyalg RSA -keysize 2048 -validity 10000 -storepass xianscan123 -keypass xianscan123 -dname "CN=XianScan, OU=Mihon, O=XianScan, L=Global, ST=Global, C=US"
+            echo "storeFile=xianscan-release.jks" > signing.properties
+            echo "storePassword=xianscan123" >> signing.properties
+            echo "keyAlias=xianscan" >> signing.properties
+            echo "keyPassword=xianscan123" >> signing.properties
+          fi
+
+      - name: Build Signed Release APK
+        working-directory: extensions/xianscan-mihon
+        run: |
+          chmod +x gradlew
+          ./gradlew :app:assembleRelease
+
+      - name: Upload Mihon APK to GitHub Release
+        uses: softprops/action-gh-release@v2
+        if: startsWith(github.ref, 'refs/tags/') || github.event_name == 'workflow_dispatch'
+        with:
+          tag_name: ${{ github.event.inputs.tag_name || github.ref_name }}
+          files: extensions/xianscan-mihon/app/build/outputs/apk/release/*.apk
+
   virustotal-scan:
     name: VirusTotal Security Scan
-    needs: [build-release, build-extension]
+    needs: [build-release, build-extension, build-mihon-extension]
     runs-on: ubuntu-latest
     if: (startsWith(github.ref, 'refs/tags/') || github.event_name == 'workflow_dispatch')
     permissions:

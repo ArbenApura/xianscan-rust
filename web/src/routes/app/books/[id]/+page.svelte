@@ -4,13 +4,23 @@
 	import { page } from '$app/stores';
 	import { onMount } from 'svelte';
 	import { toast } from 'svelte-sonner';
-	import { Button, TextField, Badge, Modal, ConfirmDialog, ActionMenu, LanguagePicker, Toggle, LazyImage, Checkbox } from '$lib/components/ui';
+	import {
+		Button,
+		TextField,
+		Badge,
+		Modal,
+		ConfirmDialog,
+		ActionMenu,
+		LanguagePicker,
+		Toggle,
+		LazyImage,
+		Checkbox,
+	} from '$lib/components/ui';
 	import { ripple } from '$lib/actions/ripple';
 	import { apiJson } from '$lib/api';
 	import { validateForm } from '$lib/utils/form';
-	import { updateBookSchema, createChapterSchema, updateChapterSchema } from '$lib/schemas';
+	import { BOOK_STATUSES, updateBookSchema, createChapterSchema, updateChapterSchema } from '$lib/schemas';
 	import { settings, THEME_POPOVER, THEME_PANEL_BORDER, CH_LAYOUT_COOKIE, setCookie } from '$lib/stores/settings';
-	import { readingHistory } from '$lib/stores/reading-history';
 	import { jobTracker } from '$lib/stores/job-tracker';
 	import { batchTracker, batchProgress } from '$lib/stores/batch-tracker';
 	import { cn } from '$lib/utils/cn';
@@ -39,14 +49,14 @@
 	import ChevronRight from 'lucide-svelte/icons/chevron-right';
 	import Languages from 'lucide-svelte/icons/languages';
 	import Sparkles from 'lucide-svelte/icons/sparkles';
-	import CheckSquare from 'lucide-svelte/icons/check-square';
 	import Square from 'lucide-svelte/icons/square';
 	import RotateCw from 'lucide-svelte/icons/rotate-cw';
 	import FolderUp from 'lucide-svelte/icons/folder-up';
 	import Upload from 'lucide-svelte/icons/upload';
-	import { parseDataTransferItems, parseFileList, type DiscoveredChapter } from '$lib/utils/folder-drop';
-	import MultiChapterImportModal from '$lib/components/chapter/MultiChapterImportModal.svelte';
 	import FolderUploadGuideModal from '$lib/components/book/FolderUploadGuideModal.svelte';
+	import FolderImportProgressModal from '$lib/components/book/FolderImportProgressModal.svelte';
+	import BookMetadataFields from '$lib/components/book/BookMetadataFields.svelte';
+	import BookCoverPicker from '$lib/components/book/BookCoverPicker.svelte';
 	import type { PageData } from './$types';
 
 	export let data: PageData;
@@ -61,7 +71,18 @@
 		targetLang: string;
 		pinned?: boolean;
 		archived?: boolean;
+		coverPath?: string | null;
+		coverRev?: number;
+		coverHasDedicated?: boolean;
+		coverCleared?: boolean;
+		description?: string | null;
+		author?: string | null;
+		artist?: string | null;
+		tags?: string[];
+		status?: string;
 	}
+
+	type BookStatus = (typeof BOOK_STATUSES)[number];
 
 	interface Chapter {
 		id: number;
@@ -100,7 +121,11 @@
 	let viewLayout: 'grid' | 'list' | 'compact' = (data as any)?.preferences?.chapterLayout || 'grid';
 
 	function handleGlobalKeydown(e: KeyboardEvent) {
-		if (e.key === '/' && document.activeElement?.tagName !== 'INPUT' && document.activeElement?.tagName !== 'TEXTAREA') {
+		if (
+			e.key === '/' &&
+			document.activeElement?.tagName !== 'INPUT' &&
+			document.activeElement?.tagName !== 'TEXTAREA'
+		) {
 			e.preventDefault();
 			searchInputEl?.focus();
 		}
@@ -117,6 +142,11 @@
 	let editBookTargetLang = '';
 	let editBookPinned = false;
 	let editBookArchived = false;
+	let editBookDescription = '';
+	let editBookAuthor = '';
+	let editBookArtist = '';
+	let editBookTags: string[] = [];
+	let editBookStatus: BookStatus = 'unknown';
 	let updatingBook = false;
 	let translatingBookTitle = false;
 
@@ -144,39 +174,17 @@
 
 	// FOLDER UPLOAD & DRAG STATES
 	let folderGuideModalOpen = false;
-	let multiChapterModalOpen = false;
 	let isDraggingOverBook = false;
-	let detectedChapters: DiscoveredChapter[] = [];
-	let detectedTotalImages = 0;
-	let importingFolders = false;
 	let folderPickerInput: HTMLInputElement;
+	let folderImportModal: FolderImportProgressModal;
 
 	async function handleBookFolderSelected(e: Event) {
 		const target = e.target as HTMLInputElement;
 		if (!target.files || target.files.length === 0) return;
-		const scanToastId = toast.loading('Scanning selected folder...');
-		try {
-			const scanResult = await parseFileList(target.files, (count) => {
-				toast.loading(`Scanning folder... (${count} images found)`, { id: scanToastId });
-			});
-			toast.dismiss(scanToastId);
-
-			if (scanResult.isMultiChapter && scanResult.chapters.length >= 2) {
-				detectedChapters = scanResult.chapters;
-				detectedTotalImages = scanResult.totalImages;
-				multiChapterModalOpen = true;
-			} else if (scanResult.flatFiles.length > 0) {
-				// CREATE A SINGLE CHAPTER WITH THESE FILES
-				await executeSingleChapterImport(scanResult.flatFiles);
-			} else {
-				toast.info('No images found in the selected folder.');
-			}
-		} catch (err: any) {
-			toast.dismiss(scanToastId);
-			toast.error(err?.message || 'Could not parse selected folder.');
-		} finally {
-			target.value = '';
-		}
+		// SNAPSHOT FILES BEFORE CLEARING THE INPUT SO THE LIVE FILELIST IS NOT INVALIDATED
+		const files = Array.from(target.files);
+		target.value = '';
+		await folderImportModal?.startImport(files);
 	}
 
 	async function handleBookDragOver(e: DragEvent) {
@@ -191,137 +199,12 @@
 		isDraggingOverBook = false;
 
 		if (e.dataTransfer?.items && e.dataTransfer.items.length > 0) {
-			const scanToastId = toast.loading('Scanning dropped files and folders...');
-			try {
-				const scanResult = await parseDataTransferItems(e.dataTransfer.items, (count) => {
-					toast.loading(`Scanning folder... (${count} images found)`, { id: scanToastId });
-				});
-				toast.dismiss(scanToastId);
-
-				if (scanResult.isMultiChapter && scanResult.chapters.length >= 2) {
-					detectedChapters = scanResult.chapters;
-					detectedTotalImages = scanResult.totalImages;
-					multiChapterModalOpen = true;
-					return;
-				} else if (scanResult.flatFiles.length > 0) {
-					await executeSingleChapterImport(scanResult.flatFiles);
-					return;
-				} else {
-					toast.info('No images found in dropped files.');
-					return;
-				}
-			} catch {
-				toast.dismiss(scanToastId);
-				// FALLBACK
-			}
+			folderImportModal?.startImport(e.dataTransfer.items);
+			return;
 		}
 
 		if (e.dataTransfer?.files && e.dataTransfer.files.length > 0) {
-			const scanToastId = toast.loading('Scanning dropped files...');
-			const scanResult = await parseFileList(e.dataTransfer.files, (count) => {
-				toast.loading(`Scanning... (${count} images found)`, { id: scanToastId });
-			});
-			toast.dismiss(scanToastId);
-
-			if (scanResult.isMultiChapter && scanResult.chapters.length >= 2) {
-				detectedChapters = scanResult.chapters;
-				detectedTotalImages = scanResult.totalImages;
-				multiChapterModalOpen = true;
-			} else if (scanResult.flatFiles.length > 0) {
-				await executeSingleChapterImport(scanResult.flatFiles);
-			} else {
-				toast.info('No images found in dropped files.');
-			}
-		}
-	}
-
-	async function executeSingleChapterImport(files: File[]) {
-		if (files.length === 0 || !book) return;
-		const toastId = toast.loading('Creating chapter from files...');
-		try {
-			const createRes = await fetch(`/api/books/${book.id}/chapters`, {
-				method: 'POST',
-				headers: { 'content-type': 'application/json' },
-				body: JSON.stringify({
-					title: `Chapter ${chapters.length + 1}`,
-				}),
-			});
-			if (!createRes.ok) throw new Error('Failed to create chapter');
-			const { id: newChapterId } = await createRes.json();
-
-			const CHUNK_SIZE = 40;
-			for (let p = 0; p < files.length; p += CHUNK_SIZE) {
-				const chunk = files.slice(p, p + CHUNK_SIZE);
-				const form = new FormData();
-				for (const file of chunk) form.append('files', file);
-				const uploadRes = await fetch(`/api/chapters/${newChapterId}/pages`, {
-					method: 'POST',
-					body: form,
-				});
-				if (!uploadRes.ok) throw new Error('Failed to upload images');
-			}
-			toast.success('Chapter created and images uploaded!', { id: toastId });
-			await reload();
-		} catch (err: any) {
-			toast.error(err?.message || 'Failed to import chapter.', { id: toastId });
-		}
-	}
-
-	async function executeMultiChapterImport(chaptersToImport: DiscoveredChapter[]) {
-		if (chaptersToImport.length === 0 || !book) return;
-		multiChapterModalOpen = false;
-		importingFolders = true;
-
-		const toastId = toast.loading(`Importing ${chaptersToImport.length} chapters... (0/${chaptersToImport.length})`);
-		let completed = 0;
-
-		try {
-			for (let i = 0; i < chaptersToImport.length; i++) {
-				const ch = chaptersToImport[i];
-				toast.loading(`Importing ${ch.title || `Chapter ${i + 1}`} (${i + 1}/${chaptersToImport.length})...`, { id: toastId });
-
-				// 1. CREATE CHAPTER RECORD IN BOOK
-				const createRes = await fetch(`/api/books/${book.id}/chapters`, {
-					method: 'POST',
-					headers: { 'content-type': 'application/json' },
-					body: JSON.stringify({
-						title: ch.title || ch.folderName,
-						seq: ch.seqHint !== null ? ch.seqHint - 1 : undefined,
-					}),
-				});
-
-				if (!createRes.ok) {
-					throw new Error(`Failed to create chapter "${ch.title}"`);
-				}
-
-				const { id: newChapterId } = await createRes.json();
-
-				// 2. UPLOAD CHAPTER PAGES CHUNKED TO AVOID HTTP BODY OVERFLOW
-				const CHUNK_SIZE = 40;
-				for (let p = 0; p < ch.files.length; p += CHUNK_SIZE) {
-					const chunk = ch.files.slice(p, p + CHUNK_SIZE);
-					const form = new FormData();
-					for (const file of chunk) {
-						form.append('files', file);
-					}
-					const uploadRes = await fetch(`/api/chapters/${newChapterId}/pages`, {
-						method: 'POST',
-						body: form,
-					});
-					if (!uploadRes.ok) {
-						throw new Error(`Failed to upload images for "${ch.title}"`);
-					}
-				}
-
-				completed++;
-			}
-
-			toast.success(`Successfully imported ${completed} chapters!`, { id: toastId });
-			await reload();
-		} catch (err: any) {
-			toast.error(err?.message || 'Multi-chapter import encountered an error.', { id: toastId });
-		} finally {
-			importingFolders = false;
+			folderImportModal?.startImport(e.dataTransfer.files);
 		}
 	}
 
@@ -329,7 +212,8 @@
 
 	onMount(() => {
 		try {
-			const saved = localStorage.getItem('xianscan:chapterViewLayout') || localStorage.getItem('manhua:chapterViewLayout');
+			const saved =
+				localStorage.getItem('xianscan:chapterViewLayout') || localStorage.getItem('manhua:chapterViewLayout');
 			if (saved === 'grid' || saved === 'list' || saved === 'compact') {
 				if (!data.preferences?.chapterLayout) {
 					viewLayout = saved;
@@ -376,6 +260,11 @@
 		editBookTargetLang = book.targetLang;
 		editBookPinned = !!book.pinned;
 		editBookArchived = !!book.archived;
+		editBookDescription = book.description || '';
+		editBookAuthor = book.author || '';
+		editBookArtist = book.artist || '';
+		editBookTags = book.tags || [];
+		editBookStatus = (book.status as BookStatus) || 'unknown';
 		editBookModalOpen = true;
 	}
 
@@ -388,6 +277,11 @@
 			targetLang: editBookTargetLang,
 			pinned: editBookPinned,
 			archived: editBookArchived,
+			description: editBookDescription.trim() || null,
+			author: editBookAuthor.trim() || null,
+			artist: editBookArtist.trim() || null,
+			tags: editBookTags,
+			status: editBookStatus,
 		};
 		const validation = validateForm(updateBookSchema, payload);
 		if (!validation.success) {
@@ -486,9 +380,7 @@
 			if (!resp.ok) throw new Error('Update failed');
 			const data = await resp.json();
 			const updated = data.chapter;
-			chapters = chapters.map((c) =>
-				c.id === updated.id ? { ...c, ...updated } : c,
-			);
+			chapters = chapters.map((c) => (c.id === updated.id ? { ...c, ...updated } : c));
 			toast.success('Chapter updated.');
 			editChapterModalOpen = false;
 			editingChapter = null;
@@ -702,10 +594,8 @@
 	$: pendingFilteredChapters = filteredChapters.filter(
 		(c) => (c.pageCount || 0) > 0 && (c.status !== 'done' || (c.translatedPageCount || 0) < (c.pageCount || 0)),
 	);
-	$: allFilteredSelected =
-		filteredChapters.length > 0 && filteredChapters.every((c) => selectedChapterIds.has(c.id));
-	$: someFilteredSelected =
-		filteredChapters.some((c) => selectedChapterIds.has(c.id)) && !allFilteredSelected;
+	$: allFilteredSelected = filteredChapters.length > 0 && filteredChapters.every((c) => selectedChapterIds.has(c.id));
+	$: someFilteredSelected = filteredChapters.some((c) => selectedChapterIds.has(c.id)) && !allFilteredSelected;
 
 	function toggleSelectChapter(id: number, e?: MouseEvent | KeyboardEvent) {
 		if (e) e.stopPropagation();
@@ -721,14 +611,6 @@
 	function selectAllFiltered() {
 		const next = new Set(selectedChapterIds);
 		for (const ch of filteredChapters) {
-			next.add(ch.id);
-		}
-		selectedChapterIds = next;
-	}
-
-	function selectUntranslatedFiltered() {
-		const next = new Set(selectedChapterIds);
-		for (const ch of pendingFilteredChapters) {
 			next.add(ch.id);
 		}
 		selectedChapterIds = next;
@@ -750,16 +632,18 @@
 
 	$: isBatchActiveForOtherBook = Boolean(
 		$batchTracker.active &&
-		($batchTracker.status === 'running' || $batchTracker.status === 'paused') &&
-		$batchTracker.bookId &&
-		book?.id &&
-		$batchTracker.bookId !== book.id
+			($batchTracker.status === 'running' || $batchTracker.status === 'paused') &&
+			$batchTracker.bookId &&
+			book?.id &&
+			$batchTracker.bookId !== book.id,
 	);
 
 	function startBatchFromSelected(force = false) {
 		if (!book) return;
 		if (isBatchActiveForOtherBook) {
-			toast.warning(`Batch translation is currently active for "${$batchTracker.bookTitle || 'another book'}". Please finish or stop it before starting another.`);
+			toast.warning(
+				`Batch translation is currently active for "${$batchTracker.bookTitle || 'another book'}". Please finish or stop it before starting another.`,
+			);
 			return;
 		}
 		const targetList = selectedChaptersList.length > 0 ? selectedChaptersList : pendingFilteredChapters;
@@ -776,11 +660,17 @@
 	function startBatchAllPending() {
 		if (!book) return;
 		if (isBatchActiveForOtherBook) {
-			toast.warning(`Batch translation is currently active for "${$batchTracker.bookTitle || 'another book'}". Please finish or stop it before starting another.`);
+			toast.warning(
+				`Batch translation is currently active for "${$batchTracker.bookTitle || 'another book'}". Please finish or stop it before starting another.`,
+			);
 			return;
 		}
 		const pending = chapters
-			.filter((c) => (c.pageCount || 0) > 0 && (c.status !== 'done' || (c.translatedPageCount || 0) < (c.pageCount || 0)))
+			.filter(
+				(c) =>
+					(c.pageCount || 0) > 0 &&
+					(c.status !== 'done' || (c.translatedPageCount || 0) < (c.pageCount || 0)),
+			)
 			.sort((a, b) => a.seq - b.seq);
 
 		if (pending.length === 0) {
@@ -791,9 +681,7 @@
 	}
 
 	function getChapterLiveProgress(ch: Chapter) {
-		const currentBatchItem = $batchTracker.active
-			? $batchTracker.queue.find((q) => q.id === ch.id)
-			: null;
+		const currentBatchItem = $batchTracker.active ? $batchTracker.queue.find((q) => q.id === ch.id) : null;
 
 		if (currentBatchItem && currentBatchItem.status === 'reslicing') {
 			return {
@@ -877,7 +765,7 @@
 	$: filteredChapters = chapters
 		.filter((c) => {
 			if (statusFilter === 'done' && (c.status !== 'done' || (c.pageCount || 0) === 0)) return false;
-			if (statusFilter === 'pending' && (c.status === 'done' && (c.pageCount || 0) > 0)) return false;
+			if (statusFilter === 'pending' && c.status === 'done' && (c.pageCount || 0) > 0) return false;
 			if (statusFilter === 'error' && c.status !== 'error') return false;
 
 			if (!searchQuery.trim()) return true;
@@ -895,18 +783,42 @@
 
 	$: totalPages = chapters.reduce((sum, c) => sum + (c.pageCount || 0), 0);
 	$: translatedPages = chapters.reduce((sum, c) => sum + (c.translatedPageCount || 0), 0);
-	$: translatedChapters = chapters.filter((c) => (c.pageCount || 0) > 0 && (c.status === 'done' || (c.translatedPageCount ?? 0) === c.pageCount)).length;
-	$: overallProgress = totalPages > 0 ? Math.round((translatedPages / totalPages) * 100) : (chapters.length > 0 ? Math.round((translatedChapters / chapters.length) * 100) : 0);
-	$: lastReadRecord = book ? ($readingHistory[book.id] ?? null) : null;
-	$: lastReadChapter = lastReadRecord
-		? chapters.find((c) => c.id === lastReadRecord?.chapterId && c.coverPageId)
-		: null;
-	$: bookCoverPageId = lastReadChapter?.coverPageId ?? chapters.find((c) => c.coverPageId)?.coverPageId ?? null;
+	$: translatedChapters = chapters.filter(
+		(c) => (c.pageCount || 0) > 0 && (c.status === 'done' || (c.translatedPageCount ?? 0) === c.pageCount),
+	).length;
+	$: overallProgress =
+		totalPages > 0
+			? Math.round((translatedPages / totalPages) * 100)
+			: chapters.length > 0
+				? Math.round((translatedChapters / chapters.length) * 100)
+				: 0;
+	// COVER PROXY IS STABLE — FIRST CHAPTER WITH A COVER PAGE. VIEWING A CHAPTER MUST NOT RE-PICK IT.
+	$: bookCoverPageId = chapters.find((c) => c.coverPageId)?.coverPageId ?? null;
 	$: errorChapters = chapters.filter((c) => c.status === 'error').length;
-	$: pendingChapters = chapters.filter((c) => (c.pageCount || 0) > 0 && (c.status !== 'done' || (c.translatedPageCount || 0) < (c.pageCount || 0))).length;
+	$: pendingChapters = chapters.filter(
+		(c) => (c.pageCount || 0) > 0 && (c.status !== 'done' || (c.translatedPageCount || 0) < (c.pageCount || 0)),
+	).length;
 	$: popover = THEME_POPOVER[$settings.theme];
 	$: popoverBorder = THEME_PANEL_BORDER[$settings.theme];
+	// COVER PREVIEW IN THE EDIT MODAL — THE DEDICATED COVER, A PAGE-PROXY THUMB ONLY FOR BOOKS THAT
+	// NEVER HAD A COVER AND ARE NOT EXPLICITLY COVERLESS (coverCleared).
+	$: editBookCoverSrc = book?.coverPath
+		? `/api/covers/${book.id}/file?w=320&rev=${book.coverRev ?? 0}`
+		: book?.coverCleared
+			? null
+			: bookCoverPageId
+				? `/api/pages/${bookCoverPageId}/file?kind=thumb&w=320`
+				: null;
 
+	function onCoverUploaded(e: CustomEvent<{ coverPath: string; coverRev: number }>) {
+		if (!book) return;
+		book = { ...book, coverPath: e.detail.coverPath, coverRev: e.detail.coverRev, coverCleared: false };
+	}
+
+	function onCoverRemoved() {
+		if (!book) return;
+		book = { ...book, coverPath: null, coverCleared: true };
+	}
 </script>
 
 <svelte:window on:keydown={handleGlobalKeydown} />
@@ -925,10 +837,16 @@
 >
 	<!-- DRAG OVERLAY -->
 	{#if isDraggingOverBook}
-		<div class="pointer-events-none fixed inset-0 z-50 flex items-center justify-center bg-[#b23a2e]/20 backdrop-blur-sm">
-			<div class="flex flex-col items-center gap-3 rounded-2xl border-2 border-dashed border-[#b23a2e] bg-white/90 p-8 shadow-2xl dark:bg-[#1a1713]/90">
-				<Upload size={36} class="text-[#b23a2e] dark:text-[#e08a63] animate-bounce" />
-				<p class="text-sm font-bold">Drop chapter folders or images to import into {book?.titleTarget || book?.title || 'Book'}</p>
+		<div
+			class="pointer-events-none fixed inset-0 z-50 flex items-center justify-center bg-[#b23a2e]/20 backdrop-blur-sm"
+		>
+			<div
+				class="flex flex-col items-center gap-3 rounded-2xl border-2 border-dashed border-[#b23a2e] bg-white/90 p-8 shadow-2xl dark:bg-[#1a1713]/90"
+			>
+				<Upload size={36} class="animate-bounce text-[#b23a2e] dark:text-[#e08a63]" />
+				<p class="text-sm font-bold">
+					Drop chapter folders or images to import into {book?.titleTarget || book?.title || 'Book'}
+				</p>
 			</div>
 		</div>
 	{/if}
@@ -936,22 +854,30 @@
 	<nav aria-label="Breadcrumb" class="flex items-center gap-1.5 text-xs sm:text-sm">
 		<a
 			href="/app/"
-			class="inline-flex items-center gap-1.5 rounded-lg py-1 px-2 font-medium opacity-65 transition hover:opacity-100 hover:bg-black/5 dark:hover:bg-white/5"
+			class="inline-flex items-center gap-1.5 rounded-lg px-2 py-1 font-medium opacity-65 transition hover:bg-black/5 hover:opacity-100 dark:hover:bg-white/5"
 		>
 			<ArrowLeft size={14} /> Library
 		</a>
 		<ChevronRight size={12} class="opacity-40" />
-		<span class="font-medium truncate max-w-[200px] sm:max-w-xs">{book?.titleTarget || book?.title || 'Book Details'}</span>
+		<span class="max-w-[200px] truncate font-medium sm:max-w-xs"
+			>{book?.titleTarget || book?.title || 'Book Details'}</span
+		>
 	</nav>
 
 	<!-- MAIN CONTENT CONTAINER -->
 	{#if loading}
 		<div class="space-y-4">
-			<div class="h-44 animate-pulse rounded-2xl border border-black/[0.06] bg-black/[0.03] dark:border-white/[0.06] dark:bg-white/[0.03]"></div>
-			<div class="h-10 animate-pulse rounded-xl border border-black/[0.06] bg-black/[0.03] dark:border-white/[0.06] dark:bg-white/[0.03]"></div>
+			<div
+				class="h-44 animate-pulse rounded-2xl border border-black/[0.06] bg-black/[0.03] dark:border-white/[0.06] dark:bg-white/[0.03]"
+			></div>
+			<div
+				class="h-10 animate-pulse rounded-xl border border-black/[0.06] bg-black/[0.03] dark:border-white/[0.06] dark:bg-white/[0.03]"
+			></div>
 		</div>
 	{:else if !book}
-		<div class="flex flex-col items-center justify-center rounded-2xl border border-dashed border-black/15 py-16 text-center dark:border-white/15">
+		<div
+			class="flex flex-col items-center justify-center rounded-2xl border border-dashed border-black/15 py-16 text-center dark:border-white/15"
+		>
 			<FileX size={32} class="opacity-40" />
 			<h2 class="mt-4 text-base font-semibold">Book not found</h2>
 			<p class="mt-1 text-xs opacity-60">This book might have been deleted or does not exist.</p>
@@ -961,23 +887,31 @@
 		</div>
 	{:else}
 		<!-- HERO CARD: METADATA, COVER ART, & ACTIONS -->
-		<div class="relative overflow-hidden rounded-2xl border border-black/[0.08] bg-white/70 p-3.5 sm:p-6 backdrop-blur-md dark:border-white/[0.08] dark:bg-white/[0.02]">
-			<div class="grid grid-cols-[auto_1fr] gap-x-3.5 sm:gap-x-6 gap-y-3 sm:gap-y-4 items-stretch">
-				<!-- COVER THUMBNAIL (FULL HEIGHT ON BOTH MOBILE & WIDE SCREENS) -->
-				<div class="relative w-20 xs:w-24 sm:w-32 md:w-36 shrink-0 sm:row-span-3 flex flex-col self-stretch">
+		<div
+			class="relative overflow-hidden rounded-2xl border border-black/[0.08] bg-white/70 p-3.5 backdrop-blur-md dark:border-white/[0.08] dark:bg-white/[0.02] sm:p-6"
+		>
+			<div class="grid grid-cols-[auto_1fr] items-start gap-x-3.5 gap-y-3 sm:gap-x-6 sm:gap-y-4">
+				<!-- COVER THUMBNAIL — PINNED TO A 2:3 BOOK COVER RATIO, NEVER STRETCHED BY CONTENT HEIGHT -->
+				<div class="xs:w-24 relative flex w-20 shrink-0 flex-col sm:w-32 md:w-36">
 					<LazyImage
-						src={bookCoverPageId ? `/api/pages/${bookCoverPageId}/file?kind=thumb&w=320` : ''}
+						src={book.coverPath
+							? `/api/covers/${book.id}/file?w=320&rev=${book.coverRev ?? 0}`
+							: book.coverCleared
+								? ''
+								: bookCoverPageId
+									? `/api/pages/${bookCoverPageId}/file?kind=thumb&w=320`
+									: ''}
 						alt={book.titleTarget || book.title}
-						aspectRatio="aspect-[2/3] sm:aspect-auto"
-						class="shadow-md rounded-xl w-full sm:absolute sm:inset-0"
+						aspectRatio="aspect-[2/3]"
+						class="w-full rounded-xl shadow-md"
 					/>
 				</div>
 
-				<!-- METADATA & STATS (ROW 1, COL 2) -->
-				<div class="min-w-0 flex flex-col justify-start">
+				<!-- METADATA & STATS (ROW 1, COL 2) — NATURALLY COMPACT SO SPARSE CONTENT LEAVES NO GAPS -->
+				<div class="flex min-w-0 flex-col">
 					<div class="space-y-1.5 sm:space-y-2">
-						<div class="flex items-center justify-between gap-1.5 flex-wrap">
-							<div class="flex items-center gap-1.5 flex-wrap">
+						<div class="flex flex-wrap items-center justify-between gap-1.5">
+							<div class="flex flex-wrap items-center gap-1.5">
 								<Badge variant="neutral" class="font-mono text-[10px] sm:text-xs">
 									{book.sourceLang} → {book.targetLang}
 								</Badge>
@@ -992,11 +926,11 @@
 							</div>
 
 							<!-- TOP RIGHT CARD ACTIONS: GLOSSARY & EDIT -->
-							<div class="flex items-center gap-1.5 shrink-0">
+							<div class="flex shrink-0 items-center gap-1.5">
 								<Button
 									variant="secondary"
 									size="sm"
-									class="h-6 sm:h-7 px-2 text-[10px] sm:text-xs font-medium gap-1 shadow-2xs shrink-0"
+									class="shadow-2xs h-6 shrink-0 gap-1 px-2 text-[10px] font-medium sm:h-7 sm:text-xs"
 									on:click={() => goto(`/app/glossary/?scope=book&bookId=${book?.id}`)}
 									title="Open book glossary terms"
 								>
@@ -1007,7 +941,7 @@
 								<Button
 									variant="secondary"
 									size="sm"
-									class="h-6 sm:h-7 px-2 text-[10px] sm:text-xs font-medium gap-1 shadow-2xs shrink-0"
+									class="shadow-2xs h-6 shrink-0 gap-1 px-2 text-[10px] font-medium sm:h-7 sm:text-xs"
 									on:click={openEditBookModal}
 									title="Edit book details and target language"
 								>
@@ -1017,16 +951,51 @@
 							</div>
 						</div>
 
-						<h1 class="text-base sm:text-2xl font-bold tracking-tight leading-snug sm:leading-normal line-clamp-2">
+						<h1
+							class="line-clamp-2 text-base font-bold leading-snug tracking-tight sm:text-2xl sm:leading-normal"
+						>
 							{book.titleTarget || book.title}
 						</h1>
 						{#if book.titleTarget && book.titleTarget !== book.title}
-							<p class="text-[11px] sm:text-sm opacity-60 font-mono truncate">
+							<p class="truncate font-mono text-[11px] opacity-60 sm:text-sm">
 								Original: {book.title}
 							</p>
 						{/if}
+						{#if book.author || book.artist}
+							<p class="truncate text-[11px] opacity-70 sm:text-xs">
+								<span class="font-semibold">Author:</span>
+								{book.author || '—'}{#if book.artist}
+									&nbsp;<span class="font-semibold">Artist:</span> {book.artist}{/if}
+							</p>
+						{/if}
+						{#if book.tags && book.tags.length > 0}
+							<div class="flex flex-wrap items-center gap-1.5 pt-1">
+								{#each book.tags as tag (tag)}
+									<span
+										class="rounded-md bg-[#b23a2e]/10 px-2 py-0.5 text-[10px] font-semibold text-[#b23a2e] dark:text-[#e08a63]"
+										>{tag}</span
+									>
+								{/each}
+							</div>
+						{/if}
+						{#if book.status && book.status !== 'unknown'}
+							<p class="pt-0.5 text-[11px] opacity-70 sm:text-xs">
+								<span class="font-semibold">Status:</span>
+								{book.status.replace(/_/g, ' ')}
+							</p>
+						{/if}
+						{#if book.description}
+							<p
+								class="mt-1.5 line-clamp-3 whitespace-pre-line text-[11px] leading-relaxed opacity-75 sm:text-xs"
+								title={book.description}
+							>
+								{book.description}
+							</p>
+						{/if}
 
-						<div class="flex items-center gap-2 sm:gap-4 text-[11px] sm:text-xs opacity-70 flex-wrap pt-0.5">
+						<div
+							class="flex flex-wrap items-center gap-2 pt-0.5 text-[11px] opacity-70 sm:gap-4 sm:text-xs"
+						>
 							<span><strong>{chapters.length}</strong> chs</span>
 							<span>•</span>
 							<span><strong>{totalPages}</strong> pgs</span>
@@ -1038,14 +1007,16 @@
 
 				<!-- PROGRESS BAR (FULL-WIDTH ON MOBILE; ROW 2 COL 2 ON WIDE) -->
 				{#if totalPages > 0 || chapters.length > 0}
-					<div class="col-span-2 sm:col-span-1 sm:col-start-2 space-y-1 sm:space-y-1.5 max-w-md">
-						<div class="flex items-center justify-between text-[11px] sm:text-xs font-medium">
+					<div class="col-span-2 max-w-md space-y-1 sm:col-span-1 sm:col-start-2 sm:space-y-1.5">
+						<div class="flex items-center justify-between text-[11px] font-medium sm:text-xs">
 							<span class="opacity-70">Translation Progress</span>
-							<span class="font-mono font-bold text-[#b23a2e] dark:text-[#e08a63]">{overallProgress}%</span>
+							<span class="font-mono font-bold text-[#b23a2e] dark:text-[#e08a63]"
+								>{overallProgress}%</span
+							>
 						</div>
-						<div class="h-1.5 sm:h-2 w-full overflow-hidden rounded-full bg-black/5 dark:bg-white/10">
+						<div class="h-1.5 w-full overflow-hidden rounded-full bg-black/5 dark:bg-white/10 sm:h-2">
 							<div
-								class="h-full rounded-full bg-[#b23a2e] dark:bg-[#e08a63] transition-all duration-500"
+								class="h-full rounded-full bg-[#b23a2e] transition-all duration-500 dark:bg-[#e08a63]"
 								style={`width: ${overallProgress}%`}
 							></div>
 						</div>
@@ -1053,14 +1024,13 @@
 				{/if}
 
 				<!-- ACTION BUTTONS ROW (FULL-WIDTH ON MOBILE; ROW 3 COL 2 ON WIDE) -->
-				<div class="col-span-2 sm:col-span-1 sm:col-start-2 flex items-center gap-1.5 sm:gap-2 max-w-full">
+				<div class="col-span-2 flex max-w-full items-center gap-1.5 sm:col-span-1 sm:col-start-2 sm:gap-2">
 					<!-- HIDDEN FOLDER PICKER INPUT -->
 					<!-- SPREAD THE NON-STANDARD `webkitdirectory`/`directory` ATTRIBUTES — SVELTE'S
 					     HTML PROP TYPES DO NOT KNOW THEM AS BOOLEAN ATTRIBUTES -->
 					<input
 						type="file"
-						{...{ webkitdirectory: '', directory: '' }}
-						multiple
+						{...{ webkitdirectory: true, directory: true }}
 						class="hidden"
 						bind:this={folderPickerInput}
 						on:change={handleBookFolderSelected}
@@ -1070,7 +1040,7 @@
 					<Button
 						variant="primary"
 						size="md"
-						class="h-8 sm:h-9 md:h-10 px-2.5 sm:px-3.5 text-xs sm:text-sm font-semibold shadow-sm shrink-0 gap-1 sm:gap-1.5 flex-1 sm:flex-initial"
+						class="h-8 flex-1 shrink-0 gap-1 px-2.5 text-xs font-semibold shadow-sm sm:h-9 sm:flex-initial sm:gap-1.5 sm:px-3.5 sm:text-sm md:h-10"
 						on:click={openCreateChapterModal}
 					>
 						<Plus size={14} /> <span>New Chapter</span>
@@ -1080,7 +1050,7 @@
 					<Button
 						variant="secondary"
 						size="md"
-						class="h-8 sm:h-9 md:h-10 px-2 sm:px-3 text-xs sm:text-sm font-medium shrink-0 gap-1 sm:gap-1.5"
+						class="h-8 shrink-0 gap-1 px-2 text-xs font-medium sm:h-9 sm:gap-1.5 sm:px-3 sm:text-sm md:h-10"
 						on:click={() => (folderGuideModalOpen = true)}
 						title="Batch import chapter folders directly into this book"
 					>
@@ -1094,7 +1064,7 @@
 						<Button
 							variant="secondary"
 							size="md"
-							class={`h-8 sm:h-9 md:h-10 px-2.5 sm:px-3 text-xs sm:text-sm font-semibold border-[#b23a2e]/30 bg-[#b23a2e]/10 text-[#b23a2e] hover:bg-[#b23a2e] hover:text-white dark:text-[#e08a63] dark:hover:bg-[#e08a63] dark:hover:text-black transition-all shadow-xs shrink-0 gap-1 sm:gap-1.5 hidden lg:inline-flex ${
+							class={`shadow-xs hidden h-8 shrink-0 gap-1 border-[#b23a2e]/30 bg-[#b23a2e]/10 px-2.5 text-xs font-semibold text-[#b23a2e] transition-all hover:bg-[#b23a2e] hover:text-white dark:text-[#e08a63] dark:hover:bg-[#e08a63] dark:hover:text-black sm:h-9 sm:gap-1.5 sm:px-3 sm:text-sm md:h-10 lg:inline-flex ${
 								isBatchActiveForOtherBook ? 'opacity-80' : ''
 							}`}
 							on:click={startBatchAllPending}
@@ -1114,7 +1084,7 @@
 							size="md"
 							loading={clearingProgress}
 							disabled={clearingProgress}
-							class="h-8 sm:h-9 md:h-10 px-2.5 sm:px-3 text-xs sm:text-sm font-medium border-red-500/30 bg-red-500/5 text-red-600 hover:bg-red-500 hover:text-white dark:text-red-400 dark:border-red-400/30 dark:bg-red-400/5 dark:hover:bg-red-500 dark:hover:text-white transition-all shadow-xs shrink-0 gap-1 sm:gap-1.5 hidden lg:inline-flex"
+							class="shadow-xs hidden h-8 shrink-0 gap-1 border-red-500/30 bg-red-500/5 px-2.5 text-xs font-medium text-red-600 transition-all hover:bg-red-500 hover:text-white dark:border-red-400/30 dark:bg-red-400/5 dark:text-red-400 dark:hover:bg-red-500 dark:hover:text-white sm:h-9 sm:gap-1.5 sm:px-3 sm:text-sm md:h-10 lg:inline-flex"
 							on:click={() => (clearProgressConfirmOpen = true)}
 							title="Clear all translations and OCR progress while keeping all pages intact"
 						>
@@ -1126,11 +1096,11 @@
 					{/if}
 
 					<!-- 5. MORE ACTIONS POPOVER: VISIBLE ONLY ON SMALLER SCREENS (<LG) -->
-					<div class="lg:hidden shrink-0">
+					<div class="shrink-0 lg:hidden">
 						<ActionMenu
 							label="More Book Actions"
 							iconSize={15}
-							class="h-8 sm:h-9 md:h-10 px-2 border border-black/10 dark:border-white/10 hover:bg-black/5 dark:hover:bg-white/5 rounded-xl flex items-center justify-center transition"
+							class="flex h-8 items-center justify-center rounded-xl border border-black/10 px-2 transition hover:bg-black/5 dark:border-white/10 dark:hover:bg-white/5 sm:h-9 md:h-10"
 							items={[
 								...(pendingChapters > 0
 									? [
@@ -1169,18 +1139,21 @@
 		<!-- UNIFIED ADAPTIVE COMMAND BAR -->
 		<div class="flex flex-col gap-2.5">
 			<!-- COMMAND BAR CONTAINER -->
-			<div class="flex flex-col md:flex-row md:items-center md:justify-between gap-2.5">
+			<div class="flex flex-col gap-2.5 md:flex-row md:items-center md:justify-between">
 				<!-- CONTROLS ROW (ON MOBILE: PLACED TOP FOR QUICK REACH; ON DESKTOP: SITS ON THE RIGHT) -->
-				<div class="order-1 md:order-2 flex items-center gap-2 flex-wrap">
+				<div class="order-1 flex flex-wrap items-center gap-2 md:order-2">
 					<!-- SEARCH INPUT -->
 					<div class="relative flex-1 sm:w-56 md:w-60 lg:w-72">
-						<Search size={14} class="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-black/40 dark:text-white/40" />
+						<Search
+							size={14}
+							class="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-black/40 dark:text-white/40"
+						/>
 						<input
 							bind:this={searchInputEl}
 							bind:value={searchQuery}
 							type="text"
 							placeholder="Search chapters..."
-							class="h-10 w-full rounded-xl border border-black/10 bg-white/50 py-2 pl-9 pr-8 text-xs sm:text-sm outline-none transition placeholder:text-black/40 dark:placeholder:text-white/40 focus:border-[#b23a2e] focus:bg-white focus:ring-2 focus:ring-[#b23a2e]/10 dark:border-white/10 dark:bg-white/[0.03] dark:focus:bg-[#1a1714] dark:focus:border-[#e08a63] dark:focus:ring-[#e08a63]/15"
+							class="h-10 w-full rounded-xl border border-black/10 bg-white/50 py-2 pl-9 pr-8 text-xs outline-none transition placeholder:text-black/40 focus:border-[#b23a2e] focus:bg-white focus:ring-2 focus:ring-[#b23a2e]/10 dark:border-white/10 dark:bg-white/[0.03] dark:placeholder:text-white/40 dark:focus:border-[#e08a63] dark:focus:bg-[#1a1714] dark:focus:ring-[#e08a63]/15 sm:text-sm"
 						/>
 						{#if searchQuery}
 							<button
@@ -1189,14 +1162,16 @@
 									searchQuery = '';
 									searchInputEl?.focus();
 								}}
-								class="absolute right-2.5 top-1/2 -translate-y-1/2 rounded-full p-1 text-black/40 hover:text-black dark:text-white/40 dark:hover:text-white transition"
+								class="absolute right-2.5 top-1/2 -translate-y-1/2 rounded-full p-1 text-black/40 transition hover:text-black dark:text-white/40 dark:hover:text-white"
 								title="Clear search"
 								aria-label="Clear search"
 							>
 								<X size={14} />
 							</button>
 						{:else}
-							<kbd class="pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2 hidden md:inline-flex h-4.5 select-none items-center rounded border border-black/10 bg-black/[0.04] px-1 font-mono text-[9px] font-medium opacity-40 dark:border-white/15 dark:bg-white/[0.06]">
+							<kbd
+								class="h-4.5 pointer-events-none absolute right-2.5 top-1/2 hidden -translate-y-1/2 select-none items-center rounded border border-black/10 bg-black/[0.04] px-1 font-mono text-[9px] font-medium opacity-40 dark:border-white/15 dark:bg-white/[0.06] md:inline-flex"
+							>
 								/
 							</kbd>
 						{/if}
@@ -1207,31 +1182,48 @@
 						<button
 							type="button"
 							on:click={() => (sortMenuOpen = !sortMenuOpen)}
-							class="inline-flex h-10 items-center gap-1.5 rounded-xl border border-black/10 bg-white/50 px-3 sm:px-3.5 text-xs sm:text-sm font-medium backdrop-blur transition hover:bg-black/5 dark:border-white/10 dark:bg-white/[0.03] dark:hover:bg-white/5"
+							class="inline-flex h-10 items-center gap-1.5 rounded-xl border border-black/10 bg-white/50 px-3 text-xs font-medium backdrop-blur transition hover:bg-black/5 dark:border-white/10 dark:bg-white/[0.03] dark:hover:bg-white/5 sm:px-3.5 sm:text-sm"
 							title="Sort chapters"
 							aria-label="Sort chapters"
 							aria-expanded={sortMenuOpen}
 							use:ripple
 						>
 							<ArrowUpDown size={14} class="opacity-60" />
-							<span class="hidden xs:inline sm:inline">{sortAscending ? 'Oldest (1 → N)' : 'Newest First'}</span>
-							<ChevronDown size={12} class={`opacity-40 transition-transform duration-200 ${sortMenuOpen ? 'rotate-180' : ''}`} />
+							<span class="xs:inline hidden sm:inline"
+								>{sortAscending ? 'Oldest (1 → N)' : 'Newest First'}</span
+							>
+							<ChevronDown
+								size={12}
+								class={`opacity-40 transition-transform duration-200 ${sortMenuOpen ? 'rotate-180' : ''}`}
+							/>
 						</button>
 
 						{#if sortMenuOpen}
 							<!-- BACKDROP -->
-							<button type="button" class="fixed inset-0 z-40 bg-transparent cursor-default border-0 p-0" on:click={() => (sortMenuOpen = false)} aria-label="Close sort menu" tabindex="-1"></button>
+							<button
+								type="button"
+								class="fixed inset-0 z-40 cursor-default border-0 bg-transparent p-0"
+								on:click={() => (sortMenuOpen = false)}
+								aria-label="Close sort menu"
+								tabindex="-1"
+							></button>
 							<div
 								transition:fly={{ y: -6, duration: 150, easing: cubicOut }}
-								class={cn('absolute right-0 top-full z-50 mt-1.5 w-48 rounded-xl border p-1.5 shadow-xl', popover, popoverBorder)}
+								class={cn(
+									'absolute right-0 top-full z-50 mt-1.5 w-48 rounded-xl border p-1.5 shadow-xl',
+									popover,
+									popoverBorder,
+								)}
 							>
-								<div class="px-2.5 py-1 text-[10px] font-semibold uppercase tracking-wider opacity-40">Sort Chapters By</div>
+								<div class="px-2.5 py-1 text-[10px] font-semibold uppercase tracking-wider opacity-40">
+									Sort Chapters By
+								</div>
 								<button
 									type="button"
 									class={`flex w-full items-center justify-between rounded-lg px-2.5 py-1.5 text-left text-xs font-medium transition ${
 										sortAscending
-											? 'bg-[#b23a2e]/10 text-[#b23a2e] dark:bg-[#e08a63]/15 dark:text-[#e08a63] font-semibold'
-											: 'opacity-70 hover:opacity-100 hover:bg-black/5 dark:hover:bg-white/5'
+											? 'bg-[#b23a2e]/10 font-semibold text-[#b23a2e] dark:bg-[#e08a63]/15 dark:text-[#e08a63]'
+											: 'opacity-70 hover:bg-black/5 hover:opacity-100 dark:hover:bg-white/5'
 									}`}
 									on:click={() => {
 										sortAscending = true;
@@ -1247,8 +1239,8 @@
 									type="button"
 									class={`flex w-full items-center justify-between rounded-lg px-2.5 py-1.5 text-left text-xs font-medium transition ${
 										!sortAscending
-											? 'bg-[#b23a2e]/10 text-[#b23a2e] dark:bg-[#e08a63]/15 dark:text-[#e08a63] font-semibold'
-											: 'opacity-70 hover:opacity-100 hover:bg-black/5 dark:hover:bg-white/5'
+											? 'bg-[#b23a2e]/10 font-semibold text-[#b23a2e] dark:bg-[#e08a63]/15 dark:text-[#e08a63]'
+											: 'opacity-70 hover:bg-black/5 hover:opacity-100 dark:hover:bg-white/5'
 									}`}
 									on:click={() => {
 										sortAscending = false;
@@ -1265,13 +1257,15 @@
 					</div>
 
 					<!-- VIEW SWITCHER SEGMENTED TABS -->
-					<div class="flex items-center gap-0.5 rounded-xl border border-black/10 bg-black/[0.03] p-1 dark:border-white/10 dark:bg-white/[0.03] shrink-0 h-10">
+					<div
+						class="flex h-10 shrink-0 items-center gap-0.5 rounded-xl border border-black/10 bg-black/[0.03] p-1 dark:border-white/10 dark:bg-white/[0.03]"
+					>
 						<button
 							type="button"
 							on:click={() => setViewLayout('grid')}
 							class={`flex h-8 items-center justify-center gap-1.5 rounded-lg px-2.5 text-xs transition-all ${
 								viewLayout === 'grid'
-									? 'bg-white text-black font-bold shadow-xs dark:bg-[#221e1a] dark:text-white'
+									? 'shadow-xs bg-white font-bold text-black dark:bg-[#221e1a] dark:text-white'
 									: 'opacity-50 hover:opacity-100'
 							}`}
 							title="Comfortable Cards Grid"
@@ -1279,7 +1273,7 @@
 							use:ripple
 						>
 							<LayoutGrid size={14} />
-							<span class="hidden lg:inline text-xs">Grid</span>
+							<span class="hidden text-xs lg:inline">Grid</span>
 						</button>
 
 						<button
@@ -1287,7 +1281,7 @@
 							on:click={() => setViewLayout('list')}
 							class={`flex h-8 items-center justify-center gap-1.5 rounded-lg px-2.5 text-xs transition-all ${
 								viewLayout === 'list'
-									? 'bg-white text-black font-bold shadow-xs dark:bg-[#221e1a] dark:text-white'
+									? 'shadow-xs bg-white font-bold text-black dark:bg-[#221e1a] dark:text-white'
 									: 'opacity-50 hover:opacity-100'
 							}`}
 							title="Media List Rows"
@@ -1295,7 +1289,7 @@
 							use:ripple
 						>
 							<List size={14} />
-							<span class="hidden lg:inline text-xs">List</span>
+							<span class="hidden text-xs lg:inline">List</span>
 						</button>
 
 						<button
@@ -1303,7 +1297,7 @@
 							on:click={() => setViewLayout('compact')}
 							class={`flex h-8 items-center justify-center gap-1.5 rounded-lg px-2.5 text-xs transition-all ${
 								viewLayout === 'compact'
-									? 'bg-white text-black font-bold shadow-xs dark:bg-[#221e1a] dark:text-white'
+									? 'shadow-xs bg-white font-bold text-black dark:bg-[#221e1a] dark:text-white'
 									: 'opacity-50 hover:opacity-100'
 							}`}
 							title="Compact Rows"
@@ -1311,117 +1305,103 @@
 							use:ripple
 						>
 							<AlignJustify size={14} />
-							<span class="hidden lg:inline text-xs">Compact</span>
+							<span class="hidden text-xs lg:inline">Compact</span>
 						</button>
 					</div>
 				</div>
 
 				<!-- FILTER TABS (DESKTOP: SITS ON LEFT; MOBILE: SMOOTH SCROLLABLE RAIL) -->
-				<div class="order-2 md:order-1 flex items-center gap-1.5 flex-wrap">
-					<div class="flex items-center gap-1 rounded-xl bg-black/[0.04] p-1 dark:bg-white/[0.04] overflow-x-auto no-scrollbar max-w-full">
+				<div class="order-2 flex flex-wrap items-center gap-1.5 md:order-1">
+					<div
+						class="no-scrollbar flex max-w-full items-center gap-1 overflow-x-auto rounded-xl bg-black/[0.04] p-1 dark:bg-white/[0.04]"
+					>
 						<button
 							type="button"
 							on:click={() => (statusFilter = 'all')}
-							class={`shrink-0 flex items-center gap-1.5 rounded-lg px-3 sm:px-3.5 py-2 text-xs font-medium transition-all ${
+							class={`flex shrink-0 items-center gap-1.5 rounded-lg px-3 py-2 text-xs font-medium transition-all sm:px-3.5 ${
 								statusFilter === 'all'
-									? 'bg-white text-black shadow-xs dark:bg-[#201c18] dark:text-white font-semibold'
+									? 'shadow-xs bg-white font-semibold text-black dark:bg-[#201c18] dark:text-white'
 									: 'opacity-60 hover:opacity-100'
 							}`}
 							use:ripple
 						>
 							<span>All</span>
-							<span class="rounded-full bg-black/5 px-1.5 py-0.2 text-[10px] font-mono dark:bg-white/10">{chapters.length}</span>
+							<span class="py-0.2 rounded-full bg-black/5 px-1.5 font-mono text-[10px] dark:bg-white/10"
+								>{chapters.length}</span
+							>
 						</button>
 
 						<button
 							type="button"
 							on:click={() => (statusFilter = 'done')}
-							class={`shrink-0 flex items-center gap-1.5 rounded-lg px-3 sm:px-3.5 py-2 text-xs font-medium transition-all ${
+							class={`flex shrink-0 items-center gap-1.5 rounded-lg px-3 py-2 text-xs font-medium transition-all sm:px-3.5 ${
 								statusFilter === 'done'
-									? 'bg-white text-black shadow-xs dark:bg-[#201c18] dark:text-white font-semibold'
+									? 'shadow-xs bg-white font-semibold text-black dark:bg-[#201c18] dark:text-white'
 									: 'opacity-60 hover:opacity-100'
 							}`}
 							use:ripple
 						>
 							<span>Translated</span>
-							<span class="rounded-full bg-emerald-500/10 text-emerald-700 dark:text-emerald-300 px-1.5 py-0.2 text-[10px] font-mono">{translatedChapters}</span>
+							<span
+								class="py-0.2 rounded-full bg-emerald-500/10 px-1.5 font-mono text-[10px] text-emerald-700 dark:text-emerald-300"
+								>{translatedChapters}</span
+							>
 						</button>
 
 						<button
 							type="button"
 							on:click={() => (statusFilter = 'pending')}
-							class={`shrink-0 flex items-center gap-1.5 rounded-lg px-3 sm:px-3.5 py-2 text-xs font-medium transition-all ${
+							class={`flex shrink-0 items-center gap-1.5 rounded-lg px-3 py-2 text-xs font-medium transition-all sm:px-3.5 ${
 								statusFilter === 'pending'
-									? 'bg-white text-black shadow-xs dark:bg-[#201c18] dark:text-white font-semibold'
+									? 'shadow-xs bg-white font-semibold text-black dark:bg-[#201c18] dark:text-white'
 									: 'opacity-60 hover:opacity-100'
 							}`}
 							use:ripple
 						>
 							<span>Pending</span>
-							<span class="rounded-full bg-black/5 px-1.5 py-0.2 text-[10px] font-mono dark:bg-white/10">{pendingChapters}</span>
+							<span class="py-0.2 rounded-full bg-black/5 px-1.5 font-mono text-[10px] dark:bg-white/10"
+								>{pendingChapters}</span
+							>
 						</button>
 
 						{#if errorChapters > 0}
 							<button
 								type="button"
 								on:click={() => (statusFilter = 'error')}
-								class={`shrink-0 flex items-center gap-1.5 rounded-lg px-3 sm:px-3.5 py-2 text-xs font-medium transition-all ${
+								class={`flex shrink-0 items-center gap-1.5 rounded-lg px-3 py-2 text-xs font-medium transition-all sm:px-3.5 ${
 									statusFilter === 'error'
-										? 'bg-white text-black shadow-xs dark:bg-[#201c18] dark:text-white font-semibold'
+										? 'shadow-xs bg-white font-semibold text-black dark:bg-[#201c18] dark:text-white'
 										: 'opacity-60 hover:opacity-100'
 								}`}
 								use:ripple
 							>
 								<span>Error</span>
-								<span class="rounded-full bg-red-500/10 text-red-700 dark:text-red-300 px-1.5 py-0.2 text-[10px] font-mono">{errorChapters}</span>
+								<span
+									class="py-0.2 rounded-full bg-red-500/10 px-1.5 font-mono text-[10px] text-red-700 dark:text-red-300"
+									>{errorChapters}</span
+								>
 							</button>
 						{/if}
 					</div>
 
-					<!-- QUICK SELECTION CONTROLS -->
-					{#if filteredChapters.length > 0}
-						<div class="flex items-center gap-1">
-							<button
-								type="button"
-								on:click={toggleSelectAll}
-								class="inline-flex items-center gap-1 rounded-lg border border-black/10 bg-white/50 px-2.5 py-1.5 text-[11px] font-medium transition hover:bg-black/5 dark:border-white/10 dark:bg-white/[0.03] dark:hover:bg-white/5"
-								title={allFilteredSelected ? 'Deselect all visible chapters' : 'Select all visible chapters'}
-								use:ripple
-							>
-								{#if allFilteredSelected}
-									<CheckSquare size={13} class="text-[#b23a2e] dark:text-[#e08a63]" />
-								{:else}
-									<Square size={13} class="opacity-60" />
-								{/if}
-								<span>{allFilteredSelected ? 'Deselect All' : 'Select All'}</span>
-							</button>
-
-							{#if pendingFilteredChapters.length > 0 && pendingFilteredChapters.length !== filteredChapters.length}
-								<button
-									type="button"
-									on:click={selectUntranslatedFiltered}
-									class="inline-flex items-center gap-1 rounded-lg border border-black/10 bg-white/50 px-2.5 py-1.5 text-[11px] font-medium transition hover:bg-black/5 dark:border-white/10 dark:bg-white/[0.03] dark:hover:bg-white/5"
-									title="Select only chapters that are not fully translated"
-									use:ripple
-								>
-									<Sparkles size={12} class="opacity-60" />
-									<span>Untranslated ({pendingFilteredChapters.length})</span>
-								</button>
-							{/if}
-						</div>
-					{/if}
 				</div>
 			</div>
 		</div>
 
 		<!-- CHAPTER LISTINGS -->
 		{#if chapters.length === 0}
-			<div class="flex flex-col items-center justify-center rounded-2xl border border-dashed border-black/15 py-16 text-center dark:border-white/15">
-				<div class="flex h-12 w-12 items-center justify-center rounded-full bg-[#b23a2e]/10 text-[#b23a2e] dark:text-[#e08a63]">
+			<div
+				class="flex flex-col items-center justify-center rounded-2xl border border-dashed border-black/15 py-16 text-center dark:border-white/15"
+			>
+				<div
+					class="flex h-12 w-12 items-center justify-center rounded-full bg-[#b23a2e]/10 text-[#b23a2e] dark:text-[#e08a63]"
+				>
 					<Layers size={24} />
 				</div>
 				<h2 class="mt-4 text-base font-semibold">No chapters yet</h2>
-				<p class="mt-1 max-w-sm text-xs opacity-60">Create your first chapter to start uploading page images for text detection & translation.</p>
+				<p class="mt-1 max-w-sm text-xs opacity-60">
+					Create your first chapter to start uploading page images for text detection & translation.
+				</p>
 				<Button variant="primary" size="sm" class="mt-4" on:click={openCreateChapterModal}>
 					<Plus size={14} /> Create Chapter
 				</Button>
@@ -1430,30 +1410,32 @@
 			<p class="py-8 text-center text-sm opacity-60">No chapters found matching "{searchQuery}".</p>
 		{:else if viewLayout === 'grid'}
 			<!-- MODE 1: COMFORTABLE 2-COLUMN CARDS GRID -->
-			<ul class="grid w-full gap-3.5 sm:gap-5 grid-cols-1 sm:grid-cols-2">
+			<ul class="grid w-full grid-cols-1 gap-3.5 sm:grid-cols-2 sm:gap-5">
 				{#each displayedChapters as chapter (chapter.id)}
 					{@const liveProg = getChapterLiveProgress(chapter)}
 					{@const isSelected = selectedChapterIds.has(chapter.id)}
 					<li
 						id={`chapter-card-${chapter.id}`}
 						data-chapter-seq={chapter.seq + 1}
-						class={`group relative flex flex-col justify-between rounded-2xl border bg-white/60 p-3.5 sm:p-4 transition-all duration-300 dark:bg-white/[0.02] ${
+						class={`group relative flex flex-col justify-between rounded-2xl border bg-white/60 p-3.5 transition-all duration-300 dark:bg-white/[0.02] sm:p-4 ${
 							isSelected
-								? 'border-[#b23a2e] ring-2 ring-[#b23a2e]/30 shadow-md'
+								? 'border-[#b23a2e] shadow-md ring-2 ring-[#b23a2e]/30'
 								: 'border-black/[0.08] hover:border-[#b23a2e]/40 hover:shadow-xl dark:border-white/[0.06]'
 						}`}
 					>
 						<!-- UPPER SECTION: MINI PAGE THUMBNAIL + CHAPTER INFO -->
-						<div class="flex gap-3 sm:gap-3.5 items-start">
+						<div class="flex items-start gap-3 sm:gap-3.5">
 							<!-- 2:3 VERTICAL CHAPTER COVER THUMBNAIL WITH CHECKBOX OVERLAY -->
-							<div class="relative w-20 sm:w-24 shrink-0">
+							<div class="relative w-20 shrink-0 sm:w-24">
 								<a
 									href={`/app/books/${$page.params.id}/chapters/${chapter.id}/`}
-									class="group/cover block transition-transform duration-300 hover:scale-102"
+									class="group/cover hover:scale-102 block transition-transform duration-300"
 									title={`Open ${chapter.titleTarget || chapter.title || `Chapter ${chapter.seq + 1}`}`}
 								>
 									<LazyImage
-										src={chapter.coverPageId ? `/api/pages/${chapter.coverPageId}/file?kind=thumb&w=260` : ''}
+										src={chapter.coverPageId
+											? `/api/pages/${chapter.coverPageId}/file?kind=thumb&w=260`
+											: ''}
 										alt={chapter.titleTarget || chapter.title || `Chapter ${chapter.seq + 1}`}
 										fallbackText={`Ch.${chapter.seq + 1}`}
 										aspectRatio="aspect-[2/3]"
@@ -1465,10 +1447,10 @@
 								<button
 									type="button"
 									on:click={(e) => toggleSelectChapter(chapter.id, e)}
-									class={`absolute top-1 left-1 z-10 flex h-6 w-6 items-center justify-center rounded-md backdrop-blur shadow-sm transition-all ${
+									class={`absolute left-1 top-1 z-10 flex h-6 w-6 items-center justify-center rounded-md shadow-sm backdrop-blur transition-all ${
 										isSelected
 											? 'bg-[#b23a2e] text-white ring-1 ring-white/30'
-											: 'bg-black/40 text-white/80 opacity-0 group-hover:opacity-100 hover:bg-black/60'
+											: 'bg-black/40 text-white/80 opacity-0 hover:bg-black/60 group-hover:opacity-100'
 									}`}
 									title={isSelected ? 'Deselect chapter' : 'Select chapter for batch actions'}
 									aria-label="Select chapter"
@@ -1482,19 +1464,24 @@
 							</div>
 
 							<!-- CHAPTER DETAILS -->
-							<div class="min-w-0 flex-1 flex flex-col justify-between self-stretch">
+							<div class="flex min-w-0 flex-1 flex-col justify-between self-stretch">
 								<div>
 									<div class="flex items-start justify-between gap-1.5">
 										<div class="min-w-0 flex-1">
 											<a
 												href={`/app/books/${$page.params.id}/chapters/${chapter.id}/`}
-												class="font-bold text-sm sm:text-base tracking-tight hover:text-[#b23a2e] dark:hover:text-[#e08a63] block truncate px-0.5"
-												title={chapter.titleTarget || chapter.title || `Chapter ${chapter.seq + 1}`}
+												class="block truncate px-0.5 text-sm font-bold tracking-tight hover:text-[#b23a2e] dark:hover:text-[#e08a63] sm:text-base"
+												title={chapter.titleTarget ||
+													chapter.title ||
+													`Chapter ${chapter.seq + 1}`}
 											>
 												{chapter.titleTarget || chapter.title || `Chapter ${chapter.seq + 1}`}
 											</a>
 											{#if chapter.titleTarget && chapter.title && chapter.titleTarget !== chapter.title}
-												<p class="text-[11px] sm:text-xs opacity-60 font-medium truncate mt-0.5 px-0.5" title={chapter.title}>
+												<p
+													class="mt-0.5 truncate px-0.5 text-[11px] font-medium opacity-60 sm:text-xs"
+													title={chapter.title}
+												>
 													{chapter.title}
 												</p>
 											{/if}
@@ -1506,12 +1493,32 @@
 													{ value: 'open', label: 'Open Reader', icon: ExternalLink },
 													{ value: 'translate', label: 'Translate Chapter', icon: Play },
 													{ value: 'edit', label: 'Edit Chapter Details', icon: Pencil },
-													...(chapter.pageCount > 0 ? [{ value: 'clearPages', label: 'Clear Pages', icon: FileX, danger: true }] : []),
-													{ value: 'delete', label: 'Delete Chapter', icon: Trash2, danger: true },
+													...(chapter.pageCount > 0
+														? [
+																{
+																	value: 'clearPages',
+																	label: 'Clear Pages',
+																	icon: FileX,
+																	danger: true,
+																},
+															]
+														: []),
+													{
+														value: 'delete',
+														label: 'Delete Chapter',
+														icon: Trash2,
+														danger: true,
+													},
 												]}
 												on:select={(e) => {
-													if (e.detail === 'open') goto(`/app/books/${$page.params.id}/chapters/${chapter.id}/`);
-													else if (e.detail === 'translate') batchTracker.startBatch(book?.id || '', book?.titleTarget || book?.title || '', [chapter]);
+													if (e.detail === 'open')
+														goto(`/app/books/${$page.params.id}/chapters/${chapter.id}/`);
+													else if (e.detail === 'translate')
+														batchTracker.startBatch(
+															book?.id || '',
+															book?.titleTarget || book?.title || '',
+															[chapter],
+														);
 													else if (e.detail === 'edit') openEditChapterModal(chapter);
 													else if (e.detail === 'clearPages') promptClearPages(chapter);
 													else if (e.detail === 'delete') promptDeleteChapter(chapter);
@@ -1523,7 +1530,9 @@
 									<!-- STATUS & PAGE BADGES -->
 									<div class="mt-2 flex flex-wrap items-center gap-1.5 text-[10px] sm:text-[11px]">
 										{#if liveProg.running}
-											<span class="inline-flex items-center gap-1 rounded-md bg-[#b23a2e]/10 text-[#b23a2e] dark:text-[#e08a63] px-2 py-0.5 font-bold animate-pulse">
+											<span
+												class="inline-flex animate-pulse items-center gap-1 rounded-md bg-[#b23a2e]/10 px-2 py-0.5 font-bold text-[#b23a2e] dark:text-[#e08a63]"
+											>
 												<Sparkles size={11} class="animate-spin" />
 												<span>{liveProg.phaseLabel}</span>
 											</span>
@@ -1532,27 +1541,34 @@
 												{chapter.status.toUpperCase()}
 											</Badge>
 										{/if}
-										<span class="rounded-md bg-black/5 dark:bg-white/5 px-2 py-0.5 font-medium opacity-70">
-											{chapter.pageCount} {chapter.pageCount === 1 ? 'page' : 'pages'}
+										<span
+											class="rounded-md bg-black/5 px-2 py-0.5 font-medium opacity-70 dark:bg-white/5"
+										>
+											{chapter.pageCount}
+											{chapter.pageCount === 1 ? 'page' : 'pages'}
 										</span>
 									</div>
 								</div>
 
 								<!-- CHAPTER PAGE PROGRESS BAR -->
 								<div class="mt-2 sm:mt-2.5">
-									<div class="flex items-center justify-between text-[10px] sm:text-[11px] mb-1">
-										<span class="opacity-70 text-[10px] font-medium truncate">
+									<div class="mb-1 flex items-center justify-between text-[10px] sm:text-[11px]">
+										<span class="truncate text-[10px] font-medium opacity-70">
 											{#if liveProg.running}
-												<span class="text-[#b23a2e] dark:text-[#e08a63] font-bold">
+												<span class="font-bold text-[#b23a2e] dark:text-[#e08a63]">
 													Translating: {liveProg.completedPages}/{liveProg.totalPages} pgs ({liveProg.percent}%)
 												</span>
 											{:else if liveProg.isComplete}
-												<span class="text-emerald-600 dark:text-emerald-400 font-semibold">✓ Translated</span>
+												<span class="font-semibold text-emerald-600 dark:text-emerald-400"
+													>✓ Translated</span
+												>
 											{:else}
 												{chapter.translatedPageCount || 0}/{chapter.pageCount} pgs ({liveProg.percent}%)
 											{/if}
 										</span>
-										<span class="opacity-40 text-[9px] sm:text-[10px] font-mono shrink-0 ml-1">#{chapter.seq + 1}</span>
+										<span class="ml-1 shrink-0 font-mono text-[9px] opacity-40 sm:text-[10px]"
+											>#{chapter.seq + 1}</span
+										>
 									</div>
 									<div class="h-1.5 w-full overflow-hidden rounded-full bg-black/10 dark:bg-white/10">
 										<div
@@ -1569,7 +1585,9 @@
 						</div>
 
 						<!-- LOWER SECTION: ACTION FOOTER BAR -->
-						<div class="mt-3 sm:mt-3.5 flex items-center justify-between border-t border-black/[0.05] pt-2.5 sm:pt-3 text-xs dark:border-white/[0.05]">
+						<div
+							class="mt-3 flex items-center justify-between border-t border-black/[0.05] pt-2.5 text-xs dark:border-white/[0.05] sm:mt-3.5 sm:pt-3"
+						>
 							<a
 								href={`/app/books/${$page.params.id}/chapters/${chapter.id}/`}
 								class="inline-flex h-8 items-center gap-1.5 rounded-lg bg-[#b23a2e]/10 px-3.5 py-1.5 text-xs font-semibold text-[#b23a2e] transition hover:bg-[#b23a2e] hover:text-white dark:text-[#e08a63] dark:hover:bg-[#e08a63] dark:hover:text-black"
@@ -1583,8 +1601,13 @@
 								{#if chapter.pageCount > 0 && !liveProg.isComplete && !liveProg.running}
 									<button
 										type="button"
-										on:click={() => batchTracker.startBatch(book?.id || '', book?.titleTarget || book?.title || '', [chapter])}
-										class="inline-flex items-center gap-1 text-[11px] font-medium opacity-70 hover:opacity-100 hover:text-[#b23a2e] transition"
+										on:click={() =>
+											batchTracker.startBatch(
+												book?.id || '',
+												book?.titleTarget || book?.title || '',
+												[chapter],
+											)}
+										class="inline-flex items-center gap-1 text-[11px] font-medium opacity-70 transition hover:text-[#b23a2e] hover:opacity-100"
 										title="Translate this chapter"
 									>
 										<Sparkles size={12} />
@@ -1595,7 +1618,7 @@
 								{#if chapter.pageCount > 0}
 									<a
 										href={`/api/chapters/${chapter.id}/download`}
-										class="inline-flex items-center gap-1 opacity-60 hover:opacity-100 transition hover:text-[#b23a2e]"
+										class="inline-flex items-center gap-1 opacity-60 transition hover:text-[#b23a2e] hover:opacity-100"
 										download
 										title="Export Chapter ZIP"
 									>
@@ -1610,27 +1633,27 @@
 			</ul>
 		{:else if viewLayout === 'list'}
 			<!-- MODE 2: MEDIA LIST STRIP (RESPONSIVE ROWS) -->
-			<ul class="flex flex-col gap-2.5 w-full">
+			<ul class="flex w-full flex-col gap-2.5">
 				{#each displayedChapters as chapter (chapter.id)}
 					{@const liveProg = getChapterLiveProgress(chapter)}
 					{@const isSelected = selectedChapterIds.has(chapter.id)}
 					<li
 						id={`chapter-card-${chapter.id}`}
 						data-chapter-seq={chapter.seq + 1}
-						class={`group relative flex items-center justify-between gap-3 sm:gap-4 rounded-xl border bg-white/60 p-2.5 sm:p-3 transition-all dark:bg-white/[0.02] ${
+						class={`group relative flex items-center justify-between gap-3 rounded-xl border bg-white/60 p-2.5 transition-all dark:bg-white/[0.02] sm:gap-4 sm:p-3 ${
 							isSelected
-								? 'border-[#b23a2e] ring-2 ring-[#b23a2e]/30 shadow-md'
+								? 'border-[#b23a2e] shadow-md ring-2 ring-[#b23a2e]/30'
 								: 'border-black/[0.07] hover:border-[#b23a2e]/40 hover:bg-white hover:shadow-md dark:border-white/[0.06] dark:hover:bg-white/[0.04]'
 						}`}
 					>
-						<div class="flex items-center gap-3 min-w-0 flex-1">
+						<div class="flex min-w-0 flex-1 items-center gap-3">
 							<!-- ROW CHECKBOX -->
 							<button
 								type="button"
 								on:click={(e) => toggleSelectChapter(chapter.id, e)}
 								class={`flex h-6 w-6 shrink-0 items-center justify-center rounded-md border transition-all ${
 									isSelected
-										? 'bg-[#b23a2e] border-[#b23a2e] text-white'
+										? 'border-[#b23a2e] bg-[#b23a2e] text-white'
 										: 'border-black/20 bg-transparent text-transparent hover:border-black/40 dark:border-white/20'
 								}`}
 								title={isSelected ? 'Deselect chapter' : 'Select chapter'}
@@ -1642,57 +1665,74 @@
 							<!-- MINI THUMBNAIL -->
 							<a
 								href={`/app/books/${$page.params.id}/chapters/${chapter.id}/`}
-								class="w-10 sm:w-12 shrink-0 transition-transform duration-200 group-hover:scale-105"
+								class="w-10 shrink-0 transition-transform duration-200 group-hover:scale-105 sm:w-12"
 								title={`Open ${chapter.titleTarget || chapter.title || `Chapter ${chapter.seq + 1}`}`}
 							>
 								<LazyImage
-									src={chapter.coverPageId ? `/api/pages/${chapter.coverPageId}/file?kind=thumb&w=140` : ''}
+									src={chapter.coverPageId
+										? `/api/pages/${chapter.coverPageId}/file?kind=thumb&w=140`
+										: ''}
 									alt={chapter.titleTarget || chapter.title || `Chapter ${chapter.seq + 1}`}
 									fallbackText={`#${chapter.seq + 1}`}
 									aspectRatio="aspect-[2/3]"
 									showSpineShadow={false}
-									class="rounded-lg shadow-2xs"
+									class="shadow-2xs rounded-lg"
 								/>
 							</a>
 
 							<!-- TITLE & METADATA -->
 							<div class="min-w-0 flex-1">
-								<div class="flex items-center gap-1.5 min-w-0">
-									<span class="rounded bg-black/5 dark:bg-white/5 px-1.5 py-0.2 font-mono text-[9px] sm:text-[10px] font-bold opacity-60 shrink-0">
+								<div class="flex min-w-0 items-center gap-1.5">
+									<span
+										class="py-0.2 shrink-0 rounded bg-black/5 px-1.5 font-mono text-[9px] font-bold opacity-60 dark:bg-white/5 sm:text-[10px]"
+									>
 										#{chapter.seq + 1}
 									</span>
 									<a
 										href={`/app/books/${$page.params.id}/chapters/${chapter.id}/`}
-										class="font-bold text-xs sm:text-sm hover:text-[#b23a2e] dark:hover:text-[#e08a63] truncate block px-0.5"
+										class="block truncate px-0.5 text-xs font-bold hover:text-[#b23a2e] dark:hover:text-[#e08a63] sm:text-sm"
 										title={chapter.titleTarget || chapter.title || `Chapter ${chapter.seq + 1}`}
 									>
 										{chapter.titleTarget || chapter.title || `Chapter ${chapter.seq + 1}`}
 									</a>
 									{#if chapter.titleTarget && chapter.title && chapter.titleTarget !== chapter.title}
-										<span class="text-xs opacity-50 font-medium truncate hidden md:inline px-0.5" title={chapter.title}>
+										<span
+											class="hidden truncate px-0.5 text-xs font-medium opacity-50 md:inline"
+											title={chapter.title}
+										>
 											({chapter.title})
 										</span>
 									{/if}
 								</div>
 
-								<div class="mt-1 flex items-center gap-2 text-[10px] sm:text-xs opacity-65 flex-wrap">
+								<div class="mt-1 flex flex-wrap items-center gap-2 text-[10px] opacity-65 sm:text-xs">
 									<span>{chapter.pageCount} pgs</span>
 									<span>•</span>
 									{#if liveProg.running}
-										<span class="text-[#b23a2e] dark:text-[#e08a63] font-bold flex items-center gap-1 animate-pulse">
+										<span
+											class="flex animate-pulse items-center gap-1 font-bold text-[#b23a2e] dark:text-[#e08a63]"
+										>
 											<Sparkles size={11} class="animate-spin" />
-											<span>{liveProg.phaseLabel} ({liveProg.completedPages}/{liveProg.totalPages})</span>
+											<span
+												>{liveProg.phaseLabel} ({liveProg.completedPages}/{liveProg.totalPages})</span
+											>
 										</span>
 									{:else}
-										<span class={liveProg.isComplete ? 'text-emerald-600 dark:text-emerald-400 font-semibold' : ''}>
-											{liveProg.isComplete ? '100% Translated' : `${chapter.translatedPageCount || 0}/${chapter.pageCount} translated`}
+										<span
+											class={liveProg.isComplete
+												? 'font-semibold text-emerald-600 dark:text-emerald-400'
+												: ''}
+										>
+											{liveProg.isComplete
+												? '100% Translated'
+												: `${chapter.translatedPageCount || 0}/${chapter.pageCount} translated`}
 										</span>
 									{/if}
 								</div>
 							</div>
 						</div>
 
-						<div class="flex items-center gap-1.5 sm:gap-2.5 shrink-0">
+						<div class="flex shrink-0 items-center gap-1.5 sm:gap-2.5">
 							<Badge variant={statusVariant[chapter.status]} class="hidden sm:inline-flex">
 								{chapter.status.toUpperCase()}
 							</Badge>
@@ -1709,7 +1749,7 @@
 							{#if chapter.pageCount > 0}
 								<a
 									href={`/api/chapters/${chapter.id}/download`}
-									class="hidden sm:inline-flex items-center justify-center p-1.5 opacity-60 hover:opacity-100 hover:text-[#b23a2e]"
+									class="hidden items-center justify-center p-1.5 opacity-60 hover:text-[#b23a2e] hover:opacity-100 sm:inline-flex"
 									download
 									title="Download ZIP"
 								>
@@ -1722,12 +1762,20 @@
 									{ value: 'open', label: 'Open Reader', icon: ExternalLink },
 									{ value: 'translate', label: 'Translate Chapter', icon: Play },
 									{ value: 'edit', label: 'Edit Chapter Details', icon: Pencil },
-									...(chapter.pageCount > 0 ? [{ value: 'clearPages', label: 'Clear Pages', icon: FileX, danger: true }] : []),
+									...(chapter.pageCount > 0
+										? [{ value: 'clearPages', label: 'Clear Pages', icon: FileX, danger: true }]
+										: []),
 									{ value: 'delete', label: 'Delete Chapter', icon: Trash2, danger: true },
 								]}
 								on:select={(e) => {
-									if (e.detail === 'open') goto(`/app/books/${$page.params.id}/chapters/${chapter.id}/`);
-									else if (e.detail === 'translate') batchTracker.startBatch(book?.id || '', book?.titleTarget || book?.title || '', [chapter]);
+									if (e.detail === 'open')
+										goto(`/app/books/${$page.params.id}/chapters/${chapter.id}/`);
+									else if (e.detail === 'translate')
+										batchTracker.startBatch(
+											book?.id || '',
+											book?.titleTarget || book?.title || '',
+											[chapter],
+										);
 									else if (e.detail === 'edit') openEditChapterModal(chapter);
 									else if (e.detail === 'clearPages') promptClearPages(chapter);
 									else if (e.detail === 'delete') promptDeleteChapter(chapter);
@@ -1740,18 +1788,22 @@
 		{:else}
 			<!-- MODE 3: COMPACT ROWS (MOBILE NATIVE STREAM + DESKTOP TABLE) -->
 			<!-- MOBILE-NATIVE COMPACT STREAM (< 640px) -->
-			<div class="sm:hidden flex flex-col divide-y divide-black/[0.06] rounded-xl border border-black/[0.08] bg-white/60 dark:divide-white/[0.06] dark:border-white/[0.06] dark:bg-white/[0.02]">
+			<div
+				class="flex flex-col divide-y divide-black/[0.06] rounded-xl border border-black/[0.08] bg-white/60 dark:divide-white/[0.06] dark:border-white/[0.06] dark:bg-white/[0.02] sm:hidden"
+			>
 				{#each displayedChapters as chapter (chapter.id)}
 					{@const liveProg = getChapterLiveProgress(chapter)}
 					{@const isSelected = selectedChapterIds.has(chapter.id)}
-					<div class={`flex items-center justify-between gap-2.5 p-2.5 transition ${isSelected ? 'bg-[#b23a2e]/5' : 'hover:bg-black/[0.02] dark:hover:bg-white/[0.02]'}`}>
-						<div class="flex items-center gap-2 min-w-0 flex-1">
+					<div
+						class={`flex items-center justify-between gap-2.5 p-2.5 transition ${isSelected ? 'bg-[#b23a2e]/5' : 'hover:bg-black/[0.02] dark:hover:bg-white/[0.02]'}`}
+					>
+						<div class="flex min-w-0 flex-1 items-center gap-2">
 							<button
 								type="button"
 								on:click={(e) => toggleSelectChapter(chapter.id, e)}
 								class={`flex h-5 w-5 shrink-0 items-center justify-center rounded border transition-all ${
 									isSelected
-										? 'bg-[#b23a2e] border-[#b23a2e] text-white'
+										? 'border-[#b23a2e] bg-[#b23a2e] text-white'
 										: 'border-black/20 bg-transparent text-transparent dark:border-white/20'
 								}`}
 								aria-label="Select chapter"
@@ -1759,26 +1811,30 @@
 								<Check size={11} />
 							</button>
 
-							<span class="font-mono text-[11px] font-bold opacity-60 shrink-0">
+							<span class="shrink-0 font-mono text-[11px] font-bold opacity-60">
 								#{chapter.seq + 1}
 							</span>
 							<div class="min-w-0 flex-1">
 								<a
 									href={`/app/books/${$page.params.id}/chapters/${chapter.id}/`}
-									class="font-semibold text-xs hover:text-[#b23a2e] dark:hover:text-[#e08a63] truncate block px-0.5"
+									class="block truncate px-0.5 text-xs font-semibold hover:text-[#b23a2e] dark:hover:text-[#e08a63]"
 									title={chapter.titleTarget || chapter.title || `Chapter ${chapter.seq + 1}`}
 								>
 									{chapter.titleTarget || chapter.title || `Chapter ${chapter.seq + 1}`}
 								</a>
-								<div class="flex items-center gap-1.5 text-[10px] opacity-60 mt-0.5">
+								<div class="mt-0.5 flex items-center gap-1.5 text-[10px] opacity-60">
 									{#if liveProg.running}
-										<span class="text-[#b23a2e] dark:text-[#e08a63] font-bold animate-pulse">
+										<span class="animate-pulse font-bold text-[#b23a2e] dark:text-[#e08a63]">
 											{liveProg.phaseLabel} ({liveProg.completedPages}/{liveProg.totalPages})
 										</span>
 									{:else}
 										<span>{chapter.translatedPageCount || 0}/{chapter.pageCount} pgs</span>
 										<span>•</span>
-										<span class={chapter.status === 'done' ? 'text-emerald-600 dark:text-emerald-400 font-semibold' : ''}>
+										<span
+											class={chapter.status === 'done'
+												? 'font-semibold text-emerald-600 dark:text-emerald-400'
+												: ''}
+										>
 											{chapter.status.toUpperCase()}
 										</span>
 									{/if}
@@ -1786,10 +1842,10 @@
 							</div>
 						</div>
 
-						<div class="flex items-center gap-1 shrink-0">
+						<div class="flex shrink-0 items-center gap-1">
 							<a
 								href={`/app/books/${$page.params.id}/chapters/${chapter.id}/`}
-								class="inline-flex h-7.5 items-center gap-1 rounded-lg bg-[#b23a2e]/10 px-2.5 py-1 text-xs font-semibold text-[#b23a2e] transition hover:bg-[#b23a2e] hover:text-white dark:text-[#e08a63]"
+								class="h-7.5 inline-flex items-center gap-1 rounded-lg bg-[#b23a2e]/10 px-2.5 py-1 text-xs font-semibold text-[#b23a2e] transition hover:bg-[#b23a2e] hover:text-white dark:text-[#e08a63]"
 							>
 								<Play size={10} class="fill-current" />
 								<span>Read</span>
@@ -1799,12 +1855,20 @@
 									{ value: 'open', label: 'Open Reader', icon: ExternalLink },
 									{ value: 'translate', label: 'Translate Chapter', icon: Play },
 									{ value: 'edit', label: 'Edit Chapter Details', icon: Pencil },
-									...(chapter.pageCount > 0 ? [{ value: 'clearPages', label: 'Clear Pages', icon: FileX, danger: true }] : []),
+									...(chapter.pageCount > 0
+										? [{ value: 'clearPages', label: 'Clear Pages', icon: FileX, danger: true }]
+										: []),
 									{ value: 'delete', label: 'Delete Chapter', icon: Trash2, danger: true },
 								]}
 								on:select={(e) => {
-									if (e.detail === 'open') goto(`/app/books/${$page.params.id}/chapters/${chapter.id}/`);
-									else if (e.detail === 'translate') batchTracker.startBatch(book?.id || '', book?.titleTarget || book?.title || '', [chapter]);
+									if (e.detail === 'open')
+										goto(`/app/books/${$page.params.id}/chapters/${chapter.id}/`);
+									else if (e.detail === 'translate')
+										batchTracker.startBatch(
+											book?.id || '',
+											book?.titleTarget || book?.title || '',
+											[chapter],
+										);
 									else if (e.detail === 'edit') openEditChapterModal(chapter);
 									else if (e.detail === 'clearPages') promptClearPages(chapter);
 									else if (e.detail === 'delete') promptDeleteChapter(chapter);
@@ -1816,17 +1880,21 @@
 			</div>
 
 			<!-- DESKTOP MULTI-COLUMN TABLE (>= 640px) -->
-			<div class="hidden sm:block overflow-x-auto no-scrollbar rounded-xl border border-black/[0.08] bg-white/60 shadow-xs dark:border-white/[0.06] dark:bg-white/[0.02]">
-				<table class="w-full text-left text-xs border-collapse">
+			<div
+				class="no-scrollbar shadow-xs hidden overflow-x-auto rounded-xl border border-black/[0.08] bg-white/60 dark:border-white/[0.06] dark:bg-white/[0.02] sm:block"
+			>
+				<table class="w-full border-collapse text-left text-xs">
 					<thead>
-						<tr class="border-b border-black/[0.06] bg-black/[0.02] text-[11px] font-semibold opacity-60 dark:border-white/[0.06] dark:bg-white/[0.02]">
-							<th class="py-2.5 pl-3 pr-2 w-10 text-center">
+						<tr
+							class="border-b border-black/[0.06] bg-black/[0.02] text-[11px] font-semibold opacity-60 dark:border-white/[0.06] dark:bg-white/[0.02]"
+						>
+							<th class="w-10 py-2.5 pl-3 pr-2 text-center">
 								<button
 									type="button"
 									on:click={toggleSelectAll}
-									class={`flex h-4.5 w-4.5 mx-auto items-center justify-center rounded border transition-all ${
+									class={`h-4.5 w-4.5 mx-auto flex items-center justify-center rounded border transition-all ${
 										allFilteredSelected
-											? 'bg-[#b23a2e] border-[#b23a2e] text-white'
+											? 'border-[#b23a2e] bg-[#b23a2e] text-white'
 											: 'border-black/20 bg-transparent text-transparent dark:border-white/20'
 									}`}
 									title={allFilteredSelected ? 'Deselect all' : 'Select all'}
@@ -1835,12 +1903,12 @@
 									<Check size={11} />
 								</button>
 							</th>
-							<th class="py-2.5 px-2 w-12">#</th>
-							<th class="py-2.5 px-3">Chapter Title</th>
-							<th class="py-2.5 px-3 hidden md:table-cell">Original Title</th>
-							<th class="py-2.5 px-3 w-28">Pages</th>
-							<th class="py-2.5 px-3 w-28">Status</th>
-							<th class="py-2.5 pr-4 pl-3 w-24 text-right">Actions</th>
+							<th class="w-12 px-2 py-2.5">#</th>
+							<th class="px-3 py-2.5">Chapter Title</th>
+							<th class="hidden px-3 py-2.5 md:table-cell">Original Title</th>
+							<th class="w-28 px-3 py-2.5">Pages</th>
+							<th class="w-28 px-3 py-2.5">Status</th>
+							<th class="w-24 py-2.5 pl-3 pr-4 text-right">Actions</th>
 						</tr>
 					</thead>
 					<tbody class="divide-y divide-black/[0.04] dark:divide-white/[0.04]">
@@ -1851,18 +1919,16 @@
 								id={`chapter-card-${chapter.id}`}
 								data-chapter-seq={chapter.seq + 1}
 								class={`group transition ${
-									isSelected
-										? 'bg-[#b23a2e]/5'
-										: 'hover:bg-black/[0.02] dark:hover:bg-white/[0.02]'
+									isSelected ? 'bg-[#b23a2e]/5' : 'hover:bg-black/[0.02] dark:hover:bg-white/[0.02]'
 								}`}
 							>
 								<td class="py-2 pl-3 pr-2 text-center">
 									<button
 										type="button"
 										on:click={(e) => toggleSelectChapter(chapter.id, e)}
-										class={`flex h-4.5 w-4.5 mx-auto items-center justify-center rounded border transition-all ${
+										class={`h-4.5 w-4.5 mx-auto flex items-center justify-center rounded border transition-all ${
 											isSelected
-												? 'bg-[#b23a2e] border-[#b23a2e] text-white'
+												? 'border-[#b23a2e] bg-[#b23a2e] text-white'
 												: 'border-black/20 bg-transparent text-transparent dark:border-white/20'
 										}`}
 										aria-label="Select chapter"
@@ -1870,32 +1936,34 @@
 										<Check size={11} />
 									</button>
 								</td>
-								<td class="py-2 px-2 font-mono font-bold opacity-60">
+								<td class="px-2 py-2 font-mono font-bold opacity-60">
 									#{chapter.seq + 1}
 								</td>
-								<td class="py-2 px-3 font-semibold">
+								<td class="px-3 py-2 font-semibold">
 									<a
 										href={`/app/books/${$page.params.id}/chapters/${chapter.id}/`}
-										class="hover:text-[#b23a2e] dark:hover:text-[#e08a63] block truncate max-w-xs px-0.5"
+										class="block max-w-xs truncate px-0.5 hover:text-[#b23a2e] dark:hover:text-[#e08a63]"
 									>
 										{chapter.titleTarget || chapter.title || `Chapter ${chapter.seq + 1}`}
 									</a>
 								</td>
-								<td class="py-2 px-3 opacity-60 hidden md:table-cell truncate max-w-xs px-0.5">
+								<td class="hidden max-w-xs truncate px-0.5 px-3 py-2 opacity-60 md:table-cell">
 									{chapter.titleTarget && chapter.title ? chapter.title : '—'}
 								</td>
-								<td class="py-2 px-3 font-mono opacity-70">
+								<td class="px-3 py-2 font-mono opacity-70">
 									{#if liveProg.running}
-										<span class="text-[#b23a2e] dark:text-[#e08a63] font-bold">
+										<span class="font-bold text-[#b23a2e] dark:text-[#e08a63]">
 											{liveProg.completedPages}/{liveProg.totalPages}
 										</span>
 									{:else}
 										{chapter.translatedPageCount || 0}/{chapter.pageCount}
 									{/if}
 								</td>
-								<td class="py-2 px-3">
+								<td class="px-3 py-2">
 									{#if liveProg.running}
-										<span class="inline-flex items-center gap-1 text-[10px] font-bold text-[#b23a2e] dark:text-[#e08a63] animate-pulse">
+										<span
+											class="inline-flex animate-pulse items-center gap-1 text-[10px] font-bold text-[#b23a2e] dark:text-[#e08a63]"
+										>
 											<Sparkles size={10} class="animate-spin" />
 											<span>{liveProg.phaseLabel}</span>
 										</span>
@@ -1905,11 +1973,11 @@
 										</Badge>
 									{/if}
 								</td>
-								<td class="py-2 pr-4 pl-3 text-right">
+								<td class="py-2 pl-3 pr-4 text-right">
 									<div class="flex items-center justify-end gap-1.5">
 										<a
 											href={`/app/books/${$page.params.id}/chapters/${chapter.id}/`}
-											class="p-1 rounded opacity-70 hover:opacity-100 hover:text-[#b23a2e]"
+											class="rounded p-1 opacity-70 hover:text-[#b23a2e] hover:opacity-100"
 											title="Open Reader"
 										>
 											<Play size={13} class="fill-current" />
@@ -1919,12 +1987,32 @@
 												{ value: 'open', label: 'Open Reader', icon: ExternalLink },
 												{ value: 'translate', label: 'Translate Chapter', icon: Play },
 												{ value: 'edit', label: 'Edit Chapter Details', icon: Pencil },
-												...(chapter.pageCount > 0 ? [{ value: 'clearPages', label: 'Clear Pages', icon: FileX, danger: true }] : []),
-												{ value: 'delete', label: 'Delete Chapter', icon: Trash2, danger: true },
+												...(chapter.pageCount > 0
+													? [
+															{
+																value: 'clearPages',
+																label: 'Clear Pages',
+																icon: FileX,
+																danger: true,
+															},
+														]
+													: []),
+												{
+													value: 'delete',
+													label: 'Delete Chapter',
+													icon: Trash2,
+													danger: true,
+												},
 											]}
 											on:select={(e) => {
-												if (e.detail === 'open') goto(`/app/books/${$page.params.id}/chapters/${chapter.id}/`);
-												else if (e.detail === 'translate') batchTracker.startBatch(book?.id || '', book?.titleTarget || book?.title || '', [chapter]);
+												if (e.detail === 'open')
+													goto(`/app/books/${$page.params.id}/chapters/${chapter.id}/`);
+												else if (e.detail === 'translate')
+													batchTracker.startBatch(
+														book?.id || '',
+														book?.titleTarget || book?.title || '',
+														[chapter],
+													);
 												else if (e.detail === 'edit') openEditChapterModal(chapter);
 												else if (e.detail === 'clearPages') promptClearPages(chapter);
 												else if (e.detail === 'delete') promptDeleteChapter(chapter);
@@ -1957,14 +2045,16 @@
 {#if selectedChapterIds.size > 0}
 	<div
 		transition:fly={{ y: 40, duration: 250, easing: cubicOut }}
-		class="fixed bottom-6 left-1/2 -translate-x-1/2 z-40 flex items-center gap-2.5 sm:gap-4 rounded-2xl border border-black/15 bg-white/95 px-3 sm:px-4 py-2 sm:py-2.5 shadow-2xl backdrop-blur-xl dark:border-white/15 dark:bg-[#1a1714]/95 max-w-[95vw]"
+		class="fixed bottom-6 left-1/2 z-40 flex max-w-[95vw] -translate-x-1/2 items-center gap-2.5 rounded-2xl border border-black/15 bg-white/95 px-3 py-2 shadow-2xl backdrop-blur-xl dark:border-white/15 dark:bg-[#1a1714]/95 sm:gap-4 sm:px-4 sm:py-2.5"
 	>
 		<div class="flex items-center gap-2 text-xs font-semibold">
-			<span class="flex h-6 w-6 items-center justify-center rounded-lg bg-[#b23a2e] text-white font-mono text-[11px] font-bold shadow-xs">
+			<span
+				class="shadow-xs flex h-6 w-6 items-center justify-center rounded-lg bg-[#b23a2e] font-mono text-[11px] font-bold text-white"
+			>
 				{selectedChapterIds.size}
 			</span>
 			<span class="hidden sm:inline">Chapters</span>
-			<span class="opacity-60 text-[11px] font-mono">({selectedPagesCount} pgs)</span>
+			<span class="font-mono text-[11px] opacity-60">({selectedPagesCount} pgs)</span>
 		</div>
 
 		<div class="h-4 w-px bg-black/10 dark:bg-white/10"></div>
@@ -1973,7 +2063,7 @@
 			<Button
 				variant="primary"
 				size="sm"
-				class="gap-1.5 font-bold shadow-sm text-xs sm:text-sm h-8 sm:h-9 px-3 sm:px-3.5"
+				class="h-8 gap-1.5 px-3 text-xs font-bold shadow-sm sm:h-9 sm:px-3.5 sm:text-sm"
 				on:click={() => startBatchFromSelected(false)}
 				title={isBatchActiveForOtherBook
 					? `Batch translation is currently running for "${$batchTracker.bookTitle || 'another book'}"`
@@ -1984,22 +2074,9 @@
 			</Button>
 
 			<Button
-				variant="secondary"
-				size="sm"
-				class="gap-1 text-xs h-8 sm:h-9 px-2.5"
-				on:click={() => startBatchFromSelected(true)}
-				title={isBatchActiveForOtherBook
-					? `Batch translation is currently running for "${$batchTracker.bookTitle || 'another book'}"`
-					: "Force re-translate all pages in selected chapters"}
-			>
-				<RotateCw size={12} />
-				<span class="hidden md:inline">Force All</span>
-			</Button>
-
-			<Button
 				variant="danger"
 				size="sm"
-				class="gap-1 text-xs h-8 sm:h-9 px-2.5"
+				class="h-8 gap-1 border border-red-600/30 px-2.5 text-xs hover:border-red-600/60 sm:h-9 dark:border-red-400/30 dark:hover:border-red-400/60"
 				on:click={() => (batchDeleteConfirmOpen = true)}
 				title={`Delete ${selectedChapterIds.size} selected chapters`}
 			>
@@ -2010,7 +2087,7 @@
 			<button
 				type="button"
 				on:click={clearSelection}
-				class="flex h-8 w-8 items-center justify-center rounded-lg border border-black/10 bg-black/5 hover:bg-black/10 dark:border-white/10 dark:bg-white/5 dark:hover:bg-white/10 transition opacity-70 hover:opacity-100"
+				class="flex h-8 w-8 items-center justify-center rounded-lg border border-black/10 bg-black/5 opacity-70 transition hover:bg-black/10 hover:opacity-100 dark:border-white/10 dark:bg-white/5 dark:hover:bg-white/10"
 				title="Clear selection"
 				aria-label="Clear selection"
 			>
@@ -2020,18 +2097,13 @@
 	</div>
 {/if}
 
-
 <!-- CREATE CHAPTER MODAL -->
 <Modal open={createModalOpen} title="Create New Chapter" size="md" on:close={() => (createModalOpen = false)}>
 	<form class="flex flex-col gap-4" on:submit|preventDefault={createChapter}>
-		<TextField
-			bind:value={chapterTitle}
-			label="Chapter Title (Source Language)"
-			placeholder="e.g. 第1话"
-		/>
+		<TextField bind:value={chapterTitle} label="Chapter Title (Source Language)" placeholder="e.g. 第1话" />
 
 		<div class="block">
-			<div class="flex items-center justify-between mb-1">
+			<div class="mb-1 flex items-center justify-between">
 				<span class="text-xs font-semibold opacity-60">Target Title (Optional translation)</span>
 				<button
 					type="button"
@@ -2052,7 +2124,7 @@
 				/>
 				<Button
 					variant="secondary"
-					class="h-[38px] w-[38px] min-h-[38px] min-w-[38px] max-h-[38px] max-w-[38px] shrink-0 p-0 inline-flex items-center justify-center"
+					class="inline-flex h-[38px] max-h-[38px] min-h-[38px] w-[38px] min-w-[38px] max-w-[38px] shrink-0 items-center justify-center p-0"
 					loading={translatingNewChapterTitle}
 					disabled={translatingNewChapterTitle || !chapterTitle.trim()}
 					on:click={translateNewChapterTitle}
@@ -2068,9 +2140,7 @@
 
 	<svelte:fragment slot="footer">
 		<Button on:click={() => (createModalOpen = false)}>Cancel</Button>
-		<Button variant="primary" disabled={creating} loading={creating} on:click={createChapter}>
-			Create & Open
-		</Button>
+		<Button variant="primary" disabled={creating} loading={creating} on:click={createChapter}>Create & Open</Button>
 	</svelte:fragment>
 </Modal>
 
@@ -2086,7 +2156,7 @@
 			/>
 
 			<div class="block">
-				<div class="flex items-center justify-between mb-1">
+				<div class="mb-1 flex items-center justify-between">
 					<span class="text-xs font-semibold opacity-60">Target Title (Translated title)</span>
 					<button
 						type="button"
@@ -2107,7 +2177,7 @@
 					/>
 					<Button
 						variant="secondary"
-						class="h-[38px] w-[38px] min-h-[38px] min-w-[38px] max-h-[38px] max-w-[38px] shrink-0 p-0 inline-flex items-center justify-center"
+						class="inline-flex h-[38px] max-h-[38px] min-h-[38px] w-[38px] min-w-[38px] max-w-[38px] shrink-0 items-center justify-center p-0"
 						loading={translatingBookTitle}
 						disabled={translatingBookTitle || !editBookTitle.trim()}
 						on:click={translateBookTitle}
@@ -2120,7 +2190,7 @@
 				</div>
 			</div>
 
-			<div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+			<div class="grid grid-cols-1 gap-3 sm:grid-cols-2">
 				<div>
 					<span class="mb-1 block text-xs font-semibold opacity-60">Source Language</span>
 					<LanguagePicker mode="source" bind:value={editBookSourceLang} />
@@ -2132,33 +2202,56 @@
 				</div>
 			</div>
 
-			<div class="flex flex-col gap-3 rounded-xl border border-black/10 bg-black/[0.02] p-3 dark:border-white/10 dark:bg-white/[0.02]">
+			<div
+				class="flex flex-col gap-3 rounded-xl border border-black/10 bg-black/[0.02] p-3 dark:border-white/10 dark:bg-white/[0.02]"
+			>
 				<Toggle bind:checked={editBookPinned} label="Pin series to top" />
 				<Toggle bind:checked={editBookArchived} label="Archive series" />
 			</div>
+
+			<BookCoverPicker
+				bookId={book.id}
+				coverSrc={editBookCoverSrc}
+				on:uploaded={onCoverUploaded}
+				on:removed={onCoverRemoved}
+			/>
+
+			<BookMetadataFields
+				bind:description={editBookDescription}
+				bind:author={editBookAuthor}
+				bind:artist={editBookArtist}
+				bind:tags={editBookTags}
+				bind:status={editBookStatus}
+			/>
 		</form>
 	{/if}
 
 	<svelte:fragment slot="footer">
 		<Button on:click={() => (editBookModalOpen = false)}>Cancel</Button>
-		<Button variant="primary" disabled={updatingBook || !editBookTitle.trim()} loading={updatingBook} on:click={updateBook}>
+		<Button
+			variant="primary"
+			disabled={updatingBook || !editBookTitle.trim()}
+			loading={updatingBook}
+			on:click={updateBook}
+		>
 			Save Changes
 		</Button>
 	</svelte:fragment>
 </Modal>
 
 <!-- EDIT CHAPTER MODAL -->
-<Modal open={editChapterModalOpen} title="Edit Chapter Details" size="md" on:close={() => (editChapterModalOpen = false)}>
+<Modal
+	open={editChapterModalOpen}
+	title="Edit Chapter Details"
+	size="md"
+	on:close={() => (editChapterModalOpen = false)}
+>
 	{#if editingChapter}
 		<form class="flex flex-col gap-4" on:submit|preventDefault={updateChapter}>
-			<TextField
-				bind:value={editChapterTitle}
-				label="Chapter Title (Source Language)"
-				placeholder="e.g. 第1话"
-			/>
+			<TextField bind:value={editChapterTitle} label="Chapter Title (Source Language)" placeholder="e.g. 第1话" />
 
 			<div class="block">
-				<div class="flex items-center justify-between mb-1">
+				<div class="mb-1 flex items-center justify-between">
 					<span class="text-xs font-semibold opacity-60">Target Title (Translated title)</span>
 					<button
 						type="button"
@@ -2179,7 +2272,7 @@
 					/>
 					<Button
 						variant="secondary"
-						class="h-[38px] w-[38px] min-h-[38px] min-w-[38px] max-h-[38px] max-w-[38px] shrink-0 p-0 inline-flex items-center justify-center"
+						class="inline-flex h-[38px] max-h-[38px] min-h-[38px] w-[38px] min-w-[38px] max-w-[38px] shrink-0 items-center justify-center p-0"
 						loading={translatingChapterTitle}
 						disabled={translatingChapterTitle || !editChapterTitle.trim()}
 						on:click={translateEditChapterTitle}
@@ -2235,7 +2328,6 @@
 	on:cancel={() => (batchDeleteConfirmOpen = false)}
 />
 
-
 <!-- CLEAR PAGES CONFIRMATION DIALOG -->
 <ConfirmDialog
 	open={clearPagesConfirmOpen}
@@ -2267,13 +2359,10 @@
 	onClose={() => (folderGuideModalOpen = false)}
 />
 
-<!-- MULTI-CHAPTER DETECTED CONFIRMATION MODAL -->
-<MultiChapterImportModal
-	open={multiChapterModalOpen}
-	chapters={detectedChapters}
-	totalImages={detectedTotalImages}
-	showFlattenOption={false}
-	onImportChapters={() => executeMultiChapterImport(detectedChapters)}
-	onClose={() => (multiChapterModalOpen = false)}
+<!-- FOLDER IMPORT PROGRESS MODAL -->
+<FolderImportProgressModal
+	bind:this={folderImportModal}
+	bookId={book?.id ?? ''}
+	nextChapterNumber={chapters.length + 1}
+	on:done={reload}
 />
-

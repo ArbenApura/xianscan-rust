@@ -7,6 +7,7 @@
 	import ChevronRight from 'lucide-svelte/icons/chevron-right';
 	import Upload from 'lucide-svelte/icons/upload';
 	import Download from 'lucide-svelte/icons/download';
+	import Loader2 from 'lucide-svelte/icons/loader-2';
 	import Play from 'lucide-svelte/icons/play';
 	import RotateCcw from 'lucide-svelte/icons/rotate-ccw';
 	import LayoutGrid from 'lucide-svelte/icons/layout-grid';
@@ -19,13 +20,14 @@
 	import FileX from 'lucide-svelte/icons/file-x';
 
 	export let bookId: string;
-	export let chapterId: number;
 	export let chapterSeq: number;
 	export let chapterTitle: string | null = null;
 	export let chapterTitleTarget: string | null = null;
 	export let totalPages: number = 0;
 	export let running: boolean = false;
 	export let uploading: boolean = false;
+	export let exporting: boolean = false;
+	export let exportProgress: number = 0;
 	export let activeViewMode: 'reader' | 'grid' | 'compare' = 'reader';
 	export let webtoonKind: 'output' | 'original' = 'output';
 	export let webtoonWidth: 'sm' | 'md' | 'lg' = 'md';
@@ -39,6 +41,7 @@
 		clearAllPages: void;
 		openReslice: void;
 		editChapter: void;
+		exportZip: void;
 		upload: FileList;
 		changeViewMode: 'reader' | 'grid' | 'compare';
 		changeWebtoonKind: 'output' | 'original';
@@ -58,7 +61,12 @@
 						: { value: 'translate', label: 'Translate All', icon: Play },
 					{ value: 'reslice', label: 'Smart Re-slice', icon: Scissors, disabled: running },
 					{ value: 'clearProgress', label: 'Clear Progress', icon: RotateCcw, disabled: running },
-					{ value: 'exportZip', label: 'Export ZIP', icon: Download },
+					{
+						value: 'exportZip',
+						label: exporting ? `Exporting ${exportProgress}%` : 'Export ZIP',
+						icon: exporting ? Loader2 : Download,
+						disabled: exporting || running,
+					},
 					{ value: 'clearAllPages', label: 'Clear Pages', icon: FileX, danger: true, disabled: running },
 				]
 			: []),
@@ -73,9 +81,7 @@
 		else if (action === 'clearProgress') dispatch('clearProgress');
 		else if (action === 'clearAllPages') dispatch('clearAllPages');
 		else if (action === 'editChapter') dispatch('editChapter');
-		else if (action === 'exportZip') {
-			window.location.href = `/api/chapters/${chapterId}/download`;
-		}
+		else if (action === 'exportZip') dispatch('exportZip');
 	}
 
 	function handleFileChange(e: Event) {
@@ -251,17 +257,39 @@
 				</Button>
 			{/if}
 
-			<a
-				href={`/api/chapters/${chapterId}/download`}
-				class="inline-flex items-center gap-1.5 rounded-lg border border-black/10 px-3 py-1.5 text-xs font-medium transition hover:bg-black/5 dark:border-white/10 dark:hover:bg-white/5"
-				download
-				use:ripple
+			<Button
+				variant="secondary"
+				size="sm"
+				disabled={exporting || running}
+				title="Download this chapter as a ZIP (folder-based)"
+				on:click={() => dispatch('exportZip')}
 			>
-				<Download size={14} />
-				<span>Export ZIP</span>
-			</a>
+				{#if exporting}
+					<Loader2 size={14} class="animate-spin" />
+				{:else}
+					<Download size={14} />
+				{/if}
+				<span>{exporting ? `Exporting ${exportProgress}%` : 'Export ZIP'}</span>
+			</Button>
 		{/if}
 	</div>
+
+	<!-- EXPORT PROGRESS BAR — VISIBLE WHILE THE ZIP IS BEING ASSEMBLED AND DOWNLOADED -->
+	{#if exporting}
+		<div class="mx-auto w-full max-w-md px-4 pt-0.5">
+			<div class="mb-1 flex items-center justify-between text-[10px] font-mono opacity-60">
+				<span>Preparing ZIP…</span>
+				<span>{exportProgress}%</span>
+			</div>
+			<div class="h-1.5 w-full overflow-hidden rounded-full bg-black/10 dark:bg-white/10">
+				<!-- EXPORT PROGRESS WIDTH IS A RUNTIME PERCENTAGE -->
+				<div
+					class="h-full rounded-full bg-[#b23a2e] transition-all duration-200 dark:bg-[#e08a63]"
+					style={`width: ${exportProgress}%`}
+				></div>
+			</div>
+		</div>
+	{/if}
 
 	<!-- NARROW SCREEN: PRIMARY BUTTON + VERTICAL ELLIPSIS POPOVER MENU -->
 	<div class="flex sm:hidden items-center justify-center gap-2 pt-0.5 w-full">

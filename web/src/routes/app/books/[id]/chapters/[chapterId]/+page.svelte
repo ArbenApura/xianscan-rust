@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { onMount, onDestroy } from 'svelte';
+	import { scale } from 'svelte/transition';
 	import { browser } from '$app/environment';
 	import { toast } from 'svelte-sonner';
 	import { page } from '$app/stores';
@@ -20,6 +21,7 @@
 	import Languages from 'lucide-svelte/icons/languages';
 	import FileImage from 'lucide-svelte/icons/file-image';
 	import CheckCircle2 from 'lucide-svelte/icons/check-circle-2';
+	import Check from 'lucide-svelte/icons/check';
 	import AlertCircle from 'lucide-svelte/icons/alert-circle';
 	import Loader2 from 'lucide-svelte/icons/loader-2';
 	import Sparkles from 'lucide-svelte/icons/sparkles';
@@ -64,11 +66,15 @@
 	}
 
 	let chapter: ChapterData | null = data.chapter;
-	let prevChapter: { id: number; seq: number; title: string | null; titleTarget?: string | null } | null = data.prevChapter;
-	let nextChapter: { id: number; seq: number; title: string | null; titleTarget?: string | null } | null = data.nextChapter;
+	let prevChapter: { id: number; seq: number; title: string | null; titleTarget?: string | null } | null =
+		data.prevChapter;
+	let nextChapter: { id: number; seq: number; title: string | null; titleTarget?: string | null } | null =
+		data.nextChapter;
 	let pages: ChapterPageItem[] = data.pages;
 	let loading = false;
 	let uploading = false;
+	let exporting = false;
+	let exportProgress = 0;
 	let isDraggingOver = false;
 	let reloadKey = Date.now();
 	let lastPageshowHandler: ((e: PageTransitionEvent) => void) | null = null;
@@ -91,9 +97,13 @@
 	let resliceModalOpen = false;
 
 	// DETAILED UPLOAD MODAL STATES
+	type UploadFileStatus = 'pending' | 'uploading' | 'done' | 'error';
 	interface UploadFileInfo {
 		name: string;
 		size: number;
+		loaded: number;
+		total: number;
+		status: UploadFileStatus;
 	}
 	let uploadModalOpen = false;
 	let uploadStage: 'uploading' | 'processing' | 'done' | 'error' = 'uploading';
@@ -103,6 +113,53 @@
 	let uploadFilesList: UploadFileInfo[] = [];
 	let uploadErrorMessage = '';
 	let uploadAddedCount = 0;
+
+	// REACTIVE GLOBAL PROGRESS ACROSS ALL QUEUED FILES
+	let uploadGlobalPercent = 0;
+	$: {
+		const total = uploadFilesList.reduce((sum, f) => sum + f.total, 0);
+		const loaded = uploadFilesList.reduce((sum, f) => sum + f.loaded, 0);
+		uploadGlobalPercent = total > 0 ? Math.min(100, Math.round((loaded / total) * 100)) : 0;
+	}
+
+	// -- CIRCULAR PROGRESS RING CONSTANTS -- //
+	const RING_RADIUS = 8;
+	const RING_CIRCUMFERENCE = 2 * Math.PI * RING_RADIUS;
+
+	// PER-FILE XHR UPLOAD HELPER: RETURNS 200-299 RESULT BODY
+	function uploadSingleFile(
+		file: File,
+		onProgress: (loaded: number, total: number) => void,
+	): Promise<{ added?: number }> {
+		return new Promise((resolve, reject) => {
+			const form = new FormData();
+			form.append('files', file);
+			const xhr = new XMLHttpRequest();
+			xhr.open('POST', `/api/chapters/${chapterId}/pages`);
+			xhr.upload.onprogress = (e) => {
+				if (e.lengthComputable) onProgress(e.loaded, e.total);
+			};
+			xhr.onload = () => {
+				if (xhr.status >= 200 && xhr.status < 300) {
+					try {
+						resolve(JSON.parse(xhr.responseText));
+					} catch {
+						resolve({ added: 1 });
+					}
+				} else {
+					try {
+						const data = JSON.parse(xhr.responseText);
+						reject(new Error(data.message || `Upload failed with status ${xhr.status}`));
+					} catch {
+						reject(new Error(`Upload failed with status ${xhr.status}`));
+					}
+				}
+			};
+			xhr.onerror = () => reject(new Error('Network error during upload'));
+			xhr.onabort = () => reject(new Error('Upload cancelled'));
+			xhr.send(form);
+		});
+	}
 
 	// MULTI-CHAPTER DETECTED DROP STATES
 	let multiChapterModalOpen = false;
@@ -223,7 +280,13 @@
 			const isDone = sp.status === 'done';
 			const isError = sp.status === 'error';
 			const isProcessing = sp.status === 'processing' && currentJobState.running;
-			const status: 'pending' | 'processing' | 'done' | 'error' = isDone ? 'done' : isError ? 'error' : isProcessing ? 'processing' : 'pending';
+			const status: 'pending' | 'processing' | 'done' | 'error' = isDone
+				? 'done'
+				: isError
+					? 'error'
+					: isProcessing
+						? 'processing'
+						: 'pending';
 
 			return {
 				...p,
@@ -380,6 +443,52 @@
 		}
 	}
 
+	// EXPORT THE CHAPTER AS A FOLDER-BASED ZIP WITH LIVE PROGRESS FEEDBACK.
+	async function exportChapterZip() {
+		if (exporting || !chapter) return;
+		exporting = true;
+		exportProgress = 0;
+		const toastId = toast.loading('Preparing ZIP...');
+		try {
+			const resp = await fetch(`/api/chapters/${chapter.id}/download`);
+			if (!resp.ok) {
+				const body = await resp.json().catch(() => null);
+				throw new Error((body as { message?: string } | null)?.message || 'Export failed.');
+			}
+			const total = Number(resp.headers.get('content-length') || 0);
+			const reader = resp.body?.getReader();
+			if (!reader) throw new Error('Download stream unavailable.');
+			const chunks: BlobPart[] = [];
+			let received = 0;
+			while (true) {
+				const { done, value } = await reader.read();
+				if (done) break;
+				chunks.push(value);
+				received += value.byteLength;
+				exportProgress =
+					total > 0 ? Math.min(99, Math.round((received / total) * 100)) : ((exportProgress + 4) % 80) + 10;
+			}
+			const blob = new Blob(chunks, { type: 'application/zip' });
+			const url = URL.createObjectURL(blob);
+			const anchor = document.createElement('a');
+			const rawName = (chapter.titleTarget || chapter.title || `Chapter ${chapter.seq + 1}`).trim();
+			anchor.href = url;
+			anchor.download = `${rawName.replace(/[^\w\- ]+/g, '').replace(/\s+/g, '_') || `chapter_${chapter.id}`}.zip`;
+			anchor.click();
+			URL.revokeObjectURL(url);
+			exportProgress = 100;
+			toast.success('ZIP exported.', { id: toastId });
+		} catch (e: any) {
+			toast.error(e?.message || 'Could not export the ZIP.', { id: toastId });
+		} finally {
+			// LET THE COMPLETE STATE SHOW BRIEFLY BEFORE RESETTING
+			setTimeout(() => {
+				exporting = false;
+				exportProgress = 0;
+			}, 600);
+		}
+	}
+
 	async function cancelSinglePage(pg: ChapterPageItem) {
 		try {
 			await jobTracker.cancelPage(chapterId, pg.id);
@@ -464,7 +573,13 @@
 		const fileArr = Array.from(files || []);
 		if (fileArr.length === 0) return;
 
-		uploadFilesList = fileArr.map((f) => ({ name: f.name, size: f.size }));
+		uploadFilesList = fileArr.map((f) => ({
+			name: f.name,
+			size: f.size,
+			loaded: 0,
+			total: f.size,
+			status: 'pending',
+		}));
 		uploadTotalBytes = fileArr.reduce((sum, f) => sum + f.size, 0);
 		uploadLoadedBytes = 0;
 		uploadProgressPercent = 0;
@@ -475,47 +590,36 @@
 		uploading = true;
 
 		try {
-			const form = new FormData();
-			for (const file of fileArr) form.append('files', file);
-
-			const result: { added?: number } = await new Promise((resolve, reject) => {
-				const xhr = new XMLHttpRequest();
-				xhr.open('POST', `/api/chapters/${chapterId}/pages`);
-				xhr.upload.onprogress = (e) => {
-					if (e.lengthComputable) {
-						uploadLoadedBytes = e.loaded;
-						uploadTotalBytes = e.total;
-						uploadProgressPercent = Math.min(99, Math.round((e.loaded / e.total) * 100));
-						if (e.loaded >= e.total) {
-							uploadStage = 'processing';
-						}
-					}
+			// UPLOAD ONE FILE PER REQUEST SO EACH IMAGE HAS INDIVIDUAL PROGRESS
+			// AND EACH BODY STAYS BELOW THE SERVER 64MB LIMIT.
+			let addedTotal = 0;
+			for (let i = 0; i < fileArr.length; i++) {
+				// RESET STAGE EACH ITERATION SO HERO STAYS IN UPLOADING STATE ACROSS FILES
+				uploadStage = 'uploading';
+				uploadFilesList[i] = { ...uploadFilesList[i], loaded: 0, status: 'uploading' };
+				const result = await uploadSingleFile(fileArr[i], (loaded, total) => {
+					uploadFilesList[i] = {
+						...uploadFilesList[i],
+						loaded,
+						total,
+						status: 'uploading',
+					};
+					uploadLoadedBytes = uploadFilesList.reduce((sum, f) => sum + f.loaded, 0);
+					uploadTotalBytes = fileArr.reduce((sum, f) => sum + f.size, 0);
+					uploadProgressPercent = Math.min(99, Math.round((uploadLoadedBytes / uploadTotalBytes) * 100));
+				});
+				addedTotal += result.added ?? 1;
+				uploadFilesList[i] = {
+					...uploadFilesList[i],
+					loaded: uploadFilesList[i].total,
+					status: 'done',
 				};
-				xhr.onload = () => {
-					if (xhr.status >= 200 && xhr.status < 300) {
-						try {
-							resolve(JSON.parse(xhr.responseText));
-						} catch {
-							resolve({ added: fileArr.length });
-						}
-					} else {
-						try {
-							const data = JSON.parse(xhr.responseText);
-							reject(new Error(data.message || `Upload failed with status ${xhr.status}`));
-						} catch {
-							reject(new Error(`Upload failed with status ${xhr.status}`));
-						}
-					}
-				};
-				xhr.onerror = () => reject(new Error('Network error during upload'));
-				xhr.onabort = () => reject(new Error('Upload cancelled'));
-				xhr.send(form);
-			});
+			}
 
 			uploadProgressPercent = 100;
 			uploadLoadedBytes = uploadTotalBytes;
 			uploadStage = 'done';
-			uploadAddedCount = result.added ?? fileArr.length;
+			uploadAddedCount = addedTotal;
 			toast.success(`${uploadAddedCount} page${uploadAddedCount === 1 ? '' : 's'} uploaded.`);
 
 			if (!currentJobState.running) {
@@ -687,13 +791,17 @@
 		multiChapterModalOpen = false;
 		importingMultiChapters = true;
 
-		const toastId = toast.loading(`Importing ${chaptersToImport.length} chapters... (0/${chaptersToImport.length})`);
+		const toastId = toast.loading(
+			`Importing ${chaptersToImport.length} chapters... (0/${chaptersToImport.length})`,
+		);
 		let completed = 0;
 
 		try {
 			for (let i = 0; i < chaptersToImport.length; i++) {
 				const ch = chaptersToImport[i];
-				toast.loading(`Importing ${ch.title || `Chapter ${i + 1}`} (${i + 1}/${chaptersToImport.length})...`, { id: toastId });
+				toast.loading(`Importing ${ch.title || `Chapter ${i + 1}`} (${i + 1}/${chaptersToImport.length})...`, {
+					id: toastId,
+				});
 
 				// 1. CREATE CHAPTER RECORD IN BOOK
 				const createRes = await fetch(`/api/books/${bookTargetId}/chapters`, {
@@ -748,8 +856,15 @@
 </script>
 
 <svelte:head>
-	<title>{chapter ? `${chapter.titleTarget || chapter.title || `Chapter ${chapter.seq + 1}`} — Xianscan` : 'Chapter Reader'}</title>
-	<meta name="description" content={`Read and translate Chapter ${chapter ? chapter.seq + 1 : ''} with live typesetting and OCR.`} />
+	<title
+		>{chapter
+			? `${chapter.titleTarget || chapter.title || `Chapter ${chapter.seq + 1}`} — Xianscan`
+			: 'Chapter Reader'}</title
+	>
+	<meta
+		name="description"
+		content={`Read and translate Chapter ${chapter ? chapter.seq + 1 : ''} with live typesetting and OCR.`}
+	/>
 </svelte:head>
 
 <!-- svelte-ignore a11y-no-static-element-interactions -->
@@ -761,9 +876,13 @@
 >
 	<!-- DRAG OVERLAY -->
 	{#if isDraggingOver}
-		<div class="pointer-events-none fixed inset-0 z-50 flex items-center justify-center bg-[#b23a2e]/20 backdrop-blur-sm">
-			<div class="flex flex-col items-center gap-3 rounded-2xl border-2 border-dashed border-[#b23a2e] bg-white/90 p-8 shadow-2xl dark:bg-[#1a1713]/90">
-				<Upload size={36} class="text-[#b23a2e] dark:text-[#e08a63] animate-bounce" />
+		<div
+			class="pointer-events-none fixed inset-0 z-50 flex items-center justify-center bg-[#b23a2e]/20 backdrop-blur-sm"
+		>
+			<div
+				class="flex flex-col items-center gap-3 rounded-2xl border-2 border-dashed border-[#b23a2e] bg-white/90 p-8 shadow-2xl dark:bg-[#1a1713]/90"
+			>
+				<Upload size={36} class="animate-bounce text-[#b23a2e] dark:text-[#e08a63]" />
 				<p class="text-sm font-bold">Drop page images or chapter folders</p>
 			</div>
 		</div>
@@ -772,7 +891,6 @@
 	<!-- TOOLBAR -->
 	<ChapterToolbar
 		bookId={bookId ?? ''}
-		{chapterId}
 		chapterSeq={chapter?.seq ?? 0}
 		chapterTitle={chapter?.title ?? null}
 		chapterTitleTarget={chapter?.titleTarget ?? null}
@@ -781,6 +899,8 @@
 		{nextChapter}
 		running={currentJobState.running}
 		{uploading}
+		{exporting}
+		{exportProgress}
 		{activeViewMode}
 		{webtoonKind}
 		{webtoonWidth}
@@ -790,6 +910,7 @@
 		on:clearAllPages={() => (clearChapterPagesConfirmOpen = true)}
 		on:openReslice={() => (resliceModalOpen = true)}
 		on:editChapter={openEditChapterModal}
+		on:exportZip={exportChapterZip}
 		on:upload={(e) => uploadFiles(e.detail)}
 		on:changeViewMode={(e) => settings.update((s) => ({ ...s, readerViewMode: e.detail }))}
 		on:changeWebtoonKind={(e) => settings.update((s) => ({ ...s, webtoonKind: e.detail }))}
@@ -810,49 +931,53 @@
 	{#if loading}
 		<div class="flex flex-col items-center gap-2">
 			{#each [1, 2] as _}
-				<div class="h-96 w-full max-w-2xl animate-pulse rounded-xl border border-black/[0.06] bg-black/[0.03] dark:border-white/[0.06] dark:bg-white/[0.03]"></div>
+				<div
+					class="h-96 w-full max-w-2xl animate-pulse rounded-xl border border-black/[0.06] bg-black/[0.03] dark:border-white/[0.06] dark:bg-white/[0.03]"
+				></div>
 			{/each}
 		</div>
 	{:else if pages.length === 0}
-		<div class="flex flex-col items-center justify-center rounded-2xl border border-dashed border-black/15 py-16 text-center dark:border-white/15">
-			<div class="flex h-12 w-12 items-center justify-center rounded-full bg-[#b23a2e]/10 text-[#b23a2e] dark:text-[#e08a63]">
+		<div
+			class="flex flex-col items-center justify-center rounded-2xl border border-dashed border-black/15 py-16 text-center dark:border-white/15"
+		>
+			<div
+				class="flex h-12 w-12 items-center justify-center rounded-full bg-[#b23a2e]/10 text-[#b23a2e] dark:text-[#e08a63]"
+			>
 				<Upload size={24} />
 			</div>
 			<h2 class="mt-4 text-base font-semibold">No chapter pages uploaded yet</h2>
-			<p class="mt-1 max-w-sm text-xs opacity-60">Drag and drop images or chapter folders here, or click 'Add Images' above.</p>
+			<p class="mt-1 max-w-sm text-xs opacity-60">
+				Drag and drop images or chapter folders here, or click 'Add Images' above.
+			</p>
 		</div>
 	{:else if activeViewMode === 'reader'}
-	<ViewModeWebtoon
-		pages={displayPages}
-		{webtoonKind}
-		{webtoonWidth}
-	/>
+		<ViewModeWebtoon pages={displayPages} {webtoonKind} {webtoonWidth} />
 	{:else if activeViewMode === 'grid'}
-	<ViewModeGrid
-		pages={displayPages}
-		running={currentJobState.running}
-		{webtoonKind}
-		{draggedPageIndex}
-		{dragOverPageIndex}
-		on:inspect={(e) => openInspector(e.detail)}
-		on:menuAction={(e) => handleMenuAction(e.detail.action, e.detail.page)}
-		on:dragStart={(e) => handleDragStart(e.detail.event, e.detail.index)}
-		on:dragOver={(e) => handleDragOver(e.detail.event, e.detail.index)}
-		on:drop={(e) => handleDrop(e.detail.event, e.detail.index)}
-		on:dragEnd={handleDragEnd}
-	/>
+		<ViewModeGrid
+			pages={displayPages}
+			running={currentJobState.running}
+			{webtoonKind}
+			{draggedPageIndex}
+			{dragOverPageIndex}
+			on:inspect={(e) => openInspector(e.detail)}
+			on:menuAction={(e) => handleMenuAction(e.detail.action, e.detail.page)}
+			on:dragStart={(e) => handleDragStart(e.detail.event, e.detail.index)}
+			on:dragOver={(e) => handleDragOver(e.detail.event, e.detail.index)}
+			on:drop={(e) => handleDrop(e.detail.event, e.detail.index)}
+			on:dragEnd={handleDragEnd}
+		/>
 	{:else if activeViewMode === 'compare'}
-	<ViewModeCompare
-		pages={displayPages}
-		running={currentJobState.running}
-		{draggedPageIndex}
-		{dragOverPageIndex}
-		on:inspect={(e) => openInspector(e.detail)}
-		on:menuAction={(e) => handleMenuAction(e.detail.action, e.detail.page)}
-		on:dragStart={(e) => handleDragStart(e.detail.event, e.detail.index)}
-		on:dragOver={(e) => handleDragOver(e.detail.event, e.detail.index)}
-		on:drop={(e) => handleDrop(e.detail.event, e.detail.index)}
-	/>
+		<ViewModeCompare
+			pages={displayPages}
+			running={currentJobState.running}
+			{draggedPageIndex}
+			{dragOverPageIndex}
+			on:inspect={(e) => openInspector(e.detail)}
+			on:menuAction={(e) => handleMenuAction(e.detail.action, e.detail.page)}
+			on:dragStart={(e) => handleDragStart(e.detail.event, e.detail.index)}
+			on:dragOver={(e) => handleDragOver(e.detail.event, e.detail.index)}
+			on:drop={(e) => handleDrop(e.detail.event, e.detail.index)}
+		/>
 	{/if}
 
 	<!-- END OF CHAPTER CARD (RENDERED FOR ALL VIEW MODES AT BOTTOM WITH GAP) -->
@@ -933,17 +1058,18 @@
 />
 
 <!-- EDIT CHAPTER MODAL -->
-<Modal open={editChapterModalOpen} title="Edit Chapter Details" size="md" on:close={() => (editChapterModalOpen = false)}>
+<Modal
+	open={editChapterModalOpen}
+	title="Edit Chapter Details"
+	size="md"
+	on:close={() => (editChapterModalOpen = false)}
+>
 	{#if chapter}
 		<form class="flex flex-col gap-4" on:submit|preventDefault={updateChapter}>
-			<TextField
-				bind:value={editChapterTitle}
-				label="Chapter Title (Source Language)"
-				placeholder="e.g. 第1话"
-			/>
+			<TextField bind:value={editChapterTitle} label="Chapter Title (Source Language)" placeholder="e.g. 第1话" />
 
 			<div class="block">
-				<div class="flex items-center justify-between mb-1">
+				<div class="mb-1 flex items-center justify-between">
 					<span class="text-xs font-semibold opacity-60">Target Title (Translated title)</span>
 					<button
 						type="button"
@@ -964,7 +1090,7 @@
 					/>
 					<Button
 						variant="secondary"
-						class="h-[38px] w-[38px] min-h-[38px] min-w-[38px] max-h-[38px] max-w-[38px] shrink-0 p-0 inline-flex items-center justify-center"
+						class="inline-flex h-[38px] max-h-[38px] min-h-[38px] w-[38px] min-w-[38px] max-w-[38px] shrink-0 items-center justify-center p-0"
 						loading={translatingChapterTitle}
 						disabled={translatingChapterTitle || !editChapterTitle.trim()}
 						on:click={translateChapterTitle}
@@ -1000,15 +1126,23 @@
 <!-- DETAILED IMAGE UPLOAD PROGRESS MODAL -->
 <Modal
 	open={uploadModalOpen}
-	title={uploadStage === 'done' ? 'Upload Complete' : uploadStage === 'error' ? 'Upload Error' : 'Uploading Chapter Pages'}
+	title={uploadStage === 'done'
+		? 'Upload Complete'
+		: uploadStage === 'error'
+			? 'Upload Error'
+			: 'Uploading Chapter Pages'}
 	size="md"
 	closable={uploadStage === 'done' || uploadStage === 'error'}
 	on:close={() => (uploadModalOpen = false)}
 >
 	<div class="flex flex-col gap-4">
 		<!-- HERO STATUS CARD -->
-		<div class="flex items-center gap-3.5 rounded-2xl border border-black/[0.08] bg-black/[0.02] p-4 dark:border-white/[0.08] dark:bg-white/[0.02]">
-			<div class="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-white shadow-xs dark:bg-white/10">
+		<div
+			class="flex items-center gap-3.5 rounded-2xl border border-black/[0.08] bg-black/[0.02] p-4 dark:border-white/[0.08] dark:bg-white/[0.02]"
+		>
+			<div
+				class="shadow-xs flex h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-white dark:bg-white/10"
+			>
 				{#if uploadStage === 'uploading'}
 					<Loader2 size={24} class="animate-spin text-[#b23a2e] dark:text-[#e08a63]" />
 				{:else if uploadStage === 'processing'}
@@ -1021,7 +1155,7 @@
 			</div>
 
 			<div class="min-w-0 flex-1">
-				<h3 class="font-bold text-sm sm:text-base tracking-tight truncate">
+				<h3 class="truncate text-sm font-bold tracking-tight sm:text-base">
 					{#if uploadStage === 'uploading'}
 						Uploading {uploadFilesList.length} image{uploadFilesList.length === 1 ? '' : 's'}...
 					{:else if uploadStage === 'processing'}
@@ -1033,7 +1167,7 @@
 					{/if}
 				</h3>
 
-				<p class="text-xs opacity-65 mt-0.5 truncate">
+				<p class="mt-0.5 truncate text-xs opacity-65">
 					{#if uploadStage === 'uploading'}
 						Transferring {formatBytes(uploadTotalBytes)} to chapter storage...
 					{:else if uploadStage === 'processing'}
@@ -1048,32 +1182,112 @@
 		</div>
 
 		<!-- STATS BADGES -->
-		<div class="flex items-center gap-2 text-xs flex-wrap">
-			<span class="rounded-lg bg-black/5 dark:bg-white/5 px-2.5 py-1 font-medium">
-				📁 <strong>{uploadFilesList.length}</strong> {uploadFilesList.length === 1 ? 'file' : 'files'}
+		<div class="flex flex-wrap items-center gap-2 text-xs">
+			<span class="rounded-lg bg-black/5 px-2.5 py-1 font-medium dark:bg-white/5">
+				📁 <strong>{uploadFilesList.length}</strong>
+				{uploadFilesList.length === 1 ? 'file' : 'files'}
 			</span>
-			<span class="rounded-lg bg-black/5 dark:bg-white/5 px-2.5 py-1 font-medium">
+			<span class="rounded-lg bg-black/5 px-2.5 py-1 font-medium dark:bg-white/5">
 				💾 <strong>{formatBytes(uploadTotalBytes)}</strong> total
 			</span>
 			{#if chapter}
-				<span class="rounded-lg bg-black/5 dark:bg-white/5 px-2.5 py-1 font-medium truncate max-w-xs">
+				<span class="max-w-xs truncate rounded-lg bg-black/5 px-2.5 py-1 font-medium dark:bg-white/5">
 					📖 <strong>Chapter {chapter.seq + 1}</strong>
 				</span>
 			{/if}
 		</div>
 
+		<!-- GLOBAL LINEAR PROGRESS BAR -->
+		{#if uploadFilesList.length > 0}
+			<div class="space-y-1.5">
+				<div class="flex items-center justify-between text-[11px] font-medium">
+					<span class="uppercase tracking-wider opacity-60">Overall Upload Progress</span>
+					<span class="font-mono">{uploadGlobalPercent}%</span>
+				</div>
+				<div class="h-2 w-full overflow-hidden rounded-full bg-black/[0.06] dark:bg-white/[0.06]">
+					<!-- GLOBAL LINEAR PROGRESS WIDTH — DYNAMIC RUNTIME -->
+					<div
+						class="h-full rounded-full bg-[#b23a2e] transition-[width] duration-200 ease-out dark:bg-[#e08a63]"
+						style="width: {uploadGlobalPercent}%"
+					></div>
+				</div>
+			</div>
+		{/if}
+
 		<!-- SCROLLABLE FILE LIST PREVIEW -->
 		{#if uploadFilesList.length > 0}
 			<div class="mt-1">
-				<div class="text-[11px] font-semibold uppercase tracking-wider opacity-50 mb-1.5">Queued Files ({uploadFilesList.length})</div>
-				<div class="max-h-40 overflow-y-auto rounded-xl border border-black/[0.06] bg-black/[0.01] p-1.5 divide-y divide-black/[0.04] dark:border-white/[0.06] dark:bg-white/[0.01] dark:divide-white/[0.04]">
+				<div class="mb-1.5 text-[11px] font-semibold uppercase tracking-wider opacity-50">
+					Queued Files ({uploadFilesList.length})
+				</div>
+				<div
+					class="max-h-40 divide-y divide-black/[0.04] overflow-y-auto rounded-xl border border-black/[0.06] bg-black/[0.01] p-1.5 dark:divide-white/[0.04] dark:border-white/[0.06] dark:bg-white/[0.01]"
+				>
 					{#each uploadFilesList as item}
+						{@const pct = item.total > 0 ? item.loaded / item.total : 0}
+						{@const ringOffset = RING_CIRCUMFERENCE * (1 - pct)}
+						{@const ringColor =
+							item.status === 'done' ? '#4f7a64' : item.status === 'error' ? '#dc2626' : '#b23a2e'}
 						<div class="flex items-center justify-between gap-2 px-2 py-1.5 text-xs">
-							<div class="flex items-center gap-2 min-w-0 flex-1">
-								<FileImage size={14} class="opacity-50 shrink-0" />
-								<span class="truncate font-medium">{item.name}</span>
+							<div class="flex min-w-0 flex-1 items-center gap-2">
+								<!-- PER-IMAGE CIRCULAR PROGRESS BADGE -->
+								<div class="relative h-[22px] w-[22px] shrink-0">
+									<svg
+										viewBox="0 0 24 24"
+										class="h-full w-full -rotate-90"
+										aria-hidden="true"
+									>
+										<circle
+											cx="12"
+											cy="12"
+											r={RING_RADIUS}
+											fill="none"
+											stroke-width="2.5"
+											class="opacity-20"
+											stroke={item.status === 'done'
+												? '#4f7a64'
+												: item.status === 'error'
+													? '#dc2626'
+													: 'currentColor'}
+										/>
+										{#if item.status === 'uploading' || item.status === 'done'}
+											<circle
+												cx="12"
+												cy="12"
+												r={RING_RADIUS}
+												fill="none"
+												stroke-width="2.5"
+												stroke-linecap="round"
+												stroke={ringColor}
+												stroke-dasharray={RING_CIRCUMFERENCE}
+												stroke-dashoffset={ringOffset}
+											/>
+										{/if}
+									</svg>
+									{#if item.status === 'done'}
+										<!-- SUCCESS CHECK ICON — POP-IN SCALE TRANSITION -->
+										<div
+											class="absolute inset-0 flex items-center justify-center"
+											in:scale={{ duration: 200, start: 0.2 }}
+										>
+											<Check size={12} stroke-width={3.2} class="text-[#4f7a64] dark:text-[#83b39a]" />
+										</div>
+									{/if}
+								</div>
+								<div class="min-w-0 flex-1">
+									<span class="block truncate font-medium">{item.name}</span>
+									<span class="block font-mono text-[10px] opacity-50">
+										{item.status === 'done'
+											? 'Uploaded'
+											: item.status === 'error'
+												? 'Failed'
+												: item.status === 'uploading'
+													? `${Math.round(pct * 100)}%`
+													: 'Queued'}
+									</span>
+								</div>
 							</div>
-							<span class="font-mono text-[11px] opacity-60 shrink-0">{formatBytes(item.size)}</span>
+							<span class="shrink-0 font-mono text-[11px] opacity-60">{formatBytes(item.size)}</span>
 						</div>
 					{/each}
 				</div>
@@ -1083,13 +1297,9 @@
 
 	<svelte:fragment slot="footer">
 		{#if uploadStage === 'done'}
-			<Button variant="primary" on:click={() => (uploadModalOpen = false)}>
-				Done
-			</Button>
+			<Button variant="primary" on:click={() => (uploadModalOpen = false)}>Done</Button>
 		{:else if uploadStage === 'error'}
-			<Button variant="secondary" on:click={() => (uploadModalOpen = false)}>
-				Close
-			</Button>
+			<Button variant="secondary" on:click={() => (uploadModalOpen = false)}>Close</Button>
 		{:else}
 			<div class="flex items-center gap-2 text-xs opacity-60">
 				<Loader2 size={13} class="animate-spin" />
@@ -1115,4 +1325,3 @@
 	}}
 	onClose={() => (multiChapterModalOpen = false)}
 />
-

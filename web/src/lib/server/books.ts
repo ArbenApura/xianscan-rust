@@ -3,7 +3,8 @@ import { error } from '@sveltejs/kit';
 import { desc, eq, inArray, sql } from 'drizzle-orm';
 // IMPORTED MODULES
 import { db } from './db';
-import { books, chapters, pages } from './db/schema';
+import { books, chapters, pages, type Book } from './db/schema';
+import { parseTags } from '$lib/utils/tags';
 
 // -- TYPES -- //
 
@@ -23,6 +24,15 @@ export interface BookSummary {
 	translatedPageCount: number;
 	coverPageId: number | null;
 	coverHasOutput: boolean;
+	description?: string | null;
+	author?: string | null;
+	artist?: string | null;
+	tags?: string[];
+	status?: string;
+	coverPath?: string | null;
+	coverRev?: number;
+	coverHasDedicated?: boolean;
+	coverCleared?: boolean;
 	lastReadChapter?: {
 		id: number;
 		seq: number;
@@ -61,17 +71,7 @@ export interface ChapterSummary {
 }
 
 export interface BookDetailResult {
-	book: {
-		id: string;
-		title: string;
-		titleTarget?: string | null;
-		sourceLang: string;
-		targetLang: string;
-		pinned?: boolean;
-		archived?: boolean;
-		createdAt?: number;
-		updatedAt?: number;
-	};
+	book: Omit<Book, 'tags'> & { tags: string[] };
 	chapters: ChapterSummary[];
 }
 
@@ -152,22 +152,14 @@ export async function getBooksWithTelemetry(
 			? bookChapters.find((c) => c.id === cookieTarget.chapterId) ?? null
 			: null;
 
-		// COVER THUMBNAIL: PREFER LAST READ CHAPTER IF IT HAS PAGES, ELSE FIRST CHAPTER WITH PAGES
+		// COVER THUMBNAIL — STABLE: ALWAYS THE FIRST CHAPTER WITH PAGES. VIEWING A CHAPTER MUST NOT
+		// CHANGE WHICH PAGE DOUBLES AS THE COVER (LAST-READ ONLY DRIVES THE CONTINUE-READING BUTTON).
 		let coverPage: (typeof allPages)[0] | null = null;
-		if (lastReadCh) {
-			const pgs = pagesByChapter.get(lastReadCh.id) ?? [];
+		for (const c of bookChapters) {
+			const pgs = pagesByChapter.get(c.id) ?? [];
 			if (pgs.length > 0) {
 				coverPage = pgs[0];
-			}
-		}
-
-		if (!coverPage) {
-			for (const c of bookChapters) {
-				const pgs = pagesByChapter.get(c.id) ?? [];
-				if (pgs.length > 0) {
-					coverPage = pgs[0];
-					break;
-				}
+				break;
 			}
 		}
 
@@ -193,6 +185,15 @@ export async function getBooksWithTelemetry(
 			translatedPageCount,
 			coverPageId: coverPage?.id ?? null,
 			coverHasOutput: !!coverPage?.outputPath,
+			description: b.description,
+			author: b.author,
+			artist: b.artist,
+			tags: parseTags(b.tags),
+			status: b.status,
+			coverPath: b.coverPath,
+			coverRev: b.coverRev,
+			coverHasDedicated: Boolean(b.coverPath),
+			coverCleared: Boolean(b.coverCleared),
 			lastReadChapter: lastReadCh
 				? {
 						id: lastReadCh.id,
@@ -270,7 +271,7 @@ export async function getBookDetails(bookId: string): Promise<BookDetailResult> 
 	}
 
 	return {
-		book,
+		book: { ...book, tags: parseTags(book.tags) },
 		chapters: list.map((c) => {
 			const pgs = pagesByChapter.get(c.id) ?? [];
 			const pageCount = pgs.length;

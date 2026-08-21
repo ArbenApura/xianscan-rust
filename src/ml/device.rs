@@ -2,6 +2,7 @@
 use std::collections::HashMap;
 use std::sync::{LazyLock, Mutex};
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::time::{Duration, Instant};
 use anyhow::Result;
 use ort::session::builder::GraphOptimizationLevel;
 use ort::session::Session;
@@ -15,8 +16,22 @@ static OVERRIDE_DEVICE: LazyLock<Mutex<Option<String>>> = LazyLock::new(|| Mutex
 static CUDA_RUNTIME_FAILED: AtomicBool = AtomicBool::new(false);
 static COREML_RUNTIME_FAILED: AtomicBool = AtomicBool::new(false);
 
+// SHORT-TTL CACHE FOR GPU ENUMERATION. THE LINUX PATH RUNS `nvidia-smi`, WHICH CAN HANG
+// ON A WEDGED DRIVER AND WOULD OTHERWISE BLOCK EVERY /system/hardware REQUEST. CACHING
+// ALSO AVOIDS RE-SPAWNING THE SUBPROCESS UP TO 3x PER REQUEST (probe_hardware +
+// get_dedicated_gpu + the direct enumerate call IN get_hardware_status).
+static GPU_ENUM_CACHE: LazyLock<Mutex<Option<(Instant, Vec<GpuInfo>)>>> =
+    LazyLock::new(|| Mutex::new(None));
+
+const GPU_ENUM_CACHE_TTL: Duration = Duration::from_secs(15);
+
+// HOW LONG TO WAIT FOR A SUBPROCESS (E.G. nvidia-smi) BEFORE GIVING UP AND TREATING
+// IT AS "NO GPU DATA". A HUNG DRIVER MUST NEVER BLOCK THE HTTP HARDWARE STATUS ROUTE.
+#[cfg(target_os = "linux")]
+const SUBPROCESS_TIMEOUT: Duration = Duration::from_secs(3);
+
 #[cfg(windows)]
-pub fn enumerate_system_gpus() -> Vec<GpuInfo> {
+fn enumerate_system_gpus_inner() -> Vec<GpuInfo> {
     use windows::Win32::Graphics::Dxgi::*;
 
     let mut gpus = Vec::new();
@@ -61,7 +76,7 @@ pub fn enumerate_system_gpus() -> Vec<GpuInfo> {
 }
 
 #[cfg(target_os = "linux")]
-pub fn enumerate_system_gpus() -> Vec<GpuInfo> {
+fn enumerate_system_gpus_inner() -> Vec<GpuInfo> {
     // NVIDIA'S PROPRIETARY DRIVER EXPOSES ONE SUBDIRECTORY PER GPU UNDER
     // /proc/driver/nvidia/gpus/<PCI-BDF>, EACH CONTAINING AN `information` FILE
     // WITH A `Model:` LINE. THE `information` FILE DOES NOT CARRY VRAM, SO WE
@@ -95,12 +110,59 @@ fn normalize_pci_bus_id(raw: &str) -> String {
     }
 }
 
+/// Runs a command to completion with a hard timeout, reading both stdout and stderr.
+/// Returns `None` if the command failed to spawn, errored, or exceeded the timeout
+/// (the child is killed). A hanging driver/command can therefore never block the caller.
+#[cfg(target_os = "linux")]
+fn run_with_timeout(cmd: &mut std::process::Command, timeout: Duration) -> Option<std::process::Output> {
+    use std::io::Read;
+    use std::process::Stdio;
+    let mut child = cmd
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .ok()?;
+    let start = Instant::now();
+    loop {
+        match child.try_wait() {
+            Ok(Some(status)) => {
+                // PROCESS EXITED: DRAIN THE PIPES. THE OUTPUT IS SMALL (A FEW LINES),
+                // SO READING AFTER EXIT CANNOT DEADLOCK ON A FULL PIPE.
+                let mut stdout = Vec::new();
+                let mut stderr = Vec::new();
+                if let Some(mut s) = child.stdout.take() {
+                    let _ = s.read_to_end(&mut stdout);
+                }
+                if let Some(mut s) = child.stderr.take() {
+                    let _ = s.read_to_end(&mut stderr);
+                }
+                return Some(std::process::Output { status, stdout, stderr });
+            }
+            Ok(None) => {
+                if start.elapsed() >= timeout {
+                    let _ = child.kill();
+                    let _ = child.wait();
+                    tracing::warn!(
+                        "subprocess timed out after {:?}: {}",
+                        timeout,
+                        cmd.get_program().to_string_lossy()
+                    );
+                    return None;
+                }
+                std::thread::sleep(Duration::from_millis(50));
+            }
+            Err(_) => return None,
+        }
+    }
+}
+
 #[cfg(target_os = "linux")]
 fn query_nvidia_vram_by_bus() -> (HashMap<String, f64>, Vec<f64>) {
-    let Ok(out) = std::process::Command::new("nvidia-smi")
-        .args(["--query-gpu=memory.total,pci.bus_id", "--format=csv,noheader,nounits"])
-        .output()
-    else {
+    let Some(out) = run_with_timeout(
+        std::process::Command::new("nvidia-smi")
+            .args(["--query-gpu=memory.total,pci.bus_id", "--format=csv,noheader,nounits"]),
+        SUBPROCESS_TIMEOUT,
+    ) else {
         return (HashMap::new(), Vec::new());
     };
     if !out.status.success() {
@@ -219,7 +281,7 @@ fn parse_amd_drm_root(root: &std::path::Path) -> Vec<GpuInfo> {
 }
 
 #[cfg(target_os = "macos")]
-pub fn enumerate_system_gpus() -> Vec<GpuInfo> {
+fn enumerate_system_gpus_inner() -> Vec<GpuInfo> {
     // APPLE SILICON EXPOSES A SINGLE UNIFIED-MEMORY GPU VIA METAL. THE RELEASE
     // BUILDS ONLY TARGET aarch64-apple-darwin, SO THE GPU IS THE ACCELERATOR.
     let mut gpus = Vec::new();
@@ -239,8 +301,23 @@ pub fn enumerate_system_gpus() -> Vec<GpuInfo> {
 }
 
 #[cfg(not(any(windows, target_os = "linux", target_os = "macos")))]
-pub fn enumerate_system_gpus() -> Vec<GpuInfo> {
+fn enumerate_system_gpus_inner() -> Vec<GpuInfo> {
     Vec::new()
+}
+
+// PUBLIC ENTRY POINT WITH A SHORT-TTL CACHE SO HARDWARE STATUS ROUTES (WHICH CALL
+// THIS MULTIPLE TIMES VIA probe_hardware / get_dedicated_gpu) NEVER RE-ENUMERATE OR
+// RE-SPAWN `nvidia-smi` ON EVERY REQUEST.
+pub fn enumerate_system_gpus() -> Vec<GpuInfo> {
+    let mut cache = GPU_ENUM_CACHE.lock().unwrap();
+    if let Some((ts, gpus)) = &*cache {
+        if ts.elapsed() < GPU_ENUM_CACHE_TTL {
+            return gpus.clone();
+        }
+    }
+    let gpus = enumerate_system_gpus_inner();
+    *cache = Some((Instant::now(), gpus.clone()));
+    gpus
 }
 
 pub fn get_dedicated_gpu() -> Option<GpuInfo> {

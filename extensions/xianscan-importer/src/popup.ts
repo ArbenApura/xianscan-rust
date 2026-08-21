@@ -63,14 +63,14 @@ class PopupController {
 	private newBookSourceLangSelect!: HTMLSelectElement;
 	private closeBookModalBtn!: HTMLElement;
 	private cancelBookModalBtn!: HTMLElement;
-	private confirmBookModalBtn!: HTMLElement;
+	private confirmBookModalBtn!: HTMLButtonElement;
 
 	private chapterModalOverlay!: HTMLElement;
 	private newChapterNumberInput!: HTMLInputElement;
 	private newChapterTitleInput!: HTMLInputElement;
 	private closeChapterModalBtn!: HTMLElement;
 	private cancelChapterModalBtn!: HTMLElement;
-	private confirmChapterModalBtn!: HTMLElement;
+	private confirmChapterModalBtn!: HTMLButtonElement;
 
 	constructor() {
 		this.client = new XianScanClient();
@@ -429,20 +429,20 @@ class PopupController {
 
 			let matchedBookId = selectedBookId;
 
-			// Match from metadata title
-			if (!matchedBookId && this.metadata.seriesTitle) {
-				const match = this.books.find(
-					b => b.title.toLowerCase() === this.metadata.seriesTitle!.toLowerCase()
-				);
-				if (match) matchedBookId = match.id;
-			}
-
-			// Match from last stored book
+			// RESTORE THE LAST-CHOSEN SERIES — HIGHEST PRIORITY SO THE POPUP DOES NOT RESET TO THE FIRST BOOK.
 			if (!matchedBookId) {
 				const stored = await chrome.storage.local.get(['lastBookId']);
 				if (stored.lastBookId && this.books.some(b => String(b.id) === String(stored.lastBookId))) {
 					matchedBookId = stored.lastBookId;
 				}
+			}
+
+			// MATCH FROM METADATA TITLE — ONLY A FALLBACK WHEN NOTHING WAS CHOSEN BEFORE.
+			if (!matchedBookId && this.metadata.seriesTitle) {
+				const match = this.books.find(
+					b => b.title.toLowerCase() === this.metadata.seriesTitle!.toLowerCase()
+				);
+				if (match) matchedBookId = match.id;
 			}
 
 			if (this.books.length === 0) {
@@ -490,6 +490,10 @@ class PopupController {
 		});
 
 		this.bookCustomSelect.classList.remove('open');
+
+		// PERSIST THE LAST-CHOSEN SERIES SO THE NEXT POPUP OPEN RESTORES IT.
+		chrome.storage.local.set({ lastBookId: bookId });
+
 		this.loadChapters(bookId);
 	}
 
@@ -502,7 +506,20 @@ class PopupController {
 
 			let matchedChapterId = selectedChapterId;
 
-			// Match from metadata chapter number
+			// RESTORE THE LAST-CHOSEN TARGET CHAPTER — PER-SERIES MAP FIRST, THEN THE GLOBAL RECENT
+			// CHAPTER (WRITTEN BY RIGHT-CLICK QUICK IMPORTS) — SO THE POPUP DOES NOT RESET TO CHAPTER 1.
+			if (!matchedChapterId) {
+				const stored = await chrome.storage.local.get(['lastChapterId', 'lastChapterByBook']);
+				const map = stored.lastChapterByBook || {};
+				const mapChapter = map[String(bookId)];
+				if (mapChapter !== undefined && this.chapters.some(c => c.id === mapChapter)) {
+					matchedChapterId = mapChapter;
+				} else if (stored.lastChapterId !== undefined && this.chapters.some(c => c.id === stored.lastChapterId)) {
+					matchedChapterId = stored.lastChapterId;
+				}
+			}
+
+			// MATCH FROM METADATA CHAPTER NUMBER — ONLY A FALLBACK WHEN NOTHING WAS CHOSEN BEFORE.
 			if (!matchedChapterId && this.metadata.chapterNumber !== undefined) {
 				const match = this.chapters.find(c => c.chapterNumber === this.metadata.chapterNumber);
 				if (match) matchedChapterId = match.id;
@@ -553,6 +570,16 @@ class PopupController {
 		});
 
 		this.chapterCustomSelect.classList.remove('open');
+
+		// PERSIST THE LAST-CHOSEN TARGET CHAPTER — PER-SERIES (FOR RESTORE) AND THE GLOBAL RECENT
+		// CHAPTER (FOR RIGHT-CLICK QUICK IMPORTS IN background.ts).
+		const bookKey = String(this.selectedBookId ?? '');
+		chrome.storage.local.get(['lastChapterByBook']).then(stored => {
+			const map: Record<string, number> = stored.lastChapterByBook || {};
+			map[bookKey] = chapterId;
+			chrome.storage.local.set({ lastChapterByBook: map, lastChapterId: chapterId });
+		});
+
 		this.updateImportButtonState();
 	}
 

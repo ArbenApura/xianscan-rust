@@ -22,6 +22,7 @@
 	import Coffee from 'lucide-svelte/icons/coffee';
 	import Puzzle from 'lucide-svelte/icons/puzzle';
 	import Zap from 'lucide-svelte/icons/zap';
+	import Smartphone from 'lucide-svelte/icons/smartphone';
 
 	// -- STATES -- //
 	let openFaq: number | null = 0;
@@ -31,6 +32,10 @@
 		{
 			q: 'Is XianScan open source and free to use?',
 			a: 'Yes. XianScan is free and open-source software under the MIT License. The complete Rust backend, neural pipeline, browser extensions, and SvelteKit web studio are publicly hosted on GitHub at https://github.com/ArbenApura/xianscan-rust.',
+		},
+		{
+			q: 'How do I read my comics on Mihon / Tachiyomi on mobile?',
+			a: 'XianScan includes a dedicated Mihon extension repository! In Mihon on Android, navigate to Settings → Browse → Extension repos (or Extension stores) → Add, paste https://raw.githubusercontent.com/ArbenApura/xianscan-rust/repo/index.min.json, tap Add, and install the XianScan extension under Browse → Extensions / Store. Then set your PC’s local IP address (e.g. http://192.168.1.50:8124) in the extension settings.',
 		},
 		{
 			q: 'Can I use XianScan completely offline?',
@@ -326,6 +331,15 @@
 				<div>
 					<strong class="font-semibold text-neutral-900 dark:text-neutral-100">3 Reading & Studio Modes:</strong>
 					<p class="text-neutral-600 dark:text-neutral-400 mt-0.5">Continuous Webtoon scroll, Card Grid overview with drag reordering, and Side-by-Side compare.</p>
+				</div>
+			</div>
+
+			<!-- MIHON MOBILE READER -->
+			<div class="flex items-start gap-2.5 rounded-xl border border-black/10 bg-black/[0.01] p-3.5 dark:border-white/10 dark:bg-white/[0.01]">
+				<Smartphone size={16} class="text-emerald-600 dark:text-emerald-400 shrink-0 mt-0.5" />
+				<div>
+					<strong class="font-semibold text-neutral-900 dark:text-neutral-100">Mihon / Tachiyomi Reader (Android):</strong>
+					<p class="text-neutral-600 dark:text-neutral-400 mt-0.5">Browse dedicated covers, series metadata, and read translated chapters on phones and tablets via our 1-click extension repo.</p>
 				</div>
 			</div>
 

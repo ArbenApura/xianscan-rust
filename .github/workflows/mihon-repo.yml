@@ -1,0 +1,112 @@
+name: Mihon Extension Repository
+
+on:
+  push:
+    branches:
+      - main
+    tags:
+      - 'v*'
+    paths:
+      - 'extensions/xianscan-mihon/**'
+      - '.github/workflows/mihon-repo.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build-and-deploy-repo:
+    name: Build & Deploy Mihon Repo
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Setup Java 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '21'
+
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Setup Signing Keystore
+        working-directory: extensions/xianscan-mihon
+        env:
+          KEYSTORE_BASE64: ${{ secrets.MIHON_KEYSTORE_BASE64 }}
+          KEYSTORE_PASSWORD: ${{ secrets.MIHON_KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.MIHON_KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.MIHON_KEY_PASSWORD }}
+        run: |
+          if [ -n "$KEYSTORE_BASE64" ]; then
+            echo "$KEYSTORE_BASE64" | base64 -d > xianscan-release.jks
+            echo "storeFile=xianscan-release.jks" > signing.properties
+            echo "storePassword=${KEYSTORE_PASSWORD:-xianscan123}" >> signing.properties
+            echo "keyAlias=${KEY_ALIAS:-xianscan}" >> signing.properties
+            echo "keyPassword=${KEY_PASSWORD:-xianscan123}" >> signing.properties
+            echo "Release keystore configured from GitHub Secrets."
+          else
+            echo "Generating ephemeral CI release keystore..."
+            keytool -genkeypair -v -keystore xianscan-release.jks -alias xianscan -keyalg RSA -keysize 2048 -validity 10000 -storepass xianscan123 -keypass xianscan123 -dname "CN=XianScan, OU=Mihon, O=XianScan, L=Global, ST=Global, C=US"
+            echo "storeFile=xianscan-release.jks" > signing.properties
+            echo "storePassword=xianscan123" >> signing.properties
+            echo "keyAlias=xianscan" >> signing.properties
+            echo "keyPassword=xianscan123" >> signing.properties
+          fi
+
+      - name: Build Signed Release APK
+        working-directory: extensions/xianscan-mihon
+        run: |
+          chmod +x gradlew
+          ./gradlew :app:assembleRelease
+
+      - name: Assemble Mihon Extension Repository Assets
+        run: |
+          mkdir -p repo-dist/apk
+          
+          # COPY BUILT APK TO TARGET ARTIFACTS
+          APK_SRC=$(find extensions/xianscan-mihon/app/build/outputs/apk/release -name "*.apk" | head -n 1)
+          APK_NAME="tachiyomi-all.xianscan-v1.6.1.apk"
+          cp "$APK_SRC" "repo-dist/apk/$APK_NAME"
+          
+          # GENERATE REPO INDEX JSON
+          cat << 'EOF' > repo-dist/index.json
+          [
+            {
+              "name": "XianScan",
+              "pkg": "eu.kanade.tachiyomi.extension.all.xianscan",
+              "apk": "tachiyomi-all.xianscan-v1.6.1.apk",
+              "lang": "all",
+              "code": 1,
+              "version": "1.6.1",
+              "nsfw": 0,
+              "hasReadme": 1,
+              "hasChangelog": 0,
+              "sources": [
+                {
+                  "name": "XianScan",
+                  "lang": "all",
+                  "id": 0,
+                  "baseUrl": "http://127.0.0.1:8124"
+                }
+              ]
+            }
+          ]
+          EOF
+          
+          # GENERATE MINIFIED REPO INDEX JSON
+          python3 -c "import json; data=json.load(open('repo-dist/index.json')); json.dump(data, open('repo-dist/index.min.json', 'w'), separators=(',', ':'))"
+          
+          # COPY README FOR THE EXTENSION
+          cp extensions/xianscan-mihon/README.md repo-dist/README.md
+
+      - name: Deploy to 'repo' Branch
+        uses: peaceiris/actions-gh-pages@v4
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_branch: repo
+          publish_dir: ./repo-dist
+          keep_files: false
+          force_orphan: true

@@ -8,6 +8,7 @@ import { getBooksWithTelemetry } from '$lib/server/books';
 import { db } from '$lib/server/db';
 import { books } from '$lib/server/db/schema';
 import { createBookSchema } from '$lib/schemas';
+import { serializeTags } from '$lib/utils/tags';
 import type { RequestHandler } from './$types';
 
 export const GET: RequestHandler = async () => {
@@ -41,6 +42,11 @@ export const POST: RequestHandler = async ({ request }) => {
 			titleTarget: parsed.data.titleTarget ? parsed.data.titleTarget.trim() : null,
 			sourceLang,
 			targetLang,
+			description: parsed.data.description ? parsed.data.description.trim() : null,
+			author: parsed.data.author ? parsed.data.author.trim() : null,
+			artist: parsed.data.artist ? parsed.data.artist.trim() : null,
+			tags: parsed.data.tags ? serializeTags(parsed.data.tags) : null,
+			status: parsed.data.status ?? 'unknown',
 		})
 		.run();
 	return json({ id }, { status: 201 });

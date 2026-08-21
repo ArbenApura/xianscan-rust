@@ -60,4 +60,42 @@ describe('Book and Chapter Schema Form Validations', () => {
 		expect(negativeRes.success).toBe(false);
 		expect(negativeRes.errors?.seq).toBe('Sequence number must be non-negative');
 	});
+
+	it('validates createBookSchema accepts new metadata fields', () => {
+		const res = validateForm(createBookSchema, {
+			title: 'Star',
+			description: 'A synopsis.',
+			author: 'Er Gen',
+			artist: 'Manga Artist',
+			tags: ['Xianxia', 'Cultivation'],
+			status: 'ongoing',
+		});
+		expect(res.success).toBe(true);
+		expect(res.data?.description).toBe('A synopsis.');
+		expect(res.data?.tags).toEqual(['Xianxia', 'Cultivation']);
+		expect(res.data?.status).toBe('ongoing');
+	});
+
+	it('rejects invalid serialization statuses and oversized tag arrays', () => {
+		const badStatus = validateForm(createBookSchema, { title: 'Star', status: 'airing' });
+		expect(badStatus.success).toBe(false);
+
+		const tooManyTags = validateForm(createBookSchema, {
+			title: 'Star',
+			tags: Array.from({ length: 31 }, (_, i) => `Tag ${i}`),
+		});
+		expect(tooManyTags.success).toBe(false);
+	});
+
+	it('validates updateBookSchema accepts nullable description and status', () => {
+		const res = validateForm(updateBookSchema, {
+			description: null,
+			author: 'New Author',
+			tags: ['Drama'],
+			status: 'completed',
+		});
+		expect(res.success).toBe(true);
+		expect(res.data?.description).toBeNull();
+		expect(res.data?.status).toBe('completed');
+	});
 });

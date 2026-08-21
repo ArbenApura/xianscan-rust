@@ -19,6 +19,14 @@ extensions/**/node_modules/
 extensions/**/dist/
 extensions/**/dist-firefox/
 extensions/**/store/
+extensions/**/.gradle/
+extensions/**/build/
+extensions/**/local.properties
+extensions/**/signing.properties
+*.jks
+*.keystore
+.gradle/
+local.properties
 
 # Web Environment Files
 web/.env
@@ -65,6 +73,7 @@ tests/.cache/
 .agents/
 .reasonix/
 grounding-lab/
+training-lab/
 docs/superpowers/
 superpowers/
 

@@ -19,6 +19,10 @@ export const GET: RequestHandler = async ({ params }) => {
 
 	const done = db.select().from(pages).where(eq(pages.chapterId, chapterId)).orderBy(pages.seq).all();
 
+	// FOLDER-BASED ZIP — THE ARCHIVE UNPACKS INTO ONE CHAPTER FOLDER HOLDING THE PAGES, WHICH IS
+	// THE STRUCTURE MIHON/TACHIYOMI LOCAL SOURCES EXPECT (<series>/<chapter>/images).
+	const safeTitle = chapter.title.trim().replace(/[^\w\- ]+/g, '').replace(/\s+/g, '_') || `chapter_${chapterId}`;
+
 	const files: Record<string, Uint8Array> = {};
 	let exported = 0;
 	for (const p of done) {
@@ -27,13 +31,12 @@ export const GET: RequestHandler = async ({ params }) => {
 		// THE ENTRY EXTENSION FROM THE ACTUAL FILE INSTEAD OF HARDCODING ".png".
 		const ext = extname(outPath).toLowerCase() || '.webp';
 		const bytes = readFileSync(join(DATA_ROOT, outPath));
-		files[`${String(p.seq).padStart(3, '0')}${ext}`] = new Uint8Array(bytes);
+		files[`${safeTitle}/${String(p.seq).padStart(3, '0')}${ext}`] = new Uint8Array(bytes);
 		exported++;
 	}
 	if (exported === 0) throw error(404, 'This chapter has no pages yet.');
 
 	const zipped = zipSync(files, { level: 6 });
-	const safeTitle = chapter.title.trim().replace(/[^\w\- ]+/g, '').replace(/\s+/g, '_') || `chapter_${chapterId}`;
 	return new Response(zipped, {
 		headers: {
 			'content-type': 'application/zip',

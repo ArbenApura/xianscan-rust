@@ -10,6 +10,9 @@
 	import Trash2 from 'lucide-svelte/icons/trash-2';
 	import Square from 'lucide-svelte/icons/square';
 
+	// IMPORTED COMPONENTS
+	import PageImage from '$lib/components/chapter/PageImage.svelte';
+
 	export let pages: any[] = [];
 	export let running = false;
 	export let webtoonKind: 'output' | 'original' = 'output';
@@ -118,9 +121,9 @@
 			on:dragend={(e) => dispatch('dragEnd', e)}
 			class={`group relative flex flex-col justify-between rounded-xl border p-3.5 transition-all ${
 				dragOverPageIndex === idx
-					? 'border-[#b23a2e] ring-2 ring-[#b23a2e]/40 bg-[#b23a2e]/5 scale-[1.02] z-10'
+					? 'z-10 scale-[1.02] border-[#b23a2e] bg-[#b23a2e]/5 ring-2 ring-[#b23a2e]/40'
 					: 'border-black/[0.08] bg-white/40 hover:border-[#b23a2e]/40 hover:shadow-md dark:border-white/[0.06] dark:bg-white/[0.02]'
-			} ${draggedPageIndex === idx ? 'opacity-40 scale-95' : ''}`}
+			} ${draggedPageIndex === idx ? 'scale-95 opacity-40' : ''}`}
 			data-page-seq={page.seq}
 			data-page-id={page.id}
 			style="content-visibility: auto; contain-intrinsic-size: auto 380px;"
@@ -133,7 +136,7 @@
 							draggable="true"
 							on:dragstart={(e) => dispatch('dragStart', { event: e, index: idx })}
 							on:dragend={(e) => dispatch('dragEnd', e)}
-							class="flex items-center gap-1 cursor-grab select-none rounded px-1.5 py-0.5 text-xs font-bold transition hover:bg-black/5 active:cursor-grabbing dark:hover:bg-white/5"
+							class="flex cursor-grab select-none items-center gap-1 rounded px-1.5 py-0.5 text-xs font-bold transition hover:bg-black/5 active:cursor-grabbing dark:hover:bg-white/5"
 						>
 							<GripVertical size={13} class="opacity-40" /> Page {page.seq + 1}
 						</span>
@@ -142,7 +145,9 @@
 							class={page.status === 'processing' ? 'animate-pulse' : ''}
 						>
 							{#if page.status === 'processing'}
-								{page.currentStep ? (stepBadgeLabels[page.currentStep] || page.currentStep) : 'Processing...'}
+								{page.currentStep
+									? stepBadgeLabels[page.currentStep] || page.currentStep
+									: 'Processing...'}
 							{:else}
 								{statusLabel[page.status]}
 							{/if}
@@ -171,14 +176,11 @@
 				>
 					<!-- svelte-ignore a11y-click-events-have-key-events -->
 					<!-- svelte-ignore a11y-no-noninteractive-element-interactions -->
-					<img
-						src={`/api/pages/${page.id}/file?kind=thumb&w=480&target=${isOutput ? 'output' : 'original'}&rev=${isOutput ? page.outputRev ?? 0 : page.originalRev ?? 0}`}
+					<PageImage
+						src={`/api/pages/${page.id}/file?kind=thumb&w=480&target=${isOutput ? 'output' : 'original'}&rev=${isOutput ? (page.outputRev ?? 0) : (page.originalRev ?? 0)}`}
 						alt={`Page ${page.seq + 1}`}
-						loading="lazy"
-						decoding="async"
-						draggable="false"
-						class={`h-full w-full object-cover transition-opacity duration-200 select-none ${page.status === 'processing' ? 'cursor-not-allowed opacity-80' : 'cursor-pointer'}`}
-						on:click={() => page.status !== 'processing' && dispatch('inspect', page)}
+						imgClass={`object-cover ${page.status === 'processing' ? 'opacity-80' : ''}`}
+						on:click={(e) => page.status !== 'processing' && dispatch('inspect', page)}
 					/>
 				</div>
 

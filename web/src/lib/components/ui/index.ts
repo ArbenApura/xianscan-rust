@@ -21,4 +21,5 @@ export { default as SelectField } from './SelectField.svelte';
 export { default as Skeleton } from './Skeleton.svelte';
 export { default as TextArea } from './TextArea.svelte';
 export { default as TextField } from './TextField.svelte';
+export { default as TagInput } from './TagInput.svelte';
 export { default as Toggle } from './Toggle.svelte';

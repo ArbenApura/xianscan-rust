@@ -37,7 +37,8 @@
 | [The Problem vs. How XianScan Solves It](#problem-solution) | [10 Supported OCR Languages](#ocr-languages) | [Building from Source](#developer-guide) |
 | [The Automated 5-Stage Pipeline](#pipeline) | [Neural Inpainting Modes](#inpainting-strategies) | [REST API Endpoints](#rest-api) |
 | [Comic Format Support](#comic-formats) | [Typesetting Studio & Typography](#typesetting-studio) | [Browser Web Extension](#browser-extension) |
-| | [Supported Translation Providers](#translation-providers) | [Testing & Roadmap](#roadmap) |
+| | [Supported Translation Providers](#translation-providers) | [Mihon / Tachiyomi Extension](#mihon-extension) |
+| | | [Testing & Roadmap](#roadmap) |
 
 </details>
 
@@ -273,6 +274,29 @@ To install:
 
 ---
 
+<a id="mihon-extension"></a>
+## 📱 Mihon / Tachiyomi Mobile Reader Extension (Android)
+
+XianScan integrates seamlessly with **[Mihon](https://mihon.app/)** (and Tachiyomi forks) via a dedicated extension repository (`extensions/xianscan-mihon/`), allowing you to read and browse your translated home library directly on your Android phone, tablet, or e-ink reader.
+
+### ⚡ 1-Click Extension Repository Setup
+
+1. In Mihon, open **More → Settings → Browse → Extension repos / Extension stores**.
+2. Tap **+ Add** and paste the repository URL:
+   ```
+   https://raw.githubusercontent.com/ArbenApura/xianscan-rust/repo/index.min.json
+   ```
+3. Tap **Add**.
+4. Navigate to **Browse → Extensions** (or **Extension Store**) → find **XianScan** and tap **Install**.
+5. Tap **XianScan → ⚙ (Settings)** → set your PC's local network address:
+   ```
+   http://<your-pc-lan-ip>:8124
+   ```
+   *(No trailing slash; ensure your phone and PC are connected to the same local Wi-Fi / network).*
+6. Go to **Browse → Sources → XianScan** to read your books, dedicated series covers, and translated chapters with full pagination support!
+
+---
+
 <a id="testing"></a>
 ## 🧪 Testing
 
@@ -296,7 +320,6 @@ cd web && yarn test
 - **🎮 Expanded GPU Support**: Beyond the current DirectML (Windows), CUDA (Linux NVIDIA), and CoreML/Metal (Apple Silicon) backends, exploring additional acceleration paths, most notably AMD ROCm on Linux, so AMD discrete GPUs can accelerate instead of falling back to CPU.
 - **👥 Contextual Gender & Pronoun Consistency**: Developing intelligent coreference resolution algorithms to accurately track character dialogue and resolve omitted or ambiguous CJK pronouns (Chinese 他/她, Japanese 彼/彼女, Korean 그/그녀/honorifics) across multi-panel conversation flows, extending beyond static glossaries to fit the distinct narrative structures of Manhua, Manga, and Manhwa.
 - **📖 Xianslate Integration (All-in-One Translation Suite)**: Integrating [Xianslate](https://github.com/ArbenApura/xianslate), my specialized Light Novel & Web Novel translation tool, into XianScan to create a unified reader and translation suite for both comics (Manga/Manhua/Manhwa) and light novels with shared dynamic terminology glossaries.
-- **📱 Mobile Companion Reader (iOS & Android)**: Developing a lightweight mobile reader app that connects to your local XianScan server over Wi-Fi. Features 1-tap offline chapter downloads for travel and commutes, smooth touch-optimized reading modes, and automatic reading progress sync with your home library.
 
 ---
 

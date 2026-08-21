@@ -31,9 +31,12 @@
 	import Check from 'lucide-svelte/icons/check';
 	import X from 'lucide-svelte/icons/x';
 	import Languages from 'lucide-svelte/icons/languages';
+	// IMPORTED COMPONENTS
+	import BookMetadataFields from '$lib/components/book/BookMetadataFields.svelte';
+	import BookCoverPicker from '$lib/components/book/BookCoverPicker.svelte';
 	import { apiJson } from '$lib/api';
 	import { validateForm } from '$lib/utils/form';
-	import { createBookSchema, updateBookSchema } from '$lib/schemas';
+	import { BOOK_STATUSES, createBookSchema, updateBookSchema } from '$lib/schemas';
 	import type { PageData } from './$types';
 
 	export let data: PageData;
@@ -62,12 +65,23 @@
 		translatedPageCount?: number;
 		coverPageId?: number | null;
 		coverHasOutput?: boolean;
+		coverPath?: string | null;
+		coverRev?: number;
+		coverHasDedicated?: boolean;
+		coverCleared?: boolean;
+		description?: string | null;
+		author?: string | null;
+		artist?: string | null;
+		tags?: string[];
+		status?: string;
 		lastReadChapter?: LatestChapter | null;
 		firstChapter?: LatestChapter | null;
 		latestChapter?: LatestChapter | null;
 		updatedAt?: number;
 		createdAt?: number;
 	}
+
+	type BookStatus = (typeof BOOK_STATUSES)[number];
 
 	function handleGlobalKeydown(e: KeyboardEvent) {
 		if (e.key === '/' && document.activeElement?.tagName !== 'INPUT' && document.activeElement?.tagName !== 'TEXTAREA') {
@@ -116,6 +130,16 @@
 	let editTargetLang = '';
 	let editPinned = false;
 	let editArchived = false;
+	let editDescription = '';
+	let editAuthor = '';
+	let editArtist = '';
+	let editTags: string[] = [];
+	let editStatus: BookStatus = 'unknown';
+	let createDescription = '';
+	let createAuthor = '';
+	let createArtist = '';
+	let createTags: string[] = [];
+	let createStatus: BookStatus = 'unknown';
 	let updating = false;
 	let translatingTitle = false;
 	let translatingEditTitle = false;
@@ -175,6 +199,11 @@
 			titleTarget: titleTarget.trim() || undefined,
 			sourceLang,
 			targetLang,
+			description: createDescription.trim() || undefined,
+			author: createAuthor.trim() || undefined,
+			artist: createArtist.trim() || undefined,
+			tags: createTags,
+			status: createStatus,
 		};
 		const validation = validateForm(createBookSchema, payload);
 		if (!validation.success) {
@@ -214,6 +243,11 @@
 		editTargetLang = book.targetLang;
 		editPinned = !!book.pinned;
 		editArchived = !!book.archived;
+		editDescription = book.description || '';
+		editAuthor = book.author || '';
+		editArtist = book.artist || '';
+		editTags = book.tags || [];
+		editStatus = (book.status as BookStatus) || 'unknown';
 		editModalOpen = true;
 	}
 
@@ -226,6 +260,11 @@
 			targetLang: editTargetLang,
 			pinned: editPinned,
 			archived: editArchived,
+			description: editDescription.trim() || null,
+			author: editAuthor.trim() || null,
+			artist: editArtist.trim() || null,
+			tags: editTags,
+			status: editStatus,
 		};
 		const validation = validateForm(updateBookSchema, payload);
 		if (!validation.success) {
@@ -246,7 +285,11 @@
 			}
 			const data = await resp.json();
 			const updated = data.book;
-			books = books.map((b) => (b.id === updated.id ? { ...b, ...updated } : b));
+			books = books.map((b) =>
+				b.id === updated.id
+					? { ...b, ...updated, coverHasDedicated: !!updated.coverPath, coverCleared: !!updated.coverCleared }
+					: b,
+			);
 			toast.success('Book updated.');
 			editModalOpen = false;
 			editingBook = null;
@@ -535,6 +578,26 @@
 	$: archivedCount = books.filter((b) => b.archived).length;
 	$: popover = THEME_POPOVER[$settings.theme];
 	$: popoverBorder = THEME_PANEL_BORDER[$settings.theme];
+
+	// COVER PREVIEW IN THE EDIT MODAL — THE DEDICATED COVER, A PAGE-PROXY THUMB ONLY FOR BOOKS THAT
+	// NEVER HAD A COVER (coverCleared) AND ARE NOT EXPLICITLY COVERLESS.
+	$: editCoverSrc = editingBook?.coverPath
+		? `/api/covers/${editingBook.id}/file?w=320&rev=${editingBook.coverRev ?? 0}`
+		: editingBook?.coverCleared
+			? null
+			: editingBook?.coverPageId
+				? `/api/pages/${editingBook.coverPageId}/file?kind=thumb&w=320`
+				: null;
+
+	function onCoverUploaded(e: CustomEvent<{ coverPath: string; coverRev: number }>) {
+		if (!editingBook) return;
+		editingBook = { ...editingBook, coverPath: e.detail.coverPath, coverRev: e.detail.coverRev, coverCleared: false };
+	}
+
+	function onCoverRemoved() {
+		if (!editingBook) return;
+		editingBook = { ...editingBook, coverPath: null, coverCleared: true };
+	}
 </script>
 
 <svelte:window on:keydown={handleGlobalKeydown} />
@@ -794,7 +857,13 @@
 							title={`Open ${book.titleTarget || book.title}`}
 						>
 							<LazyImage
-								src={book.coverPageId ? `/api/pages/${book.coverPageId}/file?kind=thumb&w=320` : ''}
+								src={book.coverHasDedicated
+									? `/api/covers/${book.id}/file?w=320&rev=${book.coverRev ?? 0}`
+									: book.coverCleared
+										? ''
+										: book.coverPageId
+											? `/api/pages/${book.coverPageId}/file?kind=thumb&w=320`
+											: ''}
 								alt={`${book.titleTarget || book.title} Cover`}
 								fallbackText={(book.titleTarget || book.title).slice(0, 1) || '书'}
 								aspectRatio="aspect-[2/3]"
@@ -930,7 +999,13 @@
 							title={`Open ${book.titleTarget || book.title}`}
 						>
 							<LazyImage
-								src={book.coverPageId ? `/api/pages/${book.coverPageId}/file?kind=thumb&w=140` : ''}
+								src={book.coverHasDedicated
+									? `/api/covers/${book.id}/file?w=140&rev=${book.coverRev ?? 0}`
+									: book.coverCleared
+										? ''
+										: book.coverPageId
+											? `/api/pages/${book.coverPageId}/file?kind=thumb&w=140`
+											: ''}
 								alt={book.titleTarget || book.title}
 								fallbackText={(book.titleTarget || book.title).slice(0, 1) || '书'}
 								aspectRatio="aspect-[2/3]"
@@ -1250,6 +1325,14 @@
 				<LanguagePicker bind:value={targetLang} excludeCode={sourceLang} />
 			</div>
 		</div>
+
+		<BookMetadataFields
+			bind:description={createDescription}
+			bind:author={createAuthor}
+			bind:artist={createArtist}
+			bind:tags={createTags}
+			bind:status={createStatus}
+		/>
 	</form>
 
 	<svelte:fragment slot="footer">
@@ -1321,6 +1404,16 @@
 				<Toggle bind:checked={editPinned} label="Pin series to top of library" />
 				<Toggle bind:checked={editArchived} label="Archive series (hide from active view)" />
 			</div>
+
+			<BookCoverPicker bookId={editingBook.id} coverSrc={editCoverSrc} on:uploaded={onCoverUploaded} on:removed={onCoverRemoved} />
+
+			<BookMetadataFields
+				bind:description={editDescription}
+				bind:author={editAuthor}
+				bind:artist={editArtist}
+				bind:tags={editTags}
+				bind:status={editStatus}
+			/>
 		</form>
 	{/if}
 

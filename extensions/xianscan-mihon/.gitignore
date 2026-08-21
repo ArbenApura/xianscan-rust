@@ -1,0 +1,10 @@
+# GRADLE / ANDROID BUILD ARTIFACTS — NEVER COMMIT MACHINE-SPECIFIC OR GENERATED OUTPUT.
+.gradle/
+build/
+local.properties
+signing.properties
+*.jks
+*.keystore
+*.iml
+.kotlin/
+

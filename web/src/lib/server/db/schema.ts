@@ -25,6 +25,25 @@ export const books = sqliteTable(
 		// DEFAULT VIEW (RECOVERABLE VIA A FILTER).
 		pinned: integer('pinned', { mode: 'boolean' }).notNull().default(false),
 		archived: integer('archived', { mode: 'boolean' }).notNull().default(false),
+		// EXTENDED SERIES METADATA — FED TO BOTH THE WEB UI AND THE MIHON/TACHIYOMI EXTENSION.
+		description: text('description'),
+		author: text('author'),
+		artist: text('artist'),
+		// GENRES/TAGS AS A JSON-ENCODED STRING ARRAY (SAME PRECEDENT AS glossary.aliases).
+		tags: text('tags'),
+		// MIHON-COMPATIBLE SERIALIZATION STATUS — VALUES MATCH SManga STATUS CONSTANTS.
+		status: text('status', {
+			enum: ['unknown', 'ongoing', 'completed', 'licensed', 'publishing_finished', 'cancelled', 'on_hiatus'],
+		})
+			.notNull()
+			.default('unknown'),
+		// DEDICATED COVER IMAGE — FILE PATH RELATIVE TO DATA_ROOT (NULL = FALL BACK TO PAGE PROXY).
+		coverPath: text('cover_path'),
+		// MONOTONIC COVER REVISION — BUMPED ON EVERY UPLOAD SO &rev=N URLS CACHE IMMUTABLY.
+		coverRev: integer('cover_rev').notNull().default(0),
+		// TRUE AFTER THE USER EXPLICITLY REMOVED THE DEDICATED COVER — DISTINGUISHES "DELIBERATELY
+		// COVERLESS" (SHOW EMPTY, NO PAGE-PROXY FALLBACK) FROM "NEVER HAD A COVER" (FALL BACK TO PAGE).
+		coverCleared: integer('cover_cleared', { mode: 'boolean' }).notNull().default(false),
 		createdAt: epochMs('created_at')
 			.notNull()
 			.$defaultFn(() => Date.now()),

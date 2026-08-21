@@ -6,6 +6,7 @@ import { assertBookExists, getBookDetails } from '$lib/server/books';
 import { db } from '$lib/server/db';
 import { books } from '$lib/server/db/schema';
 import { updateBookSchema } from '$lib/schemas';
+import { parseTags, serializeTags } from '$lib/utils/tags';
 import type { RequestHandler } from './$types';
 
 export const GET: RequestHandler = async ({ params }) => {
@@ -37,6 +38,22 @@ export const PATCH: RequestHandler = async ({ params, request }) => {
 	if (parsed.data.targetLang !== undefined) updateData.targetLang = parsed.data.targetLang;
 	if (parsed.data.pinned !== undefined) updateData.pinned = parsed.data.pinned;
 	if (parsed.data.archived !== undefined) updateData.archived = parsed.data.archived;
+	// METADATA FIELDS — NULL CLEARS, ABSENT KEEPS THE CURRENT VALUE.
+	if (parsed.data.description !== undefined) {
+		updateData.description = parsed.data.description ? parsed.data.description.trim() : null;
+	}
+	if (parsed.data.author !== undefined) {
+		updateData.author = parsed.data.author ? parsed.data.author.trim() : null;
+	}
+	if (parsed.data.artist !== undefined) {
+		updateData.artist = parsed.data.artist ? parsed.data.artist.trim() : null;
+	}
+	if (parsed.data.tags !== undefined) {
+		updateData.tags = serializeTags(parsed.data.tags);
+	}
+	if (parsed.data.status !== undefined) {
+		updateData.status = parsed.data.status;
+	}
 	updateData.updatedAt = Date.now();
 
 	const updated = db
@@ -46,7 +63,7 @@ export const PATCH: RequestHandler = async ({ params, request }) => {
 		.returning()
 		.get();
 
-	return json({ book: updated });
+	return json({ book: { ...updated, tags: parseTags(updated.tags) } });
 };
 
 export const DELETE: RequestHandler = async ({ params }) => {

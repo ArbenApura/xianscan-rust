@@ -9,6 +9,9 @@
 	import Trash2 from 'lucide-svelte/icons/trash-2';
 	import Square from 'lucide-svelte/icons/square';
 
+	// IMPORTED COMPONENTS
+	import PageImage from '$lib/components/chapter/PageImage.svelte';
+
 	export let pages: any[] = [];
 	export let running = false;
 	export let draggedPageIndex: number | null = null;
@@ -105,7 +108,7 @@
 	}
 </script>
 
-<div class="flex flex-col gap-6 w-full">
+<div class="flex w-full flex-col gap-6">
 	{#each pages as page, idx (page.id)}
 		{@const hasRatio = Boolean(page.width && page.height)}
 		<!-- svelte-ignore a11y-no-static-element-interactions -->
@@ -115,9 +118,9 @@
 			on:dragend={(e) => dispatch('dragEnd', e)}
 			class={`group relative rounded-xl border p-4 transition-all ${
 				dragOverPageIndex === idx
-					? 'border-[#b23a2e] ring-2 ring-[#b23a2e]/40 bg-[#b23a2e]/5 scale-[1.01] z-10'
+					? 'z-10 scale-[1.01] border-[#b23a2e] bg-[#b23a2e]/5 ring-2 ring-[#b23a2e]/40'
 					: 'border-black/[0.08] bg-white/40 hover:border-[#b23a2e]/40 hover:shadow-md dark:border-white/[0.06] dark:bg-white/[0.02]'
-			} ${draggedPageIndex === idx ? 'opacity-40 scale-95' : ''}`}
+			} ${draggedPageIndex === idx ? 'scale-95 opacity-40' : ''}`}
 			data-page-seq={page.seq}
 			data-page-id={page.id}
 		>
@@ -128,7 +131,7 @@
 						draggable="true"
 						on:dragstart={(e) => dispatch('dragStart', { event: e, index: idx })}
 						on:dragend={(e) => dispatch('dragEnd', e)}
-						class="flex items-center gap-1 cursor-grab select-none rounded px-1.5 py-0.5 transition hover:bg-black/5 active:cursor-grabbing dark:hover:bg-white/5"
+						class="flex cursor-grab select-none items-center gap-1 rounded px-1.5 py-0.5 transition hover:bg-black/5 active:cursor-grabbing dark:hover:bg-white/5"
 					>
 						<GripVertical size={14} class="opacity-40" /> Page {page.seq + 1}
 					</span>
@@ -137,7 +140,7 @@
 						class={page.status === 'processing' ? 'animate-pulse' : ''}
 					>
 						{#if page.status === 'processing'}
-							{page.currentStep ? (stepBadgeLabels[page.currentStep] || page.currentStep) : 'Processing...'}
+							{page.currentStep ? stepBadgeLabels[page.currentStep] || page.currentStep : 'Processing...'}
 						{:else}
 							{statusLabel[page.status]}
 						{/if}
@@ -169,17 +172,16 @@
 					>
 						<!-- svelte-ignore a11y-click-events-have-key-events -->
 						<!-- svelte-ignore a11y-no-noninteractive-element-interactions -->
-						<img
+						<PageImage
 							src={`/api/pages/${page.id}/file?kind=original&rev=${page.originalRev ?? 0}`}
 							alt={`Page ${page.seq + 1} Original`}
-							loading="lazy"
-							decoding="async"
-							draggable="false"
-							class={`w-full h-full block object-contain select-none ${page.status === 'processing' ? 'cursor-not-allowed opacity-80' : 'cursor-pointer'}`}
-							on:click={() => page.status !== 'processing' && dispatch('inspect', page)}
+							imgClass={`object-contain ${page.status === 'processing' ? 'opacity-80' : ''}`}
+							on:click={(e) => page.status !== 'processing' && dispatch('inspect', page)}
 						/>
-						<div class="absolute bottom-2 left-2 flex items-center gap-1.5 pointer-events-none">
-							<span class="rounded bg-black/80 px-2 py-0.5 text-[10px] font-bold text-white backdrop-blur">
+						<div class="pointer-events-none absolute bottom-2 left-2 flex items-center gap-1.5">
+							<span
+								class="rounded bg-black/80 px-2 py-0.5 text-[10px] font-bold text-white backdrop-blur"
+							>
 								Original
 							</span>
 						</div>
@@ -195,17 +197,16 @@
 						>
 							<!-- svelte-ignore a11y-click-events-have-key-events -->
 							<!-- svelte-ignore a11y-no-noninteractive-element-interactions -->
-							<img
+							<PageImage
 								src={`/api/pages/${page.id}/file?kind=output&rev=${page.outputRev ?? 0}`}
 								alt={`Page ${page.seq + 1} Output`}
-								loading="lazy"
-								decoding="async"
-								draggable="false"
-								class={`w-full h-full block object-contain select-none ${page.status === 'processing' ? 'cursor-not-allowed opacity-80' : 'cursor-pointer'}`}
-								on:click={() => page.status !== 'processing' && dispatch('inspect', page)}
+								imgClass={`object-contain ${page.status === 'processing' ? 'opacity-80' : ''}`}
+								on:click={(e) => page.status !== 'processing' && dispatch('inspect', page)}
 							/>
-							<div class="absolute bottom-2 left-2 flex items-center gap-1.5 pointer-events-none">
-								<span class="rounded bg-black/80 px-2 py-0.5 text-[10px] font-bold text-white backdrop-blur">
+							<div class="pointer-events-none absolute bottom-2 left-2 flex items-center gap-1.5">
+								<span
+									class="rounded bg-black/80 px-2 py-0.5 text-[10px] font-bold text-white backdrop-blur"
+								>
 									Translated
 								</span>
 							</div>
