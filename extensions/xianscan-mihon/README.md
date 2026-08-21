@@ -36,7 +36,13 @@ Add the XianScan Extension Repository directly in Mihon for 1-click in-app insta
    ```
 3. Tap **Add**.
 4. Go to **Browse → Extensions** (or **Extension Store**) → find **XianScan** and tap **Install**.
-5. Tap **XianScan → ⚙ (Settings)** → set **Server address** to `http://<your-pc-lan-ip>:8124` (no trailing slash). Tap OK and restart Mihon.
+5. If prompted with an **"Untrusted"** label, tap **Trust**.
+6. In **Browse → Sources**, tap **⚙ (Settings)** next to **XianScan** → set **Server address** to your PC's local LAN address:
+   ```
+   http://<your-pc-lan-ip>:8124
+   ```
+   *(e.g. `http://192.168.1.50:8124` — no trailing slash).*
+7. Ensure **"All"** (multi-language) is checked in the **Browse → Sources** filter (globe 🌐 icon).
 
 ---
 
