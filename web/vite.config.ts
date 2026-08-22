@@ -4,7 +4,7 @@ import { defineConfig } from 'vite';
 export default defineConfig(({ command }) => ({
 	plugins: [sveltekit()],
 	server: {
-		port: Number(process.env.PORT) || 8124,
+		port: Number(process.env.DEV_PORT) || 8125,
 		host: '0.0.0.0',
 	},
 	preview: {

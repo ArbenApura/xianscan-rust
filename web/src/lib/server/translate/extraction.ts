@@ -130,14 +130,14 @@ export function parseExtractedTerms(raw: string, contentSource?: string): TermDr
 					...new Set(
 						(t.aliases as unknown[])
 							.map((a) => String(a ?? '').trim())
-							.filter((a) => a && a !== sourceTerm && (!contentSource || contentSource.includes(a))),
+							.filter((a) => a && a !== sourceTerm && a.length <= 64),
 					),
 				].slice(0, 8)
 			: [];
 
 		if (category === 'character' && sourceTerm.length === 3) {
 			const givenName = sourceTerm.slice(1);
-			if (!aliases.includes(givenName) && (!contentSource || contentSource.includes(givenName))) {
+			if (!aliases.includes(givenName)) {
 				aliases.push(givenName);
 			}
 		}

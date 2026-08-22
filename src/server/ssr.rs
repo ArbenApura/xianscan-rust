@@ -86,6 +86,7 @@ impl SsrServer {
 
         cmd.current_dir(&clean_web_dir)
             .env("PORT", port.to_string())
+            .env("DEV_PORT", port.to_string())
             .env("HOST", "0.0.0.0")
             .env("ML_BASE_URL", format!("http://127.0.0.1:{}", ml_port))
             .env("DATA_ROOT", &data_root)

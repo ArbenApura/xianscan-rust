@@ -145,7 +145,7 @@
 	<!-- MAIN HEADER -->
 	<header class="space-y-3 sm:space-y-4">
 		<div class="flex items-center gap-3 sm:gap-3.5">
-			<img src="/favicon.svg" alt="XianScan Cinnabar Seal" class="h-10 w-10 sm:h-12 sm:w-12 rounded-2xl shadow-xs shrink-0" />
+			<img src="/favicon.svg" alt="XianScan Cinnabar Seal" class="h-10 w-10 sm:h-12 sm:w-12 rounded-lg shadow-xs shrink-0" />
 			<div class="min-w-0">
 				<h1 class="text-xl sm:text-3xl font-bold font-comic tracking-tight text-neutral-900 dark:text-neutral-100">
 					Xian<span class="text-[#b23a2e] dark:text-[#e08a63]">Scan</span>
@@ -379,7 +379,7 @@
 			<div class="flex items-start gap-2.5 rounded-xl border border-black/10 bg-black/[0.01] p-3 sm:p-3.5 dark:border-white/10 dark:bg-white/[0.01]">
 				<Download size={16} class="text-[#b23a2e] dark:text-[#e08a63] shrink-0 mt-0.5" />
 				<div>
-					<strong class="font-semibold text-neutral-900 dark:text-neutral-100">High-Resolution ZIP / CBZ Export:</strong>
+					<strong class="font-semibold text-neutral-900 dark:text-neutral-100">High-Resolution ZIP Export:</strong>
 					<p class="text-neutral-600 dark:text-neutral-400 mt-0.5 leading-relaxed">Download full translated chapters packaged as ZIP archives with one click.</p>
 				</div>
 			</div>

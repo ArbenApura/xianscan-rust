@@ -157,15 +157,29 @@ async fn main() -> anyhow::Result<()> {
 
     enable_ansi_support();
 
+    let args: Vec<String> = std::env::args().collect();
+    let is_dev_mode = args.iter().any(|arg| arg == "--dev" || arg == "-d")
+        || std::env::var("DEV_MODE").map(|v| v == "1" || v.eq_ignore_ascii_case("true")).unwrap_or(false);
+    let ml_only = args.iter().any(|arg| arg == "--ml-only" || arg == "-m")
+        || std::env::var("NO_SSR").map(|v| v == "1" || v.eq_ignore_ascii_case("true")).unwrap_or(false)
+        || std::env::var("ML_ONLY").map(|v| v == "1" || v.eq_ignore_ascii_case("true")).unwrap_or(false);
+
     let ml_port: u16 = std::env::var("ML_PORT")
         .ok()
         .and_then(|p| p.parse().ok())
         .unwrap_or(8123);
 
-    let web_port: u16 = std::env::var("PORT")
-        .ok()
-        .and_then(|p| p.parse().ok())
-        .unwrap_or(8124);
+    let web_port: u16 = if is_dev_mode {
+        std::env::var("DEV_PORT")
+            .ok()
+            .and_then(|p| p.parse().ok())
+            .unwrap_or(8125)
+    } else {
+        std::env::var("PORT")
+            .ok()
+            .and_then(|p| p.parse().ok())
+            .unwrap_or(8124)
+    };
 
     let models_dir = find_models_dir();
 
@@ -314,12 +328,7 @@ async fn main() -> anyhow::Result<()> {
         let _ = axum::serve(listener, app).await;
     });
 
-    let args: Vec<String> = std::env::args().collect();
-    let is_dev_mode = args.iter().any(|arg| arg == "--dev" || arg == "-d")
-        || std::env::var("DEV_MODE").map(|v| v == "1" || v.eq_ignore_ascii_case("true")).unwrap_or(false);
-    let ml_only = args.iter().any(|arg| arg == "--ml-only" || arg == "-m")
-        || std::env::var("NO_SSR").map(|v| v == "1" || v.eq_ignore_ascii_case("true")).unwrap_or(false)
-        || std::env::var("ML_ONLY").map(|v| v == "1" || v.eq_ignore_ascii_case("true")).unwrap_or(false);
+
 
     // Start Web Engine
     let mut _ssr_guard = None;

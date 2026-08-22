@@ -1,8 +1,8 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="XianScan">
 	<!-- CINNABAR SEAL / CHOP (印章) — THE BRAND MARK -->
-	<rect width="64" height="64" rx="13" fill="#b23a2e" />
+	<rect width="64" height="64" rx="6" fill="#b23a2e" />
 	<!-- CARVED INNER FRAME — EVOKES THE BORDER OF A STONE SEAL -->
-	<rect x="7" y="7" width="50" height="50" rx="8" fill="none" stroke="#f7efe0" stroke-opacity="0.35" stroke-width="2" />
+	<rect x="7" y="7" width="50" height="50" rx="3" fill="none" stroke="#f7efe0" stroke-opacity="0.35" stroke-width="2" />
 	<!-- 仙 (XIAN) — IMMORTAL / CULTIVATOR; ROOT OF 仙侠 (XIANXIA) AND OF "XIANSCAN" -->
 	<text
 		x="32"

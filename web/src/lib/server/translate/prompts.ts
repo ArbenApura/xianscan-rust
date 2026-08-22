@@ -266,7 +266,7 @@ Key Guidelines:
 
 Return a JSON object with:
 - "translations": { ${exampleEntries || `"r0": "${tgtName} translation"`} } mapping each id exactly to its ${tgtName} translation. Every id must appear exactly once using the exact same id string as provided above.
-- "newTerms" (optional): list of any new proper nouns, character names, locations, or martial arts/techniques appearing in these regions that are NOT already in the glossary with their ${tgtName} translation, e.g. [{"source": "叶凡", "target": "...", "category": "character", "gender": "masculine"}]. If none, use [] or omit.
+- "newTerms" (optional): list of any new proper nouns, character names, locations, or martial arts/techniques appearing in these regions that are NOT already in the glossary with their ${tgtName} translation, e.g. [{"source": "叶凡", "target": "Ye Fan", "category": "character", "gender": "masculine", "context": "Protagonist, disciple of Holy Maiden", "aliases": ["小凡", "凡儿"]}]. If none, use [] or omit.
 
 MANDATORY: All translations in the JSON values MUST be strictly in ${tgtName} (${tgtLang}). Do NOT output in English unless the target is English. Alternatively, a flat JSON object ${exampleJson} is also accepted. No markdown fences.`;
 }

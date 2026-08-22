@@ -14,7 +14,8 @@
 [![ONNX Runtime](https://img.shields.io/badge/ONNX_Runtime-1.28-005CED?style=for-the-badge&logo=onnx&logoColor=white)](https://onnxruntime.ai/)
 [![DirectML](https://img.shields.io/badge/Hardware-DirectML_•_CoreML_•_CUDA_•_CPU_SIMD-0078D4?style=for-the-badge&logo=windows&logoColor=white)](https://learn.microsoft.com/en-us/windows/ai/directml/)
 [![SvelteKit](https://img.shields.io/badge/SvelteKit-2.x_•_Svelte_4-FF3E00?style=for-the-badge&logo=svelte&logoColor=white)](https://kit.svelte.dev/)
-[![SQLite](https://img.shields.io/badge/SQLite-Local_First-003B57?style=for-the-badge&logo=sqlite&logoColor=white)](https://www.sqlite.org/)
+[![Browser Extension](https://img.shields.io/badge/Browser_Extension-Chrome_•_Firefox_•_Edge-4285F4?style=for-the-badge&logo=googlechrome&logoColor=white)](#browser-extension)
+[![Mobile Reader](https://img.shields.io/badge/Mobile_Reader-Mihon_•_Tachiyomi-2E7D32?style=for-the-badge&logo=android&logoColor=white)](#mihon-extension)
 [![Support on Ko-Fi](https://img.shields.io/badge/Support_on-Ko--Fi-FF5E5B?style=for-the-badge&logo=kofi&logoColor=white)](https://ko-fi.com/arbenapura)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow?style=for-the-badge)](LICENSE)
 
@@ -33,12 +34,11 @@
 
 | 📖 Pipeline & Formats | ⚙️ Studio Capabilities | 🚀 Setup & Integration |
 | :--- | :--- | :--- |
-| [Overview & Mission](#overview) | [Core Features](#features) | [Quick Start (Users)](#quick-start) |
-| [The Problem vs. How XianScan Solves It](#problem-solution) | [10 Supported OCR Languages](#ocr-languages) | [Building from Source](#developer-guide) |
-| [The Automated 5-Stage Pipeline](#pipeline) | [Neural Inpainting Modes](#inpainting-strategies) | [REST API Endpoints](#rest-api) |
-| [Comic Format Support](#comic-formats) | [Typesetting Studio & Typography](#typesetting-studio) | [Browser Web Extension](#browser-extension) |
-| | [Supported Translation Providers](#translation-providers) | [Mihon / Tachiyomi Extension](#mihon-extension) |
-| | | [Testing & Roadmap](#roadmap) |
+| [Overview & Mission](#overview) | [10 Supported OCR Languages](#ocr-languages) | [Quick Start (Users)](#quick-start) |
+| [The Problem vs. How XianScan Solves It](#problem-solution) | [Neural Inpainting Modes](#inpainting-strategies) | [Browser Web Extension](#browser-extension) |
+| [Automated Pipeline & Features](#pipeline) | [Typesetting Studio & Typography](#typesetting-studio) | [Mihon / Tachiyomi Extension](#mihon-extension) |
+| [Hardware Requirements](#hardware-acceleration) | [Supported Translation Providers](#translation-providers) | [Developer Guide & API](#developer-guide) |
+| [Comic Format Support](#comic-formats) | | |
 
 </details>
 
@@ -52,9 +52,9 @@
 **XianScan** is an open-source, local-first translation studio engineered to be **exceptionally portable, lightweight at runtime, and effortless to use**.
 
 The core mission of XianScan is to provide an **uninterrupted, automated reading flow** for comic readers, language learners, and translation teams:
-- **Zero-Friction Setup**: Delivered as a single standalone executable. No Python environments, no CUDA configuration, and no complex terminal setups required.
+- **Zero-Friction Setup**: Delivered as a single standalone executable. No Python runtime, no mandatory CUDA setup, and no complex terminal configurations required.
 - **Complete Reading Automation**: Eliminates manual busywork by automatically coordinating the entire pipeline, from 1-click browser importing to ML bubble detection, multi-language OCR, background cleaning, and context-aware typesetting.
-- **Hardware Freedom**: Highly optimized multi-threaded SIMD inference (AVX2, AVX-512, ARM NEON) that runs at blistering speed on standard laptops and CPUs, while automatically utilizing DirectML (Windows), CoreML/Metal (Apple Silicon), or CUDA (Linux NVIDIA) acceleration when a compatible GPU is present, with a seamless CPU fallback.
+- **Hardware Freedom**: Highly optimized multi-threaded SIMD inference (AVX2, AVX-512, ARM NEON) that runs smoothly on standard laptops and CPUs, while automatically utilizing DirectML (Windows), CoreML/Metal (Apple Silicon), or CUDA (Linux NVIDIA) acceleration when a compatible GPU is present, with seamless CPU fallback.
 
 ---
 
@@ -68,22 +68,48 @@ Reading untranslated CJK comics (Chinese Manhua, Korean Manhwa, Japanese Manga) 
 | **⏳ Huge Translation Lag**<br/>Official or fan translations often lag dozens of chapters behind raw releases, leaving readers stuck on cliffhangers. | **Instant Same-Day Reading**<br/>Translate and read raw chapters the moment they release without waiting weeks or months for translations. |
 | **🧩 Fragmented Manual Busywork**<br/>Translating a chapter required 5 separate tools: screenshotting, running OCR, copy-pasting into translators, Photoshop cleaning, and manual typesetting. | **100% Automated 1-Click Pipeline**<br/>Import directly from your browser extension. Text detection, OCR, inpainting, AI translation, and typesetting happen automatically in seconds. |
 | **🤖 Incoherent Machine Translation (MTL)**<br/>Generic web translators mix up character names, mangle cultivation/fantasy realms, flip pronouns, and ruin the immersion. | **Context-Aware Glossaries & LLMs**<br/>Powered by smart series glossaries and multilingual LLMs (such as Qwen, Llama, and Gemma) that preserve character names, cultivation realms, and dialogue tone. |
-| **💻 Complex Technical Barriers**<br/>Most open-source AI tools require Python, Conda environments, PyTorch compilation, and expensive $1000+ Nvidia GPUs. | **Single Zero-Install Executable**<br/>Runs directly on standard laptops and ordinary CPUs out of the box with zero Python or CUDA configuration. |
+| **💻 Complex Technical Barriers**<br/>Most open-source AI tools require Python, Conda environments, PyTorch compilation, and complex GPU setups. | **Single Zero-Install Executable**<br/>Runs directly on standard laptops and ordinary CPUs out of the box with zero Python dependencies, utilizing built-in DirectML (Windows) and CoreML (macOS) with automatic CPU fallback. |
 | **🎨 Ugly White-Box Overlays**<br/>Many basic tools slap opaque white rectangles over speech bubbles, destroying the background art and sound effects. | **Neural Artwork Inpainting (LaMa)**<br/>Intelligently reconstructs the original artwork and textures behind text before typesetting clean comic dialogue. |
 
 <a id="pipeline"></a>
-### 🔄 The Automated 5-Stage Pipeline
+## 🔄 Automated Translation Pipeline & Core Features
 
-1. **Detection & Segmentation**: Detects speech bubbles, sound effects, and text boundaries using an RT-DETR model.
-2. **Text Recognition (OCR)**: Extracts horizontal and vertical typography across 10 CJK and global languages.
-3. **Contextual Translation**: Translates text using free local LLMs (Ollama, LM Studio) or cloud AI APIs with dynamic terminology glossary matching.
-4. **Neural Inpainting**: Erases original text using LaMa neural inpainting to seamlessly restore background artwork.
-5. **Typesetting Studio**: Renders translated dialogue with automatic font sizing, boundary fitting, stroke outlines, and dynamic CJK fallbacks.
+XianScan coordinates the complete comic translation lifecycle in a single autonomous flow—from 1-click web capture to mobile reading:
+
+```mermaid
+flowchart LR
+    A["🌐 <b>1-Click Web Importer</b><br/>Chrome • Firefox • Edge<br/><i>Auto-scroll & chapter rip</i>"]
+    B["⚡ <b>XianScan Local Core</b><br/>Detection • OCR • Inpainting<br/><i>AI Translation & Typesetting</i>"]
+    C["📱 <b>Mihon / Tachiyomi</b><br/>Android • Tablet • E-Ink<br/><i>Instant Wi-Fi LAN sync</i>"]
+
+    A -->|"1-Click Raw Upload"| B
+    B -->|"Local Network Stream"| C
+```
+
+1. **1-Click Web Importer (Extension)**: Auto-scrolls online comic sites, removes ads/placeholders, and uploads raw chapters directly to your local server.
+2. **Bubble Detection & Segmentation**: Locates speech bubbles, boundary-less dialogue, narrative blocks, and sound effects using an RT-DETR model.
+3. **Multi-Language OCR**: High-accuracy text extraction across 10 CJK and global languages with native horizontal and vertical reading flow support.
+4. **Context-Aware AI Translation**: Translates dialogue using local LLMs (Ollama, LM Studio) or cloud AI APIs with dynamic terminology glossary matching.
+5. **Neural Artwork Inpainting (LaMa)**: Intelligently erases original text masks while seamlessly reconstructing background art, gradients, and textures.
+6. **Typesetting Studio & Webtoon Tools**: Automatically calculates font scaling, line wrapping, stroke outlines, and tilt rotation, plus gutter slicing (`/pages/reslice`) for long webtoon strips.
+7. **Mobile Reader Sync (Mihon / Tachiyomi)**: Access your library from any web browser or stream translated chapters directly to Android phones, tablets, and E-Ink readers over local Wi-Fi.
 
 <a id="hardware-acceleration"></a>
-### 🚀 Hardware Requirements & Support
+## 🚀 Hardware Requirements & System Specs
 
-**Minimum requirement: an AVX2-capable x86_64 CPU (Intel/AMD, ≈2013+) or any Apple Silicon Mac. No GPU is required.** XianScan is CPU-first: it runs multi-threaded SIMD inference (AVX2, AVX-512, ARM NEON) out of the box, and only engages a GPU when one is present *and* supported. The release binary is a single self-contained file that embeds the models, the Web UI, and the engine (size varies by platform).
+XianScan is engineered to be **100% self-contained and CPU-first**. The release executable embeds the complete multi-threaded ML engine, all ONNX neural models, the SvelteKit web interface, and an internal Node.js runtime—requiring zero external runtime installations.
+
+| Component | Minimum Requirements | Recommended Specifications |
+| :--- | :--- | :--- |
+| **Processor (CPU)** | 2-Core x86_64 CPU with AVX2 (Intel/AMD, ≈2013+) or Apple Silicon (M1+) | 4–8 Cores (AVX2 / AVX-512 / ARM NEON) for real-time batch throughput |
+| **Memory (RAM)** | **4 GB RAM** *(Combined Rust engine + Node.js peak RSS is ~1 GB)* | **8 GB+ RAM** *(Recommended if running local Ollama / LM Studio alongside)* |
+| **Disk Space** | ~600 MB for standalone executable & embedded assets | 2 GB+ for chapter caching and SQLite library storage |
+| **Runtimes (Node/Python)** | **Zero install needed** *(Node.js & models are bundled in the binary)* | None required |
+| **GPU (Optional)** | **Not required** *(CPU multi-threaded SIMD runs out of the box)* | Windows: DirectML • macOS: CoreML/Metal • Linux: NVIDIA CUDA |
+
+<details>
+  <summary><b>🎮 View GPU Acceleration Compatibility Matrix & OS Details (Click to expand)</b></summary>
+  <br/>
 
 | GPU | Windows (`directml`) | Linux (`cuda`) | macOS Apple Silicon (`coreml`) |
 | :--- | :--- | :--- | :--- |
@@ -94,12 +120,14 @@ Reading untranslated CJK comics (Chinese Manhua, Korean Manhwa, Japanese Manga) 
 | **Apple Silicon GPU** | – | – | ✅ CoreML / Metal |
 | **Intel Mac** | – | – | ❌ not shipped⁴ |
 
-¹ Linux NVIDIA acceleration requires the NVIDIA driver plus a matching CUDA runtime (with cuDNN); otherwise it automatically falls back to the multi-threaded CPU engine.
-² AMD GPUs on Linux are detected and reported, but run on CPU; ROCm is **not yet supported** in the current Linux release. We're sorry for the limitation.
-³ Integrated GPUs (Intel HD/UHD/Iris, AMD APUs) are intentionally not used for acceleration; the engine disables GPU inference to protect against desktop freezes and driver crashes, and runs on CPU instead. This is a deliberate stability decision rather than a missing feature.
-⁴ An Intel (x86_64) macOS build is not currently shipped; Apple Silicon is the supported macOS target today. An Intel-compatible build may be revisited in a future release.
+¹ Linux NVIDIA acceleration requires the NVIDIA driver plus a matching CUDA runtime (with cuDNN); otherwise it automatically falls back to the multi-threaded CPU engine.  
+² AMD GPUs on Linux are detected and reported, but run on CPU; ROCm is **not yet supported** in the current Linux release. We're sorry for the limitation.  
+³ Integrated GPUs (Intel HD/UHD/Iris, AMD APUs) are intentionally not used for acceleration; the engine disables GPU inference to protect against desktop freezes and driver crashes, and runs on CPU instead. This is a deliberate stability decision rather than a missing feature.  
+⁴ An Intel (x86_64) macOS build is not currently shipped; Apple Silicon is the supported macOS target today. An Intel-compatible build may be revisited in a future release.  
 
-> All GPU acceleration is optional. On any unsupported or absent GPU, XianScan reports the correct active backend and continues on the multi-threaded CPU engine, and it still works on CPU, so you can run it regardless of your hardware. We'll keep expanding hardware support in upcoming releases.
+> All GPU acceleration is optional. On any unsupported or absent GPU, XianScan reports the active backend and automatically processes on the multi-threaded CPU engine.
+
+</details>
 
 ---
 
@@ -115,18 +143,6 @@ Reading untranslated CJK comics (Chinese Manhua, Korean Manhwa, Japanese Manga) 
 
 ---
 
-<a id="features"></a>
-## ⚙️ Features
-
-- **Runs on Any CPU (No GPU Required)**: Multi-threaded CPU inference with SIMD acceleration (AVX2, AVX-512, ARM NEON). Runs on standard laptops, desktop PCs, and Apple Silicon, while automatically utilizing DirectML (Windows), CoreML/Metal (macOS), or CUDA (Linux) acceleration when a compatible GPU and driver are present.
-- **Portable Standalone Executable (size varies by platform)**: Download, run, and start translating immediately. The release binary embeds all neural network weights (RT-DETR, LaMa, 10-language OCR), the SvelteKit web interface, Skia typography engine, and comic fonts for 100% offline out-of-the-box operation with zero external dependencies.
-- **Bubble Detection**: Uses an RT-DETR model to locate speech bubbles, text regions, and sound effects.
-- **Background Inpainting**: Uses LaMa ONNX to erase original text and restore background art.
-- **Comic Typesetting**: Automatic text fitting, line wrapping, outlines, and comic font support (CC Wild Words).
-- **Webtoon Tools**: Functions for stitching pages into long vertical rolls and slicing strips along panel gutters.
-- **Cross-Device Web UI (LAN Access)**: Once the server is running on your PC, you can access the full Web UI from any device connected to the same local Wi-Fi / network (such as your smartphone, tablet, or laptop).
-
----
 
 <a id="ocr-languages"></a>
 ## 🌐 Supported OCR Languages
@@ -173,9 +189,9 @@ XianScan does **not** bundle the LLM itself; it is separate. Connect a local mod
 
 - **Local AI (free & offline)** (<img src="assets/icons/ollama.svg" width="16" height="16" alt="Ollama" /> **Ollama** / **LM Studio**):
   - <img src="assets/icons/qwen.svg" width="16" height="16" alt="Qwen" /> **Qwen Series**: The benchmark for CJK (Chinese, Japanese, Korean) translation, cultural idiom accuracy, and comic dialogue understanding.
-  - <img src="assets/icons/llama.svg" width="16" height="16" alt="Meta Llama" /> **Llama Series**: Ultra-fast and lightweight inference engineered for low-latency execution on minimal hardware (~2–4 GB RAM).
+  - <img src="assets/icons/llama.svg" width="16" height="16" alt="Meta Llama" /> **Llama Series**: Fast and lightweight inference engineered for low-latency execution on minimal hardware (~2–4 GB RAM).
   - <img src="assets/icons/gemma.svg" width="16" height="16" alt="Google Gemma" /> **Gemma** & <img src="assets/icons/mistral.svg" width="16" height="16" alt="Mistral AI" /> **Mistral**: Specialized high-fidelity multilingual translation and dialogue reasoning.
-- **Cloud AI APIs**: Compatible with standard OpenAI-compatible endpoints, <img src="assets/icons/gemini.svg" width="16" height="16" alt="Google Gemini" /> **Google AI Studio (Gemini)**, <img src="assets/icons/groq.svg" width="16" height="16" alt="Groq" /> **Groq** (instant ultra-fast inference), <img src="assets/icons/openrouter.svg" width="16" height="16" alt="OpenRouter" /> **OpenRouter**, and <img src="assets/icons/openai.svg" width="16" height="16" alt="OpenAI" /> **OpenAI**.
+- **Cloud AI APIs**: Compatible with standard OpenAI-compatible endpoints, <img src="assets/icons/gemini.svg" width="16" height="16" alt="Google Gemini" /> **Google AI Studio (Gemini)**, <img src="assets/icons/groq.svg" width="16" height="16" alt="Groq" /> **Groq** (high-speed inference), <img src="assets/icons/openrouter.svg" width="16" height="16" alt="OpenRouter" /> **OpenRouter**, and <img src="assets/icons/openai.svg" width="16" height="16" alt="OpenAI" /> **OpenAI**.
 - **Series Glossaries**: Dynamic multi-pattern terminology matching (via Aho-Corasick) to maintain consistent character names, cultivation realms, and skill terms across chapters.
 
 ---
@@ -210,84 +226,51 @@ Download the pre-compiled standalone binary for your system from [Releases](http
    - **Browser Extension**: Use the 1-Click Importer extension on your favorite web comic site.
 3. **Translate & Read**: Select your translation provider (free local Ollama / LM Studio or cloud API), and enjoy automated speech bubble detection, inpainting, OCR, and typesetting!
 
----
 
-<a id="developer-guide"></a>
-## 🛠️ Building from Source (For Developers)
-
-#### Prerequisites
-- **Rust 1.88+** (`rustup install stable`)
-- **Node.js 20+** & **Yarn**
-
-#### Standalone Release Build
-```bash
-# 1. Build SvelteKit frontend
-cd web && yarn install && yarn build && cd ..
-
-# 2. Compile standalone binary with embedded models & web UI
-cargo build --release --features embed-models,embed-web
-```
-The compiled binary will be located at `target/release/xianscan` (`.exe` on Windows).
-
-> **GPU acceleration**: add a per-platform feature flag to the build: `directml` (Windows), `cuda` (Linux NVIDIA), or `coreml` (macOS Apple Silicon), e.g. `cargo build --release --features embed-models,embed-web,directml`.
-
-#### Fast Iteration Dev Mode
-```bash
-# Runs the Rust ML engine (:8123) and Vite Live HMR (:8124) concurrently:
-cargo run -- --dev
-```
-
----
-
-<a id="rest-api"></a>
-## 🔌 REST API Endpoints
-
-| Endpoint | Method | Description |
-| :--- | :--- | :--- |
-| `/health` | `GET` | Health status, active hardware backend, and loaded model diagnostics. |
-| `/system/hardware` | `GET` | GPU adapter enumeration and hardware capabilities. |
-| `/system/device` | `POST` | Dynamically switch execution provider (`auto`, `cuda`, `coreml`, `directml`, `cpu`). |
-| `/pages/analyze` | `POST` | Speech bubble detection, polygon segmentation, and multi-language OCR. |
-| `/pages/clean` | `POST` | Neural inpainting to erase text from selected bubble masks. |
-| `/pages/preprocess` | `POST` | Image normalization and contrast optimization. |
-| `/pages/stitch` | `POST` | Vertically stitch individual pages into seamless webtoon strips. |
-| `/pages/reslice` | `POST` | Split tall webtoon strips into pages along panel gutters. |
-| `/pages/reslice/status` | `GET` | Poll progress of the running (blocking) reslice job. |
-| `/pages/reslice/reset` | `POST` | Clear stale reslice progress and begin a fresh run. |
-| `/pages/reslice/cancel` | `POST` | Cancel the in-flight reslice run. |
 
 ---
 
 <a id="browser-extension"></a>
 ## 🧩 Browser Web Extension (Chrome, Firefox, Edge, Brave, Opera)
 
-XianScan includes a high-performance **Web Importer Extension** (`extensions/xianscan-importer/`) to import comic chapters directly from web readers into your self-hosted server with one click:
+XianScan includes a dedicated **1-Click Web Importer Extension** ([`extensions/xianscan-importer/`](extensions/xianscan-importer/)) designed to capture raw comic chapters directly from online reader platforms and send them straight to your local translation server:
 
-- **⚡ Fast Scan**: Auto-scrolls progressive webtoon strips to trigger lazy-loads and extract all pages in under 1.5 seconds.
-- **🛡️ 4-Tier Smart Noise Filter**: Automatically detects reader containers and drops advertisements, social widgets, blurhash placeholders, and sidebar thumbnails.
-- **📦 Dual Browser Releases**: Pre-packaged Universal (`.zip` for Chrome/Edge/Brave) and Firefox Add-on (`.xpi`) in `extensions/xianscan-importer/store/`.
-- **🚀 One-Click Auto-Translate**: Automatically queues the newly imported chapter for neural detection, OCR, and AI translation upon upload completion.
+- **⚡ Fast Smart Capture**: Automatically smooth-scrolls long webtoon strips to trigger image lazy-loaders and extracts all chapter pages in under 2 seconds.
+- **🛡️ 4-Tier Smart Noise Filter**: Intelligently identifies true comic canvas containers while filtering out advertisements, social buttons, blurred placeholders, and sidebar thumbnails.
+- **🚀 Automated Queue & Translate**: Immediately initiates neural speech bubble detection, OCR, and AI translation upon upload completion.
+- **📦 Pre-Built Store Packages**: Includes pre-built Universal (`.zip` for Chromium browsers) and Firefox Add-on (`.xpi`) in `extensions/xianscan-importer/store/`.
 
-To install:
-- **Chrome / Edge / Brave / Opera**: Load unpacked from `extensions/xianscan-importer/dist/` in `chrome://extensions/`
-- **Firefox**: Load temporary add-on from `extensions/xianscan-importer/dist-firefox/manifest.json` (or `.xpi`) in `about:debugging#/runtime/this-firefox`
+<details>
+  <summary><b>📦 How to Install the Browser Extension</b></summary>
+  <br/>
+
+- **Chrome / Edge / Brave / Opera**: Load unpacked from `extensions/xianscan-importer/dist/` in `chrome://extensions/` (enable *Developer mode*).
+- **Firefox**: Load temporary add-on from `extensions/xianscan-importer/dist-firefox/manifest.json` (or `.xpi`) in `about:debugging#/runtime/this-firefox`.
+
+</details>
 
 ---
 
 <a id="mihon-extension"></a>
 ## 📱 Mihon / Tachiyomi Mobile Reader Extension (Android)
 
-XianScan integrates seamlessly with **[Mihon](https://mihon.app/)** (and Tachiyomi forks) via a dedicated extension repository (`extensions/xianscan-mihon/`), allowing you to read and browse your translated home library directly on your Android phone, tablet, or e-ink reader.
+Read and browse your translated comic library directly on your Android smartphone, tablet, or E-Ink device using the dedicated **[Mihon](https://mihon.app/) / Tachiyomi Extension** ([`extensions/xianscan-mihon/`](extensions/xianscan-mihon/)):
 
-### ⚡ 1-Click Extension Repository Setup
+- **📶 Seamless Local Wi-Fi Streaming**: Stream translated chapters instantly over your home network, or download chapters directly to your mobile device for offline reading.
+- **🖼️ High-Res Cover & Metadata Sync**: Automatically syncs book titles, reading directions (Manga, Manhwa, Manhua), and custom cover artwork.
+- **📱 Broad Ecosystem Compatibility**: Fully compatible with Mihon, TachiyomiSY, J2K, Aniyomi, Yokai, and dedicated Android E-Ink readers (Onyx Boox, Bigme, Meebook).
 
-1. In Mihon, open **More → Settings → Browse → Extension repos / Extension stores**.
+<details>
+  <summary><b>⚡ 1-Click Extension Repository Setup Guide (Click to expand)</b></summary>
+  <br/>
+
+1. In Mihon, navigate to **More → Settings → Browse → Extension repos / Extension stores**.
 2. Tap **+ Add** and paste the repository URL:
    ```
    https://raw.githubusercontent.com/ArbenApura/xianscan-rust/repo/index.min.json
    ```
 3. Tap **Add**.
-4. Navigate to **Browse → Extensions** (or **Extension Store**) → find **XianScan** and tap **Install**.
+4. Navigate to **Browse → Extensions** (or **Extension Store**) → search for **XianScan** and tap **Install**.
 5. **Trust the Extension**: If Mihon displays an *"Untrusted"* prompt on XianScan, tap **Trust** to authorize it.
 6. **Configure Your Local LAN Server Address**:
    - Navigate to **Browse → Extensions** → tap the **⚙ (Settings cog)** to the right of **XianScan** → tap the **⚙ (Multi cog)** on the right → tap **Server address**.
@@ -300,31 +283,21 @@ XianScan integrates seamlessly with **[Mihon](https://mihon.app/)** (and Tachiyo
    - On the **Browse → Sources** tab, tap the **Filter / Globe 🌐 icon** in the top right and ensure **"Multi"** is checked (Mihon uses the **Multi** tag for multi-language extensions).
 8. Tap **XianScan** under Sources to browse your manga library, view high-res dedicated series covers, and read translated chapters directly on your mobile device!
 
----
-
-<a id="testing"></a>
-## 🧪 Testing
-
-```bash
-# Run all unit and integration tests
-cargo test -- --nocapture
-
-# Run the 10-language ML regression test suite
-cargo test --test regression -- --nocapture
-
-# Run Web UI frontend tests
-cd web && yarn test
-```
+</details>
 
 ---
 
-<a id="roadmap"></a>
-## 🗺️ In Progress & Future Roadmap
+<a id="developer-guide"></a>
+## 🛠️ Developer Guide, Build Instructions & REST API
 
-- **🎯 Custom XianScan Comic Detection Model**: Training a custom, domain-specialized vision model tailored specifically for XianScan's multi-layout pipeline. Engineered to significantly improve text/bubble detection accuracy, curved and boundary-less text segmentation, sound effect (SFX) classification, and complex multi-speaker bubble splitting across diverse Manhua, Manhwa, and Manga art styles.
-- **🎮 Expanded GPU Support**: Beyond the current DirectML (Windows), CUDA (Linux NVIDIA), and CoreML/Metal (Apple Silicon) backends, exploring additional acceleration paths, most notably AMD ROCm on Linux, so AMD discrete GPUs can accelerate instead of falling back to CPU.
-- **👥 Contextual Gender & Pronoun Consistency**: Developing intelligent coreference resolution algorithms to accurately track character dialogue and resolve omitted or ambiguous CJK pronouns (Chinese 他/她, Japanese 彼/彼女, Korean 그/그녀/honorifics) across multi-panel conversation flows, extending beyond static glossaries to fit the distinct narrative structures of Manhua, Manga, and Manhwa.
-- **📖 Xianslate Integration (All-in-One Translation Suite)**: Integrating [Xianslate](https://github.com/ArbenApura/xianslate), my specialized Light Novel & Web Novel translation tool, into XianScan to create a unified reader and translation suite for both comics (Manga/Manhua/Manhwa) and light novels with shared dynamic terminology glossaries.
+Looking to build XianScan from source, contribute code, run regression tests, or integrate with the REST API?
+
+👉 Check out the full **[Developer & Contributing Guide (DEVELOPMENT.md)](DEVELOPMENT.md)** for:
+- 🏗️ **Compiling from Source** (Standalone binary & GPU acceleration feature flags)
+- ⚡ **Fast Iteration Dev Mode** (Vite Live HMR & ML server)
+- 🔌 **Complete REST API Endpoints Reference**
+- 🧪 **ML Regression & Unit Testing Suites**
+- 📂 **Project Architecture Overview**
 
 ---
 

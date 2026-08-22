@@ -159,6 +159,8 @@ describe('userPrompt', () => {
 		expect(p).toContain('"vertical": true');
 		// Default 'dialogue_bubble' is omitted to save prompt tokens
 		expect(p).not.toContain('"kind": "dialogue_bubble"');
+		expect(p).toContain('"context"');
+		expect(p).toContain('"aliases"');
 	});
 });
 
@@ -334,7 +336,7 @@ describe('translatePage', () => {
 		expect(result.usage.completionTokens).toBe(20);
 	});
 
-	it('extracts newTerms from combined single-call LLM response and filters known terms', async () => {
+	it('extracts newTerms with context and aliases from combined single-call LLM response and filters known terms', async () => {
 		const pageRegions = [
 			{ id: 'r0', text: '叶凡来到了紫山！' },
 			{ id: 'r1', text: '你好' },
@@ -342,8 +344,21 @@ describe('translatePage', () => {
 		const responseJson = JSON.stringify({
 			translations: { r0: 'Ye Fan arrived at Purple Mountain!', r1: 'Hello' },
 			newTerms: [
-				{ source: '叶凡', target: 'Ye Fan', category: 'character', gender: 'masculine' },
-				{ source: '紫山', target: 'Purple Mountain', category: 'location' },
+				{
+					source: '叶凡',
+					target: 'Ye Fan',
+					category: 'character',
+					gender: 'masculine',
+					context: 'Protagonist',
+					aliases: ['小凡'],
+				},
+				{
+					source: '紫山',
+					target: 'Purple Mountain',
+					category: 'location',
+					context: 'Ancient forbidden mountain range',
+					aliases: ['九山'],
+				},
 			],
 		});
 		// If 叶凡 is already in known terms, it should be filtered out from newTerms
@@ -357,6 +372,8 @@ describe('translatePage', () => {
 		expect(result.newTerms).toHaveLength(1);
 		expect(result.newTerms![0].source).toBe('紫山');
 		expect(result.newTerms![0].target).toBe('Purple Mountain');
+		expect(result.newTerms![0].context).toBe('Ancient forbidden mountain range');
+		expect(result.newTerms![0].aliases).toEqual(['九山']);
 	});
 
 	it('replaces degenerate ellipsis on an SFX with canonical fallback', async () => {

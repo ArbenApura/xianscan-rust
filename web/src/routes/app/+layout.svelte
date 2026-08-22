@@ -122,7 +122,7 @@
 					class="flex items-center gap-2 sm:gap-2.5 font-bold tracking-tight transition-transform duration-200 hover:opacity-85 active:scale-95 shrink-0"
 					aria-label="XianScan Home"
 				>
-					<img src="/favicon.svg" alt="XianScan Logo" class="h-6 w-6 sm:h-7 sm:w-7 shrink-0 rounded-lg shadow-2xs" />
+					<img src="/favicon.svg" alt="XianScan Logo" class="h-6 w-6 sm:h-7 sm:w-7 shrink-0 rounded-md shadow-2xs" />
 					<span class="text-base sm:text-lg font-comic font-bold tracking-wide text-[#b23a2e] dark:text-[#e08a63]">
 						Xian<span class="text-black dark:text-white">Scan</span>
 					</span>
