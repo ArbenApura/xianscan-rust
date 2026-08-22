@@ -13,6 +13,10 @@ use xianscan_rust::server::router::{create_router, AppState};
 use xianscan_rust::server::ssr::SsrServer;
 use xianscan_rust::server::web_assets;
 
+// HIGH-PERFORMANCE LOCK-FREE MEMORY ALLOCATOR (OPTIMIZED FOR MULTI-CORE CPU WORKLOADS & RAYON)
+#[global_allocator]
+static GLOBAL: mimalloc::MiMalloc = mimalloc::MiMalloc;
+
 /// ANIMATED CLI SPINNER FOR LONG RUNNING INITIALIZATION TASKS
 struct CliSpinner {
     stop_signal: Arc<AtomicBool>,
@@ -289,8 +293,8 @@ async fn main() -> anyhow::Result<()> {
     println!(
         "    {}  Text Detector  — {}",
         if engine.detector.is_some() { "✓".bright_green().bold() } else { "✗".bright_red().bold() },
-        if engine.detector.is_some() {
-            if models_dir.join("comic_text_and_bubble_detector.onnx").exists() { "RT-DETR Bubble & Text Detector (disk)".white() } else { "RT-DETR Bubble & Text Detector (embedded)".white() }
+        if let Some(ref det) = engine.detector {
+            format!("{} (disk)", det.backend_name()).white()
         } else { "missing weights".bright_red() }
     );
     println!(

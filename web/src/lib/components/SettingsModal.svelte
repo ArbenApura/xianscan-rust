@@ -234,6 +234,14 @@
 		});
 	}
 
+	function toggleWatermarkInpaint() {
+		settings.update((s) => {
+			const next = !s.enableWatermarkInpaint;
+			toast.success(`Chromatic watermark inpainting ${next ? 'enabled' : 'disabled'}`);
+			return { ...s, enableWatermarkInpaint: next };
+		});
+	}
+
 	function isDeviceAvailable(devId: ExecutionDevice): boolean {
 		if (devId === 'auto' || devId === 'cpu') return true;
 		// IF DETECTION IS STILL RUNNING, GPU OPTIONS ARE NOT YET CONFIRMED AVAILABLE.
@@ -831,6 +839,35 @@
 							</button>
 						{/each}
 					</div>
+
+					<!-- CHROMATIC WATERMARK INPAINTING TOGGLE -->
+					<div class="mt-3.5 flex items-start justify-between gap-4 rounded-xl border border-black/10 bg-black/[0.02] p-3 dark:border-white/10 dark:bg-white/[0.02]">
+						<div>
+							<div class="text-xs font-bold uppercase tracking-wider opacity-80 flex items-center gap-1.5">
+								<Sparkles size={14} class="text-[#b23a2e] dark:text-[#e08a63]" />
+								<span>Chromatic Watermark Inpainting</span>
+							</div>
+							<p class="text-[11px] opacity-60 mt-0.5 max-w-md">
+								Detect and inpaint colored scanlator logos and watermarks colliding with speech bubbles before OCR to rescue obscured text.
+							</p>
+						</div>
+
+						<button
+							type="button"
+							on:click={toggleWatermarkInpaint}
+							class={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-hidden ${
+								$settings.enableWatermarkInpaint ? 'bg-[#b23a2e] dark:bg-[#e08a63]' : 'bg-black/20 dark:bg-white/20'
+							}`}
+							role="switch"
+							aria-checked={$settings.enableWatermarkInpaint}
+						>
+							<span
+								class={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow-sm ring-0 transition duration-200 ease-in-out ${
+									$settings.enableWatermarkInpaint ? 'translate-x-5' : 'translate-x-0'
+								}`}
+							></span>
+						</button>
+					</div>
 				</div>
 
 				<!-- TRANSLATION AI PROVIDERS (WITH SVG LOGOS) -->
@@ -1350,23 +1387,25 @@
 								{/if}
 
 								<!-- ACTION BUTTONS -->
-								<div class="flex flex-wrap items-center justify-between gap-2.5 pt-2 border-t border-black/10 dark:border-white/10">
+								<div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2.5 pt-3 border-t border-black/10 dark:border-white/10">
 									<button
 										type="button"
 										on:click={() => testConnection(currentP.id)}
 										disabled={testingProvider || (!currentIsLocal && !currentP.hasKey && !apiKeyDraft[currentP.id])}
-										class="inline-flex items-center gap-1.5 rounded-xl border border-black/15 bg-white px-3 py-2 text-xs font-semibold hover:bg-neutral-50 dark:border-white/15 dark:bg-white/5 dark:hover:bg-white/10 disabled:opacity-40 transition shadow-2xs"
+										class="inline-flex items-center justify-center gap-2 rounded-xl border border-black/15 bg-white px-4 py-2.5 text-sm font-semibold hover:bg-neutral-50 dark:border-white/15 dark:bg-white/5 dark:hover:bg-white/10 disabled:opacity-40 transition shadow-2xs cursor-pointer w-full sm:w-auto"
+										use:ripple
 									>
-										<RefreshCw size={13} class={testingProvider ? 'animate-spin' : ''} />
+										<RefreshCw size={15} class={testingProvider ? 'animate-spin' : ''} />
 										<span>{testingProvider ? 'Testing...' : 'Test Connection'}</span>
 									</button>
 
-									<div class="flex items-center gap-2">
+									<div class="flex flex-col xs:flex-row items-stretch sm:items-center gap-2.5 w-full sm:w-auto">
 										<button
 											type="button"
 											on:click={() => saveProvider(currentP.id, false)}
 											disabled={savingProvider}
-											class="inline-flex items-center gap-1.5 rounded-xl border border-black/15 bg-white px-3.5 py-2 text-xs font-semibold hover:bg-neutral-50 dark:border-white/15 dark:bg-white/5 dark:hover:bg-white/10 transition shadow-2xs"
+											class="inline-flex items-center justify-center gap-2 rounded-xl border border-black/15 bg-white px-4 py-2.5 text-sm font-semibold hover:bg-neutral-50 dark:border-white/15 dark:bg-white/5 dark:hover:bg-white/10 transition shadow-2xs cursor-pointer w-full xs:w-auto"
+											use:ripple
 										>
 											<span>Save Settings</span>
 										</button>
@@ -1376,9 +1415,10 @@
 												type="button"
 												on:click={() => saveProvider(currentP.id, true)}
 												disabled={savingProvider}
-												class="inline-flex items-center gap-1.5 rounded-xl bg-[#b23a2e] hover:bg-[#962f25] text-white px-3.5 py-2 text-xs font-bold transition shadow-xs"
+												class="inline-flex items-center justify-center gap-2 rounded-xl bg-[#b23a2e] hover:bg-[#962f25] text-white px-4 py-2.5 text-sm font-bold transition shadow-xs cursor-pointer w-full xs:w-auto"
+												use:ripple
 											>
-												<Check size={14} />
+												<Check size={16} />
 												<span>Set as Active Engine</span>
 											</button>
 										{/if}
@@ -1687,10 +1727,10 @@
 						<button
 							type="button"
 							on:click={() => (typesetModalOpen = true)}
-							class="inline-flex items-center gap-1.5 rounded-xl border border-black/15 bg-white px-3.5 py-2 text-xs font-bold hover:bg-neutral-50 dark:border-white/15 dark:bg-white/5 dark:hover:bg-white/10 transition shadow-2xs shrink-0 cursor-pointer"
+							class="inline-flex items-center gap-2 rounded-xl border border-black/15 bg-white px-4 py-2.5 text-sm font-bold hover:bg-neutral-50 dark:border-white/15 dark:bg-white/5 dark:hover:bg-white/10 transition shadow-2xs shrink-0 cursor-pointer"
 							use:ripple
 						>
-							<SlidersHorizontal size={13} class="text-[#b23a2e] dark:text-[#e08a63]" />
+							<SlidersHorizontal size={15} class="text-[#b23a2e] dark:text-[#e08a63]" />
 							<span>Customize</span>
 						</button>
 					</div>

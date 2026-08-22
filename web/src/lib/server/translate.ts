@@ -9,31 +9,36 @@ export * from './translate/prompts';
 export * from './translate/sfx';
 export * from './translate/parser';
 export * from './translate/extraction';
+export * from './translate/dialogue-tracker';
 
 import { buildMessages, type RegionSource } from './translate/prompts';
 import { getKnownSfxTranslation } from './translate/sfx';
 import { looksDegenerate, parseTranslations } from './translate/parser';
 import { parseExtractedTerms } from './translate/extraction';
+import type { DialogueContextWindow } from './translate/dialogue-tracker';
 
 export interface PageTranslationOptions {
 	client?: OpenAI;
 	model?: string;
 	signal?: AbortSignal;
+	dialogueContext?: DialogueContextWindow | null;
 }
 
 export interface PageTranslation {
 	byRegion: Map<string, string>;
 	usage: TranslationUsage;
 	newTerms?: TermDraft[];
+	rawPrompt?: string;
+	rawResponse?: string;
+	durationMs?: number;
 }
 
-export const PROMPT_VERSION = 'v19';
+export const PROMPT_VERSION = 'v20';
 
 function mergeUsage(acc: TranslationUsage, u: TranslationUsage): void {
 	acc.promptTokens += u.promptTokens;
 	acc.cachedTokens += u.cachedTokens;
 	acc.completionTokens += u.completionTokens;
-	acc.costUsd += u.costUsd;
 }
 
 async function callTranslate(
@@ -41,10 +46,10 @@ async function callTranslate(
 	terms: TermDraft[],
 	pair: LangPair,
 	opts: PageTranslationOptions,
-): Promise<{ raw: string; usage: TranslationUsage }> {
+): Promise<{ raw: string; usage: TranslationUsage; messages: OpenAI.Chat.ChatCompletionMessageParam[] }> {
 	const client = opts.client ?? createClient();
 	const model = resolveModel(opts.model);
-	const messages = buildMessages(regions, terms, pair);
+	const messages = buildMessages(regions, terms, pair, opts.dialogueContext);
 
 	const sourceChars = regions.reduce((n, r) => n + r.text.length, 0);
 	const maxTokens = Math.max(512, Math.ceil(sourceChars * 3 + 512));
@@ -65,7 +70,7 @@ async function callTranslate(
 	);
 	const raw = resp.choices[0]?.message?.content ?? '';
 	const usage = computeUsage(resp.usage, model);
-	return { raw, usage };
+	return { raw, usage, messages };
 }
 
 export async function translatePage(
@@ -75,11 +80,13 @@ export async function translatePage(
 	opts: PageTranslationOptions = {},
 ): Promise<PageTranslation> {
 	const model = resolveModel(opts.model);
-	const usage = { model, promptTokens: 0, cachedTokens: 0, completionTokens: 0, costUsd: 0 } as TranslationUsage;
+	const usage = { model, promptTokens: 0, cachedTokens: 0, completionTokens: 0 } as TranslationUsage;
 
-	if (regions.length === 0) return { byRegion: new Map(), usage, newTerms: [] };
+	if (regions.length === 0) return { byRegion: new Map(), usage, newTerms: [], rawPrompt: '', rawResponse: '', durationMs: 0 };
 
-	const { raw, usage: u1 } = await callTranslate(regions, terms, pair, opts);
+	const t0 = performance.now();
+	const { raw, usage: u1, messages: m1 } = await callTranslate(regions, terms, pair, opts);
+	const durationMs = Math.round(performance.now() - t0);
 	mergeUsage(usage, u1);
 	const byRegion = parseTranslations(raw, new Set(regions.map((r) => r.id)), regions) ?? new Map();
 
@@ -87,39 +94,28 @@ export async function translatePage(
 	const knownSources = new Set(terms.map((t) => t.source.trim()));
 	const discoveredTerms = parseExtractedTerms(raw, pageSourceText).filter((t) => !knownSources.has(t.source.trim()));
 
-	const missing = regions.filter((r) => {
-		const t = byRegion.get(r.id);
-		return !t || looksDegenerate(t, r.text);
-	});
-	if (missing.length > 0) {
-		const { raw: raw2, usage: u2 } = await callTranslate(missing, terms, pair, opts);
-		mergeUsage(usage, u2);
-		const refill = parseTranslations(raw2, new Set(missing.map((r) => r.id)), missing) ?? new Map();
-		for (const r of missing) {
-			const t = refill.get(r.id);
-			if (t && !looksDegenerate(t, r.text)) {
-				byRegion.set(r.id, t);
-			} else if (t && looksDegenerate(t, r.text)) {
-				const sfxFallback = getKnownSfxTranslation(r.text, pair.sourceLang);
-				if (sfxFallback) byRegion.set(r.id, sfxFallback);
-				else byRegion.delete(r.id);
-			}
-		}
-	}
-
+	// SINGLE-ROUNDTRIP POLICY: NEVER FIRE A SECOND REFILL CALL.
+	// APPLY LOCAL SFX DICTIONARY FALLBACK DIRECTLY TO ANY UNTRANSLATED OR DEGENERATE REGIONS.
 	for (const r of regions) {
 		const current = byRegion.get(r.id);
-		if (current && looksDegenerate(current, r.text)) {
+		if (!current || looksDegenerate(current, r.text)) {
 			const sfxFallback = getKnownSfxTranslation(r.text, pair.sourceLang);
 			if (sfxFallback) {
 				byRegion.set(r.id, sfxFallback);
-			} else {
+			} else if (current && looksDegenerate(current, r.text)) {
 				byRegion.delete(r.id);
 			}
 		}
 	}
 
-	return { byRegion, usage, newTerms: discoveredTerms };
+	return {
+		byRegion,
+		usage,
+		newTerms: discoveredTerms,
+		rawPrompt: JSON.stringify(m1, null, 2),
+		rawResponse: raw,
+		durationMs,
+	};
 }
 
 export async function translateSingleText(
@@ -135,7 +131,7 @@ export async function translateSingleText(
 ): Promise<{ text: string; usage: TranslationUsage }> {
 	const trimmed = text.trim();
 	const model = resolveModel(opts.model);
-	const usage = { model, promptTokens: 0, cachedTokens: 0, completionTokens: 0, costUsd: 0 } as TranslationUsage;
+	const usage = { model, promptTokens: 0, cachedTokens: 0, completionTokens: 0 } as TranslationUsage;
 
 	if (!trimmed) {
 		return { text: '', usage };

@@ -308,9 +308,10 @@ impl RapidOcr {
                                 let g_norm = (p[1] as f32 / 255.0 - 0.5) / 0.5;
                                 let b_norm = (p[2] as f32 / 255.0 - 0.5) / 0.5;
 
-                                chunk[0 * stride_c + y * stride_y + x] = b_norm;
-                                chunk[1 * stride_c + y * stride_y + x] = g_norm;
-                                chunk[2 * stride_c + y * stride_y + x] = r_norm;
+                                let base_idx = y * stride_y + x;
+                                chunk[base_idx] = b_norm;
+                                chunk[stride_c + base_idx] = g_norm;
+                                chunk[2 * stride_c + base_idx] = r_norm;
                             }
                         }
                     }
@@ -382,7 +383,7 @@ impl RapidOcr {
             image::imageops::FilterType::Triangle,
         );
 
-        let mut tensor_vec = vec![0.0_f32; 1 * 3 * target_h as usize * target_w as usize];
+        let mut tensor_vec = vec![0.0_f32; 3 * target_h as usize * target_w as usize];
         let stride_c = target_h as usize * target_w as usize;
         let stride_y = target_w as usize;
 
@@ -394,9 +395,10 @@ impl RapidOcr {
                 let g_norm = (p[1] as f32 / 255.0 - 0.5) / 0.5;
                 let b_norm = (p[2] as f32 / 255.0 - 0.5) / 0.5;
 
-                tensor_vec[0 * stride_c + y * stride_y + x] = b_norm;
-                tensor_vec[1 * stride_c + y * stride_y + x] = g_norm;
-                tensor_vec[2 * stride_c + y * stride_y + x] = r_norm;
+                let base_idx = y * stride_y + x;
+                tensor_vec[base_idx] = b_norm;
+                tensor_vec[stride_c + base_idx] = g_norm;
+                tensor_vec[2 * stride_c + base_idx] = r_norm;
             }
         }
 
@@ -440,8 +442,8 @@ impl RapidOcr {
         }
 
         // Padded image with 32px boundary
-        let target_h = 32_u32.max(((h + 31) / 32) * 32);
-        let target_w = 32_u32.max(((w + 31) / 32) * 32);
+        let target_h = 32_u32.max(h.div_ceil(32) * 32);
+        let target_w = 32_u32.max(w.div_ceil(32) * 32);
         let dh = target_h - h;
         let dw = target_w - w;
         let pad_top = dh / 2;
@@ -597,6 +599,76 @@ impl RapidOcr {
         }))
     }
 
+    /// FAST BOUNDING-BOX-ONLY DETECTION (SKIPS RECOGNITION / CTC DECODING ENTIRELY)
+    pub fn detect_only(&mut self, img: &DynamicImage) -> Result<Vec<Vec<[i32; 2]>>> {
+        let (w, h) = img.dimensions();
+        if w < 16 || h < 16 {
+            return Ok(Vec::new());
+        }
+
+        if let Some(ref mut det) = self.det_session {
+            let max_side = w.max(h);
+            let limit_side = if max_side < 960 { 960 } else if max_side < 1500 { 1500 } else { 2000 };
+            let ratio = limit_side as f32 / max_side as f32;
+            let resize_w = (((w as f32 * ratio).round() as u32 / 32) * 32).max(32);
+            let resize_h = (((h as f32 * ratio).round() as u32 / 32) * 32).max(32);
+
+            let resized = image::imageops::resize(
+                img,
+                resize_w,
+                resize_h,
+                image::imageops::FilterType::Triangle,
+            );
+
+            let mut det_vec = vec![0.0_f32; 3 * resize_h as usize * resize_w as usize];
+            let stride_c = resize_h as usize * resize_w as usize;
+            let stride_y = resize_w as usize;
+
+            det_vec.par_chunks_mut(stride_c).enumerate().for_each(|(c, plane)| {
+                for y in 0..resize_h as usize {
+                    for x in 0..resize_w as usize {
+                        let p = resized.get_pixel(x as u32, y as u32);
+                        let v = match c {
+                            0 => (p[0] as f32 / 255.0 - 0.485) / 0.229,
+                            1 => (p[1] as f32 / 255.0 - 0.456) / 0.224,
+                            _ => (p[2] as f32 / 255.0 - 0.406) / 0.225,
+                        };
+                        plane[y * stride_y + x] = v;
+                    }
+                }
+            });
+
+            let det_tensor = Tensor::from_array(([1, 3, resize_h as usize, resize_w as usize], det_vec))
+                .map_err(|e| anyhow::anyhow!("Det tensor create error: {}", e))?;
+
+            let det_out = det.run(ort::inputs![det_tensor])
+                .map_err(|e| anyhow::anyhow!("Det run error: {}", e))?;
+
+            let (_out_shape, out_slice) = det_out[0].try_extract_tensor::<f32>()
+                .map_err(|e| anyhow::anyhow!("Extract det error: {}", e))?;
+
+            let mut det_lines_map = vec![0.0_f32; resize_w as usize * resize_h as usize];
+            det_lines_map.copy_from_slice(out_slice);
+
+            let (boxes, _) = lines_map_to_boxes(
+                &det_lines_map,
+                resize_w as usize,
+                resize_h as usize,
+                w as usize,
+                h as usize,
+                0.3,
+                0.5,
+                1.6,
+                1000,
+                3,
+            );
+
+            Ok(boxes)
+        } else {
+            Ok(Vec::new())
+        }
+    }
+
     /// Full-page or sub-image DBNet text line detection and recognition with optional sliding tile passes.
     pub fn detect_and_recognize(&mut self, img: &DynamicImage) -> Result<Vec<OcrLine>> {
         self.detect_and_recognize_tiled(img, true)
@@ -627,7 +699,7 @@ impl RapidOcr {
                 image::imageops::FilterType::Triangle,
             );
 
-            let mut det_vec = vec![0.0_f32; 1 * 3 * resize_h as usize * resize_w as usize];
+            let mut det_vec = vec![0.0_f32; 3 * resize_h as usize * resize_w as usize];
             let stride_c = resize_h as usize * resize_w as usize;
             let stride_y = resize_w as usize;
 
@@ -829,7 +901,18 @@ impl RapidOcr {
             ya.cmp(&yb).then(xa.cmp(&xb))
         });
 
-        let lines = crate::ml::detect::filter_orthogonal_line_conflicts(lines);
+        let mut lines = crate::ml::detect::filter_orthogonal_line_conflicts(lines);
+
+        // FILTER OPTICAL BOUNDARY SLIVERS: THIN LINES (H <= 13PX) WITH LOW CONFIDENCE (SCORE < 0.65)
+        lines.retain(|l| {
+            let (_, _, lw, lh) = polygon_bounds(&l.polygon);
+            let is_thin_horiz = lh <= 13 && lw >= 30;
+            let is_thin_vert = lw <= 13 && lh >= 30;
+            if (is_thin_horiz || is_thin_vert) && l.score < 0.65 {
+                return false;
+            }
+            true
+        });
 
         Ok(lines)
     }

@@ -48,8 +48,8 @@ pub fn decode_ctc_slice(
             }
         }
 
-        if max_idx != 0 && max_idx != prev_idx {
-            if max_idx < characters.len() {
+        if max_idx != 0 && max_idx != prev_idx
+            && max_idx < characters.len() {
                 let ch = &characters[max_idx];
                 if ch != "blank" {
                     text.push_str(ch);
@@ -58,7 +58,6 @@ pub fn decode_ctc_slice(
                     token_count += 1;
                 }
             }
-        }
         prev_idx = max_idx;
     }
 

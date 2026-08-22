@@ -69,8 +69,8 @@ jobs:
         shell: bash
         run: |
           mkdir -p models
-          echo "Downloading RT-DETR Comic Bubble & Text Detector (~168MB)..."
-          curl -f -sSL -o models/comic_text_and_bubble_detector.onnx "https://huggingface.co/ogkalu/comic-text-and-bubble-detector/resolve/main/detector.onnx"
+          echo "Downloading Koharu RF-DETR Seg Layout Detector (~145MB)..."
+          curl -f -sSL -o models/rfdetr-seg-2xlarge.onnx "https://huggingface.co/ArbenApura/koharu-layout-rfdetr/resolve/main/rfdetr-seg-2xlarge.onnx"
           echo "Downloading LaMa Inpainting (~206MB)..."
           curl -f -sSL -o models/lama.onnx "https://huggingface.co/ogkalu/lama-manga-onnx-dynamic/resolve/main/lama-manga-dynamic.onnx"
           echo "Downloading PP-OCR Detection (~10MB)..."
@@ -83,8 +83,6 @@ jobs:
           curl -f -sSL -o models/cyrillic_mobile_v2.0_rec.onnx "https://huggingface.co/xberg-io/paddleocr-onnx-models/resolve/main/rec/eslav/model.onnx"
           echo "Downloading Thai OCR Recognition (~8MB)..."
           curl -f -sSL -o models/th_PP-OCRv5_mobile_rec.onnx "https://huggingface.co/xberg-io/paddleocr-onnx-models/resolve/main/rec/thai/model.onnx"
-          echo "Downloading PP-OCR Direction Classifier (~0.6MB)..."
-          curl -f -sSL -o models/ch_ppocr_mobile_v2.0_cls_mobile.onnx "https://huggingface.co/xberg-io/paddleocr-onnx-models/resolve/main/ch_ppocr_mobile_v2.0_cls_infer.onnx"
           ls -lh models/
 
       - name: Stage Standalone Node.js Runtime for Embedded Binary

@@ -110,6 +110,15 @@ export const pages = sqliteTable(
 		// (E.G. PAGE STITCH), SO IMMUTABLE-CACHED kind=original URLS GET A FRESH
 		// VALUE INSTEAD OF SERVING PRE-MERGE PIXELS.
 		originalRev: integer('original_rev').notNull().default(0),
+		// JSON-ENCODED DETECTED MANGA / COMIC PANEL FRAMES [{ id, seq, box, polygon }].
+		panels: text('panels'),
+		// JSON-ENCODED DETECTED ONOMATOPOEIA / SOUND EFFECT FRAMES [{ id, seq, box, score }].
+		onomatopoeia: text('onomatopoeia'),
+		// RAW LLM PROMPT AND RESPONSE STRINGS FOR DEBUGGING AND INSPECTION.
+		llmPrompt: text('llm_prompt'),
+		llmResponse: text('llm_response'),
+		// RAW OCR PIPELINE DIAGNOSTICS AND TIMING STATS FOR TROUBLESHOOTING.
+		ocrStats: text('ocr_stats'),
 		error: text('error'),
 		createdAt: epochMs('created_at')
 			.notNull()
@@ -133,6 +142,10 @@ export const regions = sqliteTable(
 		seq: integer('seq').notNull(),
 		// {x,y,w,h} JSON — THE DETECTOR'S AXIS-ALIGNED BOX.
 		box: text('box').notNull(),
+		// {x,y,w,h} JSON — TIER 2 INPAINT MASK BOUNDARY (+6% EXPANSION).
+		inpaintBox: text('inpaint_box'),
+		// {x,y,w,h} JSON — TIER 3 TYPESETTING LAYOUT BOX (+12% EXPANSION).
+		typesetBox: text('typeset_box'),
 		// [[x,y],...] JSON — THE DETECTOR'S POLYGON (MORE PRECISE THAN THE BOX FOR INPAINT MASKS).
 		polygon: text('polygon'),
 		// OCR TEXT IN THE SOURCE LANGUAGE AND THE LLM TRANSLATION INTO THE TARGET LANGUAGE.
@@ -231,7 +244,6 @@ export const translations = sqliteTable(
 		promptTokens: integer('prompt_tokens'),
 		cachedTokens: integer('cached_tokens'),
 		completionTokens: integer('completion_tokens'),
-		costUsd: real('cost_usd'),
 		createdAt: epochMs('created_at')
 			.notNull()
 			.$defaultFn(() => Date.now()),
@@ -245,8 +257,8 @@ export const translations = sqliteTable(
 	}),
 );
 
-// LEDGER OF AI SPEND OUTSIDE THE translations CACHE — 'extract' | 'title' | 'term' | 'repair' PIPELINE
-// CALLS. RECORDED AT THE CALL SITE SO COST IS CAPTURED EVEN IF THE OVERALL JOB LATER FAILS.
+// LEDGER OF AI TOKEN USAGE OUTSIDE THE translations CACHE — 'extract' | 'title' | 'term' | 'repair' PIPELINE
+// CALLS. RECORDED AT THE CALL SITE EVEN IF THE OVERALL JOB LATER FAILS.
 export const aiUsage = sqliteTable(
 	'ai_usage',
 	{
@@ -258,7 +270,6 @@ export const aiUsage = sqliteTable(
 		promptTokens: integer('prompt_tokens').notNull().default(0),
 		cachedTokens: integer('cached_tokens').notNull().default(0),
 		completionTokens: integer('completion_tokens').notNull().default(0),
-		costUsd: real('cost_usd').notNull().default(0),
 		createdAt: epochMs('created_at')
 			.notNull()
 			.$defaultFn(() => Date.now()),

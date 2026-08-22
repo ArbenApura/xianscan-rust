@@ -164,7 +164,7 @@ export async function extractTerms(
 ): Promise<{ terms: TermDraft[]; usage: TranslationUsage }> {
 	const client = opts.client ?? createClient();
 	const model = resolveModel(opts.model);
-	const usage = { model, promptTokens: 0, cachedTokens: 0, completionTokens: 0, costUsd: 0 } as TranslationUsage;
+	const usage = { model, promptTokens: 0, cachedTokens: 0, completionTokens: 0 } as TranslationUsage;
 
 	if (!content.trim()) return { terms: [], usage };
 
@@ -227,7 +227,6 @@ export async function extractTerms(
 			usage.promptTokens += u.promptTokens;
 			usage.cachedTokens += u.cachedTokens;
 			usage.completionTokens += u.completionTokens;
-			usage.costUsd += u.costUsd;
 
 			const extracted = parseExtractedTerms(raw, content);
 			for (const term of extracted) {

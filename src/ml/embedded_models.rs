@@ -1,7 +1,7 @@
 //! Embedded model weights compiled into the binary when `--features embed-models` is active.
 
 #[cfg(feature = "embed-models")]
-pub static COMIC_DET_BYTES: &[u8] = include_bytes!("../../models/comic_text_and_bubble_detector.onnx");
+pub static COMIC_DET_BYTES: &[u8] = include_bytes!("../../models/rfdetr-seg-2xlarge.onnx");
 
 #[cfg(feature = "embed-models")]
 pub static PPOCR_DET_BYTES: &[u8] = include_bytes!("../../models/PP-OCRv6_det_small.onnx");
@@ -32,6 +32,3 @@ pub static THAI_REC_BYTES: &[u8] = include_bytes!("../../models/th_PP-OCRv5_mobi
 
 #[cfg(feature = "embed-models")]
 pub static THAI_DICT: &str = include_str!("../../models/th_dict.txt");
-
-#[cfg(feature = "embed-models")]
-pub static PPOCR_CLS_BYTES: &[u8] = include_bytes!("../../models/ch_ppocr_mobile_v2.0_cls_mobile.onnx");

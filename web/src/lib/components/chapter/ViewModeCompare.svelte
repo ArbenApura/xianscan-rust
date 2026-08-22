@@ -152,7 +152,7 @@
 					<button
 						type="button"
 						disabled={page.status === 'processing'}
-						on:click={() => dispatch('inspect', page)}
+						on:click={() => dispatch('inspect', { page, initialTab: page.outputPath ? 'output' : 'original' })}
 						use:ripple
 						title="Inspect Page"
 						class="flex items-center gap-1 rounded-md bg-black/5 px-2 py-1 text-xs font-semibold transition hover:bg-black/10 disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-black/5 dark:bg-white/5 dark:hover:bg-white/10 dark:disabled:hover:bg-white/5"
@@ -180,7 +180,7 @@
 							src={`/api/pages/${page.id}/file?kind=original&rev=${page.originalRev ?? 0}`}
 							alt={`Page ${page.seq + 1} Original`}
 							imgClass={`object-contain ${page.status === 'processing' ? 'opacity-80' : ''}`}
-							on:click={(e) => page.status !== 'processing' && dispatch('inspect', page)}
+							on:click={(e) => page.status !== 'processing' && dispatch('inspect', { page, initialTab: 'original' })}
 						/>
 						<div class="pointer-events-none absolute bottom-2 left-2 flex items-center gap-1.5">
 							<span
@@ -205,7 +205,7 @@
 								src={`/api/pages/${page.id}/file?kind=output&rev=${page.outputRev ?? 0}`}
 								alt={`Page ${page.seq + 1} Output`}
 								imgClass={`object-contain ${page.status === 'processing' ? 'opacity-80' : ''}`}
-								on:click={(e) => page.status !== 'processing' && dispatch('inspect', page)}
+								on:click={(e) => page.status !== 'processing' && dispatch('inspect', { page, initialTab: 'output' })}
 							/>
 							<div class="pointer-events-none absolute bottom-2 left-2 flex items-center gap-1.5">
 								<span

@@ -251,7 +251,6 @@ function updateSnapshot(snapshot: ChapterJobSnapshot, event: JobEvent): void {
 			snapshot.failedPages = snapshot.pages.filter((p) => p.status === 'error').length;
 		}
 	} else if (event.type === 'usage' && event.usage) {
-		snapshot.totalCostUsd += event.usage.costUsd ?? 0;
 		snapshot.totalPromptTokens += event.usage.promptTokens ?? 0;
 		snapshot.totalCompletionTokens += event.usage.completionTokens ?? 0;
 	} else if (event.type === 'done') {
@@ -320,7 +319,6 @@ export function startChapterJob(chapterId: number, work: ChapterJobWork, opts: {
 		totalPages: 0,
 		completedPages: 0,
 		failedPages: 0,
-		totalCostUsd: 0,
 		totalPromptTokens: 0,
 		totalCompletionTokens: 0,
 		cacheHitCount: 0,

@@ -1,6 +1,6 @@
 [package]
 name = "xianscan-rust"
-version = "0.2.1"
+version = "0.2.2"
 edition = "2021"
 
 [[bin]]
@@ -41,6 +41,7 @@ rayon = "1.10"
 # ONNX Runtime ML Engine
 ort = { version = "2.0.0-rc.9", default-features = false, features = ["download-binaries", "copy-dylibs", "tls-rustls"] }
 num_cpus = "1.16"
+mimalloc = { version = "0.1", default-features = false }
 
 # SQLite Database
 rusqlite = { version = "0.32", features = ["bundled"] }
@@ -76,6 +77,7 @@ reqwest = { version = "0.12", features = ["json", "stream"] }
 
 [dev-dependencies]
 tempfile = "3.17"
+ab_glyph = "0.2"
 
 # DEV BUILD SPEED OPTIMIZATIONS:
 # 1. Keeps external heavy crates (ort, image, ndarray, axum) at opt-level 3 so ML runs at full release speed.

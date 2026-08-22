@@ -1,6 +1,6 @@
 import { XianScanClient } from './api';
 import type { BookSummary, ChapterMetadata, ChapterSummary, ScannedImage, ScanPageResponse } from './types';
-import { sortImagesByCoordinates, isPlaceholderImage } from './utils/sorter';
+import { sortImagesByCoordinates, isPlaceholderImage, computeDHashFromElement } from './utils/sorter';
 
 class PopupController {
 	private client: XianScanClient;
@@ -696,7 +696,7 @@ class PopupController {
 
 			image.onload = () => {
 				if (image.naturalWidth > 0 && image.naturalHeight > 0) {
-					// Drop tiny blur placeholders (< 100px)
+					// DROP TINY BLUR PLACEHOLDERS (< 100PX)
 					if (image.naturalWidth < 100 && image.naturalHeight < 100) {
 						this.images = this.images.filter(i => i !== img);
 						card.remove();
@@ -704,6 +704,23 @@ class PopupController {
 						this.updateSelectionSummary();
 						return;
 					}
+
+					// COMPUTE DHASH AND DROP DELAYED DUPLICATE IMAGES
+					const computedHash = computeDHashFromElement(image);
+					if (computedHash) {
+						const isDuplicate = this.images.some(
+							other => other !== img && other.dhash && other.dhash === computedHash
+						);
+						if (isDuplicate) {
+							this.images = this.images.filter(i => i !== img);
+							card.remove();
+							this.renumberGalleryCards();
+							this.updateSelectionSummary();
+							return;
+						}
+						img.dhash = computedHash;
+					}
+
 					dimLabel.textContent = `${image.naturalWidth}×${image.naturalHeight}`;
 					img.width = image.naturalWidth;
 					img.height = image.naturalHeight;

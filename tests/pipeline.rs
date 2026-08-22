@@ -92,6 +92,9 @@ fn test_pipeline_analyze_with_language_filtering() {
     let zh_opts = AnalyzeOptions {
         source_lang: Some("zh-Hans".to_string()),
         target_lang: Some("en".to_string()),
+        inpaint_padding_pct: None,
+        typeset_padding_pct: None,
+        enable_watermark_inpaint: None,
     };
     let zh_res = engine.analyze_image_with_options(&img, Some(&zh_opts)).expect("ZH analyze failed");
 
@@ -101,4 +104,39 @@ fn test_pipeline_analyze_with_language_filtering() {
         let is_standalone_alpha = xianscan_rust::ml::detect::is_standalone_alphanumeric_without_cjk(text);
         assert!(!is_standalone_alpha, "Region '{}' should not be standalone alphanumeric in CJK mode", text);
     }
+}
+
+/// # End-to-End Pipeline Test with Koharu RF-DETR Seg on Japanese Manga Fixture
+#[test]
+fn test_end_to_end_pipeline_with_rfdetr_on_manga_fixture() {
+    use xianscan_rust::ml::schemas::AnalyzeOptions;
+
+    let img = match common::load_fixture_or_skip("ja", "manga_kotatsu_timing_tea_club_lottery.webp") {
+        Some(i) => i,
+        None => {
+            eprintln!("[INFO] Skipping test_end_to_end_pipeline_with_rfdetr_on_manga_fixture: fixture not found");
+            return;
+        }
+    };
+
+    let models_dir = Path::new("models");
+    let mut engine = PipelineEngine::new(models_dir);
+
+    let opts = AnalyzeOptions {
+        source_lang: Some("ja".to_string()),
+        target_lang: Some("en".to_string()),
+        inpaint_padding_pct: None,
+        typeset_padding_pct: None,
+        enable_watermark_inpaint: None,
+    };
+
+    let res = engine.analyze_image_with_options(&img, Some(&opts)).expect("Pipeline analyze failed");
+
+    println!("Pipeline analyze with RF-DETR produced backend='{}', {} regions:", res.backend, res.regions.len());
+    for (i, r) in res.regions.iter().enumerate() {
+        println!("[{}] kind={:?}, text='{}', box={:?}", i, r.kind, r.text.replace('\n', " "), r.box_);
+    }
+
+    assert_eq!(res.backend, "rfdetr-seg-2xl");
+    assert!(!res.regions.is_empty(), "Must produce dialogue regions");
 }

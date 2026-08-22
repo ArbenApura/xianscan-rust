@@ -110,7 +110,7 @@ describe('translation cache disabled', () => {
 			key,
 			new Map([['r0', 'Hello']]),
 			'deepseek-v4-flash',
-			{ model: 'deepseek-v4-flash', promptTokens: 10, cachedTokens: 0, completionTokens: 2, costUsd: 0.001 },
+			{ model: 'deepseek-v4-flash', promptTokens: 10, cachedTokens: 0, completionTokens: 2 },
 		);
 
 		expect(getCachedPageTranslation(page.id, key)).toBeNull();
@@ -212,7 +212,7 @@ describe('startChapterJob', () => {
 			});
 			emit({
 				type: 'usage',
-				usage: { model: 'deepseek-v4-flash', promptTokens: 100, cachedTokens: 0, completionTokens: 20, costUsd: 0.002 },
+				usage: { model: 'deepseek-v4-flash', promptTokens: 100, cachedTokens: 0, completionTokens: 20 },
 			});
 			emit({
 				type: 'page-done',
@@ -233,7 +233,8 @@ describe('startChapterJob', () => {
 		expect(snapshot?.status).toBe('done');
 		expect(snapshot?.totalPages).toBe(2);
 		expect(snapshot?.completedPages).toBe(1);
-		expect(snapshot?.totalCostUsd).toBe(0.002);
+		expect(snapshot?.totalPromptTokens).toBe(100);
+		expect(snapshot?.totalCompletionTokens).toBe(20);
 		expect(snapshot?.pages[0].timings.analyze?.durationMs).toBe(120);
 		expect(snapshot?.pages[0].outputPath).toBe('output/5/0.png');
 	});

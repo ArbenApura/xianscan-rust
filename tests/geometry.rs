@@ -64,6 +64,8 @@ fn test_region_schema_default_angle() {
         confidence: 0.95,
         vertical: false,
         angle: 0.0,
+        inpaint_box: None,
+        typeset_box: None,
         is_title: false,
         is_subtitle: false,
     };
@@ -108,7 +110,7 @@ fn test_pipeline_computes_angle_from_matched_ocr_lines() {
     assert!((ang1 - 9.0).abs() < 0.5);
     assert!((ang2 - 9.5).abs() < 0.5);
 
-    let mut line_angles = vec![ang1, ang2];
+    let mut line_angles = [ang1, ang2];
     line_angles.sort_by(|a, b| a.total_cmp(b));
     let median_angle = line_angles[line_angles.len() / 2];
     assert!((median_angle - 9.2).abs() < 0.5);

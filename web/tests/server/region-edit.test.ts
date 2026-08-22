@@ -12,7 +12,7 @@ vi.mock('$lib/server/db', async () => ({
 
 const mockTranslateSingleText = vi.fn(async (text: string, pair: any, opts: any) => ({
 	text: `Translated: ${text}${opts.instruction ? ` [${opts.instruction}]` : ''}`,
-	usage: { promptTokens: 10, completionTokens: 5, totalTokens: 15, costUsd: 0 },
+	usage: { promptTokens: 10, completionTokens: 5, totalTokens: 15 },
 }));
 
 vi.mock('$lib/server/translate', async (importOriginal) => {

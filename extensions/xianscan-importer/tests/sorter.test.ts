@@ -1,6 +1,67 @@
 import { describe, it, expect } from 'vitest';
-import { sortImagesByCoordinates, naturalAlphanumericSort } from '../src/utils/sorter';
+import {
+	sortImagesByCoordinates,
+	naturalAlphanumericSort,
+	getCanonicalUrl,
+	deduplicateScannedImages
+} from '../src/utils/sorter';
 import type { ScannedImage } from '../src/types';
+
+describe('getCanonicalUrl', () => {
+	it('strips volatile tracking and cache-busting query parameters', () => {
+		const raw1 = 'https://cdn.manga.com/ch1/01.jpg?t=1692800000&token=abc123xyz&v=2';
+		const raw2 = 'https://cdn.manga.com/ch1/01.jpg?width=800&quality=90&sig=deadbeef';
+		const raw3 = 'https://cdn.manga.com/ch1/01.jpg?utm_source=reader&utm_medium=web';
+
+		expect(getCanonicalUrl(raw1)).toBe('https://cdn.manga.com/ch1/01.jpg');
+		expect(getCanonicalUrl(raw2)).toBe('https://cdn.manga.com/ch1/01.jpg');
+		expect(getCanonicalUrl(raw3)).toBe('https://cdn.manga.com/ch1/01.jpg');
+	});
+
+	it('preserves non-volatile query parameters', () => {
+		const raw = 'https://cdn.manga.com/api/image?page=1&chapter=10';
+		expect(getCanonicalUrl(raw)).toBe('https://cdn.manga.com/api/image?page=1&chapter=10');
+	});
+});
+
+describe('deduplicateScannedImages', () => {
+	it('deduplicates images with different cache-busting query params', () => {
+		const images: ScannedImage[] = [
+			{ url: 'https://site.com/ch1/01.jpg?v=1', width: 800, height: 1200, top: 0, left: 0 },
+			{ url: 'https://site.com/ch1/01.jpg?v=2', width: 800, height: 1200, top: 0, left: 0 },
+			{ url: 'https://site.com/ch1/02.jpg?v=1', width: 800, height: 1200, top: 1200, left: 0 }
+		];
+
+		const deduped = deduplicateScannedImages(images);
+		expect(deduped.length).toBe(2);
+		expect(deduped[0].url).toBe('https://site.com/ch1/01.jpg?v=1');
+		expect(deduped[1].url).toBe('https://site.com/ch1/02.jpg?v=1');
+	});
+
+	it('deduplicates images by visual perceptual dhash', () => {
+		const images: ScannedImage[] = [
+			{ url: 'https://site.com/ch1/01.jpg', dhash: 'f0f0f0f0a5a5a5a5', width: 800, height: 1200, top: 0, left: 0 },
+			{ url: 'https://mirror.cdn.com/different_name.jpg', dhash: 'f0f0f0f0a5a5a5a5', width: 800, height: 1200, top: 50, left: 0 },
+			{ url: 'https://site.com/ch1/02.jpg', dhash: '0000ffff11112222', width: 800, height: 1200, top: 1200, left: 0 }
+		];
+
+		const deduped = deduplicateScannedImages(images);
+		expect(deduped.length).toBe(2);
+		expect(deduped[0].url).toBe('https://site.com/ch1/01.jpg');
+		expect(deduped[1].url).toBe('https://site.com/ch1/02.jpg');
+	});
+
+	it('deduplicates overlapping clone elements at exact coordinates', () => {
+		const images: ScannedImage[] = [
+			{ url: 'https://site.com/img1.jpg', width: 800, height: 1200, top: 500, left: 20 },
+			{ url: 'https://site.com/img_clone.jpg', width: 800, height: 1200, top: 500, left: 20 }
+		];
+
+		const deduped = deduplicateScannedImages(images);
+		expect(deduped.length).toBe(1);
+		expect(deduped[0].url).toBe('https://site.com/img1.jpg');
+	});
+});
 
 describe('sortImagesByCoordinates', () => {
 	it('sorts images vertically from top to bottom', () => {
@@ -68,3 +129,4 @@ describe('naturalAlphanumericSort', () => {
 		expect(sorted).toEqual(['page_1.jpg', 'page_2.jpg', 'page_3.jpg', 'page_10.jpg', 'page_20.jpg']);
 	});
 });
+

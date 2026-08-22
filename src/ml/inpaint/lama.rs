@@ -2,6 +2,7 @@ use std::path::Path;
 use anyhow::{Context, Result};
 use image::{DynamicImage, GenericImageView, ImageBuffer, Luma, Rgb};
 use ort::{session::Session, value::Tensor};
+use rayon::prelude::*;
 
 use super::patch::{find_mask_components, is_solid_background_patch};
 
@@ -184,27 +185,30 @@ impl LamaInpainter {
         let padded_w = (w + pad_w) as usize;
         let padded_h = (h + pad_h) as usize;
 
-        let mut img_tensor = vec![0.0_f32; 1 * 3 * padded_h * padded_w];
-        let mut mask_tensor = vec![0.0_f32; 1 * 1 * padded_h * padded_w];
+        let mut img_tensor = vec![0.0_f32; 3 * padded_h * padded_w];
+        let mut mask_tensor = vec![0.0_f32; padded_h * padded_w];
 
         let stride_c = padded_h * padded_w;
         let stride_y = padded_w;
 
-        for y in 0..h as usize {
-            for x in 0..w as usize {
-                let p = img.get_pixel(x as u32, y as u32);
-                let r = p[0] as f32 / 255.0;
-                let g = p[1] as f32 / 255.0;
-                let b = p[2] as f32 / 255.0;
-
-                img_tensor[0 * stride_c + y * stride_y + x] = r;
-                img_tensor[1 * stride_c + y * stride_y + x] = g;
-                img_tensor[2 * stride_c + y * stride_y + x] = b;
-
-                let m = mask.get_pixel(x as u32, y as u32)[0];
-                mask_tensor[y * stride_y + x] = if m > 0 { 1.0 } else { 0.0 };
+        // FILL THE THREE IMAGE CHANNELS IN PARALLEL
+        img_tensor.par_chunks_mut(stride_c).enumerate().for_each(|(c, plane)| {
+            for y in 0..h as usize {
+                let row_offset = y * stride_y;
+                for x in 0..w as usize {
+                    let p = img.get_pixel(x as u32, y as u32);
+                    plane[row_offset + x] = p[c] as f32 / 255.0;
+                }
             }
-        }
+        });
+
+        // FILL MASK TENSOR IN PARALLEL ACROSS ROWS
+        mask_tensor.par_chunks_mut(stride_y).enumerate().take(h as usize).for_each(|(y, row_slice)| {
+            for x in 0..w as usize {
+                let m = mask.get_pixel(x as u32, y as u32)[0];
+                row_slice[x] = if m > 0 { 1.0 } else { 0.0 };
+            }
+        });
 
         let input_img = Tensor::from_array(([1, 3, padded_h, padded_w], img_tensor))
             .map_err(|e| anyhow::anyhow!("Tensor create img error: {}", e))?;
@@ -221,9 +225,10 @@ impl LamaInpainter {
 
         for y in 0..h as usize {
             for x in 0..w as usize {
-                let r_val = (out_slice[0 * stride_c + y * stride_y + x] * 255.0).clamp(0.0, 255.0) as u8;
-                let g_val = (out_slice[1 * stride_c + y * stride_y + x] * 255.0).clamp(0.0, 255.0) as u8;
-                let b_val = (out_slice[2 * stride_c + y * stride_y + x] * 255.0).clamp(0.0, 255.0) as u8;
+                let base_idx = y * stride_y + x;
+                let r_val = (out_slice[base_idx] * 255.0).clamp(0.0, 255.0) as u8;
+                let g_val = (out_slice[stride_c + base_idx] * 255.0).clamp(0.0, 255.0) as u8;
+                let b_val = (out_slice[2 * stride_c + base_idx] * 255.0).clamp(0.0, 255.0) as u8;
 
                 result_img.put_pixel(x as u32, y as u32, Rgb([r_val, g_val, b_val]));
             }

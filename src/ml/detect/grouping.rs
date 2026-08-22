@@ -1,543 +1,9 @@
-use regex::Regex;
+// -- CRATE / EXTERNAL IMPORTS -- //
 use crate::ml::geometry::{box_iou_f32, box_to_xywh_f32};
-use super::text_clean::{is_watermark_line, ALL_ELLIPSIS, CHINESE_RE, PUNCT_ONLY};
 
-/// Merge horizontal text boxes that sit on the same line (Python merge_text_lines port).
-pub fn merge_text_lines(
-    boxes: &[Vec<[f32; 2]>],
-    scores: &[f32],
-    texts: Option<&[String]>,
-    overlap_min: f32,
-    gap_factor: f32,
-    height_sim_max: f32,
-) -> (Vec<Vec<[f32; 2]>>, Vec<f32>) {
-    if boxes.is_empty() {
-        return (Vec::new(), Vec::new());
-    }
+// -- FUNCTIONS & ALGORITHMS -- //
 
-    let default_texts = vec![String::new(); boxes.len()];
-    let txt_slice = texts.unwrap_or(&default_texts);
-
-    let mut indexed: Vec<(usize, &Vec<[f32; 2]>, f32, &str)> = boxes
-        .iter()
-        .zip(scores.iter())
-        .zip(txt_slice.iter())
-        .enumerate()
-        .map(|(idx, ((b, &s), t))| (idx, b, s, t.as_str()))
-        .collect();
-
-    indexed.sort_by(|a, b| {
-        let (ax, ay, _, _) = box_to_xywh_f32(a.1);
-        let (bx, by, _, _) = box_to_xywh_f32(b.1);
-        ax.total_cmp(&bx).then(ay.total_cmp(&by))
-    });
-
-    // Struct: [x0, y0, x1, y1, score, is_wm, text]
-    struct MergedLine {
-        x0: f32,
-        y0: f32,
-        x1: f32,
-        y1: f32,
-        score: f32,
-        is_wm: bool,
-        text: String,
-    }
-
-    let mut lines: Vec<MergedLine> = Vec::new();
-
-    for (_idx, box_pts, score, txt) in indexed {
-        let (x, y, w, h) = box_to_xywh_f32(box_pts);
-        let x1 = x + w;
-        let y1 = y + h;
-        let is_wm = is_watermark_line(txt);
-
-        if h > w * 1.2 {
-            // Vertical text column — its own line, never horizontally merged
-            lines.push(MergedLine {
-                x0: x,
-                y0: y,
-                x1,
-                y1,
-                score,
-                is_wm,
-                text: txt.to_string(),
-            });
-            continue;
-        }
-
-        let mut placed = false;
-        let cy = y + h / 2.0;
-
-        for ln in &mut lines {
-            if is_wm != ln.is_wm {
-                continue;
-            }
-            let lh = ln.y1 - ln.y0;
-            let min_h = h.min(lh);
-            let overlap = y1.min(ln.y1) - y.max(ln.y0);
-            let lcy = ln.y0 + lh / 2.0;
-
-            if (overlap < 0.60 * min_h && (cy - lcy).abs() > 0.40 * min_h) || overlap < overlap_min * min_h {
-                continue;
-            }
-
-            let gap = x - ln.x1;
-            if gap > gap_factor * h.max(lh) {
-                continue;
-            }
-
-            let x_inter = x1.min(ln.x1) - x.max(ln.x0);
-            let min_w = w.min(ln.x1 - ln.x0);
-            let is_same_line_detection = (x_inter >= 0.40 * min_w) && (overlap >= 0.40 * min_h);
-
-            let has_words = !txt.trim().is_empty() && CHINESE_RE.is_match(txt);
-            let is_trailing_segment = (overlap >= 0.70 * min_h)
-                && (x >= ln.x0)
-                && (gap <= gap_factor * h.max(lh))
-                && (gap >= -0.50 * h.max(lh))
-                && !has_words
-                && (h <= 0.65 * lh || w <= 160.0 || txt.trim().is_empty() || PUNCT_ONLY.is_match(txt.trim()) || ALL_ELLIPSIS.is_match(txt.trim()));
-
-            let c_count_l = CHINESE_RE.find_iter(&ln.text).count();
-            let c_count_r = CHINESE_RE.find_iter(txt).count();
-            let has_words_l = c_count_l >= 3;
-            let has_words_r = c_count_r >= 3;
-            if has_words_l && has_words_r && gap >= 8.0_f32.max(0.25 * h.max(lh)) {
-                continue;
-            }
-
-            if !is_same_line_detection && !is_trailing_segment && (h.max(lh) / 1.0_f32.max(min_h)) > height_sim_max {
-                continue;
-            }
-
-            if gap < -h.max(lh) * 0.30 && !is_trailing_segment {
-                let union_w = x1.max(ln.x1) - x.min(ln.x0);
-                if union_w > w.max(ln.x1 - ln.x0) * 1.20 {
-                    continue;
-                }
-            }
-
-            let terminal_punct = "。!！?？）】”\"'~～:：;；";
-            let ln_trimmed = ln.text.trim_end();
-            if !ln_trimmed.is_empty() && terminal_punct.chars().any(|c| ln_trimmed.ends_with(c)) && gap >= -h.max(lh) * 0.40 {
-                let ui_prefix_re = Regex::new(r"^(?:嘟|叮|提示|系统|注意)[!！:：]?$").unwrap();
-                let is_ui_prefix = ui_prefix_re.is_match(ln_trimmed);
-                if is_ui_prefix && gap <= 1.2 * h.max(lh) {
-                    // Allow UI prefix
-                } else {
-                    let union_w = x1.max(ln.x1) - x.min(ln.x0);
-                    if union_w > w.max(ln.x1 - ln.x0) * 1.20 {
-                        continue;
-                    }
-                }
-            }
-
-            ln.x0 = ln.x0.min(x);
-            ln.y0 = ln.y0.min(y);
-            ln.x1 = ln.x1.max(x1);
-            ln.y1 = ln.y1.max(y1);
-            ln.score = ln.score.max(score);
-            if !txt.trim().is_empty() {
-                ln.text = if ln.text.is_empty() {
-                    txt.to_string()
-                } else {
-                    format!("{} {}", ln.text, txt)
-                };
-            }
-            placed = true;
-            break;
-        }
-
-        if !placed {
-            lines.push(MergedLine {
-                x0: x,
-                y0: y,
-                x1,
-                y1,
-                score,
-                is_wm,
-                text: txt.to_string(),
-            });
-        }
-    }
-
-    let mut merged_boxes = Vec::new();
-    let mut merged_scores = Vec::new();
-
-    for l in lines {
-        merged_boxes.push(vec![
-            [l.x0, l.y0],
-            [l.x1, l.y0],
-            [l.x1, l.y1],
-            [l.x0, l.y1],
-        ]);
-        merged_scores.push(l.score);
-    }
-
-    (merged_boxes, merged_scores)
-}
-
-/// Groups vertically stacked text lines into multi-line speech bubbles / paragraphs (group_paragraphs port).
-pub fn group_paragraphs(
-    boxes: &[Vec<[f32; 2]>],
-    scores: &[f32],
-    texts: Option<&[String]>,
-    overlap_min: f32,
-    gap_factor: f32,
-    height_sim_max: f32,
-    centroid_drift_max: f32,
-) -> (Vec<Vec<[f32; 2]>>, Vec<f32>) {
-    if boxes.is_empty() {
-        return (Vec::new(), Vec::new());
-    }
-
-    let default_texts = vec![String::new(); boxes.len()];
-    let txt_slice = texts.unwrap_or(&default_texts);
-
-    struct Paragraph {
-        boxes: Vec<Vec<[f32; 2]>>,
-        score: f32,
-        is_url: bool,
-        cx_list: Vec<f32>,
-        texts: Vec<String>,
-    }
-
-    let mut paragraphs: Vec<Paragraph> = Vec::new();
-
-    // 1. Group adjacent vertical columns into multi-column vertical speech bubbles (Japanese/CJK)
-    let mut vert_candidates: Vec<(&Vec<[f32; 2]>, f32, &String)> = boxes
-        .iter()
-        .zip(scores.iter())
-        .zip(txt_slice.iter())
-        .filter(|((b, _), _)| {
-            let (_, _, w, h) = box_to_xywh_f32(b);
-            h > w * 1.2
-        })
-        .map(|((b, &s), t)| (b, s, t))
-        .collect();
-
-    vert_candidates.sort_by(|a, b| {
-        let (ax, _, _, _) = box_to_xywh_f32(a.0);
-        let (bx, _, _, _) = box_to_xywh_f32(b.0);
-        ax.total_cmp(&bx)
-    });
-
-    for (box_pts, score, txt) in vert_candidates {
-        let (x, y, w, h) = box_to_xywh_f32(box_pts);
-        let x1 = x + w;
-        let y1 = y + h;
-        let box_url = is_watermark_line(txt);
-        let mut placed = false;
-
-        let cand_strip = txt.trim();
-        let cand_ends_terminal = cand_strip.lines().any(|ln| {
-            let s = ln.trim();
-            s.ends_with(['？', '?', '！', '!', '。'])
-                || (s.ends_with('…') && s.chars().count() >= 3)
-        });
-
-        for p in &mut paragraphs {
-            if box_url != p.is_url {
-                continue;
-            }
-
-            let mut can_group_with_p = true;
-            let mut matches_any_b = false;
-
-            for (b, b_txt) in p.boxes.iter().zip(p.texts.iter()) {
-                let (bx, by, bw, bh) = box_to_xywh_f32(b);
-                let bx1 = bx + bw;
-                let by1 = by + bh;
-
-                let v_overlap = y1.min(by1) - y.max(by);
-                let min_h = h.min(bh);
-                let max_h = h.max(bh);
-                let h_gap = (x - bx1).abs().min((bx - x1).abs());
-
-                let b_strip = b_txt.trim();
-                let b_ends_terminal = b_strip.lines().any(|ln| {
-                    let s = ln.trim();
-                    s.ends_with(['？', '?', '！', '!', '。'])
-                        || (s.ends_with('…') && s.chars().count() >= 3)
-                });
-
-                // A column ending in terminal punctuation is a complete utterance. It may still
-                // pair with a further column, but only a vertically ALIGNED one (same bubble,
-                // side-by-side columns). A vertically STAGGERED column is a separate bubble below,
-                // and must never be glued to a complete utterance.
-                let vertically_aligned = v_overlap >= 0.70 * min_h;
-                if (b_ends_terminal || cand_ends_terminal) && !vertically_aligned {
-                    can_group_with_p = false;
-                    break;
-                }
-
-                // Restrict grouping to legitimate multi-column bubbles of similar line heights
-                if v_overlap >= 0.40 * min_h && h_gap <= 24.0 && (w + bw) <= 220.0 && max_h <= 3.2 * min_h {
-                    matches_any_b = true;
-                }
-            }
-
-            if can_group_with_p && matches_any_b {
-                p.boxes.push(box_pts.clone());
-                p.cx_list.push(x + w / 2.0);
-                p.texts.push(txt.clone());
-                p.score = p.score.max(score);
-                placed = true;
-                break;
-            }
-        }
-
-        if !placed {
-            paragraphs.push(Paragraph {
-                boxes: vec![box_pts.clone()],
-                score,
-                is_url: box_url,
-                cx_list: vec![x + w / 2.0],
-                texts: vec![txt.clone()],
-            });
-        }
-    }
-
-    let mut horizontal: Vec<(&Vec<[f32; 2]>, f32, &String)> = boxes
-        .iter()
-        .zip(scores.iter())
-        .zip(txt_slice.iter())
-        .filter(|((b, _), _)| {
-            let (_, _, w, h) = box_to_xywh_f32(b);
-            h <= w * 1.2
-        })
-        .map(|((b, &s), t)| (b, s, t))
-        .collect();
-
-    horizontal.sort_by(|a, b| {
-        let (ax, ay, _, _) = box_to_xywh_f32(a.0);
-        let (bx, by, _, _) = box_to_xywh_f32(b.0);
-        ay.total_cmp(&by).then(ax.total_cmp(&bx))
-    });
-
-    for (box_pts, score, txt) in horizontal {
-        let (x, y, w, h) = box_to_xywh_f32(box_pts);
-        let x1 = x + w;
-        let box_url = is_watermark_line(txt);
-        let mut placed = false;
-
-        for p in &mut paragraphs {
-            if box_url != p.is_url {
-                continue;
-            }
-
-            // Do not merge horizontal line into a strictly vertical column paragraph
-            let is_target_vert_para = p.boxes.iter().any(|b| {
-                let (_, _, bw, bh) = box_to_xywh_f32(b);
-                bh > bw * 1.5
-            });
-            if is_target_vert_para {
-                continue;
-            }
-
-            let last = p.boxes.last().unwrap();
-            let (lx, ly, lw, lh) = box_to_xywh_f32(last);
-            let lx1 = lx + lw;
-
-            let last_txt = p.texts.last().map(|s| s.as_str()).unwrap_or("");
-            let raw_cand_lines = txt.trim().split('\n').filter(|s| !s.trim().is_empty()).count().max(1);
-            let raw_last_lines = last_txt.trim().split('\n').filter(|s| !s.trim().is_empty()).count().max(1);
-            let last_line_count = (lh / 22.0).round().max(1.0) as usize;
-            let last_line_cnt = raw_last_lines.max(1).min(last_line_count.max(1)) as f32;
-            let eff_lh = lh / last_line_cnt;
-
-            let cand_max_lines = (h / 22.0).round().max(1.0) as usize;
-            let cand_line_cnt = if eff_lh > 0.0 && h <= 1.6 * eff_lh {
-                1.0
-            } else {
-                (raw_cand_lines.max(1).min(cand_max_lines.max(1))) as f32
-            };
-            let eff_h = h / cand_line_cnt;
-            let min_eff_h = eff_h.min(eff_lh);
-
-            let is_left_aligned = (x - lx).abs() <= 0.25 * w.min(lw);
-            let is_right_aligned = (x1 - lx1).abs() <= 0.25 * w.min(lw);
-            let new_cx = x + w / 2.0;
-            let para_mean_cx = p.cx_list.iter().sum::<f32>() / p.cx_list.len() as f32;
-            let overlap = x1.min(lx1) - x.max(lx);
-            let is_aligned = is_left_aligned || is_right_aligned || (new_cx - para_mean_cx).abs() <= 0.30 * w.min(lw);
-            let is_strongly_aligned = overlap >= 0.50 * w.min(lw) && is_aligned;
-
-            let gap = y - (ly + lh);
-            let paren_re_start = Regex::new(r"^[（\(\[【〔*]").unwrap();
-            let paren_re_end = Regex::new(r"[）\)\]】〕]$").unwrap();
-            let is_parenthetical = paren_re_start.is_match(txt.trim()) || paren_re_end.is_match(txt.trim());
-            let is_trailing_tail = (w <= 80.0_f32.max(lw * 0.65) && eff_h <= eff_lh * 1.75)
-                || (!txt.trim().is_empty() && txt.trim().chars().count() <= 3 && !txt.trim().ends_with(['，', ',', '、', ':', '：', '—', '―', '-', '~', '～']) && !txt.trim().chars().any(|c| "噗轰咚咳啪砰咔唰嘭哇嗷嘶呜呼哈哒嗒踏铛铮刷咻嗖哧嚓哐咕嗡吼鸣飒吱咯嘎喳沙".contains(c)) && eff_h <= eff_lh * 1.80)
-                || is_parenthetical;
-
-            let has_meaningful_text = !txt.trim().is_empty() || !last_txt.trim().is_empty();
-            let is_multiline_para = cand_line_cnt > 1.0 || last_line_cnt > 1.0 || (has_meaningful_text && (txt.chars().count() >= 10 || last_txt.chars().count() >= 10));
-            let is_same_bubble_paragraphs = is_multiline_para && overlap >= 0.60 * w.min(lw) && (new_cx - para_mean_cx).abs() <= 0.30 * w.min(lw);
-
-            let gap_multiplier = if is_parenthetical {
-                2.8
-            } else if is_same_bubble_paragraphs {
-                2.4
-            } else if is_trailing_tail {
-                1.8
-            } else if is_strongly_aligned && has_meaningful_text {
-                1.6
-            } else {
-                1.0
-            };
-
-            let max_allowed_gap = gap_factor * gap_multiplier * min_eff_h;
-            if gap > max_allowed_gap || y < ly - 0.35 * min_eff_h {
-                continue;
-            }
-
-            if overlap < overlap_min * w.min(lw) {
-                continue;
-            }
-
-            // When a paragraph already contains >= 3 lines (a complete speech bubble), a subsequent line separated by an inter-bubble gap must start a new bubble
-            if (p.boxes.len() >= 3 || last_line_cnt >= 3.0) && gap >= 0.70 * min_eff_h {
-                continue;
-            }
-
-            let is_tight_bubble_pair = gap <= 0.35 * min_eff_h && overlap >= 0.50 * w.min(lw) && is_aligned;
-
-            // Terminal punctuation guard
-            if !last_txt.is_empty() {
-                let last_strip = last_txt.trim();
-                let cand_strip = txt.trim();
-                let last_clean = last_strip.trim_end_matches(['）', ')', '"', '\'', '”', '’']);
-                let cand_clean = cand_strip.trim_end_matches(['）', ')', '"', '\'', '”', '’']);
-
-                let sfx_glyphs = "噗轰咚咳啪砰咔唰嘭哇嗷嘶呜呼哈哒嗒踏铛铮刷咻嗖哧嚓哐咕嗡吼鸣飒吱咯嘎喳沙";
-                let dash_re = Regex::new(r"[-—―_~～]$").unwrap();
-                let is_last_sfx = (dash_re.is_match(last_clean) && last_clean.chars().count() <= 5)
-                    || (last_clean.chars().count() <= 3 && last_clean.chars().any(|c| sfx_glyphs.contains(c)));
-                let is_cand_sfx = (dash_re.is_match(cand_clean) && cand_clean.chars().count() <= 5)
-                    || (cand_clean.chars().count() <= 3 && cand_clean.chars().any(|c| sfx_glyphs.contains(c)));
-
-                if is_last_sfx || is_cand_sfx {
-                    if is_last_sfx && is_cand_sfx {
-                        continue;
-                    }
-                    if dash_re.is_match(last_clean) || dash_re.is_match(cand_clean) {
-                        continue;
-                    }
-                }
-
-                let ui_card_re = Regex::new(r"^(?:嘟|叮|提示|系统|注意)[!！:：]?").unwrap();
-                if ui_card_re.is_match(cand_clean) && gap >= 0.10 * min_eff_h {
-                    continue;
-                }
-
-                let period_re = Regex::new(r"[。;；.]$").unwrap();
-                if period_re.is_match(last_clean) {
-                    let is_both_single = cand_line_cnt == 1.0 && last_line_cnt == 1.0 && period_re.is_match(cand_clean);
-                    let is_short = last_clean.chars().count() <= 5;
-                    let has_gap = gap >= 0.30 * min_eff_h && !(is_aligned && overlap >= 0.50 * w.min(lw));
-                    let has_offset = (new_cx - para_mean_cx).abs() > 0.40 * w.min(lw) && !(is_left_aligned || is_right_aligned);
-                    let is_continuous_speech_sentence = is_aligned && overlap >= 0.60 * w.min(lw) && gap <= 0.60 * min_eff_h;
-                    if !is_same_bubble_paragraphs && !is_continuous_speech_sentence && (
-                        (is_both_single && gap >= 0.15 * min_eff_h)
-                        || (is_short && !(is_aligned && overlap >= 0.50 * w.min(lw)) && gap >= 0.15 * min_eff_h)
-                        || has_gap
-                        || (has_offset && gap > 0.10 * min_eff_h)
-                    ) {
-                        continue;
-                    }
-                }
-
-                let exclaim_re = Regex::new(r"[!！?？]$").unwrap();
-                if exclaim_re.is_match(last_clean) {
-                    let is_sfx = last_clean.chars().count() <= 2;
-                    let has_gap = gap >= 0.30 * min_eff_h && !(is_aligned && overlap >= 0.50 * w.min(lw));
-                    let has_offset = (new_cx - para_mean_cx).abs() > 0.45 * w.min(lw) && !(is_left_aligned || is_right_aligned);
-                    if (is_sfx && gap >= 0.15 * min_eff_h && !(is_aligned && overlap >= 0.40 * w.min(lw)) && !is_left_aligned)
-                        || (last_clean.chars().count() <= 5 && !(is_aligned && overlap >= 0.50 * w.min(lw)) && gap >= 0.15 * min_eff_h)
-                        || has_gap
-                        || (has_offset && gap > 0.10 * min_eff_h)
-                    {
-                        continue;
-                    }
-                }
-            }
-
-            let height_ratio = eff_h.max(eff_lh) / 1.0_f32.max(min_eff_h);
-            if is_trailing_tail || is_parenthetical {
-                if height_ratio > 2.5 {
-                    continue;
-                }
-            } else {
-                let max_ratio = if cand_line_cnt > 1.0 || last_line_cnt > 1.0 {
-                    2.0
-                } else if is_tight_bubble_pair {
-                    1.75
-                } else {
-                    height_sim_max
-                };
-                if height_ratio > max_ratio {
-                    continue;
-                }
-            }
-
-            if is_trailing_tail || is_parenthetical || is_left_aligned || is_right_aligned {
-                if (new_cx - para_mean_cx).abs() > centroid_drift_max * w.max(lw) {
-                    continue;
-                }
-            } else if (new_cx - para_mean_cx).abs() > centroid_drift_max * w.min(lw) {
-                continue;
-            }
-
-            p.boxes.push(box_pts.clone());
-            p.cx_list.push(new_cx);
-            p.texts.push(txt.clone());
-            p.score = p.score.max(score);
-            placed = true;
-            break;
-        }
-
-        if !placed {
-            paragraphs.push(Paragraph {
-                boxes: vec![box_pts.clone()],
-                score,
-                is_url: box_url,
-                cx_list: vec![x + w / 2.0],
-                texts: vec![txt.clone()],
-            });
-        }
-    }
-
-    let mut merged = Vec::new();
-    let mut mscores = Vec::new();
-
-    for p in paragraphs {
-        let mut min_x = f32::INFINITY;
-        let mut min_y = f32::INFINITY;
-        let mut max_x = -f32::INFINITY;
-        let mut max_y = -f32::INFINITY;
-
-        for b in &p.boxes {
-            let (bx, by, bw, bh) = box_to_xywh_f32(b);
-            min_x = min_x.min(bx);
-            min_y = min_y.min(by);
-            max_x = max_x.max(bx + bw);
-            max_y = max_y.max(by + bh);
-        }
-
-        merged.push(vec![
-            [min_x, min_y],
-            [max_x, min_y],
-            [max_x, max_y],
-            [min_x, max_y],
-        ]);
-        mscores.push(p.score);
-    }
-
-    (merged, mscores)
-}
-
-/// Deduplicate overlapping bounding boxes (deduplicate_boxes port).
+/// Deduplicate overlapping bounding boxes.
 pub fn deduplicate_boxes(
     boxes: &[Vec<[f32; 2]>],
     scores: &[f32],
@@ -562,7 +28,8 @@ pub fn deduplicate_boxes(
     for (_idx, box_pts, score) in indexed {
         let (x0, y0, w, h) = box_to_xywh_f32(box_pts);
         let box_area = 1.0_f32.max(w * h);
-        let mut merged = false;
+        let mut suppressed = false;
+        let mut replace_indices = Vec::new();
 
         for k in 0..kept_boxes.len() {
             let kbox = &kept_boxes[k];
@@ -577,32 +44,169 @@ pub fn deduplicate_boxes(
             let max_area = box_area.max(karea);
             let overlap_ratio = if min_area > 0.0 { inter / min_area } else { 0.0 };
 
-            let x_subsumed = (ix >= 0.80 * w.min(kw)) && (iy >= 0.40 * h.min(kh));
-            if iou >= iou_thresh || overlap_ratio >= 0.70 || (overlap_ratio >= 0.60 && max_area / min_area <= 2.5) || x_subsumed {
-                let ux0 = x0.min(kx0);
-                let uy0 = y0.min(ky0);
-                let ux1 = (x0 + w).max(kx0 + kw);
-                let uy1 = (y0 + h).max(ky0 + kh);
+            // CHECK IF CURRENT CANDIDATE BOX ENCLOSES KEPT SUB-BOX (MACRO-CONTAINER VS SLICE)
+            // A MACRO-CONTAINER MUST STACK MULTIPLE LINES (VERTICAL EXPANSION FOR HORIZONTAL TEXT, HORIZONTAL FOR VERTICAL TEXT)
+            let is_multi_line_container = (h >= 1.30 * kh) || (w >= 1.30 * kw && h >= 1.30 * w);
+            if is_multi_line_container && box_area >= 1.30 * karea && inter >= 0.70 * karea && (ix >= 0.75 * kw) && (iy >= 0.70 * kh) {
+                // CURRENT CANDIDATE IS A LARGER CONTAINER ENCLOSING THE SMALLER KEPT BOX -> MARK KEPT BOX FOR REPLACEMENT
+                replace_indices.push(k);
+                continue;
+            }
 
-                kept_boxes[k] = vec![
-                    [ux0, uy0],
-                    [ux1, uy0],
-                    [ux1, uy1],
-                    [ux0, uy1],
-                ];
-                kept_scores[k] = kept_scores[k].max(score);
-                merged = true;
+            // CHECK IF KEPT BOX ALREADY ENCLOSES CURRENT CANDIDATE BOX
+            let is_kbox_container = (kh >= 1.30 * h) || (kw >= 1.30 * w && kh >= 1.30 * kw);
+            if is_kbox_container && karea >= 1.30 * box_area && inter >= 0.70 * box_area && (ix >= 0.75 * w) && (iy >= 0.70 * h) {
+                suppressed = true;
+                break;
+            }
+
+            // STANDARD DUPLICATE / OVERLAP SUPPRESSION FOR SIMILAR-SIZED BOXES
+            let x_subsumed = (ix >= 0.80 * w.min(kw)) && (iy >= 0.40 * h.min(kh)) && (max_area / min_area <= 2.0);
+            if iou >= iou_thresh || overlap_ratio >= 0.70 || (overlap_ratio >= 0.60 && max_area / min_area <= 2.5) || x_subsumed {
+                suppressed = true;
                 break;
             }
         }
 
-        if !merged {
+        if !suppressed {
+            if !replace_indices.is_empty() {
+                replace_indices.sort_unstable();
+                for &idx in replace_indices.iter().rev() {
+                    kept_boxes.remove(idx);
+                    kept_scores.remove(idx);
+                }
+            }
             kept_boxes.push(box_pts.clone());
             kept_scores.push(score);
         }
     }
 
     (kept_boxes, kept_scores)
+}
+
+/// Cluster adjacent or overlapping onomatopoeia / free-text stroke boxes into unified candidate envelopes.
+/// When stylised brush calligraphy or multi-fragment SFX strokes are detected as disjoint sub-boxes,
+/// this groups contiguous stroke fragments within spatial proximity into a bounding polygon envelope.
+pub fn cluster_adjacent_sfx_boxes(
+    sfx_boxes: &[(crate::ml::schemas::BoxRect, f32)],
+    max_gap_px: i32,
+) -> Vec<(Vec<[f32; 2]>, f32)> {
+    if sfx_boxes.is_empty() {
+        return Vec::new();
+    }
+
+    let mut clusters: Vec<(Vec<crate::ml::schemas::BoxRect>, f32)> = Vec::new();
+
+    for (b, score) in sfx_boxes {
+        let mut merged_clusters = Vec::new();
+
+        for (c_idx, (cluster_boxes, _)) in clusters.iter().enumerate() {
+            let is_adjacent = cluster_boxes.iter().any(|cb| {
+                let overlap_x = (b.x + b.w + max_gap_px).min(cb.x + cb.w + max_gap_px) - (b.x - max_gap_px).max(cb.x - max_gap_px);
+                let overlap_y = (b.y + b.h + max_gap_px).min(cb.y + cb.h + max_gap_px) - (b.y - max_gap_px).max(cb.y - max_gap_px);
+                overlap_x > 0 && overlap_y > 0
+            });
+
+            if is_adjacent {
+                merged_clusters.push(c_idx);
+            }
+        }
+
+        if merged_clusters.is_empty() {
+            clusters.push((vec![b.clone()], *score));
+        } else {
+            let first = merged_clusters[0];
+            clusters[first].0.push(b.clone());
+            clusters[first].1 = clusters[first].1.max(*score);
+
+            for &other in merged_clusters.iter().skip(1).rev() {
+                let (other_boxes, other_score) = clusters.remove(other);
+                clusters[first].0.extend(other_boxes);
+                clusters[first].1 = clusters[first].1.max(other_score);
+            }
+        }
+    }
+
+    let mut result = Vec::new();
+    for (c_boxes, score) in clusters {
+        if c_boxes.len() >= 2 {
+            // 1. COMPUTE ORIENTED BOUNDING POLYGON FROM CONSTITUENT SFX STROKE CORNERS
+            let mut all_pts: Vec<[f32; 2]> = Vec::new();
+            for b in &c_boxes {
+                all_pts.push([b.x as f32, b.y as f32]);
+                all_pts.push([(b.x + b.w) as f32, b.y as f32]);
+                all_pts.push([(b.x + b.w) as f32, (b.y + b.h) as f32]);
+                all_pts.push([b.x as f32, (b.y + b.h) as f32]);
+            }
+            let (mut mini_poly, _) = crate::ml::geometry::get_mini_boxes(&all_pts);
+
+            // 2. FIT LINEAR PROGRESSION ANGLE ACROSS CHARACTER CENTERS IF SPREAD HORIZONTALLY
+            let mut centers: Vec<(f32, f32)> = c_boxes
+                .iter()
+                .map(|b| (b.x as f32 + b.w as f32 / 2.0, b.y as f32 + b.h as f32 / 2.0))
+                .collect();
+            centers.sort_by(|a, b| a.0.total_cmp(&b.0));
+
+            let n_pts = centers.len() as f32;
+            let sum_x: f32 = centers.iter().map(|p| p.0).sum();
+            let sum_y: f32 = centers.iter().map(|p| p.1).sum();
+            let mean_x = sum_x / n_pts;
+            let mean_y = sum_y / n_pts;
+
+            let mut var_x = 0.0_f32;
+            let mut cov_xy = 0.0_f32;
+            for p in &centers {
+                let dx = p.0 - mean_x;
+                let dy = p.1 - mean_y;
+                var_x += dx * dx;
+                cov_xy += dx * dy;
+            }
+
+            let span_x = centers.last().unwrap().0 - centers.first().unwrap().0;
+            if var_x > 100.0 && span_x >= 80.0 {
+                let slope = cov_xy / var_x;
+                let reg_angle_deg = slope.atan().to_degrees();
+                if reg_angle_deg.abs() >= 1.5 && reg_angle_deg.abs() <= 35.0 {
+                    // ROTATE THE ENVELOPE BOUNDING QUAD BY THE PROGRESSION ANGLE
+                    let rad = reg_angle_deg.to_radians();
+                    let (sin_a, cos_a) = (rad.sin(), rad.cos());
+
+                    let mut min_u = f32::INFINITY;
+                    let mut max_u = -f32::INFINITY;
+                    let mut min_v = f32::INFINITY;
+                    let mut max_v = -f32::INFINITY;
+
+                    for p in &all_pts {
+                        let u = (p[0] - mean_x) * cos_a + (p[1] - mean_y) * sin_a;
+                        let v = -(p[0] - mean_x) * sin_a + (p[1] - mean_y) * cos_a;
+                        min_u = min_u.min(u);
+                        max_u = max_u.max(u);
+                        min_v = min_v.min(v);
+                        max_v = max_v.max(v);
+                    }
+
+                    let c0 = [mean_x + min_u * cos_a - min_v * sin_a, mean_y + min_u * sin_a + min_v * cos_a];
+                    let c1 = [mean_x + max_u * cos_a - min_v * sin_a, mean_y + max_u * sin_a + min_v * cos_a];
+                    let c2 = [mean_x + max_u * cos_a - max_v * sin_a, mean_y + max_u * sin_a + max_v * cos_a];
+                    let c3 = [mean_x + min_u * cos_a - max_v * sin_a, mean_y + min_u * sin_a + max_v * cos_a];
+                    mini_poly = vec![c0, c1, c2, c3];
+                }
+            }
+
+            result.push((mini_poly, score));
+        } else {
+            let b = &c_boxes[0];
+            let poly = vec![
+                [b.x as f32, b.y as f32],
+                [(b.x + b.w) as f32, b.y as f32],
+                [(b.x + b.w) as f32, (b.y + b.h) as f32],
+                [b.x as f32, (b.y + b.h) as f32],
+            ];
+            result.push((poly, score));
+        }
+    }
+
+    result
 }
 
 /// Sort detected text regions top-to-bottom, grouping lines into horizontal rows.
@@ -657,91 +261,39 @@ pub fn sort_regions_top_to_bottom(boxes: &[Vec<[f32; 2]>], _page_h: usize, row_t
     order
 }
 
-/// FILTER OUT ORTHOGONAL CROSS-SLICING ARTIFACTS
-/// (e.g. 1-character-wide vertical columns slicing across a multi-line horizontal paragraph,
-/// or 1-character-tall horizontal rows slicing across multi-line vertical Japanese manga columns).
+/// Filter out orthogonal overlapping lines where a vertical line and horizontal line collide on the same text.
 pub fn filter_orthogonal_line_conflicts(lines: Vec<crate::ml::ocr::OcrLine>) -> Vec<crate::ml::ocr::OcrLine> {
     if lines.len() <= 1 {
         return lines;
     }
-
-    let mut to_remove = vec![false; lines.len()];
-
+    let mut keep = vec![true; lines.len()];
     for i in 0..lines.len() {
-        if to_remove[i] {
-            continue;
-        }
+        if !keep[i] { continue; }
         let (ix, iy, iw, ih) = crate::ml::geometry::polygon_bounds(&lines[i].polygon);
-        let i_is_vert = ih >= (iw as f32 * 1.25) as i32;
-        let i_is_horiz = iw >= (ih as f32 * 1.25) as i32;
-
-        if !i_is_vert && !i_is_horiz {
-            continue;
-        }
-
-        let mut conflicting_indices = Vec::new();
-        let i_area = (iw * ih).max(1);
-        let mut collides_with_dominant_orthogonal = false;
-
-        for j in 0..lines.len() {
-            if i == j || to_remove[j] {
-                continue;
-            }
+        let i_vert = ih > iw * 2;
+        let i_horiz = iw > ih * 2;
+        for j in (i + 1)..lines.len() {
+            if !keep[j] { continue; }
             let (jx, jy, jw, jh) = crate::ml::geometry::polygon_bounds(&lines[j].polygon);
-            let j_is_vert = jh >= (jw as f32 * 1.25) as i32;
-            let j_is_horiz = jw >= (jh as f32 * 1.25) as i32;
-
-            if i_is_vert && j_is_horiz {
-                let overlap_x = (ix + iw).min(jx + jw) - ix.max(jx);
-                let overlap_y = (iy + ih).min(jy + jh) - iy.max(jy);
-                if overlap_x > 0 && overlap_y > 0 {
-                    let j_area = (jw * jh).max(1);
-                    let inter_area = overlap_x * overlap_y;
-                    let overlap_ratio_i = inter_area as f32 / i_area as f32;
-                    let overlap_ratio_j = inter_area as f32 / j_area as f32;
-
-                    if overlap_ratio_i >= 0.15 || overlap_ratio_j >= 0.15 {
-                        conflicting_indices.push(j);
-                        // Vertical single-column slice (w <= 60) cutting through a wide horizontal sentence (w >= 70)
-                        if iw <= 60 && jw >= 70 && (jw as f32) >= (iw as f32 * 1.3) && overlap_ratio_i >= 0.20 {
-                            collides_with_dominant_orthogonal = true;
+            let j_vert = jh > jw * 2;
+            let j_horiz = jw > jh * 2;
+            if (i_vert && j_horiz) || (i_horiz && j_vert) {
+                let inter_x = (ix + iw).min(jx + jw) - ix.max(jx);
+                let inter_y = (iy + ih).min(jy + jh) - iy.max(jy);
+                if inter_x > 0 && inter_y > 0 {
+                    let inter_area = inter_x * inter_y;
+                    let min_area = (iw * ih).min(jw * jh).max(1);
+                    if inter_area as f32 / min_area as f32 >= 0.50 {
+                        if lines[i].score >= lines[j].score {
+                            keep[j] = false;
+                        } else {
+                            keep[i] = false;
+                            break;
                         }
                     }
                 }
-            } else if i_is_horiz && j_is_vert {
-                let overlap_x = (ix + iw).min(jx + jw) - ix.max(jx);
-                let overlap_y = (iy + ih).min(jy + jh) - iy.max(jy);
-                if overlap_x > 0 && overlap_y > 0 {
-                    let j_area = (jw * jh).max(1);
-                    let inter_area = overlap_x * overlap_y;
-                    let overlap_ratio_i = inter_area as f32 / i_area as f32;
-                    let overlap_ratio_j = inter_area as f32 / j_area as f32;
-
-                    if overlap_ratio_i >= 0.15 || overlap_ratio_j >= 0.15 {
-                        conflicting_indices.push(j);
-                        // Horizontal single-row slice (h <= 40) cutting through a tall vertical sentence (h >= 70)
-                        if ih <= 40 && jh >= 70 && (jh as f32) >= (ih as f32 * 1.3) && overlap_ratio_i >= 0.20 {
-                            collides_with_dominant_orthogonal = true;
-                        }
-                    }
-                }
-            }
-        }
-
-        if collides_with_dominant_orthogonal {
-            to_remove[i] = true;
-        } else if conflicting_indices.len() >= 2 {
-            let i_chars = lines[i].text.chars().filter(|c| !c.is_whitespace()).count();
-            let conf_chars: usize = conflicting_indices.iter().map(|&idx| lines[idx].text.chars().filter(|c| !c.is_whitespace()).count()).sum();
-
-            if i_is_vert && iw <= 60 && conf_chars >= i_chars {
-                to_remove[i] = true;
-            } else if i_is_horiz && ih <= 45 && conf_chars >= i_chars {
-                to_remove[i] = true;
             }
         }
     }
-
-    lines.into_iter().enumerate().filter(|(idx, _)| !to_remove[*idx]).map(|(_, l)| l).collect()
+    lines.into_iter().enumerate().filter(|(idx, _)| keep[*idx]).map(|(_, l)| l).collect()
 }
-

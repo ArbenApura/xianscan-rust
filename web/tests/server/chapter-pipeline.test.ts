@@ -609,7 +609,7 @@ describe('runChapterPipeline', () => {
 		class SerialPipeline extends FakePipeline {
 			private n = 0;
 			override async analyze(): Promise<AnalyzeResult> {
-				const text = this.n++ === 0 ? '妖灵师' : '你好';
+				const text = this.n++ === 0 ? '妖灵师' : '你好 妖灵师';
 				return {
 					width: 200,
 					height: 300,
@@ -767,7 +767,7 @@ describe('runChapterPipeline', () => {
 		expect(pageDone.durationMs).toBeGreaterThan(0);
 	});
 
-	it('sends a byte-identical glossary block to every page (stable cache prefix + locked terminology)', async () => {
+	it('matches and sends page-scoped glossary blocks for pages with matching OCR terms', async () => {
 		seedBook(db, { id: 'b_gloss' });
 		const chapter = seedChapter(db, { bookId: 'b_gloss', seq: 0 });
 		seedPage(db, { chapterId: chapter.id, seq: 0, filePath: 'uploads/g0.png' });
@@ -776,7 +776,7 @@ describe('runChapterPipeline', () => {
 		writeFileSync(join(dataRoot, 'uploads', 'g0.png'), PAGE_PNG);
 		writeFileSync(join(dataRoot, 'uploads', 'g1.png'), PAGE_PNG);
 
-		// PRE-SEED A PINNED TERM IN THE BOOK GLOSSARY (THIS MUST REACH BOTH PAGES IDENTICALLY).
+		// PRE-SEED A PINNED TERM IN THE BOOK GLOSSARY.
 		const { addTerm } = await import('$lib/server/glossary');
 		await addTerm(
 			'book',
@@ -784,6 +784,31 @@ describe('runChapterPipeline', () => {
 			{ source: '妖灵师', target: 'demon spiritualist', gender: 'neuter', pinned: true },
 			{ sourceLang: 'zh-Hans', targetLang: 'en' },
 		);
+
+		class GlossMatchPipeline extends FakePipeline {
+			override async analyze(): Promise<AnalyzeResult> {
+				return {
+					width: 200,
+					height: 300,
+					backend: 'comic-ctd',
+					regions: [
+						{
+							id: 'r0',
+							box: { x: 20, y: 30, w: 100, h: 40 },
+							polygon: [
+								[20, 30],
+								[120, 30],
+								[120, 70],
+								[20, 70],
+							],
+							text: '你好 妖灵师',
+							confidence: 0.95,
+							vertical: false,
+						},
+					],
+				};
+			}
+		}
 
 		// CAPTURE THE GLOSSARY SYSTEM MESSAGE (messages[1], BETWEEN system and user) FOR EACH PAGE.
 		const glossaryBlocks: string[] = [];
@@ -793,7 +818,7 @@ describe('runChapterPipeline', () => {
 					create: async (params: { messages: { role: string; content: string }[] }) => {
 						glossaryBlocks.push(String(params.messages[1]?.content ?? ''));
 						return {
-							choices: [{ message: { content: JSON.stringify({ r0: 'Hello', r1: 'World' }) } }],
+							choices: [{ message: { content: JSON.stringify({ r0: 'Hello Demon Spiritualist' }) } }],
 							usage: { prompt_tokens: 10, completion_tokens: 5, total_tokens: 15 },
 						};
 					},
@@ -801,11 +826,9 @@ describe('runChapterPipeline', () => {
 			},
 		} as unknown as OpenAI;
 
-		await chapterWork(chapter.id, { pipeline, dataRoot, llm: captureLlm })(new AbortController().signal, () => {});
+		await chapterWork(chapter.id, { pipeline: new GlossMatchPipeline(), dataRoot, llm: captureLlm })(new AbortController().signal, () => {});
 
-		// TWO PAGES → TWO TRANSLATE CALLS → TWO GLOSSARY BLOCKS. (THE PHASE-2 EXTRACTION CALL ALSO EMITS
-		// ITS OWN "ESTABLISHED GLOSSARY" MESSAGE, WHICH USES A DIFFERENT FORMAT — FILTER IT OUT BY THE
-		// translation-glossary `★` marker.)
+		// TWO PAGES BOTH CONTAIN 妖灵师 → BOTH MATCH AND RECEIVE THE GLOSSARY BLOCK.
 		const translationGlossaryBlocks = glossaryBlocks.filter((b) => b.includes('★妖灵师 = demon spiritualist'));
 		expect(translationGlossaryBlocks.length).toBe(2);
 		expect(translationGlossaryBlocks[0]).toBe(translationGlossaryBlocks[1]);

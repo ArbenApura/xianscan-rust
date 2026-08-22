@@ -43,7 +43,7 @@ fn test_find_optimal_cut_points_blank_gutters() {
     // Textured panels above and below gutter
     for y in 0..3000 {
         for x in 0..400 {
-            if y < 1750 || y >= 1850 {
+            if !(1750..1850).contains(&y) {
                 let v = ((x * 13 + y * 7) % 200) as u8;
                 canvas_buf.put_pixel(x, y, Rgb([v, v, v]));
             }
@@ -186,4 +186,52 @@ fn test_cut_avoids_fake_gutter_between_text_lines() {
         (1590..=1660).contains(&first),
         "cut {first} did not snap to the real, clearly-blank gutter"
     );
+}
+
+/// # 40-Page Full-Chapter Reslice Speed & Progress Benchmark
+#[test]
+fn test_40_page_reslice_performance_and_progress() {
+    let t_start = std::time::Instant::now();
+    let num_pages = 40;
+    let mut slices = Vec::new();
+    for _i in 0..num_pages {
+        let mut buf = ImageBuffer::from_pixel(800, 2000, Rgb([100_u8, 100, 100]));
+        // Put a clean gutter at bottom of each slice
+        for y in 1800..2000 {
+            for x in 0..800 {
+                buf.put_pixel(x, y, Rgb([255, 255, 255]));
+            }
+        }
+        slices.push(DynamicImage::ImageRgb8(buf));
+    }
+
+    let reported_pcts = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+    let pcts_clone = reported_pcts.clone();
+    let progress_cb = move |pct: u32| {
+        if let Ok(mut g) = pcts_clone.lock() {
+            g.push(pct);
+        }
+    };
+
+    let result = smart_reslice_chapter(
+        &slices,
+        1600,
+        1000,
+        2400,
+        None,
+        None,
+        Some(&progress_cb),
+        None,
+        1,
+    );
+
+    let duration = t_start.elapsed();
+    let pcts = reported_pcts.lock().unwrap().clone();
+    println!("40-page chapter resliced into {} pages in {:?}", result.len(), duration);
+    println!("Reported progress sequence (first 10): {:?}", &pcts[..pcts.len().min(10)]);
+    println!("Reported progress sequence (last 10): {:?}", &pcts[pcts.len().saturating_sub(10)..]);
+
+    assert!(duration.as_millis() < 3000, "40-page reslice must finish in <3000ms, took {:?}", duration);
+    assert!(!pcts.is_empty());
+    assert_eq!(*pcts.last().unwrap(), 90);
 }

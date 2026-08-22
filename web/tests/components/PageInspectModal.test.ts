@@ -51,4 +51,117 @@ describe('PageInspectModal Component UI', () => {
 		expect(screen.getByText('你好世界')).toBeTruthy();
 		expect(screen.getByText('Hello World')).toBeTruthy();
 	});
+
+	it('renders LLM Prompt button and opens conversation history dialog with benchmarks', async () => {
+		const mockPage = {
+			id: 102,
+			seq: 1,
+			filePath: 'page_2.png',
+			outputPath: 'output/page_2.png',
+			width: 800,
+			height: 1200,
+			llmPrompt: JSON.stringify([
+				{ role: 'system', content: 'System translation instructions' },
+				{ role: 'user', content: 'Translate regions: [{"id":"r0","text":"你好"}]' },
+			]),
+			llmResponse: JSON.stringify({
+				raw: '{"r0":"Hello"}',
+				model: 'deepseek-v4-flash',
+				durationMs: 1250,
+				promptTokens: 450,
+				cachedTokens: 300,
+				completionTokens: 25,
+				timestamp: Date.now(),
+			}),
+			regions: [],
+		};
+
+		render(PageInspectModal, {
+			props: {
+				open: true,
+				page: mockPage,
+			},
+		});
+
+		const promptBtn = screen.getByText('LLM Prompt');
+		expect(promptBtn).toBeTruthy();
+
+		await fireEvent.click(promptBtn);
+		await tick();
+
+		expect(screen.getByText(/LLM Translation Benchmark & History/)).toBeTruthy();
+		expect(screen.getByText('1.25 s')).toBeTruthy();
+		expect(screen.getByText('deepseek-v4-flash')).toBeTruthy();
+		expect(screen.getByText('System Instructions')).toBeTruthy();
+	});
+
+	it('renders OCR Pipeline button and opens OCR & Layout Diagnostics dialog with latency and step logs', async () => {
+		const mockPage = {
+			id: 103,
+			seq: 2,
+			filePath: 'page_3.png',
+			outputPath: 'output/page_3.png',
+			width: 1080,
+			height: 1920,
+			ocrStats: JSON.stringify({
+				total_time_ms: 245.8,
+				wall_time_ms: 540.0,
+				queue_wait_ms: 294.2,
+				detector_time_ms: 120.5,
+				ocr_fullpage_time_ms: 80.2,
+				rescue_time_ms: 25.1,
+				watermark_time_ms: 10.0,
+				assembly_time_ms: 10.0,
+				backend: 'Koharu RF-DETR Seg',
+				device: 'DirectML (GPU)',
+				image_width: 1080,
+				image_height: 1920,
+				raw_bubbles_count: 5,
+				raw_text_bubbles_count: 5,
+				raw_text_free_count: 2,
+				raw_sfx_count: 3,
+				raw_ocr_lines_count: 12,
+				rescued_crops_count: 2,
+				watermark_recovered_count: 1,
+				final_regions_count: 7,
+				avg_confidence: 0.954,
+				steps: [
+					{
+						step: 'Comic Layout Detection',
+						duration_ms: 120.5,
+						details: 'Identified 5 bubbles, 5 in-bubble texts, 2 free texts, 3 SFX',
+					},
+					{
+						step: 'Full-Page Line Detection & OCR',
+						duration_ms: 80.2,
+						details: 'Extracted 12 raw text lines across 1080x1920 image canvas',
+					},
+				],
+			}),
+			regions: [],
+		};
+
+		render(PageInspectModal, {
+			props: {
+				open: true,
+				page: mockPage,
+			},
+		});
+
+		const ocrBtn = screen.getByText('OCR Pipeline');
+		expect(ocrBtn).toBeTruthy();
+
+		await fireEvent.click(ocrBtn);
+		await tick();
+
+		expect(screen.getByText(/OCR & Layout Diagnostics — Page 3/)).toBeTruthy();
+		expect(screen.getByText('540 ms')).toBeTruthy();
+		expect(screen.getByText('Compute: 246 ms')).toBeTruthy();
+		expect(screen.getByText('Koharu RF-DETR Seg')).toBeTruthy();
+		expect(screen.getByText('95.4%')).toBeTruthy();
+		expect(screen.getByText('7 regions')).toBeTruthy();
+		expect(screen.getByText('1080 × 1920')).toBeTruthy();
+		expect(screen.getByText('Phase Latency Breakdown')).toBeTruthy();
+		expect(screen.getByText('0. Concurrency Queue & Engine Lock Wait')).toBeTruthy();
+	});
 });

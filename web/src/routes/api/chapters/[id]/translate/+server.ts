@@ -105,9 +105,6 @@ export const POST: RequestHandler = async ({ params, request, cookies }) => {
 		boxInset: parsed.success && typeof parsed.data.typesetOptions?.boxInset === 'number'
 			? parsed.data.typesetOptions.boxInset
 			: cookies.get('mt_ts_padding') ? Number(cookies.get('mt_ts_padding')) : undefined,
-		fontScale: parsed.success && typeof parsed.data.typesetOptions?.fontScale === 'number'
-			? parsed.data.typesetOptions.fontScale
-			: cookies.get('mt_ts_scale') ? Number(cookies.get('mt_ts_scale')) : undefined,
 		outlineMode: parsed.success && parsed.data.typesetOptions?.outlineMode
 			? parsed.data.typesetOptions.outlineMode
 			: (cookies.get('mt_ts_outline') as any),
@@ -122,17 +119,24 @@ export const POST: RequestHandler = async ({ params, request, cookies }) => {
 			: cookies.get('mt_ts_rot') ? cookies.get('mt_ts_rot') === 'true' : undefined,
 	};
 
+	const inpaintExpansionPct = cookies.get('mt_inpaint_exp') ? Number(cookies.get('mt_inpaint_exp')) : undefined;
+	const typesetExpansionPct = cookies.get('mt_typeset_exp') ? Number(cookies.get('mt_typeset_exp')) : undefined;
+	const enableWatermarkInpaint = cookies.get('mt_watermark_inpaint') === 'true';
+
 	// RECORD AI SPEND ON THE LEDGER (THE JOB STAYS DETACHED — FAILURES LOG, NOT THROW)
 	const deps = {
 		pipeline: createPipelineClient(),
 		inpaintMode,
+		inpaintExpansionPct,
+		typesetExpansionPct,
+		enableWatermarkInpaint,
 		pageConcurrency,
 		typesetOptions,
 		dataRoot: DATA_ROOT,
 		// THE CACHE MUST NEVER MIX PROVIDERS: MOCK ↔ REAL SWITCHES PRODUCE A FRESH KEY
 		cacheSalt: getActiveProvider().baseUrl,
 		isPageCancelled: (pageId: number) => isChapterPageCancelled(chapterId, pageId),
-		onUsage: (u: { model: string; promptTokens: number; cachedTokens: number; completionTokens: number; costUsd: number }) => {
+		onUsage: (u: { model: string; promptTokens: number; cachedTokens: number; completionTokens: number }) => {
 			try {
 				db.insert(aiUsage)
 					.values({
@@ -141,7 +145,6 @@ export const POST: RequestHandler = async ({ params, request, cookies }) => {
 						promptTokens: u.promptTokens,
 						cachedTokens: u.cachedTokens,
 						completionTokens: u.completionTokens,
-						costUsd: u.costUsd,
 					})
 					.run();
 			} catch {

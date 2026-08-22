@@ -51,6 +51,11 @@
 
 **XianScan** is an open-source, local-first translation studio engineered to be **exceptionally portable, lightweight at runtime, and effortless to use**.
 
+> [!TIP]
+> **Who is XianScan for?**
+> - **⚡ Built for Readers & Instant Catch-Up**: If you are a reader who wants quick, effortless access to the latest untranslated chapters of your choice with complete freedom, portability, 1-click browser extension importing, and seamless streaming to Mihon / Tachiyomi, XianScan is tailored specifically for your flow.
+> - **🛠️ Looking for Highly Customizable Publishing / Scanlation Workflows?**: XianScan is designed for fast, automated convenience rather than granular, manual publishing-grade typesetting adjustments. If you are looking for a deeply customizable manga translation studio for fine-grained editing and publishing, check out **[Koharu (mayocream/koharu)](https://github.com/mayocream/koharu)**, a fantastic project and one of the major inspirations behind XianScan!
+
 The core mission of XianScan is to provide an **uninterrupted, automated reading flow** for comic readers, language learners, and translation teams:
 - **Zero-Friction Setup**: Delivered as a single standalone executable. No Python runtime, no mandatory CUDA setup, and no complex terminal configurations required.
 - **Complete Reading Automation**: Eliminates manual busywork by automatically coordinating the entire pipeline, from 1-click browser importing to ML bubble detection, multi-language OCR, background cleaning, and context-aware typesetting.
@@ -74,7 +79,7 @@ Reading untranslated CJK comics (Chinese Manhua, Korean Manhwa, Japanese Manga) 
 <a id="pipeline"></a>
 ## 🔄 Automated Translation Pipeline & Core Features
 
-XianScan coordinates the complete comic translation lifecycle in a single autonomous flow—from 1-click web capture to mobile reading:
+XianScan coordinates the complete comic translation lifecycle in a single autonomous flow: from 1-click web capture to mobile reading:
 
 ```mermaid
 flowchart LR
@@ -87,17 +92,17 @@ flowchart LR
 ```
 
 1. **1-Click Web Importer (Extension)**: Auto-scrolls online comic sites, removes ads/placeholders, and uploads raw chapters directly to your local server.
-2. **Bubble Detection & Segmentation**: Locates speech bubbles, boundary-less dialogue, narrative blocks, and sound effects using an RT-DETR model.
+2. **Bubble Detection & Layout Segmentation**: Locates speech bubbles, dialogue text, comic sound effects (onomatopoeia/COO), and panel frames using high-resolution instance segmentation (**Koharu RF-DETR Seg 2XL at 1152px** with automatic **RT-DETR** fallback).
 3. **Multi-Language OCR**: High-accuracy text extraction across 10 CJK and global languages with native horizontal and vertical reading flow support.
-4. **Context-Aware AI Translation**: Translates dialogue using local LLMs (Ollama, LM Studio) or cloud AI APIs with dynamic terminology glossary matching.
-5. **Neural Artwork Inpainting (LaMa)**: Intelligently erases original text masks while seamlessly reconstructing background art, gradients, and textures.
+4. **Context-Aware AI Translation & Dialogue Memory**: Translates dialogue using local LLMs (Ollama, LM Studio) or cloud AI APIs with dynamic terminology glossary matching and a **Cross-Page Dialogue Tracker** that preserves speaker consistency and character pronouns across scenes.
+5. **Neural Artwork Inpainting (LaMa)**: Intelligently erases original text masks while seamlessly reconstructing background art, gradients, and textures with configurable mask padding and optional watermark inpainting.
 6. **Typesetting Studio & Webtoon Tools**: Automatically calculates font scaling, line wrapping, stroke outlines, and tilt rotation, plus gutter slicing (`/pages/reslice`) for long webtoon strips.
-7. **Mobile Reader Sync (Mihon / Tachiyomi)**: Access your library from any web browser or stream translated chapters directly to Android phones, tablets, and E-Ink readers over local Wi-Fi.
+7. **Interactive Inspection & Mobile Sync**: Deeply inspect raw OCR tokens, bubble bounding boxes, prompts, and OCR stats via dedicated inspector modals, and stream translated chapters directly to Mihon / Tachiyomi on Android over local Wi-Fi.
 
 <a id="hardware-acceleration"></a>
 ## 🚀 Hardware Requirements & System Specs
 
-XianScan is engineered to be **100% self-contained and CPU-first**. The release executable embeds the complete multi-threaded ML engine, all ONNX neural models, the SvelteKit web interface, and an internal Node.js runtime—requiring zero external runtime installations.
+XianScan is engineered to be **100% self-contained and CPU-first**. The release executable embeds the complete multi-threaded ML engine, all ONNX neural models, the SvelteKit web interface, and an internal Node.js runtime, requiring zero external runtime installations.
 
 | Component | Minimum Requirements | Recommended Specifications |
 | :--- | :--- | :--- |
@@ -156,7 +161,7 @@ Native OCR models and dictionaries are included for **10 languages**:
 ---
 
 <a id="inpainting-strategies"></a>
-## 🎨 Neural Inpainting Strategies
+## 🎨 Neural Inpainting & Boundary Controls
 
 XianScan provides 3 configurable inpainting modes in the Web UI to balance throughput and background reconstruction quality:
 
@@ -166,27 +171,32 @@ XianScan provides 3 configurable inpainting modes in the Web UI to balance throu
 | **✨ Full Dynamic** | **Standard** | **Highest** | Inpaints the entire uncut image canvas in a single pass. Delivers the most seamless global artwork gradients and texture reconstruction (recommended for maximum quality). |
 | **⚖️ Balanced (512×512)** | **Fast** | **Standard** | Downsamples patches to 512×512 before inpainting and upscales back. Highly memory-efficient for low-resource hardware. |
 
+- **Fine-Grained Mask Padding**: Adjust inpaint mask expansion (`inpaint_padding_pct`, 0% to 15%) to eliminate lingering stroke halos on low-contrast backgrounds.
+- **Watermark Inpainting Toggle**: Choose whether to preserve artist/platform watermarks untouched or automatically erase and reconstruct underlying artwork (`enable_watermark_inpaint`).
+
 ---
 
 <a id="typesetting-studio"></a>
-## ✍️ Typesetting & Studio Controls
+## ✍️ Typesetting, Studio Controls & Deep Inspection
 
-The embedded Web UI includes comprehensive controls to customize typography and translation workflows:
+The embedded Web UI includes comprehensive controls to customize typography, inspect ML telemetry, and tune translation workflows:
 
 - **Typography & CJK Fallbacks**: Primary dialogue fonts (such as `CC Wild Words`, `General Sans`, `Poppins`, `Lexend`) paired with an automatic CJK fallback engine (`Friendly Sans`, `Yu Gothic`, `Microsoft YaHei`, `Malgun Gothic`).
-- **Live Interactive Preview**: Test and preview typography in real time with dark/light scene background contrast, simulated tilt angles, and multi-language presets.
-- **Bubble Fitting & Outlines**: Customize bubble edge padding (2% to 8%), font scaling multipliers (80% to 130%), text stroke outlines (None, Thin, Standard, Heavy), and luminance-sensing contrast.
+- **Live Interactive Preview & Padding**: Test and preview typography in real time with dark/light scene background contrast, simulated tilt angles, bubble edge padding (`typeset_padding_pct`, 2% to 8%), and font scaling multipliers (80% to 130%).
+- **Interactive Page Inspector**: Full visual overlay showing raw OCR bounding boxes, detected bubble polygons, confidence heatmaps, and live manual text editing.
+- **OCR Telemetry & Prompt Modals**: Inspect real-time OCR telemetry (script identification, per-region confidence, character densities) and view raw LLM prompts (system instructions, injected glossary terms, raw JSON/markdown responses).
 - **Orientation & Letterform Casing**: Toggle automatic tilt rotation along detected diagonal comic bubbles ($\pm 2^\circ$ to $\pm 45^\circ$) and select dialogue letterform casing (`UPPERCASE`, `Normal / As Is`, `lowercase`).
 - **Webtoon Gutter Reslicing**: Automatically recombine and split tall vertical webtoon strips along panel gutters before batch translation to prevent speech bubbles from being bisected across slice seams.
-- **Parallel Processing**: Configure concurrent page worker threads (1–8) and batch chapter queues directly from the settings panel.
+- **Live Provider Hot-Switching**: Dynamically switch ONNX hardware execution providers (CUDA, DirectML, CPU) with live model reallocation indicators.
 
 ---
 
 <a id="translation-providers"></a>
-## 🤖 Supported Translation Providers
+## 🤖 Supported Translation Providers & Dialogue Memory
 
 XianScan does **not** bundle the LLM itself; it is separate. Connect a local model (Ollama / LM Studio) or a cloud API, and translation quality follows the model you choose:
 
+- **Cross-Page Dialogue Memory**: Uses an intelligent sliding-window **Dialogue Tracker** to maintain character speaker identity, honorifics, and gender pronouns across consecutive chapter pages.
 - **Local AI (free & offline)** (<img src="assets/icons/ollama.svg" width="16" height="16" alt="Ollama" /> **Ollama** / **LM Studio**):
   - <img src="assets/icons/qwen.svg" width="16" height="16" alt="Qwen" /> **Qwen Series**: The benchmark for CJK (Chinese, Japanese, Korean) translation, cultural idiom accuracy, and comic dialogue understanding.
   - <img src="assets/icons/llama.svg" width="16" height="16" alt="Meta Llama" /> **Llama Series**: Fast and lightweight inference engineered for low-latency execution on minimal hardware (~2–4 GB RAM).
@@ -278,7 +288,7 @@ Read and browse your translated comic library directly on your Android smartphon
      ```
      http://<your-pc-lan-ip>:8124
      ```
-     *(Example: `http://192.168.100.98:8124` — no trailing slash).*
+     *(Example: `http://192.168.100.98:8124`, no trailing slash).*
 7. **Enable "Multi" in Language Filter**:
    - On the **Browse → Sources** tab, tap the **Filter / Globe 🌐 icon** in the top right and ensure **"Multi"** is checked (Mihon uses the **Multi** tag for multi-language extensions).
 8. Tap **XianScan** under Sources to browse your manga library, view high-res dedicated series covers, and read translated chapters directly on your mobile device!
@@ -290,9 +300,9 @@ Read and browse your translated comic library directly on your Android smartphon
 <a id="developer-guide"></a>
 ## 🛠️ Developer Guide, Build Instructions & REST API
 
-Looking to build XianScan from source, contribute code, run regression tests, or integrate with the REST API?
+Looking to build XianScan from source, run regression tests, or integrate with the REST API?
 
-👉 Check out the full **[Developer & Contributing Guide (DEVELOPMENT.md)](DEVELOPMENT.md)** for:
+👉 Check out the full **[Developer Guide (DEVELOPMENT.md)](DEVELOPMENT.md)** for:
 - 🏗️ **Compiling from Source** (Standalone binary & GPU acceleration feature flags)
 - ⚡ **Fast Iteration Dev Mode** (Vite Live HMR & ML server)
 - 🔌 **Complete REST API Endpoints Reference**
@@ -340,7 +350,8 @@ If XianScan enhances your reading flow, language learning, or translation workfl
 
 Licensed under the **[MIT License](LICENSE)** © 2026 Arben Apura.
 
-- **RT-DETR Comic Detector**: Speech bubble and text segmentation models by [ogkalu/comic-text-and-bubble-detector](https://huggingface.co/ogkalu/comic-text-and-bubble-detector) (MIT / Apache-2.0) and detection architectures from [manga-image-translator](https://github.com/zyddnys/manga-image-translator) (GPL-3.0 / Apache-2.0).
+- **Project Inspiration**: Heartfelt gratitude and credit to **[mayocream/koharu](https://github.com/mayocream/koharu)**, whose pioneering open-source manga translation studio served as one of the great inspirations behind this project.
+- **Koharu RF-DETR Layout Detector & Segmenter**: High-resolution (1152px) RF-DETR Seg 2XL transformer model predicting bounding boxes and instance masks for speech bubbles, dialogue text, onomatopoeia/SFX, and panels by [mayocream/koharu-layout-rfdetr-seg-2xl-1152](https://huggingface.co/mayocream/koharu-layout-rfdetr-seg-2xl-1152) (Apache-2.0 / Manga109 terms).
 - **PaddleOCR & RapidOCR**: Multilingual OCR models (PP-OCRv6, Korean, Cyrillic, Thai) and direction classifier by [PaddlePaddle/PaddleOCR](https://github.com/PaddlePaddle/PaddleOCR), [RapidAI/RapidOCR](https://github.com/RapidAI/RapidOCR), and [xberg-io/paddleocr-onnx-models](https://huggingface.co/xberg-io/paddleocr-onnx-models) (Apache-2.0).
 - **LaMa Inpainting**: Large Mask Inpainting architecture by [advimman/lama](https://github.com/advimman/lama) (Apache-2.0) and manga inpainting weights by [ogkalu/lama-manga-onnx-dynamic](https://huggingface.co/ogkalu/lama-manga-onnx-dynamic).
 - **Typography & Fonts**: Open-source dialogue and CJK fonts (Friendly Sans, LXGW WenKai) under the SIL Open Font License ([OFL-1.1](https://openfontlicense.org/)). CC Wild Words is a registered trademark of Comicraft.

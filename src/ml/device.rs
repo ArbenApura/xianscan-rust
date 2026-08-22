@@ -464,6 +464,57 @@ pub fn set_active_provider(mode: &str) -> HardwareStatus {
     get_hardware_status()
 }
 
+/// DETERMINES OPTIMAL CPU INTRA-OP THREADS ADAPTIVELY FOR CONSUMER CPUS (BOUNDED TO MAX 8 TO AVOID THREAD CONTENTION & MULTIPLICATION)
+pub fn get_optimal_cpu_threads() -> usize {
+    if let Ok(val) = std::env::var("ONNX_THREADS") {
+        if let Ok(parsed) = val.parse::<usize>() {
+            if parsed > 0 {
+                return parsed;
+            }
+        }
+    }
+    num_cpus::get().min(8).max(1)
+}
+
+/// DETERMINES OPTIMAL HOST THREADS FOR GPU SESSIONS (AVOIDS HOST-CPU CONTENTION WITH GPU DRIVER)
+pub fn get_optimal_gpu_host_threads() -> usize {
+    if let Ok(val) = std::env::var("ONNX_GPU_THREADS") {
+        if let Ok(parsed) = val.parse::<usize>() {
+            if parsed > 0 {
+                return parsed;
+            }
+        }
+    }
+    num_cpus::get().min(4).max(1)
+}
+
+/// Cross-platform process working-set and heap memory reclamation.
+/// On Windows, empties unreferenced working-set pages back to the OS.
+/// On Linux, invokes malloc_trim if available.
+pub fn trim_process_memory() {
+    #[cfg(windows)]
+    {
+        extern "system" {
+            fn GetCurrentProcess() -> *mut std::ffi::c_void;
+            fn K32EmptyWorkingSet(hProcess: *mut std::ffi::c_void) -> i32;
+        }
+        unsafe {
+            let handle = GetCurrentProcess();
+            let _ = K32EmptyWorkingSet(handle);
+        }
+    }
+
+    #[cfg(target_os = "linux")]
+    {
+        extern "C" {
+            fn malloc_trim(pad: usize) -> i32;
+        }
+        unsafe {
+            let _ = malloc_trim(0);
+        }
+    }
+}
+
 /// Creates an ONNX Runtime Session from bytes using the active hardware accelerator
 /// (CUDA, CoreML, or DirectML for dedicated GPUs, with automatic, graceful fallback to multi-threaded CPU).
 pub fn create_session_from_memory(bytes: &[u8], model_tag: &str) -> Result<Session> {
@@ -478,10 +529,14 @@ pub fn create_session_from_memory(bytes: &[u8], model_tag: &str) -> Result<Sessi
             let cuda_res = (|| -> Result<Session> {
                 let session = Session::builder()
                     .map_err(|e| anyhow::anyhow!("Builder error: {}", e))?
-                    .with_intra_threads(num_cpus::get().min(8))
+                    .with_intra_threads(get_optimal_gpu_host_threads())
                     .map_err(|e| anyhow::anyhow!("Intra threads error: {}", e))?
                     .with_optimization_level(GraphOptimizationLevel::Level3)
                     .map_err(|e| anyhow::anyhow!("Opt level error: {}", e))?
+                    .with_memory_pattern(false)
+                    .map_err(|e| anyhow::anyhow!("Memory pattern error: {}", e))?
+                    .with_config_entry("session.enable_cpu_mem_arena", "0")
+                    .map_err(|e| anyhow::anyhow!("Config entry error: {}", e))?
                     .with_execution_providers([ort::ep::CUDA::default().build()])
                     .map_err(|e| anyhow::anyhow!("CUDA provider error: {}", e))?
                     .commit_from_memory(bytes)
@@ -511,10 +566,14 @@ pub fn create_session_from_memory(bytes: &[u8], model_tag: &str) -> Result<Sessi
             let coreml_res = (|| -> Result<Session> {
                 let session = Session::builder()
                     .map_err(|e| anyhow::anyhow!("Builder error: {}", e))?
-                    .with_intra_threads(num_cpus::get().min(8))
+                    .with_intra_threads(get_optimal_gpu_host_threads())
                     .map_err(|e| anyhow::anyhow!("Intra threads error: {}", e))?
                     .with_optimization_level(GraphOptimizationLevel::Level3)
                     .map_err(|e| anyhow::anyhow!("Opt level error: {}", e))?
+                    .with_memory_pattern(false)
+                    .map_err(|e| anyhow::anyhow!("Memory pattern error: {}", e))?
+                    .with_config_entry("session.enable_cpu_mem_arena", "0")
+                    .map_err(|e| anyhow::anyhow!("Config entry error: {}", e))?
                     .with_execution_providers([ort::ep::CoreML::default().build()])
                     .map_err(|e| anyhow::anyhow!("CoreML provider error: {}", e))?
                     .commit_from_memory(bytes)
@@ -544,10 +603,14 @@ pub fn create_session_from_memory(bytes: &[u8], model_tag: &str) -> Result<Sessi
             let dml_res = (|| -> Result<Session> {
                 let session = Session::builder()
                     .map_err(|e| anyhow::anyhow!("Builder error: {}", e))?
-                    .with_intra_threads(num_cpus::get().min(8))
+                    .with_intra_threads(get_optimal_gpu_host_threads())
                     .map_err(|e| anyhow::anyhow!("Intra threads error: {}", e))?
                     .with_optimization_level(GraphOptimizationLevel::Level3)
                     .map_err(|e| anyhow::anyhow!("Opt level error: {}", e))?
+                    .with_memory_pattern(false)
+                    .map_err(|e| anyhow::anyhow!("Memory pattern error: {}", e))?
+                    .with_config_entry("session.enable_cpu_mem_arena", "0")
+                    .map_err(|e| anyhow::anyhow!("Config entry error: {}", e))?
                     .with_execution_providers([ort::ep::DirectML::default().build()])
                     .map_err(|e| anyhow::anyhow!("DirectML provider error: {}", e))?
                     .commit_from_memory(bytes)
@@ -570,14 +633,18 @@ pub fn create_session_from_memory(bytes: &[u8], model_tag: &str) -> Result<Sessi
         }
     }
 
-    // CPU multi-threaded session with Level 3 graph optimization
+    // CPU multi-threaded session with Level 3 graph optimization, zero persistent arena, and direct mimalloc backing
     tracing::debug!("Initializing ONNX model '{}' with CPU execution provider.", model_tag);
     let session = Session::builder()
         .map_err(|e| anyhow::anyhow!("Session builder error: {}", e))?
-        .with_intra_threads(num_cpus::get().min(8))
+        .with_intra_threads(get_optimal_cpu_threads())
         .map_err(|e| anyhow::anyhow!("Session intra threads error: {}", e))?
         .with_optimization_level(GraphOptimizationLevel::Level3)
         .map_err(|e| anyhow::anyhow!("Session optimization level error: {}", e))?
+        .with_memory_pattern(false)
+        .map_err(|e| anyhow::anyhow!("Memory pattern error: {}", e))?
+        .with_config_entry("session.enable_cpu_mem_arena", "0")
+        .map_err(|e| anyhow::anyhow!("Config entry error: {}", e))?
         .commit_from_memory(bytes)
         .map_err(|e| anyhow::anyhow!("Commit session from memory error: {}", e))?;
 

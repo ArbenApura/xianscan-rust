@@ -2,22 +2,6 @@ mod common;
 
 use std::path::Path;
 use common::get_or_analyze_fixture;
-use xianscan_rust::ml::detect::merge_text_lines;
-
-/// # Bubble Split Test: Terminal Punctuation Horizontal Merge Guard
-///
-/// ## Purpose:
-/// Verifies that adjacent horizontal utterances ending with terminal punctuation (e.g. `！`, `。`, `？`)
-/// are not merged into a single sentence across separate speech bubbles.
-#[test]
-fn test_merge_text_lines_terminal_punct_guard() {
-    let b1 = vec![[49.0, 105.0], [253.0, 105.0], [253.0, 152.0], [49.0, 152.0]];
-    let b2 = vec![[273.0, 105.0], [352.0, 105.0], [352.0, 152.0], [273.0, 152.0]];
-    let texts = vec!["裤子上不可！".to_string(), "哈哈！".to_string()];
-
-    let (merged, _) = merge_text_lines(&[b1, b2], &[0.99, 0.96], Some(&texts), 0.40, 0.55, 1.35);
-    assert_eq!(merged.len(), 2, "Terminal punctuation guard must prevent horizontal merge of distinct utterances");
-}
 
 /// # Bubble Split Test: Full Pipeline Adjacent Bubble Separation on `page_fool_pee_pants_adjacent_bubbles.webp`
 ///

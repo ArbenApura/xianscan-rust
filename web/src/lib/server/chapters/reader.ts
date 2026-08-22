@@ -29,6 +29,9 @@ export interface ChapterPageData {
 	originalRev: number;
 	status: 'pending' | 'processing' | 'done' | 'error';
 	error: string | null;
+	llmPrompt?: string | null;
+	llmResponse?: string | null;
+	ocrStats?: string | null;
 	width?: number | null;
 	height?: number | null;
 	regions: ChapterRegionData[];
@@ -193,14 +196,21 @@ export async function getChapterReaderData(chapterId: number): Promise<ChapterRe
 			originalRev: p.originalRev,
 			status: p.status,
 			error: p.error,
+			llmPrompt: (p as any).llmPrompt ?? null,
+			llmResponse: (p as any).llmResponse ?? null,
+			ocrStats: (p as any).ocrStats ?? null,
 			width: p.width,
 			height: p.height,
+			panels: (safeJson((p as any).panels) as any[]) || [],
+			onomatopoeia: (safeJson((p as any).onomatopoeia) as any[]) || [],
 			regions: (byPage.get(p.id) ?? []).map((r) => {
 				const parsedBox = safeJson(r.box) as any;
 				return {
 					id: r.id,
 					seq: r.seq,
 					box: parsedBox,
+					inpaintBox: r.inpaintBox ? safeJson(r.inpaintBox) : (parsedBox?.inpaint_box ?? null),
+					typesetBox: r.typesetBox ? safeJson(r.typesetBox) : (parsedBox?.typeset_box ?? null),
 					polygon: safeJson(r.polygon),
 					bubble_box: parsedBox?.bubble_box ?? null,
 					bubble_polygon: parsedBox?.bubble_polygon ?? null,
@@ -246,13 +256,17 @@ export async function updateRegionTranslation(
 
 			const typesetRegions = allRegions
 				.filter((r) => Boolean(r.textTarget?.trim()))
-				.map((r) => ({
-					id: String(r.id),
-					box: safeJson(r.box) as any,
-					text: r.textTarget!,
-					vertical: (r as any).vertical,
-					angle: (r as any).angle,
-				}));
+				.map((r) => {
+					const boxObj = safeJson(r.box) as any;
+					const typesetBoxObj = r.typesetBox ? safeJson(r.typesetBox) : (boxObj?.typeset_box ?? boxObj);
+					return {
+						id: String(r.id),
+						box: typesetBoxObj ?? boxObj,
+						text: r.textTarget!,
+						vertical: (r as any).vertical ?? boxObj?.vertical,
+						angle: (r as any).angle ?? boxObj?.angle,
+					};
+				});
 
 			const { typesetPage } = await import('../typeset');
 			const out = await typesetPage(cleanedBuf, typesetRegions);
@@ -299,13 +313,17 @@ export async function retypesetPage(
 
 		const typesetRegions = allRegions
 			.filter((r) => Boolean(r.textTarget?.trim()))
-			.map((r) => ({
-				id: String(r.id),
-				box: safeJson(r.box) as any,
-				text: r.textTarget!,
-				vertical: (r as any).vertical,
-				angle: (r as any).angle,
-			}));
+			.map((r) => {
+				const boxObj = safeJson(r.box) as any;
+				const typesetBoxObj = r.typesetBox ? safeJson(r.typesetBox) : (boxObj?.typeset_box ?? boxObj);
+				return {
+					id: String(r.id),
+					box: typesetBoxObj ?? boxObj,
+					text: r.textTarget!,
+					vertical: (r as any).vertical ?? boxObj?.vertical,
+					angle: (r as any).angle ?? boxObj?.angle,
+				};
+			});
 
 		const { typesetPage } = await import('../typeset');
 		const out = await typesetPage(cleanedBuf, typesetRegions, _opts);
@@ -352,8 +370,13 @@ export function getPageWithRegions(pageId: number) {
 		originalRev: pageRow.originalRev,
 		status: pageRow.status,
 		error: pageRow.error,
+		llmPrompt: (pageRow as any).llmPrompt ?? null,
+		llmResponse: (pageRow as any).llmResponse ?? null,
+		ocrStats: (pageRow as any).ocrStats ?? null,
 		width: pageRow.width,
 		height: pageRow.height,
+		panels: (safeJson((pageRow as any).panels) as any[]) || [],
+		onomatopoeia: (safeJson((pageRow as any).onomatopoeia) as any[]) || [],
 		regions: allRegions.map((r) => {
 			const parsedBox = safeJson(r.box) as any;
 			return {

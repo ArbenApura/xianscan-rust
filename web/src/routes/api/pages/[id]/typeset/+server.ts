@@ -22,7 +22,6 @@ export const POST: RequestHandler = async ({ params, request, cookies }) => {
 		fontDialogue: userOpts?.fontFamily || cookies?.get('mt_ts_font'),
 		fontCjk: cookies?.get('mt_ts_cjk_font'),
 		boxInset: cookies?.get('mt_ts_padding') ? Number(cookies.get('mt_ts_padding')) : undefined,
-		fontScale: cookies?.get('mt_ts_scale') ? Number(cookies.get('mt_ts_scale')) : undefined,
 		outlineMode: (userOpts?.outline || cookies?.get('mt_ts_outline')) as any,
 		colorMode: cookies?.get('mt_ts_contrast') as any,
 		casing: (userOpts?.casing || cookies?.get('mt_ts_casing')) as any,

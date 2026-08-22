@@ -321,7 +321,7 @@ fn compute_dir_fingerprint(dir: &std::path::Path) -> u64 {
 
     let mut files = Vec::new();
     collect_files(dir, dir, &mut files);
-    files.sort_by(|a, b| a.cmp(b));
+    files.sort();
 
     for (rel_path, full_path) in files {
         for b in rel_path.as_bytes() {

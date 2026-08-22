@@ -1,8 +1,6 @@
 # XianScan Mihon / Tachiyomi Extension
 
-A self-hosted **Mihon / Tachiyomi** extension that reads your **XianScan** library —
-dedicated covers, description, author/artist, genres/tags, and serialization status —
-straight from the web server (`http://<host>:8124`).
+A self-hosted **Mihon / Tachiyomi** extension that reads your **XianScan** library (including dedicated covers, description, author/artist, genres/tags, and serialization status) straight from the web server (`http://<host>:8124`).
 
 ## Install (APK from file)
 
@@ -41,7 +39,7 @@ Add the XianScan Extension Repository directly in Mihon for 1-click in-app insta
    ```
    http://<your-pc-lan-ip>:8124
    ```
-   *(e.g. `http://192.168.1.50:8124` — no trailing slash).*
+   *(e.g. `http://192.168.1.50:8124`, no trailing slash).*
 7. Ensure **"All"** (multi-language) is checked in the **Browse → Sources** filter (globe 🌐 icon).
 
 ---

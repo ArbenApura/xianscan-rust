@@ -12,7 +12,7 @@ afterEach(() => {
 describe('computeUsage', () => {
 	it('defaults everything to zero for an undefined usage payload', () => {
 		const u = computeUsage(undefined, 'm');
-		expect(u).toMatchObject({ promptTokens: 0, cachedTokens: 0, completionTokens: 0, costUsd: 0, model: 'm' });
+		expect(u).toMatchObject({ promptTokens: 0, cachedTokens: 0, completionTokens: 0, model: 'm' });
 	});
 
 	it('counts plain prompt/completion tokens', () => {
@@ -52,30 +52,6 @@ describe('computeUsage', () => {
 			'm',
 		);
 		expect(u.cachedTokens).toBe(200);
-	});
-
-	it('a cache-only run is strictly cheaper than a cold run at the same token count', () => {
-		const cold = computeUsage(
-			{ prompt_tokens: 1000, completion_tokens: 0, total_tokens: 1000, prompt_cache_hit_tokens: 0 } as never,
-			'deepseek-v4-flash',
-		);
-		const hit = computeUsage(
-			{ prompt_tokens: 1000, completion_tokens: 0, total_tokens: 1000, prompt_cache_hit_tokens: 1000 } as never,
-			'deepseek-v4-flash',
-		);
-		expect(hit.costUsd).toBeLessThan(cold.costUsd);
-		expect(hit.costUsd).toBeGreaterThan(0);
-	});
-
-	it('cost grows monotonically with tokens (same mix)', () => {
-		const small = computeUsage({ prompt_tokens: 100, completion_tokens: 10, total_tokens: 110 } as never, 'deepseek-v4-flash');
-		const big = computeUsage({ prompt_tokens: 10_000, completion_tokens: 1000, total_tokens: 11_000 } as never, 'deepseek-v4-flash');
-		expect(big.costUsd).toBeGreaterThan(small.costUsd);
-	});
-
-	it('unknown models fall back to flash pricing (cost is never zero)', () => {
-		const u = computeUsage({ prompt_tokens: 100, completion_tokens: 0, total_tokens: 100 } as never, 'no-such-model');
-		expect(u.costUsd).toBeGreaterThan(0);
 	});
 });
 

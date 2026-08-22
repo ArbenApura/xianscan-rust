@@ -9,6 +9,7 @@ use axum::{
 };
 use tower_http::cors::{Any, CorsLayer};
 use rayon::prelude::*;
+use image::DynamicImage;
 
 use crate::ml::device::{get_hardware_status, set_active_provider};
 use crate::ml::reslice::{smart_reslice_chapter, stitch_images_vertically, ResliceProgressFn};
@@ -128,7 +129,7 @@ async fn health_handler(State(state): State<AppState>) -> Json<serde_json::Value
         "web_build_time": crate::server::web_assets::WEB_BUILD_TIME,
         "accelerator": hw.device_label,
         "providers": hw.providers,
-        "detector": if engine.detector.is_some() { "comic-ctd" } else { "rapidocr-fallback" },
+        "detector": if let Some(ref d) = engine.detector { d.backend_name() } else { "rapidocr-fallback" },
         "inpainter": if engine.inpainter.is_some() { "lama-onnx" } else { "unsupported" },
         "ocr": "rapidocr",
         "models_dir": "models"
@@ -189,6 +190,9 @@ async fn analyze_handler(
     let mut image_bytes = None;
     let mut source_lang = None;
     let mut target_lang = None;
+    let mut inpaint_padding_pct = None;
+    let mut typeset_padding_pct = None;
+    let mut enable_watermark_inpaint = None;
 
     while let Ok(Some(field)) = multipart.next_field().await {
         let name = field.name().unwrap_or_default().to_string();
@@ -212,6 +216,23 @@ async fn analyze_handler(
                     target_lang = Some(trimmed.to_string());
                 }
             }
+        } else if name == "inpaint_padding_pct" || name == "inpaintPaddingPct" {
+            if let Ok(text) = field.text().await {
+                if let Ok(val) = text.trim().parse::<f32>() {
+                    inpaint_padding_pct = Some(val);
+                }
+            }
+        } else if name == "typeset_padding_pct" || name == "typesetPaddingPct" {
+            if let Ok(text) = field.text().await {
+                if let Ok(val) = text.trim().parse::<f32>() {
+                    typeset_padding_pct = Some(val);
+                }
+            }
+        } else if name == "enable_watermark_inpaint" || name == "enableWatermarkInpaint" {
+            if let Ok(text) = field.text().await {
+                let trimmed = text.trim().to_lowercase();
+                enable_watermark_inpaint = Some(trimmed == "true" || trimmed == "1");
+            }
         } else if image_bytes.is_none() && name.is_empty() {
             if let Ok(bytes) = field.bytes().await {
                 if !bytes.is_empty() {
@@ -232,12 +253,34 @@ async fn analyze_handler(
     let options = AnalyzeOptions {
         source_lang,
         target_lang,
+        inpaint_padding_pct,
+        typeset_padding_pct,
+        enable_watermark_inpaint,
     };
 
-    let mut engine = state.engine.lock().unwrap();
-    let res = engine.analyze_image_with_options(&img, Some(&options))
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("Analysis pipeline error: {}", e)))?;
+    let t_req_start = std::time::Instant::now();
+    let engine_lock = state.engine.clone();
+    let mut res = tokio::task::spawn_blocking(move || -> Result<AnalyzeResponse, (StatusCode, String)> {
+        let t_lock_start = std::time::Instant::now();
+        let mut engine = engine_lock.lock().map_err(|e| {
+            (StatusCode::INTERNAL_SERVER_ERROR, format!("Failed to lock engine: {}", e))
+        })?;
+        let lock_wait_ms = t_lock_start.elapsed().as_secs_f64() * 1000.0;
+        let mut analyzed = engine.analyze_image_with_options(&img, Some(&options))
+            .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("Analysis pipeline error: {}", e)))?;
+        if let Some(ref mut st) = analyzed.stats {
+            st.queue_wait_ms = Some(lock_wait_ms);
+        }
+        Ok(analyzed)
+    })
+    .await
+    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("Task join error: {}", e)))??;
 
+    if let Some(ref mut st) = res.stats {
+        st.server_request_time_ms = Some(t_req_start.elapsed().as_secs_f64() * 1000.0);
+    }
+
+    schedule_idle_memory_trim();
     Ok(Json(res))
 }
 
@@ -282,18 +325,27 @@ async fn clean_handler(
         Vec::new()
     };
 
-    let mut engine = state.engine.lock().unwrap();
-    let cleaned = engine.clean_image(&img, &regions, &inpaint_mode)
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("Inpainting failed: {}", e)))?;
+    let engine_lock = state.engine.clone();
+    let out_bytes = tokio::task::spawn_blocking(move || -> Result<Vec<u8>, (StatusCode, String)> {
+        let mut engine = engine_lock.lock().map_err(|e| {
+            (StatusCode::INTERNAL_SERVER_ERROR, format!("Failed to lock engine: {}", e))
+        })?;
+        let cleaned = engine.clean_image(&img, &regions, &inpaint_mode)
+            .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("Inpainting failed: {}", e)))?;
 
-    let mut out_bytes = std::io::Cursor::new(Vec::new());
-    cleaned.write_to(&mut out_bytes, image::ImageFormat::WebP)
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("WebP encode failed: {}", e)))?;
+        let mut out_bytes = std::io::Cursor::new(Vec::new());
+        cleaned.write_to(&mut out_bytes, image::ImageFormat::WebP)
+            .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("WebP encode failed: {}", e)))?;
+        Ok(out_bytes.into_inner())
+    })
+    .await
+    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("Task join error: {}", e)))??;
 
+    schedule_idle_memory_trim();
     Ok((
         StatusCode::OK,
         [(header::CONTENT_TYPE, "image/webp")],
-        out_bytes.into_inner(),
+        out_bytes,
     ).into_response())
 }
 
@@ -321,18 +373,26 @@ async fn preprocess_handler(
     let img = image::load_from_memory(&bytes)
         .map_err(|e| (StatusCode::BAD_REQUEST, format!("Invalid image format: {}", e)))?;
 
-    let engine = state.engine.lock().unwrap();
-    let color_wm_mask = engine.watermark.create_bubble_watermark_mask(&img, 210, 20, 35, 15);
-    let cleaned = engine.watermark.inpaint_colliding_watermarks(&img, &color_wm_mask);
+    let engine_lock = state.engine.clone();
+    let out_bytes = tokio::task::spawn_blocking(move || -> Result<Vec<u8>, (StatusCode, String)> {
+        let engine = engine_lock.lock().map_err(|e| {
+            (StatusCode::INTERNAL_SERVER_ERROR, format!("Failed to lock engine: {}", e))
+        })?;
+        let color_wm_mask = engine.watermark.create_bubble_watermark_mask(&img, 210, 20, 35, 15);
+        let cleaned = engine.watermark.inpaint_colliding_watermarks(&img, &color_wm_mask);
 
-    let mut out_bytes = std::io::Cursor::new(Vec::new());
-    cleaned.write_to(&mut out_bytes, image::ImageFormat::WebP)
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("WebP encode failed: {}", e)))?;
+        let mut out_bytes = std::io::Cursor::new(Vec::new());
+        cleaned.write_to(&mut out_bytes, image::ImageFormat::WebP)
+            .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("WebP encode failed: {}", e)))?;
+        Ok(out_bytes.into_inner())
+    })
+    .await
+    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("Task join error: {}", e)))??;
 
     Ok((
         StatusCode::OK,
         [(header::CONTENT_TYPE, "image/webp")],
-        out_bytes.into_inner(),
+        out_bytes,
     ).into_response())
 }
 
@@ -422,12 +482,14 @@ async fn reslice_handler(
     }
 
     let cancelled_flag = state.reslice_progress.cancelled_run.clone();
-    let slices = {
-        let mut engine_guard = state.engine.lock().map_err(|e| {
+    let engine_lock = state.engine.clone();
+    let progress_lock = state.reslice_progress.current.clone();
+    let cancelled_flag_clone = cancelled_flag.clone();
+    let slices = tokio::task::spawn_blocking(move || -> Result<Vec<DynamicImage>, (StatusCode, String)> {
+        let mut engine_guard = engine_lock.lock().map_err(|e| {
             (StatusCode::INTERNAL_SERVER_ERROR, format!("Failed to lock engine: {}", e))
         })?;
         let engine = &mut *engine_guard;
-        let progress = state.reslice_progress.current.clone();
         let progress_cb: &ResliceProgressFn = &move |pct| {
             let frame = ResliceProgressFrame {
                 pct,
@@ -435,11 +497,11 @@ async fn reslice_handler(
                 done: false,
                 run: run_id,
             };
-            if let Ok(mut guard) = progress.lock() {
+            if let Ok(mut guard) = progress_lock.lock() {
                 *guard = frame;
             }
         };
-        smart_reslice_chapter(
+        Ok(smart_reslice_chapter(
             &images,
             1600,
             1000,
@@ -447,10 +509,12 @@ async fn reslice_handler(
             engine.detector.as_mut(),
             engine.ocr.as_mut(),
             Some(progress_cb),
-            Some(&cancelled_flag),
+            Some(&cancelled_flag_clone),
             run_id,
-        )
-    };
+        ))
+    })
+    .await
+    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("Task join error: {}", e)))??;
 
     // CANCELLED BY THE CLIENT — BAIL BEFORE ENCODING. NO TERMINAL `done` FRAME:
     // THIS RUN'S POLLER IS GONE AND A NEWER RUN MAY ALREADY OWN THE FRAME.
@@ -510,6 +574,7 @@ async fn reslice_handler(
         };
     }
 
+    schedule_idle_memory_trim();
     Ok((
         StatusCode::OK,
         [
@@ -583,3 +648,12 @@ async fn reslice_cancel_handler(
     state.reslice_progress.cancelled_run.store(target, Ordering::Relaxed);
     StatusCode::OK
 }
+
+/// Dispatches a debounced background task to trim process working set memory after inference completion.
+fn schedule_idle_memory_trim() {
+    tokio::spawn(async {
+        tokio::time::sleep(tokio::time::Duration::from_secs(5)).await;
+        crate::ml::device::trim_process_memory();
+    });
+}
+

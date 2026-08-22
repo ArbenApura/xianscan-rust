@@ -2,9 +2,9 @@
 
 import type { ScannedImage, ScanPageResponse } from './types';
 import { parseChapterMetadata } from './utils/chapter-parser';
-import { sortImagesByCoordinates } from './utils/sorter';
+import { sortImagesByCoordinates, getCanonicalUrl, computeDHashFromElement } from './utils/sorter';
 
-// Extract potential image URLs from srcset
+// EXTRACT POTENTIAL IMAGE URLS FROM SRCSET
 function parseSrcset(srcset: string): string[] {
 	return srcset
 		.split(',')
@@ -12,21 +12,21 @@ function parseSrcset(srcset: string): string[] {
 		.filter(Boolean);
 }
 
-// Find images in reader JSON state if available
+// FIND IMAGES IN READER JSON STATE IF AVAILABLE
 function extractFromEmbeddedJson(): string[] {
 	const results: string[] = [];
 	try {
 		const jsonScripts = document.querySelectorAll('script[type="application/json"], script[id*="data"], script[id*="state"]');
 		for (const el of Array.from(jsonScripts)) {
 			const text = el.textContent || '';
-			// Look for arrays of image URLs
+			// LOOK FOR ARRAYS OF IMAGE URLS
 			const matches = text.match(/https?:\/\/[^"'\s\\]+\.(?:jpg|jpeg|png|webp|avif)(?:\?[^"'\s\\]*)?/gi);
 			if (matches && matches.length >= 3) {
 				results.push(...matches);
 			}
 		}
 	} catch {
-		// Ignore parse errors on arbitrary script blocks
+		// IGNORE PARSE ERRORS ON ARBITRARY SCRIPT BLOCKS
 	}
 	return Array.from(new Set(results));
 }
@@ -72,11 +72,13 @@ const READER_CONTAINER_SELECTOR = [
 	'article'
 ].join(',');
 
-// Scan DOM for reader images
+// SCAN DOM FOR READER IMAGES WITH SCAN-TIME DEDUPLICATION
 export function scanPageForImages(): ScannedImage[] {
 	const imagesMap = new Map<string, ScannedImage>();
+	const seenHashes = new Set<string>();
+	const seenCanonicalUrls = new Set<string>();
 
-	// Check if a dedicated high-confidence reader container exists
+	// CHECK IF A DEDICATED HIGH-CONFIDENCE READER CONTAINER EXISTS
 	const readerContainers = document.querySelectorAll(READER_CONTAINER_SELECTOR);
 	let rootScope: Document | Element = document;
 	for (const container of Array.from(readerContainers)) {
@@ -87,13 +89,13 @@ export function scanPageForImages(): ScannedImage[] {
 		}
 	}
 
-	// 1. Scan standard <img> and <picture> elements within rootScope
+	// 1. SCAN STANDARD <img> AND <picture> ELEMENTS WITHIN ROOTSCOPE
 	const imgElements = rootScope.querySelectorAll<HTMLImageElement>('img, picture img');
 	for (const img of Array.from(imgElements)) {
-		// Drop images nested within noise containers (headers, footers, sidebars, comments, ads)
+		// DROP IMAGES NESTED WITHIN NOISE CONTAINERS (HEADERS, FOOTERS, SIDEBARS, COMMENTS, ADS)
 		if (img.closest(NOISE_CONTAINER_SELECTOR)) continue;
 
-		// Resolve highest-priority source attribute (favoring true lazy attributes over placeholder src)
+		// RESOLVE HIGHEST-PRIORITY SOURCE ATTRIBUTE (FAVORING TRUE LAZY ATTRIBUTES OVER PLACEHOLDER SRC)
 		const candidates = [
 			img.getAttribute('data-src'),
 			img.getAttribute('data-original'),
@@ -108,7 +110,7 @@ export function scanPageForImages(): ScannedImage[] {
 			img.src
 		].filter(Boolean) as string[];
 
-		// Find the first valid non-placeholder candidate
+		// FIND THE FIRST VALID NON-PLACEHOLDER CANDIDATE
 		let possibleSrc: string | null = null;
 		for (const cand of candidates) {
 			if (!cand.startsWith('data:') && !cand.includes('placeholder') && !cand.includes('blur')) {
@@ -117,19 +119,39 @@ export function scanPageForImages(): ScannedImage[] {
 			}
 		}
 
-		// Fallback to first available if none matched
+		// FALLBACK TO FIRST AVAILABLE IF NONE MATCHED
 		if (!possibleSrc && candidates.length > 0) {
 			possibleSrc = candidates[0];
 		}
 
 		if (!possibleSrc || possibleSrc.startsWith('data:')) continue;
 
-		// Convert to absolute URL
+		// CONVERT TO ABSOLUTE URL
 		let absoluteUrl = possibleSrc;
 		try {
 			absoluteUrl = new URL(possibleSrc, window.location.href).href;
 		} catch {
 			continue;
+		}
+
+		// CANONICAL URL DE-DUPLICATION CHECK
+		const canonicalUrl = getCanonicalUrl(absoluteUrl);
+		if (seenCanonicalUrls.has(canonicalUrl)) {
+			continue;
+		}
+
+		// EXTRACT VISUAL DHASH IF IMAGE IS RENDERED IN DOM
+		let dhash: string | undefined;
+		if (img.complete && img.naturalWidth > 0) {
+			const computedHash = computeDHashFromElement(img);
+			if (computedHash) {
+				if (seenHashes.has(computedHash)) {
+					// DROP DUPLICATE IMAGE WITH IDENTICAL VISUAL FINGERPRINT
+					continue;
+				}
+				seenHashes.add(computedHash);
+				dhash = computedHash;
+			}
 		}
 
 		const rect = img.getBoundingClientRect();
@@ -138,13 +160,17 @@ export function scanPageForImages(): ScannedImage[] {
 		const width = img.naturalWidth || rect.width || 0;
 		const height = img.naturalHeight || rect.height || 0;
 
-		// Detect micro-thumbnail rendered in large container (unloaded blur placeholder)
+		// DETECT MICRO-THUMBNAIL RENDERED IN LARGE CONTAINER (UNLOADED BLUR PLACEHOLDER)
 		if (img.naturalWidth > 0 && img.naturalWidth < 80 && rect.width > 200) {
 			continue;
 		}
 
+		seenCanonicalUrls.add(canonicalUrl);
+
 		imagesMap.set(absoluteUrl, {
 			url: absoluteUrl,
+			canonicalUrl,
+			dhash,
 			width,
 			height,
 			top,
@@ -154,7 +180,7 @@ export function scanPageForImages(): ScannedImage[] {
 		});
 	}
 
-	// 2. Scan CSS background-image containers
+	// 2. SCAN CSS BACKGROUND-IMAGE CONTAINERS
 	const bgElements = document.querySelectorAll<HTMLElement>('div[style*="background-image"], section[style*="background-image"]');
 	for (const el of Array.from(bgElements)) {
 		const style = el.getAttribute('style') || '';
@@ -162,9 +188,17 @@ export function scanPageForImages(): ScannedImage[] {
 		if (match && match[1] && !match[1].startsWith('data:')) {
 			try {
 				const absoluteUrl = new URL(match[1], window.location.href).href;
+				const canonicalUrl = getCanonicalUrl(absoluteUrl);
+				if (seenCanonicalUrls.has(canonicalUrl)) {
+					continue;
+				}
+
 				const rect = el.getBoundingClientRect();
+				seenCanonicalUrls.add(canonicalUrl);
+
 				imagesMap.set(absoluteUrl, {
 					url: absoluteUrl,
+					canonicalUrl,
 					width: rect.width || 800,
 					height: rect.height || 1200,
 					top: rect.top + window.scrollY,
@@ -172,19 +206,22 @@ export function scanPageForImages(): ScannedImage[] {
 					selected: true
 				});
 			} catch {
-				// Ignore invalid URL
+				// IGNORE INVALID URL
 			}
 		}
 	}
 
-	// 3. Supplement with embedded JSON state if DOM has few images
+	// 3. SUPPLEMENT WITH EMBEDDED JSON STATE IF DOM HAS FEW IMAGES
 	if (imagesMap.size < 3) {
 		const jsonUrls = extractFromEmbeddedJson();
 		let fallbackTop = 0;
 		for (const url of jsonUrls) {
-			if (!imagesMap.has(url)) {
+			const canonicalUrl = getCanonicalUrl(url);
+			if (!imagesMap.has(url) && !seenCanonicalUrls.has(canonicalUrl)) {
+				seenCanonicalUrls.add(canonicalUrl);
 				imagesMap.set(url, {
 					url,
+					canonicalUrl,
 					width: 800,
 					height: 1200,
 					top: fallbackTop,

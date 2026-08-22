@@ -35,7 +35,6 @@ const LINE_HEIGHT = 1.2;
 const OUTLINE_FACTOR = 0.18;
 
 export interface TypesetOptions {
-	fontScale?: number;
 	fontDialogue?: string;
 	fontCjk?: string;
 	boxInset?: number;
@@ -52,7 +51,6 @@ export async function typesetPage(
 	opts: TypesetOptions = {},
 ): Promise<Buffer> {
 	registerFonts();
-	const scale = opts.fontScale ?? 1;
 	const fontDialogue = opts.fontDialogue || FONT_DIALOGUE;
 	const fontCjk = opts.fontCjk || FONT_FALLBACK_NAME;
 	const inset = opts.boxInset ?? BOX_INSET;
@@ -112,7 +110,7 @@ export async function typesetPage(
 		const maxW = Math.max(10, w * (1 - 2 * inset));
 		const maxH = Math.max(10, h * (1 - 2 * inset));
 
-		const sizeCap = Math.max(MAX_SFX_FONT_SIZE, Math.max(w, h)) * scale;
+		const sizeCap = Math.max(MAX_SFX_FONT_SIZE, Math.max(w, h));
 		let size: number;
 		if (isSfx) {
 			size = fitSingleLineSize(ctx, text, font, maxW, maxH, sizeCap);

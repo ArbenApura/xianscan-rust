@@ -3,6 +3,7 @@ use std::path::Path;
 use anyhow::{Context, Result};
 use image::{DynamicImage, GenericImageView};
 use ort::{session::Session, value::Tensor};
+use rayon::prelude::*;
 use serde::{Deserialize, Serialize};
 
 // -- INTERNAL IMPORTS -- //
@@ -13,7 +14,7 @@ pub const RTDETR_INPUT_SIZE: u32 = 1024;
 pub const RTDETR_DEFAULT_SCORE_THRESH: f32 = 0.25;
 pub const RTDETR_BUBBLE_SCORE_THRESH: f32 = 0.15;
 pub const RTDETR_TEXT_BUBBLE_SCORE_THRESH: f32 = 0.20;
-pub const RTDETR_TEXT_FREE_SCORE_THRESH: f32 = 0.25;
+pub const RTDETR_TEXT_FREE_SCORE_THRESH: f32 = 0.40;
 
 // -- TYPES & STRUCTS -- //
 
@@ -44,7 +45,9 @@ pub struct RtDetrDetection {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RtDetrResult {
+    pub panels: Vec<BoxRect>,
     pub bubbles: Vec<BoxRect>,
+    pub onomatopoeia: Vec<(BoxRect, f32)>,
     pub text_bubbles: Vec<(BoxRect, f32)>,
     pub text_free: Vec<(BoxRect, f32)>,
     pub all_detections: Vec<RtDetrDetection>,
@@ -71,10 +74,14 @@ impl RtDetrComicDetector {
         if !is_rtdetr {
             anyhow::bail!("Model does not have RT-DETR input signature ('orig_target_sizes')");
         }
-        Ok(Self {
+        Ok(Self::from_session(session))
+    }
+
+    pub fn from_session(session: Session) -> Self {
+        Self {
             session,
             input_size: RTDETR_INPUT_SIZE,
-        })
+        }
     }
 
     pub fn detect(&mut self, img: &DynamicImage) -> Result<RtDetrResult> {
@@ -85,7 +92,9 @@ impl RtDetrComicDetector {
         let (orig_w, orig_h) = img.dimensions();
         if orig_w == 0 || orig_h == 0 {
             return Ok(RtDetrResult {
+                panels: Vec::new(),
                 bubbles: Vec::new(),
+                onomatopoeia: Vec::new(),
                 text_bubbles: Vec::new(),
                 text_free: Vec::new(),
                 all_detections: Vec::new(),
@@ -102,26 +111,22 @@ impl RtDetrComicDetector {
             image::imageops::FilterType::Triangle,
         );
 
-        let mut tensor_vec = vec![0.0_f32; 1 * 3 * self.input_size as usize * self.input_size as usize];
+        let mut tensor_vec = vec![0.0_f32; 3 * self.input_size as usize * self.input_size as usize];
         let stride_c = (self.input_size * self.input_size) as usize;
         let stride_y = self.input_size as usize;
+        let input_size = self.input_size as usize;
         let raw_bytes = resized.as_raw();
 
-        for y in 0..self.input_size as usize {
-            let row_offset = y * stride_y;
-            let raw_row_offset = y * (self.input_size as usize) * 3;
-            for x in 0..self.input_size as usize {
-                let raw_idx = raw_row_offset + x * 3;
-                let r_val = raw_bytes[raw_idx] as f32 / 255.0;
-                let g_val = raw_bytes[raw_idx + 1] as f32 / 255.0;
-                let b_val = raw_bytes[raw_idx + 2] as f32 / 255.0;
-
-                let tensor_idx = row_offset + x;
-                tensor_vec[0 * stride_c + tensor_idx] = r_val;
-                tensor_vec[1 * stride_c + tensor_idx] = g_val;
-                tensor_vec[2 * stride_c + tensor_idx] = b_val;
+        // FILL THE THREE CHANNEL PLANES IN PARALLEL ACROSS ALL CPU CORES
+        tensor_vec.par_chunks_mut(stride_c).enumerate().for_each(|(c, plane)| {
+            for y in 0..input_size {
+                let row_offset = y * stride_y;
+                let raw_row_offset = y * input_size * 3;
+                for x in 0..input_size {
+                    plane[row_offset + x] = raw_bytes[raw_row_offset + x * 3 + c] as f32 / 255.0;
+                }
             }
-        }
+        });
 
         let input_images = Tensor::from_array(([1, 3, self.input_size as usize, self.input_size as usize], tensor_vec))
             .map_err(|e| anyhow::anyhow!("FAILED TO CREATE RT-DETR IMAGES TENSOR: {}", e))?;
@@ -170,7 +175,7 @@ impl RtDetrComicDetector {
                 continue;
             }
 
-            let x1 = boxes_slice[i * 4 + 0].clamp(0.0, orig_w as f32);
+            let x1 = boxes_slice[i * 4].clamp(0.0, orig_w as f32);
             let y1 = boxes_slice[i * 4 + 1].clamp(0.0, orig_h as f32);
             let x2 = boxes_slice[i * 4 + 2].clamp(0.0, orig_w as f32);
             let y2 = boxes_slice[i * 4 + 3].clamp(0.0, orig_h as f32);
@@ -209,7 +214,9 @@ impl RtDetrComicDetector {
         }
 
         Ok(RtDetrResult {
+            panels: Vec::new(),
             bubbles,
+            onomatopoeia: Vec::new(),
             text_bubbles,
             text_free,
             all_detections,

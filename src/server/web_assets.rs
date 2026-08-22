@@ -147,7 +147,7 @@ fn app_data_root() -> PathBuf {
         let base = std::env::var("APPDATA")
             .map(PathBuf::from)
             .unwrap_or_else(|_| home_dir().join("AppData").join("Roaming"));
-        return base.join("XianScan");
+        base.join("XianScan")
     }
 
     #[cfg(target_os = "macos")]

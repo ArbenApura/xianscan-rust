@@ -53,10 +53,57 @@ if (!globalThis.__mtSqlite) {
 	sqlite.pragma('busy_timeout = 30000');
 	sqlite.pragma('synchronous = NORMAL');
 	sqlite.pragma('cache_size = -32000');
-	sqlite.pragma('wal_autocheckpoint = 1000');
-	// SELF-HOSTED FRIENDLINESS: RUN PENDING MIGRATIONS AT BOOT SO `npm run dev` / `npm run start` WORK ON
-	// A FRESH CLONE WITHOUT A MANUAL `npm run db:migrate` STEP (migrate RUNS ONLY PENDING ONES — THE
-	migrate(drizzle(sqlite, { schema }), { migrationsFolder: MIGRATIONS_DIR });
+	// ALIGN DRIZZLE MIGRATION JOURNAL IF EXISTING DATABASE ALREADY CONTAINS THE RECENT COLUMNS
+	try {
+		const pageCols = sqlite.pragma('table_info(pages)') as Array<{ name: string }>;
+		const hasPanels = pageCols?.some((c) => c.name === 'panels');
+		if (hasPanels) {
+			sqlite.exec(`
+				CREATE TABLE IF NOT EXISTS \`__drizzle_migrations\` (
+					id INTEGER PRIMARY KEY AUTOINCREMENT,
+					hash text NOT NULL,
+					created_at numeric
+				);
+			`);
+			const migs = sqlite.prepare('SELECT created_at FROM `__drizzle_migrations` WHERE created_at = ?').all(1787373660572);
+			if (migs.length === 0) {
+				sqlite.prepare('INSERT INTO `__drizzle_migrations` (hash, created_at) VALUES (?, ?)').run(
+					'0009_gorgeous_supreme_intelligence',
+					1787373660572,
+				);
+			}
+		}
+	} catch {
+		// Ignore check on uninitialized db
+	}
+
+	try {
+		migrate(drizzle(sqlite, { schema }), { migrationsFolder: MIGRATIONS_DIR });
+	} catch (err) {
+		console.warn('[db] auto-migration warning:', err);
+	}
+
+	// ENSURE RECENT COLUMNS EXIST ON ANY PRE-MIGRATION LEGACY DATABASES
+	try {
+		sqlite.exec(`ALTER TABLE pages ADD COLUMN panels TEXT;`);
+	} catch {
+		// Column already exists
+	}
+	try {
+		sqlite.exec(`ALTER TABLE pages ADD COLUMN onomatopoeia TEXT;`);
+	} catch {
+		// Column already exists
+	}
+	try {
+		sqlite.exec(`ALTER TABLE pages ADD COLUMN llm_prompt TEXT;`);
+	} catch {
+		// Column already exists
+	}
+	try {
+		sqlite.exec(`ALTER TABLE pages ADD COLUMN llm_response TEXT;`);
+	} catch {
+		// Column already exists
+	}
 
 	// AUTO-SYNC CHAPTER STATUSES FOR CHAPTERS WHOSE PAGES HAVE FINISHED TRANSLATING
 	try {

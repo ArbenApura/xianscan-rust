@@ -13,6 +13,8 @@ export interface PipelineBox {
 export interface PipelineRegion {
 	id: string;
 	box: PipelineBox;
+	inpaint_box?: PipelineBox | null;
+	typeset_box?: PipelineBox | null;
 	polygon: number[][];
 	bubble_box?: PipelineBox | null;
 	bubble_polygon?: number[][] | null;
@@ -24,11 +26,60 @@ export interface PipelineRegion {
 	angle?: number;
 }
 
+export interface PipelinePanelFrame {
+	id: string;
+	seq: number;
+	box: PipelineBox;
+	polygon: number[][];
+}
+
+export interface PipelineOnomatopoeiaFrame {
+	id: string;
+	seq: number;
+	box: PipelineBox;
+	score?: number;
+}
+
+export interface OcrStepLog {
+	step: string;
+	duration_ms: number;
+	details: string;
+}
+
+export interface OcrStats {
+	total_time_ms: number;
+	queue_wait_ms?: number;
+	server_request_time_ms?: number;
+	wall_time_ms?: number;
+	detector_time_ms: number;
+	ocr_fullpage_time_ms: number;
+	rescue_time_ms: number;
+	watermark_time_ms: number;
+	assembly_time_ms: number;
+	backend: string;
+	device?: string;
+	image_width: number;
+	image_height: number;
+	raw_bubbles_count: number;
+	raw_text_bubbles_count: number;
+	raw_text_free_count: number;
+	raw_sfx_count: number;
+	raw_ocr_lines_count: number;
+	rescued_crops_count: number;
+	watermark_recovered_count: number;
+	final_regions_count: number;
+	avg_confidence: number;
+	steps?: OcrStepLog[];
+}
+
 export interface AnalyzeResult {
 	width: number;
 	height: number;
 	backend: string;
+	panels?: PipelinePanelFrame[];
+	onomatopoeia?: PipelineOnomatopoeiaFrame[];
 	regions: PipelineRegion[];
+	stats?: OcrStats;
 }
 
 export interface CleanRegionInput {
@@ -53,7 +104,11 @@ export interface HardwareStatus {
 
 export interface PipelineClient {
 	preprocess(image: Buffer, signal?: AbortSignal): Promise<Buffer>;
-	analyze(image: Buffer, signal?: AbortSignal, opts?: { sourceLang?: string; targetLang?: string }): Promise<AnalyzeResult>;
+	analyze(
+		image: Buffer,
+		signal?: AbortSignal,
+		opts?: { sourceLang?: string; targetLang?: string; inpaintPaddingPct?: number; typesetPaddingPct?: number; enableWatermarkInpaint?: boolean },
+	): Promise<AnalyzeResult>;
 	clean(image: Buffer, regions: CleanRegionInput[], inpaintMode?: string, signal?: AbortSignal): Promise<Buffer>;
 	health(): Promise<{ status: string; detector: string; inpainter: string }>;
 	getHardware?(signal?: AbortSignal): Promise<HardwareStatus>;
@@ -107,11 +162,18 @@ export class HttpPipelineClient implements PipelineClient {
 		return Buffer.from(await resp.arrayBuffer());
 	}
 
-	async analyze(image: Buffer, signal?: AbortSignal, opts?: { sourceLang?: string; targetLang?: string }): Promise<AnalyzeResult> {
+	async analyze(
+		image: Buffer,
+		signal?: AbortSignal,
+		opts?: { sourceLang?: string; targetLang?: string; inpaintPaddingPct?: number; typesetPaddingPct?: number; enableWatermarkInpaint?: boolean },
+	): Promise<AnalyzeResult> {
 		const form = new FormData();
 		form.append('image', new Blob([new Uint8Array(image)]), 'page.webp');
 		if (opts?.sourceLang) form.append('source_lang', opts.sourceLang);
 		if (opts?.targetLang) form.append('target_lang', opts.targetLang);
+		if (typeof opts?.inpaintPaddingPct === 'number') form.append('inpaint_padding_pct', String(opts.inpaintPaddingPct));
+		if (typeof opts?.typesetPaddingPct === 'number') form.append('typeset_padding_pct', String(opts.typesetPaddingPct));
+		if (typeof opts?.enableWatermarkInpaint === 'boolean') form.append('enable_watermark_inpaint', String(opts.enableWatermarkInpaint));
 		const resp = await this.request('/pages/analyze', { method: 'POST', body: form }, signal);
 		if (!resp.ok) throw new PipelineError(`analyze failed (${resp.status}): ${await resp.text()}`, resp.status);
 		return (await resp.json()) as AnalyzeResult;

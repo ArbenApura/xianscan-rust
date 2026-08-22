@@ -23,7 +23,6 @@ const initialBatchState: BatchTranslationState = {
 	force: false,
 	startedAt: null,
 	completedAt: null,
-	totalCostUsd: 0,
 	totalPromptTokens: 0,
 	totalCompletionTokens: 0,
 };
@@ -397,7 +396,6 @@ function createBatchTrackerStore() {
 					: item,
 			);
 
-			const totalCostUsd = s.totalCostUsd + (snapshot?.totalCostUsd || 0);
 			const totalPromptTokens = s.totalPromptTokens + (snapshot?.totalPromptTokens || 0);
 			const totalCompletionTokens = s.totalCompletionTokens + (snapshot?.totalCompletionTokens || 0);
 
@@ -409,7 +407,6 @@ function createBatchTrackerStore() {
 				...s,
 				queue: q,
 				currentIndex: firstUnfinishedIdx >= 0 ? firstUnfinishedIdx : s.queue.length,
-				totalCostUsd,
 				totalPromptTokens,
 				totalCompletionTokens,
 			};
@@ -548,7 +545,6 @@ function createBatchTrackerStore() {
 				force: opts.force ?? false,
 				startedAt: Date.now(),
 				completedAt: null,
-				totalCostUsd: 0,
 				totalPromptTokens: 0,
 				totalCompletionTokens: 0,
 			};

@@ -9,6 +9,7 @@ import {
 	getKnownSfxTranslation,
 	glossaryBlock,
 	looksDegenerate,
+	normalizeSentenceCase,
 	parseTranslations,
 	sanitizeTranslationArtifacts,
 	systemPrompt,
@@ -46,44 +47,38 @@ describe('systemPrompt', () => {
 		expect(p).toMatch(/comic/i);
 		expect(p).toMatch(/JSON object/);
 		expect(p).toContain('zh-Hans');
-		expect(p).toContain('Character Names, Multi-Name Listings & Military Units');
-		expect(p).toContain('Military Unit & Army Division Titles');
-		expect(p).toContain('Floating Comic Art Captions');
-		expect(p).toContain('Comic Sound Effects (SFX) & Action Onomatopoeia');
-		expect(p).toContain('Wuxia / Xianxia / Cultivation Dialogue & Idioms');
-		expect(p).toContain('Intelligent OCR Noise, Artwork Artifacts & Speech Bubble Tails');
-		expect(p).toContain('Pronoun, Subject Resolution & Pro-Drop Accuracy');
-		expect(p).toContain('Verb Transitivity & Grammatical Voice Fidelity');
-		expect(p).toContain('Speech Bubble Tails & Artwork Artifact Filtering');
+		expect(p).toContain('Names & Listings');
+		expect(p).toContain('Chinese & Manhua Rules');
+		expect(p).toContain('Sound Effects (sfx)');
+		expect(p).toContain('Wuxia/Cultivation');
+		expect(p).toContain('OCR Artifact & Bubble-Tail Cleaning');
+		expect(p).toContain('Pro-Drop & Subject Resolution');
+		expect(p).toContain('passive/intransitive states');
 	});
 
 	it('produces specialized Russian/Cyrillic prompt without Chinese Wuxia rules', () => {
 		const p = systemPrompt('ru', 'en');
-		expect(p).toContain('Russian & Cyrillic Comic Localization Rules');
-		expect(p).toContain('Cyrillic Sound Effects (SFX) & Action Onomatopoeia');
-		expect(p).toContain('Cyrillic Comic OCR Font Confusions & Leetspeak Recovery');
+		expect(p).toContain('Cyrillic Comic Rules');
+		expect(p).toContain('Cyrillic Sound Effects');
+		expect(p).toContain('Font & Leetspeak Recovery');
 		expect(p).toContain('(4PyCTb');
 		// Token efficiency: Chinese Wuxia rules MUST NOT leak into Russian prompt
-		expect(p).not.toContain('Wuxia / Xianxia / Cultivation Dialogue & Idioms');
-		expect(p).not.toContain('【铁滑车】');
+		expect(p).not.toContain('Wuxia/Cultivation');
 		expect(p).not.toContain('师尊');
 	});
 
 	it('produces specialized Japanese Manga prompt', () => {
 		const p = systemPrompt('ja', 'en');
-		expect(p).toContain('Japanese Manga Localization Rules');
+		expect(p).toContain('Japanese Manga Rules');
 		expect(p).toContain('ドキドキ');
-		expect(p).not.toContain('Wuxia / Xianxia');
+		expect(p).not.toContain('Wuxia/Cultivation');
 	});
 
 	it('enforces strict target language rules when translating zh-Hans to Korean', () => {
 		const p = systemPrompt('zh-Hans', 'ko');
-		expect(p).toContain('Target Language & Zero Untranslated Script Invariant');
+		expect(p).toContain('Target Language & Zero Leakage');
 		expect(p).toContain('Korean (ko)');
-		expect(p).toContain(
-			'Do NOT output English or any other language unless the target language is explicitly English',
-		);
-		expect(p).toContain('Wuxia / Xianxia / Cultivation Dialogue & Idioms');
+		expect(p).toContain('Chinese & Manhua Rules');
 	});
 });
 
@@ -384,42 +379,33 @@ describe('translatePage', () => {
 		// Pass 1: r1 returns degenerate '...'
 		// Refill: r1 still returns degenerate '...'
 		// Expected: r1 gets replaced by KNOWN_CHINESE_SFX canonical 'TAP!'
-		const { client } = fakeClient(['{"r0": "Building the lumber camp", "r1": "..."}', '{"r1": "..."}']);
+		const { client } = fakeClient(['{"r0": "Building the lumber camp", "r1": "..."}']);
 		const result = await translatePage(sfxRegions, [], PAIR, { client });
 		expect(result.byRegion.get('r0')).toBe('Building the lumber camp');
 		expect(result.byRegion.get('r1')).toBe('TAP!');
 	});
 
-	it('refills regions the first pass missed or mangled', async () => {
+	it('completes in a single call without secondary refill loop when region is missed', async () => {
 		const { client, callCount } = fakeClient([
 			'{"r0": "Hello"}', // r1 MISSING
-			'{"r1": "BOOM!"}',
 		]);
 		const result = await translatePage(regions, [], PAIR, { client });
 		expect(result.byRegion.get('r0')).toBe('Hello');
-		expect(result.byRegion.get('r1')).toBe('BOOM!');
-		expect(callCount()).toBe(2);
+		expect(result.byRegion.get('r1')).toBe('BOOM!'); // Fallback to KNOWN_CHINESE_SFX for 轰
+		expect(callCount()).toBe(1);
+		expect(result.rawPrompt).toContain('"role": "system"');
+		expect(result.rawResponse).toBe('{"r0": "Hello"}');
+		expect(typeof result.durationMs).toBe('number');
 	});
 
-	it('leaves a region empty when the refill also fails', async () => {
-		const { client, callCount } = fakeClient([
-			'{"r0": "Hello"}', // r1 MISSING
-			'{"r0": "ignored"}', // r1 STILL MISSING
-		]);
-		const result = await translatePage(regions, [], PAIR, { client });
-		expect(result.byRegion.get('r0')).toBe('Hello');
-		expect(result.byRegion.get('r1')).toBeUndefined();
-		expect(callCount()).toBe(2);
-	});
-
-	it('drops degenerate (over-expanded) translations and refills them', async () => {
+	it('drops degenerate (over-expanded) translations in a single roundtrip', async () => {
 		const { client, callCount } = fakeClient([
 			'{"r0": "This is an extremely long multi-paragraph explanation that far exceeds any reasonable translation ratio for a two-character phrase in Chinese", "r1": "BOOM!"}', // r0 DEGENERATE
-			'{"r0": "Hi"}',
 		]);
 		const result = await translatePage(regions, [], PAIR, { client });
-		expect(result.byRegion.get('r0')).toBe('Hi');
-		expect(callCount()).toBe(2);
+		expect(result.byRegion.get('r0')).toBeUndefined();
+		expect(result.byRegion.get('r1')).toBe('BOOM!');
+		expect(callCount()).toBe(1);
 	});
 
 	it('empty region list short-circuits without calling the LLM', async () => {
@@ -600,7 +586,7 @@ describe('parseExtractedTerms & extractTerms', () => {
 				completions: {
 					create: async (params: { messages: OpenAI.Chat.ChatCompletionMessageParam[] }) => {
 						const sysMsg = params.messages.find((m) => m.role === 'system')?.content as string;
-						expect(sysMsg).toContain('Russian & Cyrillic Comic Localization Rules');
+						expect(sysMsg).toContain('Cyrillic Comic Rules');
 						return {
 							choices: [
 								{
@@ -648,7 +634,7 @@ describe('parseExtractedTerms & extractTerms', () => {
 		const koPair = { sourceLang: 'zh-Hans', targetLang: 'ko' };
 		const p = systemPrompt(koPair.sourceLang, koPair.targetLang);
 		expect(p).toContain('Korean (ko)');
-		expect(p).toContain('Output Language Requirement');
+		expect(p).toContain('Target Language & Zero Leakage');
 
 		const koRegions = [
 			{ id: '35477', text: '老师老师，你没\n受伤吧？' },
@@ -698,5 +684,68 @@ describe('parseExtractedTerms & extractTerms', () => {
 		// Case 3: Legitimate paired parenthetical remarks should NOT be stripped
 		const cleanLegit = sanitizeTranslationArtifacts('(whispering) Be quiet!', '（小声）安静点！');
 		expect(cleanLegit).toBe('(whispering) Be quiet!');
+	});
+
+	it('injects dialogueContext into user message while keeping system & glossary prefix intact for caching', () => {
+		const regions = [{ id: 'r0', text: '站住！' }];
+		const terms: TermDraft[] = [{ source: '叶凡', target: 'Ye Fan' }];
+		const mockContext = {
+			previousPages: [
+				{
+					pageSeq: 0,
+					lines: [{ id: 'r0', sourceText: '快跑！', translatedText: 'Run!', kind: 'dialogue_bubble' }],
+					isTranslated: true,
+				},
+			],
+		};
+
+		// 1. MESSAGES WITHOUT DIALOGUE CONTEXT
+		const msgsWithout = buildMessages(regions, terms, PAIR);
+		// 2. MESSAGES WITH DIALOGUE CONTEXT
+		const msgsWith = buildMessages(regions, terms, PAIR, mockContext);
+
+		expect(msgsWithout).toHaveLength(3);
+		expect(msgsWith).toHaveLength(3);
+
+		// SYSTEM PROMPT (MESSAGE 1) MUST BE 100% BYTE-IDENTICAL FOR CACHE PREFIX
+		expect(msgsWith[0].content).toBe(msgsWithout[0].content);
+
+		// GLOSSARY PROMPT (MESSAGE 2) MUST BE 100% BYTE-IDENTICAL FOR CACHE PREFIX
+		expect(msgsWith[1].content).toBe(msgsWithout[1].content);
+
+		// USER PROMPT (MESSAGE 3) SHOULD CONTAIN THE DIALOGUE CONTEXT BLOCK
+		expect(msgsWith[2].content).toContain('=== DIALOGUE CONTEXT (Previous Pages) ===');
+		expect(msgsWith[2].content).toContain('[Page 1 (Previous Context)]:');
+		expect(msgsWith[2].content).toContain('- [Bubble] "快跑！" → "Run!"');
+		expect(msgsWith[2].content).toContain('站住！');
+	});
+
+	it('normalizes accidental all-caps dialogue to natural sentence case while preserving SFX', () => {
+		// 1. Multi-word all-caps dialogue with line breaks
+		const norm1 = normalizeSentenceCase('DID HE IGNORE ME\nON PURPOSE?!', 'dialogue_bubble');
+		expect(norm1).toBe('Did he ignore me\non purpose?!');
+
+		// 2. Multi-sentence all-caps
+		const norm2 = normalizeSentenceCase("STOP! DON'T MOVE! WHO ARE YOU?", 'dialogue_bubble');
+		expect(norm2).toBe("Stop! Don't move! Who are you?");
+
+		// 3. Short isolated SFX onomatopoeia should be preserved in all-caps
+		expect(normalizeSentenceCase('BOOM!', 'sfx')).toBe('BOOM!');
+		expect(normalizeSentenceCase('SLASH!', 'sfx')).toBe('SLASH!');
+		expect(normalizeSentenceCase('WHAT?!')).toBe('WHAT?!');
+
+		// 4. Mixed case or already normal sentence case should not be changed
+		expect(normalizeSentenceCase('Ye Fan, prepare yourself!')).toBe('Ye Fan, prepare yourself!');
+
+		// 5. parseTranslations full JSON salvage test
+		const rawJson = '{"translations": {"r0": "DID HE IGNORE ME\\nON PURPOSE?!", "r1": "BOOM!"}}';
+		const regions = [
+			{ id: 'r0', text: '他是故意的吗？！', kind: 'dialogue_bubble' },
+			{ id: 'r1', text: '轰！', kind: 'sfx' },
+		];
+		const parsed = parseTranslations(rawJson, new Set(['r0', 'r1']), regions);
+		expect(parsed).not.toBeNull();
+		expect(parsed?.get('r0')).toBe('Did he ignore me\non purpose?!');
+		expect(parsed?.get('r1')).toBe('BOOM!');
 	});
 });

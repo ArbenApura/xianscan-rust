@@ -1,4 +1,4 @@
-# 🛠️ XianScan — Developer & Contributing Guide
+# 🛠️ XianScan - Developer Guide
 
 This guide covers building from source, fast iteration workflows, hardware acceleration feature flags, environment variables, database tooling, browser extension development, test suites, and REST API references.
 
@@ -232,7 +232,7 @@ yarn lint
 ```
 xianscan-rust/
 ├── src/
-│   ├── ml/                 # ONNX Runtime ML inference (RT-DETR, OCR, LaMa, Hardware Providers)
+│   ├── ml/                 # ONNX Runtime ML inference (Koharu RF-DETR, OCR, LaMa, Hardware Providers)
 │   ├── pipeline/           # Detection + OCR fusion, polygon masking, region builder, line filters
 │   └── server/             # Axum REST router, SvelteKit SSR process manager, embedded web assets
 ├── web/                    # SvelteKit 2 + Svelte 4 frontend studio & Typesetting engine

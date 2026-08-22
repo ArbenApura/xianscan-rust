@@ -68,7 +68,6 @@ function createJobTrackerStore() {
 			s.startedAt = now;
 			s.completedPages = 0;
 			s.failedPages = 0;
-			s.totalCostUsd = 0;
 			s.totalPromptTokens = 0;
 			s.totalCompletionTokens = 0;
 			s.cacheHitCount = 0;
@@ -195,7 +194,6 @@ function createJobTrackerStore() {
 			}
 		} else if (event.type === 'usage' && event.usage) {
 			const u = event.usage as any;
-			s.totalCostUsd += u.costUsd || 0;
 			s.totalPromptTokens += u.promptTokens || 0;
 			s.totalCompletionTokens += u.completionTokens || 0;
 		} else if (event.type === 'done') {
@@ -280,7 +278,6 @@ function createJobTrackerStore() {
 							totalPages: 0,
 							completedPages: 0,
 							failedPages: 0,
-							totalCostUsd: 0,
 							totalPromptTokens: 0,
 							totalCompletionTokens: 0,
 							cacheHitCount: 0,

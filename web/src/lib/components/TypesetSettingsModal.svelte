@@ -24,6 +24,7 @@
 	import Palette from 'lucide-svelte/icons/palette';
 	import Languages from 'lucide-svelte/icons/languages';
 	import Edit3 from 'lucide-svelte/icons/edit-3';
+	import Info from 'lucide-svelte/icons/info';
 
 	// IMPORTED UI COMPONENTS
 	import Modal from '$lib/components/ui/Modal.svelte';
@@ -162,18 +163,49 @@
 		});
 	}
 
+	// -- INPAINT EXPANSION PRESETS -- //
+	const INPAINT_EXPANSION_PRESETS: { value: number; label: string; sub: string }[] = [
+		{ value: 0.0, label: '0%', sub: 'Exact text bound' },
+		{ value: 0.03, label: '3%', sub: 'Minimal margin · Default' },
+		{ value: 0.06, label: '6%', sub: 'Standard cleaning' },
+		{ value: 0.09, label: '9%', sub: 'Broad inpaint mask' },
+		{ value: 0.12, label: '12%', sub: 'Maximum font halo erase' },
+	];
+
+	// -- TYPESET EXPANSION PRESETS -- //
+	const TYPESET_EXPANSION_PRESETS: { value: number; label: string; sub: string }[] = [
+		{ value: 0.0, label: '0%', sub: 'Exact text bound' },
+		{ value: 0.03, label: '3%', sub: 'Minimal wrap margin' },
+		{ value: 0.06, label: '6%', sub: 'Compact wrap margin · Default' },
+		{ value: 0.09, label: '9%', sub: 'Broad wrap margin' },
+		{ value: 0.12, label: '12%', sub: 'Balanced wrap' },
+	];
+
+	function setInpaintExpansion(val: number) {
+		settings.update((s) => ({ ...s, inpaintExpansionPct: val }));
+		const label = INPAINT_EXPANSION_PRESETS.find((p) => Math.abs(p.value - val) < 0.005)?.label || `${Math.round(val * 100)}%`;
+		toast.success(`Inpaint cleaning expansion set to ${label}`);
+	}
+
+	function setTypesetExpansion(val: number) {
+		settings.update((s) => ({ ...s, typesetExpansionPct: val }));
+		const label = TYPESET_EXPANSION_PRESETS.find((p) => Math.abs(p.value - val) < 0.005)?.label || `${Math.round(val * 100)}%`;
+		toast.success(`Typeset layout expansion set to ${label}`);
+	}
+
 	function resetTypesetDefaults() {
 		settings.update((s) => ({
 			...s,
 			typesetFont: 'CC Wild Words',
 			typesetCjkFont: 'Friendly Sans',
 			typesetPadding: 0.05,
-			typesetFontScale: 1.0,
 			typesetOutline: 'standard',
 			typesetContrast: 'auto',
 			typesetCasing: 'uppercase',
 			typesetAllCaps: true,
 			enableTextRotation: true,
+			inpaintExpansionPct: 0.03,
+			typesetExpansionPct: 0.06,
 		}));
 		selectedPresetId = 'en';
 		previewSampleText = SAMPLE_TEXT_PRESETS[0].text;
@@ -200,7 +232,7 @@
 				: previewSampleText;
 	$: previewTransformRotation = $settings.enableTextRotation ? `rotate(${previewSimulatedAngle}deg)` : 'none';
 	$: previewInsetPadding = `${Math.max(8, Math.round(120 * ($settings.typesetPadding || 0.05)))}px`;
-	$: previewFontSizePx = `${Math.max(12, Math.round(14 * ($settings.typesetFontScale || 1.0)))}px`;
+	$: previewFontSizePx = '14px';
 </script>
 
 <Modal {open} title="Typesetting & Lettering Studio" size="lg" placement="top" on:close={() => (open = false)}>
@@ -401,14 +433,14 @@
 			</div>
 		</div>
 
-		<!-- 3. BUBBLE FITTING & GEOMETRY -->
+		<!-- 3. BUBBLE FITTING & PADDING -->
 		<div class="border-t border-black/10 pt-4 dark:border-white/10 space-y-4">
 			<div>
 				<div class="text-xs font-bold uppercase tracking-wider opacity-80 flex items-center gap-1.5">
 					<Sliders size={14} class="text-[#b23a2e] dark:text-[#e08a63]" />
-					<span class="pl-0.5">Bubble Fitting & Sizing</span>
+					<span class="pl-0.5">Bubble Fitting & Inset Padding</span>
 				</div>
-				<p class="text-[11px] opacity-60 pl-0.5">Edge padding clearance and global font scaling multiplier</p>
+				<p class="text-[11px] opacity-60 pl-0.5">Edge padding clearance margin between rendered text and bubble boundary</p>
 			</div>
 
 			<!-- BUBBLE INSET PADDING -->
@@ -440,38 +472,6 @@
 							<div class="mt-1 text-[9px] opacity-60 leading-tight pl-0.5">{preset.sub}</div>
 						</button>
 					{/each}
-				</div>
-			</div>
-
-			<!-- GLOBAL FONT SCALE MULTIPLIER -->
-			<div class="space-y-2 pt-1">
-				<div class="flex items-center justify-between">
-					<label for="font-scale-slider" class="text-[11px] font-semibold opacity-75 pl-0.5">
-						Global Font Scale Multiplier
-					</label>
-					<span class="text-[11px] font-mono font-bold text-[#b23a2e] dark:text-[#e08a63]">
-						{Math.round(($settings.typesetFontScale || 1.0) * 100)}%
-					</span>
-				</div>
-
-				<div class="flex items-center gap-3">
-					<input
-						id="font-scale-slider"
-						type="range"
-						min="0.8"
-						max="1.3"
-						step="0.05"
-						bind:value={$settings.typesetFontScale}
-						class="h-2 w-full cursor-pointer appearance-none rounded-lg bg-black/10 accent-[#b23a2e] dark:bg-white/15 dark:accent-[#e08a63]"
-					/>
-					<button
-						type="button"
-						on:click={() => ($settings.typesetFontScale = 1.0)}
-						class="rounded-lg border border-black/10 px-2 py-1 text-[10px] font-semibold hover:bg-black/5 dark:border-white/10 dark:hover:bg-white/5 transition"
-						title="Reset scale to 100%"
-					>
-						100%
-					</button>
 				</div>
 			</div>
 		</div>
@@ -611,18 +611,120 @@
 			{/if}
 		</div>
 
+		<!-- 6. THREE-TIER REGION GEOMETRY EXPANSION (ADVANCED FOOTPRINT) -->
+		<div class="border-t border-black/10 pt-4 dark:border-white/10 space-y-3.5">
+			<div>
+				<div class="text-xs font-bold uppercase tracking-wider opacity-80 flex items-center gap-1.5">
+					<Sliders size={14} class="text-[#b23a2e] dark:text-[#e08a63]" />
+					<span class="pl-0.5">Three-Tier Region Geometry Expansion</span>
+				</div>
+				<p class="text-[11px] opacity-60 pl-0.5 mt-0.5">Controls the inpaint cleaning footprint and target typesetting layout bounds computed from text anchors.</p>
+			</div>
+
+			<!-- THREE-TIER VISUAL DIAGRAM CARD -->
+			<div class="relative overflow-hidden rounded-xl border border-black/10 bg-neutral-100 dark:border-white/10 dark:bg-neutral-950 p-4 flex flex-col items-center justify-center">
+				<!-- TIER 3 TYPESET BOX (SOLID BOLD BORDER + OPAQUE FILL) -->
+				<div
+					class="w-full max-w-[290px] rounded-lg border-2 border-[#7f1d1d] dark:border-red-500 bg-[#7f1d1d]/20 dark:bg-red-500/20 p-2.5 transition-all flex flex-col items-center text-center shadow-xs"
+				>
+					<div class="flex items-center justify-between w-full text-[9px] font-bold text-[#7f1d1d] dark:text-red-300 mb-1.5 px-1">
+						<span>Tier 3: Typesetting Box</span>
+						<span class="font-mono">+{Math.round(($settings.typesetExpansionPct ?? 0.06) * 100)}%</span>
+					</div>
+
+					<!-- TIER 2 INPAINT BOX (BLACK/NEUTRAL DASHED BORDER + TRANSLUCENT TINT) -->
+					<div
+						class="w-[90%] rounded-md border-2 border-dashed border-black/80 dark:border-white/80 bg-black/10 dark:bg-white/10 p-2 transition-all flex flex-col items-center"
+					>
+						<div class="flex items-center justify-between w-full text-[8.5px] font-semibold text-neutral-800 dark:text-neutral-200 mb-1.5 px-0.5">
+							<span>Tier 2: Inpaint Mask</span>
+							<span class="font-mono">+{Math.round(($settings.inpaintExpansionPct ?? 0.03) * 100)}%</span>
+						</div>
+
+						<!-- TIER 1 BASE ANCHOR (WHITE DOTTED BORDER + TRANSPARENT FILL WITH SHADOW) -->
+						<div
+							class="w-[85%] rounded border-2 border-dotted border-white bg-black/20 dark:bg-black/60 px-2 py-1.5 text-center font-mono text-[9.5px] font-bold text-white shadow-xs"
+						>
+							Tier 1: Text Anchor (0%)
+						</div>
+					</div>
+				</div>
+			</div>
+
+			<!-- TIER 2 INPAINT EXPANSION PRESETS -->
+			<div class="space-y-1.5">
+				<div class="flex items-center justify-between">
+					<div class="text-[10.5px] font-medium opacity-75 pl-0.5">Tier 2: Inpaint Mask Expansion (Cleaning Margin)</div>
+					<span class="text-[10px] font-mono opacity-60">+{Math.round(($settings.inpaintExpansionPct ?? 0.03) * 100)}%</span>
+				</div>
+
+				<div class="grid grid-cols-5 gap-1 sm:gap-1.5">
+					{#each INPAINT_EXPANSION_PRESETS as preset}
+						{@const isSelected = Math.abs(($settings.inpaintExpansionPct ?? 0.03) - preset.value) < 0.005}
+						<button
+							type="button"
+							on:click={() => setInpaintExpansion(preset.value)}
+							class={`flex flex-col items-center justify-center rounded-lg border py-1.5 px-0.5 sm:px-1 text-center transition-all ${
+								isSelected
+									? 'border-[#b23a2e] bg-[#b23a2e]/[0.08] text-[#b23a2e] dark:text-[#e08a63] font-bold ring-2 ring-[#b23a2e]/30'
+									: 'border-black/10 hover:border-black/20 hover:bg-black/[0.02] dark:border-white/10 dark:hover:border-white/20 dark:hover:bg-white/[0.02] opacity-75'
+							}`}
+							use:ripple
+						>
+							<span class="text-[11px] sm:text-xs">{preset.label}</span>
+						</button>
+					{/each}
+				</div>
+			</div>
+
+			<!-- TIER 3 TYPESET EXPANSION PRESETS -->
+			<div class="space-y-1.5">
+				<div class="flex items-center justify-between">
+					<div class="text-[10.5px] font-medium opacity-75 pl-0.5">Tier 3: Typesetting Layout Expansion (Wrapping Budget)</div>
+					<span class="text-[10px] font-mono opacity-60">+{Math.round(($settings.typesetExpansionPct ?? 0.06) * 100)}%</span>
+				</div>
+
+				<div class="grid grid-cols-5 gap-1 sm:gap-1.5">
+					{#each TYPESET_EXPANSION_PRESETS as preset}
+						{@const isSelected = Math.abs(($settings.typesetExpansionPct ?? 0.06) - preset.value) < 0.005}
+						<button
+							type="button"
+							on:click={() => setTypesetExpansion(preset.value)}
+							class={`flex flex-col items-center justify-center rounded-lg border py-1.5 px-0.5 sm:px-1 text-center transition-all ${
+								isSelected
+									? 'border-[#b23a2e] bg-[#b23a2e]/[0.08] text-[#b23a2e] dark:text-[#e08a63] font-bold ring-2 ring-[#b23a2e]/30'
+									: 'border-black/10 hover:border-black/20 hover:bg-black/[0.02] dark:border-white/10 dark:hover:border-white/20 dark:hover:bg-white/[0.02] opacity-75'
+							}`}
+							use:ripple
+						>
+							<span class="text-[11px] sm:text-xs">{preset.label}</span>
+						</button>
+					{/each}
+				</div>
+			</div>
+
+			<!-- NOTICE: RE-TRANSLATION REQUIRED FOR NEW EXPANSION MARGINS -->
+			<div class="flex items-start gap-2 rounded-xl border border-amber-500/25 bg-amber-500/10 p-2.5 text-[10.5px] leading-relaxed text-amber-800 dark:text-amber-300">
+				<Info size={14} class="shrink-0 text-amber-600 dark:text-amber-400 mt-0.5" />
+				<span>
+					<strong>Note:</strong> Changing region geometry expansion percentages applies to future chapter translations. To apply new boundary margins to previously translated chapters, trigger a full re-translation.
+				</span>
+			</div>
+		</div>
+
 		<!-- FOOTER ACTIONS -->
-		<div class="flex items-center justify-between border-t border-black/10 pt-4 dark:border-white/10">
+		<div class="flex flex-col-reverse sm:flex-row items-stretch sm:items-center justify-between gap-3 border-t border-black/10 pt-4 dark:border-white/10">
 			<button
 				type="button"
 				on:click={resetTypesetDefaults}
-				class="inline-flex items-center gap-1.5 rounded-xl border border-black/10 px-3 py-2 text-xs font-semibold hover:bg-black/5 dark:border-white/10 dark:hover:bg-white/5 transition"
+				class="inline-flex items-center justify-center gap-2 rounded-xl border border-black/10 px-4 py-2.5 text-sm font-semibold hover:bg-black/5 dark:border-white/10 dark:hover:bg-white/5 transition cursor-pointer shrink-0"
+				use:ripple
 			>
-				<RotateCcw size={13} />
+				<RotateCcw size={15} />
 				<span>Reset Defaults</span>
 			</button>
 
-			<Button variant="primary" size="sm" on:click={() => (open = false)}>
+			<Button variant="primary" size="md" class="w-full sm:w-auto px-6 shrink-0" on:click={() => (open = false)}>
 				<span>Done</span>
 			</Button>
 		</div>

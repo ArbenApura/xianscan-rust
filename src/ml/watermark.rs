@@ -4,6 +4,12 @@ use super::detect::{is_watermark_line, is_pure_watermark_region};
 
 pub struct WatermarkRemover;
 
+impl Default for WatermarkRemover {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl WatermarkRemover {
     pub fn new() -> Self {
         Self
@@ -133,9 +139,9 @@ impl WatermarkRemover {
                 let min_c = p[0].min(p[1]).min(p[2]);
                 let color_diff = max_c - min_c;
 
-                let red_wm = (h_val < 15 || h_val > 165) && s_val >= min_sat && v_val >= min_val;
-                let brown_wm = (h_val >= 15 && h_val <= 45) && s_val >= min_sat && v_val >= min_val;
-                let blue_wm = (h_val >= 85 && h_val <= 135) && s_val >= min_sat && v_val >= min_val;
+                let red_wm = !(15..=165).contains(&h_val) && s_val >= min_sat && v_val >= min_val;
+                let brown_wm = (15..=45).contains(&h_val) && s_val >= min_sat && v_val >= min_val;
+                let blue_wm = (85..=135).contains(&h_val) && s_val >= min_sat && v_val >= min_val;
                 let other_chromatic = (s_val >= 25.max(min_sat) || color_diff >= 20.max(min_color_diff)) && v_val >= 75.max(min_val);
 
                 if red_wm || brown_wm || blue_wm || other_chromatic {
@@ -190,7 +196,7 @@ impl WatermarkRemover {
                     let cw = max_cx - min_cx + 1;
                     let ch = max_cy - min_cy + 1;
 
-                    if area >= 6 && area <= 15000 && (cw <= 500 || ch <= 200) {
+                    if (6..=15000).contains(&area) && (cw <= 500 || ch <= 200) {
                         for (cx, cy) in comp {
                             let p = rgb_img.get_pixel(cx, cy);
                             let max_c = p[0].max(p[1]).max(p[2]);
@@ -289,9 +295,9 @@ impl WatermarkRemover {
                     let min_c = p[0].min(p[1]).min(p[2]);
                     let color_diff = max_c - min_c;
 
-                    let red_wm = (h_val < 15 || h_val > 165) && s_val >= 30 && v_val >= 80;
-                    let brown_wm = (h_val >= 15 && h_val <= 45) && s_val >= 30 && v_val >= 80;
-                    let blue_wm = (h_val >= 85 && h_val <= 135) && s_val >= 30 && v_val >= 80;
+                    let red_wm = !(15..=165).contains(&h_val) && s_val >= 30 && v_val >= 80;
+                    let brown_wm = (15..=45).contains(&h_val) && s_val >= 30 && v_val >= 80;
+                    let blue_wm = (85..=135).contains(&h_val) && s_val >= 30 && v_val >= 80;
 
                     if (red_wm || brown_wm || blue_wm) && !(max_c < 75 && color_diff < 15) {
                         mask.put_pixel(x, y, image::Luma([255]));

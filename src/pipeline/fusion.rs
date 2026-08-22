@@ -9,11 +9,20 @@ use crate::ml::detect::{clean_stray_ocr_artifacts, is_watermark_line, CHINESE_RE
 pub struct DetectionFusionResult {
     pub comic_boxes: Vec<Vec<[i32; 2]>>,
     pub comic_scores: Vec<f32>,
+    pub panels: Vec<BoxRect>,
     pub bubbles: Vec<BoxRect>,
+    pub onomatopoeia: Vec<(BoxRect, f32)>,
     pub text_bubbles: Vec<(BoxRect, f32)>,
     pub text_free: Vec<(BoxRect, f32)>,
     pub rapid_lines: Vec<OcrLine>,
     pub backend: String,
+    pub detector_time_ms: f64,
+    pub ocr_fullpage_time_ms: f64,
+    pub rescue_time_ms: f64,
+    pub watermark_time_ms: f64,
+    pub rescued_crops_count: usize,
+    pub watermark_recovered_count: usize,
+    pub raw_ocr_lines_count: usize,
 }
 
 pub fn fuse_detections(
@@ -22,45 +31,140 @@ pub fn fuse_detections(
     watermark: &WatermarkRemover,
     img: &DynamicImage,
     source_lang: Option<&str>,
+    enable_watermark_inpaint: bool,
 ) -> DetectionFusionResult {
     let (page_w, page_h) = img.dimensions();
 
-    // 1. ComicTextDetector / RT-DETR Detection
-    let mut comic_boxes: Vec<Vec<[i32; 2]>> = Vec::new();
-    let mut comic_scores: Vec<f32> = Vec::new();
-    let mut bubbles: Vec<BoxRect> = Vec::new();
-    let mut text_bubbles: Vec<(BoxRect, f32)> = Vec::new();
-    let mut text_free: Vec<(BoxRect, f32)> = Vec::new();
-    let mut backend = "rapidocr-fallback".to_string();
+    // 1 & 2. PARALLEL EXECUTION: RUN COMIC LAYOUT DETECTOR AND RAPIDOCR CONCURRENTLY VIA SCOPED THREADS
+    let (det_result, ocr_result) = std::thread::scope(|s| {
+        let det_handle = s.spawn(|| {
+            if let Some(ref mut det) = detector {
+                let t0 = std::time::Instant::now();
+                if let Ok(res) = det.detect(img) {
+                    let dur = t0.elapsed().as_secs_f64() * 1000.0;
+                    return (Some(res), dur);
+                }
+            }
+            (None, 0.0)
+        });
 
-    if let Some(ref mut det) = detector {
-        if let Ok(res) = det.detect(img) {
-            comic_boxes = res.boxes;
-            comic_scores = res.scores;
-            bubbles = res.bubbles;
-            text_bubbles = res.text_bubbles;
-            text_free = res.text_free;
-            backend = res.backend;
+        let ocr_handle = s.spawn(|| {
+            if let Some(ref mut o) = ocr {
+                let t0 = std::time::Instant::now();
+                if let Ok(rl) = o.detect_and_recognize_tiled_with_lang(img, true, source_lang) {
+                    let dur = t0.elapsed().as_secs_f64() * 1000.0;
+                    // FILTER OUT GIANT ARTWORK HALLUCINATIONS, NOISE STROKES, AND HIGH-TILT NOISE
+                    let filtered: Vec<OcrLine> = rl
+                        .into_iter()
+                        .filter(|line| {
+                            let (_, _, lw, lh) = polygon_bounds(&line.polygon);
+                            let t = line.text.trim();
+                            if t.is_empty() {
+                                return false;
+                            }
+                            // 1. DROP GIANT ARTWORK HALLUCINATIONS (W >= 60% PAGE_W, H >= 120PX, SCORE < 0.75)
+                            if lw >= (page_w as f32 * 0.60) as i32 && lh >= 120 && line.score < 0.75 {
+                                return false;
+                            }
+                            // 2. DROP STANDALONE REPEATED NOISE STROKES
+                            if crate::ml::detect::is_standalone_noise_stroke(t) {
+                                return false;
+                            }
+                            // 3. DROP HIGH-TILT NON-DIALOGUE WITH LOW RECOGNITION CONFIDENCE (THETA >= 12.0 DEG, SCORE < 0.65)
+                            let angle = crate::ml::geometry::calculate_box_angle_i32(&line.polygon);
+                            if angle.abs() >= 12.0 && line.score < 0.65 {
+                                return false;
+                            }
+                            true
+                        })
+                        .collect();
+                    return (filtered, dur);
+                }
+            }
+            (Vec::new(), 0.0)
+        });
+
+        (det_handle.join().unwrap(), ocr_handle.join().unwrap())
+    });
+
+    let (res_opt, detector_time_ms) = det_result;
+    let (mut rapid_lines, ocr_fullpage_time_ms) = ocr_result;
+
+    let (mut comic_boxes, comic_scores, panels, bubbles, onomatopoeia, text_bubbles, text_free, backend) = match res_opt {
+        Some(res) => (
+            res.boxes,
+            res.scores,
+            res.panels,
+            res.bubbles,
+            res.onomatopoeia,
+            res.text_bubbles,
+            res.text_free,
+            res.backend,
+        ),
+        None => (
+            Vec::new(),
+            Vec::new(),
+            Vec::new(),
+            Vec::new(),
+            Vec::new(),
+            Vec::new(),
+            Vec::new(),
+            "rapidocr-fallback".to_string(),
+        ),
+    };
+
+    // FILTER OUT NOISY ONOMATOPOEIA STROKE DETECTIONS THAT LIE DIRECTLY INSIDE SPEECH / THOUGHT BUBBLES
+    let filtered_onomatopoeia: Vec<(BoxRect, f32)> = onomatopoeia
+        .into_iter()
+        .filter(|(sfx_b, _)| {
+            let s_mid_x = sfx_b.x + sfx_b.w / 2;
+            let s_mid_y = sfx_b.y + sfx_b.h / 2;
+            let inside_bubble = bubbles.iter().any(|b| {
+                s_mid_x >= b.x && s_mid_x <= b.x + b.w && s_mid_y >= b.y && s_mid_y <= b.y + b.h
+            });
+            !inside_bubble
+        })
+        .collect();
+
+    // CLUSTER OVERLAPPING / ADJACENT ONOMATOPOEIA STROKE FRAGMENTS INTO UNIFIED CANDIDATE ENVELOPES FOR CROP RESCUE
+    if !filtered_onomatopoeia.is_empty() {
+        let clustered_sfx = crate::ml::detect::cluster_adjacent_sfx_boxes(&filtered_onomatopoeia, 25);
+        for (poly, _) in clustered_sfx {
+            let i32_poly: Vec<[i32; 2]> = poly.iter().map(|p| [p[0].round() as i32, p[1].round() as i32]).collect();
+            comic_boxes.push(i32_poly);
         }
     }
+    let onomatopoeia = filtered_onomatopoeia;
 
-    // 2. RapidOCR Full-Page Det + Rec
-    let mut rapid_lines: Vec<OcrLine> = Vec::new();
-    if let Some(ref mut o) = ocr {
-        if let Ok(rl) = o.detect_and_recognize_tiled_with_lang(img, true, source_lang) {
-            rapid_lines = rl;
-        }
-    }
+    let raw_ocr_lines_count = rapid_lines.len();
+    let mut rescued_crops_count = 0_usize;
 
     // 3. Fallback: RapidOCR isolated recognition for ComicTextDetector boxes
+    let t_rescue0 = std::time::Instant::now();
     if let Some(ref mut o) = ocr {
-        let (w, h) = img.dimensions();
-        let mut ocr_det_matched = vec![false; comic_boxes.len()];
+        if !comic_boxes.is_empty() {
+            let (w, h) = img.dimensions();
+            let mut ocr_det_matched = vec![false; comic_boxes.len()];
 
         for (idx, cb) in comic_boxes.iter().enumerate() {
             let (cb_x, cb_y, cb_w, cb_h) = polygon_bounds(cb);
             let cb_rect = BoxRect { x: cb_x, y: cb_y, w: cb_w, h: cb_h };
             let cb_area = (cb_w * cb_h).max(1);
+
+            let is_cb_multiline = cb_h >= 45 && cb_w >= 45;
+            let has_internal_rapid_lines = rapid_lines.iter().any(|rl| {
+                let (rx, ry, rw, rh) = polygon_bounds(&rl.polygon);
+                let rc_x = rx + rw / 2;
+                let rc_y = ry + rh / 2;
+                let center_in = rc_x >= cb_x && rc_x <= cb_x + cb_w && rc_y >= cb_y && rc_y <= cb_y + cb_h;
+                let iou = box_iou_pts(cb, &rl.polygon);
+                center_in || iou >= 0.20
+            });
+
+            if is_cb_multiline && has_internal_rapid_lines {
+                ocr_det_matched[idx] = true;
+                continue;
+            }
 
             for (r_idx, rl) in rapid_lines.iter().enumerate() {
                 let (rx, ry, rw, rh) = polygon_bounds(&rl.polygon);
@@ -77,13 +181,14 @@ pub fn fuse_detections(
                 let is_rl_vert = rh > (rw as f32 * 1.3) as i32;
                 let is_aspect_compatible = is_cb_vert == is_rl_vert;
 
-                if is_aspect_compatible && (iou >= 0.20 || rl_contained || cb_covered || crate::ml::geometry::line_center_inside_box(&rl.polygon, &cb_rect)) {
+                let is_multiline_cb = (cb_h as f32) >= (rh as f32 * 1.8);
+                if !is_multiline_cb && is_aspect_compatible && (iou >= 0.20 || rl_contained || cb_covered || crate::ml::geometry::line_center_inside_box(&rl.polygon, &cb_rect)) {
                     ocr_det_matched[idx] = true;
 
-                    // If ComicTextDetector box is significantly wider or taller than RapidLine (e.g. ellipsis truncated on right or vertical line truncated)
-                    // test if recognizing ComicBox yields full text (including ellipsis / full vertical onomatopoeia).
-                    let is_wider = cb_w >= rw + 25 || (cb_w as f32) >= (rw as f32 * 1.25);
-                    let is_taller = cb_h >= rh + 25 || (cb_h as f32) >= (rh as f32 * 1.25);
+                    // IF COMIC TEXT DETECTOR BOX IS SIGNIFICANTLY WIDER OR TALLER THAN A SINGLE RAPID OCR LINE (E.G. ELLIPSIS TRUNCATED ON RIGHT OR VERTICAL SFX TRUNCATED)
+                    // TEST IF RECOGNIZING COMIC BOX YIELDS FULL TEXT. MULTI-LINE CONTAINERS MUST NOT OVERWRITE SINGLE CONSTITUENT LINES.
+                    let is_wider = !is_rl_vert && (cb_w >= rw + 25 || (cb_w as f32) >= (rw as f32 * 1.25));
+                    let is_taller = is_rl_vert && (cb_h >= rh + 25 || (cb_h as f32) >= (rh as f32 * 1.25));
                     if is_wider || is_taller {
                         let pad_x = 15;
                         let pad_y = 10;
@@ -98,17 +203,22 @@ pub fn fuse_detections(
                                 let clean_chars = clean_c.chars().filter(|c| !c.is_whitespace()).count();
                                 let rl_chars = rl.text.chars().filter(|c| !c.is_whitespace()).count();
                                 if clean_chars > rl_chars || (clean_c.contains('…') && !rl.text.contains('…')) {
+                                    let union_x = cb_x.min(rx);
+                                    let union_y = cb_y.min(ry);
+                                    let union_w = (cb_x + cb_w).max(rx + rw) - union_x;
+                                    let union_h = (cb_y + cb_h).max(ry + rh) - union_y;
                                     let offset_poly = vec![
-                                        [cb_x, cb_y],
-                                        [cb_x + cb_w, cb_y],
-                                        [cb_x + cb_w, cb_y + cb_h],
-                                        [cb_x, cb_y + cb_h],
+                                        [union_x, union_y],
+                                        [union_x + union_w, union_y],
+                                        [union_x + union_w, union_y + union_h],
+                                        [union_x, union_y + union_h],
                                     ];
                                     rapid_lines[r_idx] = OcrLine {
                                         polygon: offset_poly,
                                         text: clean_c,
                                         score: line_res.score.max(rl.score),
                                     };
+                                    rescued_crops_count += 1;
                                 }
                             }
                         }
@@ -117,6 +227,8 @@ pub fn fuse_detections(
                 }
             }
         }
+
+        let mut single_line_pending: Vec<(Vec<[i32; 2]>, DynamicImage)> = Vec::new();
 
         for (idx, cb) in comic_boxes.iter().enumerate() {
             if !ocr_det_matched[idx] {
@@ -143,6 +255,7 @@ pub fn fuse_detections(
                                                 text: sub_text,
                                                 score: sub_score,
                                             });
+                                            rescued_crops_count += 1;
                                         }
                                     }
                                     recognized_from_crop = true;
@@ -152,94 +265,115 @@ pub fn fuse_detections(
                                         text: crop_res.text,
                                         score: crop_res.score,
                                     });
+                                    rescued_crops_count += 1;
                                     recognized_from_crop = true;
                                 }
                             }
                         }
                         if !recognized_from_crop {
-                            if let Ok(Some(line_res)) = o.recognize_line_with_lang(&crop, source_lang) {
-                                if !line_res.text.is_empty() && line_res.score >= 0.65 {
-                                    rapid_lines.push(OcrLine {
-                                        polygon: cb.clone(),
-                                        text: line_res.text,
-                                        score: line_res.score,
-                                    });
-                                }
-                            }
+                            single_line_pending.push((cb.clone(), crop));
                         }
                     }
                 }
             }
         }
-    }
 
-    // 4. Chromatic Watermark Recovery on Localized Region
-    let color_wm_mask = watermark.create_bubble_watermark_mask(img, 210, 20, 35, 15);
-    let mut has_color_wm = false;
-    let mut wm_pix_count = 0;
-    let mut min_wm_x = page_w;
-    let mut max_wm_x = 0;
-    let mut min_wm_y = page_h;
-    let mut max_wm_y = 0;
-
-    for y in 0..page_h {
-        for x in 0..page_w {
-            if color_wm_mask.get_pixel(x, y)[0] > 0 {
-                has_color_wm = true;
-                wm_pix_count += 1;
-                min_wm_x = min_wm_x.min(x);
-                max_wm_x = max_wm_x.max(x);
-                min_wm_y = min_wm_y.min(y);
-                max_wm_y = max_wm_y.max(y);
+        // BATCH RECOGNITION OF SINGLE-LINE UNMATCHED CROPS IN CHUNKS OF 16
+        if !single_line_pending.is_empty() {
+            let crops: Vec<DynamicImage> = single_line_pending.iter().map(|(_, c)| c.clone()).collect();
+            if let Ok(batched_res) = o.recognize_lines_batched_with_lang(&crops, source_lang) {
+                for (b_idx, res_opt) in batched_res.into_iter().enumerate() {
+                    if let Some(line_res) = res_opt {
+                        if !line_res.text.is_empty() && line_res.score >= 0.65 {
+                            rapid_lines.push(OcrLine {
+                                polygon: single_line_pending[b_idx].0.clone(),
+                                text: line_res.text,
+                                score: line_res.score,
+                            });
+                            rescued_crops_count += 1;
+                        }
+                    }
+                }
             }
         }
+        }
     }
+    let rescue_time_ms = t_rescue0.elapsed().as_secs_f64() * 1000.0;
 
-    if has_color_wm && wm_pix_count > 50 {
-        let clean_wm_img = watermark.inpaint_colliding_watermarks(img, &color_wm_mask);
-        if let Some(ref mut o) = ocr {
-            let wm_crop_x0 = (min_wm_x as i32 - 40).max(0) as u32;
-            let wm_crop_y0 = (min_wm_y as i32 - 40).max(0) as u32;
-            let wm_crop_x1 = (max_wm_x + 40).min(page_w);
-            let wm_crop_y1 = (max_wm_y + 40).min(page_h);
-            let wm_crop_w = wm_crop_x1.saturating_sub(wm_crop_x0);
-            let wm_crop_h = wm_crop_y1.saturating_sub(wm_crop_y0);
+    // 4. Chromatic Watermark Recovery on Localized Region (Optional, default OFF)
+    let t_wm0 = std::time::Instant::now();
+    let mut watermark_recovered_count = 0_usize;
 
-            if wm_crop_w >= 16 && wm_crop_h >= 16 {
-                let clean_wm_crop = clean_wm_img.crop_imm(wm_crop_x0, wm_crop_y0, wm_crop_w, wm_crop_h);
-                if let Ok(mut clean_lines) = o.detect_and_recognize_tiled_with_lang(&clean_wm_crop, false, source_lang) {
-                    for cl in &mut clean_lines {
-                        for p in &mut cl.polygon {
-                            p[0] += wm_crop_x0 as i32;
-                            p[1] += wm_crop_y0 as i32;
-                        }
-                        let (cx, cy, cw, ch) = polygon_bounds(&cl.polygon);
-                        let mut overlap_pix = 0;
-                        for y in cy.max(0)..(cy + ch).min(page_h as i32) {
-                            for x in cx.max(0)..(cx + cw).min(page_w as i32) {
-                                if color_wm_mask.get_pixel(x as u32, y as u32)[0] > 0 {
-                                    overlap_pix += 1;
-                                }
+    if enable_watermark_inpaint {
+        let color_wm_mask = watermark.create_bubble_watermark_mask(img, 210, 20, 35, 15);
+        let mut has_color_wm = false;
+        let mut wm_pix_count = 0;
+        let mut min_wm_x = page_w;
+        let mut max_wm_x = 0;
+        let mut min_wm_y = page_h;
+        let mut max_wm_y = 0;
+
+        for y in 0..page_h {
+            for x in 0..page_w {
+                if color_wm_mask.get_pixel(x, y)[0] > 0 {
+                    has_color_wm = true;
+                    wm_pix_count += 1;
+                    min_wm_x = min_wm_x.min(x);
+                    max_wm_x = max_wm_x.max(x);
+                    min_wm_y = min_wm_y.min(y);
+                    max_wm_y = max_wm_y.max(y);
+                }
+            }
+        }
+
+        if has_color_wm && wm_pix_count > 50 {
+            let clean_wm_img = watermark.inpaint_colliding_watermarks(img, &color_wm_mask);
+            if let Some(ref mut o) = ocr {
+                let wm_crop_x0 = (min_wm_x as i32 - 40).max(0) as u32;
+                let wm_crop_y0 = (min_wm_y as i32 - 40).max(0) as u32;
+                let wm_crop_x1 = (max_wm_x + 40).min(page_w);
+                let wm_crop_y1 = (max_wm_y + 40).min(page_h);
+                let wm_crop_w = wm_crop_x1.saturating_sub(wm_crop_x0);
+                let wm_crop_h = wm_crop_y1.saturating_sub(wm_crop_y0);
+
+                if wm_crop_w >= 16 && wm_crop_h >= 16 {
+                    let clean_wm_crop = clean_wm_img.crop_imm(wm_crop_x0, wm_crop_y0, wm_crop_w, wm_crop_h);
+                    if let Ok(mut clean_lines) = o.detect_and_recognize_tiled_with_lang(&clean_wm_crop, false, source_lang) {
+                        for cl in &mut clean_lines {
+                            for p in &mut cl.polygon {
+                                p[0] += wm_crop_x0 as i32;
+                                p[1] += wm_crop_y0 as i32;
                             }
-                        }
-
-                        if overlap_pix >= 15 && (CHINESE_RE.is_match(&cl.text) || !crate::ml::detect::is_cjk_source(source_lang)) && !is_watermark_line(&cl.text) {
-                            let mut replaced = false;
-                            for rl in &mut rapid_lines {
-                                let iou = box_iou_pts(&cl.polygon, &rl.polygon);
-                                let same_text = cl.text == rl.text || cl.text.contains(&rl.text) || rl.text.contains(&cl.text);
-                                let has_latin = rl.text.chars().any(|c| c.is_ascii_alphabetic());
-
-                                if (has_latin && iou >= 0.15) || (iou >= 0.55) || (same_text && iou >= 0.25) {
-                                    if has_latin || cl.text.len() >= rl.text.len() {
-                                        *rl = cl.clone();
+                            let (cx, cy, cw, ch) = polygon_bounds(&cl.polygon);
+                            let mut overlap_pix = 0;
+                            for y in cy.max(0)..(cy + ch).min(page_h as i32) {
+                                for x in cx.max(0)..(cx + cw).min(page_w as i32) {
+                                    if color_wm_mask.get_pixel(x as u32, y as u32)[0] > 0 {
+                                        overlap_pix += 1;
                                     }
-                                    replaced = true;
-                                    break;
                                 }
                             }
-                            if !replaced {
-                                rapid_lines.push(cl.clone());
+
+                            if overlap_pix >= 15 && (CHINESE_RE.is_match(&cl.text) || !crate::ml::detect::is_cjk_source(source_lang)) && !is_watermark_line(&cl.text) {
+                                let mut replaced = false;
+                                for rl in &mut rapid_lines {
+                                    let iou = box_iou_pts(&cl.polygon, &rl.polygon);
+                                    let same_text = cl.text == rl.text || cl.text.contains(&rl.text) || rl.text.contains(&cl.text);
+                                    let has_latin = rl.text.chars().any(|c| c.is_ascii_alphabetic());
+
+                                    if (has_latin && iou >= 0.15) || (iou >= 0.55) || (same_text && iou >= 0.25) {
+                                        if has_latin || cl.text.len() >= rl.text.len() {
+                                            *rl = cl.clone();
+                                        }
+                                        replaced = true;
+                                        watermark_recovered_count += 1;
+                                        break;
+                                    }
+                                }
+                                if !replaced {
+                                    rapid_lines.push(cl.clone());
+                                    watermark_recovered_count += 1;
+                                }
                             }
                         }
                     }
@@ -247,15 +381,25 @@ pub fn fuse_detections(
             }
         }
     }
+    let watermark_time_ms = t_wm0.elapsed().as_secs_f64() * 1000.0;
 
     DetectionFusionResult {
         comic_boxes,
         comic_scores,
+        panels,
         bubbles,
+        onomatopoeia,
         text_bubbles,
         text_free,
         rapid_lines,
         backend,
+        detector_time_ms,
+        ocr_fullpage_time_ms,
+        rescue_time_ms,
+        watermark_time_ms,
+        rescued_crops_count,
+        watermark_recovered_count,
+        raw_ocr_lines_count,
     }
 }
 

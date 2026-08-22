@@ -10,7 +10,6 @@ export const translateChapterSchema = z.object({
 			fontDialogue: z.string().optional(),
 			fontCjk: z.string().optional(),
 			boxInset: z.number().optional(),
-			fontScale: z.number().optional(),
 			outlineMode: z.enum(['none', 'thin', 'standard', 'heavy']).optional(),
 			colorMode: z.enum(['auto', 'dark', 'light']).optional(),
 			casing: z.enum(['uppercase', 'original', 'lowercase']).optional(),

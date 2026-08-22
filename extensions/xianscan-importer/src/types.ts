@@ -2,6 +2,8 @@
 
 export interface ScannedImage {
 	url: string;
+	canonicalUrl?: string;
+	dhash?: string;
 	width: number;
 	height: number;
 	top: number;

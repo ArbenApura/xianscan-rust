@@ -182,33 +182,40 @@ fn test_language_aware_filtering_helpers() {
     assert!(!is_latin_source(None));
 }
 
-/// # Detector Test: RT-DETR Speech Bubble & Text Detection
+// -- KOHARU LAYOUT DETECTOR TESTS -- //
+
+/// # Detector Test: KoharuLayout RF-DETR Seg Layout Detector
 ///
 /// ## Purpose:
-/// Verifies that RT-DETR detects explicit speech bubble containers, enclosed text lines,
-/// and free-floating text / SFX.
+/// Verifies that KoharuLayout RF-DETR Seg detects text, onomatopoeia, speech bubbles, and panels.
 #[test]
-fn test_rtdetr_speech_bubble_and_text_detector() {
-    use xianscan_rust::ml::detect::RtDetrComicDetector;
+fn test_rfdetr_seg_layout_detector() {
+    use xianscan_rust::ml::detect::RfDetrSegDetector;
 
-    let img = match common::load_fixture_or_skip("zh_hans", "page_fool_pee_pants_adjacent_bubbles.webp") {
+    let img = match common::load_fixture_or_skip("ja", "manga_kotatsu_timing_tea_club_lottery.webp") {
         Some(i) => i,
         None => {
-            eprintln!("[INFO] Skipping test_rtdetr_speech_bubble_and_text_detector: fixture not found");
+            eprintln!("[INFO] Skipping test_rfdetr_seg_layout_detector: fixture not found");
             return;
         }
     };
 
-    let model_path = Path::new("models/comic_text_and_bubble_detector.onnx");
+    let model_path = Path::new("models/rfdetr-seg-2xlarge.onnx");
     if !model_path.exists() {
-        eprintln!("RT-DETR model not found, skipping test");
+        eprintln!("RF-DETR model not found at models/rfdetr-seg-2xlarge.onnx, skipping test");
         return;
     }
 
-    let mut detector = RtDetrComicDetector::new(model_path).expect("Failed to load RT-DETR detector");
+    let mut detector = RfDetrSegDetector::new(model_path).expect("Failed to load RF-DETR detector");
     let res = detector.detect(&img).expect("Inference failed");
 
-    println!("RT-DETR detected: {} bubbles, {} text bubbles, {} text free", res.bubbles.len(), res.text_bubbles.len(), res.text_free.len());
+    println!(
+        "Koharu RF-DETR detected: {} bubbles, {} text bubbles, {} text free (all detections: {})",
+        res.bubbles.len(),
+        res.text_bubbles.len(),
+        res.text_free.len(),
+        res.all_detections.len()
+    );
     assert!(!res.bubbles.is_empty(), "Must detect speech bubble containers");
-    assert!(!res.text_bubbles.is_empty(), "Must detect text lines inside bubbles");
+    assert!(!res.text_bubbles.is_empty(), "Must detect text inside bubbles");
 }

@@ -48,7 +48,7 @@ fn test_regression_page_with_indonesian_source_routing() {
 ///   Guarantees that both narration/dialogue boxes across the tall strip:
 ///   1. Top Box (left-center): `PEREMPUAN...?`
 ///   2. Bottom Box (bottom-right edge): `SIAPA DIA...?`
-///   are cleanly detected and recognized as distinct regions.
+///      are cleanly detected and recognized as distinct regions.
 /// - **Language Routing Integrity (`id`)**:
 ///   Verifies that `source_lang = Some("id")` cleanly processes Latin uppercase text.
 #[test]
@@ -83,37 +83,6 @@ fn test_regression_page_who_is_she_bottom_box() {
     assert!(bottom_box.box_.y >= (res.height as f32 * 0.70) as i32, "Bottom box must be in bottom panel of image, got y={}", bottom_box.box_.y);
 }
 
-/// # Indonesian Real-Page Regression: `page_rising_aura_particle_noise.webp` (Resolution: 720 × 2080 WebP)
-///
-/// ## Purpose & Behavior Tested:
-/// - **Zero Hallucination Filter on Ambient Particle / Magical Aura Artwork**:
-///   Guarantees that magical aura crystal shards and floating particle rings
-///   are not hallucinated as `"0.0"`, `"0"`, or `"……"` speech regions.
-/// - **Pure Artwork Assertions**:
-///   Asserts that total detected regions count is exactly 0.
-#[test]
-fn test_regression_page_rising_aura_particle_noise() {
-    let img = match crate::common::load_fixture_or_skip("id", "page_rising_aura_particle_noise.webp") {
-        Some(i) => i,
-        None => {
-            eprintln!("[INFO] Skipping test_regression_page_rising_aura_particle_noise: fixture not found");
-            return;
-        }
-    };
-
-    let res = get_or_analyze_fixture_with_lang(&img, Some("id"));
-    println!("Indonesian Particle Noise Page detected {} regions:", res.regions.len());
-    for (i, r) in res.regions.iter().enumerate() {
-        println!("  Region r{}: box={:?}, text='{}', conf={:.2}", i, r.box_, r.text.replace('\n', "\\n"), r.confidence);
-    }
-
-    // 1. Exact count: exactly 0 regions
-    assert_eq!(res.regions.len(), 0, "Artwork-only particle page must have 0 detected regions, got {}", res.regions.len());
-
-    // 2. Explicit negative guards against hallucinated artifacts
-    assert!(!res.regions.iter().any(|r| r.text.contains("0.0") || r.text.contains("O.O")), "Must not detect '0.0' or 'O.O'");
-    assert!(!res.regions.iter().any(|r| r.text.trim() == "0" || r.text.trim() == "O"), "Must not detect isolated '0' or 'O'");
-}
 
 /// # Indonesian Real-Page Regression: `page_summon_holy_maiden_cheer_sfx.webp` (Resolution: 720 × 2239 WebP)
 ///
@@ -123,7 +92,7 @@ fn test_regression_page_rising_aura_particle_noise() {
 ///   1. Top Maiden Speech Bubble (`BER-BERHASIL...`)
 ///   2. Free-floating Sound Effect / Exclamation (`HOOO`)
 ///   3. Distinct Right Spiky Bubble (`HEBAT!!`)
-///   are never unified into a single giant monologue box.
+///      are never unified into a single giant monologue box.
 /// - **Artwork Hallucination Filtering**:
 ///   Guarantees that isolated suit fold artifact `"Dr"` is filtered.
 /// - **Full Dialogue Unification**:

@@ -36,6 +36,30 @@ export function sanitizeTranslationArtifacts(translated: string, source: string)
 	return t;
 }
 
+// 3. NORMALIZE ACCIDENTAL ALL-CAPS DIALOGUE TO NATURAL SENTENCE CASE
+export function normalizeSentenceCase(text: string, kind?: string): string {
+	const trimmed = text.trim();
+	if (!trimmed) return text;
+	// DO NOT NORMALIZE EXPLICIT SFX ONOMATOPOEIA
+	if (kind === 'sfx' || kind === 'sound_effect') return text;
+	// ONLY NORMALIZE WHEN TEXT HAS UPPERCASE AND NO LOWERCASE (ALL-CAPS ACCIDENTAL GENERATION)
+	if (!/[A-Z]/.test(trimmed) || /[a-z]/.test(trimmed)) return text;
+	// SHORT ISOLATED 1-2 WORD EXCLAMATIONS (< 3 WORDS AND <= 12 CHARS) LIKE "BOOM!", "WHAT?!", "AHHH!" STAY ALL-CAPS
+	const words = trimmed.split(/\s+/).filter(Boolean);
+	if (words.length <= 2 && trimmed.length <= 12) return text;
+
+	// CONVERT ALL-CAPS TO LOWERCASE, THEN CAPITALIZE AT START OF STRING OR AFTER TERMINAL PUNCTUATION (. ! ? ...)
+	let lower = trimmed.toLowerCase();
+	// CAPITALIZE START OF TEXT (EVEN IF PRECEDED BY QUOTES / PARENS)
+	lower = lower.replace(/^(\s*["'“‘(\[]*)([a-z])/u, (_, p1, p2) => p1 + p2.toUpperCase());
+	// CAPITALIZE AFTER TERMINAL PUNCTUATION (.!?…) FOLLOWED BY WHITESPACE OR NEWLINE
+	lower = lower.replace(/([.!?…]+[\s\n]+["'“‘(\[]*)([a-z])/gu, (_, p1, p2) => p1 + p2.toUpperCase());
+	// CAPITALIZE STANDALONE PRONOUN "I" AND CONTRACTIONS ("I'm", "I'll", "I've", "I'd")
+	lower = lower.replace(/\b(i)\b/g, 'I');
+	lower = lower.replace(/\b(i)('m|'ll|'ve|'d)\b/g, (_, p1, p2) => 'I' + p2);
+	return lower;
+}
+
 export function parseTranslations(
 	raw: string,
 	knownIds: Set<string>,
@@ -98,23 +122,21 @@ export function parseTranslations(
 			) {
 				continue;
 			}
-			const text = m[2]
-				.replace(/\\n/g, '\n')
-				.replace(/\\"/g, '"')
-				.replace(/\\\\/g, '\\')
-				.trim();
-			if (text) rawMap.set(k, text);
+			const val = m[2].replace(/\\n/g, '\n').replace(/\\"/g, '"').replace(/\\\\/g, '\\').trim();
+			if (val) rawMap.set(k, val);
 		}
 	}
 
 	if (rawMap.size === 0) return null;
 
+	// 1. EXACT ID MATCHES (r0, r1, etc.)
 	for (const [k, text] of rawMap) {
 		if (knownIds.has(k)) {
 			out.set(k, text);
 		}
 	}
 
+	// 2. FUZZY MATCHES (IF THE MODEL KEYED BY SOURCE TEXT OR 1-BASED INDEX)
 	if (regions && regions.length > 0) {
 		for (const [k, text] of rawMap) {
 			if (knownIds.has(k)) continue;
@@ -145,13 +167,21 @@ export function parseTranslations(
 			}
 		}
 
-		// SANITIZE ARTIFACTS USING SOURCE REGION METADATA
-		const regMap = new Map(regions.map((r) => [r.id, r.text]));
+		// SANITIZE ARTIFACTS AND NORMALIZE CASING USING SOURCE REGION METADATA
+		const regMap = new Map(regions.map((r) => [r.id, r]));
 		for (const [id, text] of out) {
-			const srcText = regMap.get(id);
-			if (srcText) {
-				out.set(id, sanitizeTranslationArtifacts(text, srcText));
+			const reg = regMap.get(id);
+			if (reg) {
+				const sanitized = sanitizeTranslationArtifacts(text, reg.text);
+				const normalized = normalizeSentenceCase(sanitized, reg.kind);
+				out.set(id, normalized);
+			} else {
+				out.set(id, normalizeSentenceCase(text));
 			}
+		}
+	} else {
+		for (const [id, text] of out) {
+			out.set(id, normalizeSentenceCase(text));
 		}
 	}
 

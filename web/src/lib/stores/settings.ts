@@ -42,7 +42,6 @@ export interface AppSettings {
 	typesetFont: string; // Primary Latin dialogue font (default 'CC Wild Words')
 	typesetCjkFont: string; // CJK East Asian fallback font (default 'Friendly Sans')
 	typesetPadding: number; // Bubble inset padding margin ratio (default 0.05)
-	typesetFontScale: number; // Sizing multiplier (default 1.0)
 	typesetOutline: TypesetOutline; // Outline stroke weight ('none' | 'thin' | 'standard' | 'heavy')
 	typesetContrast: TypesetContrast; // Color contrast mode ('auto' | 'dark' | 'light')
 	typesetCasing: TypesetCasing; // Casing mode ('uppercase' | 'original' | 'lowercase')
@@ -50,6 +49,9 @@ export interface AppSettings {
 	typesetPreviewPreset: string; // Active preview language preset ('en' | 'zh-hans' | 'zh-hant' | 'ja' | 'ko' | 'custom')
 	typesetAllCaps?: boolean; // Deprecated alias
 	enableTextRotation: boolean; // Follow detected bubble angle (default true)
+	enableWatermarkInpaint: boolean; // Chromatic watermark inpainting pre-pass (default false)
+	inpaintExpansionPct: number; // Tier 2 inpaint mask margin expansion (default 0.03 = 3%)
+	typesetExpansionPct: number; // Tier 3 typesetting layout box margin expansion (default 0.06 = 6%)
 }
 
 // CLIENT-FACING MODEL CHOICES FOR THE GLOBAL PICKER. THE IDS MIRROR THE SERVER DEFAULTS IN
@@ -210,7 +212,6 @@ export const DEFAULTS: AppSettings = {
 	typesetFont: 'CC Wild Words',
 	typesetCjkFont: 'Friendly Sans',
 	typesetPadding: 0.05,
-	typesetFontScale: 1.0,
 	typesetOutline: 'standard',
 	typesetContrast: 'auto',
 	typesetCasing: 'uppercase',
@@ -218,6 +219,10 @@ export const DEFAULTS: AppSettings = {
 	typesetPreviewPreset: 'en',
 	typesetAllCaps: true,
 	enableTextRotation: true,
+	enableWatermarkInpaint: false,
+	// THREE-TIER REGION GEOMETRY DEFAULTS (INPAINT & TYPESET BOX EXPANSION)
+	inpaintExpansionPct: 0.03,
+	typesetExpansionPct: 0.06,
 };
 
 const KEY = 'xianscan:settings';
@@ -231,6 +236,7 @@ export const READER_VIEW_COOKIE = 'mt_reader_view';
 export const WEBTOON_KIND_COOKIE = 'mt_webtoon_kind';
 export const WEBTOON_WIDTH_COOKIE = 'mt_webtoon_width';
 export const INPAINT_MODE_COOKIE = 'mt_inpaint_mode';
+export const WATERMARK_INPAINT_COOKIE = 'mt_watermark_inpaint';
 export const EXEC_DEVICE_COOKIE = 'mt_exec_device';
 export const PARALLEL_PROCESSES_COOKIE = 'mt_parallel_processes';
 export const PARALLEL_CHAPTERS_COOKIE = 'mt_parallel_chapters';
@@ -238,12 +244,13 @@ export const RESLICE_BEFORE_BATCH_COOKIE = 'mt_reslice_batch';
 export const TYPESET_FONT_COOKIE = 'mt_ts_font';
 export const TYPESET_CJK_FONT_COOKIE = 'mt_ts_cjk_font';
 export const TYPESET_PADDING_COOKIE = 'mt_ts_padding';
-export const TYPESET_SCALE_COOKIE = 'mt_ts_scale';
 export const TYPESET_OUTLINE_COOKIE = 'mt_ts_outline';
 export const TYPESET_CONTRAST_COOKIE = 'mt_ts_contrast';
 export const TYPESET_CASING_COOKIE = 'mt_ts_casing';
 export const TYPESET_ALL_CAPS_COOKIE = 'mt_ts_allcaps';
 export const TYPESET_ROTATION_COOKIE = 'mt_ts_rot';
+export const INPAINT_EXPANSION_COOKIE = 'mt_inpaint_exp';
+export const TYPESET_EXPANSION_COOKIE = 'mt_typeset_exp';
 
 export function setCookie(name: string, value: string): void {
 	if (typeof document === 'undefined') return;
@@ -378,7 +385,6 @@ function mergeKnown(parsed: unknown): AppSettings {
 	if (!out.typesetFont || typeof out.typesetFont !== 'string') out.typesetFont = 'CC Wild Words';
 	if (!out.typesetCjkFont || typeof out.typesetCjkFont !== 'string') out.typesetCjkFont = 'Friendly Sans';
 	out.typesetPadding = Math.max(0.01, Math.min(0.15, Number(out.typesetPadding) || 0.05));
-	out.typesetFontScale = Math.max(0.6, Math.min(2.0, Number(out.typesetFontScale) || 1.0));
 	if (!['none', 'thin', 'standard', 'heavy'].includes(out.typesetOutline)) out.typesetOutline = 'standard';
 	if (!['auto', 'dark', 'light'].includes(out.typesetContrast)) out.typesetContrast = 'auto';
 	if (!['uppercase', 'original', 'lowercase'].includes(out.typesetCasing)) {
@@ -392,6 +398,15 @@ function mergeKnown(parsed: unknown): AppSettings {
 		: DEFAULTS.typesetPreviewPreset;
 	out.typesetAllCaps = out.typesetCasing === 'uppercase';
 	out.enableTextRotation = typeof (parsed as any)?.enableTextRotation === 'boolean' ? (parsed as any).enableTextRotation : true;
+	out.enableWatermarkInpaint = typeof (parsed as any)?.enableWatermarkInpaint === 'boolean'
+		? (parsed as any).enableWatermarkInpaint
+		: DEFAULTS.enableWatermarkInpaint;
+	out.inpaintExpansionPct = typeof (parsed as any)?.inpaintExpansionPct === 'number'
+		? Math.max(0.0, Math.min(0.20, (parsed as any).inpaintExpansionPct))
+		: DEFAULTS.inpaintExpansionPct;
+	out.typesetExpansionPct = typeof (parsed as any)?.typesetExpansionPct === 'number'
+		? Math.max(0.0, Math.min(0.30, (parsed as any).typesetExpansionPct))
+		: DEFAULTS.typesetExpansionPct;
 	if ((parsed as any)?.version < 5 || out.sourceLang === 'zh-CN' || out.sourceLang === 'zh-Hans') {
 		out.sourceLang = DEFAULT_SOURCE_LANG;
 	}
@@ -441,6 +456,7 @@ function createSettings() {
 				setCookie(THEME_COOKIE, s.theme);
 				setCookie(FONT_COOKIE, s.appFont);
 				setCookie(INPAINT_MODE_COOKIE, s.inpaintMode);
+				setCookie(WATERMARK_INPAINT_COOKIE, String(s.enableWatermarkInpaint));
 				setCookie(EXEC_DEVICE_COOKIE, s.executionDevice);
 				setCookie(PARALLEL_PROCESSES_COOKIE, String(s.parallelProcesses));
 				setCookie(PARALLEL_CHAPTERS_COOKIE, String(s.parallelChapters));
@@ -451,12 +467,13 @@ function createSettings() {
 				setCookie(TYPESET_FONT_COOKIE, s.typesetFont);
 				setCookie(TYPESET_CJK_FONT_COOKIE, s.typesetCjkFont);
 				setCookie(TYPESET_PADDING_COOKIE, String(s.typesetPadding));
-				setCookie(TYPESET_SCALE_COOKIE, String(s.typesetFontScale));
 				setCookie(TYPESET_OUTLINE_COOKIE, s.typesetOutline);
 				setCookie(TYPESET_CONTRAST_COOKIE, s.typesetContrast);
 				setCookie(TYPESET_CASING_COOKIE, s.typesetCasing);
 				setCookie(TYPESET_ALL_CAPS_COOKIE, String(s.typesetAllCaps));
 				setCookie(TYPESET_ROTATION_COOKIE, String(s.enableTextRotation));
+				setCookie(INPAINT_EXPANSION_COOKIE, String(s.inpaintExpansionPct));
+				setCookie(TYPESET_EXPANSION_COOKIE, String(s.typesetExpansionPct));
 			} catch {
 				// IGNORE STORAGE ERRORS (PRIVATE MODE / QUOTA)
 			}

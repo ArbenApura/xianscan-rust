@@ -32,6 +32,8 @@ fn test_region_serialization() {
         confidence: 0.95,
         vertical: true,
         angle: 0.0,
+        inpaint_box: None,
+        typeset_box: None,
         is_title: false,
         is_subtitle: false,
     };
@@ -64,6 +66,8 @@ fn test_analyze_response_roundtrip() {
         confidence: 0.9,
         vertical: true,
         angle: 0.0,
+        inpaint_box: None,
+        typeset_box: None,
         is_title: false,
         is_subtitle: false,
     };
@@ -72,7 +76,10 @@ fn test_analyze_response_roundtrip() {
         width: 800,
         height: 1200,
         backend: "comic-ctd-rust".to_string(),
+        panels: vec![],
+        onomatopoeia: vec![],
         regions: vec![r],
+        stats: None,
     };
 
     let json = serde_json::to_string(&resp).unwrap();
@@ -107,6 +114,9 @@ fn test_analyze_options_serialization() {
     let opts = AnalyzeOptions {
         source_lang: Some("zh-Hans".to_string()),
         target_lang: Some("en".to_string()),
+        inpaint_padding_pct: None,
+        typeset_padding_pct: None,
+        enable_watermark_inpaint: None,
     };
     let json = serde_json::to_string(&opts).unwrap();
     assert!(json.contains(r#""source_lang":"zh-Hans""#));

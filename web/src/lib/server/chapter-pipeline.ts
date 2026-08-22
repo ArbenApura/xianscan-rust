@@ -26,16 +26,18 @@ import type OpenAI from 'openai';
 import { env } from '$env/dynamic/private';
 // IMPORTED DEP-MODULES
 import PQueue from 'p-queue';
-import { and, asc, eq, sql } from 'drizzle-orm';
+import { and, asc, desc, eq, inArray, lt, sql } from 'drizzle-orm';
 // IMPORTED TYPES
 import type { TranslationUsage, PipelineStep, LangPair, TermDraft } from '$lib/types';
 // IMPORTED MODULES
-import { addNewTerms, getEffectiveGlossary } from './glossary';
+import { addNewTerms } from './glossary';
+import { matchTerms } from './glossary-match';
 import type { JobEvent } from './translation-service';
 import type { AnalyzeResult, PipelineClient, PipelineRegion } from './pipeline-client';
 import { db } from './db';
 import { chapters, pages, regions, books, type Page } from './db/schema';
 import { translatePage } from './translate';
+import { ChapterDialogueTracker, parseKindFromBox, type PageDialogueRecord } from './translate/dialogue-tracker';
 import { typesetPage, type TypesetOptions } from './typeset';
 import { detectSourceLanguage } from '$lib/languages';
 import { detectImageFormat, isAnimatedWebP } from './chapters/dimensions';
@@ -48,6 +50,9 @@ export interface ChapterPipelineDeps {
 	llm?: OpenAI;
 	model?: string;
 	inpaintMode?: string;
+	inpaintExpansionPct?: number;
+	typesetExpansionPct?: number;
+	enableWatermarkInpaint?: boolean;
 	typesetOptions?: TypesetOptions;
 	/**
 	 * OPACQUE PROVIDER DISCRIMINATOR FOR THE TRANSLATION CACHE — THE API LAYER SETS IT FROM
@@ -112,6 +117,8 @@ export function resolveDialoguePunctuation(text: string): string | null {
 function regionRow(region: PipelineRegion, seq: number) {
 	const boxObj = {
 		...region.box,
+		inpaint_box: region.inpaint_box ?? null,
+		typeset_box: region.typeset_box ?? null,
 		bubble_box: region.bubble_box ?? null,
 		bubble_polygon: region.bubble_polygon ?? null,
 		centroid: region.centroid ?? null,
@@ -122,6 +129,8 @@ function regionRow(region: PipelineRegion, seq: number) {
 	return {
 		seq,
 		box: JSON.stringify(boxObj),
+		inpaintBox: region.inpaint_box ? JSON.stringify(region.inpaint_box) : null,
+		typesetBox: region.typeset_box ? JSON.stringify(region.typeset_box) : null,
 		polygon: JSON.stringify(region.polygon),
 		textSource: region.text,
 		conf: region.confidence,
@@ -131,55 +140,6 @@ function regionRow(region: PipelineRegion, seq: number) {
 
 function cleanDir(path: string): void {
 	mkdirSync(path, { recursive: true });
-}
-
-// STABLE CHAPTER-GLOSSARY SELECTION — THE COST/CONSISTENCY KEYSTONE.
-// The base glossary is COMPUTED ONCE, BEFORE ANY PAGE IS ANALYZED, from the already-known effective
-// glossary (pinned-first, deterministic order). It is the stable, byte-identical prefix every page's
-// translation shares — Gemini/OpenAI prefix caching reuses it across pages (highest cache-hit, lowest
-// cost) AND it locks every already-known term before page 1 translates.
-//   - ALL pinned terms are included, always (authoritative renderings).
-//   - Non-pinned terms are appended in a DETERMINISTIC order (source-locale, then target) — sorted ONCE
-//     here, never again, so the prefix is stable.
-// NEWLY-DISCOVERED terms (returned by translatePage) are APPENDED to this base IN DISCOVERY ORDER via
-// appendChapterTerms() — MONOTONIC growth only, never a re-sort — so page N+1's glossary is page N's
-// glossary + a suffix, keeping the cache prefix intact while still locking new terms for later pages.
-function sortTermsDeterministic(terms: TermDraft[]): TermDraft[] {
-	const cmp = (a: TermDraft, b: TermDraft) => a.source.localeCompare(b.source) || a.target.localeCompare(b.target);
-	return [...terms].sort(cmp);
-}
-
-function baseChapterTerms(effective: TermDraft[]): TermDraft[] {
-	const meaningful = effective.filter((t) => t && t.source && t.target);
-	const pinned = sortTermsDeterministic(meaningful.filter((t) => t.pinned));
-	const rest = sortTermsDeterministic(meaningful.filter((t) => !t.pinned));
-	return [...pinned, ...rest];
-}
-
-// APPEND-ONLY: TURN FRESHLY-DISCOVERED TERMS INTO A MONOTONIC SUFFIX. DEDUP AGAINST THE CURRENT SET AND
-// PRESERVE DISCOVERY ORDER (NO SORT) SO THE CACHE PREFIX SURVIVES EVERY APPEND.
-//
-// DEDUP IS ALIAS-AWARE: A DISCOVERED TERM IS DROPPED IF ITS `source` COLLIDES WITH ANY KNOWN `source` OR
-// ANY KNOWN TERM'S ALIAS. THIS IS WHAT FOLDS RE-DISCOVERED ALTERNATE FORMS (e.g. a different romanization
-// or an OCR variant) BACK INTO THE EXISTING CANONICAL TERM INSTEAD OF CREATING A DUPLICATE ENTRY — WITHOUT
-// REORDERING THE ALREADY-CACHED PREFIX.
-function appendChapterTerms(current: TermDraft[], discovered: TermDraft[]): TermDraft[] {
-	// KNOWN KEYS: EVERY source AND EVERY alias OF THE CURRENT SET (A DISCOVERED TERM WHOSE source MATCHES
-	// EITHER IS THE SAME ENTITY AND MUST NOT DUPLICATE).
-	const known = new Set<string>();
-	for (const t of current) {
-		if (t.source) known.add(t.source);
-		for (const a of t.aliases ?? []) if (a) known.add(a);
-	}
-	const fresh = discovered.filter((t) => {
-		if (!t || !t.source || !t.target) return false;
-		if (known.has(t.source)) return false;
-		// CLAIM EVERY NEW source (AND ITS ALIASES) SO LATER TERMS IN THE SAME BATCH DON'T COLLIDE WITH IT.
-		known.add(t.source);
-		for (const a of t.aliases ?? []) if (a) known.add(a);
-		return true;
-	});
-	return [...current, ...fresh];
 }
 
 // PER-PAGE SLOT — CARRIES THE PAGE THROUGH THE STAGES; `outcome` DOUBLES AS THE ORDERED-EVENT
@@ -276,11 +236,121 @@ export async function runChapterPipeline(
 	const pair: LangPair = { sourceLang: initialSource, targetLang: book?.targetLang || 'en' };
 	const model = deps.model;
 
-	// FREEZE THE BASE GLOSSARY UP FRONT (FROM THE DB — NO OCR NEEDED) SO EVERY PAGE STARTS FROM A STABLE,
-	// DETERMINISTIC PREFIX: ALL KNOWN TERMS ARE LOCKED BEFORE PAGE 1 TRANSLATES. NEWLY-DISCOVERED TERMS ARE
-	// APPENDED IN-LINE AS PAGES STREAM (MONOTONIC GROWTH ONLY — SEE appendChapterTerms).
-	const effectiveGlossary = await getEffectiveGlossary(chapter.bookId);
-	let chapterTerms: TermDraft[] = baseChapterTerms(effectiveGlossary);
+	// DIALOGUE TRACKER: TRACKS OCR & TRANSLATED LINES ACROSS PAGES FOR SLIDING-WINDOW CONTEXT INJECTION
+	const dialogueTracker = new ChapterDialogueTracker();
+	const existingPageIds = pageRows.map((p) => p.id);
+	if (existingPageIds.length > 0) {
+		const existingRegions = db
+			.select({
+				pageId: regions.pageId,
+				seq: regions.seq,
+				box: regions.box,
+				textSource: regions.textSource,
+				textTarget: regions.textTarget,
+			})
+			.from(regions)
+			.where(inArray(regions.pageId, existingPageIds))
+			.orderBy(asc(regions.seq))
+			.all();
+
+		const regionsByPageId = new Map<number, typeof existingRegions>();
+		for (const r of existingRegions) {
+			const arr = regionsByPageId.get(r.pageId) ?? [];
+			arr.push(r);
+			regionsByPageId.set(r.pageId, arr);
+		}
+
+		const seedRecords: PageDialogueRecord[] = [];
+		for (const p of pageRows) {
+			const rList = regionsByPageId.get(p.id) ?? [];
+			if (rList.length === 0) continue;
+			const lines = rList
+				.filter((r) => r.textSource && r.textSource.trim().length > 0)
+				.map((r, idx) => ({
+					id: `r${idx}`,
+					sourceText: r.textSource.trim(),
+					translatedText: r.textTarget ? r.textTarget.trim() : undefined,
+					kind: parseKindFromBox(r.box),
+				}));
+			if (lines.length > 0) {
+				seedRecords.push({
+					pageSeq: p.seq,
+					pageId: p.id,
+					lines,
+					isTranslated: lines.some((l) => Boolean(l.translatedText)),
+				});
+			}
+		}
+		dialogueTracker.seedFromDb(seedRecords);
+	}
+
+	// SEED TRAILING PAGES FROM PRECEDING CHAPTER (IF ONE EXISTS FOR THIS BOOK)
+	const prevChap = db
+		.select({ id: chapters.id, seq: chapters.seq, title: chapters.title })
+		.from(chapters)
+		.where(and(eq(chapters.bookId, chapter.bookId), lt(chapters.seq, chapter.seq)))
+		.orderBy(desc(chapters.seq))
+		.limit(1)
+		.get();
+
+	if (prevChap) {
+		const prevPages = db
+			.select({ id: pages.id, seq: pages.seq })
+			.from(pages)
+			.where(eq(pages.chapterId, prevChap.id))
+			.orderBy(desc(pages.seq))
+			.limit(8)
+			.all();
+
+		const prevPageIds = prevPages.map((p) => p.id);
+		if (prevPageIds.length > 0) {
+			const prevRegions = db
+				.select({
+					pageId: regions.pageId,
+					seq: regions.seq,
+					box: regions.box,
+					textSource: regions.textSource,
+					textTarget: regions.textTarget,
+				})
+				.from(regions)
+				.where(inArray(regions.pageId, prevPageIds))
+				.orderBy(asc(regions.seq))
+				.all();
+
+			const prevRegionsByPageId = new Map<number, typeof prevRegions>();
+			for (const r of prevRegions) {
+				const arr = prevRegionsByPageId.get(r.pageId) ?? [];
+				arr.push(r);
+				prevRegionsByPageId.set(r.pageId, arr);
+			}
+
+			const priorRecords: PageDialogueRecord[] = [];
+			for (const p of prevPages.reverse()) {
+				const rList = prevRegionsByPageId.get(p.id) ?? [];
+				if (rList.length === 0) continue;
+				const lines = rList
+					.filter((r) => r.textSource && r.textSource.trim().length > 0)
+					.map((r, idx) => ({
+						id: `r${idx}`,
+						sourceText: r.textSource.trim(),
+						translatedText: r.textTarget ? r.textTarget.trim() : undefined,
+						kind: parseKindFromBox(r.box),
+					}));
+				if (lines.length > 0) {
+					priorRecords.push({
+						pageSeq: p.seq,
+						pageId: p.id,
+						chapterTitle: prevChap.title,
+						isPriorChapter: true,
+						lines,
+						isTranslated: lines.some((l) => Boolean(l.translatedText)),
+					});
+				}
+			}
+			dialogueTracker.seedPriorChapter(priorRecords);
+		}
+	}
+
 	// PER-BOOK SERIAL QUEUE: ONE LLM TRANSLATE AT A TIME WITHIN THIS BOOK, SO A TERM DISCOVERED ON PAGE N
 	// IS APPENDED TO `chapterTerms` BEFORE PAGE N+1 SNAPSHOTS IT. DIFFERENT BOOKS STILL OVERLAP (THIS IS A
 	// PER-BOOK CHAIN, NOT A GLOBAL LOCK).
@@ -366,8 +436,12 @@ export async function runChapterPipeline(
 					const analyzed = await deps.pipeline.analyze(image, signal, {
 						sourceLang: pair.sourceLang,
 						targetLang: pair.targetLang,
+						inpaintPaddingPct: deps.inpaintExpansionPct,
+						typesetPaddingPct: deps.typesetExpansionPct,
+						enableWatermarkInpaint: deps.enableWatermarkInpaint,
 					});
 					if (signal.aborted || deps.isPageCancelled?.(injectRow.id)) return;
+					const tAnalyze = performance.now() - tA0;
 					emit({
 						type: 'page-step-end',
 						chapterId,
@@ -375,7 +449,7 @@ export async function runChapterPipeline(
 						pageId: injectRow.id,
 						step: 'analyze',
 						stepStatus: 'completed',
-						durationMs: performance.now() - tA0,
+						durationMs: tAnalyze,
 						stepDetails: { regionsCount: analyzed.regions.length },
 					});
 					emit({
@@ -385,7 +459,24 @@ export async function runChapterPipeline(
 						pageId: injectRow.id,
 						step: 'persist_regions',
 					});
+					const enrichedStats = analyzed.stats
+						? {
+								...analyzed.stats,
+								wall_time_ms: Math.round(tAnalyze),
+								queue_wait_ms:
+									analyzed.stats.queue_wait_ms ??
+									Math.max(0, Math.round(tAnalyze - (analyzed.stats.total_time_ms || 0))),
+							}
+						: null;
 					db.transaction((tx) => {
+						tx.update(pages)
+							.set({
+								panels: JSON.stringify(analyzed.panels || []),
+								onomatopoeia: JSON.stringify(analyzed.onomatopoeia || []),
+								ocrStats: enrichedStats ? JSON.stringify(enrichedStats) : null,
+							})
+							.where(eq(pages.id, injectRow.id))
+							.run();
 						tx.delete(regions).where(eq(regions.pageId, injectRow.id)).run();
 						if (analyzed.regions.length > 0) {
 							tx.insert(regions)
@@ -403,6 +494,7 @@ export async function runChapterPipeline(
 						step: 'persist_regions',
 						stepStatus: 'completed',
 					});
+					dialogueTracker.recordOcr(injectRow.seq, injectRow.id, analyzed.regions);
 
 					if (signal.aborted || deps.isPageCancelled?.(injectRow.id)) return;
 
@@ -419,6 +511,8 @@ export async function runChapterPipeline(
 							pageId: injectRow.id,
 							step: 'match_glossary',
 						});
+						const pageSourceText = sources.map((s) => s.text).join('\n');
+						const pageMatchedTerms = await matchTerms(chapter.bookId, pageSourceText);
 						emit({
 							type: 'page-step-end',
 							chapterId,
@@ -426,6 +520,7 @@ export async function runChapterPipeline(
 							pageId: injectRow.id,
 							step: 'match_glossary',
 							stepStatus: 'completed',
+							stepDetails: { matchedCount: pageMatchedTerms.length },
 						});
 						if (signal.aborted || deps.isPageCancelled?.(injectRow.id)) return;
 						emit({
@@ -436,24 +531,38 @@ export async function runChapterPipeline(
 							step: 'translate',
 						});
 						const tT0 = performance.now();
-						// SAME PER-BOOK SERIALIZATION AS THE MAIN PATH — SNAPSHOT + TRANSLATE + APPEND ATOMICALLY.
 						const translated = await chainTranslate(async () => {
-							const pageTerms = chapterTerms;
-							const result = await translatePage(sources, pageTerms, pair, {
+							const dialogueContext = dialogueTracker.getContextWindow(injectRow.seq);
+							const result = await translatePage(sources, pageMatchedTerms, pair, {
 								client: deps.llm,
 								model,
 								signal,
+								dialogueContext,
 							});
-							if (result.newTerms && result.newTerms.length > 0) {
-								chapterTerms = appendChapterTerms(chapterTerms, result.newTerms);
-							}
 							return result;
 						});
 						if (signal.aborted || deps.isPageCancelled?.(injectRow.id)) return;
+						dialogueTracker.recordTranslation(injectRow.seq, translated.byRegion);
 						for (const [id, text] of translated.byRegion) byRegion.set(id, text);
 						if (translated.newTerms && translated.newTerms.length > 0) {
 							await addNewTerms(chapter.bookId, translated.newTerms, chapterId);
 						}
+						const llmResponseData = {
+							raw: translated.rawResponse ?? '',
+							model: translated.usage.model,
+							durationMs: translated.durationMs ?? Math.round(performance.now() - tT0),
+							promptTokens: translated.usage.promptTokens ?? 0,
+							cachedTokens: translated.usage.cachedTokens ?? 0,
+							completionTokens: translated.usage.completionTokens ?? 0,
+							timestamp: Date.now(),
+						};
+						db.update(pages)
+							.set({
+								llmPrompt: translated.rawPrompt ?? null,
+								llmResponse: JSON.stringify(llmResponseData),
+							})
+							.where(eq(pages.id, injectRow.id))
+							.run();
 						emit({
 							type: 'page-step-end',
 							chapterId,
@@ -466,7 +575,6 @@ export async function runChapterPipeline(
 								cacheHit: false,
 								model: translated.usage.model,
 								tokens: (translated.usage.promptTokens ?? 0) + (translated.usage.completionTokens ?? 0),
-								costUsd: translated.usage.costUsd,
 							},
 						});
 						if (translated.usage && deps.onUsage) deps.onUsage(translated.usage);
@@ -535,7 +643,7 @@ export async function runChapterPipeline(
 					const tC0 = performance.now();
 					const cleanRegions = analyzed.regions
 						.filter((r) => Boolean(byRegion.get(r.id)?.trim()))
-						.map((r) => ({ id: r.id, box: r.box, polygon: r.polygon }));
+						.map((r) => ({ id: r.id, box: r.inpaint_box ?? r.box, polygon: r.polygon }));
 					const cleaned =
 						cleanRegions.length > 0
 							? await deps.pipeline.clean(image, cleanRegions, deps.inpaintMode ?? 'patch', signal)
@@ -570,7 +678,7 @@ export async function runChapterPipeline(
 						.filter((r) => Boolean(byRegion.get(r.id)?.trim()))
 						.map((r) => ({
 							id: r.id,
-							box: r.box,
+							box: r.typeset_box ?? r.box,
 							text: byRegion.get(r.id)!,
 							vertical: r.vertical,
 							angle: r.angle,
@@ -673,6 +781,9 @@ export async function runChapterPipeline(
 			const analyzed = await deps.pipeline.analyze(image, signal, {
 				sourceLang: pair.sourceLang,
 				targetLang: pair.targetLang,
+				inpaintPaddingPct: deps.inpaintExpansionPct,
+				typesetPaddingPct: deps.typesetExpansionPct,
+				enableWatermarkInpaint: deps.enableWatermarkInpaint,
 			});
 			signal.throwIfAborted();
 			if (deps.isPageCancelled?.(page.id)) return;
@@ -695,7 +806,24 @@ export async function runChapterPipeline(
 			// 2) PERSIST REGIONS
 			activeStep = 'persist_regions';
 			emit({ type: 'page-step-start', chapterId, page: i, pageId: page.id, step: 'persist_regions' });
+			const enrichedStats = analyzed.stats
+				? {
+						...analyzed.stats,
+						wall_time_ms: Math.round(tAnalyze),
+						queue_wait_ms:
+							analyzed.stats.queue_wait_ms ??
+							Math.max(0, Math.round(tAnalyze - (analyzed.stats.total_time_ms || 0))),
+					}
+				: null;
 			db.transaction((tx) => {
+				tx.update(pages)
+					.set({
+						panels: JSON.stringify(analyzed.panels || []),
+						onomatopoeia: JSON.stringify(analyzed.onomatopoeia || []),
+						ocrStats: enrichedStats ? JSON.stringify(enrichedStats) : null,
+					})
+					.where(eq(pages.id, page.id))
+					.run();
 				tx.delete(regions).where(eq(regions.pageId, page.id)).run();
 				if (analyzed.regions.length > 0) {
 					tx.insert(regions)
@@ -711,6 +839,7 @@ export async function runChapterPipeline(
 				step: 'persist_regions',
 				stepStatus: 'completed',
 			});
+			dialogueTracker.recordOcr(page.seq, page.id, analyzed.regions);
 
 			slot.analyzed = analyzed;
 			slot.image = image;
@@ -772,9 +901,8 @@ export async function runChapterPipeline(
 			if (sources.length > 0) {
 				activeStep = 'match_glossary';
 				emit({ type: 'page-step-start', chapterId, page: i, pageId: page.id, step: 'match_glossary' });
-				// SERIALIZED CRITICAL SECTION (PER BOOK): SNAPSHOT THE CURRENT GLOSSARY *INSIDE* THE CHAIN SO
-				// ANY TERMS DISCOVERED ON EARLIER PAGES ARE ALREADY APPENDED. READ → TRANSLATE → APPEND RUNS
-				// MUTUALLY-EXCLUSIVELY PER BOOK, SO A TERM IS LOCKED BEFORE THE NEXT PAGE SEES IT.
+				const pageSourceText = sources.map((s) => s.text).join('\n');
+				const pageMatchedTerms = await matchTerms(chapter.bookId, pageSourceText);
 				emit({
 					type: 'page-step-end',
 					chapterId,
@@ -782,6 +910,7 @@ export async function runChapterPipeline(
 					pageId: page.id,
 					step: 'match_glossary',
 					stepStatus: 'completed',
+					stepDetails: { matchedCount: pageMatchedTerms.length },
 				});
 
 				signal.throwIfAborted();
@@ -791,30 +920,40 @@ export async function runChapterPipeline(
 				emit({ type: 'page-step-start', chapterId, page: i, pageId: page.id, step: 'translate' });
 				const tTrans0 = performance.now();
 
-				// SERIALIZED CRITICAL SECTION (PER BOOK): SNAPSHOT → TRANSLATE → APPEND-IN-MEMORY RUNS
-				// MUTUALLY-EXCLUSIVELY. THE SNAPSHOT READS ALL PRIOR TERMS (MONOTONIC, APPEND-ONLY), AND THE
-				// APPEND LANDS BEFORE THE NEXT PAGE'S TASK STARTS, SO PAGE N+1 IS ALWAYS LOCKED ON PAGE N's TERMS.
 				const translated = await chainTranslate(async () => {
-					const pageTerms = chapterTerms;
-					const result = await translatePage(sources, pageTerms, pair, {
+					const dialogueContext = dialogueTracker.getContextWindow(page.seq);
+					const result = await translatePage(sources, pageMatchedTerms, pair, {
 						client: deps.llm,
 						model,
 						signal,
+						dialogueContext,
 					});
-					if (result.newTerms && result.newTerms.length > 0) {
-						chapterTerms = appendChapterTerms(chapterTerms, result.newTerms);
-					}
 					return result;
 				});
 				signal.throwIfAborted();
 				if (deps.isPageCancelled?.(page.id)) return;
+				dialogueTracker.recordTranslation(page.seq, translated.byRegion);
 				for (const [id, text] of translated.byRegion) byRegion.set(id, text);
 				if (translated.newTerms && translated.newTerms.length > 0) {
-					// PERSIST TO THE DB OUTSIDE THE CRITICAL SECTION (ONLY AFFECTS FUTURE RUNS; THIS RUN'S
-					// IN-MEMORY glossary ALREADY UPDATED INSIDE THE CHAIN).
 					await addNewTerms(chapter.bookId, translated.newTerms, chapterId);
 				}
 				const tTrans = performance.now() - tTrans0;
+				const llmResponseData = {
+					raw: translated.rawResponse ?? '',
+					model: translated.usage.model,
+					durationMs: translated.durationMs ?? Math.round(tTrans),
+					promptTokens: translated.usage.promptTokens ?? 0,
+					cachedTokens: translated.usage.cachedTokens ?? 0,
+					completionTokens: translated.usage.completionTokens ?? 0,
+					timestamp: Date.now(),
+				};
+				db.update(pages)
+					.set({
+						llmPrompt: translated.rawPrompt ?? null,
+						llmResponse: JSON.stringify(llmResponseData),
+					})
+					.where(eq(pages.id, page.id))
+					.run();
 				emit({
 					type: 'page-step-end',
 					chapterId,
@@ -827,7 +966,6 @@ export async function runChapterPipeline(
 						cacheHit: false,
 						model: translated.usage.model,
 						tokens: (translated.usage.promptTokens ?? 0) + (translated.usage.completionTokens ?? 0),
-						costUsd: translated.usage.costUsd,
 					},
 				});
 				if (translated.usage && deps.onUsage) deps.onUsage(translated.usage);
@@ -889,7 +1027,7 @@ export async function runChapterPipeline(
 			const tClean0 = performance.now();
 			const cleanRegions = analyzed.regions
 				.filter((r) => Boolean(byRegion.get(r.id)?.trim()))
-				.map((r) => ({ id: r.id, box: r.box, polygon: r.polygon }));
+				.map((r) => ({ id: r.id, box: r.inpaint_box ?? r.box, polygon: r.polygon }));
 			const cleaned =
 				cleanRegions.length > 0
 					? await deps.pipeline.clean(image, cleanRegions, deps.inpaintMode ?? 'patch', signal)
@@ -922,7 +1060,7 @@ export async function runChapterPipeline(
 				.filter((r) => Boolean(byRegion.get(r.id)?.trim()))
 				.map((r) => ({
 					id: r.id,
-					box: r.box,
+					box: r.typeset_box ?? r.box,
 					text: byRegion.get(r.id)!,
 					vertical: r.vertical,
 					angle: r.angle,

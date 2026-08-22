@@ -90,6 +90,7 @@
 	// MODALS & INSPECTOR
 	let inspectPage: ChapterPageItem | null = null;
 	let inspectModalOpen = false;
+	let inspectInitialTab: 'output' | 'cleaned' | 'original' | null = null;
 	let deletePageConfirmOpen = false;
 	let pageToDelete: ChapterPageItem | null = null;
 	let clearChapterConfirmOpen = false;
@@ -691,9 +692,11 @@
 		}
 	}
 
-	function openInspector(pg: ChapterPageItem) {
-		if (pg.status === 'processing') return;
+	function openInspector(detail: any, tab?: 'output' | 'cleaned' | 'original') {
+		const pg = detail?.page || detail;
+		if (!pg || pg.status === 'processing') return;
 		inspectPage = pg;
+		inspectInitialTab = tab || detail?.initialTab || null;
 		inspectModalOpen = true;
 	}
 
@@ -996,6 +999,7 @@
 <PageInspectModal
 	open={inspectModalOpen}
 	page={inspectPage}
+	initialTab={inspectInitialTab}
 	{reloadKey}
 	on:close={() => (inspectModalOpen = false)}
 	on:update={(e) => {

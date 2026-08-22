@@ -21,15 +21,9 @@ impl PipelineEngine {
     pub fn new<P: AsRef<Path>>(models_dir: P) -> Self {
         let dir = models_dir.as_ref();
 
-        // 1. ComicTextDetector / RT-DETR Comic Bubble & Text Detector
-        let detector = if dir.join("comic_text_and_bubble_detector.onnx").exists() {
-            ComicTextDetector::new(dir.join("comic_text_and_bubble_detector.onnx")).ok()
-        } else if dir.join("detector.onnx").exists() {
-            ComicTextDetector::new(dir.join("detector.onnx")).ok()
-        } else if dir.join("detector_int8.onnx").exists() {
-            ComicTextDetector::new(dir.join("detector_int8.onnx")).ok()
-        } else if dir.join("comictextdetector.pt.onnx").exists() {
-            ComicTextDetector::new(dir.join("comictextdetector.pt.onnx")).ok()
+        // 1. KOHARU LAYOUT RF-DETR SEG DETECTOR
+        let detector = if dir.join("rfdetr-seg-2xlarge.onnx").exists() {
+            ComicTextDetector::new(dir.join("rfdetr-seg-2xlarge.onnx")).ok()
         } else {
             #[cfg(feature = "embed-models")]
             {
@@ -134,5 +128,10 @@ impl PipelineEngine {
 
     pub fn clean_image(&mut self, img: &DynamicImage, regions: &[CleanRequestRegion], mode: &str) -> Result<DynamicImage> {
         clean_image(&mut self.inpainter, img, regions, mode)
+    }
+
+    /// Explicitly triggers process memory reclamation and working-set page release back to the OS.
+    pub fn trim_memory(&self) {
+        crate::ml::device::trim_process_memory();
     }
 }

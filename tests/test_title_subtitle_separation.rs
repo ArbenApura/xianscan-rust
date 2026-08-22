@@ -59,12 +59,11 @@ fn test_sample_45334_substring_deduplication() {
                 let inter = ix * iy;
                 let min_area = (bw * bh).min(dw * dh).max(1.0);
 
-                if inter / min_area > 0.40 {
-                    if t.len() <= dt.len() {
+                if inter / min_area > 0.40
+                    && t.len() <= dt.len() {
                         dup = true;
                         break;
                     }
-                }
             }
         }
         if !dup {

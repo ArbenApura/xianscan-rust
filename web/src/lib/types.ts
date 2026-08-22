@@ -84,13 +84,12 @@ export interface GlossaryRow {
 	createdAt: number;
 }
 
-/** TOKEN USAGE + COST FOR ONE TRANSLATION CALL */
+/** TOKEN USAGE FOR ONE TRANSLATION CALL */
 export interface TranslationUsage {
 	model: string;
 	promptTokens: number;
 	cachedTokens: number;
 	completionTokens: number;
-	costUsd: number;
 }
 
 export type JobEventType =
@@ -146,11 +145,11 @@ export interface StepTiming {
 	details?: {
 		regionsCount?: number;
 		textCount?: number;
+		matchedCount?: number;
 		skipped?: boolean;
 		cacheHit?: boolean;
 		model?: string;
 		tokens?: number;
-		costUsd?: number;
 		error?: string;
 	};
 }
@@ -187,7 +186,6 @@ export interface ChapterJobSnapshot {
 		termCount?: number;
 		durationMs?: number;
 	};
-	totalCostUsd: number;
 	totalPromptTokens: number;
 	totalCompletionTokens: number;
 	cacheHitCount: number;
@@ -218,7 +216,6 @@ export interface BatchTranslationState {
 	force: boolean;
 	startedAt: number | null;
 	completedAt: number | null;
-	totalCostUsd: number;
 	totalPromptTokens: number;
 	totalCompletionTokens: number;
 }

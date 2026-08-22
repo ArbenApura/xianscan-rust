@@ -23,6 +23,7 @@
 	import Puzzle from 'lucide-svelte/icons/puzzle';
 	import Zap from 'lucide-svelte/icons/zap';
 	import Smartphone from 'lucide-svelte/icons/smartphone';
+	import Eye from 'lucide-svelte/icons/eye';
 
 	// -- STATES -- //
 	let openFaq: number | null = 0;
@@ -40,11 +41,11 @@
 		},
 		{
 			q: 'Can I use XianScan completely offline?',
-			a: 'Yes. The standalone executable embeds all ML weights (RT-DETR bubble detector, 10-language OCR, and LaMa neural inpainter). Combined with a local LLM runner (such as Ollama or LM Studio), the entire detection, OCR, translation, and typesetting workflow runs 100% offline with zero internet access.',
+			a: 'Yes. The standalone executable embeds all ML weights (Koharu RF-DETR & RT-DETR bubble detectors, 10-language OCR, and LaMa neural inpainter). Combined with a local LLM runner (such as Ollama or LM Studio), the entire detection, OCR, translation, and typesetting workflow runs 100% offline with zero internet access.',
 		},
 		{
 			q: 'Does XianScan require a dedicated GPU or CUDA?',
-			a: 'No GPU or CUDA is required. XianScan runs on highly optimized multi-threaded SIMD inference (AVX2, AVX-512, ARM NEON) on standard CPUs. If a compatible GPU is present, it automatically accelerates via DirectML (Windows), CoreML/Metal (Apple Silicon), or CUDA (Linux NVIDIA).',
+			a: 'No GPU or CUDA is required. XianScan runs on highly optimized multi-threaded SIMD inference (AVX2, AVX-512, ARM NEON) on standard CPUs. If a compatible GPU is present, it automatically accelerates via DirectML (Windows), CoreML/Metal (Apple Silicon), or CUDA (Linux NVIDIA) with live execution provider switching.',
 		},
 		{
 			q: 'Where are my comic libraries and chapter data stored?',
@@ -226,12 +227,12 @@
 				<div class="flex flex-col sm:flex-row sm:items-baseline justify-between gap-1 sm:gap-4 mb-1">
 					<div class="flex items-center gap-2 sm:gap-2.5 min-w-0">
 						<span class="font-mono text-[11px] sm:text-xs font-bold text-[#b23a2e] dark:text-[#e08a63] bg-[#b23a2e]/10 px-1.5 py-0.5 rounded-md shrink-0">01</span>
-						<h3 class="text-xs sm:text-base font-bold text-neutral-900 dark:text-neutral-100 truncate">RT-DETR Detection & Segmentation</h3>
+						<h3 class="text-xs sm:text-base font-bold text-neutral-900 dark:text-neutral-100 truncate">Koharu RF-DETR & RT-DETR Detection</h3>
 					</div>
-					<span class="text-[10px] sm:text-[11px] font-mono opacity-50 sm:pl-0">RT-DETR · Bubble Detector</span>
+					<span class="text-[10px] sm:text-[11px] font-mono opacity-50 sm:pl-0">Koharu RF-DETR · RT-DETR</span>
 				</div>
 				<p class="text-xs sm:text-sm text-neutral-600 dark:text-neutral-400 leading-relaxed">
-					Locates vertical and horizontal dialogue bubbles, sound effects, and narrative boxes with an RT-DETR model.
+					Locates vertical and horizontal dialogue bubbles, sound effects, and narrative boxes using state-of-the-art transformer vision models with automatic fallback.
 				</p>
 			</div>
 
@@ -254,12 +255,12 @@
 				<div class="flex flex-col sm:flex-row sm:items-baseline justify-between gap-1 sm:gap-4 mb-1">
 					<div class="flex items-center gap-2 sm:gap-2.5 min-w-0">
 						<span class="font-mono text-[11px] sm:text-xs font-bold text-[#b23a2e] dark:text-[#e08a63] bg-[#b23a2e]/10 px-1.5 py-0.5 rounded-md shrink-0">03</span>
-						<h3 class="text-xs sm:text-base font-bold text-neutral-900 dark:text-neutral-100 truncate">Contextual Translation & Series Glossaries</h3>
+						<h3 class="text-xs sm:text-base font-bold text-neutral-900 dark:text-neutral-100 truncate">Contextual Translation & Dialogue Tracker</h3>
 					</div>
-					<span class="text-[10px] sm:text-[11px] font-mono opacity-50 sm:pl-0">Local LLMs · Cloud AI · Aho-Corasick</span>
+					<span class="text-[10px] sm:text-[11px] font-mono opacity-50 sm:pl-0">Local LLMs · Dialogue Memory</span>
 				</div>
 				<p class="text-xs sm:text-sm text-neutral-600 dark:text-neutral-400 leading-relaxed">
-					Translates dialogue using free local LLMs (Qwen 2.5/3, Llama 3.3, TranslateGemma) or cloud APIs (Gemini, OpenAI, Groq, OpenRouter), enforcing consistent character names, cultivation realms, and skill terms via dynamic Aho-Corasick glossary matching.
+					Translates dialogue using free local LLMs or cloud APIs with sliding-window Cross-Page Dialogue Tracking and dynamic Aho-Corasick glossary matching to preserve character pronouns and realm terminology.
 				</p>
 			</div>
 
@@ -270,10 +271,10 @@
 						<span class="font-mono text-[11px] sm:text-xs font-bold text-[#b23a2e] dark:text-[#e08a63] bg-[#b23a2e]/10 px-1.5 py-0.5 rounded-md shrink-0">04</span>
 						<h3 class="text-xs sm:text-base font-bold text-neutral-900 dark:text-neutral-100 truncate">LaMa Neural Artwork Inpainting</h3>
 					</div>
-					<span class="text-[10px] sm:text-[11px] font-mono opacity-50 sm:pl-0">LaMa ONNX · Neural Inpainting</span>
+					<span class="text-[10px] sm:text-[11px] font-mono opacity-50 sm:pl-0">LaMa ONNX · Padding Control</span>
 				</div>
 				<p class="text-xs sm:text-sm text-neutral-600 dark:text-neutral-400 leading-relaxed">
-					Erases original source characters seamlessly using Large Mask Inpainting (LaMa), restoring background artwork, textures, screentones, and gradients without destructive white-box overlays.
+					Erases original source characters seamlessly using Large Mask Inpainting (LaMa), restoring background artwork and screentones with fine-grained mask padding and optional watermark preservation.
 				</p>
 			</div>
 
@@ -372,6 +373,15 @@
 				<div>
 					<strong class="font-semibold text-neutral-900 dark:text-neutral-100">Mihon / Tachiyomi Reader (Android):</strong>
 					<p class="text-neutral-600 dark:text-neutral-400 mt-0.5 leading-relaxed">Browse dedicated covers, series metadata, and read translated chapters on phones and tablets via our 1-click extension repo.</p>
+				</div>
+			</div>
+
+			<!-- DEEP INSPECTION & TELEMETRY -->
+			<div class="flex items-start gap-2.5 rounded-xl border border-black/10 bg-black/[0.01] p-3 sm:p-3.5 dark:border-white/10 dark:bg-white/[0.01]">
+				<Eye size={16} class="text-[#b23a2e] dark:text-[#e08a63] shrink-0 mt-0.5" />
+				<div>
+					<strong class="font-semibold text-neutral-900 dark:text-neutral-100">Deep Inspection & Telemetry:</strong>
+					<p class="text-neutral-600 dark:text-neutral-400 mt-0.5 leading-relaxed">Interactive Page Inspector with raw OCR/bubble overlay, live text editing, OCR stats, and LLM prompt modals.</p>
 				</div>
 			</div>
 
