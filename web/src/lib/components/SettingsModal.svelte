@@ -1,5 +1,17 @@
+<script context="module" lang="ts">
+	// -- TYPES -- //
+	export type SettingsCategory =
+		| 'appearance'
+		| 'typesetting'
+		| 'inpainting'
+		| 'providers'
+		| 'compute'
+		| 'about';
+</script>
+
 <script lang="ts">
 	// IMPORTED DEP-MODULES
+	import { tick } from 'svelte';
 	import { toast } from 'svelte-sonner';
 	// IMPORTED MODULES
 	import { ripple } from '$lib/actions/ripple';
@@ -8,11 +20,16 @@
 		INPAINT_MODES,
 		EXECUTION_DEVICES,
 		APP_FONTS,
+		AVAILABLE_TYPESET_FONTS,
+		AVAILABLE_CJK_FONTS,
 		SFX_AREA_PRESETS,
 		type Theme,
 		type AppFont,
 		type InpaintMode,
 		type ExecutionDevice,
+		type TypesetOutline,
+		type TypesetContrast,
+		type TypesetCasing,
 	} from '$lib/stores/settings';
 	import { mlStatus } from '$lib/stores/ml-status';
 	// IMPORTED ICONS
@@ -39,30 +56,47 @@
 	import CheckCircle2 from 'lucide-svelte/icons/check-circle-2';
 	import Palette from 'lucide-svelte/icons/palette';
 	import SlidersHorizontal from 'lucide-svelte/icons/sliders-horizontal';
+	import Sliders from 'lucide-svelte/icons/sliders';
 	import Server from 'lucide-svelte/icons/server';
-	import HardDrive from 'lucide-svelte/icons/hard-drive';
 	import Search from 'lucide-svelte/icons/search';
 	import Plus from 'lucide-svelte/icons/plus';
 	import Trash2 from 'lucide-svelte/icons/trash-2';
-	import ShieldCheck from 'lucide-svelte/icons/shield-check';
 	import Info from 'lucide-svelte/icons/info';
 	import RotateCcw from 'lucide-svelte/icons/rotate-ccw';
+	import Sun from 'lucide-svelte/icons/sun';
+	import Moon from 'lucide-svelte/icons/moon';
+	import Contrast from 'lucide-svelte/icons/contrast';
+	import Compass from 'lucide-svelte/icons/compass';
+	import Edit3 from 'lucide-svelte/icons/edit-3';
+	import ChevronLeft from 'lucide-svelte/icons/chevron-left';
+	import ChevronRight from 'lucide-svelte/icons/chevron-right';
 	import X from 'lucide-svelte/icons/x';
 
 	// IMPORTED UI COMPONENTS
 	import Modal from '$lib/components/ui/Modal.svelte';
 	import Button from '$lib/components/ui/Button.svelte';
 	import LanguagePicker from '$lib/components/ui/LanguagePicker.svelte';
-	import TypesetSettingsModal from '$lib/components/TypesetSettingsModal.svelte';
 	import ProviderLogo from '$lib/components/ui/ProviderLogo.svelte';
 
-	// -- PROPS & EVENTS -- //
+	// PROPS COMPATIBILITY: ACCEPTS BOTH LEGACY (ai | compute | general) AND NEW CATEGORIES
 	export let open = false;
-	export let initialTab: 'ai' | 'compute' | 'general' = 'ai';
+	export let initialTab: 'ai' | 'compute' | 'general' | SettingsCategory = 'appearance';
+
+	// -- MAP LEGACY TABS TO CATEGORIES -- //
+	function normalizeCategory(tab: string): SettingsCategory {
+		if (tab === 'ai') return 'providers';
+		if (tab === 'general') return 'appearance';
+		if (tab === 'compute') return 'compute';
+		if (['appearance', 'typesetting', 'inpainting', 'providers', 'compute', 'about'].includes(tab)) {
+			return tab as SettingsCategory;
+		}
+		return 'appearance';
+	}
 
 	// -- STATES -- //
-	let activeSettingsTab: 'ai' | 'compute' | 'general' = initialTab;
-	let typesetModalOpen = false;
+	let activeCategory: SettingsCategory = normalizeCategory(initialTab);
+	let mobileView: 'menu' | 'detail' = initialTab ? 'detail' : 'menu';
+	let globalSearch = '';
 
 	interface HardwareInfo {
 		device_label: string;
@@ -97,7 +131,6 @@
 
 	let hardwareInfo: HardwareInfo | null = null;
 	let hardwareLoading = false;
-	// WHICH DEVICE IS CURRENTLY BEING SWITCHED TO (SHOWS A SPINNER + DISABLES OTHER CARDS).
 	let switchingDevice: ExecutionDevice | null = null;
 
 	// AI PROVIDERS STATE
@@ -117,6 +150,108 @@
 	let modelSearch = '';
 	let testResult: { ok: boolean; message: string; latencyMs: number } | null = null;
 
+	// TYPESETTING PREVIEW STATES
+	interface TextPreset {
+		id: string;
+		label: string;
+		lang: string;
+		text: string;
+	}
+
+	const SAMPLE_TEXT_PRESETS: TextPreset[] = [
+		{ id: 'en', label: 'English', lang: 'en', text: 'Hold on! What is this Cultivation Realm...?!' },
+		{ id: 'zh-hans', label: '简体中文', lang: 'zh-Hans', text: '等一下！这是什么修炼境界……？！' },
+		{ id: 'zh-hant', label: '繁體中文', lang: 'zh-Hant', text: '等一下！這是什麼修煉境界……？！' },
+		{ id: 'ja', label: '日本語', lang: 'ja', text: 'ちょっと待て！この修業の領域は何だ…？！' },
+		{ id: 'ko', label: '한국어', lang: 'ko', text: '잠깐만! 이 수련의 경지는 대체 뭐지...?!' },
+	];
+
+	let previewDarkBackground = false;
+	let previewSimulatedAngle = 8;
+	let selectedPresetId = $settings.typesetPreviewPreset || 'en';
+	let isCustomTextMode = ($settings.typesetPreviewPreset || 'en') === 'custom';
+	let previewSampleText = $settings.typesetPreviewText || SAMPLE_TEXT_PRESETS[0].text;
+	const CJK_REGEX = /[\u3040-\u30ff\u3400-\u4dbf\u4e00-\u9fff\uf900-\ufaff\uff66-\uff9f\uac00-\ud7af]/;
+
+	function selectTextPreset(preset: TextPreset) {
+		selectedPresetId = preset.id;
+		previewSampleText = preset.text;
+		isCustomTextMode = false;
+		settings.update((s) => ({
+			...s,
+			typesetPreviewText: preset.text,
+			typesetPreviewPreset: preset.id,
+		}));
+	}
+
+	function onCustomTextChange(val: string) {
+		previewSampleText = val;
+		settings.update((s) => ({
+			...s,
+			typesetPreviewText: val,
+			typesetPreviewPreset: 'custom',
+		}));
+	}
+
+	function enableCustomTextMode() {
+		isCustomTextMode = true;
+		selectedPresetId = 'custom';
+		settings.update((s) => ({
+			...s,
+			typesetPreviewPreset: 'custom',
+		}));
+	}
+
+	// PRESETS
+	const OUTLINE_PRESETS: { id: TypesetOutline; label: string; px: string; desc: string }[] = [
+		{ id: 'none', label: 'None', px: '0px', desc: 'No outline stroke' },
+		{ id: 'thin', label: 'Thin', px: '1.5px', desc: 'Subtle boundary' },
+		{ id: 'standard', label: 'Standard', px: '3px', desc: 'Balanced scanlation stroke' },
+		{ id: 'heavy', label: 'Heavy', px: '5px', desc: 'Thick contrast halo' },
+	];
+
+	const PADDING_PRESETS: { value: number; label: string; sub: string }[] = [
+		{ value: 0.02, label: 'Tight (2%)', sub: 'Maximal bubble fill' },
+		{ value: 0.05, label: 'Balanced (5%)', sub: 'Standard edge clearance' },
+		{ value: 0.08, label: 'Spacious (8%)', sub: 'Generous breathing room' },
+		{ value: 0.12, label: 'Airy (12%)', sub: 'Large boundary padding' },
+	];
+
+	const CONTRAST_PRESETS: { id: TypesetContrast; label: string; shortLabel: string; desc: string }[] = [
+		{ id: 'auto', label: 'Auto Contrast', shortLabel: 'Auto', desc: 'Luminance' },
+		{ id: 'dark', label: 'Always Dark', shortLabel: 'Dark', desc: 'Black text' },
+		{ id: 'light', label: 'Always Light', shortLabel: 'Light', desc: 'White text' },
+	];
+
+	const CASING_PRESETS: { id: TypesetCasing; label: string; sample: string; desc: string }[] = [
+		{ id: 'uppercase', label: 'UPPERCASE', sample: 'HOLD ON! WHAT IS...', desc: 'Standard comic scanlation' },
+		{ id: 'original', label: 'Normal / As Is', sample: 'Hold on! What is...', desc: 'Keep sentence casing' },
+		{ id: 'lowercase', label: 'lowercase', sample: 'hold on! what is...', desc: 'All lower case' },
+	];
+
+	const INPAINT_EXPANSION_PRESETS: { value: number; label: string; sub: string }[] = [
+		{ value: 0.0, label: '0%', sub: 'Exact text bound' },
+		{ value: 0.03, label: '3%', sub: 'Minimal margin (Default)' },
+		{ value: 0.06, label: '6%', sub: 'Standard cleaning' },
+		{ value: 0.09, label: '9%', sub: 'Broad inpaint mask' },
+		{ value: 0.12, label: '12%', sub: 'Max font halo erase' },
+	];
+
+	const TYPESET_EXPANSION_PRESETS: { value: number; label: string; sub: string }[] = [
+		{ value: 0.0, label: '0%', sub: 'Exact text bound' },
+		{ value: 0.03, label: '3%', sub: 'Minimal wrap margin' },
+		{ value: 0.06, label: '6%', sub: 'Compact margin (Default)' },
+		{ value: 0.09, label: '9%', sub: 'Broad wrap margin' },
+		{ value: 0.12, label: '12%', sub: 'Balanced wrap' },
+	];
+
+	const THEMES: { id: Theme; label: string; dot: string }[] = [
+		{ id: 'light', label: 'Light', dot: 'border-slate-300 bg-[#fbfaf7]' },
+		{ id: 'sepia', label: 'Sepia', dot: 'border-[#d4c3a3] bg-[#f4ecd8]' },
+		{ id: 'dark', label: 'Dark', dot: 'border-neutral-700 bg-[#13100c]' },
+	];
+
+	// HELPER FUNCTIONS
 	function isLocal(id: string): boolean {
 		return id === 'ollama' || id === 'lmstudio';
 	}
@@ -125,6 +260,15 @@
 		if (id === 'ollama' || id === 'lmstudio') return 'local';
 		if (id === 'custom') return 'custom';
 		return 'cloud';
+	}
+
+	function formatDeviceLabel(label?: string): string {
+		if (!label) return 'Detecting...';
+		return label
+			.replace(/\s*\(Forced via MT_DEVICE=[^)]+\)/i, '')
+			.replace(/\s*\(Standard\)/i, '')
+			.replace(/\s*\/ AMD & Intel & NVIDIA/i, '')
+			.trim();
 	}
 
 	async function loadHardwareStatus() {
@@ -148,14 +292,10 @@
 			if (res.ok) {
 				const data = await res.json();
 				providers = (data.providers || []) as ProviderInfo[];
-
-				// SYNC MODEL AND BASEURL DRAFTS FROM DATABASE
 				for (const p of providers) {
 					activeModelDraft[p.id] = p.activeModel;
 					baseUrlDraft[p.id] = p.baseUrl;
 				}
-
-				// SELECT ACTIVE DEFAULT PROVIDER IF CURRENT SELECTION IS EMPTY OR NOT FOUND
 				if (!selectedProviderId || !providers.some((p) => p.id === selectedProviderId)) {
 					const defaultP = providers.find((p) => p.isDefault) || providers[0];
 					if (defaultP) {
@@ -171,35 +311,20 @@
 	}
 
 	$: if (open) {
-		activeSettingsTab = initialTab;
+		activeCategory = normalizeCategory(initialTab);
+		mobileView = initialTab ? 'detail' : 'menu';
 		apiKeyDraft = {};
 		testResult = null;
 		customModelInput = '';
-		selectedProviderId = '';
+		globalSearch = '';
 		loadHardwareStatus();
 		loadProviders();
 		void mlStatus.checkHealth();
 	}
 
-	// THE ML SIDECAR IS CONSIDERED OFFLINE ONLY AFTER A COMPLETED HEALTH CHECK SAYS SO — DURING THE
-	// INITIAL LOADING WINDOW WE STAY ENABLED TO AVOID A FLASH OF DISABLED CONTROLS.
 	$: mlOffline = !$mlStatus.loading && !$mlStatus.online;
 
-	const THEMES: { id: Theme; label: string; dot: string }[] = [
-		{ id: 'light', label: 'Light', dot: 'border-slate-300 bg-[#fbfaf7]' },
-		{ id: 'sepia', label: 'Sepia', dot: 'border-[#d4c3a3] bg-[#f4ecd8]' },
-		{ id: 'dark', label: 'Dark', dot: 'border-neutral-700 bg-[#13100c]' },
-	];
-
-	function formatDeviceLabel(label?: string): string {
-		if (!label) return 'Detecting...';
-		return label
-			.replace(/\s*\(Forced via MT_DEVICE=[^)]+\)/i, '')
-			.replace(/\s*\(Standard\)/i, '')
-			.replace(/\s*\/ AMD & Intel & NVIDIA/i, '')
-			.trim();
-	}
-
+	// SETTINGS DISPATCHERS
 	function setTheme(t: Theme | string) {
 		settings.update((s) => ({ ...s, theme: t as Theme }));
 		const label = THEMES.find((item) => item.id === t)?.label || t;
@@ -258,10 +383,100 @@
 		toast.success(`SFX max area threshold set to ${label}`);
 	}
 
+	function setTypesetFont(font: string) {
+		settings.update((s) => ({ ...s, typesetFont: font }));
+		toast.success(`Dialogue font set to ${font}`);
+	}
+
+	function setTypesetCjkFont(font: string) {
+		settings.update((s) => ({ ...s, typesetCjkFont: font }));
+		toast.success(`CJK fallback font set to ${font}`);
+	}
+
+	function setPadding(val: number) {
+		settings.update((s) => ({ ...s, typesetPadding: val }));
+		const label = PADDING_PRESETS.find((p) => Math.abs(p.value - val) < 0.005)?.label || `${Math.round(val * 100)}%`;
+		toast.success(`Bubble padding set to ${label}`);
+	}
+
+	function setOutline(mode: TypesetOutline) {
+		settings.update((s) => ({ ...s, typesetOutline: mode }));
+		const label = OUTLINE_PRESETS.find((p) => p.id === mode)?.label || mode;
+		toast.success(`Text stroke outline set to ${label}`);
+	}
+
+	function setContrast(mode: TypesetContrast) {
+		settings.update((s) => ({ ...s, typesetContrast: mode }));
+		const label = CONTRAST_PRESETS.find((p) => p.id === mode)?.label || mode;
+		toast.success(`Contrast mode set to ${label}`);
+	}
+
+	function setCasing(casing: TypesetCasing) {
+		settings.update((s) => ({
+			...s,
+			typesetCasing: casing,
+			typesetAllCaps: casing === 'uppercase',
+		}));
+		const label = CASING_PRESETS.find((c) => c.id === casing)?.label || casing;
+		toast.success(`Dialogue casing set to ${label}`);
+	}
+
+	function toggleTextRotation() {
+		settings.update((s) => {
+			const next = !s.enableTextRotation;
+			toast.success(`Text angle rotation ${next ? 'enabled' : 'disabled'}`);
+			return { ...s, enableTextRotation: next };
+		});
+	}
+
+	function setInpaintExpansion(val: number) {
+		settings.update((s) => ({ ...s, inpaintExpansionPct: val }));
+		const label = INPAINT_EXPANSION_PRESETS.find((p) => Math.abs(p.value - val) < 0.005)?.label || `${Math.round(val * 100)}%`;
+		toast.success(`Inpaint cleaning expansion set to ${label}`);
+	}
+
+	function setTypesetExpansion(val: number) {
+		settings.update((s) => ({ ...s, typesetExpansionPct: val }));
+		const label = TYPESET_EXPANSION_PRESETS.find((p) => Math.abs(p.value - val) < 0.005)?.label || `${Math.round(val * 100)}%`;
+		toast.success(`Typeset layout expansion set to ${label}`);
+	}
+
+	function updateSourceLang(lang: string) {
+		settings.update((s) => {
+			const nextTarget = s.targetLang === lang ? (lang === 'en' ? 'zh-Hans' : 'en') : s.targetLang;
+			return { ...s, sourceLang: lang, targetLang: nextTarget };
+		});
+	}
+
+	function updateTargetLang(lang: string) {
+		settings.update((s) => ({ ...s, targetLang: lang }));
+	}
+
+	function resetTypesetDefaults() {
+		settings.update((s) => ({
+			...s,
+			typesetFont: 'CC Wild Words',
+			typesetCjkFont: 'Friendly Sans',
+			typesetPadding: 0.05,
+			typesetOutline: 'standard',
+			typesetContrast: 'auto',
+			typesetCasing: 'uppercase',
+			typesetAllCaps: true,
+			enableTextRotation: true,
+			enableSfx: false,
+			sfxMaxAreaPct: 0.30,
+			inpaintExpansionPct: 0.03,
+			typesetExpansionPct: 0.06,
+		}));
+		selectedPresetId = 'en';
+		previewSampleText = SAMPLE_TEXT_PRESETS[0].text;
+		isCustomTextMode = false;
+		toast.success('Typesetting settings reset to defaults');
+	}
+
+	// HARDWARE ACCELERATION METHODS
 	function isDeviceAvailable(devId: ExecutionDevice): boolean {
 		if (devId === 'auto' || devId === 'cpu') return true;
-		// IF DETECTION IS STILL RUNNING, GPU OPTIONS ARE NOT YET CONFIRMED AVAILABLE.
-		// RETURN FALSE SO AN INVALID ACCELERATOR CANNOT BE SELECTED BEFORE WE KNOW.
 		if (!hardwareInfo) return false;
 		if (devId === 'cuda') return hardwareInfo.has_cuda;
 		if (devId === 'coreml') return hardwareInfo.has_coreml;
@@ -284,9 +499,8 @@
 	}
 
 	async function setExecutionDevice(dev: ExecutionDevice) {
-		// THE SIDECAR HOSTS THE ONNX MODELS — WITH IT OFFLINE NO COMPUTE ENGINE CAN BE SWITCHED.
 		if (mlOffline) {
-			toast.error('ML sidecar is offline — cannot switch compute hardware.');
+			toast.error('ML sidecar is offline: cannot switch compute hardware.');
 			return;
 		}
 
@@ -320,22 +534,18 @@
 				const active = hardwareInfo.providers?.[0] ?? hardwareInfo.active_provider;
 				const resolvedLabel = formatDeviceLabel(hardwareInfo.device_label) || found?.label || dev;
 				if (expectedEp && active && active !== expectedEp) {
-					// THE REQUESTED GPU IS NOT AVAILABLE AND THE BACKEND FELL BACK TO A
-					// DIFFERENT PROVIDER. REPORT THE ACTUAL RESULT AND RESET THE SELECTION.
 					settings.update((s) => ({ ...s, executionDevice: 'auto' }));
 					toast.error(`${found?.label || dev} is not available. Running on ${resolvedLabel}.`);
 				} else {
 					settings.update((s) => ({ ...s, executionDevice: dev }));
 					toast.success(`Compute hardware set to ${resolvedLabel}`);
 				}
-				// THE BACKEND RELOADS ALL ~400MB OF MODELS ASYNCHRONOUSLY; POLL UNTIL IT REPORTS READY.
 				void waitForReloadDone(dev);
 			} else {
 				toast.error(`Failed to switch compute hardware to ${found?.label || dev}`);
 				switchingDevice = null;
 			}
 		} catch {
-			// IGNORE OFFLINE — CLEAR THE SPINNER SO THE UI ISN'T STUCK.
 			switchingDevice = null;
 			void mlStatus.checkHealth();
 		}
@@ -345,16 +555,13 @@
 		const maxWaitMs = 60000;
 		const startedAt = Date.now();
 		while (Date.now() - startedAt < maxWaitMs) {
-			// SHORT DELAY BEFORE THE FIRST POLL SO THE BACKEND HAS TIME TO KICK OFF THE RELOAD.
 			await new Promise((r) => setTimeout(r, 300));
 			try {
 				const res = await fetch('/api/system/hardware');
 				if (res.ok) {
 					const info = (await res.json()) as HardwareInfo;
 					hardwareInfo = info;
-					if (!info.reloading) {
-						break;
-					}
+					if (!info.reloading) break;
 				}
 			} catch {
 				break;
@@ -362,17 +569,6 @@
 		}
 		switchingDevice = null;
 		void mlStatus.checkHealth();
-	}
-
-	function updateSourceLang(lang: string) {
-		settings.update((s) => {
-			const nextTarget = s.targetLang === lang ? (lang === 'en' ? 'zh-Hans' : 'en') : s.targetLang;
-			return { ...s, sourceLang: lang, targetLang: nextTarget };
-		});
-	}
-
-	function updateTargetLang(lang: string) {
-		settings.update((s) => ({ ...s, targetLang: lang }));
 	}
 
 	// PROVIDER METHODS
@@ -392,12 +588,8 @@
 				availableModels: prov?.availableModels,
 			};
 
-			if (key && key.trim().length > 0) {
-				payload.apiKey = key.trim();
-			}
-			if (setAsDefault) {
-				payload.isDefault = true;
-			}
+			if (key && key.trim().length > 0) payload.apiKey = key.trim();
+			if (setAsDefault) payload.isDefault = true;
 
 			const res = await fetch('/api/system/providers', {
 				method: 'POST',
@@ -416,7 +608,6 @@
 					: 'Provider settings saved successfully',
 			);
 
-			// CLEAR RAW APIKEY DRAFT AFTER SAVE
 			apiKeyDraft[providerId] = '';
 			await loadProviders();
 		} catch (e: any) {
@@ -431,10 +622,7 @@
 			const res = await fetch('/api/system/providers', {
 				method: 'POST',
 				headers: { 'content-type': 'application/json' },
-				body: JSON.stringify({
-					id: providerId,
-					clearApiKey: true,
-				}),
+				body: JSON.stringify({ id: providerId, clearApiKey: true }),
 			});
 			if (res.ok) {
 				toast.success('API key removed');
@@ -540,7 +728,7 @@
 			});
 			toast.success(`Removed model "${modelId}"`);
 		} catch {
-			// silent fallback
+			// SILENT FALLBACK
 		}
 	}
 
@@ -649,7 +837,6 @@
 	}
 
 	const MODEL_DESCRIPTIONS: Record<string, { label: string; badge: string; desc: string }> = {
-		// DeepSeek V4
 		'deepseek-v4-flash': {
 			label: 'DeepSeek V4 Flash',
 			badge: 'Recommended · High Speed',
@@ -660,7 +847,6 @@
 			badge: 'Flagship · High Accuracy',
 			desc: 'Highest literary precision and context reasoning for complex cultivation idioms.',
 		},
-		// Google Gemini
 		'gemini-3.7-flash': {
 			label: 'Gemini 3.7 Flash',
 			badge: 'Recommended · Frontier Speed',
@@ -671,7 +857,6 @@
 			badge: 'High Speed',
 			desc: 'Next-gen multimodal translation engine for long webtoon sequences.',
 		},
-		// Groq
 		'llama-3.3-70b-versatile': {
 			label: 'Llama 3.3 70B',
 			badge: 'Ultra-Fast · 500+ t/s',
@@ -687,7 +872,6 @@
 			badge: 'Distilled Intelligence',
 			desc: 'Distilled DeepSeek model running on Groq LPUs with high translation fluency.',
 		},
-		// OpenRouter
 		'google/gemini-2.5-flash': {
 			label: 'Gemini 2.5 Flash',
 			badge: 'OpenRouter · Fast',
@@ -708,7 +892,6 @@
 			badge: 'Open Source Flagship',
 			desc: 'Standard instruction-tuned Llama 3.3 model on OpenRouter.',
 		},
-		// OpenAI
 		'gpt-4o-mini': {
 			label: 'GPT-4o Mini',
 			badge: 'Recommended · Fast',
@@ -719,7 +902,6 @@
 			badge: 'OpenAI Flagship',
 			desc: 'Top-tier multimodal model with nuanced conversational phrasing and slang preservation.',
 		},
-		// Ollama Local
 		'qwen2.5:14b': {
 			label: 'Qwen 2.5 14B',
 			badge: 'Recommended Local',
@@ -740,1111 +922,1398 @@
 			badge: 'Local Reasoning',
 			desc: 'Local quantized distilled model with reasoning suppressed for rapid translation.',
 		},
-		// LM Studio
 		'local-model': {
 			label: 'Active LM Studio Model',
 			badge: 'Loaded Model',
 			desc: 'Directly routes translations to whatever model is currently loaded in LM Studio.',
 		},
-		// Custom
 		'custom-model': {
 			label: 'Custom Model Identifier',
 			badge: 'Custom',
 			desc: 'Custom target model for self-hosted or reverse proxy endpoints.',
 		},
 	};
+
+	// COMPUTED PREVIEW STYLES
+	$: selectedFont = AVAILABLE_TYPESET_FONTS.find((f) => f.id === $settings.typesetFont);
+	$: isTextCjk = CJK_REGEX.test(previewSampleText);
+	$: isCasingApplicable = !isTextCjk && !selectedFont?.allCapsOnly && $settings.typesetFont !== 'CC Wild Words';
+	$: previewFontFamily = isTextCjk
+		? `"${$settings.typesetCjkFont || 'Friendly Sans'}", "Yu Gothic", "Microsoft YaHei", sans-serif`
+		: (selectedFont?.stack || "'CC Wild Words', sans-serif");
+	$: previewIsDarkBubble = $settings.typesetContrast === 'light' ? true : $settings.typesetContrast === 'dark' ? false : previewDarkBackground;
+	$: previewTextColor = previewIsDarkBubble ? '#ffffff' : '#111111';
+	$: previewStrokeColor = previewIsDarkBubble ? '#000000' : '#ffffff';
+	$: previewStrokeWidth = $settings.typesetOutline === 'none' ? '0px' : $settings.typesetOutline === 'thin' ? '1px' : $settings.typesetOutline === 'heavy' ? '3px' : '2px';
+	$: previewEffectiveText =
+		!isCasingApplicable || ($settings.typesetCasing || 'uppercase') === 'uppercase'
+			? previewSampleText.toUpperCase()
+			: $settings.typesetCasing === 'lowercase'
+				? previewSampleText.toLowerCase()
+				: previewSampleText;
+	$: previewTransformRotation = $settings.enableTextRotation ? `rotate(${previewSimulatedAngle}deg)` : 'none';
+	$: previewInsetPadding = `${Math.max(8, Math.round(120 * ($settings.typesetPadding || 0.05)))}px`;
+	$: previewFontSizePx = '14px';
+
+	// SIDEBAR CATEGORY NAVIGATION
+	interface NavItem {
+		id: SettingsCategory;
+		label: string;
+		icon: any;
+		keywords: string[];
+	}
+
+	interface NavGroup {
+		title: string;
+		items: NavItem[];
+	}
+
+	const NAV_GROUPS: NavGroup[] = [
+		{
+			title: 'Reader & Studio',
+			items: [
+				{ id: 'appearance', label: 'General & Appearance', icon: Palette, keywords: ['theme', 'light', 'dark', 'sepia', 'font', 'language', 'locale', 'source', 'target'] },
+				{ id: 'typesetting', label: 'Typesetting & Lettering', icon: Type, keywords: ['font', 'cjk', 'bubble', 'dialogue', 'padding', 'stroke', 'outline', 'contrast', 'casing', 'angle', 'rotation', 'preview'] },
+				{ id: 'inpainting', label: 'Inpainting & SFX', icon: Sparkles, keywords: ['inpaint', 'patch', 'scaled', 'full', 'watermark', 'sfx', 'sound', 'geometry', 'expansion', 'mask'] },
+			],
+		},
+		{
+			title: 'Engines & Compute',
+			items: [
+				{ id: 'providers', label: 'AI Translation Providers', icon: Zap, keywords: ['ai', 'provider', 'deepseek', 'gemini', 'groq', 'openrouter', 'openai', 'ollama', 'lmstudio', 'custom', 'model', 'api key'] },
+				{ id: 'compute', label: 'Hardware & Compute', icon: Cpu, keywords: ['hardware', 'gpu', 'cuda', 'directml', 'coreml', 'cpu', 'workers', 'parallel', 'reslice', 'performance', 'onnx'] },
+			],
+		},
+		{
+			title: 'System',
+			items: [
+				{ id: 'about', label: 'About & Diagnostics', icon: Info, keywords: ['version', 'build', 'hash', 'system', 'diagnostics', 'sidecar', 'health'] },
+			],
+		},
+	];
+
+	interface SearchableSetting {
+		id: string;
+		label: string;
+		category: SettingsCategory;
+		categoryLabel: string;
+		categoryIcon: any;
+		keywords: string[];
+	}
+
+	const ALL_SEARCHABLE_SETTINGS: SearchableSetting[] = [
+		// APPEARANCE
+		{ id: 'theme', label: 'Reader Surface Theme', category: 'appearance', categoryLabel: 'General & Appearance', categoryIcon: Palette, keywords: ['theme', 'dark', 'light', 'sepia', 'mode', 'color', 'background'] },
+		{ id: 'app-font', label: 'Studio System Font', category: 'appearance', categoryLabel: 'General & Appearance', categoryIcon: Palette, keywords: ['font', 'typography', 'system', 'ui', 'wild words', 'clash', 'poppins', 'lexend', 'montserrat'] },
+		{ id: 'lang-pair', label: 'Default Localization Pair', category: 'appearance', categoryLabel: 'General & Appearance', categoryIcon: Palette, keywords: ['language', 'locale', 'source', 'target', 'chinese', 'english', 'japanese', 'korean'] },
+
+		// TYPESETTING
+		{ id: 'preview', label: 'Live Speech Bubble Preview', category: 'typesetting', categoryLabel: 'Typesetting & Lettering', categoryIcon: Type, keywords: ['preview', 'bubble', 'dialogue', 'sample', 'live', 'manga'] },
+		{ id: 'typeset-font', label: 'Latin Dialogue Font', category: 'typesetting', categoryLabel: 'Typesetting & Lettering', categoryIcon: Type, keywords: ['font', 'latin', 'english', 'wild words', 'montserrat', 'general sans', 'poppins'] },
+		{ id: 'typeset-cjk', label: 'CJK East Asian Fallback Engine', category: 'typesetting', categoryLabel: 'Typesetting & Lettering', categoryIcon: Type, keywords: ['cjk', 'chinese', 'japanese', 'korean', 'fallback', 'font', 'yahei', 'gothic', 'hangul'] },
+		{ id: 'typeset-padding', label: 'Bubble Inset Padding', category: 'typesetting', categoryLabel: 'Typesetting & Lettering', categoryIcon: Type, keywords: ['padding', 'margin', 'inset', 'tight', 'balanced', 'spacious', 'airy', 'fit'] },
+		{ id: 'typeset-outline', label: 'Text Stroke Outline', category: 'typesetting', categoryLabel: 'Typesetting & Lettering', categoryIcon: Type, keywords: ['stroke', 'outline', 'border', 'thin', 'standard', 'heavy', 'thickness'] },
+		{ id: 'typeset-contrast', label: 'Contrast Strategy', category: 'typesetting', categoryLabel: 'Typesetting & Lettering', categoryIcon: Type, keywords: ['contrast', 'auto', 'luminance', 'dark', 'light'] },
+		{ id: 'typeset-angle', label: 'Bubble Tilt Angle Rotation', category: 'typesetting', categoryLabel: 'Typesetting & Lettering', categoryIcon: Type, keywords: ['tilt', 'angle', 'rotation', 'rotate', 'diagonal'] },
+		{ id: 'typeset-casing', label: 'Dialogue Letterform Casing', category: 'typesetting', categoryLabel: 'Typesetting & Lettering', categoryIcon: Type, keywords: ['casing', 'uppercase', 'lowercase', 'all-caps', 'capitalization'] },
+
+		// INPAINTING
+		{ id: 'inpaint-mode', label: 'Inpainting Strategy', category: 'inpainting', categoryLabel: 'Inpainting & SFX', categoryIcon: Sparkles, keywords: ['inpaint', 'patch', 'scaled', 'full', 'erase', 'cleaning', 'lama'] },
+		{ id: 'watermark', label: 'Chromatic Watermark Inpainting', category: 'inpainting', categoryLabel: 'Inpainting & SFX', categoryIcon: Sparkles, keywords: ['watermark', 'chromatic', 'logo', 'scanlator', 'clean'] },
+		{ id: 'sfx-toggle', label: 'Sound Effects (SFX) Inpaint & Typeset', category: 'inpainting', categoryLabel: 'Inpainting & SFX', categoryIcon: Sparkles, keywords: ['sfx', 'sound', 'onomatopoeia', 'action', 'effects'] },
+		{ id: 'sfx-threshold', label: 'Artwork Preservation Threshold', category: 'inpainting', categoryLabel: 'Inpainting & SFX', categoryIcon: Sparkles, keywords: ['threshold', 'sfx', 'area', 'preservation', 'percentage', 'skip'] },
+		{ id: 'inpaint-geom', label: 'Three-Tier Region Geometry Expansion', category: 'inpainting', categoryLabel: 'Inpainting & SFX', categoryIcon: Sparkles, keywords: ['geometry', 'expansion', 'tier', 'margin', 'bounds', 'inpaint mask', 'typeset box'] },
+
+		// AI PROVIDERS
+		{ id: 'providers-hub', label: 'AI Translation Provider Selection', category: 'providers', categoryLabel: 'AI Translation Providers', categoryIcon: Zap, keywords: ['provider', 'ai', 'cloud', 'local', 'custom', 'deepseek', 'gemini', 'groq', 'openrouter', 'openai', 'ollama', 'lmstudio'] },
+		{ id: 'api-key', label: 'API Key Configuration & Vault', category: 'providers', categoryLabel: 'AI Translation Providers', categoryIcon: Zap, keywords: ['api key', 'key', 'token', 'auth', 'secret', 'mask'] },
+		{ id: 'model-scan', label: 'Model Selection & Discovery Scanner', category: 'providers', categoryLabel: 'AI Translation Providers', categoryIcon: Zap, keywords: ['model', 'scan', 'discover', 'flash', 'pro', 'qwen', 'llama', 'gemini', 'deepseek'] },
+		{ id: 'test-connection', label: 'Connection & Latency Tester', category: 'providers', categoryLabel: 'AI Translation Providers', categoryIcon: Zap, keywords: ['test', 'connection', 'ping', 'latency', 'verify'] },
+		{ id: 'custom-endpoint', label: 'Custom Endpoint Base URL', category: 'providers', categoryLabel: 'AI Translation Providers', categoryIcon: Zap, keywords: ['endpoint', 'url', 'base', 'custom', 'proxy'] },
+
+		// HARDWARE & COMPUTE
+		{ id: 'compute-device', label: 'Hardware Compute Accelerator (ONNX)', category: 'compute', categoryLabel: 'Hardware & Compute', categoryIcon: Cpu, keywords: ['hardware', 'accelerator', 'gpu', 'cuda', 'directml', 'coreml', 'cpu', 'nvidia', 'amd', 'intel'] },
+		{ id: 'igpu-protect', label: 'Integrated GPU Protection', category: 'compute', categoryLabel: 'Hardware & Compute', categoryIcon: Cpu, keywords: ['igpu', 'integrated', 'protection', 'driver', 'freeze', 'tdr'] },
+		{ id: 'auto-reslice', label: 'Auto-Reslice Before Batch Translation', category: 'compute', categoryLabel: 'Hardware & Compute', categoryIcon: Cpu, keywords: ['reslice', 'slice', 'webtoon', 'smart', 'seam', 'gutter', 'split'] },
+		{ id: 'parallel-workers', label: 'Parallel Page Workers Concurrency', category: 'compute', categoryLabel: 'Hardware & Compute', categoryIcon: Cpu, keywords: ['worker', 'parallel', 'concurrency', 'threads', 'speed', 'page'] },
+		{ id: 'parallel-chapters', label: 'Parallel Batch Chapters Concurrency', category: 'compute', categoryLabel: 'Hardware & Compute', categoryIcon: Cpu, keywords: ['batch', 'chapter', 'concurrency', 'queue', 'parallel'] },
+
+		// ABOUT
+		{ id: 'version-info', label: 'Native Core & Web Build Fingerprint', category: 'about', categoryLabel: 'About & Diagnostics', categoryIcon: Info, keywords: ['version', 'build', 'hash', 'binary', 'commit', 'fingerprint'] },
+		{ id: 'sidecar-health', label: 'ML Sidecar Health & Status', category: 'about', categoryLabel: 'About & Diagnostics', categoryIcon: Info, keywords: ['sidecar', 'health', 'status', 'online', 'offline', 'ml'] },
+	];
+
+	let searchFocused = false;
+	let highlightedSettingId: string | null = null;
+
+	function getMatchingSettings(query: string): Map<string, { category: SettingsCategory; categoryIcon: any; items: SearchableSetting[] }> {
+		const groups = new Map<string, { category: SettingsCategory; categoryIcon: any; items: SearchableSetting[] }>();
+		if (!query.trim()) return groups;
+		const q = query.trim().toLowerCase();
+
+		for (const setting of ALL_SEARCHABLE_SETTINGS) {
+			const labelMatch = setting.label.toLowerCase().includes(q);
+			const catMatch = setting.categoryLabel.toLowerCase().includes(q);
+			const kwMatch = setting.keywords.some((k) => k.includes(q));
+
+			if (labelMatch || catMatch || kwMatch) {
+				if (!groups.has(setting.categoryLabel)) {
+					groups.set(setting.categoryLabel, {
+						category: setting.category,
+						categoryIcon: setting.categoryIcon,
+						items: [],
+					});
+				}
+				groups.get(setting.categoryLabel)!.items.push(setting);
+			}
+		}
+		return groups;
+	}
+
+	function highlightParts(text: string, query: string): { before: string; match: string; after: string } {
+		if (!query || !query.trim()) return { before: text, match: '', after: '' };
+		const q = query.trim().toLowerCase();
+		const idx = text.toLowerCase().indexOf(q);
+		if (idx === -1) return { before: text, match: '', after: '' };
+		return {
+			before: text.slice(0, idx),
+			match: text.slice(idx, idx + q.length),
+			after: text.slice(idx + q.length),
+		};
+	}
+
+	async function jumpToSetting(setting: SearchableSetting) {
+		activeCategory = setting.category;
+		mobileView = 'detail';
+		searchFocused = false;
+		globalSearch = '';
+		highlightedSettingId = setting.id;
+
+		await tick();
+		setTimeout(() => {
+			const el = document.getElementById(`setting-${setting.id}`);
+			if (el) {
+				el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+			}
+		}, 80);
+
+		setTimeout(() => {
+			if (highlightedSettingId === setting.id) {
+				highlightedSettingId = null;
+			}
+		}, 2200);
+	}
+
+	function getMatchingCategories(query: string): Set<SettingsCategory> {
+		const matchSet = new Set<SettingsCategory>();
+		if (!query.trim()) {
+			for (const group of NAV_GROUPS) {
+				for (const item of group.items) matchSet.add(item.id);
+			}
+			return matchSet;
+		}
+		const q = query.trim().toLowerCase();
+		for (const group of NAV_GROUPS) {
+			for (const item of group.items) {
+				if (
+					item.label.toLowerCase().includes(q) ||
+					group.title.toLowerCase().includes(q) ||
+					item.keywords.some((k) => k.includes(q))
+				) {
+					matchSet.add(item.id);
+				}
+			}
+		}
+		for (const setting of ALL_SEARCHABLE_SETTINGS) {
+			if (
+				setting.label.toLowerCase().includes(q) ||
+				setting.keywords.some((k) => k.includes(q))
+			) {
+				matchSet.add(setting.category);
+			}
+		}
+		return matchSet;
+	}
+
+	$: matchingCategories = getMatchingCategories(globalSearch);
+	$: matchingSettingsGroups = getMatchingSettings(globalSearch);
 </script>
 
-<!-- GLOBAL SETTINGS & PREFERENCES MODAL -->
-<Modal {open} title="Preferences & Configuration" size="lg" placement="top" on:close={() => (open = false)}>
-	<div class="flex flex-col gap-4 sm:gap-5">
-		<!-- ELEGANT SEGMENTED TABS -->
-		<div class="grid grid-cols-3 gap-1 rounded-xl border border-black/[0.08] bg-black/[0.03] p-1 dark:border-white/[0.08] dark:bg-white/[0.04]">
-			<button
-				type="button"
-				on:click={() => (activeSettingsTab = 'ai')}
-				class={`flex items-center justify-center gap-1.5 rounded-lg px-1 py-1.5 sm:px-3 sm:py-2 text-[11px] sm:text-xs font-bold transition-all duration-150 min-w-0 ${
-					activeSettingsTab === 'ai'
-						? 'bg-white text-[#b23a2e] shadow-xs dark:bg-[#25201b] dark:text-[#e08a63]'
-						: 'opacity-65 hover:opacity-100 hover:bg-black/[0.02] dark:hover:bg-white/[0.02]'
-				}`}
-				use:ripple
-			>
-				<Sparkles size={13} class={`shrink-0 ${activeSettingsTab === 'ai' ? 'text-[#b23a2e] dark:text-[#e08a63]' : ''}`} />
-				<span class="truncate px-0.5">
-					AI<span class="hidden sm:inline"> & Providers</span>
-				</span>
-			</button>
-
-			<button
-				type="button"
-				on:click={() => (activeSettingsTab = 'compute')}
-				class={`flex items-center justify-center gap-1.5 rounded-lg px-1 py-1.5 sm:px-3 sm:py-2 text-[11px] sm:text-xs font-bold transition-all duration-150 min-w-0 ${
-					activeSettingsTab === 'compute'
-						? 'bg-white text-[#b23a2e] shadow-xs dark:bg-[#25201b] dark:text-[#e08a63]'
-						: 'opacity-65 hover:opacity-100 hover:bg-black/[0.02] dark:hover:bg-white/[0.02]'
-				}`}
-				use:ripple
-			>
-				<Cpu size={13} class={`shrink-0 ${activeSettingsTab === 'compute' ? 'text-[#b23a2e] dark:text-[#e08a63]' : ''}`} />
-				<span class="truncate px-0.5">
-					Compute<span class="hidden sm:inline"> & Speed</span>
-				</span>
-			</button>
-
-			<button
-				type="button"
-				on:click={() => (activeSettingsTab = 'general')}
-				class={`flex items-center justify-center gap-1.5 rounded-lg px-1 py-1.5 sm:px-3 sm:py-2 text-[11px] sm:text-xs font-bold transition-all duration-150 min-w-0 ${
-					activeSettingsTab === 'general'
-						? 'bg-white text-[#b23a2e] shadow-xs dark:bg-[#25201b] dark:text-[#e08a63]'
-						: 'opacity-65 hover:opacity-100 hover:bg-black/[0.02] dark:hover:bg-white/[0.02]'
-				}`}
-				use:ripple
-			>
-				<SlidersHorizontal size={13} class={`shrink-0 ${activeSettingsTab === 'general' ? 'text-[#b23a2e] dark:text-[#e08a63]' : ''}`} />
-				<span class="truncate px-0.5">
-					Preferences<span class="hidden sm:inline"> & Config</span>
-				</span>
-			</button>
-		</div>
-
-		<!-- TAB 1: AI & PROVIDERS -->
-		{#if activeSettingsTab === 'ai'}
-			<div class="flex flex-col gap-6 py-1">
-				<!-- INPAINTING STRATEGY (NOW PLACED FIRST) -->
-				<div>
-					<div class="mb-2.5 sm:mb-3">
-						<div class="text-xs font-bold uppercase tracking-wider opacity-80 pl-0.5">Inpainting Strategy</div>
-						<p class="text-[11px] opacity-60 pl-0.5">Choose how original comic text is erased and the background artwork is reconstructed</p>
-					</div>
-
-					<div class="grid grid-cols-1 gap-2.5 sm:grid-cols-3 sm:gap-3">
-						{#each INPAINT_MODES as mode}
-							<button
-								type="button"
-								on:click={() => setInpaintMode(mode.id)}
-								class={`relative flex flex-col justify-between rounded-xl border p-3 sm:p-3.5 text-left transition-all duration-200 ${
-									$settings.inpaintMode === mode.id
-										? 'border-[#b23a2e] bg-[#b23a2e]/[0.08] text-[#b23a2e] dark:text-[#e08a63] ring-2 ring-[#b23a2e]/30 shadow-xs'
-										: 'border-black/10 hover:border-black/20 hover:bg-black/[0.02] dark:border-white/10 dark:hover:border-white/20 dark:hover:bg-white/[0.02]'
-								}`}
-								use:ripple
-							>
-								<div>
-									<div class="flex items-center justify-between">
-										<div class="flex items-center gap-1.5 font-bold text-xs">
-											{#if mode.id === 'patch'}
-												<Zap size={14} class="text-emerald-500 shrink-0" />
-											{:else if mode.id === 'scaled'}
-												<Layers size={14} class="text-amber-500 shrink-0" />
-											{:else}
-												<Maximize2 size={14} class="text-sky-500 shrink-0" />
-											{/if}
-											<span>{mode.label}</span>
-										</div>
-										{#if $settings.inpaintMode === mode.id}
-											<Check size={14} class="text-[#b23a2e] dark:text-[#e08a63] shrink-0" />
-										{/if}
-									</div>
-									<div class="mt-1.5 inline-flex items-center rounded-full border px-2 py-0.5 text-[9px] font-bold tracking-wide whitespace-nowrap max-w-full truncate {mode.badgeColor}">
-										{mode.tag}
-									</div>
-								</div>
-								<div class="mt-2.5 text-[11px] opacity-75 leading-relaxed">{mode.blurb}</div>
-							</button>
-						{/each}
-					</div>
-
-					<!-- CHROMATIC WATERMARK INPAINTING TOGGLE -->
-					<div class="mt-3.5 flex items-start justify-between gap-4 rounded-xl border border-black/10 bg-black/[0.02] p-3 dark:border-white/10 dark:bg-white/[0.02]">
-						<div>
-							<div class="text-xs font-bold uppercase tracking-wider opacity-80 flex items-center gap-1.5">
-								<Sparkles size={14} class="text-[#b23a2e] dark:text-[#e08a63]" />
-								<span>Chromatic Watermark Inpainting</span>
-							</div>
-							<p class="text-[11px] opacity-60 mt-0.5 max-w-md">
-								Detect and inpaint colored scanlator logos and watermarks colliding with speech bubbles before OCR to rescue obscured text.
-							</p>
-						</div>
-
+<!-- GLOBAL MASTER-DETAIL PREFERENCES & CONFIGURATION MODAL -->
+<Modal {open} title="Preferences & Configuration" size="2xl" placement="top" bodyClass="p-0" on:close={() => (open = false)}>
+	<div class="flex flex-col md:flex-row h-[76vh] sm:h-[80vh] max-h-[760px] overflow-hidden">
+		<!-- LEFT SIDEBAR NAVIGATION PANE (MENU VIEW ON MOBILE) -->
+		<div class={`w-full md:w-60 lg:w-64 shrink-0 border-b md:border-b-0 md:border-r border-black/[0.08] bg-black/[0.02] dark:border-white/[0.08] dark:bg-white/[0.02] flex-col ${mobileView === 'detail' ? 'hidden md:flex' : 'flex'}`}>
+			<!-- SEARCH BAR & POPOVER CONTAINER -->
+			<div class="relative p-3 border-b border-black/[0.06] dark:border-white/[0.06]">
+				<div class="relative flex items-center">
+					<Search size={14} class="absolute left-3 top-1/2 -translate-y-1/2 text-neutral-400 pointer-events-none opacity-60" />
+					<input
+						type="text"
+						bind:value={globalSearch}
+						on:focus={() => (searchFocused = true)}
+						placeholder="Search settings..."
+						class="h-[36px] w-full rounded-lg border border-black/10 bg-transparent pl-9 pr-8 text-xs text-neutral-900 placeholder:opacity-40 outline-none transition-colors focus:border-[#b23a2e] focus:ring-2 focus:ring-[#b23a2e]/30 dark:border-white/[0.08] dark:text-neutral-100"
+					/>
+					{#if globalSearch.trim()}
 						<button
 							type="button"
-							on:click={toggleWatermarkInpaint}
-							class={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-hidden ${
-								$settings.enableWatermarkInpaint ? 'bg-[#b23a2e] dark:bg-[#e08a63]' : 'bg-black/20 dark:bg-white/20'
-							}`}
-							role="switch"
-							aria-checked={$settings.enableWatermarkInpaint}
+							on:click={() => {
+								globalSearch = '';
+								searchFocused = false;
+							}}
+							class="absolute right-2 top-1/2 -translate-y-1/2 p-1 text-neutral-400 hover:text-neutral-600 dark:hover:text-neutral-200 cursor-pointer"
 						>
-							<span
-								class={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow-sm ring-0 transition duration-200 ease-in-out ${
-								$settings.enableWatermarkInpaint ? 'translate-x-5' : 'translate-x-0'
-								}`}
-							></span>
+							<X size={13} />
 						</button>
+					{/if}
+				</div>
+
+				<!-- FLOATING SEARCH RESULTS POPOVER MENU -->
+				{#if globalSearch.trim() && searchFocused}
+					<div
+						class="absolute top-full left-2 right-2 mt-1.5 z-40 max-h-[290px] overflow-y-auto rounded-xl border border-black/15 bg-white/95 p-1.5 shadow-2xl backdrop-blur-md dark:border-white/15 dark:bg-[#1a1612]/95 space-y-2.5"
+					>
+						{#if matchingSettingsGroups.size === 0}
+							<div class="p-3 text-center text-xs opacity-60">
+								No settings matching "{globalSearch}"
+							</div>
+						{:else}
+							{#each Array.from(matchingSettingsGroups.entries()) as [catTitle, groupData]}
+								{@const GroupIcon = groupData.categoryIcon}
+								<div class="space-y-1">
+									<div class="flex items-center gap-1.5 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider text-[#b23a2e] dark:text-[#e08a63] opacity-80">
+										<GroupIcon size={12} class="shrink-0" />
+										<span class="pl-1">{catTitle}</span>
+									</div>
+									<div class="space-y-0.5">
+										{#each groupData.items as setting}
+											{@const hp = highlightParts(setting.label, globalSearch)}
+											<button
+												type="button"
+												on:click={() => jumpToSetting(setting)}
+												class="w-full flex items-center justify-between rounded-lg px-2.5 py-1.5 text-left text-xs transition-colors hover:bg-black/5 dark:hover:bg-white/5 cursor-pointer group"
+												use:ripple
+											>
+												<span class="truncate pl-1.5">
+													{#if hp.match}
+														{hp.before}<span class="font-bold text-[#b23a2e] dark:text-[#e08a63] underline">{hp.match}</span>{hp.after}
+													{:else}
+														{setting.label}
+													{/if}
+												</span>
+												<span class="text-[9px] font-semibold opacity-0 group-hover:opacity-60 transition text-[#b23a2e] dark:text-[#e08a63] pl-2 shrink-0">
+													Jump ↵
+												</span>
+											</button>
+										{/each}
+									</div>
+								</div>
+							{/each}
+						{/if}
+					</div>
+				{/if}
+			</div>
+
+			<!-- NAVIGATION CATEGORY LIST -->
+			<div class="flex-1 overflow-y-auto p-2 space-y-4">
+				{#each NAV_GROUPS as group}
+					{@const groupItems = group.items.filter((item) => matchingCategories.has(item.id))}
+					{#if groupItems.length > 0}
+						<div class="space-y-1">
+							<div class="px-2.5 py-1 text-[10px] font-bold uppercase tracking-wider opacity-65">
+								{group.title}
+							</div>
+							<div class="space-y-0.5">
+								{#each groupItems as item}
+									{@const isActive = activeCategory === item.id}
+									{@const IconComponent = item.icon}
+									<button
+										type="button"
+										on:click={() => {
+											activeCategory = item.id;
+											mobileView = 'detail';
+										}}
+										class={`w-full flex items-center gap-2.5 rounded-xl px-2.5 py-2 text-xs font-semibold transition-all text-left cursor-pointer ${
+											isActive
+												? 'bg-[#b23a2e] text-white shadow-xs dark:bg-[#e08a63] dark:text-neutral-950 font-bold'
+												: 'text-neutral-700 hover:bg-black/[0.04] dark:text-neutral-300 dark:hover:bg-white/[0.04] opacity-80 hover:opacity-100'
+										}`}
+										use:ripple
+									>
+										<IconComponent size={14} class={`shrink-0 ${isActive ? 'text-white dark:text-neutral-950' : 'opacity-70'}`} />
+										<span class="truncate">{item.label}</span>
+										<ChevronRight size={14} class="md:hidden ml-auto opacity-50 shrink-0" />
+									</button>
+								{/each}
+							</div>
+						</div>
+					{/if}
+				{/each}
+			</div>
+		</div>
+
+		<!-- RIGHT CONTENT PANE (DETAIL VIEW ON MOBILE) -->
+		<div class={`flex-1 overflow-y-auto p-4 sm:p-6 flex-col justify-between ${mobileView === 'menu' ? 'hidden md:flex' : 'flex'}`}>
+			<!-- MOBILE DRILL-DOWN BACK BUTTON -->
+			<button
+				type="button"
+				on:click={() => (mobileView = 'menu')}
+				class="md:hidden inline-flex items-center gap-1.5 -ml-1 py-1 px-2.5 rounded-lg text-xs font-bold text-[#b23a2e] dark:text-[#e08a63] bg-[#b23a2e]/[0.08] dark:bg-[#e08a63]/[0.10] hover:bg-[#b23a2e]/15 transition mb-3 self-start cursor-pointer"
+				use:ripple
+			>
+				<ChevronLeft size={15} />
+				<span>All Categories</span>
+			</button>
+
+			<div class="space-y-6">
+				<!-- SECTION 1: GENERAL & APPEARANCE -->
+				{#if activeCategory === 'appearance'}
+					<div class="space-y-6">
+						<div>
+							<h2 class="text-base font-bold">General & Appearance</h2>
+							<p class="text-xs opacity-60 mt-0.5">Surface themes, typography styles, and default localization settings</p>
+						</div>
+
+						<!-- THEME SELECTOR -->
+						<div
+							id="setting-theme"
+							class={`space-y-2.5 transition-all duration-300 ${highlightedSettingId === 'theme' ? 'ring-2 ring-[#b23a2e] dark:ring-[#e08a63] bg-[#b23a2e]/[0.06] dark:bg-[#e08a63]/[0.08] rounded-2xl p-2.5 -m-1' : ''}`}
+						>
+							<div class="text-xs font-bold uppercase tracking-wider opacity-80">Reader Surface Theme</div>
+							<div class="grid grid-cols-3 gap-2.5">
+								{#each THEMES as theme}
+									<button
+										type="button"
+										on:click={() => setTheme(theme.id)}
+										class={`flex items-center gap-2 rounded-xl border p-3 text-left transition-all ${
+											$settings.theme === theme.id
+												? 'border-[#b23a2e] bg-[#b23a2e]/[0.08] text-[#b23a2e] dark:text-[#e08a63] ring-2 ring-[#b23a2e]/30 shadow-xs'
+												: 'border-black/10 hover:border-black/20 hover:bg-black/[0.02] dark:border-white/10 dark:hover:border-white/20 dark:hover:bg-white/[0.02]'
+										}`}
+										use:ripple
+									>
+										<span class={`h-4 w-4 rounded-full border ${theme.dot} shrink-0 shadow-2xs`}></span>
+										<span class="text-xs font-bold">{theme.label}</span>
+									</button>
+								{/each}
+							</div>
+						</div>
+
+						<!-- STUDIO SYSTEM FONT -->
+						<div
+							id="setting-app-font"
+							class={`border-t border-black/10 pt-4 dark:border-white/10 space-y-2.5 transition-all duration-300 ${highlightedSettingId === 'app-font' ? 'ring-2 ring-[#b23a2e] dark:ring-[#e08a63] bg-[#b23a2e]/[0.06] dark:bg-[#e08a63]/[0.08] rounded-2xl p-2.5 -m-1' : ''}`}
+						>
+							<div class="text-xs font-bold uppercase tracking-wider opacity-80 flex items-center gap-1.5">
+								<Type size={14} class="text-[#b23a2e] dark:text-[#e08a63]" />
+								<span>Studio System Font</span>
+							</div>
+							<div class="grid grid-cols-2 sm:grid-cols-4 gap-2">
+								{#each APP_FONTS as font}
+									<button
+										type="button"
+										on:click={() => setAppFont(font.id)}
+										class={`flex flex-col justify-between rounded-xl border p-2.5 text-left transition-all ${
+											$settings.appFont === font.id
+												? 'border-[#b23a2e] bg-[#b23a2e]/[0.08] text-[#b23a2e] dark:text-[#e08a63] ring-2 ring-[#b23a2e]/30 shadow-xs'
+												: 'border-black/10 hover:border-black/20 hover:bg-black/[0.02] dark:border-white/10 dark:hover:border-white/20 dark:hover:bg-white/[0.02]'
+										}`}
+										use:ripple
+									>
+										<div class="flex items-center justify-between">
+											<span class="text-xs font-bold pl-1.5" style="font-family: {font.stack};">{font.label}</span>
+											{#if $settings.appFont === font.id}
+												<Check size={12} class="text-[#b23a2e] dark:text-[#e08a63]" />
+											{/if}
+										</div>
+										<div class="mt-1 text-[10px] opacity-60 truncate pl-1.5" style="font-family: {font.stack};">Sample 123</div>
+									</button>
+								{/each}
+							</div>
+						</div>
+
+						<!-- DEFAULT LOCALIZATION PAIR -->
+						<div
+							id="setting-lang-pair"
+							class={`border-t border-black/10 pt-4 dark:border-white/10 space-y-2.5 transition-all duration-300 ${highlightedSettingId === 'lang-pair' ? 'ring-2 ring-[#b23a2e] dark:ring-[#e08a63] bg-[#b23a2e]/[0.06] dark:bg-[#e08a63]/[0.08] rounded-2xl p-2.5 -m-1' : ''}`}
+						>
+							<div class="text-xs font-bold uppercase tracking-wider opacity-80 flex items-center gap-1.5">
+								<Globe size={14} class="text-[#b23a2e] dark:text-[#e08a63]" />
+								<span>Default Localization Pair</span>
+							</div>
+							<div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+								<div class="space-y-1">
+									<div class="text-[11px] font-semibold opacity-75">Source Language</div>
+									<LanguagePicker
+										value={$settings.sourceLang || 'zh-Hans'}
+										mode="source"
+										on:change={(e) => updateSourceLang(e.detail)}
+									/>
+								</div>
+								<div class="space-y-1">
+									<div class="text-[11px] font-semibold opacity-75">Target Language</div>
+									<LanguagePicker
+										value={$settings.targetLang || 'en'}
+										mode="target"
+										excludeCode={$settings.sourceLang || 'zh-Hans'}
+										on:change={(e) => updateTargetLang(e.detail)}
+									/>
+								</div>
+							</div>
+						</div>
 					</div>
 
-					<!-- SOUND EFFECTS (SFX) INPAINTING & TYPESETTING TOGGLE -->
-					<div class="mt-3 rounded-xl border border-black/10 bg-black/[0.02] p-3 dark:border-white/10 dark:bg-white/[0.02] space-y-3">
-						<div class="flex items-start justify-between gap-4">
+				<!-- SECTION 2: TYPESETTING & LETTERING STUDIO -->
+				{:else if activeCategory === 'typesetting'}
+					<div class="space-y-5">
+						<div class="flex items-center justify-between">
 							<div>
-								<div class="text-xs font-bold uppercase tracking-wider opacity-80 flex items-center gap-1.5">
-									<Volume2 size={14} class="text-[#b23a2e] dark:text-[#e08a63]" />
-									<span>Sound Effects (SFX) Inpaint & Typeset</span>
-								</div>
-								<p class="text-[11px] opacity-60 mt-0.5 max-w-md">
-									Inpaint and typeset comic sound effects and onomatopoeia. When disabled, original Japanese, Chinese, or Korean sound art is left 100% untouched.
-								</p>
+								<h2 class="text-base font-bold">Typesetting & Lettering Studio</h2>
+								<p class="text-xs opacity-60 mt-0.5">Dialogue fonts, CJK fallback engines, stroke borders, and live bubble rendering</p>
 							</div>
-
 							<button
 								type="button"
-								on:click={toggleSfx}
-								class={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-hidden ${
-									$settings.enableSfx ? 'bg-[#b23a2e] dark:bg-[#e08a63]' : 'bg-black/20 dark:bg-white/20'
-								}`}
-								role="switch"
-								aria-checked={$settings.enableSfx}
+								on:click={resetTypesetDefaults}
+								class="inline-flex items-center gap-1 text-xs font-semibold text-neutral-500 hover:text-neutral-800 dark:hover:text-neutral-200 cursor-pointer"
 							>
-								<span
-									class={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow-sm ring-0 transition duration-200 ease-in-out ${
-										$settings.enableSfx ? 'translate-x-5' : 'translate-x-0'
-									}`}
-								></span>
+								<RotateCcw size={12} />
+								<span>Reset Defaults</span>
 							</button>
 						</div>
 
-						{#if $settings.enableSfx}
-							<div class="border-t border-black/10 pt-2.5 dark:border-white/10">
-								<div class="flex items-center justify-between mb-1.5">
-									<span class="text-[11px] font-bold uppercase tracking-wider opacity-75">Max SFX Area Threshold</span>
-									<span class="text-[10px] font-mono opacity-60">Skip if &gt; {Math.round($settings.sfxMaxAreaPct * 100)}% page area</span>
+						<!-- LIVE SPEECH BUBBLE PREVIEW CARD -->
+						<div
+							id="setting-preview"
+							class={`rounded-2xl border border-black/10 bg-black/[0.03] p-4 dark:border-white/10 dark:bg-white/[0.02] space-y-3 transition-all duration-300 ${highlightedSettingId === 'preview' ? 'ring-2 ring-[#b23a2e] dark:ring-[#e08a63] bg-[#b23a2e]/[0.06] dark:bg-[#e08a63]/[0.08]' : ''}`}
+						>
+							<div class="flex flex-wrap items-center justify-between gap-2">
+								<div class="flex items-center gap-1.5 text-xs font-bold uppercase tracking-wider opacity-80">
+									<Sparkles size={14} class="text-[#b23a2e] dark:text-[#e08a63]" />
+									<span>Live Speech Bubble Preview</span>
 								</div>
-								<div class="grid grid-cols-2 sm:grid-cols-4 gap-1.5">
-									{#each SFX_AREA_PRESETS as preset}
+								<button
+									type="button"
+									on:click={() => (previewDarkBackground = !previewDarkBackground)}
+									class="inline-flex items-center gap-1.5 rounded-lg border border-black/10 bg-white px-2.5 py-1 text-[11px] font-semibold text-neutral-700 shadow-2xs hover:bg-neutral-50 dark:border-white/10 dark:bg-neutral-800 dark:text-neutral-200 dark:hover:bg-neutral-700 cursor-pointer"
+								>
+									{#if previewDarkBackground}
+										<Sun size={12} class="text-amber-500" />
+										<span>Light Page Scene</span>
+									{:else}
+										<Moon size={12} class="text-indigo-400" />
+										<span>Dark / Night Scene</span>
+									{/if}
+								</button>
+							</div>
+
+							<!-- SCRIPT / SAMPLE PRESET SWITCHER -->
+							<div class="flex flex-wrap items-center gap-1.5">
+								<span class="text-[10px] font-bold uppercase opacity-60 mr-1">Sample:</span>
+								{#each SAMPLE_TEXT_PRESETS as preset}
+									{@const isActive = !isCustomTextMode && selectedPresetId === preset.id}
+									<button
+										type="button"
+										on:click={() => selectTextPreset(preset)}
+										class={`inline-flex items-center rounded-lg border px-2 py-0.5 text-xs font-semibold transition-all cursor-pointer ${
+											isActive
+												? 'border-[#b23a2e] bg-[#b23a2e] text-white shadow-2xs dark:bg-[#e08a63] dark:border-[#e08a63] dark:text-neutral-950'
+												: 'border-black/10 bg-white hover:bg-black/5 dark:border-white/10 dark:bg-neutral-800 dark:hover:bg-white/10 text-neutral-700 dark:text-neutral-300'
+										}`}
+									>
+										{preset.label}
+									</button>
+								{/each}
+								<button
+									type="button"
+									on:click={enableCustomTextMode}
+									class={`inline-flex items-center gap-1 rounded-lg border px-2 py-0.5 text-xs font-semibold transition-all cursor-pointer ${
+										isCustomTextMode
+											? 'border-[#b23a2e] bg-[#b23a2e] text-white shadow-2xs dark:bg-[#e08a63] dark:border-[#e08a63] dark:text-neutral-950'
+											: 'border-black/10 bg-white hover:bg-black/5 dark:border-white/10 dark:bg-neutral-800 dark:hover:bg-white/10 text-neutral-700 dark:text-neutral-300'
+									}`}
+								>
+									<Edit3 size={11} />
+									<span>Custom</span>
+								</button>
+							</div>
+
+							{#if isCustomTextMode}
+								<input
+									type="text"
+									value={previewSampleText}
+									on:input={(e) => onCustomTextChange(e.currentTarget.value)}
+									placeholder="Type preview dialogue..."
+									class="h-[36px] w-full rounded-lg border border-black/10 bg-transparent px-3 text-xs outline-none transition-colors placeholder:opacity-40 focus:border-[#b23a2e] focus:ring-2 focus:ring-[#b23a2e]/30 dark:border-white/[0.08]"
+								/>
+							{/if}
+
+							<!-- SIMULATED MANGA ARTWORK CANVAS -->
+							<div
+								class={`relative flex min-h-[150px] items-center justify-center overflow-hidden rounded-xl border p-6 transition-colors duration-200 ${
+									previewDarkBackground ? 'bg-neutral-900 border-neutral-800 text-white' : 'bg-[#faf7f2] border-neutral-300/80 text-neutral-900'
+								}`}
+							>
+								<div class="pointer-events-none absolute inset-0 opacity-20 bg-[radial-gradient(#888_1px,transparent_1px)] [background-size:12px_12px]"></div>
+								<div
+									class="relative z-10 max-w-[280px] sm:max-w-[320px] rounded-3xl border-2 shadow-lg transition-all duration-150 text-center"
+									style="
+										padding: calc(10px + {previewInsetPadding}) calc(14px + {previewInsetPadding});
+										transform: {previewTransformRotation};
+										background-color: {previewIsDarkBubble ? '#181614' : '#ffffff'};
+										border-color: {previewIsDarkBubble ? '#ffffff' : '#111111'};
+									"
+								>
+									<div
+										class="font-bold leading-snug select-none transition-all duration-150 break-words px-1.5"
+										style="
+											font-family: {previewFontFamily};
+											font-size: {previewFontSizePx};
+											color: {previewTextColor};
+											paint-order: stroke fill;
+											-webkit-text-stroke: {previewStrokeWidth} {previewStrokeColor};
+											text-shadow: {previewStrokeWidth !== '0px' ? `0 0 3px ${previewStrokeColor}` : 'none'};
+										"
+									>
+										{previewEffectiveText}
+									</div>
+								</div>
+								<div class="absolute bottom-2 right-2.5 flex items-center gap-1 rounded-md bg-black/50 px-2 py-0.5 text-[9px] font-mono text-white backdrop-blur-xs">
+									<Compass size={10} />
+									<span>{$settings.enableTextRotation ? `Tilt Angle: +${previewSimulatedAngle}°` : 'Horizontal (0°)'}</span>
+								</div>
+							</div>
+						</div>
+
+						<!-- LATIN DIALOGUE FONT -->
+						<div
+							id="setting-typeset-font"
+							class={`space-y-2 transition-all duration-300 ${highlightedSettingId === 'typeset-font' ? 'ring-2 ring-[#b23a2e] dark:ring-[#e08a63] bg-[#b23a2e]/[0.06] dark:bg-[#e08a63]/[0.08] rounded-2xl p-2.5 -m-1' : ''}`}
+						>
+							<div class="text-xs font-bold uppercase tracking-wider opacity-80">Latin / English Dialogue Font</div>
+							<div class="grid grid-cols-2 sm:grid-cols-3 gap-2">
+								{#each AVAILABLE_TYPESET_FONTS as font}
+									{@const isSelected = ($settings.typesetFont || 'CC Wild Words') === font.id}
+									<button
+										type="button"
+										on:click={() => setTypesetFont(font.id)}
+										class={`flex flex-col justify-between rounded-xl border p-2.5 text-left transition-all ${
+											isSelected
+												? 'border-[#b23a2e] bg-[#b23a2e]/[0.08] text-[#b23a2e] dark:text-[#e08a63] ring-2 ring-[#b23a2e]/30 shadow-xs'
+												: 'border-black/10 hover:border-black/20 hover:bg-black/[0.02] dark:border-white/10 dark:hover:border-white/20 dark:hover:bg-white/[0.02]'
+										}`}
+										use:ripple
+									>
+										<div class="flex items-center justify-between">
+											<span class="text-xs font-bold pl-1.5" style="font-family: {font.stack};">{font.label}</span>
+											{#if isSelected}<Check size={13} class="text-[#b23a2e] dark:text-[#e08a63]" />{/if}
+										</div>
+										<div class="mt-1 text-[10px] opacity-60 truncate pl-1.5">{font.sub}</div>
+									</button>
+								{/each}
+							</div>
+						</div>
+
+						<!-- CJK FALLBACK ENGINE -->
+						<div
+							id="setting-typeset-cjk"
+							class={`border-t border-black/10 pt-4 dark:border-white/10 space-y-2 transition-all duration-300 ${highlightedSettingId === 'typeset-cjk' ? 'ring-2 ring-[#b23a2e] dark:ring-[#e08a63] bg-[#b23a2e]/[0.06] dark:bg-[#e08a63]/[0.08] rounded-2xl p-2.5 -m-1' : ''}`}
+						>
+							<div class="text-xs font-bold uppercase tracking-wider opacity-80">CJK East Asian Fallback Engine</div>
+							<div class="grid grid-cols-2 sm:grid-cols-4 gap-2">
+								{#each AVAILABLE_CJK_FONTS as cjk}
+									{@const isSelected = ($settings.typesetCjkFont || 'Friendly Sans') === cjk.id}
+									<button
+										type="button"
+										on:click={() => setTypesetCjkFont(cjk.id)}
+										class={`flex flex-col justify-between rounded-xl border p-2.5 text-left transition-all ${
+											isSelected
+												? 'border-[#b23a2e] bg-[#b23a2e]/[0.08] text-[#b23a2e] dark:text-[#e08a63] ring-2 ring-[#b23a2e]/30 shadow-xs'
+												: 'border-black/10 hover:border-black/20 hover:bg-black/[0.02] dark:border-white/10 dark:hover:border-white/20 dark:hover:bg-white/[0.02]'
+										}`}
+										use:ripple
+									>
+										<div class="flex items-center justify-between">
+											<span class="text-xs font-bold truncate pl-1.5">{cjk.label}</span>
+											{#if isSelected}<Check size={12} class="text-[#b23a2e] dark:text-[#e08a63]" />{/if}
+										</div>
+										<div class="mt-1 text-[9px] opacity-60 truncate pl-1.5">{cjk.sub}</div>
+									</button>
+								{/each}
+							</div>
+						</div>
+
+						<!-- BUBBLE PADDING & STROKE -->
+						<div class="border-t border-black/10 pt-4 dark:border-white/10 grid grid-cols-1 sm:grid-cols-2 gap-4">
+							<div
+								id="setting-typeset-padding"
+								class={`space-y-1.5 transition-all duration-300 ${highlightedSettingId === 'typeset-padding' ? 'ring-2 ring-[#b23a2e] dark:ring-[#e08a63] bg-[#b23a2e]/[0.06] dark:bg-[#e08a63]/[0.08] rounded-xl p-2' : ''}`}
+							>
+								<div class="text-xs font-bold uppercase tracking-wider opacity-80">Bubble Inset Padding</div>
+								<div class="grid grid-cols-2 gap-1.5">
+									{#each PADDING_PRESETS as preset}
+										{@const isSelected = Math.abs(($settings.typesetPadding || 0.05) - preset.value) < 0.005}
 										<button
 											type="button"
-											on:click={() => setSfxMaxArea(preset.value)}
-											class={`flex flex-col items-center justify-center rounded-lg border py-1.5 px-2 text-center transition-all ${
-												Math.abs($settings.sfxMaxAreaPct - preset.value) < 0.005
-													? 'border-[#b23a2e] bg-[#b23a2e]/10 text-[#b23a2e] dark:text-[#e08a63] font-bold shadow-xs'
-													: 'border-black/10 hover:border-black/20 bg-black/[0.02] dark:border-white/10 dark:hover:border-white/20 dark:bg-white/[0.02] opacity-70 hover:opacity-100'
+											on:click={() => setPadding(preset.value)}
+											class={`rounded-lg border p-2 text-left transition-all ${
+												isSelected
+													? 'border-[#b23a2e] bg-[#b23a2e]/[0.08] text-[#b23a2e] dark:text-[#e08a63] font-bold ring-1 ring-[#b23a2e]/30'
+													: 'border-black/10 hover:border-black/20 hover:bg-black/[0.02] dark:border-white/10 dark:hover:border-white/20 dark:bg-white/[0.02]'
 											}`}
 											use:ripple
 										>
-											<span class="text-xs font-bold">{preset.label}</span>
-											<span class="text-[9px] opacity-60 truncate max-w-full">{preset.sub.split('·')[0].trim()}</span>
+											<div class="text-xs">{preset.label}</div>
+											<div class="text-[9px] opacity-60 truncate">{preset.sub}</div>
 										</button>
 									{/each}
 								</div>
-								<p class="text-[10px] opacity-50 mt-1.5 italic">
-									Preserves detailed artwork: massive battle splash effects exceeding this threshold will be skipped from inpainting.
-								</p>
 							</div>
-						{/if}
-					</div>
-				</div>
 
-				<!-- TRANSLATION AI PROVIDERS (WITH SVG LOGOS) -->
-				<div class="border-t border-black/10 pt-4 dark:border-white/10 space-y-4">
-					<div>
-						<div class="text-xs font-bold uppercase tracking-wider opacity-80 flex items-center justify-between">
-							<span>AI Translation Provider</span>
-							<span class="text-[10px] font-mono font-normal opacity-50">Multi-Provider Engine</span>
+							<div
+								id="setting-typeset-outline"
+								class={`space-y-1.5 transition-all duration-300 ${highlightedSettingId === 'typeset-outline' ? 'ring-2 ring-[#b23a2e] dark:ring-[#e08a63] bg-[#b23a2e]/[0.06] dark:bg-[#e08a63]/[0.08] rounded-xl p-2' : ''}`}
+							>
+								<div class="text-xs font-bold uppercase tracking-wider opacity-80">Text Stroke Outline</div>
+								<div class="grid grid-cols-2 gap-1.5">
+									{#each OUTLINE_PRESETS as oPreset}
+										{@const isSelected = ($settings.typesetOutline || 'standard') === oPreset.id}
+										<button
+											type="button"
+											on:click={() => setOutline(oPreset.id)}
+											class={`rounded-lg border p-2 text-left transition-all ${
+												isSelected
+													? 'border-[#b23a2e] bg-[#b23a2e]/[0.08] text-[#b23a2e] dark:text-[#e08a63] font-bold ring-1 ring-[#b23a2e]/30'
+													: 'border-black/10 hover:border-black/20 hover:bg-black/[0.02] dark:border-white/10 dark:hover:border-white/20 dark:bg-white/[0.02]'
+											}`}
+											use:ripple
+										>
+											<div class="text-xs">{oPreset.label}</div>
+											<div class="text-[9px] opacity-60 truncate">{oPreset.desc}</div>
+										</button>
+									{/each}
+								</div>
+							</div>
 						</div>
-						<p class="text-[11px] opacity-60">Select your preferred local or cloud LLM inference engine for comic localization</p>
-					</div>
 
-					<!-- CATEGORY FILTER PILLS -->
-					<div class="flex flex-wrap items-center gap-1.5 border-b border-black/10 pb-2.5 dark:border-white/10">
-						<button
-							type="button"
-							on:click={() => (providerCategoryFilter = 'all')}
-							class={`rounded-lg px-2.5 py-1 text-[11px] font-bold transition-all ${
-								providerCategoryFilter === 'all'
-									? 'bg-[#b23a2e] text-white shadow-xs dark:bg-[#e08a63] dark:text-neutral-950'
-									: 'bg-black/5 hover:bg-black/10 dark:bg-white/5 dark:hover:bg-white/10 opacity-70 hover:opacity-100'
-							}`}
-						>
-							All Providers ({providers.length})
-						</button>
-						<button
-							type="button"
-							on:click={() => (providerCategoryFilter = 'cloud')}
-							class={`inline-flex items-center gap-1 rounded-lg px-2.5 py-1 text-[11px] font-bold transition-all ${
-								providerCategoryFilter === 'cloud'
-									? 'bg-[#b23a2e] text-white shadow-xs dark:bg-[#e08a63] dark:text-neutral-950'
-									: 'bg-black/5 hover:bg-black/10 dark:bg-white/5 dark:hover:bg-white/10 opacity-70 hover:opacity-100'
-							}`}
-						>
-							<Zap size={11} />
-							<span>Cloud Fast</span>
-						</button>
-						<button
-							type="button"
-							on:click={() => (providerCategoryFilter = 'local')}
-							class={`inline-flex items-center gap-1 rounded-lg px-2.5 py-1 text-[11px] font-bold transition-all ${
-								providerCategoryFilter === 'local'
-									? 'bg-teal-600 text-white shadow-xs dark:bg-teal-500 dark:text-neutral-950'
-									: 'bg-black/5 hover:bg-black/10 dark:bg-white/5 dark:hover:bg-white/10 opacity-70 hover:opacity-100'
-							}`}
-						>
-							<Server size={11} />
-							<span>Local & Offline (Free)</span>
-						</button>
-						<button
-							type="button"
-							on:click={() => (providerCategoryFilter = 'custom')}
-							class={`inline-flex items-center gap-1 rounded-lg px-2.5 py-1 text-[11px] font-bold transition-all ${
-								providerCategoryFilter === 'custom'
-									? 'bg-[#b23a2e] text-white shadow-xs dark:bg-[#e08a63] dark:text-neutral-950'
-									: 'bg-black/5 hover:bg-black/10 dark:bg-white/5 dark:hover:bg-white/10 opacity-70 hover:opacity-100'
-							}`}
-						>
-							<SlidersHorizontal size={11} />
-							<span>Custom Endpoint</span>
-						</button>
-					</div>
+						<!-- CONTRAST & TILT ROTATION -->
+						<div class="border-t border-black/10 pt-4 dark:border-white/10 grid grid-cols-1 sm:grid-cols-2 gap-4">
+							<div
+								id="setting-typeset-contrast"
+								class={`space-y-1.5 transition-all duration-300 ${highlightedSettingId === 'typeset-contrast' ? 'ring-2 ring-[#b23a2e] dark:ring-[#e08a63] bg-[#b23a2e]/[0.06] dark:bg-[#e08a63]/[0.08] rounded-xl p-2' : ''}`}
+							>
+								<div class="text-xs font-bold uppercase tracking-wider opacity-80">Contrast Strategy</div>
+								<div class="grid grid-cols-3 gap-1.5">
+									{#each CONTRAST_PRESETS as cPreset}
+										{@const isSelected = ($settings.typesetContrast || 'auto') === cPreset.id}
+										<button
+											type="button"
+											on:click={() => setContrast(cPreset.id)}
+											class={`rounded-lg border p-2 text-center transition-all ${
+												isSelected
+													? 'border-[#b23a2e] bg-[#b23a2e]/[0.08] text-[#b23a2e] dark:text-[#e08a63] font-bold ring-1 ring-[#b23a2e]/30'
+													: 'border-black/10 hover:border-black/20 hover:bg-black/[0.02] dark:border-white/10 dark:hover:border-white/20 dark:bg-white/[0.02]'
+											}`}
+											use:ripple
+										>
+											<div class="text-xs">{cPreset.shortLabel}</div>
+											<div class="text-[9px] opacity-60 truncate">{cPreset.desc}</div>
+										</button>
+									{/each}
+								</div>
+							</div>
 
-					<!-- PROVIDER SELECTION GRID WITH SVG LOGOS -->
-					<div class="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
-						{#each providers.filter((p) => providerCategoryFilter === 'all' || getProviderCategory(p.id) === providerCategoryFilter) as prov}
-							{@const isSelected = selectedProviderId === prov.id}
-							{@const isLoc = isLocal(prov.id)}
-							<button
-								type="button"
-								on:click={() => {
-									selectedProviderId = prov.id;
-									testResult = null;
-								}}
-								class={`relative flex flex-col justify-between rounded-xl border p-3 text-left transition-all duration-200 ${
-									isSelected
-										? 'border-[#b23a2e] bg-[#b23a2e]/[0.06] text-current ring-2 ring-[#b23a2e]/30 shadow-xs dark:border-[#e08a63] dark:bg-[#e08a63]/[0.08]'
-										: 'border-black/10 hover:border-black/20 hover:bg-black/[0.02] dark:border-white/10 dark:hover:border-white/20 dark:hover:bg-white/[0.02]'
-								}`}
-								use:ripple
+							<div
+								id="setting-typeset-angle"
+								class={`flex items-center justify-between rounded-xl border border-black/10 bg-black/[0.02] p-3 dark:border-white/10 dark:bg-white/[0.02] transition-all duration-300 ${highlightedSettingId === 'typeset-angle' ? 'ring-2 ring-[#b23a2e] dark:ring-[#e08a63] bg-[#b23a2e]/[0.06] dark:bg-[#e08a63]/[0.08]' : ''}`}
 							>
 								<div>
-									<div class="flex items-center justify-between">
-										<div class="flex items-center gap-2 font-bold text-xs">
-											<ProviderLogo
-												providerId={prov.id}
-												size={15}
-												className={prov.id === 'deepseek'
-													? 'text-sky-500 shrink-0'
-													: prov.id === 'google'
-														? 'text-[#b23a2e] dark:text-[#e08a63] shrink-0'
-														: prov.id === 'groq'
-															? 'text-orange-500 shrink-0'
-															: prov.id === 'openrouter'
-																? 'text-purple-500 shrink-0'
-																: prov.id === 'openai'
-																	? 'text-emerald-500 shrink-0'
-																	: prov.id === 'ollama'
-																		? 'text-teal-500 shrink-0'
-																		: prov.id === 'lmstudio'
-																			? 'text-indigo-500 shrink-0'
-																			: 'text-amber-500 shrink-0'}
-											/>
-											<span class="pl-0.5 truncate">{prov.name}</span>
-										</div>
-
-										<div class="flex items-center gap-1.5">
-											{#if prov.isDefault}
-												<span class="rounded-full bg-[#b23a2e]/15 px-2 py-0.5 text-[9px] font-bold text-[#b23a2e] dark:bg-[#e08a63]/20 dark:text-[#e08a63]">
-													ACTIVE
-												</span>
-											{/if}
-											{#if isSelected}
-												<Check size={14} class="text-[#b23a2e] dark:text-[#e08a63] shrink-0" />
-											{/if}
-										</div>
-									</div>
-
-									<div class="mt-2 flex items-center gap-1.5 text-[10px] pl-0.5">
-										{#if isLoc}
-											<span class="inline-flex items-center gap-1 rounded-full bg-teal-500/15 border border-teal-500/30 px-2 py-0.5 font-bold text-teal-700 dark:text-teal-300">
-												<Server size={10} /> Local Daemon
-											</span>
-										{:else if prov.hasKey}
-											<span class="inline-flex items-center gap-1 rounded-full bg-emerald-500/15 border border-emerald-500/30 px-2 py-0.5 font-bold text-emerald-700 dark:text-emerald-300">
-												<Check size={10} class="stroke-[3]" /> Key Configured ({prov.maskedKey})
-											</span>
-										{:else}
-											<span class="inline-flex items-center gap-1 rounded-full bg-amber-500/10 border border-amber-500/25 px-2 py-0.5 font-medium text-amber-700 dark:text-amber-300">
-												<span class="h-1.5 w-1.5 rounded-full bg-amber-500"></span> Key Required
-											</span>
-										{/if}
-									</div>
+									<div class="text-xs font-bold">Bubble Tilt Angle</div>
+									<div class="text-[10px] opacity-60 mt-0.5">Rotate text along detected bubble angle</div>
 								</div>
-
-								<div class="mt-2 text-[10.5px] font-mono opacity-60 truncate pl-0.5">
-									Active: {prov.activeModel}
-								</div>
-							</button>
-						{/each}
+								<button
+									type="button"
+									on:click={toggleTextRotation}
+									class={`relative inline-flex h-5 w-10 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out ${
+										$settings.enableTextRotation ? 'bg-[#b23a2e] dark:bg-[#e08a63]' : 'bg-black/20 dark:bg-white/20'
+									}`}
+									role="switch"
+									aria-checked={$settings.enableTextRotation}
+								>
+									<span class={`pointer-events-none inline-block h-4 w-4 transform rounded-full bg-white shadow-sm ring-0 transition duration-200 ease-in-out ${$settings.enableTextRotation ? 'translate-x-5' : 'translate-x-0'}`}></span>
+								</button>
+							</div>
+						</div>
 					</div>
 
-					<!-- SELECTED PROVIDER CONFIGURATION PANEL -->
-					{#if selectedProviderId}
-						{@const currentP = providers.find((p) => p.id === selectedProviderId)}
-						{#if currentP}
-							{@const currentIsLocal = isLocal(currentP.id)}
-							{@const filteredModels = getFilteredModels(currentP.availableModels, modelSearch)}
-							{@const canReset = currentP.availableModels.length > (DEFAULT_PROVIDER_MODELS[currentP.id]?.length || 2)}
-							<div class="rounded-2xl border border-black/10 bg-black/[0.02] p-4 sm:p-5 dark:border-white/10 dark:bg-white/[0.02] space-y-4">
-								<div class="flex flex-wrap items-center justify-between gap-2">
-									<div class="flex items-center gap-2 text-xs font-bold text-neutral-900 dark:text-neutral-100">
-										<ProviderLogo
-											providerId={currentP.id}
-											size={16}
-											className={currentP.id === 'deepseek'
-												? 'text-sky-500 shrink-0'
-												: currentP.id === 'google'
-													? 'text-[#b23a2e] dark:text-[#e08a63] shrink-0'
-													: currentP.id === 'groq'
-														? 'text-orange-500 shrink-0'
-														: currentP.id === 'openrouter'
-															? 'text-purple-500 shrink-0'
-															: currentP.id === 'openai'
-																? 'text-emerald-500 shrink-0'
-																: currentP.id === 'ollama'
-																	? 'text-teal-500 shrink-0'
-																	: currentP.id === 'lmstudio'
-																		? 'text-indigo-500 shrink-0'
-																		: 'text-amber-500 shrink-0'}
-										/>
-										<span class="pl-0.5">{currentP.name} Configuration</span>
-										{#if currentIsLocal}
-											<span class="rounded-md bg-teal-500/15 border border-teal-500/30 px-1.5 py-0.5 text-[9px] font-bold text-teal-700 dark:text-teal-300">
-												FREE & OFFLINE
-											</span>
-										{/if}
-									</div>
+				<!-- SECTION 3: INPAINTING & SFX -->
+				{:else if activeCategory === 'inpainting'}
+					<div class="space-y-5">
+						<div>
+							<h2 class="text-base font-bold">Inpainting & Sound Effects (SFX)</h2>
+							<p class="text-xs opacity-60 mt-0.5">Artwork cleaning strategies, watermark removal, and three-tier geometry bounds</p>
+						</div>
 
-									{#if currentP.id === 'google'}
-										<a
-											href="https://aistudio.google.com/api-keys"
-											target="_blank"
-											rel="noopener noreferrer"
-											class="inline-flex items-center gap-1 text-[11px] text-[#b23a2e] dark:text-[#e08a63] hover:underline font-semibold pl-0.5"
-										>
-											<span>Get Google AI API Key</span>
-											<ExternalLink size={11} />
-										</a>
-									{:else if currentP.id === 'deepseek'}
-										<a
-											href="https://platform.deepseek.com/api_keys"
-											target="_blank"
-											rel="noopener noreferrer"
-											class="inline-flex items-center gap-1 text-[#b23a2e] dark:text-[#e08a63] hover:underline text-[11px] font-semibold pl-0.5"
-										>
-											<span>Get DeepSeek API Key</span>
-											<ExternalLink size={11} />
-										</a>
-									{:else if currentP.id === 'groq'}
-										<a
-											href="https://console.groq.com/keys"
-											target="_blank"
-											rel="noopener noreferrer"
-											class="inline-flex items-center gap-1 text-orange-600 dark:text-orange-400 hover:underline text-[11px] font-semibold pl-0.5"
-										>
-											<span>Get Groq API Key</span>
-											<ExternalLink size={11} />
-										</a>
-									{:else if currentP.id === 'openrouter'}
-										<a
-											href="https://openrouter.ai/keys"
-											target="_blank"
-											rel="noopener noreferrer"
-											class="inline-flex items-center gap-1 text-purple-600 dark:text-purple-400 hover:underline text-[11px] font-semibold pl-0.5"
-										>
-											<span>Get OpenRouter API Key</span>
-											<ExternalLink size={11} />
-										</a>
-									{:else if currentP.id === 'openai'}
-										<a
-											href="https://platform.openai.com/api-keys"
-											target="_blank"
-											rel="noopener noreferrer"
-											class="inline-flex items-center gap-1 text-emerald-600 dark:text-emerald-400 hover:underline text-[11px] font-semibold pl-0.5"
-										>
-											<span>Get OpenAI API Key</span>
-											<ExternalLink size={11} />
-										</a>
-									{/if}
-								</div>
-
-								<!-- LOCAL RUNNER HELPER CALLOUT -->
-								{#if currentIsLocal}
-									<div class="flex items-start gap-2.5 rounded-xl border border-teal-500/25 bg-teal-500/10 p-3 text-teal-900 dark:text-teal-200 text-xs leading-relaxed">
-										<Server size={15} class="shrink-0 mt-0.5 text-teal-600 dark:text-teal-400" />
+						<!-- INPAINTING STRATEGY -->
+						<div
+							id="setting-inpaint-mode"
+							class={`space-y-2.5 transition-all duration-300 ${highlightedSettingId === 'inpaint-mode' ? 'ring-2 ring-[#b23a2e] dark:ring-[#e08a63] bg-[#b23a2e]/[0.06] dark:bg-[#e08a63]/[0.08] rounded-2xl p-2.5 -m-1' : ''}`}
+						>
+							<div class="text-xs font-bold uppercase tracking-wider opacity-80">Inpainting Strategy</div>
+							<div class="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
+								{#each INPAINT_MODES as mode}
+									<button
+										type="button"
+										on:click={() => setInpaintMode(mode.id)}
+										class={`flex flex-col justify-between rounded-xl border p-3 text-left transition-all ${
+											$settings.inpaintMode === mode.id
+												? 'border-[#b23a2e] bg-[#b23a2e]/[0.08] text-[#b23a2e] dark:text-[#e08a63] ring-2 ring-[#b23a2e]/30 shadow-xs'
+												: 'border-black/10 hover:border-black/20 hover:bg-black/[0.02] dark:border-white/10 dark:hover:border-white/20 dark:hover:bg-white/[0.02]'
+										}`}
+										use:ripple
+									>
 										<div>
-											<strong class="font-bold pl-0.5">Zero-Cost Local Server:</strong>
-											<p class="mt-0.5 text-[11px] opacity-90 pl-0.5">
-												Connects directly to your local {currentP.id === 'ollama' ? 'Ollama daemon (default http://localhost:11434)' : 'LM Studio server (default http://localhost:1234)'}. No cloud API keys or external network requests needed.
-											</p>
+											<div class="flex items-center justify-between">
+												<span class="text-xs font-bold">{mode.label}</span>
+												{#if $settings.inpaintMode === mode.id}<Check size={14} class="text-[#b23a2e] dark:text-[#e08a63]" />{/if}
+											</div>
+											<div class="mt-1 inline-flex rounded-full border px-2 py-0.5 text-[9px] font-bold {mode.badgeColor}">
+												{mode.tag}
+											</div>
 										</div>
-									</div>
-								{/if}
+										<p class="mt-2 text-[11px] opacity-75 leading-relaxed">{mode.blurb}</p>
+									</button>
+								{/each}
+							</div>
+						</div>
 
-								<!-- HIGH SPEED ZERO-REASONING NOTICE -->
-								<div class="flex items-center gap-2 rounded-xl bg-black/[0.03] border border-black/10 px-3 py-2 text-[11px] dark:bg-white/[0.03] dark:border-white/10 text-neutral-700 dark:text-neutral-300">
-									<Zap size={13} class="text-amber-500 shrink-0" />
-									<span class="pl-0.5">
-										<strong>High-Speed Mode Active:</strong> Thinking & reasoning tokens are automatically suppressed for rapid translation output and reduced token consumption.
-									</span>
+						<!-- CHROMATIC WATERMARK & SFX TOGGLES -->
+						<div class="border-t border-black/10 pt-4 dark:border-white/10 space-y-3">
+							<div
+								id="setting-watermark"
+								class={`flex items-start justify-between gap-4 rounded-xl border border-black/10 bg-black/[0.02] p-3 dark:border-white/10 dark:bg-white/[0.02] transition-all duration-300 ${highlightedSettingId === 'watermark' ? 'ring-2 ring-[#b23a2e] dark:ring-[#e08a63] bg-[#b23a2e]/[0.06] dark:bg-[#e08a63]/[0.08]' : ''}`}
+							>
+								<div>
+									<div class="text-xs font-bold flex items-center gap-1.5">
+										<Sparkles size={14} class="text-[#b23a2e] dark:text-[#e08a63]" />
+										<span>Chromatic Watermark Inpainting</span>
+									</div>
+									<p class="text-[11px] opacity-60 mt-0.5">Detect and inpaint colored scanlator logos and watermarks colliding with bubbles before OCR.</p>
+								</div>
+								<button
+									type="button"
+									on:click={toggleWatermarkInpaint}
+									class={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out ${
+										$settings.enableWatermarkInpaint ? 'bg-[#b23a2e] dark:bg-[#e08a63]' : 'bg-black/20 dark:bg-white/20'
+									}`}
+									role="switch"
+									aria-checked={$settings.enableWatermarkInpaint}
+								>
+									<span class={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow-sm ring-0 transition duration-200 ease-in-out ${$settings.enableWatermarkInpaint ? 'translate-x-5' : 'translate-x-0'}`}></span>
+								</button>
+							</div>
+
+							<div
+								id="setting-sfx-toggle"
+								class={`rounded-xl border border-black/10 bg-black/[0.02] p-3 dark:border-white/10 dark:bg-white/[0.02] space-y-3 transition-all duration-300 ${highlightedSettingId === 'sfx-toggle' || highlightedSettingId === 'sfx-threshold' ? 'ring-2 ring-[#b23a2e] dark:ring-[#e08a63] bg-[#b23a2e]/[0.06] dark:bg-[#e08a63]/[0.08]' : ''}`}
+							>
+								<div class="flex items-start justify-between gap-4">
+									<div>
+										<div class="text-xs font-bold flex items-center gap-1.5">
+											<Volume2 size={14} class="text-[#b23a2e] dark:text-[#e08a63]" />
+											<span>Sound Effects (SFX) Inpaint & Typeset</span>
+										</div>
+										<p class="text-[11px] opacity-60 mt-0.5">Inpaint and typeset onomatopoeia sound art. When disabled, original sound art is left untouched.</p>
+									</div>
+									<button
+										type="button"
+										on:click={toggleSfx}
+										class={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out ${
+											$settings.enableSfx ? 'bg-[#b23a2e] dark:bg-[#e08a63]' : 'bg-black/20 dark:bg-white/20'
+										}`}
+										role="switch"
+										aria-checked={$settings.enableSfx}
+									>
+										<span class={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow-sm ring-0 transition duration-200 ease-in-out ${$settings.enableSfx ? 'translate-x-5' : 'translate-x-0'}`}></span>
+									</button>
 								</div>
 
-								<!-- API KEY INPUT & STATUS (FOR CLOUD OR CUSTOM PROVIDERS) -->
-								{#if !currentIsLocal}
-									<div class="space-y-2">
-										<div class="flex items-center justify-between">
-											<label for={`provider-key-${currentP.id}`} class="text-[11px] font-semibold opacity-80 pl-0.5">
-												API Key
-											</label>
-											{#if currentP.hasKey}
-												<span class="inline-flex items-center gap-1 text-emerald-600 dark:text-emerald-400 font-mono text-[10px] font-semibold pr-0.5">
-													<Check size={11} class="stroke-[3]" /> Stored in SQLite: {currentP.maskedKey}
-												</span>
-											{:else}
-												<span class="text-amber-600 dark:text-amber-400 text-[10px] font-medium pr-0.5">
-													No key saved
-												</span>
-											{/if}
+								{#if $settings.enableSfx}
+									<div
+										id="setting-sfx-threshold"
+										class="border-t border-black/10 pt-2.5 dark:border-white/10"
+									>
+										<div class="flex items-center justify-between mb-1.5">
+											<span class="text-[10px] font-bold uppercase tracking-wider opacity-75">Artwork Preservation Threshold</span>
+											<span class="text-[10px] font-mono opacity-60">Skip if &gt; {Math.round($settings.sfxMaxAreaPct * 100)}% page area</span>
 										</div>
-
-										<!-- STORED KEY BANNER IF PRESENT -->
-										{#if currentP.hasKey}
-											<div class="flex items-center justify-between rounded-xl bg-emerald-500/10 border border-emerald-500/25 px-3 py-2 text-xs">
-												<div class="flex items-center gap-2 text-emerald-800 dark:text-emerald-300 font-medium pl-0.5">
-													<CheckCircle2 size={14} class="text-emerald-600 dark:text-emerald-400 shrink-0" />
-													<span>Active key: <code class="font-mono font-bold bg-black/5 dark:bg-white/10 px-1.5 py-0.5 rounded text-[11px]">{currentP.maskedKey}</code></span>
-												</div>
+										<div class="grid grid-cols-2 sm:grid-cols-4 gap-1.5">
+											{#each SFX_AREA_PRESETS as preset}
 												<button
 													type="button"
-													on:click={() => clearKey(currentP.id)}
-													class="text-[11px] font-semibold text-red-600 hover:text-red-700 dark:text-red-400 hover:underline cursor-pointer pr-0.5"
+													on:click={() => setSfxMaxArea(preset.value)}
+													class={`rounded-lg border py-1.5 px-2 text-center transition-all ${
+														Math.abs($settings.sfxMaxAreaPct - preset.value) < 0.005
+															? 'border-[#b23a2e] bg-[#b23a2e]/10 text-[#b23a2e] dark:text-[#e08a63] font-bold shadow-xs'
+															: 'border-black/10 hover:border-black/20 bg-black/[0.02] dark:border-white/10 dark:hover:border-white/20 dark:bg-white/[0.02] opacity-70'
+													}`}
+													use:ripple
 												>
-													Remove Key
+													<span class="text-xs font-bold">{preset.label}</span>
 												</button>
-											</div>
-										{/if}
-
-										<div class="relative flex items-center">
-											{#if showApiKey[currentP.id]}
-												<input
-													id={`provider-key-${currentP.id}`}
-													type="text"
-													bind:value={apiKeyDraft[currentP.id]}
-													placeholder={currentP.hasKey ? `Replace key (Currently: ${currentP.maskedKey})...` : 'Enter API Key...'}
-													class="w-full rounded-xl border border-black/15 bg-white px-3 py-2 pr-10 text-xs text-neutral-900 shadow-2xs focus:border-[#b23a2e] focus:outline-hidden dark:border-white/15 dark:bg-black/30 dark:text-neutral-100 font-mono"
-												/>
-											{:else}
-												<input
-													id={`provider-key-${currentP.id}`}
-													type="password"
-													bind:value={apiKeyDraft[currentP.id]}
-													placeholder={currentP.hasKey ? `Replace key (Currently: ${currentP.maskedKey})...` : 'Enter API Key...'}
-													class="w-full rounded-xl border border-black/15 bg-white px-3 py-2 pr-10 text-xs text-neutral-900 shadow-2xs focus:border-[#b23a2e] focus:outline-hidden dark:border-white/15 dark:bg-black/30 dark:text-neutral-100 font-mono"
-												/>
-											{/if}
-											<button
-												type="button"
-												on:click={() => (showApiKey[currentP.id] = !showApiKey[currentP.id])}
-												class="absolute right-2.5 p-1 text-neutral-400 hover:text-neutral-600 dark:hover:text-neutral-200"
-												title={showApiKey[currentP.id] ? 'Hide Key' : 'Show Key'}
-											>
-												{#if showApiKey[currentP.id]}
-													<EyeOff size={14} />
-												{:else}
-													<Eye size={14} />
-												{/if}
-											</button>
+											{/each}
 										</div>
 									</div>
 								{/if}
+							</div>
+						</div>
 
-								<!-- MODEL SELECTION & DISCOVERY -->
-								<div class="space-y-2.5">
-									<div class="flex flex-wrap items-center justify-between gap-2">
-										<div class="flex items-center gap-1.5 pl-0.5 shrink-0">
-											<div class="text-[11px] font-semibold opacity-80 whitespace-nowrap">
-												Active Model
-											</div>
-											<span class="rounded-full bg-black/5 dark:bg-white/10 px-2 py-0.5 text-[10px] font-mono font-medium opacity-70 whitespace-nowrap">
-												{currentP.availableModels.length} {currentP.availableModels.length === 1 ? 'model' : 'models'}
-											</span>
+						<!-- THREE-TIER REGION GEOMETRY EXPANSION -->
+						<div
+							id="setting-inpaint-geom"
+							class={`border-t border-black/10 pt-4 dark:border-white/10 space-y-3 transition-all duration-300 ${highlightedSettingId === 'inpaint-geom' ? 'ring-2 ring-[#b23a2e] dark:ring-[#e08a63] bg-[#b23a2e]/[0.06] dark:bg-[#e08a63]/[0.08] rounded-2xl p-2.5 -m-1' : ''}`}
+						>
+							<div class="text-xs font-bold uppercase tracking-wider opacity-80 flex items-center gap-1.5">
+								<Sliders size={14} class="text-[#b23a2e] dark:text-[#e08a63]" />
+								<span>Three-Tier Region Geometry Expansion</span>
+							</div>
+
+							<!-- VISUAL DIAGRAM CARD -->
+							<div class="relative overflow-hidden rounded-xl border border-black/10 bg-neutral-100 dark:border-white/10 dark:bg-neutral-950 p-3 flex flex-col items-center justify-center">
+								<div class="w-full max-w-[280px] rounded-lg border-2 border-[#7f1d1d] dark:border-red-500 bg-[#7f1d1d]/20 dark:bg-red-500/20 p-2 flex flex-col items-center text-center">
+									<div class="flex items-center justify-between w-full text-[9px] font-bold text-[#7f1d1d] dark:text-red-300 mb-1 px-1">
+										<span>Tier 3: Typesetting Box</span>
+										<span class="font-mono">+{Math.round(($settings.typesetExpansionPct ?? 0.06) * 100)}%</span>
+									</div>
+									<div class="w-[90%] rounded-md border-2 border-dashed border-black/80 dark:border-white/80 bg-black/10 dark:bg-white/10 p-1.5 flex flex-col items-center">
+										<div class="flex items-center justify-between w-full text-[8.5px] font-semibold text-neutral-800 dark:text-neutral-200 mb-1 px-0.5">
+											<span>Tier 2: Inpaint Mask</span>
+											<span class="font-mono">+{Math.round(($settings.inpaintExpansionPct ?? 0.03) * 100)}%</span>
 										</div>
-										<div class="flex items-center gap-2.5 pr-0.5 shrink-0">
-											{#if canReset}
+										<div class="w-[85%] rounded border-2 border-dotted border-white bg-black/20 dark:bg-black/60 px-2 py-1 text-center font-mono text-[9px] font-bold text-white shadow-xs">
+											Tier 1: Text Anchor (0%)
+										</div>
+									</div>
+								</div>
+							</div>
+
+							<div class="space-y-1.5">
+								<div class="flex items-center justify-between text-[11px]">
+									<span class="font-semibold opacity-75">Tier 2: Inpaint Mask Margin</span>
+									<span class="font-mono opacity-60">+{Math.round(($settings.inpaintExpansionPct ?? 0.03) * 100)}%</span>
+								</div>
+								<div class="grid grid-cols-5 gap-1.5">
+									{#each INPAINT_EXPANSION_PRESETS as preset}
+										{@const isSelected = Math.abs(($settings.inpaintExpansionPct ?? 0.03) - preset.value) < 0.005}
+										<button
+											type="button"
+											on:click={() => setInpaintExpansion(preset.value)}
+											class={`rounded-lg border py-1 px-1 text-center transition-all ${
+												isSelected
+													? 'border-[#b23a2e] bg-[#b23a2e]/[0.08] text-[#b23a2e] dark:text-[#e08a63] font-bold ring-1 ring-[#b23a2e]/30'
+													: 'border-black/10 hover:border-black/20 dark:border-white/10 opacity-75'
+											}`}
+											use:ripple
+										>
+											<span class="text-xs">{preset.label}</span>
+										</button>
+									{/each}
+								</div>
+							</div>
+
+							<div class="space-y-1.5">
+								<div class="flex items-center justify-between text-[11px]">
+									<span class="font-semibold opacity-75">Tier 3: Typeset Box Margin</span>
+									<span class="font-mono opacity-60">+{Math.round(($settings.typesetExpansionPct ?? 0.06) * 100)}%</span>
+								</div>
+								<div class="grid grid-cols-5 gap-1.5">
+									{#each TYPESET_EXPANSION_PRESETS as preset}
+										{@const isSelected = Math.abs(($settings.typesetExpansionPct ?? 0.06) - preset.value) < 0.005}
+										<button
+											type="button"
+											on:click={() => setTypesetExpansion(preset.value)}
+											class={`rounded-lg border py-1 px-1 text-center transition-all ${
+												isSelected
+													? 'border-[#b23a2e] bg-[#b23a2e]/[0.08] text-[#b23a2e] dark:text-[#e08a63] font-bold ring-1 ring-[#b23a2e]/30'
+													: 'border-black/10 hover:border-black/20 dark:border-white/10 opacity-75'
+											}`}
+											use:ripple
+										>
+											<span class="text-xs">{preset.label}</span>
+										</button>
+									{/each}
+								</div>
+							</div>
+						</div>
+					</div>
+
+				<!-- SECTION 4: AI TRANSLATION PROVIDERS -->
+				{:else if activeCategory === 'providers'}
+					<div class="space-y-5">
+						<div>
+							<h2 class="text-base font-bold">AI Translation Provider</h2>
+							<p class="text-xs opacity-60 mt-0.5">Configure cloud and local LLM localization engines, API keys, and model parameters</p>
+						</div>
+
+						<!-- CATEGORY FILTER PILLS -->
+						<div class="flex flex-wrap items-center gap-1.5 border-b border-black/10 pb-2.5 dark:border-white/10">
+							<button
+								type="button"
+								on:click={() => (providerCategoryFilter = 'all')}
+								class={`rounded-lg px-2.5 py-1 text-[11px] font-bold transition-all ${
+									providerCategoryFilter === 'all'
+										? 'bg-[#b23a2e] text-white shadow-xs dark:bg-[#e08a63] dark:text-neutral-950'
+										: 'bg-black/5 hover:bg-black/10 dark:bg-white/5 dark:hover:bg-white/10 opacity-70'
+								}`}
+							>
+								All Providers ({providers.length})
+							</button>
+							<button
+								type="button"
+								on:click={() => (providerCategoryFilter = 'cloud')}
+								class={`inline-flex items-center gap-1 rounded-lg px-2.5 py-1 text-[11px] font-bold transition-all ${
+									providerCategoryFilter === 'cloud'
+										? 'bg-[#b23a2e] text-white shadow-xs dark:bg-[#e08a63] dark:text-neutral-950'
+										: 'bg-black/5 hover:bg-black/10 dark:bg-white/5 dark:hover:bg-white/10 opacity-70'
+								}`}
+							>
+								<Zap size={11} />
+								<span>Cloud Fast</span>
+							</button>
+							<button
+								type="button"
+								on:click={() => (providerCategoryFilter = 'local')}
+								class={`inline-flex items-center gap-1 rounded-lg px-2.5 py-1 text-[11px] font-bold transition-all ${
+									providerCategoryFilter === 'local'
+										? 'bg-teal-600 text-white shadow-xs dark:bg-teal-500 dark:text-neutral-950'
+										: 'bg-black/5 hover:bg-black/10 dark:bg-white/5 dark:hover:bg-white/10 opacity-70'
+								}`}
+							>
+								<Server size={11} />
+								<span>Local & Offline</span>
+							</button>
+							<button
+								type="button"
+								on:click={() => (providerCategoryFilter = 'custom')}
+								class={`inline-flex items-center gap-1 rounded-lg px-2.5 py-1 text-[11px] font-bold transition-all ${
+									providerCategoryFilter === 'custom'
+										? 'bg-[#b23a2e] text-white shadow-xs dark:bg-[#e08a63] dark:text-neutral-950'
+										: 'bg-black/5 hover:bg-black/10 dark:bg-white/5 dark:hover:bg-white/10 opacity-70'
+								}`}
+							>
+								<SlidersHorizontal size={11} />
+								<span>Custom Endpoint</span>
+							</button>
+						</div>
+
+						<!-- PROVIDER CARDS GRID -->
+						<div
+							id="setting-providers-hub"
+							class={`grid grid-cols-1 sm:grid-cols-2 gap-2.5 transition-all duration-300 ${highlightedSettingId === 'providers-hub' ? 'ring-2 ring-[#b23a2e] dark:ring-[#e08a63] bg-[#b23a2e]/[0.06] dark:bg-[#e08a63]/[0.08] rounded-2xl p-2.5 -m-1' : ''}`}
+						>
+							{#each providers.filter((p) => providerCategoryFilter === 'all' || getProviderCategory(p.id) === providerCategoryFilter) as prov}
+								{@const isSelected = selectedProviderId === prov.id}
+								{@const isLoc = isLocal(prov.id)}
+								<button
+									type="button"
+									on:click={() => { selectedProviderId = prov.id; testResult = null; }}
+									class={`flex flex-col justify-between rounded-xl border p-3 text-left transition-all ${
+										isSelected
+											? 'border-[#b23a2e] bg-[#b23a2e]/[0.06] ring-2 ring-[#b23a2e]/30 shadow-xs dark:border-[#e08a63] dark:bg-[#e08a63]/[0.08]'
+											: 'border-black/10 hover:border-black/20 hover:bg-black/[0.02] dark:border-white/10 dark:hover:border-white/20 dark:hover:bg-white/[0.02]'
+									}`}
+									use:ripple
+								>
+									<div>
+										<div class="flex items-center justify-between">
+											<div class="flex items-center gap-2 font-bold text-xs">
+												<ProviderLogo providerId={prov.id} size={15} />
+												<span class="truncate">{prov.name}</span>
+											</div>
+											<div class="flex items-center gap-1.5">
+												{#if prov.isDefault}
+													<span class="rounded-full bg-[#b23a2e]/15 px-2 py-0.5 text-[9px] font-bold text-[#b23a2e] dark:bg-[#e08a63]/20 dark:text-[#e08a63]">
+														ACTIVE
+													</span>
+												{/if}
+												{#if isSelected}<Check size={14} class="text-[#b23a2e] dark:text-[#e08a63]" />{/if}
+											</div>
+										</div>
+
+										<div class="mt-2 flex items-center gap-1.5 text-[10px]">
+											{#if isLoc}
+												<span class="inline-flex items-center gap-1 rounded-full bg-teal-500/15 border border-teal-500/30 px-2 py-0.5 font-bold text-teal-700 dark:text-teal-300">
+													<Server size={10} /> Local Daemon
+												</span>
+											{:else if prov.hasKey}
+												<span class="inline-flex items-center gap-1 rounded-full bg-emerald-500/15 border border-emerald-500/30 px-2 py-0.5 font-bold text-emerald-700 dark:text-emerald-300">
+													<Check size={10} class="stroke-[3]" /> Key Saved ({prov.maskedKey})
+												</span>
+											{:else}
+												<span class="inline-flex items-center gap-1 rounded-full bg-amber-500/10 border border-amber-500/25 px-2 py-0.5 font-medium text-amber-700 dark:text-amber-300">
+													<span class="h-1.5 w-1.5 rounded-full bg-amber-500"></span> Key Required
+												</span>
+											{/if}
+										</div>
+									</div>
+									<div class="mt-2 text-[10.5px] font-mono opacity-60 truncate">Active: {prov.activeModel}</div>
+								</button>
+							{/each}
+						</div>
+
+						<!-- ACTIVE PROVIDER CONFIGURATION PANEL -->
+						{#if selectedProviderId}
+							{@const currentP = providers.find((p) => p.id === selectedProviderId)}
+							{#if currentP}
+								{@const currentIsLocal = isLocal(currentP.id)}
+								{@const filteredModels = getFilteredModels(currentP.availableModels, modelSearch)}
+								<div class="rounded-2xl border border-black/10 bg-black/[0.02] p-4 sm:p-5 dark:border-white/10 dark:bg-white/[0.02] space-y-4">
+									<div class="flex items-center justify-between">
+										<div class="flex items-center gap-2 text-xs font-bold">
+											<ProviderLogo providerId={currentP.id} size={16} />
+											<span>{currentP.name} Configuration</span>
+										</div>
+									</div>
+
+									{#if !currentIsLocal}
+										<!-- API KEY FIELD -->
+										<div
+											id="setting-api-key"
+											class={`space-y-2 transition-all duration-300 ${highlightedSettingId === 'api-key' ? 'ring-2 ring-[#b23a2e] dark:ring-[#e08a63] bg-[#b23a2e]/[0.06] dark:bg-[#e08a63]/[0.08] rounded-xl p-2' : ''}`}
+										>
+											<div class="flex items-center justify-between">
+												<label for={`prov-key-${currentP.id}`} class="text-[11px] font-semibold opacity-80">API Key</label>
+												{#if currentP.hasKey}
+													<span class="text-emerald-600 dark:text-emerald-400 font-mono text-[10px] font-semibold">Active: {currentP.maskedKey}</span>
+												{/if}
+											</div>
+											<div class="relative flex items-center">
+												{#if showApiKey[currentP.id]}
+													<input
+														id={`prov-key-${currentP.id}`}
+														type="text"
+														bind:value={apiKeyDraft[currentP.id]}
+														placeholder={currentP.hasKey ? `Replace key (${currentP.maskedKey})...` : 'Enter API Key...'}
+														class="h-[38px] w-full rounded-lg border border-black/10 bg-transparent px-3 pr-10 text-xs font-mono outline-none transition-colors placeholder:opacity-40 focus:border-[#b23a2e] focus:ring-2 focus:ring-[#b23a2e]/30 dark:border-white/[0.08]"
+													/>
+												{:else}
+													<input
+														id={`prov-key-${currentP.id}`}
+														type="password"
+														bind:value={apiKeyDraft[currentP.id]}
+														placeholder={currentP.hasKey ? `Replace key (${currentP.maskedKey})...` : 'Enter API Key...'}
+														class="h-[38px] w-full rounded-lg border border-black/10 bg-transparent px-3 pr-10 text-xs font-mono outline-none transition-colors placeholder:opacity-40 focus:border-[#b23a2e] focus:ring-2 focus:ring-[#b23a2e]/30 dark:border-white/[0.08]"
+													/>
+												{/if}
 												<button
 													type="button"
-													on:click={() => resetModelsToDefault(currentP.id)}
-													title="Reset to default curated models"
-													class="inline-flex items-center gap-1 text-[10px] font-semibold text-neutral-500 hover:text-neutral-800 dark:hover:text-neutral-200 transition whitespace-nowrap"
+													on:click={() => (showApiKey[currentP.id] = !showApiKey[currentP.id])}
+													class="absolute right-2.5 top-1/2 -translate-y-1/2 p-1 text-neutral-400 hover:text-neutral-600 dark:hover:text-neutral-200"
 												>
-													<RotateCcw size={11} />
-													<span>Reset</span>
+													{#if showApiKey[currentP.id]}<EyeOff size={14} />{:else}<Eye size={14} />{/if}
 												</button>
-											{/if}
+											</div>
+										</div>
+									{/if}
+
+									<!-- MODEL PICKER & SCANNER -->
+									<div
+										id="setting-model-scan"
+										class={`space-y-2 transition-all duration-300 ${highlightedSettingId === 'model-scan' ? 'ring-2 ring-[#b23a2e] dark:ring-[#e08a63] bg-[#b23a2e]/[0.06] dark:bg-[#e08a63]/[0.08] rounded-xl p-2' : ''}`}
+									>
+										<div class="flex items-center justify-between">
+											<span class="text-[11px] font-semibold opacity-80">Active Model ({currentP.availableModels.length})</span>
 											<button
 												type="button"
 												on:click={() => scanModels(currentP.id)}
 												disabled={scanningModels}
-												title={currentIsLocal ? 'Scan Installed Models via local endpoint' : 'Scan Models via API'}
-												class="inline-flex items-center gap-1 text-[11px] font-bold text-[#b23a2e] dark:text-[#e08a63] hover:underline disabled:opacity-50 whitespace-nowrap"
+												class="inline-flex items-center gap-1 text-[11px] font-bold text-[#b23a2e] dark:text-[#e08a63] hover:underline cursor-pointer disabled:opacity-50"
 											>
 												<RefreshCw size={11} class={scanningModels ? 'animate-spin' : ''} />
 												<span>{scanningModels ? 'Scanning...' : 'Scan Models'}</span>
-												<span class="hidden min-[480px]:inline">{!scanningModels && (currentIsLocal ? ' (Local)' : ' (API)')}</span>
 											</button>
+										</div>
+
+										<div class="max-h-[220px] overflow-y-auto space-y-1.5 pr-1">
+											<div class="grid grid-cols-1 sm:grid-cols-2 gap-2">
+												{#each filteredModels as modelId}
+													{@const isModelSelected = (activeModelDraft[currentP.id] || currentP.activeModel) === modelId}
+													<button
+														type="button"
+														on:click={() => (activeModelDraft[currentP.id] = modelId)}
+														class={`flex flex-col justify-between rounded-xl border p-2.5 text-left transition-all cursor-pointer ${
+															isModelSelected
+																? 'border-[#b23a2e] bg-[#b23a2e]/[0.08] ring-1 ring-[#b23a2e]/30 dark:border-[#e08a63] dark:bg-[#e08a63]/[0.08]'
+																: 'border-black/10 hover:border-black/20 dark:border-white/10'
+														}`}
+													>
+														<div class="flex items-center justify-between w-full">
+															<span class="text-xs font-bold truncate">{formatModelLabel(modelId)}</span>
+															{#if isModelSelected}<Check size={13} class="text-[#b23a2e] dark:text-[#e08a63]" />{/if}
+														</div>
+														<div class="mt-1 text-[9px] font-mono opacity-50 truncate">{modelId}</div>
+													</button>
+												{/each}
+											</div>
 										</div>
 									</div>
 
-									<!-- SEARCH FILTER (FOR SCAN RESULTS WITH > 3 MODELS OR ACTIVE SEARCH) -->
-									{#if currentP.availableModels.length > 3 || modelSearch.trim()}
-										<div class="relative flex items-center">
-											<Search size={13} class="absolute left-2.5 text-neutral-400 pointer-events-none" />
-											<input
-												type="text"
-												bind:value={modelSearch}
-												placeholder={`Filter ${currentP.availableModels.length} models (e.g. qwen, flash, 70b)...`}
-												class="w-full rounded-xl border border-black/10 bg-white/70 pl-8 pr-8 py-1.5 text-xs text-neutral-900 shadow-2xs focus:border-[#b23a2e] focus:outline-hidden dark:border-white/10 dark:bg-black/30 dark:text-neutral-100"
-											/>
-											{#if modelSearch.trim()}
+									<!-- TEST RESULTS BANNER -->
+									{#if testResult}
+										<div
+											id="setting-test-connection"
+											class={`flex items-start gap-2 rounded-xl p-3 text-xs leading-relaxed ${testResult.ok ? 'bg-emerald-500/10 border border-emerald-500/30 text-emerald-800 dark:text-emerald-300' : 'bg-red-500/10 border border-red-500/30 text-red-800 dark:text-red-300'}`}
+										>
+											{#if testResult.ok}<CheckCircle2 size={15} class="shrink-0 text-emerald-600 mt-0.5" />{:else}<AlertCircle size={15} class="shrink-0 text-red-500 mt-0.5" />{/if}
+											<div>
+												<strong>{testResult.ok ? 'Connection Verified' : 'Connection Error'}:</strong>
+												<p class="mt-0.5 text-[11px] opacity-90">{testResult.message}</p>
+											</div>
+										</div>
+									{/if}
+
+									<!-- ACTION BUTTONS -->
+									<div class="flex flex-col sm:flex-row items-center justify-between gap-2.5 pt-2 border-t border-black/10 dark:border-white/10">
+										<button
+											id="setting-test-btn"
+											type="button"
+											on:click={() => testConnection(currentP.id)}
+											disabled={testingProvider}
+											class="inline-flex items-center justify-center gap-2 rounded-xl border border-black/15 bg-white px-3.5 py-2 text-xs font-semibold hover:bg-neutral-50 dark:border-white/15 dark:bg-white/5 cursor-pointer w-full sm:w-auto"
+											use:ripple
+										>
+											<RefreshCw size={13} class={testingProvider ? 'animate-spin' : ''} />
+											<span>{testingProvider ? 'Testing...' : 'Test Connection'}</span>
+										</button>
+
+										<div class="flex items-center gap-2 w-full sm:w-auto">
+											<button
+												type="button"
+												on:click={() => saveProvider(currentP.id, false)}
+												disabled={savingProvider}
+												class="rounded-xl border border-black/15 bg-white px-3.5 py-2 text-xs font-semibold hover:bg-neutral-50 dark:border-white/15 dark:bg-white/5 cursor-pointer flex-1 sm:flex-initial"
+												use:ripple
+											>
+												Save
+											</button>
+											{#if !currentP.isDefault}
 												<button
 													type="button"
-													on:click={() => (modelSearch = '')}
-													class="absolute right-2.5 p-0.5 text-neutral-400 hover:text-neutral-600 dark:hover:text-neutral-200"
-													title="Clear search"
+													on:click={() => saveProvider(currentP.id, true)}
+													disabled={savingProvider}
+													class="rounded-xl bg-[#b23a2e] hover:bg-[#962f25] text-white px-3.5 py-2 text-xs font-bold cursor-pointer flex-1 sm:flex-initial"
+													use:ripple
 												>
-													<X size={13} />
+													Set Active Engine
 												</button>
 											{/if}
 										</div>
-									{/if}
-
-									<!-- MODEL LIST / GRID (SCROLLABLE TO PREVENT MODAL BLOAT) -->
-									<div class="max-h-[290px] overflow-y-auto pr-1 space-y-1.5">
-										{#if filteredModels.length === 0}
-											<div class="rounded-xl border border-dashed border-black/15 dark:border-white/15 p-4 text-center">
-												<p class="text-xs opacity-60">No models match "{modelSearch}".</p>
-												<button
-													type="button"
-													on:click={() => (modelSearch = '')}
-													class="mt-1 text-xs font-semibold text-[#b23a2e] dark:text-[#e08a63] hover:underline"
-												>
-													Clear search filter
-												</button>
-											</div>
-										{:else}
-											<div class="grid grid-cols-1 sm:grid-cols-2 gap-2">
-												{#each filteredModels as modelId}
-													{@const label = formatModelLabel(modelId)}
-													{@const badge = formatModelBadge(modelId, currentIsLocal)}
-													{@const desc = MODEL_DESCRIPTIONS[modelId]?.desc || ''}
-													{@const isModelSelected = (activeModelDraft[currentP.id] || currentP.activeModel) === modelId}
-													<div
-														class={`group relative flex flex-col justify-between rounded-xl border p-2.5 text-left transition-all ${
-															isModelSelected
-																? 'border-[#b23a2e] bg-[#b23a2e]/[0.08] ring-1 ring-[#b23a2e]/30 dark:border-[#e08a63] dark:bg-[#e08a63]/[0.08]'
-																: 'border-black/10 bg-white/40 hover:bg-white hover:border-black/20 dark:border-white/10 dark:bg-white/[0.02] dark:hover:bg-white/[0.05]'
-														}`}
-													>
-														<button
-															type="button"
-															on:click={() => (activeModelDraft[currentP.id] = modelId)}
-															class="w-full text-left cursor-pointer focus:outline-hidden"
-														>
-															<div class="flex items-center justify-between gap-1">
-																<span class="text-xs font-bold truncate pr-1 pl-0.5">{label}</span>
-																{#if isModelSelected}
-																	<Check size={13} class="text-[#b23a2e] dark:text-[#e08a63] shrink-0" />
-																{/if}
-															</div>
-															{#if label !== modelId}
-																<p class="font-mono text-[9px] opacity-50 truncate pl-0.5 mt-0.5">{modelId}</p>
-															{/if}
-															<div class="mt-1.5 flex items-center gap-1.5 pl-0.5">
-																<span class="rounded-md bg-black/5 dark:bg-white/5 px-1.5 py-0.5 text-[9px] font-mono font-semibold opacity-70">
-																	{badge}
-																</span>
-															</div>
-															{#if desc}
-																<p class="mt-1 text-[10px] opacity-60 leading-tight pl-0.5">{desc}</p>
-															{/if}
-														</button>
-
-														<!-- DELETE / REMOVE MODEL ICON (IF NOT SELECTED & MULTIPLE MODELS EXIST) -->
-														{#if !isModelSelected && currentP.availableModels.length > 1}
-															<button
-																type="button"
-																on:click|stopPropagation={() => removeModel(currentP.id, modelId)}
-																title={`Remove "${modelId}" from list`}
-																class="absolute top-2 right-2 p-1 text-neutral-300 hover:text-red-600 dark:text-neutral-600 dark:hover:text-red-400 opacity-0 group-hover:opacity-100 transition cursor-pointer rounded"
-															>
-																<Trash2 size={12} />
-															</button>
-														{/if}
-													</div>
-												{/each}
-											</div>
-										{/if}
-									</div>
-
-									<!-- QUICK CUSTOM MODEL ENTRY -->
-									<div class="flex items-center gap-1.5 pt-1">
-										<input
-											type="text"
-											bind:value={customModelInput}
-											placeholder="Add specific model tag (e.g. qwen2.5:32b, deepseek-ai/DeepSeek-V3)..."
-											on:keydown={(e) => e.key === 'Enter' && addCustomModel(currentP.id)}
-											class="w-full rounded-xl border border-black/15 bg-white px-3 py-1.5 text-xs text-neutral-900 shadow-2xs focus:border-[#b23a2e] focus:outline-hidden dark:border-white/15 dark:bg-black/30 dark:text-neutral-100 font-mono"
-										/>
-										<button
-											type="button"
-											on:click={() => addCustomModel(currentP.id)}
-											disabled={!customModelInput.trim()}
-											class="inline-flex items-center gap-1 rounded-xl border border-black/15 bg-white px-3 py-1.5 text-xs font-bold hover:bg-neutral-50 dark:border-white/15 dark:bg-white/5 dark:hover:bg-white/10 disabled:opacity-40 shadow-2xs transition shrink-0 cursor-pointer"
-										>
-											<Plus size={13} />
-											<span>Add</span>
-										</button>
 									</div>
 								</div>
-
-								<!-- ADVANCED: CUSTOM BASE URL -->
-								<div class="space-y-2 pt-1 border-t border-black/10 dark:border-white/10">
-									<button
-										type="button"
-										on:click={() => (showAdvancedBaseUrl[currentP.id] = !showAdvancedBaseUrl[currentP.id])}
-										class="flex items-center gap-1 text-[11px] opacity-60 hover:opacity-100 font-semibold"
-									>
-										<span>{showAdvancedBaseUrl[currentP.id] ? 'Hide' : 'Show'} Endpoint URL ({currentP.baseUrl})</span>
-									</button>
-
-									{#if showAdvancedBaseUrl[currentP.id]}
-										<div class="space-y-1">
-											<label for="provider-base-url-input" class="text-[10px] opacity-60 font-mono">
-												Endpoint URL (OpenAI-compatible)
-											</label>
-											<input
-												id="provider-base-url-input"
-												type="text"
-												bind:value={baseUrlDraft[currentP.id]}
-												placeholder={currentP.baseUrl}
-												class="w-full rounded-xl border border-black/15 bg-white px-3 py-1.5 text-xs text-neutral-900 shadow-2xs focus:border-[#b23a2e] focus:outline-hidden dark:border-white/15 dark:bg-black/30 dark:text-neutral-100 font-mono"
-											/>
-										</div>
-									{/if}
-								</div>
-
-								<!-- TEST STATUS BANNER -->
-								{#if testResult}
-									<div
-										class={`flex items-start gap-2 rounded-xl p-3 text-xs leading-relaxed ${
-											testResult.ok
-												? 'bg-emerald-500/10 border border-emerald-500/30 text-emerald-800 dark:text-emerald-300'
-												: 'bg-red-500/10 border border-red-500/30 text-red-800 dark:text-red-300'
-										}`}
-									>
-										{#if testResult.ok}
-											<CheckCircle2 size={15} class="shrink-0 mt-0.5 text-emerald-600 dark:text-emerald-400" />
-										{:else}
-											<AlertCircle size={15} class="shrink-0 mt-0.5 text-red-500" />
-										{/if}
-										<div>
-											<strong class="font-semibold">{testResult.ok ? 'Connection Verified' : 'Connection Error'}:</strong>
-											<p class="mt-0.5 text-[11px] opacity-90">{testResult.message}</p>
-										</div>
-									</div>
-								{/if}
-
-								<!-- ACTION BUTTONS -->
-								<div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2.5 pt-3 border-t border-black/10 dark:border-white/10">
-									<button
-										type="button"
-										on:click={() => testConnection(currentP.id)}
-										disabled={testingProvider || (!currentIsLocal && !currentP.hasKey && !apiKeyDraft[currentP.id])}
-										class="inline-flex items-center justify-center gap-2 rounded-xl border border-black/15 bg-white px-4 py-2.5 text-sm font-semibold hover:bg-neutral-50 dark:border-white/15 dark:bg-white/5 dark:hover:bg-white/10 disabled:opacity-40 transition shadow-2xs cursor-pointer w-full sm:w-auto"
-										use:ripple
-									>
-										<RefreshCw size={15} class={testingProvider ? 'animate-spin' : ''} />
-										<span>{testingProvider ? 'Testing...' : 'Test Connection'}</span>
-									</button>
-
-									<div class="flex flex-col xs:flex-row items-stretch sm:items-center gap-2.5 w-full sm:w-auto">
-										<button
-											type="button"
-											on:click={() => saveProvider(currentP.id, false)}
-											disabled={savingProvider}
-											class="inline-flex items-center justify-center gap-2 rounded-xl border border-black/15 bg-white px-4 py-2.5 text-sm font-semibold hover:bg-neutral-50 dark:border-white/15 dark:bg-white/5 dark:hover:bg-white/10 transition shadow-2xs cursor-pointer w-full xs:w-auto"
-											use:ripple
-										>
-											<span>Save Settings</span>
-										</button>
-
-										{#if !currentP.isDefault}
-											<button
-												type="button"
-												on:click={() => saveProvider(currentP.id, true)}
-												disabled={savingProvider}
-												class="inline-flex items-center justify-center gap-2 rounded-xl bg-[#b23a2e] hover:bg-[#962f25] text-white px-4 py-2.5 text-sm font-bold transition shadow-xs cursor-pointer w-full xs:w-auto"
-												use:ripple
-											>
-												<Check size={16} />
-												<span>Set as Active Engine</span>
-											</button>
-										{/if}
-									</div>
-								</div>
-							</div>
-						{/if}
-					{/if}
-				</div>
-			</div>
-
-		<!-- TAB 2: COMPUTE & PERFORMANCE -->
-		{:else if activeSettingsTab === 'compute'}
-			<div class="flex flex-col gap-5 sm:gap-6 py-1">
-				<!-- HARDWARE COMPUTE ACCELERATOR -->
-				<div>
-					<div class="mb-2.5 sm:mb-3 flex flex-col gap-1.5 sm:flex-row sm:items-center sm:justify-between">
-						<div>
-							<div class="text-xs font-bold uppercase tracking-wider opacity-80">Hardware Compute Accelerator</div>
-							<p class="text-[11px] opacity-60">Select execution engine for ONNX Runtime models</p>
-						</div>
-						<!-- LIVE STATUS PILL (MOBILE ADAPTIVE) — SHOWS A SPINNER WHILE RELOADING MODELS -->
-						{#if hardwareInfo}
-							<div
-								class={`self-start sm:self-auto flex items-center gap-1.5 rounded-full border px-2.5 py-0.5 sm:py-1 text-[10px] font-bold max-w-full ${
-									switchingDevice || hardwareInfo.reloading
-										? 'border-amber-500/30 bg-amber-500/10 text-amber-700 dark:text-amber-300'
-										: mlOffline
-											? 'border-red-500/40 bg-red-500/10 text-red-700 dark:text-red-300'
-											: 'border-emerald-500/30 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300'
-								}`}
-								title={mlOffline ? 'ML sidecar unreachable — compute accelerator selection disabled' : 'Active ONNX Runtime Provider'}
-							>
-								{#if switchingDevice || hardwareInfo.reloading}
-									<Loader2 size={11} class="text-amber-500 shrink-0 animate-spin" />
-									<span class="truncate px-0.5">Reloading models…</span>
-								{:else if mlOffline}
-									<ZapOff size={11} class="text-red-500 shrink-0" />
-									<span class="truncate px-0.5">Offline (sidecar unreachable)</span>
-								{:else}
-									<Activity size={11} class="text-emerald-500 shrink-0 animate-pulse" />
-									<span class="truncate px-0.5">{formatDeviceLabel(hardwareInfo.device_label)}</span>
-								{/if}
-							</div>
+							{/if}
 						{/if}
 					</div>
 
-					{#if mlOffline}
-						<div
-							class="mb-3 flex items-start gap-2.5 rounded-xl border border-red-500/30 bg-red-500/10 p-3 text-red-800 dark:text-red-300 text-[11px] leading-relaxed"
-						>
-							<ZapOff size={14} class="shrink-0 text-red-500 mt-0.5" />
+				<!-- SECTION 5: HARDWARE & COMPUTE -->
+				{:else if activeCategory === 'compute'}
+					<div class="space-y-5">
+						<div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2.5">
 							<div>
-								<span class="font-bold">ML Sidecar Offline:</span>
-								<span>
-									The local OCR/Inpaint sidecar is unreachable, so compute accelerator selection is
-									disabled. Start the sidecar to choose an execution engine.
-								</span>
+								<h2 class="text-base font-bold">Hardware & Compute Accelerator</h2>
+								<p class="text-xs opacity-60 mt-0.5">ONNX Runtime execution engines, GPU allocation, and batch processing concurrency</p>
+							</div>
+
+							<!-- ACCELERATOR STATUS BADGE -->
+							<div class="self-start sm:self-auto shrink-0">
+								{#if switchingDevice || hardwareInfo?.reloading}
+									<div class="inline-flex items-center gap-1.5 rounded-full border border-amber-500/30 bg-amber-500/10 px-3 py-1 text-[11px] font-semibold text-amber-700 dark:border-amber-400/30 dark:bg-amber-400/10 dark:text-amber-300 shadow-2xs backdrop-blur-xs">
+										<Loader2 size={12} class="animate-spin text-amber-500 shrink-0" />
+										<span>Reloading models…</span>
+									</div>
+								{:else if mlOffline}
+									<div class="inline-flex items-center gap-1.5 rounded-full border border-red-500/30 bg-red-500/10 px-3 py-1 text-[11px] font-semibold text-red-700 dark:border-red-400/30 dark:bg-red-400/10 dark:text-red-300 shadow-2xs backdrop-blur-xs">
+										<ZapOff size={12} class="text-red-500 shrink-0" />
+										<span>ML Core Offline</span>
+									</div>
+								{:else if hardwareInfo}
+									<div
+										class="inline-flex items-center gap-1.5 rounded-full border border-emerald-500/30 bg-emerald-500/10 px-3 py-1 text-[11px] font-semibold text-emerald-800 dark:border-emerald-400/30 dark:bg-emerald-400/10 dark:text-emerald-300 shadow-2xs backdrop-blur-xs"
+										title={hardwareInfo.detected_gpus?.[0]?.name ? `Detected: ${hardwareInfo.detected_gpus[0].name}` : `Active Engine: ${hardwareInfo.device_label}`}
+									>
+										<Cpu size={12} class="text-emerald-600 dark:text-emerald-400 shrink-0" />
+										<span class="font-mono text-[10px] uppercase font-bold tracking-wider opacity-60">Active:</span>
+										<span class="font-medium">{formatDeviceLabel(hardwareInfo.device_label)}</span>
+									</div>
+								{:else}
+									<div class="inline-flex items-center gap-1.5 rounded-full border border-black/10 bg-black/[0.03] px-3 py-1 text-[11px] font-medium opacity-60 dark:border-white/10 dark:bg-white/[0.03]">
+										<Activity size={12} class="text-neutral-400 shrink-0" />
+										<span>Detecting hardware…</span>
+									</div>
+								{/if}
 							</div>
 						</div>
-					{/if}
 
-					<div class="grid grid-cols-1 gap-2 sm:grid-cols-2 sm:gap-2.5">
-						{#each EXECUTION_DEVICES as dev (dev.id)}
-							<button
-								type="button"
-								disabled={!!switchingDevice || mlOffline}
-								on:click={() => setExecutionDevice(dev.id)}
-								class={`relative flex flex-col justify-between rounded-xl border p-3 text-left transition-all duration-200 ${
-									mlOffline
-										? 'opacity-40 hover:opacity-40 border-black/5 bg-black/[0.01] dark:border-white/5 dark:bg-white/[0.01] cursor-not-allowed'
-										: !isDeviceAvailable(dev.id) || switchingDevice
-											? 'opacity-45 hover:opacity-60 border-black/5 bg-black/[0.01] dark:border-white/5 dark:bg-white/[0.01] cursor-not-allowed'
+						<!-- DEVICE CARDS -->
+						<div
+							id="setting-compute-device"
+							class={`grid grid-cols-1 sm:grid-cols-2 gap-2.5 transition-all duration-300 ${highlightedSettingId === 'compute-device' ? 'ring-2 ring-[#b23a2e] dark:ring-[#e08a63] bg-[#b23a2e]/[0.06] dark:bg-[#e08a63]/[0.08] rounded-2xl p-2.5 -m-1' : ''}`}
+						>
+							{#each EXECUTION_DEVICES as dev (dev.id)}
+								<button
+									type="button"
+									disabled={!!switchingDevice || mlOffline}
+									on:click={() => setExecutionDevice(dev.id)}
+									class={`flex flex-col justify-between rounded-xl border p-3 text-left transition-all ${
+										mlOffline || !isDeviceAvailable(dev.id)
+											? 'opacity-40 border-black/5 bg-black/[0.01] dark:border-white/5 cursor-not-allowed'
 											: $settings.executionDevice === dev.id
 												? 'border-[#b23a2e] bg-[#b23a2e]/[0.08] text-[#b23a2e] dark:text-[#e08a63] ring-2 ring-[#b23a2e]/30 shadow-xs'
 												: 'border-black/10 hover:border-black/20 hover:bg-black/[0.02] dark:border-white/10 dark:hover:border-white/20 dark:hover:bg-white/[0.02]'
-								}`}
+									}`}
+								>
+									<div>
+										<div class="flex items-center justify-between">
+											<div class="flex items-center gap-1.5 font-bold text-xs">
+												{#if switchingDevice === dev.id}
+													<Loader2 size={13} class="animate-spin text-[#b23a2e]" />
+												{:else}
+													<Cpu size={13} class={isDeviceAvailable(dev.id) ? 'opacity-80' : 'opacity-40'} />
+												{/if}
+												<span>{dev.label}</span>
+											</div>
+											{#if $settings.executionDevice === dev.id && switchingDevice !== dev.id}
+												<Check size={14} class="text-[#b23a2e] dark:text-[#e08a63]" />
+											{/if}
+										</div>
+										<p class="mt-1 text-[10px] opacity-70 leading-relaxed">{dev.blurb}</p>
+									</div>
+									{#if !isDeviceAvailable(dev.id) && getDeviceAvailabilityReason(dev.id)}
+										<div class="mt-1.5 text-[9px] font-semibold text-amber-600 dark:text-amber-400">
+											{getDeviceAvailabilityReason(dev.id)}
+										</div>
+									{/if}
+								</button>
+							{/each}
+						</div>
+
+						<!-- PRE-RESLICING & PARALLEL WORKERS -->
+						<div class="border-t border-black/10 pt-4 dark:border-white/10 space-y-4">
+							<div
+								id="setting-auto-reslice"
+								class={`flex items-start justify-between gap-4 rounded-xl border border-black/10 bg-black/[0.02] p-3 dark:border-white/10 dark:bg-white/[0.02] transition-all duration-300 ${highlightedSettingId === 'auto-reslice' ? 'ring-2 ring-[#b23a2e] dark:ring-[#e08a63] bg-[#b23a2e]/[0.06] dark:bg-[#e08a63]/[0.08]' : ''}`}
 							>
 								<div>
-									<div class="flex items-center justify-between gap-2">
-										<div class="flex items-center gap-1.5 font-bold text-xs">
-											{#if switchingDevice === dev.id}
-												<Loader2 size={13} class="shrink-0 animate-spin text-[#b23a2e] dark:text-[#e08a63]" />
-											{:else}
-												<Cpu size={13} class={`shrink-0 ${isDeviceAvailable(dev.id) ? 'opacity-80' : 'opacity-40'}`} />
-											{/if}
-											<span>{dev.label}</span>
-										</div>
-										{#if $settings.executionDevice === dev.id && switchingDevice !== dev.id}
-											<Check size={14} class="text-[#b23a2e] dark:text-[#e08a63] shrink-0" />
-										{/if}
+									<div class="text-xs font-bold flex items-center gap-1.5">
+										<Scissors size={14} class="text-[#b23a2e] dark:text-[#e08a63]" />
+										<span>Auto-Reslice Before Batch Translation</span>
 									</div>
-									<div class="mt-1 text-[10px] opacity-70 leading-relaxed">{dev.blurb}</div>
+									<p class="text-[11px] opacity-60 mt-0.5">Recombine and cut vertical webtoon chapters along whitespace gutters before OCR to protect speech bubbles.</p>
 								</div>
-								{#if mlOffline}
-									<div class="mt-1.5 text-[9px] font-semibold text-red-600 dark:text-red-400">
-										Unavailable while sidecar is offline
-									</div>
-								{:else if !isDeviceAvailable(dev.id) && getDeviceAvailabilityReason(dev.id)}
-									<div class="mt-1.5 text-[9px] font-semibold text-amber-600 dark:text-amber-400">
-										{getDeviceAvailabilityReason(dev.id)}
-									</div>
-								{/if}
-							</button>
-						{/each}
-					</div>
-
-					{#if hardwareInfo?.gpu_warning}
-						<div class="mt-3 flex items-start gap-2.5 rounded-xl border border-amber-500/30 bg-amber-500/10 p-3 text-amber-800 dark:text-amber-300 text-[11px] leading-relaxed">
-							<Activity size={14} class="shrink-0 text-amber-600 dark:text-amber-400 mt-0.5" />
-							<div>
-								<span class="font-bold">Integrated GPU Protected:</span>
-								<span>{hardwareInfo.gpu_warning}</span>
+								<button
+									type="button"
+									on:click={toggleResliceBeforeBatch}
+									class={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out ${
+										$settings.resliceBeforeBatch ? 'bg-[#b23a2e] dark:bg-[#e08a63]' : 'bg-black/20 dark:bg-white/20'
+									}`}
+									role="switch"
+									aria-checked={$settings.resliceBeforeBatch}
+								>
+									<span class={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow-sm ring-0 transition duration-200 ease-in-out ${$settings.resliceBeforeBatch ? 'translate-x-5' : 'translate-x-0'}`}></span>
+								</button>
 							</div>
-						</div>
-					{/if}
-				</div>
 
-				<!-- SMART PRE-RESLICING TOGGLE -->
-				<div class="border-t border-black/10 pt-4 dark:border-white/10">
-					<div class="flex items-start justify-between gap-4">
-						<div>
-							<div class="text-xs font-bold uppercase tracking-wider opacity-80 flex items-center gap-1.5">
-								<Scissors size={14} class="text-[#b23a2e] dark:text-[#e08a63]" />
-								<span>Auto-Reslice Before Batch Translation</span>
-							</div>
-							<p class="text-[11px] opacity-60 mt-0.5 max-w-md">
-								Automatically recombine and re-cut long vertical webtoon chapters along clean whitespace gutters before running OCR and translation. Prevents dialogue bubbles from being bisected across slice seams.
-							</p>
-						</div>
-
-						<button
-							type="button"
-							on:click={toggleResliceBeforeBatch}
-							class={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-hidden ${
-								$settings.resliceBeforeBatch ? 'bg-[#b23a2e] dark:bg-[#e08a63]' : 'bg-black/20 dark:bg-white/20'
-							}`}
-							role="switch"
-							aria-checked={$settings.resliceBeforeBatch}
-						>
-							<span
-								class={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow-sm ring-0 transition duration-200 ease-in-out ${
-									$settings.resliceBeforeBatch ? 'translate-x-5' : 'translate-x-0'
-								}`}
-							></span>
-						</button>
-					</div>
-				</div>
-
-				<!-- PARALLEL PAGE PROCESSING -->
-				<div class="border-t border-black/10 pt-4 dark:border-white/10">
-					<div class="mb-2.5 sm:mb-3">
-						<div class="text-xs font-bold uppercase tracking-wider opacity-80">Parallel Page Workers</div>
-						<p class="text-[11px] opacity-60">Number of comic pages processed simultaneously per chapter</p>
-					</div>
-
-					<div class="grid grid-cols-2 sm:grid-cols-4 gap-2">
-						{#each [1, 2, 3, 4] as count (count)}
-							<button
-								type="button"
-								on:click={() => setParallelProcesses(count)}
-								use:ripple
-								class={`rounded-xl border py-2.5 px-2 text-center text-xs font-bold transition-all ${
-									($settings.parallelProcesses || 2) === count
-										? 'border-[#b23a2e] bg-[#b23a2e]/[0.08] text-[#b23a2e] dark:text-[#e08a63] ring-2 ring-[#b23a2e]/30 shadow-xs'
-										: 'border-black/10 hover:border-black/20 hover:bg-black/[0.02] dark:border-white/10 dark:hover:border-white/20 dark:hover:bg-white/[0.02]'
-								}`}
-							>
-								{count} {count === 1 ? 'Worker' : 'Workers'}
-							</button>
-						{/each}
-					</div>
-				</div>
-
-				<!-- PARALLEL BATCH CHAPTERS -->
-				<div class="border-t border-black/10 pt-4 dark:border-white/10">
-					<div class="mb-2.5 sm:mb-3">
-						<div class="text-xs font-bold uppercase tracking-wider opacity-80">Parallel Batch Chapters</div>
-						<p class="text-[11px] opacity-60">Number of chapters translated concurrently during batch jobs</p>
-					</div>
-
-					<div class="grid grid-cols-2 sm:grid-cols-4 gap-2">
-						{#each [1, 2, 3, 4] as count (count)}
-							<button
-								type="button"
-								on:click={() => setParallelChapters(count)}
-								use:ripple
-								class={`rounded-xl border py-2.5 px-2 text-center text-xs font-bold transition-all ${
-									($settings.parallelChapters || 2) === count
-										? 'border-[#b23a2e] bg-[#b23a2e]/[0.08] text-[#b23a2e] dark:text-[#e08a63] ring-2 ring-[#b23a2e]/30 shadow-xs'
-										: 'border-black/10 hover:border-black/20 hover:bg-black/[0.02] dark:border-white/10 dark:hover:border-white/20 dark:hover:bg-white/[0.02]'
-								}`}
-							>
-								{count} {count === 1 ? 'Chapter' : 'Chapters'}
-							</button>
-						{/each}
-					</div>
-				</div>
-			</div>
-
-		<!-- TAB 3: GENERAL & THEME -->
-		{:else if activeSettingsTab === 'general'}
-			<div class="flex flex-col gap-5 sm:gap-6 py-1">
-				<!-- APP THEME PICKER -->
-				<div>
-					<div class="mb-2.5 sm:mb-3">
-						<div class="text-xs font-bold uppercase tracking-wider opacity-80">Reader Theme</div>
-						<p class="text-[11px] opacity-60">Surface appearance and reader background contrast</p>
-					</div>
-
-					<div class="grid grid-cols-3 gap-2.5 sm:gap-3">
-						{#each THEMES as theme}
-							<button
-								type="button"
-								on:click={() => setTheme(theme.id)}
-								class={`flex items-center gap-2 rounded-xl border p-3 text-left transition-all ${
-									$settings.theme === theme.id
-										? 'border-[#b23a2e] bg-[#b23a2e]/[0.08] text-[#b23a2e] dark:text-[#e08a63] ring-2 ring-[#b23a2e]/30 shadow-xs'
-										: 'border-black/10 hover:border-black/20 hover:bg-black/[0.02] dark:border-white/10 dark:hover:border-white/20 dark:hover:bg-white/[0.02]'
-								}`}
-								use:ripple
-							>
-								<span class={`h-4 w-4 rounded-full border ${theme.dot} shrink-0 shadow-2xs`}></span>
-								<span class="text-xs font-bold">{theme.label}</span>
-							</button>
-						{/each}
-					</div>
-				</div>
-
-				<!-- APP FONT PICKER -->
-				<div class="border-t border-black/10 pt-4 dark:border-white/10">
-					<div class="mb-2.5 sm:mb-3">
-						<div class="text-xs font-bold uppercase tracking-wider opacity-80 flex items-center gap-1.5">
-							<Type size={14} class="text-[#b23a2e] dark:text-[#e08a63]" />
-							<span>Studio System Font</span>
-						</div>
-						<p class="text-[11px] opacity-60">Typography style used throughout the navigation and reader studio</p>
-					</div>
-
-					<div class="grid grid-cols-2 gap-2 sm:grid-cols-4">
-						{#each APP_FONTS as font}
-							<button
-								type="button"
-								on:click={() => setAppFont(font.id)}
-								class={`flex flex-col justify-between rounded-xl border p-2.5 text-left transition-all ${
-									$settings.appFont === font.id
-										? 'border-[#b23a2e] bg-[#b23a2e]/[0.08] text-[#b23a2e] dark:text-[#e08a63] ring-2 ring-[#b23a2e]/30 shadow-xs'
-										: 'border-black/10 hover:border-black/20 hover:bg-black/[0.02] dark:border-white/10 dark:hover:border-white/20 dark:hover:bg-white/[0.02]'
-								}`}
-								use:ripple
-							>
-								<div class="flex items-center justify-between">
-									<span class="text-xs font-bold" style="font-family: {font.stack};">{font.label}</span>
-									{#if $settings.appFont === font.id}
-										<Check size={12} class="text-[#b23a2e] dark:text-[#e08a63]" />
-									{/if}
+							<div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+								<div
+									id="setting-parallel-workers"
+									class={`space-y-1.5 transition-all duration-300 ${highlightedSettingId === 'parallel-workers' ? 'ring-2 ring-[#b23a2e] dark:ring-[#e08a63] bg-[#b23a2e]/[0.06] dark:bg-[#e08a63]/[0.08] rounded-xl p-2' : ''}`}
+								>
+									<div class="text-xs font-bold uppercase tracking-wider opacity-80">Parallel Page Workers</div>
+									<div class="grid grid-cols-4 gap-1.5">
+										{#each [1, 2, 3, 4] as count}
+											<button
+												type="button"
+												on:click={() => setParallelProcesses(count)}
+												class={`rounded-lg border py-2 text-center text-xs font-bold transition-all ${
+													($settings.parallelProcesses || 2) === count
+														? 'border-[#b23a2e] bg-[#b23a2e]/[0.08] text-[#b23a2e] dark:text-[#e08a63] ring-1 ring-[#b23a2e]/30'
+														: 'border-black/10 hover:border-black/20 dark:border-white/10'
+												}`}
+												use:ripple
+											>
+												{count}
+											</button>
+										{/each}
+									</div>
 								</div>
-								<div class="mt-1.5 text-[10px] opacity-60" style="font-family: {font.stack};">Sample Text 123</div>
-							</button>
-						{/each}
-					</div>
-				</div>
 
-				<!-- DEFAULT SOURCE & TARGET LANGUAGES -->
-				<div class="border-t border-black/10 pt-4 dark:border-white/10">
-					<div class="mb-2.5 sm:mb-3">
-						<div class="text-xs font-bold uppercase tracking-wider opacity-80">Default Localization Pair</div>
-						<p class="text-[11px] opacity-60">Default language pair applied when creating new manga series</p>
-					</div>
-
-					<div class="grid grid-cols-1 gap-3 sm:grid-cols-2">
-						<div class="space-y-1">
-							<div class="text-[11px] font-semibold opacity-75">Source Language</div>
-							<LanguagePicker
-								value={$settings.sourceLang || 'zh-Hans'}
-								mode="source"
-								on:change={(e) => updateSourceLang(e.detail)}
-							/>
-						</div>
-
-						<div class="space-y-1">
-							<div class="text-[11px] font-semibold opacity-75">Target Language</div>
-							<LanguagePicker
-								value={$settings.targetLang || 'en'}
-								mode="target"
-								excludeCode={$settings.sourceLang || 'zh-Hans'}
-								on:change={(e) => updateTargetLang(e.detail)}
-							/>
-						</div>
-					</div>
-				</div>
-
-				<!-- TYPESETTING & LETTERING STUDIO -->
-				<div class="border-t border-black/10 pt-4 dark:border-white/10">
-					<div class="flex items-center justify-between gap-4">
-						<div>
-							<div class="text-xs font-bold uppercase tracking-wider opacity-80 flex items-center gap-1.5">
-								<Palette size={14} class="text-[#b23a2e] dark:text-[#e08a63]" />
-								<span>Typesetting & Lettering Studio</span>
+								<div
+									id="setting-parallel-chapters"
+									class={`space-y-1.5 transition-all duration-300 ${highlightedSettingId === 'parallel-chapters' ? 'ring-2 ring-[#b23a2e] dark:ring-[#e08a63] bg-[#b23a2e]/[0.06] dark:bg-[#e08a63]/[0.08] rounded-xl p-2' : ''}`}
+								>
+									<div class="text-xs font-bold uppercase tracking-wider opacity-80">Parallel Batch Chapters</div>
+									<div class="grid grid-cols-4 gap-1.5">
+										{#each [1, 2, 3, 4] as count}
+											<button
+												type="button"
+												on:click={() => setParallelChapters(count)}
+												class={`rounded-lg border py-2 text-center text-xs font-bold transition-all ${
+													($settings.parallelChapters || 2) === count
+														? 'border-[#b23a2e] bg-[#b23a2e]/[0.08] text-[#b23a2e] dark:text-[#e08a63] ring-1 ring-[#b23a2e]/30'
+														: 'border-black/10 hover:border-black/20 dark:border-white/10'
+												}`}
+												use:ripple
+											>
+												{count}
+											</button>
+										{/each}
+									</div>
+								</div>
 							</div>
-							<p class="text-[11px] opacity-60 mt-0.5 max-w-md">
-								Configure dialogue fonts, CJK fallback engine, bubble padding margins, text stroke outlines, and angle tilt rotation.
-							</p>
 						</div>
-
-						<button
-							type="button"
-							on:click={() => (typesetModalOpen = true)}
-							class="inline-flex items-center gap-2 rounded-xl border border-black/15 bg-white px-4 py-2.5 text-sm font-bold hover:bg-neutral-50 dark:border-white/15 dark:bg-white/5 dark:hover:bg-white/10 transition shadow-2xs shrink-0 cursor-pointer"
-							use:ripple
-						>
-							<SlidersHorizontal size={15} class="text-[#b23a2e] dark:text-[#e08a63]" />
-							<span>Customize</span>
-						</button>
 					</div>
-				</div>
 
-				<!-- SYSTEM & BUILD VERSION INFO -->
-				<div class="border-t border-black/10 pt-4 dark:border-white/10">
-					<div class="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+				<!-- SECTION 6: ABOUT & SYSTEM DIAGNOSTICS -->
+				{:else if activeCategory === 'about'}
+					<div class="space-y-5">
 						<div>
-							<div class="text-xs font-bold uppercase tracking-wider opacity-80 flex items-center gap-1.5">
-								<Info size={14} class="text-[#b23a2e] dark:text-[#e08a63]" />
-								<span>System & Build Information</span>
-							</div>
-							<p class="text-[11px] opacity-60 mt-0.5">
-								XianScan native binary and embedded frontend build fingerprint
-							</p>
+							<h2 class="text-base font-bold">About & System Diagnostics</h2>
+							<p class="text-xs opacity-60 mt-0.5">XianScan native runtime environment, build fingerprint, and service states</p>
 						</div>
 
-						<div class="flex items-center gap-2 self-start sm:self-auto">
-							<div class="flex items-center gap-1.5 rounded-lg border border-black/10 bg-black/[0.03] px-2.5 py-1 text-[11px] font-mono dark:border-white/10 dark:bg-white/[0.03]">
-								<span class="opacity-60">Version:</span>
-								<span class="font-bold text-[#b23a2e] dark:text-[#e08a63]">v{hardwareInfo?.version || '0.1.0'}</span>
+						<div class="rounded-2xl border border-black/10 bg-black/[0.02] p-4 dark:border-white/10 dark:bg-white/[0.02] space-y-3">
+							<div
+								id="setting-version-info"
+								class={`flex items-center justify-between text-xs py-1 border-b border-black/5 dark:border-white/5 transition-all duration-300 ${highlightedSettingId === 'version-info' ? 'ring-2 ring-[#b23a2e] dark:ring-[#e08a63] bg-[#b23a2e]/[0.06] dark:bg-[#e08a63]/[0.08] rounded-lg p-1.5' : ''}`}
+							>
+								<span class="opacity-60">Native Core Version</span>
+								<span class="font-mono font-bold text-[#b23a2e] dark:text-[#e08a63]">v{hardwareInfo?.version || '0.1.0'}</span>
 							</div>
 							{#if hardwareInfo?.web_build_hash}
-								<div
-									class="flex items-center gap-1.5 rounded-lg border border-black/10 bg-black/[0.03] px-2.5 py-1 text-[11px] font-mono dark:border-white/10 dark:bg-white/[0.03]"
-									title="Web frontend build hash"
-								>
-									<span class="opacity-60">Web:</span>
-									<span class="font-bold">{hardwareInfo.web_build_hash}</span>
+								<div class="flex items-center justify-between text-xs py-1 border-b border-black/5 dark:border-white/5">
+									<span class="opacity-60">Web Build Hash</span>
+									<span class="font-mono">{hardwareInfo.web_build_hash}</span>
 								</div>
 							{/if}
+							<div
+								id="setting-sidecar-health"
+								class={`flex items-center justify-between text-xs py-1 transition-all duration-300 ${highlightedSettingId === 'sidecar-health' ? 'ring-2 ring-[#b23a2e] dark:ring-[#e08a63] bg-[#b23a2e]/[0.06] dark:bg-[#e08a63]/[0.08] rounded-lg p-1.5' : ''}`}
+							>
+								<span class="opacity-60">ML Sidecar Health</span>
+								<span class={`font-bold ${$mlStatus.online ? 'text-emerald-600' : 'text-red-500'}`}>
+									{$mlStatus.online ? 'Healthy & Connected' : 'Offline / Unreachable'}
+								</span>
+							</div>
 						</div>
 					</div>
-				</div>
+				{/if}
 			</div>
-		{/if}
+
+			<!-- FOOTER ACTIONS -->
+			<div class="flex items-center justify-end pt-4 mt-4 border-t border-black/10 dark:border-white/10">
+				<Button variant="primary" size="md" class="px-6" on:click={() => (open = false)}>
+					<span>Done</span>
+				</Button>
+			</div>
+		</div>
 	</div>
 </Modal>
-
-<TypesetSettingsModal bind:open={typesetModalOpen} />

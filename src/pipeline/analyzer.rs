@@ -252,9 +252,8 @@ pub fn analyze_image_with_options(
     let order = sort_regions_top_to_bottom(&dedup_boxes, page_h as usize, 0.5);
     let stage2_duration_ms = t_stage2_start.elapsed().as_secs_f64() * 1000.0;
 
-    // Combine text_free and onomatopoeia for SFX classification
-    let mut sfx_boxes = fusion_res.text_free.clone();
-    sfx_boxes.extend(fusion_res.onomatopoeia.clone());
+    // Only onomatopoeia is classified as SFX; text_free represents free-floating narrative text / captions
+    let sfx_boxes = fusion_res.onomatopoeia.clone();
 
     // =========================================================================
     // STAGE 3: TARGETED TEXT RECOGNITION & REGION MASKING

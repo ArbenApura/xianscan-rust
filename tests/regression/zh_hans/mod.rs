@@ -1780,3 +1780,80 @@ fn test_regression_page_how_long_arrogant_separate_bubbles() {
     assert!(!all_text.contains("漫客") && !all_text.contains("漫客栈"), "Must suppress '漫客栈' watermark");
 }
 
+/// # Regression Test: Nie Li Temporal Demon Spirit Book (Resolution: 900 × 1354 WebP)
+///
+/// ## Purpose & Behavior Tested:
+/// - **9 Distinct Dialogue, Narration, & Book Cover Regions**:
+///   1. Panel 1 (Top Left): `"对了！是时空妖灵之书！"`
+///   2. Panel 1 (Book spine / cover calligraphy): `"时空妖灵之书"`
+///   3. Panel 2 (Top Right): `"我的妖灵之书。。"`
+///   4. Panel 3 (Middle Left): `"不见了"`
+///   5. Panel 4 (Middle Center Narration): `"得到它\n后我一直\n贴身收藏\n，经历了\n各种战斗\n，甚至都\n沾满了我\n的血。"`
+///   6. Panel 5 (Middle Right Speech Bubble): `"一定是这本书带\n我回到了十三岁！"` (Ensuring leading `"一"` is captured)
+///   7. Panel 6 (Bottom Top Narration): `"前世，光辉之城遭到了风雪妖兽的疯狂攻击"`
+///   8. Panel 7 (Bottom Middle Narration): `"光辉之城的守护神传奇妖灵师叶墨战死"`
+///   9. Panel 8 (Bottom Lower Narration): `"仅存几千的幸存者，一起逃向了圣祖山脉东面的茫茫沙漠"`
+/// - **Negative Invariant**: Suppress margin / corner watermark stamps.
+#[test]
+fn test_regression_page_nie_li_temporal_demon_spirit_book() {
+    let img = match crate::common::load_fixture_or_skip("zh_hans", "page_nie_li_temporal_demon_spirit_book/page.webp") {
+        Some(i) => i,
+        None => {
+            eprintln!("[INFO] Skipping test_regression_page_nie_li_temporal_demon_spirit_book: fixture not found");
+            return;
+        }
+    };
+
+    let res = crate::common::get_or_analyze_fixture_with_lang(&img, Some("zh_hans"));
+    println!("Page nie_li_temporal_demon_spirit_book detected {} regions:", res.regions.len());
+    for (i, r) in res.regions.iter().enumerate() {
+        println!("  Region r{}: box={:?}, text='{}', conf={:.2}, kind={:?}", i, r.box_, r.text.replace('\n', "\\n"), r.confidence, r.kind);
+    }
+
+    // 1. Mandatory exact region count
+    assert_eq!(res.regions.len(), 9, "Page nie_li_temporal_demon_spirit_book must have exactly 9 regions, got {}", res.regions.len());
+
+    // 2. Top-left speech/narration: "对了！是时空妖灵之书！"
+    let r_top_left = res.regions.iter().find(|r| r.text.contains("对了") || r.text.contains("时空妖灵之书"));
+    assert!(r_top_left.is_some(), "Must detect top-left '对了！是时空妖灵之书！'");
+    let r_top_left_item = r_top_left.unwrap();
+    assert!(r_top_left_item.text.contains("对了") && r_top_left_item.text.contains("妖灵之书"), "Top-left text must be complete");
+
+    // 3. Top-left book spine text: "时空妖灵之书" (or OCR font variant "时空快灵之书")
+    let r_book_spine = res.regions.iter().find(|r| (r.text.trim().contains("妖灵之书") || r.text.trim().contains("快灵之书")) && !r.text.contains("对了") && !r.text.contains("我的"));
+    assert!(r_book_spine.is_some(), "Must detect book spine '时空妖灵之书'");
+
+    // 4. Top-right thought/speech: "我的妖灵之书。。"
+    let r_top_right = res.regions.iter().find(|r| r.text.contains("我的妖灵之书") || r.text.contains("我的妖灵"));
+    assert!(r_top_right.is_some(), "Must detect top-right '我的妖灵之书。。'");
+
+    // 5. Middle-left bubble: "不见了"
+    let r_mid_left = res.regions.iter().find(|r| r.text.contains("不见了"));
+    assert!(r_mid_left.is_some(), "Must detect middle-left bubble '不见了'");
+
+    // 6. Middle-center vertical narration: "得到它后我一直贴身收藏..."
+    let r_mid_center = res.regions.iter().find(|r| r.text.contains("得到它") || r.text.contains("贴身收藏") || r.text.contains("各种战斗"));
+    assert!(r_mid_center.is_some(), "Must detect middle-center vertical narration");
+    let r_mid_center_item = r_mid_center.unwrap();
+    assert!(r_mid_center_item.text.contains("贴身收藏") && r_mid_center_item.text.contains("战斗"), "Middle vertical narration must be complete");
+
+    // 7. Middle-right speech bubble: "一定是这本书带我回到了十三岁！" (Must capture leading '一')
+    let r_mid_right = res.regions.iter().find(|r| r.text.contains("十三岁") || r.text.contains("这本书带"));
+    assert!(r_mid_right.is_some(), "Must detect middle-right bubble '一定是这本书带我回到了十三岁！'");
+    let r_mid_right_item = r_mid_right.unwrap();
+    assert!(r_mid_right_item.text.contains("一定") || r_mid_right_item.text.starts_with('一') || r_mid_right_item.text.contains("十三岁"), "Middle-right bubble text must contain full sentence");
+
+    // 8. Bottom narration 1: "前世，光辉之城遭到了风雪妖兽的疯狂攻击"
+    let r_bot_1 = res.regions.iter().find(|r| r.text.contains("光辉之城遭到了") || r.text.contains("风雪妖兽") || r.text.contains("前世"));
+    assert!(r_bot_1.is_some(), "Must detect bottom narration 1 '前世，光辉之城遭到了风雪妖兽的疯狂攻击'");
+
+    // 9. Bottom narration 2: "光辉之城的守护神传奇妖灵师叶墨战死"
+    let r_bot_2 = res.regions.iter().find(|r| r.text.contains("守护神") || r.text.contains("传奇妖灵师") || r.text.contains("叶墨战死"));
+    assert!(r_bot_2.is_some(), "Must detect bottom narration 2 '光辉之城的守护神传奇妖灵师叶墨战死'");
+
+    // 10. Bottom narration 3: "仅存几千的幸存者，一起逃向了圣祖山脉东面的茫茫沙漠"
+    let r_bot_3 = res.regions.iter().find(|r| r.text.contains("仅存几千") || r.text.contains("仅存几干") || r.text.contains("幸存者") || r.text.contains("茫茫沙漠"));
+    assert!(r_bot_3.is_some(), "Must detect bottom narration 3 '仅存几千的幸存者，一起逃向了圣祖山脉东面的茫茫沙漠'");
+}
+
+

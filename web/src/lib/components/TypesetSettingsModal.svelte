@@ -351,7 +351,7 @@
 					"
 				>
 					<div
-						class="font-bold leading-snug select-none transition-all duration-150 break-words"
+						class="font-bold leading-snug select-none transition-all duration-150 break-words px-1.5"
 						style="
 							font-family: {previewFontFamily};
 							font-size: {previewFontSizePx};
@@ -370,10 +370,6 @@
 					<div class="absolute bottom-2 right-2.5 flex items-center gap-1 rounded-md bg-black/50 px-2 py-0.5 text-[9px] font-mono text-white backdrop-blur-xs">
 						<Compass size={10} />
 						<span>Tilt Angle: +{previewSimulatedAngle}°</span>
-					</div>
-				{:else}
-					<div class="absolute bottom-2 right-2.5 flex items-center gap-1 rounded-md bg-black/50 px-2 py-0.5 text-[9px] font-mono text-white backdrop-blur-xs">
-						<span>Horizontal (0°)</span>
 					</div>
 				{/if}
 			</div>
@@ -406,13 +402,13 @@
 							use:ripple
 						>
 							<div class="flex items-center justify-between">
-								<span class="text-xs font-bold pl-0.5" style="font-family: {font.stack};">{font.label}</span>
+								<span class="text-xs font-bold pl-1.5" style="font-family: {font.stack};">{font.label}</span>
 								{#if isSelected}
 									<Check size={13} class="text-[#b23a2e] dark:text-[#e08a63] shrink-0" />
 								{/if}
 							</div>
 							<div class="mt-1 flex items-center justify-between gap-1">
-								<span class="text-[10px] opacity-60 leading-tight truncate pl-0.5">{font.sub}</span>
+								<span class="text-[10px] opacity-60 leading-tight truncate pl-1.5">{font.sub}</span>
 								{#if font.allCapsOnly}
 									<span class="rounded bg-black/5 dark:bg-white/10 px-1 py-0.2 text-[8px] font-bold opacity-70 shrink-0">ALL-CAPS</span>
 								{/if}
@@ -439,12 +435,12 @@
 							use:ripple
 						>
 							<div class="flex items-center justify-between">
-								<span class="text-xs font-bold truncate pl-0.5">{cjk.label}</span>
+								<span class="text-xs font-bold truncate pl-1.5">{cjk.label}</span>
 								{#if isSelected}
 									<Check size={12} class="text-[#b23a2e] dark:text-[#e08a63] shrink-0" />
 								{/if}
 							</div>
-							<div class="mt-1 text-[9px] opacity-60 leading-tight truncate pl-0.5">{cjk.sub}</div>
+							<div class="mt-1 text-[9px] opacity-60 truncate pl-1.5">{cjk.sub}</div>
 						</button>
 					{/each}
 				</div>

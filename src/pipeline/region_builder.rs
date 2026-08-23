@@ -382,13 +382,10 @@ pub fn build_regions(
             iou >= 0.30 || contains
         });
 
-        // CHROMATIC VARIANCE GATE: FOR TEXT OUTSIDE SPEECH BUBBLES, MEASURE BACKGROUND COLOR VARIANCE
-        // IF HIGH COLOR SATURATION / VARIANCE (> 22.0), IT IS AN ARTWORK SOUND EFFECT OR HANDWRITTEN CALLIGRAPHY.
-        let is_chromatic_art_bg = matched_bubble.is_none() && compute_chromatic_color_variance(img, &box_rect) >= 22.0;
+        let is_sfx = is_detector_sfx;
+        let is_bubble_region = matched_bubble.is_some();
 
-        let is_sfx = is_detector_sfx || is_chromatic_art_bg;
-
-        let mut kind = if matched_bubble.is_some() {
+        let mut kind = if is_bubble_region {
             RegionKind::DialogueBubble
         } else if is_sfx {
             RegionKind::SoundEffect
@@ -577,12 +574,12 @@ pub fn build_regions(
                 let container_h = box_rect.h;
                 let is_container_wider = container_w >= cluster_rect.w + 25 || (container_w as f32) >= (cluster_rect.w as f32 * 1.30);
                 let is_container_taller = container_h >= cluster_rect.h + 25 || (container_h as f32) >= (cluster_rect.h as f32 * 1.30);
-                let full_page_is_complete = cluster_lines.len() >= 2 && avg_score >= 0.65 && !is_container_wider && !is_container_taller;
-                let can_refine_crop = (matched_bubble.is_some() || is_container_wider || is_container_taller) && (cluster_rect.w >= 16 || box_rect.w >= 16) && (cluster_rect.h >= 16 || box_rect.h >= 16) && !full_page_is_complete;
+                let full_page_is_complete = cluster_lines.len() >= 3 && avg_score >= 0.70 && !is_container_wider && !is_container_taller;
+                let can_refine_crop = (is_bubble_region || is_container_wider || is_container_taller) && (cluster_rect.w >= 16 || box_rect.w >= 16) && (cluster_rect.h >= 16 || box_rect.h >= 16) && !full_page_is_complete;
 
                 if can_refine_crop {
                     // Restrict crop target to the cluster bounds (plus small padding) to prevent capturing surrounding dialogue across different speech bubbles
-                    let target_rect = if matched_bubble.is_some() && cluster_lines.len() <= 2 {
+                    let target_rect = if is_bubble_region && cluster_lines.len() <= 2 {
                         BoxRect {
                             x: cluster_rect.x.min(box_rect.x),
                             y: cluster_rect.y.min(box_rect.y),
@@ -705,13 +702,6 @@ pub fn build_regions(
                     if cleaned.chars().count() == 1 && matched_bubble.is_none() && (!is_sfx || avg_score < 0.60) && (avg_score < 0.75 || compute_chromatic_color_variance(img, &cluster_rect) >= 15.0) {
                         continue;
                     }
-                }
-
-                // 4. CHROMATIC VARIANCE GATE FOR FREE-FLOATING TEXT:
-                // IF TEXT IS OUTSIDE SPEECH BUBBLES AND OCR SCORE < 0.70 WITH HIGH CHROMATIC ARTWORK VARIANCE,
-                // CLASSIFY AS SOUNDEFFECT TO PROTECT FROM INPAINT ERASING.
-                if matched_bubble.is_none() && avg_score < 0.70 && compute_chromatic_color_variance(img, &cluster_rect) >= 18.0 {
-                    kind = RegionKind::SoundEffect;
                 }
 
                 let vertical = is_container_vert;
