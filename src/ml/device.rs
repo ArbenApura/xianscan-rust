@@ -476,7 +476,7 @@ pub fn get_optimal_cpu_threads() -> usize {
     num_cpus::get().min(8).max(1)
 }
 
-/// DETERMINES OPTIMAL GPU MEMORY LIMIT PER ONNX SESSION FOR CUDA EP (DEFAULTS TO 2GB TO PREVENT 9.6GB VRAM ACCUMULATION ACROSS 4 SESSIONS)
+/// DETERMINES OPTIMAL GPU MEMORY LIMIT PER ONNX SESSION FOR CUDA EP DYNAMICALLY SCALED BY DETECTED VRAM
 pub fn get_cuda_gpu_memory_limit() -> usize {
     if let Ok(val) = std::env::var("ORT_CUDA_MEM_LIMIT_MB") {
         if let Ok(parsed) = val.parse::<usize>() {
@@ -485,7 +485,23 @@ pub fn get_cuda_gpu_memory_limit() -> usize {
             }
         }
     }
-    2 * 1024 * 1024 * 1024
+
+    // DYNAMIC VRAM ALLOCATION BASED ON DETECTED DEDICATED GPU HARDWARE:
+    // - >= 14 GB VRAM (E.G. 16GB TESLA T4, 16GB-24GB RTX 4080/4090/3090): ALLOCATE 8 GB
+    // - >= 7 GB VRAM (E.G. 8GB-12GB RTX 3060/3070/4060/4070): ALLOCATE 6 GB
+    // - >= 4 GB VRAM (E.G. 4GB-6GB GTX 1650/1660, RTX 3050): ALLOCATE 80% OF VRAM (MIN 3.2 GB)
+    // - FALLBACK / UNKNOWN: ALLOCATE 6 GB (ENSURES 1152px RF-DETR 2XL CONTIGUOUS 2.04GB MATMUL BUFFER FITS CLEANLY)
+    if let Some(gpu) = get_dedicated_gpu() {
+        if gpu.vram_mb >= 14000.0 {
+            return 8 * 1024 * 1024 * 1024;
+        } else if gpu.vram_mb >= 7000.0 {
+            return 6 * 1024 * 1024 * 1024;
+        } else if gpu.vram_mb >= 4000.0 {
+            return ((gpu.vram_mb * 0.80) as usize) * 1024 * 1024;
+        }
+    }
+
+    6 * 1024 * 1024 * 1024
 }
 
 /// DETERMINES OPTIMAL HOST THREADS FOR GPU SESSIONS (AVOIDS HOST-CPU CONTENTION WITH GPU DRIVER)
@@ -551,7 +567,7 @@ pub fn create_session_from_memory(bytes: &[u8], model_tag: &str) -> Result<Sessi
                     .map_err(|e| anyhow::anyhow!("Config entry error: {}", e))?
                     .with_execution_providers([
                         ort::ep::CUDA::default()
-                            .with_arena_extend_strategy(ort::ep::ArenaExtendStrategy::SameAsRequested)
+                            .with_arena_extend_strategy(ort::ep::ArenaExtendStrategy::NextPowerOfTwo)
                             .with_memory_limit(get_cuda_gpu_memory_limit())
                             .build()
                     ])
@@ -818,5 +834,26 @@ mod tests {
         // FEATURE (THE OLD CODE HARDCODED true ON EVERY PLATFORM, INCLUDING LINUX).
         let status = get_hardware_status();
         assert_eq!(status.has_directml_raw, cfg!(feature = "directml") && status.has_dedicated_gpu);
+    }
+
+    #[test]
+    fn cuda_memory_limit_scales_dynamically_and_honors_env() {
+        // 1. DEFAULT LIMIT MUST BE AT LEAST 6GB (PREVENTS 1152px RF-DETR 2XL 2.04GB MATMUL OOM)
+        let default_limit = get_cuda_gpu_memory_limit();
+        assert!(
+            default_limit >= 6 * 1024 * 1024 * 1024,
+            "Default CUDA memory limit must be at least 6GB to prevent RF-DETR 2XL OOM, got: {} bytes",
+            default_limit
+        );
+
+        // 2. EXPLICIT ENV OVERRIDE MUST BE HONORED
+        unsafe {
+            std::env::set_var("ORT_CUDA_MEM_LIMIT_MB", "10240");
+        }
+        let env_limit = get_cuda_gpu_memory_limit();
+        assert_eq!(env_limit, 10240 * 1024 * 1024);
+        unsafe {
+            std::env::remove_var("ORT_CUDA_MEM_LIMIT_MB");
+        }
     }
 }

@@ -40,9 +40,14 @@ pub fn fuse_detections(
         let det_handle = s.spawn(|| {
             if let Some(ref mut det) = detector {
                 let t0 = std::time::Instant::now();
-                if let Ok(res) = det.detect(img) {
-                    let dur = t0.elapsed().as_secs_f64() * 1000.0;
-                    return (Some(res), dur);
+                match det.detect(img) {
+                    Ok(res) => {
+                        let dur = t0.elapsed().as_secs_f64() * 1000.0;
+                        return (Some(res), dur);
+                    }
+                    Err(e) => {
+                        tracing::warn!("Comic layout detector inference failed: {}", e);
+                    }
                 }
             }
             (None, 0.0)
