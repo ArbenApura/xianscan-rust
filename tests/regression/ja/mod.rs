@@ -568,6 +568,246 @@ fn test_regression_page_do_s_monster_princess_whip_fubuki() {
     assert_eq!(res.regions.len(), 13, "Must detect exactly 13 regions, got: {}", res.regions.len());
 }
 
+/// # Japanese Real-Page Regression: `page_dream_strong_violence_stylized_narration` (Resolution: Native 1129 × 1600 WebP)
+///
+/// ## Purpose & Behavior Tested:
+/// - **Full-Height Vertical Stylized Narration (White with Black Outline)**:
+///   1. Right Vertical Column: `夢の中の僕は強者で`
+///   2. Left Vertical Column: `思うまま暴力を振るっていた`
+/// - **Zero Fragmented Sub-Boxes & Zero Hallucinated Prefix/Suffix**:
+///   - Prevents right sentence from being truncated into single/fragmented characters (`中\nの`).
+///   - Prevents left sentence from capturing hallucinated duplicated prefixes (`ま6暴力`, `系`).
+/// - **Strict 2-Region Accounting**:
+///   Must detect exactly 2 vertical narration regions spanning the left and right sides.
+#[test]
+fn test_regression_page_dream_strong_violence_stylized_narration() {
+    let img = match crate::common::load_fixture_or_skip("ja", "page_dream_strong_violence_stylized_narration/page.webp") {
+        Some(i) => i,
+        None => {
+            eprintln!("[INFO] Skipping test_regression_page_dream_strong_violence_stylized_narration: fixture not found");
+            return;
+        }
+    };
+
+    let res = get_or_analyze_fixture_with_lang(&img, Some("ja"));
+    println!("=== Japanese Dream Strong Violence Results ({} regions) ===", res.regions.len());
+    for (i, r) in res.regions.iter().enumerate() {
+        println!("  Region r{}: box={:?}, text='{}', conf={:.2}, vert={}, angle={:.2}, kind={:?}", i, r.box_, r.text.replace('\n', "\\n"), r.confidence, r.vertical, r.angle, r.kind);
+    }
+
+    // 0. Strict 2-region accounting
+    assert_eq!(res.regions.len(), 2, "Must detect exactly 2 vertical narration regions, got: {}", res.regions.len());
+
+    // 1. Right Vertical Narration: '夢の中の僕は強者で'
+    let right_narration = res.regions.iter().find(|r| r.box_.x > 800 || r.text.contains("夢") || r.text.contains("強者") || r.text.contains("僕"));
+    assert!(right_narration.is_some(), "Must detect right vertical narration block");
+    let rn = right_narration.unwrap();
+    assert!(rn.text.contains("夢") || rn.text.contains("強者") || rn.text.contains("僕は"), "Right narration text mismatch: {}", rn.text);
+    assert!(rn.vertical, "Right narration must be vertical orientation");
+
+    // 2. Left Vertical Narration: '思うまま暴力を振るっていた'
+    let left_narration = res.regions.iter().find(|r| r.box_.x < 400 || r.text.contains("思うまま") || r.text.contains("暴力"));
+    assert!(left_narration.is_some(), "Must detect left vertical narration block");
+    let ln = left_narration.unwrap();
+    assert!(ln.text.contains("思うまま") || ln.text.contains("暴力") || ln.text.contains("振るって"), "Left narration text mismatch: {}", ln.text);
+    assert!(!ln.text.contains("ま6暴力"), "Left narration must not contain hallucinated prefix 'ま6暴力': {}", ln.text);
+    assert!(ln.vertical, "Left narration must be vertical orientation");
+}
+
+/// # Japanese Real-Page Regression: `page_action_kick_punch_slap_sfx_only` (Resolution: Native 1129 × 1600 WebP)
+///
+/// ## Purpose & Behavior Tested:
+/// - **Zero Dialogue / SFX-Only Action Page Suppression**:
+///   Guarantees that on an action manga page consisting strictly of martial arts strikes, kicks, and
+///   onomatopoeia (`パァン`, `ブゥン`, `ズォッ`), no giant sprawling `free_text` regions or garbled OCR
+///   speedline noise (`VV\nY\n水`) are emitted when SFX translation is disabled.
+/// - **Negative Guards Against Giant Cross-Panel Blackout Boxes**:
+///   Asserts that no region spans across multiple panels or creates huge bounding boxes ($w \ge 300, h \ge 500$).
+/// - **Strict 0-Region Accounting (Standard Dialogue Mode)**:
+///   In standard dialogue mode (`include_onomatopoeia: false`), exactly 0 regions must be emitted.
+#[test]
+fn test_regression_page_action_kick_punch_slap_sfx_only() {
+    let img = match crate::common::load_fixture_or_skip("ja", "page_action_kick_punch_slap_sfx_only/page.webp") {
+        Some(i) => i,
+        None => {
+            eprintln!("[INFO] Skipping test_regression_page_action_kick_punch_slap_sfx_only: fixture not found");
+            return;
+        }
+    };
+
+    let res = get_or_analyze_fixture_with_lang(&img, Some("ja"));
+    println!("=== Japanese Action SFX Only Results ({} regions) ===", res.regions.len());
+    for (i, r) in res.regions.iter().enumerate() {
+        println!("  Region r{}: box={:?}, text='{}', conf={:.2}, vert={}, angle={:.2}, kind={:?}", i, r.box_, r.text.replace('\n', "\\n"), r.confidence, r.vertical, r.angle, r.kind);
+    }
+
+    // 0. Negative Guard: Zero giant blackout boxes spanning across panels
+    assert!(
+        !res.regions.iter().any(|r| r.box_.w >= 300 && r.box_.h >= 500),
+        "Must NOT emit giant bounding box covering comic panels"
+    );
+
+    // 1. Negative Guard: Zero garbled speedline OCR noise ('VV', '水')
+    assert!(
+        !res.regions.iter().any(|r| {
+            let t = r.text.trim();
+            t.contains("VV") || (t.contains("Y") && t.contains("水"))
+        }),
+        "Must NOT emit garbled speedline OCR noise"
+    );
+
+    // 2. Strict 0-region accounting: pure action page with no dialogue
+    assert_eq!(
+        res.regions.len(),
+        0,
+        "Action page with zero dialogue must emit 0 regions when SFX is disabled, got: {}",
+        res.regions.len()
+    );
+}
+
+/// # Japanese Real-Page Regression: `page_wise_emphasis_hand_stroke_noise_gratitude` (Resolution: Native 1129 × 1600 WebP)
+///
+/// ## Purpose & Behavior Tested:
+/// - **Panel 1 Top Emphasis & Narration**:
+///   1. Top-Right Narration: `この子もまた`
+///   2. Top-Left Calligraphy / Emphasis: `“賢”!?` (capturing both `賢` and `!?` without giant empty bounds)
+/// - **Panel 2 Dialogues & Negative Drawing Stroke Guard**:
+///   3. Top-Right Bubble: `あ`
+///   4. Mid-Right Bubble: `ありがとう…\n君は…？`
+///   5. Left Bubble: `逃げるん\nですか？`
+///   - **Negative Guard**: Eliminates stray drawing vibration / hand gesture noise (`"しし"`, `"し"`)
+///     between the character's hand and speech bubble.
+/// - **Panel 3 Dialogues**:
+///   6. Mid-Right Bubble: `まあでも\nそうか‥`
+///   7. Mid-Left Bubble: `仕方ない\nですよね`
+///   8. Far-Right Bubble: `あ？`
+/// - **Strict Region Accounting**:
+///   Must detect 7 or 8 clean dialogue/narration regions with zero phantom hand noise boxes.
+#[test]
+fn test_regression_page_wise_emphasis_hand_stroke_noise_gratitude() {
+    let img = match crate::common::load_fixture_or_skip("ja", "page_wise_emphasis_hand_stroke_noise_gratitude/page.webp") {
+        Some(i) => i,
+        None => {
+            eprintln!("[INFO] Skipping test_regression_page_wise_emphasis_hand_stroke_noise_gratitude: fixture not found");
+            return;
+        }
+    };
+
+    let res = get_or_analyze_fixture_with_lang(&img, Some("ja"));
+    println!("=== Japanese Wise Emphasis Results ({} regions) ===", res.regions.len());
+    for (i, r) in res.regions.iter().enumerate() {
+        println!("  Region r{}: box={:?}, text='{}', conf={:.2}, vert={}, angle={:.2}, kind={:?}", i, r.box_, r.text.replace('\n', "\\n"), r.confidence, r.vertical, r.angle, r.kind);
+    }
+
+    // 0. Negative Guard: Drawing vibration / hand noise ('しし', 'し') must be eliminated
+    assert!(
+        !res.regions.iter().any(|r| {
+            let t = r.text.trim();
+            (t == "しし" || t == "し" || t == "いい") && r.box_.w <= 45 && r.box_.h <= 60
+        }),
+        "Must NOT emit stray hand gesture / speedline noise 'しし'"
+    );
+
+    // 1. Panel 1 Top-Right: 'この子もまた'
+    let this_one_too = res.regions.iter().find(|r| r.text.contains("この子もまた") || (r.text.contains("この子") && r.box_.y < 600));
+    assert!(this_one_too.is_some(), "Must detect top-right narration 'この子もまた'");
+
+    // 2. Panel 1 Top-Left: '“賢”!?'
+    let wise_emphasis = res.regions.iter().find(|r| r.text.contains("賢") && r.box_.y < 600 && r.box_.x < 600);
+    assert!(wise_emphasis.is_some(), "Must detect top-left emphasis '“賢”!?'");
+
+    // 3. Panel 2: '逃げるんですか？'
+    let running_away = res.regions.iter().find(|r| r.text.contains("逃げる") || r.text.contains("ですか"));
+    assert!(running_away.is_some(), "Must detect '逃げるんですか？' bubble");
+
+    // 4. Panel 2: 'ありがとう… 君は…？'
+    let thanks_who = res.regions.iter().find(|r| r.text.contains("ありがとう") || r.text.contains("君は"));
+    assert!(thanks_who.is_some(), "Must detect 'ありがとう… 君は…？' bubble");
+
+    // 5. Panel 3: 'まあでも そうか‥'
+    let well_but = res.regions.iter().find(|r| r.text.contains("まあでも") || r.text.contains("そうか"));
+    assert!(well_but.is_some(), "Must detect 'まあでも そうか‥' bubble");
+
+    // 6. Panel 3: '仕方ないですよね'
+    let cant_help = res.regions.iter().find(|r| r.text.contains("仕方ない") || r.text.contains("ですよね"));
+    assert!(cant_help.is_some(), "Must detect '仕方ないですよね' bubble");
+
+    // 7. Panel 3: 'あ？'
+    let ah_q = res.regions.iter().find(|r| (r.text.contains("あ？") || r.text.trim() == "あ" || r.text.contains("あ?")) && r.box_.y > 1300);
+    assert!(ah_q.is_some(), "Must detect bottom-right 'あ？' bubble");
+
+    // 8. Strict Region Accounting: 7 or 8 dialogue regions (excluding stray drawing noise)
+    assert!(
+        res.regions.len() >= 7 && res.regions.len() <= 8,
+        "Expected 7 or 8 clean dialogue/narration regions, got {}",
+        res.regions.len()
+    );
+}
+
+/// # Japanese Real-Page Regression: `page_dogeza_wise_calligraphy_furigana_narration` (Resolution: Native 1129 × 1600 WebP)
+///
+/// ## Purpose & Behavior Tested:
+/// - **Panel 1 Dialogues & Narration**:
+///   1. Top-Right Narration: `どうせ\nこんな馬鹿`
+///   2. Top-Middle Narration: `社会に出たら\n弱者確定`
+///   3. Top-Left Bubble: `今のうち\n楽しんでおけ`
+/// - **Panel 2 Calligraphy Emphasis & Narration Separation**:
+///   4. Middle Narration: `そう\nここは\n土下座こそ` (Cleanly isolated from calligraphy)
+///   5. Middle Emphasis: `“賢”!!` (Must detect large bold calligraphy `賢` with quotes and exclamation)
+/// - **Panel 3 Dialogue**:
+///   6. Bottom Bubble: `終わり\nました？`
+/// - **Strict 6-Region Accounting**:
+///   Guarantees all 6 regions are detected without losing the bold `賢!!` calligraphy.
+#[test]
+fn test_regression_page_dogeza_wise_calligraphy_furigana_narration() {
+    let img = match crate::common::load_fixture_or_skip("ja", "page_dogeza_wise_calligraphy_furigana_narration/page.webp") {
+        Some(i) => i,
+        None => {
+            eprintln!("[INFO] Skipping test_regression_page_dogeza_wise_calligraphy_furigana_narration: fixture not found");
+            return;
+        }
+    };
+
+    let res = get_or_analyze_fixture_with_lang(&img, Some("ja"));
+    println!("=== Japanese Dogeza Wise Results ({} regions) ===", res.regions.len());
+    for (i, r) in res.regions.iter().enumerate() {
+        println!("  Region r{}: box={:?}, text='{}', conf={:.2}, vert={}, angle={:.2}, kind={:?}", i, r.box_, r.text.replace('\n', "\\n"), r.confidence, r.vertical, r.angle, r.kind);
+    }
+
+    // 0. Strict 6-region accounting
+    assert_eq!(res.regions.len(), 6, "Must detect exactly 6 regions across all 3 panels, got: {}", res.regions.len());
+
+    // 1. Panel 1 Top-Right: 'どうせ こんな馬鹿'
+    let idiot = res.regions.iter().find(|r| r.text.contains("こんな馬鹿") || (r.text.contains("どうせ") && r.box_.y < 500));
+    assert!(idiot.is_some(), "Must detect top-right narration 'どうせ こんな馬鹿'");
+
+    // 2. Panel 1 Top-Middle: '社会に出たら 弱者確定'
+    let loser = res.regions.iter().find(|r| r.text.contains("社会に出たら") || r.text.contains("弱者確定"));
+    assert!(loser.is_some(), "Must detect top-middle narration '社会に出たら 弱者確定'");
+
+    // 3. Panel 1 Top-Left: '今のうち 楽しんでおけ'
+    let enjoy = res.regions.iter().find(|r| r.text.contains("今のうち") || r.text.contains("楽しんでおけ"));
+    assert!(enjoy.is_some(), "Must detect top-left speech bubble '今のうち 楽しんでおけ'");
+
+    // 4. Panel 2 Middle-Right Narration: 'そう ここは 土下座こそ'
+    let dogeza = res.regions.iter().find(|r| r.text.contains("土下座") || (r.text.contains("そう") && r.text.contains("ここは")));
+    assert!(dogeza.is_some(), "Must detect middle narration 'そう ここは 土下座こそ'");
+    let dg_text = &dogeza.unwrap().text;
+    assert!(!dg_text.contains("賢"), "Middle narration must not contain the calligraphy glyph '賢': {}", dg_text);
+
+    // 5. Panel 2 Middle-Left Calligraphy: '“賢”!!'
+    let wise_calligraphy = res.regions.iter().find(|r| r.text.contains("賢") && r.box_.y >= 450 && r.box_.y <= 1100);
+    assert!(wise_calligraphy.is_some(), "Must detect middle calligraphy emphasis '“賢”!!'");
+
+    // 6. Panel 3 Bottom: '終わりました？'
+    let finished_q = res.regions.iter().find(|r| (r.text.contains("終わり") || r.text.contains("ました")) && r.box_.y > 1200);
+    assert!(finished_q.is_some(), "Must detect bottom speech bubble '終わりました？'");
+}
+
+
+
+
+
 
 
 

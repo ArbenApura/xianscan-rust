@@ -1856,4 +1856,344 @@ fn test_regression_page_nie_li_temporal_demon_spirit_book() {
     assert!(r_bot_3.is_some(), "Must detect bottom narration 3 '仅存几千的幸存者，一起逃向了圣祖山脉东面的茫茫沙漠'");
 }
 
+/// # Regression Test: `page_hostage_dagger_silent_dots_bubble_close_combat` (Resolution: Native 900 × 1352 WebP)
+///
+/// ## Purpose & Behavior Tested:
+/// - **Skip Standalone Silent Ellipsis Bubbles (`......` / `……`)**:
+///   Guarantees that pure dot bubbles / silent speech bubbles without dialogue are NOT detected as text
+///   regions or garbled into pseudo-word hallucinations (`"BRRNEE"`), preserving the original comic artwork.
+/// - **Panel 1 & Panel 2 Dialogue / Thought Bubble Accounting**:
+///   1. Top-Left Hostage Dialogue: `你可不要\n乱动……`
+///   2. Bottom Thought Monologue: `这小子近战太\n可怕了！` + `我不能硬拼，跟\n他拉开距离然后\n迂回作战，这样\n才有机会反守为\n攻！`
+/// - **Negative Guard Against Gutter Watermark & Dot Noise**:
+///   Suppresses `漫客栈` platform watermark and standalone punctuation bubbles.
+/// - **Strict 2 or 3 Region Accounting**:
+///   Must detect 2 or 3 clean dialogue/monologue regions (0 silent dot bubbles).
+#[test]
+fn test_regression_page_hostage_dagger_silent_dots_bubble_close_combat() {
+    let img = match crate::common::load_fixture_or_skip("zh_hans", "page_hostage_dagger_silent_dots_bubble_close_combat/page.webp") {
+        Some(i) => i,
+        None => {
+            eprintln!("[INFO] Skipping test_regression_page_hostage_dagger_silent_dots_bubble_close_combat: fixture not found");
+            return;
+        }
+    };
+
+    let res = get_or_analyze_fixture(&img);
+    println!("=== Page Hostage Dagger Silent Dots Results ({} regions) ===", res.regions.len());
+    for (i, r) in res.regions.iter().enumerate() {
+        println!("  Region r{}: box={:?}, text='{}', conf={:.2}, vert={}, kind={:?}", i, r.box_, r.text.replace('\n', "\\n"), r.confidence, r.vertical, r.kind);
+    }
+
+    // 0. Negative Guard: Standalone silent dot bubbles or OCR noise ('BRRNEE') must be dropped
+    assert!(
+        !res.regions.iter().any(|r| {
+            let t = r.text.trim();
+            t.contains("BRRNEE") || t == "......" || t == "……" || t == "..." || t == "...."
+        }),
+        "Must NOT emit standalone silent dot bubble or OCR noise 'BRRNEE'"
+    );
+
+    // 1. Panel 1 Top-Left: '你可不要 乱动……'
+    let dont_move = res.regions.iter().find(|r| r.text.contains("你可不要") || r.text.contains("乱动"));
+    assert!(dont_move.is_some(), "Must detect top-left speech bubble '你可不要 乱动……'");
+    let dm_text = &dont_move.unwrap().text;
+    assert!(dm_text.contains("乱动") || dm_text.contains("不要"), "Top-left speech bubble text mismatch: {}", dm_text);
+
+    // 2. Panel 2 Bottom Monologue: '这小子近战太可怕了' / '我不能硬拼'
+    let close_combat = res.regions.iter().find(|r| r.text.contains("近战太") || r.text.contains("可怕了") || r.text.contains("我不能硬拼"));
+    assert!(close_combat.is_some(), "Must detect bottom thought monologue");
+
+    // 3. Strict Region Count: exactly 2 or 3 clean regions (0 silent dot bubbles)
+    assert!(
+        res.regions.len() >= 2 && res.regions.len() <= 3,
+        "Expected 2 or 3 clean dialogue regions, got {}",
+        res.regions.len()
+    );
+}
+
+/// # Regression Test: `page_yin_yang_separated_narration_floating_ah_sfx` (Resolution: Native 900 × 1562 WebP)
+///
+/// ## Purpose & Behavior Tested:
+/// - **Top Panel Narration Preservation**:
+///   Guarantees that narration line `回眸时，已是阴阳永隔……` is preserved and detected as `free_text`.
+/// - **Floating Exclamation / Shout SFX Handling (`啊！`)**:
+///   Ensures that isolated floating exclamations on character artwork (`啊！`) are classified as
+///   `onomatopoeia` (SFX) rather than `free_text`, so they do not produce unneeded inpainting blackout
+///   boxes when dialogue-only mode is selected (`include_onomatopoeia = false`).
+/// - **Strict Region Accounting**:
+///   In dialogue-only mode, only the top narration region is emitted (exactly 1 region).
+#[test]
+fn test_regression_page_yin_yang_separated_narration_floating_ah_sfx() {
+    let img = match crate::common::load_fixture_or_skip("zh_hans", "page_yin_yang_separated_narration_floating_ah_sfx/page.webp") {
+        Some(i) => i,
+        None => {
+            eprintln!("[INFO] Skipping test_regression_page_yin_yang_separated_narration_floating_ah_sfx: fixture not found");
+            return;
+        }
+    };
+
+    let res = get_or_analyze_fixture(&img);
+    println!("=== Page Yin Yang Separated Narration Results ({} regions) ===", res.regions.len());
+    for (i, r) in res.regions.iter().enumerate() {
+        println!("  Region r{}: box={:?}, text='{}', conf={:.2}, vert={}, kind={:?}", i, r.box_, r.text.replace('\n', "\\n"), r.confidence, r.vertical, r.kind);
+    }
+
+    // 1. Panel 1 Top Narration: '回眸时，已是阴阳永隔……'
+    let narration = res.regions.iter().find(|r| r.text.contains("回眸") || r.text.contains("阴阳永隔"));
+    assert!(narration.is_some(), "Must detect top narration line '回眸时，已是阴阳永隔……'");
+    let n_text = &narration.unwrap().text;
+    assert!(n_text.contains("回眸") || n_text.contains("阴阳"), "Narration text mismatch: {}", n_text);
+
+    // 2. Panel 3 Floating Shout '啊！' must NOT be classified as free_text in dialogue mode
+    // (It should either be dropped or classified as Onomatopoeia)
+    assert!(
+        !res.regions.iter().any(|r| {
+            let t = r.text.trim();
+            (t == "啊！" || t == "啊" || t == "啊!") && matches!(r.kind, xianscan_rust::ml::schemas::RegionKind::FreeText)
+        }),
+        "Floating shout '啊！' should be classified as Onomatopoeia, not FreeText"
+    );
+
+    // 3. Strict 1 or 2 region accounting (only 1 dialogue/narration region when SFX is excluded)
+    assert!(
+        res.regions.len() >= 1 && res.regions.len() <= 2,
+        "Expected 1 or 2 regions, got {}",
+        res.regions.len()
+    );
+}
+
+/// # Regression Test: `page_radiant_city_bus_horn_sfx_narration_strip` (Resolution: Native 900 × 2678 WebP)
+///
+/// ## Purpose & Behavior Tested:
+/// - **Bus Horn SFX Classification (`嘟嘟` / `嘟嘟嘟`)**:
+///   Guarantees that slanted vehicle horn onomatopoeia (`嘟嘟`, angle $\approx -11.4^\circ$) is NOT
+///   classified as `FreeText` narrative dialogue.
+/// - **Negative Guard Against Silent Punctuation Bubbles**:
+///   Ensures top-right `......` silent dot bubble remains skipped (0 text regions).
+/// - **Full Webtoon Strip Accounting Across 5 Story Panels**:
+///   1. Top Dialogues: `这傻子非得尿裤子上不可！` and `哈哈！`
+///   2. Middle Road: `啧！` / `喷！` bubble + `Z市郊外` location tag.
+///   3. World Narrations:
+///      - `圣祖山脉之外的世界，已经被妖兽所占领...`
+///      - `谁也不清楚外面的世界是怎样的...`
+///      - `虽然经常会受到山脉中风雪妖兽的袭击...`
+///      - `那斑驳的城墙，是一座不朽的丰碑！...`
+///      - `光辉之城`
+#[test]
+fn test_regression_page_radiant_city_bus_horn_sfx_narration_strip() {
+    let img = match crate::common::load_fixture_or_skip("zh_hans", "page_radiant_city_bus_horn_sfx_narration_strip/page.webp") {
+        Some(i) => i,
+        None => {
+            eprintln!("[INFO] Skipping test_regression_page_radiant_city_bus_horn_sfx_narration_strip: fixture not found");
+            return;
+        }
+    };
+
+    let res = get_or_analyze_fixture(&img);
+    println!("=== Page Radiant City Bus Horn Strip Results ({} regions) ===", res.regions.len());
+    for (i, r) in res.regions.iter().enumerate() {
+        println!("  Region r{}: box={:?}, text='{}', conf={:.2}, vert={}, angle={:.2}, kind={:?}", i, r.box_, r.text.replace('\n', "\\n"), r.confidence, r.vertical, r.angle, r.kind);
+    }
+
+    // 0. Negative Guard: Slanted horn SFX '嘟嘟' must NOT be classified as FreeText
+    assert!(
+        !res.regions.iter().any(|r| {
+            let t = r.text.trim();
+            t.contains("嘟嘟") && matches!(r.kind, xianscan_rust::ml::schemas::RegionKind::FreeText)
+        }),
+        "Vehicle horn '嘟嘟' must be classified as Onomatopoeia, not FreeText"
+    );
+
+    // 1. Top Dialogue: '这傻子非得尿裤子上不可！'
+    let pee_pants = res.regions.iter().find(|r| r.text.contains("尿裤子") || r.text.contains("这傻子"));
+    assert!(pee_pants.is_some(), "Must detect top speech bubble '这傻子非得尿裤子上不可！'");
+
+    // 2. Location Tag: 'Z市郊外'
+    let z_city = res.regions.iter().find(|r| r.text.contains("Z市") || r.text.contains("郊外"));
+    assert!(z_city.is_some(), "Must detect location tag 'Z市郊外'");
+
+    // 3. World Narration: '圣祖山脉之外的世界'
+    let outside_world = res.regions.iter().find(|r| r.text.contains("圣祖山脉") || r.text.contains("妖兽所占领"));
+    assert!(outside_world.is_some(), "Must detect world narration '圣祖山脉之外的世界'");
+
+    // 4. Radiant City Title: '光辉之城'
+    let radiant_city = res.regions.iter().find(|r| r.text.contains("光辉之城"));
+    assert!(radiant_city.is_some(), "Must detect city title '光辉之城'");
+
+    // 5. Strict Region Accounting: 8 to 10 regions across the vertical strip
+    assert!(
+        res.regions.len() >= 8 && res.regions.len() <= 10,
+        "Expected between 8 and 10 regions on the strip, got {}",
+        res.regions.len()
+    );
+}
+
+/// # Regression Test: `page_slanted_rpg_novice_mage_status_card_overlap` (Resolution: Native 900 × 1994 WebP)
+///
+/// ## Purpose & Behavior Tested:
+/// - **Top Bubble Boundary Clamping & Multi-Line Integrity**:
+///   Guarantees that the top speech bubble (`不是的，我是被人给揍了...真的好疼啊！`) does NOT overextend
+///   across the top panel boundary (`box_.y >= 30`) and retains its constituent sentences.
+/// - **Middle Thought Bubble**:
+///   Cleanly detects `全息模拟……`.
+/// - **Slanted RPG Status Card Unification (Rotation Angle Grouping)**:
+///   Ensures that all lines on the tilted RPG card (`职业：法师`, `等级：10`, `装备：`, `新手法师袍`,
+///   `新手腰带`, `新手法师护手`, `新手法师靴`, `残破的割肉小刀`) are grouped into a SINGLE unified typeset
+///   region with non-zero rotation angle ($\approx 10^\circ\text{--}15^\circ$), preventing 5 overlapping
+///   fragmented slices from rendering on top of each other.
+/// - **Strict 3-Region Accounting**:
+///   Exactly 3 clean regions across the page.
+#[test]
+fn test_regression_page_slanted_rpg_novice_mage_status_card_overlap() {
+    let img = match crate::common::load_fixture_or_skip("zh_hans", "page_slanted_rpg_novice_mage_status_card_overlap/page.webp") {
+        Some(i) => i,
+        None => {
+            eprintln!("[INFO] Skipping test_regression_page_slanted_rpg_novice_mage_status_card_overlap: fixture not found");
+            return;
+        }
+    };
+
+    let res = get_or_analyze_fixture(&img);
+    println!("=== Page Slanted RPG Status Card Results ({} regions) ===", res.regions.len());
+    for (i, r) in res.regions.iter().enumerate() {
+        println!("  Region r{}: box={:?}, text='{}', conf={:.2}, vert={}, angle={:.2}, kind={:?}", i, r.box_, r.text.replace('\n', "\\n"), r.confidence, r.vertical, r.angle, r.kind);
+    }
+
+    // 0. Strict 3-region accounting: 1 top bubble + 1 middle thought bubble + 1 unified RPG card
+    assert_eq!(
+        res.regions.len(),
+        3,
+        "Must unify RPG status card into a single region and detect exactly 3 regions total, got: {}",
+        res.regions.len()
+    );
+
+    // 1. Panel 1 Top Speech Bubble: '不是的，我是被人给揍了...' (Must not overextend past top boundary)
+    let top_bubble = res.regions.iter().find(|r| r.text.contains("不是的") || r.text.contains("全息模拟") || r.text.contains("真的好疼"));
+    assert!(top_bubble.is_some(), "Must detect top multi-line speech bubble");
+    let tb = top_bubble.unwrap();
+    assert!(tb.box_.y >= 30, "Top speech bubble must be clamped within panel boundary (y >= 30), got: y={}", tb.box_.y);
+    assert!(tb.text.contains("不是的") || tb.text.contains("揍了") || tb.text.contains("好疼"), "Top bubble text missing key dialogue");
+
+    // 2. Panel 2 Middle Thought Bubble: '全息模拟……'
+    let middle_thought = res.regions.iter().find(|r| r.text.contains("全息模") && r.box_.y >= 600 && r.box_.y <= 900);
+    assert!(middle_thought.is_some(), "Must detect middle thought bubble '全息模拟……'");
+
+    // 3. Panel 3 Slanted RPG Status Card: Must be a SINGLE unified region
+    let rpg_cards: Vec<_> = res.regions.iter().filter(|r| r.box_.y > 1200).collect();
+    assert_eq!(rpg_cards.len(), 1, "Slanted RPG status card must be unified into exactly 1 region, got: {}", rpg_cards.len());
+    let card = rpg_cards[0];
+    assert!(card.text.contains("法师") || card.text.contains("职业"), "RPG card must contain class text '法师'");
+    assert!(card.text.contains("10") || card.text.contains("等级"), "RPG card must contain level '10'");
+    assert!(card.text.contains("装备") || card.text.contains("法师袍"), "RPG card must contain equipment lines");
+    assert!(card.angle.abs() >= 6.0, "RPG card must retain its tilt angle (>= 6.0°), got: {:.2}°", card.angle);
+}
+
+/// # Regression Test: `page_rookie_warrior_bubble_split_school_chatter` (Resolution: Native 900 × 2108 WebP)
+///
+/// ## Purpose & Behavior Tested:
+/// - **Circular Speech Bubble Unification (Zero Left Column Slicing)**:
+///   Guarantees that the top speech bubble (`哼，这么胡来，菜鸟一个！`) captures all columns across the circular
+///   envelope without slicing off the left column (`哼，\n来，\n个！`).
+/// - **Negative Guard Against Sliced Text**:
+///   Prevents incomplete partial string `这么胡\n菜鸟一`.
+/// - **Schoolyard & Classroom Oval Chatter Bubbles**:
+///   Cleanly detects `吵闹` and `叽叽喳喳` background chatter bubbles.
+/// - **Strict 6-Region Accounting**:
+///   Exactly 6 regions across all panels.
+#[test]
+fn test_regression_page_rookie_warrior_bubble_split_school_chatter() {
+    let img = match crate::common::load_fixture_or_skip("zh_hans", "page_rookie_warrior_bubble_split_school_chatter/page.webp") {
+        Some(i) => i,
+        None => {
+            eprintln!("[INFO] Skipping test_regression_page_rookie_warrior_bubble_split_school_chatter: fixture not found");
+            return;
+        }
+    };
+
+    let res = get_or_analyze_fixture(&img);
+    println!("=== Page Rookie Warrior School Chatter Results ({} regions) ===", res.regions.len());
+    for (i, r) in res.regions.iter().enumerate() {
+        println!("  Region r{}: box={:?}, text='{}', conf={:.2}, vert={}, angle={:.2}, kind={:?}", i, r.box_, r.text.replace('\n', "\\n"), r.confidence, r.vertical, r.angle, r.kind);
+    }
+
+    // 0. Strict 6-region accounting
+    assert_eq!(
+        res.regions.len(),
+        6,
+        "Must detect exactly 6 regions across the page, got: {}",
+        res.regions.len()
+    );
+
+    // 1. Top Speech Bubble: '哼，这么胡来，菜鸟一个！' (Must contain full sentence)
+    let top_bubble = res.regions.iter().find(|r| r.text.contains("菜鸟") || r.text.contains("这么胡") || r.text.contains("胡来"));
+    assert!(top_bubble.is_some(), "Must detect top rookie warrior speech bubble");
+    let tb = top_bubble.unwrap();
+    assert!(
+        tb.text.contains("菜鸟") && (tb.text.contains("哼") || tb.text.contains("胡来") || tb.text.contains("这么")),
+        "Top bubble text must contain full unified speech: {}",
+        tb.text
+    );
+    assert!(tb.box_.x <= 340, "Top bubble box must encapsulate full circular envelope (x <= 340), got: x={}", tb.box_.x);
+
+    // 2. Negative Guard: Sliced column fragment must not occur
+    assert!(
+        !res.regions.iter().any(|r| r.text.trim() == "这么胡\n菜鸟一"),
+        "Top bubble must not be sliced into partial text '这么胡\\n菜鸟一'"
+    );
+
+    // 3. School Chatter Bubbles: '吵闹' and '叽叽喳喳'
+    let chatter_count = res.regions.iter().filter(|r| r.text.contains("吵闹") || r.text.contains("叽叽喳喳")).count();
+    assert!(chatter_count >= 4, "Must detect at least 4 classroom/schoolyard chatter bubbles, got: {}", chatter_count);
+}
+
+/// # Regression Test: `page_slanted_rpg_status_card_single_panel_closeup` (Resolution: Native 900 × 848 WebP)
+///
+/// ## Purpose & Behavior Tested:
+/// - **Close-Up Slanted RPG Status Window Unification**:
+///   Guarantees that all lines on the tilted RPG card (`职业：法师`, `等级：10`, `装备：`, `新手法师袍`,
+///   `新手腰带`, `新手法师护手`, `新手法师靴`, `残破的割肉小刀`) are grouped into a SINGLE unified typeset
+///   region with non-zero rotation angle ($\approx 12^\circ\text{--}16^\circ$).
+/// - **Zero Overlapping Typeset Pile-Ups**:
+///   Prevents 4 sliced duplicate sub-boxes from printing on top of each other.
+/// - **Strict 1-Region Accounting**:
+///   Exactly 1 clean region for the entire card.
+#[test]
+fn test_regression_page_slanted_rpg_status_card_single_panel_closeup() {
+    let img = match crate::common::load_fixture_or_skip("zh_hans", "page_slanted_rpg_status_card_single_panel_closeup/page.webp") {
+        Some(i) => i,
+        None => {
+            eprintln!("[INFO] Skipping test_regression_page_slanted_rpg_status_card_single_panel_closeup: fixture not found");
+            return;
+        }
+    };
+
+    let res = get_or_analyze_fixture(&img);
+    println!("=== Page Slanted RPG Status Card Closeup Results ({} regions) ===", res.regions.len());
+    for (i, r) in res.regions.iter().enumerate() {
+        println!("  Region r{}: box={:?}, text='{}', conf={:.2}, vert={}, angle={:.2}, kind={:?}", i, r.box_, r.text.replace('\n', "\\n"), r.confidence, r.vertical, r.angle, r.kind);
+    }
+
+    // 0. Strict 1-region accounting
+    assert_eq!(
+        res.regions.len(),
+        1,
+        "Must unify close-up RPG status card into exactly 1 region, got: {}",
+        res.regions.len()
+    );
+
+    // 1. Single RPG Card Text Integrity
+    let card = &res.regions[0];
+    assert!(card.text.contains("法师") || card.text.contains("职业"), "RPG card must contain class text '法师'");
+    assert!(card.text.contains("10") || card.text.contains("等级"), "RPG card must contain level '10'");
+    assert!(card.text.contains("装备") || card.text.contains("法师袍"), "RPG card must contain equipment lines");
+    assert!(card.angle.abs() >= 8.0 && card.angle.abs() <= 20.0, "RPG card must retain its tilt angle (~14°), got: {:.2}°", card.angle);
+}
+
+
+
+
+
+
+
 

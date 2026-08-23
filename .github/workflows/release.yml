@@ -70,11 +70,7 @@ jobs:
         run: |
           mkdir -p models
           echo "Downloading Koharu RF-DETR Seg Layout Detector (~145MB)..."
-          HF_AUTH=()
-          if [ -n "${{ secrets.HF_TOKEN }}" ]; then
-            HF_AUTH=(-H "Authorization: Bearer ${{ secrets.HF_TOKEN }}")
-          fi
-          curl -f -sSL "${HF_AUTH[@]}" -o models/rfdetr-seg-2xlarge.onnx "https://huggingface.co/DevilishDaoSaint/koharu-layout-rfdetr/resolve/main/rfdetr-seg-2xlarge.onnx"
+          curl -f -sSL -o models/rfdetr-seg-2xlarge.onnx "https://huggingface.co/DevilishDaoSaint/koharu-layout-rfdetr/resolve/main/rfdetr-seg-2xlarge.onnx"
           echo "Downloading LaMa Inpainting (~206MB)..."
           curl -f -sSL -o models/lama.onnx "https://huggingface.co/ogkalu/lama-manga-onnx-dynamic/resolve/main/lama-manga-dynamic.onnx"
           echo "Downloading PP-OCR Detection (~10MB)..."
