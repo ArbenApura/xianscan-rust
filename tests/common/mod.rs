@@ -796,6 +796,7 @@ pub fn get_or_analyze_fixture_with_lang(
         enable_watermark_inpaint: Some(false),
         inpaint_padding_pct: Some(0.06),
         typeset_padding_pct: Some(0.12),
+        ..Default::default()
     });
     let res = engine
         .analyze_image_with_options(img, opts.as_ref())
@@ -823,6 +824,7 @@ pub fn force_analyze_fixture_with_lang(
         enable_watermark_inpaint: Some(false),
         inpaint_padding_pct: Some(0.06),
         typeset_padding_pct: Some(0.12),
+        ..Default::default()
     });
     let res = engine
         .analyze_image_with_options(img, opts.as_ref())

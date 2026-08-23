@@ -175,30 +175,56 @@ pub fn calculate_box_angle(pts: &[[f32; 2]]) -> f32 {
             (sorted_x[3], sorted_x[2])
         };
 
-        let dx = (tr[0] - tl[0] + br[0] - bl[0]) / 2.0;
-        let dy = (tr[1] - tl[1] + br[1] - bl[1]) / 2.0;
+        let w_top = ((tr[0] - tl[0]).powi(2) + (tr[1] - tl[1]).powi(2)).sqrt();
+        let w_bot = ((br[0] - bl[0]).powi(2) + (br[1] - bl[1]).powi(2)).sqrt();
+        let h_left = ((bl[0] - tl[0]).powi(2) + (bl[1] - tl[1]).powi(2)).sqrt();
+        let h_right = ((br[0] - tr[0]).powi(2) + (br[1] - tr[1]).powi(2)).sqrt();
 
-        if dx == 0.0 && dy == 0.0 {
-            return 0.0;
+        let mean_w = (w_top + w_bot) / 2.0;
+        let mean_h = (h_left + h_right) / 2.0;
+
+        if mean_h >= 1.25 * mean_w {
+            // VERTICAL TEXT LINE: MEASURE TILT OF VERTICAL EDGES (TL -> BL, TR -> BR)
+            let dx_v = (bl[0] - tl[0] + br[0] - tr[0]) / 2.0;
+            let dy_v = (bl[1] - tl[1] + br[1] - tr[1]) / 2.0;
+            if dy_v.abs() < 1e-4 {
+                return 0.0;
+            }
+            // Deflection angle from pure vertical axis (dx / dy)
+            let v_deg = (-dx_v).atan2(dy_v).to_degrees();
+            if v_deg.abs() < 10.0 && mean_h <= 3.5 * mean_w {
+                // Minor baseline/column dilation jitter on moderately tall bubbles
+                0.0
+            } else {
+                v_deg
+            }
+        } else {
+            // HORIZONTAL TEXT LINE: MEASURE TILT OF HORIZONTAL EDGES (TL -> TR, BL -> BR)
+            let dx = (tr[0] - tl[0] + br[0] - bl[0]) / 2.0;
+            let dy = (tr[1] - tl[1] + br[1] - bl[1]) / 2.0;
+
+            if dx == 0.0 && dy == 0.0 {
+                return 0.0;
+            }
+
+            let angle_rad = dy.atan2(dx);
+            let mut deg = angle_rad.to_degrees();
+
+            while deg > 90.0 {
+                deg -= 180.0;
+            }
+            while deg < -90.0 {
+                deg += 180.0;
+            }
+
+            let box_w = (tr[0] - tl[0] + br[0] - bl[0]) / 2.0;
+            let box_h = (bl[1] - tl[1] + br[1] - tr[1]) / 2.0;
+            if box_w <= 1.6 * 1.0_f32.max(box_h) && deg.abs() < 5.0 {
+                return 0.0;
+            }
+
+            deg
         }
-
-        let angle_rad = dy.atan2(dx);
-        let mut deg = angle_rad.to_degrees();
-
-        while deg > 90.0 {
-            deg -= 180.0;
-        }
-        while deg < -90.0 {
-            deg += 180.0;
-        }
-
-        let box_w = (tr[0] - tl[0] + br[0] - bl[0]) / 2.0;
-        let box_h = (bl[1] - tl[1] + br[1] - tr[1]) / 2.0;
-        if box_w <= 1.6 * 1.0_f32.max(box_h) && deg.abs() < 5.0 {
-            return 0.0;
-        }
-
-        deg
     } else {
         let (_box_pts, _sside) = get_mini_boxes(pts);
         calculate_box_angle(&_box_pts)

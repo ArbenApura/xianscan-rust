@@ -107,7 +107,15 @@ export interface PipelineClient {
 	analyze(
 		image: Buffer,
 		signal?: AbortSignal,
-		opts?: { sourceLang?: string; targetLang?: string; inpaintPaddingPct?: number; typesetPaddingPct?: number; enableWatermarkInpaint?: boolean },
+		opts?: {
+			sourceLang?: string;
+			targetLang?: string;
+			inpaintPaddingPct?: number;
+			typesetPaddingPct?: number;
+			enableWatermarkInpaint?: boolean;
+			enableSfx?: boolean;
+			sfxMaxAreaPct?: number;
+		},
 	): Promise<AnalyzeResult>;
 	clean(image: Buffer, regions: CleanRegionInput[], inpaintMode?: string, signal?: AbortSignal): Promise<Buffer>;
 	health(): Promise<{ status: string; detector: string; inpainter: string }>;
@@ -165,7 +173,15 @@ export class HttpPipelineClient implements PipelineClient {
 	async analyze(
 		image: Buffer,
 		signal?: AbortSignal,
-		opts?: { sourceLang?: string; targetLang?: string; inpaintPaddingPct?: number; typesetPaddingPct?: number; enableWatermarkInpaint?: boolean },
+		opts?: {
+			sourceLang?: string;
+			targetLang?: string;
+			inpaintPaddingPct?: number;
+			typesetPaddingPct?: number;
+			enableWatermarkInpaint?: boolean;
+			enableSfx?: boolean;
+			sfxMaxAreaPct?: number;
+		},
 	): Promise<AnalyzeResult> {
 		const form = new FormData();
 		form.append('image', new Blob([new Uint8Array(image)]), 'page.webp');
@@ -174,6 +190,8 @@ export class HttpPipelineClient implements PipelineClient {
 		if (typeof opts?.inpaintPaddingPct === 'number') form.append('inpaint_padding_pct', String(opts.inpaintPaddingPct));
 		if (typeof opts?.typesetPaddingPct === 'number') form.append('typeset_padding_pct', String(opts.typesetPaddingPct));
 		if (typeof opts?.enableWatermarkInpaint === 'boolean') form.append('enable_watermark_inpaint', String(opts.enableWatermarkInpaint));
+		if (typeof opts?.enableSfx === 'boolean') form.append('enable_sfx', String(opts.enableSfx));
+		if (typeof opts?.sfxMaxAreaPct === 'number') form.append('sfx_max_area_pct', String(opts.sfxMaxAreaPct));
 		const resp = await this.request('/pages/analyze', { method: 'POST', body: form }, signal);
 		if (!resp.ok) throw new PipelineError(`analyze failed (${resp.status}): ${await resp.text()}`, resp.status);
 		return (await resp.json()) as AnalyzeResult;

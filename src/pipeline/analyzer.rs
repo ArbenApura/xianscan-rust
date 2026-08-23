@@ -30,6 +30,8 @@ pub fn analyze_image_with_options(
     let (page_w, page_h) = img.dimensions();
     let source_lang = options.and_then(|o| o.source_lang.as_deref());
     let enable_watermark_inpaint = options.and_then(|o| o.enable_watermark_inpaint).unwrap_or(false);
+    let enable_sfx = options.and_then(|o| o.enable_sfx).unwrap_or(false);
+    let sfx_max_area_pct = options.and_then(|o| o.sfx_max_area_pct).unwrap_or(0.30);
     let is_cjk = is_cjk_source(source_lang);
     let is_latin = is_latin_source(source_lang);
 
@@ -107,10 +109,90 @@ pub fn analyze_image_with_options(
             candidate_scores.push(*score);
         }
         // CLUSTER ADJACENT / OVERLAPPING ONOMATOPOEIA STROKE FRAGMENTS INTO UNIFIED ENVELOPES (GAP <= 25PX)
-        let clustered_sfx = crate::ml::detect::cluster_adjacent_sfx_boxes(&fusion_res.onomatopoeia, 25);
-        for (poly, score) in clustered_sfx {
-            candidate_boxes.push(poly);
-            candidate_scores.push(score);
+        if enable_sfx {
+            let page_total_area = (page_w * page_h).max(1) as f32;
+            let clustered_sfx = crate::ml::detect::cluster_adjacent_sfx_boxes(&fusion_res.onomatopoeia, 25);
+            for (poly, score) in clustered_sfx {
+                let (_, _, bw, bh) = crate::ml::geometry::box_to_xywh_f32(&poly);
+                let sfx_area = (bw * bh).max(0.0);
+                let area_ratio = sfx_area / page_total_area;
+                // SKIP OVERSIZED SFX IF EXCEEDING SFX MAX AREA RATIO TO PROTECT BACKGROUND ART
+                if area_ratio <= sfx_max_area_pct {
+                    candidate_boxes.push(poly);
+                    candidate_scores.push(score);
+                }
+            }
+        }
+
+        // FUSE HIGH-CONFIDENCE RAPIDOCR LINES: EXPAND NARROW SINGLE-LINE DETECTOR SLICES & PRESERVE MISSED LINES
+        for line in &fusion_res.rapid_lines {
+            if line.score < 0.65 {
+                continue;
+            }
+            let (lx, ly, lw, lh) = crate::ml::geometry::polygon_bounds(&line.polygon);
+            let mut overlaps_any = false;
+            for cb in &mut candidate_boxes {
+                let (bx, by, bw, bh) = crate::ml::geometry::box_to_xywh_f32(cb);
+                let ix = (bx + bw).min((lx + lw) as f32) - bx.max(lx as f32);
+                let iy = (by + bh).min((ly + lh) as f32) - by.max(ly as f32);
+                if ix > 0.0 && iy > 0.0 {
+                    let inter_area = ix * iy;
+                    let l_area = (lw * lh).max(1) as f32;
+                    let b_area = (bw * bh).max(1.0);
+                    let coverage_l = inter_area / l_area;
+                    let coverage_b = inter_area / b_area;
+                    if coverage_l >= 0.35 || coverage_b >= 0.35 {
+                        overlaps_any = true;
+                        // IF DETECTOR BOX IS A PARTIAL SINGLE-LINE SLICE (BH < 2 * LH) AND RAPID OCR DETECTED A WIDER SENTENCE
+                        let is_single_line_slice = bh <= (lh as f32 * 1.6);
+                        if is_single_line_slice && (lw as f32) >= bw * 1.15 {
+                            let union_x = bx.min(lx as f32);
+                            let union_y = by.min(ly as f32);
+                            let union_w = (bx + bw).max((lx + lw) as f32) - union_x;
+                            let union_h = (by + bh).max((ly + lh) as f32) - union_y;
+                            *cb = vec![
+                                [union_x, union_y],
+                                [union_x + union_w, union_y],
+                                [union_x + union_w, union_y + union_h],
+                                [union_x, union_y + union_h],
+                            ];
+                        }
+                        break;
+                    }
+                }
+            }
+            if !overlaps_any {
+                // DO NOT RESCUE LINE AS MISSED TEXT IF IT OVERLAPS DETECTED ONOMATOPOEIA (SFX) AND SFX IS DISABLED OR OVERSIZED
+                let overlaps_sfx = fusion_res.onomatopoeia.iter().any(|(sfx_b, _)| {
+                    let sx = sfx_b.x as f32;
+                    let sy = sfx_b.y as f32;
+                    let sw = sfx_b.w as f32;
+                    let sh = sfx_b.h as f32;
+                    let ix = (sx + sw).min((lx + lw) as f32) - sx.max(lx as f32);
+                    let iy = (sy + sh).min((ly + lh) as f32) - sy.max(ly as f32);
+                    if ix > 0.0 && iy > 0.0 {
+                        let inter_area = ix * iy;
+                        let l_area = (lw * lh).max(1) as f32;
+                        inter_area / l_area >= 0.35
+                    } else {
+                        false
+                    }
+                });
+
+                if overlaps_sfx {
+                    if !enable_sfx {
+                        continue;
+                    }
+                    let page_total_area = (page_w * page_h).max(1) as f32;
+                    let area_ratio = (lw * lh) as f32 / page_total_area;
+                    if area_ratio > sfx_max_area_pct {
+                        continue;
+                    }
+                }
+
+                candidate_boxes.push(line.polygon.iter().map(|p| [p[0] as f32, p[1] as f32]).collect());
+                candidate_scores.push(line.score);
+            }
         }
     } else {
         // Fallback: Use RapidOCR line bounding boxes directly without distance clumping
@@ -202,6 +284,20 @@ pub fn analyze_image_with_options(
             return false;
         }
         true
+    });
+
+    // Filter out SoundEffects if SFX is disabled or if individual SFX region exceeds area threshold
+    let page_total_area = (page_w * page_h).max(1) as f32;
+    final_regions.retain(|r| {
+        if r.kind == crate::ml::schemas::RegionKind::SoundEffect {
+            if !enable_sfx {
+                return false;
+            }
+            let area_ratio = (r.box_.w * r.box_.h) as f32 / page_total_area;
+            area_ratio <= sfx_max_area_pct
+        } else {
+            true
+        }
     });
 
     // Re-index sequential region IDs

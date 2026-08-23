@@ -123,7 +123,7 @@ fn cluster_lines_into_utterances<'a>(
         }
     }
 
-    // 2. Check for vertical paragraph gaps between rows (e.g. Page 103929: '这小子近战太可怕了！' vs '我不能硬拼...')
+    // 2. Check for vertical paragraph gaps and sentence boundaries between rows
     let mut paragraph_clusters: Vec<Vec<&'a OcrLine>> = Vec::new();
     let mut current_cluster: Vec<&'a OcrLine> = Vec::new();
 
@@ -140,13 +140,25 @@ fn cluster_lines_into_utterances<'a>(
                 ly as f32
             }).fold(f32::MAX, f32::min);
 
+            let prev_row_text = prev_row.iter().map(|l| l.text.trim()).collect::<Vec<_>>().join("");
+            let ends_with_punct = prev_row_text.ends_with('！')
+                || prev_row_text.ends_with('!')
+                || prev_row_text.ends_with('？')
+                || prev_row_text.ends_with('?')
+                || prev_row_text.ends_with('。')
+                || prev_row_text.ends_with('…')
+                || prev_row_text.ends_with("..");
+
             let vert_gap = curr_min_y - prev_max_y;
-            // A paragraph break requires a distinct vertical gap >= 40px
-            if vert_gap >= 40.0
-                && !current_cluster.is_empty() {
-                    paragraph_clusters.push(current_cluster);
-                    current_cluster = Vec::new();
-                }
+            // A paragraph break occurs if:
+            // 1. Vertical gap is >= 35px
+            // 2. Previous row ends with strong punctuation and vertical gap >= 18px
+            let should_split = vert_gap >= 35.0 || (ends_with_punct && vert_gap >= 18.0);
+
+            if should_split && !current_cluster.is_empty() {
+                paragraph_clusters.push(current_cluster);
+                current_cluster = Vec::new();
+            }
         }
 
         current_cluster.extend(row.iter().copied());
@@ -462,6 +474,10 @@ pub fn build_regions(
                 if clean_m.is_empty() {
                     continue;
                 }
+                // SUPPRESS INDIVIDUAL WATERMARK LINES INSIDE CONTAINER (E.G. COLLIDING BANNER WATERMARKS)
+                if crate::ml::detect::is_watermark_line(clean_m) {
+                    continue;
+                }
                 let (mx, my, mw, mh) = polygon_bounds(&m.polygon);
                 let mut is_dup = false;
                 for existing in &filtered_matched {
@@ -496,6 +512,9 @@ pub fn build_regions(
             let clusters = cluster_lines_into_utterances(&filtered_matched, is_cjk, is_sfx, is_container_vert, 0.0, 1.0);
 
             for cluster_lines in clusters {
+                if cluster_lines.is_empty() {
+                    continue;
+                }
                 let box_angle = calculate_box_angle(box_pts);
                 let line_angles: Vec<f32> = cluster_lines
                     .iter()
@@ -515,7 +534,12 @@ pub fn build_regions(
                 } else if !line_angles.is_empty() {
                     let mut sorted = line_angles;
                     sorted.sort_by(|a, b| a.total_cmp(b));
-                    sorted[sorted.len() / 2]
+                    let median_a = sorted[sorted.len() / 2];
+                    if matched_bubble.is_some() && median_a.abs() < 5.0 {
+                        0.0
+                    } else {
+                        median_a
+                    }
                 } else {
                     0.0
                 };
@@ -551,13 +575,14 @@ pub fn build_regions(
                 // TRUST HIGH-CONFIDENCE MULTI-LINE FULL-PAGE DETECTIONS (>= 3 LINES, CONF >= 0.65) UNLESS CANDIDATE CONTAINER EXTENDS SIGNIFICANTLY BEYOND CLUSTER RECT
                 let container_w = box_rect.w;
                 let container_h = box_rect.h;
-                let is_container_wider = container_w >= cluster_rect.w + 20 || (container_w as f32) >= (cluster_rect.w as f32 * 1.15);
-                let is_container_taller = container_h >= cluster_rect.h + 20 || (container_h as f32) >= (cluster_rect.h as f32 * 1.15);
-                let full_page_is_complete = cluster_lines.len() >= 3 && avg_score >= 0.65 && !is_container_wider && !is_container_taller;
+                let is_container_wider = container_w >= cluster_rect.w + 25 || (container_w as f32) >= (cluster_rect.w as f32 * 1.30);
+                let is_container_taller = container_h >= cluster_rect.h + 25 || (container_h as f32) >= (cluster_rect.h as f32 * 1.30);
+                let full_page_is_complete = cluster_lines.len() >= 2 && avg_score >= 0.65 && !is_container_wider && !is_container_taller;
                 let can_refine_crop = (matched_bubble.is_some() || is_container_wider || is_container_taller) && (cluster_rect.w >= 16 || box_rect.w >= 16) && (cluster_rect.h >= 16 || box_rect.h >= 16) && !full_page_is_complete;
 
                 if can_refine_crop {
-                    let target_rect = if is_container_wider || is_container_taller || matched_bubble.is_some() {
+                    // Restrict crop target to the cluster bounds (plus small padding) to prevent capturing surrounding dialogue across different speech bubbles
+                    let target_rect = if matched_bubble.is_some() && cluster_lines.len() <= 2 {
                         BoxRect {
                             x: cluster_rect.x.min(box_rect.x),
                             y: cluster_rect.y.min(box_rect.y),
@@ -584,6 +609,9 @@ pub fn build_regions(
                                             if t.is_empty() {
                                                 return false;
                                             }
+                                            if crate::ml::detect::is_watermark_line(t) {
+                                                return false;
+                                            }
                                             if crate::ml::detect::is_standalone_alphanumeric_without_cjk(t) && t.chars().count() <= 5 && *score < 0.85 {
                                                 return false;
                                             }
@@ -592,7 +620,11 @@ pub fn build_regions(
                                         .cloned()
                                         .collect()
                                 } else {
-                                    res.lines.clone()
+                                    res.lines
+                                        .iter()
+                                        .filter(|(_, text, _)| !crate::ml::detect::is_watermark_line(text.trim()))
+                                        .cloned()
+                                        .collect()
                                 };
 
                                 let clean_crop_text = if !valid_crop_lines.is_empty() {
@@ -605,15 +637,20 @@ pub fn build_regions(
                                 let combined_cjk_count = combined_text.chars().filter(|c| crate::ml::detect::has_cjk_characters(&c.to_string())).count();
                                 let has_more_ellipsis = (clean_crop_text.contains('…') && !combined_text.contains('…')) || (clean_crop_text.contains("..") && !combined_text.contains(".."));
 
+                                // If the crop result merged lines across multiple separate dialogue sentences (e.g. crop_cjk_count is more than 1.5x combined_cjk_count), do not replace.
+                                let is_excessive_expansion = combined_cjk_count >= 3 && crop_cjk_count >= (combined_cjk_count * 3 / 2);
+
                                 let is_improved = if is_cjk {
-                                    crop_cjk_count > combined_cjk_count
-                                        || has_more_ellipsis
-                                        || (crop_cjk_count == combined_cjk_count && res.score > avg_score + 0.02)
-                                        || (res.score >= 0.70 && avg_score < 0.60)
+                                    !is_excessive_expansion && (
+                                        crop_cjk_count > combined_cjk_count
+                                            || has_more_ellipsis
+                                            || (crop_cjk_count == combined_cjk_count && res.score > avg_score + 0.02)
+                                            || (res.score >= 0.70 && avg_score < 0.60)
+                                    )
                                 } else {
                                     let crop_chars = clean_crop_text.chars().filter(|c| !c.is_whitespace()).count();
                                     let combined_chars = combined_text.chars().filter(|c| !c.is_whitespace()).count();
-                                    crop_chars > combined_chars || has_more_ellipsis || (crop_chars == combined_chars && res.score > avg_score + 0.02) || (res.score >= 0.70 && avg_score < 0.60)
+                                    !is_excessive_expansion && (crop_chars > combined_chars || has_more_ellipsis || (crop_chars == combined_chars && res.score > avg_score + 0.02) || (res.score >= 0.70 && avg_score < 0.60))
                                 };
 
                                 if is_improved && !clean_crop_text.is_empty() {
@@ -664,8 +701,8 @@ pub fn build_regions(
                     if is_cjk && (cluster_rect.y + cluster_rect.h >= page_h as i32 - 50) && cleaned.chars().count() == 1 && (cleaned == "动" || cleaned == "初" || cleaned == "腾" || cleaned == "漫" || cleaned == "漫客" || cleaned == "客") {
                         continue;
                     }
-                    // Suppress low-confidence isolated single-character artwork artifacts (e.g. blush mark '红', or partial title '记', conf < 0.75 outside bubbles), but preserve SoundEffects
-                    if cleaned.chars().count() == 1 && matched_bubble.is_none() && (!is_sfx || avg_score < 0.50) && (avg_score < 0.75 || compute_chromatic_color_variance(img, &cluster_rect) >= 15.0) {
+                    // Suppress low-confidence isolated single-character artwork artifacts (e.g. blush mark '红', motion blur slice '会', or partial title '记', conf < 0.75 outside bubbles), but preserve genuine high-confidence SoundEffects
+                    if cleaned.chars().count() == 1 && matched_bubble.is_none() && (!is_sfx || avg_score < 0.60) && (avg_score < 0.75 || compute_chromatic_color_variance(img, &cluster_rect) >= 15.0) {
                         continue;
                     }
                 }

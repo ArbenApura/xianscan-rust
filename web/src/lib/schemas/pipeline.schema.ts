@@ -5,6 +5,8 @@ export const translateChapterSchema = z.object({
 	pageIds: z.array(z.number().int().positive()).optional(),
 	inpaintMode: z.string().optional(),
 	pageConcurrency: z.number().int().min(1).max(16).optional(),
+	enableSfx: z.boolean().optional(),
+	sfxMaxAreaPct: z.number().min(0.01).max(1.0).optional(),
 	typesetOptions: z
 		.object({
 			fontDialogue: z.string().optional(),

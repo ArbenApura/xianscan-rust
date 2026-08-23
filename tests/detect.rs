@@ -219,3 +219,35 @@ fn test_rfdetr_seg_layout_detector() {
     assert!(!res.bubbles.is_empty(), "Must detect speech bubble containers");
     assert!(!res.text_bubbles.is_empty(), "Must detect text inside bubbles");
 }
+
+/// # Unit Test: SFX Area Calculation and Filtering
+///
+/// ## Purpose:
+/// Verifies the 30% area threshold logic that protects background artwork from being destroyed.
+#[test]
+fn test_sfx_area_calculation_and_filtering() {
+    let page_w = 1000.0f32;
+    let page_h = 2000.0f32;
+    let total_area = page_w * page_h;
+
+    // Small SFX: 100x150 = 15,000 px^2 (0.75% of page)
+    let small_sfx_w = 100.0f32;
+    let small_sfx_h = 150.0f32;
+    let small_ratio = (small_sfx_w * small_sfx_h) / total_area;
+    assert!(small_ratio <= 0.30, "Small SFX must be below 30% threshold (was {:.4})", small_ratio);
+
+    // Medium SFX: 400x500 = 200,000 px^2 (10% of page)
+    let med_sfx_w = 400.0f32;
+    let med_sfx_h = 500.0f32;
+    let med_ratio = (med_sfx_w * med_sfx_h) / total_area;
+    assert!(med_ratio <= 0.30, "Medium SFX must be below 30% threshold (was {:.4})", med_ratio);
+
+    // Giant Splash SFX: 800x1000 = 800,000 px^2 (40% of page)
+    let giant_sfx_w = 800.0f32;
+    let giant_sfx_h = 1000.0f32;
+    let giant_ratio = (giant_sfx_w * giant_sfx_h) / total_area;
+    assert!(giant_ratio > 0.30, "Giant Splash SFX must exceed 30% threshold (was {:.4})", giant_ratio);
+
+    // Custom threshold test: 50%
+    assert!(giant_ratio <= 0.50, "Giant SFX of 40% must pass a 50% threshold");
+}

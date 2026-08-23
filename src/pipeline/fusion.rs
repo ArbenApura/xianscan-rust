@@ -53,8 +53,8 @@ pub fn fuse_detections(
                 let t0 = std::time::Instant::now();
                 if let Ok(rl) = o.detect_and_recognize_tiled_with_lang(img, true, source_lang) {
                     let dur = t0.elapsed().as_secs_f64() * 1000.0;
-                    // FILTER OUT GIANT ARTWORK HALLUCINATIONS, NOISE STROKES, AND HIGH-TILT NOISE
-                    let filtered: Vec<OcrLine> = rl
+                    // FILTER OUT GIANT ARTWORK HALLUCINATIONS, NOISE STROKES, HIGH-TILT NOISE, AND OPTICAL BORDER SLIVERS
+                    let mut filtered: Vec<OcrLine> = rl
                         .into_iter()
                         .filter(|line| {
                             let (_, _, lw, lh) = polygon_bounds(&line.polygon);
@@ -78,6 +78,41 @@ pub fn fuse_detections(
                             true
                         })
                         .collect();
+
+                    // 4. DROP THIN CONTRAST-BORDER OPTICAL SLIVERS (LH <= 25PX) THAT OVERLAP NORMAL-HEIGHT LINES (LH >= 35PX)
+                    let normal_lines: Vec<([i32; 4], f32)> = filtered
+                        .iter()
+                        .filter_map(|l| {
+                            let (x, y, w, h) = polygon_bounds(&l.polygon);
+                            if h >= 35 && l.score >= 0.65 {
+                                Some(([x, y, w, h], l.score))
+                            } else {
+                                None
+                            }
+                        })
+                        .collect();
+
+                    filtered.retain(|l| {
+                        let (lx, ly, lw, lh) = polygon_bounds(&l.polygon);
+                        if lh <= 25 {
+                            let is_sliver = normal_lines.iter().any(|([nx, ny, nw, nh], _)| {
+                                let ix = (lx + lw).min(nx + nw) - lx.max(*nx);
+                                let iy = (ly + lh).min(ny + nh) - ly.max(*ny);
+                                if ix > 0 && iy > 0 {
+                                    let overlap_y = iy as f32 / lh as f32;
+                                    let overlap_x = ix as f32 / lw.min(*nw) as f32;
+                                    overlap_y >= 0.60 && overlap_x >= 0.50
+                                } else {
+                                    false
+                                }
+                            });
+                            if is_sliver {
+                                return false;
+                            }
+                        }
+                        true
+                    });
+
                     return (filtered, dur);
                 }
             }
@@ -115,16 +150,25 @@ pub fn fuse_detections(
 
     // FILTER OUT NOISY ONOMATOPOEIA STROKE DETECTIONS:
     // 1. STROKES THAT LIE DIRECTLY INSIDE SPEECH / THOUGHT BUBBLES
-    // 2. OVERSIZED SFX (HEIGHT >= 30% OF CANVAS HEIGHT) EXCEPT HORIZONTAL SENTENCES (ASPECT RATIO >= 2.5 OR HEIGHT <= 35PX)
+    // 2. LOW-CONFIDENCE SPRAWLING NOISE DETECTIONS (SCORE < 0.50 WITH W >= 100 OR H >= 100)
+    // 3. OVERSIZED SFX (HEIGHT >= 30% OF CANVAS HEIGHT) EXCEPT HORIZONTAL SENTENCES (ASPECT RATIO >= 2.5 OR HEIGHT <= 35PX)
     let filtered_onomatopoeia: Vec<(BoxRect, f32)> = onomatopoeia
         .into_iter()
-        .filter(|(sfx_b, _)| {
+        .filter(|(sfx_b, score)| {
             let s_mid_x = sfx_b.x + sfx_b.w / 2;
             let s_mid_y = sfx_b.y + sfx_b.h / 2;
             let inside_bubble = bubbles.iter().any(|b| {
                 s_mid_x >= b.x && s_mid_x <= b.x + b.w && s_mid_y >= b.y && s_mid_y <= b.y + b.h
             });
             if inside_bubble {
+                return false;
+            }
+
+            // SUPPRESS LOW-CONFIDENCE NOISE / BACKGROUND TEXTURE HALLUCINATIONS
+            if *score < 0.50 {
+                return false;
+            }
+            if *score < 0.60 && sfx_b.w <= 30 && sfx_b.h <= 30 {
                 return false;
             }
 
@@ -276,7 +320,7 @@ pub fn fuse_detections(
                             if let Ok(Some(crop_res)) = o.recognize_crop_with_lang(&crop, source_lang) {
                                 if !crop_res.lines.is_empty() {
                                     for (sub_poly, sub_text, sub_score) in crop_res.lines {
-                                        if sub_score >= 0.65 {
+                                        if sub_score >= 0.60 {
                                             let offset_poly = sub_poly.iter().map(|p| [p[0] + crop_x as i32, p[1] + crop_y as i32]).collect();
                                             rapid_lines.push(OcrLine {
                                                 polygon: offset_poly,
@@ -287,11 +331,25 @@ pub fn fuse_detections(
                                         }
                                     }
                                     recognized_from_crop = true;
-                                } else if !crop_res.text.is_empty() && crop_res.score >= 0.65 {
+                                } else if !crop_res.text.is_empty() && crop_res.score >= 0.60 {
                                     rapid_lines.push(OcrLine {
                                         polygon: cb.clone(),
                                         text: crop_res.text,
                                         score: crop_res.score,
+                                    });
+                                    rescued_crops_count += 1;
+                                    recognized_from_crop = true;
+                                }
+                            }
+                        }
+                        if !recognized_from_crop {
+                            // FOR VERTICAL JAPANESE SFX (HEIGHT >= 45, NARROW WIDTH), ATTEMPT DIRECT LINE RECOGNITION WITH ROTATION FALLBACK
+                            if let Ok(Some(line_res)) = o.recognize_line_with_lang(&crop, source_lang) {
+                                if !line_res.text.trim().is_empty() && line_res.score >= 0.55 {
+                                    rapid_lines.push(OcrLine {
+                                        polygon: cb.clone(),
+                                        text: line_res.text,
+                                        score: line_res.score,
                                     });
                                     rescued_crops_count += 1;
                                     recognized_from_crop = true;

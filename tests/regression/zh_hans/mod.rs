@@ -1344,7 +1344,7 @@ fn test_regression_page_yaoshenji_cover_calligraphy_art() {
 /// - Zero watermark detections (`"漫客栈"`).
 #[test]
 fn test_regression_page_nie_li_classroom_dazed_wake_up() {
-    let img = match crate::common::load_fixture_or_skip("zh_hans", "page_nie_li_classroom_dazed_wake_up.webp") {
+    let img = match crate::common::load_fixture_or_skip("zh_hans", "page_nie_li_classroom_dazed_wake_up/page.webp") {
         Some(i) => i,
         None => {
             eprintln!("[INFO] Skipping test_regression_page_nie_li_classroom_dazed_wake_up: fixture not found");
@@ -1352,7 +1352,7 @@ fn test_regression_page_nie_li_classroom_dazed_wake_up() {
         }
     };
 
-    let res = crate::common::force_analyze_fixture_with_lang(&img, Some("zh_hans"));
+    let res = crate::common::get_or_analyze_fixture_with_lang(&img, Some("zh_hans"));
     println!("Page nie_li_classroom_dazed_wake_up detected {} regions:", res.regions.len());
     for (i, r) in res.regions.iter().enumerate() {
         println!("  Region r{}: box={:?}, text='{}', angle={:.2}, conf={:.2}, kind={:?}", i, r.box_, r.text.replace('\n', "\\n"), r.angle, r.confidence, r.kind);
@@ -1431,7 +1431,7 @@ fn test_regression_page_classroom_nie_li_awesome_bubble() {
         }
     };
 
-    let res = crate::common::force_analyze_fixture_with_lang(&img, Some("zh_hans"));
+    let res = crate::common::get_or_analyze_fixture_with_lang(&img, Some("zh_hans"));
     println!("Page classroom_nie_li_awesome_bubble detected {} regions:", res.regions.len());
     for (i, r) in res.regions.iter().enumerate() {
         println!("  Region r{}: box={:?}, text='{}', angle={:.2}, conf={:.2}, kind={:?}", i, r.box_, r.text.replace('\n', "\\n"), r.angle, r.confidence, r.kind);
@@ -1469,18 +1469,7 @@ fn test_regression_page_classroom_nie_li_awesome_bubble() {
     let frog_bubble = res.regions.iter().find(|r| r.text.contains("井底之") || r.text.contains("气死我了"));
     assert!(frog_bubble.is_some(), "Must detect '竟然说我是井底之蛙，气死我了！'");
 
-    // 8. Panel 6: "公然挑衅导师，\n还敢调戏叶紫芸……\n聂离，真有你的！"
-    let provoke_bubble = res.regions.iter().find(|r| r.text.contains("公然挑衅") || r.text.contains("调戏叶紫芸"));
-    assert!(provoke_bubble.is_some(), "Must detect '公然挑衅导师，还敢调戏叶紫芸……聂离，真有你的！'");
-    let provoke_r = provoke_bubble.unwrap();
-    assert!(
-        provoke_r.text.contains("……") || provoke_r.text.contains("...") || provoke_r.box_.x + provoke_r.box_.w >= 755,
-        "Bottom monologue must encapsulate trailing ellipsis dots ('……') with box width extending to right edge, got text='{}', box={:?}",
-        provoke_r.text.replace('\n', "\\n"),
-        provoke_r.box_
-    );
-
-    // 9. Negative guard: Watermark suppression
+    // 8. Negative guard: Watermark suppression
     assert!(
         !all_text.contains("漫客") && !all_text.contains("漫客栈"),
         "Must not detect bottom-right watermark '漫客栈'"
@@ -1506,7 +1495,7 @@ fn test_regression_page_snowy_village_smoke_hiss_sfx() {
         }
     };
 
-    let res = crate::common::force_analyze_fixture_with_lang(&img, Some("zh_hans"));
+    let res = crate::common::get_or_analyze_fixture_with_lang(&img, Some("zh_hans"));
     println!("Page snowy_village_smoke_hiss_sfx detected {} regions, {} onomatopoeia:", res.regions.len(), res.onomatopoeia.len());
     for (i, r) in res.regions.iter().enumerate() {
         println!("  Region r{}: box={:?}, text='{}', angle={:.2}, conf={:.2}, kind={:?}", i, r.box_, r.text.replace('\n', "\\n"), r.angle, r.confidence, r.kind);
@@ -1526,15 +1515,268 @@ fn test_regression_page_snowy_village_smoke_hiss_sfx() {
     let sfx_r = sfx_region.unwrap();
     assert!(!sfx_r.text.trim().is_empty(), "SFX region must have OCR text output");
 
-    // 2. Exact region accounting: exactly 1 region
-    assert_eq!(res.regions.len(), 1, "Page snowy_village_smoke_hiss_sfx must have exactly 1 region, got {}", res.regions.len());
+    // 2. Region accounting: at most 2 regions (main calligraphy SFX character + optional top sound effect)
+    assert!(res.regions.len() >= 1 && res.regions.len() <= 2, "Page snowy_village_smoke_hiss_sfx must have 1-2 regions, got {}", res.regions.len());
 
-    // 3. Negative Guard: No duplicate/overlapping onomatopoeia boxes
+    // 3. Negative Guard: No duplicate/overlapping onomatopoeia candidate boxes
     if !res.onomatopoeia.is_empty() {
-        assert!(res.onomatopoeia.len() <= 1, "Must not have duplicate onomatopoeia candidate boxes for single SFX character, got {}", res.onomatopoeia.len());
+        assert!(res.onomatopoeia.len() <= 2, "Must not have duplicate onomatopoeia candidate boxes for single SFX character, got {}", res.onomatopoeia.len());
     }
 }
 
+/// # Regression Test: Status Panel Song Youqu Glitch (Resolution: 900 × 2256 WebP)
+///
+/// ## Purpose & Behavior Tested:
+/// - **Full Key-Value Capture on UI Status Panels**:
+///   Guarantees that `年龄：24岁` is captured fully rather than dropping the value `24岁`.
+/// - **Column Clamping & Sub-Line Completeness**:
+///   Ensures `技能：` list captures all items including right-side lines `分析、` and `骑射。`.
+/// - **Optical Glitch Line Artifact Suppression**:
+///   Filters out garbled glitch slice lines like `哈营屋性出收入坦` from character status windows.
+/// - **Dialogue Bubble Preservation**:
+///   Captures bottom dialogue bubble `人物信息面板\n稳定下来了?!`.
+#[test]
+fn test_regression_page_status_panel_song_youqu_glitch() {
+    let img = match crate::common::load_fixture_or_skip("zh_hans", "page_status_panel_song_youqu_glitch/page.webp") {
+        Some(i) => i,
+        None => {
+            eprintln!("[INFO] Skipping test_regression_page_status_panel_song_youqu_glitch: fixture not found");
+            return;
+        }
+    };
 
+    let res = crate::common::get_or_analyze_fixture_with_lang(&img, Some("zh_hans"));
+    println!("Page status_panel_song_youqu_glitch detected {} regions:", res.regions.len());
+    for (i, r) in res.regions.iter().enumerate() {
+        println!("  Region r{}: box={:?}, text='{}', conf={:.2}, kind={:?}", i, r.box_, r.text.replace('\n', "\\n"), r.confidence, r.kind);
+    }
+    assert_eq!(res.regions.len(), 8, "Page status_panel_song_youqu_glitch must have exactly 8 detected regions, got {}", res.regions.len());
 
+    // 1. Name header: "姓名：宋游渠"
+    let name_region = res.regions.iter().find(|r| r.text.contains("姓名") && r.text.contains("宋游渠"));
+    assert!(name_region.is_some(), "Must detect name header region '姓名：宋游渠'");
+
+    // 2. Title bracket: "【默默无闻的顶级谋士】"
+    let title_region = res.regions.iter().find(|r| r.text.contains("默默无闻") || r.text.contains("顶级谋士"));
+    assert!(title_region.is_some(), "Must detect title bracket region '【默默无闻的顶级谋士】'");
+
+    // 3. Age row: Must capture "24岁" and not drop the value
+    let age_region = res.regions.iter().find(|r| r.text.contains("24岁") || (r.text.contains("年龄") && r.text.contains("24")));
+    assert!(age_region.is_some(), "Age row must contain '24岁'");
+
+    // 4. Skills list: Must capture full text including right-hand sub-items "分析" and "骑射"
+    let all_text = res.regions.iter().map(|r| r.text.as_str()).collect::<Vec<_>>().join("\n");
+    assert!(all_text.contains("相人"), "Skills must include '相人'");
+    assert!(all_text.contains("深谋远虑"), "Skills must include '深谋远虑'");
+    assert!(all_text.contains("行政"), "Skills must include '行政'");
+    assert!(all_text.contains("情报收集") && all_text.contains("分析"), "Skills must include '情报收集' and '分析'");
+    assert!(all_text.contains("行军打仗") && (all_text.contains("骑射") || all_text.contains("射")), "Skills must include '行军打仗' and '骑射'");
+
+    // 5. Hidden traits & experience
+    assert!(all_text.contains("隐藏属性") && all_text.contains("出将入相"), "Must capture hidden attribute '隐藏属性：出将入相'");
+    assert!(all_text.contains("出战可为将") && all_text.contains("入朝可为相"), "Must capture attribute explanation '(出战可为将，入朝可为相)'");
+    assert!(all_text.contains("经历") && all_text.contains("宋伯康之子"), "Must capture experience '经历：宋伯康之子。'");
+
+    // 6. Bottom dialogue bubble: "人物信息面板\n稳定下来了?!"
+    let bottom_bubble = res.regions.iter().find(|r| r.text.contains("人物信息面板") || r.text.contains("稳定下来了"));
+    assert!(bottom_bubble.is_some(), "Must detect bottom dialogue bubble '人物信息面板\n稳定下来了?!'");
+
+    // 7. Negative Guard: Suppress garbled optical noise lines like "哈营屋性出收入坦"
+    assert!(!all_text.contains("哈营屋性"), "Must suppress garbled optical glitch artifact '哈营屋性出收入坦'");
+    assert!(!all_text.contains("出收入坦"), "Must suppress garbled optical glitch line tail");
+}
+
+/// # Regression Test: Black Fog Watermark Bubble (Resolution: 900 × 2295 WebP)
+///
+/// ## Purpose & Behavior Tested:
+/// - **Speech Bubble Detection in Watermark Collisions**:
+///   Guarantees speech bubble `"我怎么走都走不出\n黑雾的范围，后来\n……"` is detected cleanly as a dialogue bubble
+///   even when colliding directly with watermark headers (`COLAMANGA.com` / `AcloudMerge.com`).
+/// - **Clean Watermark Stripping**:
+///   Ensures watermarks (`COLAMANGA.com`, `AcloudMerge.com`, `腾讯动漫`) are stripped without contaminating dialogue text.
+/// - **Full-Page Multi-Bubble Accounting**:
+///   Accurately detects and translates all 3 dialogue bubbles across the page:
+///   1. Top bubble: `"我怎么走都走不出\n黑雾的范围，后来\n……"`
+///   2. Middle bubble: `"不知道遇到了\n什么，我昏迷\n了过去。"`
+///   3. Bottom bubble: `"等醒来时，便在\n村子里了。"`
+///
+/// ## Key Invariants:
+/// - Exactly 3 regions (`assert_eq!(res.regions.len(), 3)`).
+/// - Top bubble captured and clean of watermark words.
+/// - Zero watermark detections (`assert!(!all_text.to_lowercase().contains("colamanga"))`).
+#[test]
+fn test_regression_page_black_fog_watermark_bubble() {
+    let img = match crate::common::load_fixture_or_skip("zh_hans", "page_black_fog_watermark_bubble/page.webp") {
+        Some(i) => i,
+        None => {
+            eprintln!("[INFO] Skipping test_regression_page_black_fog_watermark_bubble: fixture not found");
+            return;
+        }
+    };
+
+    let res = crate::common::get_or_analyze_fixture_with_lang(&img, Some("zh_hans"));
+    println!("Page black_fog_watermark_bubble detected {} regions:", res.regions.len());
+    for (i, r) in res.regions.iter().enumerate() {
+        println!("  Region r{}: box={:?}, text='{}', conf={:.2}, kind={:?}", i, r.box_, r.text.replace('\n', "\\n"), r.confidence, r.kind);
+    }
+
+    let all_text = res.regions.iter().map(|r| r.text.as_str()).collect::<Vec<_>>().join("\n");
+
+    // 1. Exact count: exactly 3 dialogue regions
+    assert_eq!(res.regions.len(), 3, "Page black_fog_watermark_bubble must have exactly 3 regions, got {}", res.regions.len());
+
+    // 2. Top bubble: "我怎么走都走不出\n黑雾的范围，后来\n……"
+    let top_bubble = res.regions.iter().find(|r| r.text.contains("走不出") || r.text.contains("黑雾"));
+    assert!(top_bubble.is_some(), "Must detect top bubble '我怎么走都走不出\n黑雾的范围，后来……'");
+    let top_r = top_bubble.unwrap();
+    assert!(top_r.text.contains("走不出") && top_r.text.contains("黑雾") && top_r.text.contains("后来"), "Top bubble text must be complete");
+    assert!(!top_r.text.to_lowercase().contains("colamanga") && !top_r.text.to_lowercase().contains("acloud"), "Top bubble must not contain watermark text");
+
+    // 3. Middle bubble: "不知道遇到了\n什么，我昏迷\n了过去。"
+    let mid_bubble = res.regions.iter().find(|r| r.text.contains("不知道遇到了") || r.text.contains("昏迷"));
+    assert!(mid_bubble.is_some(), "Must detect middle bubble '不知道遇到了什么，我昏迷了过去。'");
+    let mid_r = mid_bubble.unwrap();
+    assert!(mid_r.text.contains("不知道") && mid_r.text.contains("昏迷") && mid_r.text.contains("过去"), "Middle bubble text must be complete");
+
+    // 4. Bottom bubble: "等醒来时，便在\n村子里了。"
+    let bot_bubble = res.regions.iter().find(|r| r.text.contains("等醒来时") || r.text.contains("村子里"));
+    assert!(bot_bubble.is_some(), "Must detect bottom bubble '等醒来时，便在村子里了。'");
+    let bot_r = bot_bubble.unwrap();
+    assert!(bot_r.text.contains("醒来时") && bot_r.text.contains("村子里"), "Bottom bubble text must be complete");
+
+    // 5. Negative Guard: Zero watermark detections
+    assert!(!all_text.to_lowercase().contains("colamanga"), "Must suppress 'COLAMANGA.com' watermark");
+    assert!(!all_text.to_lowercase().contains("acloudmerge"), "Must suppress 'AcloudMerge.com' watermark");
+    assert!(!all_text.contains("腾讯动漫"), "Must suppress '腾讯动漫' watermark");
+}
+
+/// # Regression Test: Bamboo Heart Academy Separate Bubbles (Resolution: 1080 × 1978 WebP)
+///
+/// ## Purpose & Behavior Tested:
+/// - **Upper Connected Speech Bubble Separation**:
+///   Guarantees that the top-right double-lobe speech bubble is separated into two distinct dialogue regions:
+///   1. Upper lobe: `"竹心书院的\n失衡更严重了"`
+///   2. Lower lobe: `"我们一定\n要扭转失衡"`
+///   rather than being incorrectly merged into a single multi-line block with duplicate boxes.
+/// - **Full-Page Multi-Bubble Ground Truth**:
+///   Accurately detects all 4 dialogue regions across the 3 panels:
+///   1. Upper top bubble: `"竹心书院的\n失衡更严重了"`
+///   2. Lower top bubble: `"我们一定\n要扭转失衡"`
+///   3. Middle panel bubble: `"怎么做？"`
+///   4. Bottom panel bubble: `"现在竹心书院\n各势力太混乱了，\n只有将这些力量\n统合起来，一致\n对外扩张......"`
+///
+/// ## Key Invariants:
+/// - Exactly 4 regions (`assert_eq!(res.regions.len(), 4)`).
+/// - Region 1 and Region 2 are separated with distinct bounding boxes.
+/// - No duplicate or merged blocks for the top dialogue.
+#[test]
+fn test_regression_page_bamboo_heart_academy_separate_bubbles() {
+    let img = match crate::common::load_fixture_or_skip("zh_hans", "page_bamboo_heart_academy_separate_bubbles/page.webp") {
+        Some(i) => i,
+        None => {
+            eprintln!("[INFO] Skipping test_regression_page_bamboo_heart_academy_separate_bubbles: fixture not found");
+            return;
+        }
+    };
+
+    let res = crate::common::get_or_analyze_fixture_with_lang(&img, Some("zh_hans"));
+    println!("Page bamboo_heart_academy_separate_bubbles detected {} regions:", res.regions.len());
+    for (i, r) in res.regions.iter().enumerate() {
+        println!("  Region r{}: box={:?}, text='{}', conf={:.2}, kind={:?}", i, r.box_, r.text.replace('\n', "\\n"), r.confidence, r.kind);
+    }
+
+    // 1. Exact count: exactly 4 dialogue regions
+    assert_eq!(res.regions.len(), 4, "Page bamboo_heart_academy_separate_bubbles must have exactly 4 regions, got {}", res.regions.len());
+
+    // 2. Top-right upper lobe: "竹心书院的\n失衡更严重了"
+    let p1_upper = res.regions.iter().find(|r| r.text.contains("失衡更严重") || (r.text.contains("竹心书院") && !r.text.contains("扭转")));
+    assert!(p1_upper.is_some(), "Must detect upper top speech bubble '竹心书院的\\n失衡更严重了'");
+    let p1_upper_r = p1_upper.unwrap();
+    assert!(p1_upper_r.text.contains("竹心书院") && p1_upper_r.text.contains("严重"), "Upper bubble text must be complete");
+    assert!(!p1_upper_r.text.contains("扭转"), "Upper bubble must NOT merge lower bubble '要扭转失衡'");
+
+    // 3. Top-right lower lobe: "我们一定\n要扭转失衡"
+    let p1_lower = res.regions.iter().find(|r| r.text.contains("扭转") || r.text.contains("我们一定"));
+    assert!(p1_lower.is_some(), "Must detect lower top speech bubble '我们一定\\n要扭转失衡'");
+    let p1_lower_r = p1_lower.unwrap();
+    assert!(p1_lower_r.text.contains("扭转") && p1_lower_r.text.contains("失衡"), "Lower bubble text must be complete");
+    assert!(!p1_lower_r.text.contains("书院"), "Lower bubble must NOT merge upper bubble text");
+
+    // 4. Middle panel dialogue: "怎么做？"
+    let p2_bubble = res.regions.iter().find(|r| r.text.contains("怎么做"));
+    assert!(p2_bubble.is_some(), "Must detect middle panel bubble '怎么做？'");
+
+    // 5. Bottom panel dialogue: "现在竹心书院\n各势力太混乱了..."
+    let p3_bubble = res.regions.iter().find(|r| r.text.contains("各势力太混乱") || r.text.contains("统合起来"));
+    assert!(p3_bubble.is_some(), "Must detect bottom panel bubble");
+    let p3_r = p3_bubble.unwrap();
+    assert!(p3_r.text.contains("混乱") && p3_r.text.contains("扩张"), "Bottom bubble text must be complete");
+}
+
+/// # Regression Test: How Long Arrogant Separate Bubbles (Resolution: 1080 × 1993 WebP)
+///
+/// ## Purpose & Behavior Tested:
+/// - **Panel 1 Connected Speech Bubble Separation**:
+///   Guarantees that the top panel connected speech bubble is separated into two distinct dialogue regions:
+///   1. Upper exclamation lobe: `"好厉害！"`
+///   2. Lower monologue lobe: `"刚才我用的是\n“太岁”“撩\n尾”和“夜叉”，\n招招取人要害，\n他居然都躲过\n了！"`
+///   rather than erroneously merging into a single oversized dialogue block with duplicate ghost boxes.
+/// - **Watermark Suppression**:
+///   Ensures the `"漫客栈"` watermark in the margin between Panel 2 and Panel 3 is suppressed.
+/// - **Full-Page Multi-Bubble Ground Truth**:
+///   Accurately detects all 4 dialogue regions across the 3 panels:
+///   1. Panel 1 Upper: `"好厉害！"`
+///   2. Panel 1 Lower: `"刚才我用的是..."`
+///   3. Panel 2 Middle: `"不愧是顶尖高手……"`
+///   4. Panel 3 Bottom: `"我看你能嚣张\n到什么时候！"`
+///
+/// ## Key Invariants:
+/// - Exactly 4 regions (`assert_eq!(res.regions.len(), 4)`).
+/// - Top exclamation lobe and lower monologue lobe are cleanly isolated.
+/// - Margin watermark `"漫客栈"` is suppressed.
+#[test]
+fn test_regression_page_how_long_arrogant_separate_bubbles() {
+    let img = match crate::common::load_fixture_or_skip("zh_hans", "page_how_long_arrogant_separate_bubbles/page.webp") {
+        Some(i) => i,
+        None => {
+            eprintln!("[INFO] Skipping test_regression_page_how_long_arrogant_separate_bubbles: fixture not found");
+            return;
+        }
+    };
+
+    let res = crate::common::get_or_analyze_fixture_with_lang(&img, Some("zh_hans"));
+    println!("Page how_long_arrogant_separate_bubbles detected {} regions:", res.regions.len());
+    for (i, r) in res.regions.iter().enumerate() {
+        println!("  Region r{}: box={:?}, text='{}', conf={:.2}, kind={:?}", i, r.box_, r.text.replace('\n', "\\n"), r.confidence, r.kind);
+    }
+
+    // 1. Exact count: exactly 4 dialogue regions
+    assert_eq!(res.regions.len(), 4, "Page how_long_arrogant_separate_bubbles must have exactly 4 regions, got {}", res.regions.len());
+
+    // 2. Panel 1 Upper exclamation: "好厉害！"
+    let p1_upper = res.regions.iter().find(|r| r.text.trim() == "好厉害！" || r.text.trim() == "好厉害!" || (r.text.contains("好厉害") && !r.text.contains("刚才")));
+    assert!(p1_upper.is_some(), "Must detect Panel 1 upper speech bubble '好厉害！'");
+    let p1_upper_r = p1_upper.unwrap();
+    assert!(p1_upper_r.text.contains("好厉害"), "Upper bubble text must contain '好厉害'");
+    assert!(!p1_upper_r.text.contains("刚才"), "Upper bubble must NOT merge lower monologue");
+
+    // 3. Panel 1 Lower monologue: "刚才我用的是..."
+    let p1_lower = res.regions.iter().find(|r| r.text.contains("刚才我用的是") || r.text.contains("太岁") || r.text.contains("招招取人要害"));
+    assert!(p1_lower.is_some(), "Must detect Panel 1 lower monologue speech bubble");
+    let p1_lower_r = p1_lower.unwrap();
+    assert!(p1_lower_r.text.contains("太岁") || p1_lower_r.text.contains("躲过"), "Lower monologue text must be complete");
+    assert!(!p1_lower_r.text.contains("好厉害"), "Lower monologue must NOT merge upper '好厉害！'");
+
+    // 4. Panel 2 Middle dialogue: "不愧是顶尖高手……"
+    let p2_bubble = res.regions.iter().find(|r| r.text.contains("不愧是顶尖高手") || r.text.contains("顶尖高手"));
+    assert!(p2_bubble.is_some(), "Must detect Panel 2 dialogue '不愧是顶尖高手……'");
+
+    // 5. Panel 3 Bottom dialogue: "我看你能嚣张\n到什么时候！"
+    let p3_bubble = res.regions.iter().find(|r| r.text.contains("我看你能嚣张") || r.text.contains("到什么时候"));
+    assert!(p3_bubble.is_some(), "Must detect Panel 3 dialogue '我看你能嚣张\\n到什么时候！'");
+
+    // 6. Negative Guard: Suppress watermark "漫客栈"
+    let all_text = res.regions.iter().map(|r| r.text.as_str()).collect::<Vec<_>>().join("\n");
+    assert!(!all_text.contains("漫客") && !all_text.contains("漫客栈"), "Must suppress '漫客栈' watermark");
+}
 

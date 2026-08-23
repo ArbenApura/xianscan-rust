@@ -117,12 +117,18 @@ fn test_analyze_options_serialization() {
         inpaint_padding_pct: None,
         typeset_padding_pct: None,
         enable_watermark_inpaint: None,
+        enable_sfx: Some(true),
+        sfx_max_area_pct: Some(0.30),
     };
     let json = serde_json::to_string(&opts).unwrap();
     assert!(json.contains(r#""source_lang":"zh-Hans""#));
     assert!(json.contains(r#""target_lang":"en""#));
+    assert!(json.contains(r#""enable_sfx":true"#));
+    assert!(json.contains(r#""sfx_max_area_pct":0.3"#));
 
     let parsed: AnalyzeOptions = serde_json::from_str(&json).unwrap();
     assert_eq!(parsed.source_lang.as_deref(), Some("zh-Hans"));
     assert_eq!(parsed.target_lang.as_deref(), Some("en"));
+    assert_eq!(parsed.enable_sfx, Some(true));
+    assert_eq!(parsed.sfx_max_area_pct, Some(0.30));
 }

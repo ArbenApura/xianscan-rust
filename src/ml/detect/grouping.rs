@@ -25,7 +25,7 @@ pub fn deduplicate_boxes(
     let mut kept_boxes: Vec<Vec<[f32; 2]>> = Vec::new();
     let mut kept_scores: Vec<f32> = Vec::new();
 
-    for (_idx, box_pts, score) in indexed {
+    for &(_idx, box_pts, score) in &indexed {
         let (x0, y0, w, h) = box_to_xywh_f32(box_pts);
         let box_area = 1.0_f32.max(w * h);
         let mut suppressed = false;
@@ -45,17 +45,16 @@ pub fn deduplicate_boxes(
             let overlap_ratio = if min_area > 0.0 { inter / min_area } else { 0.0 };
 
             // CHECK IF CURRENT CANDIDATE BOX ENCLOSES KEPT SUB-BOX (MACRO-CONTAINER VS SLICE)
-            // A MACRO-CONTAINER MUST STACK MULTIPLE LINES (VERTICAL EXPANSION FOR HORIZONTAL TEXT, HORIZONTAL FOR VERTICAL TEXT)
-            let is_multi_line_container = (h >= 1.30 * kh) || (w >= 1.30 * kw && h >= 1.30 * w);
-            if is_multi_line_container && box_area >= 1.30 * karea && inter >= 0.70 * karea && (ix >= 0.75 * kw) && (iy >= 0.70 * kh) {
+            let is_multi_line_container = (h >= 1.25 * kh) || (w >= 1.25 * kw && iy >= 0.70 * kh);
+            if is_multi_line_container && box_area >= 1.25 * karea && inter >= 0.70 * karea && (ix >= 0.70 * kw) && (iy >= 0.70 * kh) {
                 // CURRENT CANDIDATE IS A LARGER CONTAINER ENCLOSING THE SMALLER KEPT BOX -> MARK KEPT BOX FOR REPLACEMENT
                 replace_indices.push(k);
                 continue;
             }
 
             // CHECK IF KEPT BOX ALREADY ENCLOSES CURRENT CANDIDATE BOX
-            let is_kbox_container = (kh >= 1.30 * h) || (kw >= 1.30 * w && kh >= 1.30 * kw);
-            if is_kbox_container && karea >= 1.30 * box_area && inter >= 0.70 * box_area && (ix >= 0.75 * w) && (iy >= 0.70 * h) {
+            let is_kbox_container = (kh >= 1.25 * h) || (kw >= 1.25 * w && iy >= 0.70 * h);
+            if is_kbox_container && karea >= 1.25 * box_area && inter >= 0.70 * box_area && (ix >= 0.70 * w) && (iy >= 0.70 * h) {
                 suppressed = true;
                 break;
             }

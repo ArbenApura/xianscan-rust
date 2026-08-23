@@ -7,6 +7,7 @@
 		settings,
 		AVAILABLE_TYPESET_FONTS,
 		AVAILABLE_CJK_FONTS,
+		SFX_AREA_PRESETS,
 		type TypesetOutline,
 		type TypesetContrast,
 		type TypesetCasing,
@@ -14,6 +15,7 @@
 	// IMPORTED ICONS
 	import Type from 'lucide-svelte/icons/type';
 	import Sparkles from 'lucide-svelte/icons/sparkles';
+	import Volume2 from 'lucide-svelte/icons/volume-2';
 	import Check from 'lucide-svelte/icons/check';
 	import Sliders from 'lucide-svelte/icons/sliders';
 	import RotateCcw from 'lucide-svelte/icons/rotate-ccw';
@@ -163,6 +165,20 @@
 		});
 	}
 
+	function toggleSfx() {
+		settings.update((s) => {
+			const next = !s.enableSfx;
+			toast.success(`Sound effects (SFX) translation ${next ? 'enabled' : 'disabled'}`);
+			return { ...s, enableSfx: next };
+		});
+	}
+
+	function setSfxMaxArea(val: number) {
+		settings.update((s) => ({ ...s, sfxMaxAreaPct: val }));
+		const label = SFX_AREA_PRESETS.find((p) => Math.abs(p.value - val) < 0.005)?.label || `${Math.round(val * 100)}%`;
+		toast.success(`SFX max area threshold set to ${label}`);
+	}
+
 	// -- INPAINT EXPANSION PRESETS -- //
 	const INPAINT_EXPANSION_PRESETS: { value: number; label: string; sub: string }[] = [
 		{ value: 0.0, label: '0%', sub: 'Exact text bound' },
@@ -204,6 +220,8 @@
 			typesetCasing: 'uppercase',
 			typesetAllCaps: true,
 			enableTextRotation: true,
+			enableSfx: false,
+			sfxMaxAreaPct: 0.30,
 			inpaintExpansionPct: 0.03,
 			typesetExpansionPct: 0.06,
 		}));
@@ -578,6 +596,63 @@
 						}`}
 					></span>
 				</button>
+			</div>
+
+			<!-- SOUND EFFECTS (SFX) INPAINTING & TYPESETTING TOGGLE -->
+			<div class="rounded-xl border border-black/10 bg-black/[0.01] p-3 dark:border-white/10 dark:bg-white/[0.01] space-y-3">
+				<div class="flex items-start justify-between gap-4">
+					<div>
+						<div class="text-xs font-bold pl-0.5 flex items-center gap-1.5">
+							<Volume2 size={13} class="text-[#b23a2e] dark:text-[#e08a63]" />
+							<span>Sound Effects (SFX) Inpaint & Typeset</span>
+						</div>
+						<p class="text-[10px] opacity-60 mt-0.5 pl-0.5">
+							Inpaint and typeset onomatopoeia. When disabled, original Japanese/Korean/Chinese sound art is kept untouched.
+						</p>
+					</div>
+
+					<button
+						type="button"
+						on:click={toggleSfx}
+						class={`relative inline-flex h-5 w-10 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-hidden ${
+							$settings.enableSfx ? 'bg-[#b23a2e] dark:bg-[#e08a63]' : 'bg-black/20 dark:bg-white/20'
+						}`}
+						role="switch"
+						aria-checked={$settings.enableSfx}
+					>
+						<span
+							class={`pointer-events-none inline-block h-4 w-4 transform rounded-full bg-white shadow-sm ring-0 transition duration-200 ease-in-out ${
+								$settings.enableSfx ? 'translate-x-5' : 'translate-x-0'
+							}`}
+						></span>
+					</button>
+				</div>
+
+				{#if $settings.enableSfx}
+					<div class="border-t border-black/10 pt-2.5 dark:border-white/10">
+						<div class="flex items-center justify-between mb-1.5">
+							<span class="text-[10px] font-bold uppercase tracking-wider opacity-75 pl-0.5">Artwork Preservation Threshold</span>
+							<span class="text-[10px] font-mono opacity-60">Skip if &gt; {Math.round($settings.sfxMaxAreaPct * 100)}% page area</span>
+						</div>
+						<div class="grid grid-cols-2 sm:grid-cols-4 gap-1.5">
+							{#each SFX_AREA_PRESETS as preset}
+								<button
+									type="button"
+									on:click={() => setSfxMaxArea(preset.value)}
+									class={`flex flex-col items-center justify-center rounded-lg border py-1.5 px-2 text-center transition-all ${
+										Math.abs($settings.sfxMaxAreaPct - preset.value) < 0.005
+											? 'border-[#b23a2e] bg-[#b23a2e]/10 text-[#b23a2e] dark:text-[#e08a63] font-bold shadow-xs'
+											: 'border-black/10 hover:border-black/20 bg-black/[0.02] dark:border-white/10 dark:hover:border-white/20 dark:bg-white/[0.02] opacity-70 hover:opacity-100'
+									}`}
+									use:ripple
+								>
+									<span class="text-xs font-bold">{preset.label}</span>
+									<span class="text-[9px] opacity-60 truncate max-w-full">{preset.sub.split('·')[0].trim()}</span>
+								</button>
+							{/each}
+						</div>
+					</div>
+				{/if}
 			</div>
 
 			<!-- DIALOGUE CASING 3-WAY SELECTOR (ONLY SHOWN FOR FONTS SUPPORTING MIXED/LOWER CASE) -->

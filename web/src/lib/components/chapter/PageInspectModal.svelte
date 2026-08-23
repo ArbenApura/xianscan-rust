@@ -1002,7 +1002,7 @@
 												stroke="#000"
 												stroke-width="2.5"
 												paint-order="stroke"
-											>SFX {sfx.seq !== undefined ? sfx.seq + 1 : idx + 1}</text>
+											>SFX {sfx.seq !== undefined ? sfx.seq + 1 : idx + 1}{#if page.width && page.height} ({Math.round(((sb.w * sb.h) / (page.width * page.height)) * 100)}%){/if}</text>
 										{/if}
 									{/each}
 								{/if}

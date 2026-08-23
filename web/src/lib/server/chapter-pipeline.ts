@@ -53,6 +53,8 @@ export interface ChapterPipelineDeps {
 	inpaintExpansionPct?: number;
 	typesetExpansionPct?: number;
 	enableWatermarkInpaint?: boolean;
+	enableSfx?: boolean;
+	sfxMaxAreaPct?: number;
 	typesetOptions?: TypesetOptions;
 	/**
 	 * OPACQUE PROVIDER DISCRIMINATOR FOR THE TRANSLATION CACHE — THE API LAYER SETS IT FROM
@@ -439,6 +441,8 @@ export async function runChapterPipeline(
 						inpaintPaddingPct: deps.inpaintExpansionPct,
 						typesetPaddingPct: deps.typesetExpansionPct,
 						enableWatermarkInpaint: deps.enableWatermarkInpaint,
+						enableSfx: deps.enableSfx,
+						sfxMaxAreaPct: deps.sfxMaxAreaPct,
 					});
 					if (signal.aborted || deps.isPageCancelled?.(injectRow.id)) return;
 					const tAnalyze = performance.now() - tA0;
@@ -499,8 +503,21 @@ export async function runChapterPipeline(
 					if (signal.aborted || deps.isPageCancelled?.(injectRow.id)) return;
 
 					// PHASE 2: TRANSLATE
+					const isSfxEnabled = deps.enableSfx === true;
+					const maxSfxArea = deps.sfxMaxAreaPct ?? 0.30;
+					const pageArea = (analyzed.width * analyzed.height) || 1;
+
+					const isRegionEligible = (r: { kind?: string; box: { w: number; h: number } }) => {
+						if (r.kind === 'sound_effect') {
+							if (!isSfxEnabled) return false;
+							const areaRatio = (r.box.w * r.box.h) / pageArea;
+							if (areaRatio > maxSfxArea) return false;
+						}
+						return true;
+					};
+
 					const sources = analyzed.regions
-						.filter((r) => r.text.trim().length > 0)
+						.filter((r) => r.text.trim().length > 0 && isRegionEligible(r))
 						.map((r) => ({ id: r.id, text: r.text, kind: r.kind, vertical: r.vertical }));
 					const byRegion = new Map<string, string>();
 					if (sources.length > 0) {
@@ -642,7 +659,7 @@ export async function runChapterPipeline(
 					emit({ type: 'page-step-start', chapterId, page: injectIdx, pageId: injectRow.id, step: 'clean' });
 					const tC0 = performance.now();
 					const cleanRegions = analyzed.regions
-						.filter((r) => Boolean(byRegion.get(r.id)?.trim()))
+						.filter((r) => isRegionEligible(r) && Boolean(byRegion.get(r.id)?.trim()))
 						.map((r) => ({ id: r.id, box: r.inpaint_box ?? r.box, polygon: r.polygon }));
 					const cleaned =
 						cleanRegions.length > 0
@@ -675,7 +692,7 @@ export async function runChapterPipeline(
 					});
 					const tTy0 = performance.now();
 					const typesetRegions = analyzed.regions
-						.filter((r) => Boolean(byRegion.get(r.id)?.trim()))
+						.filter((r) => isRegionEligible(r) && Boolean(byRegion.get(r.id)?.trim()))
 						.map((r) => ({
 							id: r.id,
 							box: r.typeset_box ?? r.box,

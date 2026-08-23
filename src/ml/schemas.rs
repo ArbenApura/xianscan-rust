@@ -70,6 +70,10 @@ pub struct AnalyzeOptions {
     pub typeset_padding_pct: Option<f32>,
     #[serde(default)]
     pub enable_watermark_inpaint: Option<bool>,
+    #[serde(default)]
+    pub enable_sfx: Option<bool>,
+    #[serde(default)]
+    pub sfx_max_area_pct: Option<f32>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]

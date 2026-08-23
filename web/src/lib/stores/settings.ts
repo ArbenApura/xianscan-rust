@@ -50,6 +50,8 @@ export interface AppSettings {
 	typesetAllCaps?: boolean; // Deprecated alias
 	enableTextRotation: boolean; // Follow detected bubble angle (default true)
 	enableWatermarkInpaint: boolean; // Chromatic watermark inpainting pre-pass (default false)
+	enableSfx: boolean; // Inpaint and typeset detected sound effects (default false)
+	sfxMaxAreaPct: number; // Skip SFX taking more than this area percentage to protect artwork (default 0.30)
 	inpaintExpansionPct: number; // Tier 2 inpaint mask margin expansion (default 0.03 = 3%)
 	typesetExpansionPct: number; // Tier 3 typesetting layout box margin expansion (default 0.06 = 6%)
 }
@@ -191,11 +193,18 @@ export const AVAILABLE_CJK_FONTS = [
 	{ id: 'Malgun Gothic', label: 'Malgun Gothic', sub: 'Korean Hangul Manhwa' },
 ];
 
+export const SFX_AREA_PRESETS: { value: number; label: string; sub: string }[] = [
+	{ value: 0.15, label: '15%', sub: 'Conservative · Small SFX only' },
+	{ value: 0.30, label: '30%', sub: 'Standard · 30% Rule (Default)' },
+	{ value: 0.50, label: '50%', sub: 'Aggressive · Medium splash' },
+	{ value: 1.00, label: '100%', sub: 'All SFX · No area skip' },
+];
+
 // -- CONSTANTS -- //
 
 // BUMP version WHEN DEFAULTS CHANGE — TRIGGERS A ONE-TIME MIGRATION OF SAVED SETTINGS
 export const DEFAULTS: AppSettings = {
-	version: 11,
+	version: 12,
 	theme: 'sepia',
 	appFont: 'comic',
 	model: 'deepseek-v4-flash',
@@ -220,6 +229,8 @@ export const DEFAULTS: AppSettings = {
 	typesetAllCaps: true,
 	enableTextRotation: true,
 	enableWatermarkInpaint: false,
+	enableSfx: false,
+	sfxMaxAreaPct: 0.30,
 	// THREE-TIER REGION GEOMETRY DEFAULTS (INPAINT & TYPESET BOX EXPANSION)
 	inpaintExpansionPct: 0.03,
 	typesetExpansionPct: 0.06,
@@ -237,6 +248,8 @@ export const WEBTOON_KIND_COOKIE = 'mt_webtoon_kind';
 export const WEBTOON_WIDTH_COOKIE = 'mt_webtoon_width';
 export const INPAINT_MODE_COOKIE = 'mt_inpaint_mode';
 export const WATERMARK_INPAINT_COOKIE = 'mt_watermark_inpaint';
+export const ENABLE_SFX_COOKIE = 'mt_enable_sfx';
+export const SFX_MAX_AREA_COOKIE = 'mt_sfx_max_area';
 export const EXEC_DEVICE_COOKIE = 'mt_exec_device';
 export const PARALLEL_PROCESSES_COOKIE = 'mt_parallel_processes';
 export const PARALLEL_CHAPTERS_COOKIE = 'mt_parallel_chapters';
@@ -401,6 +414,12 @@ function mergeKnown(parsed: unknown): AppSettings {
 	out.enableWatermarkInpaint = typeof (parsed as any)?.enableWatermarkInpaint === 'boolean'
 		? (parsed as any).enableWatermarkInpaint
 		: DEFAULTS.enableWatermarkInpaint;
+	out.enableSfx = typeof (parsed as any)?.enableSfx === 'boolean'
+		? (parsed as any).enableSfx
+		: DEFAULTS.enableSfx;
+	out.sfxMaxAreaPct = typeof (parsed as any)?.sfxMaxAreaPct === 'number'
+		? Math.max(0.05, Math.min(1.00, (parsed as any).sfxMaxAreaPct))
+		: DEFAULTS.sfxMaxAreaPct;
 	out.inpaintExpansionPct = typeof (parsed as any)?.inpaintExpansionPct === 'number'
 		? Math.max(0.0, Math.min(0.20, (parsed as any).inpaintExpansionPct))
 		: DEFAULTS.inpaintExpansionPct;
@@ -457,6 +476,8 @@ function createSettings() {
 				setCookie(FONT_COOKIE, s.appFont);
 				setCookie(INPAINT_MODE_COOKIE, s.inpaintMode);
 				setCookie(WATERMARK_INPAINT_COOKIE, String(s.enableWatermarkInpaint));
+				setCookie(ENABLE_SFX_COOKIE, String(s.enableSfx));
+				setCookie(SFX_MAX_AREA_COOKIE, String(s.sfxMaxAreaPct));
 				setCookie(EXEC_DEVICE_COOKIE, s.executionDevice);
 				setCookie(PARALLEL_PROCESSES_COOKIE, String(s.parallelProcesses));
 				setCookie(PARALLEL_CHAPTERS_COOKIE, String(s.parallelChapters));
