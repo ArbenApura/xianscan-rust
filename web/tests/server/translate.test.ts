@@ -450,6 +450,28 @@ describe('parseExtractedTerms & extractTerms', () => {
 		expect(terms[1].category).toBe('location');
 	});
 
+	it('salvages context from description synonyms and normalizes string aliases and TitleCase categories', async () => {
+		const { parseExtractedTerms } = await import('$lib/server/translate');
+		const json = `{"terms": [
+			{ "source": "药老", "target": "Yao Lao", "category": "Character", "gender": "Masculine", "description": "Master of Xiao Yan", "alias": "药尘, 老头" },
+			{ "source": "焚决", "target": "Flame Mantra", "category": "Technique", "desc": "Cultivation technique", "aka": ["帝决"] }
+		]}`;
+		const terms = parseExtractedTerms(json);
+		expect(terms).toHaveLength(2);
+		expect(terms[0].source).toBe('药老');
+		expect(terms[0].target).toBe('Yao Lao');
+		expect(terms[0].category).toBe('character');
+		expect(terms[0].gender).toBe('masculine');
+		expect(terms[0].context).toBe('Master of Xiao Yan');
+		expect(terms[0].aliases).toEqual(['药尘', '老头']);
+
+		expect(terms[1].source).toBe('焚决');
+		expect(terms[1].target).toBe('Flame Mantra');
+		expect(terms[1].category).toBe('technique');
+		expect(terms[1].context).toBe('Cultivation technique');
+		expect(terms[1].aliases).toEqual(['帝决']);
+	});
+
 	it('salvages complete term objects from a truncated JSON response', async () => {
 		const { parseExtractedTerms } = await import('$lib/server/translate');
 		// Truncated mid-stream before closing array / object

@@ -24,25 +24,39 @@ export function extractionSystemPrompt(src: string, tgt: string): string {
 Target Language Requirement:
 - All "target" fields and "context" descriptions MUST be strictly in ${tgtName} (${tgt}). Do NOT output in English unless ${tgtName} is explicitly English.
 
-Return ONLY a JSON object of exactly this shape — no markdown fences, no comments, no extra text:
-{"terms":[{"source":"<exact ${srcName} characters verbatim from text>","target":"<natural ${tgtName} translation>","category":"character|location|organization|technique|item|realm|creature|title|concept|other","gender":"neuter|masculine|feminine","aliases":["<other ${srcName} forms/nicknames>"],"pinned":false,"context":"<brief description in ${tgtName}>"}]}
+Output Schema:
+Return ONLY a valid JSON object matching this structure (no markdown fences, no commentary):
+{
+  "terms": [
+    {
+      "source": "<exact ${srcName} characters verbatim from text>",
+      "target": "<natural ${tgtName} translation>",
+      "category": "character" | "location" | "organization" | "technique" | "item" | "realm" | "creature" | "title" | "concept" | "other",
+      "gender": "masculine" | "feminine" | "neuter",
+      "aliases": ["<nickname or short form>"],
+      "pinned": false,
+      "context": "<brief 1-sentence description in ${tgtName}>"
+    }
+  ]
+}
 
 Rules:
 1. "source": MUST be copied EXACTLY as it appears in the text (identical characters, no added or removed spaces) so exact string match will find it on every page.
 2. "target":
    - Personal character names: Transliterate/localize into ${tgtName} standard conventions (e.g. for English: Pinyin with Title Case like "Ye Fan"; for Korean: Hangul transliteration like "엽범/예판" or "구비"; for Russian: Cyrillic like "Е Фань").
-   - Place names: Localize into natural ${tgtName} (e.g. 雲霄村 → Yunxiao Village in English, 운소촌 in Korean).
-   - Descriptive terms (classes, professions, skills, techniques, martial arts, cultivation realms, weapons, items, artifacts): Translate by MEANING into natural ${tgtName} (e.g. 法师 → Mage in English, 마법사 in Korean; 格斗家 → Fighter in English, 격투가 in Korean; 属性 → Attributes in English, 속성/스탯 in Korean; 功夫 → Kung Fu in English, 무공/쿵푸 in Korean).
+   - Place names: Localize into natural ${tgtName} (e.g. 雲霄村 -> Yunxiao Village in English, 운소촌 in Korean).
+   - Descriptive terms (classes, professions, skills, techniques, martial arts, cultivation realms, weapons, items, artifacts): Translate by MEANING into natural ${tgtName} (e.g. 法师 -> Mage in English, 마법사 in Korean; 格斗家 -> Fighter in English, 격투가 in Korean; 属性 -> Attributes in English, 속성/스탯 in Korean; 功夫 -> Kung Fu in English, 무공/쿵푸 in Korean).
 3. "category": 'character', 'location', 'organization', 'technique', 'item', 'realm', 'creature', 'title', 'concept', 'other'.
 4. "gender": 'masculine' or 'feminine' ONLY when the text explicitly indicates it (pronouns, titles like master/sister/brother/prince); otherwise 'neuter'.
-5. "aliases": Array of other short forms, nicknames, or forms of address in the text (e.g. for 叶凡, aliases: ["小凡", "凡儿"]).
-6. Term selection — SKIP ONLY truly generic function words (pronouns, numbers, single-use exclamations, everyday verbs like 走/吃/看). You MUST extract recurring story-significant terminology so its rendering is LOCKED once and reused on every page:
-   - CLASS / PROFESSION / FACTION NOUNS that recur (e.g. 妖灵师, 武者, 法师, 格斗家, 剑修) — these are formal in-world titles, NOT "generic words", and MUST be extracted with "pinned": true.
-   - CULTIVATION RANK TIERS (e.g. 青铜/白银/黄金/黑金/传奇, 炼气/筑基/金丹) and realm names — extract each tier with "pinned": true.
-   - ORGANIZATIONS / SECTS / SCHOOLS / FAMILIES (e.g. 神圣世家, 圣兰学院, 青云宗, 天机阁) — extract with "pinned": true.
-   - RECURRING ITEMS / TECHNIQUES / CREATURES that drive the plot or appear on multiple pages (e.g. 烈焰妖狐, 武魂, 妖灵) — extract with "pinned": true.
-   - A term that appears MORE THAN ONCE in the passage (or that you expect to recur across the chapter) is by definition NOT generic — extract it and set "pinned": true so every page renders it identically. Consistency of recurring terminology is more important than not "over-extracting"; err on the side of extracting.
-7. Multi-name listings: In dialogue or narration where multiple character names are listed back-to-back with minimal or no punctuation (e.g. 子龙童菲, 张肥关鱼), extract each individual 2-3 character name separately (e.g. 子龙, 童菲, 张肥, 关鱼), never combine them into a single compound entry.`;
+5. "aliases": List any nicknames, short forms, or alternative address forms in the text (e.g. for 叶凡: ["小凡"]). If none, use [].
+6. "context": Brief description in ${tgtName} stating who or what the entity is (e.g. "Protagonist of the series", "Sect-protecting grand array").
+7. Term selection - SKIP ONLY truly generic function words (pronouns, numbers, everyday verbs). Extract recurring story-significant terminology:
+   - CLASS / PROFESSION / FACTION NOUNS (e.g. 妖灵师, 武者, 法师, 格斗家, 剑修) - extract with "pinned": true.
+   - CULTIVATION RANK TIERS (e.g. 青铜/白银/黄金/黑金/传奇, 炼气/筑基/金丹) and realm names - extract each tier with "pinned": true.
+   - ORGANIZATIONS / SECTS / SCHOOLS / FAMILIES (e.g. 神圣世家, 圣兰学院, 青云宗, 天机阁) - extract with "pinned": true.
+   - RECURRING ITEMS / TECHNIQUES / CREATURES that drive the plot or appear on multiple pages - extract with "pinned": true.
+   - A term that appears MORE THAN ONCE in the passage is by definition NOT generic - extract it and set "pinned": true.
+8. Multi-name listings: In dialogue or narration where multiple character names are listed back-to-back (e.g. 子龙童菲, 张肥关鱼), extract each individual 2-3 character name separately (e.g. 子龙, 童菲, 张肥, 关鱼).`;
 }
 
 export function parseTermObjects(text: string): unknown[] {
@@ -107,33 +121,57 @@ export function parseExtractedTerms(raw: string, contentSource?: string): TermDr
 		if (seen.has(sourceTerm)) continue;
 		seen.add(sourceTerm);
 
-		const category = validCategories.has(String(t?.category))
-			? (String(t?.category) as TermDraft['category'])
+		// NORMALIZE CATEGORY AND GENDER (CASE-INSENSITIVE)
+		const catLower = String(t?.category ?? '').trim().toLowerCase();
+		const category = validCategories.has(catLower)
+			? (catLower as TermDraft['category'])
 			: 'other';
 
+		const genLower = String(t?.gender ?? '').trim().toLowerCase();
 		const gender =
 			category && category !== 'character'
 				? 'neuter'
-				: validGenders.has(String(t?.gender))
-					? (String(t?.gender) as TermDraft['gender'])
+				: validGenders.has(genLower)
+					? (genLower as TermDraft['gender'])
 					: 'neuter';
 
-		const context = typeof t?.context === 'string' && t.context.trim() ? t.context.trim() : null;
-		// DETERMINISTIC RECURRENCE PIN: A MULTI-CHARACTER TERM THAT APPEARS ≥2× IN THE CHAPTER TEXT IS
-		// STORY-LEVEL TERMINOLOGY (class / rank / org / creature) AND MUST BE LOCKED ACROSS PAGES — EVEN IF
-		// THE MODEL FORGOT "pinned": true. THIS IS WHAT STOPS "demon spiritualist" vs "Spirit Master" DRIFT.
+		// EXTRACT CONTEXT / DESCRIPTION WITH MULTI-KEY SYNONYM SALVAGE
+		const rawContext =
+			t?.context ??
+			(t as Record<string, unknown>)?.description ??
+			(t as Record<string, unknown>)?.desc ??
+			(t as Record<string, unknown>)?.definition ??
+			(t as Record<string, unknown>)?.summary ??
+			(t as Record<string, unknown>)?.info ??
+			(t as Record<string, unknown>)?.explanation;
+		const context = typeof rawContext === 'string' && rawContext.trim() ? rawContext.trim() : null;
+
+		// DETERMINISTIC RECURRENCE PIN: A MULTI-CHARACTER TERM THAT APPEARS >=2x IN THE CHAPTER TEXT IS
+		// STORY-LEVEL TERMINOLOGY AND MUST BE LOCKED ACROSS PAGES EVEN IF THE MODEL FORGOT "pinned": true.
 		const occurrences = contentSource && sourceTerm.length >= 2 ? contentSource.split(sourceTerm).length - 1 : 0;
 		const pinned = t?.pinned === true || occurrences >= 2;
 
-		const aliases = Array.isArray(t?.aliases)
-			? [
-					...new Set(
-						(t.aliases as unknown[])
-							.map((a) => String(a ?? '').trim())
-							.filter((a) => a && a !== sourceTerm && a.length <= 64),
-					),
-				].slice(0, 8)
-			: [];
+		// EXTRACT ALIASES (SUPPORTING ARRAYS, COMMA-SEPARATED STRINGS, AND SYNONYM KEYS)
+		const rawAliases =
+			t?.aliases ??
+			(t as Record<string, unknown>)?.alias ??
+			(t as Record<string, unknown>)?.aka ??
+			(t as Record<string, unknown>)?.nicknames ??
+			(t as Record<string, unknown>)?.nickname;
+
+		let aliasList: string[] = [];
+		if (Array.isArray(rawAliases)) {
+			aliasList = rawAliases.map((a) => String(a ?? '').trim()).filter(Boolean);
+		} else if (typeof rawAliases === 'string' && rawAliases.trim()) {
+			aliasList = rawAliases
+				.split(/[,，/|、]/)
+				.map((a) => a.trim())
+				.filter(Boolean);
+		}
+
+		const aliases = [
+			...new Set(aliasList.filter((a) => a && a !== sourceTerm && a.length <= 64)),
+		].slice(0, 8);
 
 		if (category === 'character' && sourceTerm.length === 3) {
 			const givenName = sourceTerm.slice(1);
