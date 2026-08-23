@@ -33,7 +33,7 @@ export interface PageTranslation {
 	durationMs?: number;
 }
 
-export const PROMPT_VERSION = 'v20';
+export const PROMPT_VERSION = 'v21';
 
 function mergeUsage(acc: TranslationUsage, u: TranslationUsage): void {
 	acc.promptTokens += u.promptTokens;
@@ -52,14 +52,14 @@ async function callTranslate(
 	const messages = buildMessages(regions, terms, pair, opts.dialogueContext);
 
 	const sourceChars = regions.reduce((n, r) => n + r.text.length, 0);
-	const maxTokens = Math.max(512, Math.ceil(sourceChars * 3 + 512));
+	const maxTokens = Math.max(1024, Math.ceil(sourceChars * 4 + 1024));
 	const resp = await queued(() =>
 		withRetry(async () => {
 			const r = await client.chat.completions.create(
 				{
 					model,
 					messages,
-					temperature: 0.3,
+					temperature: 0.2,
 					max_tokens: maxTokens,
 					...thinkingParam(model),
 				},

@@ -82,14 +82,15 @@ export function systemPrompt(src: string, tgt: string): string {
 
 Core Rules & Invariants:
 1. Target Language & Zero Leakage: ALL translations MUST be strictly in ${tgtName} (${tgt}). Never leave raw source characters (Hanzi/Hangul/Kanji/Cyrillic) in the output.
-2. Dialogue Style & Casing: Write natural spoken ${tgtName} dialogue suitable for comic voice acting. Keep lines punchy to fit bubble space. Dialogue and thoughts MUST use natural standard sentence case (never ALL-CAPS).
-3. Sound Effects (sfx): Render comic sound effects as concise, punchy ALL-CAPS ${tgtName} onomatopoeia (e.g. BOOM, SLASH). If a source sound effect is already in standard Latin letters and self-explanatory in ${tgtName}, return "" for its id to preserve original artist artwork.
-4. Pro-Drop & Subject Resolution: In pro-drop languages, infer omitted subjects naturally from page/scene context—NEVER default to inserting "I"/"my" unless explicitly referring to self. Distinguish passive/intransitive states from active transitive actions.
-5. OCR Artifact & Bubble-Tail Cleaning: Strip trailing bubble-tail digits, zero-clusters, or dots caused by circular thought-bubble tails (e.g. "! 20...", "oo"). Strip stray unmatched leading/trailing border parentheses (e.g. isolated "(" at line start).
-6. Watermark Excision: Return "" for regions that are strictly third-party aggregator watermarks, scanlation recruitment ads, or pirate URLs. If watermarks overlap dialogue, excise the watermark characters and translate only the underlying dialogue.
-7. Punctuation & Handles: Translate reaction punctuation (……, ？！, !) to natural ${tgtName} (..., ?!, !). Translate all bracketed usernames [Username]: into ${tgtName}.
-8. Line Breaks: Preserve all \\n line breaks from source text to maintain comic panel layout.
-9. Output: Reply with ONLY a valid JSON object matching the requested schema. No commentary, no markdown fences.${langProfile ? `\n\n${langProfile}` : ''}`;
+2. Strict 1:1 Region Mapping: Every input region ID must have exactly one corresponding translation in the output JSON. You must translate ALL input IDs: no more, no less. Never merge regions, split regions, or omit any region ID.
+3. Dialogue Style & Casing: Write natural spoken ${tgtName} dialogue suitable for comic voice acting. Keep lines punchy to fit bubble space. Dialogue and thoughts MUST use natural standard sentence case (never ALL-CAPS).
+4. Sound Effects (sfx): Render comic sound effects as concise, punchy ALL-CAPS ${tgtName} onomatopoeia (e.g. BOOM, SLASH). If a source sound effect is already in standard Latin letters and self-explanatory in ${tgtName}, return "" for its id to preserve original artist artwork.
+5. Pro-Drop & Subject Resolution: In pro-drop languages, infer omitted subjects naturally from page/scene context—NEVER default to inserting "I"/"my" unless explicitly referring to self. Distinguish passive/intransitive states from active transitive actions.
+6. OCR Artifact & Bubble-Tail Cleaning: Strip trailing bubble-tail digits, zero-clusters, or dots caused by circular thought-bubble tails (e.g. "! 20...", "oo"). Strip stray unmatched leading/trailing border parentheses (e.g. isolated "(" at line start).
+7. Watermark Excision: Return "" for regions that are strictly third-party aggregator watermarks, scanlation recruitment ads, or pirate URLs. If watermarks overlap dialogue, excise the watermark characters and translate only the underlying dialogue.
+8. Punctuation & Handles: Translate reaction punctuation (……, ？！, !) to natural ${tgtName} (..., ?!, !). Translate all bracketed usernames [Username]: into ${tgtName}.
+9. Line Breaks: Preserve all \\n line breaks from source text to maintain comic panel layout.
+10. Output: Reply with ONLY a valid JSON object matching the requested schema. No commentary, no markdown fences.${langProfile ? `\n\n${langProfile}` : ''}`;
 }
 
 export function glossaryBlock(terms: TermDraft[], src: string, tgt: string): string | null {
@@ -129,22 +130,28 @@ export function userPrompt(
 	dialogueContextBlock?: string,
 ): string {
 	const tgtName = languageName(tgtLang);
-	const exampleEntries = regions
-		.slice(0, 2)
-		.map((r, i) => `"${r.id}": "${tgtName} translation ${i + 1}"`)
-		.join(', ');
-	const exampleJson = exampleEntries ? `{${exampleEntries}}` : `{"r0": "${tgtName} translation"}`;
+	const count = regions.length;
+	const idList = regions.map((r) => `"${r.id}"`).join(', ');
+	const skeletonObj: Record<string, string> = {};
+	for (const r of regions) {
+		skeletonObj[r.id] = `[${tgtName} translation of ${r.id}]`;
+	}
+	const skeletonJson = JSON.stringify(skeletonObj, null, 2);
 	const contextHeader = dialogueContextBlock ? `${dialogueContextBlock.trim()}\n\n` : '';
 
 	return `${contextHeader}Translate the following comic page regions into ${tgtName} (${tgtLang}):
 
+=== REGIONS TO TRANSLATE (Count: ${count}) ===
 ${regionPayload(regions)}
 
-Return a JSON object with:
-- "translations": { ${exampleEntries || `"r0": "${tgtName} translation"`} } mapping each id exactly to its ${tgtName} translation.
-- "newTerms" (optional): list of any new proper nouns, character names, locations, or martial arts appearing in these regions that are NOT already in the glossary with their ${tgtName} translation, e.g. [{"source": "叶凡", "target": "Ye Fan", "category": "character", "gender": "masculine", "context": "Protagonist", "aliases": ["小凡"]}]. If none, use [] or omit.
+=== STRICT OUTPUT REQUIREMENTS ===
+1. Return a valid JSON object mapping every input ID directly to its ${tgtName} translation.
+2. Strict 1:1 Region Mapping: You MUST provide a translation for ALL ${count} region IDs (${idList || 'none'}). Exactly one translation per ID: no more, no less. Do not skip or omit any region.
+3. Target Language: All translation values MUST be strictly in ${tgtName} (${tgtLang}).
+4. Output JSON Template:
+${skeletonJson}
 
-MANDATORY: All translations in the JSON values MUST be strictly in ${tgtName} (${tgtLang}). Alternatively, a flat JSON object ${exampleJson} is also accepted. No markdown fences.`;
+Optional: You may include "newTerms" for new proper nouns, character names, locations, or martial arts not in the glossary, e.g. [{"source": "叶凡", "target": "Ye Fan", "category": "character", "gender": "masculine", "context": "Protagonist", "aliases": ["小凡"]}]. If none, omit. No markdown fences.`;
 }
 
 export function buildMessages(
