@@ -476,6 +476,18 @@ pub fn get_optimal_cpu_threads() -> usize {
     num_cpus::get().min(8).max(1)
 }
 
+/// DETERMINES OPTIMAL GPU MEMORY LIMIT PER ONNX SESSION FOR CUDA EP (DEFAULTS TO 2GB TO PREVENT 9.6GB VRAM ACCUMULATION ACROSS 4 SESSIONS)
+pub fn get_cuda_gpu_memory_limit() -> usize {
+    if let Ok(val) = std::env::var("ORT_CUDA_MEM_LIMIT_MB") {
+        if let Ok(parsed) = val.parse::<usize>() {
+            if parsed > 0 {
+                return parsed * 1024 * 1024;
+            }
+        }
+    }
+    2 * 1024 * 1024 * 1024
+}
+
 /// DETERMINES OPTIMAL HOST THREADS FOR GPU SESSIONS (AVOIDS HOST-CPU CONTENTION WITH GPU DRIVER)
 pub fn get_optimal_gpu_host_threads() -> usize {
     if let Ok(val) = std::env::var("ONNX_GPU_THREADS") {
@@ -537,7 +549,12 @@ pub fn create_session_from_memory(bytes: &[u8], model_tag: &str) -> Result<Sessi
                     .map_err(|e| anyhow::anyhow!("Memory pattern error: {}", e))?
                     .with_config_entry("session.enable_cpu_mem_arena", "0")
                     .map_err(|e| anyhow::anyhow!("Config entry error: {}", e))?
-                    .with_execution_providers([ort::ep::CUDA::default().build()])
+                    .with_execution_providers([
+                        ort::ep::CUDA::default()
+                            .with_arena_extend_strategy(ort::ep::ArenaExtendStrategy::SameAsRequested)
+                            .with_memory_limit(get_cuda_gpu_memory_limit())
+                            .build()
+                    ])
                     .map_err(|e| anyhow::anyhow!("CUDA provider error: {}", e))?
                     .commit_from_memory(bytes)
                     .map_err(|e| anyhow::anyhow!("Commit error: {}", e))?;

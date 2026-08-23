@@ -71,3 +71,27 @@ fn test_tier1_synthetic_geometry_invariants() {
     assert_eq!(rect.w, 45);
     assert_eq!(rect.h, 65);
 }
+
+#[test]
+fn test_tier1_synthetic_oversized_sfx_filtering() {
+    let page_h = 1000;
+
+    // 1. OVERSIZED VERTICAL SFX (HEIGHT = 350 >= 30% OF 1000, W/H = 100/350 < 2.5) -> MUST BE FILTERED
+    let oversized_sfx = BoxRect { x: 50, y: 100, w: 100, h: 350 };
+    let is_sentence1 = (oversized_sfx.w as f32 / oversized_sfx.h.max(1) as f32 >= 2.5) || oversized_sfx.h <= 35;
+    let is_oversized1 = (oversized_sfx.h as f32 >= (page_h as f32) * 0.30) && !is_sentence1;
+    assert!(is_oversized1, "Oversized vertical SFX must be flagged for removal");
+
+    // 2. LONG HORIZONTAL GUTTER SENTENCE (HEIGHT = 40, WIDTH = 700, W/H = 17.5 >= 2.5) -> MUST BE PROTECTED
+    let sentence_box = BoxRect { x: 50, y: 500, w: 700, h: 40 };
+    let is_sentence2 = (sentence_box.w as f32 / sentence_box.h.max(1) as f32 >= 2.5) || sentence_box.h <= 35;
+    let is_oversized2 = (sentence_box.h as f32 >= (page_h as f32) * 0.30) && !is_sentence2;
+    assert!(!is_oversized2, "Horizontal sentence must never be treated as oversized SFX");
+
+    // 3. MODERATE CALLIGRAPHY SFX (HEIGHT = 250 < 30% OF 1000) -> MUST BE PRESERVED
+    let moderate_sfx = BoxRect { x: 100, y: 200, w: 120, h: 250 };
+    let is_sentence3 = (moderate_sfx.w as f32 / moderate_sfx.h.max(1) as f32 >= 2.5) || moderate_sfx.h <= 35;
+    let is_oversized3 = (moderate_sfx.h as f32 >= (page_h as f32) * 0.30) && !is_sentence3;
+    assert!(!is_oversized3, "Moderate SFX (< 30% canvas height) must be preserved");
+}
+

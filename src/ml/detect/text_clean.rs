@@ -43,7 +43,7 @@ pub static QUESTION_TAIL: LazyLock<Regex> = LazyLock::new(|| {
 });
 
 pub static NOISE_STROKES_RE: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(r"^(?:[0oO·•\s]{1,6}|[\s一1丨Il|]{1,2})$").unwrap()
+    Regex::new(r"^(?:[0oO·•●○\s]{1,6}|[\s一1丨Il|]{1,2})$").unwrap()
 });
 
 /// CHECK IF A GIVEN TEXT STRING IS ISOLATED NOISE OR SINGLE REPEATED STROKES
@@ -85,7 +85,7 @@ pub fn is_pure_watermark_region(text: &str) -> bool {
                 c,
                 '…' | '·' | '—' | '～' | '！' | '？' | '。' | '，' | '、' | '；' | '：'
                     | '“' | '”' | '‘' | '’' | '（' | '）' | '【' | '】' | '《' | '》' | '〔' | '〕'
-                    | '『' | '』' | '「' | '」' | '・' | '．' | '‥' | '–'
+                    | '『' | '』' | '「' | '」' | '・' | '．' | '‥' | '–' | '●' | '○' | '•'
             )
     });
     if is_symbols_only {

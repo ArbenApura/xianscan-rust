@@ -550,12 +550,14 @@ pub fn build_regions(
                 // IF FULL-PAGE OCR MISSED CHARACTERS IN A BUBBLE OR WIDE/TALL CANDIDATE CONTAINER (E.G. TRAILING ELLIPSIS), ATTEMPT CROP RECOGNITION REFINEMENT
                 // TRUST HIGH-CONFIDENCE MULTI-LINE FULL-PAGE DETECTIONS (>= 3 LINES, CONF >= 0.65) UNLESS CANDIDATE CONTAINER EXTENDS SIGNIFICANTLY BEYOND CLUSTER RECT
                 let container_w = box_rect.w;
+                let container_h = box_rect.h;
                 let is_container_wider = container_w >= cluster_rect.w + 20 || (container_w as f32) >= (cluster_rect.w as f32 * 1.15);
-                let full_page_is_complete = cluster_lines.len() >= 3 && avg_score >= 0.65 && !is_container_wider;
-                let can_refine_crop = (matched_bubble.is_some() || is_container_wider) && cluster_rect.w >= 36 && cluster_rect.h >= 36 && !full_page_is_complete;
+                let is_container_taller = container_h >= cluster_rect.h + 20 || (container_h as f32) >= (cluster_rect.h as f32 * 1.15);
+                let full_page_is_complete = cluster_lines.len() >= 3 && avg_score >= 0.65 && !is_container_wider && !is_container_taller;
+                let can_refine_crop = (matched_bubble.is_some() || is_container_wider || is_container_taller) && (cluster_rect.w >= 16 || box_rect.w >= 16) && (cluster_rect.h >= 16 || box_rect.h >= 16) && !full_page_is_complete;
 
                 if can_refine_crop {
-                    let target_rect = if is_container_wider {
+                    let target_rect = if is_container_wider || is_container_taller || matched_bubble.is_some() {
                         BoxRect {
                             x: cluster_rect.x.min(box_rect.x),
                             y: cluster_rect.y.min(box_rect.y),
@@ -662,8 +664,8 @@ pub fn build_regions(
                     if is_cjk && (cluster_rect.y + cluster_rect.h >= page_h as i32 - 50) && cleaned.chars().count() == 1 && (cleaned == "动" || cleaned == "初" || cleaned == "腾" || cleaned == "漫" || cleaned == "漫客" || cleaned == "客") {
                         continue;
                     }
-                    // Suppress low-confidence isolated single-character artwork artifacts (e.g. blush mark '红', or partial title '记', conf < 0.75 outside bubbles)
-                    if cleaned.chars().count() == 1 && matched_bubble.is_none() && (avg_score < 0.75 || compute_chromatic_color_variance(img, &cluster_rect) >= 15.0) {
+                    // Suppress low-confidence isolated single-character artwork artifacts (e.g. blush mark '红', or partial title '记', conf < 0.75 outside bubbles), but preserve SoundEffects
+                    if cleaned.chars().count() == 1 && matched_bubble.is_none() && (!is_sfx || avg_score < 0.50) && (avg_score < 0.75 || compute_chromatic_color_variance(img, &cluster_rect) >= 15.0) {
                         continue;
                     }
                 }
@@ -703,7 +705,15 @@ pub fn build_regions(
                     let fw = (max_x - min_x).max(1).min(page_w as i32 - fx);
                     let fh = (max_y - min_y).max(1).min(page_h as i32 - fy);
 
-                    BoxRect { x: fx, y: fy, w: fw, h: fh }
+                    if is_sfx && (box_rect.h >= fh + 20 || box_rect.w >= fw + 20) {
+                        let ux = fx.min(box_rect.x);
+                        let uy = fy.min(box_rect.y);
+                        let uw = (fx + fw).max(box_rect.x + box_rect.w) - ux;
+                        let uh = (fy + fh).max(box_rect.y + box_rect.h) - uy;
+                        BoxRect { x: ux, y: uy, w: uw, h: uh }
+                    } else {
+                        BoxRect { x: fx, y: fy, w: fw, h: fh }
+                    }
                 } else {
                     cluster_rect
                 };
@@ -828,7 +838,7 @@ pub fn build_regions(
                     continue;
                 }
                 // Suppress low-confidence isolated single-character fallback artwork artifacts (e.g. blush mark '红', or partial title '记', conf < 0.75 outside bubbles)
-                if cleaned.chars().count() == 1 && matched_bubble.is_none() && (isolated_score < 0.75 || compute_chromatic_color_variance(img, &box_rect) >= 15.0) {
+                if cleaned.chars().count() == 1 && matched_bubble.is_none() && (!is_sfx || isolated_score < 0.50) && (isolated_score < 0.75 || compute_chromatic_color_variance(img, &box_rect) >= 15.0) {
                     continue;
                 }
             }

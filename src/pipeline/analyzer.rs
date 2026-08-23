@@ -49,17 +49,20 @@ pub fn analyze_image_with_options(
     let panels: Vec<PanelFrame> = Vec::new();
 
     // 2. CONSTRUCT STRUCTURAL ONOMATOPOEIA FRAMES (CLASS 1) - SCALED 6% ALL SIDES (+12% TOTAL)
-    let mut onomatopoeia: Vec<OnomatopoeiaFrame> = fusion_res
-        .onomatopoeia
+    // CLUSTER OVERLAPPING SFX DETECTOR QUERIES SO DUPLICATE BOUNDING BOXES MERGE INTO A SINGLE FRAME
+    let clustered_sfx_frames = crate::ml::detect::cluster_adjacent_sfx_boxes(&fusion_res.onomatopoeia, 25);
+    let mut onomatopoeia: Vec<OnomatopoeiaFrame> = clustered_sfx_frames
         .iter()
         .enumerate()
-        .map(|(idx, (b, score))| {
-            let pad_x = ((b.w as f32) * 0.06).round() as i32;
-            let pad_y = ((b.h as f32) * 0.06).round() as i32;
-            let sx = (b.x - pad_x).max(0);
-            let sy = (b.y - pad_y).max(0);
-            let sw = (b.w + pad_x * 2).min(page_w as i32 - sx);
-            let sh = (b.h + pad_y * 2).min(page_h as i32 - sy);
+        .map(|(idx, (poly, score))| {
+            let (bx, by, bw, bh) = crate::ml::geometry::box_to_xywh_f32(poly);
+            let (bx_i, by_i, bw_i, bh_i) = (bx.round() as i32, by.round() as i32, bw.round() as i32, bh.round() as i32);
+            let pad_x = ((bw_i as f32) * 0.06).round() as i32;
+            let pad_y = ((bh_i as f32) * 0.06).round() as i32;
+            let sx = (bx_i - pad_x).max(0);
+            let sy = (by_i - pad_y).max(0);
+            let sw = (bw_i + pad_x * 2).min(page_w as i32 - sx);
+            let sh = (bh_i + pad_y * 2).min(page_h as i32 - sy);
             OnomatopoeiaFrame {
                 id: format!("sfx{}", idx),
                 seq: idx,
@@ -192,10 +195,10 @@ pub fn analyze_image_with_options(
         options.and_then(|o| o.typeset_padding_pct),
     );
 
-    // Filter out low-confidence standalone single-character artwork artifacts (e.g. blush mark '红', conf < 0.58)
+    // Filter out low-confidence standalone single-character artwork artifacts (e.g. blush mark '红', conf < 0.58), but preserve SoundEffects
     final_regions.retain(|r| {
         let t = r.text.trim();
-        if t.chars().count() == 1 && r.confidence < 0.58 {
+        if t.chars().count() == 1 && r.confidence < 0.58 && r.kind != crate::ml::schemas::RegionKind::SoundEffect {
             return false;
         }
         true

@@ -288,6 +288,78 @@ fn test_regression_page_school_phone_rule_e_bubble() {
     assert!(!af_text.contains("つるんでる"), "Lower bubble must NOT be merged with upper bubble: {}", af_text);
 }
 
+/// # Japanese Real-Page Regression: `page_akita_study_credits_smart_guy` (Resolution: Native WebP)
+///
+/// ## Purpose & Behavior Tested:
+/// - **Speech Bubble & Inner Dialogue Detection**:
+///   1. Panel 1 Top-Right Inner Monologue: `世の中賢い奴が\n勝つんだよ`
+///   2. Panel 1 Top-Left Dialogue Bubble: `ねぇ〜秋田くーん\n勉強教えてよ〜`
+///   3. Panel 2 Middle-Right Dialogue Bubble: `アタシ\n単位やばくてぇ〜`
+///   4. Panel 2 Middle Dialogue Bubble: `うん…時間\nあるときね`
+///   5. Panel 2 Middle-Left Spiky / Black Dialogue Bubble: `ヤダよ\n面倒くさい`
+/// - **Skip Standalone Dot Ellipsis Bubble**:
+///   Ensures pure dot bubble (`……`) in the bottom panel is skipped or not required as a translation region.
+/// - **Furigana / Whisper SFX Handling**:
+///   Properly captures or handles top-right `フフ…` whisper and Furigana on `賢い`.
+#[test]
+fn test_regression_page_akita_study_credits_smart_guy() {
+    let img = match crate::common::load_fixture_or_skip("ja", "page_akita_study_credits_smart_guy/page.webp") {
+        Some(i) => i,
+        None => {
+            eprintln!("[INFO] Skipping test_regression_page_akita_study_credits_smart_guy: fixture not found");
+            return;
+        }
+    };
+
+    let res = crate::common::force_analyze_fixture_with_lang(&img, Some("ja"));
+    println!("=== Japanese Native Page Akita Study Credits Results ({} regions) ===", res.regions.len());
+    for (i, r) in res.regions.iter().enumerate() {
+        println!("  Region r{}: box={:?}, text='{}', conf={:.2}, vert={}, kind={:?}", i, r.box_, r.text.replace('\n', "\\n"), r.confidence, r.vertical, r.kind);
+    }
+
+    // 1. Panel 1 Top-Right: '世の中賢い奴が\n勝つんだよ'
+    let smart_guy = res.regions.iter().find(|r| (r.text.contains("世の中") || r.text.contains("賢い") || r.text.contains("勝つんだよ")) && r.box_.y < 400);
+    assert!(smart_guy.is_some(), "Must detect top-right monologue '世の中賢い奴が勝つんだよ'");
+    let sg_text = &smart_guy.unwrap().text;
+    assert!(sg_text.contains("世の中") || sg_text.contains("勝つんだよ") || sg_text.contains("賢い"), "Monologue text mismatch: {}", sg_text);
+
+    // 2. Panel 1 Top-Left: 'ねぇ〜秋田くーん\n勉強教えてよ〜'
+    let teach_me = res.regions.iter().find(|r| (r.text.contains("秋田") || r.text.contains("勉強教") || r.text.contains("教えてよ")) && r.box_.y < 500);
+    assert!(teach_me.is_some(), "Must detect top-left speech bubble 'ねぇ〜秋田くーん 勉強教えてよ〜'");
+    let tm_text = &teach_me.unwrap().text;
+    assert!(tm_text.contains("秋田") || tm_text.contains("教えて") || tm_text.contains("勉強"), "Speech bubble text mismatch: {}", tm_text);
+
+    // 3. Panel 2 Middle-Right: 'アタシ\n単位やばくてぇ〜'
+    let credits_bad = res.regions.iter().find(|r| (r.text.contains("アタシ") || r.text.contains("単位") || r.text.contains("やばくて")) && r.box_.y >= 700 && r.box_.y < 1100);
+    assert!(credits_bad.is_some(), "Must detect middle-right bubble 'アタシ 単位やばくてぇ〜'");
+    let cb_text = &credits_bad.unwrap().text;
+    assert!(cb_text.contains("単位") || cb_text.contains("やばく") || cb_text.contains("アタシ"), "Middle-right bubble text mismatch: {}", cb_text);
+
+    // 4. Panel 2 Middle: 'うん…時間\nあるときね'
+    let when_time = res.regions.iter().find(|r| (r.text.contains("時間") || r.text.contains("あるときね") || r.text.contains("うん")) && r.box_.x >= 450 && r.box_.x <= 650 && r.box_.y >= 700 && r.box_.y < 1000);
+    assert!(when_time.is_some(), "Must detect middle bubble 'うん…時間 あるときね'");
+
+    // 5. Panel 2 Middle-Left: 'ヤダよ\n面倒くさい'
+    let troublesome = res.regions.iter().find(|r| (r.text.contains("ヤダよ") || r.text.contains("面倒") || r.text.contains("面倒くさい") || r.text.contains("くさい")) && r.box_.x < 350 && r.box_.y >= 700 && r.box_.y < 1100);
+    assert!(troublesome.is_some(), "Must detect middle-left spiky bubble 'ヤダよ 面倒くさい'");
+
+    // 6. Negative Guard: Standalone pure dot ellipsis ('……' / '…') should be skipped
+    assert!(
+        !res.regions.iter().any(|r| {
+            let t = r.text.trim();
+            t == "……" || t == "…" || t == "..." || t == "...." || t == "....." || t == "●" || t == "○"
+        }),
+        "Standalone pure dot ellipsis bubble should be skipped and not emitted as a translation region"
+    );
+
+    // 7. Expected Region Count: 5 core bubbles (or 6 if 'フフ…' whisper SFX is detected)
+    assert!(
+        res.regions.len() == 5 || res.regions.len() == 6,
+        "Expected 5 core dialogue bubbles (or 6 with whisper SFX), got {}",
+        res.regions.len()
+    );
+}
+
 
 
 

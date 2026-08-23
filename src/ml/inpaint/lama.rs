@@ -191,22 +191,26 @@ impl LamaInpainter {
         let stride_c = padded_h * padded_w;
         let stride_y = padded_w;
 
-        // FILL THE THREE IMAGE CHANNELS IN PARALLEL
+        let rgb_img = img.to_rgb8();
+        let raw_rgb = rgb_img.as_raw();
+        let raw_mask = mask.as_raw();
+
+        // FILL THE THREE IMAGE CHANNELS IN PARALLEL WITHOUT DYNAMIC TRAIT DISPATCH
         img_tensor.par_chunks_mut(stride_c).enumerate().for_each(|(c, plane)| {
             for y in 0..h as usize {
                 let row_offset = y * stride_y;
+                let raw_row_offset = y * (w as usize) * 3;
                 for x in 0..w as usize {
-                    let p = img.get_pixel(x as u32, y as u32);
-                    plane[row_offset + x] = p[c] as f32 / 255.0;
+                    plane[row_offset + x] = raw_rgb[raw_row_offset + x * 3 + c] as f32 / 255.0;
                 }
             }
         });
 
         // FILL MASK TENSOR IN PARALLEL ACROSS ROWS
         mask_tensor.par_chunks_mut(stride_y).enumerate().take(h as usize).for_each(|(y, row_slice)| {
+            let mask_row_offset = y * (w as usize);
             for x in 0..w as usize {
-                let m = mask.get_pixel(x as u32, y as u32)[0];
-                row_slice[x] = if m > 0 { 1.0 } else { 0.0 };
+                row_slice[x] = if raw_mask[mask_row_offset + x] > 0 { 1.0 } else { 0.0 };
             }
         });
 
@@ -221,18 +225,20 @@ impl LamaInpainter {
         let (_out_shape, out_slice) = outputs[0].try_extract_tensor::<f32>()
             .map_err(|e| anyhow::anyhow!("Extract LaMa output error: {}", e))?;
 
-        let mut result_img: ImageBuffer<Rgb<u8>, Vec<u8>> = ImageBuffer::new(w, h);
-
+        let mut raw_out = vec![0_u8; (w * h * 3) as usize];
         for y in 0..h as usize {
+            let row_offset = y * stride_y;
+            let raw_row_offset = y * (w as usize) * 3;
             for x in 0..w as usize {
-                let base_idx = y * stride_y + x;
-                let r_val = (out_slice[base_idx] * 255.0).clamp(0.0, 255.0) as u8;
-                let g_val = (out_slice[stride_c + base_idx] * 255.0).clamp(0.0, 255.0) as u8;
-                let b_val = (out_slice[2 * stride_c + base_idx] * 255.0).clamp(0.0, 255.0) as u8;
-
-                result_img.put_pixel(x as u32, y as u32, Rgb([r_val, g_val, b_val]));
+                let base_idx = row_offset + x;
+                raw_out[raw_row_offset + x * 3] = (out_slice[base_idx] * 255.0).clamp(0.0, 255.0) as u8;
+                raw_out[raw_row_offset + x * 3 + 1] = (out_slice[stride_c + base_idx] * 255.0).clamp(0.0, 255.0) as u8;
+                raw_out[raw_row_offset + x * 3 + 2] = (out_slice[2 * stride_c + base_idx] * 255.0).clamp(0.0, 255.0) as u8;
             }
         }
+
+        let result_img = ImageBuffer::from_raw(w, h, raw_out)
+            .ok_or_else(|| anyhow::anyhow!("Failed to construct inpainted ImageBuffer"))?;
 
         Ok(DynamicImage::ImageRgb8(result_img))
     }

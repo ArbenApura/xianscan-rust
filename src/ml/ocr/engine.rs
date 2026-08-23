@@ -215,7 +215,7 @@ impl RapidOcr {
             }
 
             if let Some(r) = best_res {
-                if CHINESE_RE.is_match(&r.text) || r.score >= 0.65 {
+                if CHINESE_RE.is_match(&r.text) || crate::ml::detect::has_cjk_characters(&r.text) || r.score >= 0.65 {
                     return Ok(Some(r));
                 }
             }

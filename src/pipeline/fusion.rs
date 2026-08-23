@@ -113,7 +113,9 @@ pub fn fuse_detections(
         ),
     };
 
-    // FILTER OUT NOISY ONOMATOPOEIA STROKE DETECTIONS THAT LIE DIRECTLY INSIDE SPEECH / THOUGHT BUBBLES
+    // FILTER OUT NOISY ONOMATOPOEIA STROKE DETECTIONS:
+    // 1. STROKES THAT LIE DIRECTLY INSIDE SPEECH / THOUGHT BUBBLES
+    // 2. OVERSIZED SFX (HEIGHT >= 30% OF CANVAS HEIGHT) EXCEPT HORIZONTAL SENTENCES (ASPECT RATIO >= 2.5 OR HEIGHT <= 35PX)
     let filtered_onomatopoeia: Vec<(BoxRect, f32)> = onomatopoeia
         .into_iter()
         .filter(|(sfx_b, _)| {
@@ -122,7 +124,15 @@ pub fn fuse_detections(
             let inside_bubble = bubbles.iter().any(|b| {
                 s_mid_x >= b.x && s_mid_x <= b.x + b.w && s_mid_y >= b.y && s_mid_y <= b.y + b.h
             });
-            !inside_bubble
+            if inside_bubble {
+                return false;
+            }
+
+            // SENTENCE PROTECTION: WIDE HORIZONTAL STRIPS (W/H >= 2.5) OR SMALL CAPTION HEIGHTS (H <= 35PX) ARE SENTENCES, NOT SFX
+            let is_sentence = (sfx_b.w as f32 / sfx_b.h.max(1) as f32 >= 2.5) || sfx_b.h <= 35;
+            let is_oversized = (sfx_b.h as f32 >= (page_h as f32) * 0.30) && !is_sentence;
+
+            !is_oversized
         })
         .collect();
 
@@ -158,7 +168,7 @@ pub fn fuse_detections(
                 let rc_y = ry + rh / 2;
                 let center_in = rc_x >= cb_x && rc_x <= cb_x + cb_w && rc_y >= cb_y && rc_y <= cb_y + cb_h;
                 let iou = box_iou_pts(cb, &rl.polygon);
-                center_in || iou >= 0.20
+                (center_in || iou >= 0.20) && rl.score >= 0.72
             });
 
             if is_cb_multiline && has_internal_rapid_lines {
@@ -187,22 +197,40 @@ pub fn fuse_detections(
 
                     // IF COMIC TEXT DETECTOR BOX IS SIGNIFICANTLY WIDER OR TALLER THAN A SINGLE RAPID OCR LINE (E.G. ELLIPSIS TRUNCATED ON RIGHT OR VERTICAL SFX TRUNCATED)
                     // TEST IF RECOGNIZING COMIC BOX YIELDS FULL TEXT. MULTI-LINE CONTAINERS MUST NOT OVERWRITE SINGLE CONSTITUENT LINES.
-                    let is_wider = !is_rl_vert && (cb_w >= rw + 25 || (cb_w as f32) >= (rw as f32 * 1.25));
-                    let is_taller = is_rl_vert && (cb_h >= rh + 25 || (cb_h as f32) >= (rh as f32 * 1.25));
+                    let is_wider = !is_rl_vert && (cb_w >= rw + 20 || (cb_w as f32) >= (rw as f32 * 1.20));
+                    let is_taller = is_rl_vert && (cb_h >= rh + 20 || (cb_h as f32) >= (rh as f32 * 1.20));
                     if is_wider || is_taller {
-                        let pad_x = 15;
-                        let pad_y = 10;
+                        let pad_x = if is_rl_vert { 6 } else { 15 };
+                        let pad_y = if is_rl_vert { 6 } else { 10 };
                         let cx = (cb_x - pad_x).max(0) as u32;
                         let cy = (cb_y - pad_y).max(0) as u32;
                         let cw = ((cb_w + pad_x * 2) as u32).min(w - cx);
                         let ch = ((cb_h + pad_y * 2) as u32).min(h - cy);
                         if cw >= 8 && ch >= 8 {
                             let crop = img.crop_imm(cx, cy, cw, ch);
-                            if let Ok(Some(line_res)) = o.recognize_line_with_lang(&crop, source_lang) {
+                            let rec_opt = if is_rl_vert && cb_h >= 60 {
+                                o.recognize_crop_with_lang(&crop, source_lang).ok().flatten().and_then(|c_res| {
+                                    if !c_res.text.trim().is_empty() {
+                                        Some(crate::ml::ocr::OcrResult {
+                                            text: c_res.text,
+                                            score: c_res.score,
+                                            lines: c_res.lines,
+                                        })
+                                    } else {
+                                        None
+                                    }
+                                }).or_else(|| o.recognize_line_with_lang(&crop, source_lang).ok().flatten())
+                            } else {
+                                o.recognize_line_with_lang(&crop, source_lang).ok().flatten()
+                            };
+
+                            if let Some(line_res) = rec_opt {
                                 let clean_c = clean_stray_ocr_artifacts(&line_res.text);
                                 let clean_chars = clean_c.chars().filter(|c| !c.is_whitespace()).count();
                                 let rl_chars = rl.text.chars().filter(|c| !c.is_whitespace()).count();
-                                if clean_chars > rl_chars || (clean_c.contains('…') && !rl.text.contains('…')) {
+                                let clean_cjk = clean_c.chars().filter(|c| crate::ml::detect::has_cjk_characters(&c.to_string())).count();
+                                let rl_cjk = rl.text.chars().filter(|c| crate::ml::detect::has_cjk_characters(&c.to_string())).count();
+                                if clean_chars > rl_chars || clean_cjk > rl_cjk || (clean_c.contains('…') && !rl.text.contains('…')) || (clean_chars == rl_chars && line_res.score > rl.score + 0.05) {
                                     let union_x = cb_x.min(rx);
                                     let union_y = cb_y.min(ry);
                                     let union_w = (cb_x + cb_w).max(rx + rw) - union_x;

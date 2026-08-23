@@ -1487,5 +1487,54 @@ fn test_regression_page_classroom_nie_li_awesome_bubble() {
     );
 }
 
+/// # Regression Test: Snowy Village Smoke Hiss SFX (Resolution: 900 × 1082 WebP)
+///
+/// ## Purpose & Behavior Tested:
+/// - **Onomatopoeia (SFX) Consolidation & Recognition**:
+///   Guarantees that stylized calligraphy SFX character `"嘶"` (hiss / gasp) in the lower-left
+///   is cleanly detected and captured as a single consolidated onomatopoeia/dialogue region,
+///   rather than generating duplicate overlapping raw detection boxes (`sfx0` & `sfx1`).
+/// - **Negative Guards against Redundant Ghost SFX Boxes**:
+///   Ensures zero duplicate overlapping bounding boxes around `(x: ~124, y: ~747)`.
+#[test]
+fn test_regression_page_snowy_village_smoke_hiss_sfx() {
+    let img = match crate::common::load_fixture_or_skip("zh_hans", "page_snowy_village_smoke_hiss_sfx/page.webp") {
+        Some(i) => i,
+        None => {
+            eprintln!("[INFO] Skipping test_regression_page_snowy_village_smoke_hiss_sfx: fixture not found");
+            return;
+        }
+    };
+
+    let res = crate::common::force_analyze_fixture_with_lang(&img, Some("zh_hans"));
+    println!("Page snowy_village_smoke_hiss_sfx detected {} regions, {} onomatopoeia:", res.regions.len(), res.onomatopoeia.len());
+    for (i, r) in res.regions.iter().enumerate() {
+        println!("  Region r{}: box={:?}, text='{}', angle={:.2}, conf={:.2}, kind={:?}", i, r.box_, r.text.replace('\n', "\\n"), r.angle, r.confidence, r.kind);
+    }
+    for (i, s) in res.onomatopoeia.iter().enumerate() {
+        println!("  SFX s{}: box={:?}, score={:.2}", i, s.box_, s.score);
+    }
+
+
+
+    // 1. Lower-left onomatopoeia region must be detected around (x: ~69..160, y: ~700..800)
+    let sfx_region = res.regions.iter().find(|r| {
+        let (bx, by) = (r.box_.x, r.box_.y);
+        (bx >= 50 && bx <= 160) && (by >= 680 && by <= 800)
+    });
+    assert!(sfx_region.is_some(), "Must detect lower-left SFX region for calligraphy character");
+    let sfx_r = sfx_region.unwrap();
+    assert!(!sfx_r.text.trim().is_empty(), "SFX region must have OCR text output");
+
+    // 2. Exact region accounting: exactly 1 region
+    assert_eq!(res.regions.len(), 1, "Page snowy_village_smoke_hiss_sfx must have exactly 1 region, got {}", res.regions.len());
+
+    // 3. Negative Guard: No duplicate/overlapping onomatopoeia boxes
+    if !res.onomatopoeia.is_empty() {
+        assert!(res.onomatopoeia.len() <= 1, "Must not have duplicate onomatopoeia candidate boxes for single SFX character, got {}", res.onomatopoeia.len());
+    }
+}
+
+
 
 
