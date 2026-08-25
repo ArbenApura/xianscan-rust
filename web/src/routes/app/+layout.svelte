@@ -22,6 +22,7 @@
 	import Coffee from 'lucide-svelte/icons/coffee';
 	import Cpu from 'lucide-svelte/icons/cpu';
 	import Info from 'lucide-svelte/icons/info';
+	import Loader2 from 'lucide-svelte/icons/loader-2';
 
 	// IMPORTED UI COMPONENTS
 	import SettingsModal from '$lib/components/SettingsModal.svelte';
@@ -179,7 +180,11 @@
 						class="flex items-center gap-1 sm:gap-1.5 rounded-full border border-[#b23a2e]/30 bg-[#b23a2e]/10 px-2 sm:px-2.5 py-0.5 sm:py-1 text-[11px] sm:text-xs font-bold text-[#b23a2e] dark:text-[#e08a63] shadow-xs shrink-0"
 						title={`Batch translating: ${$batchProgress.completedChapters}/${$batchProgress.totalChapters} chapters complete`}
 					>
-						<span class={`h-1.5 w-1.5 rounded-full bg-[#b23a2e] dark:bg-[#e08a63] ${$batchProgress.status === 'running' ? 'animate-ping' : ''}`}></span>
+						{#if $batchProgress.status === 'running'}
+							<Loader2 size={12} class="animate-spin text-[#b23a2e] dark:text-[#e08a63]" />
+						{:else}
+							<span class="h-1.5 w-1.5 rounded-full bg-[#b23a2e] dark:bg-[#e08a63]"></span>
+						{/if}
 						<span class="hidden min-[750px]:inline">Batch</span>
 						<span class="font-mono text-[10px] sm:text-xs">({$batchProgress.completedChapters}/{$batchProgress.totalChapters} chs)</span>
 					</div>
@@ -189,10 +194,10 @@
 						{@const total = snap?.totalPages || snap?.pages.length || 0}
 						{@const done = snap?.completedPages || 0}
 						<div
-							class="flex items-center gap-1 sm:gap-1.5 rounded-full border border-[#b23a2e]/30 bg-[#b23a2e]/10 px-2 sm:px-2.5 py-0.5 sm:py-1 text-[11px] sm:text-xs font-bold text-[#b23a2e] dark:text-[#e08a63] animate-pulse shadow-xs shrink-0"
+							class="flex items-center gap-1 sm:gap-1.5 rounded-full border border-[#b23a2e]/30 bg-[#b23a2e]/10 px-2 sm:px-2.5 py-0.5 sm:py-1 text-[11px] sm:text-xs font-bold text-[#b23a2e] dark:text-[#e08a63] shadow-xs shrink-0"
 							title={`Translating chapter (${done}/${total} pages)`}
 						>
-							<span class="h-1.5 w-1.5 rounded-full bg-[#b23a2e] dark:bg-[#e08a63]"></span>
+							<Loader2 size={12} class="animate-spin text-[#b23a2e] dark:text-[#e08a63]" />
 							<span class="hidden min-[750px]:inline">Translating</span>
 							<span class="font-mono text-[10px] sm:text-xs">({done}/{total})</span>
 						</div>
@@ -214,10 +219,10 @@
 								: 'border-red-500/30 bg-red-500/10 text-red-600 hover:border-red-500/50 hover:bg-red-500/15 dark:text-red-400 dark:bg-red-500/10 dark:hover:bg-red-500/20'
 					}`}
 					title={$mlStatus.online
-						? `ML Sidecar: Online (${$mlStatus.deviceLabel}) — Click to configure Compute & Speed`
+						? `ML Sidecar: Online (${$mlStatus.deviceLabel}) : Click to configure Compute & Speed`
 						: $mlStatus.loading
 							? 'Connecting to ML Sidecar service...'
-							: `ML Sidecar: Offline (${$mlStatus.error || 'Unreachable'}) — Click to configure Compute & Speed`}
+							: `ML Sidecar: Offline (${$mlStatus.error || 'Unreachable'}) : Click to configure Compute & Speed`}
 					aria-label="ML Sidecar Status"
 					use:ripple
 				>
@@ -263,7 +268,7 @@
 							$mlStatus.online
 								? 'bg-emerald-500'
 								: $mlStatus.loading
-									? 'bg-amber-500 animate-pulse'
+									? 'bg-amber-500'
 									: 'bg-red-500'
 						}`}
 						title={$mlStatus.online ? 'ML Online' : $mlStatus.loading ? 'Connecting...' : 'ML Offline'}

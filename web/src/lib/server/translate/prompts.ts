@@ -132,26 +132,45 @@ export function userPrompt(
 	const tgtName = languageName(tgtLang);
 	const count = regions.length;
 	const idList = regions.map((r) => `"${r.id}"`).join(', ');
-	const skeletonObj: Record<string, string> = {};
+	const skeletonTranslations: Record<string, string> = {};
 	for (const r of regions) {
-		skeletonObj[r.id] = `[${tgtName} translation of ${r.id}]`;
+		skeletonTranslations[r.id] = `[${tgtName} translation of ${r.id}]`;
 	}
-	const skeletonJson = JSON.stringify(skeletonObj, null, 2);
+
+	const templateObj = {
+		translations: skeletonTranslations,
+		newTerms: [
+			{
+				source: '<exact source characters from page>',
+				target: `<natural ${tgtName} translation>`,
+				category: 'character | location | organization | technique | item | realm | title | concept | other',
+				gender: 'masculine | feminine | neuter',
+				aliases: ['<nickname or short form>'],
+				context: `<brief 1-sentence description in ${tgtName}>`,
+			},
+		],
+	};
+	const templateJson = JSON.stringify(templateObj, null, 2);
 	const contextHeader = dialogueContextBlock ? `${dialogueContextBlock.trim()}\n\n` : '';
 
-	return `${contextHeader}Translate the following comic page regions into ${tgtName} (${tgtLang}):
+	return `${contextHeader}Translate the following comic page regions into ${tgtName} (${tgtLang}) and extract all new glossary terms:
 
 === REGIONS TO TRANSLATE (Count: ${count}) ===
 ${regionPayload(regions)}
 
 === STRICT OUTPUT REQUIREMENTS ===
-1. Return a valid JSON object mapping every input ID directly to its ${tgtName} translation.
-2. Strict 1:1 Region Mapping: You MUST provide a translation for ALL ${count} region IDs (${idList || 'none'}). Exactly one translation per ID: no more, no less. Do not skip or omit any region.
-3. Target Language: All translation values MUST be strictly in ${tgtName} (${tgtLang}).
-4. Output JSON Template:
-${skeletonJson}
+1. Return a valid JSON object containing two top-level keys: "translations" and "newTerms".
+2. Strict 1:1 Region Mapping in "translations": You MUST provide a translation for ALL ${count} region IDs (${idList || 'none'}). Exactly one translation per ID: no more, no less. Do not skip or omit any region.
+3. Target Language: All translation values and context descriptions MUST be strictly in ${tgtName} (${tgtLang}).
+4. Mandatory Glossary Extraction in "newTerms": Extract ALL new character names, proper nouns, locations, sects/organizations, martial arts, cultivation tiers, items, and artifacts appearing on this page that are NOT already in the glossary.
+   - High-Recall Directive: Be thorough and extract as many valid story terms, names, and techniques as possible. Err on the side of extracting rather than omitting; term consistency across pages is critical.
+   - Strict Anti-Duplicate Rule: If a term or any of its aliases is ALREADY present in the Glossary (shown in the system messages), do NOT include it in "newTerms". Extract ONLY completely new, unlisted terms.
+   - For every new term, provide its source, target translation, category, gender, aliases (e.g. ["小凡"] or []), and a 1-sentence context description.
+   - If there are no new terms appearing on this page, output an empty array: "newTerms": [].
+5. Output JSON Structure:
+${templateJson}
 
-Optional: You may include "newTerms" for new proper nouns, character names, locations, or martial arts not in the glossary, e.g. [{"source": "叶凡", "target": "Ye Fan", "category": "character", "gender": "masculine", "context": "Protagonist", "aliases": ["小凡"]}]. If none, omit. No markdown fences.`;
+No markdown fences, no commentary. Output ONLY the JSON object.`;
 }
 
 export function buildMessages(

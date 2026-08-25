@@ -51,13 +51,14 @@
 	import AlignJustify from 'lucide-svelte/icons/align-justify';
 	import ChevronRight from 'lucide-svelte/icons/chevron-right';
 	import Languages from 'lucide-svelte/icons/languages';
-	import Sparkles from 'lucide-svelte/icons/sparkles';
+	import Loader2 from 'lucide-svelte/icons/loader-2';
 	import Square from 'lucide-svelte/icons/square';
 	import RotateCw from 'lucide-svelte/icons/rotate-cw';
 	import FolderUp from 'lucide-svelte/icons/folder-up';
 	import Upload from 'lucide-svelte/icons/upload';
 	import FolderUploadGuideModal from '$lib/components/book/FolderUploadGuideModal.svelte';
 	import FolderImportProgressModal from '$lib/components/book/FolderImportProgressModal.svelte';
+	import ClearProgressModal from '$lib/components/book/ClearProgressModal.svelte';
 	import BookMetadataFields from '$lib/components/book/BookMetadataFields.svelte';
 	import BookCoverPicker from '$lib/components/book/BookCoverPicker.svelte';
 	import type { PageData } from './$types';
@@ -560,34 +561,7 @@
 	}
 
 	// CLEAR PROGRESS STATES
-	let clearProgressConfirmOpen = false;
-	let clearingProgress = false;
-
-	async function confirmClearProgress() {
-		if (!book) return;
-		clearingProgress = true;
-		const toastId = toast.loading('Clearing all translation progress...');
-		try {
-			const resp = await fetch(`/api/books/${book.id}/clear-progress`, {
-				method: 'POST',
-			});
-			if (!resp.ok) {
-				const err = await resp.json().catch(() => ({}));
-				throw new Error(err.message || 'Failed to clear progress');
-			}
-			const res = await resp.json();
-			toast.success(
-				`Cleared translation progress for ${res.chaptersReset} chapter${res.chaptersReset === 1 ? '' : 's'} (${res.pagesReset} page${res.pagesReset === 1 ? '' : 's'}). All pages preserved.`,
-				{ id: toastId },
-			);
-			clearProgressConfirmOpen = false;
-			await reload();
-		} catch (e: any) {
-			toast.error(e.message || 'Could not clear progress.', { id: toastId });
-		} finally {
-			clearingProgress = false;
-		}
-	}
+	let clearProgressModalOpen = false;
 
 	// MULTI-SELECTION & BATCH TRANSLATION STATES
 	let selectedChapterIds = new Set<number>();
@@ -1080,7 +1054,7 @@
 									? `Batch translation is currently running for "${$batchTracker.bookTitle || 'another book'}"`
 									: `Translate all ${pendingChapters} pending chapters sequentially`}
 							>
-								<Sparkles size={13} class="text-amber-500" />
+								<Languages size={13} class="text-amber-500" />
 								<span>Translate Pending ({pendingChapters})</span>
 							</Button>
 						{/if}
@@ -1090,16 +1064,12 @@
 							<Button
 								variant="secondary"
 								size="md"
-								loading={clearingProgress}
-								disabled={clearingProgress}
 								class="shadow-xs hidden h-8 shrink-0 gap-1 border-red-500/30 bg-red-500/5 px-2.5 text-xs font-medium text-red-600 transition-all hover:bg-red-500 hover:text-white dark:border-red-400/30 dark:bg-red-400/5 dark:text-red-400 dark:hover:bg-red-500 dark:hover:text-white sm:h-9 sm:gap-1.5 sm:px-3 sm:text-sm md:h-10 lg:inline-flex"
-								on:click={() => (clearProgressConfirmOpen = true)}
+								on:click={() => (clearProgressModalOpen = true)}
 								title="Clear all translations and OCR progress while keeping all pages intact"
 							>
-								{#if !clearingProgress}
-									<RotateCw size={13} />
-								{/if}
-								<span>{clearingProgress ? 'Clearing...' : 'Clear Progress'}</span>
+								<RotateCw size={13} />
+								<span>Clear Progress</span>
 							</Button>
 						{/if}
 
@@ -1115,7 +1085,7 @@
 												{
 													value: 'translate-pending',
 													label: `Translate Pending (${pendingChapters})`,
-													icon: Sparkles,
+													icon: Languages,
 												},
 											]
 										: []),
@@ -1123,10 +1093,9 @@
 										? [
 												{
 													value: 'clear-progress',
-													label: clearingProgress ? 'Clearing Progress...' : 'Clear All Progress',
+													label: 'Clear All Progress',
 													icon: RotateCw,
 													danger: true,
-													disabled: clearingProgress,
 												},
 											]
 										: []),
@@ -1135,7 +1104,7 @@
 									if (e.detail === 'translate-pending') {
 										startBatchAllPending();
 									} else if (e.detail === 'clear-progress') {
-										clearProgressConfirmOpen = true;
+										clearProgressModalOpen = true;
 									}
 								}}
 							/>
@@ -1544,9 +1513,9 @@
 									<div class="mt-2 flex flex-wrap items-center gap-1.5 text-[10px] sm:text-[11px]">
 										{#if liveProg.running}
 											<span
-												class="inline-flex animate-pulse items-center gap-1 rounded-md bg-[#b23a2e]/10 px-2 py-0.5 font-bold text-[#b23a2e] dark:text-[#e08a63]"
+												class="inline-flex items-center gap-1 rounded-md bg-[#b23a2e]/10 px-2 py-0.5 font-bold text-[#b23a2e] dark:text-[#e08a63]"
 											>
-												<Sparkles size={11} class="animate-spin" />
+												<Loader2 size={11} class="animate-spin" />
 												<span>{liveProg.phaseLabel}</span>
 											</span>
 										{:else}
@@ -1623,7 +1592,7 @@
 										class="inline-flex items-center gap-1 text-[11px] font-medium opacity-70 transition hover:text-[#b23a2e] hover:opacity-100"
 										title="Translate this chapter"
 									>
-										<Sparkles size={12} />
+										<Languages size={12} />
 										<span>Translate</span>
 									</button>
 								{/if}
@@ -1723,9 +1692,9 @@
 									<span>•</span>
 									{#if liveProg.running}
 										<span
-											class="flex animate-pulse items-center gap-1 font-bold text-[#b23a2e] dark:text-[#e08a63]"
+											class="flex items-center gap-1 font-bold text-[#b23a2e] dark:text-[#e08a63]"
 										>
-											<Sparkles size={11} class="animate-spin" />
+											<Loader2 size={11} class="animate-spin" />
 											<span
 												>{liveProg.phaseLabel} ({liveProg.completedPages}/{liveProg.totalPages})</span
 											>
@@ -1837,7 +1806,7 @@
 								</a>
 								<div class="mt-0.5 flex items-center gap-1.5 text-[10px] opacity-60">
 									{#if liveProg.running}
-										<span class="animate-pulse font-bold text-[#b23a2e] dark:text-[#e08a63]">
+										<span class="font-bold text-[#b23a2e] dark:text-[#e08a63]">
 											{liveProg.phaseLabel} ({liveProg.completedPages}/{liveProg.totalPages})
 										</span>
 									{:else}
@@ -1961,7 +1930,7 @@
 									</a>
 								</td>
 								<td class="hidden max-w-xs truncate px-0.5 px-3 py-2 opacity-60 md:table-cell">
-									{chapter.titleTarget && chapter.title ? chapter.title : '—'}
+									{chapter.titleTarget && chapter.title ? chapter.title : '-'}
 								</td>
 								<td class="px-3 py-2 font-mono opacity-70">
 									{#if liveProg.running}
@@ -1975,9 +1944,9 @@
 								<td class="px-3 py-2">
 									{#if liveProg.running}
 										<span
-											class="inline-flex animate-pulse items-center gap-1 text-[10px] font-bold text-[#b23a2e] dark:text-[#e08a63]"
+											class="inline-flex items-center gap-1 text-[10px] font-bold text-[#b23a2e] dark:text-[#e08a63]"
 										>
-											<Sparkles size={10} class="animate-spin" />
+											<Loader2 size={10} class="animate-spin" />
 											<span>{liveProg.phaseLabel}</span>
 										</span>
 									{:else}
@@ -2365,16 +2334,14 @@
 	on:cancel={() => (clearPagesConfirmOpen = false)}
 />
 
-<!-- CLEAR PROGRESS CONFIRMATION DIALOG -->
-<ConfirmDialog
-	open={clearProgressConfirmOpen}
-	title={`Clear Progress from "${book?.titleTarget || book?.title || 'Book'}"?`}
-	message={`Are you sure you want to clear translation and OCR progress from all ${chapters.length} chapter(s)? All translations, detected regions, and output images will be reset back to pending, but all original page images will be preserved.`}
-	confirmLabel="Clear Progress"
-	requireVerificationCode={true}
-	variant="danger"
-	on:confirm={confirmClearProgress}
-	on:cancel={() => (clearProgressConfirmOpen = false)}
+<!-- CLEAR PROGRESS MODAL -->
+<ClearProgressModal
+	bind:open={clearProgressModalOpen}
+	bookId={book?.id ?? ''}
+	chapterCount={chapters.length}
+	pageCount={chapters.reduce((sum, c) => sum + (c.pageCount || 0), 0)}
+	bookTitle={book?.titleTarget || book?.title || ''}
+	on:complete={reload}
 />
 
 <!-- FOLDER UPLOAD GUIDE MODAL -->

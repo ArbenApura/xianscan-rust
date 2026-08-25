@@ -26,14 +26,9 @@ pub fn analyze_image_with_options(
     img: &DynamicImage,
     options: Option<&AnalyzeOptions>,
 ) -> Result<AnalyzeResponse> {
-    let t_total_start = std::time::Instant::now();
-    let (page_w, page_h) = img.dimensions();
     let source_lang = options.and_then(|o| o.source_lang.as_deref());
     let enable_watermark_inpaint = options.and_then(|o| o.enable_watermark_inpaint).unwrap_or(false);
-    let enable_sfx = options.and_then(|o| o.enable_sfx).unwrap_or(false);
-    let sfx_max_area_pct = options.and_then(|o| o.sfx_max_area_pct).unwrap_or(0.30);
-    let is_cjk = is_cjk_source(source_lang);
-    let is_latin = is_latin_source(source_lang);
+    let allow_degraded_fallback = options.and_then(|o| o.allow_degraded_fallback).unwrap_or(false);
 
     // =========================================================================
     // STAGE 1: NEURAL LAYOUT ANALYSIS & OCR DETECTION
@@ -45,40 +40,30 @@ pub fn analyze_image_with_options(
         img,
         source_lang,
         enable_watermark_inpaint,
-    );
+        allow_degraded_fallback,
+    )?;
 
-    // Panels omitted per user request (only bubbles, text, and sfx)
+    analyze_image_with_fusion(engine, img, &fusion_res, options)
+}
+
+/// FAST-PATH POSTPROCESSING: EXECUTES STAGE 2 & 3 DIRECTLY GIVEN PRE-COMPUTED DETECTION FUSION RESULTS
+pub fn analyze_image_with_fusion(
+    engine: &mut PipelineEngine,
+    img: &DynamicImage,
+    fusion_res: &super::fusion::DetectionFusionResult,
+    options: Option<&AnalyzeOptions>,
+) -> Result<AnalyzeResponse> {
+    let t_total_start = std::time::Instant::now();
+    let (page_w, page_h) = img.dimensions();
+    let source_lang = options.and_then(|o| o.source_lang.as_deref());
+    let enable_sfx = options.and_then(|o| o.enable_sfx).unwrap_or(false);
+    let sfx_max_area_pct = options.and_then(|o| o.sfx_max_area_pct).unwrap_or(0.10);
+    let is_cjk = is_cjk_source(source_lang);
+    let is_latin = is_latin_source(source_lang);
+
+    // PANELS AND ONOMATOPOEIA FRAMES OMITTED PER USER REQUEST (ONLY BUBBLES, TEXT, AND SFX REGIONS)
     let panels: Vec<PanelFrame> = Vec::new();
-
-    // 2. CONSTRUCT STRUCTURAL ONOMATOPOEIA FRAMES (CLASS 1) - SCALED 6% ALL SIDES (+12% TOTAL)
-    // CLUSTER OVERLAPPING SFX DETECTOR QUERIES SO DUPLICATE BOUNDING BOXES MERGE INTO A SINGLE FRAME
-    let clustered_sfx_frames = crate::ml::detect::cluster_adjacent_sfx_boxes(&fusion_res.onomatopoeia, 25);
-    let mut onomatopoeia: Vec<OnomatopoeiaFrame> = clustered_sfx_frames
-        .iter()
-        .enumerate()
-        .map(|(idx, (poly, score))| {
-            let (bx, by, bw, bh) = crate::ml::geometry::box_to_xywh_f32(poly);
-            let (bx_i, by_i, bw_i, bh_i) = (bx.round() as i32, by.round() as i32, bw.round() as i32, bh.round() as i32);
-            let pad_x = ((bw_i as f32) * 0.06).round() as i32;
-            let pad_y = ((bh_i as f32) * 0.06).round() as i32;
-            let sx = (bx_i - pad_x).max(0);
-            let sy = (by_i - pad_y).max(0);
-            let sw = (bw_i + pad_x * 2).min(page_w as i32 - sx);
-            let sh = (bh_i + pad_y * 2).min(page_h as i32 - sy);
-            OnomatopoeiaFrame {
-                id: format!("sfx{}", idx),
-                seq: idx,
-                box_: BoxRect { x: sx, y: sy, w: sw, h: sh },
-                score: *score,
-            }
-        })
-        .collect();
-
-    onomatopoeia.sort_by_key(|s| s.box_.y);
-    for (seq, s) in onomatopoeia.iter_mut().enumerate() {
-        s.seq = seq;
-        s.id = format!("sfx{}", seq);
-    }
+    let onomatopoeia: Vec<OnomatopoeiaFrame> = Vec::new();
 
     // =========================================================================
     // STAGE 2: CONTAINER CANDIDATE COLLECTION & READING ORDER SORT
@@ -91,6 +76,31 @@ pub fn analyze_image_with_options(
     let is_detector_first = fusion_res.backend == "rfdetr-seg-2xl" || fusion_res.backend == "rtdetr-v2";
     if is_detector_first && (!fusion_res.text_bubbles.is_empty() || !fusion_res.text_free.is_empty() || !fusion_res.onomatopoeia.is_empty()) {
         for (b, score) in &fusion_res.text_bubbles {
+            // If this is a loose composite box enclosing 2 or more separate tighter subboxes, skip it
+            let matching_subboxes_count = fusion_res.text_bubbles.iter().filter(|(sub_b, sub_score)| {
+                *sub_score >= 0.45
+                    && sub_b.x >= b.x - 10
+                    && sub_b.y >= b.y - 10
+                    && (sub_b.x + sub_b.w) <= (b.x + b.w + 10)
+                    && (sub_b.y + sub_b.h) <= (b.y + b.h + 10)
+                    && (sub_b.w * sub_b.h) < (b.w * b.h * 3 / 4)
+            }).count();
+            if matching_subboxes_count >= 2 {
+                continue;
+            }
+            // If this is a horizontal single-line sub-box fragment completely enclosed inside a longer single-line box on the same row, skip the fragment
+            let is_subfragment = (b.h <= 45) && fusion_res.text_bubbles.iter().any(|(parent_b, _)| {
+                parent_b != b
+                    && parent_b.h <= 45
+                    && parent_b.w >= b.w + 40
+                    && (b.y - parent_b.y).abs() <= 10
+                    && (b.y + b.h - (parent_b.y + parent_b.h)).abs() <= 10
+                    && b.x >= parent_b.x - 8
+                    && (b.x + b.w) <= (parent_b.x + parent_b.w + 8)
+            });
+            if is_subfragment {
+                continue;
+            }
             candidate_boxes.push(vec![
                 [b.x as f32, b.y as f32],
                 [(b.x + b.w) as f32, b.y as f32],
@@ -100,6 +110,10 @@ pub fn analyze_image_with_options(
             candidate_scores.push(*score);
         }
         for (b, score) in &fusion_res.text_free {
+            // Filter out oversized cover title / banner logo art (w >= 65% of canvas width && h >= 120px)
+            if b.w as f32 >= (page_w as f32 * 0.65) && b.h >= 120 {
+                continue;
+            }
             candidate_boxes.push(vec![
                 [b.x as f32, b.y as f32],
                 [(b.x + b.w) as f32, b.y as f32],
@@ -108,14 +122,23 @@ pub fn analyze_image_with_options(
             ]);
             candidate_scores.push(*score);
         }
-        // CLUSTER ADJACENT / OVERLAPPING ONOMATOPOEIA STROKE FRAGMENTS INTO UNIFIED ENVELOPES (GAP <= 25PX)
+        // CLUSTER ADJACENT / OVERLAPPING ONOMATOPOEIA STROKE FRAGMENTS INTO UNIFIED ENVELOPES (GAP <= 50PX)
         if enable_sfx {
+            let high_conf_onomatopoeia: Vec<_> = fusion_res
+                .onomatopoeia
+                .iter()
+                .filter(|(_, score)| *score >= 0.40)
+                .cloned()
+                .collect();
             let page_total_area = (page_w * page_h).max(1) as f32;
-            let clustered_sfx = crate::ml::detect::cluster_adjacent_sfx_boxes(&fusion_res.onomatopoeia, 25);
+            let clustered_sfx = crate::ml::detect::cluster_adjacent_sfx_boxes(&high_conf_onomatopoeia, 50);
             for (poly, score) in clustered_sfx {
                 let (_, _, bw, bh) = crate::ml::geometry::box_to_xywh_f32(&poly);
                 let sfx_area = (bw * bh).max(0.0);
                 let area_ratio = sfx_area / page_total_area;
+                if bw >= (page_w as f32 * 0.65) && bh >= 120.0 {
+                    continue;
+                }
                 // SKIP OVERSIZED SFX IF EXCEEDING SFX MAX AREA RATIO TO PROTECT BACKGROUND ART
                 if area_ratio <= sfx_max_area_pct {
                     candidate_boxes.push(poly);
@@ -126,26 +149,50 @@ pub fn analyze_image_with_options(
 
         // FUSE HIGH-CONFIDENCE RAPIDOCR LINES: EXPAND NARROW SINGLE-LINE DETECTOR SLICES & PRESERVE MISSED LINES
         for line in &fusion_res.rapid_lines {
-            if line.score < 0.65 {
+            if line.score < 0.50 {
                 continue;
             }
             let (lx, ly, lw, lh) = crate::ml::geometry::polygon_bounds(&line.polygon);
+            if (lw as f32) >= (page_w as f32 * 0.65) && lh >= 120 {
+                continue;
+            }
             let mut overlaps_any = false;
             for cb in &mut candidate_boxes {
                 let (bx, by, bw, bh) = crate::ml::geometry::box_to_xywh_f32(cb);
                 let ix = (bx + bw).min((lx + lw) as f32) - bx.max(lx as f32);
                 let iy = (by + bh).min((ly + lh) as f32) - by.max(ly as f32);
-                if ix > 0.0 && iy > 0.0 {
-                    let inter_area = ix * iy;
+                // For horizontal text paragraphs (bw >= bh * 1.15), extend downwards to catch the immediate bottom continuation line
+                // (Only for multi-line paragraph continuation; do not merge single-line subtitles into large title headers where lh >= bh * 1.5)
+                let is_subtitle_to_title = bh <= 35.0 && (lh as f32) >= bh * 1.50;
+                let is_adjacent_trailing_row = !is_subtitle_to_title
+                    && bw >= bh * 1.15
+                    && (lx as f32 >= bx - 35.0)
+                    && ((lx + lw) as f32 <= bx + bw + 35.0)
+                    && (ly as f32 >= by + bh - 25.0)
+                    && ((ly as f32) <= by + bh + 45.0)
+                    && ix >= 0.35 * (lw as f32).min(bw);
+
+                if (ix > 0.0 && iy > 0.0) || is_adjacent_trailing_row {
+                    let inter_area = ix.max(0.0) * iy.max(0.0);
                     let l_area = (lw * lh).max(1) as f32;
                     let b_area = (bw * bh).max(1.0);
                     let coverage_l = inter_area / l_area;
                     let coverage_b = inter_area / b_area;
-                    if coverage_l >= 0.35 || coverage_b >= 0.35 {
+                    if coverage_l >= 0.35 || coverage_b >= 0.35 || is_adjacent_trailing_row {
                         overlaps_any = true;
-                        // IF DETECTOR BOX IS A PARTIAL SINGLE-LINE SLICE (BH < 2 * LH) AND RAPID OCR DETECTED A WIDER SENTENCE
-                        let is_single_line_slice = bh <= (lh as f32 * 1.6);
-                        if is_single_line_slice && (lw as f32) >= bw * 1.15 {
+                        // IF DETECTOR BOX IS A PARTIAL SINGLE-LINE SLICE AND RAPID OCR DETECTED A LONGER SENTENCE
+                        let is_horiz_single_line = bh <= (lh as f32 * 1.6) && (lw as f32) >= bw * 1.15;
+                        let is_vert_single_line = bw <= (lw as f32 * 1.6) && (lh as f32) >= bh * 1.15;
+                        // IF DETECTOR BOX COVERS MULTI-LINE TEXT BUT MISSES THE BOTTOM-MOST LINE (OVERLAPPING TOP HALF OR IMMEDIATE TRAILING BOTTOM)
+                        let is_partial_vert_container = !is_subtitle_to_title
+                            && (bw >= bh * 1.15)
+                            && (lx as f32 >= bx - 35.0)
+                            && ((lx + lw) as f32 <= bx + bw + 35.0)
+                            && (ly as f32 >= by - 15.0)
+                            && ((ly + lh) as f32 > by + bh)
+                            && ((ly as f32) <= by + bh + 45.0);
+
+                        if is_horiz_single_line || is_vert_single_line || is_partial_vert_container || is_adjacent_trailing_row {
                             let union_x = bx.min(lx as f32);
                             let union_y = by.min(ly as f32);
                             let union_w = (bx + bw).max((lx + lw) as f32) - union_x;
@@ -190,6 +237,12 @@ pub fn analyze_image_with_options(
                     }
                 }
 
+                if (lw as f32) >= (page_w as f32 * 0.55) && lh >= 100 {
+                    continue;
+                }
+                if lw <= 40 && lh <= 55 && line.score < 0.85 {
+                    continue;
+                }
                 candidate_boxes.push(line.polygon.iter().map(|p| [p[0] as f32, p[1] as f32]).collect());
                 candidate_scores.push(line.score);
             }
@@ -239,7 +292,7 @@ pub fn analyze_image_with_options(
         return Ok(AnalyzeResponse {
             width: page_w,
             height: page_h,
-            backend: fusion_res.backend,
+            backend: fusion_res.backend.clone(),
             panels,
             onomatopoeia,
             regions: Vec::new(),
@@ -252,8 +305,17 @@ pub fn analyze_image_with_options(
     let order = sort_regions_top_to_bottom(&dedup_boxes, page_h as usize, 0.5);
     let stage2_duration_ms = t_stage2_start.elapsed().as_secs_f64() * 1000.0;
 
-    // Only onomatopoeia is classified as SFX; text_free represents free-floating narrative text / captions
-    let sfx_boxes = fusion_res.onomatopoeia.clone();
+    // Only high-confidence onomatopoeia is classified as SFX; text_free represents free-floating narrative text / captions
+    let sfx_boxes: Vec<(BoxRect, f32)> = if enable_sfx {
+        fusion_res
+            .onomatopoeia
+            .iter()
+            .filter(|(_, score)| *score >= 0.40)
+            .cloned()
+            .collect()
+    } else {
+        Vec::new()
+    };
 
     // =========================================================================
     // STAGE 3: TARGETED TEXT RECOGNITION & REGION MASKING
@@ -276,10 +338,10 @@ pub fn analyze_image_with_options(
         options.and_then(|o| o.typeset_padding_pct),
     );
 
-    // Filter out low-confidence standalone single-character artwork artifacts (e.g. blush mark '红', conf < 0.58), but preserve SoundEffects
+    // Filter out low-confidence standalone single-character artwork artifacts (e.g. blush mark '红', conf < 0.58, w <= 35 && h <= 35), but preserve SoundEffects and signage
     final_regions.retain(|r| {
         let t = r.text.trim();
-        if t.chars().count() == 1 && r.confidence < 0.58 && r.kind != crate::ml::schemas::RegionKind::SoundEffect {
+        if t.chars().count() == 1 && r.confidence < 0.58 && (r.box_.w <= 35 && r.box_.h <= 35) && r.kind != crate::ml::schemas::RegionKind::SoundEffect {
             return false;
         }
         true
@@ -399,7 +461,7 @@ pub fn analyze_image_with_options(
     Ok(AnalyzeResponse {
         width: page_w,
         height: page_h,
-        backend: fusion_res.backend,
+        backend: fusion_res.backend.clone(),
         panels,
         onomatopoeia,
         regions: final_regions,

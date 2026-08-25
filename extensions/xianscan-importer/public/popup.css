@@ -1,5 +1,5 @@
 /* ==============================================================================
-   XIANSCAN EXTENSION — ARBENGER UI DESIGN SYSTEM
+   XIANSCAN EXTENSION: ARBENGER UI DESIGN SYSTEM
    ============================================================================== */
 
 :root {
@@ -576,17 +576,112 @@ body {
 	gap: 6px;
 }
 
-.auto-translate-row {
-	display: flex;
-	align-items: center;
+/* -- PIPELINE TOGGLE CHIPS -- */
+.pipeline-toggles {
+	display: grid;
+	grid-template-columns: 1fr 1fr;
 	gap: 6px;
-	font-size: 10px;
-	color: var(--text-muted);
-	cursor: pointer;
+	margin-bottom: 2px;
 }
 
-.auto-translate-row input {
-	accent-color: var(--cinnabar);
+.pipeline-chip {
+	position: relative;
+	display: flex;
+	align-items: center;
+	gap: 5px;
+	padding: 5px 7px;
+	background: var(--bg);
+	border: 1px solid var(--border);
+	border-radius: var(--radius);
+	cursor: pointer;
+	transition: all 0.18s ease;
+	user-select: none;
+	overflow: hidden;
+}
+
+.pipeline-chip:hover {
+	border-color: var(--border-light);
+	background: var(--surface-hover);
+}
+
+.pipeline-chip input[type="checkbox"] {
+	position: absolute;
+	opacity: 0;
+	width: 0;
+	height: 0;
+	pointer-events: none;
+}
+
+.pipeline-chip .chip-check {
+	width: 12px;
+	height: 12px;
+	border-radius: 3px;
+	border: 1.5px solid var(--border-light);
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	flex-shrink: 0;
+	transition: all 0.15s ease;
+	background: transparent;
+}
+
+.pipeline-chip .chip-check svg {
+	width: 8px;
+	height: 8px;
+	stroke: #FFFFFF;
+	stroke-width: 3;
+	opacity: 0;
+	transform: scale(0.6);
+	transition: all 0.15s ease;
+}
+
+.pipeline-chip .toggle-icon {
+	width: 12px;
+	height: 12px;
+	color: var(--text-muted);
+	flex-shrink: 0;
+	transition: color 0.15s ease;
+}
+
+.pipeline-chip .chip-label {
+	font-size: 10px;
+	font-weight: 500;
+	color: var(--text-muted);
+	white-space: nowrap;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	transition: color 0.15s ease;
+}
+
+/* CHECKED STATE */
+.pipeline-chip:has(input:checked),
+.pipeline-chip.checked {
+	border-color: rgba(200, 60, 35, 0.45);
+	background: rgba(200, 60, 35, 0.08);
+}
+
+.pipeline-chip:has(input:checked) .chip-check,
+.pipeline-chip.checked .chip-check {
+	background: var(--cinnabar);
+	border-color: var(--cinnabar);
+	box-shadow: 0 0 6px var(--cinnabar-glow);
+}
+
+.pipeline-chip:has(input:checked) .chip-check svg,
+.pipeline-chip.checked .chip-check svg {
+	opacity: 1;
+	transform: scale(1);
+}
+
+.pipeline-chip:has(input:checked) .toggle-icon,
+.pipeline-chip.checked .toggle-icon {
+	color: var(--cinnabar);
+}
+
+.pipeline-chip:has(input:checked) .chip-label,
+.pipeline-chip.checked .chip-label {
+	color: var(--text-heading);
+	font-weight: 600;
 }
 
 /* -- BUTTONS -- */

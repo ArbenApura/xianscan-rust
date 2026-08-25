@@ -1,36 +1,55 @@
 import type { ChapterMetadata } from '../types';
 
-// REGEX PATTERNS FOR MULTI-LANGUAGE CHAPTER & EPISODE NUMBERS
+// -- REGEX PATTERNS FOR MULTI-LANGUAGE CHAPTER & EPISODE NUMBERS -- //
 const CHAPTER_REGEXES = [
-	// Chinese: 第123话, 第123.5回, 第123章
+	// CHINESE: 第123话, 第123.5回, 第123章
 	/第\s*(\d+(?:\.\d+)?)\s*[话話章节回卷]/i,
-	// Korean: 123화, 제123화, 123.5화
+	// KOREAN: 123화, 제123화, 123.5화
 	/(?:제\s*)?(\d+(?:\.\d+)?)\s*화/i,
-	// Japanese: 第123話, 123話
+	// JAPANESE: 第123話, 123話
 	/(?:第\s*)?(\d+(?:\.\d+)?)\s*話/i,
-	// English / Latin: Chapter 123, Ch. 123, Ep. 123, Episode 123.5, #123
+	// ENGLISH / LATIN: Chapter 123, Ch. 123, Ep. 123, Episode 123.5, #123
 	/(?:chapter|chap|ch|episode|ep|vol|volume|\b#)\s*[\.:#]?\s*(\d+(?:\.\d+)?)/i,
-	// URL-style: /chapter-123, /c123, /123.html
+	// URL-STYLE: /chapter-123, /c123, /123.html
 	/[\/-](?:chapter|chap|ch|ep)?-?(\d+(?:\.\d+)?)(?:\.html|\/|$)/i
 ];
 
+const TRADITIONAL_HAN_PATTERN = /[們這為會經說國動時現實體學業發問門沒進聽階級歡迎龍鳳飛鳥馬魚車書長萬與變並單當點對讓頭儘幾後畫兒極總處愛鐵無樂義氣開專鬥蒼術靈斬寶閣莊記話職師歸來劍聖陣傳廣導應隊戰惡獸護衛歷險煉]/;
+const CYRILLIC_PATTERN = /[\u0400-\u04ff\u0500-\u052f]/;
+const THAI_PATTERN = /[\u0e00-\u0e7f]/;
+
 export function detectSourceLanguageFromPage(text: string, htmlLang = ''): string {
 	const lang = htmlLang.toLowerCase().trim();
-	if (lang.startsWith('zh')) return 'zh';
+	if (lang.startsWith('zh-hant') || lang.startsWith('zh-tw') || lang.startsWith('zh-hk')) return 'zh-Hant';
+	if (lang.startsWith('zh')) return 'zh-Hans';
 	if (lang.startsWith('ko')) return 'ko';
 	if (lang.startsWith('ja')) return 'ja';
+	if (lang.startsWith('th')) return 'th';
+	if (lang.startsWith('ru') || lang.startsWith('uk')) return 'ru';
+	if (lang.startsWith('fr')) return 'fr';
+	if (lang.startsWith('es')) return 'es';
+	if (lang.startsWith('id')) return 'id';
+	if (lang.startsWith('en')) return 'en';
 
-	// Hangul range
+	// HANGUL RANGE
 	if (/[\uac00-\ud7af\u1100-\u11ff]/.test(text)) {
 		return 'ko';
 	}
-	// Japanese Hiragana & Katakana range
+	// JAPANESE HIRAGANA & KATAKANA RANGE
 	if (/[\u3040-\u309f\u30a0-\u30ff]/.test(text)) {
 		return 'ja';
 	}
-	// CJK Unified Ideographs (Chinese)
+	// THAI SCRIPT
+	if (THAI_PATTERN.test(text)) {
+		return 'th';
+	}
+	// CYRILLIC SCRIPT
+	if (CYRILLIC_PATTERN.test(text)) {
+		return 'ru';
+	}
+	// CJK UNIFIED IDEOGRAPHS (TRADITIONAL VS SIMPLIFIED)
 	if (/[\u4e00-\u9fff]/.test(text)) {
-		return 'zh';
+		return TRADITIONAL_HAN_PATTERN.test(text) ? 'zh-Hant' : 'zh-Hans';
 	}
 
 	return 'auto';
@@ -39,7 +58,7 @@ export function detectSourceLanguageFromPage(text: string, htmlLang = ''): strin
 export function parseChapterMetadata(title: string, url = '', htmlLang = ''): ChapterMetadata {
 	let chapterNumber: number | undefined;
 
-	// 1. Try matching chapter number from title
+	// 1. TRY MATCHING CHAPTER NUMBER FROM TITLE
 	for (const reg of CHAPTER_REGEXES) {
 		const match = title.match(reg);
 		if (match && match[1]) {
@@ -51,7 +70,7 @@ export function parseChapterMetadata(title: string, url = '', htmlLang = ''): Ch
 		}
 	}
 
-	// 2. If not found, try URL
+	// 2. IF NOT FOUND, TRY URL
 	if (chapterNumber === undefined && url) {
 		for (const reg of CHAPTER_REGEXES) {
 			const match = url.match(reg);
@@ -65,20 +84,22 @@ export function parseChapterMetadata(title: string, url = '', htmlLang = ''): Ch
 		}
 	}
 
-	// 3. Extract series title by removing chapter and trailing website noise
+	// 3. EXTRACT SERIES TITLE BY REMOVING CHAPTER AND TRAILING WEBSITE NOISE
 	let seriesTitle = title;
-	// Remove common site suffix: " - MangaDex", " | Read Manhwa Online", etc.
-	seriesTitle = seriesTitle.replace(/\s*[-|–—]\s*[^—–|-]+(?:manga|manhua|manhwa|scans|comics|online|read).*$/i, '');
+	// REMOVE COMMON SITE SUFFIX: " - MangaDex", " | Read Manhwa Online", ETC.
+	seriesTitle = seriesTitle.replace(/\s*[-|–]\s*[^–|-]+(?:manga|manhua|manhwa|scans|comics|online|read).*$/i, '');
 	
-	// Remove chapter segment
-	seriesTitle = seriesTitle
+	// REMOVE CHAPTER SEGMENTS
+	const cleaned = seriesTitle
 		.replace(/(?:第\s*)?\d+(?:\.\d+)?\s*[话話章节回卷화].*$/i, '')
 		.replace(/(?:chapter|chap|ch|episode|ep|vol|volume|\b#)\s*[\.:#]?\s*\d+(?:\.\d+)?.*$/i, '')
 		.replace(/\[(?:完结|완결|ongoing|raw|end)\].*$/i, '')
-		.replace(/[-–—]\s*$/, '')
+		.replace(/[-–]\s*$/, '')
 		.trim();
 
-	if (!seriesTitle) {
+	if (cleaned) {
+		seriesTitle = cleaned;
+	} else {
 		seriesTitle = title.trim();
 	}
 

@@ -1,5 +1,5 @@
 // IMPORTED DEP-TYPES
-import type { Handle } from '@sveltejs/kit';
+import type { Handle, HandleServerError } from '@sveltejs/kit';
 // IMPORTED DEP-MODULES
 import { sequence } from '@sveltejs/kit/hooks';
 // IMPORTED MODULES
@@ -24,8 +24,8 @@ const DARK = ['dark'];
 
 // -- LIFECYCLES -- //
 
-// PROCESS-LEVEL RESILIENCE. A STRAY ASYNC REJECTION — e.g. A DETACHED TRANSLATION JOB SAVING TO A PAGE
-// THE USER DELETED MID-FLIGHT — MUST NOT TAKE THE WHOLE SERVER DOWN. NODE EXITS ON AN UNHANDLED REJECTION
+// PROCESS-LEVEL RESILIENCE. A STRAY ASYNC REJECTION (e.g. A DETACHED TRANSLATION JOB SAVING TO A PAGE
+// THE USER DELETED MID-FLIGHT) MUST NOT TAKE THE WHOLE SERVER DOWN. NODE EXITS ON AN UNHANDLED REJECTION
 // BY DEFAULT; LOG IT AND KEEP SERVING. REGISTERED ONCE (HMR-SAFE).
 if (!globalThis.__mtProcessGuards) {
 	globalThis.__mtProcessGuards = true;
@@ -35,7 +35,19 @@ if (!globalThis.__mtProcessGuards) {
 
 // -- HANDLES -- //
 
-// HTTP REQUEST LOGGER — QUIET BY DEFAULT. SET LOG_REQUESTS=1 TO RESTORE PER-REQUEST LOGS.
+// WELL-KNOWN & BROWSER PROBE HANDLER: SILENCES CHROME DEVTOOLS AND SYSTEM PROBE 404 WARNINGS
+const probeHandle: Handle = async ({ event, resolve }) => {
+	const path = event.url.pathname;
+	if (path.startsWith('/.well-known/')) {
+		return new Response(JSON.stringify({}), {
+			status: 200,
+			headers: { 'Content-Type': 'application/json' },
+		});
+	}
+	return resolve(event);
+};
+
+// HTTP REQUEST LOGGER: QUIET BY DEFAULT. SET LOG_REQUESTS=1 TO RESTORE PER-REQUEST LOGS.
 const loggingHandle: Handle = async ({ event, resolve }) => {
 	if (process.env.LOG_REQUESTS !== '1') {
 		return resolve(event);
@@ -100,4 +112,13 @@ const corsHandle: Handle = async ({ event, resolve }) => {
 	return response;
 };
 
-export const handle = sequence(corsHandle, loggingHandle, themeHandle);
+export const handle = sequence(corsHandle, probeHandle, loggingHandle, themeHandle);
+
+// SERVER ERROR HANDLER: SUPPRESSES 404 LOGS IN CLI
+export const handleError: HandleServerError = ({ error, status }) => {
+	if (status === 404 || (error as any)?.status === 404) {
+		return { message: 'Not found' };
+	}
+	console.error('[server error]', error);
+	return { message: 'Internal Server Error' };
+};

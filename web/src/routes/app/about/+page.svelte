@@ -10,7 +10,6 @@
 	import Heart from 'lucide-svelte/icons/heart';
 	import BookOpen from 'lucide-svelte/icons/book-open';
 	import ExternalLink from 'lucide-svelte/icons/external-link';
-	import Sparkles from 'lucide-svelte/icons/sparkles';
 	import Cpu from 'lucide-svelte/icons/cpu';
 	import Layers from 'lucide-svelte/icons/layers';
 	import Languages from 'lucide-svelte/icons/languages';
@@ -298,7 +297,7 @@
 	<section class="space-y-3 sm:space-y-4">
 		<div>
 			<h2 class="text-sm sm:text-lg font-bold text-neutral-900 dark:text-neutral-100 flex items-center gap-2">
-				<Sparkles size={17} class="text-[#b23a2e] dark:text-[#e08a63]" />
+				<Zap size={17} class="text-[#b23a2e] dark:text-[#e08a63]" />
 				Key Features
 			</h2>
 		</div>

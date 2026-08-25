@@ -4,7 +4,7 @@
 	import type { ChapterJobState } from '$lib/stores/job-tracker';
 	import type { ChapterJobSnapshot, PageProgressState, PipelinePhase, PipelineStep } from '$lib/types';
 	import { PIPELINE_STEP_LABELS } from '$lib/types';
-	import Sparkles from 'lucide-svelte/icons/sparkles';
+	import Loader2 from 'lucide-svelte/icons/loader-2';
 	import CheckCircle2 from 'lucide-svelte/icons/check-circle-2';
 	import AlertTriangle from 'lucide-svelte/icons/alert-triangle';
 	import Clock from 'lucide-svelte/icons/clock';
@@ -138,7 +138,7 @@
 					}`}
 				>
 					{#if running}
-						<Sparkles size={18} class="animate-spin" />
+						<Loader2 size={18} class="animate-spin" />
 					{:else if failedPages > 0}
 						<AlertTriangle size={18} />
 					{:else}
@@ -164,20 +164,20 @@
 								connectionState === 'connected'
 									? 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400'
 									: connectionState === 'reconnecting'
-										? 'animate-pulse bg-amber-500/10 text-amber-600 dark:text-amber-400'
+										? 'bg-amber-500/10 text-amber-600 dark:text-amber-400'
 										: connectionState === 'connecting'
 											? 'bg-blue-500/10 text-blue-600'
 											: 'bg-black/5 text-neutral-500 dark:bg-white/5'
 							}`}
 						>
 							{#if connectionState === 'connected'}
-								<span class="h-1.5 w-1.5 rounded-full bg-emerald-500 animate-ping"></span>
+								<span class="h-1.5 w-1.5 rounded-full bg-emerald-500"></span>
 								Live SSE
 							{:else if connectionState === 'reconnecting'}
 								<WifiOff size={10} />
 								Reconnecting...
 							{:else if connectionState === 'connecting'}
-								<Wifi size={10} class="animate-pulse" />
+								<Wifi size={10} />
 								Connecting
 							{:else}
 								Synced
@@ -351,8 +351,8 @@
 												<AlertTriangle size={12} /> Error ({p.failedStep ? PIPELINE_STEP_LABELS[p.failedStep] || p.failedStep : 'failed'})
 											</span>
 										{:else if p.status === 'processing' && jobState.running}
-											<span class="inline-flex items-center gap-1 text-[#b23a2e] dark:text-[#e08a63] font-bold animate-pulse">
-												<Sparkles size={12} class="animate-spin" />
+											<span class="inline-flex items-center gap-1 text-[#b23a2e] dark:text-[#e08a63] font-bold">
+												<Loader2 size={12} class="animate-spin" />
 												{p.currentStep ? PIPELINE_STEP_LABELS[p.currentStep] || p.currentStep : 'Processing...'}
 											</span>
 										{:else if p.status === 'processing' && !jobState.running}
@@ -370,7 +370,7 @@
 												<span class="ml-1 text-[10px] opacity-50">({ocrTiming.details.regionsCount} regions)</span>
 											{/if}
 										{:else if ocrTiming?.status === 'running' && jobState.running}
-											<span class="text-[#b23a2e] font-semibold animate-pulse">Running...</span>
+											<span class="text-[#b23a2e] font-semibold">Running...</span>
 										{:else}
 											<span class="opacity-25">-</span>
 										{/if}
@@ -388,7 +388,7 @@
 												{/if}
 											{/if}
 										{:else if transTiming?.status === 'running' && jobState.running}
-											<span class="text-[#b23a2e] font-semibold animate-pulse">Translating...</span>
+											<span class="text-[#b23a2e] font-semibold">Translating...</span>
 										{:else if p.status === 'done' && ocrTiming?.status === 'completed' && (!ocrTiming.details?.regionsCount || ocrTiming.details.regionsCount === 0)}
 											<span class="text-[10px] opacity-40 italic">Skipped (0 text)</span>
 										{:else}
@@ -401,7 +401,7 @@
 										{#if cleanTiming?.status === 'completed'}
 											<span class="font-mono opacity-80">{formatDuration(cleanTiming.durationMs)}</span>
 										{:else if cleanTiming?.status === 'running' && jobState.running}
-											<span class="text-[#b23a2e] font-semibold animate-pulse">Inpainting...</span>
+											<span class="text-[#b23a2e] font-semibold">Inpainting...</span>
 										{:else}
 											<span class="opacity-25">-</span>
 										{/if}
@@ -412,7 +412,7 @@
 										{#if typeTiming?.status === 'completed'}
 											<span class="font-mono opacity-80">{formatDuration(typeTiming.durationMs)}</span>
 										{:else if typeTiming?.status === 'running' && jobState.running}
-											<span class="text-[#b23a2e] font-semibold animate-pulse">Typesetting...</span>
+											<span class="text-[#b23a2e] font-semibold">Typesetting...</span>
 										{:else}
 											<span class="opacity-25">-</span>
 										{/if}
@@ -423,7 +423,7 @@
 										{#if totalDur !== undefined}
 											{formatDuration(totalDur)}
 										{:else if p.status === 'processing' && jobState.running}
-											<span class="text-xs text-[#b23a2e] dark:text-[#e08a63] font-sans animate-pulse">...</span>
+											<span class="text-xs text-[#b23a2e] dark:text-[#e08a63] font-sans">...</span>
 										{:else}
 											<span class="opacity-25">-</span>
 										{/if}

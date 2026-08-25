@@ -425,27 +425,32 @@ export async function mergeGlossary(
 export async function addNewTerms(
 	bookId: string,
 	terms: TermDraft[],
-	// THE CHAPTER THESE TERMS WERE EXTRACTED FROM — STAMPED AS first_chapter_id (FIRST APPEARANCE) ON INSERT.
+	// THE CHAPTER THESE TERMS WERE EXTRACTED FROM - STAMPED AS first_chapter_id (FIRST APPEARANCE) ON INSERT.
 	chapterId?: number,
 ): Promise<{ added: number; skipped: number }> {
 	if (terms.length === 0) return { added: 0, skipped: 0 };
 	const pair = await bookPair(bookId);
-	// ALIAS-AWARE DEDUP: A DISCOVERED TERM IS SKIPPED IF ITS `source` COLLIDES WITH ANY EXISTING TERM'S
-	// `source` OR ALIAS (SAME ENTITY, DIFFERENT FORM) IN THIS BOOK'S EFFECTIVE GLOSSARY (BOOK ∪ GLOBAL OF
+	// ALIAS-AWARE AND CASE-INSENSITIVE DEDUP: A DISCOVERED TERM IS SKIPPED IF ITS `source` COLLIDES WITH ANY EXISTING
+	// TERM'S `source` OR ALIAS (SAME ENTITY, DIFFERENT FORM) IN THIS BOOK'S EFFECTIVE GLOSSARY (BOOK OR GLOBAL OF
 	// THE SAME PAIR). THIS PREVENTS OCR VARIANTS / ALTERNATE FORMS FROM CREATING DUPLICATE ENTRIES.
 	const established = new Set<string>();
 	for (const t of await getEffectiveGlossary(bookId)) {
-		if (t.source) established.add(t.source);
-		for (const a of t.aliases ?? []) if (a) established.add(a);
+		if (t.source) established.add(t.source.trim().toLowerCase());
+		for (const a of t.aliases ?? []) if (a) established.add(a.trim().toLowerCase());
 	}
 	const claimed = new Set<string>();
 	const freshTerms = terms.filter((t) => {
 		const src = t.source.trim();
-		if (!src || established.has(src)) return false;
-		// CLAIM EVERY source AND ALIAS FROM THIS BATCH TOO, SO DUPLICATES *WITHIN* THE SAME CALL ALSO COLLAPSE.
-		if (claimed.has(src)) return false;
-		claimed.add(src);
-		for (const a of t.aliases ?? []) if (a) established.add(a);
+		const srcKey = src.toLowerCase();
+		if (!src || established.has(srcKey) || claimed.has(srcKey)) return false;
+		claimed.add(srcKey);
+
+		// CLEAN ALIASES TO REMOVE ANY THAT CONFLICT WITH ESTABLISHED TERMS OR ARE IDENTICAL TO SOURCE
+		const cleanAliases = (t.aliases ?? [])
+			.map((a) => a.trim())
+			.filter((a) => a && a.toLowerCase() !== srcKey && !established.has(a.toLowerCase()));
+		t.aliases = cleanAliases.length > 0 ? cleanAliases : null;
+		for (const a of cleanAliases) established.add(a.toLowerCase());
 		return true;
 	});
 	const skipped = terms.length - freshTerms.length;

@@ -7,7 +7,6 @@
 	import BookOpen from 'lucide-svelte/icons/book-open';
 	import Cpu from 'lucide-svelte/icons/cpu';
 	import Languages from 'lucide-svelte/icons/languages';
-	import Sparkles from 'lucide-svelte/icons/sparkles';
 	// IMPORTED UI COMPONENTS
 	import { Button, InkDivider, Seal } from '$lib/components/ui';
 
@@ -38,7 +37,7 @@
 </script>
 
 <svelte:head>
-	<title>Xianscan — AI Comic & Manhua Translation</title>
+	<title>Xianscan : AI Comic & Manhua Translation</title>
 </svelte:head>
 
 <div class="relative flex min-h-screen flex-col items-center justify-center px-4 py-12 text-center">
@@ -52,7 +51,7 @@
 	<div class="relative z-10 mb-6 flex flex-col items-center gap-3">
 		<Seal char="仙" size={36} class="shadow-md shadow-[#b23a2e]/20" />
 		<div class="inline-flex items-center gap-2 rounded-full border border-[#b23a2e]/20 bg-[#b23a2e]/10 px-3.5 py-1.5 text-xs font-semibold text-[#b23a2e] dark:text-[#e08a63]">
-			<Sparkles size={14} />
+			<Languages size={14} />
 			<span>Self-hosted Comic & Manhua Translation Pipeline</span>
 		</div>
 	</div>

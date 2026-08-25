@@ -76,4 +76,40 @@ describe('XianScanClient', () => {
 			method: 'POST'
 		}));
 	});
+
+	it('triggers chapter reslice and consumes sse stream', async () => {
+		const encoder = new TextEncoder();
+		const stream = new ReadableStream({
+			start(controller) {
+				controller.enqueue(encoder.encode('data: {"type":"start"}\n\n'));
+				controller.enqueue(encoder.encode('data: {"type":"done","originalCount":5,"newCount":3}\n\n'));
+				controller.close();
+			}
+		});
+
+		mockFetch.mockResolvedValueOnce({
+			ok: true,
+			status: 200,
+			body: stream
+		});
+
+		const result = await client.triggerReslice(42);
+		expect(result.success).toBe(true);
+		expect(mockFetch).toHaveBeenCalledWith('http://localhost:8124/api/chapters/42/reslice', expect.objectContaining({
+			method: 'POST'
+		}));
+	});
+
+	it('triggers chapter translation', async () => {
+		mockFetch.mockResolvedValueOnce({
+			ok: true,
+			status: 200
+		});
+
+		const result = await client.triggerTranslate(42);
+		expect(result.success).toBe(true);
+		expect(mockFetch).toHaveBeenCalledWith('http://localhost:8124/api/chapters/42/translate', expect.objectContaining({
+			method: 'POST'
+		}));
+	});
 });

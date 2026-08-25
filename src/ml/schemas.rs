@@ -74,6 +74,8 @@ pub struct AnalyzeOptions {
     pub enable_sfx: Option<bool>,
     #[serde(default)]
     pub sfx_max_area_pct: Option<f32>,
+    #[serde(default)]
+    pub allow_degraded_fallback: Option<bool>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -171,6 +173,10 @@ pub struct HardwareStatus {
     pub gpu_warning: Option<String>,
     #[serde(default)]
     pub reloading: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cuda_vram_limit_mb: Option<usize>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub configured_cuda_vram_limit_mb: Option<usize>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -181,4 +187,40 @@ pub struct GpuInfo {
     pub vram_mb: f64,
     pub is_dedicated: bool,
     pub is_integrated: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct GpuTelemetry {
+    pub name: String,
+    pub vram_used_mb: f64,
+    pub vram_total_mb: f64,
+    pub utilization_pct: Option<f64>,
+    pub active_provider: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct HostMemoryTelemetry {
+    pub used_mb: f64,
+    pub total_mb: f64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CpuTelemetry {
+    pub cores: usize,
+    pub utilization_pct: Option<f64>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct EngineQueueTelemetry {
+    pub active_jobs: usize,
+    pub queued_jobs: usize,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SystemTelemetry {
+    pub gpu: Option<GpuTelemetry>,
+    pub host_memory: HostMemoryTelemetry,
+    pub cpu: CpuTelemetry,
+    pub queue: EngineQueueTelemetry,
+    pub timestamp_ms: u64,
 }

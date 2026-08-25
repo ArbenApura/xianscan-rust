@@ -11,7 +11,7 @@
 
 <script lang="ts">
 	// IMPORTED DEP-MODULES
-	import { tick } from 'svelte';
+	import { tick, onDestroy } from 'svelte';
 	import { toast } from 'svelte-sonner';
 	// IMPORTED MODULES
 	import { ripple } from '$lib/actions/ripple';
@@ -19,6 +19,7 @@
 		settings,
 		INPAINT_MODES,
 		EXECUTION_DEVICES,
+		CUDA_VRAM_LIMIT_PRESETS,
 		APP_FONTS,
 		AVAILABLE_TYPESET_FONTS,
 		AVAILABLE_CJK_FONTS,
@@ -36,7 +37,7 @@
 	import Languages from 'lucide-svelte/icons/languages';
 	import Check from 'lucide-svelte/icons/check';
 	import Cpu from 'lucide-svelte/icons/cpu';
-	import Sparkles from 'lucide-svelte/icons/sparkles';
+	import Eraser from 'lucide-svelte/icons/eraser';
 	import Volume2 from 'lucide-svelte/icons/volume-2';
 	import Zap from 'lucide-svelte/icons/zap';
 	import ZapOff from 'lucide-svelte/icons/zap-off';
@@ -111,10 +112,35 @@
 		detected_gpus?: Array<{ device_id: number; name: string; vram_mb: number; is_dedicated: boolean; is_integrated: boolean }>;
 		gpu_warning?: string | null;
 		reloading?: boolean;
+		cuda_vram_limit_mb?: number | null;
+		configured_cuda_vram_limit_mb?: number | null;
 		version?: string;
 		app_version?: string;
 		web_build_hash?: string;
 		web_build_time?: string;
+	}
+
+	interface SystemTelemetry {
+		gpu?: {
+			name: string;
+			vram_used_mb: number;
+			vram_total_mb: number;
+			utilization_pct?: number | null;
+			active_provider: string;
+		} | null;
+		host_memory: {
+			used_mb: number;
+			total_mb: number;
+		};
+		cpu: {
+			cores: number;
+			utilization_pct?: number | null;
+		};
+		queue: {
+			active_jobs: number;
+			queued_jobs: number;
+		};
+		timestamp_ms: number;
 	}
 
 	interface ProviderInfo {
@@ -132,6 +158,11 @@
 	let hardwareInfo: HardwareInfo | null = null;
 	let hardwareLoading = false;
 	let switchingDevice: ExecutionDevice | null = null;
+	let settingVramLimit = false;
+
+	// LIVE TELEMETRY STATE
+	let telemetry: SystemTelemetry | null = null;
+	let telemetryInterval: ReturnType<typeof setInterval> | null = null;
 
 	// AI PROVIDERS STATE
 	let providers: ProviderInfo[] = [];
@@ -285,6 +316,43 @@
 		}
 	}
 
+	async function loadTelemetry() {
+		try {
+			const res = await fetch('/api/system/telemetry');
+			if (res.ok) {
+				telemetry = (await res.json()) as SystemTelemetry;
+			}
+		} catch {
+			// SILENT FALLBACK
+		}
+	}
+
+	async function setCudaVramLimit(limitMb: number | null) {
+		settingVramLimit = true;
+		try {
+			const res = await fetch('/api/system/hardware', {
+				method: 'POST',
+				headers: { 'content-type': 'application/json' },
+				body: JSON.stringify({
+					device: $settings.executionDevice || 'auto',
+					vram_limit_mb: limitMb === null ? 0 : limitMb,
+				}),
+			});
+			if (res.ok) {
+				hardwareInfo = (await res.json()) as HardwareInfo;
+				settings.update((s) => ({ ...s, cudaVramLimitMb: limitMb }));
+				const label = limitMb ? `${limitMb / 1024} GB` : 'Auto (Adaptive)';
+				toast.success(`GPU VRAM allocation set to ${label}`);
+			} else {
+				toast.error('Failed to update GPU VRAM allocation limit');
+			}
+		} catch (e: any) {
+			toast.error(e.message || 'Failed to update GPU VRAM allocation');
+		} finally {
+			settingVramLimit = false;
+		}
+	}
+
 	async function loadProviders() {
 		providersLoading = true;
 		try {
@@ -319,10 +387,33 @@
 		globalSearch = '';
 		loadHardwareStatus();
 		loadProviders();
+		loadTelemetry();
+		if (telemetryInterval) clearInterval(telemetryInterval);
+		telemetryInterval = setInterval(loadTelemetry, 2000);
 		void mlStatus.checkHealth();
+	} else {
+		if (telemetryInterval) {
+			clearInterval(telemetryInterval);
+			telemetryInterval = null;
+		}
 	}
 
+	onDestroy(() => {
+		if (telemetryInterval) {
+			clearInterval(telemetryInterval);
+			telemetryInterval = null;
+		}
+	});
+
 	$: mlOffline = !$mlStatus.loading && !$mlStatus.online;
+
+	$: gpuVramPct = telemetry?.gpu && telemetry.gpu.vram_total_mb > 0
+		? Math.min(100, Math.max(0, (telemetry.gpu.vram_used_mb / telemetry.gpu.vram_total_mb) * 100))
+		: 0;
+
+	$: hostRamPct = telemetry?.host_memory && telemetry.host_memory.total_mb > 0
+		? Math.min(100, Math.max(0, (telemetry.host_memory.used_mb / telemetry.host_memory.total_mb) * 100))
+		: 0;
 
 	// SETTINGS DISPATCHERS
 	function setTheme(t: Theme | string) {
@@ -974,7 +1065,7 @@
 			items: [
 				{ id: 'appearance', label: 'General & Appearance', icon: Palette, keywords: ['theme', 'light', 'dark', 'sepia', 'font', 'language', 'locale', 'source', 'target'] },
 				{ id: 'typesetting', label: 'Typesetting & Lettering', icon: Type, keywords: ['font', 'cjk', 'bubble', 'dialogue', 'padding', 'stroke', 'outline', 'contrast', 'casing', 'angle', 'rotation', 'preview'] },
-				{ id: 'inpainting', label: 'Inpainting & SFX', icon: Sparkles, keywords: ['inpaint', 'patch', 'scaled', 'full', 'watermark', 'sfx', 'sound', 'geometry', 'expansion', 'mask'] },
+				{ id: 'inpainting', label: 'Inpainting & SFX', icon: Eraser, keywords: ['inpaint', 'patch', 'scaled', 'full', 'watermark', 'sfx', 'sound', 'geometry', 'expansion', 'mask'] },
 			],
 		},
 		{
@@ -1018,11 +1109,11 @@
 		{ id: 'typeset-casing', label: 'Dialogue Letterform Casing', category: 'typesetting', categoryLabel: 'Typesetting & Lettering', categoryIcon: Type, keywords: ['casing', 'uppercase', 'lowercase', 'all-caps', 'capitalization'] },
 
 		// INPAINTING
-		{ id: 'inpaint-mode', label: 'Inpainting Strategy', category: 'inpainting', categoryLabel: 'Inpainting & SFX', categoryIcon: Sparkles, keywords: ['inpaint', 'patch', 'scaled', 'full', 'erase', 'cleaning', 'lama'] },
-		{ id: 'watermark', label: 'Chromatic Watermark Inpainting', category: 'inpainting', categoryLabel: 'Inpainting & SFX', categoryIcon: Sparkles, keywords: ['watermark', 'chromatic', 'logo', 'scanlator', 'clean'] },
-		{ id: 'sfx-toggle', label: 'Sound Effects (SFX) Inpaint & Typeset', category: 'inpainting', categoryLabel: 'Inpainting & SFX', categoryIcon: Sparkles, keywords: ['sfx', 'sound', 'onomatopoeia', 'action', 'effects'] },
-		{ id: 'sfx-threshold', label: 'Artwork Preservation Threshold', category: 'inpainting', categoryLabel: 'Inpainting & SFX', categoryIcon: Sparkles, keywords: ['threshold', 'sfx', 'area', 'preservation', 'percentage', 'skip'] },
-		{ id: 'inpaint-geom', label: 'Three-Tier Region Geometry Expansion', category: 'inpainting', categoryLabel: 'Inpainting & SFX', categoryIcon: Sparkles, keywords: ['geometry', 'expansion', 'tier', 'margin', 'bounds', 'inpaint mask', 'typeset box'] },
+		{ id: 'inpaint-mode', label: 'Inpainting Strategy', category: 'inpainting', categoryLabel: 'Inpainting & SFX', categoryIcon: Eraser, keywords: ['inpaint', 'patch', 'scaled', 'full', 'erase', 'cleaning', 'lama'] },
+		{ id: 'watermark', label: 'Chromatic Watermark Inpainting', category: 'inpainting', categoryLabel: 'Inpainting & SFX', categoryIcon: Eraser, keywords: ['watermark', 'chromatic', 'logo', 'scanlator', 'clean'] },
+		{ id: 'sfx-toggle', label: 'Sound Effects (SFX) Inpaint & Typeset', category: 'inpainting', categoryLabel: 'Inpainting & SFX', categoryIcon: Eraser, keywords: ['sfx', 'sound', 'onomatopoeia', 'action', 'effects'] },
+		{ id: 'sfx-threshold', label: 'Artwork Preservation Threshold', category: 'inpainting', categoryLabel: 'Inpainting & SFX', categoryIcon: Eraser, keywords: ['threshold', 'sfx', 'area', 'preservation', 'percentage', 'skip'] },
+		{ id: 'inpaint-geom', label: 'Three-Tier Region Geometry Expansion', category: 'inpainting', categoryLabel: 'Inpainting & SFX', categoryIcon: Eraser, keywords: ['geometry', 'expansion', 'tier', 'margin', 'bounds', 'inpaint mask', 'typeset box'] },
 
 		// AI PROVIDERS
 		{ id: 'providers-hub', label: 'AI Translation Provider Selection', category: 'providers', categoryLabel: 'AI Translation Providers', categoryIcon: Zap, keywords: ['provider', 'ai', 'cloud', 'local', 'custom', 'deepseek', 'gemini', 'groq', 'openrouter', 'openai', 'ollama', 'lmstudio'] },
@@ -1033,6 +1124,8 @@
 
 		// HARDWARE & COMPUTE
 		{ id: 'compute-device', label: 'Hardware Compute Accelerator (ONNX)', category: 'compute', categoryLabel: 'Hardware & Compute', categoryIcon: Cpu, keywords: ['hardware', 'accelerator', 'gpu', 'cuda', 'directml', 'coreml', 'cpu', 'nvidia', 'amd', 'intel'] },
+		{ id: 'vram-limit', label: 'GPU VRAM Allocation Memory Limit', category: 'compute', categoryLabel: 'Hardware & Compute', categoryIcon: Sliders, keywords: ['vram', 'gpu ram', 'memory', 'allocator', 'limit', 'gb', 'cuda memory', 'oom'] },
+		{ id: 'telemetry-monitor', label: 'Live System & GPU Telemetry Monitor', category: 'compute', categoryLabel: 'Hardware & Compute', categoryIcon: Activity, keywords: ['telemetry', 'monitor', 'live', 'vram', 'ram', 'cpu', 'load', 'queue', 'memory tracker'] },
 		{ id: 'igpu-protect', label: 'Integrated GPU Protection', category: 'compute', categoryLabel: 'Hardware & Compute', categoryIcon: Cpu, keywords: ['igpu', 'integrated', 'protection', 'driver', 'freeze', 'tdr'] },
 		{ id: 'auto-reslice', label: 'Auto-Reslice Before Batch Translation', category: 'compute', categoryLabel: 'Hardware & Compute', categoryIcon: Cpu, keywords: ['reslice', 'slice', 'webtoon', 'smart', 'seam', 'gutter', 'split'] },
 		{ id: 'parallel-workers', label: 'Parallel Page Workers Concurrency', category: 'compute', categoryLabel: 'Hardware & Compute', categoryIcon: Cpu, keywords: ['worker', 'parallel', 'concurrency', 'threads', 'speed', 'page'] },
@@ -1389,7 +1482,7 @@
 						>
 							<div class="flex flex-wrap items-center justify-between gap-2">
 								<div class="flex items-center gap-1.5 text-xs font-bold uppercase tracking-wider opacity-80">
-									<Sparkles size={14} class="text-[#b23a2e] dark:text-[#e08a63]" />
+									<Type size={14} class="text-[#b23a2e] dark:text-[#e08a63]" />
 									<span>Live Speech Bubble Preview</span>
 								</div>
 								<button
@@ -1695,7 +1788,7 @@
 							>
 								<div>
 									<div class="text-xs font-bold flex items-center gap-1.5">
-										<Sparkles size={14} class="text-[#b23a2e] dark:text-[#e08a63]" />
+										<Eraser size={14} class="text-[#b23a2e] dark:text-[#e08a63]" />
 										<span>Chromatic Watermark Inpainting</span>
 									</div>
 									<p class="text-[11px] opacity-60 mt-0.5">Detect and inpaint colored scanlator logos and watermarks colliding with bubbles before OCR.</p>
@@ -1739,29 +1832,84 @@
 								</div>
 
 								{#if $settings.enableSfx}
+									{@const sfxPct = Math.min(100, Math.max(0, Math.round(($settings.sfxMaxAreaPct || 0.30) * 100)))}
 									<div
 										id="setting-sfx-threshold"
-										class="border-t border-black/10 pt-2.5 dark:border-white/10"
+										class="border-t border-black/10 pt-2.5 dark:border-white/10 space-y-2"
 									>
-										<div class="flex items-center justify-between mb-1.5">
+										<div class="flex items-center justify-between">
 											<span class="text-[10px] font-bold uppercase tracking-wider opacity-75">Artwork Preservation Threshold</span>
-											<span class="text-[10px] font-mono opacity-60">Skip if &gt; {Math.round($settings.sfxMaxAreaPct * 100)}% page area</span>
+											<span class="text-xs font-mono font-bold text-[#b23a2e] dark:text-[#e08a63]">
+												{sfxPct}%
+												<span class="text-[10px] font-normal opacity-60 ml-0.5">({sfxPct >= 100 ? 'Translate All SFX' : `Skip if > ${sfxPct}% page area`})</span>
+											</span>
 										</div>
-										<div class="grid grid-cols-2 sm:grid-cols-4 gap-1.5">
-											{#each SFX_AREA_PRESETS as preset}
-												<button
-													type="button"
-													on:click={() => setSfxMaxArea(preset.value)}
-													class={`rounded-lg border py-1.5 px-2 text-center transition-all ${
-														Math.abs($settings.sfxMaxAreaPct - preset.value) < 0.005
-															? 'border-[#b23a2e] bg-[#b23a2e]/10 text-[#b23a2e] dark:text-[#e08a63] font-bold shadow-xs'
-															: 'border-black/10 hover:border-black/20 bg-black/[0.02] dark:border-white/10 dark:hover:border-white/20 dark:bg-white/[0.02] opacity-70'
-													}`}
-													use:ripple
-												>
-													<span class="text-xs font-bold">{preset.label}</span>
-												</button>
-											{/each}
+
+										<!-- MATHEMATICALLY ALIGNED STEPPED SLIDER WITH TICKS -->
+										<div class="space-y-3 pt-2 pb-1 px-2.5">
+											<div class="relative flex items-center select-none">
+												<!-- BACKGROUND TRACK -->
+												<div class="relative w-full h-2 rounded-full bg-black/10 dark:bg-white/10 overflow-hidden">
+													<!-- ACTIVE FILLED TRACK -->
+													<div
+														class="absolute top-0 bottom-0 left-0 bg-[#b23a2e] dark:bg-[#e08a63] rounded-full transition-all duration-75"
+														style="width: {sfxPct}%;"
+													></div>
+												</div>
+
+												<!-- DISCRETE TICK DOTS (INNER STEPS ONLY: 10%, 20%, 30%, 40%, 50%, 60%, 70%, 80%, 90%) -->
+												<div class="absolute inset-x-0 top-1/2 -translate-y-1/2 pointer-events-none">
+													{#each [10, 20, 30, 40, 50, 60, 70, 80, 90] as tick}
+														<div
+															class="absolute top-1/2 -translate-y-1/2 -translate-x-1/2 rounded-full transition-colors duration-150 {tick % 25 === 0 ? 'w-1.5 h-1.5' : 'w-1 h-1'} {tick <= sfxPct ? 'bg-white dark:bg-neutral-900' : 'bg-black/30 dark:bg-white/30'}"
+															style="left: {tick}%;"
+														></div>
+													{/each}
+												</div>
+
+												<!-- INVISIBLE FULL-WIDTH RANGE INPUT FOR DRAG / KEYBOARD NAVIGATION -->
+												<input
+													type="range"
+													min="0"
+													max="100"
+													step="5"
+													value={sfxPct}
+													on:input={(e) => {
+														const val = Number(e.currentTarget.value);
+														settings.update((s) => ({ ...s, sfxMaxAreaPct: val / 100 }));
+													}}
+													class="absolute inset-0 w-full opacity-0 cursor-pointer z-20 h-6"
+												/>
+
+												<!-- CUSTOM DRAGGABLE THUMB INDICATOR -->
+												<div
+													class="absolute top-1/2 -translate-y-1/2 -translate-x-1/2 w-4 h-4 rounded-full bg-white dark:bg-neutral-900 border-2 border-[#b23a2e] dark:border-[#e08a63] shadow-md pointer-events-none z-10 transition-all duration-75"
+													style="left: {sfxPct}%;"
+												></div>
+											</div>
+
+											<!-- MATHEMATICALLY ALIGNED CLICKABLE TICK LABELS -->
+											<div class="relative w-full h-4 select-none">
+												{#each [
+													{ val: 0, label: '0%' },
+													{ val: 10, label: '10%' },
+													{ val: 20, label: '20%' },
+													{ val: 30, label: '30%' },
+													{ val: 50, label: '50%' },
+													{ val: 75, label: '75%' },
+													{ val: 100, label: '100%' }
+												] as m}
+													{@const isCurrent = Math.abs(sfxPct - m.val) < 4}
+													<button
+														type="button"
+														on:click={() => setSfxMaxArea(m.val / 100)}
+														class="absolute top-0 -translate-x-1/2 text-[10px] font-mono transition-all cursor-pointer {isCurrent ? 'font-bold text-[#b23a2e] dark:text-[#e08a63] scale-110' : 'opacity-50 hover:opacity-100 hover:text-black dark:hover:text-white'}"
+														style="left: {m.val}%;"
+													>
+														{m.label}
+													</button>
+												{/each}
+											</div>
 										</div>
 									</div>
 								{/if}
@@ -1843,6 +1991,14 @@
 										</button>
 									{/each}
 								</div>
+							</div>
+
+							<!-- NOTICE: RE-TRANSLATION REQUIRED FOR NEW EXPANSION MARGINS -->
+							<div class="flex items-start gap-2 rounded-xl border border-amber-500/25 bg-amber-500/10 p-2.5 text-[10.5px] leading-relaxed text-amber-800 dark:text-amber-300">
+								<Info size={14} class="shrink-0 text-amber-600 dark:text-amber-400 mt-0.5" />
+								<span>
+									<strong>Note:</strong> Changing region geometry expansion percentages applies to future chapter translations. To apply new boundary margins to previously translated chapters, trigger a full re-translation.
+								</span>
 							</div>
 						</div>
 					</div>
@@ -2194,6 +2350,131 @@
 									{/if}
 								</button>
 							{/each}
+						</div>
+
+						<!-- GPU VRAM MEMORY ALLOCATOR -->
+						{#if hardwareInfo?.has_cuda || $settings.executionDevice === 'cuda' || hardwareInfo?.detected_gpus?.some((g) => g.is_dedicated)}
+							<div
+								id="setting-vram-limit"
+								class={`space-y-2 rounded-xl border border-black/10 bg-black/[0.02] p-3.5 dark:border-white/10 dark:bg-white/[0.02] transition-all duration-300 ${highlightedSettingId === 'vram-limit' ? 'ring-2 ring-[#b23a2e] dark:ring-[#e08a63] bg-[#b23a2e]/[0.06] dark:bg-[#e08a63]/[0.08]' : ''}`}
+							>
+								<div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-1">
+									<div class="flex items-center gap-1.5 font-bold text-xs">
+										<Sliders size={13} class="text-[#b23a2e] dark:text-[#e08a63]" />
+										<span>GPU VRAM Allocation Limit</span>
+									</div>
+									<div class="font-mono text-[10.5px] opacity-70">
+										Active Limit: <span class="font-bold text-[#b23a2e] dark:text-[#e08a63]">{hardwareInfo?.cuda_vram_limit_mb ? `${(hardwareInfo.cuda_vram_limit_mb / 1024).toFixed(1).replace(/\.0$/, '')} GB` : 'Auto'}</span>
+										{#if hardwareInfo?.configured_cuda_vram_limit_mb}
+											<span class="opacity-60">(Manual override)</span>
+										{:else}
+											<span class="opacity-60">(Hardware adaptive)</span>
+										{/if}
+									</div>
+								</div>
+								<p class="text-[10.5px] opacity-60 leading-relaxed">
+									Sets the maximum memory capacity allocated per ONNX CUDA session to prevent out-of-memory errors on large transformer layers.
+								</p>
+								<div class="grid grid-cols-3 sm:grid-cols-6 gap-1.5 pt-1">
+									{#each CUDA_VRAM_LIMIT_PRESETS as preset}
+										{@const isSelected = $settings.cudaVramLimitMb === preset.value || ($settings.cudaVramLimitMb === null && preset.value === null)}
+										<button
+											type="button"
+											disabled={settingVramLimit}
+											on:click={() => setCudaVramLimit(preset.value)}
+											class={`flex flex-col items-center justify-center rounded-lg border py-2 px-1 text-center transition-all cursor-pointer ${
+												isSelected
+													? 'border-[#b23a2e] bg-[#b23a2e]/[0.08] text-[#b23a2e] dark:text-[#e08a63] ring-1 ring-[#b23a2e]/30 font-bold'
+													: 'border-black/10 hover:border-black/20 dark:border-white/10 opacity-75'
+											}`}
+											use:ripple
+										>
+											<span class="text-xs font-mono">{preset.label}</span>
+											<span class="text-[9px] opacity-60 mt-0.5">{preset.sub}</span>
+										</button>
+									{/each}
+								</div>
+							</div>
+						{/if}
+
+						<!-- LIVE SYSTEM TELEMETRY -->
+						<div
+							id="setting-telemetry-monitor"
+							class={`space-y-3 rounded-xl border border-black/10 bg-black/[0.02] p-3.5 dark:border-white/10 dark:bg-white/[0.02] transition-all duration-300 ${highlightedSettingId === 'telemetry-monitor' ? 'ring-2 ring-[#b23a2e] dark:ring-[#e08a63] bg-[#b23a2e]/[0.06] dark:bg-[#e08a63]/[0.08]' : ''}`}
+						>
+							<div class="flex items-center justify-between">
+								<div class="flex items-center gap-1.5 font-bold text-xs">
+									<Activity size={13} class="text-[#b23a2e] dark:text-[#e08a63]" />
+									<span>Live System Telemetry</span>
+								</div>
+								<div class="flex items-center gap-2 text-[10px] font-mono opacity-60">
+									<span>Auto-refresh: 2.0s</span>
+								</div>
+							</div>
+
+							<div class="grid grid-cols-1 sm:grid-cols-2 gap-2.5 pt-0.5">
+								<!-- GPU VRAM GAUGE -->
+								<div class="rounded-lg border border-black/5 bg-white/40 p-2.5 dark:border-white/5 dark:bg-black/20 space-y-1.5">
+									<div class="flex items-center justify-between text-[11px]">
+										<span class="font-semibold opacity-80 flex items-center gap-1">
+											<Cpu size={12} class="opacity-60" />
+											<span>GPU VRAM</span>
+										</span>
+										<span class="font-mono text-[10px] font-bold">
+											{#if telemetry?.gpu}
+												{telemetry.gpu.vram_used_mb.toFixed(0)} MB / {telemetry.gpu.vram_total_mb.toFixed(0)} MB
+												{#if telemetry.gpu.vram_total_mb > 0}
+													<span class="opacity-60">({((telemetry.gpu.vram_used_mb / telemetry.gpu.vram_total_mb) * 100).toFixed(0)}%)</span>
+												{/if}
+											{:else}
+												<span class="opacity-50 font-normal">No dedicated GPU</span>
+											{/if}
+										</span>
+									</div>
+									<div class="h-1.5 w-full rounded-full bg-black/5 dark:bg-white/5 overflow-hidden">
+										<!-- DYNAMIC RUNTIME GAUGE WIDTH -->
+										<div
+											class={`h-full rounded-full transition-all duration-500 ${gpuVramPct > 85 ? 'bg-amber-500' : 'bg-[#b23a2e] dark:bg-[#e08a63]'}`}
+											style={`width: ${gpuVramPct}%;`}
+										></div>
+									</div>
+									<div class="flex items-center justify-between text-[9.5px] font-mono opacity-50 truncate">
+										<span>{telemetry?.gpu?.name || 'CPU Multi-threaded'}</span>
+										{#if telemetry?.gpu?.utilization_pct !== null && telemetry?.gpu?.utilization_pct !== undefined}
+											<span>Load: {telemetry.gpu.utilization_pct.toFixed(0)}%</span>
+										{/if}
+									</div>
+								</div>
+
+								<!-- HOST RAM GAUGE -->
+								<div class="rounded-lg border border-black/5 bg-white/40 p-2.5 dark:border-white/5 dark:bg-black/20 space-y-1.5">
+									<div class="flex items-center justify-between text-[11px]">
+										<span class="font-semibold opacity-80 flex items-center gap-1">
+											<Server size={12} class="opacity-60" />
+											<span>Host System RAM</span>
+										</span>
+										<span class="font-mono text-[10px] font-bold">
+											{#if telemetry?.host_memory && telemetry.host_memory.total_mb > 0}
+												{telemetry.host_memory.used_mb.toFixed(0)} MB / {telemetry.host_memory.total_mb.toFixed(0)} MB
+												<span class="opacity-60">({((telemetry.host_memory.used_mb / telemetry.host_memory.total_mb) * 100).toFixed(0)}%)</span>
+											{:else}
+												<span class="opacity-50 font-normal">Reading…</span>
+											{/if}
+										</span>
+									</div>
+									<div class="h-1.5 w-full rounded-full bg-black/5 dark:bg-white/5 overflow-hidden">
+										<!-- DYNAMIC RUNTIME GAUGE WIDTH -->
+										<div
+											class={`h-full rounded-full transition-all duration-500 ${hostRamPct > 90 ? 'bg-red-500' : hostRamPct > 75 ? 'bg-amber-500' : 'bg-[#4f7a64] dark:bg-[#83b39a]'}`}
+											style={`width: ${hostRamPct}%;`}
+										></div>
+									</div>
+									<div class="flex items-center justify-between text-[9.5px] font-mono opacity-50">
+										<span>CPU Threads: {telemetry?.cpu?.cores || 1}</span>
+										<span>Active Process</span>
+									</div>
+								</div>
+							</div>
 						</div>
 
 						<!-- PRE-RESLICING & PARALLEL WORKERS -->

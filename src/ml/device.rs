@@ -7,14 +7,19 @@ use anyhow::Result;
 use ort::session::builder::GraphOptimizationLevel;
 use ort::session::Session;
 
-use super::schemas::{GpuInfo, HardwareStatus};
+use super::schemas::{
+    CpuTelemetry, EngineQueueTelemetry, GpuInfo, GpuTelemetry, HardwareStatus, HostMemoryTelemetry,
+    SystemTelemetry,
+};
 
 static OVERRIDE_DEVICE: LazyLock<Mutex<Option<String>>> = LazyLock::new(|| Mutex::new(None));
+static OVERRIDE_CUDA_MEM_LIMIT_MB: LazyLock<Mutex<Option<usize>>> = LazyLock::new(|| Mutex::new(None));
 
 // SET ONCE A CUDA / COREML SESSION FAILS TO INITIALIZE, SO status CAN STOP
 // REPORTING AN ACCELERATOR THAT IS NOT ACTUALLY RUNNING (MISSING RUNTIME).
 static CUDA_RUNTIME_FAILED: AtomicBool = AtomicBool::new(false);
 static COREML_RUNTIME_FAILED: AtomicBool = AtomicBool::new(false);
+static LAST_GPU_ERROR: LazyLock<Mutex<Option<String>>> = LazyLock::new(|| Mutex::new(None));
 
 // SHORT-TTL CACHE FOR GPU ENUMERATION. THE LINUX PATH RUNS `nvidia-smi`, WHICH CAN HANG
 // ON A WEDGED DRIVER AND WOULD OTHERWISE BLOCK EVERY /system/hardware REQUEST. CACHING
@@ -43,7 +48,7 @@ fn enumerate_system_gpus_inner() -> Vec<GpuInfo> {
                     let name_len = desc.Description.iter().position(|&c| c == 0).unwrap_or(desc.Description.len());
                     let name = String::from_utf16_lossy(&desc.Description[..name_len]).trim().to_string();
 
-                    // Skip Microsoft Basic Render Driver (0x1414)
+                    // SKIP MICROSOFT BASIC RENDER DRIVER (0x1414)
                     if desc.VendorId != 0x1414 && !name.contains("Basic Render") {
                         let vram_mb = (desc.DedicatedVideoMemory as f64) / (1024.0 * 1024.0);
                         let name_lower = name.to_lowercase();
@@ -426,7 +431,13 @@ pub fn get_hardware_status() -> HardwareStatus {
         None
     };
 
-    let gpu_warning = if !dml_active && !detected_gpus.is_empty() && !has_dedicated_gpu {
+    let last_gpu_err = LAST_GPU_ERROR.lock().unwrap().clone();
+    let gpu_warning = if let Some(ref err) = last_gpu_err {
+        Some(format!(
+            "Dedicated GPU was detected, but GPU session initialization failed ({}). Running on multi-threaded CPU.",
+            err
+        ))
+    } else if !dml_active && !detected_gpus.is_empty() && !has_dedicated_gpu {
         Some(format!(
             "Integrated GPU detected ({}). GPU acceleration is disabled to protect against desktop freezing and driver crashes. Running on multi-threaded CPU.",
             detected_gpus[0].name
@@ -434,6 +445,9 @@ pub fn get_hardware_status() -> HardwareStatus {
     } else {
         amd_warning
     };
+
+    let configured_cuda_vram_limit_mb = *OVERRIDE_CUDA_MEM_LIMIT_MB.lock().unwrap();
+    let cuda_vram_limit_mb = Some(get_cuda_gpu_memory_limit() / (1024 * 1024));
 
     HardwareStatus {
         device_label: label,
@@ -453,6 +467,8 @@ pub fn get_hardware_status() -> HardwareStatus {
         detected_gpus,
         gpu_warning,
         reloading: false,
+        cuda_vram_limit_mb,
+        configured_cuda_vram_limit_mb,
     }
 }
 
@@ -460,6 +476,13 @@ pub fn set_active_provider(mode: &str) -> HardwareStatus {
     let clean = mode.trim().to_lowercase();
     let mut guard = OVERRIDE_DEVICE.lock().unwrap();
     *guard = if clean == "auto" { None } else { Some(clean) };
+    drop(guard);
+    get_hardware_status()
+}
+
+pub fn set_cuda_memory_limit_override(mb: Option<usize>) -> HardwareStatus {
+    let mut guard = OVERRIDE_CUDA_MEM_LIMIT_MB.lock().unwrap();
+    *guard = mb.filter(|&m| m > 0);
     drop(guard);
     get_hardware_status()
 }
@@ -478,6 +501,14 @@ pub fn get_optimal_cpu_threads() -> usize {
 
 /// DETERMINES OPTIMAL GPU MEMORY LIMIT PER ONNX SESSION FOR CUDA EP DYNAMICALLY SCALED BY DETECTED VRAM
 pub fn get_cuda_gpu_memory_limit() -> usize {
+    // 1. RUNTIME EXPLICIT USER CONFIGURATION FROM SETTINGS UI
+    if let Some(limit) = *OVERRIDE_CUDA_MEM_LIMIT_MB.lock().unwrap() {
+        if limit > 0 {
+            return limit * 1024 * 1024;
+        }
+    }
+
+    // 2. EXPLICIT ENVIRONMENT VARIABLE OVERRIDE
     if let Ok(val) = std::env::var("ORT_CUDA_MEM_LIMIT_MB") {
         if let Ok(parsed) = val.parse::<usize>() {
             if parsed > 0 {
@@ -486,7 +517,7 @@ pub fn get_cuda_gpu_memory_limit() -> usize {
         }
     }
 
-    // DYNAMIC VRAM ALLOCATION BASED ON DETECTED DEDICATED GPU HARDWARE:
+    // 3. DYNAMIC VRAM ALLOCATION BASED ON DETECTED DEDICATED GPU HARDWARE:
     // - >= 14 GB VRAM (E.G. 16GB TESLA T4, 16GB-24GB RTX 4080/4090/3090): ALLOCATE 8 GB
     // - >= 7 GB VRAM (E.G. 8GB-12GB RTX 3060/3070/4060/4070): ALLOCATE 6 GB
     // - >= 4 GB VRAM (E.G. 4GB-6GB GTX 1650/1660, RTX 3050): ALLOCATE 80% OF VRAM (MIN 3.2 GB)
@@ -504,6 +535,160 @@ pub fn get_cuda_gpu_memory_limit() -> usize {
     6 * 1024 * 1024 * 1024
 }
 
+#[cfg(target_os = "linux")]
+fn query_linux_gpu_telemetry() -> Option<(f64, f64, Option<f64>)> {
+    let out = run_with_timeout(
+        std::process::Command::new("nvidia-smi")
+            .args(["--query-gpu=memory.used,memory.total,utilization.gpu", "--format=csv,noheader,nounits"]),
+        Duration::from_millis(800),
+    )?;
+    if !out.status.success() {
+        return None;
+    }
+    let stdout = String::from_utf8(out.stdout).ok()?;
+    let first_line = stdout.lines().next()?;
+    let parts: Vec<&str> = first_line.split(',').map(|s| s.trim()).collect();
+    if parts.len() >= 2 {
+        let used = parts[0].parse::<f64>().ok()?;
+        let total = parts[1].parse::<f64>().ok()?;
+        let util = parts.get(2).and_then(|s| s.parse::<f64>().ok());
+        return Some((used, total, util));
+    }
+    None
+}
+
+#[cfg(target_os = "linux")]
+fn query_linux_host_memory() -> HostMemoryTelemetry {
+    let Ok(content) = std::fs::read_to_string("/proc/meminfo") else {
+        return HostMemoryTelemetry { used_mb: 0.0, total_mb: 0.0 };
+    };
+    let mut total_kb = 0.0;
+    let mut avail_kb = 0.0;
+    for line in content.lines() {
+        if line.starts_with("MemTotal:") {
+            total_kb = line.split_whitespace().nth(1).and_then(|s| s.parse::<f64>().ok()).unwrap_or(0.0);
+        } else if line.starts_with("MemAvailable:") {
+            avail_kb = line.split_whitespace().nth(1).and_then(|s| s.parse::<f64>().ok()).unwrap_or(0.0);
+        }
+    }
+    let total_mb = total_kb / 1024.0;
+    let used_mb = (total_kb - avail_kb).max(0.0) / 1024.0;
+    HostMemoryTelemetry {
+        used_mb: (used_mb * 10.0).round() / 10.0,
+        total_mb: (total_mb * 10.0).round() / 10.0,
+    }
+}
+
+#[cfg(windows)]
+fn query_windows_host_memory() -> HostMemoryTelemetry {
+    #[repr(C)]
+    struct MemoryStatusEx {
+        dw_length: u32,
+        dw_memory_load: u32,
+        ull_total_phys: u64,
+        ull_avail_phys: u64,
+        ull_total_page_file: u64,
+        ull_avail_page_file: u64,
+        ull_total_virtual: u64,
+        ull_avail_virtual: u64,
+        ull_avail_extended_virtual: u64,
+    }
+
+    extern "system" {
+        fn GlobalMemoryStatusEx(stat: *mut MemoryStatusEx) -> i32;
+    }
+
+    let mut stat = MemoryStatusEx {
+        dw_length: std::mem::size_of::<MemoryStatusEx>() as u32,
+        dw_memory_load: 0,
+        ull_total_phys: 0,
+        ull_avail_phys: 0,
+        ull_total_page_file: 0,
+        ull_avail_page_file: 0,
+        ull_total_virtual: 0,
+        ull_avail_virtual: 0,
+        ull_avail_extended_virtual: 0,
+    };
+
+    unsafe {
+        if GlobalMemoryStatusEx(&mut stat) != 0 {
+            let total_mb = (stat.ull_total_phys as f64) / (1024.0 * 1024.0);
+            let avail_mb = (stat.ull_avail_phys as f64) / (1024.0 * 1024.0);
+            let used_mb = (total_mb - avail_mb).max(0.0);
+            return HostMemoryTelemetry {
+                used_mb: (used_mb * 10.0).round() / 10.0,
+                total_mb: (total_mb * 10.0).round() / 10.0,
+            };
+        }
+    }
+
+    HostMemoryTelemetry { used_mb: 0.0, total_mb: 0.0 }
+}
+
+/// QUERIES REAL-TIME SYSTEM TELEMETRY (GPU VRAM, HOST RAM, CPU CORES, ENGINE QUEUE DEPTH)
+pub fn get_system_telemetry(active_jobs: usize, queued_jobs: usize) -> SystemTelemetry {
+    let (providers, _) = probe_hardware();
+    let dedicated_gpu = get_dedicated_gpu();
+    let active_provider = providers.first().cloned().unwrap_or_else(|| "CPUExecutionProvider".to_string());
+
+    let mut gpu_telemetry = None;
+    if let Some(gpu) = dedicated_gpu {
+        #[allow(unused_mut)]
+        let mut used_mb: f64 = 0.0;
+        #[allow(unused_mut)]
+        let mut total_mb: f64 = gpu.vram_mb;
+        #[allow(unused_mut)]
+        let mut util_pct = None;
+
+        #[cfg(target_os = "linux")]
+        {
+            if let Some((u, t, util)) = query_linux_gpu_telemetry() {
+                used_mb = u;
+                if t > 0.0 {
+                    total_mb = t;
+                }
+                util_pct = util;
+            }
+        }
+
+        gpu_telemetry = Some(GpuTelemetry {
+            name: gpu.name,
+            vram_used_mb: (used_mb * 10.0).round() / 10.0,
+            vram_total_mb: (total_mb * 10.0).round() / 10.0,
+            utilization_pct: util_pct,
+            active_provider: active_provider.clone(),
+        });
+    }
+
+    #[cfg(target_os = "linux")]
+    let host_memory = query_linux_host_memory();
+
+    #[cfg(windows)]
+    let host_memory = query_windows_host_memory();
+
+    #[cfg(not(any(target_os = "linux", windows)))]
+    let host_memory = HostMemoryTelemetry { used_mb: 0.0, total_mb: 0.0 };
+
+    let timestamp_ms = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_millis() as u64)
+        .unwrap_or(0);
+
+    SystemTelemetry {
+        gpu: gpu_telemetry,
+        host_memory,
+        cpu: CpuTelemetry {
+            cores: num_cpus::get(),
+            utilization_pct: None,
+        },
+        queue: EngineQueueTelemetry {
+            active_jobs,
+            queued_jobs,
+        },
+        timestamp_ms,
+    }
+}
+
 /// DETERMINES OPTIMAL HOST THREADS FOR GPU SESSIONS (AVOIDS HOST-CPU CONTENTION WITH GPU DRIVER)
 pub fn get_optimal_gpu_host_threads() -> usize {
     if let Ok(val) = std::env::var("ONNX_GPU_THREADS") {
@@ -516,9 +701,9 @@ pub fn get_optimal_gpu_host_threads() -> usize {
     num_cpus::get().min(4).max(1)
 }
 
-/// Cross-platform process working-set and heap memory reclamation.
-/// On Windows, empties unreferenced working-set pages back to the OS.
-/// On Linux, invokes malloc_trim if available.
+/// CROSS-PLATFORM PROCESS WORKING-SET AND HEAP MEMORY RECLAMATION.
+/// ON WINDOWS, EMPTIES UNREFERENCED WORKING-SET PAGES BACK TO THE OS.
+/// ON LINUX, INVOKES malloc_trim IF AVAILABLE.
 pub fn trim_process_memory() {
     #[cfg(windows)]
     {
@@ -543,8 +728,8 @@ pub fn trim_process_memory() {
     }
 }
 
-/// Creates an ONNX Runtime Session from bytes using the active hardware accelerator
-/// (CUDA, CoreML, or DirectML for dedicated GPUs, with automatic, graceful fallback to multi-threaded CPU).
+/// CREATES AN ONNX RUNTIME SESSION FROM BYTES USING THE ACTIVE HARDWARE ACCELERATOR
+/// (CUDA, COREML, OR DIRECTML FOR DEDICATED GPUS, WITH AUTOMATIC, GRACEFUL FALLBACK TO MULTI-THREADED CPU).
 pub fn create_session_from_memory(bytes: &[u8], model_tag: &str) -> Result<Session> {
     let (providers, _) = probe_hardware();
     let wants_cuda = providers.iter().any(|p| p == "CUDAExecutionProvider");
@@ -584,6 +769,7 @@ pub fn create_session_from_memory(bytes: &[u8], model_tag: &str) -> Result<Sessi
                 }
                 Err(e) => {
                     CUDA_RUNTIME_FAILED.store(true, Ordering::Relaxed);
+                    *LAST_GPU_ERROR.lock().unwrap() = Some(format!("CUDA init error: {}", e));
                     tracing::warn!(
                         "Failed to initialize ONNX model '{}' with CUDA ({}); falling back to CPU multi-threaded.",
                         model_tag, e
@@ -621,6 +807,7 @@ pub fn create_session_from_memory(bytes: &[u8], model_tag: &str) -> Result<Sessi
                 }
                 Err(e) => {
                     COREML_RUNTIME_FAILED.store(true, Ordering::Relaxed);
+                    *LAST_GPU_ERROR.lock().unwrap() = Some(format!("CoreML init error: {}", e));
                     tracing::warn!(
                         "Failed to initialize ONNX model '{}' with CoreML ({}); falling back to CPU multi-threaded.",
                         model_tag, e
@@ -657,6 +844,7 @@ pub fn create_session_from_memory(bytes: &[u8], model_tag: &str) -> Result<Sessi
                     return Ok(s);
                 }
                 Err(e) => {
+                    *LAST_GPU_ERROR.lock().unwrap() = Some(format!("DirectML init error: {}", e));
                     tracing::warn!(
                         "Failed to initialize ONNX model '{}' with DirectML ({}); falling back to CPU multi-threaded.",
                         model_tag, e
@@ -855,5 +1043,25 @@ mod tests {
         unsafe {
             std::env::remove_var("ORT_CUDA_MEM_LIMIT_MB");
         }
+
+        // 3. RUNTIME EXPLICIT USER OVERRIDE OVERRULES ENV VAR
+        let status = set_cuda_memory_limit_override(Some(12288));
+        assert_eq!(status.configured_cuda_vram_limit_mb, Some(12288));
+        assert_eq!(status.cuda_vram_limit_mb, Some(12288));
+        assert_eq!(get_cuda_gpu_memory_limit(), 12288 * 1024 * 1024);
+
+        // 4. RESET TO AUTO RESTORES ADAPTIVE ALLOCATION
+        let reset_status = set_cuda_memory_limit_override(None);
+        assert_eq!(reset_status.configured_cuda_vram_limit_mb, None);
+        assert!(reset_status.cuda_vram_limit_mb.unwrap_or(0) >= 6144);
+    }
+
+    #[test]
+    fn system_telemetry_returns_valid_metrics() {
+        let telemetry = get_system_telemetry(1, 2);
+        assert!(telemetry.cpu.cores >= 1);
+        assert_eq!(telemetry.queue.active_jobs, 1);
+        assert_eq!(telemetry.queue.queued_jobs, 2);
+        assert!(telemetry.timestamp_ms > 0);
     }
 }

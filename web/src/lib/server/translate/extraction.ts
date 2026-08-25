@@ -50,12 +50,14 @@ Rules:
 4. "gender": 'masculine' or 'feminine' ONLY when the text explicitly indicates it (pronouns, titles like master/sister/brother/prince); otherwise 'neuter'.
 5. "aliases": List any nicknames, short forms, or alternative address forms in the text (e.g. for 叶凡: ["小凡"]). If none, use [].
 6. "context": Brief description in ${tgtName} stating who or what the entity is (e.g. "Protagonist of the series", "Sect-protecting grand array").
-7. Term selection - SKIP ONLY truly generic function words (pronouns, numbers, everyday verbs). Extract recurring story-significant terminology:
-   - CLASS / PROFESSION / FACTION NOUNS (e.g. 妖灵师, 武者, 法师, 格斗家, 剑修) - extract with "pinned": true.
-   - CULTIVATION RANK TIERS (e.g. 青铜/白银/黄金/黑金/传奇, 炼气/筑基/金丹) and realm names - extract each tier with "pinned": true.
-   - ORGANIZATIONS / SECTS / SCHOOLS / FAMILIES (e.g. 神圣世家, 圣兰学院, 青云宗, 天机阁) - extract with "pinned": true.
-   - RECURRING ITEMS / TECHNIQUES / CREATURES that drive the plot or appear on multiple pages - extract with "pinned": true.
-   - A term that appears MORE THAN ONCE in the passage is by definition NOT generic - extract it and set "pinned": true.
+7. Term selection - High-Recall Directive: Be thorough and extract as many valid story terms, character names, and techniques as possible. Err on the side of extracting rather than omitting; consistency of recurring terminology is critical.
+   - Strict Anti-Duplicate Rule: If a term or any of its aliases is already listed in the established terms / glossary, do NOT extract it again. Extract ONLY unlisted, new terms.
+   - SKIP ONLY truly generic function words (pronouns, numbers, everyday verbs). Extract all story-significant terminology:
+     * CLASS / PROFESSION / FACTION NOUNS (e.g. 妖灵师, 武者, 法师, 格斗家, 剑修) - extract with "pinned": true.
+     * CULTIVATION RANK TIERS (e.g. 青铜/白银/黄金/黑金/传奇, 炼气/筑基/金丹) and realm names - extract each tier with "pinned": true.
+     * ORGANIZATIONS / SECTS / SCHOOLS / FAMILIES (e.g. 神圣世家, 圣兰学院, 青云宗, 天机阁) - extract with "pinned": true.
+     * RECURRING ITEMS / TECHNIQUES / CREATURES that drive the plot or appear on multiple pages - extract with "pinned": true.
+     * A term that appears MORE THAN ONCE in the passage is by definition NOT generic - extract it and set "pinned": true.
 8. Multi-name listings: In dialogue or narration where multiple character names are listed back-to-back (e.g. 子龙童菲, 张肥关鱼), extract each individual 2-3 character name separately (e.g. 子龙, 童菲, 张肥, 关鱼).`;
 }
 
@@ -237,7 +239,7 @@ export async function extractTerms(
 			messages.push({
 				role: 'system',
 				content:
-					`ESTABLISHED GLOSSARY (already known — reuse each EXACT ${pair.targetLang} rendering everywhere you name these entities and never contradict one):\n` +
+					`ESTABLISHED GLOSSARY (already known - do NOT extract these again, reuse each EXACT ${pair.targetLang} rendering everywhere and never contradict one):\n` +
 					ctx.map((t) => `${t.source} = ${t.target}`).join('\n'),
 			});
 		}

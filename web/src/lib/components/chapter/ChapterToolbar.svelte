@@ -14,7 +14,6 @@
 	import BookOpen from 'lucide-svelte/icons/book-open';
 	import Columns from 'lucide-svelte/icons/columns';
 	import Scissors from 'lucide-svelte/icons/scissors';
-	import Sparkles from 'lucide-svelte/icons/sparkles';
 	import Square from 'lucide-svelte/icons/square';
 	import Pencil from 'lucide-svelte/icons/pencil';
 	import FileX from 'lucide-svelte/icons/file-x';

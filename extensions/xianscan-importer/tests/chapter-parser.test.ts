@@ -12,7 +12,7 @@ describe('parseChapterMetadata', () => {
 		const meta = parseChapterMetadata('妖神记 第150话 神秘古书', 'https://example.com/manhua/yaoshenji/150.html');
 		expect(meta.chapterNumber).toBe(150);
 		expect(meta.seriesTitle).toBe('妖神记');
-		expect(meta.sourceLang).toBe('zh');
+		expect(meta.sourceLang).toBe('zh-Hans');
 	});
 
 	it('extracts Korean episode patterns', () => {
@@ -44,7 +44,16 @@ describe('detectSourceLanguageFromPage', () => {
 		expect(detectSourceLanguageFromPage('鬼滅の刃 きめつのやいば', 'ja')).toBe('ja');
 	});
 
-	it('detects Chinese from Hanzi when no Kana is present', () => {
-		expect(detectSourceLanguageFromPage('斗破苍穹 绝世唐门', 'zh')).toBe('zh');
+	it('detects Simplified Chinese from Hanzi', () => {
+		expect(detectSourceLanguageFromPage('斗破苍穹 绝世唐门', 'zh')).toBe('zh-Hans');
+	});
+
+	it('detects Traditional Chinese from Hanzi', () => {
+		expect(detectSourceLanguageFromPage('鬥破蒼穹 絕世唐門', 'zh-hant')).toBe('zh-Hant');
+	});
+
+	it('detects Thai and Russian from text', () => {
+		expect(detectSourceLanguageFromPage('มหาเวทย์ผนึกมาร', 'th')).toBe('th');
+		expect(detectSourceLanguageFromPage('Магическая битва', 'ru')).toBe('ru');
 	});
 });

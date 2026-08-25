@@ -13,7 +13,6 @@
 	import Scan from 'lucide-svelte/icons/scan';
 	import Activity from 'lucide-svelte/icons/activity';
 	import Layers from 'lucide-svelte/icons/layers';
-	import Sparkles from 'lucide-svelte/icons/sparkles';
 	import ShieldCheck from 'lucide-svelte/icons/shield-check';
 
 	// IMPORTED MODULES
@@ -172,12 +171,19 @@
 
 			<!-- 2. DETECTOR BACKEND & DEVICE -->
 			<div class="flex items-center gap-2 rounded-xl border border-black/10 bg-black/[0.02] p-2.5 dark:border-white/10 dark:bg-white/[0.02]">
-				<div class="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-neutral-500/15 text-neutral-700 dark:text-neutral-300">
+				<div class={cn(
+					"flex h-8 w-8 shrink-0 items-center justify-center rounded-lg",
+					parsedStats?.device?.includes('CUDA') || parsedStats?.device?.includes('Dml') || parsedStats?.device?.includes('CoreML')
+						? "bg-emerald-500/15 text-emerald-600 dark:text-emerald-400"
+						: "bg-amber-500/15 text-amber-600 dark:text-amber-400"
+				)}>
 					<Cpu size={16} />
 				</div>
 				<div class="min-w-0">
-					<div class="text-[10px] font-medium text-neutral-500 uppercase tracking-wider">Backend</div>
-					<div class="text-xs sm:text-sm font-bold font-mono truncate" title={parsedStats?.backend || 'Detector'}>
+					<div class="text-[10px] font-medium text-neutral-500 uppercase tracking-wider">
+						{parsedStats?.device ? parsedStats.device.replace('ExecutionProvider', '') : 'Backend'}
+					</div>
+					<div class="text-xs sm:text-sm font-bold font-mono truncate" title={`${parsedStats?.backend || 'RF-DETR Seg'} on ${parsedStats?.device || 'CPU'}`}>
 						{parsedStats?.backend || 'RF-DETR Seg'}
 					</div>
 				</div>

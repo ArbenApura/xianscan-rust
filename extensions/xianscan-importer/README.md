@@ -4,7 +4,13 @@
 
 # XianScan Web Importer Extension
 
+| 🌐 1. 1-Click Capture on Web Comic Site | ⚡ 2. Instant Live Translation Pipeline in Studio |
+| :---: | :---: |
+| <img src="../../docs/showcase/extension_importer_preview.png" width="370" alt="1-Click Browser Extension Capture" style="border-radius: 8px;" /> | <img src="../../docs/showcase/extension_pipeline_preview.png" width="490" alt="Auto-Translation Triggered After Import" style="border-radius: 8px;" /> |
+
 </div>
+
+<br/>
 
 A cross-browser Manifest V3 extension for 1-click chapter and manga panel importing into your self-hosted **XianScan** backend (`http://localhost:8124`). Works natively on **Chrome, Firefox, Edge, Brave, and Opera**.
 

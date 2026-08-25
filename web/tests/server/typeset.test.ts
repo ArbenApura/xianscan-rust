@@ -645,6 +645,47 @@ Tattered Flesh-Cutting Knife`;
 		);
 		expect(resultBuf.length).toBeGreaterThan(0);
 	});
+
+	it('reclaims vertical height in narrow manga bubble for "Well then..." (Region 48922)', () => {
+		const c = createCanvas(10, 10);
+		const x = c.getContext('2d');
+		const text = 'Well then...';
+		// Box w: 42, h: 150 from user's vertical Japanese Manga page
+		const size = fitFontSize(x, text, 'CC Wild Words', 42, 150, 40);
+		expect(size).toBeGreaterThanOrEqual(12);
+
+		x.font = `${size}px "CC Wild Words"`;
+		const maxW = 42 * (1 - 2 * 0.05);
+		const lines = reflowText(x, text, maxW);
+		expect(lines.length * size * 1.2).toBeLessThanOrEqual(150 * 0.9);
+	});
+
+	it('hyphenates single long word across abundant height in tall vertical box ("UNBELIEVABLE")', () => {
+		const c = createCanvas(10, 10);
+		const x = c.getContext('2d');
+		const text = 'UNBELIEVABLE';
+		const size = fitFontSize(x, text, 'CC Wild Words', 50, 200, 40);
+		expect(size).toBeGreaterThanOrEqual(12);
+
+		x.font = `${size}px "CC Wild Words"`;
+		const maxW = 50 * (1 - 2 * 0.05);
+		const lines = reflowText(x, text, maxW);
+		expect(lines.length).toBeGreaterThan(1);
+		expect(lines.length * size * 1.2).toBeLessThanOrEqual(200 * 0.9);
+	});
+
+	it('handles exclamation with heavy punctuation in tall vertical box ("WHAT...?!?")', () => {
+		const c = createCanvas(10, 10);
+		const x = c.getContext('2d');
+		const text = 'WHAT...?!?';
+		const size = fitFontSize(x, text, 'CC Wild Words', 45, 140, 40);
+		expect(size).toBeGreaterThanOrEqual(12);
+
+		x.font = `${size}px "CC Wild Words"`;
+		const maxW = 45 * (1 - 2 * 0.05);
+		const lines = reflowText(x, text, maxW);
+		expect(lines.length * size * 1.2).toBeLessThanOrEqual(140 * 0.9);
+	});
 });
 
 

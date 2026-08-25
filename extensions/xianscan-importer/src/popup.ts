@@ -53,6 +53,7 @@ class PopupController {
 	private toastTimer: ReturnType<typeof setTimeout> | null = null;
 
 	// Actions
+	private autoResliceCheckbox!: HTMLInputElement;
 	private autoTranslateCheckbox!: HTMLInputElement;
 	private startImportBtn!: HTMLButtonElement;
 	private importBtnText!: HTMLElement;
@@ -81,7 +82,7 @@ class PopupController {
 		this.bindEvents();
 
 		// Load stored preferences
-		const stored = await chrome.storage.local.get(['serverUrl', 'autoTranslate']);
+		const stored = await chrome.storage.local.get(['serverUrl', 'autoReslice', 'autoTranslate']);
 		if (stored.serverUrl) {
 			this.client.setBaseUrl(stored.serverUrl);
 			this.serverUrlInput.value = stored.serverUrl;
@@ -89,9 +90,15 @@ class PopupController {
 			this.serverUrlInput.value = 'http://127.0.0.1:8124';
 		}
 
+		if (stored.autoReslice !== undefined) {
+			this.autoResliceCheckbox.checked = stored.autoReslice;
+		}
+		this.updateToggleState(this.autoResliceCheckbox);
+
 		if (stored.autoTranslate !== undefined) {
 			this.autoTranslateCheckbox.checked = stored.autoTranslate;
 		}
+		this.updateToggleState(this.autoTranslateCheckbox);
 
 		// Initial connection check
 		await this.checkServerStatus();
@@ -112,7 +119,7 @@ class PopupController {
 			if (msg.type === 'IMPORT_PROGRESS') {
 				this.updateProgress(msg.current, msg.total);
 			} else if (msg.type === 'IMPORT_COMPLETE') {
-				this.onImportComplete(msg.current, msg.chapterId, msg.bookId);
+				this.onImportComplete(msg.current, msg.chapterId, msg.bookId, msg.error);
 			} else if (msg.type === 'IMPORT_CANCELLED') {
 				this.onImportCancelled();
 			}
@@ -155,6 +162,7 @@ class PopupController {
 		this.cancelImportBtn = $('cancelImportBtn') as HTMLButtonElement;
 		this.toast = $('toast');
 
+		this.autoResliceCheckbox = $('autoResliceCheckbox') as HTMLInputElement;
 		this.autoTranslateCheckbox = $('autoTranslateCheckbox') as HTMLInputElement;
 		this.startImportBtn = $('startImportBtn') as HTMLButtonElement;
 		this.importBtnText = $('importBtnText');
@@ -383,7 +391,13 @@ class PopupController {
 			}
 		});
 
+		this.autoResliceCheckbox.addEventListener('change', () => {
+			this.updateToggleState(this.autoResliceCheckbox);
+			chrome.storage.local.set({ autoReslice: this.autoResliceCheckbox.checked });
+		});
+
 		this.autoTranslateCheckbox.addEventListener('change', () => {
+			this.updateToggleState(this.autoTranslateCheckbox);
 			chrome.storage.local.set({ autoTranslate: this.autoTranslateCheckbox.checked });
 		});
 
@@ -395,6 +409,14 @@ class PopupController {
 		});
 
 		this.startImportBtn.addEventListener('click', () => this.startBatchImport());
+	}
+
+	private updateToggleState(checkbox: HTMLInputElement) {
+		// SYNC .checked CLASS ON WRAPPING CHIP FOR STYLING
+		const parent = checkbox?.closest('.pipeline-chip');
+		if (parent) {
+			parent.classList.toggle('checked', checkbox.checked);
+		}
 	}
 
 	private showToast(msg: string, isError = false) {
@@ -429,7 +451,7 @@ class PopupController {
 
 			let matchedBookId = selectedBookId;
 
-			// RESTORE THE LAST-CHOSEN SERIES — HIGHEST PRIORITY SO THE POPUP DOES NOT RESET TO THE FIRST BOOK.
+			// RESTORE THE LAST-CHOSEN SERIES: HIGHEST PRIORITY SO THE POPUP DOES NOT RESET TO THE FIRST BOOK.
 			if (!matchedBookId) {
 				const stored = await chrome.storage.local.get(['lastBookId']);
 				if (stored.lastBookId && this.books.some(b => String(b.id) === String(stored.lastBookId))) {
@@ -437,7 +459,7 @@ class PopupController {
 				}
 			}
 
-			// MATCH FROM METADATA TITLE — ONLY A FALLBACK WHEN NOTHING WAS CHOSEN BEFORE.
+			// MATCH FROM METADATA TITLE: ONLY A FALLBACK WHEN NOTHING WAS CHOSEN BEFORE.
 			if (!matchedBookId && this.metadata.seriesTitle) {
 				const match = this.books.find(
 					b => b.title.toLowerCase() === this.metadata.seriesTitle!.toLowerCase()
@@ -506,8 +528,8 @@ class PopupController {
 
 			let matchedChapterId = selectedChapterId;
 
-			// RESTORE THE LAST-CHOSEN TARGET CHAPTER — PER-SERIES MAP FIRST, THEN THE GLOBAL RECENT
-			// CHAPTER (WRITTEN BY RIGHT-CLICK QUICK IMPORTS) — SO THE POPUP DOES NOT RESET TO CHAPTER 1.
+			// RESTORE THE LAST-CHOSEN TARGET CHAPTER: PER-SERIES MAP FIRST, THEN THE GLOBAL RECENT
+			// CHAPTER (WRITTEN BY RIGHT-CLICK QUICK IMPORTS) SO THE POPUP DOES NOT RESET TO CHAPTER 1.
 			if (!matchedChapterId) {
 				const stored = await chrome.storage.local.get(['lastChapterId', 'lastChapterByBook']);
 				const map = stored.lastChapterByBook || {};
@@ -519,7 +541,7 @@ class PopupController {
 				}
 			}
 
-			// MATCH FROM METADATA CHAPTER NUMBER — ONLY A FALLBACK WHEN NOTHING WAS CHOSEN BEFORE.
+			// MATCH FROM METADATA CHAPTER NUMBER: ONLY A FALLBACK WHEN NOTHING WAS CHOSEN BEFORE.
 			if (!matchedChapterId && this.metadata.chapterNumber !== undefined) {
 				const match = this.chapters.find(c => c.chapterNumber === this.metadata.chapterNumber);
 				if (match) matchedChapterId = match.id;
@@ -571,7 +593,7 @@ class PopupController {
 
 		this.chapterCustomSelect.classList.remove('open');
 
-		// PERSIST THE LAST-CHOSEN TARGET CHAPTER — PER-SERIES (FOR RESTORE) AND THE GLOBAL RECENT
+		// PERSIST THE LAST-CHOSEN TARGET CHAPTER: PER-SERIES (FOR RESTORE) AND THE GLOBAL RECENT
 		// CHAPTER (FOR RIGHT-CLICK QUICK IMPORTS IN background.ts).
 		const bookKey = String(this.selectedBookId ?? '');
 		chrome.storage.local.get(['lastChapterByBook']).then(stored => {
@@ -784,6 +806,7 @@ class PopupController {
 				bookId: this.selectedBookId,
 				chapterId: this.selectedChapterId,
 				imageUrls: selectedUrls,
+				autoReslice: this.autoResliceCheckbox.checked,
 				autoTranslate: this.autoTranslateCheckbox.checked
 			},
 			refererUrl: this.currentUrl
@@ -799,10 +822,14 @@ class PopupController {
 		this.progressBarFill.style.width = `${pct}%`;
 	}
 
-	private onImportComplete(count: number, chapterId?: number, _bookId?: string | number) {
+	private onImportComplete(count: number, chapterId?: number, _bookId?: string | number, error?: string) {
 		this.progressContainer.classList.add('hidden');
 		this.startImportBtn.disabled = false;
-		this.showToast(`Imported ${count} pages to Chapter #${chapterId || ''}`);
+		if (error || count === 0) {
+			this.showToast(`Import failed: ${error || 'No pages uploaded'}`, true);
+		} else {
+			this.showToast(`Imported ${count} pages to Chapter #${chapterId || ''}`);
+		}
 	}
 
 	private onImportCancelled() {

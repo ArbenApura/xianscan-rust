@@ -20,6 +20,7 @@ export const testProviderSchema = z.object({
 
 export const setHardwareDeviceSchema = z.object({
 	device: z.enum(['auto', 'cpu', 'cuda', 'dml', 'directml', 'coreml']),
+	vram_limit_mb: z.number().int().nonnegative().nullable().optional(),
 });
 
 export type UpdateProviderInput = z.infer<typeof updateProviderSchema>;

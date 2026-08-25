@@ -155,14 +155,16 @@ describe('SettingsModal Component UI', () => {
 		});
 		await tick();
 
-		const cpuButton = screen.getByText('CPU Multi-threaded').closest('button');
+		const cpuButtons = screen.getAllByText('CPU Multi-threaded');
+		const cpuButton = cpuButtons[0].closest('button');
 		await fireEvent.click(cpuButton!);
 		await tick();
 
 		// THE STATUS PILL SHOULD SHOW THE RELOADING INDICATOR RIGHT AFTER THE SWITCH.
 		expect(screen.getByText('Reloading models…')).toBeTruthy();
 		// OTHER DEVICE CARDS ARE DISABLED WHILE SWITCHING.
-		const dmlCard = screen.getByText('DirectML (Dedicated GPU)').closest('button');
+		const dmlCards = screen.getAllByText('DirectML (Dedicated GPU)');
+		const dmlCard = dmlCards[0].closest('button');
 		expect(dmlCard?.hasAttribute('disabled')).toBe(true);
 
 		// ADVANCE TIMERS PAST THE 300MS POLL DELAY; SECOND POLL REPORTS READY.

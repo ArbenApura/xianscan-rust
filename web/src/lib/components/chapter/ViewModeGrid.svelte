@@ -4,7 +4,7 @@
 	import { Badge, ActionMenu, type MenuAction } from '$lib/components/ui';
 	import GripVertical from 'lucide-svelte/icons/grip-vertical';
 	import Eye from 'lucide-svelte/icons/eye';
-	import Sparkles from 'lucide-svelte/icons/sparkles';
+	import Languages from 'lucide-svelte/icons/languages';
 	import Layers from 'lucide-svelte/icons/layers';
 	import RotateCcw from 'lucide-svelte/icons/rotate-ccw';
 	import Trash2 from 'lucide-svelte/icons/trash-2';
@@ -70,7 +70,7 @@
 			items.push({
 				value: 'translate',
 				label: pg.status === 'done' ? 'Re-translate Page' : 'Translate Page',
-				icon: Sparkles,
+				icon: Languages,
 				disabled: isPageProcessing,
 			});
 		}
@@ -142,7 +142,7 @@
 						</span>
 						<Badge
 							variant={statusVariant[page.status]}
-							class={`truncate text-[10px] sm:text-xs ${page.status === 'processing' ? 'animate-pulse' : ''}`}
+							class="truncate text-[10px] sm:text-xs"
 						>
 							{#if page.status === 'processing'}
 								{page.currentStep

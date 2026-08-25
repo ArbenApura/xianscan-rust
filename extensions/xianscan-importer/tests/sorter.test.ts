@@ -9,8 +9,8 @@ import type { ScannedImage } from '../src/types';
 
 describe('getCanonicalUrl', () => {
 	it('strips volatile tracking and cache-busting query parameters', () => {
-		const raw1 = 'https://cdn.manga.com/ch1/01.jpg?t=1692800000&token=abc123xyz&v=2';
-		const raw2 = 'https://cdn.manga.com/ch1/01.jpg?width=800&quality=90&sig=deadbeef';
+		const raw1 = 'https://cdn.manga.com/ch1/01.jpg?t=1692800000&v=2';
+		const raw2 = 'https://cdn.manga.com/ch1/01.jpg?width=800&quality=90';
 		const raw3 = 'https://cdn.manga.com/ch1/01.jpg?utm_source=reader&utm_medium=web';
 
 		expect(getCanonicalUrl(raw1)).toBe('https://cdn.manga.com/ch1/01.jpg');
@@ -18,9 +18,12 @@ describe('getCanonicalUrl', () => {
 		expect(getCanonicalUrl(raw3)).toBe('https://cdn.manga.com/ch1/01.jpg');
 	});
 
-	it('preserves non-volatile query parameters', () => {
+	it('preserves non-volatile and presigned query parameters', () => {
 		const raw = 'https://cdn.manga.com/api/image?page=1&chapter=10';
 		expect(getCanonicalUrl(raw)).toBe('https://cdn.manga.com/api/image?page=1&chapter=10');
+
+		const signed = 'https://cdn.manga.com/ch1/01.jpg?token=abc123xyz';
+		expect(getCanonicalUrl(signed)).toBe('https://cdn.manga.com/ch1/01.jpg?token=abc123xyz');
 	});
 });
 

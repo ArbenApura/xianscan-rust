@@ -27,6 +27,8 @@ export interface AppSettings {
 	inpaintMode: InpaintMode;
 	// HARDWARE EXECUTION ACCELERATOR FOR ML MODELS
 	executionDevice: ExecutionDevice;
+	// OPTIONAL USER OVERRIDE FOR CUDA ONNX SESSION VRAM ALLOCATION (MB) (null = auto-adaptive)
+	cudaVramLimitMb: number | null;
 	// PARALLEL PROCESSES (WORKERS) FOR BATCH AND CHAPTER TRANSLATION
 	parallelProcesses: number; // Parallel page workers per chapter (1 to 8, default 2)
 	parallelChapters: number; // Parallel chapters in batch queue (1 to 4, default 1)
@@ -93,6 +95,15 @@ export const EXECUTION_DEVICES: { id: ExecutionDevice; label: string; blurb: str
 	{ id: 'coreml', label: 'CoreML (Apple Silicon)', blurb: 'Metal / Neural Engine acceleration on Apple Silicon Macs' },
 	{ id: 'dml', label: 'DirectML (Dedicated GPU)', blurb: 'DirectX 12 acceleration on dedicated AMD Radeon RX, Intel Arc, or NVIDIA GPUs' },
 	{ id: 'cpu', label: 'CPU Multi-threaded', blurb: 'Fast, crash-free execution on multi-core CPU (recommended for non-dGPU)' },
+];
+
+export const CUDA_VRAM_LIMIT_PRESETS: { value: number | null; label: string; sub: string }[] = [
+	{ value: null, label: 'Auto', sub: 'Adaptive tier' },
+	{ value: 4096, label: '4 GB', sub: 'Compact GPU' },
+	{ value: 6144, label: '6 GB', sub: 'Standard' },
+	{ value: 8192, label: '8 GB', sub: 'Tesla T4 / 3070+' },
+	{ value: 12288, label: '12 GB', sub: '4070 / 3080' },
+	{ value: 16384, label: '16 GB', sub: '4090 / Server' },
 ];
 
 export const APP_FONTS: { id: AppFont; label: string; sample: string; blurb: string; stack: string }[] = [
@@ -194,9 +205,12 @@ export const AVAILABLE_CJK_FONTS = [
 ];
 
 export const SFX_AREA_PRESETS: { value: number; label: string; sub: string }[] = [
-	{ value: 0.15, label: '15%', sub: 'Conservative · Small SFX only' },
-	{ value: 0.30, label: '30%', sub: 'Standard · 30% Rule (Default)' },
-	{ value: 0.50, label: '50%', sub: 'Aggressive · Medium splash' },
+	{ value: 0.05, label: '5%', sub: 'Ultra Minimal · Tiny sound marks' },
+	{ value: 0.10, label: '10%', sub: 'Standard · 10% Rule (Default)' },
+	{ value: 0.15, label: '15%', sub: 'Conservative · Compact SFX' },
+	{ value: 0.20, label: '20%', sub: 'Moderate · Modest sound art' },
+	{ value: 0.30, label: '30%', sub: 'Generous · Medium sound art' },
+	{ value: 0.50, label: '50%', sub: 'Aggressive · Large splash' },
 	{ value: 1.00, label: '100%', sub: 'All SFX · No area skip' },
 ];
 
@@ -204,12 +218,13 @@ export const SFX_AREA_PRESETS: { value: number; label: string; sub: string }[] =
 
 // BUMP version WHEN DEFAULTS CHANGE — TRIGGERS A ONE-TIME MIGRATION OF SAVED SETTINGS
 export const DEFAULTS: AppSettings = {
-	version: 12,
+	version: 13,
 	theme: 'sepia',
 	appFont: 'comic',
 	model: 'deepseek-v4-flash',
 	inpaintMode: 'patch',
 	executionDevice: 'auto',
+	cudaVramLimitMb: null,
 	parallelProcesses: 2,
 	parallelChapters: 1,
 	resliceBeforeBatch: false,
@@ -230,7 +245,7 @@ export const DEFAULTS: AppSettings = {
 	enableTextRotation: true,
 	enableWatermarkInpaint: false,
 	enableSfx: false,
-	sfxMaxAreaPct: 0.30,
+	sfxMaxAreaPct: 0.10,
 	// THREE-TIER REGION GEOMETRY DEFAULTS (INPAINT & TYPESET BOX EXPANSION)
 	inpaintExpansionPct: 0.03,
 	typesetExpansionPct: 0.06,

@@ -10,11 +10,13 @@ export * from './translate/sfx';
 export * from './translate/parser';
 export * from './translate/extraction';
 export * from './translate/dialogue-tracker';
+export * from './translate/filter';
 
 import { buildMessages, type RegionSource } from './translate/prompts';
 import { getKnownSfxTranslation } from './translate/sfx';
 import { looksDegenerate, parseTranslations } from './translate/parser';
 import { parseExtractedTerms } from './translate/extraction';
+import { classifyRegionForTranslation } from './translate/filter';
 import type { DialogueContextWindow } from './translate/dialogue-tracker';
 
 export interface PageTranslationOptions {
@@ -84,19 +86,59 @@ export async function translatePage(
 
 	if (regions.length === 0) return { byRegion: new Map(), usage, newTerms: [], rawPrompt: '', rawResponse: '', durationMs: 0 };
 
+	// 1. PRE-TRANSLATION CLASSIFICATION: PARTITION REGIONS INTO TRANSLATABLE VS RESOLVED/SKIPPED
+	const translatableRegions: RegionSource[] = [];
+	const preResolved = new Map<string, string>();
+
+	for (const r of regions) {
+		const classification = classifyRegionForTranslation(r, pair.sourceLang, pair.targetLang);
+		if (classification.disposition === 'translate') {
+			translatableRegions.push(r);
+		} else {
+			preResolved.set(r.id, classification.resolvedTarget ?? '');
+		}
+	}
+
+	// IF ALL REGIONS WERE PRE-RESOLVED (E.G. NOISE, PUNCTUATION, OR LATIN SFX), RETURN IMMEDIATELY
+	if (translatableRegions.length === 0) {
+		return {
+			byRegion: preResolved,
+			usage,
+			newTerms: [],
+			rawPrompt: '',
+			rawResponse: '',
+			durationMs: 0,
+		};
+	}
+
 	const t0 = performance.now();
-	const { raw, usage: u1, messages: m1 } = await callTranslate(regions, terms, pair, opts);
+	const { raw, usage: u1, messages: m1 } = await callTranslate(translatableRegions, terms, pair, opts);
 	const durationMs = Math.round(performance.now() - t0);
 	mergeUsage(usage, u1);
-	const byRegion = parseTranslations(raw, new Set(regions.map((r) => r.id)), regions) ?? new Map();
+	const byRegion = parseTranslations(raw, new Set(translatableRegions.map((r) => r.id)), translatableRegions) ?? new Map();
 
-	const pageSourceText = regions.map((r) => r.text).join('\n');
-	const knownSources = new Set(terms.map((t) => t.source.trim()));
-	const discoveredTerms = parseExtractedTerms(raw, pageSourceText).filter((t) => !knownSources.has(t.source.trim()));
+	// MERGE PRE-RESOLVED REGIONS INTO FINAL TRANSLATION MAP
+	for (const [id, target] of preResolved) {
+		byRegion.set(id, target);
+	}
+
+	const pageSourceText = translatableRegions.map((r) => r.text).join('\n');
+	const knownSources = new Set<string>();
+	for (const t of terms) {
+		if (t.source) knownSources.add(t.source.trim().toLowerCase());
+		for (const a of t.aliases ?? []) if (a) knownSources.add(a.trim().toLowerCase());
+	}
+	const seenDiscovered = new Set<string>();
+	const discoveredTerms = parseExtractedTerms(raw, pageSourceText).filter((t) => {
+		const src = t.source.trim().toLowerCase();
+		if (!src || knownSources.has(src) || seenDiscovered.has(src)) return false;
+		seenDiscovered.add(src);
+		return true;
+	});
 
 	// SINGLE-ROUNDTRIP POLICY: NEVER FIRE A SECOND REFILL CALL.
 	// APPLY LOCAL SFX DICTIONARY FALLBACK DIRECTLY TO ANY UNTRANSLATED OR DEGENERATE REGIONS.
-	for (const r of regions) {
+	for (const r of translatableRegions) {
 		const current = byRegion.get(r.id);
 		if (!current || looksDegenerate(current, r.text)) {
 			const sfxFallback = getKnownSfxTranslation(r.text, pair.sourceLang);

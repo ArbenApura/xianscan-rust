@@ -48,6 +48,7 @@ export interface ImportJobPayload {
 	bookId: string | number;
 	chapterId: number;
 	imageUrls: string[];
+	autoReslice?: boolean;
 	autoTranslate?: boolean;
 }
 

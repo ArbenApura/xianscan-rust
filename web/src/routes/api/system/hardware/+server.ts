@@ -69,9 +69,10 @@ export const POST: RequestHandler = async ({ request }) => {
 		const body = await request.json().catch(() => ({}));
 		const parsed = setHardwareDeviceSchema.safeParse(body);
 		const device = parsed.success ? parsed.data.device : 'auto';
+		const vramLimitMb = parsed.success ? parsed.data.vram_limit_mb : undefined;
 		const pipeline = createPipelineClient();
 		if (pipeline.setDevice) {
-			const res = await pipeline.setDevice(device);
+			const res = await pipeline.setDevice(device, vramLimitMb);
 			return json(res);
 		}
 		return json({ error: 'Device switching not supported on client' }, { status: 400 });

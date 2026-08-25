@@ -476,7 +476,7 @@ export async function runChapterPipeline(
 						tx.update(pages)
 							.set({
 								panels: JSON.stringify(analyzed.panels || []),
-								onomatopoeia: JSON.stringify(analyzed.onomatopoeia || []),
+								onomatopoeia: null,
 								ocrStats: enrichedStats ? JSON.stringify(enrichedStats) : null,
 							})
 							.where(eq(pages.id, injectRow.id))
@@ -801,6 +801,8 @@ export async function runChapterPipeline(
 				inpaintPaddingPct: deps.inpaintExpansionPct,
 				typesetPaddingPct: deps.typesetExpansionPct,
 				enableWatermarkInpaint: deps.enableWatermarkInpaint,
+				enableSfx: deps.enableSfx,
+				sfxMaxAreaPct: deps.sfxMaxAreaPct,
 			});
 			signal.throwIfAborted();
 			if (deps.isPageCancelled?.(page.id)) return;
@@ -836,7 +838,7 @@ export async function runChapterPipeline(
 				tx.update(pages)
 					.set({
 						panels: JSON.stringify(analyzed.panels || []),
-						onomatopoeia: JSON.stringify(analyzed.onomatopoeia || []),
+						onomatopoeia: null,
 						ocrStats: enrichedStats ? JSON.stringify(enrichedStats) : null,
 					})
 					.where(eq(pages.id, page.id))

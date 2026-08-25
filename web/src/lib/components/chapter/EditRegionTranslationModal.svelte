@@ -13,7 +13,7 @@
 	import { translateTextSchema, updateRegionSchema } from '$lib/schemas';
 	import Button from '$lib/components/ui/Button.svelte';
 	import Copy from 'lucide-svelte/icons/copy';
-	import Sparkles from 'lucide-svelte/icons/sparkles';
+	import Languages from 'lucide-svelte/icons/languages';
 	import RotateCcw from 'lucide-svelte/icons/rotate-ccw';
 	import Check from 'lucide-svelte/icons/check';
 	import Pencil from 'lucide-svelte/icons/pencil';
@@ -324,7 +324,7 @@
 							disabled={isRerolling || !region.textSource}
 							on:click={handleRerunAi}
 						>
-							<Sparkles size={13} />
+							<Languages size={13} />
 							<span>{isRerolling ? 'Translating with AI...' : 'Re-roll with AI'}</span>
 						</Button>
 					</div>

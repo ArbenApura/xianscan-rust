@@ -100,6 +100,39 @@ export interface HardwareStatus {
 	has_dedicated_gpu?: boolean;
 	detected_gpus?: Array<{ device_id: number; name: string; vram_mb: number; is_dedicated: boolean; is_integrated: boolean }>;
 	gpu_warning?: string | null;
+	cuda_vram_limit_mb?: number | null;
+	configured_cuda_vram_limit_mb?: number | null;
+}
+
+export interface GpuTelemetry {
+	name: string;
+	vram_used_mb: number;
+	vram_total_mb: number;
+	utilization_pct?: number | null;
+	active_provider: string;
+}
+
+export interface HostMemoryTelemetry {
+	used_mb: number;
+	total_mb: number;
+}
+
+export interface CpuTelemetry {
+	cores: number;
+	utilization_pct?: number | null;
+}
+
+export interface EngineQueueTelemetry {
+	active_jobs: number;
+	queued_jobs: number;
+}
+
+export interface SystemTelemetry {
+	gpu?: GpuTelemetry | null;
+	host_memory: HostMemoryTelemetry;
+	cpu: CpuTelemetry;
+	queue: EngineQueueTelemetry;
+	timestamp_ms: number;
 }
 
 export interface PipelineClient {
@@ -120,7 +153,8 @@ export interface PipelineClient {
 	clean(image: Buffer, regions: CleanRegionInput[], inpaintMode?: string, signal?: AbortSignal): Promise<Buffer>;
 	health(): Promise<{ status: string; detector: string; inpainter: string }>;
 	getHardware?(signal?: AbortSignal): Promise<HardwareStatus>;
-	setDevice?(device: string, signal?: AbortSignal): Promise<HardwareStatus>;
+	getTelemetry?(signal?: AbortSignal): Promise<SystemTelemetry>;
+	setDevice?(device: string, vramLimitMb?: number | null, signal?: AbortSignal): Promise<HardwareStatus>;
 	stitch?(imageTop: Buffer, imageBottom: Buffer, signal?: AbortSignal): Promise<Buffer>;
 	reslice?(images: Buffer[], signal?: AbortSignal, run?: number): Promise<Buffer[]>;
 	pollResliceStatus?(signal?: AbortSignal): Promise<{ pct: number; message: string; done: boolean; run?: number }>;
@@ -213,13 +247,19 @@ export class HttpPipelineClient implements PipelineClient {
 		return (await resp.json()) as HardwareStatus;
 	}
 
-	async setDevice(device: string, signal?: AbortSignal): Promise<HardwareStatus> {
+	async getTelemetry(signal?: AbortSignal): Promise<SystemTelemetry> {
+		const resp = await this.request('/system/telemetry', { method: 'GET' }, signal);
+		if (!resp.ok) throw new PipelineError(`getTelemetry failed (${resp.status})`, resp.status);
+		return (await resp.json()) as SystemTelemetry;
+	}
+
+	async setDevice(device: string, vramLimitMb?: number | null, signal?: AbortSignal): Promise<HardwareStatus> {
 		const resp = await this.request(
 			'/system/device',
 			{
 				method: 'POST',
 				headers: { 'content-type': 'application/json' },
-				body: JSON.stringify({ device }),
+				body: JSON.stringify({ device, vram_limit_mb: vramLimitMb }),
 			},
 			signal,
 		);

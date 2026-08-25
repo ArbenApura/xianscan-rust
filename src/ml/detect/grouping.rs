@@ -45,18 +45,29 @@ pub fn deduplicate_boxes(
             let overlap_ratio = if min_area > 0.0 { inter / min_area } else { 0.0 };
 
             // CHECK IF CURRENT CANDIDATE BOX ENCLOSES KEPT SUB-BOX (MACRO-CONTAINER VS SLICE)
-            let is_multi_line_container = (h >= 1.25 * kh) || (w >= 1.25 * kw && iy >= 0.70 * kh);
+            let is_multi_line_container = h >= 1.25 * kh;
             if is_multi_line_container && box_area >= 1.25 * karea && inter >= 0.70 * karea && (ix >= 0.70 * kw) && (iy >= 0.70 * kh) {
-                // CURRENT CANDIDATE IS A LARGER CONTAINER ENCLOSING THE SMALLER KEPT BOX -> MARK KEPT BOX FOR REPLACEMENT
-                replace_indices.push(k);
-                continue;
+                if score >= kept_scores[k] * 0.70 {
+                    // CURRENT CANDIDATE IS A LARGER CONTAINER ENCLOSING THE SMALLER KEPT BOX WITH SUFFICIENT CONFIDENCE -> REPLACE
+                    replace_indices.push(k);
+                    continue;
+                } else {
+                    // CURRENT CANDIDATE IS A WEAKER MACRO-BOX OVER HIGHER CONFIDENCE SUB-BOXES -> SUPPRESS THE WEAKER MACRO-BOX
+                    suppressed = true;
+                    break;
+                }
             }
 
             // CHECK IF KEPT BOX ALREADY ENCLOSES CURRENT CANDIDATE BOX
             let is_kbox_container = (kh >= 1.25 * h) || (kw >= 1.25 * w && iy >= 0.70 * h);
             if is_kbox_container && karea >= 1.25 * box_area && inter >= 0.70 * box_area && (ix >= 0.70 * w) && (iy >= 0.70 * h) {
-                suppressed = true;
-                break;
+                // EXCEPTION: IF KEPT BOX IS A GIANT COVER TITLE / BANNER (KW >= 350PX) AND CURRENT CANDIDATE IS A SMALL CHAPTER SUBTITLE (H <= 35PX),
+                // DO NOT SUPPRESS THE DISTINCT CHAPTER SUBTITLE!
+                let is_giant_banner_over_subtitle = kw >= 350.0 && h <= 35.0 && w <= 200.0;
+                if !is_giant_banner_over_subtitle {
+                    suppressed = true;
+                    break;
+                }
             }
 
             // STANDARD DUPLICATE / OVERLAP SUPPRESSION FOR SIMILAR-SIZED BOXES

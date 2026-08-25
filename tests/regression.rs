@@ -1,3 +1,4 @@
+#[macro_use]
 mod common;
 
 #[path = "regression/zh_hans/mod.rs"]

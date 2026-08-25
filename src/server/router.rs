@@ -1,4 +1,4 @@
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use axum::{
     extract::{DefaultBodyLimit, Multipart, State},
@@ -11,10 +11,17 @@ use tower_http::cors::{Any, CorsLayer};
 use rayon::prelude::*;
 use image::DynamicImage;
 
-use crate::ml::device::{get_hardware_status, set_active_provider};
+use crate::ml::device::{
+    get_hardware_status, get_system_telemetry, set_active_provider, set_cuda_memory_limit_override,
+};
 use crate::ml::reslice::{smart_reslice_chapter, stitch_images_vertically, ResliceProgressFn};
-use crate::ml::schemas::{AnalyzeOptions, AnalyzeResponse, CleanRequestRegion, HardwareStatus};
+use crate::ml::schemas::{
+    AnalyzeOptions, AnalyzeResponse, CleanRequestRegion, HardwareStatus, SystemTelemetry,
+};
 use crate::pipeline::PipelineEngine;
+
+static ACTIVE_OCR_JOBS: AtomicUsize = AtomicUsize::new(0);
+static QUEUED_OCR_JOBS: AtomicUsize = AtomicUsize::new(0);
 
 #[derive(Clone)]
 pub struct AppState {
@@ -104,6 +111,7 @@ pub fn create_router(state: AppState) -> Router {
         .route("/health", get(health_handler))
         .route("/system/hardware", get(hardware_get_handler))
         .route("/system/device", post(hardware_set_handler))
+        .route("/system/telemetry", get(telemetry_get_handler))
         .route("/pages/analyze", post(analyze_handler))
         .route("/pages/clean", post(clean_handler))
         .route("/pages/preprocess", post(preprocess_handler))
@@ -142,16 +150,27 @@ async fn hardware_get_handler(State(state): State<AppState>) -> Json<HardwareSta
     Json(status)
 }
 
+async fn telemetry_get_handler() -> Json<SystemTelemetry> {
+    let active = ACTIVE_OCR_JOBS.load(Ordering::Relaxed);
+    let queued = QUEUED_OCR_JOBS.load(Ordering::Relaxed);
+    let telemetry = get_system_telemetry(active, queued);
+    Json(telemetry)
+}
+
 #[derive(serde::Deserialize)]
 struct SetDevicePayload {
     #[serde(alias = "device")]
     provider: Option<String>,
+    vram_limit_mb: Option<usize>,
 }
 
 async fn hardware_set_handler(
     State(state): State<AppState>,
     Json(payload): Json<SetDevicePayload>,
 ) -> Json<HardwareStatus> {
+    if let Some(vram_mb) = payload.vram_limit_mb {
+        let _ = set_cuda_memory_limit_override(if vram_mb == 0 { None } else { Some(vram_mb) });
+    }
     let prov = payload.provider.unwrap_or_else(|| "auto".to_string());
     // SWITCH THE ACTIVE PROVIDER IMMEDIATELY (CHEAP — NO MODEL LOADING) SO THE RESPONSE RETURNS FAST.
     let mut status = set_active_provider(&prov);
@@ -195,6 +214,7 @@ async fn analyze_handler(
     let mut enable_watermark_inpaint = None;
     let mut enable_sfx = None;
     let mut sfx_max_area_pct = None;
+    let mut allow_degraded_fallback = None;
 
     while let Ok(Some(field)) = multipart.next_field().await {
         let name = field.name().unwrap_or_default().to_string();
@@ -246,6 +266,11 @@ async fn analyze_handler(
                     sfx_max_area_pct = Some(val);
                 }
             }
+        } else if name == "allow_degraded_fallback" || name == "allowDegradedFallback" {
+            if let Ok(text) = field.text().await {
+                let trimmed = text.trim().to_lowercase();
+                allow_degraded_fallback = Some(trimmed == "true" || trimmed == "1");
+            }
         } else if image_bytes.is_none() && name.is_empty() {
             if let Ok(bytes) = field.bytes().await {
                 if !bytes.is_empty() {
@@ -271,17 +296,29 @@ async fn analyze_handler(
         enable_watermark_inpaint,
         enable_sfx,
         sfx_max_area_pct,
+        allow_degraded_fallback,
     };
 
     let t_req_start = std::time::Instant::now();
     let engine_lock = state.engine.clone();
+    QUEUED_OCR_JOBS.fetch_add(1, Ordering::SeqCst);
     let mut res = tokio::task::spawn_blocking(move || -> Result<AnalyzeResponse, (StatusCode, String)> {
         let t_lock_start = std::time::Instant::now();
-        let mut engine = engine_lock.lock().map_err(|e| {
-            (StatusCode::INTERNAL_SERVER_ERROR, format!("Failed to lock engine: {}", e))
-        })?;
+        let mut engine = match engine_lock.lock() {
+            Ok(guard) => guard,
+            Err(e) => {
+                QUEUED_OCR_JOBS.fetch_sub(1, Ordering::SeqCst);
+                return Err((StatusCode::INTERNAL_SERVER_ERROR, format!("Failed to lock engine: {}", e)));
+            }
+        };
         let lock_wait_ms = t_lock_start.elapsed().as_secs_f64() * 1000.0;
-        let mut analyzed = engine.analyze_image_with_options(&img, Some(&options))
+        QUEUED_OCR_JOBS.fetch_sub(1, Ordering::SeqCst);
+        ACTIVE_OCR_JOBS.fetch_add(1, Ordering::SeqCst);
+
+        let analyze_res = engine.analyze_image_with_options(&img, Some(&options));
+        ACTIVE_OCR_JOBS.fetch_sub(1, Ordering::SeqCst);
+
+        let mut analyzed = analyze_res
             .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("Analysis pipeline error: {}", e)))?;
         if let Some(ref mut st) = analyzed.stats {
             st.queue_wait_ms = Some(lock_wait_ms);

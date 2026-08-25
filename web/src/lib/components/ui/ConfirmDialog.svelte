@@ -11,6 +11,7 @@
 	import { settings, THEME_PANEL, THEME_PANEL_BORDER } from '$lib/stores/settings';
 	// IMPORTED DEP-COMPONENTS
 	import TriangleAlert from 'lucide-svelte/icons/triangle-alert';
+	import Loader2 from 'lucide-svelte/icons/loader-2';
 
 	// -- OPTIONAL PROPS -- //
 
@@ -23,6 +24,7 @@
 	export let requireText: string | null = null;
 	export let requireVerificationCode = false;
 	export let inputPlaceholder: string = '';
+	export let loading = false;
 
 	// -- CONSTANTS -- //
 
@@ -157,22 +159,26 @@
 			<div class="mt-6 flex justify-end gap-2.5">
 				<button
 					use:ripple
-					class="hover:bg-current/5 rounded-xl border border-black/10 px-4 py-2 text-sm font-medium opacity-70 transition-colors hover:opacity-100 dark:border-white/[0.08]"
+					disabled={loading}
+					class="hover:bg-current/5 rounded-xl border border-black/10 px-4 py-2 text-sm font-medium opacity-70 transition-colors hover:opacity-100 dark:border-white/[0.08] disabled:opacity-40 disabled:pointer-events-none"
 					on:click={cancel}
 				>
 					{cancelLabel}
 				</button>
 				<button
 					use:ripple
-					disabled={!isMatch}
+					disabled={!isMatch || loading}
 					class={cn(
-						'rounded-xl px-4 py-2 text-sm font-medium transition-all duration-150 shadow-sm',
+						'inline-flex items-center gap-1.5 rounded-xl px-4 py-2 text-sm font-medium transition-all duration-150 shadow-sm',
 						STYLES[variant].confirm,
-						!isMatch && 'opacity-40 cursor-not-allowed pointer-events-none'
+						(!isMatch || loading) && 'opacity-40 cursor-not-allowed pointer-events-none'
 					)}
 					on:click={confirm}
 				>
-					{confirmLabel}
+					{#if loading}
+						<Loader2 size={14} class="animate-spin" />
+					{/if}
+					<span>{confirmLabel}</span>
 				</button>
 			</div>
 		</div>

@@ -57,6 +57,7 @@ pub struct RtDetrResult {
 pub struct RtDetrComicDetector {
     session: Session,
     pub input_size: u32,
+    tensor_buffer: Vec<f32>,
 }
 
 // -- TRAITS & IMPLEMENTATIONS -- //
@@ -78,9 +79,13 @@ impl RtDetrComicDetector {
     }
 
     pub fn from_session(session: Session) -> Self {
+        let input_size = RTDETR_INPUT_SIZE;
+        let tensor_buffer = vec![0.0_f32; 3 * input_size as usize * input_size as usize];
+
         Self {
             session,
-            input_size: RTDETR_INPUT_SIZE,
+            input_size,
+            tensor_buffer,
         }
     }
 
@@ -111,11 +116,15 @@ impl RtDetrComicDetector {
             image::imageops::FilterType::Triangle,
         );
 
-        let mut tensor_vec = vec![0.0_f32; 3 * self.input_size as usize * self.input_size as usize];
         let stride_c = (self.input_size * self.input_size) as usize;
         let stride_y = self.input_size as usize;
         let input_size = self.input_size as usize;
         let raw_bytes = resized.as_raw();
+
+        let mut tensor_vec = std::mem::take(&mut self.tensor_buffer);
+        if tensor_vec.len() != 3 * input_size * input_size {
+            tensor_vec = vec![0.0_f32; 3 * input_size * input_size];
+        }
 
         // FILL THE THREE CHANNEL PLANES IN PARALLEL ACROSS ALL CPU CORES
         tensor_vec.par_chunks_mut(stride_c).enumerate().for_each(|(c, plane)| {
@@ -128,8 +137,11 @@ impl RtDetrComicDetector {
             }
         });
 
-        let input_images = Tensor::from_array(([1, 3, self.input_size as usize, self.input_size as usize], tensor_vec))
+        let input_images = Tensor::from_array(([1, 3, self.input_size as usize, self.input_size as usize], tensor_vec.clone()))
             .map_err(|e| anyhow::anyhow!("FAILED TO CREATE RT-DETR IMAGES TENSOR: {}", e))?;
+
+        // RESTORE THE PREALLOCATED BUFFER FOR SUBSEQUENT CALLS
+        self.tensor_buffer = tensor_vec;
 
         let orig_sizes_vec: Vec<i64> = vec![orig_h as i64, orig_w as i64];
         let input_sizes = Tensor::from_array(([1, 2], orig_sizes_vec))

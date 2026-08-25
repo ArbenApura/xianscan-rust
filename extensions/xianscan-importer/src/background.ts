@@ -29,11 +29,11 @@ async function getServerUrl(): Promise<string> {
 	return stored.serverUrl || DEFAULT_SERVER_URL;
 }
 
-// 1. Initialize Context Menus
+// 1. INITIALIZE CONTEXT MENUS
 chrome.runtime.onInstalled.addListener(() => {
 	chrome.contextMenus.create({
 		id: 'xianscan-root',
-		title: 'XianScan — Import Image',
+		title: 'XianScan - Import Image',
 		contexts: ['image']
 	});
 
@@ -193,7 +193,7 @@ chrome.contextMenus.onClicked.addListener((info, tab) => {
 
 let activeJobCancelled = false;
 
-// 3. Process Batch Upload Queue (Continues in background even if popup is closed)
+// 3. PROCESS BATCH UPLOAD QUEUE (CONTINUES IN BACKGROUND EVEN IF POPUP IS CLOSED)
 async function runBatchImportJob(payload: ImportJobPayload, refererUrl?: string) {
 	activeJobCancelled = false;
 	const serverUrl = await getServerUrl();
@@ -201,8 +201,9 @@ async function runBatchImportJob(payload: ImportJobPayload, refererUrl?: string)
 	const total = payload.imageUrls.length;
 	let processedCount = 0;
 	let uploadedSuccessCount = 0;
+	let lastUploadError = '';
 
-	// Save as last used chapter & set active background job state
+	// SAVE AS LAST USED CHAPTER & SET ACTIVE BACKGROUND JOB STATE
 	await chrome.storage.local.set({
 		lastBookId: payload.bookId,
 		lastChapterId: payload.chapterId,
@@ -215,7 +216,7 @@ async function runBatchImportJob(payload: ImportJobPayload, refererUrl?: string)
 		}
 	});
 
-	// Concurrency limit = 4
+	// CONCURRENCY LIMIT = 4
 	const concurrency = 4;
 	const chunks: string[][] = [];
 	for (let i = 0; i < payload.imageUrls.length; i += concurrency) {
@@ -223,7 +224,11 @@ async function runBatchImportJob(payload: ImportJobPayload, refererUrl?: string)
 	}
 
 	for (let chunkIdx = 0; chunkIdx < chunks.length; chunkIdx++) {
-		if (activeJobCancelled) {
+		// CHECK BOTH MEMORY FLAG AND EXTENSION STORAGE IN CASE SERVICE WORKER CYCLED
+		const storageState = await chrome.storage.local.get(['activeImportJob']);
+		const isStorageCancelled = !storageState.activeImportJob || storageState.activeImportJob.running === false;
+
+		if (activeJobCancelled || isStorageCancelled) {
 			console.log('Import job cancelled by user.');
 			await chrome.storage.local.set({
 				activeImportJob: {
@@ -265,14 +270,15 @@ async function runBatchImportJob(payload: ImportJobPayload, refererUrl?: string)
 			try {
 				await client.uploadPages(payload.chapterId, downloaded);
 				uploadedSuccessCount += downloaded.length;
-			} catch (uploadErr) {
+			} catch (uploadErr: any) {
+				lastUploadError = uploadErr?.message || 'Failed uploading chunk to server';
 				console.error('Failed uploading chunk:', uploadErr);
 			}
 		}
 
 		processedCount += chunk.length;
 
-		// Persist progress to storage so reopening the popup displays live progress
+		// PERSIST PROGRESS TO STORAGE SO REOPENING THE POPUP DISPLAYS LIVE PROGRESS
 		await chrome.storage.local.set({
 			activeImportJob: {
 				running: true,
@@ -283,7 +289,7 @@ async function runBatchImportJob(payload: ImportJobPayload, refererUrl?: string)
 			}
 		});
 
-		// Broadcast progress to open popup
+		// BROADCAST PROGRESS TO OPEN POPUP
 		safeBroadcast({
 			type: 'IMPORT_PROGRESS',
 			current: processedCount,
@@ -293,16 +299,27 @@ async function runBatchImportJob(payload: ImportJobPayload, refererUrl?: string)
 		});
 	}
 
-	// Optional: Auto-trigger translation
+	// 1. OPTIONAL: AUTO-TRIGGER SMART RESLICE FIRST
+	if (payload.autoReslice && uploadedSuccessCount > 0 && !activeJobCancelled) {
+		try {
+			console.log(`Triggering auto-reslice for chapter #${payload.chapterId}...`);
+			await client.triggerReslice(payload.chapterId);
+		} catch (e) {
+			console.warn('Auto-reslice trigger failed:', e);
+		}
+	}
+
+	// 2. OPTIONAL: AUTO-TRIGGER TRANSLATION
 	if (payload.autoTranslate && uploadedSuccessCount > 0 && !activeJobCancelled) {
 		try {
+			console.log(`Triggering auto-translate for chapter #${payload.chapterId}...`);
 			await client.triggerTranslate(payload.chapterId);
 		} catch (e) {
 			console.warn('Auto-translate trigger failed:', e);
 		}
 	}
 
-	// Mark job complete in storage
+	// MARK JOB COMPLETE IN STORAGE
 	await chrome.storage.local.set({
 		activeImportJob: {
 			running: false,
@@ -313,22 +330,32 @@ async function runBatchImportJob(payload: ImportJobPayload, refererUrl?: string)
 		}
 	});
 
-	// Emit complete message to popup if open
+	// EMIT COMPLETE MESSAGE TO POPUP IF OPEN
 	safeBroadcast({
 		type: 'IMPORT_COMPLETE',
 		current: uploadedSuccessCount,
 		total,
 		chapterId: payload.chapterId,
-		bookId: payload.bookId
+		bookId: payload.bookId,
+		error: uploadedSuccessCount === 0 && total > 0 ? (lastUploadError || 'Upload failed') : undefined
 	});
 
-	// Show notification (always visible even if popup is closed)
-	chrome.notifications?.create({
-		type: 'basic',
-		iconUrl: 'icons/icon-128.png',
-		title: 'XianScan Batch Import Finished',
-		message: `Successfully uploaded ${uploadedSuccessCount} pages into Chapter #${payload.chapterId}!`
-	});
+	// SHOW NOTIFICATION (ALWAYS VISIBLE EVEN IF POPUP IS CLOSED)
+	if (uploadedSuccessCount > 0) {
+		chrome.notifications?.create({
+			type: 'basic',
+			iconUrl: 'icons/icon-128.png',
+			title: 'XianScan Batch Import Finished',
+			message: `Successfully uploaded ${uploadedSuccessCount} of ${total} pages into Chapter #${payload.chapterId}!`
+		});
+	} else {
+		chrome.notifications?.create({
+			type: 'basic',
+			iconUrl: 'icons/icon-128.png',
+			title: 'XianScan Batch Import Failed',
+			message: `Failed to upload pages: ${lastUploadError || 'Server unreachable'}`
+		});
+	}
 }
 
 // 4. Runtime Message Dispatcher

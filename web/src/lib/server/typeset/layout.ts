@@ -19,8 +19,11 @@ export function wrapText(ctx: { measureText(t: string): { width: number } }, tex
 
 		if (ctx.measureText(current).width > maxWidth && trailingPunct) {
 			const stemWidth = ctx.measureText(stem).width;
-			if (stemWidth <= maxWidth) {
+			if (stemWidth <= maxWidth && ctx.measureText(current).width <= maxWidth * 1.15) {
 				return { head: [], tail: current };
+			}
+			if (stemWidth <= maxWidth) {
+				return { head: [stem], tail: trailingPunct };
 			}
 		}
 
@@ -93,7 +96,12 @@ export function wrapText(ctx: { measureText(t: string): { width: number } }, tex
 		}
 		if (current) {
 			if (LONE_PUNCT.test(current) && lines.length > 0) {
-				lines[lines.length - 1] += current;
+				const candidate = `${lines[lines.length - 1]}${current}`;
+				if (ctx.measureText(candidate).width <= maxWidth * 1.15) {
+					lines[lines.length - 1] = candidate;
+				} else {
+					lines.push(current);
+				}
 			} else {
 				lines.push(current);
 			}

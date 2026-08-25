@@ -12,7 +12,7 @@
 	import Terminal from 'lucide-svelte/icons/terminal';
 	import FileCode from 'lucide-svelte/icons/file-code';
 	import Bot from 'lucide-svelte/icons/bot';
-	import Sparkles from 'lucide-svelte/icons/sparkles';
+	import Languages from 'lucide-svelte/icons/languages';
 	import Code from 'lucide-svelte/icons/code';
 
 	// IMPORTED MODULES
@@ -223,7 +223,7 @@
 					)}
 					on:click={() => (activeTab = 'formatted')}
 				>
-					<Sparkles size={13} class="text-[#b23a2e] dark:text-[#e08a63]" />
+					<Languages size={13} class="text-[#b23a2e] dark:text-[#e08a63]" />
 					<span>Formatted Exchange</span>
 				</button>
 
@@ -394,7 +394,7 @@
 						<div class="rounded-xl border border-black/10 bg-[#4f7a64]/5 p-3.5 dark:border-white/10 dark:bg-[#4f7a64]/10">
 							<div class="mb-2 flex items-center justify-between">
 								<span class="text-xs font-bold text-[#4f7a64] dark:text-[#83b39a] flex items-center gap-1.5">
-									<Sparkles size={14} />
+									<Languages size={14} />
 									<span>LLM Translation Output</span>
 								</span>
 								<button

@@ -12,7 +12,7 @@
 	import Target from 'lucide-svelte/icons/target';
 	import ArrowLeftRight from 'lucide-svelte/icons/arrow-left-right';
 	import Compass from 'lucide-svelte/icons/compass';
-	import Sparkles from 'lucide-svelte/icons/sparkles';
+	import Languages from 'lucide-svelte/icons/languages';
 	import Eye from 'lucide-svelte/icons/eye';
 	import EyeOff from 'lucide-svelte/icons/eye-off';
 	import Layers from 'lucide-svelte/icons/layers';
@@ -57,7 +57,7 @@
 	let showBubbles = true;
 	let showBubbleText = true;
 	let showFreeText = true;
-	let showOnomatopoeia = true;
+	let showSfx = true;
 	let showBaseTier = true;
 	let showInpaintTier = true;
 	let showTypesetTier = true;
@@ -88,7 +88,8 @@
 				if (typeof parsed.showBubbles === 'boolean') showBubbles = parsed.showBubbles;
 				if (typeof parsed.showBubbleText === 'boolean') showBubbleText = parsed.showBubbleText;
 				if (typeof parsed.showFreeText === 'boolean') showFreeText = parsed.showFreeText;
-				if (typeof parsed.showOnomatopoeia === 'boolean') showOnomatopoeia = parsed.showOnomatopoeia;
+				if (typeof parsed.showSfx === 'boolean') showSfx = parsed.showSfx;
+				else if (typeof parsed.showOnomatopoeia === 'boolean') showSfx = parsed.showOnomatopoeia;
 				if (typeof parsed.showBaseTier === 'boolean') showBaseTier = parsed.showBaseTier;
 				if (typeof parsed.showInpaintTier === 'boolean') showInpaintTier = parsed.showInpaintTier;
 				if (typeof parsed.showTypesetTier === 'boolean') showTypesetTier = parsed.showTypesetTier;
@@ -106,7 +107,7 @@
 					showBubbles,
 					showBubbleText,
 					showFreeText,
-					showOnomatopoeia,
+					showSfx,
 					showBaseTier,
 					showInpaintTier,
 					showTypesetTier,
@@ -135,7 +136,7 @@
 
 	// PERSIST LAYER TOGGLES ON USER INTERACTION
 	$: if (typeof window !== 'undefined' && open) {
-		const _ = [showRegions, showBubbles, showBubbleText, showFreeText, showOnomatopoeia, showBaseTier, showInpaintTier, showTypesetTier];
+		const _ = [showRegions, showBubbles, showBubbleText, showFreeText, showSfx, showBaseTier, showInpaintTier, showTypesetTier];
 		savePersistedToggles();
 	}
 
@@ -322,18 +323,6 @@
 			try {
 				const meta = typeof p.metadata === 'string' ? JSON.parse(p.metadata) : p.metadata;
 				if (Array.isArray(meta?.panels)) return meta.panels;
-			} catch {}
-		}
-		return [];
-	}
-
-	function getOnomatopoeia(p: any): any[] {
-		if (!p) return [];
-		if (Array.isArray(p.onomatopoeia)) return p.onomatopoeia;
-		if (p.metadata) {
-			try {
-				const meta = typeof p.metadata === 'string' ? JSON.parse(p.metadata) : p.metadata;
-				if (Array.isArray(meta?.onomatopoeia)) return meta.onomatopoeia;
 			} catch {}
 		}
 		return [];
@@ -742,7 +731,6 @@
 	function copyInspectDebugInfo() {
 		if (!page) return;
 		const panels = getPanels(page);
-		const onomatopoeia = getOnomatopoeia(page);
 		const debug = {
 			pageId: page.id,
 			seq: page.seq,
@@ -751,8 +739,6 @@
 			error: page.error,
 			panelsCount: panels.length,
 			panels,
-			onomatopoeiaCount: onomatopoeia.length,
-			onomatopoeia,
 			regionsCount: page.regions?.length ?? 0,
 			regions: (page.regions || []).map((r: any) => ({
 				id: r.id,
@@ -849,7 +835,7 @@
 								}`}
 								on:click={() => (inspectTab = 'output')}
 							>
-								<Sparkles size={11} class="sm:w-3 sm:h-3" />
+								<Languages size={11} class="sm:w-3 sm:h-3" />
 								<span><span class="hidden xs:inline">Translated</span> Output</span>
 							</button>
 						{/if}
@@ -977,37 +963,7 @@
 									{/each}
 								{/if}
 
-								<!-- 2b. STRUCTURAL ONOMATOPOEIA / SFX DETECTIONS (AMBER) -->
-								{#if showOnomatopoeia}
-									{#each getOnomatopoeia(page) as sfx, idx (sfx.id || idx)}
-										{@const sb = getBox(sfx.box || sfx)}
-										{#if sb}
-											<rect
-												x={sb.x}
-												y={sb.y}
-												width={sb.w}
-												height={sb.h}
-												fill="rgba(245, 158, 11, 0.08)"
-												stroke="#f59e0b"
-												stroke-width="2.2"
-												stroke-dasharray="4 3"
-												rx="3"
-											/>
-											<text
-												x={sb.x + 6}
-												y={sb.y + 16}
-												font-size="11"
-												font-weight="bold"
-												fill="#f59e0b"
-												stroke="#000"
-												stroke-width="2.5"
-												paint-order="stroke"
-											>SFX {sfx.seq !== undefined ? sfx.seq + 1 : idx + 1}{#if page.width && page.height} ({Math.round(((sb.w * sb.h) / (page.width * page.height)) * 100)}%){/if}</text>
-										{/if}
-									{/each}
-								{/if}
-
-								<!-- 3. DETECTED TEXT REGIONS OVERLAYS (THREE-TIER REGION GEOMETRY) -->
+								<!-- 2. DETECTED TEXT REGIONS OVERLAYS (THREE-TIER REGION GEOMETRY) -->
 								{#each page.regions || [] as region (region.id)}
 									{@const active = hoveredRegionId === region.id || editingRegion?.id === region.id}
 									{@const isHidden = !!hiddenRegionIds[region.id]}
@@ -1020,7 +976,7 @@
 										(active ||
 										(kind === 'dialogue_bubble' && showBubbleText) ||
 										(kind === 'free_text' && showFreeText) ||
-										(kind === 'sound_effect' && showOnomatopoeia))}
+										(kind === 'sound_effect' && showSfx))}
 									{#if isVisible && b}
 										{@const bx = b.x}
 										{@const by = b.y}
@@ -1266,18 +1222,18 @@
 									<span>Free Text</span>
 								</button>
 
-								<!-- SFX / ONOMATOPOEIA TOGGLE -->
+								<!-- SOUND EFFECTS (SFX) TOGGLE -->
 								<button
 									type="button"
 									class={`inline-flex items-center gap-1 px-2 h-full rounded text-[10.5px] sm:text-xs transition-all cursor-pointer shrink-0 ${
-										showOnomatopoeia
+										showSfx
 											? 'bg-amber-600/15 border border-amber-600/30 text-amber-700 dark:text-amber-300 font-semibold'
 											: 'opacity-40 hover:opacity-80 text-neutral-600 dark:text-neutral-400 border border-transparent'
 									}`}
-									title="Toggle Onomatopoeia / SFX Outlines (Amber)"
-									on:click={() => (showOnomatopoeia = !showOnomatopoeia)}
+									title="Toggle Sound Effects (SFX) Outlines (Amber)"
+									on:click={() => (showSfx = !showSfx)}
 								>
-									<span class={`inline-block w-2 h-2 rounded-xs border border-amber-600 ${showOnomatopoeia ? 'bg-amber-500' : 'bg-transparent'}`}></span>
+									<span class={`inline-block w-2 h-2 rounded-xs border border-amber-600 ${showSfx ? 'bg-amber-500' : 'bg-transparent'}`}></span>
 									<span>SFX</span>
 								</button>
 							</div>

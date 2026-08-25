@@ -66,9 +66,15 @@ export class XianScanClient {
 
 				if (proxyResult.ok) {
 					return proxyResult.data as T;
+				} else if (proxyResult.status > 0) {
+					const msg = (proxyResult.data as { message?: string })?.message || `Request failed with status ${proxyResult.status}`;
+					throw new Error(msg);
 				}
-			} catch {
-				// Fallback to direct fetch
+			} catch (err) {
+				if (err instanceof Error && !err.message.includes('Proxy unavailable')) {
+					throw err;
+				}
+				// FALLBACK TO DIRECT FETCH ONLY IF PROXY WAS UNREACHABLE
 			}
 		}
 
@@ -183,11 +189,48 @@ export class XianScanClient {
 		});
 	}
 
+	async triggerReslice(chapterId: number): Promise<{ success: boolean; message?: string }> {
+		const targetUrl = `${this.baseUrl}/api/chapters/${chapterId}/reslice`;
+		try {
+			const fn = this.fetchImpl || safeFetch;
+			const scope = typeof self !== 'undefined' ? self : globalThis;
+			const res = await fn.call(scope, targetUrl, {
+				method: 'POST',
+				headers: { 'Content-Type': 'application/json' }
+			});
+
+			if (!res.ok) {
+				const errorData = await res.json().catch(() => ({}));
+				const msg = (errorData as { message?: string }).message || `Reslice failed with status ${res.status}`;
+				throw new Error(msg);
+			}
+
+			// CONSUME SSE STREAM UNTIL COMPLETION (OR ERROR)
+			const reader = res.body?.getReader();
+			if (!reader) return { success: true };
+
+			const decoder = new TextDecoder();
+			while (true) {
+				const { done, value } = await reader.read();
+				if (done) break;
+				const text = decoder.decode(value);
+				if (text.includes('"type":"error"')) {
+					throw new Error('Reslice encountered an error');
+				}
+			}
+
+			return { success: true };
+		} catch (err: any) {
+			console.warn('RESLICE REQUEST FAILED:', err);
+			throw err;
+		}
+	}
+
 	async triggerTranslate(chapterId: number): Promise<{ success: boolean; message?: string }> {
 		const targetUrl = `${this.baseUrl}/api/chapters/${chapterId}/translate`;
 		try {
 			const controller = new AbortController();
-			// The server starts the detached translation job immediately upon receiving POST
+			// THE SERVER STARTS THE DETACHED TRANSLATION JOB IMMEDIATELY UPON RECEIVING POST
 			const timeoutId = setTimeout(() => controller.abort(), 2000);
 			try {
 				const fn = this.fetchImpl || safeFetch;
@@ -203,7 +246,7 @@ export class XianScanClient {
 				clearTimeout(timeoutId);
 			}
 		} catch {
-			// Detached server job proceeds even if SSE stream is closed on client
+			// DETACHED SERVER JOB PROCEEDS EVEN IF SSE STREAM IS CLOSED ON CLIENT
 			return { success: true };
 		}
 	}

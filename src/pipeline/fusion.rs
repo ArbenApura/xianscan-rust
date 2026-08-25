@@ -1,10 +1,17 @@
+// -- CRATE / EXTERNAL IMPORTS -- //
 use image::{DynamicImage, GenericImageView};
+
+// -- INTERNAL IMPORTS -- //
 use crate::ml::detect::ComicTextDetector;
+use crate::ml::detect::{clean_stray_ocr_artifacts, is_watermark_line, CHINESE_RE};
 use crate::ml::geometry::{box_iou_f32, box_iou_pts, box_to_xywh_f32, polygon_bounds};
 use crate::ml::ocr::{OcrLine, RapidOcr};
 use crate::ml::schemas::BoxRect;
 use crate::ml::watermark::WatermarkRemover;
-use crate::ml::detect::{clean_stray_ocr_artifacts, is_watermark_line, CHINESE_RE};
+
+use anyhow::Result;
+
+// -- TYPES & STRUCTS -- //
 
 pub struct DetectionFusionResult {
     pub comic_boxes: Vec<Vec<[i32; 2]>>,
@@ -25,6 +32,8 @@ pub struct DetectionFusionResult {
     pub raw_ocr_lines_count: usize,
 }
 
+// -- FUNCTIONS & ALGORITHMS -- //
+
 pub fn fuse_detections(
     detector: &mut Option<ComicTextDetector>,
     ocr: &mut Option<RapidOcr>,
@@ -32,25 +41,31 @@ pub fn fuse_detections(
     img: &DynamicImage,
     source_lang: Option<&str>,
     enable_watermark_inpaint: bool,
-) -> DetectionFusionResult {
+    allow_degraded_fallback: bool,
+) -> Result<DetectionFusionResult> {
     let (page_w, page_h) = img.dimensions();
 
     // 1 & 2. PARALLEL EXECUTION: RUN COMIC LAYOUT DETECTOR AND RAPIDOCR CONCURRENTLY VIA SCOPED THREADS
     let (det_result, ocr_result) = std::thread::scope(|s| {
-        let det_handle = s.spawn(|| {
+        let det_handle = s.spawn(|| -> Result<(Option<crate::ml::detect::DetectResult>, f64)> {
             if let Some(ref mut det) = detector {
                 let t0 = std::time::Instant::now();
                 match det.detect(img) {
                     Ok(res) => {
                         let dur = t0.elapsed().as_secs_f64() * 1000.0;
-                        return (Some(res), dur);
+                        return Ok((Some(res), dur));
                     }
                     Err(e) => {
-                        tracing::warn!("Comic layout detector inference failed: {}", e);
+                        tracing::error!("Comic layout detector inference failed: {}", e);
+                        if !allow_degraded_fallback {
+                            return Err(anyhow::anyhow!("LAYOUT_DETECTOR_FAILED: Comic layout detector inference crashed: {}", e));
+                        }
                     }
                 }
+            } else if !allow_degraded_fallback {
+                return Err(anyhow::anyhow!("LAYOUT_DETECTOR_FAILED: Comic layout detector model is not loaded or missing."));
             }
-            (None, 0.0)
+            Ok((None, 0.0))
         });
 
         let ocr_handle = s.spawn(|| {
@@ -75,9 +90,13 @@ pub fn fuse_detections(
                             if crate::ml::detect::is_standalone_noise_stroke(t) {
                                 return false;
                             }
-                            // 3. DROP HIGH-TILT NON-DIALOGUE WITH LOW RECOGNITION CONFIDENCE (THETA >= 12.0 DEG, SCORE < 0.65)
+                            // 3. DROP HIGH-TILT NON-DIALOGUE WITH LOW RECOGNITION CONFIDENCE (THETA >= 12.0 DEG, SCORE < 0.60, NON-SFX)
                             let angle = crate::ml::geometry::calculate_box_angle_i32(&line.polygon);
-                            if angle.abs() >= 12.0 && line.score < 0.65 {
+                            if angle.abs() >= 12.0 && line.score < 0.60 && !crate::ml::detect::is_onomatopoeia_or_shout(t) {
+                                return false;
+                            }
+                            // 4. DROP MARGIN ARCHITECTURAL / BUILDING GRID TEXTURE NOISE (FLUSH TO MARGIN X <= 5, LOW CONFIDENCE SCORE < 0.65, NO BUBBLE)
+                            if (polygon_bounds(&line.polygon).0 <= 5 || polygon_bounds(&line.polygon).0 + lw >= page_w as i32 - 5) && line.score < 0.65 && !crate::ml::detect::is_onomatopoeia_or_shout(t) {
                                 return false;
                             }
                             true
@@ -124,10 +143,12 @@ pub fn fuse_detections(
             (Vec::new(), 0.0)
         });
 
-        (det_handle.join().unwrap(), ocr_handle.join().unwrap())
+        let det_res = det_handle.join().unwrap();
+        let ocr_res = ocr_handle.join().unwrap();
+        (det_res, ocr_res)
     });
 
-    let (res_opt, detector_time_ms) = det_result;
+    let (res_opt, detector_time_ms) = det_result?;
     let (mut rapid_lines, ocr_fullpage_time_ms) = ocr_result;
 
     let (mut comic_boxes, comic_scores, panels, bubbles, onomatopoeia, text_bubbles, text_free, backend) = match res_opt {
@@ -170,16 +191,18 @@ pub fn fuse_detections(
             }
 
             // SUPPRESS LOW-CONFIDENCE NOISE / BACKGROUND TEXTURE HALLUCINATIONS
-            if *score < 0.50 {
+            if *score < 0.25 {
                 return false;
             }
-            if *score < 0.60 && sfx_b.w <= 30 && sfx_b.h <= 30 {
+            if *score < 0.40 && (sfx_b.w >= 200 && sfx_b.h >= 400) {
                 return false;
             }
 
             // SENTENCE PROTECTION: WIDE HORIZONTAL STRIPS (W/H >= 2.5) OR SMALL CAPTION HEIGHTS (H <= 35PX) ARE SENTENCES, NOT SFX
             let is_sentence = (sfx_b.w as f32 / sfx_b.h.max(1) as f32 >= 2.5) || sfx_b.h <= 35;
-            let is_oversized = (sfx_b.h as f32 >= (page_h as f32) * 0.30) && !is_sentence;
+            let is_oversized = (sfx_b.w as f32 >= (page_w as f32) * 0.65 && sfx_b.h >= 120)
+                || ((sfx_b.h as f32 >= (page_h as f32) * 0.35) && !is_sentence && sfx_b.w >= 200)
+                || ((sfx_b.h as f32 >= (page_h as f32) * 0.40) && !is_sentence);
 
             !is_oversized
         })
@@ -245,33 +268,31 @@ pub fn fuse_detections(
                     ocr_det_matched[idx] = true;
 
                     // IF COMIC TEXT DETECTOR BOX IS SIGNIFICANTLY WIDER OR TALLER THAN A SINGLE RAPID OCR LINE (E.G. ELLIPSIS TRUNCATED ON RIGHT OR VERTICAL SFX TRUNCATED)
-                    // TEST IF RECOGNIZING COMIC BOX YIELDS FULL TEXT. MULTI-LINE CONTAINERS MUST NOT OVERWRITE SINGLE CONSTITUENT LINES.
-                    let is_wider = !is_rl_vert && (cb_w >= rw + 20 || (cb_w as f32) >= (rw as f32 * 1.20));
-                    let is_taller = is_rl_vert && (cb_h >= rh + 20 || (cb_h as f32) >= (rh as f32 * 1.20));
-                    if is_wider || is_taller {
-                        let pad_x = if is_rl_vert { 6 } else { 15 };
-                        let pad_y = if is_rl_vert { 6 } else { 10 };
+                    // OR IF THE MATCHED OCR LINE HAS LOW RECOGNITION CONFIDENCE / DEGENERATE SINGLE-CHAR OUTPUT (E.G. TEACUP HANDWRITING DETECTED AS "0")
+                    let is_wider = !is_rl_vert && (cb_w >= rw + 8 || (cb_w as f32) >= (rw as f32 * 1.10));
+                    let is_taller = is_rl_vert && (cb_h >= rh + 10 || (cb_h as f32) >= (rh as f32 * 1.10));
+                    let is_low_conf_or_degenerate = rl.score < 0.65 || (rl.text.trim().chars().count() <= 1 && (rh >= 35 || rw >= 35));
+                    if is_wider || is_taller || is_low_conf_or_degenerate {
+                        let pad_x = if is_rl_vert { 16 } else { 15 };
+                        let pad_y = if is_rl_vert { 12 } else { 10 };
                         let cx = (cb_x - pad_x).max(0) as u32;
                         let cy = (cb_y - pad_y).max(0) as u32;
                         let cw = ((cb_w + pad_x * 2) as u32).min(w - cx);
                         let ch = ((cb_h + pad_y * 2) as u32).min(h - cy);
                         if cw >= 8 && ch >= 8 {
                             let crop = img.crop_imm(cx, cy, cw, ch);
-                            let rec_opt = if is_rl_vert && cb_h >= 60 {
-                                o.recognize_crop_with_lang(&crop, source_lang).ok().flatten().and_then(|c_res| {
-                                    if !c_res.text.trim().is_empty() {
-                                        Some(crate::ml::ocr::OcrResult {
-                                            text: c_res.text,
-                                            score: c_res.score,
-                                            lines: c_res.lines,
-                                        })
-                                    } else {
-                                        None
-                                    }
-                                }).or_else(|| o.recognize_line_with_lang(&crop, source_lang).ok().flatten())
-                            } else {
-                                o.recognize_line_with_lang(&crop, source_lang).ok().flatten()
-                            };
+                            let rec_opt = o.recognize_crop_with_lang(&crop, source_lang).ok().flatten().and_then(|c_res| {
+                                if !c_res.text.trim().is_empty() {
+                                    Some(crate::ml::ocr::OcrResult {
+                                        text: c_res.text,
+                                        score: c_res.score,
+                                        lines: c_res.lines,
+                                    })
+                                } else {
+                                    None
+                                }
+                            }).or_else(|| o.recognize_line_with_lang(&crop, source_lang).ok().flatten())
+                            .or_else(|| o.recognize_crop_with_lang(&crop, None).ok().flatten());
 
                             if let Some(line_res) = rec_opt {
                                 let clean_c = clean_stray_ocr_artifacts(&line_res.text);
@@ -279,7 +300,11 @@ pub fn fuse_detections(
                                 let rl_chars = rl.text.chars().filter(|c| !c.is_whitespace()).count();
                                 let clean_cjk = clean_c.chars().filter(|c| crate::ml::detect::has_cjk_characters(&c.to_string())).count();
                                 let rl_cjk = rl.text.chars().filter(|c| crate::ml::detect::has_cjk_characters(&c.to_string())).count();
-                                if clean_chars > rl_chars || clean_cjk > rl_cjk || (clean_c.contains('…') && !rl.text.contains('…')) || (clean_chars == rl_chars && line_res.score > rl.score + 0.05) {
+                                let is_better = clean_chars > rl_chars
+                                    || clean_cjk > rl_cjk
+                                    || (clean_c.contains('…') && !rl.text.contains('…'))
+                                    || (clean_chars == rl_chars && line_res.score > rl.score + 0.05);
+                                if is_better {
                                     let union_x = cb_x.min(rx);
                                     let union_y = cb_y.min(ry);
                                     let union_w = (cb_x + cb_w).max(rx + rw) - union_x;
@@ -321,7 +346,7 @@ pub fn fuse_detections(
                     if crop_w >= 4 && crop_h >= 4 {
                         let crop = img.crop_imm(crop_x, crop_y, crop_w, crop_h);
                         let mut recognized_from_crop = false;
-                        if bh > 45 || bh > (bw as f32 * 1.5) as i32 || (crop_w >= 45 && crop_h >= 45) {
+                        if crop_w >= 16 && crop_h >= 16 {
                             if let Ok(Some(crop_res)) = o.recognize_crop_with_lang(&crop, source_lang) {
                                 if !crop_res.lines.is_empty() {
                                     for (sub_poly, sub_text, sub_score) in crop_res.lines {
@@ -348,20 +373,23 @@ pub fn fuse_detections(
                             }
                         }
                         if !recognized_from_crop {
-                            // FOR VERTICAL JAPANESE SFX (HEIGHT >= 45, NARROW WIDTH), ATTEMPT DIRECT LINE RECOGNITION WITH ROTATION FALLBACK
-                            if let Ok(Some(line_res)) = o.recognize_line_with_lang(&crop, source_lang) {
-                                if !line_res.text.trim().is_empty() && line_res.score >= 0.55 {
-                                    rapid_lines.push(OcrLine {
-                                        polygon: cb.clone(),
-                                        text: line_res.text,
-                                        score: line_res.score,
-                                    });
-                                    rescued_crops_count += 1;
-                                    recognized_from_crop = true;
+                            // FOR VERTICAL/HORIZONTAL JAPANESE SFX LINES (NARROW STRIP), ATTEMPT DIRECT LINE RECOGNITION WITH ROTATION FALLBACK
+                            let is_strip = (crop_w <= 200 || crop_h <= 200) && (crop_h as f32 >= crop_w as f32 * 1.5 || crop_w as f32 >= crop_h as f32 * 1.5);
+                            if is_strip {
+                                if let Ok(Some(line_res)) = o.recognize_line_with_lang(&crop, source_lang) {
+                                    if !line_res.text.trim().is_empty() && line_res.score >= 0.55 {
+                                        rapid_lines.push(OcrLine {
+                                            polygon: cb.clone(),
+                                            text: line_res.text,
+                                            score: line_res.score,
+                                        });
+                                        rescued_crops_count += 1;
+                                        recognized_from_crop = true;
+                                    }
                                 }
                             }
                         }
-                        if !recognized_from_crop {
+                        if !recognized_from_crop && (crop_w <= 120 || crop_h <= 120) && !(crop_w >= 200 && crop_h >= 200) {
                             single_line_pending.push((cb.clone(), crop));
                         }
                     }
@@ -447,13 +475,26 @@ pub fn fuse_detections(
 
                             if overlap_pix >= 15 && (CHINESE_RE.is_match(&cl.text) || !crate::ml::detect::is_cjk_source(source_lang)) && !is_watermark_line(&cl.text) {
                                 let mut replaced = false;
+                                let (cx, cy, cw, ch) = polygon_bounds(&cl.polygon);
+                                let c_mid_x = cx as f32 + cw as f32 / 2.0;
+                                let c_mid_y = cy as f32 + ch as f32 / 2.0;
+
                                 for rl in &mut rapid_lines {
                                     let iou = box_iou_pts(&cl.polygon, &rl.polygon);
-                                    let same_text = cl.text == rl.text || cl.text.contains(&rl.text) || rl.text.contains(&cl.text);
-                                    let has_latin = rl.text.chars().any(|c| c.is_ascii_alphabetic());
+                                    let (rx, ry, rw, rh) = polygon_bounds(&rl.polygon);
+                                    let r_mid_x = rx as f32 + rw as f32 / 2.0;
+                                    let r_mid_y = ry as f32 + rh as f32 / 2.0;
+                                    let dist_sq = (c_mid_x - r_mid_x).powi(2) + (c_mid_y - r_mid_y).powi(2);
+                                    let is_spatial_neighbor = dist_sq <= (cw.max(rw) as f32 * 0.75).powi(2) + (ch.max(rh) as f32 * 1.5).powi(2);
 
-                                    if (has_latin && iou >= 0.15) || (iou >= 0.55) || (same_text && iou >= 0.25) {
-                                        if has_latin || cl.text.len() >= rl.text.len() {
+                                    let has_latin = rl.text.chars().any(|c| c.is_ascii_alphabetic());
+                                    let same_text = cl.text == rl.text || cl.text.contains(&rl.text) || rl.text.contains(&cl.text);
+
+                                    if (has_latin && iou >= 0.15) || (iou >= 0.50) || (same_text && (iou >= 0.25 || is_spatial_neighbor)) {
+                                        // If existing line is already clean and has no latin watermark corruption, keep the original unless cl has higher confidence without trailing suffix noise
+                                        let cl_clean = cl.text.trim();
+                                        let has_trailing_noise = cl_clean.ends_with('一') || cl_clean.ends_with('-') || cl_clean.ends_with('1');
+                                        if has_latin || (!has_trailing_noise && cl.score > rl.score) {
                                             *rl = cl.clone();
                                         }
                                         replaced = true;
@@ -461,9 +502,19 @@ pub fn fuse_detections(
                                         break;
                                     }
                                 }
+                                // ONLY INSERT AS A BRAND NEW LINE IF IT DOES NOT SPATIALLY OVERLAP ANY EXISTING LINE
                                 if !replaced {
-                                    rapid_lines.push(cl.clone());
-                                    watermark_recovered_count += 1;
+                                    let overlaps_existing = rapid_lines.iter().any(|rl| {
+                                        let iou = box_iou_pts(&cl.polygon, &rl.polygon);
+                                        let (rx, ry, rw, rh) = polygon_bounds(&rl.polygon);
+                                        let ix = (cx + cw).min(rx + rw) - cx.max(rx);
+                                        let iy = (cy + ch).min(ry + rh) - cy.max(ry);
+                                        iou >= 0.20 || (ix > 0 && iy > 0 && (ix * iy) as f32 / (cw * ch).max(1) as f32 >= 0.35)
+                                    });
+                                    if !overlaps_existing {
+                                        rapid_lines.push(cl.clone());
+                                        watermark_recovered_count += 1;
+                                    }
                                 }
                             }
                         }
@@ -474,7 +525,7 @@ pub fn fuse_detections(
     }
     let watermark_time_ms = t_wm0.elapsed().as_secs_f64() * 1000.0;
 
-    DetectionFusionResult {
+    Ok(DetectionFusionResult {
         comic_boxes,
         comic_scores,
         panels,
@@ -491,7 +542,7 @@ pub fn fuse_detections(
         rescued_crops_count,
         watermark_recovered_count,
         raw_ocr_lines_count,
-    }
+    })
 }
 
 pub fn is_multiline_comic_blob(cb: &[[f32; 2]], rapid_boxes: &[Vec<[f32; 2]>], page_w: u32, page_h: u32) -> bool {

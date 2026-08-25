@@ -17,7 +17,6 @@
 	import FolderTree from 'lucide-svelte/icons/folder-tree';
 	import Layers from 'lucide-svelte/icons/layers';
 	import ScanLine from 'lucide-svelte/icons/scan-line';
-	import Sparkles from 'lucide-svelte/icons/sparkles';
 
 	// IMPORTED COMPONENTS
 	import { Modal, Button } from '$lib/components/ui';
@@ -192,7 +191,7 @@
 	{#if phase === 'scanning'}
 		<div class="flex flex-col items-center gap-4 py-8 text-center">
 			<div class="shadow-xs flex h-12 w-12 items-center justify-center rounded-xl bg-white dark:bg-white/10">
-				<ScanLine size={24} class="animate-pulse text-[#b23a2e] dark:text-[#e08a63]" />
+				<ScanLine size={24} class="text-[#b23a2e] dark:text-[#e08a63]" />
 			</div>
 			<div>
 				<h3 class="text-sm font-bold">Scanning folder for images...</h3>
@@ -284,7 +283,7 @@
 
 			{#if rows.length > 1}
 				<div class="flex items-center gap-1.5 text-[11px] font-medium opacity-70">
-					<Sparkles size={13} class="text-amber-500" />
+					<Layers size={13} class="text-amber-500" />
 					<span>Chapters imported: {completedChapters}/{rows.length}</span>
 				</div>
 			{/if}

@@ -3,13 +3,12 @@ import type { ScannedImage } from '../types';
 // NOISE AND ADVERTISEMENT PATTERNS
 const NOISE_URL_PATTERN = /(?:data:image|placeholder|blurhash|lqip|blur|skeleton|shimmer|loading|loader|blank\.gif|spacer\.gif|pixel\.gif|avatar|favicon|emoji|discord|patreon|kofi|paypal|doubleclick|googleads|adservice|adserver|banner_ad|ad_banner|affiliate|sponsor|watermark_logo)/i;
 
-// TRANSIENT CACHE-BUSTING AND TRACKING QUERY PARAMS TO STRIP
+// TRANSIENT CACHE-BUSTING AND TRACKING QUERY PARAMS TO STRIP (PRESERVING PRESIGNED AUTH TOKENS)
 const VOLATILE_QUERY_PARAMS = new Set([
-	'_', 't', 'ts', 'time', 'timestamp', 'token', 'sig', 'sign', 'signature',
-	'auth', 'auth_key', 'key', 'v', 'ver', 'version', 'w', 'h', 'width',
+	'_', 't', 'ts', 'time', 'timestamp', 'v', 'ver', 'version', 'w', 'h', 'width',
 	'height', 'quality', 'format', 'webp', 'size', 'resize', 'crop',
-	'max_width', 'max_height', 'fit', 'auto', 'rnd', 'nonce', 'expires',
-	'exp', 'cb', 'cache_bust', 'sid', 'session', 'session_id', 'utm_source',
+	'max_width', 'max_height', 'fit', 'auto', 'rnd', 'nonce',
+	'cb', 'cache_bust', 'sid', 'session', 'session_id', 'utm_source',
 	'utm_medium', 'utm_campaign', 'utm_term', 'utm_content'
 ]);
 

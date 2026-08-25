@@ -8,7 +8,7 @@
 	import { settings, THEME_POPOVER, THEME_PANEL_BORDER } from '$lib/stores/settings';
 	import { ripple } from '$lib/actions/ripple';
 	import { PIPELINE_STEP_LABELS, type PipelinePhase } from '$lib/types';
-	import Sparkles from 'lucide-svelte/icons/sparkles';
+	import Loader2 from 'lucide-svelte/icons/loader-2';
 	import CheckCircle2 from 'lucide-svelte/icons/check-circle-2';
 	import AlertTriangle from 'lucide-svelte/icons/alert-triangle';
 	import Pause from 'lucide-svelte/icons/pause';
@@ -21,6 +21,7 @@
 	import Layers from 'lucide-svelte/icons/layers';
 	import Clock from 'lucide-svelte/icons/clock';
 	import BookOpen from 'lucide-svelte/icons/book-open';
+	import Scissors from 'lucide-svelte/icons/scissors';
 
 	let expanded = false;
 	let now = Date.now();
@@ -132,7 +133,7 @@
 						}`}
 					>
 						{#if isRunning}
-							<Sparkles size={16} class="animate-spin" />
+							<Loader2 size={16} class="animate-spin" />
 						{:else if isPaused}
 							<Pause size={15} />
 						{:else if isCompleted}
@@ -255,11 +256,6 @@
 								<div class="rounded-xl border border-black/10 bg-black/[0.02] p-3 dark:border-white/10 dark:bg-white/[0.02]">
 									<div class="flex items-center justify-between gap-2 text-xs font-semibold">
 										<div class="flex items-center gap-1.5 min-w-0">
-											{#if ch.status === 'reslicing'}
-												<span class="inline-block h-2 w-2 rounded-full bg-amber-500 animate-pulse"></span>
-											{:else}
-												<span class="inline-block h-2 w-2 rounded-full bg-[#b23a2e] dark:bg-[#e08a63] animate-ping"></span>
-											{/if}
 											<span class="truncate">Chapter {ch.seq + 1}: {ch.titleTarget || ch.title || `Chapter ${ch.seq + 1}`}</span>
 										</div>
 										<button
@@ -274,7 +270,11 @@
 
 									{#if ch.status === 'reslicing'}
 										<div class="mt-2.5 flex items-center gap-2 rounded-lg bg-[#b23a2e]/10 px-2.5 py-2 text-xs font-medium text-[#b23a2e] dark:text-[#e08a63] border border-[#b23a2e]/20">
-											<Sparkles size={14} class="animate-spin shrink-0 text-[#b23a2e] dark:text-[#e08a63]" />
+											{#if isRunning}
+												<Loader2 size={14} class="animate-spin shrink-0 text-[#b23a2e] dark:text-[#e08a63]" />
+											{:else}
+												<Scissors size={14} class="shrink-0 text-[#b23a2e] dark:text-[#e08a63]" />
+											{/if}
 											<div class="min-w-0 flex-1">
 												<div class="font-bold text-[11px]">Smart Page Re-slicing</div>
 												<div class="text-[10px] opacity-75 truncate">{ch.resliceMessage || 'Stitching canvas & finding clean text gutters...'}</div>
@@ -334,9 +334,9 @@
 										{#if item.status === 'done'}
 											<span class="text-[10px] font-mono font-bold text-emerald-600 dark:text-emerald-400">✓ Done</span>
 										{:else if item.status === 'reslicing'}
-											<span class="text-[10px] font-mono font-bold text-[#b23a2e] dark:text-[#e08a63] animate-pulse">✂ Re-slicing</span>
+											<span class="text-[10px] font-mono font-bold text-[#b23a2e] dark:text-[#e08a63]">✂ Re-slicing</span>
 										{:else if item.status === 'processing'}
-											<span class="text-[10px] font-mono font-bold animate-pulse">⚙ {item.translatedPages || 0}/{item.pageCount}</span>
+											<span class="text-[10px] font-mono font-bold text-[#b23a2e] dark:text-[#e08a63]">⚙ {item.translatedPages || 0}/{item.pageCount}</span>
 										{:else if item.status === 'error'}
 											<span class="text-[10px] font-mono font-bold text-red-500">✕ Error</span>
 										{:else if item.status === 'skipped'}

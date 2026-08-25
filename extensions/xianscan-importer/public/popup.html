@@ -136,10 +136,41 @@
 
 		<!-- FOOTER -->
 		<footer class="footer">
-			<label class="auto-translate-row mono">
-				<input type="checkbox" id="autoTranslateCheckbox">
-				<span>Auto-translate after upload</span>
-			</label>
+			<div class="pipeline-toggles">
+				<label class="pipeline-chip mono" for="autoResliceCheckbox" title="Smart re-slice webcomic strips into clean pages">
+					<input type="checkbox" id="autoResliceCheckbox">
+					<span class="chip-check">
+						<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round">
+							<polyline points="20 6 9 17 4 12"/>
+						</svg>
+					</span>
+					<svg class="toggle-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+						<circle cx="6" cy="6" r="3"/>
+						<circle cx="6" cy="18" r="3"/>
+						<line x1="20" y1="4" x2="8.12" y2="15.88"/>
+						<line x1="14.47" y1="14.48" x2="20" y2="20"/>
+						<line x1="8.12" y1="8.12" x2="12" y2="12"/>
+					</svg>
+					<span class="chip-label">Auto-Reslice</span>
+				</label>
+				<label class="pipeline-chip mono" for="autoTranslateCheckbox" title="Automatically translate and typeset pages after upload">
+					<input type="checkbox" id="autoTranslateCheckbox">
+					<span class="chip-check">
+						<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round">
+							<polyline points="20 6 9 17 4 12"/>
+						</svg>
+					</span>
+					<svg class="toggle-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+						<path d="m5 8 6 6"/>
+						<path d="m4 14 6-6 2-3"/>
+						<path d="M2 5h12"/>
+						<path d="M7 2h1"/>
+						<path d="m22 22-5-10-5 10"/>
+						<path d="M14 18h6"/>
+					</svg>
+					<span class="chip-label">Auto-Translate</span>
+				</label>
+			</div>
 			<button id="startImportBtn" class="action-btn" disabled type="button">
 				<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
 					<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
@@ -172,13 +203,16 @@
 				
 				<label class="field-label mono" style="margin-top: 8px;">Source Language</label>
 				<select id="newBookSourceLangSelect" class="native-select">
-					<option value="zh-Hans">Chinese (中文 - 国漫)</option>
-					<option value="ko">Korean (한국어 - 웹툰)</option>
-					<option value="ja">Japanese (日本語 - 漫画)</option>
-					<option value="en">English</option>
-					<option value="vi">Vietnamese</option>
-					<option value="th">Thai</option>
-					<option value="fr">French</option>
+					<option value="zh-Hans">🇨🇳 Chinese (Simplified - 简体中文)</option>
+					<option value="zh-Hant">🇹🇼 Chinese (Traditional - 繁體中文)</option>
+					<option value="ja">🇯🇵 Japanese (日本語 - 漫画)</option>
+					<option value="ko">🇰🇷 Korean (한국어 - 웹툰)</option>
+					<option value="th">🇹🇭 Thai (ไทย)</option>
+					<option value="id">🇮🇩 Indonesian (Bahasa Indonesia)</option>
+					<option value="fr">🇫🇷 French (Français)</option>
+					<option value="es">🇪🇸 Spanish (Español)</option>
+					<option value="ru">🇷🇺 Russian (Русский)</option>
+					<option value="en">🇺🇸 English (Western Comics)</option>
 				</select>
 			</div>
 			<div class="modal-actions">

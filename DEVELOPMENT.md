@@ -1,10 +1,10 @@
-# 🛠️ XianScan - Developer Guide
+# XianScan Developer Guide
 
 This guide covers building from source, fast iteration workflows, hardware acceleration feature flags, environment variables, database tooling, browser extension development, test suites, and REST API references.
 
 ---
 
-## 📋 Prerequisites
+## Prerequisites
 
 ### 1. Core Toolchains
 - **Rust 1.88+** (with Cargo & rustup):
@@ -27,7 +27,7 @@ sudo apt-get install -y build-essential python3 libfontconfig1-dev
 
 ---
 
-## 🏗️ Building from Source
+## Building from Source
 
 ### 1. Standalone Release Build
 Compile the complete self-contained release binary with the SvelteKit frontend and ONNX models embedded:
@@ -52,11 +52,11 @@ To enable platform-specific GPU acceleration backends, add the corresponding Car
 | **macOS (Apple Silicon)** | `coreml` | `cargo build --release --features embed-models,embed-web,coreml` |
 
 > [!NOTE]
-> All GPU acceleration features cleanly fallback to the multi-threaded SIMD CPU engine if the respective hardware or runtime driver is not present.
+> All GPU acceleration features fall back to the multi-threaded SIMD CPU engine if the respective hardware or runtime driver is not present.
 
 ---
 
-## ⚡ Fast Iteration Dev Workflows
+## Fast Iteration Dev Workflows
 
 ### 1. Full-Stack Dev Mode (Rust ML Engine + Vite Live HMR)
 Runs the Rust ML server (`:8123`) and Vite Live HMR (`:8125`) concurrently with automatic reverse-proxying:
@@ -74,7 +74,7 @@ cargo run -- --ml-only
 
 ---
 
-## ⚙️ Environment Variables & CLI Options
+## Environment Variables & CLI Options
 
 | Option / Variable | Default | Description |
 | :--- | :--- | :--- |
@@ -90,7 +90,7 @@ cargo run -- --ml-only
 
 ---
 
-## 🗄️ Database & Schema Migrations (Drizzle ORM)
+## Database & Schema Migrations (Drizzle ORM)
 
 The SvelteKit server uses **Drizzle ORM** with **SQLite** (`better-sqlite3`). Database scripts are managed from `web/`:
 
@@ -109,7 +109,7 @@ yarn db:studio
 
 ---
 
-## 🧩 Browser Extension Development (`extensions/xianscan-importer/`)
+## Browser Extension Development (`extensions/xianscan-importer/`)
 
 The 1-Click Web Importer is built with TypeScript and esbuild:
 
@@ -132,7 +132,7 @@ yarn package
 
 ---
 
-## 📱 Android Mihon / Tachiyomi Extension (`extensions/xianscan-mihon/`)
+## Android Mihon / Tachiyomi Extension (`extensions/xianscan-mihon/`)
 
 The mobile companion extension is an Android Kotlin library built on the Tachiyomi Extension API:
 
@@ -152,7 +152,7 @@ cd extensions/xianscan-mihon
 ```
 
 ### 3. Server API Contracts for Mihon
-The SvelteKit server must implement the following endpoints to serve the extension:
+The SvelteKit server implements the following endpoints to serve the extension:
 
 | Route | Description |
 | :--- | :--- |
@@ -166,7 +166,7 @@ The SvelteKit server must implement the following endpoints to serve the extensi
 
 ---
 
-## 🧪 Testing Protocols
+## Testing Protocols
 
 ### 1. Rust Unit & Integration Tests
 ```bash
@@ -196,7 +196,7 @@ yarn lint
 
 ---
 
-## 🔌 REST API Reference
+## REST API Reference
 
 ### 1. Rust Axum ML Engine Endpoints (`:8123`)
 
@@ -227,7 +227,7 @@ yarn lint
 
 ---
 
-## 📂 Project Architecture
+## Project Architecture
 
 ```
 xianscan-rust/

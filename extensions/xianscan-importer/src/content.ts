@@ -237,7 +237,7 @@ export function scanPageForImages(): ScannedImage[] {
 	return sortImagesByCoordinates(rawImages);
 }
 
-// Auto-scroll through the entire reader to trigger lazy-loads
+// AUTO-SCROLL THROUGH THE ENTIRE READER TO TRIGGER LAZY-LOADS
 export async function fastScrollPreload(): Promise<void> {
 	const initialScrollY = window.scrollY;
 	const scrollHeight = Math.max(document.body.scrollHeight, document.documentElement.scrollHeight);
@@ -252,37 +252,41 @@ export async function fastScrollPreload(): Promise<void> {
 	window.scrollTo(0, initialScrollY);
 }
 
-// Runtime message listener
-chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
-	if (message.type === 'SCAN_PAGE') {
-		const images = scanPageForImages();
-		const htmlLang = document.documentElement.lang || '';
-		const metadata = parseChapterMetadata(document.title, window.location.href, htmlLang);
-		metadata.pageCount = images.length;
+// RUNTIME MESSAGE LISTENER (GUARDED AGAINST DUPLICATE INJECTIONS)
+if (typeof window !== 'undefined' && !(window as any).__xianscan_content_injected) {
+	(window as any).__xianscan_content_injected = true;
 
-		const response: ScanPageResponse = {
-			images,
-			metadata
-		};
-		sendResponse(response);
-		return true;
-	}
-
-	if (message.type === 'FAST_SCROLL_PRELOAD') {
-		fastScrollPreload().then(() => {
+	chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
+		if (message.type === 'SCAN_PAGE') {
 			const images = scanPageForImages();
 			const htmlLang = document.documentElement.lang || '';
 			const metadata = parseChapterMetadata(document.title, window.location.href, htmlLang);
 			metadata.pageCount = images.length;
-			sendResponse({ success: true, images, metadata });
-		});
-		return true;
-	}
 
-	if (message.type === 'PING') {
-		sendResponse({ status: 'alive' });
-		return true;
-	}
+			const response: ScanPageResponse = {
+				images,
+				metadata
+			};
+			sendResponse(response);
+			return true;
+		}
 
-	return false;
-});
+		if (message.type === 'FAST_SCROLL_PRELOAD') {
+			fastScrollPreload().then(() => {
+				const images = scanPageForImages();
+				const htmlLang = document.documentElement.lang || '';
+				const metadata = parseChapterMetadata(document.title, window.location.href, htmlLang);
+				metadata.pageCount = images.length;
+				sendResponse({ success: true, images, metadata });
+			});
+			return true;
+		}
+
+		if (message.type === 'PING') {
+			sendResponse({ status: 'alive' });
+			return true;
+		}
+
+		return false;
+	});
+}

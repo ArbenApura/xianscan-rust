@@ -1,6 +1,9 @@
+// -- INTERNAL IMPORTS -- //
 use crate::ml::geometry::{box_score_fast, find_contours, get_mini_boxes, unclip_polygon};
 
-/// DBNet representer (boxes_from_bitmap port): lines_map -> (boxes, scores)
+// -- FUNCTIONS & ALGORITHMS -- //
+
+/// DBNET REPRESENTER (BOXES_FROM_BITMAP PORT): LINES_MAP -> (BOXES, SCORES)
 pub fn lines_map_to_boxes(
     lines_map: &[f32],
     map_w: usize,

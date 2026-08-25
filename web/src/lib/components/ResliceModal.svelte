@@ -6,7 +6,6 @@
 	import CheckCircle2 from 'lucide-svelte/icons/check-circle-2';
 	import AlertCircle from 'lucide-svelte/icons/alert-circle';
 	import AlertTriangle from 'lucide-svelte/icons/alert-triangle';
-	import Sparkles from 'lucide-svelte/icons/sparkles';
 	import ShieldCheck from 'lucide-svelte/icons/shield-check';
 	import Layers from 'lucide-svelte/icons/layers';
 	import ArrowRight from 'lucide-svelte/icons/arrow-right';
@@ -169,7 +168,7 @@
 			{:else if state === 'error'}
 				<AlertCircle size={22} class="text-rose-600 dark:text-rose-400" />
 			{:else}
-				<Scissors size={20} class={state === 'running' ? 'animate-pulse' : ''} />
+				<Scissors size={20} />
 			{/if}
 		</div>
 		<div class="min-w-0 flex-1">
@@ -248,10 +247,10 @@
 	<!-- BODY: RUNNING LIVE PROGRESS STATE -->
 	{:else if state === 'running'}
 		<div class="mt-4 space-y-4">
-			<!-- STATUS & SPINNER -->
+			<!-- STATUS HEADER -->
 			<div class="flex items-center justify-between text-xs font-semibold">
 				<span class="flex items-center gap-2 text-[#b23a2e] dark:text-[#e08a63]">
-					<Loader2 size={15} class="animate-spin text-[#b23a2e] dark:text-[#e08a63]" />
+					<Scissors size={15} />
 					<span>Processing Re-slice...</span>
 				</span>
 				<span class="text-[11px] font-normal opacity-50">Please keep this dialog open</span>

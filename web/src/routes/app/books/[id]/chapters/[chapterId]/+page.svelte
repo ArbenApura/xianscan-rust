@@ -24,7 +24,6 @@
 	import Check from 'lucide-svelte/icons/check';
 	import AlertCircle from 'lucide-svelte/icons/alert-circle';
 	import Loader2 from 'lucide-svelte/icons/loader-2';
-	import Sparkles from 'lucide-svelte/icons/sparkles';
 	import { apiJson } from '$lib/api';
 	import { parseDataTransferItems, type DiscoveredChapter } from '$lib/utils/folder-drop';
 	import MultiChapterImportModal from '$lib/components/chapter/MultiChapterImportModal.svelte';
@@ -94,6 +93,7 @@
 	let deletePageConfirmOpen = false;
 	let pageToDelete: ChapterPageItem | null = null;
 	let clearChapterConfirmOpen = false;
+	let clearingChapterProgress = false;
 	let clearChapterPagesConfirmOpen = false;
 	let resliceModalOpen = false;
 
@@ -540,16 +540,20 @@
 	}
 
 	async function confirmClearChapterProgress() {
-		clearChapterConfirmOpen = false;
+		clearingChapterProgress = true;
+		const toastId = toast.loading('Clearing chapter progress...');
 		try {
 			const resp = await fetch(`/api/chapters/${chapterId}/reset`, { method: 'POST' });
 			if (!resp.ok) throw new Error('Reset failed');
 			const { reset } = await resp.json();
 			jobTracker.clearJob(chapterId);
-			toast.success(`Cleared progress on ${reset} page${reset === 1 ? '' : 's'}.`);
+			toast.success(`Cleared progress on ${reset} page${reset === 1 ? '' : 's'}.`, { id: toastId });
+			clearChapterConfirmOpen = false;
 			await reload();
-		} catch {
-			toast.error('Could not clear chapter progress.');
+		} catch (err: any) {
+			toast.error(err?.message || 'Could not clear chapter progress.', { id: toastId });
+		} finally {
+			clearingChapterProgress = false;
 		}
 	}
 
@@ -1033,9 +1037,12 @@
 	message="This will reset all pages in this chapter back to 'pending', allowing a clean re-run."
 	confirmLabel="Clear Progress"
 	requireVerificationCode={true}
+	loading={clearingChapterProgress}
 	variant="danger"
 	on:confirm={confirmClearChapterProgress}
-	on:cancel={() => (clearChapterConfirmOpen = false)}
+	on:cancel={() => {
+		if (!clearingChapterProgress) clearChapterConfirmOpen = false;
+	}}
 />
 
 <!-- CLEAR PAGES CONFIRMATION -->
@@ -1150,7 +1157,7 @@
 				{#if uploadStage === 'uploading'}
 					<Loader2 size={24} class="animate-spin text-[#b23a2e] dark:text-[#e08a63]" />
 				{:else if uploadStage === 'processing'}
-					<Sparkles size={24} class="animate-pulse text-amber-500" />
+					<Loader2 size={24} class="animate-spin text-amber-500" />
 				{:else if uploadStage === 'done'}
 					<CheckCircle2 size={24} class="text-emerald-500" />
 				{:else}

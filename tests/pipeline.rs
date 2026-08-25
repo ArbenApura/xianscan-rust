@@ -1,8 +1,7 @@
 mod common;
 
 use std::path::Path;
-use common::{hash_image, read_cache, write_cache};
-use xianscan_rust::ml::schemas::{AnalyzeResponse, CleanRequestRegion};
+use xianscan_rust::ml::schemas::CleanRequestRegion;
 use xianscan_rust::pipeline::PipelineEngine;
 
 /// # End-to-End Pipeline Test: Detection, OCR & Inpainting on `page_zhang_yude_chengdu_cemetery.webp`
@@ -22,16 +21,9 @@ fn test_end_to_end_pipeline_on_zhang_yude_cemetery() {
         }
     };
 
-    let key = hash_image(&img);
-    let (analyze_res, engine_opt) = if let Some(cached) = read_cache::<AnalyzeResponse>("analyze", &key) {
-        (cached, None)
-    } else {
-        let models_dir = Path::new("models");
-        let mut engine = PipelineEngine::new(models_dir);
-        let res = engine.analyze_image(&img).expect("Analysis failed");
-        write_cache("analyze", &key, &res);
-        (res, Some(engine))
-    };
+    let models_dir = Path::new("models");
+    let mut engine = PipelineEngine::new(models_dir);
+    let analyze_res = engine.analyze_image(&img).expect("Analysis failed");
 
     println!("Pipeline analyze produced {} regions", analyze_res.regions.len());
     assert!(!analyze_res.regions.is_empty(), "Must detect regions");
@@ -51,21 +43,13 @@ fn test_end_to_end_pipeline_on_zhang_yude_cemetery() {
         })
         .collect();
 
-    let clean_key = format!("clean_dim_{}_{}", key, clean_regions.len());
-    let (cleaned_w, cleaned_h) = if let Some(dims) = read_cache::<(u32, u32)>("clean_pipeline", &clean_key) {
-        dims
-    } else {
-        let mut engine = engine_opt.unwrap_or_else(|| PipelineEngine::new(Path::new("models")));
-        let cleaned_img = engine.clean_image(&img, &clean_regions, "patch").expect("Clean image failed");
-        let scaled_img = engine.clean_image(&img, &clean_regions, "scaled").expect("Clean scaled failed");
-        assert_eq!(scaled_img.width(), img.width());
-        assert_eq!(scaled_img.height(), img.height());
-        write_cache("clean_pipeline", &clean_key, &(cleaned_img.width(), cleaned_img.height()));
-        (cleaned_img.width(), cleaned_img.height())
-    };
+    let cleaned_img = engine.clean_image(&img, &clean_regions, "patch").expect("Clean image failed");
+    let scaled_img = engine.clean_image(&img, &clean_regions, "scaled").expect("Clean scaled failed");
+    assert_eq!(scaled_img.width(), img.width());
+    assert_eq!(scaled_img.height(), img.height());
 
-    assert_eq!(cleaned_w, img.width());
-    assert_eq!(cleaned_h, img.height());
+    assert_eq!(cleaned_img.width(), img.width());
+    assert_eq!(cleaned_img.height(), img.height());
 }
 
 /// # Language-Aware Filtering Pipeline Test

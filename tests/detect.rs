@@ -1,9 +1,8 @@
 mod common;
 
 use std::path::Path;
-use common::{hash_image, read_cache, write_cache};
-use xianscan_rust::ml::detect::{ComicTextDetector, DetectResult};
-use xianscan_rust::ml::ocr::{OcrLine, RapidOcr};
+use xianscan_rust::ml::detect::ComicTextDetector;
+use xianscan_rust::ml::ocr::RapidOcr;
 
 /// # Detector Test: `ComicTextDetector` on `page_zhang_yude_chengdu_cemetery.webp`
 ///
@@ -20,20 +19,14 @@ fn test_comic_text_detector_on_fixture_zhang_yude_cemetery() {
         }
     };
 
-    let key = hash_image(&img);
-    let (boxes_len, backend) = if let Some(cached) = read_cache::<DetectResult>("comic_det", &key) {
-        (cached.boxes.len(), cached.backend)
-    } else {
-        let model_path = Path::new("models/comictextdetector.pt.onnx");
-        if !model_path.exists() {
-            eprintln!("Model not found at {:?}, skipping test", model_path);
-            return;
-        }
-        let mut detector = ComicTextDetector::new(model_path).expect("Failed to load ComicTextDetector ONNX model");
-        let res = detector.detect(&img).expect("Inference failed");
-        write_cache("comic_det", &key, &res);
-        (res.boxes.len(), res.backend)
-    };
+    let model_path = Path::new("models/comictextdetector.pt.onnx");
+    if !model_path.exists() {
+        eprintln!("Model not found at {:?}, skipping test", model_path);
+        return;
+    }
+    let mut detector = ComicTextDetector::new(model_path).expect("Failed to load ComicTextDetector ONNX model");
+    let res = detector.detect(&img).expect("Inference failed");
+    let (boxes_len, backend) = (res.boxes.len(), res.backend);
 
     println!("Detected {} text lines on page_zhang_yude_chengdu_cemetery.webp ({})", boxes_len, backend);
     assert!(boxes_len > 0, "Must detect text boxes on page_zhang_yude_chengdu_cemetery.webp");
@@ -54,20 +47,13 @@ fn test_rapid_ocr_detect_and_recognize_on_zhang_yude_cemetery() {
         }
     };
 
-    let key = hash_image(&img);
-    let lines = if let Some(cached) = read_cache::<Vec<OcrLine>>("rapid_ocr", &key) {
-        cached
-    } else {
-        let mut ocr = RapidOcr::new(
-            Some("models/PP-OCRv6_det_small.onnx"),
-            "models/PP-OCRv6_rec_small.onnx",
-            "models/rapidocr_keys.json",
-        ).expect("Failed to load RapidOcr");
+    let mut ocr = RapidOcr::new(
+        Some("models/PP-OCRv6_det_small.onnx"),
+        "models/PP-OCRv6_rec_small.onnx",
+        "models/rapidocr_keys.json",
+    ).expect("Failed to load RapidOcr");
 
-        let res = ocr.detect_and_recognize_tiled(&img, false).expect("detect_and_recognize_tiled failed");
-        write_cache("rapid_ocr", &key, &res);
-        res
-    };
+    let lines = ocr.detect_and_recognize_tiled(&img, false).expect("detect_and_recognize_tiled failed");
 
     println!("Detected {} lines:", lines.len());
     for (i, l) in lines.iter().enumerate() {
