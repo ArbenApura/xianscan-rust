@@ -35,10 +35,7 @@ export const DEFAULT_PROVIDERS: Array<Omit<AiProvider, 'createdAt' | 'updatedAt'
 		apiKey: '',
 		baseUrl: 'https://api.deepseek.com',
 		activeModel: 'deepseek-v4-flash',
-		availableModels: JSON.stringify([
-			'deepseek-v4-flash',
-			'deepseek-v4-pro',
-		]),
+		availableModels: JSON.stringify(['deepseek-v4-flash']),
 		enabled: true,
 		isDefault: true,
 	},
@@ -48,10 +45,7 @@ export const DEFAULT_PROVIDERS: Array<Omit<AiProvider, 'createdAt' | 'updatedAt'
 		apiKey: '',
 		baseUrl: 'https://generativelanguage.googleapis.com/v1beta/openai/',
 		activeModel: 'gemini-3.7-flash',
-		availableModels: JSON.stringify([
-			'gemini-3.7-flash',
-			'gemini-3.5-flash',
-		]),
+		availableModels: JSON.stringify(['gemini-3.7-flash']),
 		enabled: true,
 		isDefault: false,
 	},
@@ -61,11 +55,7 @@ export const DEFAULT_PROVIDERS: Array<Omit<AiProvider, 'createdAt' | 'updatedAt'
 		apiKey: '',
 		baseUrl: 'https://api.groq.com/openai/v1',
 		activeModel: 'llama-3.3-70b-versatile',
-		availableModels: JSON.stringify([
-			'llama-3.3-70b-versatile',
-			'qwen-2.5-32b',
-			'deepseek-r1-distill-llama-70b',
-		]),
+		availableModels: JSON.stringify(['llama-3.3-70b-versatile']),
 		enabled: true,
 		isDefault: false,
 	},
@@ -75,12 +65,7 @@ export const DEFAULT_PROVIDERS: Array<Omit<AiProvider, 'createdAt' | 'updatedAt'
 		apiKey: '',
 		baseUrl: 'https://openrouter.ai/api/v1',
 		activeModel: 'google/gemini-2.5-flash',
-		availableModels: JSON.stringify([
-			'google/gemini-2.5-flash',
-			'anthropic/claude-3.5-sonnet',
-			'deepseek/deepseek-v4-flash',
-			'meta-llama/llama-3.3-70b-instruct',
-		]),
+		availableModels: JSON.stringify(['google/gemini-2.5-flash']),
 		enabled: true,
 		isDefault: false,
 	},
@@ -90,10 +75,7 @@ export const DEFAULT_PROVIDERS: Array<Omit<AiProvider, 'createdAt' | 'updatedAt'
 		apiKey: '',
 		baseUrl: 'https://api.openai.com/v1',
 		activeModel: 'gpt-4o-mini',
-		availableModels: JSON.stringify([
-			'gpt-4o-mini',
-			'gpt-4o',
-		]),
+		availableModels: JSON.stringify(['gpt-4o-mini']),
 		enabled: true,
 		isDefault: false,
 	},
@@ -103,12 +85,7 @@ export const DEFAULT_PROVIDERS: Array<Omit<AiProvider, 'createdAt' | 'updatedAt'
 		apiKey: '',
 		baseUrl: 'http://localhost:11434/v1',
 		activeModel: 'qwen2.5:14b',
-		availableModels: JSON.stringify([
-			'qwen2.5:14b',
-			'qwen2.5:7b',
-			'llama3.2',
-			'deepseek-r1:8b',
-		]),
+		availableModels: JSON.stringify(['qwen2.5:14b']),
 		enabled: true,
 		isDefault: false,
 	},
@@ -118,9 +95,7 @@ export const DEFAULT_PROVIDERS: Array<Omit<AiProvider, 'createdAt' | 'updatedAt'
 		apiKey: '',
 		baseUrl: 'http://localhost:1234/v1',
 		activeModel: 'local-model',
-		availableModels: JSON.stringify([
-			'local-model',
-		]),
+		availableModels: JSON.stringify(['local-model']),
 		enabled: true,
 		isDefault: false,
 	},
@@ -130,9 +105,7 @@ export const DEFAULT_PROVIDERS: Array<Omit<AiProvider, 'createdAt' | 'updatedAt'
 		apiKey: '',
 		baseUrl: 'http://localhost:8000/v1',
 		activeModel: 'default',
-		availableModels: JSON.stringify([
-			'default',
-		]),
+		availableModels: JSON.stringify(['default']),
 		enabled: true,
 		isDefault: false,
 	},
@@ -167,14 +140,15 @@ export function seedDefaultProviders(db = defaultDb): void {
 					.run();
 			} else {
 				// PRESERVE USER-SCANNED, CUSTOM, AND SELECTED MODELS IN DB
-				// ONLY AUTO-HEAL IF availableModels IN DB IS CORRUPTED OR EMPTY
-				let available: string[] = [];
+				// ONLY AUTO-HEAL IF availableModels IN DB CANNOT BE PARSED
+				let isValidArray = false;
 				try {
-					available = JSON.parse(current.availableModels);
+					const parsed = JSON.parse(current.availableModels);
+					if (Array.isArray(parsed)) isValidArray = true;
 				} catch {
-					available = [];
+					isValidArray = false;
 				}
-				if (!Array.isArray(available) || available.length === 0) {
+				if (!isValidArray) {
 					db.update(aiProviders)
 						.set({
 							availableModels: def.availableModels,

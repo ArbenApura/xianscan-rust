@@ -201,7 +201,6 @@ export async function getChapterReaderData(chapterId: number): Promise<ChapterRe
 			ocrStats: (p as any).ocrStats ?? null,
 			width: p.width,
 			height: p.height,
-			panels: (safeJson((p as any).panels) as any[]) || [],
 			regions: (byPage.get(p.id) ?? []).map((r) => {
 				const parsedBox = safeJson(r.box) as any;
 				return {
@@ -374,7 +373,6 @@ export function getPageWithRegions(pageId: number) {
 		ocrStats: (pageRow as any).ocrStats ?? null,
 		width: pageRow.width,
 		height: pageRow.height,
-		panels: (safeJson((pageRow as any).panels) as any[]) || [],
 		regions: allRegions.map((r) => {
 			const parsedBox = safeJson(r.box) as any;
 			return {

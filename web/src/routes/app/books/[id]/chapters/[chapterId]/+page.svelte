@@ -939,7 +939,7 @@
 		<div class="flex flex-col items-center gap-2">
 			{#each [1, 2] as _}
 				<div
-					class="h-96 w-full max-w-2xl animate-pulse rounded-xl border border-black/[0.06] bg-black/[0.03] dark:border-white/[0.06] dark:bg-white/[0.03]"
+					class="h-96 w-full max-w-2xl rounded-xl border border-black/[0.06] bg-black/[0.03] dark:border-white/[0.06] dark:bg-white/[0.03]"
 				></div>
 			{/each}
 		</div>

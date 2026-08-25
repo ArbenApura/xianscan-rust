@@ -79,15 +79,6 @@ pub struct AnalyzeOptions {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub struct PanelFrame {
-    pub id: String,
-    pub seq: usize,
-    #[serde(rename = "box")]
-    pub box_: BoxRect,
-    pub polygon: Vec<[i32; 2]>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct OnomatopoeiaFrame {
     pub id: String,
     pub seq: usize,
@@ -140,8 +131,6 @@ pub struct AnalyzeResponse {
     pub width: u32,
     pub height: u32,
     pub backend: String,
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub panels: Vec<PanelFrame>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub onomatopoeia: Vec<OnomatopoeiaFrame>,
     pub regions: Vec<Region>,

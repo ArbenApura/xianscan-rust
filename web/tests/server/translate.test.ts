@@ -59,7 +59,7 @@ describe('systemPrompt', () => {
 	it('produces specialized Russian/Cyrillic prompt without Chinese Wuxia rules', () => {
 		const p = systemPrompt('ru', 'en');
 		expect(p).toContain('Cyrillic Comic Rules');
-		expect(p).toContain('Cyrillic Sound Effects');
+		expect(p).toContain('Cyrillic Comic SFX Taxonomy');
 		expect(p).toContain('Font & Leetspeak Recovery');
 		expect(p).toContain('(4PyCTb');
 		// Token efficiency: Chinese Wuxia rules MUST NOT leak into Russian prompt
@@ -769,5 +769,25 @@ describe('parseExtractedTerms & extractTerms', () => {
 		expect(parsed).not.toBeNull();
 		expect(parsed?.get('r0')).toBe('Did he ignore me\non purpose?!');
 		expect(parsed?.get('r1')).toBe('BOOM!');
+	});
+
+	it('resolves Korean dining & ambient SFX correctly with OCR vowel shift salvage', () => {
+		// 1. Standard Korean dining SFX
+		expect(getKnownSfxTranslation('냠냠', 'ko')).toBe('NOM NOM');
+		expect(getKnownSfxTranslation('쩝쩝', 'ko')).toBe('CHOMP CHOMP');
+		expect(getKnownSfxTranslation('우물우물', 'ko')).toBe('MUNCH MUNCH');
+		expect(getKnownSfxTranslation('오물오물', 'ko')).toBe('CHEW CHEW');
+		expect(getKnownSfxTranslation('꿀꺽', 'ko')).toBe('GULP');
+		expect(getKnownSfxTranslation('후루룩', 'ko')).toBe('SLURP');
+
+		// 2. OCR vowel shift variants (남남 -> 냠냠, 접접 -> 쩝쩝)
+		expect(getKnownSfxTranslation('남남', 'ko')).toBe('NOM NOM');
+		expect(getKnownSfxTranslation('접접', 'ko')).toBe('CHOMP CHOMP');
+
+		// 3. Fallback when lang is not specified or generic
+		expect(getKnownSfxTranslation('냠냠')).toBe('NOM NOM');
+		expect(getKnownSfxTranslation('남남')).toBe('NOM NOM');
+		expect(getKnownSfxTranslation('쩝쩝')).toBe('CHOMP CHOMP');
+		expect(getKnownSfxTranslation('접접')).toBe('CHOMP CHOMP');
 	});
 });

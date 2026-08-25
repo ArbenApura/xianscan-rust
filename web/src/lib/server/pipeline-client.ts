@@ -26,13 +26,6 @@ export interface PipelineRegion {
 	angle?: number;
 }
 
-export interface PipelinePanelFrame {
-	id: string;
-	seq: number;
-	box: PipelineBox;
-	polygon: number[][];
-}
-
 export interface PipelineOnomatopoeiaFrame {
 	id: string;
 	seq: number;
@@ -76,7 +69,6 @@ export interface AnalyzeResult {
 	width: number;
 	height: number;
 	backend: string;
-	panels?: PipelinePanelFrame[];
 	onomatopoeia?: PipelineOnomatopoeiaFrame[];
 	regions: PipelineRegion[];
 	stats?: OcrStats;

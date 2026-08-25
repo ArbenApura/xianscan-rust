@@ -316,18 +316,6 @@
 		].join(' ');
 	}
 
-	function getPanels(p: any): any[] {
-		if (!p) return [];
-		if (Array.isArray(p.panels)) return p.panels;
-		if (p.metadata) {
-			try {
-				const meta = typeof p.metadata === 'string' ? JSON.parse(p.metadata) : p.metadata;
-				if (Array.isArray(meta?.panels)) return meta.panels;
-			} catch {}
-		}
-		return [];
-	}
-
 	function getBubbleBox(region: any): { x: number; y: number; w: number; h: number } | null {
 		if (!region) return null;
 		if (region.bubble_box) return getBox(region.bubble_box);
@@ -730,15 +718,12 @@
 
 	function copyInspectDebugInfo() {
 		if (!page) return;
-		const panels = getPanels(page);
 		const debug = {
 			pageId: page.id,
 			seq: page.seq,
 			dimensions: { width: page.width, height: page.height },
 			status: page.status,
 			error: page.error,
-			panelsCount: panels.length,
-			panels,
 			regionsCount: page.regions?.length ?? 0,
 			regions: (page.regions || []).map((r: any) => ({
 				id: r.id,
@@ -1315,7 +1300,7 @@
 					<!-- SKELETON LOADING STATE -->
 					<div class="flex-1 min-h-0 space-y-3 overflow-y-auto pr-1">
 						{#each [1, 2, 3] as _}
-							<div class="h-24 animate-pulse rounded-xl bg-black/5 dark:bg-white/5"></div>
+							<div class="h-24 rounded-xl bg-black/5 dark:bg-white/5"></div>
 						{/each}
 					</div>
 				{:else if !page.regions || page.regions.length === 0}

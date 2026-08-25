@@ -343,24 +343,9 @@ fn blend_filled_rect(canvas: &mut RgbaImage, x: i32, y: i32, w: u32, h: u32, fil
 /// DRAWS ANNOTATED PIPELINE REGIONS WITH MATCHING THEME STYLES (MATCHES WEB UI INSPECT MODAL).
 pub fn render_annotated_image(img: &DynamicImage, res: &AnalyzeResponse) -> DynamicImage {
     let mut canvas = img.to_rgba8();
-    let (width, height) = (canvas.width(), canvas.height());
+    let (width, height) = canvas.dimensions();
 
-    // 1. RENDER COMIC PANELS (LIGHT BLUE)
-    for p in &res.panels {
-        let x = p.box_.x.clamp(0, width.saturating_sub(1) as i32);
-        let y = p.box_.y.clamp(0, height.saturating_sub(1) as i32);
-        let max_w = (width as i32 - x).max(1) as u32;
-        let max_h = (height as i32 - y).max(1) as u32;
-        let w = (p.box_.w.max(1) as u32).min(max_w);
-        let h = (p.box_.h.max(1) as u32).min(max_h);
-
-        blend_filled_rect(&mut canvas, x, y, w, h, Rgba([80, 160, 255, 25]));
-
-        let rect = Rect::at(x, y).of_size(w, h);
-        draw_hollow_rect_mut(&mut canvas, rect, Rgba([80, 160, 255, 180]));
-    }
-
-    // 2. RENDER DETECTED SPEECH BUBBLE CONTAINERS (CYAN SCANLINE-RASTERIZED POLYGON)
+    // 1. RENDER DETECTED SPEECH BUBBLE CONTAINERS (CYAN SCANLINE-RASTERIZED POLYGON)
     for r in &res.regions {
         if let Some(b) = &r.bubble_box {
             let x = b.x.clamp(0, width.saturating_sub(1) as i32);
@@ -619,14 +604,12 @@ pub fn save_annotated_fixture(img: &DynamicImage, res: &AnalyzeResponse) {
         struct AnnotatedDebugReport<'a> {
             image_dimensions: (u32, u32),
             total_regions: usize,
-            panels: &'a [xianscan_rust::ml::schemas::PanelFrame],
             regions: &'a [xianscan_rust::ml::schemas::Region],
         }
 
         let report = AnnotatedDebugReport {
             image_dimensions: (img.width(), img.height()),
             total_regions: res.regions.len(),
-            panels: &res.panels,
             regions: &res.regions,
         };
 
@@ -724,7 +707,9 @@ pub fn get_or_run_layout_detector_with_lang(
         img,
         source_lang,
         false,
-    );
+        false,
+    )
+    .expect("fuse_detections failed");
 
     save_layout_fixture(img, &fusion);
     save_ocr_fixture(img, &fusion.rapid_lines);
@@ -867,7 +852,9 @@ pub fn force_analyze_fixture_with_lang(
         img,
         source_lang,
         false,
-    );
+        false,
+    )
+    .expect("fuse_detections failed");
 
     save_layout_fixture(img, &fusion);
     save_ocr_fixture(img, &fusion.rapid_lines);

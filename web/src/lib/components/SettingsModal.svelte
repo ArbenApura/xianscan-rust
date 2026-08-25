@@ -15,6 +15,7 @@
 	import { toast } from 'svelte-sonner';
 	// IMPORTED MODULES
 	import { ripple } from '$lib/actions/ripple';
+	import { cn } from '$lib/utils/cn';
 	import {
 		settings,
 		INPAINT_MODES,
@@ -62,6 +63,8 @@
 	import Search from 'lucide-svelte/icons/search';
 	import Plus from 'lucide-svelte/icons/plus';
 	import Trash2 from 'lucide-svelte/icons/trash-2';
+	import Sparkles from 'lucide-svelte/icons/sparkles';
+	import Save from 'lucide-svelte/icons/save';
 	import Info from 'lucide-svelte/icons/info';
 	import RotateCcw from 'lucide-svelte/icons/rotate-ccw';
 	import Sun from 'lucide-svelte/icons/sun';
@@ -663,6 +666,17 @@
 	}
 
 	// PROVIDER METHODS
+	const DEFAULT_PROVIDER_BASE_URLS: Record<string, string> = {
+		deepseek: 'https://api.deepseek.com',
+		google: 'https://generativelanguage.googleapis.com/v1beta/openai/',
+		groq: 'https://api.groq.com/openai/v1',
+		openrouter: 'https://openrouter.ai/api/v1',
+		openai: 'https://api.openai.com/v1',
+		ollama: 'http://localhost:11434/v1',
+		lmstudio: 'http://localhost:1234/v1',
+		custom: 'http://localhost:8000/v1',
+	};
+
 	async function saveProvider(providerId: string, setAsDefault = false) {
 		savingProvider = true;
 		testResult = null;
@@ -674,8 +688,8 @@
 
 			const payload: Record<string, unknown> = {
 				id: providerId,
-				activeModel: model,
-				baseUrl: base,
+				activeModel: model || prov?.activeModel,
+				baseUrl: base || prov?.baseUrl,
 				availableModels: prov?.availableModels,
 			};
 
@@ -695,8 +709,10 @@
 
 			toast.success(
 				setAsDefault
-					? `${prov?.name || providerId} set as active translation engine!`
-					: 'Provider settings saved successfully',
+					? `${prov?.name || providerId} activated as primary translation engine!`
+					: prov?.isDefault
+						? `${prov?.name || providerId} active configuration updated`
+						: `${prov?.name || providerId} settings saved (Standby)`,
 			);
 
 			apiKeyDraft[providerId] = '';
@@ -728,22 +744,6 @@
 			toast.error(e.message || 'Failed to remove API key');
 		}
 	}
-
-	const DEFAULT_PROVIDER_MODELS: Record<string, string[]> = {
-		deepseek: ['deepseek-v4-flash', 'deepseek-v4-pro'],
-		google: ['gemini-3.7-flash', 'gemini-3.5-flash'],
-		groq: ['llama-3.3-70b-versatile', 'qwen-2.5-32b', 'deepseek-r1-distill-llama-70b'],
-		openrouter: [
-			'google/gemini-2.5-flash',
-			'anthropic/claude-3.5-sonnet',
-			'deepseek/deepseek-v4-flash',
-			'meta-llama/llama-3.3-70b-instruct',
-		],
-		openai: ['gpt-4o-mini', 'gpt-4o'],
-		ollama: ['qwen2.5:14b', 'qwen2.5:7b', 'llama3.2', 'deepseek-r1:8b'],
-		lmstudio: ['local-model'],
-		custom: ['custom-model'],
-	};
 
 	function formatModelLabel(modelId: string): string {
 		if (MODEL_DESCRIPTIONS[modelId]?.label) return MODEL_DESCRIPTIONS[modelId].label;
@@ -780,42 +780,26 @@
 		});
 	}
 
-	async function resetModelsToDefault(providerId: string) {
-		const defaults = DEFAULT_PROVIDER_MODELS[providerId];
-		if (!defaults) return;
-		const prov = providers.find((p) => p.id === providerId);
-		if (prov) {
-			prov.availableModels = [...defaults];
-			if (!defaults.includes(activeModelDraft[providerId])) {
-				activeModelDraft[providerId] = defaults[0];
-			}
-			providers = [...providers];
-			await fetch('/api/system/providers', {
-				method: 'POST',
-				headers: { 'content-type': 'application/json' },
-				body: JSON.stringify({ id: providerId, availableModels: defaults }),
-			});
-			toast.success(`Reset models to defaults for ${prov.name}`);
-		}
-	}
-
 	async function removeModel(providerId: string, modelId: string) {
 		const prov = providers.find((p) => p.id === providerId);
-		if (!prov || prov.availableModels.length <= 1) {
-			toast.error('Cannot remove the only remaining model');
-			return;
-		}
+		if (!prov) return;
 		const nextModels = prov.availableModels.filter((m) => m !== modelId);
 		prov.availableModels = nextModels;
-		if (activeModelDraft[providerId] === modelId) {
-			activeModelDraft[providerId] = nextModels[0];
+		let nextActive = activeModelDraft[providerId];
+		if (activeModelDraft[providerId] === modelId || prov.activeModel === modelId) {
+			nextActive = nextModels.length > 0 ? nextModels[0] : '';
+			activeModelDraft[providerId] = nextActive;
 		}
 		providers = [...providers];
 		try {
 			await fetch('/api/system/providers', {
 				method: 'POST',
 				headers: { 'content-type': 'application/json' },
-				body: JSON.stringify({ id: providerId, availableModels: nextModels }),
+				body: JSON.stringify({
+					id: providerId,
+					availableModels: nextModels,
+					activeModel: nextActive || undefined,
+				}),
 			});
 			toast.success(`Removed model "${modelId}"`);
 		} catch {
@@ -2008,7 +1992,7 @@
 					<div class="space-y-5">
 						<div>
 							<h2 class="text-base font-bold">AI Translation Provider</h2>
-							<p class="text-xs opacity-60 mt-0.5">Configure cloud and local LLM localization engines, API keys, and model parameters</p>
+							<p class="text-xs opacity-60 mt-0.5">Configure cloud and local LLM localization engines, custom base URLs, API keys, and model parameters</p>
 						</div>
 
 						<!-- CATEGORY FILTER PILLS -->
@@ -2016,22 +2000,26 @@
 							<button
 								type="button"
 								on:click={() => (providerCategoryFilter = 'all')}
-								class={`rounded-lg px-2.5 py-1 text-[11px] font-bold transition-all ${
+								class={cn(
+									'rounded-lg px-2.5 py-1 text-[11px] font-bold transition-all cursor-pointer',
 									providerCategoryFilter === 'all'
 										? 'bg-[#b23a2e] text-white shadow-xs dark:bg-[#e08a63] dark:text-neutral-950'
 										: 'bg-black/5 hover:bg-black/10 dark:bg-white/5 dark:hover:bg-white/10 opacity-70'
-								}`}
+								)}
+								use:ripple
 							>
 								All Providers ({providers.length})
 							</button>
 							<button
 								type="button"
 								on:click={() => (providerCategoryFilter = 'cloud')}
-								class={`inline-flex items-center gap-1 rounded-lg px-2.5 py-1 text-[11px] font-bold transition-all ${
+								class={cn(
+									'inline-flex items-center gap-1 rounded-lg px-2.5 py-1 text-[11px] font-bold transition-all cursor-pointer',
 									providerCategoryFilter === 'cloud'
 										? 'bg-[#b23a2e] text-white shadow-xs dark:bg-[#e08a63] dark:text-neutral-950'
 										: 'bg-black/5 hover:bg-black/10 dark:bg-white/5 dark:hover:bg-white/10 opacity-70'
-								}`}
+								)}
+								use:ripple
 							>
 								<Zap size={11} />
 								<span>Cloud Fast</span>
@@ -2039,11 +2027,13 @@
 							<button
 								type="button"
 								on:click={() => (providerCategoryFilter = 'local')}
-								class={`inline-flex items-center gap-1 rounded-lg px-2.5 py-1 text-[11px] font-bold transition-all ${
+								class={cn(
+									'inline-flex items-center gap-1 rounded-lg px-2.5 py-1 text-[11px] font-bold transition-all cursor-pointer',
 									providerCategoryFilter === 'local'
 										? 'bg-teal-600 text-white shadow-xs dark:bg-teal-500 dark:text-neutral-950'
 										: 'bg-black/5 hover:bg-black/10 dark:bg-white/5 dark:hover:bg-white/10 opacity-70'
-								}`}
+								)}
+								use:ripple
 							>
 								<Server size={11} />
 								<span>Local & Offline</span>
@@ -2051,11 +2041,13 @@
 							<button
 								type="button"
 								on:click={() => (providerCategoryFilter = 'custom')}
-								class={`inline-flex items-center gap-1 rounded-lg px-2.5 py-1 text-[11px] font-bold transition-all ${
+								class={cn(
+									'inline-flex items-center gap-1 rounded-lg px-2.5 py-1 text-[11px] font-bold transition-all cursor-pointer',
 									providerCategoryFilter === 'custom'
 										? 'bg-[#b23a2e] text-white shadow-xs dark:bg-[#e08a63] dark:text-neutral-950'
 										: 'bg-black/5 hover:bg-black/10 dark:bg-white/5 dark:hover:bg-white/10 opacity-70'
-								}`}
+								)}
+								use:ripple
 							>
 								<SlidersHorizontal size={11} />
 								<span>Custom Endpoint</span>
@@ -2065,7 +2057,11 @@
 						<!-- PROVIDER CARDS GRID -->
 						<div
 							id="setting-providers-hub"
-							class={`grid grid-cols-1 sm:grid-cols-2 gap-2.5 transition-all duration-300 ${highlightedSettingId === 'providers-hub' ? 'ring-2 ring-[#b23a2e] dark:ring-[#e08a63] bg-[#b23a2e]/[0.06] dark:bg-[#e08a63]/[0.08] rounded-2xl p-2.5 -m-1' : ''}`}
+							class={cn(
+								'grid grid-cols-1 sm:grid-cols-2 gap-2.5 transition-all duration-300',
+								highlightedSettingId === 'providers-hub' &&
+									'ring-2 ring-[#b23a2e] dark:ring-[#e08a63] bg-[#b23a2e]/[0.06] dark:bg-[#e08a63]/[0.08] rounded-2xl p-2.5 -m-1'
+							)}
 						>
 							{#each providers.filter((p) => providerCategoryFilter === 'all' || getProviderCategory(p.id) === providerCategoryFilter) as prov}
 								{@const isSelected = selectedProviderId === prov.id}
@@ -2073,26 +2069,27 @@
 								<button
 									type="button"
 									on:click={() => { selectedProviderId = prov.id; testResult = null; }}
-									class={`flex flex-col justify-between rounded-xl border p-3 text-left transition-all ${
+									class={cn(
+										'flex flex-col justify-between rounded-xl border p-3 text-left transition-all cursor-pointer',
 										isSelected
-											? 'border-[#b23a2e] bg-[#b23a2e]/[0.06] ring-2 ring-[#b23a2e]/30 shadow-xs dark:border-[#e08a63] dark:bg-[#e08a63]/[0.08]'
+											? 'border-[#b23a2e] bg-[#b23a2e]/[0.08] ring-2 ring-[#b23a2e]/30 shadow-xs dark:border-[#e08a63] dark:bg-[#e08a63]/[0.1]'
 											: 'border-black/10 hover:border-black/20 hover:bg-black/[0.02] dark:border-white/10 dark:hover:border-white/20 dark:hover:bg-white/[0.02]'
-									}`}
+									)}
 									use:ripple
 								>
 									<div>
-										<div class="flex items-center justify-between">
-											<div class="flex items-center gap-2 font-bold text-xs">
+										<div class="flex items-center justify-between gap-2">
+											<div class="flex items-center gap-2 font-bold text-xs min-w-0">
 												<ProviderLogo providerId={prov.id} size={15} />
 												<span class="truncate">{prov.name}</span>
 											</div>
-											<div class="flex items-center gap-1.5">
+											<div class="flex items-center gap-1.5 shrink-0">
 												{#if prov.isDefault}
-													<span class="rounded-full bg-[#b23a2e]/15 px-2 py-0.5 text-[9px] font-bold text-[#b23a2e] dark:bg-[#e08a63]/20 dark:text-[#e08a63]">
+													<span class="inline-flex items-center rounded-full bg-emerald-500/15 border border-emerald-500/30 px-2 py-0.5 text-[9px] font-bold text-emerald-700 dark:text-emerald-300">
 														ACTIVE
 													</span>
 												{/if}
-												{#if isSelected}<Check size={14} class="text-[#b23a2e] dark:text-[#e08a63]" />{/if}
+												{#if isSelected}<Check size={14} class="text-[#b23a2e] dark:text-[#e08a63] shrink-0" />{/if}
 											</div>
 										</div>
 
@@ -2107,12 +2104,12 @@
 												</span>
 											{:else}
 												<span class="inline-flex items-center gap-1 rounded-full bg-amber-500/10 border border-amber-500/25 px-2 py-0.5 font-medium text-amber-700 dark:text-amber-300">
-													<span class="h-1.5 w-1.5 rounded-full bg-amber-500"></span> Key Required
+													<Key size={10} /> Key Required
 												</span>
 											{/if}
 										</div>
 									</div>
-									<div class="mt-2 text-[10.5px] font-mono opacity-60 truncate">Active: {prov.activeModel}</div>
+									<div class="mt-2 text-[10.5px] font-mono opacity-60 truncate">Active: {prov.activeModel || 'None selected'}</div>
 								</button>
 							{/each}
 						</div>
@@ -2123,148 +2120,318 @@
 							{#if currentP}
 								{@const currentIsLocal = isLocal(currentP.id)}
 								{@const filteredModels = getFilteredModels(currentP.availableModels, modelSearch)}
-								<div class="rounded-2xl border border-black/10 bg-black/[0.02] p-4 sm:p-5 dark:border-white/10 dark:bg-white/[0.02] space-y-4">
-									<div class="flex items-center justify-between">
-										<div class="flex items-center gap-2 text-xs font-bold">
-											<ProviderLogo providerId={currentP.id} size={16} />
-											<span>{currentP.name} Configuration</span>
+								<div class="rounded-2xl border border-black/10 bg-black/[0.02] p-3.5 sm:p-5 dark:border-white/10 dark:bg-white/[0.02] space-y-4">
+									<!-- PANEL HEADER -->
+									<div class="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 border-b border-black/10 pb-3 dark:border-white/10">
+										<div class="flex items-center gap-2.5 min-w-0">
+											<ProviderLogo providerId={currentP.id} size={18} />
+											<div class="min-w-0">
+												<h3 class="text-sm font-bold truncate">{currentP.name}</h3>
+												<p class="text-[11px] opacity-60 font-mono truncate">{currentP.id}</p>
+											</div>
+										</div>
+										{#if currentP.isDefault}
+											<div class="inline-flex items-center self-start sm:self-auto gap-1.5 rounded-full bg-emerald-500/15 border border-emerald-500/30 px-2.5 py-0.5 text-[10.5px] font-bold text-emerald-700 dark:text-emerald-300 shadow-2xs whitespace-nowrap">
+												<Check size={12} class="stroke-[3] text-emerald-600 dark:text-emerald-400 shrink-0" />
+												<span>Primary Active Engine</span>
+											</div>
+										{:else}
+											<div class="inline-flex items-center self-start sm:self-auto gap-1.5 rounded-full bg-black/5 dark:bg-white/5 border border-black/10 dark:border-white/10 px-2.5 py-0.5 text-[10.5px] font-medium opacity-60 whitespace-nowrap">
+												<span>Standby Engine</span>
+											</div>
+										{/if}
+									</div>
+
+									<!-- ENDPOINT BASE URL VIEWER & EDITOR -->
+									<div
+										id="setting-custom-endpoint"
+										class={cn(
+											'space-y-1.5 transition-all duration-300',
+											highlightedSettingId === 'custom-endpoint' &&
+												'ring-2 ring-[#b23a2e] dark:ring-[#e08a63] bg-[#b23a2e]/[0.06] dark:bg-[#e08a63]/[0.08] rounded-xl p-2'
+										)}
+									>
+										<div class="flex items-center justify-between gap-2">
+											<label for={`prov-url-${currentP.id}`} class="text-[11px] font-semibold opacity-80 flex items-center gap-1.5 min-w-0">
+												<Globe size={12} class="text-[#b23a2e] dark:text-[#e08a63] shrink-0" />
+												<span class="truncate">Endpoint Base URL</span>
+											</label>
+											{#if baseUrlDraft[currentP.id] && DEFAULT_PROVIDER_BASE_URLS[currentP.id] && baseUrlDraft[currentP.id] !== DEFAULT_PROVIDER_BASE_URLS[currentP.id]}
+												<button
+													type="button"
+													on:click={() => { baseUrlDraft[currentP.id] = DEFAULT_PROVIDER_BASE_URLS[currentP.id]; }}
+													class="inline-flex items-center gap-1 text-[10px] font-semibold text-[#b23a2e] dark:text-[#e08a63] hover:underline cursor-pointer shrink-0"
+													use:ripple
+												>
+													<RotateCcw size={10} />
+													<span>Reset Default</span>
+												</button>
+											{/if}
+										</div>
+										<div class="relative flex items-center">
+											<input
+												id={`prov-url-${currentP.id}`}
+												type="text"
+												bind:value={baseUrlDraft[currentP.id]}
+												placeholder={DEFAULT_PROVIDER_BASE_URLS[currentP.id] || 'https://api.fireworks.ai/inference/v1'}
+												class="h-[38px] w-full rounded-lg border border-black/10 bg-transparent px-3 text-xs font-mono outline-none transition-colors placeholder:opacity-40 focus:border-[#b23a2e] focus:ring-2 focus:ring-[#b23a2e]/30 dark:border-white/[0.08]"
+											/>
+										</div>
+										<p class="text-[10px] opacity-60">
+											OpenAI-compatible inference endpoint (e.g. Fireworks AI, OpenRouter, vLLM, or custom proxy).
+										</p>
+									</div>
+
+									<!-- API KEY FIELD (VAULT) -->
+									{#if !currentIsLocal}
+										<div
+											id="setting-api-key"
+											class={cn(
+											'space-y-1.5 transition-all duration-300',
+											highlightedSettingId === 'api-key' &&
+												'ring-2 ring-[#b23a2e] dark:ring-[#e08a63] bg-[#b23a2e]/[0.06] dark:bg-[#e08a63]/[0.08] rounded-xl p-2'
+										)}
+									>
+										<div class="flex flex-wrap items-center justify-between gap-1">
+											<label for={`prov-key-${currentP.id}`} class="text-[11px] font-semibold opacity-80 flex items-center gap-1.5">
+												<Key size={12} class="text-[#b23a2e] dark:text-[#e08a63]" />
+												<span>API Key Vault</span>
+											</label>
+											{#if currentP.hasKey}
+												<div class="flex items-center gap-2 text-[10px]">
+													<span class="text-emerald-600 dark:text-emerald-400 font-mono font-semibold truncate max-w-[140px] sm:max-w-none">Active: {currentP.maskedKey}</span>
+													<button
+														type="button"
+														on:click={() => clearKey(currentP.id)}
+														class="inline-flex items-center gap-1 font-semibold text-red-600 dark:text-red-400 hover:underline cursor-pointer shrink-0"
+														use:ripple
+													>
+														<Trash2 size={10} />
+														<span>Clear</span>
+													</button>
+												</div>
+											{/if}
+										</div>
+										<div class="relative flex items-center">
+											{#if showApiKey[currentP.id]}
+												<input
+													id={`prov-key-${currentP.id}`}
+													type="text"
+													bind:value={apiKeyDraft[currentP.id]}
+													placeholder={currentP.hasKey ? `Replace key (${currentP.maskedKey})...` : 'Enter API Key...'}
+													class="h-[38px] w-full rounded-lg border border-black/10 bg-transparent px-3 pr-10 text-xs font-mono outline-none transition-colors placeholder:opacity-40 focus:border-[#b23a2e] focus:ring-2 focus:ring-[#b23a2e]/30 dark:border-white/[0.08]"
+												/>
+											{:else}
+												<input
+													id={`prov-key-${currentP.id}`}
+													type="password"
+													bind:value={apiKeyDraft[currentP.id]}
+													placeholder={currentP.hasKey ? `Replace key (${currentP.maskedKey})...` : 'Enter API Key...'}
+													class="h-[38px] w-full rounded-lg border border-black/10 bg-transparent px-3 pr-10 text-xs font-mono outline-none transition-colors placeholder:opacity-40 focus:border-[#b23a2e] focus:ring-2 focus:ring-[#b23a2e]/30 dark:border-white/[0.08]"
+												/>
+											{/if}
+											<button
+												type="button"
+												on:click={() => (showApiKey[currentP.id] = !showApiKey[currentP.id])}
+												class="absolute right-2.5 top-1/2 -translate-y-1/2 p-1 text-neutral-400 hover:text-neutral-600 dark:hover:text-neutral-200 cursor-pointer"
+												use:ripple
+											>
+												{#if showApiKey[currentP.id]}<EyeOff size={14} />{:else}<Eye size={14} />{/if}
+											</button>
+										</div>
+									</div>
+								{/if}
+
+								<!-- MODEL PICKER, SCANNER & MANAGEMENT -->
+								<div
+									id="setting-model-scan"
+									class={cn(
+										'space-y-2.5 transition-all duration-300',
+										highlightedSettingId === 'model-scan' &&
+											'ring-2 ring-[#b23a2e] dark:ring-[#e08a63] bg-[#b23a2e]/[0.06] dark:bg-[#e08a63]/[0.08] rounded-xl p-2'
+									)}
+								>
+									<div class="flex items-center justify-between gap-2">
+										<div class="flex items-center gap-1.5 min-w-0">
+											<Sparkles size={12} class="text-[#b23a2e] dark:text-[#e08a63] shrink-0" />
+											<span class="text-[11px] font-semibold opacity-80 truncate">Available Models ({currentP.availableModels.length})</span>
+										</div>
+										<button
+											type="button"
+											on:click={() => scanModels(currentP.id)}
+											disabled={scanningModels}
+											class="inline-flex items-center gap-1 text-[11px] font-bold text-[#b23a2e] dark:text-[#e08a63] hover:underline cursor-pointer disabled:opacity-50 shrink-0"
+											use:ripple
+										>
+											<RefreshCw size={11} class={scanningModels ? 'animate-spin' : ''} />
+											<span>{scanningModels ? 'Scanning Endpoint...' : 'Scan Models'}</span>
+										</button>
+									</div>
+
+									<!-- SEARCH & ADD CUSTOM MODEL ROW -->
+									<div class="flex flex-col sm:flex-row items-stretch sm:items-center gap-2">
+										{#if currentP.availableModels.length >= 4}
+											<div class="relative flex-1 w-full">
+												<Search size={12} class="absolute left-2.5 top-1/2 -translate-y-1/2 opacity-40" />
+												<input
+													type="text"
+													bind:value={modelSearch}
+													placeholder="Filter models..."
+													class="h-[32px] w-full rounded-lg border border-black/10 bg-transparent pl-7 pr-3 text-[11px] outline-none transition-colors placeholder:opacity-40 focus:border-[#b23a2e] dark:border-white/[0.08]"
+												/>
+											</div>
+										{/if}
+										<div class="flex items-center gap-1.5 w-full flex-1">
+											<input
+												type="text"
+												bind:value={customModelInput}
+												placeholder="Add model ID (e.g. qwen-2.5-72b)..."
+												class="h-[32px] min-w-0 flex-1 rounded-lg border border-black/10 bg-transparent px-2.5 text-[11px] font-mono outline-none transition-colors placeholder:opacity-40 focus:border-[#b23a2e] dark:border-white/[0.08]"
+												on:keydown={(e) => { if (e.key === 'Enter') addCustomModel(currentP.id); }}
+											/>
+											<button
+												type="button"
+												on:click={() => addCustomModel(currentP.id)}
+												disabled={!customModelInput.trim()}
+												class="inline-flex items-center justify-center gap-1 h-[32px] rounded-lg bg-black/5 dark:bg-white/5 hover:bg-black/10 dark:hover:bg-white/10 px-3 text-[11px] font-bold cursor-pointer disabled:opacity-40 shrink-0"
+												use:ripple
+											>
+												<Plus size={12} />
+												<span>Add</span>
+											</button>
 										</div>
 									</div>
 
-									{#if !currentIsLocal}
-										<!-- API KEY FIELD -->
-										<div
-											id="setting-api-key"
-											class={`space-y-2 transition-all duration-300 ${highlightedSettingId === 'api-key' ? 'ring-2 ring-[#b23a2e] dark:ring-[#e08a63] bg-[#b23a2e]/[0.06] dark:bg-[#e08a63]/[0.08] rounded-xl p-2' : ''}`}
-										>
-											<div class="flex items-center justify-between">
-												<label for={`prov-key-${currentP.id}`} class="text-[11px] font-semibold opacity-80">API Key</label>
-												{#if currentP.hasKey}
-													<span class="text-emerald-600 dark:text-emerald-400 font-mono text-[10px] font-semibold">Active: {currentP.maskedKey}</span>
-												{/if}
-											</div>
-											<div class="relative flex items-center">
-												{#if showApiKey[currentP.id]}
-													<input
-														id={`prov-key-${currentP.id}`}
-														type="text"
-														bind:value={apiKeyDraft[currentP.id]}
-														placeholder={currentP.hasKey ? `Replace key (${currentP.maskedKey})...` : 'Enter API Key...'}
-														class="h-[38px] w-full rounded-lg border border-black/10 bg-transparent px-3 pr-10 text-xs font-mono outline-none transition-colors placeholder:opacity-40 focus:border-[#b23a2e] focus:ring-2 focus:ring-[#b23a2e]/30 dark:border-white/[0.08]"
-													/>
-												{:else}
-													<input
-														id={`prov-key-${currentP.id}`}
-														type="password"
-														bind:value={apiKeyDraft[currentP.id]}
-														placeholder={currentP.hasKey ? `Replace key (${currentP.maskedKey})...` : 'Enter API Key...'}
-														class="h-[38px] w-full rounded-lg border border-black/10 bg-transparent px-3 pr-10 text-xs font-mono outline-none transition-colors placeholder:opacity-40 focus:border-[#b23a2e] focus:ring-2 focus:ring-[#b23a2e]/30 dark:border-white/[0.08]"
-													/>
-												{/if}
-												<button
-													type="button"
-													on:click={() => (showApiKey[currentP.id] = !showApiKey[currentP.id])}
-													class="absolute right-2.5 top-1/2 -translate-y-1/2 p-1 text-neutral-400 hover:text-neutral-600 dark:hover:text-neutral-200"
-												>
-													{#if showApiKey[currentP.id]}<EyeOff size={14} />{:else}<Eye size={14} />{/if}
-												</button>
-											</div>
-										</div>
-									{/if}
-
-									<!-- MODEL PICKER & SCANNER -->
-									<div
-										id="setting-model-scan"
-										class={`space-y-2 transition-all duration-300 ${highlightedSettingId === 'model-scan' ? 'ring-2 ring-[#b23a2e] dark:ring-[#e08a63] bg-[#b23a2e]/[0.06] dark:bg-[#e08a63]/[0.08] rounded-xl p-2' : ''}`}
-									>
-										<div class="flex items-center justify-between">
-											<span class="text-[11px] font-semibold opacity-80">Active Model ({currentP.availableModels.length})</span>
-											<button
-												type="button"
-												on:click={() => scanModels(currentP.id)}
-												disabled={scanningModels}
-												class="inline-flex items-center gap-1 text-[11px] font-bold text-[#b23a2e] dark:text-[#e08a63] hover:underline cursor-pointer disabled:opacity-50"
-											>
-												<RefreshCw size={11} class={scanningModels ? 'animate-spin' : ''} />
-												<span>{scanningModels ? 'Scanning...' : 'Scan Models'}</span>
-											</button>
-										</div>
-
-										<div class="max-h-[220px] overflow-y-auto space-y-1.5 pr-1">
+									<!-- MODEL TILES GRID -->
+									<div class="max-h-[240px] overflow-y-auto space-y-1.5 pr-1">
+										{#if filteredModels.length > 0}
 											<div class="grid grid-cols-1 sm:grid-cols-2 gap-2">
 												{#each filteredModels as modelId}
 													{@const isModelSelected = (activeModelDraft[currentP.id] || currentP.activeModel) === modelId}
 													<button
 														type="button"
 														on:click={() => (activeModelDraft[currentP.id] = modelId)}
-														class={`flex flex-col justify-between rounded-xl border p-2.5 text-left transition-all cursor-pointer ${
+														class={cn(
+															'group relative flex flex-col justify-between rounded-xl border p-2.5 text-left transition-all cursor-pointer',
 															isModelSelected
 																? 'border-[#b23a2e] bg-[#b23a2e]/[0.08] ring-1 ring-[#b23a2e]/30 dark:border-[#e08a63] dark:bg-[#e08a63]/[0.08]'
 																: 'border-black/10 hover:border-black/20 dark:border-white/10'
-														}`}
+														)}
+														use:ripple
 													>
-														<div class="flex items-center justify-between w-full">
-															<span class="text-xs font-bold truncate">{formatModelLabel(modelId)}</span>
-															{#if isModelSelected}<Check size={13} class="text-[#b23a2e] dark:text-[#e08a63]" />{/if}
+														<div class="flex items-start justify-between w-full gap-2">
+															<div class="min-w-0 pr-6">
+																<span class="text-xs font-bold truncate block">{formatModelLabel(modelId)}</span>
+																<div class="mt-0.5 text-[9px] font-mono opacity-50 truncate break-all">{modelId}</div>
+															</div>
+															{#if isModelSelected}
+																<Check size={13} class="text-[#b23a2e] dark:text-[#e08a63] shrink-0 mt-0.5" />
+															{/if}
 														</div>
-														<div class="mt-1 text-[9px] font-mono opacity-50 truncate">{modelId}</div>
+
+														<!-- DELETE BUTTON -->
+														<button
+															type="button"
+															on:click|stopPropagation={() => removeModel(currentP.id, modelId)}
+															title={`Remove model "${modelId}"`}
+															class="absolute right-2 top-2 p-1 rounded-md text-neutral-400 hover:text-red-500 hover:bg-red-500/10 dark:hover:bg-red-500/20 transition-colors cursor-pointer"
+															use:ripple
+														>
+															<Trash2 size={12} />
+														</button>
 													</button>
 												{/each}
 											</div>
+										{:else}
+											<div class="rounded-xl border border-dashed border-black/15 dark:border-white/15 p-4 text-center">
+												<p class="text-xs opacity-60">No models in list.</p>
+												<p class="text-[11px] opacity-40 mt-1">Click <strong>Scan Models</strong> to query the endpoint or enter a model ID above.</p>
+											</div>
+										{/if}
+									</div>
+								</div>
+
+								<!-- TEST RESULTS BANNER -->
+								{#if testResult}
+									<div
+										id="setting-test-connection"
+										class={cn(
+											'flex items-start gap-2.5 rounded-xl p-3 text-xs leading-relaxed',
+											testResult.ok
+												? 'bg-emerald-500/10 border border-emerald-500/30 text-emerald-800 dark:text-emerald-300'
+												: 'bg-red-500/10 border border-red-500/30 text-red-800 dark:text-red-300'
+										)}
+									>
+										{#if testResult.ok}
+											<CheckCircle2 size={16} class="shrink-0 text-emerald-600 dark:text-emerald-400 mt-0.5" />
+										{:else}
+											<AlertCircle size={16} class="shrink-0 text-red-500 mt-0.5" />
+										{/if}
+										<div class="flex-1 min-w-0">
+											<div class="flex items-center gap-2">
+												<strong>{testResult.ok ? 'Connection Verified' : 'Connection Error'}</strong>
+												{#if testResult.ok && testResult.latencyMs}
+													<span class="rounded bg-emerald-500/20 px-1.5 py-0.2 text-[10px] font-mono font-bold">
+														{testResult.latencyMs}ms
+													</span>
+												{/if}
+											</div>
+											<p class="mt-0.5 text-[11px] opacity-90 break-words">{testResult.message}</p>
 										</div>
 									</div>
+								{/if}
 
-									<!-- TEST RESULTS BANNER -->
-									{#if testResult}
-										<div
-											id="setting-test-connection"
-											class={`flex items-start gap-2 rounded-xl p-3 text-xs leading-relaxed ${testResult.ok ? 'bg-emerald-500/10 border border-emerald-500/30 text-emerald-800 dark:text-emerald-300' : 'bg-red-500/10 border border-red-500/30 text-red-800 dark:text-red-300'}`}
-										>
-											{#if testResult.ok}<CheckCircle2 size={15} class="shrink-0 text-emerald-600 mt-0.5" />{:else}<AlertCircle size={15} class="shrink-0 text-red-500 mt-0.5" />{/if}
-											<div>
-												<strong>{testResult.ok ? 'Connection Verified' : 'Connection Error'}:</strong>
-												<p class="mt-0.5 text-[11px] opacity-90">{testResult.message}</p>
-											</div>
-										</div>
-									{/if}
+								<!-- ACTION BUTTONS -->
+								<div class="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-2.5 pt-3 border-t border-black/10 dark:border-white/10">
+									<!-- TEST CONNECTION BUTTON -->
+									<button
+										id="setting-test-btn"
+										type="button"
+										on:click={() => testConnection(currentP.id)}
+										disabled={testingProvider}
+										class="inline-flex items-center justify-center gap-2 rounded-xl border border-black/15 bg-white px-3.5 py-2 text-xs font-semibold hover:bg-neutral-50 dark:border-white/15 dark:bg-white/5 dark:hover:bg-white/10 cursor-pointer w-full sm:w-auto"
+										use:ripple
+									>
+										<RefreshCw size={13} class={testingProvider ? 'animate-spin' : ''} />
+										<span>{testingProvider ? 'Testing Endpoint...' : 'Test Connection'}</span>
+									</button>
 
-									<!-- ACTION BUTTONS -->
-									<div class="flex flex-col sm:flex-row items-center justify-between gap-2.5 pt-2 border-t border-black/10 dark:border-white/10">
+									<!-- SAVE & ACTIVATION BUTTONS -->
+									<div class="flex flex-col sm:flex-row items-stretch sm:items-center gap-2 w-full sm:w-auto">
+										<!-- SAVE PROVIDER BUTTON -->
 										<button
-											id="setting-test-btn"
 											type="button"
-											on:click={() => testConnection(currentP.id)}
-											disabled={testingProvider}
-											class="inline-flex items-center justify-center gap-2 rounded-xl border border-black/15 bg-white px-3.5 py-2 text-xs font-semibold hover:bg-neutral-50 dark:border-white/15 dark:bg-white/5 cursor-pointer w-full sm:w-auto"
+											on:click={() => saveProvider(currentP.id, false)}
+											disabled={savingProvider}
+											class={cn(
+												'inline-flex items-center justify-center gap-1.5 rounded-xl px-3.5 py-2 text-xs font-semibold cursor-pointer w-full sm:w-auto transition-colors',
+												currentP.isDefault
+													? 'bg-[#b23a2e] hover:bg-[#962f25] text-white font-bold shadow-xs'
+													: 'border border-black/15 bg-white hover:bg-neutral-50 dark:border-white/15 dark:bg-white/5 dark:hover:bg-white/10'
+											)}
+											title="Save endpoint and API credentials"
 											use:ripple
 										>
-											<RefreshCw size={13} class={testingProvider ? 'animate-spin' : ''} />
-											<span>{testingProvider ? 'Testing...' : 'Test Connection'}</span>
+											<Save size={13} />
+											<span>Save Provider</span>
 										</button>
 
-										<div class="flex items-center gap-2 w-full sm:w-auto">
+										{#if !currentP.isDefault}
+											<!-- SAVE & SET AS ACTIVE ENGINE -->
 											<button
 												type="button"
-												on:click={() => saveProvider(currentP.id, false)}
+												on:click={() => saveProvider(currentP.id, true)}
 												disabled={savingProvider}
-												class="rounded-xl border border-black/15 bg-white px-3.5 py-2 text-xs font-semibold hover:bg-neutral-50 dark:border-white/15 dark:bg-white/5 cursor-pointer flex-1 sm:flex-initial"
+												class="inline-flex items-center justify-center gap-1.5 rounded-xl bg-[#b23a2e] hover:bg-[#962f25] text-white px-4 py-2 text-xs font-bold cursor-pointer w-full sm:w-auto shadow-xs"
+												title="Save configuration and route all chapter translations through this engine"
 												use:ripple
 											>
-												Save
+												<Sparkles size={13} />
+												<span>Save & Set Active</span>
 											</button>
-											{#if !currentP.isDefault}
-												<button
-													type="button"
-													on:click={() => saveProvider(currentP.id, true)}
-													disabled={savingProvider}
-													class="rounded-xl bg-[#b23a2e] hover:bg-[#962f25] text-white px-3.5 py-2 text-xs font-bold cursor-pointer flex-1 sm:flex-initial"
-													use:ripple
-												>
-													Set Active Engine
-												</button>
-											{/if}
-										</div>
+										{/if}
 									</div>
+								</div>
 								</div>
 							{/if}
 						{/if}
@@ -2587,13 +2754,6 @@
 						</div>
 					</div>
 				{/if}
-			</div>
-
-			<!-- FOOTER ACTIONS -->
-			<div class="flex items-center justify-end pt-4 mt-4 border-t border-black/10 dark:border-white/10">
-				<Button variant="primary" size="md" class="px-6" on:click={() => (open = false)}>
-					<span>Done</span>
-				</Button>
 			</div>
 		</div>
 	</div>

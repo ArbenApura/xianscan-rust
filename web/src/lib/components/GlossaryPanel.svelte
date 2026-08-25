@@ -667,12 +667,12 @@
 				{#each [0, 1, 2, 3, 4, 5] as i (i)}
 					<li class="flex flex-col gap-2 px-3 py-3">
 						<div class="flex items-center gap-2">
-							<div class="h-3.5 w-24 animate-pulse rounded bg-black/[0.07] dark:bg-white/[0.08]"></div>
-							<div class="h-3.5 w-28 animate-pulse rounded bg-black/[0.05] dark:bg-white/[0.06]"></div>
+							<div class="h-3.5 w-24 rounded bg-black/[0.07] dark:bg-white/[0.08]"></div>
+							<div class="h-3.5 w-28 rounded bg-black/[0.05] dark:bg-white/[0.06]"></div>
 						</div>
 						<div class="flex gap-1.5">
-							<div class="h-3 w-16 animate-pulse rounded-full bg-black/[0.05] dark:bg-white/[0.06]"></div>
-							<div class="h-3 w-10 animate-pulse rounded bg-black/[0.04] dark:bg-white/[0.05]"></div>
+							<div class="h-3 w-16 rounded-full bg-black/[0.05] dark:bg-white/[0.06]"></div>
+							<div class="h-3 w-10 rounded bg-black/[0.04] dark:bg-white/[0.05]"></div>
 						</div>
 					</li>
 				{/each}

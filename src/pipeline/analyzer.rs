@@ -6,8 +6,9 @@ use image::{DynamicImage, GenericImageView};
 use crate::ml::detect::{
     deduplicate_boxes, is_cjk_source, is_latin_source, sort_regions_top_to_bottom,
 };
+use crate::ml::geometry::box_iou;
 use crate::ml::schemas::{
-    AnalyzeOptions, AnalyzeResponse, BoxRect, OcrStats, OcrStepLog, OnomatopoeiaFrame, PanelFrame,
+    AnalyzeOptions, AnalyzeResponse, BoxRect, OcrStats, OcrStepLog, OnomatopoeiaFrame,
 };
 use super::engine::PipelineEngine;
 use super::fusion::fuse_detections;
@@ -61,8 +62,7 @@ pub fn analyze_image_with_fusion(
     let is_cjk = is_cjk_source(source_lang);
     let is_latin = is_latin_source(source_lang);
 
-    // PANELS AND ONOMATOPOEIA FRAMES OMITTED PER USER REQUEST (ONLY BUBBLES, TEXT, AND SFX REGIONS)
-    let panels: Vec<PanelFrame> = Vec::new();
+    // ONOMATOPOEIA FRAMES OMITTED PER USER REQUEST (ONLY BUBBLES, TEXT, AND SFX REGIONS)
     let onomatopoeia: Vec<OnomatopoeiaFrame> = Vec::new();
 
     // =========================================================================
@@ -161,7 +161,7 @@ pub fn analyze_image_with_fusion(
                 let (bx, by, bw, bh) = crate::ml::geometry::box_to_xywh_f32(cb);
                 let ix = (bx + bw).min((lx + lw) as f32) - bx.max(lx as f32);
                 let iy = (by + bh).min((ly + lh) as f32) - by.max(ly as f32);
-                // For horizontal text paragraphs (bw >= bh * 1.15), extend downwards to catch the immediate bottom continuation line
+                // For horizontal text paragraphs (bw >= bh * 1.15), extend downwards or upwards to catch immediate row continuations
                 // (Only for multi-line paragraph continuation; do not merge single-line subtitles into large title headers where lh >= bh * 1.5)
                 let is_subtitle_to_title = bh <= 35.0 && (lh as f32) >= bh * 1.50;
                 let is_adjacent_trailing_row = !is_subtitle_to_title
@@ -171,19 +171,27 @@ pub fn analyze_image_with_fusion(
                     && (ly as f32 >= by + bh - 25.0)
                     && ((ly as f32) <= by + bh + 45.0)
                     && ix >= 0.35 * (lw as f32).min(bw);
+                // Tight leading row check: only merge upwards if detector box is single-line and the leading line is immediately above with high horizontal overlap
+                let is_adjacent_leading_row = !is_subtitle_to_title
+                    && (bh <= 55.0)
+                    && (lx as f32 >= bx - 35.0)
+                    && ((lx + lw) as f32 <= bx + bw + 35.0)
+                    && ((ly + lh) as f32 >= by - 20.0)
+                    && ((ly + lh) as f32 <= by + 15.0)
+                    && ix >= 0.50 * (lw as f32).min(bw);
 
-                if (ix > 0.0 && iy > 0.0) || is_adjacent_trailing_row {
+                if (ix > 0.0 && iy > 0.0) || is_adjacent_trailing_row || is_adjacent_leading_row {
                     let inter_area = ix.max(0.0) * iy.max(0.0);
                     let l_area = (lw * lh).max(1) as f32;
                     let b_area = (bw * bh).max(1.0);
                     let coverage_l = inter_area / l_area;
                     let coverage_b = inter_area / b_area;
-                    if coverage_l >= 0.35 || coverage_b >= 0.35 || is_adjacent_trailing_row {
+                    if coverage_l >= 0.35 || coverage_b >= 0.35 || is_adjacent_trailing_row || is_adjacent_leading_row {
                         overlaps_any = true;
                         // IF DETECTOR BOX IS A PARTIAL SINGLE-LINE SLICE AND RAPID OCR DETECTED A LONGER SENTENCE
                         let is_horiz_single_line = bh <= (lh as f32 * 1.6) && (lw as f32) >= bw * 1.15;
                         let is_vert_single_line = bw <= (lw as f32 * 1.6) && (lh as f32) >= bh * 1.15;
-                        // IF DETECTOR BOX COVERS MULTI-LINE TEXT BUT MISSES THE BOTTOM-MOST LINE (OVERLAPPING TOP HALF OR IMMEDIATE TRAILING BOTTOM)
+                        // IF DETECTOR BOX COVERS MULTI-LINE TEXT BUT MISSES THE BOTTOM-MOST LINE
                         let is_partial_vert_container = !is_subtitle_to_title
                             && (bw >= bh * 1.15)
                             && (lx as f32 >= bx - 35.0)
@@ -192,7 +200,7 @@ pub fn analyze_image_with_fusion(
                             && ((ly + lh) as f32 > by + bh)
                             && ((ly as f32) <= by + bh + 45.0);
 
-                        if is_horiz_single_line || is_vert_single_line || is_partial_vert_container || is_adjacent_trailing_row {
+                        if is_horiz_single_line || is_vert_single_line || is_partial_vert_container || is_adjacent_trailing_row || is_adjacent_leading_row {
                             let union_x = bx.min(lx as f32);
                             let union_y = by.min(ly as f32);
                             let union_w = (bx + bw).max((lx + lw) as f32) - union_x;
@@ -237,7 +245,7 @@ pub fn analyze_image_with_fusion(
                     }
                 }
 
-                if (lw as f32) >= (page_w as f32 * 0.55) && lh >= 100 {
+                if (lw as f32) >= (page_w as f32 * 0.55) && lh >= 70 {
                     continue;
                 }
                 if lw <= 40 && lh <= 55 && line.score < 0.85 {
@@ -293,7 +301,6 @@ pub fn analyze_image_with_fusion(
             width: page_w,
             height: page_h,
             backend: fusion_res.backend.clone(),
-            panels,
             onomatopoeia,
             regions: Vec::new(),
             stats: Some(stats),
@@ -305,12 +312,21 @@ pub fn analyze_image_with_fusion(
     let order = sort_regions_top_to_bottom(&dedup_boxes, page_h as usize, 0.5);
     let stage2_duration_ms = t_stage2_start.elapsed().as_secs_f64() * 1000.0;
 
-    // Only high-confidence onomatopoeia is classified as SFX; text_free represents free-floating narrative text / captions
+    // Only onomatopoeia detections are classified as SFX (excluding regions with higher-confidence text_bubbles); text_free represents free-floating narrative text / captions
     let sfx_boxes: Vec<(BoxRect, f32)> = if enable_sfx {
         fusion_res
             .onomatopoeia
             .iter()
-            .filter(|(_, score)| *score >= 0.40)
+            .filter(|(sfx_b, score)| {
+                if *score < 0.25 {
+                    return false;
+                }
+                // If text_bubbles detected the same region with higher confidence, it is dialogue/narration, not SFX
+                let has_higher_text_bubble = fusion_res.text_bubbles.iter().any(|(tb, tb_score)| {
+                    *tb_score > *score && box_iou(tb, sfx_b) >= 0.35
+                });
+                !has_higher_text_bubble
+            })
             .cloned()
             .collect()
     } else {
@@ -462,7 +478,6 @@ pub fn analyze_image_with_fusion(
         width: page_w,
         height: page_h,
         backend: fusion_res.backend.clone(),
-        panels,
         onomatopoeia,
         regions: final_regions,
         stats: Some(stats),

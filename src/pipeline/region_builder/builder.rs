@@ -71,17 +71,20 @@ pub fn build_regions(
         let is_detector_sfx = text_free_boxes.iter().any(|(tf, _)| {
             let iou = box_iou(tf, &box_rect);
             let contains = mid_x >= tf.x && mid_x <= tf.x + tf.w && mid_y >= tf.y && mid_y <= tf.y + tf.h;
+            let tf_mid_x = tf.x + tf.w / 2;
+            let tf_mid_y = tf.y + tf.h / 2;
+            let tf_in_b = tf_mid_x >= box_rect.x && tf_mid_x <= box_rect.x + box_rect.w && tf_mid_y >= box_rect.y && tf_mid_y <= box_rect.y + box_rect.h;
             let ix = (box_rect.x + box_rect.w).min(tf.x + tf.w) - box_rect.x.max(tf.x);
             let iy = (box_rect.y + box_rect.h).min(tf.y + tf.h) - box_rect.y.max(tf.y);
             let overlap = if ix > 0 && iy > 0 {
                 let inter = (ix * iy) as f32;
                 let b_area = (box_rect.w * box_rect.h).max(1) as f32;
                 let tf_area = (tf.w * tf.h).max(1) as f32;
-                inter / b_area >= 0.25 || inter / tf_area >= 0.25
+                inter / b_area >= 0.20 || inter / tf_area >= 0.20
             } else {
                 false
             };
-            iou >= 0.25 || contains || overlap
+            iou >= 0.15 || contains || tf_in_b || overlap
         });
 
         let is_sfx = is_detector_sfx;
@@ -340,7 +343,13 @@ pub fn build_regions(
                 let is_container_wider = container_w >= cluster_rect.w + 20 || (container_w as f32) >= (cluster_rect.w as f32 * 1.20);
                 let is_container_taller = container_h >= cluster_rect.h + 20 || (container_h as f32) >= (cluster_rect.h as f32 * 1.20);
                 let is_short_text_partial = cluster_lines.len() == 1 && (is_container_wider || is_container_taller);
-                let full_page_is_complete = cluster_lines.len() >= 3 && avg_score >= 0.70 && !is_container_wider && !is_container_taller;
+                let is_combined_pure_punct = !combined_text.is_empty() && combined_text.chars().all(|c| {
+                    c.is_ascii_punctuation()
+                        || c.is_whitespace()
+                        || matches!(c, '…' | '·' | '—' | '～' | '！' | '？' | '。' | '，' | '、' | '–' | '¿' | '¡')
+                });
+                let is_clean_single_line = cluster_lines.len() == 1 && avg_score >= 0.70 && !is_container_wider && !is_container_taller;
+                let full_page_is_complete = (cluster_lines.len() >= 3 || is_clean_single_line) && avg_score >= 0.70 && !is_container_wider && !is_container_taller;
                 let is_standalone_alphanumeric_risk = is_cjk && crate::ml::detect::is_standalone_alphanumeric_without_cjk(&combined_text);
                 let can_refine_crop = (is_bubble_region || is_container_wider || is_container_taller || is_short_text_partial || is_standalone_alphanumeric_risk) && (cluster_rect.w >= 16 || box_rect.w >= 16) && (cluster_rect.h >= 16 || box_rect.h >= 16) && !full_page_is_complete;
 
@@ -444,8 +453,14 @@ pub fn build_regions(
                                 // IF THE CROP RESULT MERGED LINES ACROSS MULTIPLE SEPARATE DIALOGUE SENTENCES, DO NOT REPLACE
                                 let is_excessive_expansion = matched_bubble.is_none() && combined_cjk_count >= 3 && crop_cjk_count >= (combined_cjk_count * 5 / 2);
 
+                                // PREVENT CORRUPTING VALID PUNCTUATION CLUSTERS (?!, !?, ...) INTO SPLIT DIGIT/BULLET ARTIFACTS (21, ●)
+                                let is_crop_digits_or_bullets_only = clean_crop_text.chars().all(|c| {
+                                    c.is_ascii_digit() || c.is_whitespace() || matches!(c, '●' | '○' | '•' | '·')
+                                });
+                                let is_corrupted_punct_to_digits = is_combined_pure_punct && is_crop_digits_or_bullets_only;
+
                                 let is_improved = if is_cjk {
-                                    !is_excessive_expansion && (
+                                    !is_excessive_expansion && !is_corrupted_punct_to_digits && (
                                         crop_cjk_count > combined_cjk_count
                                             || has_more_ellipsis
                                             || (crop_cjk_count == combined_cjk_count && res.score > avg_score + 0.02)
@@ -456,8 +471,11 @@ pub fn build_regions(
                                     let combined_alphanumeric = combined_text.chars().filter(|c| c.is_alphanumeric()).count();
                                     let crop_chars = clean_crop_text.chars().filter(|c| !c.is_whitespace()).count();
                                     let combined_chars = combined_text.chars().filter(|c| !c.is_whitespace()).count();
-                                    let has_meaningful_more_text = crop_alphanumeric > combined_alphanumeric || (crop_alphanumeric == combined_alphanumeric && crop_chars > combined_chars && (has_more_ellipsis || !clean_crop_text.ends_with("??")));
-                                    !is_excessive_expansion && (
+                                    let has_meaningful_more_text = !is_corrupted_punct_to_digits && (
+                                        (crop_alphanumeric > combined_alphanumeric && (!is_combined_pure_punct || clean_crop_text.chars().any(|c| c.is_alphabetic())))
+                                            || (crop_alphanumeric == combined_alphanumeric && crop_chars > combined_chars && (has_more_ellipsis || !clean_crop_text.ends_with("??")))
+                                    );
+                                    !is_excessive_expansion && !is_corrupted_punct_to_digits && (
                                         has_meaningful_more_text
                                             || has_more_ellipsis
                                             || (crop_chars == combined_chars && res.score > avg_score + 0.02)
@@ -525,16 +543,21 @@ pub fn build_regions(
                     if crate::ml::detect::is_standalone_noise_stroke(&cleaned) {
                         continue;
                     }
-                    if is_cjk && !is_sfx && !is_detector_sfx && crate::ml::detect::is_standalone_alphanumeric_without_cjk(&cleaned) {
+                    // IN NON-LATIN SCRIPT SOURCES (CJK, CYRILLIC, THAI), NEVER EXTRACT STANDALONE ALPHANUMERIC / LATIN TEXT OUTSIDE SPEECH BUBBLES UNLESS COMBINED WITH SOURCE SCRIPT OR RECOGNIZED AS EXPLICIT SFX
+                    let is_non_latin = crate::ml::detect::is_non_latin_source(source_lang);
+                    let lacks_native_script = !crate::ml::detect::has_native_script_for_lang(&cleaned, source_lang);
+                    if is_non_latin && lacks_native_script && !is_sfx && !is_detector_sfx && crate::ml::detect::has_alphanumeric_characters(&cleaned) {
                         let char_count = cleaned.chars().filter(|c| !c.is_whitespace()).count();
                         let is_sparse_giant_box = matched_bubble.is_none() && (cluster_rect.w >= 100 || cluster_rect.h >= 100) && char_count <= 4;
                         let is_short_noise_code = matched_bubble.is_none()
                             && char_count <= 3
                             && !crate::ml::detect::is_onomatopoeia_or_shout(&cleaned)
                             && !(cluster_rect.w >= 45 && cluster_rect.h >= 25 && (cleaned.contains('Z') || cleaned.contains('z') || cleaned.contains('S') || cleaned.contains('A')));
+                        let is_non_bubble_alphanumeric = matched_bubble.is_none() && !crate::ml::detect::is_onomatopoeia_or_shout(&cleaned);
                         if cluster_rect.h <= 15
                             || is_sparse_giant_box
                             || is_short_noise_code
+                            || is_non_bubble_alphanumeric
                             || (matched_bubble.is_none() && cluster_rect.w <= 35 && cluster_rect.h <= 35)
                             || (matched_bubble.is_none() && avg_score < 0.70 && !(cluster_rect.w >= 45 && cluster_rect.h >= 25 && (cleaned.contains('Z') || cleaned.contains('z') || cleaned.contains('S') || cleaned.contains('A'))))
                             || (matched_bubble.is_none() && cleaned.chars().count() == 1 && !is_sfx && !(cluster_rect.w >= 45 && cluster_rect.h >= 25 && (cleaned == "Z" || cleaned == "z" || cleaned == "S" || cleaned == "s" || cleaned == "A" || cleaned == "B")))
@@ -544,6 +567,24 @@ pub fn build_regions(
                     }
                     if !is_sfx && !is_detector_sfx && crate::ml::detect::is_pure_watermark_region(&cleaned) {
                         continue;
+                    }
+                    // SUPPRESS STANDALONE PUNCTUATION / SYMBOL-ONLY REGIONS (E.G. '?!', '!', '?', '…', '~')
+                    if crate::ml::detect::is_pure_punctuation_only(&cleaned) {
+                        continue;
+                    }
+
+                    // SUPPRESS STANDALONE DIGIT / DEGREE / PARTICLE NOISE OUTSIDE SPEECH BUBBLES ACROSS ALL LANGUAGES
+                    if matched_bubble.is_none() && !is_sfx && !is_detector_sfx && crate::ml::detect::is_standalone_digit_or_particle_noise(&cleaned) {
+                        let char_count = cleaned.chars().filter(|c| !c.is_whitespace()).count();
+                        let is_sparse_giant_box = (cluster_rect.w >= 100 || cluster_rect.h >= 100) && char_count <= 5;
+                        if char_count <= 4
+                            || is_sparse_giant_box
+                            || cluster_rect.h <= 20
+                            || cluster_rect.w <= 40
+                            || (avg_score < 0.75 && char_count <= 6)
+                        {
+                            continue;
+                        }
                     }
                     if is_cjk && (cluster_rect.y + cluster_rect.h >= page_h as i32 - 50) && cleaned.chars().count() == 1 && (cleaned == "动" || cleaned == "初" || cleaned == "腾" || cleaned == "漫" || cleaned == "漫客" || cleaned == "客") {
                         continue;
@@ -558,6 +599,12 @@ pub fn build_regions(
                     if matched_bubble.is_none() && !is_detector_sfx && !is_sfx && cluster_rect.w <= 40 && cluster_rect.h <= 55 && compute_chromatic_color_variance(img, &cluster_rect) >= 15.0 {
                         continue;
                     }
+                    // SUPPRESS ISOLATED SINGLE-PUNCTUATION / REACTION SYMBOL SLICES (E.G. '!', '?', 'i', 'l', '1', '|' WITH W <= 12PX)
+                    let is_narrow_symbol_slice = cluster_rect.w <= 12 && (cleaned == "i" || cleaned == "l" || cleaned == "!" || cleaned == "1" || cleaned == "|" || cleaned == "I");
+                    if is_narrow_symbol_slice && !is_sfx && !is_detector_sfx {
+                        continue;
+                    }
+
                     // SUPPRESS TINY SUB-PIXEL / NOISE FRAGMENTS
                     if cluster_rect.w <= 15 && cluster_rect.h <= 15 {
                         continue;
@@ -572,6 +619,17 @@ pub fn build_regions(
                     }
                     // SUPPRESS LOW-CONFIDENCE ISOLATED PSEUDO-WORD HALLUCINATIONS ON COMPLEX BACKGROUND ARTWORK
                     if matched_bubble.is_none() && !is_sfx && !is_detector_sfx && !is_sign_or_narration_box && avg_score < 0.65 && cleaned.chars().count() <= 6 && compute_chromatic_color_variance(img, &cluster_rect) >= 15.0 {
+                        continue;
+                    }
+
+                    // SUPPRESS TRUNCATED MARGIN NOISE FRAGMENTS SLICED AT THE VERY EDGE OF THE IMAGE CANVAS (WITHOUT SPEECH BUBBLE)
+                    let is_margin_flush = cluster_rect.x <= 5 || cluster_rect.x + cluster_rect.w >= page_w as i32 - 5;
+                    if matched_bubble.is_none() && !is_sfx && !is_detector_sfx && is_margin_flush && (cluster_rect.w <= 75 || cluster_rect.h <= 65) && avg_score < 0.75 {
+                        continue;
+                    }
+
+                    // SUPPRESS MASSIVE NON-BUBBLE BACKGROUND TEXT OCCLUDED ACROSS SCENE ARTWORK (W >= 60% CANVAS WIDTH AND H >= 80PX)
+                    if matched_bubble.is_none() && !is_sfx && (cluster_rect.w as f32 >= page_w as f32 * 0.60) && cluster_rect.h >= 80 {
                         continue;
                     }
 
@@ -780,6 +838,19 @@ pub fn build_regions(
                 if !is_sfx && !is_detector_sfx && crate::ml::detect::is_pure_watermark_region(&cleaned) {
                     continue;
                 }
+                // SUPPRESS STANDALONE DIGIT / DEGREE / PARTICLE NOISE OUTSIDE SPEECH BUBBLES ACROSS ALL LANGUAGES
+                if matched_bubble.is_none() && !is_sfx && !is_detector_sfx && crate::ml::detect::is_standalone_digit_or_particle_noise(&cleaned) {
+                    let char_count = cleaned.chars().filter(|c| !c.is_whitespace()).count();
+                    let is_sparse_giant_box = (box_rect.w >= 100 || box_rect.h >= 100) && char_count <= 5;
+                    if char_count <= 4
+                        || is_sparse_giant_box
+                        || box_rect.h <= 20
+                        || box_rect.w <= 40
+                        || (isolated_score < 0.75 && char_count <= 6)
+                    {
+                        continue;
+                    }
+                }
                 if cleaned.chars().count() == 1 && matched_bubble.is_none() && !is_sfx && !is_detector_sfx && (!crate::ml::detect::is_onomatopoeia_or_shout(&cleaned) || isolated_score < 0.60) && (compute_chromatic_color_variance(img, &box_rect) >= 15.0 || (isolated_score < 0.80 && box_rect.w <= 40 && box_rect.h <= 40)) {
                     continue;
                 }
@@ -932,65 +1003,161 @@ pub fn build_regions(
                 break;
             }
 
-            // B. SLANTED STATUS CARD / PARAGRAPH SLICE UNIFICATION
+            // B. SLANTED STATUS CARD / PARAGRAPH SLICE UNIFICATION (COMPUTED IN ROTATED PROJECTION FRAME)
             let angle_diff = (r.angle - existing.angle).abs();
-            let is_slanted_card_slice = r.bubble_box.is_none() && existing.bubble_box.is_none() && r.angle.abs() >= 6.0 && existing.angle.abs() >= 6.0 && angle_diff <= 5.0;
-            if is_slanted_card_slice {
-                let x_dist = (rx.max(ex) - (rx + rw).min(ex + ew)).max(0);
-                let y_dist = (ry.max(ey) - (ry + rh).min(ey + eh)).max(0);
-                if inter_area > 0 || (x_dist <= 40 && y_dist <= 60) {
-                    is_duplicate = true;
-                    let ux = rx.min(ex);
-                    let uy = ry.min(ey);
-                    let uw = (rx + rw).max(ex + ew) - ux;
-                    let uh = (ry + rh).max(ey + eh) - uy;
-                    existing.box_ = BoxRect { x: ux, y: uy, w: uw, h: uh };
-                    existing.inpaint_box = Some(expand_box(&existing.box_, inpaint_pct, page_w, page_h));
-                    existing.typeset_box = Some(expand_box(&existing.box_, typeset_pct, page_w, page_h));
+            let is_slanted_card_slice = r.bubble_box.is_none()
+                && existing.bubble_box.is_none()
+                && r.angle.abs() >= 6.0
+                && existing.angle.abs() >= 6.0
+                && angle_diff <= 5.0;
 
-                    let mut merged_pts = existing.polygon.clone();
-                    merged_pts.extend(r.polygon.clone());
+            if is_slanted_card_slice {
+                let is_r_timestamp = crate::ml::detect::is_timestamp_or_date_line(clean_r);
+                let is_e_timestamp = crate::ml::detect::is_timestamp_or_date_line(clean_e);
+
+                if !is_r_timestamp && !is_e_timestamp {
                     let angle_rad = existing.angle * (std::f32::consts::PI / 180.0);
                     let cos_m = angle_rad.cos();
                     let sin_m = angle_rad.sin();
-                    let mut min_u = f32::MAX;
-                    let mut max_u = f32::MIN;
-                    let mut min_v = f32::MAX;
-                    let mut max_v = f32::MIN;
-                    for p in &merged_pts {
+
+                    // Project existing polygon points into rotated frame (u = along line, v = perpendicular to line)
+                    let mut e_min_u = f32::MAX;
+                    let mut e_max_u = f32::MIN;
+                    let mut e_min_v = f32::MAX;
+                    let mut e_max_v = f32::MIN;
+                    for p in &existing.polygon {
                         let px = p[0] as f32;
                         let py = p[1] as f32;
                         let u = px * cos_m + py * sin_m;
                         let v = -px * sin_m + py * cos_m;
-                        min_u = min_u.min(u);
-                        max_u = max_u.max(u);
-                        min_v = min_v.min(v);
-                        max_v = max_v.max(v);
+                        e_min_u = e_min_u.min(u);
+                        e_max_u = e_max_u.max(u);
+                        e_min_v = e_min_v.min(v);
+                        e_max_v = e_max_v.max(v);
                     }
-                    let u_v_corners = [
-                        (min_u, min_v),
-                        (max_u, min_v),
-                        (max_u, max_v),
-                        (min_u, max_v),
-                    ];
-                    existing.polygon = u_v_corners
-                        .iter()
-                        .map(|&(u, v)| {
-                            let rx = u * cos_m - v * sin_m;
-                            let ry = u * sin_m + v * cos_m;
-                            [rx.round() as i32, ry.round() as i32]
-                        })
-                        .collect();
 
-                    let mut combined_lines: Vec<String> = existing.text.lines().map(|s| s.trim().to_string()).collect();
-                    for line in r.text.lines() {
-                        let l_trim = line.trim();
-                        if !l_trim.is_empty() && !combined_lines.iter().any(|cl| cl == l_trim || cl.contains(l_trim)) {
-                            combined_lines.push(l_trim.to_string());
-                        }
+                    // Project candidate region r's polygon points into rotated frame
+                    let mut r_min_u = f32::MAX;
+                    let mut r_max_u = f32::MIN;
+                    let mut r_min_v = f32::MAX;
+                    let mut r_max_v = f32::MIN;
+                    for p in &r.polygon {
+                        let px = p[0] as f32;
+                        let py = p[1] as f32;
+                        let u = px * cos_m + py * sin_m;
+                        let v = -px * sin_m + py * cos_m;
+                        r_min_u = r_min_u.min(u);
+                        r_max_u = r_max_u.max(u);
+                        r_min_v = r_min_v.min(v);
+                        r_max_v = r_max_v.max(v);
                     }
-                    existing.text = combined_lines.join("\n");
-                    break;
+
+                    let e_h_v = (e_max_v - e_min_v).max(1.0);
+                    let r_h_v = (r_max_v - r_min_v).max(1.0);
+                    let min_line_h = e_h_v.min(r_h_v);
+
+                    let e_w_u = (e_max_u - e_min_u).max(1.0);
+                    let r_w_u = (r_max_u - r_min_u).max(1.0);
+
+                    // Distance in perpendicular/inter-row direction v
+                    let v_gap = (e_min_v.max(r_min_v) - e_max_v.min(r_max_v)).max(0.0);
+                    let v_overlap = (e_max_v.min(r_max_v) - e_min_v.max(r_min_v)).max(0.0);
+
+                    // Horizontal overlap along reading line u
+                    let u_overlap = (e_max_u.min(r_max_u) - e_min_u.max(r_min_u)).max(0.0);
+                    let u_gap = (e_min_u.max(r_min_u) - e_max_u.min(r_max_u)).max(0.0);
+                    let u_overlap_ratio = u_overlap / e_w_u.min(r_w_u);
+
+                    // Check if rows are adjacent in rotated space
+                    let existing_lines_count = existing.text.lines().count();
+                    let r_lines_count = r.text.lines().count();
+                    let is_short_label = (clean_e.chars().count() <= 5 && existing_lines_count == 1)
+                        || (clean_r.chars().count() <= 5 && r_lines_count == 1);
+
+                    // For standard intra-paragraph lines, allow blank line gaps up to 48px if left-aligned / high horizontal overlap
+                    let is_left_aligned = (e_min_u - r_min_u).abs() <= 25.0;
+                    let max_v_gap = if is_short_label {
+                        25.0 // Sender header / metadata label separated from paragraph
+                    } else if u_overlap_ratio >= 0.50 || (is_left_aligned && u_overlap > 0.0) {
+                        48.0 // Intra-paragraph / p.s blank line gap
+                    } else {
+                        (min_line_h * 1.15).min(32.0)
+                    };
+
+                    let is_adjacent_v = v_overlap > 0.0 || (v_gap <= max_v_gap);
+                    let is_aligned_u = u_overlap_ratio >= 0.20 || u_gap <= 25.0;
+
+                    // If existing or r is already a multi-line paragraph (>= 3 lines), do not bridge across wide vertical gaps (v_gap >= 55px)
+                    let is_multi_line_guard = (existing_lines_count >= 3 || r_lines_count >= 3) && v_gap >= 55.0;
+
+                    if is_adjacent_v && is_aligned_u && !is_multi_line_guard {
+                        is_duplicate = true;
+
+                        let mut min_u = e_min_u.min(r_min_u);
+                        let mut max_u = e_max_u.max(r_max_u);
+                        let mut min_v = e_min_v.min(r_min_v);
+                        let mut max_v = e_max_v.max(r_max_v);
+
+                        if let Some((bu_min, bu_max, bv_min, bv_max)) =
+                            super::geometry::extract_slanted_bubble_envelope(img, min_u, max_u, min_v, max_v, existing.angle)
+                        {
+                            min_u = bu_min;
+                            max_u = bu_max;
+                            min_v = bv_min;
+                            max_v = bv_max;
+                        }
+
+                        let u_v_corners = [
+                            (min_u, min_v),
+                            (max_u, min_v),
+                            (max_u, max_v),
+                            (min_u, max_v),
+                        ];
+                        existing.polygon = u_v_corners
+                            .iter()
+                            .map(|&(u, v)| {
+                                let rx = u * cos_m - v * sin_m;
+                                let ry = u * sin_m + v * cos_m;
+                                [rx.round() as i32, ry.round() as i32]
+                            })
+                            .collect();
+
+                        let mut min_x = i32::MAX;
+                        let mut min_y = i32::MAX;
+                        let mut max_x = i32::MIN;
+                        let mut max_y = i32::MIN;
+                        for p in &existing.polygon {
+                            min_x = min_x.min(p[0]);
+                            min_y = min_y.min(p[1]);
+                            max_x = max_x.max(p[0]);
+                            max_y = max_y.max(p[1]);
+                        }
+                        existing.box_ = BoxRect {
+                            x: min_x.max(0),
+                            y: min_y.max(0),
+                            w: (max_x - min_x).max(1).min(page_w as i32 - min_x.max(0)),
+                            h: (max_y - min_y).max(1).min(page_h as i32 - min_y.max(0)),
+                        };
+                        existing.inpaint_box = Some(expand_box(&existing.box_, inpaint_pct, page_w, page_h));
+                        existing.typeset_box = Some(expand_box(&existing.box_, typeset_pct, page_w, page_h));
+
+                        let mut combined_lines: Vec<(f32, String)> = Vec::new();
+                        for line in existing.text.lines() {
+                            let l_trim = line.trim();
+                            if !l_trim.is_empty() {
+                                combined_lines.push((e_min_v, l_trim.to_string()));
+                            }
+                        }
+                        for line in r.text.lines() {
+                            let l_trim = line.trim();
+                            if !l_trim.is_empty() && !combined_lines.iter().any(|(_, cl)| cl == l_trim || cl.contains(l_trim)) {
+                                combined_lines.push((r_min_v, l_trim.to_string()));
+                            }
+                        }
+                        combined_lines.sort_by(|a, b| a.0.total_cmp(&b.0));
+                        existing.text = combined_lines.into_iter().map(|(_, t)| t).collect::<Vec<_>>().join("\n");
+                        break;
+                    }
                 }
             }
         }
@@ -999,8 +1166,9 @@ pub fn build_regions(
         }
     }
 
-    // RE-INDEX REGION IDS
+    // CLEAN UI HEADER NAVIGATION CHEVRONS & RE-INDEX REGION IDS
     for (i, r) in deduped_regions.iter_mut().enumerate() {
+        r.text = crate::ml::detect::clean_ui_header_text(&r.text);
         r.id = format!("r{}", i);
     }
 

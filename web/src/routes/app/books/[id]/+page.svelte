@@ -845,10 +845,10 @@
 	{#if loading}
 		<div class="space-y-4">
 			<div
-				class="h-44 animate-pulse rounded-2xl border border-black/[0.06] bg-black/[0.03] dark:border-white/[0.06] dark:bg-white/[0.03]"
+				class="h-44 rounded-2xl border border-black/[0.06] bg-black/[0.03] dark:border-white/[0.06] dark:bg-white/[0.03]"
 			></div>
 			<div
-				class="h-10 animate-pulse rounded-xl border border-black/[0.06] bg-black/[0.03] dark:border-white/[0.06] dark:bg-white/[0.03]"
+				class="h-10 rounded-xl border border-black/[0.06] bg-black/[0.03] dark:border-white/[0.06] dark:bg-white/[0.03]"
 			></div>
 		</div>
 	{:else if !book}

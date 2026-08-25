@@ -43,9 +43,9 @@
 		className,
 	)}
 >
-	<!-- SKELETON SHIMMER PLACEHOLDER (ACTIVE UNTIL IMAGE LOADS) -->
+	<!-- SKELETON PLACEHOLDER (ACTIVE UNTIL IMAGE LOADS) -->
 	{#if !loaded}
-		<div class="absolute inset-0 z-0 animate-pulse bg-gradient-to-r from-black/5 via-black/15 to-black/5 dark:from-white/5 dark:via-white/15 dark:to-white/5"></div>
+		<div class="absolute inset-0 z-0 bg-black/5 dark:bg-white/5"></div>
 	{/if}
 
 	<!-- SPINE SHADOW GRADIENT (GIVES A TACTILE BOOK FEEL) -->

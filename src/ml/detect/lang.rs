@@ -38,6 +38,39 @@ pub fn is_standalone_alphanumeric_without_cjk(text: &str) -> bool {
     has_alphanumeric_characters(text) && !has_cjk_characters(text)
 }
 
+/// Returns true if the text contains native script characters for the given non-Latin source language.
+pub fn has_native_script_for_lang(text: &str, source_lang: Option<&str>) -> bool {
+    if is_cyrillic_source(source_lang) {
+        CYRILLIC_CHAR_RE.is_match(text)
+    } else if is_thai_source(source_lang) {
+        THAI_CHAR_RE.is_match(text)
+    } else if is_cjk_source(source_lang) {
+        CJK_CHAR_RE.is_match(text)
+    } else {
+        true
+    }
+}
+
+/// Returns true if the source language uses a non-Latin / non-alphanumeric primary script (CJK, Cyrillic, Thai).
+pub fn is_non_latin_source(source_lang: Option<&str>) -> bool {
+    is_cjk_source(source_lang) || is_cyrillic_source(source_lang) || is_thai_source(source_lang)
+}
+
+/// Returns true if the string consists exclusively of digits, decimal points, degree symbols, or isolated particle punctuation (e.g. "8.0", "0°0", "00", "0.0", "500", "0°") without any alphabetic or CJK characters.
+pub fn is_standalone_digit_or_particle_noise(text: &str) -> bool {
+    let t = text.trim();
+    if t.is_empty() {
+        return true;
+    }
+    let has_digit = t.chars().any(|c| c.is_ascii_digit());
+    let all_digit_or_particle_symbols = t.chars().all(|c| {
+        c.is_ascii_digit()
+            || c.is_whitespace()
+            || matches!(c, '.' | '°' | '·' | '●' | '○' | '•' | '‥' | '．' | ',' | ':' | '\'' | '"' | '`' | '~' | '–' | '—' | '-')
+    });
+    has_digit && all_digit_or_particle_symbols && !t.chars().any(|c| c.is_alphabetic() || has_cjk_characters(&c.to_string()))
+}
+
 /// Check if the specified source language is Cyrillic (e.g. Russian, Ukrainian).
 pub fn is_cyrillic_source(source_lang: Option<&str>) -> bool {
     match source_lang {

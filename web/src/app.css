@@ -32,6 +32,28 @@
 		font-weight: 500;
 	}
 
+	/* PREVENT WILD WORDS GLYPH OVERHANG (E.G. 'C', 'W') FROM BEING CUT OFF AT CONTAINER EDGES */
+	button,
+	label,
+	span,
+	p,
+	h1,
+	h2,
+	h3,
+	h4,
+	h5,
+	h6,
+	[role='button'] {
+		padding-left: max(0.08em, 1.5px);
+		padding-right: max(0.08em, 1.5px);
+	}
+
+	/* TRUNCATE ELEMENTS NEED EXPLICIT INLINE PADDING TO PREVENT OVERFLOW-HIDDEN BOUNDARY CLIPPING OF 'C' */
+	.truncate {
+		padding-left: max(0.08em, 1.5px);
+		padding-right: max(0.08em, 1.5px);
+	}
+
 	/* Elevate minimum font weight so WildWorld text remains robust and legible */
 	.font-thin,
 	.font-extralight,

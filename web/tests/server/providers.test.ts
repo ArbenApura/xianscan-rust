@@ -136,4 +136,58 @@ describe('providers.ts', () => {
 		expect(active.id).toBe('lmstudio');
 		expect(active.activeModel).toBe('qwen2.5-coder-7b-instruct');
 	});
+
+	it('allows updating custom endpoint baseUrl and persists across getProviders calls', () => {
+		const db = getTestDb();
+		updateProvider(
+			'custom',
+			{
+				baseUrl: 'https://api.fireworks.ai/inference/v1',
+				activeModel: 'accounts/fireworks/models/qwen2p5-72b-instruct',
+				availableModels: ['accounts/fireworks/models/qwen2p5-72b-instruct'],
+			},
+			db,
+		);
+
+		const updated = getProviderById('custom', db);
+		expect(updated?.baseUrl).toBe('https://api.fireworks.ai/inference/v1');
+		expect(updated?.activeModel).toBe('accounts/fireworks/models/qwen2p5-72b-instruct');
+
+		const list = getProviders(db);
+		const custom = list.find((p) => p.id === 'custom');
+		expect(custom?.baseUrl).toBe('https://api.fireworks.ai/inference/v1');
+		expect(custom?.activeModel).toBe('accounts/fireworks/models/qwen2p5-72b-instruct');
+		expect(custom?.availableModels).toEqual(['accounts/fireworks/models/qwen2p5-72b-instruct']);
+	});
+
+	it('allows deleting models from availableModels without seedDefaultProviders restoring deleted models', () => {
+		const db = getTestDb();
+		// Initial models on groq
+		const groqInit = getProviderById('groq', db);
+		expect(groqInit?.availableModels).toBe(JSON.stringify(['llama-3.3-70b-versatile']));
+
+		// Add scanned models
+		updateProvider(
+			'groq',
+			{
+				availableModels: ['llama-3.3-70b-versatile', 'mixtral-8x7b-32768', 'gemma2-9b-it'],
+				activeModel: 'llama-3.3-70b-versatile',
+			},
+			db,
+		);
+
+		// Delete 'mixtral-8x7b-32768'
+		updateProvider(
+			'groq',
+			{
+				availableModels: ['llama-3.3-70b-versatile', 'gemma2-9b-it'],
+			},
+			db,
+		);
+
+		// Run getProviders (which executes seedDefaultProviders)
+		const list = getProviders(db);
+		const groq = list.find((p) => p.id === 'groq');
+		expect(groq?.availableModels).toEqual(['llama-3.3-70b-versatile', 'gemma2-9b-it']);
+	});
 });

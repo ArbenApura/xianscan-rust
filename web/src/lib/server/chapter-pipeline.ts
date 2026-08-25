@@ -475,7 +475,6 @@ export async function runChapterPipeline(
 					db.transaction((tx) => {
 						tx.update(pages)
 							.set({
-								panels: JSON.stringify(analyzed.panels || []),
 								onomatopoeia: null,
 								ocrStats: enrichedStats ? JSON.stringify(enrichedStats) : null,
 							})
@@ -837,7 +836,6 @@ export async function runChapterPipeline(
 			db.transaction((tx) => {
 				tx.update(pages)
 					.set({
-						panels: JSON.stringify(analyzed.panels || []),
 						onomatopoeia: null,
 						ocrStats: enrichedStats ? JSON.stringify(enrichedStats) : null,
 					})

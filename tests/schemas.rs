@@ -76,7 +76,6 @@ fn test_analyze_response_roundtrip() {
         width: 800,
         height: 1200,
         backend: "comic-ctd-rust".to_string(),
-        panels: vec![],
         onomatopoeia: vec![],
         regions: vec![r],
         stats: None,
@@ -119,6 +118,7 @@ fn test_analyze_options_serialization() {
         enable_watermark_inpaint: None,
         enable_sfx: Some(true),
         sfx_max_area_pct: Some(0.30),
+        allow_degraded_fallback: None,
     };
     let json = serde_json::to_string(&opts).unwrap();
     assert!(json.contains(r#""source_lang":"zh-Hans""#));

@@ -73,8 +73,8 @@ pub fn is_pure_watermark_region(text: &str) -> bool {
     if is_watermark_line(t) {
         return true;
     }
-    // Cyrillic / Latin exclamation noise (e.g. "З..", "3..", "!", "...", "?")
-    if (t.starts_with('З') || t.starts_with('3') || t.starts_with('!') || t.starts_with('?'))
+    // Cyrillic noise (e.g. "З..", "3..", "3...")
+    if (t.starts_with('З') || t.starts_with('3'))
         && t.chars().skip(1).all(|c| c == '.' || c == '!' || c == '?' || c == '…' || c == '。' || c == ' ')
     {
         return true;
@@ -84,17 +84,23 @@ pub fn is_pure_watermark_region(text: &str) -> bool {
         return true;
     }
     // Thought bubble tail ornament strings (e.g. "……", "...", "…", "。。", "○", "●", "(…………)")
-    let is_symbols_only = t.chars().all(|c| {
-        c.is_ascii_punctuation()
+    let is_tail_ornament_only = t.chars().all(|c| {
+        c == '…'
+            || c == '.'
+            || c == '·'
+            || c == '。'
+            || c == '●'
+            || c == '○'
+            || c == '•'
+            || c == '‥'
+            || c == '．'
             || c.is_whitespace()
-            || matches!(
-                c,
-                '…' | '·' | '—' | '～' | '！' | '？' | '。' | '，' | '、' | '；' | '：'
-                    | '“' | '”' | '‘' | '’' | '（' | '）' | '【' | '】' | '《' | '》' | '〔' | '〕'
-                    | '『' | '』' | '「' | '」' | '・' | '．' | '‥' | '–' | '●' | '○' | '•'
-            )
+            || c == '('
+            || c == ')'
+            || c == '（'
+            || c == '）'
     });
-    if is_symbols_only {
+    if is_tail_ornament_only {
         return true;
     }
     false
@@ -177,7 +183,7 @@ pub fn clean_stray_ocr_artifacts(text: &str) -> String {
     let mut kept = Vec::new();
     for line in lines {
         let t = line.trim();
-        // Drop trailing or standalone thought bubble tail digit noise (e.g. "000000", "00o0", "ooo", "000")
+        // DROP TRAILING OR STANDALONE THOUGHT BUBBLE TAIL DIGIT NOISE (E.G. "000000", "00O0", "OOO", "000")
         let is_tail_noise = !t.is_empty()
             && t.chars().all(|c| c == '0' || c == 'o' || c == 'O' || c == '2' || c == '3' || c == '5' || c == '8' || c == '9')
             && t.chars().count() <= 8;
@@ -191,5 +197,43 @@ pub fn clean_stray_ocr_artifacts(text: &str) -> String {
         kept.join("\n")
     }
 }
+
+/// CHECK IF A GIVEN TEXT STRING CONSISTS SOLELY OF PUNCTUATION MARKS, BRACKETS, OR SYMBOLS WITH ZERO ALPHANUMERIC CHARACTERS
+pub fn is_pure_punctuation_only(text: &str) -> bool {
+    let t = text.trim();
+    if t.is_empty() {
+        return true;
+    }
+    !t.chars().any(|c| c.is_alphanumeric())
+}
+
+pub static TIMESTAMP_RE: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r"(?i)^(?:(?:오전|오후)\s*\d{1,2}:\d{2}|\d{1,2}:\d{2}\s*(?:AM|PM|am|pm)?|(?:AM|PM|am|pm)\s*\d{1,2}:\d{2}|(?:\d{4}|20XX)[.\-/년\s]+\d{1,2}[.\-/월\s]+\d{1,2}[일\s]*(?:[월화수목금토일]요일)?.*)$").unwrap()
+});
+
+/// CHECK IF A GIVEN TEXT STRING REPRESENTS A STANDALONE TIMESTAMP OR DATE CAPSULE IN CHAT / UI INTERFACES
+pub fn is_timestamp_or_date_line(text: &str) -> bool {
+    let t = text.trim();
+    if t.is_empty() {
+        return false;
+    }
+    TIMESTAMP_RE.is_match(t)
+}
+
+/// CLEAN STANDALONE UI NAVIGATION CHEVRONS (E.G. LEADING '<' IN BACK BUTTONS LIKE '<현성민')
+pub fn clean_ui_header_text(text: &str) -> String {
+    let t = text.trim();
+    if (t.starts_with('<') || t.starts_with('〈') || t.starts_with('‹') || t.starts_with('＜'))
+        && !t.ends_with('>') && !t.ends_with('〉') && !t.ends_with('›') && !t.ends_with('＞')
+        && !t.contains('>') && !t.contains('〉') && !t.contains('›') && !t.contains('＞')
+    {
+        let stripped = t.trim_start_matches(|c| c == '<' || c == '〈' || c == '‹' || c == '＜').trim();
+        if !stripped.is_empty() {
+            return stripped.to_string();
+        }
+    }
+    text.to_string()
+}
+
 
 

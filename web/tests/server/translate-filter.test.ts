@@ -85,6 +85,18 @@ describe('classifyRegionForTranslation', () => {
 		}
 	});
 
+	it('dispatches Korean and CJK sound effects to the LLM for contextual neural translation', () => {
+		const sfxCases = ['냠냠', '남남', '쩝쩝', '접접', '우물우물', '오물오물', '후루룩', '꿀꺽', '바스락'];
+		for (const text of sfxCases) {
+			const res = classifyRegionForTranslation(
+				{ id: 'r1', text, kind: 'sound_effect' },
+				'ko',
+				'en',
+			);
+			expect(res.disposition).toBe('translate');
+		}
+	});
+
 	it('marks genuine CJK dialogue and story text for LLM translation', () => {
 		const translatableCases = [
 			'你好，主角！',

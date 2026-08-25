@@ -95,8 +95,10 @@ pub fn fuse_detections(
                             if angle.abs() >= 12.0 && line.score < 0.60 && !crate::ml::detect::is_onomatopoeia_or_shout(t) {
                                 return false;
                             }
-                            // 4. DROP MARGIN ARCHITECTURAL / BUILDING GRID TEXTURE NOISE (FLUSH TO MARGIN X <= 5, LOW CONFIDENCE SCORE < 0.65, NO BUBBLE)
-                            if (polygon_bounds(&line.polygon).0 <= 5 || polygon_bounds(&line.polygon).0 + lw >= page_w as i32 - 5) && line.score < 0.65 && !crate::ml::detect::is_onomatopoeia_or_shout(t) {
+                            // 4. DROP MARGIN ARCHITECTURAL / BUILDING GRID TEXTURE NOISE & SLICED EDGE FRAGMENTS (FLUSH TO MARGIN X <= 5 OR X + LW >= PAGE_W - 5, LOW CONFIDENCE SCORE < 0.75, NO BUBBLE)
+                            let (px, _, _, _) = polygon_bounds(&line.polygon);
+                            let is_margin_flush = px <= 5 || px + lw >= page_w as i32 - 5;
+                            if is_margin_flush && line.score < 0.75 && !crate::ml::detect::is_onomatopoeia_or_shout(t) {
                                 return false;
                             }
                             true

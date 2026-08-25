@@ -827,7 +827,7 @@
 	{#if loading}
 		<div class="grid w-full gap-4 sm:grid-cols-2">
 			{#each [1, 2, 3, 4] as _}
-				<div class="h-44 animate-pulse rounded-2xl border border-black/[0.06] bg-black/[0.03] dark:border-white/[0.06] dark:bg-white/[0.03]"></div>
+				<div class="h-44 rounded-2xl border border-black/[0.06] bg-black/[0.03] dark:border-white/[0.06] dark:bg-white/[0.03]"></div>
 			{/each}
 		</div>
 	{:else if books.length === 0}
