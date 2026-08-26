@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "XianScan Importer",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "One-click comic and manga importer for your self-hosted XianScan server.",
   "permissions": [
     "activeTab",

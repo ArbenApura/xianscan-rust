@@ -54,5 +54,5 @@ yarn package
 ## Loading into Firefox
 1. Open Firefox and navigate to `about:debugging#/runtime/this-firefox`.
 2. Click **Load Temporary Add-on...**.
-3. Select `extensions/xianscan-importer/dist/manifest.json` (or `store/xianscan-importer-firefox-v1.0.0.xpi`).
+3. Select `extensions/xianscan-importer/dist/manifest.json` (or `store/xianscan-importer-firefox-v1.0.1.xpi`).
 4. The **XianScan Importer** is now active in Firefox!
