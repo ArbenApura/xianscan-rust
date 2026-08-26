@@ -128,16 +128,17 @@ pub fn is_onomatopoeia_or_shout(text: &str) -> bool {
         && (t.contains('！') || t.contains('!'))
         && t.chars().count() <= 3;
 
-    // Korean action onomatopoeia & shouts (e.g. "촤", "콰", "쿵", "쾅", "띠", "띵", "찌", "쨍", "틱", "톡", "뚝", "팍", "탁", "털", "쿵쾅", "띠링", "띠리")
+    // Korean action onomatopoeia & shouts (e.g. "촤", "콰", "쿵", "쾅", "띠", "띵", "찌", "쨍", "틱", "톡", "뚝", "팍", "탁", "철", "꾸", "꾹", "끼", "꽉", "콱", "털", "덜", "두")
     let is_korean_sfx_char = matches!(
         t.chars().next(),
         Some(
             '촤' | '콰' | '쾅' | '쿵' | '띠' | '띵' | '찌' | '쨍' | '틱' | '톡' | '뚝' | '팍' | '탁' | '철' | '척' | '홱' | '휙' | '쑥' | '쏙' | '또'
+                | '꾸' | '꾹' | '끼' | '꽉' | '콱' | '털' | '덜' | '두'
         )
     ) && t.chars().count() <= 3
         && (t.contains('!') || t.contains('~') || t.contains('-') || t.chars().count() <= 2);
 
-    // Repeated onomatopoeia patterns (e.g. "嘟嘟", "嘟嘟嘟", "轰隆隆", "咚咚", "哗啦啦", "嗒嗒")
+    // Repeated onomatopoeia patterns (e.g. "嘟嘟", "嘟嘟嘟", "轰隆隆", "咚咚", "哗啦啦", "嗒嗒", "두근두근", "哗啦哗啦")
     let chars: Vec<char> = t.chars().filter(|c| !c.is_whitespace() && !c.is_ascii_punctuation() && *c != '！' && *c != '？').collect();
     let is_repeated_sound = if chars.len() >= 2 && chars.len() <= 4 {
         let first = chars[0];
@@ -148,6 +149,8 @@ pub fn is_onomatopoeia_or_shout(text: &str) -> bool {
         } else if chars.len() == 3 && chars[1] == chars[2] && chars.iter().all(|c| crate::ml::detect::has_cjk_characters(&c.to_string())) {
             true
         } else if chars.len() == 4 && chars[0] == chars[1] && chars[2] == chars[3] && chars.iter().all(|c| crate::ml::detect::has_cjk_characters(&c.to_string())) {
+            true
+        } else if chars.len() == 4 && chars[0] == chars[2] && chars[1] == chars[3] && chars[0] != chars[1] && chars.iter().all(|c| crate::ml::detect::has_cjk_characters(&c.to_string())) {
             true
         } else {
             false

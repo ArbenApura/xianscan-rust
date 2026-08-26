@@ -1,0 +1,63 @@
+﻿// -- INTERNAL IMPORTS -- //
+use crate::common::get_or_analyze_fixture_with_lang;
+use xianscan_rust::ml::schemas::RegionKind;
+
+// -- TESTS -- //
+
+/// # KOREAN REAL-PAGE REGRESSION: `page_patient_endoscopy_heartbeat_sfx` (RESOLUTION: 690 × 1789)
+///
+/// ## PURPOSE & BEHAVIOR TESTED:
+/// - **TOP SPEECH BUBBLE**: `"자, 이게\n오늘 검사한\n부분인데요."` (Doctor explaining endoscopy screen)
+/// - **MIDDLE SPEECH BUBBLE**: `"아, 네!"` (Patient response bubble)
+/// - **BOTTOM SLANTED ONOMATOPOEIA / SFX**: `"두근두근"` (Heartbeat / throbbing SFX, slanted at approx -19.3°, classified as SoundEffect)
+#[test]
+fn test_regression_page_patient_endoscopy_heartbeat_sfx() {
+    let img = match crate::common::load_fixture_or_skip("ko", "page_patient_endoscopy_heartbeat_sfx/page.webp") {
+        Some(i) => i,
+        None => {
+            eprintln!("[INFO] Skipping test_regression_page_patient_endoscopy_heartbeat_sfx: fixture not found");
+            return;
+        }
+    };
+
+    let res = get_or_analyze_fixture_with_lang(&img, Some("ko"));
+    println!("Korean Endoscopy Patient Heartbeat SFX Page detected {} regions:", res.regions.len());
+    for (i, r) in res.regions.iter().enumerate() {
+        println!(
+            "  Region r{}: kind={:?}, angle={:.2}, box={:?}, text='{}', conf={:.2}",
+            i,
+            r.kind,
+            r.angle,
+            r.box_,
+            r.text.replace('\n', "\\n"),
+            r.confidence
+        );
+    }
+
+    // 1. EXACT ELEMENT COUNTS: EXACTLY 3 REGIONS (2 DIALOGUEBUBBLES, 1 SOUNDEFFECT, 0 FREETEXT)
+    crate::assert_element_counts!(res, 3, 2, 1, 0);
+
+    // 2. TOP SPEECH BUBBLE: [X: ~59, Y: ~406, W: ~175, H: ~128]
+    let top_bubble = res.regions.iter().find(|r| r.text.contains("검사한") || r.text.contains("부분"));
+    assert!(top_bubble.is_some(), "Must detect top dialogue bubble about endoscopy exam");
+    let top_bubble = top_bubble.unwrap();
+    assert_eq!(top_bubble.kind, RegionKind::DialogueBubble);
+    crate::assert_region_bounds!(top_bubble, RegionKind::DialogueBubble, 59, 406, 175, 128, 15);
+    crate::assert_bubble_bounds!(top_bubble, 10, 369, 273, 271, 20);
+
+    // 3. MIDDLE SPEECH BUBBLE: '아, 네!' -> [X: ~312, Y: ~980, W: ~124, H: ~47]
+    let mid_bubble = res.regions.iter().find(|r| r.text.contains("아, 네") || r.text.contains("아,네"));
+    assert!(mid_bubble.is_some(), "Must detect middle dialogue bubble '아, 네!'");
+    let mid_bubble = mid_bubble.unwrap();
+    assert_eq!(mid_bubble.kind, RegionKind::DialogueBubble);
+    crate::assert_region_bounds!(mid_bubble, RegionKind::DialogueBubble, 312, 980, 124, 47, 15);
+    crate::assert_bubble_bounds!(mid_bubble, 288, 943, 173, 134, 20);
+
+    // 4. BOTTOM SLANTED SFX: '두근두근' -> [X: ~134, Y: ~1189, W: ~254, H: ~159, Angle: ~ -19.3°]
+    let sfx = res.regions.iter().find(|r| r.text.contains("두근두근") || r.text.contains("두근"));
+    assert!(sfx.is_some(), "Must detect heartbeat SFX '두근두근'");
+    let sfx = sfx.unwrap();
+    assert_eq!(sfx.kind, RegionKind::SoundEffect, "Slanted onomatopoeia '두근두근' must be classified as SoundEffect");
+    crate::assert_region_bounds!(sfx, RegionKind::SoundEffect, 134, 1189, 254, 159, 15);
+    crate::assert_region_angle!(sfx, -19.3, 3.5);
+}

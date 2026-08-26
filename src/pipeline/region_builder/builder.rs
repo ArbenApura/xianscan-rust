@@ -638,7 +638,7 @@ pub fn build_regions(
                         continue;
                     }
                     // SUPPRESS LOW-CONFIDENCE ISOLATED PSEUDO-WORD HALLUCINATIONS ON COMPLEX BACKGROUND ARTWORK
-                    if matched_bubble.is_none() && !is_sfx && !is_detector_sfx && !is_sign_or_narration_box && avg_score < 0.65 && cleaned.chars().count() <= 6 && compute_chromatic_color_variance(img, &cluster_rect) >= 15.0 {
+                    if matched_bubble.is_none() && !is_sfx && !is_detector_sfx && !is_sign_or_narration_box && ((avg_score < 0.65 && cleaned.chars().count() <= 6 && compute_chromatic_color_variance(img, &cluster_rect) >= 15.0) || (avg_score < 0.70 && cleaned.chars().count() <= 16)) {
                         continue;
                     }
 

@@ -76,6 +76,29 @@ pub fn analyze_image_with_fusion(
     let is_detector_first = fusion_res.backend == "rfdetr-seg-2xl" || fusion_res.backend == "rtdetr-v2";
     if is_detector_first && (!fusion_res.text_bubbles.is_empty() || !fusion_res.text_free.is_empty() || !fusion_res.onomatopoeia.is_empty()) {
         for (b, score) in &fusion_res.text_bubbles {
+            // When SFX is disabled, do not ingest a text_bubble if it heavily overlaps an onomatopoeia (SFX) detection
+            if !enable_sfx {
+                let overlaps_sfx = fusion_res.onomatopoeia.iter().any(|(sfx_b, sfx_score)| {
+                    if *sfx_score < 0.20 {
+                        return false;
+                    }
+                    box_iou(b, sfx_b) >= 0.25 || {
+                        let ix = (b.x + b.w).min(sfx_b.x + sfx_b.w) - b.x.max(sfx_b.x);
+                        let iy = (b.y + b.h).min(sfx_b.y + sfx_b.h) - b.y.max(sfx_b.y);
+                        if ix > 0 && iy > 0 {
+                            let inter = (ix * iy) as f32;
+                            let b_area = (b.w * b.h).max(1) as f32;
+                            let s_area = (sfx_b.w * sfx_b.h).max(1) as f32;
+                            inter / b_area >= 0.30 || inter / s_area >= 0.30
+                        } else {
+                            false
+                        }
+                    }
+                });
+                if overlaps_sfx {
+                    continue;
+                }
+            }
             // If this is a loose composite box enclosing 2 or more separate tighter subboxes, skip it
             let matching_subboxes_count = fusion_res.text_bubbles.iter().filter(|(sub_b, sub_score)| {
                 *sub_score >= 0.45

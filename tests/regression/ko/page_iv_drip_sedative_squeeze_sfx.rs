@@ -1,0 +1,63 @@
+﻿// -- INTERNAL IMPORTS -- //
+use crate::common::get_or_analyze_fixture_with_lang;
+use xianscan_rust::ml::schemas::RegionKind;
+
+// -- TESTS -- //
+
+/// # KOREAN REAL-PAGE REGRESSION: `page_iv_drip_sedative_squeeze_sfx` (RESOLUTION: 690 × 1669)
+///
+/// ## PURPOSE & BEHAVIOR TESTED:
+/// - **TOP SPEECH BUBBLE**: `"선생님 들어오시면\n바로 수면약 들어갈\n거예요."` (Doctor entrance & sedative dialogue)
+/// - **SLANTED ONOMATOPOEIA / SFX**: `"꾸욱"` (Arm squeeze SFX, slanted at approx -10.8°, classified as SoundEffect)
+/// - **BOTTOM THOUGHT BUBBLE**: `"아야;;"` / `"아야:;"` (Pain thought bubble with bubble tail circles)
+#[test]
+fn test_regression_page_iv_drip_sedative_squeeze_sfx() {
+    let img = match crate::common::load_fixture_or_skip("ko", "page_iv_drip_sedative_squeeze_sfx/page.webp") {
+        Some(i) => i,
+        None => {
+            eprintln!("[INFO] Skipping test_regression_page_iv_drip_sedative_squeeze_sfx: fixture not found");
+            return;
+        }
+    };
+
+    let res = get_or_analyze_fixture_with_lang(&img, Some("ko"));
+    println!("Korean IV Drip Sedative Squeeze SFX Page detected {} regions:", res.regions.len());
+    for (i, r) in res.regions.iter().enumerate() {
+        println!(
+            "  Region r{}: kind={:?}, angle={:.2}, box={:?}, text='{}', conf={:.2}",
+            i,
+            r.kind,
+            r.angle,
+            r.box_,
+            r.text.replace('\n', "\\n"),
+            r.confidence
+        );
+    }
+
+    // 1. EXACT ELEMENT COUNTS: EXACTLY 3 REGIONS (2 DIALOGUEBUBBLES, 1 SOUNDEFFECT, 0 FREETEXT)
+    crate::assert_element_counts!(res, 3, 2, 1, 0);
+
+    // 2. TOP SPEECH BUBBLE: [X: ~328, Y: ~438, W: ~274, H: ~129]
+    let top_bubble = res.regions.iter().find(|r| r.text.contains("선생님") || r.text.contains("수면약"));
+    assert!(top_bubble.is_some(), "Must detect top dialogue bubble about doctor & sedative");
+    let top_bubble = top_bubble.unwrap();
+    assert_eq!(top_bubble.kind, RegionKind::DialogueBubble);
+    crate::assert_region_bounds!(top_bubble, RegionKind::DialogueBubble, 328, 438, 274, 129, 15);
+    crate::assert_bubble_bounds!(top_bubble, 283, 386, 365, 238, 20);
+
+    // 3. MIDDLE SLANTED SFX: '꾸욱' -> [X: ~462, Y: ~718, W: ~179, H: ~138, Angle: ~ -10.82°]
+    let sfx = res.regions.iter().find(|r| r.text.contains("꾸욱"));
+    assert!(sfx.is_some(), "Must detect squeeze SFX '꾸욱'");
+    let sfx = sfx.unwrap();
+    assert_eq!(sfx.kind, RegionKind::SoundEffect, "Slanted onomatopoeia '꾸욱' must be classified as SoundEffect");
+    crate::assert_region_bounds!(sfx, RegionKind::SoundEffect, 462, 718, 179, 138, 15);
+    crate::assert_region_angle!(sfx, -10.82, 3.5);
+
+    // 4. BOTTOM THOUGHT BUBBLE: [X: ~59, Y: ~1268, W: ~95, H: ~46]
+    let bot_bubble = res.regions.iter().find(|r| r.text.contains("아야"));
+    assert!(bot_bubble.is_some(), "Must detect bottom thought bubble '아야;;'");
+    let bot_bubble = bot_bubble.unwrap();
+    assert_eq!(bot_bubble.kind, RegionKind::DialogueBubble);
+    crate::assert_region_bounds!(bot_bubble, RegionKind::DialogueBubble, 59, 1268, 95, 46, 15);
+    crate::assert_bubble_bounds!(bot_bubble, 25, 1230, 164, 127, 20);
+}
