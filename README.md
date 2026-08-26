@@ -170,11 +170,14 @@ Download the pre-compiled binary for your system from [Releases](https://github.
 
 <br/>
 
-The **1-Click Web Importer Extension** ([`extensions/xianscan-importer/`](extensions/xianscan-importer/)) captures chapters from online comic sites and sends them directly to your local server:
+The **1-Click Web Importer Extension** ([`extensions/xianscan-importer/`](extensions/xianscan-importer/)) captures chapters from online comic sites and streams translations back to the host reader:
 
+- **In-Place Live Translation**: Replaces raw comic panels directly on the host website in real-time as background translation finishes, with smooth transitions, darkened pending states, and floating status badges.
+- **1-Click Chapter Import**: Intelligently detects chapter numbers from URL parameters (`?no=19`, `?episodeNo=19`), page subtitles, and book sequences, pre-selecting `Chapter N (NEW)` for instant 1-click execution.
+- **Intelligent Ad & Noise Shield**: Automatically filters out floating banners, promo overlays, external click-trackers, and extreme aspect ratio banner ads (`880×99`).
+- **Selective Exclusion Protection**: Deselecting any image in the gallery protects it from being modified or replaced on the host page.
+- **Private Network Safe**: Streams images into the webpage via in-memory Base64 data URLs through the extension background worker, preventing browser Private Network Access (PNA) permission prompts.
 - **Fast Capture**: Smooth-scrolls webtoon strips to trigger lazy image loaders and extracts pages in seconds.
-- **Noise Filtering**: Automatically isolates comic canvas containers while ignoring ads, banners, and sidebar thumbnails.
-- **Automated Queue**: Includes toggles in the extension popup to automatically trigger webtoon gutter reslicing and full translation upon upload completion.
 
 <details>
   <summary><b>Installation Instructions</b></summary>
