@@ -400,7 +400,6 @@
 							<thead class="bg-black/5 dark:bg-white/5 border-b border-black/10 dark:border-white/10 text-[10px] uppercase tracking-wider opacity-60">
 								<tr>
 									<th class="py-2 px-3">Page</th>
-									<th class="py-2 px-3">Status</th>
 									<th class="py-2 px-3">OCR</th>
 									<th class="py-2 px-3">LLM</th>
 									<th class="py-2 px-3">Inpaint</th>
@@ -414,9 +413,13 @@
 									{@const transTiming = p.timings.translate}
 									{@const cleanTiming = p.timings.clean}
 									{@const typeTiming = p.timings.typeset}
+									{@const isOcrRunning = ocrTiming?.status === 'running' || (p.status === 'processing' && p.currentStep === 'analyze' && running)}
+									{@const isTransRunning = transTiming?.status === 'running' || (p.status === 'processing' && p.currentStep === 'translate' && running)}
+									{@const isCleanRunning = cleanTiming?.status === 'running' || (p.status === 'processing' && p.currentStep === 'clean' && running)}
+									{@const isTypeRunning = typeTiming?.status === 'running' || (p.status === 'processing' && p.currentStep === 'typeset' && running)}
 									{@const totalDur = getPageTotalDuration(p)}
 									<tr class="hover:bg-black/[0.02] dark:hover:bg-white/[0.02] transition-colors">
-										<td class="py-2 px-3 font-bold whitespace-nowrap">
+										<td class="py-2.5 px-3 font-bold whitespace-nowrap">
 											<button
 												type="button"
 												on:click={() => scrollToPage(p.pageId, p.seq)}
@@ -426,57 +429,89 @@
 												Pg {p.seq + 1}
 											</button>
 										</td>
-										<td class="py-2 px-3 whitespace-nowrap">
-											{#if p.status === 'done'}
-												<span class="text-[#4f7a64] dark:text-[#83b39a] font-bold">✓ Done</span>
-											{:else if p.status === 'error'}
-												<span class="text-red-500 font-bold">✕ Error</span>
-											{:else if p.status === 'processing' && running}
-												<span class="text-[#b23a2e] dark:text-[#e08a63] font-bold flex items-center gap-1">
-													<Loader2 size={11} class="animate-spin" />
-													{p.currentStep ? PIPELINE_STEP_LABELS[p.currentStep] || p.currentStep : '...'}
+										<td class="py-2.5 px-3 whitespace-nowrap">
+											{#if isOcrRunning}
+												<span class="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md bg-[#b23a2e]/10 text-[#b23a2e] dark:bg-[#e08a63]/15 dark:text-[#e08a63] font-mono text-[11px] font-semibold tracking-tight shadow-2xs">
+													<Loader2 size={10} class="animate-spin shrink-0" />
+													<span>OCR...</span>
+												</span>
+											{:else if ocrTiming?.status === 'completed'}
+												<span class="inline-flex items-center gap-1 font-mono text-neutral-800 dark:text-neutral-200">
+													<CheckCircle2 size={11} class="text-[#4f7a64] dark:text-[#83b39a] shrink-0" />
+													<span>{formatDuration(ocrTiming.durationMs)}</span>
+												</span>
+											{:else if ocrTiming?.status === 'failed'}
+												<span class="inline-flex items-center gap-1 text-rose-600 dark:text-rose-400 font-semibold text-[11px]">
+													<AlertTriangle size={11} class="shrink-0" />
+													<span>Failed</span>
 												</span>
 											{:else}
-												<span class="opacity-30">Pending</span>
+												<span class="opacity-25 font-mono text-[11px] select-none">-</span>
 											{/if}
 										</td>
-										<td class="py-2 px-3 whitespace-nowrap">
-											{#if ocrTiming?.status === 'completed'}
-												<span>{formatDuration(ocrTiming.durationMs)}</span>
-											{:else if ocrTiming?.status === 'running'}
-												<span class="text-[#b23a2e]">Running</span>
+										<td class="py-2.5 px-3 whitespace-nowrap">
+											{#if isTransRunning}
+												<span class="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md bg-[#b23a2e]/10 text-[#b23a2e] dark:bg-[#e08a63]/15 dark:text-[#e08a63] font-mono text-[11px] font-semibold tracking-tight shadow-2xs">
+													<Loader2 size={10} class="animate-spin shrink-0" />
+													<span>LLM...</span>
+												</span>
+											{:else if transTiming?.status === 'completed'}
+												<span class="inline-flex items-center gap-1 font-mono text-neutral-800 dark:text-neutral-200">
+													<CheckCircle2 size={11} class="text-[#4f7a64] dark:text-[#83b39a] shrink-0" />
+													<span>{formatDuration(transTiming.durationMs)}</span>
+													{#if transTiming.details?.cacheHit}
+														<span class="rounded bg-[#4f7a64]/15 px-1 py-0.2 text-[9px] font-bold text-[#4f7a64] dark:text-[#83b39a]">
+															HIT
+														</span>
+													{/if}
+												</span>
+											{:else if transTiming?.status === 'failed'}
+												<span class="inline-flex items-center gap-1 text-rose-600 dark:text-rose-400 font-semibold text-[11px]">
+													<AlertTriangle size={11} class="shrink-0" />
+													<span>Failed</span>
+												</span>
 											{:else}
-												<span class="opacity-30">-</span>
+												<span class="opacity-25 font-mono text-[11px] select-none">-</span>
 											{/if}
 										</td>
-										<td class="py-2 px-3 whitespace-nowrap">
-											{#if transTiming?.status === 'completed'}
-												<span>{formatDuration(transTiming.durationMs)}</span>
-												{#if transTiming.details?.cacheHit}
-													<span class="text-[#4f7a64] font-bold text-[9px] ml-0.5">HIT</span>
-												{/if}
-											{:else if transTiming?.status === 'running'}
-												<span class="text-[#b23a2e]">Running</span>
+										<td class="py-2.5 px-3 whitespace-nowrap">
+											{#if isCleanRunning}
+												<span class="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md bg-[#b23a2e]/10 text-[#b23a2e] dark:bg-[#e08a63]/15 dark:text-[#e08a63] font-mono text-[11px] font-semibold tracking-tight shadow-2xs">
+													<Loader2 size={10} class="animate-spin shrink-0" />
+													<span>Inpaint...</span>
+												</span>
+											{:else if cleanTiming?.status === 'completed'}
+												<span class="inline-flex items-center gap-1 font-mono text-neutral-800 dark:text-neutral-200">
+													<CheckCircle2 size={11} class="text-[#4f7a64] dark:text-[#83b39a] shrink-0" />
+													<span>{formatDuration(cleanTiming.durationMs)}</span>
+												</span>
+											{:else if cleanTiming?.status === 'failed'}
+												<span class="inline-flex items-center gap-1 text-rose-600 dark:text-rose-400 font-semibold text-[11px]">
+													<AlertTriangle size={11} class="shrink-0" />
+													<span>Failed</span>
+												</span>
 											{:else}
-												<span class="opacity-30">-</span>
+												<span class="opacity-25 font-mono text-[11px] select-none">-</span>
 											{/if}
 										</td>
-										<td class="py-2 px-3 whitespace-nowrap">
-											{#if cleanTiming?.status === 'completed'}
-												<span>{formatDuration(cleanTiming.durationMs)}</span>
-											{:else if cleanTiming?.status === 'running'}
-												<span class="text-[#b23a2e]">Running</span>
+										<td class="py-2.5 px-3 whitespace-nowrap">
+											{#if isTypeRunning}
+												<span class="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md bg-[#b23a2e]/10 text-[#b23a2e] dark:bg-[#e08a63]/15 dark:text-[#e08a63] font-mono text-[11px] font-semibold tracking-tight shadow-2xs">
+													<Loader2 size={10} class="animate-spin shrink-0" />
+													<span>Typeset...</span>
+												</span>
+											{:else if typeTiming?.status === 'completed'}
+												<span class="inline-flex items-center gap-1 font-mono text-neutral-800 dark:text-neutral-200">
+													<CheckCircle2 size={11} class="text-[#4f7a64] dark:text-[#83b39a] shrink-0" />
+													<span>{formatDuration(typeTiming.durationMs)}</span>
+												</span>
+											{:else if typeTiming?.status === 'failed'}
+												<span class="inline-flex items-center gap-1 text-rose-600 dark:text-rose-400 font-semibold text-[11px]">
+													<AlertTriangle size={11} class="shrink-0" />
+													<span>Failed</span>
+												</span>
 											{:else}
-												<span class="opacity-30">-</span>
-											{/if}
-										</td>
-										<td class="py-2 px-3 whitespace-nowrap">
-											{#if typeTiming?.status === 'completed'}
-												<span>{formatDuration(typeTiming.durationMs)}</span>
-											{:else if typeTiming?.status === 'running'}
-												<span class="text-[#b23a2e]">Running</span>
-											{:else}
-												<span class="opacity-30">-</span>
+												<span class="opacity-25 font-mono text-[11px] select-none">-</span>
 											{/if}
 										</td>
 										<td class="py-2 px-3 text-right font-bold whitespace-nowrap">

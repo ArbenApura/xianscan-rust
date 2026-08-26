@@ -114,17 +114,18 @@
 			}
 			if (currentBatchItem.status === 'done') {
 				const total = currentBatchItem.totalPages || chapter.pageCount || 0;
-				const done = currentBatchItem.translatedPages || total;
+				const done = chapter.translatedPageCount !== undefined ? chapter.translatedPageCount : (currentBatchItem.translatedPages || total);
+				const isReallyDone = total > 0 && done === total;
 				return {
 					isLive: true,
 					running: false,
-					phaseLabel: 'Done',
+					phaseLabel: isReallyDone ? 'Done' : '',
 					currentPhase: undefined,
 					completedPages: done,
 					totalPages: total,
-					percent: 100,
-					isComplete: true,
-					effectiveStatus: 'done' as const,
+					percent: total > 0 ? Math.min(100, Math.round((done / total) * 100)) : 0,
+					isComplete: isReallyDone,
+					effectiveStatus: isReallyDone ? ('done' as const) : ('pending' as const),
 				};
 			}
 			if (currentBatchItem.status === 'error') {
@@ -143,7 +144,7 @@
 				};
 			}
 			if (currentBatchItem.status === 'cancelled' || currentBatchItem.status === 'skipped') {
-				const done = currentBatchItem.translatedPages || chapter.translatedPageCount || 0;
+				const done = chapter.translatedPageCount !== undefined ? chapter.translatedPageCount : (currentBatchItem.translatedPages || 0);
 				const total = chapter.pageCount || 0;
 				const isComplete = total > 0 && done === total;
 				return {
@@ -189,7 +190,7 @@
 		const total = chapter.pageCount || 0;
 		const done = chapter.translatedPageCount || 0;
 		const percent = total > 0 ? Math.min(100, Math.round((done / total) * 100)) : 0;
-		const isComplete = total > 0 && (chapter.status === 'done' || done === total);
+		const isComplete = total > 0 && done === total;
 		const isProcessing = chapter.status === 'processing' && (isJobRunning || isBatchActive);
 		const effectiveStatus: Chapter['status'] = isComplete
 			? 'done'

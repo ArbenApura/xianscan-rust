@@ -546,12 +546,14 @@
 		if (!chapterToClearPages) return;
 		clearingPages = true;
 		try {
-			const resp = await fetch(`/api/chapters/${chapterToClearPages.id}/pages`, { method: 'DELETE' });
+			const targetId = chapterToClearPages.id;
+			const resp = await fetch(`/api/chapters/${targetId}/pages`, { method: 'DELETE' });
 			if (!resp.ok) {
 				const err = await resp.json().catch(() => ({}));
 				throw new Error(err.message || 'Failed to clear pages');
 			}
 			const data = await resp.json().catch(() => ({ deletedCount: 0 }));
+			batchTracker.clearChapter(targetId);
 			toast.success(`Cleared ${data.deletedCount} page${data.deletedCount === 1 ? '' : 's'} from chapter.`);
 			clearPagesConfirmOpen = false;
 			chapterToClearPages = null;
@@ -697,18 +699,19 @@
 			}
 			if (currentBatchItem.status === 'done') {
 				const total = currentBatchItem.totalPages || ch.pageCount || 0;
-				const done = currentBatchItem.translatedPages || total;
+				const done = ch.translatedPageCount !== undefined ? ch.translatedPageCount : (currentBatchItem.translatedPages || total);
+				const isReallyDone = total > 0 && done === total;
 				return {
 					isLive: true,
 					running: false,
-					phaseLabel: 'Done',
+					phaseLabel: isReallyDone ? 'Done' : '',
 					currentPhase: undefined,
 					completedPages: done,
 					totalPages: total,
-					percent: 100,
-					isComplete: true,
+					percent: total > 0 ? Math.min(100, Math.round((done / total) * 100)) : 0,
+					isComplete: isReallyDone,
 					isAlreadyQueued: false,
-					effectiveStatus: 'done' as const,
+					effectiveStatus: isReallyDone ? ('done' as const) : ('pending' as const),
 				};
 			}
 			if (currentBatchItem.status === 'error') {
@@ -728,7 +731,7 @@
 				};
 			}
 			if (currentBatchItem.status === 'cancelled' || currentBatchItem.status === 'skipped') {
-				const done = currentBatchItem.translatedPages || ch.translatedPageCount || 0;
+				const done = ch.translatedPageCount !== undefined ? ch.translatedPageCount : (currentBatchItem.translatedPages || 0);
 				const total = ch.pageCount || 0;
 				const isComplete = total > 0 && done === total;
 				return {
@@ -780,7 +783,7 @@
 		const total = ch.pageCount || 0;
 		const done = ch.translatedPageCount || 0;
 		const percent = total > 0 ? Math.min(100, Math.round((done / total) * 100)) : 0;
-		const isComplete = total > 0 && (ch.status === 'done' || done === total);
+		const isComplete = total > 0 && done === total;
 		const isBatchRunning = $batchTracker.active && ($batchTracker.status === 'running' || $batchTracker.status === 'paused');
 		const isProcessing = ch.status === 'processing' && (isJobRunning || isBatchRunning);
 		const effectiveStatus: Chapter['status'] = isComplete
@@ -1812,7 +1815,7 @@
 </Modal>
 
 <!-- EDIT BOOK MODAL -->
-<Modal open={editBookModalOpen} title="Edit Series Details" size="md" on:close={() => (editBookModalOpen = false)}>
+<Modal open={editBookModalOpen} title="Edit Book Details" size="md" on:close={() => (editBookModalOpen = false)}>
 	{#if book}
 		<form class="flex flex-col gap-4" on:submit|preventDefault={updateBook}>
 			<TextField
@@ -1862,8 +1865,8 @@
 			<div
 				class="flex flex-col gap-3 rounded-xl border border-black/10 bg-black/[0.02] p-3 dark:border-white/10 dark:bg-white/[0.02]"
 			>
-				<Switch bind:checked={editBookPinned} label="Pin series to top" />
-				<Switch bind:checked={editBookArchived} label="Archive series" />
+				<Switch bind:checked={editBookPinned} label="Pin book to top" />
+				<Switch bind:checked={editBookArchived} label="Archive book" />
 			</div>
 
 			<BookCoverPicker

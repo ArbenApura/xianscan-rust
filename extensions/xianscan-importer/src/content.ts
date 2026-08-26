@@ -1,10 +1,13 @@
-// CONTENT SCRIPT: HEURISTIC READER SCANNER & AUTO-SCROLL PRELOADER
+// -- CONTENT SCRIPT: HEURISTIC SCANNER, AUTO-SCROLLER & IN-PLACE LIVE TRANSLATOR -- //
 
-import type { ScannedImage, ScanPageResponse } from './types';
+import type { ScannedImage, ScanPageResponse, ChapterMappingEntry, PageTranslatedMessage, ChapterSyncMessage } from './types';
+import { XianScanClient } from './api';
 import { parseChapterMetadata } from './utils/chapter-parser';
 import { sortImagesByCoordinates, getCanonicalUrl, computeDHashFromElement } from './utils/sorter';
+import { DomReplacerEngine } from './utils/dom-replacer';
 
-// EXTRACT POTENTIAL IMAGE URLS FROM SRCSET
+// -- SCANNER HELPERS -- //
+
 function parseSrcset(srcset: string): string[] {
 	return srcset
 		.split(',')
@@ -12,14 +15,12 @@ function parseSrcset(srcset: string): string[] {
 		.filter(Boolean);
 }
 
-// FIND IMAGES IN READER JSON STATE IF AVAILABLE
 function extractFromEmbeddedJson(): string[] {
 	const results: string[] = [];
 	try {
 		const jsonScripts = document.querySelectorAll('script[type="application/json"], script[id*="data"], script[id*="state"]');
 		for (const el of Array.from(jsonScripts)) {
 			const text = el.textContent || '';
-			// LOOK FOR ARRAYS OF IMAGE URLS
 			const matches = text.match(/https?:\/\/[^"'\s\\]+\.(?:jpg|jpeg|png|webp|avif)(?:\?[^"'\s\\]*)?/gi);
 			if (matches && matches.length >= 3) {
 				results.push(...matches);
@@ -49,6 +50,15 @@ const NOISE_CONTAINER_SELECTOR = [
 	'[class*="advert"]',
 	'[class*="banner"]',
 	'[id*="banner"]',
+	'[class*="promo"]',
+	'[id*="promo"]',
+	'[class*="sponsor"]',
+	'[class*="floating"]',
+	'[id*="floating"]',
+	'[class*="sticky"]',
+	'[id*="sticky"]',
+	'[class*="fixed"]',
+	'[id*="fixed"]',
 	'[class*="recommend"]',
 	'[class*="related"]',
 	'[class*="popular"]',
@@ -56,10 +66,16 @@ const NOISE_CONTAINER_SELECTOR = [
 	'[class*="social"]',
 	'[class*="share"]',
 	'[class*="widget"]',
-	'[class*="avatar"]'
+	'[class*="avatar"]',
+	'[class*="gnb"]',
+	'[id*="gnb"]',
+	'[class*="snb"]',
+	'[id*="snb"]'
 ].join(',');
 
 const READER_CONTAINER_SELECTOR = [
+	'div[class*="wt_viewer"]',
+	'#comic_view_area',
 	'div[class*="reading-content"]',
 	'div[class*="reader-area"]',
 	'div[class*="reader"]',
@@ -71,6 +87,109 @@ const READER_CONTAINER_SELECTOR = [
 	'div[class*="v-reader"]',
 	'article'
 ].join(',');
+
+export function isFloatingOrSticky(el: HTMLElement): boolean {
+	let curr: HTMLElement | null = el;
+	while (curr && curr !== document.body && curr !== document.documentElement) {
+		const style = typeof window !== 'undefined' && window.getComputedStyle ? window.getComputedStyle(curr) : null;
+		if (style) {
+			const pos = style.position;
+			if (pos === 'fixed' || pos === 'sticky') {
+				return true;
+			}
+		}
+		curr = curr.parentElement;
+	}
+	return false;
+}
+
+export function isLikelyAdOrBannerImage(img: HTMLImageElement): boolean {
+	// 1. CHECK PARENT LINK (<a> TAGS): COMIC PANELS ARE ALMOST NEVER EXTERNAL AD LINKS
+	const parentLink = img.closest('a');
+	if (parentLink && parentLink.href) {
+		const href = parentLink.href.toLowerCase();
+		if (
+			href.includes('telegram') ||
+			href.includes('t.me') ||
+			href.includes('click') ||
+			href.includes('affiliate') ||
+			href.includes('track') ||
+			href.includes('redirect') ||
+			href.includes('casino') ||
+			href.includes('bet') ||
+			href.includes('game') ||
+			href.includes('apk') ||
+			href.includes('app') ||
+			parentLink.target === '_blank'
+		) {
+			return true;
+		}
+	}
+
+	// 2. CHECK AD NOISE CONTAINERS & AD CLASS NAMES
+	const AD_CLASS_PATTERNS = [
+		'ad', 'ads', 'advert', 'banner', 'promo', 'sponsor', 'floating',
+		'sticky', 'fixed', 'guanggao', 'gg', 'pop', 'aff', 'tg', 'notice'
+	];
+	let curr: HTMLElement | null = img;
+	let depth = 0;
+	while (curr && curr !== document.body && depth < 5) {
+		const classList = curr.className ? String(curr.className).toLowerCase() : '';
+		const id = curr.id ? String(curr.id).toLowerCase() : '';
+		for (const pattern of AD_CLASS_PATTERNS) {
+			if (
+				(classList && (classList === pattern || classList.includes(`-${pattern}`) || classList.includes(`${pattern}-`) || classList.includes(`_${pattern}`) || classList.includes(`${pattern}_`))) ||
+				(id && (id === pattern || id.includes(`-${pattern}`) || id.includes(`${pattern}-`) || id.includes(`_${pattern}`) || id.includes(`${pattern}_`)))
+			) {
+				return true;
+			}
+		}
+		curr = curr.parentElement;
+		depth++;
+	}
+
+	// 3. ASPECT RATIO & DIMENSION FILTER FOR AD BANNERS
+	const rect = img.getBoundingClientRect ? img.getBoundingClientRect() : { width: img.width || 0, height: img.height || 0 };
+	const width = img.naturalWidth || rect.width || img.width || 0;
+	const height = img.naturalHeight || rect.height || img.height || 0;
+
+	if (width > 0 && height > 0) {
+		const aspectRatio = width / height;
+		// HORIZONTAL BANNER AD DETECTION (e.g. 880x99, 728x90, 970x90, 1000x120)
+		if (aspectRatio >= 3.0 && height <= 260) {
+			return true;
+		}
+		if (aspectRatio >= 4.5) {
+			return true;
+		}
+		if (width >= 250 && height < 130) {
+			return true;
+		}
+		// VERTICAL SKYSCRAPER BANNER AD DETECTION
+		if (aspectRatio <= 0.25 && width <= 200) {
+			return true;
+		}
+	}
+
+	// 4. SOURCE URL NOISE DETECTION
+	const src = (img.currentSrc || img.src || img.getAttribute('data-src') || img.getAttribute('data-original') || '').toLowerCase();
+	if (
+		src.includes('banner') ||
+		src.includes('advert') ||
+		src.includes('guanggao') ||
+		src.includes('promo') ||
+		src.includes('sponsor') ||
+		src.includes('avatar') ||
+		src.includes('logo') ||
+		src.includes('/ad/') ||
+		src.includes('_ad.') ||
+		src.includes('-ad.')
+	) {
+		return true;
+	}
+
+	return false;
+}
 
 // SCAN DOM FOR READER IMAGES WITH SCAN-TIME DEDUPLICATION
 export function scanPageForImages(): ScannedImage[] {
@@ -92,10 +211,21 @@ export function scanPageForImages(): ScannedImage[] {
 	// 1. SCAN STANDARD <img> AND <picture> ELEMENTS WITHIN ROOTSCOPE
 	const imgElements = rootScope.querySelectorAll<HTMLImageElement>('img, picture img');
 	for (const img of Array.from(imgElements)) {
+		// IGNORE INJECTED CLONES
+		if (img.getAttribute('data-xianscan-injected') === 'true') {
+			continue;
+		}
+
 		// DROP IMAGES NESTED WITHIN NOISE CONTAINERS (HEADERS, FOOTERS, SIDEBARS, COMMENTS, ADS)
 		if (img.closest(NOISE_CONTAINER_SELECTOR)) continue;
 
-		// RESOLVE HIGHEST-PRIORITY SOURCE ATTRIBUTE (FAVORING TRUE LAZY ATTRIBUTES OVER PLACEHOLDER SRC)
+		// DROP FLOATING OR STICKY ELEMENTS (BANNERS, DOCKED NAVS, FLOATING PROMOS)
+		if (isFloatingOrSticky(img)) continue;
+
+		// DROP BANNER ADS, PROMO OVERLAYS, EXTERNAL AD LINKS, AND ABNORMAL ASPECT RATIOS
+		if (isLikelyAdOrBannerImage(img)) continue;
+
+		// RESOLVE HIGHEST-PRIORITY SOURCE ATTRIBUTE
 		const candidates = [
 			img.getAttribute('data-src'),
 			img.getAttribute('data-original'),
@@ -110,7 +240,6 @@ export function scanPageForImages(): ScannedImage[] {
 			img.src
 		].filter(Boolean) as string[];
 
-		// FIND THE FIRST VALID NON-PLACEHOLDER CANDIDATE
 		let possibleSrc: string | null = null;
 		for (const cand of candidates) {
 			if (!cand.startsWith('data:') && !cand.includes('placeholder') && !cand.includes('blur')) {
@@ -119,14 +248,12 @@ export function scanPageForImages(): ScannedImage[] {
 			}
 		}
 
-		// FALLBACK TO FIRST AVAILABLE IF NONE MATCHED
 		if (!possibleSrc && candidates.length > 0) {
 			possibleSrc = candidates[0];
 		}
 
 		if (!possibleSrc || possibleSrc.startsWith('data:')) continue;
 
-		// CONVERT TO ABSOLUTE URL
 		let absoluteUrl = possibleSrc;
 		try {
 			absoluteUrl = new URL(possibleSrc, window.location.href).href;
@@ -134,19 +261,16 @@ export function scanPageForImages(): ScannedImage[] {
 			continue;
 		}
 
-		// CANONICAL URL DE-DUPLICATION CHECK
 		const canonicalUrl = getCanonicalUrl(absoluteUrl);
 		if (seenCanonicalUrls.has(canonicalUrl)) {
 			continue;
 		}
 
-		// EXTRACT VISUAL DHASH IF IMAGE IS RENDERED IN DOM
 		let dhash: string | undefined;
 		if (img.complete && img.naturalWidth > 0) {
 			const computedHash = computeDHashFromElement(img);
 			if (computedHash) {
 				if (seenHashes.has(computedHash)) {
-					// DROP DUPLICATE IMAGE WITH IDENTICAL VISUAL FINGERPRINT
 					continue;
 				}
 				seenHashes.add(computedHash);
@@ -160,7 +284,6 @@ export function scanPageForImages(): ScannedImage[] {
 		const width = img.naturalWidth || rect.width || 0;
 		const height = img.naturalHeight || rect.height || 0;
 
-		// DETECT MICRO-THUMBNAIL RENDERED IN LARGE CONTAINER (UNLOADED BLUR PLACEHOLDER)
 		if (img.naturalWidth > 0 && img.naturalWidth < 80 && rect.width > 200) {
 			continue;
 		}
@@ -252,9 +375,113 @@ export async function fastScrollPreload(): Promise<void> {
 	window.scrollTo(0, initialScrollY);
 }
 
+// -- IN-PLACE REPLACEMENT COORDINATOR -- //
+
+class InPlaceTranslationCoordinator {
+	private replacer: DomReplacerEngine;
+	private client: XianScanClient;
+	private activeMapping: ChapterMappingEntry | null = null;
+	private serverUrl = 'http://127.0.0.1:8124';
+
+	constructor() {
+		this.client = new XianScanClient(this.serverUrl);
+		this.replacer = new DomReplacerEngine(this.serverUrl);
+	}
+
+	async init() {
+		const stored = await chrome.storage.local.get(['serverUrl', 'inPlaceReplacement']);
+		if (stored.serverUrl) {
+			this.serverUrl = stored.serverUrl;
+			this.client.setBaseUrl(this.serverUrl);
+			this.replacer.setBaseUrl(this.serverUrl);
+		}
+
+		const inPlaceEnabled = stored.inPlaceReplacement !== false;
+		if (!inPlaceEnabled) return;
+
+		// QUERY MAPPING FOR CURRENT TAB URL
+		chrome.runtime.sendMessage(
+			{ type: 'GET_SITE_MAPPING', url: window.location.href },
+			async (res: { mapping?: ChapterMappingEntry | null }) => {
+				if (chrome.runtime.lastError || !res || !res.mapping) {
+					return;
+				}
+
+				this.activeMapping = res.mapping;
+				await this.syncWithServer();
+			}
+		);
+	}
+
+	setActiveMapping(entry: ChapterMappingEntry) {
+		this.activeMapping = entry;
+		void this.syncWithServer();
+	}
+
+	async syncWithServer() {
+		if (!this.activeMapping) return;
+
+		try {
+			const chapterResult = await this.client.getChapterDetails(this.activeMapping.chapterId);
+			if (!chapterResult || !chapterResult.chapter || !chapterResult.pages) {
+				throw new Error('Chapter not found.');
+			}
+
+			const pages = chapterResult.pages;
+			if (pages.length > 0) {
+				this.replacer.mountTranslatedPages(
+					pages,
+					this.activeMapping.excludedImageUrls,
+					this.activeMapping.includedImageUrls
+				);
+			}
+		} catch (err: any) {
+			const errMsg = err?.message || String(err);
+			if (errMsg.includes('Chapter not found') || errMsg.includes('404')) {
+				console.info('[XianScan] Mapped chapter was removed from server. Auto-clearing local mapping.');
+				chrome.runtime.sendMessage({
+					type: 'DELETE_SITE_MAPPING',
+					url: window.location.href
+				}, () => {
+					void chrome.runtime.lastError;
+				});
+				this.activeMapping = null;
+				this.replacer.destroy();
+			} else {
+				console.warn('[XianScan] Could not sync in-place translation with server:', err);
+			}
+		}
+	}
+
+	handlePageTranslated(msg: PageTranslatedMessage) {
+		if (!this.activeMapping) {
+			this.activeMapping = {
+				url: window.location.href,
+				bookId: '',
+				chapterId: msg.chapterId,
+				isResliced: true,
+				pageCount: msg.total || 0,
+				enabled: true,
+				lastSyncedAt: Date.now()
+			};
+		}
+
+		if (String(this.activeMapping.chapterId) === String(msg.chapterId)) {
+			this.replacer.updatePageSlice(msg.pageId, msg.pageSeq, msg.outputRev);
+		}
+	}
+
+	setMode(mode: 'translated' | 'raw') {
+		this.replacer.setMode(mode);
+	}
+}
+
 // RUNTIME MESSAGE LISTENER (GUARDED AGAINST DUPLICATE INJECTIONS)
 if (typeof window !== 'undefined' && !(window as any).__xianscan_content_injected) {
 	(window as any).__xianscan_content_injected = true;
+
+	const coordinator = new InPlaceTranslationCoordinator();
+	coordinator.init();
 
 	chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
 		if (message.type === 'SCAN_PAGE') {
@@ -279,6 +506,38 @@ if (typeof window !== 'undefined' && !(window as any).__xianscan_content_injecte
 				metadata.pageCount = images.length;
 				sendResponse({ success: true, images, metadata });
 			});
+			return true;
+		}
+
+		if (message.type === 'SET_ACTIVE_MAPPING') {
+			coordinator.setActiveMapping(message.entry);
+			sendResponse({ received: true });
+			return true;
+		}
+
+		if (message.type === 'PAGE_TRANSLATED') {
+			coordinator.handlePageTranslated(message);
+			sendResponse({ received: true });
+			return true;
+		}
+
+		if (message.type === 'CHAPTER_SYNC_UPDATE') {
+			coordinator.syncWithServer().then(() => {
+				sendResponse({ received: true });
+			});
+			return true;
+		}
+
+		if (message.type === 'TRIGGER_SYNC') {
+			coordinator.syncWithServer().then(() => {
+				sendResponse({ success: true });
+			});
+			return true;
+		}
+
+		if (message.type === 'TOGGLE_MODE') {
+			coordinator.setMode(message.mode);
+			sendResponse({ success: true });
 			return true;
 		}
 

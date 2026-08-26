@@ -1,6 +1,6 @@
 <script lang="ts">
 	// IMPORTED DEP-MODULES
-	import { onMount, onDestroy } from 'svelte';
+	import { onMount, onDestroy, tick } from 'svelte';
 	import { fade, fly, slide } from 'svelte/transition';
 	import { cubicOut } from 'svelte/easing';
 	import { goto } from '$app/navigation';
@@ -16,7 +16,6 @@
 	import Play from 'lucide-svelte/icons/play';
 	import SkipForward from 'lucide-svelte/icons/skip-forward';
 	import X from 'lucide-svelte/icons/x';
-	import ChevronDown from 'lucide-svelte/icons/chevron-down';
 	import ChevronUp from 'lucide-svelte/icons/chevron-up';
 	import Layers from 'lucide-svelte/icons/layers';
 	import Clock from 'lucide-svelte/icons/clock';
@@ -51,17 +50,77 @@
 	let dragOverQueueIndex: number | null = null;
 	let selectedTelemetryChapterId: number | null = null;
 
+	// DRAGGABLE POSITIONING STATES
+	let posX: number | null = null;
+	let posY: number | null = null;
+	let anchor: 'bottom' | 'top' = 'bottom';
+	let anchorDist: number | null = null;
+	let isDragging = false;
+	let dragStartX = 0;
+	let dragStartY = 0;
+	let initialWidgetX = 0;
+	let initialWidgetY = 0;
+	let hasDraggedFar = false;
+
 	// -- LIFECYCLES -- //
 
 	onMount(() => {
 		batchTracker.sync();
+		if (typeof window !== 'undefined') {
+			try {
+				const saved = sessionStorage.getItem('xianscan_queue_widget_pos');
+				if (saved) {
+					const parsed = JSON.parse(saved);
+					if (typeof parsed.x === 'number') {
+						posX = parsed.x;
+						anchor = parsed.anchor === 'top' ? 'top' : 'bottom';
+						anchorDist = typeof parsed.dist === 'number' ? parsed.dist : (typeof parsed.y === 'number' ? parsed.y : null);
+						posY = typeof parsed.y === 'number' ? parsed.y : null;
+						void tick().then(clampPosition);
+					}
+				}
+			} catch {
+				// IGNORE SESSION STORAGE PARSE ERROR
+			}
+			window.addEventListener('resize', handleWindowResize);
+		}
 	});
 
 	onDestroy(() => {
 		if (timer) clearInterval(timer);
 		if (switchTimer) clearTimeout(switchTimer);
 		if (resetTimer) clearTimeout(resetTimer);
+		if (typeof window !== 'undefined') {
+			window.removeEventListener('resize', handleWindowResize);
+		}
 	});
+
+	// CLAMP POSITION TO VIEWPORT WITH PERMANENT SCREEN PADDING
+	function clampPosition() {
+		if (posX === null || anchorDist === null || !widgetEl || typeof window === 'undefined') return;
+		const marginX = window.innerWidth < 640 ? 12 : 24;
+		const marginY = window.innerWidth < 640 ? 12 : 16;
+		const width = widgetEl.offsetWidth || 480;
+		const height = widgetEl.offsetHeight || 64;
+		const maxX = Math.max(marginX, window.innerWidth - width - marginX);
+		posX = Math.max(marginX, Math.min(posX, maxX));
+
+		if (anchor === 'bottom') {
+			const maxBottom = Math.max(marginY, window.innerHeight - height - marginY);
+			anchorDist = Math.max(marginY, Math.min(anchorDist, maxBottom));
+		} else {
+			const maxTop = Math.max(marginY, window.innerHeight - height - marginY);
+			anchorDist = Math.max(marginY, Math.min(anchorDist, maxTop));
+		}
+	}
+
+	function handleWindowResize() {
+		clampPosition();
+	}
+
+	$: if (expanded !== undefined) {
+		void tick().then(clampPosition);
+	}
 
 	// -- REACTIVE STATEMENTS -- //
 
@@ -409,6 +468,106 @@
 		draggedQueueIndex = null;
 		dragOverQueueIndex = null;
 	}
+
+	// HUD POSITIONING & POINTER DRAG HANDLERS
+	function handleHeaderPointerDown(e: PointerEvent) {
+		if (e.button !== 0) return;
+		const target = e.target as HTMLElement | null;
+		if (target?.closest('button[data-interactive="true"], a, input, select')) return;
+
+		if (!widgetEl) return;
+		const rect = widgetEl.getBoundingClientRect();
+		initialWidgetX = rect.left;
+		initialWidgetY = rect.top;
+		posX = initialWidgetX;
+		posY = initialWidgetY;
+
+		dragStartX = e.clientX;
+		dragStartY = e.clientY;
+		isDragging = true;
+		hasDraggedFar = false;
+
+		const currentTarget = e.currentTarget as HTMLElement | null;
+		if (currentTarget && 'setPointerCapture' in currentTarget) {
+			try {
+				currentTarget.setPointerCapture(e.pointerId);
+			} catch {
+				// IGNORE
+			}
+		}
+	}
+
+	function handleHeaderPointerMove(e: PointerEvent) {
+		if (!isDragging || !widgetEl) return;
+		const dx = e.clientX - dragStartX;
+		const dy = e.clientY - dragStartY;
+		if (Math.hypot(dx, dy) > 4) {
+			hasDraggedFar = true;
+		}
+		const marginX = typeof window !== 'undefined' && window.innerWidth < 640 ? 12 : 24;
+		const marginY = typeof window !== 'undefined' && window.innerWidth < 640 ? 12 : 16;
+		const width = widgetEl.offsetWidth || 480;
+		const height = widgetEl.offsetHeight || 64;
+		const maxX = Math.max(marginX, window.innerWidth - width - marginX);
+		const maxY = Math.max(marginY, window.innerHeight - height - marginY);
+		posX = Math.max(marginX, Math.min(initialWidgetX + dx, maxX));
+		posY = Math.max(marginY, Math.min(initialWidgetY + dy, maxY));
+	}
+
+	function handleHeaderPointerUp(e: PointerEvent) {
+		if (!isDragging) return;
+		isDragging = false;
+		const currentTarget = e.currentTarget as HTMLElement | null;
+		if (currentTarget && 'releasePointerCapture' in currentTarget) {
+			try {
+				currentTarget.releasePointerCapture(e.pointerId);
+			} catch {
+				// IGNORE
+			}
+		}
+		if (posX !== null && posY !== null && widgetEl) {
+			const height = widgetEl.offsetHeight || 64;
+			const marginY = typeof window !== 'undefined' && window.innerWidth < 640 ? 12 : 16;
+			const distFromBottom = Math.max(marginY, window.innerHeight - (posY + height));
+
+			// IF IN LOWER HALF OF VIEWPORT, ANCHOR TO BOTTOM SO DRAWER EXPANDS UPWARDS NATURALLY
+			if (posY + height / 2 >= window.innerHeight / 2) {
+				anchor = 'bottom';
+				anchorDist = distFromBottom;
+			} else {
+				anchor = 'top';
+				anchorDist = Math.max(marginY, posY);
+			}
+
+			try {
+				sessionStorage.setItem(
+					'xianscan_queue_widget_pos',
+					JSON.stringify({ x: posX, y: posY, anchor, dist: anchorDist }),
+				);
+			} catch {
+				// IGNORE
+			}
+		}
+		if (!hasDraggedFar) {
+			expanded = !expanded;
+		}
+	}
+
+	function handleHeaderPointerCancel() {
+		isDragging = false;
+	}
+
+	function resetWidgetPosition() {
+		posX = null;
+		posY = null;
+		anchor = 'bottom';
+		anchorDist = null;
+		try {
+			sessionStorage.removeItem('xianscan_queue_widget_pos');
+		} catch {
+			// IGNORE
+		}
+	}
 </script>
 
 <svelte:window
@@ -422,7 +581,18 @@
 	<aside
 		bind:this={widgetEl}
 		aria-label="Translation studio HUD"
-		class="fixed bottom-3 sm:bottom-6 left-3 right-3 sm:left-auto sm:right-6 z-50 flex flex-col items-center sm:items-end w-auto sm:w-[480px] max-w-[480px] select-none"
+		class={cn(
+			'fixed z-50 flex flex-col items-center sm:items-end w-[calc(100vw-24px)] sm:w-[480px] max-w-[calc(100vw-24px)] sm:max-w-[480px] select-none',
+			(posX === null || (!isDragging && anchorDist === null)) && 'bottom-3 sm:bottom-6 left-3 right-3 sm:left-auto sm:right-7',
+			isDragging ? 'shadow-3xl transition-none' : 'transition-all duration-200 ease-out'
+		)}
+		style={isDragging && posX !== null && posY !== null
+			? `left: ${posX}px; top: ${posY}px; right: auto; bottom: auto;`
+			: posX !== null && anchorDist !== null
+				? anchor === 'bottom'
+					? `left: ${posX}px; bottom: ${anchorDist}px; top: auto; right: auto;`
+					: `left: ${posX}px; top: ${anchorDist}px; bottom: auto; right: auto;`
+				: undefined}
 		transition:fly={{ y: 20, duration: 220, easing: cubicOut }}
 	>
 		<!-- MAIN CARD CONTAINER -->
@@ -434,20 +604,33 @@
 				expanded ? 'max-h-[80vh] flex flex-col' : 'h-auto'
 			)}
 		>
-			<!-- 1. SUMMARY BAR -->
-			<div class="flex items-center justify-between gap-2.5 sm:gap-3 p-2.5 sm:p-3.5 shrink-0">
-				<!-- LEFT: CLICK TO EXPAND DETAILS -->
-				<button
-					type="button"
-					on:click={() => (expanded = !expanded)}
-					class="flex items-center gap-2.5 sm:gap-3 min-w-0 flex-1 text-left select-none cursor-pointer group"
-					aria-expanded={expanded}
-					aria-label="Toggle translation studio drawer"
-				>
+			<!-- 1. SUMMARY BAR (DRAGGABLE REGION) -->
+			<div
+				on:pointerdown={handleHeaderPointerDown}
+				on:pointermove={handleHeaderPointerMove}
+				on:pointerup={handleHeaderPointerUp}
+				on:pointercancel={handleHeaderPointerCancel}
+				style="touch-action: none;"
+				class="flex items-center justify-between gap-2 sm:gap-2.5 p-2 sm:p-3 shrink-0 cursor-grab active:cursor-grabbing select-none"
+			>
+				<!-- LEFT: DRAG GRIP + SUMMARY DETAILS -->
+				<div class="flex items-center gap-2 sm:gap-2.5 min-w-0 flex-1">
+					<!-- DRAG GRIP HANDLE -->
+					<div
+						role="button"
+						tabindex="0"
+						aria-label="Drag handle to reposition HUD (double-click to reset)"
+						class="flex items-center justify-center text-neutral-400 hover:text-neutral-600 dark:hover:text-neutral-200 transition shrink-0 cursor-grab active:cursor-grabbing px-0.5"
+						title="Drag to move HUD anywhere on screen (double-click to reset position)"
+						on:dblclick|stopPropagation={resetWidgetPosition}
+					>
+						<GripVertical size={15} class="opacity-60 hover:opacity-100" />
+					</div>
+
 					<!-- STATUS ICON BADGE -->
 					<div
 						class={cn(
-							'flex h-8.5 w-8.5 sm:h-9 sm:w-9 shrink-0 items-center justify-center rounded-xl transition-transform duration-200 group-hover:scale-105 shadow-2xs',
+							'flex h-8.5 w-8.5 sm:h-9 sm:w-9 shrink-0 items-center justify-center rounded-xl transition-transform duration-200 shadow-2xs',
 							isRunning
 								? 'bg-[#b23a2e]/10 text-[#b23a2e] dark:bg-[#b23a2e]/20 dark:text-[#e08a63]'
 								: isPaused
@@ -469,9 +652,9 @@
 					</div>
 
 					<!-- METRICS & TITLE -->
-					<div class="min-w-0 flex-1 flex flex-col justify-center gap-0.5">
+					<div class="min-w-0 flex-1 flex flex-col justify-center gap-0.5 overflow-hidden">
 						<!-- ROW 1: PRIMARY TITLE (CHAPTER + BOOK TITLE WITH ELLIPSIS TRUNCATE) -->
-						<div class="text-xs sm:text-sm font-semibold truncate leading-tight opacity-90">
+						<div class="text-[11.5px] sm:text-xs md:text-sm font-semibold truncate leading-tight opacity-90">
 							{#if isSingleMode}
 								<span>{singleJobState?.chapterId ? `Chapter ${singleJobState.chapterId}` : 'Chapter'}</span>
 								{#if $batchTracker.bookTitle}
@@ -487,9 +670,9 @@
 							{/if}
 						</div>
 
-						<!-- ROW 2: CLEAN INLINE METRICS (NO WRAPPING) -->
-						<div class="flex items-center gap-1.5 text-[11px] font-medium opacity-70 truncate leading-none">
-							<span class="font-bold uppercase tracking-wider text-[10px] opacity-90 shrink-0">
+						<!-- ROW 2: CLEAN INLINE METRICS (NO WRAPPING, TRUNCATABLE) -->
+						<div class="flex items-center gap-1 sm:gap-1.5 text-[9.5px] sm:text-[11px] font-medium opacity-70 truncate leading-none min-w-0">
+							<span class="font-bold uppercase tracking-wider text-[8.5px] sm:text-[10px] opacity-90 shrink-0">
 								{#if isSingleMode}
 									Queue Active
 								{:else}
@@ -514,24 +697,18 @@
 								<Clock size={10} class="opacity-75 inline" />
 								<span>{formatDuration(elapsedMs)}</span>
 							</span>
-
-							<!-- ESTIMATED TIME REMAINING -->
-							{#if isRunning && estimatedRemainingMs !== null}
-								<span class="opacity-35 hidden xs:inline shrink-0">•</span>
-								<span class="text-[#b23a2e] dark:text-[#e08a63] font-semibold hidden xs:inline shrink-0">
-									~{formatDuration(estimatedRemainingMs)} left
-								</span>
-							{/if}
 						</div>
 					</div>
-				</button>
+				</div>
 
-				<!-- RIGHT: QUICK CONTROLS -->
+				<!-- RIGHT: QUICK CONTROLS (FULL UNCOMPROMISED SIZE) -->
 				<div class="flex items-center gap-1.5 shrink-0">
 					<!-- PAUSE / RESUME TOGGLE BUTTON -->
 					{#if isBatchActive && (isRunning || isPaused)}
 						<button
 							type="button"
+							data-interactive="true"
+							on:pointerdown|stopPropagation
 							on:click={toggleBatchPause}
 							class="flex h-8 w-8 items-center justify-center rounded-xl border border-black/10 transition hover:bg-black/5 active:scale-95 dark:border-white/10 dark:hover:bg-white/5 cursor-pointer"
 							title={isPaused ? 'Resume translation queue' : 'Pause translation queue'}
@@ -549,29 +726,30 @@
 					<!-- EXPAND / COLLAPSE DRAWER CHEVRON BUTTON -->
 					<button
 						type="button"
+						data-interactive="true"
+						on:pointerdown|stopPropagation
 						on:click={() => (expanded = !expanded)}
 						class="flex h-8 w-8 items-center justify-center rounded-xl border border-black/10 transition hover:bg-black/5 active:scale-95 dark:border-white/10 dark:hover:bg-white/5 cursor-pointer"
 						aria-label={expanded ? 'Collapse translation studio HUD' : 'Expand translation studio HUD'}
+						title={expanded ? 'Collapse details' : 'Expand details'}
 						use:ripple
 					>
-						{#if expanded}
-							<ChevronDown size={16} class="opacity-75" />
-						{:else}
-							<ChevronUp size={16} class="opacity-75" />
-						{/if}
+						<ChevronUp size={16} class={cn('opacity-75 transition-transform duration-200', expanded && 'rotate-180')} />
 					</button>
 
 					<!-- CLOSE / DISMISS BUTTON (ONLY WHEN COMPLETED, CANCELLED, OR SINGLE CHAPTER) -->
 					{#if isCompleted || isCancelled || isSingleMode}
 						<button
 							type="button"
+							data-interactive="true"
+							on:pointerdown|stopPropagation
 							on:click={dismissWidget}
-							class="flex h-8 w-8 items-center justify-center rounded-xl transition hover:bg-black/5 active:scale-95 dark:hover:bg-white/5 cursor-pointer opacity-50 hover:opacity-100"
+							class="flex h-8 w-8 items-center justify-center rounded-xl border border-black/10 transition hover:bg-black/5 active:scale-95 dark:border-white/10 dark:hover:bg-white/5 cursor-pointer"
 							title="Close HUD"
 							aria-label="Close HUD"
 							use:ripple
 						>
-							<X size={15} />
+							<X size={15} class="opacity-75" />
 						</button>
 					{/if}
 				</div>
@@ -918,12 +1096,11 @@
 											<table class="w-full text-left text-xs border-collapse">
 												<thead class="bg-black/5 dark:bg-white/5 border-b border-black/10 dark:border-white/10 text-[10px] uppercase tracking-wider opacity-60">
 													<tr>
-														<th class="py-2 px-2.5">Page</th>
-														<th class="py-2 px-2.5">Status</th>
-														<th class="py-2 px-2.5">OCR</th>
-														<th class="py-2 px-2.5">LLM</th>
-														<th class="py-2 px-2.5">Inpaint</th>
-														<th class="py-2 px-2.5 text-right">Total</th>
+														<th class="py-2 px-3">Page</th>
+														<th class="py-2 px-3">OCR</th>
+														<th class="py-2 px-3">LLM</th>
+														<th class="py-2 px-3">Inpaint</th>
+														<th class="py-2 px-3 text-right">Total</th>
 														<th class="py-2 px-1 text-right w-7"></th>
 													</tr>
 												</thead>
@@ -931,10 +1108,13 @@
 													{#each displayTelemetryPages as p}
 														{@const ocrTiming = p.timings?.analyze}
 														{@const transTiming = p.timings?.translate}
-														{@const cleanTiming = p.timings?.clean}
+														{@const cleanTiming = p.timings?.clean || p.timings?.typeset}
+														{@const isOcrRunning = ocrTiming?.status === 'running' || (p.status === 'processing' && p.currentStep === 'analyze')}
+														{@const isTransRunning = transTiming?.status === 'running' || (p.status === 'processing' && p.currentStep === 'translate')}
+														{@const isCleanRunning = cleanTiming?.status === 'running' || (p.status === 'processing' && (p.currentStep === 'clean' || p.currentStep === 'typeset'))}
 														{@const totalDur = getPageTotalDuration(p)}
-														<tr class="hover:bg-black/[0.02] dark:hover:bg-white/[0.02]">
-															<td class="py-2 px-2.5 font-bold whitespace-nowrap">
+														<tr class="hover:bg-black/[0.02] dark:hover:bg-white/[0.02] transition-colors">
+															<td class="py-2.5 px-3 font-bold whitespace-nowrap">
 																<button
 																	type="button"
 																	on:click={() => navigateToTelemetryPage(effectiveTelemetryChapter?.id || currentChapter?.id || singleJobState?.chapterId, effectiveTelemetryChapter?.bookId || currentChapter?.bookId || $batchTracker.bookId, p.pageId, p.seq)}
@@ -946,60 +1126,75 @@
 																	Pg {p.seq + 1}
 																</button>
 															</td>
-															<td class="py-2 px-2.5 whitespace-nowrap">
-																{#if p.status === 'done'}
-																	<span class="text-emerald-600 dark:text-emerald-400 font-bold inline-flex items-center gap-1">
-																		<CheckCircle2 size={12} />
-																		<span>Done</span>
+															<td class="py-2.5 px-3 whitespace-nowrap">
+																{#if isOcrRunning}
+																	<span class="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md bg-[#b23a2e]/10 text-[#b23a2e] dark:bg-[#e08a63]/15 dark:text-[#e08a63] font-mono text-[11px] font-semibold tracking-tight shadow-2xs">
+																		<Loader2 size={10} class="animate-spin shrink-0" />
+																		<span>OCR...</span>
 																	</span>
-																{:else if p.status === 'processing'}
-																	<span class="text-[#b23a2e] dark:text-[#e08a63] font-bold inline-flex items-center gap-1">
-																		<Loader2 size={12} class="animate-spin" />
-																		<span>{p.currentStep ? p.currentStep.toUpperCase() : 'RUNNING'}</span>
+																{:else if ocrTiming?.status === 'completed'}
+																	<span class="inline-flex items-center gap-1 font-mono text-neutral-800 dark:text-neutral-200">
+																		<CheckCircle2 size={11} class="text-[#4f7a64] dark:text-[#83b39a] shrink-0" />
+																		<span>{formatDuration(ocrTiming.durationMs)}</span>
 																	</span>
-																{:else if p.status === 'error'}
-																	<span class="text-red-500 font-bold inline-flex items-center gap-1">
-																		<AlertCircle size={12} />
-																		<span>Error</span>
+																{:else if ocrTiming?.status === 'failed'}
+																	<span class="inline-flex items-center gap-1 text-rose-600 dark:text-rose-400 font-semibold text-[11px]">
+																		<AlertCircle size={11} class="shrink-0" />
+																		<span>Failed</span>
 																	</span>
 																{:else}
-																	<span class="opacity-40">Pending</span>
+																	<span class="opacity-25 font-mono text-[11px] select-none">-</span>
 																{/if}
 															</td>
-															<td class="py-2 px-2.5">
-																{#if ocrTiming?.status === 'completed'}
-																	{formatDuration(ocrTiming.durationMs)}
-																{:else if ocrTiming?.status === 'running'}
-																	<span class="text-[#b23a2e] animate-pulse font-bold">Running</span>
+															<td class="py-2.5 px-3 whitespace-nowrap">
+																{#if isTransRunning}
+																	<span class="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md bg-[#b23a2e]/10 text-[#b23a2e] dark:bg-[#e08a63]/15 dark:text-[#e08a63] font-mono text-[11px] font-semibold tracking-tight shadow-2xs">
+																		<Loader2 size={10} class="animate-spin shrink-0" />
+																		<span>LLM...</span>
+																	</span>
+																{:else if transTiming?.status === 'completed'}
+																	<span class="inline-flex items-center gap-1 font-mono text-neutral-800 dark:text-neutral-200">
+																		<CheckCircle2 size={11} class="text-[#4f7a64] dark:text-[#83b39a] shrink-0" />
+																		<span>{formatDuration(transTiming.durationMs)}</span>
+																		{#if transTiming.details?.cacheHit}
+																			<span class="rounded bg-[#4f7a64]/15 px-1 py-0.2 text-[9px] font-bold text-[#4f7a64] dark:text-[#83b39a]">
+																				HIT
+																			</span>
+																		{/if}
+																	</span>
+																{:else if transTiming?.status === 'failed'}
+																	<span class="inline-flex items-center gap-1 text-rose-600 dark:text-rose-400 font-semibold text-[11px]">
+																		<AlertCircle size={11} class="shrink-0" />
+																		<span>Failed</span>
+																	</span>
 																{:else}
-																	<span class="opacity-30">-</span>
+																	<span class="opacity-25 font-mono text-[11px] select-none">-</span>
 																{/if}
 															</td>
-															<td class="py-2 px-2.5">
-																{#if transTiming?.status === 'completed'}
-																	{formatDuration(transTiming.durationMs)}
-																	{#if transTiming.details?.cacheHit}
-																		<span class="text-emerald-600 font-bold text-[10px] ml-0.5">HIT</span>
-																	{/if}
-																{:else if transTiming?.status === 'running'}
-																	<span class="text-[#b23a2e] animate-pulse font-bold">Running</span>
+															<td class="py-2.5 px-3 whitespace-nowrap">
+																{#if isCleanRunning}
+																	<span class="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md bg-[#b23a2e]/10 text-[#b23a2e] dark:bg-[#e08a63]/15 dark:text-[#e08a63] font-mono text-[11px] font-semibold tracking-tight shadow-2xs">
+																		<Loader2 size={10} class="animate-spin shrink-0" />
+																		<span>Inpaint...</span>
+																	</span>
+																{:else if cleanTiming?.status === 'completed'}
+																	<span class="inline-flex items-center gap-1 font-mono text-neutral-800 dark:text-neutral-200">
+																		<CheckCircle2 size={11} class="text-[#4f7a64] dark:text-[#83b39a] shrink-0" />
+																		<span>{formatDuration(cleanTiming.durationMs)}</span>
+																	</span>
+																{:else if cleanTiming?.status === 'failed'}
+																	<span class="inline-flex items-center gap-1 text-rose-600 dark:text-rose-400 font-semibold text-[11px]">
+																		<AlertCircle size={11} class="shrink-0" />
+																		<span>Failed</span>
+																	</span>
 																{:else}
-																	<span class="opacity-30">-</span>
+																	<span class="opacity-25 font-mono text-[11px] select-none">-</span>
 																{/if}
 															</td>
-															<td class="py-2 px-2.5">
-																{#if cleanTiming?.status === 'completed'}
-																	{formatDuration(cleanTiming.durationMs)}
-																{:else if cleanTiming?.status === 'running'}
-																	<span class="text-[#b23a2e] animate-pulse font-bold">Running</span>
-																{:else}
-																	<span class="opacity-30">-</span>
-																{/if}
-															</td>
-															<td class="py-2 px-2.5 text-right font-semibold">
+															<td class="py-2.5 px-3 text-right font-semibold font-mono text-neutral-900 dark:text-neutral-100 whitespace-nowrap">
 																{formatDuration(totalDur)}
 															</td>
-															<td class="py-2 px-1 text-right whitespace-nowrap">
+															<td class="py-2.5 px-1 text-right whitespace-nowrap">
 																{#if p.status === 'processing' || p.status === 'pending'}
 																	<button
 																		type="button"

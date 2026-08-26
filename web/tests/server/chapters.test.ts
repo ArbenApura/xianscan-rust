@@ -460,6 +460,60 @@ describe('nextPageSeq & reorderPages', () => {
 		const data = await res.json();
 		expect(data.ok).toBe(true);
 	});
+
+	it('POST /api/chapters/[id]/reset changes a fully translated chapter status back to pending', async () => {
+		seedBook(db, { id: 'b_reset' });
+		const chapter = seedChapter(db, {
+			bookId: 'b_reset',
+			seq: 0,
+			status: 'done',
+			translatedAt: Date.now(),
+		});
+		seedPage(db, {
+			chapterId: chapter.id,
+			seq: 0,
+			status: 'done',
+			outputPath: `output/${chapter.id}/0.webp`,
+		});
+
+		const { POST } = await import('../../src/routes/api/chapters/[id]/reset/+server');
+		const res = await POST({ params: { id: String(chapter.id) } } as any);
+		const data = await res.json();
+		expect(data.ok).toBe(true);
+
+		const updatedCh = db.select().from(chapters).where(eq(chapters.id, chapter.id)).get();
+		expect(updatedCh?.status).toBe('pending');
+		expect(updatedCh?.translatedAt).toBeNull();
+
+		const updatedPage = db.select().from(pages).where(eq(pages.chapterId, chapter.id)).get();
+		expect(updatedPage?.status).toBe('pending');
+		expect(updatedPage?.outputPath).toBeNull();
+	});
+
+	it('POST /api/pages/[id]/reset reverts parent chapter status from done to pending', async () => {
+		seedBook(db, { id: 'b_pg_reset' });
+		const chapter = seedChapter(db, {
+			bookId: 'b_pg_reset',
+			seq: 0,
+			status: 'done',
+			translatedAt: Date.now(),
+		});
+		const pageRow = seedPage(db, {
+			chapterId: chapter.id,
+			seq: 0,
+			status: 'done',
+			outputPath: `output/${chapter.id}/0.webp`,
+		});
+
+		const { POST } = await import('../../src/routes/api/pages/[id]/reset/+server');
+		const res = await POST({ params: { id: String(pageRow.id) } } as any);
+		const data = await res.json();
+		expect(data.ok).toBe(true);
+
+		const updatedCh = db.select().from(chapters).where(eq(chapters.id, chapter.id)).get();
+		expect(updatedCh?.status).toBe('pending');
+		expect(updatedCh?.translatedAt).toBeNull();
+	});
 });
 
 

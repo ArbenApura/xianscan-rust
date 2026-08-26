@@ -36,7 +36,7 @@ import type { JobEvent } from './translation-service';
 import type { AnalyzeResult, PipelineClient, PipelineRegion } from './pipeline-client';
 import { db } from './db';
 import { chapters, pages, regions, books, type Page } from './db/schema';
-import { translatePage } from './translate';
+import { translatePage, classifyRegionForTranslation } from './translate';
 import { ChapterDialogueTracker, parseKindFromBox, type PageDialogueRecord } from './translate/dialogue-tracker';
 import { typesetPage, type TypesetOptions } from './typeset';
 import { detectSourceLanguage } from '$lib/languages';
@@ -504,7 +504,7 @@ export async function runChapterPipeline(
 
 					if (signal.aborted || deps.isPageCancelled?.(injectRow.id)) return;
 
-					// PHASE 2: TRANSLATE
+					// PHASE 2 & 3: TRANSLATE AND CLEAN IN PARALLEL
 					const isSfxEnabled = deps.enableSfx === true;
 					const maxSfxArea = deps.sfxMaxAreaPct ?? 0.30;
 					const pageArea = (analyzed.width * analyzed.height) || 1;
@@ -518,97 +518,143 @@ export async function runChapterPipeline(
 						return true;
 					};
 
+					const isRegionInpaintable = (r: PipelineRegion) => {
+						if (!r.text.trim() || !isRegionEligible(r)) return false;
+						const classification = classifyRegionForTranslation(
+							{ id: r.id, text: r.text, kind: r.kind },
+							pair.sourceLang,
+							pair.targetLang,
+						);
+						return classification.disposition !== 'skip_empty';
+					};
+
+					const cleanRegions = analyzed.regions
+						.filter(isRegionInpaintable)
+						.map((r) => ({ id: r.id, box: r.inpaint_box ?? r.box, polygon: r.polygon }));
+
+					// 1. INPAINT TASK (LOCAL ONNX COMPUTE)
+					const inpaintPromise = (async () => {
+						emit({ type: 'page-step-start', chapterId, page: injectIdx, pageId: injectRow.id, step: 'clean' });
+						const tC0 = performance.now();
+						const cleaned =
+							cleanRegions.length > 0
+								? await deps.pipeline.clean(image, cleanRegions, deps.inpaintMode ?? 'patch', signal)
+								: image;
+						if (signal.aborted || deps.isPageCancelled?.(injectRow.id)) return { cleaned: image, cleanPath: '' };
+						const cleanPath = `clean/${chapterId}/${injectRow.seq}.webp`;
+						const cleanAbs = join(deps.dataRoot, cleanPath);
+						cleanDir(join(deps.dataRoot, 'clean', String(chapterId)));
+						writeFileSync(cleanAbs, cleaned);
+						emit({
+							type: 'page-step-end',
+							chapterId,
+							page: injectIdx,
+							pageId: injectRow.id,
+							step: 'clean',
+							stepStatus: 'completed',
+							durationMs: performance.now() - tC0,
+						});
+						return { cleaned, cleanPath };
+					})();
+
+					// 2. TRANSLATE TASK (GLOSSARY MATCH + LLM NETWORK I/O)
 					const sources = analyzed.regions
 						.filter((r) => r.text.trim().length > 0 && isRegionEligible(r))
 						.map((r) => ({ id: r.id, text: r.text, kind: r.kind, vertical: r.vertical }));
-					const byRegion = new Map<string, string>();
-					if (sources.length > 0) {
-						emit({
-							type: 'page-step-start',
-							chapterId,
-							page: injectIdx,
-							pageId: injectRow.id,
-							step: 'match_glossary',
-						});
-						const pageSourceText = sources.map((s) => s.text).join('\n');
-						const pageMatchedTerms = await matchTerms(chapter.bookId, pageSourceText);
-						emit({
-							type: 'page-step-end',
-							chapterId,
-							page: injectIdx,
-							pageId: injectRow.id,
-							step: 'match_glossary',
-							stepStatus: 'completed',
-							stepDetails: { matchedCount: pageMatchedTerms.length },
-						});
-						if (signal.aborted || deps.isPageCancelled?.(injectRow.id)) return;
-						emit({
-							type: 'page-step-start',
-							chapterId,
-							page: injectIdx,
-							pageId: injectRow.id,
-							step: 'translate',
-						});
-						const tT0 = performance.now();
-						const translated = await chainTranslate(async () => {
-							const dialogueContext = dialogueTracker.getContextWindow(injectRow.seq);
-							const result = await translatePage(sources, pageMatchedTerms, pair, {
-								client: deps.llm,
-								model,
-								signal,
-								dialogueContext,
+
+					const translatePromise = (async () => {
+						const byRegion = new Map<string, string>();
+						if (sources.length > 0) {
+							emit({
+								type: 'page-step-start',
+								chapterId,
+								page: injectIdx,
+								pageId: injectRow.id,
+								step: 'match_glossary',
 							});
-							return result;
-						});
-						if (signal.aborted || deps.isPageCancelled?.(injectRow.id)) return;
-						dialogueTracker.recordTranslation(injectRow.seq, translated.byRegion);
-						for (const [id, text] of translated.byRegion) byRegion.set(id, text);
-						if (translated.newTerms && translated.newTerms.length > 0) {
-							await addNewTerms(chapter.bookId, translated.newTerms, chapterId);
-						}
-						const llmResponseData = {
-							raw: translated.rawResponse ?? '',
-							model: translated.usage.model,
-							durationMs: translated.durationMs ?? Math.round(performance.now() - tT0),
-							promptTokens: translated.usage.promptTokens ?? 0,
-							cachedTokens: translated.usage.cachedTokens ?? 0,
-							completionTokens: translated.usage.completionTokens ?? 0,
-							timestamp: Date.now(),
-						};
-						db.update(pages)
-							.set({
-								llmPrompt: translated.rawPrompt ?? null,
-								llmResponse: JSON.stringify(llmResponseData),
-							})
-							.where(eq(pages.id, injectRow.id))
-							.run();
-						emit({
-							type: 'page-step-end',
-							chapterId,
-							page: injectIdx,
-							pageId: injectRow.id,
-							step: 'translate',
-							stepStatus: 'completed',
-							durationMs: performance.now() - tT0,
-							stepDetails: {
-								cacheHit: false,
+							const pageSourceText = sources.map((s) => s.text).join('\n');
+							const pageMatchedTerms = await matchTerms(chapter.bookId, pageSourceText);
+							emit({
+								type: 'page-step-end',
+								chapterId,
+								page: injectIdx,
+								pageId: injectRow.id,
+								step: 'match_glossary',
+								stepStatus: 'completed',
+								stepDetails: { matchedCount: pageMatchedTerms.length },
+							});
+							if (signal.aborted || deps.isPageCancelled?.(injectRow.id)) return byRegion;
+							emit({
+								type: 'page-step-start',
+								chapterId,
+								page: injectIdx,
+								pageId: injectRow.id,
+								step: 'translate',
+							});
+							const tT0 = performance.now();
+							const translated = await chainTranslate(async () => {
+								const dialogueContext = dialogueTracker.getContextWindow(injectRow.seq);
+								const result = await translatePage(sources, pageMatchedTerms, pair, {
+									client: deps.llm,
+									model,
+									signal,
+									dialogueContext,
+								});
+								return result;
+							});
+							if (signal.aborted || deps.isPageCancelled?.(injectRow.id)) return byRegion;
+							dialogueTracker.recordTranslation(injectRow.seq, translated.byRegion);
+							for (const [id, text] of translated.byRegion) byRegion.set(id, text);
+							if (translated.newTerms && translated.newTerms.length > 0) {
+								await addNewTerms(chapter.bookId, translated.newTerms, chapterId);
+							}
+							const llmResponseData = {
+								raw: translated.rawResponse ?? '',
 								model: translated.usage.model,
-								tokens: (translated.usage.promptTokens ?? 0) + (translated.usage.completionTokens ?? 0),
-							},
-						});
-						if (translated.usage && deps.onUsage) deps.onUsage(translated.usage);
-					} else {
-						emit({
-							type: 'page-step-end',
-							chapterId,
-							page: injectIdx,
-							pageId: injectRow.id,
-							step: 'translate',
-							stepStatus: 'completed',
-							durationMs: 0,
-							stepDetails: { skipped: true, textCount: 0 },
-						});
-					}
+								durationMs: translated.durationMs ?? Math.round(performance.now() - tT0),
+								promptTokens: translated.usage.promptTokens ?? 0,
+								cachedTokens: translated.usage.cachedTokens ?? 0,
+								completionTokens: translated.usage.completionTokens ?? 0,
+								timestamp: Date.now(),
+							};
+							db.update(pages)
+								.set({
+									llmPrompt: translated.rawPrompt ?? null,
+									llmResponse: JSON.stringify(llmResponseData),
+								})
+								.where(eq(pages.id, injectRow.id))
+								.run();
+							emit({
+								type: 'page-step-end',
+								chapterId,
+								page: injectIdx,
+								pageId: injectRow.id,
+								step: 'translate',
+								stepStatus: 'completed',
+								durationMs: performance.now() - tT0,
+								stepDetails: {
+									cacheHit: false,
+									model: translated.usage.model,
+									tokens: (translated.usage.promptTokens ?? 0) + (translated.usage.completionTokens ?? 0),
+								},
+							});
+							if (translated.usage && deps.onUsage) deps.onUsage(translated.usage);
+						} else {
+							emit({
+								type: 'page-step-end',
+								chapterId,
+								page: injectIdx,
+								pageId: injectRow.id,
+								step: 'translate',
+								stepStatus: 'completed',
+								durationMs: 0,
+								stepDetails: { skipped: true, textCount: 0 },
+							});
+						}
+						return byRegion;
+					})();
+
+					const [{ cleaned, cleanPath }, byRegion] = await Promise.all([inpaintPromise, translatePromise]);
 
 					if (signal.aborted || deps.isPageCancelled?.(injectRow.id)) return;
 
@@ -655,33 +701,6 @@ export async function runChapterPipeline(
 						pageId: injectRow.id,
 						step: 'persist_translations',
 						stepStatus: 'completed',
-					});
-
-					if (signal.aborted || deps.isPageCancelled?.(injectRow.id)) return;
-
-					// CLEAN
-					emit({ type: 'page-step-start', chapterId, page: injectIdx, pageId: injectRow.id, step: 'clean' });
-					const tC0 = performance.now();
-					const cleanRegions = analyzed.regions
-						.filter((r) => isRegionEligible(r) && Boolean(byRegion.get(r.id)?.trim()))
-						.map((r) => ({ id: r.id, box: r.inpaint_box ?? r.box, polygon: r.polygon }));
-					const cleaned =
-						cleanRegions.length > 0
-							? await deps.pipeline.clean(image, cleanRegions, deps.inpaintMode ?? 'patch', signal)
-							: image;
-					if (signal.aborted || deps.isPageCancelled?.(injectRow.id)) return;
-					const cleanPath = `clean/${chapterId}/${injectRow.seq}.webp`;
-					const cleanAbs = join(deps.dataRoot, cleanPath);
-					cleanDir(join(deps.dataRoot, 'clean', String(chapterId)));
-					writeFileSync(cleanAbs, cleaned);
-					emit({
-						type: 'page-step-end',
-						chapterId,
-						page: injectIdx,
-						pageId: injectRow.id,
-						step: 'clean',
-						stepStatus: 'completed',
-						durationMs: performance.now() - tC0,
 					});
 
 					if (signal.aborted || deps.isPageCancelled?.(injectRow.id)) return;
@@ -914,7 +933,7 @@ export async function runChapterPipeline(
 			signal.throwIfAborted();
 			if (deps.isPageCancelled?.(page.id)) return;
 
-			// 3) TRANSLATE — LLM SEMANTICALLY TRANSLATES VALID DIALOGUE
+			// 3) PARALLEL TRANSLATE & CLEAN: EXECUTE INPAINTING AND LLM TRANSLATION SIMULTANEOUSLY
 			const isSfxEnabled = deps.enableSfx === true;
 			const maxSfxArea = deps.sfxMaxAreaPct ?? 0.30;
 			const pageArea = (analyzed.width * analyzed.height) || 1;
@@ -928,94 +947,140 @@ export async function runChapterPipeline(
 				return true;
 			};
 
+			const isRegionInpaintable = (r: PipelineRegion) => {
+				if (!r.text.trim() || !isRegionEligible(r)) return false;
+				const classification = classifyRegionForTranslation(
+					{ id: r.id, text: r.text, kind: r.kind },
+					pair.sourceLang,
+					pair.targetLang,
+				);
+				return classification.disposition !== 'skip_empty';
+			};
+
+			const cleanRegions = analyzed.regions
+				.filter(isRegionInpaintable)
+				.map((r) => ({ id: r.id, box: r.inpaint_box ?? r.box, polygon: r.polygon }));
+
+			// TASK A: INPAINT (LOCAL ONNX COMPUTE)
+			const inpaintPromise = (async () => {
+				emit({ type: 'page-step-start', chapterId, page: i, pageId: page.id, step: 'clean' });
+				const tClean0 = performance.now();
+				const cleaned =
+					cleanRegions.length > 0
+						? await deps.pipeline.clean(image, cleanRegions, deps.inpaintMode ?? 'patch', signal)
+						: image;
+				signal.throwIfAborted();
+				if (deps.isPageCancelled?.(page.id)) return { cleaned: image, cleanPath: '' };
+				const cleanPath = `clean/${chapterId}/${page.seq}.webp`;
+				const cleanAbs = join(deps.dataRoot, cleanPath);
+				cleanDir(join(deps.dataRoot, 'clean', String(chapterId)));
+				writeFileSync(cleanAbs, cleaned);
+				const tClean = performance.now() - tClean0;
+				emit({
+					type: 'page-step-end',
+					chapterId,
+					page: i,
+					pageId: page.id,
+					step: 'clean',
+					stepStatus: 'completed',
+					durationMs: tClean,
+				});
+				return { cleaned, cleanPath };
+			})();
+
+			// TASK B: TRANSLATE (GLOSSARY MATCH + LLM NETWORK I/O)
 			const sources = analyzed.regions
 				.filter((r) => r.text.trim().length > 0 && isRegionEligible(r))
 				.map((r) => ({ id: r.id, text: r.text, kind: r.kind, vertical: r.vertical }));
-			const byRegion = new Map<string, string>();
 
-			if (sources.length > 0) {
-				activeStep = 'match_glossary';
-				emit({ type: 'page-step-start', chapterId, page: i, pageId: page.id, step: 'match_glossary' });
-				const pageSourceText = sources.map((s) => s.text).join('\n');
-				const pageMatchedTerms = await matchTerms(chapter.bookId, pageSourceText);
-				emit({
-					type: 'page-step-end',
-					chapterId,
-					page: i,
-					pageId: page.id,
-					step: 'match_glossary',
-					stepStatus: 'completed',
-					stepDetails: { matchedCount: pageMatchedTerms.length },
-				});
+			const translatePromise = (async () => {
+				const byRegion = new Map<string, string>();
 
-				signal.throwIfAborted();
-				if (deps.isPageCancelled?.(page.id)) return;
-
-				activeStep = 'translate';
-				emit({ type: 'page-step-start', chapterId, page: i, pageId: page.id, step: 'translate' });
-				const tTrans0 = performance.now();
-
-				const translated = await chainTranslate(async () => {
-					const dialogueContext = dialogueTracker.getContextWindow(page.seq);
-					const result = await translatePage(sources, pageMatchedTerms, pair, {
-						client: deps.llm,
-						model,
-						signal,
-						dialogueContext,
+				if (sources.length > 0) {
+					emit({ type: 'page-step-start', chapterId, page: i, pageId: page.id, step: 'match_glossary' });
+					const pageSourceText = sources.map((s) => s.text).join('\n');
+					const pageMatchedTerms = await matchTerms(chapter.bookId, pageSourceText);
+					emit({
+						type: 'page-step-end',
+						chapterId,
+						page: i,
+						pageId: page.id,
+						step: 'match_glossary',
+						stepStatus: 'completed',
+						stepDetails: { matchedCount: pageMatchedTerms.length },
 					});
-					return result;
-				});
-				signal.throwIfAborted();
-				if (deps.isPageCancelled?.(page.id)) return;
-				dialogueTracker.recordTranslation(page.seq, translated.byRegion);
-				for (const [id, text] of translated.byRegion) byRegion.set(id, text);
-				if (translated.newTerms && translated.newTerms.length > 0) {
-					await addNewTerms(chapter.bookId, translated.newTerms, chapterId);
-				}
-				const tTrans = performance.now() - tTrans0;
-				const llmResponseData = {
-					raw: translated.rawResponse ?? '',
-					model: translated.usage.model,
-					durationMs: translated.durationMs ?? Math.round(tTrans),
-					promptTokens: translated.usage.promptTokens ?? 0,
-					cachedTokens: translated.usage.cachedTokens ?? 0,
-					completionTokens: translated.usage.completionTokens ?? 0,
-					timestamp: Date.now(),
-				};
-				db.update(pages)
-					.set({
-						llmPrompt: translated.rawPrompt ?? null,
-						llmResponse: JSON.stringify(llmResponseData),
-					})
-					.where(eq(pages.id, page.id))
-					.run();
-				emit({
-					type: 'page-step-end',
-					chapterId,
-					page: i,
-					pageId: page.id,
-					step: 'translate',
-					stepStatus: 'completed',
-					durationMs: tTrans,
-					stepDetails: {
-						cacheHit: false,
+
+					signal.throwIfAborted();
+					if (deps.isPageCancelled?.(page.id)) return byRegion;
+
+					emit({ type: 'page-step-start', chapterId, page: i, pageId: page.id, step: 'translate' });
+					const tTrans0 = performance.now();
+
+					const translated = await chainTranslate(async () => {
+						const dialogueContext = dialogueTracker.getContextWindow(page.seq);
+						const result = await translatePage(sources, pageMatchedTerms, pair, {
+							client: deps.llm,
+							model,
+							signal,
+							dialogueContext,
+						});
+						return result;
+					});
+					signal.throwIfAborted();
+					if (deps.isPageCancelled?.(page.id)) return byRegion;
+					dialogueTracker.recordTranslation(page.seq, translated.byRegion);
+					for (const [id, text] of translated.byRegion) byRegion.set(id, text);
+					if (translated.newTerms && translated.newTerms.length > 0) {
+						await addNewTerms(chapter.bookId, translated.newTerms, chapterId);
+					}
+					const tTrans = performance.now() - tTrans0;
+					const llmResponseData = {
+						raw: translated.rawResponse ?? '',
 						model: translated.usage.model,
-						tokens: (translated.usage.promptTokens ?? 0) + (translated.usage.completionTokens ?? 0),
-					},
-				});
-				if (translated.usage && deps.onUsage) deps.onUsage(translated.usage);
-			} else {
-				emit({
-					type: 'page-step-end',
-					chapterId,
-					page: i,
-					pageId: page.id,
-					step: 'translate',
-					stepStatus: 'completed',
-					durationMs: 0,
-					stepDetails: { skipped: true, textCount: 0 },
-				});
-			}
+						durationMs: translated.durationMs ?? Math.round(tTrans),
+						promptTokens: translated.usage.promptTokens ?? 0,
+						cachedTokens: translated.usage.cachedTokens ?? 0,
+						completionTokens: translated.usage.completionTokens ?? 0,
+						timestamp: Date.now(),
+					};
+					db.update(pages)
+						.set({
+							llmPrompt: translated.rawPrompt ?? null,
+							llmResponse: JSON.stringify(llmResponseData),
+						})
+						.where(eq(pages.id, page.id))
+						.run();
+					emit({
+						type: 'page-step-end',
+						chapterId,
+						page: i,
+						pageId: page.id,
+						step: 'translate',
+						stepStatus: 'completed',
+						durationMs: tTrans,
+						stepDetails: {
+							cacheHit: false,
+							model: translated.usage.model,
+							tokens: (translated.usage.promptTokens ?? 0) + (translated.usage.completionTokens ?? 0),
+						},
+					});
+					if (translated.usage && deps.onUsage) deps.onUsage(translated.usage);
+				} else {
+					emit({
+						type: 'page-step-end',
+						chapterId,
+						page: i,
+						pageId: page.id,
+						step: 'translate',
+						stepStatus: 'completed',
+						durationMs: 0,
+						stepDetails: { skipped: true, textCount: 0 },
+					});
+				}
+				return byRegion;
+			})();
+
+			const [{ cleaned, cleanPath }, byRegion] = await Promise.all([inpaintPromise, translatePromise]);
 
 			signal.throwIfAborted();
 			if (deps.isPageCancelled?.(page.id)) return;
@@ -1053,37 +1118,6 @@ export async function runChapterPipeline(
 				pageId: page.id,
 				step: 'persist_translations',
 				stepStatus: 'completed',
-			});
-
-			signal.throwIfAborted();
-			if (deps.isPageCancelled?.(page.id)) return;
-
-			// 5) CLEAN — INPAINT REMOVED TEXT REGIONS
-			activeStep = 'clean';
-			emit({ type: 'page-step-start', chapterId, page: i, pageId: page.id, step: 'clean' });
-			const tClean0 = performance.now();
-			const cleanRegions = analyzed.regions
-				.filter((r) => isRegionEligible(r) && Boolean(byRegion.get(r.id)?.trim()))
-				.map((r) => ({ id: r.id, box: r.inpaint_box ?? r.box, polygon: r.polygon }));
-			const cleaned =
-				cleanRegions.length > 0
-					? await deps.pipeline.clean(image, cleanRegions, deps.inpaintMode ?? 'patch', signal)
-					: image;
-			signal.throwIfAborted();
-			if (deps.isPageCancelled?.(page.id)) return;
-			const cleanPath = `clean/${chapterId}/${page.seq}.webp`;
-			const cleanAbs = join(deps.dataRoot, cleanPath);
-			cleanDir(join(deps.dataRoot, 'clean', String(chapterId)));
-			writeFileSync(cleanAbs, cleaned);
-			const tClean = performance.now() - tClean0;
-			emit({
-				type: 'page-step-end',
-				chapterId,
-				page: i,
-				pageId: page.id,
-				step: 'clean',
-				stepStatus: 'completed',
-				durationMs: tClean,
 			});
 
 			signal.throwIfAborted();

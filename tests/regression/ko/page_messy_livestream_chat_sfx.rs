@@ -70,9 +70,9 @@ fn test_regression_page_messy_livestream_chat_sfx() {
     crate::assert_region_bounds!(
         tick1,
         xianscan_rust::ml::schemas::RegionKind::FreeText,
-        28,
+        52,
         616,
-        297,
+        247,
         32,
         15
     );

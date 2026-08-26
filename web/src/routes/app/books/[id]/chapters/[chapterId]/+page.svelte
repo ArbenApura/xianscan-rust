@@ -611,6 +611,7 @@
 			pg.error = null;
 			pages = [...pages];
 			jobTracker.clearJob(chapterId);
+			batchTracker.clearChapter(chapterId);
 			toast.success(`Cleared progress on Page ${pg.seq + 1}.`);
 			await reload();
 		} catch {
@@ -626,6 +627,7 @@
 			if (!resp.ok) throw new Error('Reset failed');
 			const { reset } = await resp.json();
 			jobTracker.clearJob(chapterId);
+			batchTracker.clearChapter(chapterId);
 			toast.success(`Cleared progress on ${reset} page${reset === 1 ? '' : 's'}.`, { id: toastId });
 			clearChapterConfirmOpen = false;
 			await reload();
@@ -646,6 +648,7 @@
 			}
 			const data = await resp.json().catch(() => ({ deletedCount: 0 }));
 			jobTracker.clearJob(chapterId);
+			batchTracker.clearChapter(chapterId);
 			toast.success(`Cleared ${data.deletedCount} page${data.deletedCount === 1 ? '' : 's'} from chapter.`);
 			await reload();
 		} catch (e: any) {

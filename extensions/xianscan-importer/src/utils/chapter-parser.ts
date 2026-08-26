@@ -57,8 +57,9 @@ export function detectSourceLanguageFromPage(text: string, htmlLang = ''): strin
 
 export function parseChapterMetadata(title: string, url = '', htmlLang = ''): ChapterMetadata {
 	let chapterNumber: number | undefined;
+	let subtitle: string | undefined;
 
-	// 1. TRY MATCHING CHAPTER NUMBER FROM TITLE
+	// 1. TRY MATCHING CHAPTER NUMBER & SUBTITLE FROM TITLE
 	for (const reg of CHAPTER_REGEXES) {
 		const match = title.match(reg);
 		if (match && match[1]) {
@@ -70,7 +71,27 @@ export function parseChapterMetadata(title: string, url = '', htmlLang = ''): Ch
 		}
 	}
 
-	// 2. IF NOT FOUND, TRY URL
+	// 2. CHECK URL QUERY PARAMS (e.g. ?no=19, ?episodeNo=19, ?chapter=19, ?ep=19)
+	if (chapterNumber === undefined && url) {
+		try {
+			const parsedUrl = new URL(url, 'https://localhost');
+			const queryKeys = ['no', 'episodeno', 'episode', 'ep', 'chapter', 'chap', 'ch', 'seq', 'chapterno'];
+			for (const k of queryKeys) {
+				const val = parsedUrl.searchParams.get(k);
+				if (val) {
+					const num = parseFloat(val);
+					if (!isNaN(num) && num > 0) {
+						chapterNumber = num;
+						break;
+					}
+				}
+			}
+		} catch {
+			// IGNORE URL PARSE ERRORS
+		}
+	}
+
+	// 3. IF STILL NOT FOUND, TRY URL PATH PATTERNS
 	if (chapterNumber === undefined && url) {
 		for (const reg of CHAPTER_REGEXES) {
 			const match = url.match(reg);
@@ -84,31 +105,54 @@ export function parseChapterMetadata(title: string, url = '', htmlLang = ''): Ch
 		}
 	}
 
-	// 3. EXTRACT SERIES TITLE BY REMOVING CHAPTER AND TRAILING WEBSITE NOISE
-	let seriesTitle = title;
-	// REMOVE COMMON SITE SUFFIX: " - MangaDex", " | Read Manhwa Online", ETC.
-	seriesTitle = seriesTitle.replace(/\s*[-|–]\s*[^–|-]+(?:manga|manhua|manhwa|scans|comics|online|read).*$/i, '');
+	// 4. EXTRACT SUBTITLE IF PRESENT (e.g. "19화 - 그날의 기억" or "Ch 42: The Divine Spark")
+	const subtitleMatches = [
+		/(?:第\s*\d+(?:\.\d+)?\s*[话話章节回卷화]|\b(?:chapter|chap|ch|episode|ep)\s*[\.:#]?\s*\d+(?:\.\d+)?)\s*[-:：–]\s*([^|–\-_\[\]\n\r]+)/i
+	];
+	for (const reg of subtitleMatches) {
+		const m = title.match(reg);
+		if (m && m[1]) {
+			const cleanedSub = m[1].replace(/\s*[-|–::]\s*[^–|-]+(?:manga|manhua|manhwa|scans|comics|online|read|webtoon|naver|kakao).*$/i, '').trim();
+			if (cleanedSub && cleanedSub.length > 0 && cleanedSub.length < 50) {
+				subtitle = cleanedSub;
+				break;
+			}
+		}
+	}
+
+	// 5. EXTRACT BOOK TITLE BY REMOVING CHAPTER AND TRAILING WEBSITE NOISE
+	let bookTitle = title;
+	// REMOVE COMMON SITE SUFFIX: " - MangaDex", " | Read Manhwa Online", " :: 네이버 웹툰", ETC.
+	bookTitle = bookTitle.replace(/\s*(?:[-|–]|::|\|)\s*[^–|-|:]*(?:manga|manhua|manhwa|scans|comics|online|read|webtoon|naver|kakao|웹툰|네이버|카카오|만화|漫画|咚漫|快看).*$/i, '');
 	
 	// REMOVE CHAPTER SEGMENTS
-	const cleaned = seriesTitle
+	const cleaned = bookTitle
 		.replace(/(?:第\s*)?\d+(?:\.\d+)?\s*[话話章节回卷화].*$/i, '')
 		.replace(/(?:chapter|chap|ch|episode|ep|vol|volume|\b#)\s*[\.:#]?\s*\d+(?:\.\d+)?.*$/i, '')
 		.replace(/\[(?:完结|완결|ongoing|raw|end)\].*$/i, '')
-		.replace(/[-–]\s*$/, '')
+		.replace(/[-–:|]\s*$/, '')
 		.trim();
 
 	if (cleaned) {
-		seriesTitle = cleaned;
+		bookTitle = cleaned;
 	} else {
-		seriesTitle = title.trim();
+		bookTitle = title.trim();
 	}
 
 	const sourceLang = detectSourceLanguageFromPage(`${title} ${url}`, htmlLang);
+	const resolvedBookTitle = bookTitle || 'Untitled Book';
+
+	let resolvedChapterTitle = chapterNumber !== undefined ? `Chapter ${chapterNumber}` : 'Chapter 1';
+	if (subtitle) {
+		resolvedChapterTitle = `${resolvedChapterTitle}: ${subtitle}`;
+	}
 
 	return {
-		seriesTitle: seriesTitle || 'Untitled Series',
+		bookTitle: resolvedBookTitle,
+		seriesTitle: resolvedBookTitle,
 		chapterNumber: chapterNumber !== undefined ? chapterNumber : 1,
-		chapterTitle: chapterNumber !== undefined ? `Chapter ${chapterNumber}` : 'Chapter 1',
+		chapterTitle: resolvedChapterTitle,
+		hasExplicitChapter: chapterNumber !== undefined,
 		sourceLang
 	};
 }

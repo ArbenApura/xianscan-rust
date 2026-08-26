@@ -341,6 +341,39 @@ function createBatchTrackerStore() {
 			}
 		},
 
+		// CLEAR A SINGLE CHAPTER FROM LOCAL BATCH TRACKER (E.G. ON CLEAR CHAPTER PROGRESS)
+		clearChapter(chapterId: number) {
+			update((cur) => {
+				if (!cur.active && cur.status === 'idle') return cur;
+				const nextQueue = cur.queue.filter((c) => c.id !== chapterId);
+				const nextState: BatchTranslationState =
+					nextQueue.length === 0
+						? initialBatchState
+						: {
+								...cur,
+								queue: nextQueue,
+								currentIndex: Math.min(cur.currentIndex, nextQueue.length),
+							};
+				saveLocalState(nextState);
+				return nextState;
+			});
+			jobTracker.clearJob(chapterId);
+		},
+
+		// CLEAR ENTIRE BOOK FROM LOCAL BATCH TRACKER (E.G. ON CLEAR BOOK PROGRESS)
+		clearBook(bookId: string) {
+			update((cur) => {
+				if (cur.bookId === bookId) {
+					for (const item of cur.queue) {
+						jobTracker.clearJob(item.id);
+					}
+					saveLocalState(initialBatchState);
+					return initialBatchState;
+				}
+				return cur;
+			});
+		},
+
 		// MANUALLY TRIGGER SYNC
 		sync,
 	};

@@ -73,7 +73,7 @@ pub fn deduplicate_boxes(
             }
 
             // STANDARD DUPLICATE / OVERLAP SUPPRESSION FOR SIMILAR-SIZED BOXES
-            let x_subsumed = (ix >= 0.80 * w.min(kw)) && (iy >= 0.40 * h.min(kh)) && (max_area / min_area <= 2.0);
+            let x_subsumed = (ix >= 0.80 * w.min(kw)) && (iy >= 0.70 * h.min(kh)) && (max_area / min_area <= 2.0);
             if iou >= iou_thresh || overlap_ratio >= 0.70 || (overlap_ratio >= 0.60 && max_area / min_area <= 2.5) || x_subsumed {
                 suppressed = true;
                 break;

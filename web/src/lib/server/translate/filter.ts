@@ -113,6 +113,16 @@ export function classifyRegionForTranslation(
 			};
 		}
 
+		// WATERMARKS / URL DOMAINS (E.G. "www.baozimh.com", "baozicdn.com", "https://...")
+		const isWatermarkDomain = /^(?:https?:\/\/)?(?:www\.)?[a-z0-9_\-]+\.(?:com|cn|org|net|cc|tv|xyz|vip|me|top|fun|site|info|icu|io|app|club|space)(?:\/[^\s]*)?$/i.test(text);
+		if (isWatermarkDomain) {
+			return {
+				disposition: 'skip_empty',
+				resolvedTarget: '',
+				reason: 'watermark_domain_url',
+			};
+		}
+
 		// 3. ALREADY-ENGLISH SFX IN CJK COMICS WHEN TARGET IS ENGLISH (E.G. "MEOW", "BOOM", "BANG", "AHHH")
 		if (isEnTarget && (region.kind === 'sound_effect' || COMMON_LATIN_SFX_REGEX.test(text))) {
 			if (COMMON_LATIN_SFX_REGEX.test(text)) {

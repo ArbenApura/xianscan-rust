@@ -8,13 +8,13 @@ import { check, index, integer, real, sqliteTable, text, uniqueIndex } from 'dri
 // timestamptz). HELPER SO EVERY created_at/updated_at/…At COLUMN STAYS A PLAIN JS number.
 const epochMs = (name: string) => integer(name, { mode: 'number' });
 
-// A MANHUA SERIES. SINGLE-USER APP — NO OWNERSHIP COLUMNS (xianslate'S userId IS DROPPED).
+// A MANHUA BOOK. SINGLE-USER APP - NO OWNERSHIP COLUMNS (xianslate'S userId IS DROPPED).
 export const books = sqliteTable(
 	'books',
 	{
 		id: text('id').primaryKey(),
 		sourceType: text('source_type', { enum: ['upload', 'manual'] }).notNull().default('upload'),
-		// THE BOOK'S OWN TRANSLATION DIRECTION — BCP-47-ISH CODES FROM $lib/languages.
+		// THE BOOK'S OWN TRANSLATION DIRECTION - BCP-47-ISH CODES FROM $lib/languages.
 		sourceLang: text('source_lang').notNull(),
 		targetLang: text('target_lang').notNull(),
 		// TITLE AS WRITTEN IN THE SOURCE LANGUAGE.
@@ -25,7 +25,7 @@ export const books = sqliteTable(
 		// DEFAULT VIEW (RECOVERABLE VIA A FILTER).
 		pinned: integer('pinned', { mode: 'boolean' }).notNull().default(false),
 		archived: integer('archived', { mode: 'boolean' }).notNull().default(false),
-		// EXTENDED SERIES METADATA — FED TO BOTH THE WEB UI AND THE MIHON/TACHIYOMI EXTENSION.
+		// EXTENDED BOOK METADATA - FED TO BOTH THE WEB UI AND THE MIHON/TACHIYOMI EXTENSION.
 		description: text('description'),
 		author: text('author'),
 		artist: text('artist'),

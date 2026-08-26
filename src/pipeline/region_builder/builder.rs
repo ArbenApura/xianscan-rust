@@ -103,9 +103,9 @@ pub fn build_regions(
             .iter()
             .filter(|l| {
                 let (lx, ly, lw, lh) = polygon_bounds(&l.polygon);
-                // AN OCR LINE THAT IS SIGNIFICANTLY WIDER THAN THE CONTAINER BOX (LW >= 2.20 * BOX_RECT.W)
-                // IS A CROSS-CONTAINER SPANNED LINE AND SHOULD NOT BE MATCHED TO THIS SUB-CONTAINER.
-                if lw >= (box_rect.w as f32 * 2.20) as i32 && box_rect.w >= 40 && !is_sfx {
+                // AN OCR LINE THAT IS SIGNIFICANTLY WIDER THAN THE CONTAINER BOX (LW >= 2.50 * BOX_RECT.W)
+                // IS A CROSS-CONTAINER SPANNED LINE ONLY WHEN BOX_RECT.W IS A SMALL SUB-BOX (< 100PX)
+                if box_rect.w < 100 && lw >= (box_rect.w as f32 * 2.50) as i32 && !is_sfx {
                     return false;
                 }
                 if line_center_inside_box(&l.polygon, &box_rect) {
@@ -173,25 +173,14 @@ pub fn build_regions(
             // In CJK mode, sanitize OCR lines with trailing noise strokes after a newline (e.g. "text...\n00o0")
             let mut sanitized_lines: Vec<OcrLine> = Vec::new();
             for &m in &orientation_filtered {
-                let clean_m = m.text.trim();
+                let clean_m = crate::ml::detect::clean_stray_ocr_artifacts(&m.text);
+                let clean_m = clean_m.trim();
                 if clean_m.is_empty() {
                     continue;
                 }
-                if is_cjk && clean_m.contains('\n') {
-                    let parts: Vec<&str> = clean_m.lines().map(|l| l.trim()).filter(|l| !l.is_empty()).collect();
-                    if parts.len() == 2 && crate::ml::detect::has_cjk_characters(parts[0]) {
-                        let second = parts[1];
-                        let is_second_noise = crate::ml::detect::is_standalone_noise_stroke(second)
-                            || (second.chars().count() <= 6 && second.chars().all(|c| c == '0' || c == 'o' || c == 'O' || c.is_ascii_digit()));
-                        if is_second_noise {
-                            let mut clone_line = m.clone();
-                            clone_line.text = parts[0].to_string();
-                            sanitized_lines.push(clone_line);
-                            continue;
-                        }
-                    }
-                }
-                sanitized_lines.push(m.clone());
+                let mut clone_line = m.clone();
+                clone_line.text = clean_m.to_string();
+                sanitized_lines.push(clone_line);
             }
 
             for m in &sanitized_lines {
@@ -474,8 +463,11 @@ pub fn build_regions(
                                 let combined_cjk_count = combined_text.chars().filter(|c| !c.is_whitespace()).count();
                                 let has_more_ellipsis = (clean_crop_text.contains('…') && !combined_text.contains('…')) || (clean_crop_text.contains("..") && !combined_text.contains(".."));
 
-                                // IF THE CROP RESULT MERGED LINES ACROSS MULTIPLE SEPARATE DIALOGUE SENTENCES, DO NOT REPLACE
-                                let is_excessive_expansion = matched_bubble.is_none() && combined_cjk_count >= 3 && crop_cjk_count >= (combined_cjk_count * 5 / 2);
+                                // IF THE CROP RESULT MERGED LINES ACROSS MULTIPLE SEPARATE DIALOGUE SENTENCES OR EXPANDED SINGLE NARRATION LINES INTO MULTI-ROW SENTENCES, DO NOT REPLACE
+                                let is_excessive_expansion = matched_bubble.is_none() && (
+                                    (combined_cjk_count >= 3 && crop_cjk_count >= (combined_cjk_count * 5 / 2))
+                                        || (cluster_lines.len() == 1 && avg_score >= 0.70 && !combined_text.contains('\n') && clean_crop_text.contains('\n') && !is_container_vert && combined_cjk_count >= 8)
+                                );
 
                                 // PREVENT CORRUPTING VALID PUNCTUATION CLUSTERS (?!, !?, ...) INTO SPLIT DIGIT/BULLET ARTIFACTS (21, ●)
                                 let is_crop_digits_or_bullets_only = clean_crop_text.chars().all(|c| {
@@ -617,7 +609,8 @@ pub fn build_regions(
                     let is_sign_or_narration_box = cluster_rect.w >= 60 && cluster_rect.h >= 40 && (cleaned.contains("市") || cleaned.contains("省") || cleaned.contains("县") || cleaned.contains("区") || cleaned.contains("镇") || cleaned.contains("村") || cleaned.contains("室") || cleaned.contains("馆") || cleaned.contains("部") || cleaned.contains("堂") || cleaned.contains("院") || cleaned.contains("校") || cleaned.contains("门"));
                     let is_margin_isolated_char = (cluster_rect.x <= 5 || cluster_rect.x + cluster_rect.w >= page_w as i32 - 5) && avg_score < 0.75;
                     let is_valid_cjk_glyph = is_cjk && cleaned.chars().any(|c| crate::ml::detect::has_cjk_characters(&c.to_string())) && avg_score >= 0.70;
-                    if cleaned.chars().count() == 1 && matched_bubble.is_none() && !is_sfx && !is_detector_sfx && !is_sign_or_narration_box && !is_valid_cjk_glyph && (!crate::ml::detect::is_onomatopoeia_or_shout(&cleaned) || avg_score < 0.60) && (compute_chromatic_color_variance(img, &cluster_rect) >= 15.0 || is_margin_isolated_char || (avg_score < 0.75 && cluster_rect.w <= 40 && cluster_rect.h <= 40)) {
+                    let is_low_conf_single_char = cleaned.chars().count() == 1 && avg_score < 0.65;
+                    if cleaned.chars().count() == 1 && matched_bubble.is_none() && !is_sfx && !is_detector_sfx && !is_sign_or_narration_box && (!is_valid_cjk_glyph || is_low_conf_single_char) && (!crate::ml::detect::is_onomatopoeia_or_shout(&cleaned) || avg_score < 0.60) && (compute_chromatic_color_variance(img, &cluster_rect) >= 15.0 || is_margin_isolated_char || is_low_conf_single_char || (avg_score < 0.75 && cluster_rect.w <= 40 && cluster_rect.h <= 40)) {
                         continue;
                     }
                     // SUPPRESS FOLIAGE NOISE / CHROMATIC BACKGROUND TEXTURE ON TINY STROKE FRAGMENTS
@@ -708,6 +701,9 @@ pub fn build_regions(
                     // IF VERTICAL TEXT EXTENDS FURTHER DOWNWARDS
                     let max_vert_trailing_pad = ((box_rect.h as f32 * 0.50).round() as i32).max(180);
                     if (is_container_vert || is_detector_vert) && (box_rect.y + box_rect.h) > max_y && (box_rect.y + box_rect.h - max_y) <= max_vert_trailing_pad {
+                        max_y = max_y.max(box_rect.y + box_rect.h);
+                    } else if matched_bubble.is_some() && (box_rect.y + box_rect.h) > max_y && (box_rect.y + box_rect.h - max_y) <= 25 && min_x >= box_rect.x - 10 && max_x <= box_rect.x + box_rect.w + 10 {
+                        // ENCOMPASS TRAILING SECOND ROW / PUNCTUATION WITHIN SPEECH BUBBLE TEXT CONTAINER
                         max_y = max_y.max(box_rect.y + box_rect.h);
                     }
 

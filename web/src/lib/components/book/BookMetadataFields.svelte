@@ -86,7 +86,7 @@ export let status = 'unknown';
 		<textarea
 			bind:value={description}
 			rows={3}
-			placeholder="Series synopsis shown to readers on the book page"
+			placeholder="Book synopsis shown to readers on the book page"
 			class="w-full rounded-lg border border-black/10 bg-transparent px-3 py-2 text-sm outline-none transition-colors placeholder:opacity-40 focus:border-[#b23a2e] focus:ring-2 focus:ring-[#b23a2e]/30 dark:border-white/[0.06]"
 		></textarea>
 	</div>

@@ -19,8 +19,8 @@ export const GET: RequestHandler = async ({ params }) => {
 
 	const done = db.select().from(pages).where(eq(pages.chapterId, chapterId)).orderBy(pages.seq).all();
 
-	// FOLDER-BASED ZIP — THE ARCHIVE UNPACKS INTO ONE CHAPTER FOLDER HOLDING THE PAGES, WHICH IS
-	// THE STRUCTURE MIHON/TACHIYOMI LOCAL SOURCES EXPECT (<series>/<chapter>/images).
+	// FOLDER-BASED ZIP - THE ARCHIVE UNPACKS INTO ONE CHAPTER FOLDER HOLDING THE PAGES, WHICH IS
+	// THE STRUCTURE MIHON/TACHIYOMI LOCAL SOURCES EXPECT (<book>/<chapter>/images).
 	const safeTitle = chapter.title.trim().replace(/[^\w\- ]+/g, '').replace(/\s+/g, '_') || `chapter_${chapterId}`;
 
 	const files: Record<string, Uint8Array> = {};

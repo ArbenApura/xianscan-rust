@@ -49,7 +49,7 @@ Rules:
 3. "category": 'character', 'location', 'organization', 'technique', 'item', 'realm', 'creature', 'title', 'concept', 'other'.
 4. "gender": 'masculine' or 'feminine' ONLY when the text explicitly indicates it (pronouns, titles like master/sister/brother/prince); otherwise 'neuter'.
 5. "aliases": List any nicknames, short forms, or alternative address forms in the text (e.g. for 叶凡: ["小凡"]). If none, use [].
-6. "context": Brief description in ${tgtName} stating who or what the entity is (e.g. "Protagonist of the series", "Sect-protecting grand array").
+6. "context": Brief description in ${tgtName} stating who or what the entity is (e.g. "Protagonist of the book", "Sect-protecting grand array").
 7. Term selection - High-Recall Directive: Be thorough and extract as many valid story terms, character names, and techniques as possible. Err on the side of extracting rather than omitting; consistency of recurring terminology is critical.
    - Strict Anti-Duplicate Rule: If a term or any of its aliases is already listed in the established terms / glossary, do NOT extract it again. Extract ONLY unlisted, new terms.
    - SKIP ONLY truly generic function words (pronouns, numbers, everyday verbs). Extract all story-significant terminology:

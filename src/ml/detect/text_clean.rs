@@ -14,7 +14,7 @@ pub static CHINESE_RE: LazyLock<Regex> = LazyLock::new(|| {
 
 pub static WATERMARK_RE: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(
-        r"(?i)(\.com|\.net|\.org|\.cn|\.cc|\.xyz|\.top|\.me|\.tv|\.app|http|discord|scanlat|bilibili|速漫库|速漫|漫库|qumanku|quman|包子|baozimh|baozi|colamanga|colamanhua|colam|acloudmerge|acloud|loudmer|udmer|merd|oamanhua|merge|cloud|manga|manhua|comic|yumanhua|mangabox|comick|腾讯[动漫慢机动初]*|腾[动漫慢机动初]{1,2}|阅文[集团]*|快看(?:漫画|动漫|app|独家|首发)|微信|公众号|qq群|企鹅群|群号|严禁转载|独家(?:首发|连载|授权|发布|提供)|扫图|录入|修图|嵌字|翻译[:：]|翻译组|汉化组|免费漫画|最新免费|漫画网|看漫画网|首发|独家首发|漫客[栈拌祥]?|漫[客喜][栈拌祥]?|mkzhan|nga\.com|^[祥拌]$)"
+        r"(?i)(\.com|\.net|\.org|\.cn|\.cc|\.xyz|\.top|\.me|\.tv|\.app|http|discord|scanlat|bilibili|速漫库|速漫|漫库|qumanku|quman|包子|baozimh|baozi|colamanga|colamanhua|colam|acloudmerge|acloud|loudmer|udmer|merd|oamanhua|merge|cloud|manga|manhua|comic|yumanhua|mangabox|comick|腾讯[动漫慢机动初]*|腾[动漫慢机动初]{1,2}|阅文[集团]*|快看(?:漫画|动漫|app|独家|首发)|微信|公众号|qq群|企鹅群|群号|严禁转载|独家(?:首发|连载|授权|发布|提供)|扫图|录入|修图|嵌字|翻译[:：]|翻译组|汉化组|免费漫画|最新免费|漫画网|看漫画网|首发|独家首发|漫客[栈拌祥]?|漫[客喜][栈拌祥]?|mkzhan|nga\.com|^[祥拌]$|澳[祥拌]?)"
     ).unwrap()
 });
 
@@ -191,18 +191,27 @@ pub fn is_onomatopoeia_or_shout(text: &str) -> bool {
 /// UNIVERSAL CLEANING FOR OCR ARTIFACTS AND UNICODE STANDARDIZATION
 pub fn clean_stray_ocr_artifacts(text: &str) -> String {
     let lines: Vec<&str> = text.lines().collect();
-    if lines.len() <= 1 {
-        return text.to_string();
-    }
     let mut kept = Vec::new();
     for line in lines {
         let t = line.trim();
-        // DROP TRAILING OR STANDALONE THOUGHT BUBBLE TAIL DIGIT NOISE (E.G. "000000", "00O0", "OOO", "000")
+        // DROP TRAILING OR STANDALONE THOUGHT BUBBLE TAIL DIGIT NOISE (E.G. "000000", "00O0", "OOO", "000", "200000")
         let is_tail_noise = !t.is_empty()
             && t.chars().all(|c| c == '0' || c == 'o' || c == 'O' || c == '2' || c == '3' || c == '5' || c == '8' || c == '9')
             && t.chars().count() <= 8;
         if !is_tail_noise {
-            kept.push(line);
+            // STRIP INLINE TRAILING THOUGHT BUBBLE TAIL DIGITS (E.G. "...…200000", "……0000", "…000")
+            let mut line_str = line.to_string();
+            let trimmed = line_str.trim_end();
+            if let Some((idx, ch)) = trimmed.char_indices().rfind(|&(_, c)| !c.is_ascii_digit() && c != 'o' && c != 'O') {
+                let tail_start = idx + ch.len_utf8();
+                let tail = &trimmed[tail_start..];
+                if tail.len() >= 3 && tail.len() <= 8 && tail.chars().all(|c| c == '0' || c == 'o' || c == 'O' || c == '2' || c == '3' || c == '5' || c == '8' || c == '9') {
+                    if ch == '.' || ch == '…' || ch == '·' || ch == '。' || ch == ' ' {
+                        line_str = trimmed[..tail_start].trim_end().to_string();
+                    }
+                }
+            }
+            kept.push(line_str);
         }
     }
     if kept.is_empty() {

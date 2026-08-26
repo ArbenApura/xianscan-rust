@@ -140,7 +140,7 @@
 				<p class="mt-1 text-sm opacity-60">
 					{scope === 'global'
 						? 'Global terms applied to every book matching the selected language pair.'
-						: 'Book-specific terms and character names private to the selected series.'}
+						: 'Book-specific terms and character names private to the selected book.'}
 				</p>
 			</div>
 

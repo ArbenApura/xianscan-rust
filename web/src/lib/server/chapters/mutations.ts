@@ -7,6 +7,7 @@ import { asc, desc, eq } from 'drizzle-orm';
 import { db } from '../db';
 import { books, chapters, pages, regions, translations } from '../db/schema';
 import { clearChapterJob } from '../translation-service';
+import { batchService } from '../batch-service';
 import { DATA_ROOT } from '../paths';
 import { convertBufferToWebP } from './dimensions';
 
@@ -254,7 +255,7 @@ export function prunePageThumbs(pageId: number, dataRoot: string = DATA_ROOT): v
 export function resetPageProgress(pageId: number, dataRoot: string = DATA_ROOT): void {
 	prunePageThumbs(pageId, dataRoot);
 	const pageRow = db
-		.select({ cleanedPath: pages.cleanedPath, outputPath: pages.outputPath })
+		.select({ chapterId: pages.chapterId, cleanedPath: pages.cleanedPath, outputPath: pages.outputPath })
 		.from(pages)
 		.where(eq(pages.id, pageId))
 		.get();
@@ -283,10 +284,30 @@ export function resetPageProgress(pageId: number, dataRoot: string = DATA_ROOT):
 		})
 		.where(eq(pages.id, pageId))
 		.run();
+
+	if (pageRow?.chapterId) {
+		const remaining = db
+			.select({ status: pages.status, outputPath: pages.outputPath })
+			.from(pages)
+			.where(eq(pages.chapterId, pageRow.chapterId))
+			.all();
+		const allDone = remaining.length > 0 && remaining.every((p) => p.status === 'done' || Boolean(p.outputPath));
+		if (!allDone) {
+			db.update(chapters)
+				.set({
+					status: 'pending',
+					translatedAt: null,
+				})
+				.where(eq(chapters.id, pageRow.chapterId))
+				.run();
+		}
+		batchService.resetChapter(pageRow.chapterId);
+	}
 }
 
 export function resetChapterProgress(chapterId: number, dataRoot: string = DATA_ROOT): number {
 	clearChapterJob(chapterId);
+	batchService.resetChapter(chapterId);
 	const rows = db.select({ id: pages.id }).from(pages).where(eq(pages.chapterId, chapterId)).all();
 	for (const row of rows) resetPageProgress(row.id, dataRoot);
 
@@ -312,6 +333,7 @@ export function resetChapterProgress(chapterId: number, dataRoot: string = DATA_
 }
 
 export function resetAllBookProgress(bookId: string, dataRoot: string = DATA_ROOT): { chaptersReset: number; pagesReset: number } {
+	batchService.clearBook(bookId);
 	const chapterRows = db
 		.select({ id: chapters.id })
 		.from(chapters)
@@ -354,6 +376,7 @@ export async function deleteAllChapterPages(
 	}
 
 	clearChapterJob(chapterId);
+	batchService.resetChapter(chapterId);
 
 	for (const oldPath of oldFilePaths) {
 		try {
@@ -378,6 +401,7 @@ export async function deleteAllBookChapters(
 	bookId: string,
 	dataRoot: string = DATA_ROOT,
 ): Promise<{ deletedCount: number }> {
+	batchService.clearBook(bookId);
 	const chapterRows = db
 		.select({ id: chapters.id })
 		.from(chapters)

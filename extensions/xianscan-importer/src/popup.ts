@@ -1,6 +1,7 @@
 import { XianScanClient } from './api';
-import type { BookSummary, ChapterMetadata, ChapterSummary, ScannedImage, ScanPageResponse } from './types';
+import type { BookSummary, ChapterMetadata, ChapterSummary, ScannedImage, ScanPageResponse, ChapterReaderPage, ChapterMappingEntry } from './types';
 import { sortImagesByCoordinates, isPlaceholderImage, computeDHashFromElement } from './utils/sorter';
+import { resolveSafeImageUrl } from './utils/dom-replacer';
 
 class PopupController {
 	private client: XianScanClient;
@@ -12,16 +13,21 @@ class PopupController {
 
 	private selectedBookId: string | number | null = null;
 	private selectedChapterId: number | null = null;
+	private isNewChapterPreset = false;
+	private pendingNewChapterMeta = { chapterNumber: 1, title: 'Chapter 1' };
 
-	// DOM Elements
-	private statusDot!: HTMLElement;
-	private statusText!: HTMLElement;
+	// ACTIVE VIEW STATE
+	private currentView: 'import' | 'tracker' = 'import';
+	private activeChapterPages: ChapterReaderPage[] = [];
+
+	// HEADER
+	private serverStatusBadge!: HTMLElement;
 	private toggleSettingsBtn!: HTMLElement;
-	private settingsPanel!: HTMLElement;
-	private serverUrlInput!: HTMLInputElement;
-	private saveServerUrlBtn!: HTMLElement;
+	private toast!: HTMLElement;
+	private toastTimer: ReturnType<typeof setTimeout> | null = null;
 
-	// Custom Selects
+	// VIEW 1: IMPORT VIEW ELEMENTS
+	private importView!: HTMLElement;
 	private bookCustomSelect!: HTMLElement;
 	private bookBtn!: HTMLButtonElement;
 	private bookLabel!: HTMLElement;
@@ -34,34 +40,52 @@ class PopupController {
 	private chapterDropdown!: HTMLElement;
 	private newChapterBtn!: HTMLButtonElement;
 
-	// Toolbar
+	private inPlaceReplacementCheckbox!: HTMLInputElement;
 	private selectAllCheckbox!: HTMLInputElement;
 	private selectionCountText!: HTMLElement;
 	private fastScanBtn!: HTMLButtonElement;
 
-	// Gallery
+	private galleryContainer!: HTMLElement;
 	private galleryEmptyState!: HTMLElement;
 	private galleryGrid!: HTMLElement;
 
-	// Progress & Toast
-	private progressContainer!: HTMLElement;
-	private progressStatusText!: HTMLElement;
-	private progressCountText!: HTMLElement;
-	private progressBarFill!: HTMLElement;
-	private cancelImportBtn!: HTMLButtonElement;
-	private toast!: HTMLElement;
-	private toastTimer: ReturnType<typeof setTimeout> | null = null;
-
-	// Actions
 	private autoResliceCheckbox!: HTMLInputElement;
 	private autoTranslateCheckbox!: HTMLInputElement;
 	private startImportBtn!: HTMLButtonElement;
 	private importBtnText!: HTMLElement;
 
-	// Modals
+	// VIEW 2: TRACKER VIEW ELEMENTS
+	private trackerView!: HTMLElement;
+	private trackerBookTitle!: HTMLElement;
+	private trackerChapterTitle!: HTMLElement;
+	private trackerStatusBadge!: HTMLElement;
+	private trackerInPlaceCheckbox!: HTMLInputElement;
+	private trackerSummaryText!: HTMLElement;
+	private trackerGrid!: HTMLElement;
+
+	private trackerProgressWrap!: HTMLElement;
+	private trackerProgressStatus!: HTMLElement;
+	private trackerProgressCount!: HTMLElement;
+	private trackerProgressBarFill!: HTMLElement;
+	private cancelJobBtn!: HTMLButtonElement;
+
+	private trackerOpenStudioBtn!: HTMLButtonElement;
+	private trackerSyncTabBtn!: HTMLButtonElement;
+
+	// MODALS
+	private settingsModalOverlay!: HTMLElement;
+	private serverUrlInput!: HTMLInputElement;
+	private closeSettingsModalBtn!: HTMLElement;
+	private cancelSettingsModalBtn!: HTMLElement;
+	private saveServerUrlBtn!: HTMLButtonElement;
+
 	private bookModalOverlay!: HTMLElement;
 	private newBookTitleInput!: HTMLInputElement;
-	private newBookSourceLangSelect!: HTMLSelectElement;
+	private newBookLangCustomSelect!: HTMLElement;
+	private newBookLangBtn!: HTMLButtonElement;
+	private newBookLangLabel!: HTMLElement;
+	private newBookLangDropdown!: HTMLElement;
+	private selectedNewBookSourceLang = 'ko';
 	private closeBookModalBtn!: HTMLElement;
 	private cancelBookModalBtn!: HTMLElement;
 	private confirmBookModalBtn!: HTMLButtonElement;
@@ -82,13 +106,19 @@ class PopupController {
 		this.bindEvents();
 
 		// Load stored preferences
-		const stored = await chrome.storage.local.get(['serverUrl', 'autoReslice', 'autoTranslate']);
+		const stored = await chrome.storage.local.get(['serverUrl', 'autoReslice', 'autoTranslate', 'inPlaceReplacement']);
 		if (stored.serverUrl) {
 			this.client.setBaseUrl(stored.serverUrl);
 			this.serverUrlInput.value = stored.serverUrl;
 		} else {
 			this.serverUrlInput.value = 'http://127.0.0.1:8124';
 		}
+
+		const inPlace = stored.inPlaceReplacement !== false;
+		this.inPlaceReplacementCheckbox.checked = inPlace;
+		this.trackerInPlaceCheckbox.checked = inPlace;
+		this.updateToggleState(this.inPlaceReplacementCheckbox);
+		this.updateToggleState(this.trackerInPlaceCheckbox);
 
 		if (stored.autoReslice !== undefined) {
 			this.autoResliceCheckbox.checked = stored.autoReslice;
@@ -103,39 +133,23 @@ class PopupController {
 		// Initial connection check
 		await this.checkServerStatus();
 
-		// Scan active tab
-		await this.scanActiveTab();
+		// Determine initial view based on active tab mapping and background jobs
+		await this.determineInitialView();
 
-		// Check for running background job
-		const jobData = await chrome.storage.local.get(['activeImportJob']);
-		if (jobData.activeImportJob && jobData.activeImportJob.running) {
-			this.progressContainer.classList.remove('hidden');
-			this.startImportBtn.disabled = true;
-			this.updateProgress(jobData.activeImportJob.current, jobData.activeImportJob.total);
-		}
-
-		// Runtime progress listener
-		chrome.runtime.onMessage.addListener(msg => {
-			if (msg.type === 'IMPORT_PROGRESS') {
-				this.updateProgress(msg.current, msg.total);
-			} else if (msg.type === 'IMPORT_COMPLETE') {
-				this.onImportComplete(msg.current, msg.chapterId, msg.bookId, msg.error);
-			} else if (msg.type === 'IMPORT_CANCELLED') {
-				this.onImportCancelled();
-			}
-		});
+		// Setup runtime message listeners for live progress
+		this.setupMessageListeners();
 	}
 
 	private bindElements() {
 		const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
 
-		this.statusDot = $('statusDot');
-		this.statusText = $('statusText');
+		// Header
+		this.serverStatusBadge = $('serverStatusBadge');
 		this.toggleSettingsBtn = $('toggleSettingsBtn');
-		this.settingsPanel = $('settingsPanel');
-		this.serverUrlInput = $('serverUrlInput') as HTMLInputElement;
-		this.saveServerUrlBtn = $('saveServerUrlBtn');
+		this.toast = $('toast');
 
+		// View 1: Import View
+		this.importView = $('importView');
 		this.bookCustomSelect = $('bookCustomSelect');
 		this.bookBtn = $('bookBtn') as HTMLButtonElement;
 		this.bookLabel = $('bookLabel');
@@ -148,29 +162,51 @@ class PopupController {
 		this.chapterDropdown = $('chapterDropdown');
 		this.newChapterBtn = $('newChapterBtn') as HTMLButtonElement;
 
+		this.inPlaceReplacementCheckbox = $('inPlaceReplacementCheckbox') as HTMLInputElement;
 		this.selectAllCheckbox = $('selectAllCheckbox') as HTMLInputElement;
 		this.selectionCountText = $('selectionCountText');
 		this.fastScanBtn = $('fastScanBtn') as HTMLButtonElement;
 
+		this.galleryContainer = $('galleryContainer');
 		this.galleryEmptyState = $('galleryEmptyState');
 		this.galleryGrid = $('galleryGrid');
-
-		this.progressContainer = $('progressContainer');
-		this.progressStatusText = $('progressStatusText');
-		this.progressCountText = $('progressCountText');
-		this.progressBarFill = $('progressBarFill');
-		this.cancelImportBtn = $('cancelImportBtn') as HTMLButtonElement;
-		this.toast = $('toast');
 
 		this.autoResliceCheckbox = $('autoResliceCheckbox') as HTMLInputElement;
 		this.autoTranslateCheckbox = $('autoTranslateCheckbox') as HTMLInputElement;
 		this.startImportBtn = $('startImportBtn') as HTMLButtonElement;
 		this.importBtnText = $('importBtnText');
 
+		// View 2: Tracker View
+		this.trackerView = $('trackerView');
+		this.trackerBookTitle = $('trackerBookTitle');
+		this.trackerChapterTitle = $('trackerChapterTitle');
+		this.trackerStatusBadge = $('trackerStatusBadge');
+		this.trackerInPlaceCheckbox = $('trackerInPlaceCheckbox') as HTMLInputElement;
+		this.trackerSummaryText = $('trackerSummaryText');
+		this.trackerGrid = $('trackerGrid');
+
+		this.trackerProgressWrap = $('trackerProgressWrap');
+		this.trackerProgressStatus = $('trackerProgressStatus');
+		this.trackerProgressCount = $('trackerProgressCount');
+		this.trackerProgressBarFill = $('trackerProgressBarFill');
+		this.cancelJobBtn = $('cancelJobBtn') as HTMLButtonElement;
+
+		this.trackerOpenStudioBtn = $('trackerOpenStudioBtn') as HTMLButtonElement;
+		this.trackerSyncTabBtn = $('trackerSyncTabBtn') as HTMLButtonElement;
+
 		// Modals
+		this.settingsModalOverlay = $('settingsModalOverlay');
+		this.serverUrlInput = $('serverUrlInput') as HTMLInputElement;
+		this.closeSettingsModalBtn = $('closeSettingsModalBtn');
+		this.cancelSettingsModalBtn = $('cancelSettingsModalBtn');
+		this.saveServerUrlBtn = $('saveServerUrlBtn') as HTMLButtonElement;
+
 		this.bookModalOverlay = $('bookModalOverlay');
 		this.newBookTitleInput = $('newBookTitleInput') as HTMLInputElement;
-		this.newBookSourceLangSelect = $('newBookSourceLangSelect') as HTMLSelectElement;
+		this.newBookLangCustomSelect = $('newBookLangCustomSelect');
+		this.newBookLangBtn = $('newBookLangBtn') as HTMLButtonElement;
+		this.newBookLangLabel = $('newBookLangLabel');
+		this.newBookLangDropdown = $('newBookLangDropdown');
 		this.closeBookModalBtn = $('closeBookModalBtn');
 		this.cancelBookModalBtn = $('cancelBookModalBtn');
 		this.confirmBookModalBtn = $('confirmBookModalBtn');
@@ -184,18 +220,31 @@ class PopupController {
 	}
 
 	private bindEvents() {
-		// Settings Toggle
-		this.toggleSettingsBtn.addEventListener('click', () => {
-			this.settingsPanel.classList.toggle('hidden');
+
+		// In-Place Checkboxes Sync
+		const handleInPlaceChange = (checked: boolean) => {
+			this.inPlaceReplacementCheckbox.checked = checked;
+			this.trackerInPlaceCheckbox.checked = checked;
+			this.updateToggleState(this.inPlaceReplacementCheckbox);
+			this.updateToggleState(this.trackerInPlaceCheckbox);
+			chrome.storage.local.set({ inPlaceReplacement: checked });
+
+			chrome.tabs.query({ active: true, currentWindow: true }).then(([tab]) => {
+				if (tab?.id) {
+					chrome.tabs.sendMessage(tab.id, {
+						type: 'TOGGLE_MODE',
+						mode: checked ? 'translated' : 'raw'
+					}, () => void chrome.runtime.lastError);
+				}
+			});
+		};
+
+		this.inPlaceReplacementCheckbox.addEventListener('change', () => {
+			handleInPlaceChange(this.inPlaceReplacementCheckbox.checked);
 		});
 
-		this.saveServerUrlBtn.addEventListener('click', async () => {
-			const url = this.serverUrlInput.value.trim() || 'http://127.0.0.1:8124';
-			this.client.setBaseUrl(url);
-			await chrome.storage.local.set({ serverUrl: url });
-			this.settingsPanel.classList.add('hidden');
-			this.showToast('Server URL Saved');
-			await this.checkServerStatus();
+		this.trackerInPlaceCheckbox.addEventListener('change', () => {
+			handleInPlaceChange(this.trackerInPlaceCheckbox.checked);
 		});
 
 		// Custom Selects: Toggle Dropdowns
@@ -211,186 +260,32 @@ class PopupController {
 			this.chapterCustomSelect.classList.toggle('open');
 		});
 
-		// Close dropdowns when clicking outside
 		document.addEventListener('click', () => {
 			this.bookCustomSelect.classList.remove('open');
 			this.chapterCustomSelect.classList.remove('open');
+			this.newBookLangCustomSelect.classList.remove('open');
 		});
 
-		// Modal Triggers
-		const openBookModal = () => {
-			if (this.metadata.seriesTitle) {
-				this.newBookTitleInput.value = this.metadata.seriesTitle;
-			}
-			if (this.metadata.sourceLang && this.metadata.sourceLang !== 'auto') {
-				this.newBookSourceLangSelect.value = this.metadata.sourceLang;
-			}
-			this.bookModalOverlay.classList.remove('hidden');
-			setTimeout(() => this.newBookTitleInput.focus(), 50);
-		};
-
-		const closeBookModal = () => {
-			this.bookModalOverlay.classList.add('hidden');
-			this.confirmBookModalBtn.disabled = false;
-			this.confirmBookModalBtn.textContent = 'Create Series';
-		};
-
-		this.newBookBtn.addEventListener('click', openBookModal);
-		this.closeBookModalBtn.addEventListener('click', closeBookModal);
-		this.cancelBookModalBtn.addEventListener('click', closeBookModal);
-		this.bookModalOverlay.addEventListener('click', (e) => {
-			if (e.target === this.bookModalOverlay) closeBookModal();
+		this.newBookLangBtn.addEventListener('click', (e) => {
+			e.stopPropagation();
+			this.newBookLangCustomSelect.classList.toggle('open');
 		});
 
-		const submitBookCreation = async () => {
-			const title = this.newBookTitleInput.value.trim();
-			if (!title) {
-				this.showToast('Please enter a series title.', true);
-				this.newBookTitleInput.focus();
-				return;
-			}
-			const sourceLang = this.newBookSourceLangSelect.value;
-			this.confirmBookModalBtn.disabled = true;
-			this.confirmBookModalBtn.textContent = 'Creating...';
-			try {
-				const book = await this.client.createBook({ title, sourceLang });
-				closeBookModal();
-				this.showToast(`Created series: ${title}`);
-				await this.loadBooks(book.id);
-			} catch (e: any) {
-				this.confirmBookModalBtn.disabled = false;
-				this.confirmBookModalBtn.textContent = 'Create Series';
-				this.showToast(`Failed: ${e.message || 'Server error'}`, true);
-			}
-		};
-
-		this.confirmBookModalBtn.addEventListener('click', submitBookCreation);
-		this.newBookTitleInput.addEventListener('keydown', (e) => {
-			if (e.key === 'Enter') {
-				e.preventDefault();
-				submitBookCreation();
-			}
-		});
-
-		// Chapter Modal
-		const openChapterModal = () => {
-			if (!this.selectedBookId) {
-				this.showToast('Please select or create a series first.', true);
-				return;
-			}
-			const nextChapterNum = Math.max(1, this.chapters.length + 1);
-			const num = (this.metadata.chapterNumber !== undefined && this.metadata.chapterNumber > 0)
-				? this.metadata.chapterNumber
-				: nextChapterNum;
-			this.newChapterNumberInput.value = String(num);
-			this.newChapterTitleInput.value = (this.metadata.chapterTitle && !this.metadata.chapterTitle.endsWith(' 0'))
-				? this.metadata.chapterTitle
-				: `Chapter ${num}`;
-			this.chapterModalOverlay.classList.remove('hidden');
-			setTimeout(() => this.newChapterTitleInput.focus(), 50);
-		};
-
-		const closeChapterModal = () => {
-			this.chapterModalOverlay.classList.add('hidden');
-			this.confirmChapterModalBtn.disabled = false;
-			this.confirmChapterModalBtn.textContent = 'Create Chapter';
-		};
-
-		this.newChapterBtn.addEventListener('click', openChapterModal);
-		this.closeChapterModalBtn.addEventListener('click', closeChapterModal);
-		this.cancelChapterModalBtn.addEventListener('click', closeChapterModal);
-		this.chapterModalOverlay.addEventListener('click', (e) => {
-			if (e.target === this.chapterModalOverlay) closeChapterModal();
-		});
-
-		const submitChapterCreation = async () => {
-			if (!this.selectedBookId) {
-				this.showToast('Please select a series first.', true);
-				return;
-			}
-			const num = parseFloat(this.newChapterNumberInput.value);
-			const title = this.newChapterTitleInput.value.trim() || `Chapter ${num || 1}`;
-			if (isNaN(num)) {
-				this.showToast('Please enter a valid chapter number.', true);
-				this.newChapterNumberInput.focus();
-				return;
-			}
-			this.confirmChapterModalBtn.disabled = true;
-			this.confirmChapterModalBtn.textContent = 'Creating...';
-			try {
-				const chapter = await this.client.createChapter(this.selectedBookId, { title, chapterNumber: num });
-				closeChapterModal();
-				this.showToast(`Created chapter: ${title}`);
-				await this.loadChapters(this.selectedBookId, chapter.id);
-			} catch (e: any) {
-				this.confirmChapterModalBtn.disabled = false;
-				this.confirmChapterModalBtn.textContent = 'Create Chapter';
-				this.showToast(`Failed: ${e.message || 'Server error'}`, true);
-			}
-		};
-
-		this.confirmChapterModalBtn.addEventListener('click', submitChapterCreation);
-		this.newChapterTitleInput.addEventListener('keydown', (e) => {
-			if (e.key === 'Enter') {
-				e.preventDefault();
-				submitChapterCreation();
-			}
-		});
-		this.newChapterNumberInput.addEventListener('keydown', (e) => {
-			if (e.key === 'Enter') {
-				e.preventDefault();
-				submitChapterCreation();
-			}
-		});
-
-		// Global Escape key to close modals
-		document.addEventListener('keydown', (e) => {
-			if (e.key === 'Escape') {
-				closeBookModal();
-				closeChapterModal();
-			}
-		});
-
-		// Selection Controls
-		this.selectAllCheckbox.addEventListener('change', () => {
-			const checked = this.selectAllCheckbox.checked;
-			this.images.forEach(img => (img.selected = checked));
-			this.renderGallery();
-			this.updateSelectionSummary();
-		});
-
-		this.fastScanBtn.addEventListener('click', async () => {
-			this.fastScanBtn.disabled = true;
-			this.fastScanBtn.innerHTML = `
-				<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-					<polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/>
-				</svg>
-				Scanning...
-			`;
-			const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-			if (tab?.id) {
-				chrome.tabs.sendMessage(tab.id, { type: 'FAST_SCROLL_PRELOAD' }, (res: any) => {
-					void chrome.runtime.lastError;
-					this.fastScanBtn.disabled = false;
-					this.fastScanBtn.innerHTML = `
-						<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-							<polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/>
-						</svg>
-						Fast Scan
-					`;
-					if (res && res.images) {
-						this.images = sortImagesByCoordinates(
-							res.images.filter((img: ScannedImage) => !isPlaceholderImage(img.url, img.width, img.height))
-						);
-						this.metadata = res.metadata || {};
-						this.renderGallery();
-						this.updateSelectionSummary();
-						this.showToast(`Found ${this.images.length} pages`);
-					}
+		this.newBookLangDropdown.querySelectorAll('.custom-select-option').forEach(btn => {
+			btn.addEventListener('click', (e) => {
+				e.stopPropagation();
+				const target = btn as HTMLElement;
+				const val = target.dataset.value || 'ko';
+				this.selectedNewBookSourceLang = val;
+				this.newBookLangLabel.textContent = target.textContent || val;
+				this.newBookLangDropdown.querySelectorAll('.custom-select-option').forEach(o => {
+					o.classList.toggle('active', o === target);
 				});
-			}
+				this.newBookLangCustomSelect.classList.remove('open');
+			});
 		});
 
+		// Pipeline Toggles
 		this.autoResliceCheckbox.addEventListener('change', () => {
 			this.updateToggleState(this.autoResliceCheckbox);
 			chrome.storage.local.set({ autoReslice: this.autoResliceCheckbox.checked });
@@ -401,100 +296,716 @@ class PopupController {
 			chrome.storage.local.set({ autoTranslate: this.autoTranslateCheckbox.checked });
 		});
 
-		this.cancelImportBtn.addEventListener('click', () => {
-			chrome.runtime.sendMessage({ type: 'CANCEL_IMPORT_JOB' }, () => {
-				void chrome.runtime.lastError;
-			});
-			this.onImportCancelled();
+		// Selection Controls
+		this.selectAllCheckbox.addEventListener('change', () => {
+			const checked = this.selectAllCheckbox.checked;
+			this.images.forEach(img => { img.selected = checked; });
+			this.renderGalleryGrid();
+			this.updateSelectionSummary();
 		});
 
-		this.startImportBtn.addEventListener('click', () => this.startBatchImport());
+		this.fastScanBtn.addEventListener('click', async () => {
+			this.fastScanBtn.disabled = true;
+			this.fastScanBtn.innerHTML = `
+				<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="spin" style="width:10px;height:10px">
+					<circle cx="12" cy="12" r="10" stroke-opacity="0.25"/>
+					<path d="M12 2a10 10 0 0 1 10 10"/>
+				</svg>
+				Scanning...
+			`;
+
+			const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+			if (tab?.id) {
+				chrome.tabs.sendMessage(tab.id, { type: 'FAST_SCROLL_PRELOAD' }, (res: ScanPageResponse & { success?: boolean }) => {
+					this.fastScanBtn.disabled = false;
+					this.fastScanBtn.innerHTML = `
+						<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+							<polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/>
+						</svg>
+						Fast Scan
+					`;
+
+					if (chrome.runtime.lastError || !res) {
+						this.showToast('Scan timed out', true);
+						return;
+					}
+
+					const raw = res.images || [];
+					this.images = sortImagesByCoordinates(
+						raw.filter((img: ScannedImage) => !isPlaceholderImage(img.url, img.width, img.height))
+					);
+					this.metadata = res.metadata || {};
+					this.renderGalleryGrid();
+					this.updateSelectionSummary();
+					this.showToast(`Found ${this.images.length} pages`);
+				});
+			} else {
+				this.fastScanBtn.disabled = false;
+			}
+		});
+
+		// Import Action
+		this.startImportBtn.addEventListener('click', () => {
+			this.startBatchImport();
+		});
+
+		// Tracker Actions
+		this.trackerOpenStudioBtn.addEventListener('click', () => {
+			const bId = this.selectedBookId;
+			const cId = this.selectedChapterId;
+			if (bId && cId) {
+				const baseUrl = this.client.getBaseUrl();
+				chrome.tabs.create({ url: `${baseUrl}/app/books/${bId}/chapters/${cId}` });
+			}
+		});
+
+		this.trackerSyncTabBtn.addEventListener('click', async () => {
+			if (this.trackerSyncTabBtn.disabled) return;
+			this.trackerSyncTabBtn.disabled = true;
+
+			const originalContent = this.trackerSyncTabBtn.innerHTML;
+			this.trackerSyncTabBtn.innerHTML = `
+				<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="spin">
+					<path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.67"/>
+				</svg>
+				Syncing...
+			`;
+
+			const startTime = Date.now();
+
+			const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+			if (tab?.id) {
+				chrome.tabs.sendMessage(tab.id, { type: 'TRIGGER_SYNC' }, () => {
+					void chrome.runtime.lastError;
+				});
+			}
+
+			if (this.selectedChapterId) {
+				await this.loadAndRenderTracker(this.selectedChapterId, this.selectedBookId ?? undefined);
+			}
+
+			// ENFORCE MINIMUM 1-SECOND REFRESH LOADING DURATION
+			const elapsed = Date.now() - startTime;
+			const remaining = Math.max(0, 1000 - elapsed);
+			if (remaining > 0) {
+				await new Promise(resolve => setTimeout(resolve, remaining));
+			}
+
+			this.trackerSyncTabBtn.disabled = false;
+			this.trackerSyncTabBtn.innerHTML = originalContent;
+			this.showToast('Synced with Server');
+		});
+
+		this.cancelJobBtn.addEventListener('click', () => {
+			if (this.selectedChapterId) {
+				void this.client.cancelTranslation(this.selectedChapterId);
+			}
+			chrome.runtime.sendMessage({
+				type: 'CANCEL_IMPORT_JOB',
+				chapterId: this.selectedChapterId
+			}, () => {
+				void chrome.runtime.lastError;
+			});
+			this.showToast('Operation Cancelled');
+			this.trackerStatusBadge.className = 'tracker-badge';
+			this.trackerStatusBadge.textContent = 'Cancelled';
+			this.trackerProgressWrap.classList.add('hidden');
+			if (this.selectedChapterId) {
+				void this.loadAndRenderTracker(this.selectedChapterId, this.selectedBookId ?? undefined);
+			}
+		});
+
+		// Modals
+		const setModalSourceLang = (lang: string) => {
+			this.selectedNewBookSourceLang = lang;
+			const opt = this.newBookLangDropdown.querySelector<HTMLButtonElement>(`[data-value="${lang}"]`);
+			if (opt) {
+				this.newBookLangLabel.textContent = opt.textContent;
+				this.newBookLangDropdown.querySelectorAll('.custom-select-option').forEach(o => {
+					o.classList.toggle('active', o === opt);
+				});
+			}
+		};
+
+		const openModal = (overlay: HTMLElement) => {
+			overlay.classList.remove('hidden');
+			void overlay.offsetHeight; // force reflow for smooth animation
+			overlay.classList.add('open');
+		};
+
+		const closeModal = (overlay: HTMLElement, onClosed?: () => void) => {
+			overlay.classList.remove('open');
+			setTimeout(() => {
+				if (!overlay.classList.contains('open')) {
+					overlay.classList.add('hidden');
+					onClosed?.();
+				}
+			}, 180);
+		};
+
+		// 1. Settings Modal
+		const openSettingsModal = () => {
+			openModal(this.settingsModalOverlay);
+			setTimeout(() => this.serverUrlInput.focus(), 50);
+		};
+
+		const closeSettingsModal = () => {
+			closeModal(this.settingsModalOverlay);
+		};
+
+		this.toggleSettingsBtn.addEventListener('click', openSettingsModal);
+		this.closeSettingsModalBtn.addEventListener('click', closeSettingsModal);
+		this.cancelSettingsModalBtn.addEventListener('click', closeSettingsModal);
+		this.settingsModalOverlay.addEventListener('click', (e) => {
+			if (e.target === this.settingsModalOverlay) closeSettingsModal();
+		});
+
+		this.saveServerUrlBtn.addEventListener('click', async () => {
+			const url = this.serverUrlInput.value.trim() || 'http://127.0.0.1:8124';
+			this.client.setBaseUrl(url);
+			await chrome.storage.local.set({ serverUrl: url });
+			closeSettingsModal();
+			this.showToast('Server URL Saved');
+			await this.checkServerStatus();
+			if (this.currentView === 'import') {
+				await this.loadBooks();
+			}
+		});
+
+		// 2. Book Modal
+		const openBookModal = () => {
+			const bookTitle = this.metadata.bookTitle || this.metadata.seriesTitle;
+			if (bookTitle) {
+				this.newBookTitleInput.value = bookTitle;
+			}
+			if (this.metadata.sourceLang && this.metadata.sourceLang !== 'auto') {
+				setModalSourceLang(this.metadata.sourceLang);
+			} else {
+				setModalSourceLang('ko');
+			}
+			this.newBookLangCustomSelect.classList.remove('open');
+			openModal(this.bookModalOverlay);
+			setTimeout(() => this.newBookTitleInput.focus(), 50);
+		};
+
+		const closeBookModal = () => {
+			this.newBookLangCustomSelect.classList.remove('open');
+			closeModal(this.bookModalOverlay, () => {
+				this.confirmBookModalBtn.disabled = false;
+				this.confirmBookModalBtn.textContent = 'Create Book';
+			});
+		};
+
+		this.newBookBtn.addEventListener('click', openBookModal);
+		this.closeBookModalBtn.addEventListener('click', closeBookModal);
+		this.cancelBookModalBtn.addEventListener('click', closeBookModal);
+		this.bookModalOverlay.addEventListener('click', (e) => {
+			if (e.target === this.bookModalOverlay) closeBookModal();
+		});
+
+		this.confirmBookModalBtn.addEventListener('click', async () => {
+			const title = this.newBookTitleInput.value.trim();
+			if (!title) return;
+			this.confirmBookModalBtn.disabled = true;
+			this.confirmBookModalBtn.textContent = 'Creating...';
+
+			try {
+				const created = await this.client.createBook({
+					title,
+					sourceLang: this.selectedNewBookSourceLang
+				});
+				closeBookModal();
+				this.showToast(`Book "${created.title}" created`);
+				await this.loadBooks(created.id);
+			} catch (e: any) {
+				this.confirmBookModalBtn.disabled = false;
+				this.confirmBookModalBtn.textContent = 'Create Book';
+				this.showToast(e.message || 'Failed to create book', true);
+			}
+		});
+
+		const openChapterModal = () => {
+			const existingChNums = new Set(this.chapters.map(c => Number(c.chapterNumber)));
+			const maxNum = this.chapters.reduce((max, c) => Math.max(max, Number(c.chapterNumber) || 0), 0);
+			const nextSequenceNum = maxNum > 0 ? maxNum + 1 : (this.chapters.length + 1);
+
+			let defaultNum: number;
+			if (
+				this.metadata.hasExplicitChapter &&
+				this.metadata.chapterNumber !== undefined &&
+				!existingChNums.has(Number(this.metadata.chapterNumber))
+			) {
+				defaultNum = this.metadata.chapterNumber;
+			} else {
+				// Fall back to sequence base: next show chapter number 2, chapter title "Chapter 2", etc.
+				defaultNum = nextSequenceNum;
+			}
+
+			this.newChapterNumberInput.value = String(defaultNum);
+
+			if (
+				this.metadata.hasExplicitChapter &&
+				this.metadata.chapterTitle &&
+				!existingChNums.has(Number(this.metadata.chapterNumber))
+			) {
+				this.newChapterTitleInput.value = this.metadata.chapterTitle;
+			} else {
+				this.newChapterTitleInput.value = `Chapter ${defaultNum}`;
+			}
+
+			openModal(this.chapterModalOverlay);
+			setTimeout(() => this.newChapterTitleInput.focus(), 50);
+		};
+
+		this.newChapterNumberInput.addEventListener('input', () => {
+			const numStr = this.newChapterNumberInput.value.trim();
+			const currTitle = this.newChapterTitleInput.value.trim();
+			if (!currTitle || /^Chapter\s+\d+(\.\d+)?$/i.test(currTitle)) {
+				this.newChapterTitleInput.value = numStr ? `Chapter ${numStr}` : '';
+			}
+		});
+
+		const closeChapterModal = () => {
+			closeModal(this.chapterModalOverlay, () => {
+				this.confirmChapterModalBtn.disabled = false;
+				this.confirmChapterModalBtn.textContent = 'Create Chapter';
+			});
+		};
+
+		this.newChapterBtn.addEventListener('click', openChapterModal);
+		this.closeChapterModalBtn.addEventListener('click', closeChapterModal);
+		this.cancelChapterModalBtn.addEventListener('click', closeChapterModal);
+		this.chapterModalOverlay.addEventListener('click', (e) => {
+			if (e.target === this.chapterModalOverlay) closeChapterModal();
+		});
+
+		this.confirmChapterModalBtn.addEventListener('click', async () => {
+			if (!this.selectedBookId) return;
+			const chapterNumber = parseFloat(this.newChapterNumberInput.value) || (this.chapters.length + 1);
+			const title = this.newChapterTitleInput.value.trim() || `Chapter ${chapterNumber}`;
+
+			this.confirmChapterModalBtn.disabled = true;
+			this.confirmChapterModalBtn.textContent = 'Creating...';
+
+			try {
+				const created = await this.client.createChapter(this.selectedBookId, {
+					chapterNumber,
+					title
+				});
+				closeChapterModal();
+				this.showToast(`Chapter "${title}" created`);
+				await this.loadChapters(this.selectedBookId, created.id);
+			} catch (e: any) {
+				this.confirmChapterModalBtn.disabled = false;
+				this.confirmChapterModalBtn.textContent = 'Create Chapter';
+				this.showToast(e.message || 'Failed to create chapter', true);
+			}
+		});
 	}
 
 	private updateToggleState(checkbox: HTMLInputElement) {
-		// SYNC .checked CLASS ON WRAPPING CHIP FOR STYLING
-		const parent = checkbox?.closest('.pipeline-chip');
-		if (parent) {
-			parent.classList.toggle('checked', checkbox.checked);
+		const label = checkbox.closest('.pipeline-chip');
+		if (label) {
+			label.classList.toggle('checked', checkbox.checked);
 		}
 	}
 
-	private showToast(msg: string, isError = false) {
-		this.toast.textContent = msg;
-		this.toast.classList.toggle('error', isError);
-		this.toast.classList.add('show');
-		if (this.toastTimer) clearTimeout(this.toastTimer);
-		this.toastTimer = setTimeout(() => {
-			this.toast.classList.remove('show');
-			this.toast.classList.remove('error');
-		}, 3000);
+	// SWITCH BETWEEN IMPORT VIEW AND TRACKER VIEW
+	private switchView(view: 'import' | 'tracker') {
+		this.currentView = view;
+		if (view === 'import') {
+			this.importView.classList.remove('hidden');
+			this.trackerView.classList.add('hidden');
+		} else {
+			this.importView.classList.add('hidden');
+			this.trackerView.classList.remove('hidden');
+		}
+	}
+
+	private async determineInitialView() {
+		const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+		this.currentUrl = tab?.url || '';
+
+		// 1. CHECK RUNNING BACKGROUND IMPORT JOB FIRST
+		const jobData = await chrome.storage.local.get(['activeImportJob']);
+		if (jobData.activeImportJob && jobData.activeImportJob.running) {
+			const job = jobData.activeImportJob;
+			this.selectedBookId = job.bookId;
+			this.selectedChapterId = job.chapterId;
+			this.switchView('tracker');
+			this.updateTrackerProgress(job.current, job.total, 'uploading');
+			void this.loadAndRenderTracker(job.chapterId, job.bookId);
+			return;
+		}
+
+		// 2. CHECK IF CURRENT TAB URL HAS AN EXISTING RECORDED MAPPING IN DATABASE
+		if (this.currentUrl && !this.currentUrl.startsWith('chrome://') && !this.currentUrl.startsWith('about:')) {
+			const mappingRes: { mapping?: ChapterMappingEntry | null } = await new Promise(resolve => {
+				chrome.runtime.sendMessage({ type: 'GET_SITE_MAPPING', url: this.currentUrl }, res => {
+					resolve(res || {});
+				});
+			});
+
+			if (mappingRes.mapping && mappingRes.mapping.chapterId) {
+				const mapping = mappingRes.mapping;
+				this.selectedBookId = mapping.bookId;
+				this.selectedChapterId = mapping.chapterId;
+				this.switchView('tracker');
+				void this.loadAndRenderTracker(mapping.chapterId, mapping.bookId);
+				return;
+			}
+		}
+
+		// 3. DEFAULT: UNMAPPED TAB -> SHOW IMPORT VIEW & SCAN TAB
+		this.switchView('import');
+		await this.scanActiveTab();
+		await this.loadBooks();
+	}
+
+	private async loadAndRenderTracker(chapterId: number, bookId?: string | number) {
+		try {
+			const details = await this.client.getChapterDetails(chapterId);
+			if (!details || !details.chapter) {
+				// CHAPTER DELETED FROM STUDIO: PURGE MAPPING AND REVERT TO SCANNER
+				await new Promise(resolve => {
+					chrome.runtime.sendMessage({
+						type: 'DELETE_SITE_MAPPING',
+						url: this.currentUrl
+					}, () => resolve(true));
+				});
+				this.switchView('import');
+				await this.scanActiveTab();
+				await this.loadBooks();
+				return;
+			}
+
+			this.activeChapterPages = details.pages || [];
+			const total = this.activeChapterPages.length;
+			const doneCount = this.activeChapterPages.filter(p => p.outputPath || p.outputRev > 0).length;
+			const isComplete = doneCount === total && total > 0;
+			const isTranslating = details.isTranslating === true || details.jobStatus === 'running';
+
+			this.trackerChapterTitle.textContent = details.chapter.title || `Chapter #${chapterId}`;
+
+			if (bookId) {
+				const books = await this.client.getBooks();
+				const b = books.find(item => String(item.id) === String(bookId));
+				this.trackerBookTitle.textContent = (b?.titleTarget || b?.title) || 'Active Book';
+			} else {
+				this.trackerBookTitle.textContent = 'Active Book';
+			}
+
+			if (isTranslating) {
+				this.trackerStatusBadge.className = 'tracker-badge translating';
+				this.trackerStatusBadge.textContent = `Translating ${doneCount}/${total}`;
+				this.trackerSummaryText.textContent = `${doneCount} / ${total} pages ready`;
+				this.trackerProgressWrap.classList.remove('hidden');
+				this.updateTrackerProgress(doneCount, total, 'translating');
+			} else if (isComplete) {
+				this.trackerStatusBadge.className = 'tracker-badge ready';
+				this.trackerStatusBadge.textContent = 'Ready';
+				this.trackerSummaryText.textContent = `All ${total} pages translated`;
+				this.trackerProgressWrap.classList.add('hidden');
+			} else {
+				this.trackerStatusBadge.className = 'tracker-badge';
+				this.trackerStatusBadge.textContent = doneCount > 0 ? `Stopped (${doneCount}/${total})` : 'Idle';
+				this.trackerSummaryText.textContent = doneCount > 0 ? `${doneCount} of ${total} pages ready (Stopped)` : `${total} pages in chapter`;
+				this.trackerProgressWrap.classList.add('hidden');
+			}
+
+			this.renderTrackerGrid();
+		} catch (err) {
+			console.error('Chapter not found or deleted from studio:', err);
+			// AUTOMATICALLY PURGE DELETED CHAPTER MAPPING AND FALL BACK TO SCANNER
+			await new Promise(resolve => {
+				chrome.runtime.sendMessage({
+					type: 'DELETE_SITE_MAPPING',
+					url: this.currentUrl
+				}, () => resolve(true));
+			});
+			this.switchView('import');
+			await this.scanActiveTab();
+			await this.loadBooks();
+		}
+	}
+
+	private renderTrackerGrid() {
+		this.trackerGrid.innerHTML = '';
+		if (this.activeChapterPages.length === 0) {
+			this.trackerGrid.innerHTML = `
+				<div class="empty-state" style="grid-column: 1 / -1; min-height: 120px;">
+					<p>No server slices uploaded yet.</p>
+				</div>
+			`;
+			return;
+		}
+
+		this.activeChapterPages.forEach((page, idx) => {
+			const card = document.createElement('div');
+			const isReady = !!page.outputPath || page.outputRev > 0;
+			card.className = `slice-card ${isReady ? 'ready' : 'pending'}`;
+			card.id = `slice-card-${page.id}`;
+
+			const indexBadge = document.createElement('span');
+			indexBadge.className = 'slice-index mono';
+			indexBadge.textContent = `#${idx + 1}`;
+			card.appendChild(indexBadge);
+
+			const statusBadge = document.createElement('span');
+			statusBadge.className = `slice-badge mono ${isReady ? 'ready' : 'pending'}`;
+			statusBadge.textContent = isReady ? 'Ready' : 'Pending';
+			statusBadge.id = `slice-badge-${page.id}`;
+			card.appendChild(statusBadge);
+
+			const img = document.createElement('img');
+			const targetUrl = isReady
+				? `${this.client.getBaseUrl()}/api/pages/${page.id}/file?kind=output&rev=${page.outputRev}`
+				: `${this.client.getBaseUrl()}/api/pages/${page.id}/file?kind=original&rev=${page.originalRev}`;
+
+			img.src = targetUrl;
+			img.id = `slice-img-${page.id}`;
+			void resolveSafeImageUrl(targetUrl).then(safeUrl => {
+				img.src = safeUrl;
+			});
+
+			card.appendChild(img);
+			this.trackerGrid.appendChild(card);
+		});
+	}
+
+	private updateTrackerProgress(current: number, total: number, phase: string) {
+		this.trackerProgressWrap.classList.remove('hidden');
+		const pct = total > 0 ? Math.min(100, Math.round((current / total) * 100)) : 0;
+		this.trackerProgressBarFill.style.width = `${pct}%`;
+		this.trackerProgressCount.textContent = `${current} / ${total}`;
+
+		if (phase === 'uploading') {
+			this.trackerProgressStatus.textContent = `Uploading page ${current} of ${total}...`;
+			this.trackerStatusBadge.className = 'tracker-badge uploading';
+			this.trackerStatusBadge.textContent = 'Uploading';
+		} else if (phase === 'reslicing') {
+			this.trackerProgressStatus.textContent = 'Smart reslicing comic strips...';
+			this.trackerStatusBadge.className = 'tracker-badge reslicing';
+			this.trackerStatusBadge.textContent = 'Reslicing';
+		} else if (phase === 'translating') {
+			this.trackerProgressStatus.textContent = `Translating page ${current} of ${total}...`;
+			this.trackerStatusBadge.className = 'tracker-badge translating';
+			this.trackerStatusBadge.textContent = `Translating ${current}/${total}`;
+		}
+	}
+
+	private setupMessageListeners() {
+		chrome.runtime.onMessage.addListener(msg => {
+			if (msg.type === 'IMPORT_PROGRESS') {
+				this.updateTrackerProgress(msg.current, msg.total, 'uploading');
+			} else if (msg.type === 'PIPELINE_PHASE') {
+				if (msg.phase === 'reslicing') {
+					this.updateTrackerProgress(0, msg.total || 0, 'reslicing');
+				} else if (msg.phase === 'translating') {
+					this.updateTrackerProgress(0, msg.total || 0, 'translating');
+				}
+			} else if (msg.type === 'PAGE_TRANSLATED') {
+				const current = msg.pageSeq + 1;
+				const total = msg.total || current;
+				this.updateTrackerProgress(current, total, 'translating');
+
+				// DYNAMICALLY UPDATE SPECIFIC SLICE CARD IN 3-COLUMN TRACKER GRID
+				const card = document.getElementById(`slice-card-${msg.pageId}`);
+				if (card) {
+					card.className = 'slice-card ready';
+				}
+
+				const sliceBadge = document.getElementById(`slice-badge-${msg.pageId}`);
+				if (sliceBadge) {
+					sliceBadge.className = 'slice-badge mono ready';
+					sliceBadge.textContent = 'Ready';
+				}
+
+				// Mark next sequential slice as processing
+				const nextSeq = msg.pageSeq + 1;
+				const nextPage = this.activeChapterPages[nextSeq];
+				if (nextPage) {
+					const nextCard = document.getElementById(`slice-card-${nextPage.id}`);
+					if (nextCard && !nextCard.classList.contains('ready')) {
+						nextCard.className = 'slice-card processing';
+						const nextBadge = document.getElementById(`slice-badge-${nextPage.id}`);
+						if (nextBadge) {
+							nextBadge.className = 'slice-badge mono processing';
+							nextBadge.textContent = 'Processing';
+						}
+					}
+				}
+
+				const sliceImg = document.getElementById(`slice-img-${msg.pageId}`) as HTMLImageElement;
+				if (sliceImg) {
+					const newUrl = `${this.client.getBaseUrl()}/api/pages/${msg.pageId}/file?kind=output&rev=${msg.outputRev}`;
+					sliceImg.src = newUrl;
+					void resolveSafeImageUrl(newUrl).then(safeUrl => {
+						sliceImg.src = safeUrl;
+					});
+				}
+			} else if (msg.type === 'CHAPTER_SYNC_UPDATE' && msg.status === 'done') {
+				this.trackerProgressWrap.classList.add('hidden');
+				this.trackerStatusBadge.className = 'tracker-badge ready';
+				this.trackerStatusBadge.textContent = 'Ready';
+				this.trackerSummaryText.textContent = 'All pages translated & in-place synced';
+				this.showToast('Chapter Translation Complete!');
+				if (this.selectedChapterId) {
+					void this.loadAndRenderTracker(this.selectedChapterId, this.selectedBookId ?? undefined);
+				}
+			} else if (msg.type === 'IMPORT_COMPLETE') {
+				if (msg.error) {
+					this.showToast(`Import failed: ${msg.error}`, true);
+					this.switchView('import');
+				} else {
+					this.showToast(`Imported ${msg.current} pages successfully`);
+					if (this.selectedChapterId) {
+						void this.loadAndRenderTracker(this.selectedChapterId, this.selectedBookId ?? undefined);
+					}
+				}
+			}
+		});
+	}
+
+	private async startBatchImport() {
+		if (!this.selectedBookId || (!this.selectedChapterId && !this.isNewChapterPreset)) return;
+		const selectedUrls = this.images.filter(i => i.selected).map(i => i.url);
+		const excludedUrls = this.images.filter(i => !i.selected).map(i => i.url);
+		if (selectedUrls.length === 0) return;
+
+		let targetChapterId = this.selectedChapterId;
+		let targetChapterTitle = '';
+
+		if (this.isNewChapterPreset || !targetChapterId) {
+			this.startImportBtn.disabled = true;
+			this.startImportBtn.textContent = 'Creating Chapter...';
+			const pendingTitle = this.pendingNewChapterMeta.title;
+			const pendingNum = this.pendingNewChapterMeta.chapterNumber;
+			try {
+				const created = await this.client.createChapter(this.selectedBookId, {
+					chapterNumber: pendingNum,
+					title: pendingTitle
+				});
+				targetChapterId = created.id;
+				targetChapterTitle = created.title || pendingTitle || `Chapter ${pendingNum}`;
+				this.selectedChapterId = created.id;
+				this.isNewChapterPreset = false;
+				this.showToast(`Chapter "${targetChapterTitle}" created`);
+				// Refresh chapters list in background
+				void this.client.getChapters(this.selectedBookId).then(chs => {
+					this.chapters = chs;
+				});
+			} catch (e: any) {
+				this.showToast(e.message || 'Failed to auto-create chapter', true);
+				this.updateImportButtonState();
+				return;
+			}
+		} else {
+			const c = this.chapters.find(item => item.id === targetChapterId);
+			targetChapterTitle = (c?.titleTarget || c?.title) || (c?.chapterNumber ? `Chapter ${c.chapterNumber}` : `Chapter #${targetChapterId}`);
+		}
+
+		// SWITCH DIRECTLY TO TRACKER VIEW AND COMMENCE IMPORT
+		this.switchView('tracker');
+		this.updateTrackerProgress(0, selectedUrls.length, 'uploading');
+
+		const b = this.books.find(item => String(item.id) === String(this.selectedBookId));
+		this.trackerBookTitle.textContent = (b?.titleTarget || b?.title) || 'Active Book';
+		this.trackerChapterTitle.textContent = targetChapterTitle;
+
+		chrome.runtime.sendMessage({
+			type: 'START_IMPORT_JOB',
+			payload: {
+				bookId: this.selectedBookId,
+				chapterId: targetChapterId,
+				imageUrls: selectedUrls,
+				excludedImageUrls: excludedUrls,
+				includedImageUrls: selectedUrls,
+				autoReslice: this.autoResliceCheckbox.checked,
+				autoTranslate: this.autoTranslateCheckbox.checked
+			},
+			refererUrl: this.currentUrl
+		}, () => {
+			void chrome.runtime.lastError;
+		});
 	}
 
 	private async checkServerStatus() {
 		try {
-			await this.client.checkHealth();
-			this.statusDot.className = 'status-dot active';
-			this.statusText.textContent = 'Online';
-			await this.loadBooks();
+			const isOnline = await this.client.checkHealth();
+			if (isOnline) {
+				this.serverStatusBadge.className = 'server-badge online mono';
+				this.serverStatusBadge.title = 'Server online and connected';
+				this.serverStatusBadge.textContent = 'Online';
+			} else {
+				this.serverStatusBadge.className = 'server-badge offline mono';
+				this.serverStatusBadge.title = 'Server is unreachable';
+				this.serverStatusBadge.textContent = 'Offline';
+			}
 		} catch {
-			this.statusDot.className = 'status-dot error';
-			this.statusText.textContent = 'Offline';
-			this.bookLabel.textContent = 'Server Offline';
-			this.bookDropdown.innerHTML = '<div class="custom-select-option" style="opacity:0.6">Server Unreachable</div>';
+			this.serverStatusBadge.className = 'server-badge error mono';
+			this.serverStatusBadge.title = 'Server connection failed';
+			this.serverStatusBadge.textContent = 'Offline';
 		}
 	}
 
-	private async loadBooks(selectedBookId?: string | number) {
+	private async loadBooks(selectBookId?: string | number) {
 		try {
 			this.books = await this.client.getBooks();
-			this.bookDropdown.innerHTML = '';
-
-			let matchedBookId = selectedBookId;
-
-			// RESTORE THE LAST-CHOSEN SERIES: HIGHEST PRIORITY SO THE POPUP DOES NOT RESET TO THE FIRST BOOK.
-			if (!matchedBookId) {
-				const stored = await chrome.storage.local.get(['lastBookId']);
-				if (stored.lastBookId && this.books.some(b => String(b.id) === String(stored.lastBookId))) {
-					matchedBookId = stored.lastBookId;
-				}
-			}
-
-			// MATCH FROM METADATA TITLE: ONLY A FALLBACK WHEN NOTHING WAS CHOSEN BEFORE.
-			if (!matchedBookId && this.metadata.seriesTitle) {
-				const match = this.books.find(
-					b => b.title.toLowerCase() === this.metadata.seriesTitle!.toLowerCase()
-				);
-				if (match) matchedBookId = match.id;
-			}
-
-			if (this.books.length === 0) {
-				this.bookLabel.textContent = 'No series found (+ to add)';
-				return;
-			}
-
-			for (const book of this.books) {
-				const btn = document.createElement('button');
-				btn.className = 'custom-select-option';
-				btn.type = 'button';
-				btn.dataset.value = String(book.id);
-				const lang = (book.sourceLang || 'ZH').toUpperCase();
-				const displayTitle = book.titleTarget || book.title;
-				btn.textContent = `${displayTitle} [${lang}]`;
-
-				btn.addEventListener('click', () => {
-					this.selectBook(book.id);
-				});
-
-				this.bookDropdown.appendChild(btn);
-			}
-
-			if (matchedBookId) {
-				this.selectBook(matchedBookId);
-			} else {
-				this.selectBook(this.books[0].id);
-			}
+			this.renderBookDropdown(selectBookId);
 		} catch (e) {
 			console.error('Failed to load books:', e);
+			this.bookLabel.textContent = 'Failed to load books';
+		}
+	}
+
+	private renderBookDropdown(selectBookId?: string | number) {
+		this.bookDropdown.innerHTML = '';
+		if (this.books.length === 0) {
+			this.bookLabel.textContent = 'No books found. Click + to create';
+			this.chapterBtn.disabled = true;
+			this.newChapterBtn.disabled = true;
+			return;
+		}
+
+		let matchedId: string | number | null = selectBookId || null;
+		const activeTitle = this.metadata.bookTitle || this.metadata.seriesTitle;
+		if (!matchedId && activeTitle) {
+			const needle = activeTitle.toLowerCase();
+			const found = this.books.find(b =>
+				(b.title && b.title.toLowerCase().includes(needle)) ||
+				(b.titleTarget && b.titleTarget.toLowerCase().includes(needle)) ||
+				needle.includes((b.titleTarget || b.title).toLowerCase())
+			);
+			if (found) matchedId = found.id;
+		}
+
+		for (const book of this.books) {
+			const btn = document.createElement('button');
+			btn.className = 'custom-select-option mono';
+			btn.type = 'button';
+			btn.dataset.value = String(book.id);
+			const displayTitle = book.titleTarget || book.title;
+			btn.textContent = `${displayTitle} [${book.sourceLang.toUpperCase()}]`;
+
+			btn.addEventListener('click', (e) => {
+				e.stopPropagation();
+				this.selectBook(book.id);
+			});
+
+			this.bookDropdown.appendChild(btn);
+		}
+
+		if (matchedId) {
+			this.selectBook(matchedId);
+		} else {
+			chrome.storage.local.get(['lastBookId']).then(stored => {
+				if (stored.lastBookId && this.books.some(b => String(b.id) === String(stored.lastBookId))) {
+					this.selectBook(stored.lastBookId);
+				} else {
+					this.selectBook(this.books[0].id);
+				}
+			});
 		}
 	}
 
@@ -502,9 +1013,8 @@ class PopupController {
 		this.selectedBookId = bookId;
 		const book = this.books.find(b => String(b.id) === String(bookId));
 		if (book) {
-			const lang = (book.sourceLang || 'ZH').toUpperCase();
 			const displayTitle = book.titleTarget || book.title;
-			this.bookLabel.textContent = `${displayTitle} [${lang}]`;
+			this.bookLabel.textContent = `${displayTitle} [${book.sourceLang.toUpperCase()}]`;
 		}
 
 		this.bookDropdown.querySelectorAll('.custom-select-option').forEach(opt => {
@@ -512,74 +1022,104 @@ class PopupController {
 		});
 
 		this.bookCustomSelect.classList.remove('open');
-
-		// PERSIST THE LAST-CHOSEN SERIES SO THE NEXT POPUP OPEN RESTORES IT.
 		chrome.storage.local.set({ lastBookId: bookId });
+
+		this.chapterBtn.disabled = false;
+		this.newChapterBtn.disabled = false;
 
 		this.loadChapters(bookId);
 	}
 
-	private async loadChapters(bookId: string | number, selectedChapterId?: number) {
+	private async loadChapters(bookId: string | number, selectChapterId?: number) {
 		try {
-			this.chapterBtn.disabled = false;
-			this.newChapterBtn.disabled = false;
+			this.chapterLabel.textContent = 'Loading chapters...';
 			this.chapters = await this.client.getChapters(bookId);
 			this.chapterDropdown.innerHTML = '';
 
-			let matchedChapterId = selectedChapterId;
+			const existingChNums = new Set(this.chapters.map(c => Number(c.chapterNumber)));
+			const maxNum = this.chapters.reduce((max, c) => Math.max(max, Number(c.chapterNumber) || 0), 0);
+			const nextSequenceNum = maxNum > 0 ? maxNum + 1 : (this.chapters.length + 1);
 
-			// RESTORE THE LAST-CHOSEN TARGET CHAPTER: PER-SERIES MAP FIRST, THEN THE GLOBAL RECENT
-			// CHAPTER (WRITTEN BY RIGHT-CLICK QUICK IMPORTS) SO THE POPUP DOES NOT RESET TO CHAPTER 1.
-			if (!matchedChapterId) {
-				const stored = await chrome.storage.local.get(['lastChapterId', 'lastChapterByBook']);
-				const map = stored.lastChapterByBook || {};
-				const mapChapter = map[String(bookId)];
-				if (mapChapter !== undefined && this.chapters.some(c => c.id === mapChapter)) {
-					matchedChapterId = mapChapter;
-				} else if (stored.lastChapterId !== undefined && this.chapters.some(c => c.id === stored.lastChapterId)) {
-					matchedChapterId = stored.lastChapterId;
-				}
+			let newNum: number;
+			let newTitle: string;
+
+			if (
+				this.metadata.hasExplicitChapter &&
+				this.metadata.chapterNumber !== undefined &&
+				!existingChNums.has(Number(this.metadata.chapterNumber))
+			) {
+				newNum = this.metadata.chapterNumber;
+				newTitle = this.metadata.chapterTitle || `Chapter ${newNum}`;
+			} else {
+				newNum = nextSequenceNum;
+				newTitle = `Chapter ${newNum}`;
 			}
 
-			// MATCH FROM METADATA CHAPTER NUMBER: ONLY A FALLBACK WHEN NOTHING WAS CHOSEN BEFORE.
-			if (!matchedChapterId && this.metadata.chapterNumber !== undefined) {
-				const match = this.chapters.find(c => c.chapterNumber === this.metadata.chapterNumber);
-				if (match) matchedChapterId = match.id;
-			}
+			this.pendingNewChapterMeta = { chapterNumber: newNum, title: newTitle };
 
-			if (this.chapters.length === 0) {
-				this.chapterLabel.textContent = 'No chapters (+ to create)';
-				this.selectedChapterId = null;
-				this.updateImportButtonState();
-				return;
-			}
+			// 1. ADD THE (NEW) PRESET BUTTON AS TOP OPTION IN DROPDOWN
+			const newBtn = document.createElement('button');
+			newBtn.className = 'custom-select-option mono new-chapter-opt';
+			newBtn.type = 'button';
+			newBtn.dataset.value = '__new__';
+			newBtn.textContent = `${newTitle} (NEW)`;
+			newBtn.addEventListener('click', (e) => {
+				e.stopPropagation();
+				this.selectNewChapterPreset();
+			});
+			this.chapterDropdown.appendChild(newBtn);
 
+			// 2. ADD ALL EXISTING CHAPTERS
 			for (const ch of this.chapters) {
 				const btn = document.createElement('button');
-				btn.className = 'custom-select-option';
+				btn.className = 'custom-select-option mono';
 				btn.type = 'button';
 				btn.dataset.value = String(ch.id);
 				const displayTitle = ch.titleTarget || ch.title || `Chapter ${ch.chapterNumber}`;
 				btn.textContent = displayTitle;
 
-				btn.addEventListener('click', () => {
+				btn.addEventListener('click', (e) => {
+					e.stopPropagation();
 					this.selectChapter(ch.id);
 				});
 
 				this.chapterDropdown.appendChild(btn);
 			}
 
-			if (matchedChapterId) {
-				this.selectChapter(matchedChapterId);
+			// 3. DETERMINE DEFAULT SELECTION
+			let matchedExistingId: number | null = null;
+			if (selectChapterId && this.chapters.some(c => c.id === selectChapterId)) {
+				matchedExistingId = selectChapterId;
+			} else if (this.metadata.hasExplicitChapter && this.metadata.chapterNumber !== undefined) {
+				const found = this.chapters.find(c => Number(c.chapterNumber) === Number(this.metadata.chapterNumber));
+				if (found) matchedExistingId = found.id;
+			}
+
+			if (matchedExistingId) {
+				this.selectChapter(matchedExistingId);
 			} else {
-				this.selectChapter(this.chapters[0].id);
+				this.selectNewChapterPreset();
 			}
 		} catch (e) {
 			console.error('Failed to load chapters:', e);
 		}
 	}
 
+	private selectNewChapterPreset() {
+		this.isNewChapterPreset = true;
+		this.selectedChapterId = null;
+		this.chapterLabel.textContent = `${this.pendingNewChapterMeta.title} (NEW)`;
+
+		this.chapterDropdown.querySelectorAll('.custom-select-option').forEach(opt => {
+			opt.classList.toggle('active', (opt as HTMLElement).dataset.value === '__new__');
+		});
+
+		this.chapterCustomSelect.classList.remove('open');
+		this.updateImportButtonState();
+	}
+
 	private selectChapter(chapterId: number) {
+		this.isNewChapterPreset = false;
 		this.selectedChapterId = chapterId;
 		const ch = this.chapters.find(c => c.id === chapterId);
 		if (ch) {
@@ -593,8 +1133,6 @@ class PopupController {
 
 		this.chapterCustomSelect.classList.remove('open');
 
-		// PERSIST THE LAST-CHOSEN TARGET CHAPTER: PER-SERIES (FOR RESTORE) AND THE GLOBAL RECENT
-		// CHAPTER (FOR RIGHT-CLICK QUICK IMPORTS IN background.ts).
 		const bookKey = String(this.selectedBookId ?? '');
 		chrome.storage.local.get(['lastChapterByBook']).then(stored => {
 			const map: Record<string, number> = stored.lastChapterByBook || {};
@@ -622,7 +1160,6 @@ class PopupController {
 			return;
 		}
 
-		// Ensure content script is injected into the active tab
 		try {
 			if (chrome.scripting) {
 				await chrome.scripting.executeScript({
@@ -634,57 +1171,39 @@ class PopupController {
 			// Tab may already have content script injected
 		}
 
-		const sendScan = () => {
-			chrome.tabs.sendMessage(tab.id!, { type: 'SCAN_PAGE' }, (res: ScanPageResponse) => {
-				if (chrome.runtime.lastError || !res) {
-					this.galleryEmptyState.innerHTML = `
-						<svg class="empty-vector" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
-							<circle cx="11" cy="11" r="8"/>
-							<line x1="21" y1="21" x2="16.65" y2="16.65"/>
-						</svg>
-						<p>No reader images found.<br>Click <b>Fast Scan</b> to auto-scroll.</p>
-					`;
-					return;
-				}
-
-				const raw = res.images || [];
-				this.images = sortImagesByCoordinates(
-					raw.filter((img: ScannedImage) => !isPlaceholderImage(img.url, img.width, img.height))
-				);
-				this.metadata = res.metadata || {};
-
-				if (this.images.length === 0) {
-					this.galleryEmptyState.innerHTML = `
-						<svg class="empty-vector" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
-							<circle cx="11" cy="11" r="8"/>
-							<line x1="21" y1="21" x2="16.65" y2="16.65"/>
-						</svg>
-						<p>No reader images found.<br>Click <b>Fast Scan</b> to auto-scroll.</p>
-					`;
-				} else {
-					this.renderGallery();
-					this.updateSelectionSummary();
-					if (this.books.length > 0 && !this.selectedBookId) {
-						this.loadBooks();
-					}
-				}
-			});
-		};
-
-		sendScan();
-	}
-
-	private renumberGalleryCards() {
-		const cards = this.galleryGrid.querySelectorAll('.thumb-card');
-		cards.forEach((card, index) => {
-			const indexLabel = card.querySelector('.thumb-index');
-			if (indexLabel) {
-				indexLabel.textContent = `#${index + 1}`;
+		chrome.tabs.sendMessage(tab.id, { type: 'SCAN_PAGE' }, (res: ScanPageResponse) => {
+			if (chrome.runtime.lastError || !res) {
+				this.galleryEmptyState.innerHTML = `
+					<svg class="empty-vector" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+						<circle cx="11" cy="11" r="8"/>
+						<line x1="21" y1="21" x2="16.65" y2="16.65"/>
+					</svg>
+					<p>No reader images found.<br>Click <b>Fast Scan</b> to auto-scroll.</p>
+				`;
+				return;
 			}
+
+			const raw = res.images || [];
+			this.images = sortImagesByCoordinates(
+				raw.filter((img: ScannedImage) => !isPlaceholderImage(img.url, img.width, img.height))
+			);
+			this.metadata = res.metadata || {};
+
+			if (this.images.length === 0) {
+				this.galleryEmptyState.classList.remove('hidden');
+				this.galleryGrid.classList.add('hidden');
+			} else {
+				this.galleryEmptyState.classList.add('hidden');
+				this.galleryGrid.classList.remove('hidden');
+				this.renderGalleryGrid();
+			}
+
+			this.updateSelectionSummary();
 		});
 	}
 
-	private renderGallery() {
+	private renderGalleryGrid() {
+		this.galleryGrid.innerHTML = '';
 		if (this.images.length === 0) {
 			this.galleryEmptyState.classList.remove('hidden');
 			this.galleryGrid.classList.add('hidden');
@@ -693,81 +1212,57 @@ class PopupController {
 
 		this.galleryEmptyState.classList.add('hidden');
 		this.galleryGrid.classList.remove('hidden');
-		this.galleryGrid.innerHTML = '';
 
 		this.images.forEach((img, idx) => {
 			const card = document.createElement('div');
 			card.className = `thumb-card ${img.selected ? 'selected' : ''}`;
-
-			const indexLabel = document.createElement('span');
-			indexLabel.className = 'thumb-index mono';
-			indexLabel.textContent = `#${idx + 1}`;
-
-			const checkbox = document.createElement('input');
-			checkbox.type = 'checkbox';
-			checkbox.className = 'thumb-checkbox';
-			checkbox.checked = !!img.selected;
+			card.dataset.index = String(idx);
 
 			const image = document.createElement('img');
 			image.src = img.url;
 			image.loading = 'lazy';
+			image.alt = `Page ${idx + 1}`;
 
-			const dimLabel = document.createElement('div');
-			dimLabel.className = 'thumb-dim mono';
-			dimLabel.textContent = img.width && img.height ? `${img.width}×${img.height}` : 'HD';
-
-			image.onload = () => {
-				if (image.naturalWidth > 0 && image.naturalHeight > 0) {
-					// DROP TINY BLUR PLACEHOLDERS (< 100PX)
-					if (image.naturalWidth < 100 && image.naturalHeight < 100) {
-						this.images = this.images.filter(i => i !== img);
-						card.remove();
-						this.renumberGalleryCards();
-						this.updateSelectionSummary();
-						return;
-					}
-
-					// COMPUTE DHASH AND DROP DELAYED DUPLICATE IMAGES
-					const computedHash = computeDHashFromElement(image);
-					if (computedHash) {
-						const isDuplicate = this.images.some(
-							other => other !== img && other.dhash && other.dhash === computedHash
-						);
-						if (isDuplicate) {
-							this.images = this.images.filter(i => i !== img);
-							card.remove();
-							this.renumberGalleryCards();
-							this.updateSelectionSummary();
-							return;
-						}
-						img.dhash = computedHash;
-					}
-
-					dimLabel.textContent = `${image.naturalWidth}×${image.naturalHeight}`;
+			image.addEventListener('load', () => {
+				if (!img.dhash && image.naturalWidth > 0) {
+					const hash = computeDHashFromElement(image);
+					if (hash) img.dhash = hash;
+				}
+				if (img.width === 0 && image.naturalWidth > 0) {
 					img.width = image.naturalWidth;
 					img.height = image.naturalHeight;
+					dim.textContent = `${img.width}×${img.height}`;
 				}
-			};
+			});
 
-			image.onerror = () => {
-				this.images = this.images.filter(i => i !== img);
-				card.remove();
-				this.renumberGalleryCards();
-				this.updateSelectionSummary();
-			};
+			const indexBadge = document.createElement('span');
+			indexBadge.className = 'thumb-index mono';
+			indexBadge.textContent = `#${idx + 1}`;
+
+			const checkbox = document.createElement('input');
+			checkbox.type = 'checkbox';
+			checkbox.className = 'thumb-checkbox';
+			checkbox.checked = img.selected;
+
+			const dim = document.createElement('span');
+			dim.className = 'thumb-dim mono';
+			dim.textContent = img.width > 0 ? `${img.width}×${img.height}` : '...';
 
 			card.appendChild(image);
-			card.appendChild(indexLabel);
+			card.appendChild(indexBadge);
 			card.appendChild(checkbox);
-			card.appendChild(dimLabel);
+			card.appendChild(dim);
 
 			card.addEventListener('click', (e) => {
-				if (e.target !== checkbox) {
-					img.selected = !img.selected;
-					checkbox.checked = img.selected;
-				} else {
-					img.selected = checkbox.checked;
-				}
+				if (e.target === checkbox) return;
+				checkbox.checked = !checkbox.checked;
+				img.selected = checkbox.checked;
+				card.classList.toggle('selected', img.selected);
+				this.updateSelectionSummary();
+			});
+
+			checkbox.addEventListener('change', () => {
+				img.selected = checkbox.checked;
 				card.classList.toggle('selected', img.selected);
 				this.updateSelectionSummary();
 			});
@@ -786,56 +1281,19 @@ class PopupController {
 
 	private updateImportButtonState() {
 		const selectedCount = this.images.filter(i => i.selected).length;
-		const isValid = !!this.selectedBookId && !!this.selectedChapterId && selectedCount > 0;
+		const hasValidChapter = !!this.selectedChapterId || this.isNewChapterPreset;
+		const isValid = !!this.selectedBookId && hasValidChapter && selectedCount > 0;
 		this.startImportBtn.disabled = !isValid;
 		this.importBtnText.textContent = `Import ${selectedCount} Page${selectedCount === 1 ? '' : 's'}`;
 	}
 
-	private async startBatchImport() {
-		if (!this.selectedBookId || !this.selectedChapterId) return;
-		const selectedUrls = this.images.filter(i => i.selected).map(i => i.url);
-		if (selectedUrls.length === 0) return;
-
-		this.startImportBtn.disabled = true;
-		this.progressContainer.classList.remove('hidden');
-		this.updateProgress(0, selectedUrls.length);
-
-		chrome.runtime.sendMessage({
-			type: 'START_IMPORT_JOB',
-			payload: {
-				bookId: this.selectedBookId,
-				chapterId: this.selectedChapterId,
-				imageUrls: selectedUrls,
-				autoReslice: this.autoResliceCheckbox.checked,
-				autoTranslate: this.autoTranslateCheckbox.checked
-			},
-			refererUrl: this.currentUrl
-		}, () => {
-			void chrome.runtime.lastError;
-		});
-	}
-
-	private updateProgress(current: number, total: number) {
-		this.progressStatusText.textContent = `Uploading ${current} of ${total} pages...`;
-		this.progressCountText.textContent = `${current} / ${total}`;
-		const pct = total > 0 ? (current / total) * 100 : 0;
-		this.progressBarFill.style.width = `${pct}%`;
-	}
-
-	private onImportComplete(count: number, chapterId?: number, _bookId?: string | number, error?: string) {
-		this.progressContainer.classList.add('hidden');
-		this.startImportBtn.disabled = false;
-		if (error || count === 0) {
-			this.showToast(`Import failed: ${error || 'No pages uploaded'}`, true);
-		} else {
-			this.showToast(`Imported ${count} pages to Chapter #${chapterId || ''}`);
-		}
-	}
-
-	private onImportCancelled() {
-		this.progressContainer.classList.add('hidden');
-		this.startImportBtn.disabled = false;
-		this.showToast('Upload cancelled');
+	private showToast(msg: string, isError = false) {
+		if (this.toastTimer) clearTimeout(this.toastTimer);
+		this.toast.textContent = msg;
+		this.toast.className = `toast visible ${isError ? 'error' : ''}`;
+		this.toastTimer = setTimeout(() => {
+			this.toast.className = 'toast';
+		}, 3000);
 	}
 }
 

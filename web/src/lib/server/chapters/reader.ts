@@ -55,6 +55,8 @@ export interface ChapterReaderResult {
 		titleTarget?: string | null;
 		sourceLang: string;
 		targetLang: string;
+		status?: 'pending' | 'processing' | 'done' | 'error';
+		translatedAt?: number | null;
 	};
 	allChapters: ChapterNavSummary[];
 	prevChapter: ChapterNavSummary | null;
@@ -184,6 +186,8 @@ export async function getChapterReaderData(chapterId: number): Promise<ChapterRe
 			titleTarget: chapterRow.titleTarget,
 			sourceLang: bookRow?.sourceLang || 'zh-CN',
 			targetLang: bookRow?.targetLang || 'en',
+			status: chapterRow.status as 'pending' | 'processing' | 'done' | 'error',
+			translatedAt: chapterRow.translatedAt,
 		},
 		allChapters: allChaptersInBook,
 		prevChapter,

@@ -192,7 +192,7 @@ Rules:
 - Do NOT keep the English word "Chapter" unless the target language is English.
 - Do NOT output commentary, quotes, explanations, or markdown fences. Output ONLY the translated chapter title string in ${tgtName}.`;
 	} else if (opts.kind === 'title') {
-		systemContent = `You are a professional comic and novel localizer. Translate the provided book/series title from ${srcName} to ${tgtName}.
+		systemContent = `You are a professional comic and novel localizer. Translate the provided book title from ${srcName} to ${tgtName}.
 Rules:
 - Translate concisely into natural title case (e.g. "妖神记" -> "Tales of Demons and Gods", "斗破苍穹" -> "Battle Through the Heavens").
 - Do NOT output commentary, explanations, notes, quotes, or markdown fences. Output ONLY the translated title string.`;

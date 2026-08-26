@@ -1,32 +1,96 @@
-// BACKGROUND SERVICE WORKER: CONTEXT MENUS, SESSION FETCHER & STREAMING PIPELINE
+// -- BACKGROUND SERVICE WORKER: CONTEXT MENUS, SESSION FETCHER, STREAMING & LIVE SYNC -- //
 
 import { XianScanClient } from './api';
-import type { ImportJobPayload } from './types';
+import type { ChapterMappingEntry, ImportJobPayload, PageTranslatedMessage, ChapterSyncMessage } from './types';
 import { sanitizeFileName } from './utils/sanitize';
+import { normalizePageUrl } from './utils/dom-replacer';
 
 const DEFAULT_SERVER_URL = 'http://127.0.0.1:8124';
 
-// Safe fetch wrapper guaranteeing valid WorkerGlobalScope / Window this context
+// SAFE FETCH WRAPPER GUARANTEEING VALID WORKERGLOBALSCOPE / WINDOW CONTEXT
 function safeFetch(input: RequestInfo | URL, init?: RequestInit): Promise<Response> {
 	const scope = typeof self !== 'undefined' ? self : globalThis;
 	const fn = scope.fetch || globalThis.fetch;
 	return fn.call(scope, input, init);
 }
 
-// Safe runtime broadcaster that swallows 'Receiving end does not exist' when popup is closed
+// SAFE RUNTIME BROADCASTER THAT SWALLOWS 'RECEIVING END DOES NOT EXIST' WHEN POPUP IS CLOSED
 function safeBroadcast(msg: any) {
 	try {
 		chrome.runtime.sendMessage(msg, () => {
 			void chrome.runtime.lastError;
 		});
 	} catch {
-		// Ignore broadcast errors
+		// IGNORE BROADCAST ERRORS
+	}
+}
+
+// BROADCAST TO ALL TABS THAT ARE VIEWING A MAPPED CHAPTER
+async function broadcastToChapterTabs(chapterId: number, msg: any) {
+	try {
+		const tabs = await chrome.tabs.query({});
+		for (const tab of tabs) {
+			if (tab.id) {
+				chrome.tabs.sendMessage(tab.id, msg, () => {
+					void chrome.runtime.lastError;
+				});
+			}
+		}
+	} catch {
+		// IGNORE TAB DISPATCH ERRORS
 	}
 }
 
 async function getServerUrl(): Promise<string> {
 	const stored = await chrome.storage.local.get(['serverUrl']);
 	return stored.serverUrl || DEFAULT_SERVER_URL;
+}
+
+// -- SITE MAPPING STORAGE HELPERS -- //
+async function getSiteMappings(): Promise<Record<string, ChapterMappingEntry>> {
+	const stored = await chrome.storage.local.get(['siteMappings']);
+	return stored.siteMappings || {};
+}
+
+async function saveSiteMapping(entry: ChapterMappingEntry): Promise<void> {
+	const mappings = await getSiteMappings();
+	const normalized = normalizePageUrl(entry.url);
+	mappings[normalized] = {
+		...entry,
+		url: normalized,
+		lastSyncedAt: Date.now()
+	};
+	await chrome.storage.local.set({ siteMappings: mappings });
+}
+
+async function findMappingForUrl(rawUrl: string): Promise<ChapterMappingEntry | null> {
+	if (!rawUrl) return null;
+	const mappings = await getSiteMappings();
+	const normalized = normalizePageUrl(rawUrl);
+
+	if (mappings[normalized]) {
+		return mappings[normalized];
+	}
+
+	for (const [key, mapping] of Object.entries(mappings)) {
+		if (normalized.startsWith(key) || key.startsWith(normalized)) {
+			return mapping;
+		}
+	}
+
+	return null;
+}
+
+async function deleteSiteMapping(rawUrl: string): Promise<void> {
+	const mappings = await getSiteMappings();
+	const normalized = normalizePageUrl(rawUrl);
+	delete mappings[normalized];
+	for (const key of Object.keys(mappings)) {
+		if (normalized.startsWith(key) || key.startsWith(normalized)) {
+			delete mappings[key];
+		}
+	}
+	await chrome.storage.local.set({ siteMappings: mappings });
 }
 
 // 1. INITIALIZE CONTEXT MENUS
@@ -52,7 +116,7 @@ chrome.runtime.onInstalled.addListener(() => {
 	});
 });
 
-// Download image as Blob with robust timeout & referrer fallback
+// DOWNLOAD IMAGE AS BLOB WITH ROBUST TIMEOUT & REFERRER FALLBACK
 async function fetchImageBlob(url: string, referer?: string): Promise<{ blob: Blob; ext: string }> {
 	const controller = new AbortController();
 	const timeoutId = setTimeout(() => controller.abort(), 15000);
@@ -62,7 +126,7 @@ async function fetchImageBlob(url: string, referer?: string): Promise<{ blob: Bl
 			signal: controller.signal
 		};
 
-		if (referer) {
+		if (referer && !url.includes('127.0.0.1') && !url.includes('localhost')) {
 			fetchOptions.referrer = referer;
 		}
 
@@ -70,7 +134,7 @@ async function fetchImageBlob(url: string, referer?: string): Promise<{ blob: Bl
 		try {
 			res = await safeFetch(url, fetchOptions);
 		} catch {
-			// Fallback: retry without referrer
+			// FALLBACK: RETRY WITHOUT REFERRER
 			res = await safeFetch(url, { signal: controller.signal });
 		}
 
@@ -91,7 +155,20 @@ async function fetchImageBlob(url: string, referer?: string): Promise<{ blob: Bl
 	}
 }
 
-// Upload a single image from right-click context menu
+// CONVERT ARRAYBUFFER TO BASE64 DATA URL FOR BYPASSING MIXED CONTENT ON HTTPS PAGES
+function arrayBufferToBase64(buffer: ArrayBuffer, mimeType = 'image/jpeg'): string {
+	const bytes = new Uint8Array(buffer);
+	let binary = '';
+	const len = bytes.byteLength;
+	const chunkSize = 8192;
+	for (let i = 0; i < len; i += chunkSize) {
+		const chunk = bytes.subarray(i, Math.min(i + chunkSize, len));
+		binary += String.fromCharCode.apply(null, chunk as unknown as number[]);
+	}
+	return `data:${mimeType};base64,${btoa(binary)}`;
+}
+
+// UPLOAD A SINGLE IMAGE FROM RIGHT-CLICK CONTEXT MENU
 async function handleSingleImageUpload(srcUrl: string, targetType: 'recent' | 'inbox', pageUrl?: string) {
 	try {
 		const serverUrl = await getServerUrl();
@@ -110,17 +187,17 @@ async function handleSingleImageUpload(srcUrl: string, targetType: 'recent' | 'i
 			}
 		}
 
-		// If no recent chapter or if inbox requested, get inbox chapter
+		// IF NO RECENT CHAPTER OR IF INBOX REQUESTED, GET INBOX CHAPTER
 		if (!targetChapterId) {
 			targetChapterId = await getOrCreateQuickInboxChapter(client);
 			chapterName = 'Quick Inbox';
 		}
 
-		// Try uploading
+		// TRY UPLOADING
 		try {
 			await client.uploadPages(targetChapterId, [{ blob, filename }]);
 		} catch (uploadErr: any) {
-			// If recent chapter was deleted or not found on server, fallback to Quick Inbox
+			// IF RECENT CHAPTER WAS DELETED OR NOT FOUND ON SERVER, FALLBACK TO QUICK INBOX
 			if (uploadErr?.message?.includes('Chapter not found') || uploadErr?.message?.includes('404')) {
 				console.warn(`Recent chapter #${targetChapterId} not found, falling back to Quick Inbox.`);
 				targetChapterId = await getOrCreateQuickInboxChapter(client);
@@ -131,10 +208,10 @@ async function handleSingleImageUpload(srcUrl: string, targetType: 'recent' | 'i
 			}
 		}
 
-		// Update lastChapterId in storage
+		// UPDATE LASTCHAPTERID IN STORAGE
 		await chrome.storage.local.set({ lastChapterId: targetChapterId });
 
-		// Notify user
+		// NOTIFY USER
 		const destLabel = chapterName ? `Quick Inbox (Chapter #${targetChapterId})` : `Chapter #${targetChapterId}`;
 		chrome.notifications?.create({
 			type: 'basic',
@@ -153,7 +230,7 @@ async function handleSingleImageUpload(srcUrl: string, targetType: 'recent' | 'i
 	}
 }
 
-// Find or create "Quick Imports" Book & Chapter
+// FIND OR CREATE "QUICK IMPORTS" BOOK & CHAPTER
 async function getOrCreateQuickInboxChapter(client: XianScanClient): Promise<number> {
 	const books = await client.getBooks();
 	let inboxBook = books.find(b => b.title === 'Web Quick Imports');
@@ -180,7 +257,7 @@ async function getOrCreateQuickInboxChapter(client: XianScanClient): Promise<num
 	return todayChapter.id;
 }
 
-// 2. Handle Context Menu Clicks
+// 2. HANDLE CONTEXT MENU CLICKS
 chrome.contextMenus.onClicked.addListener((info, tab) => {
 	if (!info.srcUrl) return;
 
@@ -193,7 +270,75 @@ chrome.contextMenus.onClicked.addListener((info, tab) => {
 
 let activeJobCancelled = false;
 
-// 3. PROCESS BATCH UPLOAD QUEUE (CONTINUES IN BACKGROUND EVEN IF POPUP IS CLOSED)
+// 3. LISTEN TO SERVER-SENT EVENTS DURING TRANSLATION & BROADCAST LIVE PAGE EVENTS
+async function attachLiveTranslationListener(chapterId: number, serverUrl: string) {
+	try {
+		const targetUrl = `${serverUrl}/api/chapters/${chapterId}/translate`;
+		const res = await safeFetch(targetUrl, {
+			method: 'GET',
+			headers: { 'Accept': 'text/event-stream' }
+		});
+
+		if (!res.ok || !res.body) return;
+
+		const reader = res.body.getReader();
+		const decoder = new TextDecoder();
+		let buffer = '';
+
+		while (true) {
+			const { done, value } = await reader.read();
+			if (done) break;
+			buffer += decoder.decode(value, { stream: true });
+
+			const lines = buffer.split('\n\n');
+			buffer = lines.pop() || '';
+
+			for (const line of lines) {
+				const trimmed = line.trim();
+				if (!trimmed.startsWith('data:')) continue;
+				try {
+					const data = JSON.parse(trimmed.slice(5).trim());
+					if ((data.type === 'page-done' || data.type === 'page_done') && (data.page !== undefined || data.seq !== undefined)) {
+						const pageSeq = data.page !== undefined ? data.page : (data.seq !== undefined ? data.seq : 0);
+						const pageMsg: PageTranslatedMessage = {
+							type: 'PAGE_TRANSLATED',
+							chapterId,
+							pageSeq,
+							pageId: data.pageId,
+							outputRev: data.outputRev || 1,
+							outputPath: data.outputPath || '',
+							total: data.pageCount || data.totalPages || data.total || 0
+						};
+						broadcastToChapterTabs(chapterId, pageMsg);
+						safeBroadcast(pageMsg);
+					} else if (data.type === 'phase-change') {
+						safeBroadcast({
+							type: 'PIPELINE_PHASE',
+							chapterId,
+							phase: data.phase,
+							total: data.pageCount || data.totalPages || 0
+						});
+					} else if (data.type === 'done') {
+						const syncMsg: ChapterSyncMessage = {
+							type: 'CHAPTER_SYNC_UPDATE',
+							chapterId,
+							status: 'done',
+							pages: []
+						};
+						broadcastToChapterTabs(chapterId, syncMsg);
+						safeBroadcast(syncMsg);
+					}
+				} catch {
+					// IGNORE JSON PARSE ERRORS ON PARTIAL CHUNKS
+				}
+			}
+		}
+	} catch (e) {
+		console.warn('[XianScan] SSE stream disconnected:', e);
+	}
+}
+
+// 4. PROCESS BATCH UPLOAD QUEUE (CONTINUES IN BACKGROUND EVEN IF POPUP IS CLOSED)
 async function runBatchImportJob(payload: ImportJobPayload, refererUrl?: string) {
 	activeJobCancelled = false;
 	const serverUrl = await getServerUrl();
@@ -215,6 +360,26 @@ async function runBatchImportJob(payload: ImportJobPayload, refererUrl?: string)
 			bookId: payload.bookId
 		}
 	});
+
+	// AUTOMATICALLY SAVE SITE MAPPING IF REFERER URL IS PRESENT
+	if (refererUrl && !refererUrl.startsWith('chrome://') && !refererUrl.startsWith('about:')) {
+		const mappingEntry = {
+			url: refererUrl,
+			bookId: payload.bookId,
+			chapterId: payload.chapterId,
+			isResliced: !!payload.autoReslice,
+			pageCount: total,
+			excludedImageUrls: payload.excludedImageUrls,
+			includedImageUrls: payload.includedImageUrls,
+			enabled: true,
+			lastSyncedAt: Date.now()
+		};
+		await saveSiteMapping(mappingEntry);
+		broadcastToChapterTabs(payload.chapterId, {
+			type: 'SET_ACTIVE_MAPPING',
+			entry: mappingEntry
+		});
+	}
 
 	// CONCURRENCY LIMIT = 4
 	const concurrency = 4;
@@ -303,17 +468,49 @@ async function runBatchImportJob(payload: ImportJobPayload, refererUrl?: string)
 	if (payload.autoReslice && uploadedSuccessCount > 0 && !activeJobCancelled) {
 		try {
 			console.log(`Triggering auto-reslice for chapter #${payload.chapterId}...`);
+			safeBroadcast({
+				type: 'PIPELINE_PHASE',
+				phase: 'reslicing',
+				chapterId: payload.chapterId,
+				bookId: payload.bookId
+			});
 			await client.triggerReslice(payload.chapterId);
+
+			// FETCH RESLICED CHAPTER DETAILS & SYNC WITH TABS AND POPUP
+			const reslicedDetails = await client.getChapterDetails(payload.chapterId);
+			if (reslicedDetails && reslicedDetails.pages) {
+				const syncMsg: ChapterSyncMessage = {
+					type: 'CHAPTER_SYNC_UPDATE',
+					chapterId: payload.chapterId,
+					status: 'resliced',
+					pages: reslicedDetails.pages
+				};
+				broadcastToChapterTabs(payload.chapterId, syncMsg);
+				safeBroadcast(syncMsg);
+			}
 		} catch (e) {
 			console.warn('Auto-reslice trigger failed:', e);
 		}
 	}
 
-	// 2. OPTIONAL: AUTO-TRIGGER TRANSLATION
+	// 2. OPTIONAL: AUTO-TRIGGER TRANSLATION & SSE LIVE STREAM
 	if (payload.autoTranslate && uploadedSuccessCount > 0 && !activeJobCancelled) {
 		try {
 			console.log(`Triggering auto-translate for chapter #${payload.chapterId}...`);
+			const currentChapter = await client.getChapterDetails(payload.chapterId);
+			const totalPagesToTranslate = currentChapter?.pages?.length || uploadedSuccessCount;
+
+			safeBroadcast({
+				type: 'PIPELINE_PHASE',
+				phase: 'translating',
+				chapterId: payload.chapterId,
+				bookId: payload.bookId,
+				current: 0,
+				total: totalPagesToTranslate
+			});
 			await client.triggerTranslate(payload.chapterId);
+			// ATTACH BACKGROUND SSE BROADCASTER
+			attachLiveTranslationListener(payload.chapterId, serverUrl);
 		} catch (e) {
 			console.warn('Auto-translate trigger failed:', e);
 		}
@@ -358,7 +555,7 @@ async function runBatchImportJob(payload: ImportJobPayload, refererUrl?: string)
 	}
 }
 
-// 4. Runtime Message Dispatcher
+// 5. RUNTIME MESSAGE DISPATCHER
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 	if (message.type === 'START_IMPORT_JOB') {
 		runBatchImportJob(message.payload, sender.tab?.url || message.refererUrl)
@@ -370,7 +567,44 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 	if (message.type === 'CANCEL_IMPORT_JOB') {
 		activeJobCancelled = true;
 		chrome.storage.local.set({ activeImportJob: null });
+		if (message.chapterId) {
+			getServerUrl().then(url => {
+				const client = new XianScanClient(url, safeFetch);
+				void client.cancelTranslation(message.chapterId);
+			});
+		}
 		sendResponse({ success: true });
+		return true;
+	}
+
+	if (message.type === 'GET_SITE_MAPPING') {
+		const targetUrl = message.url || sender.tab?.url || '';
+		findMappingForUrl(targetUrl).then(mapping => {
+			sendResponse({ mapping });
+		});
+		return true;
+	}
+
+	if (message.type === 'SAVE_SITE_MAPPING') {
+		saveSiteMapping(message.entry).then(() => {
+			sendResponse({ success: true });
+		});
+		return true;
+	}
+
+	if (message.type === 'DELETE_SITE_MAPPING') {
+		const targetUrl = message.url || sender.tab?.url || '';
+		deleteSiteMapping(targetUrl).then(() => {
+			sendResponse({ success: true });
+		});
+		return true;
+	}
+
+	if (message.type === 'ATTACH_LIVE_SSE') {
+		getServerUrl().then(serverUrl => {
+			attachLiveTranslationListener(message.chapterId, serverUrl);
+			sendResponse({ success: true });
+		});
 		return true;
 	}
 
@@ -383,6 +617,20 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 			})
 			.catch(err => {
 				sendResponse({ ok: false, status: 0, error: err.message });
+			});
+		return true;
+	}
+
+	if (message.type === 'FETCH_IMAGE_DATA') {
+		fetchImageBlob(message.url)
+			.then(async ({ blob, ext }) => {
+				const buffer = await blob.arrayBuffer();
+				const mime = blob.type || (ext === 'png' ? 'image/png' : ext === 'webp' ? 'image/webp' : 'image/jpeg');
+				const dataUrl = arrayBufferToBase64(buffer, mime);
+				sendResponse({ ok: true, dataUrl });
+			})
+			.catch(err => {
+				sendResponse({ ok: false, error: err.message });
 			});
 		return true;
 	}

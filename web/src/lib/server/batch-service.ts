@@ -940,6 +940,39 @@ export const batchService = {
 		return this.getState();
 	},
 
+	// RESET A SINGLE CHAPTER FROM THE ACTIVE BATCH STATE AND TRACKERS
+	resetChapter(chapterId: number): void {
+		completedChapterIds.delete(chapterId);
+		failedChapterIds.delete(chapterId);
+		preReslicedChapterIds.delete(chapterId);
+		preReslicingChapterIds.delete(chapterId);
+		if (activeResliceControllers.has(chapterId)) {
+			activeResliceControllers.get(chapterId)?.abort();
+			activeResliceControllers.delete(chapterId);
+		}
+
+		if (activeBatchState.active) {
+			const nextQueue = activeBatchState.queue.filter((item) => item.id !== chapterId);
+			if (nextQueue.length === 0) {
+				this.clearBatch();
+			} else {
+				activeBatchState = {
+					...activeBatchState,
+					queue: nextQueue,
+					currentIndex: Math.min(activeBatchState.currentIndex, nextQueue.length),
+				};
+				emitState();
+			}
+		}
+	},
+
+	// CLEAR PROGRESS FOR AN ENTIRE BOOK FROM THE ACTIVE BATCH
+	clearBook(bookId: string): void {
+		if (activeBatchState.bookId === bookId) {
+			this.clearBatch();
+		}
+	},
+
 	// RELOAD ACTIVE BATCH (SEAMLESSLY CYCLES PAUSE & RESUME TO APPLY UPDATED SETTINGS TO IN-FLIGHT JOBS)
 	reloadActiveBatch(): BatchTranslationState {
 		if (!activeBatchState.active || activeBatchState.status !== 'running') return this.getState();

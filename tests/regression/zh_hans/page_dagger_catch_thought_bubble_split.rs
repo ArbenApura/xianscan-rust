@@ -32,38 +32,50 @@ fn test_regression_page_dagger_catch_thought_bubble_split() {
     // 1. EXACT ELEMENT COUNTS: EXACTLY 5 REGIONS (3 DIALOGUEBUBBLES, 2 SOUNDEFFECT, 0 FREETEXT)
     crate::assert_element_counts!(res, 5, 3, 2, 0);
 
-    // 2. PANEL 1 SFX: '接' -> [X: ~171, Y: ~189, W: ~54, H: ~54]
+    // 2. PANEL 1 SFX: '接' -> [X: 169, Y: 189, W: 55, H: 54]
     let sfx1 = res.regions.iter().find(|r| r.text.trim() == "接");
     assert!(sfx1.is_some(), "Must detect panel 1 SFX '接'");
     let sfx1 = sfx1.unwrap();
     assert_eq!(sfx1.kind, xianscan_rust::ml::schemas::RegionKind::SoundEffect);
+    crate::assert_region_bounds!(sfx1, xianscan_rust::ml::schemas::RegionKind::SoundEffect, 169, 189, 55, 54, 8);
+    crate::assert_region_angle!(sfx1, 0.0, 2.0);
 
-    // 3. PANEL 2 SFX: '啊！' -> TIGHT BOUNDS (H <= 80px), MUST NOT DILATE INTO MOTION LINE ARTWORK
+    // 3. PANEL 2 SFX: '啊！' -> [X: 703, Y: 559, W: 70, H: 49]
     let sfx2 = res.regions.iter().find(|r| r.text.contains("啊"));
     assert!(sfx2.is_some(), "Must detect panel 2 SFX '啊！'");
     let sfx2 = sfx2.unwrap();
     assert_eq!(sfx2.kind, xianscan_rust::ml::schemas::RegionKind::SoundEffect);
-    assert!(sfx2.box_.h <= 85, "Panel 2 SFX bounding box height must be tight (<=85px), got {}", sfx2.box_.h);
+    crate::assert_region_bounds!(sfx2, xianscan_rust::ml::schemas::RegionKind::SoundEffect, 703, 559, 70, 49, 8);
+    crate::assert_region_angle!(sfx2, 0.0, 2.0);
 
-    // 4. PANEL 3 DIALOGUE BUBBLE: '你可不要\n乱动……'
+    // 4. PANEL 3 DIALOGUE BUBBLE: '你可不要\n乱动……' -> [X: 66, Y: 1180, W: 156, h: 87]
     let b1 = res.regions.iter().find(|r| r.text.contains("你可不要") || r.text.contains("乱动"));
     assert!(b1.is_some(), "Must detect panel 3 dialogue bubble '你可不要乱动……'");
     let b1 = b1.unwrap();
     assert_eq!(b1.kind, xianscan_rust::ml::schemas::RegionKind::DialogueBubble);
+    crate::assert_region_bounds!(b1, xianscan_rust::ml::schemas::RegionKind::DialogueBubble, 66, 1180, 156, 87, 8);
+    crate::assert_bubble_bounds!(b1, 46, 1162, 199, 125, 8);
+    crate::assert_region_angle!(b1, 0.0, 2.0);
 
-    // 5. PANEL 4 UPPER THOUGHT BUBBLE: '这小子近战太\n可怕了！'
+    // 5. PANEL 4 UPPER THOUGHT BUBBLE: '这小子近战太\n可怕了！' -> [X: 204, Y: 1862, W: 226, H: 87]
     let b2 = res.regions.iter().find(|r| r.text.contains("这小子近战太") || r.text.contains("可怕了"));
     assert!(b2.is_some(), "Must detect panel 4 upper thought bubble '这小子近战太可怕了！'");
     let b2 = b2.unwrap();
     assert_eq!(b2.kind, xianscan_rust::ml::schemas::RegionKind::DialogueBubble);
     assert!(!b2.text.contains("硬拼") && !b2.text.contains("反守为攻"), "Upper thought bubble must NOT merge with lower thought bubble");
+    crate::assert_region_bounds!(b2, xianscan_rust::ml::schemas::RegionKind::DialogueBubble, 204, 1862, 226, 87, 8);
+    crate::assert_bubble_bounds!(b2, 186, 1836, 318, 360, 10);
+    crate::assert_region_angle!(b2, 0.0, 2.0);
 
-    // 6. PANEL 4 LOWER THOUGHT BUBBLE: '我不能硬拼，跟\n他拉开距离然后\n迂回作战，这样\n才有机会反守为\n攻！'
+    // 6. PANEL 4 LOWER THOUGHT BUBBLE: '我不能硬拼，跟\n他拉开距离然后\n迂回作战，这样\n才有机会反守为\n攻！' -> [X: 193, Y: 1987, W: 267, H: 210]
     let b3 = res.regions.iter().find(|r| r.text.contains("硬拼") || r.text.contains("反守为攻") || r.text.contains("拉开距离"));
     assert!(b3.is_some(), "Must detect panel 4 lower thought bubble '我不能硬拼...'");
     let b3 = b3.unwrap();
     assert_eq!(b3.kind, xianscan_rust::ml::schemas::RegionKind::DialogueBubble);
     assert!(!b3.text.contains("这小子近战太"), "Lower thought bubble must NOT contain upper bubble text");
+    crate::assert_region_bounds!(b3, xianscan_rust::ml::schemas::RegionKind::DialogueBubble, 193, 1987, 267, 210, 8);
+    crate::assert_bubble_bounds!(b3, 186, 1836, 318, 360, 10);
+    crate::assert_region_angle!(b3, 0.0, 2.0);
 
     // 7. EXPLICIT NEGATIVE GUARDS AGAINST WATERMARKS & UNIFIED GIANT BOX
     assert!(!res.regions.iter().any(|r| r.text.contains("漫客")), "Must filter platform corner watermark");

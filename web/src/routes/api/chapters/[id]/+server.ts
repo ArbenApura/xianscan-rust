@@ -2,17 +2,25 @@
 // IMPORTED DEP-MODULES
 import { error, json } from '@sveltejs/kit';
 import { eq, inArray } from 'drizzle-orm';
+// IMPORTED MODULES
 import { assertChapterExists, getChapterReaderData } from '$lib/server/chapters';
 import { db } from '$lib/server/db';
 import { chapters } from '$lib/server/db/schema';
 import { updateChapterSchema } from '$lib/schemas';
+import { getChapterJob } from '$lib/server/translation-service';
 import type { RequestHandler } from './$types';
 
 export const GET: RequestHandler = async ({ params }) => {
 	const chapterId = Number(params.id);
 	if (!Number.isInteger(chapterId)) throw error(400, 'Invalid chapter id.');
 	const data = await getChapterReaderData(chapterId);
-	return json(data);
+	const activeJob = getChapterJob(chapterId);
+	const isTranslating = activeJob ? activeJob.status === 'running' : false;
+	return json({
+		...data,
+		isTranslating,
+		jobStatus: activeJob ? activeJob.status : 'idle'
+	});
 };
 
 export const PATCH: RequestHandler = async ({ params, request }) => {

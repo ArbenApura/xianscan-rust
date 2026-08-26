@@ -446,7 +446,7 @@
 					</h3>
 				</div>
 				<p class="text-xs text-neutral-600 dark:text-neutral-400 leading-relaxed">
-					Compatible with Mihon, TachiyomiSY, J2K, Aniyomi, and Android E-Ink readers (Boox, Bigme, Meebook). Synchronizes series titles, reading directions, and covers automatically over your local Wi-Fi:
+					Compatible with Mihon, TachiyomiSY, J2K, Aniyomi, and Android E-Ink readers (Boox, Bigme, Meebook). Synchronizes book titles, reading directions, and covers automatically over your local Wi-Fi:
 				</p>
 			</div>
 

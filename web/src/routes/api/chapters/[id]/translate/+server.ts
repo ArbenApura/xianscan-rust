@@ -6,7 +6,7 @@
 // THE JOB IS DETACHED AND BUFFERED (translation-service) — A CLIENT DISCONNECT DOES NOT KILL IT,
 // AND A (RE)CONNECTING CLIENT REPLAYS EVERYTHING SO FAR. THE STREAM CLOSES ON done/fatal error.
 // IMPORTED DEP-MODULES
-import { error } from '@sveltejs/kit';
+import { error, json } from '@sveltejs/kit';
 // IMPORTED MODULES
 import { assertChapterExists } from '$lib/server/chapters';
 import { chapterWork } from '$lib/server/chapter-pipeline';
@@ -15,7 +15,7 @@ import { getActiveProvider } from '$lib/server/providers';
 import { DATA_ROOT } from '$lib/server/paths';
 import { aiUsage } from '$lib/server/db/schema';
 import { db } from '$lib/server/db';
-import { getChapterJob, startChapterJob, setChapterJobAddPage, isChapterPageCancelled, type JobHandle } from '$lib/server/translation-service';
+import { getChapterJob, startChapterJob, setChapterJobAddPage, abortChapterJob, isChapterPageCancelled, type JobHandle } from '$lib/server/translation-service';
 import { getCanonicalSettings } from '$lib/server/settings-service';
 import { translateChapterSchema } from '$lib/schemas';
 
@@ -192,5 +192,13 @@ export const POST: RequestHandler = async ({ params, request, cookies }) => {
 		{ force },
 	);
 	return createSseStream(handle);
+};
+
+export const DELETE: RequestHandler = async ({ params }) => {
+	const chapterId = Number(params.id);
+	if (!Number.isInteger(chapterId)) throw error(400, 'Invalid chapter id.');
+	await assertChapterExists(chapterId);
+	const stopped = abortChapterJob(chapterId);
+	return json({ success: true, stopped });
 };
 

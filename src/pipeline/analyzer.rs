@@ -162,9 +162,17 @@ pub fn analyze_image_with_fusion(
                 let ix = (bx + bw).min((lx + lw) as f32) - bx.max(lx as f32);
                 let iy = (by + bh).min((ly + lh) as f32) - by.max(ly as f32);
                 // For horizontal text paragraphs (bw >= bh * 1.15), extend downwards or upwards to catch immediate row continuations
-                // (Only for multi-line paragraph continuation; do not merge single-line subtitles into large title headers where lh >= bh * 1.5)
+                // (Only for multi-line paragraph continuation; do not merge single-line subtitles into large title headers where lh >= bh * 1.5, or across separate standalone single-line detector containers)
                 let is_subtitle_to_title = bh <= 35.0 && (lh as f32) >= bh * 1.50;
+                let is_separate_detector_box = (lw as f32) < bw * 1.5 && fusion_res.text_bubbles.iter().chain(fusion_res.text_free.iter()).any(|(tb, _)| {
+                    let tb_iy = (tb.y + tb.h).min(ly + lh) - tb.y.max(ly);
+                    let tb_ix = (tb.x + tb.w).min(lx + lw) - tb.x.max(lx);
+                    tb_iy > 0 && tb_ix > 0 && (tb_ix * tb_iy) as f32 / (lw * lh).max(1) as f32 >= 0.50
+                        && (tb.y as f32 >= by + bh || by as f32 >= (tb.y + tb.h) as f32)
+                        && tb.h <= 40
+                });
                 let is_adjacent_trailing_row = !is_subtitle_to_title
+                    && !is_separate_detector_box
                     && bw >= bh * 1.15
                     && (lx as f32 >= bx - 35.0)
                     && ((lx + lw) as f32 <= bx + bw + 35.0)
@@ -173,6 +181,7 @@ pub fn analyze_image_with_fusion(
                     && ix >= 0.35 * (lw as f32).min(bw);
                 // Leading row check: merge upwards if a leading line is immediately above with high horizontal overlap
                 let is_adjacent_leading_row = !is_subtitle_to_title
+                    && !is_separate_detector_box
                     && (lx as f32 >= bx - 35.0)
                     && ((lx + lw) as f32 <= bx + bw + 35.0)
                     && ((ly + lh) as f32 >= by - 25.0)
@@ -185,11 +194,11 @@ pub fn analyze_image_with_fusion(
                     let b_area = (bw * bh).max(1.0);
                     let coverage_l = inter_area / l_area;
                     let coverage_b = inter_area / b_area;
-                    if coverage_l >= 0.35 || coverage_b >= 0.35 || is_adjacent_trailing_row || is_adjacent_leading_row {
+                    if (ix > 0.0 && iy > 0.0 && (coverage_l >= 0.25 || coverage_b >= 0.25)) || is_adjacent_trailing_row || is_adjacent_leading_row {
                         overlaps_any = true;
-                        // IF DETECTOR BOX IS A PARTIAL SINGLE-LINE SLICE AND RAPID OCR DETECTED A LONGER SENTENCE
-                        let is_horiz_single_line = bh <= (lh as f32 * 1.6) && (lw as f32) >= bw * 1.15;
-                        let is_vert_single_line = bw <= (lw as f32 * 1.6) && (lh as f32) >= bh * 1.15;
+                        // IF DETECTOR BOX IS A PARTIAL SINGLE-LINE SLICE AND RAPID OCR DETECTED A LONGER SENTENCE ON THE SAME ROW
+                        let is_horiz_single_line = iy >= 0.40 * bh.min(lh as f32) && bh <= (lh as f32 * 1.6) && (lw as f32 >= bw * 1.05 || ix >= 0.25 * bw.min(lw as f32));
+                        let is_vert_single_line = ix >= 0.40 * bw.min(lw as f32) && bw <= (lw as f32 * 1.6) && (lh as f32 >= bh * 1.05 || iy >= 0.25 * bh.min(lh as f32));
                         // IF DETECTOR BOX COVERS MULTI-LINE TEXT BUT MISSES THE BOTTOM-MOST LINE
                         let is_partial_vert_container = !is_subtitle_to_title
                             && (bw >= bh * 1.15)

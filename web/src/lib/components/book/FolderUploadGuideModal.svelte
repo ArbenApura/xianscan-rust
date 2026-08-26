@@ -29,7 +29,7 @@
 			<div class="space-y-1">
 				<p class="font-semibold text-xs">How Multi-Chapter Folder Import Works</p>
 				<p class="text-[11px] opacity-80 leading-relaxed">
-					You can select or drag & drop a root series folder containing multiple chapter subfolders. XianScan automatically detects chapter numbering (e.g. <code>Ch. 01</code>, <code>第1章</code>, <code>001 - Title</code>), creates chapters sequentially, and uploads page images in natural order.
+					You can select or drag & drop a root book folder containing multiple chapter subfolders. XianScan automatically detects chapter numbering (e.g. <code>Ch. 01</code>, <code>第1章</code>, <code>001 - Title</code>), creates chapters sequentially, and uploads page images in natural order.
 				</p>
 			</div>
 		</div>
@@ -39,7 +39,7 @@
 			<div class="rounded-xl border border-black/[0.08] dark:border-white/[0.08] bg-black/[0.03] dark:bg-white/[0.03] p-3 font-mono text-[11px] space-y-1">
 				<div class="flex items-center gap-1.5 font-bold text-neutral-800 dark:text-neutral-200">
 					<FolderTree size={14} class="text-amber-500" />
-					<span>My Manga Series /</span>
+					<span>My Manga Book /</span>
 				</div>
 				<div class="pl-4 space-y-1 text-neutral-600 dark:text-neutral-400">
 					<div class="flex items-center gap-1.5">

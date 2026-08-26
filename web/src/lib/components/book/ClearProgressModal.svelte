@@ -2,6 +2,7 @@
 	// -- IMPORTED DEP-MODULES -- //
 	import { createEventDispatcher } from 'svelte';
 	import { toast } from 'svelte-sonner';
+	import { batchTracker } from '$lib/stores/batch-tracker';
 
 	// -- IMPORTED ICONS -- //
 	import RotateCw from 'lucide-svelte/icons/rotate-cw';
@@ -92,6 +93,7 @@
 				chapters: 'done',
 			};
 
+			batchTracker.clearBook(bookId);
 			state = 'done';
 			toast.success(
 				`Cleared progress for ${result.chaptersReset} chapter${result.chaptersReset === 1 ? '' : 's'} (${result.pagesReset} page${result.pagesReset === 1 ? '' : 's'}). All pages preserved.`

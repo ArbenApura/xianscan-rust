@@ -53,25 +53,35 @@ if (!globalThis.__mtSqlite) {
 	sqlite.pragma('busy_timeout = 30000');
 	sqlite.pragma('synchronous = NORMAL');
 	sqlite.pragma('cache_size = -32000');
-	// ALIGN DRIZZLE MIGRATION JOURNAL IF EXISTING DATABASE ALREADY CONTAINS THE RECENT COLUMNS
+	// ALIGN DRIZZLE MIGRATION JOURNAL IF EXISTING DATABASE ALREADY CONTAINS THE RECENT TABLES / COLUMNS
 	try {
-		const pageCols = sqlite.pragma('table_info(pages)') as Array<{ name: string }>;
-		const hasPanels = pageCols?.some((c) => c.name === 'panels');
-		if (hasPanels) {
-			sqlite.exec(`
-				CREATE TABLE IF NOT EXISTS \`__drizzle_migrations\` (
-					id INTEGER PRIMARY KEY AUTOINCREMENT,
-					hash text NOT NULL,
-					created_at numeric
-				);
-			`);
-			const migs = sqlite.prepare('SELECT created_at FROM `__drizzle_migrations` WHERE created_at = ?').all(1787373660572);
-			if (migs.length === 0) {
-				sqlite.prepare('INSERT INTO `__drizzle_migrations` (hash, created_at) VALUES (?, ?)').run(
-					'0009_gorgeous_supreme_intelligence',
-					1787373660572,
-				);
+		sqlite.exec(`
+			CREATE TABLE IF NOT EXISTS \`__drizzle_migrations\` (
+				id INTEGER PRIMARY KEY AUTOINCREMENT,
+				hash text NOT NULL,
+				created_at numeric
+			);
+		`);
+
+		const ensureMigrationRecorded = (hash: string, createdAt: number) => {
+			const rows = sqlite.prepare('SELECT created_at FROM `__drizzle_migrations` WHERE created_at = ?').all(createdAt);
+			if (rows.length === 0) {
+				sqlite.prepare('INSERT INTO `__drizzle_migrations` (hash, created_at) VALUES (?, ?)').run(hash, createdAt);
 			}
+		};
+
+		const pageCols = sqlite.pragma('table_info(pages)') as Array<{ name: string }>;
+		const regionCols = sqlite.pragma('table_info(regions)') as Array<{ name: string }>;
+		const appSettingsCols = sqlite.pragma('table_info(app_settings)') as Array<{ name: string }>;
+
+		if (pageCols?.some((c) => c.name === 'panels')) {
+			ensureMigrationRecorded('0009_gorgeous_supreme_intelligence', 1787373660572);
+		}
+		if (regionCols?.some((c) => c.name === 'inpaint_box')) {
+			ensureMigrationRecorded('0011_whole_james_howlett', 1787420901390);
+		}
+		if (appSettingsCols && appSettingsCols.length > 0) {
+			ensureMigrationRecorded('0012_amused_joystick', 1787702303942);
 		}
 	} catch {
 		// Ignore check on uninitialized db

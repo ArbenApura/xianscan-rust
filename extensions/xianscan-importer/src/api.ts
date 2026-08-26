@@ -1,4 +1,4 @@
-import type { BookSummary, ChapterSummary } from './types';
+import type { BookSummary, ChapterSummary, ChapterReaderResult } from './types';
 
 export interface CreateBookPayload {
 	title: string;
@@ -167,14 +167,19 @@ export class XianScanClient {
 
 	async createChapter(bookId: string | number, payload: CreateChapterPayload): Promise<ChapterSummary> {
 		const chapterTitle = payload.title || `Chapter ${payload.chapterNumber}`;
-		const res = await this.request<ChapterSummary>(`/api/books/${bookId}/chapters`, {
+		const res = await this.request<{ id: number; seq: number; title?: string }>(`/api/books/${bookId}/chapters`, {
 			method: 'POST',
 			headers: { 'Content-Type': 'application/json' },
 			body: JSON.stringify({
 				title: chapterTitle
 			})
 		});
-		return res;
+		return {
+			id: res.id,
+			title: res.title || chapterTitle,
+			chapterNumber: payload.chapterNumber || (res.seq + 1),
+			bookId
+		};
 	}
 
 	async uploadPages(chapterId: number, pages: UploadPageFile[]): Promise<{ added: number }> {
@@ -248,6 +253,25 @@ export class XianScanClient {
 		} catch {
 			// DETACHED SERVER JOB PROCEEDS EVEN IF SSE STREAM IS CLOSED ON CLIENT
 			return { success: true };
+		}
+	}
+
+	async getChapterDetails(chapterId: number): Promise<ChapterReaderResult> {
+		return this.request<ChapterReaderResult>(`/api/chapters/${chapterId}`);
+	}
+
+	getPageFileUrl(pageId: number, kind: 'output' | 'original' | 'cleaned' | 'thumb' = 'output', rev?: number): string {
+		const revQuery = rev !== undefined && rev !== null ? `&rev=${rev}` : '';
+		return `${this.baseUrl}/api/pages/${pageId}/file?kind=${kind}${revQuery}`;
+	}
+
+	async cancelTranslation(chapterId: number): Promise<void> {
+		try {
+			await this.request(`/api/chapters/${chapterId}/translate`, {
+				method: 'DELETE'
+			});
+		} catch {
+			// IGNORE IF ALREADY STOPPED
 		}
 	}
 }

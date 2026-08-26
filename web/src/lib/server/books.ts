@@ -140,7 +140,7 @@ export async function getBooksWithTelemetry(
 			pageCount += chTotal;
 			translatedPageCount += chDone;
 
-			const isChapterDone = chTotal > 0 && (c.status === 'done' || chDone === chTotal);
+			const isChapterDone = chTotal > 0 && chDone === chTotal;
 			if (isChapterDone) {
 				translatedChapterCount++;
 			}
@@ -277,7 +277,7 @@ export async function getBookDetails(bookId: string): Promise<BookDetailResult> 
 			const pageCount = pgs.length;
 			const translatedPageCount = pgs.filter((p) => p.status === 'done' || Boolean(p.outputPath)).length;
 			const firstPage = pgs[0] ?? null;
-			const isDone = pageCount > 0 && (c.status === 'done' || translatedPageCount === pageCount);
+			const isDone = pageCount > 0 && translatedPageCount === pageCount;
 			const isStillProcessing = c.status === 'processing' && pgs.some((p) => p.status === 'processing');
 			const effectiveStatus: 'pending' | 'processing' | 'done' | 'error' =
 				pageCount === 0

@@ -156,9 +156,9 @@ The SvelteKit server implements the following endpoints to serve the extension:
 
 | Route | Description |
 | :--- | :--- |
-| `GET /api/mihon/library?page=N` | Paginated recent-first series library (`SManga` list). |
-| `GET /api/mihon/search?q=&page=N` | Multi-keyword series search. |
-| `GET /api/mihon/manga/:id` | Full series details (description, authors, genres, cover URL). |
+| `GET /api/mihon/library?page=N` | Paginated recent-first book library (`SManga` list). |
+| `GET /api/mihon/search?q=&page=N` | Multi-keyword book search. |
+| `GET /api/mihon/manga/:id` | Full book details (description, authors, genres, cover URL). |
 | `GET /api/mihon/manga/:id/chapters` | Chapter list and reading order. |
 | `GET /api/mihon/chapters/:id/pages` | Direct image URLs for pages in the chapter. |
 | `GET /api/mihon/genres` | Category tags and genre filter lists. |
@@ -218,9 +218,9 @@ yarn lint
 
 | Endpoint | Method | Description |
 | :--- | :--- | :--- |
-| `/api/books` | `GET`, `POST`, `DELETE` | Series metadata CRUD and library management. |
+| `/api/books` | `GET`, `POST`, `DELETE` | Book metadata CRUD and library management. |
 | `/api/chapters` | `GET`, `POST`, `DELETE` | Chapter page uploads, status tracking, and batch translation queues. |
-| `/api/covers` | `GET`, `POST` | Dedicated series cover image extraction, caching, and serving. |
+| `/api/covers` | `GET`, `POST` | Dedicated book cover image extraction, caching, and serving. |
 | `/api/glossary` | `GET`, `POST`, `DELETE` | Dynamic terminology glossary CRUD (Aho-Corasick matching). |
 | `/api/translate-text` | `POST` | Context-aware LLM dialogue translation (Ollama, LM Studio, Cloud APIs). |
 | `/api/mihon/*` | `GET` | Mihon / Tachiyomi mobile reader source repository and chapter stream. |

@@ -652,7 +652,7 @@
 
 <svelte:head>
 	<title>Library - XianScan</title>
-	<meta name="description" content="Browse and manage translated comics, manhua, and manga series." />
+	<meta name="description" content="Browse and manage translated comics, manhua, and manga books." />
 </svelte:head>
 
 <!-- LIBRARY DASHBOARD -->
@@ -667,7 +667,7 @@
 	<div class="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
 		<div>
 			<h1 class="text-2xl font-bold tracking-tight sm:text-3xl">Library</h1>
-			<p class="mt-1 text-sm opacity-60">Manage series, track translation progress, and read translated chapters.</p>
+			<p class="mt-1 text-sm opacity-60">Manage books, track translation progress, and read translated chapters.</p>
 		</div>
 
 		<div class="hidden sm:flex items-center gap-3">
@@ -893,7 +893,7 @@
 				<BookOpen size={24} />
 			</div>
 			<h2 class="mt-4 text-base font-semibold">No books in your library</h2>
-			<p class="mt-1 max-w-sm text-xs opacity-60">Create a book series or drop a folder to automatically scan and import chapters.</p>
+			<p class="mt-1 max-w-sm text-xs opacity-60">Create a book or drop a folder to automatically scan and import chapters.</p>
 			<div class="mt-4 flex items-center gap-2.5">
 				<Button variant="secondary" size="sm" class="gap-1.5" on:click={() => bookDropImportModal?.open()}>
 					<FolderUp size={14} /> Import Folder
@@ -942,7 +942,7 @@
 									<div class="min-w-0 flex-1">
 										<div class="flex items-center gap-1.5 min-w-0">
 											{#if book.pinned}
-												<span title="Pinned Series" class="flex items-center text-amber-600 dark:text-amber-400 shrink-0">
+												<span title="Pinned Book" class="flex items-center text-amber-600 dark:text-amber-400 shrink-0">
 													<Pin size={12} class="rotate-45 fill-current" />
 												</span>
 											{/if}
@@ -964,10 +964,10 @@
 									<div class="shrink-0">
 										<ActionMenu
 											items={[
-												{ value: 'open', label: 'Open Series', icon: ExternalLink },
+												{ value: 'open', label: 'Open Book', icon: ExternalLink },
 												{ value: 'edit', label: 'Edit Book Details', icon: Pencil },
 												{ value: 'pin', label: book.pinned ? 'Unpin from Top' : 'Pin to Top', icon: Pin },
-												{ value: 'archive', label: book.archived ? 'Unarchive Series' : 'Archive Series', icon: Archive },
+												{ value: 'archive', label: book.archived ? 'Unarchive Book' : 'Archive Book', icon: Archive },
 												{ value: 'clearChapters', label: 'Clear Chapters', icon: BookX, danger: true },
 												{ value: 'delete', label: 'Delete Book', icon: Trash2, danger: true },
 											]}
@@ -1082,7 +1082,7 @@
 						<div class="min-w-0 flex-1">
 							<div class="flex items-center gap-1.5 min-w-0">
 								{#if book.pinned}
-									<span title="Pinned Series" class="text-amber-600 dark:text-amber-400 shrink-0">
+									<span title="Pinned Book" class="text-amber-600 dark:text-amber-400 shrink-0">
 										<Pin size={12} class="rotate-45 fill-current" />
 									</span>
 								{/if}
@@ -1137,10 +1137,10 @@
 
 						<ActionMenu
 							items={[
-								{ value: 'open', label: 'Open Series', icon: ExternalLink },
+								{ value: 'open', label: 'Open Book', icon: ExternalLink },
 								{ value: 'edit', label: 'Edit Book Details', icon: Pencil },
 								{ value: 'pin', label: book.pinned ? 'Unpin from Top' : 'Pin to Top', icon: Pin },
-								{ value: 'archive', label: book.archived ? 'Unarchive Series' : 'Archive Series', icon: Archive },
+								{ value: 'archive', label: book.archived ? 'Unarchive Book' : 'Archive Book', icon: Archive },
 								{ value: 'clearChapters', label: 'Clear Chapters', icon: BookX, danger: true },
 								{ value: 'delete', label: 'Delete Book', icon: Trash2, danger: true },
 							]}
@@ -1167,7 +1167,7 @@
 				<div class="flex items-center justify-between gap-2.5 p-2.5 transition hover:bg-black/[0.02] dark:hover:bg-white/[0.02]">
 					<div class="flex items-center gap-2 min-w-0 flex-1">
 						{#if book.pinned}
-							<span title="Pinned Series" class="text-amber-600 dark:text-amber-400 shrink-0">
+							<span title="Pinned Book" class="text-amber-600 dark:text-amber-400 shrink-0">
 								<Pin size={11} class="rotate-45 fill-current" />
 							</span>
 						{/if}
@@ -1207,10 +1207,10 @@
 						</a>
 						<ActionMenu
 							items={[
-								{ value: 'open', label: 'Open Series', icon: ExternalLink },
+								{ value: 'open', label: 'Open Book', icon: ExternalLink },
 								{ value: 'edit', label: 'Edit Book Details', icon: Pencil },
 								{ value: 'pin', label: book.pinned ? 'Unpin from Top' : 'Pin to Top', icon: Pin },
-								{ value: 'archive', label: book.archived ? 'Unarchive Series' : 'Archive Series', icon: Archive },
+								{ value: 'archive', label: book.archived ? 'Unarchive Book' : 'Archive Book', icon: Archive },
 								{ value: 'clearChapters', label: 'Clear Chapters', icon: BookX, danger: true },
 								{ value: 'delete', label: 'Delete Book', icon: Trash2, danger: true },
 							]}
@@ -1249,7 +1249,7 @@
 						<tr class="group transition hover:bg-black/[0.02] dark:hover:bg-white/[0.02]">
 							<td class="py-2.5 pl-4 pr-2">
 								{#if book.pinned}
-									<span title="Pinned Series" class="text-amber-600 dark:text-amber-400">
+									<span title="Pinned Book" class="text-amber-600 dark:text-amber-400">
 										<Pin size={12} class="rotate-45 fill-current" />
 									</span>
 								{:else}
@@ -1302,16 +1302,16 @@
 									<a
 										href={`/app/books/${book.id}/`}
 										class="p-1 rounded opacity-70 hover:opacity-100 hover:text-[#b23a2e]"
-										title="Open Series"
+										title="Open Book"
 									>
 										<ExternalLink size={13} />
 									</a>
 									<ActionMenu
 										items={[
-											{ value: 'open', label: 'Open Series', icon: ExternalLink },
+											{ value: 'open', label: 'Open Book', icon: ExternalLink },
 											{ value: 'edit', label: 'Edit Book Details', icon: Pencil },
 											{ value: 'pin', label: book.pinned ? 'Unpin from Top' : 'Pin to Top', icon: Pin },
-											{ value: 'archive', label: book.archived ? 'Unarchive Series' : 'Archive Series', icon: Archive },
+											{ value: 'archive', label: book.archived ? 'Unarchive Book' : 'Archive Book', icon: Archive },
 											{ value: 'clearChapters', label: 'Clear Chapters', icon: BookX, danger: true },
 											{ value: 'delete', label: 'Delete Book', icon: Trash2, danger: true },
 										]}
@@ -1340,14 +1340,14 @@
 	on:click={() => (createModalOpen = true)}
 	class="fixed bottom-6 right-6 z-30 flex h-14 w-14 items-center justify-center rounded-full border border-transparent bg-[#b23a2e] text-white shadow-xl shadow-black/20 transition-all duration-200 hover:bg-[#c0392b] hover:shadow-2xl hover:scale-105 active:scale-95 focus:outline-none focus:ring-2 focus:ring-[#b23a2e]/40 sm:hidden"
 	use:ripple
-	title="Create New Book Series"
-	aria-label="Create New Book Series"
+	title="Create New Book"
+	aria-label="Create New Book"
 >
 	<Plus size={28} class="shrink-0" />
 </button>
 
 <!-- CREATE BOOK MODAL -->
-<Modal open={createModalOpen} title="Create New Book Series" size="md" on:close={() => (createModalOpen = false)}>
+<Modal open={createModalOpen} title="Create New Book" size="md" on:close={() => (createModalOpen = false)}>
 	<form class="flex flex-col gap-4" on:submit|preventDefault={createBook}>
 		<TextField
 			bind:value={title}
@@ -1410,7 +1410,7 @@
 </Modal>
 
 <!-- EDIT BOOK MODAL -->
-<Modal open={editModalOpen} title="Edit Book Series" size="md" on:close={() => (editModalOpen = false)}>
+<Modal open={editModalOpen} title="Edit Book" size="md" on:close={() => (editModalOpen = false)}>
 	{#if editingBook}
 		<form class="flex flex-col gap-4" on:submit|preventDefault={updateBook}>
 			<TextField
@@ -1457,8 +1457,8 @@
 			</div>
 
 			<div class="flex flex-col gap-3 rounded-xl border border-black/10 bg-black/[0.02] p-3 dark:border-white/10 dark:bg-white/[0.02]">
-				<Switch bind:checked={editPinned} label="Pin series to top of library" />
-				<Switch bind:checked={editArchived} label="Archive series (hide from active view)" />
+				<Switch bind:checked={editPinned} label="Pin book to top of library" />
+				<Switch bind:checked={editArchived} label="Archive book (hide from active view)" />
 			</div>
 
 			<BookCoverPicker bookId={editingBook.id} coverSrc={editCoverSrc} on:uploaded={onCoverUploaded} on:removed={onCoverRemoved} />
@@ -1484,7 +1484,7 @@
 <!-- DELETE CONFIRMATION DIALOG -->
 <ConfirmDialog
 	open={deleteConfirmOpen}
-	title="Delete Book Series?"
+	title="Delete Book?"
 	message={`Are you sure you want to delete "${bookToDelete?.titleTarget || bookToDelete?.title || 'Book'}"? All chapters, pages, and cached translations for this book will be permanently deleted.`}
 	confirmLabel="Delete Book"
 	requireVerificationCode={true}
@@ -1497,7 +1497,7 @@
 <ConfirmDialog
 	open={clearChaptersConfirmOpen}
 	title={`Clear Chapters from "${bookToClearChapters?.titleTarget || bookToClearChapters?.title || 'Book'}"?`}
-	message={`Are you sure you want to clear all chapters from "${bookToClearChapters?.titleTarget || bookToClearChapters?.title || 'this series'}"? All chapters, pages, OCR data, and translations will be permanently removed.`}
+	message={`Are you sure you want to clear all chapters from "${bookToClearChapters?.titleTarget || bookToClearChapters?.title || 'this book'}"? All chapters, pages, OCR data, and translations will be permanently removed.`}
 	confirmLabel="Clear Chapters"
 	requireVerificationCode={true}
 	variant="danger"
@@ -1522,7 +1522,7 @@
 			<Upload size={36} class="animate-bounce text-[#b23a2e] dark:text-[#e08a63]" />
 			<div class="space-y-1">
 				<p class="text-sm font-bold sm:text-base">Drop folder to create a new Book</p>
-				<p class="text-xs opacity-75">Folders and chapters will be scanned automatically to create the series</p>
+				<p class="text-xs opacity-75">Folders and chapters will be scanned automatically to create the book</p>
 			</div>
 		</div>
 	</div>

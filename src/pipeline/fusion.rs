@@ -302,10 +302,13 @@ pub fn fuse_detections(
                                 let rl_chars = rl.text.chars().filter(|c| !c.is_whitespace()).count();
                                 let clean_cjk = clean_c.chars().filter(|c| crate::ml::detect::has_cjk_characters(&c.to_string())).count();
                                 let rl_cjk = rl.text.chars().filter(|c| crate::ml::detect::has_cjk_characters(&c.to_string())).count();
-                                let is_better = clean_chars > rl_chars
-                                    || clean_cjk > rl_cjk
-                                    || (clean_c.contains('…') && !rl.text.contains('…'))
-                                    || (clean_chars == rl_chars && line_res.score > rl.score + 0.05);
+                                let is_excessive_multiline_bleed = !is_multiline_cb && !is_rl_vert && clean_c.contains('\n') && rl.score >= 0.70;
+                                let is_better = !is_excessive_multiline_bleed && (
+                                    clean_chars > rl_chars
+                                        || clean_cjk > rl_cjk
+                                        || (clean_c.contains('…') && !rl.text.contains('…'))
+                                        || (clean_chars == rl_chars && line_res.score > rl.score + 0.05)
+                                );
                                 if is_better {
                                     let union_x = cb_x.min(rx);
                                     let union_y = cb_y.min(ry);

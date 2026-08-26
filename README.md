@@ -150,7 +150,7 @@ Download the pre-compiled binary for your system from [Releases](https://github.
 - Open `http://localhost:8124` in your browser.
 - **Local Network (LAN)**: Access your library from tablets or mobile devices on your Wi-Fi via `http://<your-pc-ip>:8124`.
 
-### 3. Translate a Series
+### 3. Translate a Book
 1. Click **+ New Book** and select source and target languages.
 2. Drag and drop chapter folders into the browser, or import pages with the browser extension.
 3. Configure your translation provider (local Ollama/LM Studio or cloud API) and start the pipeline.
@@ -204,7 +204,7 @@ The **1-Click Web Importer Extension** ([`extensions/xianscan-importer/`](extens
 Read your translated library on Android phones, tablets, or E-Ink devices using the **[Mihon](https://mihon.app/) / Tachiyomi Extension** ([`extensions/xianscan-mihon/`](extensions/xianscan-mihon/)):
 
 - **Local Wi-Fi Streaming**: Stream or download translated chapters directly over your home network.
-- **Metadata & Cover Sync**: Synchronizes series titles, reading directions, and cover artwork automatically.
+- **Metadata & Cover Sync**: Synchronizes book titles, reading directions, and cover artwork automatically.
 - **Broad Compatibility**: Works with Mihon, TachiyomiSY, J2K, Aniyomi, and Android E-Ink readers (Boox, Bigme, Meebook).
 
 <details>
