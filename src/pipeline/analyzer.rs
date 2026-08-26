@@ -410,6 +410,15 @@ pub fn analyze_image_with_fusion(
     });
 
     // Filter out SoundEffects if SFX is disabled or if individual SFX region exceeds area threshold
+    // Also suppress FreeText regions that overlap layout-detector SFX boxes when SFX is disabled:
+    // when enable_sfx=false, SFX candidate boxes are not passed to build_regions, so OCR lines
+    // inside those boxes may be re-emitted as FreeText - suppress them using raw onomatopoeia boxes.
+    let raw_sfx_boxes: Vec<&BoxRect> = fusion_res
+        .onomatopoeia
+        .iter()
+        .filter(|(_, score)| *score >= 0.35)
+        .map(|(b, _)| b)
+        .collect();
     let page_total_area = (page_w * page_h).max(1) as f32;
     final_regions.retain(|r| {
         if r.kind == crate::ml::schemas::RegionKind::SoundEffect {
@@ -418,6 +427,23 @@ pub fn analyze_image_with_fusion(
             }
             let area_ratio = (r.box_.w * r.box_.h) as f32 / page_total_area;
             area_ratio <= sfx_max_area_pct
+        } else if !enable_sfx && r.bubble_box.is_none() {
+            // SUPPRESS FREE-TEXT / NON-BUBBLE REGIONS WHOSE BOX SUBSTANTIALLY OVERLAPS A
+            // LAYOUT-DETECTOR SFX BOX. THIS PREVENTS LARGE SFX TEXT (E.G. 啊×7！) FROM
+            // LEAKING THROUGH AS FREE TEXT WHEN SFX RENDERING IS DISABLED.
+            let overlaps_raw_sfx = raw_sfx_boxes.iter().any(|sfx_b| {
+                let ix = (r.box_.x + r.box_.w).min(sfx_b.x + sfx_b.w) - r.box_.x.max(sfx_b.x);
+                let iy = (r.box_.y + r.box_.h).min(sfx_b.y + sfx_b.h) - r.box_.y.max(sfx_b.y);
+                if ix > 0 && iy > 0 {
+                    let inter = (ix * iy) as f32;
+                    let r_area = (r.box_.w * r.box_.h).max(1) as f32;
+                    let sfx_area = (sfx_b.w * sfx_b.h).max(1) as f32;
+                    inter / r_area >= 0.40 || inter / sfx_area >= 0.40
+                } else {
+                    false
+                }
+            });
+            !overlaps_raw_sfx
         } else {
             true
         }

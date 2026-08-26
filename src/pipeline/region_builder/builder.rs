@@ -582,6 +582,26 @@ pub fn build_regions(
                     if crate::ml::detect::is_standalone_noise_stroke(&cleaned) {
                         continue;
                     }
+                    // SUPPRESS DETECTOR-SFX ARTWORK GLYPH HALLUCINATIONS ON CHROMATIC BACKGROUNDS:
+                    // DECORATIVE LIGHTNING / ENERGY-BURST GLYPHS IN ACTION SCENES PRODUCE SPURIOUS SFX
+                    // DETECTIONS WITH OCR TEXT LIKE 'M', '1呼', '呼t.1', '41', '产' (SHORT, DIGIT/LATIN-POLLUTED).
+                    // GUARD: NON-BUBBLE CJK DETECTOR-SFX WITH ≤3 NON-WHITESPACE CHARS ON CHROMATIC BACKGROUND
+                    // WHERE EITHER THE TEXT LACKS ANY CJK CONTENT, OR CONTAINS MIXED ASCII DIGITS/LATIN NOISE.
+                    // LEGITIMATE SFX (E.G. '啊啊啊啊啊啊啊！', '吵吵闹闹', '陡然惊醒') ARE ALWAYS MULTI-CHAR
+                    // PURE CJK AND WELL ABOVE THIS CHARACTER COUNT THRESHOLD.
+                    if is_cjk && is_detector_sfx && matched_bubble.is_none() {
+                        let char_count = cleaned.chars().filter(|c| !c.is_whitespace()).count();
+                        let ascii_noise_count = cleaned.chars().filter(|c| c.is_ascii_alphanumeric()).count();
+                        let cjk_count = cleaned.chars().filter(|c| crate::ml::detect::has_cjk_characters(&c.to_string())).count();
+                        // SHORT SPURIOUS SFX: TOTAL ≤5 CHARS WHERE ASCII NOISE DOMINATES (>= CJK COUNT)
+                        // OR ≤3 CHARS WITH ANY ASCII NOISE, OR SINGLE LOW-CONFIDENCE CJK RESIDUE
+                        let is_noise_polluted_sfx = (char_count <= 5 && ascii_noise_count > 0 && ascii_noise_count >= cjk_count)
+                            || (char_count <= 3 && ascii_noise_count > 0)
+                            || (cjk_count <= 1 && char_count <= 2 && avg_score < 0.60);
+                        if is_noise_polluted_sfx && compute_chromatic_color_variance(img, &cluster_rect) >= 15.0 {
+                            continue;
+                        }
+                    }
                     // IN NON-LATIN SCRIPT SOURCES (CJK, CYRILLIC, THAI), NEVER EXTRACT STANDALONE ALPHANUMERIC / LATIN TEXT UNLESS COMBINED WITH SOURCE SCRIPT OR RECOGNIZED AS EXPLICIT SFX
                     let is_non_latin = crate::ml::detect::is_non_latin_source(source_lang);
                     let lacks_native_script = !crate::ml::detect::has_native_script_for_lang(&cleaned, source_lang);
@@ -649,6 +669,30 @@ pub fn build_regions(
                     // SUPPRESS LOW-CONFIDENCE REPEATED SFX GLYPHS GENERATED FROM LIGHTNING / BACKGROUND SPEEDLINES (E.G. '呼呼', '叫呼呼' ON CHROMATIC BACKGROUND WITH SCORE < 0.65)
                     if is_cjk && matched_bubble.is_none() && (cleaned.contains("呼呼") || cleaned == "呼" || cleaned == "叫呼呼") && avg_score < 0.65 && compute_chromatic_color_variance(img, &cluster_rect) >= 15.0 {
                         continue;
+                    }
+                    // SUPPRESS OCR HALLUCINATIONS FROM DECORATIVE ENERGY-BURST / LIGHTNING ARTWORK GLYPHS:
+                    // WHEN EACH LINE OF A LOW-CONFIDENCE REGION CONTAINS MIXED DIGIT/LATIN NOISE ARTIFACTS
+                    // CORRUPTING A SHORT REPEATED CJK SFX GLYPH (E.G. '1呼\n呼t.1'), STRIP ALL NON-CJK CHARS
+                    // PER LINE AND CHECK IF THE RESIDUE IS A SINGLE IDENTICAL SHORT GLYPH ACROSS ALL LINES.
+                    // THIS CATCHES ENERGY BURST / SPEEDLINE MISREADS THAT EVADE THE INLINE '呼呼' CHECK.
+                    if is_cjk && matched_bubble.is_none() && avg_score < 0.70 && compute_chromatic_color_variance(img, &cluster_rect) >= 15.0 {
+                        let lines: Vec<&str> = cleaned.lines().collect();
+                        if lines.len() >= 2 {
+                            let cjk_residues: Vec<String> = lines
+                                .iter()
+                                .map(|l| l.chars().filter(|c| crate::ml::detect::has_cjk_characters(&c.to_string())).collect::<String>())
+                                .collect();
+                            let all_non_empty = cjk_residues.iter().all(|r| !r.is_empty());
+                            let all_single_glyph = cjk_residues.iter().all(|r| r.chars().count() == 1);
+                            let all_identical = cjk_residues.windows(2).all(|w| w[0] == w[1]);
+                            // EACH LINE HAS EXACTLY ONE UNIQUE CJK CHAR BUT IS POLLUTED BY DIGIT/LATIN ARTIFACTS
+                            let has_digit_latin_noise = lines.iter().any(|l| {
+                                l.chars().any(|c| c.is_ascii_alphanumeric() && !crate::ml::detect::has_cjk_characters(&c.to_string()))
+                            });
+                            if all_non_empty && all_single_glyph && all_identical && has_digit_latin_noise {
+                                continue;
+                            }
+                        }
                     }
                     // SUPPRESS FOLIAGE NOISE / CHROMATIC BACKGROUND TEXTURE ON TINY STROKE FRAGMENTS
                     if matched_bubble.is_none() && !is_detector_sfx && !is_sfx && cluster_rect.w <= 40 && cluster_rect.h <= 55 && compute_chromatic_color_variance(img, &cluster_rect) >= 15.0 {
