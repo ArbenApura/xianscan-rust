@@ -99,7 +99,7 @@ pub fn build_regions(
         };
 
         // MATCH OCR LINES WHOSE CENTER SITS INSIDE THIS CANDIDATE BOX
-        let matched: Vec<&OcrLine> = split_lines
+        let mut matched: Vec<&OcrLine> = split_lines
             .iter()
             .filter(|l| {
                 let (lx, ly, lw, lh) = polygon_bounds(&l.polygon);
@@ -122,6 +122,16 @@ pub fn build_regions(
                 iou >= 0.25 || coverage >= 0.40
             })
             .collect();
+
+        // IN NON-LATIN SCRIPT SOURCES (E.G. KOREAN, CJK), IF CANDIDATE BOX CONTAINS NATIVE LINES, DROP OVERLAPPING PURE LATIN NOISE LINES
+        if crate::ml::detect::is_non_latin_source(source_lang) && matched.iter().any(|l| crate::ml::detect::has_native_script_for_lang(&l.text, source_lang)) {
+            matched.retain(|l| {
+                let t = l.text.trim();
+                let lacks_native = !crate::ml::detect::has_native_script_for_lang(t, source_lang);
+                let is_pure_latin_word = lacks_native && t.chars().all(|c| c.is_ascii_alphabetic() || c.is_whitespace() || c.is_ascii_punctuation());
+                !is_pure_latin_word || crate::ml::detect::is_onomatopoeia_or_shout(t)
+            });
+        }
 
         let mut is_container_vert = box_rect.h > (box_rect.w as f32 * 1.3) as i32;
         let mut angle_deg = 0.0f32;
@@ -318,19 +328,19 @@ pub fn build_regions(
                     0.0
                 };
 
-                angle_deg = if matched_bubble.is_some() || is_container_vert {
-                    0.0
-                } else if !cluster_lines.is_empty() && median_line_angle.abs() < 1.5 && box_angle.abs() < 8.0 {
-                    // Lines are horizontal, ignore noisy detector box slant
-                    0.0
-                } else if !cluster_lines.is_empty() && median_line_angle.abs() >= 1.5 {
+                angle_deg = if !cluster_lines.is_empty() && median_line_angle.abs() >= 1.5 {
                     // If constituent OCR line(s) have clear orientation angle, prefer line angle
                     if median_line_angle.abs() < 3.5 && (box_angle == 0.0 || (box_angle.abs() < 1.5)) {
                         0.0
                     } else {
                         median_line_angle
                     }
-                } else if box_angle.abs() >= 1.5 {
+                } else if is_container_vert {
+                    0.0
+                } else if !cluster_lines.is_empty() && median_line_angle.abs() < 1.5 && box_angle.abs() < 8.0 {
+                    // Lines are horizontal, ignore noisy detector box slant
+                    0.0
+                } else if box_angle.abs() >= 1.5 && matched_bubble.is_none() {
                     box_angle
                 } else {
                     median_line_angle
@@ -572,12 +582,13 @@ pub fn build_regions(
                     if crate::ml::detect::is_standalone_noise_stroke(&cleaned) {
                         continue;
                     }
-                    // IN NON-LATIN SCRIPT SOURCES (CJK, CYRILLIC, THAI), NEVER EXTRACT STANDALONE ALPHANUMERIC / LATIN TEXT OUTSIDE SPEECH BUBBLES UNLESS COMBINED WITH SOURCE SCRIPT OR RECOGNIZED AS EXPLICIT SFX
+                    // IN NON-LATIN SCRIPT SOURCES (CJK, CYRILLIC, THAI), NEVER EXTRACT STANDALONE ALPHANUMERIC / LATIN TEXT UNLESS COMBINED WITH SOURCE SCRIPT OR RECOGNIZED AS EXPLICIT SFX
                     let is_non_latin = crate::ml::detect::is_non_latin_source(source_lang);
                     let lacks_native_script = !crate::ml::detect::has_native_script_for_lang(&cleaned, source_lang);
                     let is_pure_latin = lacks_native_script && cleaned.chars().all(|c| c.is_ascii_alphabetic() || c.is_whitespace() || c.is_ascii_punctuation());
                     if is_non_latin && is_pure_latin && !is_sfx && !is_detector_sfx && !crate::ml::detect::is_onomatopoeia_or_shout(&cleaned) {
-                        // Suppress background texture / clothing words (e.g. "HOSPITAL", "OSPITAL") inside or outside bubbles in CJK/Korean sources
+                        // Suppress background texture / clothing words (e.g. "HOSPITAL", "OSPITAL") in CJK/Korean sources
+                        // But allow if matched_bubble contains native dialogue that was merged or candidate is native
                         continue;
                     }
                     if is_non_latin && lacks_native_script && !is_sfx && !is_detector_sfx && crate::ml::detect::has_alphanumeric_characters(&cleaned) {
@@ -635,6 +646,10 @@ pub fn build_regions(
                     if is_cjk && matched_bubble.is_none() && !is_sfx && !is_detector_sfx && (cleaned == "数据" || cleaned == "集云" || cleaned == "集云数据") {
                         continue;
                     }
+                    // SUPPRESS LOW-CONFIDENCE REPEATED SFX GLYPHS GENERATED FROM LIGHTNING / BACKGROUND SPEEDLINES (E.G. '呼呼', '叫呼呼' ON CHROMATIC BACKGROUND WITH SCORE < 0.65)
+                    if is_cjk && matched_bubble.is_none() && (cleaned.contains("呼呼") || cleaned == "呼" || cleaned == "叫呼呼") && avg_score < 0.65 && compute_chromatic_color_variance(img, &cluster_rect) >= 15.0 {
+                        continue;
+                    }
                     // SUPPRESS FOLIAGE NOISE / CHROMATIC BACKGROUND TEXTURE ON TINY STROKE FRAGMENTS
                     if matched_bubble.is_none() && !is_detector_sfx && !is_sfx && cluster_rect.w <= 40 && cluster_rect.h <= 55 && compute_chromatic_color_variance(img, &cluster_rect) >= 15.0 {
                         continue;
@@ -675,6 +690,30 @@ pub fn build_regions(
                         continue;
                     }
 
+                    // SUPPRESS NON-BUBBLE DETECTOR HALLUCINATIONS WHOSE TEXT IS A DUPLICATE / ECHO OF AN ADJACENT SPEECH BUBBLE (E.G. '雪\n传灵塔组织还')
+                    let is_speech_bubble_echo = matched_bubble.is_none() && !is_sfx && !is_detector_sfx && split_lines.iter().any(|rl| {
+                        let t_rl = rl.text.trim();
+                        let (rx, ry, rw, rh) = polygon_bounds(&rl.polygon);
+                        let rl_in_bubble = bubbles.iter().any(|b| {
+                            let (rcx, rcy) = (rx + rw / 2, ry + rh / 2);
+                            rcx >= b.x && rcx <= b.x + b.w && rcy >= b.y && rcy <= b.y + b.h
+                        });
+                        if rl_in_bubble && t_rl.chars().count() >= 4 {
+                            let common_chars = cleaned.chars().filter(|c| !c.is_whitespace() && t_rl.contains(*c)).count();
+                            let clean_chars = cleaned.chars().filter(|c| !c.is_whitespace()).count();
+                            common_chars >= 4 && (common_chars as f32 / clean_chars.max(1) as f32 >= 0.60)
+                        } else {
+                            false
+                        }
+                    }) && bubbles.iter().any(|b| {
+                        let (cx, cy) = (cluster_rect.x + cluster_rect.w / 2, cluster_rect.y + cluster_rect.h / 2);
+                        let (bx, by) = (b.x + b.w / 2, b.y + b.h / 2);
+                        (cx - bx).abs() <= 200 && (cy - by).abs() <= 350
+                    });
+                    if is_speech_bubble_echo {
+                        continue;
+                    }
+
                     // SUPPRESS SPARSE GIANT NON-BUBBLE DETECTIONS (E.G. BACKGROUND BUILDING / DOORWAY PLAQUES W >= 250PX, H >= 150PX WITH <= 3 CHARACTERS)
                     let is_sparse_giant_non_bubble = matched_bubble.is_none()
                         && !is_sfx
@@ -695,7 +734,9 @@ pub fn build_regions(
                 let is_detector_vert = box_rect.h >= (box_rect.w as f32 * 1.35) as i32;
                 if is_detector_vert && cleaned.chars().count() <= 4 {
                     is_container_vert = true;
-                    angle_deg = 0.0;
+                    if angle_deg.abs() < 3.5 {
+                        angle_deg = 0.0;
+                    }
                 }
 
                 let vertical = is_container_vert;

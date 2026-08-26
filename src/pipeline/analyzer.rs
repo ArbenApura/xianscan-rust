@@ -223,7 +223,15 @@ pub fn analyze_image_with_fusion(
                         let is_horiz_single_line = iy >= 0.40 * bh.min(lh as f32) && bh <= (lh as f32 * 1.6) && (lw as f32 >= bw * 1.05 || ix >= 0.25 * bw.min(lw as f32));
                         let is_vert_single_line = ix >= 0.40 * bw.min(lw as f32) && bw <= (lw as f32 * 1.6) && (lh as f32 >= bh * 1.05 || iy >= 0.25 * bh.min(lh as f32));
                         // IF DETECTOR BOX COVERS MULTI-LINE TEXT BUT MISSES THE BOTTOM-MOST LINE
+                        // GUARD: Do not expand into trailing pure-Latin OCR noise lines (e.g. clothing pattern HOSPITAL)
+                        // when the source language is non-Latin (Korean/CJK) and the line has no native script.
+                        let is_trailing_latin_noise = crate::ml::detect::is_non_latin_source(source_lang) && {
+                            let lt = line.text.trim();
+                            !crate::ml::detect::has_native_script_for_lang(lt, source_lang)
+                                && lt.chars().all(|c| c.is_ascii_alphabetic() || c.is_whitespace() || c.is_ascii_punctuation())
+                        };
                         let is_partial_vert_container = !is_subtitle_to_title
+                            && !is_trailing_latin_noise
                             && (bw >= bh * 1.15)
                             && (lx as f32 >= bx - 35.0)
                             && ((lx + lw) as f32 <= bx + bw + 35.0)
@@ -231,7 +239,7 @@ pub fn analyze_image_with_fusion(
                             && ((ly + lh) as f32 > by + bh)
                             && ((ly as f32) <= by + bh + 45.0);
 
-                        if is_horiz_single_line || is_vert_single_line || is_partial_vert_container || is_adjacent_trailing_row || is_adjacent_leading_row {
+                        if (is_horiz_single_line || is_vert_single_line || is_partial_vert_container || is_adjacent_trailing_row || is_adjacent_leading_row) && !is_trailing_latin_noise {
                             let union_x = bx.min(lx as f32);
                             let union_y = by.min(ly as f32);
                             let union_w = (bx + bw).max((lx + lw) as f32) - union_x;

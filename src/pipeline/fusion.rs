@@ -95,8 +95,8 @@ pub fn fuse_detections(
                             if angle.abs() >= 12.0 && line.score < 0.60 && !crate::ml::detect::is_onomatopoeia_or_shout(t) {
                                 return false;
                             }
-                            // In non-Latin script sources (CJK/Korean/Japanese), drop slanted/angled pure Latin lines (theta >= 20.0 deg) that lack native script and are not SFX
-                            if crate::ml::detect::is_non_latin_source(source_lang) && angle.abs() >= 20.0 && !crate::ml::detect::has_native_script_for_lang(t, source_lang) && !crate::ml::detect::is_onomatopoeia_or_shout(t) {
+                            // In non-Latin script sources (CJK/Korean/Japanese), drop slanted/angled pure Latin lines (theta >= 10.0 deg) that lack native script and are not SFX
+                            if crate::ml::detect::is_non_latin_source(source_lang) && angle.abs() >= 10.0 && !crate::ml::detect::has_native_script_for_lang(t, source_lang) && !crate::ml::detect::is_onomatopoeia_or_shout(t) {
                                 return false;
                             }
                             // 4. DROP MARGIN ARCHITECTURAL / BUILDING GRID TEXTURE NOISE & SLICED EDGE FRAGMENTS (FLUSH TO MARGIN X <= 5 OR X + LW >= PAGE_W - 5, LOW CONFIDENCE SCORE < 0.75, NO BUBBLE)
