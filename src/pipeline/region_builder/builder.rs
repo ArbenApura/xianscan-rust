@@ -59,7 +59,7 @@ pub fn build_regions(
             if inter_x > 0 && inter_y > 0 {
                 let inter_area = inter_x * inter_y;
                 let coverage = inter_area as f32 / box_area as f32;
-                coverage >= 0.75
+                coverage >= 0.60
             } else {
                 false
             }
@@ -167,6 +167,19 @@ pub fn build_regions(
             let max_score = orientation_filtered.iter().map(|l| l.score).fold(0.0f32, f32::max);
             if max_score >= 0.70 {
                 orientation_filtered.retain(|l| l.score >= 0.60 || l.score >= max_score * 0.85);
+            }
+
+            // IN NON-LATIN CONTAINERS (E.G. CJK/KOREAN SPEECH BUBBLES), IF NATIVE SCRIPT LINES EXIST (SCORE >= 0.65), SUPPRESS PURE LATIN NOISE / CLOTHING PATTERN LINES
+            let has_native_script_line = orientation_filtered.iter().any(|l| {
+                l.score >= 0.65 && crate::ml::detect::has_native_script_for_lang(&l.text, source_lang)
+            });
+            if has_native_script_line && crate::ml::detect::is_non_latin_source(source_lang) {
+                orientation_filtered.retain(|l| {
+                    let t = l.text.trim();
+                    let lacks_native = !crate::ml::detect::has_native_script_for_lang(t, source_lang);
+                    let is_pure_latin_word = lacks_native && t.chars().all(|c| c.is_ascii_alphabetic() || c.is_whitespace() || c.is_ascii_punctuation());
+                    !is_pure_latin_word || crate::ml::detect::is_onomatopoeia_or_shout(t)
+                });
             }
 
             let mut filtered_matched: Vec<&OcrLine> = Vec::new();
@@ -562,6 +575,11 @@ pub fn build_regions(
                     // IN NON-LATIN SCRIPT SOURCES (CJK, CYRILLIC, THAI), NEVER EXTRACT STANDALONE ALPHANUMERIC / LATIN TEXT OUTSIDE SPEECH BUBBLES UNLESS COMBINED WITH SOURCE SCRIPT OR RECOGNIZED AS EXPLICIT SFX
                     let is_non_latin = crate::ml::detect::is_non_latin_source(source_lang);
                     let lacks_native_script = !crate::ml::detect::has_native_script_for_lang(&cleaned, source_lang);
+                    let is_pure_latin = lacks_native_script && cleaned.chars().all(|c| c.is_ascii_alphabetic() || c.is_whitespace() || c.is_ascii_punctuation());
+                    if is_non_latin && is_pure_latin && !is_sfx && !is_detector_sfx && !crate::ml::detect::is_onomatopoeia_or_shout(&cleaned) {
+                        // Suppress background texture / clothing words (e.g. "HOSPITAL", "OSPITAL") inside or outside bubbles in CJK/Korean sources
+                        continue;
+                    }
                     if is_non_latin && lacks_native_script && !is_sfx && !is_detector_sfx && crate::ml::detect::has_alphanumeric_characters(&cleaned) {
                         let char_count = cleaned.chars().filter(|c| !c.is_whitespace()).count();
                         let is_sparse_giant_box = matched_bubble.is_none() && (cluster_rect.w >= 100 || cluster_rect.h >= 100) && char_count <= 4;
@@ -606,11 +624,15 @@ pub fn build_regions(
                         continue;
                     }
                     // SUPPRESS LOW-CONFIDENCE ISOLATED SINGLE-CHARACTER ARTWORK ARTIFACTS
-                    let is_sign_or_narration_box = cluster_rect.w >= 60 && cluster_rect.h >= 40 && (cleaned.contains("市") || cleaned.contains("省") || cleaned.contains("县") || cleaned.contains("区") || cleaned.contains("镇") || cleaned.contains("村") || cleaned.contains("室") || cleaned.contains("馆") || cleaned.contains("部") || cleaned.contains("堂") || cleaned.contains("院") || cleaned.contains("校") || cleaned.contains("门"));
+                    let is_sign_or_narration_box = is_cjk && is_detector_sfx && cluster_rect.w >= 60 && cluster_rect.h >= 40 && (cleaned.contains("省") || cleaned.contains("县") || cleaned.contains("区") || cleaned.contains("镇") || cleaned.contains("村") || cleaned.contains("室") || cleaned.contains("馆") || cleaned.contains("部") || cleaned.contains("堂") || cleaned.contains("院") || cleaned.contains("校") || cleaned.contains("门"));
                     let is_margin_isolated_char = (cluster_rect.x <= 5 || cluster_rect.x + cluster_rect.w >= page_w as i32 - 5) && avg_score < 0.75;
                     let is_valid_cjk_glyph = is_cjk && cleaned.chars().any(|c| crate::ml::detect::has_cjk_characters(&c.to_string())) && avg_score >= 0.70;
-                    let is_low_conf_single_char = cleaned.chars().count() == 1 && avg_score < 0.65;
+                    let is_low_conf_single_char = cleaned.chars().count() == 1 && (avg_score < 0.68 || cluster_rect.w >= 100 || cluster_rect.h >= 100);
                     if cleaned.chars().count() == 1 && matched_bubble.is_none() && !is_sfx && !is_detector_sfx && !is_sign_or_narration_box && (!is_valid_cjk_glyph || is_low_conf_single_char) && (!crate::ml::detect::is_onomatopoeia_or_shout(&cleaned) || avg_score < 0.60) && (compute_chromatic_color_variance(img, &cluster_rect) >= 15.0 || is_margin_isolated_char || is_low_conf_single_char || (avg_score < 0.75 && cluster_rect.w <= 40 && cluster_rect.h <= 40)) {
+                        continue;
+                    }
+                    // SUPPRESS TRANSLUCENT AGGREGATOR WATERMARKS (E.G. '数据' OVERLAID WITH 'ACloudMerge.com' OR '集云')
+                    if is_cjk && matched_bubble.is_none() && !is_sfx && !is_detector_sfx && (cleaned == "数据" || cleaned == "集云" || cleaned == "集云数据") {
                         continue;
                     }
                     // SUPPRESS FOLIAGE NOISE / CHROMATIC BACKGROUND TEXTURE ON TINY STROKE FRAGMENTS
@@ -650,6 +672,17 @@ pub fn build_regions(
 
                     // SUPPRESS MASSIVE NON-BUBBLE BACKGROUND TEXT OCCLUDED ACROSS SCENE ARTWORK (W >= 75% CANVAS WIDTH AND H >= 100PX)
                     if matched_bubble.is_none() && !is_sfx && (cluster_rect.w as f32 >= page_w as f32 * 0.75) && cluster_rect.h >= 100 {
+                        continue;
+                    }
+
+                    // SUPPRESS SPARSE GIANT NON-BUBBLE DETECTIONS (E.G. BACKGROUND BUILDING / DOORWAY PLAQUES W >= 250PX, H >= 150PX WITH <= 3 CHARACTERS)
+                    let is_sparse_giant_non_bubble = matched_bubble.is_none()
+                        && !is_sfx
+                        && !is_detector_sfx
+                        && !crate::ml::detect::is_onomatopoeia_or_shout(&cleaned)
+                        && (cluster_rect.w >= 250 && cluster_rect.h >= 150)
+                        && cleaned.chars().filter(|c| !c.is_whitespace()).count() <= 3;
+                    if is_sparse_giant_non_bubble {
                         continue;
                     }
 
@@ -760,7 +793,29 @@ pub fn build_regions(
                     ]
                 };
 
-                let bubble_box = matched_bubble.cloned();
+                let matched_bubble_final = if matched_bubble.is_some() {
+                    matched_bubble.cloned()
+                } else {
+                    let f_area = (final_box_rect.w * final_box_rect.h).max(1);
+                    bubbles.iter().find(|b| {
+                        let ix = (final_box_rect.x + final_box_rect.w).min(b.x + b.w) - final_box_rect.x.max(b.x);
+                        let iy = (final_box_rect.y + final_box_rect.h).min(b.y + b.h) - final_box_rect.y.max(b.y);
+                        if ix > 0 && iy > 0 {
+                            let inter = (ix * iy) as f32;
+                            inter / f_area as f32 >= 0.60
+                        } else {
+                            false
+                        }
+                    }).cloned()
+                };
+
+                let final_kind = if matched_bubble_final.is_some() && kind != RegionKind::SoundEffect {
+                    RegionKind::DialogueBubble
+                } else {
+                    kind
+                };
+
+                let bubble_box = matched_bubble_final;
                 let bubble_polygon = bubble_box.as_ref().map(|b| vec![
                     [b.x, b.y],
                     [b.x + b.w, b.y],
@@ -793,7 +848,7 @@ pub fn build_regions(
                     bubble_box,
                     bubble_polygon,
                     centroid,
-                    kind,
+                    kind: final_kind,
                     is_title: false,
                     is_subtitle: false,
                 };
@@ -1020,7 +1075,11 @@ pub fn build_regions(
                 is_duplicate = true;
                 let clean_r_chars = clean_r_no_space.chars().count();
                 let clean_e_chars = clean_e_no_space.chars().count();
-                if (r.bubble_box.is_some() && existing.bubble_box.is_none()) || clean_r_chars > clean_e_chars || (clean_r_chars == clean_e_chars && r.confidence > existing.confidence) {
+                if existing.bubble_box.is_some() && r.bubble_box.is_none() {
+                    // KEEP EXISTING BUBBLE-BACKED REGION OVER NON-BUBBLE CANDIDATE
+                } else if r.bubble_box.is_some() && existing.bubble_box.is_none() {
+                    *existing = r.clone();
+                } else if clean_r_chars > clean_e_chars || (clean_r_chars == clean_e_chars && r.confidence > existing.confidence) {
                     *existing = r.clone();
                 }
                 break;

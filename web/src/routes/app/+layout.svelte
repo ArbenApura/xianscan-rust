@@ -13,6 +13,7 @@
 	} from '$lib/stores/settings';
 	import { activeTranslatingChapters } from '$lib/stores/job-tracker';
 	import { mlStatus, type MLStatusState } from '$lib/stores/ml-status';
+	import { syncClient } from '$lib/stores/sync-client';
 	// IMPORTED ICONS
 	import BookOpen from 'lucide-svelte/icons/book-open';
 	import Languages from 'lucide-svelte/icons/languages';
@@ -43,10 +44,12 @@
 
 	onMount(() => {
 		mlStatus.startPolling();
+		syncClient.start();
 	});
 
 	onDestroy(() => {
 		mlStatus.stopPolling();
+		syncClient.stop();
 	});
 
 	function formatSidecarLabel(state: MLStatusState): string {

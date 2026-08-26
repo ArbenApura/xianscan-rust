@@ -4,6 +4,7 @@ import { error, json } from '@sveltejs/kit';
 import { assertBookExists } from '$lib/server/books';
 import { createChapter } from '$lib/server/chapters';
 import { createChapterSchema } from '$lib/schemas';
+import { syncBus } from '$lib/server/sync-bus';
 import type { RequestHandler } from './$types';
 
 export const POST: RequestHandler = async ({ params, request }) => {
@@ -11,5 +12,6 @@ export const POST: RequestHandler = async ({ params, request }) => {
 	const parsed = createChapterSchema.safeParse(await request.json().catch(() => null));
 	if (!parsed.success) throw error(400, 'Invalid chapter.');
 	const chapter = await createChapter(params.id, parsed.data.title);
+	syncBus.broadcast({ type: 'chapter-created', bookId: params.id, chapterId: chapter.id });
 	return json(chapter, { status: 201 });
 };

@@ -2,9 +2,13 @@
 mod base;
 mod page_chariot_easy_to_block_sfx;
 mod page_dagger_catch_thought_bubble_split;
+mod page_demon_hands_green_flame_zero_text_artwork;
 mod page_desert_stars_separated_by_death;
 mod page_holy_ancestor_mountains_glory_city;
+mod page_man_sleeping_in_bed_gutter_watermark_noise;
 mod page_nie_li_sudden_awakening_sfx;
+mod page_shadow_demon_nightmare_pillow_watermark_noise;
+mod page_three_units_doorway_light_noise;
 mod page_ye_ziyun_escape_death_rebirth_vow;
 mod page_ye_ziyun_noble_status_grow_up_vow;
 

@@ -3,6 +3,7 @@ import { error } from '@sveltejs/kit';
 import { assertChapterExists, resliceChapterPages } from '$lib/server/chapters';
 import { createPipelineClient } from '$lib/server/pipeline-client';
 import { DATA_ROOT } from '$lib/server/paths';
+import { syncBus } from '$lib/server/sync-bus';
 import type { RequestHandler } from './$types';
 
 export const POST: RequestHandler = async ({ params, request }) => {
@@ -54,6 +55,7 @@ export const POST: RequestHandler = async ({ params, request }) => {
 						newCount: result.newCount,
 						message: `Successfully re-sliced ${result.originalCount} slices into ${result.newCount} clean pages!`,
 					});
+					syncBus.broadcast({ type: 'chapter-resliced', chapterId, count: result.newCount });
 				} catch (e) {
 					if (request.signal.aborted) {
 						emit({ type: 'error', message: 'Re-slicing cancelled by user.' });

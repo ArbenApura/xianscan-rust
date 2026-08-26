@@ -83,7 +83,9 @@
 	// START THE FETCH ONCE THE ELEMENT IS NEAR THE VIEWPORT (LAZY) OR EAGER.
 	$: if (src && src !== activeSrc) {
 		activeSrc = src;
-		if (eager || isInView) doLoad();
+		if (eager || isInView) {
+			doLoad();
+		}
 	}
 
 	// -- LIFECYCLES -- //
@@ -93,7 +95,9 @@
 				(entries) => {
 					if (entries.some((entry) => entry.isIntersecting)) {
 						isInView = true;
-						if (activeSrc === src) doLoad();
+						if (activeSrc === src && phase === 'loading' && !xhr) {
+							doLoad();
+						}
 						io.disconnect();
 					}
 				},
@@ -102,6 +106,9 @@
 			io.observe(el);
 		} else {
 			isInView = true;
+			if (activeSrc === src && phase === 'loading' && !xhr) {
+				doLoad();
+			}
 		}
 	});
 

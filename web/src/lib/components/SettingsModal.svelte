@@ -2121,6 +2121,14 @@
 											</div>
 										</div>
 									</div>
+
+									<!-- NOTICE: SFX EXPERIMENTAL & UNSTABLE WARNING -->
+									<div class="flex items-start gap-2 rounded-xl border border-amber-500/25 bg-amber-500/10 p-2.5 text-[10.5px] leading-relaxed text-amber-800 dark:text-amber-300">
+										<AlertTriangle size={14} class="shrink-0 text-amber-600 dark:text-amber-400 mt-0.5" />
+										<span>
+											<strong>Experimental Feature:</strong> Sound effect detection and inpainting is still under active development and not yet production-ready. Enabling SFX translation may occasionally cause visual artifacts, misclassified artwork text, or unstable formatting. We apologize for any inconvenience as we continue refining model accuracy in upcoming releases!
+										</span>
+									</div>
 								{/if}
 							</div>
 						</div>

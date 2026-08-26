@@ -382,6 +382,7 @@ class InPlaceTranslationCoordinator {
 	private client: XianScanClient;
 	private activeMapping: ChapterMappingEntry | null = null;
 	private serverUrl = 'http://127.0.0.1:8124';
+	private pollingTimer: ReturnType<typeof setInterval> | null = null;
 
 	constructor() {
 		this.client = new XianScanClient(this.serverUrl);
@@ -418,6 +419,62 @@ class InPlaceTranslationCoordinator {
 		void this.syncWithServer();
 	}
 
+	private startPollingIfNeeded(pages: ChapterReaderPage[]) {
+		const hasPending = pages.some(p => !p.outputPath && (p.outputRev || 0) === 0);
+		if (!hasPending) {
+			this.stopPolling();
+			return;
+		}
+
+		if (this.pollingTimer) return;
+
+		// ATTACH LIVE SSE IN BACKGROUND WORKER
+		if (this.activeMapping?.chapterId) {
+			chrome.runtime.sendMessage({
+				type: 'ATTACH_LIVE_SSE',
+				chapterId: this.activeMapping.chapterId
+			}, () => {
+				void chrome.runtime.lastError;
+			});
+		}
+
+		// BACKUP INTERVAL POLLING IN CASE OF DROPPED SSE PACKETS
+		this.pollingTimer = setInterval(async () => {
+			if (!this.activeMapping?.chapterId) {
+				this.stopPolling();
+				return;
+			}
+
+			try {
+				const details = await this.client.getChapterDetails(this.activeMapping.chapterId);
+				if (!details?.pages || details.pages.length === 0) return;
+
+				let allDone = true;
+				for (const p of details.pages) {
+					const isReady = !!p.outputPath || (p.outputRev || 0) > 0;
+					if (isReady) {
+						this.replacer.updatePageSlice(p.id, p.seq, p.outputRev || 1);
+					} else {
+						allDone = false;
+					}
+				}
+
+				if (allDone) {
+					this.stopPolling();
+				}
+			} catch {
+				// SILENT POLLING FAILURE
+			}
+		}, 2500);
+	}
+
+	private stopPolling() {
+		if (this.pollingTimer) {
+			clearInterval(this.pollingTimer);
+			this.pollingTimer = null;
+		}
+	}
+
 	async syncWithServer() {
 		if (!this.activeMapping) return;
 
@@ -434,11 +491,13 @@ class InPlaceTranslationCoordinator {
 					this.activeMapping.excludedImageUrls,
 					this.activeMapping.includedImageUrls
 				);
+				this.startPollingIfNeeded(pages);
 			}
 		} catch (err: any) {
 			const errMsg = err?.message || String(err);
 			if (errMsg.includes('Chapter not found') || errMsg.includes('404')) {
 				console.info('[XianScan] Mapped chapter was removed from server. Auto-clearing local mapping.');
+				this.stopPolling();
 				chrome.runtime.sendMessage({
 					type: 'DELETE_SITE_MAPPING',
 					url: window.location.href
@@ -473,6 +532,11 @@ class InPlaceTranslationCoordinator {
 
 	setMode(mode: 'translated' | 'raw') {
 		this.replacer.setMode(mode);
+	}
+
+	destroy() {
+		this.stopPolling();
+		this.replacer.destroy();
 	}
 }
 

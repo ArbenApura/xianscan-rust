@@ -1,6 +1,7 @@
 import { error, json } from '@sveltejs/kit';
 import { resetChapterProgress } from '$lib/server/chapters';
 import { clearChapterJob } from '$lib/server/translation-service';
+import { syncBus } from '$lib/server/sync-bus';
 import type { RequestHandler } from './$types';
 
 export const POST: RequestHandler = async ({ params }) => {
@@ -9,6 +10,7 @@ export const POST: RequestHandler = async ({ params }) => {
 
 	clearChapterJob(chapterId);
 	const reset = resetChapterProgress(chapterId);
+	syncBus.broadcast({ type: 'chapter-updated', chapterId });
 	return json({ ok: true, reset });
 };
 

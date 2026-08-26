@@ -1128,8 +1128,8 @@
 															</td>
 															<td class="py-2.5 px-3 whitespace-nowrap">
 																{#if isOcrRunning}
-																	<span class="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md bg-[#b23a2e]/10 text-[#b23a2e] dark:bg-[#e08a63]/15 dark:text-[#e08a63] font-mono text-[11px] font-semibold tracking-tight shadow-2xs">
-																		<Loader2 size={10} class="animate-spin shrink-0" />
+																	<span class="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md bg-[#b23a2e]/10 text-[#b23a2e] dark:bg-[#e08a63]/15 dark:text-[#e08a63] font-mono text-[10px] font-semibold tracking-tight shadow-2xs">
+																		<Loader2 size={9} class="animate-spin shrink-0" />
 																		<span>OCR...</span>
 																	</span>
 																{:else if ocrTiming?.status === 'completed'}
@@ -1148,8 +1148,8 @@
 															</td>
 															<td class="py-2.5 px-3 whitespace-nowrap">
 																{#if isTransRunning}
-																	<span class="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md bg-[#b23a2e]/10 text-[#b23a2e] dark:bg-[#e08a63]/15 dark:text-[#e08a63] font-mono text-[11px] font-semibold tracking-tight shadow-2xs">
-																		<Loader2 size={10} class="animate-spin shrink-0" />
+																	<span class="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md bg-[#b23a2e]/10 text-[#b23a2e] dark:bg-[#e08a63]/15 dark:text-[#e08a63] font-mono text-[10px] font-semibold tracking-tight shadow-2xs">
+																		<Loader2 size={9} class="animate-spin shrink-0" />
 																		<span>LLM...</span>
 																	</span>
 																{:else if transTiming?.status === 'completed'}
@@ -1173,8 +1173,8 @@
 															</td>
 															<td class="py-2.5 px-3 whitespace-nowrap">
 																{#if isCleanRunning}
-																	<span class="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md bg-[#b23a2e]/10 text-[#b23a2e] dark:bg-[#e08a63]/15 dark:text-[#e08a63] font-mono text-[11px] font-semibold tracking-tight shadow-2xs">
-																		<Loader2 size={10} class="animate-spin shrink-0" />
+																	<span class="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md bg-[#b23a2e]/10 text-[#b23a2e] dark:bg-[#e08a63]/15 dark:text-[#e08a63] font-mono text-[10px] font-semibold tracking-tight shadow-2xs">
+																		<Loader2 size={9} class="animate-spin shrink-0" />
 																		<span>Inpaint...</span>
 																	</span>
 																{:else if cleanTiming?.status === 'completed'}

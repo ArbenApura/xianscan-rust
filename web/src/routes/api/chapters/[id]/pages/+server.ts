@@ -3,6 +3,7 @@ import { error, json } from '@sveltejs/kit';
 import { z } from 'zod';
 import { assertChapterExists, reorderPages, uploadPages } from '$lib/server/chapters';
 import { assertMaxSize, readUploadForm } from '$lib/server/uploads';
+import { syncBus } from '$lib/server/sync-bus';
 import type { RequestHandler } from './$types';
 
 const MAX_PAGE_BYTES = 32 * 1024 * 1024;
@@ -19,6 +20,7 @@ export const POST: RequestHandler = async ({ params, request }) => {
 	for (const f of files) assertMaxSize(f, MAX_PAGE_BYTES);
 
 	const count = await uploadPages(chapterId, files);
+	syncBus.broadcast({ type: 'pages-updated', chapterId, count });
 	return json({ added: count }, { status: 201 });
 };
 
@@ -31,6 +33,7 @@ export const PUT: RequestHandler = async ({ params, request }) => {
 	if (!parsed.success) throw error(400, 'Invalid pageIds array.');
 
 	reorderPages(chapterId, parsed.data.pageIds);
+	syncBus.broadcast({ type: 'pages-updated', chapterId });
 	return json({ success: true });
 };
 
@@ -41,6 +44,7 @@ export const DELETE: RequestHandler = async ({ params }) => {
 
 	const { deleteAllChapterPages } = await import('$lib/server/chapters');
 	const result = await deleteAllChapterPages(chapterId);
+	syncBus.broadcast({ type: 'pages-updated', chapterId, count: 0 });
 	return json({ success: true, deletedCount: result.deletedCount });
 };
 

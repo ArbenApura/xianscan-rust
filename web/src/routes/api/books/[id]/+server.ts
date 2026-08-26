@@ -7,6 +7,7 @@ import { db } from '$lib/server/db';
 import { books } from '$lib/server/db/schema';
 import { updateBookSchema } from '$lib/schemas';
 import { parseTags, serializeTags } from '$lib/utils/tags';
+import { syncBus } from '$lib/server/sync-bus';
 import type { RequestHandler } from './$types';
 
 export const GET: RequestHandler = async ({ params }) => {
@@ -63,11 +64,14 @@ export const PATCH: RequestHandler = async ({ params, request }) => {
 		.returning()
 		.get();
 
+	syncBus.broadcast({ type: 'book-updated', bookId: params.id });
+
 	return json({ book: { ...updated, tags: parseTags(updated.tags) } });
 };
 
 export const DELETE: RequestHandler = async ({ params }) => {
 	await assertBookExists(params.id);
 	db.delete(books).where(eq(books.id, params.id)).run();
+	syncBus.broadcast({ type: 'book-deleted', bookId: params.id });
 	return json({ ok: true });
 };

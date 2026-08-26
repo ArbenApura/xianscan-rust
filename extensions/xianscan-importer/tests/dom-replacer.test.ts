@@ -232,4 +232,40 @@ describe('DomReplacerEngine', () => {
 		expect(img2.src).toContain('/api/pages/101/file?kind=output&rev=1');
 		expect(img2.getAttribute('data-xianscan-page-id')).toBe('101');
 	});
+
+	it('creates tight fit-content wrapper and attaches pending badge when page is pending', () => {
+		const engine = new DomReplacerEngine('http://127.0.0.1:8124');
+		const testPages: ChapterReaderPage[] = [
+			{
+				id: 201,
+				seq: 0,
+				filePath: 'orig1.jpg',
+				cleanedPath: null,
+				outputPath: null,
+				cleanedRev: 0,
+				outputRev: 0,
+				originalRev: 1,
+				status: 'pending',
+				error: null
+			}
+		];
+
+		engine.mountTranslatedPages(testPages);
+
+		const wrapper = img1.parentElement;
+		expect(wrapper).not.toBeNull();
+		expect(wrapper?.getAttribute('data-xianscan-wrapper')).toBe('true');
+		expect(wrapper?.style.width).toBe('fit-content');
+		expect(wrapper?.style.position).toBe('relative');
+
+		const badge = document.querySelector('[data-xianscan-badge-id="201"]');
+		expect(badge).not.toBeNull();
+		expect(badge?.textContent).toBe('PENDING');
+
+		// DYNAMICALLY UPDATE TO READY VIA SSE/POLLING EVENT
+		engine.updatePageSlice(201, 0, 1);
+		expect(img1.getAttribute('data-xianscan-status')).toBe('ready');
+		expect(img1.style.filter).toBe('none');
+		expect(img1.src).toContain('/api/pages/201/file?kind=output&rev=1');
+	});
 });

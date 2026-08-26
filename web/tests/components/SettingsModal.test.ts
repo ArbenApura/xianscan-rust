@@ -7,10 +7,12 @@ import { tick } from 'svelte';
 import SettingsModal from '$lib/components/SettingsModal.svelte';
 import { updateProviderSchema, testProviderSchema, setHardwareDeviceSchema } from '$lib/schemas';
 import { validateForm } from '$lib/utils/form';
+import { settings, DEFAULTS } from '$lib/stores/settings';
 
 describe('SettingsModal Component UI', () => {
 	beforeEach(() => {
 		vi.restoreAllMocks();
+		settings.set({ ...DEFAULTS });
 	});
 
 	afterEach(() => {

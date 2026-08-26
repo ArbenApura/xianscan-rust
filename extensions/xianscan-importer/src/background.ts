@@ -269,17 +269,30 @@ chrome.contextMenus.onClicked.addListener((info, tab) => {
 });
 
 let activeJobCancelled = false;
+const activeSseStreams = new Map<number, AbortController>();
 
 // 3. LISTEN TO SERVER-SENT EVENTS DURING TRANSLATION & BROADCAST LIVE PAGE EVENTS
 async function attachLiveTranslationListener(chapterId: number, serverUrl: string) {
+	if (!chapterId) return;
+	if (activeSseStreams.has(chapterId)) {
+		return;
+	}
+
+	const controller = new AbortController();
+	activeSseStreams.set(chapterId, controller);
+
 	try {
 		const targetUrl = `${serverUrl}/api/chapters/${chapterId}/translate`;
 		const res = await safeFetch(targetUrl, {
 			method: 'GET',
-			headers: { 'Accept': 'text/event-stream' }
+			headers: { 'Accept': 'text/event-stream' },
+			signal: controller.signal
 		});
 
-		if (!res.ok || !res.body) return;
+		if (!res.ok || !res.body) {
+			activeSseStreams.delete(chapterId);
+			return;
+		}
 
 		const reader = res.body.getReader();
 		const decoder = new TextDecoder();
@@ -333,8 +346,12 @@ async function attachLiveTranslationListener(chapterId: number, serverUrl: strin
 				}
 			}
 		}
-	} catch (e) {
-		console.warn('[XianScan] SSE stream disconnected:', e);
+	} catch (e: any) {
+		if (e?.name !== 'AbortError') {
+			console.warn('[XianScan] SSE stream disconnected:', e);
+		}
+	} finally {
+		activeSseStreams.delete(chapterId);
 	}
 }
 
@@ -568,6 +585,11 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 		activeJobCancelled = true;
 		chrome.storage.local.set({ activeImportJob: null });
 		if (message.chapterId) {
+			const activeStream = activeSseStreams.get(Number(message.chapterId));
+			if (activeStream) {
+				activeStream.abort();
+				activeSseStreams.delete(Number(message.chapterId));
+			}
 			getServerUrl().then(url => {
 				const client = new XianScanClient(url, safeFetch);
 				void client.cancelTranslation(message.chapterId);

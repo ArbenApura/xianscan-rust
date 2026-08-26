@@ -41,6 +41,7 @@ import { ChapterDialogueTracker, parseKindFromBox, type PageDialogueRecord } fro
 import { typesetPage, type TypesetOptions } from './typeset';
 import { detectSourceLanguage } from '$lib/languages';
 import { detectImageFormat, isAnimatedWebP } from './chapters/dimensions';
+import { syncBus } from './sync-bus';
 
 // -- TYPES -- //
 
@@ -775,6 +776,8 @@ export async function runChapterPipeline(
 					.from(pages)
 					.where(eq(pages.id, injectRow.id))
 					.get();
+				const finalCleanedRev = freshRow?.cleanedRev ?? injectRow.cleanedRev + 1;
+				const finalOutputRev = freshRow?.outputRev ?? injectRow.outputRev + 1;
 				emit({
 					type: 'page-done',
 					chapterId,
@@ -782,11 +785,18 @@ export async function runChapterPipeline(
 					pageId: injectRow.id,
 					pageCount: slots.length,
 					outputPath,
-					cleanedRev: freshRow?.cleanedRev ?? injectRow.cleanedRev + 1,
-					outputRev: freshRow?.outputRev ?? injectRow.outputRev + 1,
+					cleanedRev: finalCleanedRev,
+					outputRev: finalOutputRev,
 					durationMs: performance.now() - tA0,
 				});
-					slots[injectIdx].outcome = 'done';
+				syncBus.broadcast({
+					type: 'page-translated',
+					chapterId,
+					pageId: injectRow.id,
+					pageSeq: injectIdx,
+					outputRev: finalOutputRev,
+				});
+				slots[injectIdx].outcome = 'done';
 				} catch (e) {
 					if (signal.aborted || deps.isPageCancelled?.(injectRow.id)) return;
 					const message = e instanceof Error ? e.message : String(e);
@@ -1190,6 +1200,8 @@ export async function runChapterPipeline(
 			slot.page.outputPath = outputPath;
 			slot.totalDurationMs = performance.now() - pageT0;
 			slot.outcome = 'done';
+			const finalCleanedRev = freshRow?.cleanedRev ?? page.cleanedRev + 1;
+			const finalOutputRev = freshRow?.outputRev ?? page.outputRev + 1;
 			emit({
 				type: 'page-done',
 				chapterId,
@@ -1197,9 +1209,16 @@ export async function runChapterPipeline(
 				pageId: page.id,
 				pageCount: slots.length,
 				outputPath,
-				cleanedRev: freshRow?.cleanedRev ?? page.cleanedRev + 1,
-				outputRev: freshRow?.outputRev ?? page.outputRev + 1,
+				cleanedRev: finalCleanedRev,
+				outputRev: finalOutputRev,
 				durationMs: slot.totalDurationMs,
+			});
+			syncBus.broadcast({
+				type: 'page-translated',
+				chapterId,
+				pageId: page.id,
+				pageSeq: i,
+				outputRev: finalOutputRev,
 			});
 		} catch (e) {
 			if (signal.aborted) {
@@ -1283,6 +1302,12 @@ export async function runChapterPipeline(
 		})
 		.where(eq(chapters.id, chapterId))
 		.run();
+
+	syncBus.broadcast({
+		type: 'chapter-translated',
+		chapterId,
+		bookId: chapter.bookId,
+	});
 }
 
 // -- HELPERS FOR THE API LAYER -- //

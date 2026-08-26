@@ -19,6 +19,9 @@ class PopupController {
 	// ACTIVE VIEW STATE
 	private currentView: 'import' | 'tracker' = 'import';
 	private activeChapterPages: ChapterReaderPage[] = [];
+	private trackerPollingTimer: ReturnType<typeof setInterval> | null = null;
+	private activeTrackerPhase = 'idle';
+	private isChapterTranslating = false;
 
 	// HEADER
 	private serverStatusBadge!: HTMLElement;
@@ -312,6 +315,19 @@ class PopupController {
 					<path d="M12 2a10 10 0 0 1 10 10"/>
 				</svg>
 				Scanning...
+			`;
+
+			this.galleryEmptyState.classList.remove('hidden');
+			this.galleryGrid.classList.add('hidden');
+			this.galleryEmptyState.innerHTML = `
+				<div class="loading-scanner-ring" style="margin-bottom: 8px;">
+					<div class="scanner-pulse scan"></div>
+					<svg class="loading-icon spin" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+						<polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/>
+					</svg>
+				</div>
+				<p class="mono" style="font-size: 11px; font-weight: 600; color: var(--gold);">Fast Scanning Reader Page...</p>
+				<p class="mono" style="font-size: 9px; color: var(--text-muted);">Auto-scrolling DOM to trigger lazy loaded comic panels</p>
 			`;
 
 			const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
@@ -614,6 +630,7 @@ class PopupController {
 	private switchView(view: 'import' | 'tracker') {
 		this.currentView = view;
 		if (view === 'import') {
+			this.stopTrackerPolling();
 			this.importView.classList.remove('hidden');
 			this.trackerView.classList.add('hidden');
 		} else {
@@ -662,6 +679,69 @@ class PopupController {
 		await this.loadBooks();
 	}
 
+	private startTrackerPolling(chapterId: number) {
+		this.stopTrackerPolling();
+
+		// ATTACH LIVE SSE IN BACKGROUND WORKER
+		chrome.runtime.sendMessage({
+			type: 'ATTACH_LIVE_SSE',
+			chapterId
+		}, () => {
+			void chrome.runtime.lastError;
+		});
+
+		this.trackerPollingTimer = setInterval(async () => {
+			if (!this.selectedChapterId || this.currentView !== 'tracker') {
+				this.stopTrackerPolling();
+				return;
+			}
+
+			try {
+				const details = await this.client.getChapterDetails(chapterId);
+				if (!details?.chapter) return;
+
+				this.activeChapterPages = details.pages || [];
+				const total = this.activeChapterPages.length;
+				const doneCount = this.activeChapterPages.filter(p => p.outputPath || p.outputRev > 0).length;
+				const isComplete = doneCount === total && total > 0;
+				const isTranslating = details.isTranslating === true || details.jobStatus === 'running';
+				this.isChapterTranslating = isTranslating;
+
+				if (isTranslating) {
+					this.trackerStatusBadge.className = 'tracker-badge translating';
+					this.trackerStatusBadge.textContent = `Translating ${doneCount}/${total}`;
+					this.trackerSummaryText.textContent = `${doneCount} / ${total} pages ready`;
+					this.updateTrackerProgress(doneCount, total, 'translating');
+				} else if (isComplete) {
+					this.trackerStatusBadge.className = 'tracker-badge ready';
+					this.trackerStatusBadge.textContent = 'Ready';
+					this.trackerSummaryText.textContent = `All ${total} pages translated`;
+					this.trackerProgressWrap.classList.add('hidden');
+					this.stopTrackerPolling();
+				} else {
+					this.trackerStatusBadge.className = 'tracker-badge';
+					this.trackerStatusBadge.textContent = doneCount > 0 ? `Stopped (${doneCount}/${total})` : 'Idle';
+					this.trackerSummaryText.textContent = doneCount > 0 ? `${doneCount} of ${total} pages ready (Stopped)` : `${total} pages in chapter`;
+					this.trackerProgressWrap.classList.add('hidden');
+					if (!isTranslating && doneCount > 0) {
+						this.stopTrackerPolling();
+					}
+				}
+
+				this.renderTrackerGrid();
+			} catch {
+				// SILENT POLLING FAILURE
+			}
+		}, 1500);
+	}
+
+	private stopTrackerPolling() {
+		if (this.trackerPollingTimer) {
+			clearInterval(this.trackerPollingTimer);
+			this.trackerPollingTimer = null;
+		}
+	}
+
 	private async loadAndRenderTracker(chapterId: number, bookId?: string | number) {
 		try {
 			const details = await this.client.getChapterDetails(chapterId);
@@ -684,6 +764,7 @@ class PopupController {
 			const doneCount = this.activeChapterPages.filter(p => p.outputPath || p.outputRev > 0).length;
 			const isComplete = doneCount === total && total > 0;
 			const isTranslating = details.isTranslating === true || details.jobStatus === 'running';
+			this.isChapterTranslating = isTranslating;
 
 			this.trackerChapterTitle.textContent = details.chapter.title || `Chapter #${chapterId}`;
 
@@ -701,16 +782,23 @@ class PopupController {
 				this.trackerSummaryText.textContent = `${doneCount} / ${total} pages ready`;
 				this.trackerProgressWrap.classList.remove('hidden');
 				this.updateTrackerProgress(doneCount, total, 'translating');
+				this.startTrackerPolling(chapterId);
 			} else if (isComplete) {
 				this.trackerStatusBadge.className = 'tracker-badge ready';
 				this.trackerStatusBadge.textContent = 'Ready';
 				this.trackerSummaryText.textContent = `All ${total} pages translated`;
 				this.trackerProgressWrap.classList.add('hidden');
+				this.stopTrackerPolling();
 			} else {
 				this.trackerStatusBadge.className = 'tracker-badge';
 				this.trackerStatusBadge.textContent = doneCount > 0 ? `Stopped (${doneCount}/${total})` : 'Idle';
 				this.trackerSummaryText.textContent = doneCount > 0 ? `${doneCount} of ${total} pages ready (Stopped)` : `${total} pages in chapter`;
 				this.trackerProgressWrap.classList.add('hidden');
+				if (doneCount < total && total > 0) {
+					this.startTrackerPolling(chapterId);
+				} else {
+					this.stopTrackerPolling();
+				}
 			}
 
 			this.renderTrackerGrid();
@@ -732,18 +820,116 @@ class PopupController {
 	private renderTrackerGrid() {
 		this.trackerGrid.innerHTML = '';
 		if (this.activeChapterPages.length === 0) {
+			if (this.activeTrackerPhase === 'uploading') {
+				this.trackerGrid.innerHTML = `
+					<div class="tracker-loading-state uploading" style="grid-column: 1 / -1;">
+						<div class="loading-scanner-ring">
+							<div class="scanner-pulse upload"></div>
+							<svg class="loading-icon upload-anim" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+								<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+								<polyline points="17 8 12 3 7 8"/>
+								<line x1="12" y1="3" x2="12" y2="15"/>
+							</svg>
+						</div>
+						<div class="loading-title mono">UPLOADING COMIC STRIPS</div>
+						<div class="loading-subtitle mono">Transferring high-res panels to server...</div>
+						<div class="skeleton-grid">
+							<div class="skeleton-card"></div>
+							<div class="skeleton-card"></div>
+							<div class="skeleton-card"></div>
+						</div>
+					</div>
+				`;
+				return;
+			}
+			if (this.activeTrackerPhase === 'reslicing') {
+				this.trackerGrid.innerHTML = `
+					<div class="tracker-loading-state reslicing" style="grid-column: 1 / -1;">
+						<div class="loading-scanner-ring">
+							<div class="scanner-pulse reslice"></div>
+							<svg class="loading-icon reslice-anim" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+								<circle cx="6" cy="6" r="3"/>
+								<circle cx="6" cy="18" r="3"/>
+								<line x1="20" y1="4" x2="8.12" y2="15.88"/>
+								<line x1="14.47" y1="14.48" x2="20" y2="20"/>
+								<line x1="8.12" y1="8.12" x2="12" y2="12"/>
+							</svg>
+						</div>
+						<div class="loading-title mono">INTELLIGENT RESLICING</div>
+						<div class="loading-subtitle mono">Detecting whitespace borders and slicing strips...</div>
+						<div class="skeleton-grid">
+							<div class="skeleton-card"></div>
+							<div class="skeleton-card"></div>
+							<div class="skeleton-card"></div>
+						</div>
+					</div>
+				`;
+				return;
+			}
+			if (this.activeTrackerPhase === 'translating') {
+				this.trackerGrid.innerHTML = `
+					<div class="tracker-loading-state translating" style="grid-column: 1 / -1;">
+						<div class="loading-scanner-ring">
+							<div class="scanner-pulse translate"></div>
+							<svg class="loading-icon spin" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+								<circle cx="12" cy="12" r="10"/>
+								<line x1="2" y1="12" x2="22" y2="12"/>
+								<path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/>
+							</svg>
+						</div>
+						<div class="loading-title mono">NEURAL TRANSLATION PIPELINE</div>
+						<div class="loading-subtitle mono">Running text detection and OCR...</div>
+						<div class="skeleton-grid">
+							<div class="skeleton-card"></div>
+							<div class="skeleton-card"></div>
+							<div class="skeleton-card"></div>
+						</div>
+					</div>
+				`;
+				return;
+			}
 			this.trackerGrid.innerHTML = `
 				<div class="empty-state" style="grid-column: 1 / -1; min-height: 120px;">
+					<svg class="empty-vector" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+						<rect width="18" height="18" x="3" y="3" rx="2" ry="2"/>
+						<circle cx="9" cy="9" r="2"/>
+						<path d="m21 15-3.086-3.086a2 2 0 0 0-2.828 0L6 21"/>
+					</svg>
 					<p>No server slices uploaded yet.</p>
 				</div>
 			`;
 			return;
 		}
 
+		// FIND FIRST INCOMPLETE/PENDING PAGE INDEX IF TRANSLATING
+		let firstIncompleteIdx = -1;
+		if (this.isChapterTranslating) {
+			firstIncompleteIdx = this.activeChapterPages.findIndex(
+				p => !p.outputPath && (p.outputRev ?? 0) <= 0 && p.status !== 'done' && p.status !== 'error'
+			);
+		}
+
 		this.activeChapterPages.forEach((page, idx) => {
 			const card = document.createElement('div');
-			const isReady = !!page.outputPath || page.outputRev > 0;
-			card.className = `slice-card ${isReady ? 'ready' : 'pending'}`;
+			const isReady = !!page.outputPath || (page.outputRev ?? 0) > 0 || page.status === 'done';
+			const isError = page.status === 'error';
+			const isProcessing = !isReady && !isError && (page.status === 'processing' || (this.isChapterTranslating && idx === firstIncompleteIdx));
+
+			let statusClass = 'pending';
+			let statusLabel = 'Pending';
+
+			if (isReady) {
+				statusClass = 'ready';
+				statusLabel = 'Ready';
+			} else if (isError) {
+				statusClass = 'error';
+				statusLabel = 'Error';
+			} else if (isProcessing) {
+				statusClass = 'processing';
+				statusLabel = 'Processing';
+			}
+
+			card.className = `slice-card ${statusClass}`;
 			card.id = `slice-card-${page.id}`;
 
 			const indexBadge = document.createElement('span');
@@ -752,15 +938,15 @@ class PopupController {
 			card.appendChild(indexBadge);
 
 			const statusBadge = document.createElement('span');
-			statusBadge.className = `slice-badge mono ${isReady ? 'ready' : 'pending'}`;
-			statusBadge.textContent = isReady ? 'Ready' : 'Pending';
+			statusBadge.className = `slice-badge mono ${statusClass}`;
+			statusBadge.textContent = statusLabel;
 			statusBadge.id = `slice-badge-${page.id}`;
 			card.appendChild(statusBadge);
 
 			const img = document.createElement('img');
 			const targetUrl = isReady
-				? `${this.client.getBaseUrl()}/api/pages/${page.id}/file?kind=output&rev=${page.outputRev}`
-				: `${this.client.getBaseUrl()}/api/pages/${page.id}/file?kind=original&rev=${page.originalRev}`;
+				? `${this.client.getBaseUrl()}/api/pages/${page.id}/file?kind=output&rev=${page.outputRev ?? 1}`
+				: `${this.client.getBaseUrl()}/api/pages/${page.id}/file?kind=original&rev=${page.originalRev ?? 1}`;
 
 			img.src = targetUrl;
 			img.id = `slice-img-${page.id}`;
@@ -774,6 +960,7 @@ class PopupController {
 	}
 
 	private updateTrackerProgress(current: number, total: number, phase: string) {
+		this.activeTrackerPhase = phase;
 		this.trackerProgressWrap.classList.remove('hidden');
 		const pct = total > 0 ? Math.min(100, Math.round((current / total) * 100)) : 0;
 		this.trackerProgressBarFill.style.width = `${pct}%`;
@@ -792,6 +979,10 @@ class PopupController {
 			this.trackerStatusBadge.className = 'tracker-badge translating';
 			this.trackerStatusBadge.textContent = `Translating ${current}/${total}`;
 		}
+
+		if (this.activeChapterPages.length === 0) {
+			this.renderTrackerGrid();
+		}
 	}
 
 	private setupMessageListeners() {
@@ -802,11 +993,16 @@ class PopupController {
 				if (msg.phase === 'reslicing') {
 					this.updateTrackerProgress(0, msg.total || 0, 'reslicing');
 				} else if (msg.phase === 'translating') {
+					this.isChapterTranslating = true;
 					this.updateTrackerProgress(0, msg.total || 0, 'translating');
+					if (msg.chapterId) {
+						this.startTrackerPolling(msg.chapterId);
+					}
 				}
 			} else if (msg.type === 'PAGE_TRANSLATED') {
 				const current = msg.pageSeq + 1;
 				const total = msg.total || current;
+				this.isChapterTranslating = current < total;
 				this.updateTrackerProgress(current, total, 'translating');
 
 				// DYNAMICALLY UPDATE SPECIFIC SLICE CARD IN 3-COLUMN TRACKER GRID
@@ -821,7 +1017,7 @@ class PopupController {
 					sliceBadge.textContent = 'Ready';
 				}
 
-				// Mark next sequential slice as processing
+				// Find next pending page and mark as processing
 				const nextSeq = msg.pageSeq + 1;
 				const nextPage = this.activeChapterPages[nextSeq];
 				if (nextPage) {
@@ -844,14 +1040,21 @@ class PopupController {
 						sliceImg.src = safeUrl;
 					});
 				}
-			} else if (msg.type === 'CHAPTER_SYNC_UPDATE' && msg.status === 'done') {
-				this.trackerProgressWrap.classList.add('hidden');
-				this.trackerStatusBadge.className = 'tracker-badge ready';
-				this.trackerStatusBadge.textContent = 'Ready';
-				this.trackerSummaryText.textContent = 'All pages translated & in-place synced';
-				this.showToast('Chapter Translation Complete!');
-				if (this.selectedChapterId) {
-					void this.loadAndRenderTracker(this.selectedChapterId, this.selectedBookId ?? undefined);
+			} else if (msg.type === 'CHAPTER_SYNC_UPDATE') {
+				if (msg.status === 'resliced' && msg.pages) {
+					this.activeChapterPages = msg.pages;
+					this.renderTrackerGrid();
+				} else if (msg.status === 'done') {
+					this.isChapterTranslating = false;
+					this.trackerProgressWrap.classList.add('hidden');
+					this.trackerStatusBadge.className = 'tracker-badge ready';
+					this.trackerStatusBadge.textContent = 'Ready';
+					this.trackerSummaryText.textContent = 'All pages translated & in-place synced';
+					this.showToast('Chapter Translation Complete!');
+					this.stopTrackerPolling();
+					if (this.selectedChapterId) {
+						void this.loadAndRenderTracker(this.selectedChapterId, this.selectedBookId ?? undefined);
+					}
 				}
 			} else if (msg.type === 'IMPORT_COMPLETE') {
 				if (msg.error) {

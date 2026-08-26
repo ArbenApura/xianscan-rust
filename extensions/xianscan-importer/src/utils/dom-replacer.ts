@@ -319,10 +319,24 @@ export class DomReplacerEngine {
 		const wrapper = document.createElement('div');
 		wrapper.setAttribute('data-xianscan-wrapper', 'true');
 		wrapper.style.position = 'relative';
-		wrapper.style.display = 'block';
-		wrapper.style.width = '100%';
-		wrapper.style.margin = '0';
-		wrapper.style.padding = '0';
+		wrapper.style.display = 'inline-block';
+		wrapper.style.width = 'fit-content';
+		wrapper.style.maxWidth = '100%';
+		wrapper.style.lineHeight = '0';
+		wrapper.style.verticalAlign = 'top';
+
+		// PRESERVE IMAGE ALIGNMENT AND MARGINS ON THE WRAPPER
+		try {
+			const computed = typeof window !== 'undefined' && window.getComputedStyle ? window.getComputedStyle(img) : null;
+			if (computed && computed.margin && computed.margin !== '0px') {
+				wrapper.style.margin = computed.margin;
+			}
+			if (computed && computed.alignSelf && computed.alignSelf !== 'auto') {
+				wrapper.style.alignSelf = computed.alignSelf;
+			}
+		} catch {
+			// IGNORE COMPUTED STYLE FAILURES IN HEADLESS OR SANDBOX CONTEXTS
+		}
 
 		img.insertAdjacentElement('beforebegin', wrapper);
 		wrapper.appendChild(img);
@@ -339,12 +353,12 @@ export class DomReplacerEngine {
 		badge.textContent = 'PENDING';
 		badge.style.cssText = [
 			'position: absolute',
-			'top: 14px',
-			'right: 14px',
+			'top: 10px',
+			'right: 10px',
 			'z-index: 9999',
 			'background: rgba(15, 23, 42, 0.88)',
 			'color: #f87171',
-			'border: 1px solid rgba(239, 68, 68, 0.45)',
+			'border: 1px solid rgba(239, 68, 68, 0.55)',
 			'font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace',
 			'font-size: 10px',
 			'font-weight: 700',
@@ -352,11 +366,12 @@ export class DomReplacerEngine {
 			'text-transform: uppercase',
 			'padding: 3px 9px',
 			'border-radius: 9999px',
-			'box-shadow: 0 2px 8px rgba(0, 0, 0, 0.6)',
+			'box-shadow: 0 2px 8px rgba(0, 0, 0, 0.6), 0 0 10px rgba(239, 68, 68, 0.25)',
 			'pointer-events: none',
 			'user-select: none',
 			'backdrop-filter: blur(4px)',
-			'transition: opacity 0.3s ease, transform 0.3s ease'
+			'transition: opacity 0.3s ease, transform 0.3s ease',
+			'line-height: 1.2'
 		].join('; ');
 
 		wrapper.appendChild(badge);
@@ -667,6 +682,15 @@ export class DomReplacerEngine {
 			el.removeAttribute('data-xianscan-hidden');
 		});
 		document.querySelectorAll('[data-xianscan-badge-id]').forEach(b => b.remove());
+		document.querySelectorAll('[data-xianscan-wrapper="true"]').forEach(wrapper => {
+			const parent = wrapper.parentElement;
+			if (parent) {
+				while (wrapper.firstChild) {
+					parent.insertBefore(wrapper.firstChild, wrapper);
+				}
+				wrapper.remove();
+			}
+		});
 		this.isTranslatedActive = false;
 	}
 }

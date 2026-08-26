@@ -8,6 +8,7 @@ import { db } from '$lib/server/db';
 import { chapters } from '$lib/server/db/schema';
 import { updateChapterSchema } from '$lib/schemas';
 import { getChapterJob } from '$lib/server/translation-service';
+import { syncBus } from '$lib/server/sync-bus';
 import type { RequestHandler } from './$types';
 
 export const GET: RequestHandler = async ({ params }) => {
@@ -41,6 +42,9 @@ export const PATCH: RequestHandler = async ({ params, request }) => {
 	}
 
 	const updated = db.select().from(chapters).where(eq(chapters.id, chapterId)).get();
+	if (updated) {
+		syncBus.broadcast({ type: 'chapter-updated', bookId: updated.bookId, chapterId });
+	}
 	return json({ chapter: updated });
 };
 
@@ -48,7 +52,11 @@ export const DELETE: RequestHandler = async ({ params }) => {
 	const chapterId = Number(params.id);
 	if (!Number.isInteger(chapterId)) throw error(400, 'Invalid chapter id.');
 	await assertChapterExists(chapterId);
+	const target = db.select().from(chapters).where(eq(chapters.id, chapterId)).get();
 	db.delete(chapters).where(eq(chapters.id, chapterId)).run();
+	if (target) {
+		syncBus.broadcast({ type: 'chapter-deleted', bookId: target.bookId, chapterId });
+	}
 	return json({ ok: true });
 };
 

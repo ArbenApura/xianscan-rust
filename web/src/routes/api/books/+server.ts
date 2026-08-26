@@ -9,6 +9,7 @@ import { db } from '$lib/server/db';
 import { books } from '$lib/server/db/schema';
 import { createBookSchema } from '$lib/schemas';
 import { serializeTags } from '$lib/utils/tags';
+import { syncBus } from '$lib/server/sync-bus';
 import type { RequestHandler } from './$types';
 
 export const GET: RequestHandler = async () => {
@@ -49,5 +50,8 @@ export const POST: RequestHandler = async ({ request }) => {
 			status: parsed.data.status ?? 'unknown',
 		})
 		.run();
+
+	syncBus.broadcast({ type: 'book-created', bookId: id });
+
 	return json({ id }, { status: 201 });
 };
