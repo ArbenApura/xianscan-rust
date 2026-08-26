@@ -37,7 +37,7 @@
 </script>
 
 <svelte:head>
-	<title>Xianscan : AI Comic & Manhua Translation</title>
+	<title>XianScan : AI Comic & Manhua Translation</title>
 </svelte:head>
 
 <div class="relative flex min-h-screen flex-col items-center justify-center px-4 py-12 text-center">

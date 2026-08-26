@@ -32,7 +32,7 @@ pub fn cluster_lines_into_utterances<'a>(
     sin_a: f32,
     cos_a: f32,
 ) -> Vec<Vec<&'a OcrLine>> {
-    if lines.len() <= 1 || !is_cjk || is_sfx || is_vertical || sin_a.abs() > 0.05 {
+    if lines.len() <= 1 || !is_cjk || is_sfx || is_vertical {
         return vec![lines.to_vec()];
     }
 
@@ -127,13 +127,14 @@ pub fn cluster_lines_into_utterances<'a>(
         if r_idx > 0 {
             let prev_row = &rows[r_idx - 1];
             let prev_max_y = prev_row.iter().map(|l| {
-                let (_, ly, _, lh) = polygon_bounds(&l.polygon);
-                (ly + lh) as f32
+                let (lx, ly, lw, _lh) = polygon_bounds(&l.polygon);
+                let l_th = polygon_thickness(&l.polygon);
+                -(lx + lw / 2) as f32 * sin_a + (ly + l_th as i32) as f32 * cos_a
             }).fold(f32::MIN, f32::max);
 
             let curr_min_y = row.iter().map(|l| {
-                let (_, ly, _, _) = polygon_bounds(&l.polygon);
-                ly as f32
+                let (lx, ly, lw, _) = polygon_bounds(&l.polygon);
+                -(lx + lw / 2) as f32 * sin_a + ly as f32 * cos_a
             }).fold(f32::MAX, f32::min);
 
             let prev_row_text = prev_row.iter().map(|l| l.text.trim()).collect::<Vec<_>>().join("");
@@ -156,9 +157,14 @@ pub fn cluster_lines_into_utterances<'a>(
             }).fold(f32::MIN, f32::max);
 
             let vert_gap = curr_min_y - prev_max_y;
-            // Split if vertical gap is large (>= 35px), sentence ends with punctuation, or row font height changes drastically from caption to large title header (curr_height >= 1.6x prev_height and positive gap)
+            // Split if vertical gap is large (>= 35px), sentence ends with punctuation, row font height changes drastically,
+            // or if both previous row and current row begin with bracketed tags '[ ... ]' (e.g. repeated chat/status ticks)
             let is_caption_to_title = prev_height > 0.0 && curr_height >= prev_height * 1.60 && vert_gap >= 5.0;
-            let should_split = vert_gap >= 35.0 || (ends_with_punct && vert_gap >= 10.0) || is_caption_to_title;
+            let curr_row_text = row.iter().map(|l| l.text.trim()).collect::<Vec<_>>().join("");
+            let is_repeated_bracketed_tag = (prev_row_text.starts_with('[') || prev_row_text.starts_with('【'))
+                && (curr_row_text.starts_with('[') || curr_row_text.starts_with('【'))
+                && vert_gap >= 8.0;
+            let should_split = vert_gap >= 35.0 || (ends_with_punct && vert_gap >= 10.0) || is_caption_to_title || is_repeated_bracketed_tag;
 
             if should_split && !current_cluster.is_empty() {
                 paragraph_clusters.push(current_cluster);

@@ -1,6 +1,6 @@
 {
-	"name": "xianscan",
-	"version": "0.2.7",
+	"name": "xianscan-web",
+	"version": "0.2.8",
 	"private": true,
 	"type": "module",
 	"scripts": {

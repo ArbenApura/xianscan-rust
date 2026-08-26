@@ -14,6 +14,8 @@
 	export let disabled = false;
 	export let loading = false;
 	export let title: string | undefined = undefined;
+	let ariaLabel: string | undefined = undefined;
+	export { ariaLabel as 'aria-label' };
 	let className = '';
 	export { className as class };
 
@@ -41,10 +43,10 @@
 
 <!-- LINK VARIANT (href provided) -->
 {#if href}
-	<a {href} {title} use:ripple={{ disabled }} class={cn(classes, disabled && 'pointer-events-none opacity-50')}><slot /></a>
+	<a {href} {title} aria-label={ariaLabel} use:ripple={{ disabled }} class={cn(classes, disabled && 'pointer-events-none opacity-50')}><slot /></a>
 	<!-- BUTTON VARIANT -->
 {:else}
-	<button {type} {title} {disabled} use:ripple={{ disabled }} class={classes} on:click>
+	<button {type} {title} aria-label={ariaLabel} {disabled} use:ripple={{ disabled }} class={classes} on:click>
 		<!-- LOADING SPINNER -->
 		{#if loading}<Loader2 size={15} class="animate-spin" />{/if}
 		<slot />

@@ -1,68 +1,157 @@
 <script lang="ts">
 	// IMPORTED DEP-MODULES
 	import { onMount, onDestroy } from 'svelte';
-	import { slide } from 'svelte/transition';
 	// IMPORTED MODULES
 	import { ripple } from '$lib/actions/ripple';
+	import { cn } from '$lib/utils/cn';
 	// IMPORTED DEP-COMPONENTS
+	import BookOpen from 'lucide-svelte/icons/book-open';
+	import Check from 'lucide-svelte/icons/check';
+	import Coffee from 'lucide-svelte/icons/coffee';
+	import Copy from 'lucide-svelte/icons/copy';
+	import Cpu from 'lucide-svelte/icons/cpu';
+	import ExternalLink from 'lucide-svelte/icons/external-link';
 	import Github from 'lucide-svelte/icons/github';
 	import Globe from 'lucide-svelte/icons/globe';
 	import Heart from 'lucide-svelte/icons/heart';
-	import BookOpen from 'lucide-svelte/icons/book-open';
-	import ExternalLink from 'lucide-svelte/icons/external-link';
-	import Cpu from 'lucide-svelte/icons/cpu';
-	import Layers from 'lucide-svelte/icons/layers';
-	import Languages from 'lucide-svelte/icons/languages';
-	import Palette from 'lucide-svelte/icons/palette';
-	import HelpCircle from 'lucide-svelte/icons/help-circle';
+	import Mail from 'lucide-svelte/icons/mail';
 	import ShieldCheck from 'lucide-svelte/icons/shield-check';
-	import Download from 'lucide-svelte/icons/download';
-	import ChevronDown from 'lucide-svelte/icons/chevron-down';
-	import Coffee from 'lucide-svelte/icons/coffee';
-	import Puzzle from 'lucide-svelte/icons/puzzle';
-	import Zap from 'lucide-svelte/icons/zap';
 	import Smartphone from 'lucide-svelte/icons/smartphone';
-	import Eye from 'lucide-svelte/icons/eye';
-
-	// -- STATES -- //
-	let openFaq: number | null = 0;
-	let isMounted = false;
+	import Terminal from 'lucide-svelte/icons/terminal';
+	// IMPORTED COMPONENTS
+	import { DropCap, InkDivider, Seal } from '$lib/components/ui';
 
 	// -- CONSTANTS -- //
-	const FAQS = [
+	const MIHON_REPO_URL = 'https://raw.githubusercontent.com/ArbenApura/xianscan-rust/repo/index.min.json';
+
+	const PIPELINE_STEPS = [
 		{
-			q: 'Is XianScan open source and free to use?',
-			a: 'Yes. XianScan is free and open-source software under the MIT License. The complete Rust backend, neural pipeline, browser extensions, and SvelteKit web studio are publicly hosted on GitHub at https://github.com/ArbenApura/xianscan-rust.',
+			num: '01',
+			title: 'Web Capture & DOM Filtering',
+			engine: 'Browser Extension (Chrome, Edge, Firefox, Brave)',
+			body: 'Smooth-scrolls online comic sites to trigger lazy image loaders and captures chapters directly, filtering out advertisements, banners, and sidebar noise.',
 		},
 		{
-			q: 'How do I read my comics on Mihon / Tachiyomi on mobile?',
-			a: 'In Mihon on Android: 1) Go to More → Settings → Browse → Extension repos (or Extension stores) → Add, paste https://raw.githubusercontent.com/ArbenApura/xianscan-rust/repo/index.min.json, tap Add. 2) In Browse → Extensions / Store, install XianScan (tap Trust if prompted). 3) Tap the ⚙ (Settings cog) beside XianScan → tap the ⚙ (Multi cog) on the right → tap Server address and enter your PC’s local LAN address (found in your XianScan terminal banner, e.g. http://192.168.1.50:8124). 4) In Browse → Sources, tap the Filter / Globe icon and ensure "Multi" is checked.',
+			num: '02',
+			title: 'Webtoon Smart Gutter Re-slicing',
+			engine: 'Gutter Detector (Rust / Image-rs)',
+			body: 'Recombines fragmented webtoon slices into a continuous vertical roll, identifies non-text whitespace valleys, and re-slices along panel gutters so speech bubbles are never bisected.',
 		},
 		{
-			q: 'Can I use XianScan completely offline?',
-			a: 'Yes. The standalone executable embeds all ML weights (Koharu RF-DETR & RT-DETR bubble detectors, 10-language OCR, and LaMa neural inpainter). Combined with a local LLM runner (such as Ollama or LM Studio), the entire detection, OCR, translation, and typesetting workflow runs 100% offline with zero internet access.',
+			num: '03',
+			title: 'Speech Bubble & Text Segmentation',
+			engine: 'Koharu RF-DETR Seg 2XL & RT-DETR (ONNX Runtime)',
+			body: 'Locates dialogue bubbles, narrative text boxes, and sound effects with sub-pixel bounding polygon coordinates and configurable expansion margins.',
 		},
 		{
-			q: 'Does XianScan require a dedicated GPU or CUDA?',
-			a: 'No GPU or CUDA is required. XianScan runs on highly optimized multi-threaded SIMD inference (AVX2, AVX-512, ARM NEON) on standard CPUs. If a compatible GPU is present, it automatically accelerates via DirectML (Windows), CoreML/Metal (Apple Silicon), or CUDA (Linux NVIDIA) with live execution provider switching.',
+			num: '04',
+			title: 'Multi-Script OCR Recognition',
+			engine: 'PP-OCRv6 / RapidOCR with Angle Classifier',
+			body: 'Extracts typography across 10 languages with orientation angle detection (horizontal vs. vertical flow) and punctuation normalization.',
 		},
 		{
-			q: 'Where are my comic libraries and chapter data stored?',
-			a: 'Everything is stored 100% locally on your computer in your system application data directory (%APPDATA%\\XianScan\\data on Windows, ~/.local/share/xianscan/data on Linux, ~/Library/Application Support/XianScan/data on macOS). XianScan never uploads your raw images or SQLite database to any cloud servers.',
+			num: '05',
+			title: 'Contextual AI Translation & Memory',
+			engine: 'Sliding-Window Tracker + Aho-Corasick',
+			body: 'Translates dialogue via local LLMs (Ollama, LM Studio) or cloud endpoints (Gemini, OpenAI, Groq, OpenRouter). Employs sliding-window cross-page dialogue tracking and instant glossary term matching to preserve character pronouns and realm names.',
 		},
 		{
-			q: 'What comic formats and languages are supported?',
-			a: 'XianScan natively supports Chinese Manhua (Simplified & Traditional), Korean Manhwa & Webtoons, Japanese Manga, and Western/Global comics across 10 OCR languages (Simplified Chinese, Traditional Chinese, Japanese, Korean, Thai, Indonesian, English, Spanish, French, Russian) with automatic CJK font fallbacks.',
+			num: '06',
+			title: 'Neural Artwork Inpainting',
+			engine: 'LaMa (Large Mask Inpainting) ONNX',
+			body: 'Erases original source characters while reconstructing background art, textures, and screentones. Features 1:1 localized patch cropping to keep unedited areas at full native sharpness.',
 		},
 		{
-			q: 'How does Webtoon Smart Gutter Re-slicing work?',
-			a: 'Vertical webtoons often get cut arbitrarily across speech bubbles by raw hosting sites. XianScan’s smart reslicer recombines chapter strips into continuous rolls and calculates non-text whitespace gutters to slice pages cleanly without bisecting speech bubbles.',
+			num: '07',
+			title: 'Dynamic Canvas Typesetting',
+			engine: '@napi-rs/canvas (Google Skia)',
+			body: 'Calculates optimal font sizing via binary search, line breaks, diagonal tilt rotation, outline contrast strokes, and automatic CJK fallback typography chains.',
+		},
+		{
+			num: '08',
+			title: 'Local Wi-Fi Streaming & Reader Sync',
+			engine: 'Axum REST Engine + Mihon Source Protocol',
+			body: 'Serves translated chapters instantly to the web studio reader (Continuous Webtoon, Card Grid, Side-by-Side) or streams directly over local Wi-Fi to Android devices via Mihon / Tachiyomi.',
 		},
 	];
 
+	const FORMAT_BREAKDOWN = [
+		{
+			format: 'Chinese Manhua',
+			focus: 'Cultivation & Martial Arts',
+			description: 'Tuned for vertical strips, multi-line narrative blocks, and extensive cultivation realm terminology glossaries (Daoism, sects, martial ranks).',
+		},
+		{
+			format: 'Korean Manhwa & Webtoons',
+			focus: 'Continuous Vertical Rolls',
+			description: 'Specialized gutter splitting, tall strip recombining, and Korean Hangul OCR dictionary models.',
+		},
+		{
+			format: 'Japanese Manga',
+			focus: 'Right-to-Left Layouts',
+			description: 'Vertical column text extraction, multi-column bubble contours, and specialized Manga inpainting textures.',
+		},
+		{
+			format: 'Western & Global Comics',
+			focus: 'Horizontal Typography',
+			description: 'Standard left-to-right reading flow, all-caps comic lettering, and SFX boundary fitting.',
+		},
+	];
+
+	const SYSTEM_SPECS = [
+		{ component: 'CPU Requirements', min: '2 Cores with AVX2 (Intel/AMD ~2013+) or Apple Silicon M1+', rec: '4 to 8 Cores (AVX2 / AVX-512 / ARM NEON)' },
+		{ component: 'Memory (RAM)', min: '4 GB (Engine RSS ~1 GB)', rec: '8 GB+ (recommended if running local LLMs alongside)' },
+		{ component: 'Disk Space', min: '~600 MB (Standalone binary with embedded models)', rec: '2 GB+ for chapter caching and SQLite storage' },
+		{ component: 'External Dependencies', min: 'None (Standalone self-contained binary)', rec: 'None (zero Python / Conda / Node installation needed)' },
+		{ component: 'GPU Acceleration (Optional)', min: 'None required (Multi-threaded CPU default)', rec: 'Windows DirectML • macOS CoreML/Metal • Linux NVIDIA CUDA' },
+		{ component: 'Local Database', min: 'SQLite 3 with Write-Ahead Logging (WAL)', rec: '100% private on local disk (%APPDATA% / ~/.local/share)' },
+	];
+
+	const ATTRIBUTIONS = [
+		{
+			name: 'Koharu RF-DETR Layout Detector & Segmenter',
+			credit: 'by mayocream / koharu (Apache-2.0 / Manga109)',
+			detail: 'High-resolution (1152px) RF-DETR Seg 2XL transformer model predicting speech bubbles, dialogue text, SFX, and panel instance masks.',
+		},
+		{
+			name: 'PaddleOCR & RapidOCR Engine',
+			credit: 'by PaddlePaddle / RapidAI / xberg-io (Apache-2.0)',
+			detail: 'Multilingual OCR recognition models (PP-OCRv6, Korean, Cyrillic, Thai) and text direction angle classification.',
+		},
+		{
+			name: 'LaMa Neural Inpainting',
+			credit: 'by advimman / ogkalu (Apache-2.0)',
+			detail: 'Large Mask Inpainting architecture and manga-specialized inpainting weights for deep background texture synthesis.',
+		},
+		{
+			name: 'Typography & Open Font Licenses',
+			credit: 'SIL Open Font License (OFL-1.1)',
+			detail: 'Open-source dialogue and CJK fallback typography (Friendly Sans, LXGW WenKai, Anime Ace). CC Wild Words is a registered trademark of Comicraft.',
+		},
+		{
+			name: 'ONNX Runtime & Google Skia',
+			credit: 'Microsoft (MIT) & @napi-rs/canvas',
+			detail: 'High-performance cross-platform SIMD inference engine and vector canvas graphics renderer.',
+		},
+	];
+
+	// -- STATES -- //
+	let isCopied = false;
+	let copyTimeout: ReturnType<typeof setTimeout> | null = null;
+	let isMounted = false;
+
 	// -- FUNCTIONS -- //
-	function toggleFaq(index: number) {
-		openFaq = openFaq === index ? null : index;
+	async function copyMihonRepo() {
+		try {
+			await navigator.clipboard.writeText(MIHON_REPO_URL);
+			isCopied = true;
+			if (copyTimeout) clearTimeout(copyTimeout);
+			copyTimeout = setTimeout(() => {
+				isCopied = false;
+			}, 2500);
+		} catch {
+			// FALLBACK IF CLIPBOARD ACCESS IS BLOCKED
+		}
 	}
 
 	function cleanupKofi() {
@@ -83,13 +172,12 @@
 			try {
 				document.querySelectorAll(sel).forEach((el) => el.remove());
 			} catch {
-				// IGNORE
+				// IGNORE CLEANUP ERRORS
 			}
 		});
 	}
 
 	// -- LIFECYCLES -- //
-	// INITIALIZE KO-FI FLOATING WIDGET
 	onMount(() => {
 		isMounted = true;
 		if (typeof window === 'undefined') return;
@@ -127,6 +215,7 @@
 
 	onDestroy(() => {
 		isMounted = false;
+		if (copyTimeout) clearTimeout(copyTimeout);
 		cleanupKofi();
 		setTimeout(cleanupKofi, 50);
 		setTimeout(cleanupKofi, 300);
@@ -134,340 +223,368 @@
 </script>
 
 <svelte:head>
-	<title>About — XianScan</title>
+	<title>About : XianScan Comic Translation Server</title>
 	<meta
 		name="description"
-		content="About XianScan — Native open-source comic translation server, inpainter, and typesetting studio for Manhua, Manhwa, and Manga by Arben Apura."
+		content="About XianScan: Native comic translation server for Chinese Manhua, Korean Manhwa, and Japanese Manga built with Rust and ONNX Runtime by Arben Apura."
 	/>
 </svelte:head>
 
-<div class="mx-auto max-w-3xl space-y-6 sm:space-y-10 py-1 sm:py-4">
-	<!-- MAIN HEADER -->
-	<header class="space-y-3 sm:space-y-4">
-		<div class="flex items-center gap-3 sm:gap-3.5">
-			<img src="/favicon.svg" alt="XianScan Cinnabar Seal" class="h-10 w-10 sm:h-12 sm:w-12 rounded-lg shadow-xs shrink-0" />
-			<div class="min-w-0">
-				<h1 class="text-xl sm:text-3xl font-bold font-comic tracking-tight text-neutral-900 dark:text-neutral-100">
-					Xian<span class="text-[#b23a2e] dark:text-[#e08a63]">Scan</span>
-				</h1>
-				<p class="text-xs sm:text-sm text-neutral-500 dark:text-neutral-400 truncate">
-					Native comic translation server for Chinese Manhua, Korean Manhwa & Japanese Manga
-				</p>
+<div class="mx-auto max-w-3xl space-y-12 sm:space-y-16 py-4 sm:py-8 font-sans text-neutral-800 dark:text-neutral-200">
+	<!-- EDITORIAL MASTHEAD -->
+	<header class="space-y-4 border-b border-black/10 pb-8 dark:border-white/10">
+		<div class="flex items-center justify-between gap-4">
+			<div class="flex items-center gap-2.5">
+				<Seal char="仙" size={26} />
+				<span class="text-xs font-semibold tracking-widest text-[#b23a2e] dark:text-[#e08a63] uppercase">
+					XianScan / Documentation & Spec
+				</span>
 			</div>
+			<span class="text-xs opacity-50 hidden sm:inline">MIT Licensed · Rust 1.88+</span>
 		</div>
-		<p class="text-xs sm:text-base text-neutral-700 dark:text-neutral-300 leading-relaxed">
-			XianScan is an open-source, local-first comic translation studio engineered with Rust, ONNX Runtime, and SvelteKit. It automates the entire localization workflow—from 1-click browser importing and neural bubble detection to multi-language OCR, LaMa artwork inpainting, and Skia canvas typesetting.
-		</p>
-	</header>
 
-	<!-- AUTHOR & LINKS -->
-	<section class="rounded-2xl border border-black/10 bg-black/[0.02] p-4 sm:p-6 dark:border-white/10 dark:bg-white/[0.02] space-y-3.5 sm:space-y-4">
-		<div>
-			<h2 class="text-sm sm:text-base font-bold text-neutral-900 dark:text-neutral-100">Creator & Development</h2>
-			<p class="mt-0.5 sm:mt-1 text-xs sm:text-sm text-neutral-600 dark:text-neutral-400 leading-relaxed">
-				Architected and built by <strong class="text-neutral-900 dark:text-neutral-100 font-semibold">Arben Apura</strong> as a high-performance open-source translation studio for comic readers, language learners, and localization teams.
+		<div class="space-y-2 pt-2">
+			<h1 class="text-2xl sm:text-4xl font-extrabold tracking-tight text-neutral-900 dark:text-neutral-100">
+				Native Comic Translation Server
+			</h1>
+			<p class="text-xs sm:text-sm text-neutral-600 dark:text-neutral-400 leading-relaxed">
+				Speech bubble detection, 10-language OCR, LLM translation, neural inpainting, and Skia typesetting for Chinese Manhua, Korean Manhwa, and Japanese Manga.
 			</p>
 		</div>
 
-		<div class="grid grid-cols-1 sm:flex sm:flex-wrap sm:items-center gap-2 sm:gap-3 pt-0.5">
-			<!-- GITHUB REPOSITORY -->
+		<!-- ACTION BUTTONS / QUICK LINKS -->
+		<div class="flex flex-wrap items-center gap-3 pt-2">
+			<a
+				href="/app"
+				use:ripple
+				class="inline-flex items-center gap-2 rounded-lg bg-[#b23a2e] px-4 py-2 text-xs font-bold text-white transition hover:bg-[#c0392b] active:scale-95"
+			>
+				<BookOpen size={14} />
+				<span>Open Library</span>
+			</a>
 			<a
 				href="https://github.com/ArbenApura/xianscan-rust"
 				target="_blank"
 				rel="noopener noreferrer"
 				use:ripple
-				class="inline-flex items-center justify-center gap-2 rounded-xl border border-black/10 bg-white px-3.5 py-2 text-xs font-semibold text-neutral-800 shadow-2xs transition hover:border-black/30 hover:bg-neutral-50 dark:border-white/15 dark:bg-white/5 dark:text-neutral-200 dark:hover:border-white/30 dark:hover:bg-white/10"
+				class="inline-flex items-center gap-2 rounded-lg border border-black/15 bg-white/50 px-3.5 py-2 text-xs font-semibold text-neutral-800 hover:bg-neutral-100 dark:border-white/15 dark:bg-white/5 dark:text-neutral-200 dark:hover:bg-white/10 transition"
 			>
-				<Github size={15} />
-				<span>GitHub Repository</span>
-				<ExternalLink size={12} class="opacity-40" />
+				<Github size={14} />
+				<span>Source Code (GitHub)</span>
+				<ExternalLink size={11} class="opacity-40" />
 			</a>
-
-			<!-- PERSONAL PORTFOLIO -->
 			<a
 				href="https://arbenger.com/contact/"
 				target="_blank"
 				rel="noopener noreferrer"
 				use:ripple
-				class="inline-flex items-center justify-center gap-2 rounded-xl border border-black/10 bg-white px-3.5 py-2 text-xs font-semibold text-neutral-800 shadow-2xs transition hover:border-black/30 hover:bg-neutral-50 dark:border-white/15 dark:bg-white/5 dark:text-neutral-200 dark:hover:border-white/30 dark:hover:bg-white/10"
+				class="inline-flex items-center gap-2 rounded-lg border border-black/15 bg-white/50 px-3.5 py-2 text-xs font-semibold text-neutral-800 hover:bg-neutral-100 dark:border-white/15 dark:bg-white/5 dark:text-neutral-200 dark:hover:bg-white/10 transition"
 			>
-				<Globe size={15} />
+				<Globe size={14} />
 				<span>arbenger.com</span>
-				<ExternalLink size={12} class="opacity-40" />
-			</a>
-
-			<!-- LIBRARY SHORTCUT -->
-			<a
-				href="/app"
-				use:ripple
-				class="inline-flex items-center justify-center gap-2 rounded-xl bg-black/[0.05] px-3.5 py-2 text-xs font-semibold text-neutral-700 hover:bg-black/[0.08] dark:bg-white/[0.05] dark:text-neutral-300 dark:hover:bg-white/[0.08] transition"
-			>
-				<BookOpen size={15} />
-				<span>Open Library</span>
+				<ExternalLink size={11} class="opacity-40" />
 			</a>
 		</div>
-	</section>
+	</header>
 
-	<!-- HOW IT WORKS PIPELINE -->
-	<section class="space-y-3 sm:space-y-4">
-		<div>
-			<h2 class="text-sm sm:text-lg font-bold text-neutral-900 dark:text-neutral-100 flex items-center gap-2">
-				<Layers size={17} class="text-[#b23a2e] dark:text-[#e08a63]" />
-				Automated 5-Stage Pipeline
-			</h2>
-			<p class="mt-0.5 text-xs sm:text-sm text-neutral-500 dark:text-neutral-400">
-				Each page streams continuously through five automated neural processing stages:
+	<!-- OVERVIEW & ARCHITECTURAL PILLARS -->
+	<section class="space-y-5">
+		<h2 class="text-xs font-bold uppercase tracking-widest text-[#b23a2e] dark:text-[#e08a63]">
+			01 / Overview & Architecture
+		</h2>
+
+		<div class="space-y-4 text-xs sm:text-sm text-neutral-700 dark:text-neutral-300 leading-relaxed text-justify">
+			<p>
+				<DropCap letter="X" />ianScan is a self-contained, local-first comic translation server built in Rust. It eliminates the manual busywork of screenshotting, external OCR, Photoshop cleaning, and manual typesetting by orchestrating the entire lifecycle in a single automated flow: from 1-click web reader import to streaming translated chapters directly to your mobile reader over local Wi-Fi.
+			</p>
+			<p>
+				Unlike legacy translation scripts that require complex Python environments, Conda setups, or external runtime installations, XianScan ships as a single portable executable containing all ONNX neural models, OCR dictionaries, Skia graphics rendering, and the SvelteKit web interface.
 			</p>
 		</div>
 
-		<div class="rounded-2xl border border-black/10 bg-white/50 dark:border-white/10 dark:bg-white/[0.02] backdrop-blur-md overflow-hidden divide-y divide-black/5 dark:divide-white/5">
-			<!-- STAGE 1: DETECTION & SEGMENTATION -->
-			<div class="p-3.5 sm:p-5 transition-colors hover:bg-black/[0.01] dark:hover:bg-white/[0.01]">
-				<div class="flex flex-col sm:flex-row sm:items-baseline justify-between gap-1 sm:gap-4 mb-1">
-					<div class="flex items-center gap-2 sm:gap-2.5 min-w-0">
-						<span class="font-mono text-[11px] sm:text-xs font-bold text-[#b23a2e] dark:text-[#e08a63] bg-[#b23a2e]/10 px-1.5 py-0.5 rounded-md shrink-0">01</span>
-						<h3 class="text-xs sm:text-base font-bold text-neutral-900 dark:text-neutral-100 truncate">Koharu RF-DETR & RT-DETR Detection</h3>
-					</div>
-					<span class="text-[10px] sm:text-[11px] font-mono opacity-50 sm:pl-0">Koharu RF-DETR · RT-DETR</span>
-				</div>
-				<p class="text-xs sm:text-sm text-neutral-600 dark:text-neutral-400 leading-relaxed">
-					Locates vertical and horizontal dialogue bubbles, sound effects, and narrative boxes using state-of-the-art transformer vision models with automatic fallback.
-				</p>
-			</div>
-
-			<!-- STAGE 2: OCR -->
-			<div class="p-3.5 sm:p-5 transition-colors hover:bg-black/[0.01] dark:hover:bg-white/[0.01]">
-				<div class="flex flex-col sm:flex-row sm:items-baseline justify-between gap-1 sm:gap-4 mb-1">
-					<div class="flex items-center gap-2 sm:gap-2.5 min-w-0">
-						<span class="font-mono text-[11px] sm:text-xs font-bold text-[#b23a2e] dark:text-[#e08a63] bg-[#b23a2e]/10 px-1.5 py-0.5 rounded-md shrink-0">02</span>
-						<h3 class="text-xs sm:text-base font-bold text-neutral-900 dark:text-neutral-100 truncate">Multi-Script OCR Recognition</h3>
-					</div>
-					<span class="text-[10px] sm:text-[11px] font-mono opacity-50 sm:pl-0">RapidOCR / PP-OCRv6</span>
-				</div>
-				<p class="text-xs sm:text-sm text-neutral-600 dark:text-neutral-400 leading-relaxed">
-					Extracts horizontal and vertical text across 10 languages (Simplified & Traditional Chinese, Japanese, Korean, Thai, Indonesian, English, Spanish, French, Russian) with direction classification.
-				</p>
-			</div>
-
-			<!-- STAGE 3: TRANSLATION & GLOSSARY -->
-			<div class="p-3.5 sm:p-5 transition-colors hover:bg-black/[0.01] dark:hover:bg-white/[0.01]">
-				<div class="flex flex-col sm:flex-row sm:items-baseline justify-between gap-1 sm:gap-4 mb-1">
-					<div class="flex items-center gap-2 sm:gap-2.5 min-w-0">
-						<span class="font-mono text-[11px] sm:text-xs font-bold text-[#b23a2e] dark:text-[#e08a63] bg-[#b23a2e]/10 px-1.5 py-0.5 rounded-md shrink-0">03</span>
-						<h3 class="text-xs sm:text-base font-bold text-neutral-900 dark:text-neutral-100 truncate">Contextual Translation & Dialogue Tracker</h3>
-					</div>
-					<span class="text-[10px] sm:text-[11px] font-mono opacity-50 sm:pl-0">Local LLMs · Dialogue Memory</span>
-				</div>
-				<p class="text-xs sm:text-sm text-neutral-600 dark:text-neutral-400 leading-relaxed">
-					Translates dialogue using free local LLMs or cloud APIs with sliding-window Cross-Page Dialogue Tracking and dynamic Aho-Corasick glossary matching to preserve character pronouns and realm terminology.
-				</p>
-			</div>
-
-			<!-- STAGE 4: INPAINTING -->
-			<div class="p-3.5 sm:p-5 transition-colors hover:bg-black/[0.01] dark:hover:bg-white/[0.01]">
-				<div class="flex flex-col sm:flex-row sm:items-baseline justify-between gap-1 sm:gap-4 mb-1">
-					<div class="flex items-center gap-2 sm:gap-2.5 min-w-0">
-						<span class="font-mono text-[11px] sm:text-xs font-bold text-[#b23a2e] dark:text-[#e08a63] bg-[#b23a2e]/10 px-1.5 py-0.5 rounded-md shrink-0">04</span>
-						<h3 class="text-xs sm:text-base font-bold text-neutral-900 dark:text-neutral-100 truncate">LaMa Neural Artwork Inpainting</h3>
-					</div>
-					<span class="text-[10px] sm:text-[11px] font-mono opacity-50 sm:pl-0">LaMa ONNX · Padding Control</span>
-				</div>
-				<p class="text-xs sm:text-sm text-neutral-600 dark:text-neutral-400 leading-relaxed">
-					Erases original source characters seamlessly using Large Mask Inpainting (LaMa), restoring background artwork and screentones with fine-grained mask padding and optional watermark preservation.
-				</p>
-			</div>
-
-			<!-- STAGE 5: TYPESETTING -->
-			<div class="p-3.5 sm:p-5 transition-colors hover:bg-black/[0.01] dark:hover:bg-white/[0.01]">
-				<div class="flex flex-col sm:flex-row sm:items-baseline justify-between gap-1 sm:gap-4 mb-1">
-					<div class="flex items-center gap-2 sm:gap-2.5 min-w-0">
-						<span class="font-mono text-[11px] sm:text-xs font-bold text-[#b23a2e] dark:text-[#e08a63] bg-[#b23a2e]/10 px-1.5 py-0.5 rounded-md shrink-0">05</span>
-						<h3 class="text-xs sm:text-base font-bold text-neutral-900 dark:text-neutral-100 truncate">Dynamic Skia Typesetting Studio</h3>
-					</div>
-					<span class="text-[10px] sm:text-[11px] font-mono opacity-50 sm:pl-0">@napi-rs/canvas · Auto Scaling</span>
-				</div>
-				<p class="text-xs sm:text-sm text-neutral-600 dark:text-neutral-400 leading-relaxed">
-					Renders translated dialogue with automatic font scaling, boundary fitting, diagonal tilt rotation, stroke outlines, and automatic CJK font fallbacks matched to the original comic bubble contours.
-				</p>
-			</div>
+		<!-- WORKFLOW TOOL COMPARISON NOTE -->
+		<div class="rounded-xl border border-black/10 bg-black/[0.02] p-4 text-xs space-y-2 dark:border-white/10 dark:bg-white/[0.02]">
+			<h3 class="font-bold text-neutral-900 dark:text-neutral-100">Workflow Specialization:</h3>
+			<ul class="space-y-1.5 text-neutral-600 dark:text-neutral-400">
+				<li>
+					<strong class="text-neutral-800 dark:text-neutral-200">XianScan (Automated Reading Flow):</strong> Built specifically for readers and fast chapter catch-up. Delivers an automated 1-click pipeline (browser import -> OCR -> inpainting -> LLM translation -> typesetting -> Mihon streaming) in a zero-install standalone binary.
+				</li>
+				<li>
+					<strong class="text-neutral-800 dark:text-neutral-200">Koharu (Comprehensive Studio):</strong> If you need a full desktop editor with multi-format project management, proofreading, a WebGPU-based canvas for manual touch-ups, and layered PSD export, check out <a href="https://github.com/mayocream/koharu" target="_blank" rel="noopener noreferrer" class="text-[#b23a2e] dark:text-[#e08a63] underline">Koharu</a>.
+				</li>
+			</ul>
 		</div>
 	</section>
 
-	<!-- KEY FEATURES LIST -->
-	<section class="space-y-3 sm:space-y-4">
-		<div>
-			<h2 class="text-sm sm:text-lg font-bold text-neutral-900 dark:text-neutral-100 flex items-center gap-2">
-				<Zap size={17} class="text-[#b23a2e] dark:text-[#e08a63]" />
-				Key Features
+	<InkDivider class="max-w-xs mx-auto opacity-40" />
+
+	<!-- 8-STAGE END-TO-END PIPELINE -->
+	<section class="space-y-6">
+		<div class="space-y-1">
+			<h2 class="text-xs font-bold uppercase tracking-widest text-[#b23a2e] dark:text-[#e08a63]">
+				02 / Translation Pipeline (8 Stages)
 			</h2>
-		</div>
-
-		<div class="grid grid-cols-1 sm:grid-cols-2 gap-2.5 sm:gap-3 text-xs">
-			<!-- LOCAL-FIRST -->
-			<div class="flex items-start gap-2.5 rounded-xl border border-black/10 bg-black/[0.01] p-3 sm:p-3.5 dark:border-white/10 dark:bg-white/[0.01]">
-				<ShieldCheck size={16} class="text-emerald-600 dark:text-emerald-400 shrink-0 mt-0.5" />
-				<div>
-					<strong class="font-semibold text-neutral-900 dark:text-neutral-100">100% Local-First & Private:</strong>
-					<p class="text-neutral-600 dark:text-neutral-400 mt-0.5 leading-relaxed">Standalone binary (self-contained, size varies by platform) running completely offline with SQLite and raw images on your local disk.</p>
-				</div>
-			</div>
-
-			<!-- HARDWARE FREEDOM -->
-			<div class="flex items-start gap-2.5 rounded-xl border border-black/10 bg-black/[0.01] p-3 sm:p-3.5 dark:border-white/10 dark:bg-white/[0.01]">
-				<Zap size={16} class="text-[#b23a2e] dark:text-[#e08a63] shrink-0 mt-0.5" />
-				<div>
-					<strong class="font-semibold text-neutral-900 dark:text-neutral-100">Runs on Any CPU (No GPU Required):</strong>
-					<p class="text-neutral-600 dark:text-neutral-400 mt-0.5 leading-relaxed">Multi-threaded SIMD inference (AVX2, AVX-512, ARM NEON) with automatic DirectML (Windows), CoreML/Metal (macOS), or CUDA (Linux) GPU acceleration.</p>
-				</div>
-			</div>
-
-			<!-- BROWSER EXTENSION -->
-			<div class="flex items-start gap-2.5 rounded-xl border border-black/10 bg-black/[0.01] p-3.5 dark:border-white/10 dark:bg-white/[0.01]">
-				<Puzzle size={16} class="text-indigo-600 dark:text-indigo-400 shrink-0 mt-0.5" />
-				<div>
-					<strong class="font-semibold text-neutral-900 dark:text-neutral-100">1-Click Browser Extension:</strong>
-					<p class="text-neutral-600 dark:text-neutral-400 mt-0.5 leading-relaxed">Fast DOM scanner for Chrome, Firefox, Edge, and Brave with a 4-tier noise filter to drop ads and placeholders.</p>
-				</div>
-			</div>
-
-			<!-- PARALLEL PROCESSING -->
-			<div class="flex items-start gap-2.5 rounded-xl border border-black/10 bg-black/[0.01] p-3 sm:p-3.5 dark:border-white/10 dark:bg-white/[0.01]">
-				<Cpu size={16} class="text-[#b23a2e] dark:text-[#e08a63] shrink-0 mt-0.5" />
-				<div>
-					<strong class="font-semibold text-neutral-900 dark:text-neutral-100">Parallel Chapter Processing:</strong>
-					<p class="text-neutral-600 dark:text-neutral-400 mt-0.5 leading-relaxed">Translate 1 to 8 concurrent page worker threads with lookahead background pre-slicing.</p>
-				</div>
-			</div>
-
-			<!-- SMART GUTTER RESLICING -->
-			<div class="flex items-start gap-2.5 rounded-xl border border-black/10 bg-black/[0.01] p-3 sm:p-3.5 dark:border-white/10 dark:bg-white/[0.01]">
-				<Palette size={16} class="text-[#b23a2e] dark:text-[#e08a63] shrink-0 mt-0.5" />
-				<div>
-					<strong class="font-semibold text-neutral-900 dark:text-neutral-100">Smart Gutter Re-slicing:</strong>
-					<p class="text-neutral-600 dark:text-neutral-400 mt-0.5 leading-relaxed">Combines fragmented webtoon strips and slices along panel gutters to avoid bisecting speech bubbles.</p>
-				</div>
-			</div>
-
-			<!-- GLOSSARY MANAGEMENT -->
-			<div class="flex items-start gap-2.5 rounded-xl border border-black/10 bg-black/[0.01] p-3 sm:p-3.5 dark:border-white/10 dark:bg-white/[0.01]">
-				<Languages size={16} class="text-[#b23a2e] dark:text-[#e08a63] shrink-0 mt-0.5" />
-				<div>
-					<strong class="font-semibold text-neutral-900 dark:text-neutral-100">Series Terminology Glossaries:</strong>
-					<p class="text-neutral-600 dark:text-neutral-400 mt-0.5 leading-relaxed">Import, export, and manage series terms via CSV with automatic Aho-Corasick pattern matching.</p>
-				</div>
-			</div>
-
-			<!-- READING & STUDIO MODES -->
-			<div class="flex items-start gap-2.5 rounded-xl border border-black/10 bg-black/[0.01] p-3 sm:p-3.5 dark:border-white/10 dark:bg-white/[0.01]">
-				<BookOpen size={16} class="text-[#b23a2e] dark:text-[#e08a63] shrink-0 mt-0.5" />
-				<div>
-					<strong class="font-semibold text-neutral-900 dark:text-neutral-100">3 Reading & Studio Modes:</strong>
-					<p class="text-neutral-600 dark:text-neutral-400 mt-0.5 leading-relaxed">Continuous Webtoon scroll, Card Grid overview with drag reordering, and Side-by-Side compare.</p>
-				</div>
-			</div>
-
-			<!-- MIHON MOBILE READER -->
-			<div class="flex items-start gap-2.5 rounded-xl border border-black/10 bg-black/[0.01] p-3 sm:p-3.5 dark:border-white/10 dark:bg-white/[0.01]">
-				<Smartphone size={16} class="text-emerald-600 dark:text-emerald-400 shrink-0 mt-0.5" />
-				<div>
-					<strong class="font-semibold text-neutral-900 dark:text-neutral-100">Mihon / Tachiyomi Reader (Android):</strong>
-					<p class="text-neutral-600 dark:text-neutral-400 mt-0.5 leading-relaxed">Browse dedicated covers, series metadata, and read translated chapters on phones and tablets via our 1-click extension repo.</p>
-				</div>
-			</div>
-
-			<!-- DEEP INSPECTION & TELEMETRY -->
-			<div class="flex items-start gap-2.5 rounded-xl border border-black/10 bg-black/[0.01] p-3 sm:p-3.5 dark:border-white/10 dark:bg-white/[0.01]">
-				<Eye size={16} class="text-[#b23a2e] dark:text-[#e08a63] shrink-0 mt-0.5" />
-				<div>
-					<strong class="font-semibold text-neutral-900 dark:text-neutral-100">Deep Inspection & Telemetry:</strong>
-					<p class="text-neutral-600 dark:text-neutral-400 mt-0.5 leading-relaxed">Interactive Page Inspector with raw OCR/bubble overlay, live text editing, OCR stats, and LLM prompt modals.</p>
-				</div>
-			</div>
-
-			<!-- EXPORT -->
-			<div class="flex items-start gap-2.5 rounded-xl border border-black/10 bg-black/[0.01] p-3 sm:p-3.5 dark:border-white/10 dark:bg-white/[0.01]">
-				<Download size={16} class="text-[#b23a2e] dark:text-[#e08a63] shrink-0 mt-0.5" />
-				<div>
-					<strong class="font-semibold text-neutral-900 dark:text-neutral-100">High-Resolution ZIP Export:</strong>
-					<p class="text-neutral-600 dark:text-neutral-400 mt-0.5 leading-relaxed">Download full translated chapters packaged as ZIP archives with one click.</p>
-				</div>
-			</div>
-		</div>
-	</section>
-
-	<!-- FAQ ACCORDION SECTION -->
-	<section class="space-y-3 sm:space-y-4">
-		<div>
-			<h2 class="text-sm sm:text-lg font-bold text-neutral-900 dark:text-neutral-100 flex items-center gap-2">
-				<HelpCircle size={17} class="text-[#b23a2e] dark:text-[#e08a63]" />
-				Frequently Asked Questions
-			</h2>
-			<p class="mt-0.5 text-xs sm:text-sm text-neutral-500 dark:text-neutral-400">
-				Quick answers to common questions about setup, models, and features:
+			<p class="text-xs text-neutral-500 dark:text-neutral-400">
+				The automated lifecycle of a page through the XianScan engine:
 			</p>
 		</div>
 
-		<div class="overflow-hidden rounded-2xl border border-black/10 bg-white/50 dark:border-white/10 dark:bg-white/[0.02] backdrop-blur-md divide-y divide-black/5 dark:divide-white/5">
-			{#each FAQS as faq, i}
-				{@const isOpen = openFaq === i}
-				<div>
-					<button
-						type="button"
-						on:click={() => toggleFaq(i)}
-						use:ripple
-						class="flex w-full items-center justify-between gap-3 p-3.5 sm:p-5 text-left transition hover:bg-black/[0.02] dark:hover:bg-white/[0.02]"
-						aria-expanded={isOpen}
-					>
-						<span class="text-xs sm:text-sm font-bold text-neutral-900 dark:text-neutral-100">
-							{faq.q}
-						</span>
-						<span
-							class={`shrink-0 rounded-lg p-1 text-neutral-500 dark:text-neutral-400 transition-transform duration-200 ${
-								isOpen ? 'rotate-180 text-[#b23a2e] dark:text-[#e08a63]' : ''
-							}`}
-						>
-							<ChevronDown size={15} />
-						</span>
-					</button>
-
-					{#if isOpen}
-						<div
-							transition:slide={{ duration: 180 }}
-							class="px-3.5 pb-4 sm:px-5 text-xs sm:text-sm text-neutral-600 dark:text-neutral-400 leading-relaxed border-t border-black/5 dark:border-white/5 pt-2.5"
-						>
-							{faq.a}
+		<div class="divide-y divide-black/10 dark:divide-white/10 border-y border-black/10 dark:border-white/10">
+			{#each PIPELINE_STEPS as step}
+				<article class="py-4 space-y-1.5">
+					<div class="flex flex-col sm:flex-row sm:items-baseline justify-between gap-1">
+						<div class="flex items-center gap-2.5">
+							<span class="text-xs font-bold text-[#b23a2e] dark:text-[#e08a63]">{step.num}</span>
+							<h3 class="text-xs sm:text-sm font-bold text-neutral-900 dark:text-neutral-100">{step.title}</h3>
 						</div>
+						<span class="text-[11px] text-neutral-500 dark:text-neutral-400">{step.engine}</span>
+					</div>
+					<p class="text-xs text-neutral-600 dark:text-neutral-400 leading-relaxed sm:pl-6">
+						{step.body}
+					</p>
+				</article>
+			{/each}
+		</div>
+	</section>
+
+	<!-- SUPPORTED COMIC FORMATS & LANGUAGES -->
+	<section class="space-y-6">
+		<div class="space-y-1">
+			<h2 class="text-xs font-bold uppercase tracking-widest text-[#b23a2e] dark:text-[#e08a63]">
+				03 / Supported Formats & Languages
+			</h2>
+			<p class="text-xs text-neutral-500 dark:text-neutral-400">
+				Format-specific optimizations and multi-script recognition tiers:
+			</p>
+		</div>
+
+		<div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+			{#each FORMAT_BREAKDOWN as item}
+				<div class="rounded-xl border border-black/10 bg-black/[0.015] p-4 text-xs space-y-1.5 dark:border-white/10 dark:bg-white/[0.015]">
+					<div class="flex items-center justify-between">
+						<h3 class="font-bold text-neutral-900 dark:text-neutral-100">{item.format}</h3>
+						<span class="text-[11px] font-semibold text-[#b23a2e] dark:text-[#e08a63]">{item.focus}</span>
+					</div>
+					<p class="text-neutral-600 dark:text-neutral-400 leading-relaxed">
+						{item.description}
+					</p>
+				</div>
+			{/each}
+		</div>
+
+		<!-- 10 OCR LANGUAGES -->
+		<div class="rounded-xl border border-black/10 bg-black/[0.015] p-4 text-xs space-y-2 dark:border-white/10 dark:bg-white/[0.015]">
+			<h3 class="font-bold text-neutral-900 dark:text-neutral-100">10 Supported OCR Languages:</h3>
+			<div class="grid grid-cols-1 sm:grid-cols-3 gap-2 text-neutral-600 dark:text-neutral-400 text-xs">
+				<div><strong>East Asian:</strong> Chinese (Simp. & Trad.), Japanese, Korean</div>
+				<div><strong>Southeast Asian:</strong> Thai, Indonesian</div>
+				<div><strong>Global:</strong> English, Spanish, French, Russian</div>
+			</div>
+		</div>
+	</section>
+
+	<InkDivider class="max-w-xs mx-auto opacity-40" />
+
+	<!-- SYSTEM REQUIREMENTS & HARDWARE SUPPORT -->
+	<section class="space-y-5">
+		<div class="space-y-1">
+			<h2 class="text-xs font-bold uppercase tracking-widest text-[#b23a2e] dark:text-[#e08a63]">
+				04 / System Requirements & Hardware Support
+			</h2>
+			<p class="text-xs text-neutral-500 dark:text-neutral-400">
+				Tuned for CPU-first execution with dynamic GPU acceleration:
+			</p>
+		</div>
+
+		<div class="rounded-xl border border-black/10 bg-black/[0.015] dark:border-white/10 dark:bg-white/[0.015] overflow-hidden">
+			<table class="w-full text-left text-xs border-collapse">
+				<thead>
+					<tr class="border-b border-black/10 dark:border-white/10 bg-black/[0.02] dark:bg-white/[0.02] text-xs font-semibold text-neutral-500">
+						<th class="py-2.5 px-4">Component</th>
+						<th class="py-2.5 px-4">Minimum Specification</th>
+						<th class="py-2.5 px-4">Recommended Specification</th>
+					</tr>
+				</thead>
+				<tbody class="divide-y divide-black/5 dark:divide-white/5">
+					{#each SYSTEM_SPECS as spec}
+						<tr class="transition-colors hover:bg-black/[0.02] dark:hover:bg-white/[0.02]">
+							<td class="py-3 px-4 font-bold text-neutral-900 dark:text-neutral-100 align-top">
+								{spec.component}
+							</td>
+							<td class="py-3 px-4 text-neutral-600 dark:text-neutral-400 align-top">
+								{spec.min}
+							</td>
+							<td class="py-3 px-4 text-neutral-600 dark:text-neutral-400 align-top">
+								{spec.rec}
+							</td>
+						</tr>
+					{/each}
+				</tbody>
+			</table>
+		</div>
+	</section>
+
+	<InkDivider class="max-w-xs mx-auto opacity-40" />
+
+	<!-- MIHON & MOBILE READER ECOSYSTEM -->
+	<section class="space-y-5">
+		<div class="space-y-1">
+			<h2 class="text-xs font-bold uppercase tracking-widest text-[#b23a2e] dark:text-[#e08a63]">
+				05 / Mihon & Mobile Reader Ecosystem (Android)
+			</h2>
+			<p class="text-xs text-neutral-500 dark:text-neutral-400">
+				Stream or download translated chapters directly over your home network:
+			</p>
+		</div>
+
+		<div class="rounded-xl border border-black/10 bg-black/[0.015] p-5 dark:border-white/10 dark:bg-white/[0.015] space-y-4">
+			<div class="space-y-2">
+				<div class="flex items-center gap-2">
+					<Smartphone size={16} class="text-[#b23a2e] dark:text-[#e08a63]" />
+					<h3 class="text-xs sm:text-sm font-bold text-neutral-900 dark:text-neutral-100">
+						Official Mihon / Tachiyomi Extension Repository
+					</h3>
+				</div>
+				<p class="text-xs text-neutral-600 dark:text-neutral-400 leading-relaxed">
+					Compatible with Mihon, TachiyomiSY, J2K, Aniyomi, and Android E-Ink readers (Boox, Bigme, Meebook). Synchronizes series titles, reading directions, and covers automatically over your local Wi-Fi:
+				</p>
+			</div>
+
+			<!-- REPOSITORY URL SNIPPET -->
+			<div class="flex flex-col sm:flex-row items-stretch sm:items-center gap-2 pt-1">
+				<div class="flex-1 rounded-lg bg-black/5 dark:bg-white/5 border border-black/10 dark:border-white/10 px-3 py-2 text-xs font-mono text-neutral-800 dark:text-neutral-200 truncate select-all">
+					{MIHON_REPO_URL}
+				</div>
+				<button
+					type="button"
+					on:click={copyMihonRepo}
+					use:ripple
+					class={cn(
+						'inline-flex items-center justify-center gap-2 rounded-lg px-4 py-2 text-xs font-bold transition shrink-0',
+						isCopied
+							? 'bg-emerald-600 text-white'
+							: 'bg-[#b23a2e] text-white hover:bg-[#c0392b]'
+					)}
+				>
+					{#if isCopied}
+						<Check size={14} />
+						<span>Copied to Clipboard</span>
+					{:else}
+						<Copy size={14} />
+						<span>Copy Repository URL</span>
 					{/if}
+				</button>
+			</div>
+
+			<!-- STEP BY STEP GUIDE -->
+			<ol class="list-decimal list-inside space-y-1.5 text-xs text-neutral-600 dark:text-neutral-400 pt-2 border-t border-black/5 dark:border-white/5 leading-relaxed">
+				<li>In Mihon on Android, navigate to <strong>More → Settings → Browse → Extension Repos</strong>.</li>
+				<li>Tap <strong>+ Add</strong>, paste the repository URL above, and confirm.</li>
+				<li>In <strong>Browse → Extensions</strong>, locate <strong>XianScan</strong> and tap <strong>Install</strong>.</li>
+				<li>Tap the settings cog beside XianScan, select <strong>Server Address</strong>, and enter your PC LAN address (found in your XianScan startup terminal banner, e.g. <code class="font-mono text-neutral-800 dark:text-neutral-200">http://192.168.1.50:8124</code>).</li>
+				<li>In <strong>Browse → Sources</strong>, tap the filter icon and enable the <strong>Multi</strong> tag.</li>
+			</ol>
+		</div>
+	</section>
+
+	<!-- ETHICAL USE & COPYRIGHT NOTICE -->
+	<section class="space-y-4 rounded-xl border border-black/10 bg-black/[0.015] p-5 dark:border-white/10 dark:bg-white/[0.015] text-xs leading-relaxed text-neutral-600 dark:text-neutral-400">
+		<div class="flex items-center gap-2 text-neutral-900 dark:text-neutral-100 font-bold">
+			<ShieldCheck size={16} class="text-[#b23a2e] dark:text-[#e08a63]" />
+			<h2 class="text-xs sm:text-sm">06 / Ethical Use & Copyright Notice</h2>
+		</div>
+		<p>
+			XianScan is designed strictly as a <strong>local-first personal assistive translation and language-learning tool</strong>.
+		</p>
+		<ul class="list-disc list-inside space-y-1 pl-1 text-xs">
+			<li><strong>Respect for Creators:</strong> Users are strongly encouraged to support original creators on licensed digital platforms (Kuaikan Manhua, Bilibili Manga, Naver WEBTOON, KakaoPage, Tapas, MANGA Plus by Shueisha, VIZ Media, BookWalker).</li>
+			<li><strong>100% Local & Private:</strong> XianScan does not host, re-distribute, or scrape copyrighted works on public cloud servers. All processing occurs entirely on the user's private local hardware.</li>
+			<li><strong>No DRM Circumvention:</strong> XianScan contains no features designed to bypass encryption, digital rights management (DRM), or paywalls.</li>
+		</ul>
+	</section>
+
+	<InkDivider class="max-w-xs mx-auto opacity-40" />
+
+	<!-- ACKNOWLEDGMENTS & MODEL ATTRIBUTION -->
+	<section class="space-y-5">
+		<div class="space-y-1">
+			<h2 class="text-xs font-bold uppercase tracking-widest text-[#b23a2e] dark:text-[#e08a63]">
+				07 / Model Attributions & Credits
+			</h2>
+			<p class="text-xs text-neutral-500 dark:text-neutral-400">
+				Core research models and open-source foundations:
+			</p>
+		</div>
+
+		<div class="space-y-3">
+			{#each ATTRIBUTIONS as item}
+				<div class="rounded-xl border border-black/10 bg-black/[0.015] p-3.5 text-xs space-y-1 dark:border-white/10 dark:bg-white/[0.015]">
+					<div class="flex flex-col sm:flex-row sm:items-baseline justify-between gap-1">
+						<strong class="font-bold text-neutral-900 dark:text-neutral-100">{item.name}</strong>
+						<span class="text-[11px] text-neutral-500">{item.credit}</span>
+					</div>
+					<p class="text-neutral-600 dark:text-neutral-400 text-xs leading-relaxed">
+						{item.detail}
+					</p>
 				</div>
 			{/each}
 		</div>
 	</section>
 
-	<!-- SUPPORT SECTION -->
-	<section class="rounded-2xl border border-black/10 bg-black/[0.02] p-4 sm:p-6 dark:border-white/10 dark:bg-white/[0.02] space-y-3 sm:space-y-4">
-		<div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3 sm:gap-4">
-			<div class="space-y-1">
-				<h2 class="text-sm sm:text-base font-bold flex items-center gap-2 text-neutral-900 dark:text-neutral-100">
-					<Heart size={16} class="text-[#b23a2e]" fill="currentColor" />
-					Support XianScan Development
-				</h2>
-				<p class="text-xs text-neutral-500 dark:text-neutral-400 leading-relaxed">
-					If XianScan is helpful to your translation or editing workflow, consider supporting on Ko-fi.
+	<!-- AUTHOR & OPPORTUNITIES -->
+	<footer class="space-y-6 pt-6 border-t border-black/10 dark:border-white/10 text-xs leading-relaxed text-neutral-600 dark:text-neutral-400">
+		<div class="space-y-2">
+			<h2 class="font-bold uppercase tracking-widest text-[#b23a2e] dark:text-[#e08a63]">
+				08 / Author & Opportunities
+			</h2>
+			<p>
+				XianScan is architected and built by <strong class="text-neutral-900 dark:text-neutral-100">Arben Apura</strong> as a showcase of end-to-end full-stack web engineering, intuitive UI/UX design, and intelligent application architecture.
+			</p>
+			<div class="flex flex-wrap items-center gap-3 pt-1 text-xs">
+				<a href="https://arbenger.com/contact/" target="_blank" rel="noopener noreferrer" class="inline-flex items-center gap-1 text-[#b23a2e] dark:text-[#e08a63] hover:underline">
+					<Globe size={13} />
+					<span>arbenger.com/contact</span>
+				</a>
+				<span class="opacity-30">·</span>
+				<a href="mailto:arbenapura.official@gmail.com" class="inline-flex items-center gap-1 text-[#b23a2e] dark:text-[#e08a63] hover:underline">
+					<Mail size={13} />
+					<span>arbenapura.official@gmail.com</span>
+				</a>
+				<span class="opacity-30">·</span>
+				<a href="https://github.com/ArbenApura" target="_blank" rel="noopener noreferrer" class="inline-flex items-center gap-1 text-[#b23a2e] dark:text-[#e08a63] hover:underline">
+					<Github size={13} />
+					<span>@ArbenApura</span>
+				</a>
+			</div>
+		</div>
+
+		<!-- KO-FI CONTRIBUTION -->
+		<div class="flex flex-col sm:flex-row sm:items-center justify-between gap-4 rounded-xl border border-black/10 bg-black/[0.015] p-4 sm:p-5 dark:border-white/10 dark:bg-white/[0.015]">
+			<div class="space-y-0.5">
+				<h3 class="font-bold text-neutral-900 dark:text-neutral-100 flex items-center gap-2">
+					<Heart size={14} class="text-[#b23a2e]" fill="currentColor" />
+					Support Open-Source Development
+				</h3>
+				<p class="text-xs text-neutral-500 dark:text-neutral-400">
+					Supporting this project helps fund ongoing independent R&D, model optimization, and future open-source tools.
 				</p>
 			</div>
 
-			<!-- KO-FI SUPPORT BUTTON -->
 			<a
 				href="https://ko-fi.com/arbenapura"
 				target="_blank"
 				rel="noopener noreferrer"
 				use:ripple
-				class="inline-flex w-full sm:w-auto items-center justify-center gap-2 rounded-xl bg-[#b23a2e] hover:bg-[#c0392b] text-white px-5 py-2.5 text-xs font-bold shadow-xs transition active:scale-95 shrink-0"
+				class="inline-flex items-center justify-center gap-2 rounded-lg bg-[#b23a2e] hover:bg-[#c0392b] text-white px-4 py-2 text-xs font-bold transition shrink-0"
 			>
-				<Coffee size={15} />
+				<Coffee size={14} />
 				<span>Support on Ko-fi</span>
-				<ExternalLink size={12} class="opacity-70" />
+				<ExternalLink size={11} class="opacity-60" />
 			</a>
 		</div>
-	</section>
+
+		<div class="text-center text-xs opacity-40 pt-4">
+			XianScan · Built by Arben Apura · 2026
+		</div>
+	</footer>
 </div>

@@ -112,16 +112,30 @@ pub fn is_onomatopoeia_or_shout(text: &str) -> bool {
     if t.is_empty() {
         return false;
     }
-    // Single-character action onomatopoeia or shouts (e.g. "哒", "接", "啪", "轰", "噗", "砰", "咚", "嘶", "嗖", "刷", "咔", "呼", "嗤", "铛", "啐", "哈", "啧", "哼", "呃", "呀", "哇", "切", "嘟", "滋", "嗡", "哔", "滴", "嘭", "哐", "唰", "吼")
+    // Single-character action onomatopoeia or shouts (e.g. "哒", "嗒", "接", "啪", "轰", "噗", "砰", "咚", "嘶", "嗖", "刷", "咔", "呼", "嗤", "铛", "啐", "哈", "啧", "哼", "呃", "呀", "切", "嘟", "滋", "嗡", "哔", "滴", "嘭", "哐", "唰", "吼")
     let is_action_sfx_char = matches!(
         t.chars().next(),
         Some(
             '哒' | '嗒' | '接' | '啪' | '轰' | '噗' | '砰' | '咚' | '嘶' | '嗖' | '刷' | '咔'
-                | '呼' | '嗤' | '铛' | '啐' | '哈' | '啧' | '哼' | '呃' | '呀' | '哇' | '切' | '啊'
+                | '呼' | '嗤' | '铛' | '啐' | '哈' | '啧' | '哼' | '呃' | '呀' | '切'
                 | '嘟' | '滋' | '嗡' | '哔' | '滴' | '嘭' | '哐' | '唰' | '吼'
         )
     ) && t.chars().count() <= 3
         && (t.contains('！') || t.contains('!') || t.chars().count() <= 2);
+
+    // Dialogue interjections with exclamation mark (e.g. "啊！", "哇！") are shouts/SFX, but plain "啊" or "哇" are dialogue speech
+    let is_exclamation_shout = (t.starts_with('啊') || t.starts_with('哇'))
+        && (t.contains('！') || t.contains('!'))
+        && t.chars().count() <= 3;
+
+    // Korean action onomatopoeia & shouts (e.g. "촤", "콰", "쿵", "쾅", "띠", "띵", "찌", "쨍", "틱", "톡", "뚝", "팍", "탁", "털", "쿵쾅", "띠링", "띠리")
+    let is_korean_sfx_char = matches!(
+        t.chars().next(),
+        Some(
+            '촤' | '콰' | '쾅' | '쿵' | '띠' | '띵' | '찌' | '쨍' | '틱' | '톡' | '뚝' | '팍' | '탁' | '철' | '척' | '홱' | '휙' | '쑥' | '쏙' | '또'
+        )
+    ) && t.chars().count() <= 3
+        && (t.contains('!') || t.contains('~') || t.contains('-') || t.chars().count() <= 2);
 
     // Repeated onomatopoeia patterns (e.g. "嘟嘟", "嘟嘟嘟", "轰隆隆", "咚咚", "哗啦啦", "嗒嗒")
     let chars: Vec<char> = t.chars().filter(|c| !c.is_whitespace() && !c.is_ascii_punctuation() && *c != '！' && *c != '？').collect();
@@ -171,7 +185,7 @@ pub fn is_onomatopoeia_or_shout(text: &str) -> bool {
         false
     };
 
-    is_action_sfx_char || is_repeated_sound || is_latin_shout || is_cyrillic_sfx
+    is_action_sfx_char || is_exclamation_shout || is_korean_sfx_char || is_repeated_sound || is_latin_shout || is_cyrillic_sfx
 }
 
 /// UNIVERSAL CLEANING FOR OCR ARTIFACTS AND UNICODE STANDARDIZATION
@@ -192,9 +206,15 @@ pub fn clean_stray_ocr_artifacts(text: &str) -> String {
         }
     }
     if kept.is_empty() {
-        text.to_string()
+        String::new()
     } else {
-        kept.join("\n")
+        let joined = kept.join("\n");
+        let t = joined.trim();
+        let mut cleaned = t.to_string();
+        if cleaned.ends_with('/') || cleaned.ends_with('\\') {
+            cleaned.pop();
+        }
+        cleaned.trim().to_string()
     }
 }
 

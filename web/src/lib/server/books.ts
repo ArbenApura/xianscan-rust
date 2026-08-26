@@ -278,14 +278,17 @@ export async function getBookDetails(bookId: string): Promise<BookDetailResult> 
 			const translatedPageCount = pgs.filter((p) => p.status === 'done' || Boolean(p.outputPath)).length;
 			const firstPage = pgs[0] ?? null;
 			const isDone = pageCount > 0 && (c.status === 'done' || translatedPageCount === pageCount);
+			const isStillProcessing = c.status === 'processing' && pgs.some((p) => p.status === 'processing');
 			const effectiveStatus: 'pending' | 'processing' | 'done' | 'error' =
 				pageCount === 0
 					? 'pending'
 					: isDone
 						? 'done'
-						: c.status === 'done'
-							? 'pending'
-							: (c.status as 'pending' | 'processing' | 'done' | 'error');
+						: isStillProcessing
+							? 'processing'
+							: c.status === 'error'
+								? 'error'
+								: 'pending';
 			return {
 				...c,
 				status: effectiveStatus,

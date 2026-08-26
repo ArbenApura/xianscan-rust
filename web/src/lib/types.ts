@@ -158,7 +158,7 @@ export interface PageProgressState {
 	pageIndex: number;
 	pageId: number;
 	seq: number;
-	status: 'pending' | 'processing' | 'done' | 'error';
+	status: 'pending' | 'processing' | 'done' | 'error' | 'skipped';
 	currentStep?: PipelineStep;
 	currentStepLabel?: string;
 	timings: Partial<Record<PipelineStep, StepTiming>>;
@@ -182,6 +182,7 @@ export interface ChapterJobSnapshot {
 	totalPages: number;
 	completedPages: number;
 	failedPages: number;
+	targetPageIds?: number[];
 	phase2Stats?: {
 		termCount?: number;
 		durationMs?: number;
@@ -194,10 +195,13 @@ export interface ChapterJobSnapshot {
 
 export interface BatchChapterItem {
 	id: number;
+	bookId?: string;
+	bookTitle?: string | null;
 	seq: number;
 	title: string;
 	titleTarget?: string | null;
 	pageCount: number;
+	pageIds?: number[];
 	status: 'queued' | 'reslicing' | 'processing' | 'done' | 'error' | 'skipped' | 'cancelled';
 	error?: string | null;
 	translatedPages?: number;
@@ -237,6 +241,18 @@ export interface PageRegion {
 	conf?: number | null;
 	angle?: number | null;
 	vertical?: boolean;
+}export interface Chapter {
+	id: number;
+	bookId?: string;
+	seq: number;
+	title: string;
+	titleTarget?: string | null;
+	status: 'pending' | 'processing' | 'done' | 'error';
+	coverPageId?: number | null;
+	coverHasOutput?: boolean;
+	pageCount: number;
+	translatedPageCount?: number;
+	createdAt?: number;
+	updatedAt?: number;
+	translatedAt?: number | null;
 }
-
-

@@ -166,6 +166,14 @@ pub struct HardwareStatus {
     pub cuda_vram_limit_mb: Option<usize>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub configured_cuda_vram_limit_mb: Option<usize>,
+    #[serde(default)]
+    pub version: String,
+    #[serde(default)]
+    pub app_version: String,
+    #[serde(default)]
+    pub web_build_hash: String,
+    #[serde(default)]
+    pub web_build_time: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

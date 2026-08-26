@@ -57,6 +57,8 @@
 	let errorMessage = '';
 	let rows: Row[] = [];
 	let completedChapters = 0;
+	let uploadController: AbortController | null = null;
+	let isCancelled = false;
 
 	// -- REACTIVE STATEMENTS -- //
 	// REACTIVE AGGREGATE PROGRESS & PAGE TOTALS
@@ -76,7 +78,22 @@
 	}
 
 	export function close(): void {
+		if (phase === 'uploading') {
+			cancelUpload();
+		} else if (phase === 'scanning') {
+			cancelScan();
+		}
 		visible = false;
+	}
+
+	export function cancelScan(): void {
+		isCancelled = true;
+		visible = false;
+	}
+
+	export function cancelUpload(): void {
+		isCancelled = true;
+		uploadController?.abort();
 	}
 
 	// ENTRY POINT: SCAN A DROPPED ITEM LIST OR A FILE LIST, THEN IMPORT.
@@ -87,12 +104,20 @@
 		errorMessage = '';
 		rows = [];
 		completedChapters = 0;
+		isCancelled = false;
+		uploadController = new AbortController();
 
 		try {
 			const isFileLike = Array.isArray(source) || source instanceof FileList;
 			const result = isFileLike
-				? await parseFileList(source as File[] | FileList, (count) => (scanCount = count))
-				: await parseDataTransferItems(source as DataTransferItemList, (count) => (scanCount = count));
+				? await parseFileList(source as File[] | FileList, (count) => {
+						if (!isCancelled) scanCount = count;
+					})
+				: await parseDataTransferItems(source as DataTransferItemList, (count) => {
+						if (!isCancelled) scanCount = count;
+					});
+
+			if (isCancelled) return;
 
 			if (result.isMultiChapter && result.chapters.length >= 2) {
 				rows = result.chapters.map((c) => buildRow(c.title || c.folderName, c.seqHint, c.files));
@@ -102,15 +127,16 @@
 
 			if (result.flatFiles.length > 0) {
 				rows = [buildRow(`Chapter ${nextChapterNumber}`, null, result.flatFiles)];
-				await runUpload();
+				phase = 'confirm';
 				return;
 			}
 
 			phase = 'error';
-			errorMessage = 'No images found in the dropped folder.';
+			errorMessage = 'No images found in the dropped items.';
 		} catch (err: any) {
+			if (isCancelled) return;
 			phase = 'error';
-			errorMessage = err?.message || 'Failed to scan the dropped folder.';
+			errorMessage = err?.message || 'Failed to scan the dropped items.';
 		}
 	}
 
@@ -134,8 +160,11 @@
 	async function runUpload(): Promise<void> {
 		phase = 'uploading';
 		completedChapters = 0;
+		isCancelled = false;
+		uploadController = new AbortController();
 		try {
 			for (let r = 0; r < rows.length; r++) {
+				if (uploadController.signal.aborted || isCancelled) break;
 				const row = rows[r];
 				let chapterId = row.chapterId;
 				if (chapterId === null) {
@@ -146,6 +175,7 @@
 							title: row.title,
 							...(row.seq !== null ? { seq: row.seq } : {}),
 						}),
+						signal: uploadController.signal,
 					});
 					if (!createRes.ok) throw new Error(`Failed to create chapter "${row.title}"`);
 					const created = await createRes.json();
@@ -154,19 +184,48 @@
 				}
 
 				for (let f = 0; f < row.rawFiles.length; f++) {
+					if (uploadController.signal.aborted || isCancelled) break;
 					rows[r].files[f] = { ...rows[r].files[f], loaded: 0, status: 'uploading' };
-					await uploadSingleFile(row.rawFiles[f], `/api/chapters/${chapterId}/pages`, (loaded, total) => {
-						rows[r].files[f] = { ...rows[r].files[f], loaded, total, status: 'uploading' };
-					});
+					await uploadSingleFile(
+						row.rawFiles[f],
+						`/api/chapters/${chapterId}/pages`,
+						(loaded, total) => {
+							rows[r].files[f] = { ...rows[r].files[f], loaded, total, status: 'uploading' };
+						},
+						uploadController.signal,
+					);
 					rows[r].files[f] = { ...rows[r].files[f], loaded: rows[r].files[f].total, status: 'done' };
 				}
 
+				if (uploadController.signal.aborted || isCancelled) break;
 				completedChapters++;
+			}
+
+			if (uploadController.signal.aborted || isCancelled) {
+				phase = 'error';
+				errorMessage = 'Import cancelled by user.';
+				if (completedChapters > 0) {
+					dispatch('done');
+				}
+				return;
 			}
 
 			phase = 'done';
 			dispatch('done');
 		} catch (err: any) {
+			if (
+				uploadController?.signal.aborted ||
+				isCancelled ||
+				err?.message === 'Upload cancelled' ||
+				err?.name === 'AbortError'
+			) {
+				phase = 'error';
+				errorMessage = 'Import cancelled by user.';
+				if (completedChapters > 0) {
+					dispatch('done');
+				}
+				return;
+			}
 			phase = 'error';
 			errorMessage = err?.message || 'Import failed.';
 		}
@@ -176,16 +235,20 @@
 <Modal
 	open={visible}
 	title={phase === 'scanning'
-		? 'Scanning Dropped Folder'
+		? 'Scanning Dropped Items'
 		: phase === 'confirm'
-			? 'Multi-Chapter Folder Detected'
+			? rows.length > 1
+				? 'Multi-Chapter Folders Detected'
+				: 'Confirm Chapter Import'
 			: phase === 'uploading'
 				? 'Importing Chapters'
 				: phase === 'done'
 					? 'Import Complete'
-					: 'Import Error'}
+					: phase === 'error' && isCancelled
+						? 'Import Cancelled'
+						: 'Import Error'}
 	size="md"
-	closable={phase === 'done' || phase === 'error'}
+	closable={phase !== 'uploading'}
 	on:close={close}
 >
 	{#if phase === 'scanning'}
@@ -194,9 +257,9 @@
 				<ScanLine size={24} class="text-[#b23a2e] dark:text-[#e08a63]" />
 			</div>
 			<div>
-				<h3 class="text-sm font-bold">Scanning folder for images...</h3>
+				<h3 class="text-sm font-bold">Scanning for pages...</h3>
 				<p class="mt-1 text-xs opacity-60">
-					Found <strong>{scanCount}</strong> image{scanCount === 1 ? '' : 's'} so far.
+					Found <strong>{scanCount}</strong> page{scanCount === 1 ? '' : 's'} so far.
 				</p>
 			</div>
 			<div class="flex items-center gap-2 text-xs opacity-60">
@@ -206,23 +269,43 @@
 		</div>
 	{:else if phase === 'confirm'}
 		<div class="space-y-3.5 text-xs">
+			<!-- HEADER CALLOUT BANNER -->
 			<div
-				class="flex items-center gap-2.5 rounded-xl border border-[#b23a2e]/20 bg-[#b23a2e]/5 p-3 text-[#b23a2e] dark:text-[#e08a63]"
+				class="flex items-center gap-3 rounded-xl border border-black/10 bg-black/[0.03] p-3 text-slate-800 dark:border-white/10 dark:bg-white/[0.03] dark:text-slate-200"
 			>
-				<FolderTree size={18} class="shrink-0" />
+				<div
+					class="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-[#b23a2e]/10 text-[#b23a2e] dark:bg-[#e08a63]/15 dark:text-[#e08a63]"
+				>
+					{#if rows.length > 1}
+						<FolderTree size={18} />
+					{:else}
+						<FileImage size={18} />
+					{/if}
+				</div>
 				<div class="min-w-0 space-y-0.5">
-					<p class="text-xs font-bold">Found {rows.length} chapters ({totalImages} total images)</p>
-					<p class="text-[11px] leading-tight opacity-80">
-						Xianscan will create each folder as a new chapter and upload its pages in order.
+					<p class="text-xs font-bold leading-tight">
+						{#if rows.length > 1}
+							Discovered {rows.length} chapter folder{rows.length === 1 ? '' : 's'} ({totalImages} total pages)
+						{:else}
+							Found {totalImages} page{totalImages === 1 ? '' : 's'} ready for import
+						{/if}
+					</p>
+					<p class="text-[11px] leading-tight opacity-75">
+						{#if rows.length > 1}
+							XianScan will create each folder as a new chapter and upload its pages in sequence.
+						{:else}
+							XianScan will create {rows[0]?.title || `Chapter ${nextChapterNumber}`} and upload {totalImages} page{totalImages === 1 ? '' : 's'}.
+						{/if}
 					</p>
 				</div>
 			</div>
 
+			<!-- PREVIEW LIST OF DISCOVERED CHAPTERS -->
 			<div class="space-y-1.5">
 				<div
 					class="flex items-center justify-between px-1 text-[11px] font-semibold uppercase tracking-wider opacity-60"
 				>
-					<span>Discovered Chapters</span>
+					<span>{rows.length > 1 ? 'Discovered Folders' : 'Target Chapter'}</span>
 					<span>Page Count</span>
 				</div>
 				<div
@@ -233,7 +316,11 @@
 							class="flex items-center justify-between rounded-lg border border-black/[0.04] bg-white/70 px-2.5 py-1.5 text-xs dark:border-white/[0.04] dark:bg-white/[0.04]"
 						>
 							<div class="flex min-w-0 items-center gap-2">
-								<span class="font-mono text-[10px] font-bold opacity-40">#{idx + 1}</span>
+								<span
+									class="flex h-5 w-5 shrink-0 items-center justify-center rounded bg-black/5 font-mono text-[10px] font-bold opacity-60 dark:bg-white/10"
+								>
+									{idx + 1}
+								</span>
 								<span class="truncate font-medium">{row.title}</span>
 							</div>
 							<span class="shrink-0 font-mono text-[11px] font-medium opacity-70"
@@ -397,24 +484,36 @@
 				<AlertCircle size={26} />
 			</div>
 			<div>
-				<h3 class="text-sm font-bold">Import failed</h3>
+				<h3 class="text-sm font-bold">{isCancelled ? 'Import cancelled' : 'Import failed'}</h3>
 				<p class="mt-1 text-xs opacity-60">{errorMessage || 'An error occurred during import.'}</p>
+				{#if isCancelled && completedChapters > 0}
+					<p class="mt-1.5 text-xs text-[#4f7a64] dark:text-[#83b39a] font-medium">
+						{completedChapters} chapter{completedChapters === 1 ? '' : 's'} were imported before cancellation.
+					</p>
+				{/if}
 			</div>
 		</div>
 	{/if}
 
 	<!-- CONDITIONAL FOOTER -->
 	<svelte:fragment slot="footer">
-		{#if phase === 'confirm'}
-			<Button variant="secondary" on:click={close}>Cancel</Button>
-			<Button variant="primary" class="gap-1.5" on:click={runUpload}>
-				<Layers size={15} />
-				<span>Import as {rows.length} Chapters</span>
-			</Button>
+		{#if phase === 'scanning'}
+			<Button variant="secondary" on:click={cancelScan}>Cancel</Button>
+		{:else if phase === 'confirm'}
+			<div class="flex items-center justify-between w-full gap-2.5">
+				<Button variant="secondary" on:click={close}>Cancel</Button>
+				<Button variant="primary" class="gap-1.5" on:click={runUpload}>
+					<Layers size={15} />
+					<span>{rows.length > 1 ? `Import as ${rows.length} Chapters` : `Import ${totalImages} Pages`}</span>
+				</Button>
+			</div>
 		{:else if phase === 'uploading'}
-			<div class="flex items-center gap-2 text-xs opacity-60">
-				<Loader2 size={13} class="animate-spin" />
-				<span>Please keep this window open while files upload...</span>
+			<div class="flex items-center justify-between w-full gap-2.5">
+				<div class="flex items-center gap-2 text-xs opacity-60 min-w-0">
+					<Loader2 size={13} class="animate-spin shrink-0" />
+					<span class="truncate">Importing chapter {completedChapters + 1} of {rows.length}...</span>
+				</div>
+				<Button variant="secondary" on:click={cancelUpload}>Cancel</Button>
 			</div>
 		{:else if phase === 'done'}
 			<Button variant="primary" on:click={close}>Done</Button>

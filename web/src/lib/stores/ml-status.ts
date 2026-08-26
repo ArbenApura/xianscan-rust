@@ -16,6 +16,8 @@ export interface MLStatusState {
 	loading: boolean;
 	lastChecked: number | null;
 	error: string | null;
+	version: string | null;
+	webBuildHash: string | null;
 }
 
 const initialState: MLStatusState = {
@@ -30,6 +32,8 @@ const initialState: MLStatusState = {
 	loading: true,
 	lastChecked: null,
 	error: null,
+	version: null,
+	webBuildHash: null,
 };
 
 function createMLStatusStore() {
@@ -64,13 +68,15 @@ function createMLStatusStore() {
 				deviceLabel: data.device_label || (isOnline ? 'Online' : 'Offline'),
 				activeProvider: data.active_provider || 'None',
 				hasCuda: Boolean(data.has_cuda),
-				hasDirectMl: Boolean(data.has_directml),
+				hasDirectMl: Boolean(data.has_directml_raw ?? data.has_directml),
 				hasCoreMl: Boolean(data.has_coreml),
 				hasDedicatedGpu: Boolean(data.has_dedicated_gpu),
 				gpuWarning: data.gpu_warning || null,
 				loading: false,
 				lastChecked: Date.now(),
 				error: data.error || null,
+				version: data.version || null,
+				webBuildHash: data.web_build_hash || null,
 			});
 		} catch (err: any) {
 			update((s) => ({

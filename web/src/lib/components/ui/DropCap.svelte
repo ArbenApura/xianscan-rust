@@ -17,7 +17,7 @@
 <!-- NOT aria-hidden: IT CARRIES THE REAL FIRST LETTER, SO SCREEN READERS STILL READ THE FULL WORD. -->
 <span
 	class={cn(
-		"float-left mr-2 mt-1.5 font-['Literata'] text-[3.25rem] font-bold leading-[0.78] text-[#b23a2e]",
+		'float-left mr-2 mt-1.5 text-[3.25rem] font-bold leading-[0.78] text-[#b23a2e]',
 		className,
 	)}>{letter}</span
 >

@@ -133,7 +133,12 @@ pub fn horizontal_paragraph_to_line_strips(crop: &DynamicImage) -> Vec<(Vec<[i32
     }
 
     // 2. DETECT CONTINUOUS TEXT BANDS
-    let min_ink_threshold = ((w as f32 * 0.04).round() as u32).max(2);
+    let min_ink_threshold = if is_dark_bg {
+        ((w as f32 * 0.02).round() as u32).max(1)
+    } else {
+        ((w as f32 * 0.04).round() as u32).max(2)
+    };
+    let min_band_h = if is_dark_bg { 7 } else { 10 };
     let mut in_band = false;
     let mut band_start = 0_u32;
     let mut raw_bands = Vec::new();
@@ -146,14 +151,14 @@ pub fn horizontal_paragraph_to_line_strips(crop: &DynamicImage) -> Vec<(Vec<[i32
         } else if !has_ink && in_band {
             in_band = false;
             let band_h = y - band_start;
-            if band_h >= 10 {
+            if band_h >= min_band_h {
                 raw_bands.push((band_start, y));
             }
         }
     }
     if in_band {
         let band_h = h - band_start;
-        if band_h >= 10 {
+        if band_h >= min_band_h {
             raw_bands.push((band_start, h));
         }
     }

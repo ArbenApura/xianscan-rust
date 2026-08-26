@@ -94,6 +94,11 @@ export interface HardwareStatus {
 	gpu_warning?: string | null;
 	cuda_vram_limit_mb?: number | null;
 	configured_cuda_vram_limit_mb?: number | null;
+	reloading?: boolean;
+	version?: string;
+	app_version?: string;
+	web_build_hash?: string;
+	web_build_time?: string;
 }
 
 export interface GpuTelemetry {

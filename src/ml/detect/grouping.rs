@@ -59,7 +59,9 @@ pub fn deduplicate_boxes(
             }
 
             // CHECK IF KEPT BOX ALREADY ENCLOSES CURRENT CANDIDATE BOX
-            let is_kbox_container = (kh >= 1.25 * h) || (kw >= 1.25 * w && iy >= 0.70 * h);
+            let is_kbox_vert_container = kh >= 1.25 * h;
+            let is_kbox_horiz_container = kw >= 1.25 * w && iy >= 0.70 * h && iy >= 0.70 * kh;
+            let is_kbox_container = is_kbox_vert_container || is_kbox_horiz_container;
             if is_kbox_container && karea >= 1.25 * box_area && inter >= 0.70 * box_area && (ix >= 0.70 * w) && (iy >= 0.70 * h) {
                 // EXCEPTION: IF KEPT BOX IS A GIANT COVER TITLE / BANNER (KW >= 350PX) AND CURRENT CANDIDATE IS A SMALL CHAPTER SUBTITLE (H <= 35PX),
                 // DO NOT SUPPRESS THE DISTINCT CHAPTER SUBTITLE!

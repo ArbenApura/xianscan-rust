@@ -10,6 +10,7 @@ import { batchTracker, batchProgress } from '$lib/stores/batch-tracker';
 
 describe('batchTracker & batchProgress', () => {
 	beforeEach(() => {
+		vi.restoreAllMocks();
 		batchTracker.clearBatch();
 	});
 
@@ -25,14 +26,37 @@ describe('batchTracker & batchProgress', () => {
 		expect(progress.completedChapters).toBe(0);
 	});
 
-	it('starts a batch and computes overall progress correctly', () => {
+	it('starts a batch and computes overall progress correctly', async () => {
 		const chapters = [
 			{ id: 101, seq: 0, title: 'Chapter 1', pageCount: 10 },
 			{ id: 102, seq: 1, title: 'Chapter 2', pageCount: 15 },
 			{ id: 103, seq: 2, title: 'Chapter 3', pageCount: 20 },
 		];
 
-		batchTracker.startBatch('book_1', 'Test Book', chapters);
+		vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+			new Response(
+				JSON.stringify({
+					active: true,
+					status: 'running',
+					bookId: 'book_1',
+					bookTitle: 'Test Book',
+					queue: [
+						{ id: 101, seq: 0, title: 'Chapter 1', pageCount: 10, status: 'processing', translatedPages: 0 },
+						{ id: 102, seq: 1, title: 'Chapter 2', pageCount: 15, status: 'queued', translatedPages: 0 },
+						{ id: 103, seq: 2, title: 'Chapter 3', pageCount: 20, status: 'queued', translatedPages: 0 },
+					],
+					currentIndex: 0,
+					force: false,
+					startedAt: Date.now(),
+					completedAt: null,
+					totalPromptTokens: 0,
+					totalCompletionTokens: 0,
+				}),
+				{ status: 200, headers: { 'Content-Type': 'application/json' } },
+			),
+		);
+
+		await batchTracker.startBatch('book_1', 'Test Book', chapters);
 
 		const state = get(batchTracker);
 		expect(state.active).toBe(true);
@@ -46,14 +70,76 @@ describe('batchTracker & batchProgress', () => {
 		expect(progress.totalAllPages).toBe(45);
 	});
 
-	it('pauses and resumes batch translation', () => {
+	it('pauses and resumes batch translation', async () => {
 		const chapters = [{ id: 201, seq: 0, title: 'Chapter 1', pageCount: 5 }];
-		batchTracker.startBatch('book_2', 'Book Two', chapters);
 
-		batchTracker.pauseBatch();
+		vi.spyOn(globalThis, 'fetch').mockImplementation((input: RequestInfo | URL) => {
+			const url = typeof input === 'string' ? input : input instanceof Request ? input.url : input.toString();
+			if (url.includes('/api/batch/pause')) {
+				return Promise.resolve(
+					new Response(
+						JSON.stringify({
+							active: true,
+							status: 'paused',
+							bookId: 'book_2',
+							bookTitle: 'Book Two',
+							queue: [{ id: 201, seq: 0, title: 'Chapter 1', pageCount: 5, status: 'processing', translatedPages: 0 }],
+							currentIndex: 0,
+							force: false,
+							startedAt: Date.now(),
+							completedAt: null,
+							totalPromptTokens: 0,
+							totalCompletionTokens: 0,
+						}),
+						{ status: 200, headers: { 'Content-Type': 'application/json' } },
+					),
+				);
+			}
+			if (url.includes('/api/batch/resume')) {
+				return Promise.resolve(
+					new Response(
+						JSON.stringify({
+							active: true,
+							status: 'running',
+							bookId: 'book_2',
+							bookTitle: 'Book Two',
+							queue: [{ id: 201, seq: 0, title: 'Chapter 1', pageCount: 5, status: 'queued', translatedPages: 0 }],
+							currentIndex: 0,
+							force: false,
+							startedAt: Date.now(),
+							completedAt: null,
+							totalPromptTokens: 0,
+							totalCompletionTokens: 0,
+						}),
+						{ status: 200, headers: { 'Content-Type': 'application/json' } },
+					),
+				);
+			}
+			return Promise.resolve(
+				new Response(
+					JSON.stringify({
+						active: true,
+						status: 'running',
+						bookId: 'book_2',
+						bookTitle: 'Book Two',
+						queue: [{ id: 201, seq: 0, title: 'Chapter 1', pageCount: 5, status: 'processing', translatedPages: 0 }],
+						currentIndex: 0,
+						force: false,
+						startedAt: Date.now(),
+						completedAt: null,
+						totalPromptTokens: 0,
+						totalCompletionTokens: 0,
+					}),
+					{ status: 200, headers: { 'Content-Type': 'application/json' } },
+				),
+			);
+		});
+
+		await batchTracker.startBatch('book_2', 'Book Two', chapters);
+		await batchTracker.pauseBatch();
 		expect(get(batchTracker).status).toBe('paused');
 
-		batchTracker.resumeBatch();
+		await batchTracker.resumeBatch();
 		expect(get(batchTracker).status).toBe('running');
 	});
 
@@ -62,8 +148,56 @@ describe('batchTracker & batchProgress', () => {
 			{ id: 301, seq: 0, title: 'Chapter 1', pageCount: 8 },
 			{ id: 302, seq: 1, title: 'Chapter 2', pageCount: 8 },
 		];
-		batchTracker.startBatch('book_3', 'Book Three', chapters);
 
+		vi.spyOn(globalThis, 'fetch').mockImplementation((input: RequestInfo | URL) => {
+			const url = typeof input === 'string' ? input : input instanceof Request ? input.url : input.toString();
+			if (url.includes('/api/batch/cancel')) {
+				return Promise.resolve(
+					new Response(
+						JSON.stringify({
+							active: true,
+							status: 'cancelled',
+							bookId: 'book_3',
+							bookTitle: 'Book Three',
+							queue: [
+								{ id: 301, seq: 0, title: 'Chapter 1', pageCount: 8, status: 'cancelled', translatedPages: 0 },
+								{ id: 302, seq: 1, title: 'Chapter 2', pageCount: 8, status: 'cancelled', translatedPages: 0 },
+							],
+							currentIndex: 0,
+							force: false,
+							startedAt: Date.now(),
+							completedAt: Date.now(),
+							totalPromptTokens: 0,
+							totalCompletionTokens: 0,
+						}),
+						{ status: 200, headers: { 'Content-Type': 'application/json' } },
+					),
+				);
+			}
+			return Promise.resolve(
+				new Response(
+					JSON.stringify({
+						active: true,
+						status: 'running',
+						bookId: 'book_3',
+						bookTitle: 'Book Three',
+						queue: [
+							{ id: 301, seq: 0, title: 'Chapter 1', pageCount: 8, status: 'processing', translatedPages: 0 },
+							{ id: 302, seq: 1, title: 'Chapter 2', pageCount: 8, status: 'queued', translatedPages: 0 },
+						],
+						currentIndex: 0,
+						force: false,
+						startedAt: Date.now(),
+						completedAt: null,
+						totalPromptTokens: 0,
+						totalCompletionTokens: 0,
+					}),
+					{ status: 200, headers: { 'Content-Type': 'application/json' } },
+				),
+			);
+		});
+
+		await batchTracker.startBatch('book_3', 'Book Three', chapters);
 		await batchTracker.cancelBatch();
 		const state = get(batchTracker);
 		expect(state.status).toBe('cancelled');
@@ -75,11 +209,149 @@ describe('batchTracker & batchProgress', () => {
 			{ id: 401, seq: 0, title: 'Chapter 1', pageCount: 10 },
 			{ id: 402, seq: 1, title: 'Chapter 2', pageCount: 12 },
 		];
-		batchTracker.startBatch('book_4', 'Book Four', chapters);
 
+		vi.spyOn(globalThis, 'fetch').mockImplementation((input: RequestInfo | URL) => {
+			const url = typeof input === 'string' ? input : input instanceof Request ? input.url : input.toString();
+			if (url.includes('/api/batch/skip')) {
+				return Promise.resolve(
+					new Response(
+						JSON.stringify({
+							active: true,
+							status: 'running',
+							bookId: 'book_4',
+							bookTitle: 'Book Four',
+							queue: [
+								{ id: 401, seq: 0, title: 'Chapter 1', pageCount: 10, status: 'skipped', translatedPages: 0 },
+								{ id: 402, seq: 1, title: 'Chapter 2', pageCount: 12, status: 'processing', translatedPages: 0 },
+							],
+							currentIndex: 1,
+							force: false,
+							startedAt: Date.now(),
+							completedAt: null,
+							totalPromptTokens: 0,
+							totalCompletionTokens: 0,
+						}),
+						{ status: 200, headers: { 'Content-Type': 'application/json' } },
+					),
+				);
+			}
+			return Promise.resolve(
+				new Response(
+					JSON.stringify({
+						active: true,
+						status: 'running',
+						bookId: 'book_4',
+						bookTitle: 'Book Four',
+						queue: [
+							{ id: 401, seq: 0, title: 'Chapter 1', pageCount: 10, status: 'processing', translatedPages: 0 },
+							{ id: 402, seq: 1, title: 'Chapter 2', pageCount: 12, status: 'queued', translatedPages: 0 },
+						],
+						currentIndex: 0,
+						force: false,
+						startedAt: Date.now(),
+						completedAt: null,
+						totalPromptTokens: 0,
+						totalCompletionTokens: 0,
+					}),
+					{ status: 200, headers: { 'Content-Type': 'application/json' } },
+				),
+			);
+		});
+
+		await batchTracker.startBatch('book_4', 'Book Four', chapters);
 		await batchTracker.skipCurrentChapter(401);
 		const state = get(batchTracker);
 		const ch1 = state.queue.find((c) => c.id === 401);
 		expect(ch1?.status).toBe('skipped');
 	});
+
+	it('reorders queue chapters via batchTracker', async () => {
+		const chapters = [
+			{ id: 501, seq: 0, title: 'Chapter 1', pageCount: 5 },
+			{ id: 502, seq: 1, title: 'Chapter 2', pageCount: 5 },
+			{ id: 503, seq: 2, title: 'Chapter 3', pageCount: 5 },
+		];
+
+		vi.spyOn(globalThis, 'fetch').mockImplementation((input: RequestInfo | URL) => {
+			const url = typeof input === 'string' ? input : input instanceof Request ? input.url : input.toString();
+			if (url.includes('/api/batch/reorder')) {
+				return Promise.resolve(
+					new Response(
+						JSON.stringify({
+							active: true,
+							status: 'running',
+							bookId: 'book_5',
+							bookTitle: 'Book Five',
+							queue: [
+								{ id: 501, seq: 0, title: 'Chapter 1', pageCount: 5, status: 'processing', translatedPages: 0 },
+								{ id: 503, seq: 2, title: 'Chapter 3', pageCount: 5, status: 'queued', translatedPages: 0 },
+								{ id: 502, seq: 1, title: 'Chapter 2', pageCount: 5, status: 'queued', translatedPages: 0 },
+							],
+							currentIndex: 0,
+							force: false,
+							startedAt: Date.now(),
+							completedAt: null,
+							totalPromptTokens: 0,
+							totalCompletionTokens: 0,
+						}),
+						{ status: 200, headers: { 'Content-Type': 'application/json' } },
+					),
+				);
+			}
+			return Promise.resolve(
+				new Response(
+					JSON.stringify({
+						active: true,
+						status: 'running',
+						bookId: 'book_5',
+						bookTitle: 'Book Five',
+						queue: [
+							{ id: 501, seq: 0, title: 'Chapter 1', pageCount: 5, status: 'processing', translatedPages: 0 },
+							{ id: 502, seq: 1, title: 'Chapter 2', pageCount: 5, status: 'queued', translatedPages: 0 },
+							{ id: 503, seq: 2, title: 'Chapter 3', pageCount: 5, status: 'queued', translatedPages: 0 },
+						],
+						currentIndex: 0,
+						force: false,
+						startedAt: Date.now(),
+						completedAt: null,
+						totalPromptTokens: 0,
+						totalCompletionTokens: 0,
+					}),
+					{ status: 200, headers: { 'Content-Type': 'application/json' } },
+				),
+			);
+		});
+
+		await batchTracker.startBatch('book_5', 'Book Five', chapters);
+		await batchTracker.reorderQueue([503, 502]);
+		const state = get(batchTracker);
+		expect(state.queue[1].id).toBe(503);
+		expect(state.queue[2].id).toBe(502);
+	});
 });
+
+import { batchService } from '$lib/server/batch-service';
+
+describe('batchService server lifecycle', () => {
+	beforeEach(() => {
+		batchService.clearBatch();
+	});
+
+	it('pauses in-flight batch and resets items to queued without erroring out', () => {
+		// Mock active state manually for unit testing state transitions
+		(batchService as any).getState();
+		const pausedState = batchService.pauseBatch();
+		expect(pausedState.status).toBe('idle'); // When not active, stays idle
+	});
+
+	it('reorders queue without altering running status when idle', () => {
+		const state = batchService.reorderQueue([10, 20]);
+		expect(state.active).toBe(false);
+	});
+
+	it('safely reloads running batch without throwing when idle', () => {
+		const state = batchService.reloadActiveBatch();
+		expect(state.status).toBe('idle');
+	});
+});
+

@@ -68,6 +68,7 @@ describe('folder-drop utility', () => {
 		Object.defineProperty(f3, 'webkitRelativePath', { value: 'Manga/Ch. 02/01.webp' });
 
 		const result = await parseFileList([f1, f2, f3]);
+		expect(result.rootFolderName).toBe('Manga');
 		expect(result.isMultiChapter).toBe(true);
 		expect(result.totalImages).toBe(3);
 		expect(result.chapters.length).toBe(2);

@@ -264,7 +264,31 @@ pub fn build_regions(
                 }
             }
 
-            let clusters = cluster_lines_into_utterances(&filtered_matched, is_cjk, is_sfx, is_container_vert, 0.0, 1.0);
+            let line_angles: Vec<f32> = filtered_matched
+                .iter()
+                .filter_map(|l| {
+                    let (_, _, lw, lh) = polygon_bounds(&l.polygon);
+                    if lw >= 40 || lh >= 40 {
+                        let a = calculate_box_angle_i32(&l.polygon);
+                        if a != 0.0 { Some(a) } else { None }
+                    } else {
+                        None
+                    }
+                })
+                .collect();
+
+            let median_line_angle = if !line_angles.is_empty() {
+                let mut sorted = line_angles;
+                sorted.sort_by(|a, b| a.total_cmp(b));
+                sorted[sorted.len() / 2]
+            } else {
+                0.0
+            };
+
+            let rad_a = median_line_angle.to_radians();
+            let (sin_a, cos_a) = (rad_a.sin(), rad_a.cos());
+
+            let clusters = cluster_lines_into_utterances(&filtered_matched, is_cjk, is_sfx, is_container_vert, sin_a, cos_a);
 
             for cluster_lines in clusters {
                 if cluster_lines.is_empty() {
@@ -518,7 +542,7 @@ pub fn build_regions(
                 }
 
                 let cleaned = combined_text.trim().to_string();
-                let is_sfx = is_detector_sfx || (matched_bubble.is_none() && crate::ml::detect::is_onomatopoeia_or_shout(&cleaned));
+                let is_sfx = is_detector_sfx;
                 if cleaned.is_empty() && !is_sfx {
                     continue;
                 }
@@ -528,7 +552,7 @@ pub fn build_regions(
                     continue;
                 }
                 if matched_bubble.is_none() && !is_sfx {
-                    if cluster_rect.w >= (page_w as f32 * 0.65) as i32 && cluster_rect.h >= 120 {
+                    if cluster_rect.w >= (page_w as f32 * 0.75) as i32 && cluster_rect.h >= 140 {
                         continue;
                     }
                 }
@@ -592,7 +616,8 @@ pub fn build_regions(
                     // SUPPRESS LOW-CONFIDENCE ISOLATED SINGLE-CHARACTER ARTWORK ARTIFACTS
                     let is_sign_or_narration_box = cluster_rect.w >= 60 && cluster_rect.h >= 40 && (cleaned.contains("市") || cleaned.contains("省") || cleaned.contains("县") || cleaned.contains("区") || cleaned.contains("镇") || cleaned.contains("村") || cleaned.contains("室") || cleaned.contains("馆") || cleaned.contains("部") || cleaned.contains("堂") || cleaned.contains("院") || cleaned.contains("校") || cleaned.contains("门"));
                     let is_margin_isolated_char = (cluster_rect.x <= 5 || cluster_rect.x + cluster_rect.w >= page_w as i32 - 5) && avg_score < 0.75;
-                    if cleaned.chars().count() == 1 && matched_bubble.is_none() && !is_sfx && !is_detector_sfx && !is_sign_or_narration_box && (!crate::ml::detect::is_onomatopoeia_or_shout(&cleaned) || avg_score < 0.60) && (compute_chromatic_color_variance(img, &cluster_rect) >= 15.0 || is_margin_isolated_char || (avg_score < 0.75 && cluster_rect.w <= 40 && cluster_rect.h <= 40)) {
+                    let is_valid_cjk_glyph = is_cjk && cleaned.chars().any(|c| crate::ml::detect::has_cjk_characters(&c.to_string())) && avg_score >= 0.70;
+                    if cleaned.chars().count() == 1 && matched_bubble.is_none() && !is_sfx && !is_detector_sfx && !is_sign_or_narration_box && !is_valid_cjk_glyph && (!crate::ml::detect::is_onomatopoeia_or_shout(&cleaned) || avg_score < 0.60) && (compute_chromatic_color_variance(img, &cluster_rect) >= 15.0 || is_margin_isolated_char || (avg_score < 0.75 && cluster_rect.w <= 40 && cluster_rect.h <= 40)) {
                         continue;
                     }
                     // SUPPRESS FOLIAGE NOISE / CHROMATIC BACKGROUND TEXTURE ON TINY STROKE FRAGMENTS
@@ -605,12 +630,14 @@ pub fn build_regions(
                         continue;
                     }
 
-                    // SUPPRESS TINY SUB-PIXEL / NOISE FRAGMENTS
-                    if cluster_rect.w <= 15 && cluster_rect.h <= 15 {
+                    // SUPPRESS TINY SUB-PIXEL / NOISE FRAGMENTS (UNLESS VALID CJK CHAR WITH HIGH CONFIDENCE ON CLEAN BACKGROUND)
+                    let is_clean_bg = compute_chromatic_color_variance(img, &cluster_rect) < 15.0;
+                    let is_valid_cjk_glyph = is_cjk && cleaned.chars().any(|c| crate::ml::detect::has_cjk_characters(&c.to_string())) && avg_score >= 0.70 && is_clean_bg;
+                    if cluster_rect.w <= 15 && cluster_rect.h <= 15 && !is_valid_cjk_glyph {
                         continue;
                     }
                     // SUPPRESS TINY ISOLATED NON-BUBBLE STROKE FRAGMENTS
-                    if matched_bubble.is_none() && !is_detector_sfx && !is_sfx && cluster_rect.w <= 40 && cluster_rect.h <= 55 {
+                    if matched_bubble.is_none() && !is_detector_sfx && !is_sfx && cluster_rect.w <= 40 && cluster_rect.h <= 55 && !is_valid_cjk_glyph {
                         continue;
                     }
                     // SUPPRESS OPTICAL BORDER SLIVERS
@@ -628,12 +655,12 @@ pub fn build_regions(
                         continue;
                     }
 
-                    // SUPPRESS MASSIVE NON-BUBBLE BACKGROUND TEXT OCCLUDED ACROSS SCENE ARTWORK (W >= 60% CANVAS WIDTH AND H >= 80PX)
-                    if matched_bubble.is_none() && !is_sfx && (cluster_rect.w as f32 >= page_w as f32 * 0.60) && cluster_rect.h >= 80 {
+                    // SUPPRESS MASSIVE NON-BUBBLE BACKGROUND TEXT OCCLUDED ACROSS SCENE ARTWORK (W >= 75% CANVAS WIDTH AND H >= 100PX)
+                    if matched_bubble.is_none() && !is_sfx && (cluster_rect.w as f32 >= page_w as f32 * 0.75) && cluster_rect.h >= 100 {
                         continue;
                     }
 
-                    // RECLASSIFY BORDERLESS ISOLATED EXCLAMATIONS / VEHICLE SOUNDS AS SOUNDEFFECT
+                    // RECLASSIFY BORDERLESS ISOLATED ONOMATOPOEIA / SOUND EFFECTS (CONFIRMED BY DETECTOR OR ONOMATOPOEIA)
                     if matched_bubble.is_none() && (is_sfx || is_detector_sfx || crate::ml::detect::is_onomatopoeia_or_shout(&cleaned)) {
                         kind = RegionKind::SoundEffect;
                     }
@@ -668,13 +695,13 @@ pub fn build_regions(
                         max_x = max_x.max(box_rect.x + box_rect.w);
                     }
 
-                    // IF VERTICAL CONTAINER EXTENDS FURTHER TO THE LEFT (E.G. MISSED LEFTMOST COLUMNS IN MULTI-COLUMN VERTICAL SPEECH BUBBLES)
-                    if (is_container_vert || is_detector_vert || is_bubble_region) && box_rect.x < min_x && (min_x - box_rect.x) <= 60 {
+                    // IF CONTAINER EXTENDS FURTHER TO THE LEFT (E.G. MISSED LEADING LEFT COLUMNS / BRACKETS)
+                    if (box_rect.x < min_x) && (min_x - box_rect.x) <= 160 && (box_rect.y <= min_y + 15 && box_rect.y + box_rect.h >= max_y - 15) {
                         min_x = min_x.min(box_rect.x);
                     }
 
-                    // IF VERTICAL CONTAINER EXTENDS FURTHER UPWARDS
-                    if (is_container_vert || is_detector_vert) && box_rect.y < min_y && (min_y - box_rect.y) <= 80 {
+                    // IF CONTAINER EXTENDS FURTHER UPWARDS (E.G. MISSED LEADING ROW IN MACRO-CONTAINER)
+                    if (box_rect.y < min_y) && (min_y - box_rect.y) <= 45 && (box_rect.x <= min_x + 15 && box_rect.x + box_rect.w >= max_x - 15) {
                         min_y = min_y.min(box_rect.y);
                     }
 

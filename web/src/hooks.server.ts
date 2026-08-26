@@ -11,6 +11,7 @@ import {
 	INPUT_FONT_STACKS,
 	type AppFont,
 } from '$lib/stores/settings';
+import { getCanonicalSettings } from '$lib/server/settings-service';
 
 // -- TYPES -- //
 
@@ -74,10 +75,16 @@ const loggingHandle: Handle = async ({ event, resolve }) => {
 
 // PRE-RENDER THE SAVED THEME & FONT ONTO <html> FROM COOKIES SO THERE'S ZERO FLASH ON LOAD
 const themeHandle: Handle = async ({ event, resolve }) => {
-	const theme = event.cookies.get(THEME_COOKIE) ?? 'sepia';
-	const font = (event.cookies.get(FONT_COOKIE) as AppFont) ?? 'comic';
-	const isDark = DARK.includes(theme);
-	const bg = (THEME_BG as Record<string, string>)[theme] ?? THEME_BG.sepia;
+	const themeCookie = event.cookies.get(THEME_COOKIE);
+	const fontCookie = event.cookies.get(FONT_COOKIE) as AppFont;
+	const canonical = getCanonicalSettings();
+	const defaultTheme = canonical?.theme && Object.prototype.hasOwnProperty.call(THEME_BG, canonical.theme) ? canonical.theme : 'sepia';
+	const defaultFont = canonical?.appFont && Object.prototype.hasOwnProperty.call(FONT_STACKS, canonical.appFont) ? canonical.appFont : 'comic';
+
+	const theme = themeCookie && Object.prototype.hasOwnProperty.call(THEME_BG, themeCookie) ? themeCookie : defaultTheme;
+	const font = fontCookie && Object.prototype.hasOwnProperty.call(FONT_STACKS, fontCookie) ? fontCookie : defaultFont;
+	const isDark = theme === 'dark' || (theme === 'auto' && event.request.headers.get('sec-ch-prefers-color-scheme') === 'dark');
+	const bg = isDark ? THEME_BG.dark : (theme === 'sepia' ? THEME_BG.sepia : THEME_BG.light);
 	const fontStack = FONT_STACKS[font] ?? FONT_STACKS.comic;
 	const inputFontStack = INPUT_FONT_STACKS[font] ?? INPUT_FONT_STACKS.comic;
 	const htmlClass = isDark ? 'h-full dark' : 'h-full';

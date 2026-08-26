@@ -21,14 +21,24 @@ export async function apiFetch(path: string, init: RequestInit = {}): Promise<Re
 	return fetch(apiUrl(path), init);
 }
 
+export type ApiRequestInit = Omit<RequestInit, 'body'> & { body?: any };
+
 // CONVENIENCE WRAPPER OVER apiFetch FOR JSON ENDPOINTS — PARSES THE BODY, AND ON A NON-OK RESPONSE THROWS AN
 // Error CARRYING THE SERVER'S { message } (FALLING BACK TO fallbackMsg).
 export async function apiJson<T = unknown>(
 	path: string,
-	init: RequestInit = {},
+	init: ApiRequestInit = {},
 	fallbackMsg = 'Something went wrong. Try again.',
 ): Promise<T> {
-	const res = await apiFetch(path, init);
+	const headers = new Headers(init.headers);
+	let body = init.body;
+	if (body && typeof body === 'object' && !(body instanceof FormData) && !(body instanceof Blob) && !(body instanceof ArrayBuffer)) {
+		body = JSON.stringify(body);
+		if (!headers.has('content-type')) {
+			headers.set('content-type', 'application/json');
+		}
+	}
+	const res = await apiFetch(path, { ...init, headers, body });
 	const data = await res.json().catch(() => ({}) as Record<string, unknown>);
 	if (!res.ok) throw new Error((data as { message?: string }).message ?? fallbackMsg);
 	return data as T;

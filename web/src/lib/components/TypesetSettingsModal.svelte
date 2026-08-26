@@ -3,8 +3,10 @@
 	import { toast } from 'svelte-sonner';
 	// IMPORTED MODULES
 	import { ripple } from '$lib/actions/ripple';
+	import { cn } from '$lib/utils/cn';
 	import {
 		settings,
+		DEFAULTS,
 		AVAILABLE_TYPESET_FONTS,
 		AVAILABLE_CJK_FONTS,
 		SFX_AREA_PRESETS,
@@ -30,6 +32,7 @@
 	// IMPORTED UI COMPONENTS
 	import Modal from '$lib/components/ui/Modal.svelte';
 	import Button from '$lib/components/ui/Button.svelte';
+	import Switch from '$lib/components/ui/Switch.svelte';
 
 	// -- PROPS & EVENTS -- //
 	export let open = false;
@@ -208,21 +211,38 @@
 		toast.success(`Typeset layout expansion set to ${label}`);
 	}
 
+	$: isTypesettingModified =
+		($settings.typesetFont || 'CC Wild Words') !== DEFAULTS.typesetFont ||
+		($settings.typesetCjkFont || 'Friendly Sans') !== DEFAULTS.typesetCjkFont ||
+		Math.abs(($settings.typesetPadding || 0.05) - DEFAULTS.typesetPadding) >= 0.005 ||
+		($settings.typesetOutline || 'standard') !== DEFAULTS.typesetOutline ||
+		($settings.typesetContrast || 'auto') !== DEFAULTS.typesetContrast ||
+		($settings.typesetCasing || 'uppercase') !== DEFAULTS.typesetCasing ||
+		Boolean($settings.enableTextRotation) !== Boolean(DEFAULTS.enableTextRotation) ||
+		Boolean($settings.enableSfx) !== Boolean(DEFAULTS.enableSfx) ||
+		Math.abs(($settings.sfxMaxAreaPct ?? 0.10) - DEFAULTS.sfxMaxAreaPct) >= 0.005 ||
+		Math.abs(($settings.inpaintExpansionPct ?? 0.03) - DEFAULTS.inpaintExpansionPct) >= 0.005 ||
+		Math.abs(($settings.typesetExpansionPct ?? 0.06) - DEFAULTS.typesetExpansionPct) >= 0.005 ||
+		($settings.typesetPreviewPreset || 'en') !== (DEFAULTS.typesetPreviewPreset || 'en') ||
+		($settings.typesetPreviewText || '') !== (DEFAULTS.typesetPreviewText || '');
+
 	function resetTypesetDefaults() {
 		settings.update((s) => ({
 			...s,
-			typesetFont: 'CC Wild Words',
-			typesetCjkFont: 'Friendly Sans',
-			typesetPadding: 0.05,
-			typesetOutline: 'standard',
-			typesetContrast: 'auto',
-			typesetCasing: 'uppercase',
-			typesetAllCaps: true,
-			enableTextRotation: true,
-			enableSfx: false,
-			sfxMaxAreaPct: 0.30,
-			inpaintExpansionPct: 0.03,
-			typesetExpansionPct: 0.06,
+			typesetFont: DEFAULTS.typesetFont,
+			typesetCjkFont: DEFAULTS.typesetCjkFont,
+			typesetPadding: DEFAULTS.typesetPadding,
+			typesetOutline: DEFAULTS.typesetOutline,
+			typesetContrast: DEFAULTS.typesetContrast,
+			typesetCasing: DEFAULTS.typesetCasing,
+			typesetAllCaps: DEFAULTS.typesetAllCaps,
+			enableTextRotation: DEFAULTS.enableTextRotation,
+			enableSfx: DEFAULTS.enableSfx,
+			sfxMaxAreaPct: DEFAULTS.sfxMaxAreaPct,
+			inpaintExpansionPct: DEFAULTS.inpaintExpansionPct,
+			typesetExpansionPct: DEFAULTS.typesetExpansionPct,
+			typesetPreviewPreset: DEFAULTS.typesetPreviewPreset,
+			typesetPreviewText: DEFAULTS.typesetPreviewText,
 		}));
 		selectedPresetId = 'en';
 		previewSampleText = SAMPLE_TEXT_PRESETS[0].text;
@@ -576,21 +596,11 @@
 					<p class="text-[10px] opacity-60 mt-0.5 pl-0.5">Rotate rendered text along detected diagonal comic bubbles (±2° to ±45°)</p>
 				</div>
 
-				<button
-					type="button"
+				<Switch
+					checked={$settings.enableTextRotation}
 					on:click={toggleTextRotation}
-					class={`relative inline-flex h-5 w-10 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-hidden ${
-						$settings.enableTextRotation ? 'bg-[#b23a2e] dark:bg-[#e08a63]' : 'bg-black/20 dark:bg-white/20'
-					}`}
-					role="switch"
-					aria-checked={$settings.enableTextRotation}
-				>
-					<span
-						class={`pointer-events-none inline-block h-4 w-4 transform rounded-full bg-white shadow-sm ring-0 transition duration-200 ease-in-out ${
-							$settings.enableTextRotation ? 'translate-x-5' : 'translate-x-0'
-						}`}
-					></span>
-				</button>
+					ariaLabel="Follow Comic Bubble Tilt Angle"
+				/>
 			</div>
 
 			<!-- SOUND EFFECTS (SFX) INPAINTING & TYPESETTING TOGGLE -->
@@ -606,21 +616,11 @@
 						</p>
 					</div>
 
-					<button
-						type="button"
+					<Switch
+						checked={$settings.enableSfx}
 						on:click={toggleSfx}
-						class={`relative inline-flex h-5 w-10 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-hidden ${
-							$settings.enableSfx ? 'bg-[#b23a2e] dark:bg-[#e08a63]' : 'bg-black/20 dark:bg-white/20'
-						}`}
-						role="switch"
-						aria-checked={$settings.enableSfx}
-					>
-						<span
-							class={`pointer-events-none inline-block h-4 w-4 transform rounded-full bg-white shadow-sm ring-0 transition duration-200 ease-in-out ${
-								$settings.enableSfx ? 'translate-x-5' : 'translate-x-0'
-							}`}
-						></span>
-					</button>
+						ariaLabel="Sound Effects (SFX) Inpaint & Typeset"
+					/>
 				</div>
 
 				{#if $settings.enableSfx}
@@ -838,15 +838,19 @@
 
 		<!-- FOOTER ACTIONS -->
 		<div class="flex flex-col-reverse sm:flex-row items-stretch sm:items-center justify-between gap-3 border-t border-black/10 pt-4 dark:border-white/10">
-			<button
-				type="button"
-				on:click={resetTypesetDefaults}
-				class="inline-flex items-center justify-center gap-2 rounded-xl border border-black/10 px-4 py-2.5 text-sm font-semibold hover:bg-black/5 dark:border-white/10 dark:hover:bg-white/5 transition cursor-pointer shrink-0"
-				use:ripple
-			>
-				<RotateCcw size={15} />
-				<span>Reset Defaults</span>
-			</button>
+			<div class="w-full sm:w-auto">
+				{#if isTypesettingModified}
+					<button
+						type="button"
+						on:click={resetTypesetDefaults}
+						class="w-full sm:w-auto inline-flex items-center justify-center gap-2 rounded-xl border border-black/10 px-4 py-2.5 text-sm font-semibold hover:bg-black/5 dark:border-white/10 dark:hover:bg-white/5 transition cursor-pointer shrink-0"
+						use:ripple
+					>
+						<RotateCcw size={15} />
+						<span>Reset Defaults</span>
+					</button>
+				{/if}
+			</div>
 
 			<Button variant="primary" size="md" class="w-full sm:w-auto px-6 shrink-0" on:click={() => (open = false)}>
 				<span>Done</span>

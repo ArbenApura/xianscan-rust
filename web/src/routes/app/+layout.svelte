@@ -19,6 +19,7 @@
 	import Settings from 'lucide-svelte/icons/settings';
 	import Sun from 'lucide-svelte/icons/sun';
 	import Moon from 'lucide-svelte/icons/moon';
+	import SunMoon from 'lucide-svelte/icons/sun-moon';
 	import Coffee from 'lucide-svelte/icons/coffee';
 	import Cpu from 'lucide-svelte/icons/cpu';
 	import Info from 'lucide-svelte/icons/info';
@@ -80,6 +81,7 @@
 	}
 
 	const THEMES: { id: Theme; label: string; dot: string }[] = [
+		{ id: 'auto', label: 'Auto', dot: 'border-slate-400 bg-gradient-to-r from-[#fbfaf7] via-slate-400 to-[#13100c]' },
 		{ id: 'light', label: 'Light', dot: 'border-slate-300 bg-[#fbfaf7]' },
 		{ id: 'sepia', label: 'Sepia', dot: 'border-[#d4c3a3] bg-[#f4ecd8]' },
 		{ id: 'dark', label: 'Dark', dot: 'border-neutral-700 bg-[#13100c]' },
@@ -95,7 +97,7 @@
 
 	function cycleTheme() {
 		const currentIndex = THEME_ORDER.indexOf($settings.theme);
-		const nextIndex = (currentIndex + 1) % THEME_ORDER.length;
+		const nextIndex = currentIndex === -1 ? 0 : (currentIndex + 1) % THEME_ORDER.length;
 		setTheme(THEME_ORDER[nextIndex]);
 	}
 
@@ -107,7 +109,7 @@
 
 <svelte:window on:scroll={handleScroll} />
 
-<!-- APP SHELL — THEMED SURFACE + TOP NAV -->
+<!-- APP SHELL - THEMED SURFACE + TOP NAV -->
 <div class={THEME_CLASS[$settings.theme] + ' min-h-screen font-sans transition-colors duration-200'}>
 	<!-- TOP BAR -->
 	<header
@@ -173,41 +175,11 @@
 						<span class="hidden min-[750px]:inline">About</span>
 					</a>
 				</div>
-
-				<!-- LIVE BACKGROUND TRANSLATION ACTIVITY BADGES -->
-				{#if $batchProgress.active && ($batchProgress.status === 'running' || $batchProgress.status === 'paused')}
-					<div
-						class="flex items-center gap-1 sm:gap-1.5 rounded-full border border-[#b23a2e]/30 bg-[#b23a2e]/10 px-2 sm:px-2.5 py-0.5 sm:py-1 text-[11px] sm:text-xs font-bold text-[#b23a2e] dark:text-[#e08a63] shadow-xs shrink-0"
-						title={`Batch translating: ${$batchProgress.completedChapters}/${$batchProgress.totalChapters} chapters complete`}
-					>
-						{#if $batchProgress.status === 'running'}
-							<Loader2 size={12} class="animate-spin text-[#b23a2e] dark:text-[#e08a63]" />
-						{:else}
-							<span class="h-1.5 w-1.5 rounded-full bg-[#b23a2e] dark:bg-[#e08a63]"></span>
-						{/if}
-						<span class="hidden min-[750px]:inline">Batch</span>
-						<span class="font-mono text-[10px] sm:text-xs">({$batchProgress.completedChapters}/{$batchProgress.totalChapters} chs)</span>
-					</div>
-				{:else}
-					{#each $activeTranslatingChapters as activeJob}
-						{@const snap = activeJob.snapshot}
-						{@const total = snap?.totalPages || snap?.pages.length || 0}
-						{@const done = snap?.completedPages || 0}
-						<div
-							class="flex items-center gap-1 sm:gap-1.5 rounded-full border border-[#b23a2e]/30 bg-[#b23a2e]/10 px-2 sm:px-2.5 py-0.5 sm:py-1 text-[11px] sm:text-xs font-bold text-[#b23a2e] dark:text-[#e08a63] shadow-xs shrink-0"
-							title={`Translating chapter (${done}/${total} pages)`}
-						>
-							<Loader2 size={12} class="animate-spin text-[#b23a2e] dark:text-[#e08a63]" />
-							<span class="hidden min-[750px]:inline">Translating</span>
-							<span class="font-mono text-[10px] sm:text-xs">({done}/{total})</span>
-						</div>
-					{/each}
-				{/if}
 			</div>
 
 			<!-- RIGHT: ML SIDECAR STATUS, THEME TOGGLE & SETTINGS BUTTONS -->
 			<div class="flex items-center gap-1.5 sm:gap-2 shrink-0">
-				<!-- ML SIDECAR STATUS PILL (DESKTOP ONLY — ON MOBILE A STATUS DOT APPEARS ON SETTINGS) -->
+				<!-- ML SIDECAR STATUS PILL (DESKTOP ONLY - ON MOBILE A STATUS DOT APPEARS ON SETTINGS) -->
 				<button
 					type="button"
 					on:click={() => openSettings('compute')}
@@ -228,12 +200,12 @@
 				>
 					<Cpu size={15} class="opacity-85 shrink-0" />
 
-					<span class="hidden min-[850px]:inline font-mono text-[11px] font-bold tracking-tight px-0.5">
+					<span class="hidden min-[850px]:inline text-[11px] font-bold tracking-tight px-0.5">
 						{formatSidecarLabel($mlStatus)}
 					</span>
 				</button>
 
-				<!-- THEME QUICK TOGGLE BUTTON (DESKTOP ONLY — CONFIGURED IN SETTINGS ON MOBILE) -->
+				<!-- THEME QUICK TOGGLE BUTTON (DESKTOP ONLY - CONFIGURED IN SETTINGS ON MOBILE) -->
 				<button
 					type="button"
 					on:click={cycleTheme}
@@ -242,7 +214,9 @@
 					title={`Current theme: ${THEMES.find((item) => item.id === $settings.theme)?.label || $settings.theme}. Click to cycle themes.`}
 					use:ripple
 				>
-					{#if $settings.theme === 'light'}
+					{#if $settings.theme === 'auto'}
+						<SunMoon size={17} class="text-blue-500 dark:text-blue-400 transition-transform duration-300 hover:scale-110" />
+					{:else if $settings.theme === 'light'}
 						<Sun size={17} class="text-amber-500 transition-transform duration-300 hover:rotate-45" />
 					{:else if $settings.theme === 'sepia'}
 						<Coffee size={17} class="text-[#8c6b4f] transition-transform duration-300 hover:-rotate-12" />

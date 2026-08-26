@@ -97,6 +97,13 @@ export function compactChapterPageSeqs(chapterId: number): void {
 	}
 }
 
+export function markChapterResliceDirty(chapterId: number): void {
+	db.update(chapters)
+		.set({ resliced: false, reslicedAt: null })
+		.where(eq(chapters.id, chapterId))
+		.run();
+}
+
 export async function uploadPages(chapterId: number, files: File[]): Promise<number> {
 	let count = 0;
 	let seq = nextPageSeq(chapterId);
@@ -134,6 +141,7 @@ export async function uploadPages(chapterId: number, files: File[]): Promise<num
 		count++;
 	}
 	compactChapterPageSeqs(chapterId);
+	markChapterResliceDirty(chapterId);
 
 	const ch = db.select({ bookId: chapters.bookId }).from(chapters).where(eq(chapters.id, chapterId)).get();
 	if (ch) {
@@ -190,6 +198,7 @@ export function reorderPages(chapterId: number, pageIds: number[]): void {
 				.where(eq(pages.id, orderedIds[i]))
 				.run();
 		}
+		markChapterResliceDirty(chapterId);
 	});
 }
 
@@ -215,6 +224,7 @@ export function deletePage(pageId: number, dataRoot: string = DATA_ROOT): { chap
 
 	db.delete(pages).where(eq(pages.id, pageId)).run();
 	compactChapterPageSeqs(chapterId);
+	markChapterResliceDirty(chapterId);
 
 	return { chapterId, seq: deletedSeq };
 }
@@ -293,6 +303,8 @@ export function resetChapterProgress(chapterId: number, dataRoot: string = DATA_
 		.set({
 			status: 'pending',
 			translatedAt: null,
+			resliced: false,
+			reslicedAt: null,
 		})
 		.where(eq(chapters.id, chapterId))
 		.run();
@@ -332,7 +344,7 @@ export async function deleteAllChapterPages(
 		}
 		db.delete(pages).where(eq(pages.chapterId, chapterId)).run();
 		db.update(chapters)
-			.set({ status: 'pending', translatedAt: null })
+			.set({ status: 'pending', translatedAt: null, resliced: false, reslicedAt: null })
 			.where(eq(chapters.id, chapterId))
 			.run();
 	});

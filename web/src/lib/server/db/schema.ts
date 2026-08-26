@@ -70,6 +70,9 @@ export const chapters = sqliteTable(
 		titleTarget: text('title_target'),
 		// 'pending' | 'processing' | 'done' | 'error' — ROLLUP OF THE PAGES' STATES.
 		status: text('status', { enum: ['pending', 'processing', 'done', 'error'] }).notNull().default('pending'),
+		// WHEN THIS CHAPTER COMPLETED SMART RE-SLICING (NULL/FALSE = NOT RESLICED OR DIRTY)
+		resliced: integer('resliced', { mode: 'boolean' }).notNull().default(false),
+		reslicedAt: epochMs('resliced_at'),
 		// WHEN THIS CHAPTER WAS LAST TRANSLATED (NULL = NEVER) — GATES RE-BILLING.
 		translatedAt: epochMs('translated_at'),
 		createdAt: epochMs('created_at')
@@ -298,6 +301,39 @@ export const aiProviders = sqliteTable('ai_providers', {
 		.$defaultFn(() => Date.now()),
 });
 
+// CANONICAL SERVER SETTINGS STORED AS KEY-VALUE PAIRS IN SQLITE
+export const appSettings = sqliteTable('app_settings', {
+	key: text('key').primaryKey(),
+	value: text('value').notNull(),
+	updatedAt: epochMs('updated_at')
+		.notNull()
+		.$defaultFn(() => Date.now()),
+});
+
+// CROSS-DEVICE READING PROGRESS HISTORY PER BOOK
+export const readingHistory = sqliteTable(
+	'reading_history',
+	{
+		bookId: text('book_id')
+			.primaryKey()
+			.references(() => books.id, { onDelete: 'cascade' }),
+		chapterId: integer('chapter_id')
+			.notNull()
+			.references(() => chapters.id, { onDelete: 'cascade' }),
+		chapterSeq: integer('chapter_seq').notNull().default(0),
+		pageSeq: integer('page_seq').notNull().default(0),
+		totalPages: integer('total_pages').notNull().default(0),
+		completed: integer('completed', { mode: 'boolean' }).notNull().default(false),
+		updatedAt: epochMs('updated_at')
+			.notNull()
+			.$defaultFn(() => Date.now()),
+	},
+	(t) => ({
+		readingHistoryUpdatedIdx: index('reading_history_updated_idx').on(t.updatedAt),
+		readingHistoryChapterIdx: index('reading_history_chapter_idx').on(t.chapterId),
+	}),
+);
+
 // -- TYPES -- //
 
 export type Book = typeof books.$inferSelect;
@@ -327,3 +363,12 @@ export type AiUsage = typeof aiUsage.$inferSelect;
 export type AiProvider = typeof aiProviders.$inferSelect;
 
 export type NewAiProvider = typeof aiProviders.$inferInsert;
+
+export type AppSetting = typeof appSettings.$inferSelect;
+
+export type NewAppSetting = typeof appSettings.$inferInsert;
+
+export type ReadingHistoryEntry = typeof readingHistory.$inferSelect;
+
+export type NewReadingHistoryEntry = typeof readingHistory.$inferInsert;
+

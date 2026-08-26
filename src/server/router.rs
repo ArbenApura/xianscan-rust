@@ -126,8 +126,15 @@ pub fn create_router(state: AppState) -> Router {
 }
 
 async fn health_handler(State(state): State<AppState>) -> Json<serde_json::Value> {
-    let engine = state.engine.lock().unwrap();
     let hw = get_hardware_status();
+    let (detector, inpainter) = if let Ok(engine) = state.engine.try_lock() {
+        (
+            if let Some(ref d) = engine.detector { d.backend_name() } else { "rapidocr-fallback" },
+            if engine.inpainter.is_some() { "lama-onnx" } else { "unsupported" },
+        )
+    } else {
+        ("rapidocr", "lama-onnx")
+    };
 
     Json(serde_json::json!({
         "status": "ok",
@@ -137,8 +144,8 @@ async fn health_handler(State(state): State<AppState>) -> Json<serde_json::Value
         "web_build_time": crate::server::web_assets::WEB_BUILD_TIME,
         "accelerator": hw.device_label,
         "providers": hw.providers,
-        "detector": if let Some(ref d) = engine.detector { d.backend_name() } else { "rapidocr-fallback" },
-        "inpainter": if engine.inpainter.is_some() { "lama-onnx" } else { "unsupported" },
+        "detector": detector,
+        "inpainter": inpainter,
         "ocr": "rapidocr",
         "models_dir": "models"
     }))

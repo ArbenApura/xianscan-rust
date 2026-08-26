@@ -7,6 +7,7 @@
 	// IMPORTED MODULES
 	import '../app.css';
 	import { settings, THEME_CLASS, applyThemeClass, applyFontFamily } from '$lib/stores/settings';
+	import { readingHistory } from '$lib/stores/reading-history';
 	import type { LayoutData } from './$types';
 
 	export let data: LayoutData;
@@ -29,7 +30,15 @@
 		}
 	});
 
-	// SYNC STORE FROM SSR PREFERENCES (RUNS ON SERVER DURING SSR AND ON HYDRATION)
+	// HYDRATE CANONICAL DATABASE SETTINGS & READING PROGRESS
+	$: if (data?.canonicalSettings) {
+		settings.hydrateFromRemote(data.canonicalSettings);
+	}
+	$: if (data?.readingHistory) {
+		readingHistory.hydrateFromRemote(data.readingHistory);
+	}
+
+	// SYNC LOCAL STORE FROM SSR PREFERENCES (VIEWPORT MODES)
 	$: if (data?.preferences) {
 		settings.update((s) => ({
 			...s,
@@ -38,11 +47,6 @@
 			readerViewMode: data.preferences.readerViewMode ?? s.readerViewMode,
 			webtoonKind: data.preferences.webtoonKind ?? s.webtoonKind,
 			webtoonWidth: data.preferences.webtoonWidth ?? s.webtoonWidth,
-			inpaintMode: data.preferences.inpaintMode ?? s.inpaintMode,
-			executionDevice: data.preferences.executionDevice ?? s.executionDevice,
-			parallelProcesses: data.preferences.parallelProcesses ?? s.parallelProcesses,
-			parallelChapters: data.preferences.parallelChapters ?? s.parallelChapters,
-			resliceBeforeBatch: data.preferences.resliceBeforeBatch ?? s.resliceBeforeBatch,
 		}));
 	}
 

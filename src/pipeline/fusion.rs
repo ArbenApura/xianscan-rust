@@ -236,16 +236,16 @@ pub fn fuse_detections(
             let cb_area = (cb_w * cb_h).max(1);
 
             let is_cb_multiline = cb_h >= 45 && cb_w >= 45;
-            let has_internal_rapid_lines = rapid_lines.iter().any(|rl| {
+            let internal_rapid_lines_count = rapid_lines.iter().filter(|rl| {
                 let (rx, ry, rw, rh) = polygon_bounds(&rl.polygon);
                 let rc_x = rx + rw / 2;
                 let rc_y = ry + rh / 2;
                 let center_in = rc_x >= cb_x && rc_x <= cb_x + cb_w && rc_y >= cb_y && rc_y <= cb_y + cb_h;
                 let iou = box_iou_pts(cb, &rl.polygon);
                 (center_in || iou >= 0.20) && rl.score >= 0.72
-            });
+            }).count();
 
-            if is_cb_multiline && has_internal_rapid_lines {
+            if is_cb_multiline && internal_rapid_lines_count >= 2 {
                 ocr_det_matched[idx] = true;
                 continue;
             }
@@ -266,17 +266,17 @@ pub fn fuse_detections(
                 let is_aspect_compatible = is_cb_vert == is_rl_vert;
 
                 let is_multiline_cb = (cb_h as f32) >= (rh as f32 * 1.8);
-                if !is_multiline_cb && is_aspect_compatible && (iou >= 0.20 || rl_contained || cb_covered || crate::ml::geometry::line_center_inside_box(&rl.polygon, &cb_rect)) {
+                if is_aspect_compatible && (iou >= 0.20 || rl_contained || cb_covered || crate::ml::geometry::line_center_inside_box(&rl.polygon, &cb_rect)) {
                     ocr_det_matched[idx] = true;
 
-                    // IF COMIC TEXT DETECTOR BOX IS SIGNIFICANTLY WIDER OR TALLER THAN A SINGLE RAPID OCR LINE (E.G. ELLIPSIS TRUNCATED ON RIGHT OR VERTICAL SFX TRUNCATED)
-                    // OR IF THE MATCHED OCR LINE HAS LOW RECOGNITION CONFIDENCE / DEGENERATE SINGLE-CHAR OUTPUT (E.G. TEACUP HANDWRITING DETECTED AS "0")
+                    // IF COMIC TEXT DETECTOR BOX IS MULTI-LINE OR SIGNIFICANTLY WIDER/TALLER THAN A SINGLE RAPID OCR LINE (E.G. MISSED LEADING/TRAILING LINES OR ELLIPSIS TRUNCATED)
                     let is_wider = !is_rl_vert && (cb_w >= rw + 8 || (cb_w as f32) >= (rw as f32 * 1.10));
                     let is_taller = is_rl_vert && (cb_h >= rh + 10 || (cb_h as f32) >= (rh as f32 * 1.10));
+                    let is_missing_lines = is_multiline_cb && !is_rl_vert && (cb_h >= 45 && cb_w >= 45);
                     let is_low_conf_or_degenerate = rl.score < 0.65 || (rl.text.trim().chars().count() <= 1 && (rh >= 35 || rw >= 35));
-                    if is_wider || is_taller || is_low_conf_or_degenerate {
+                    if is_wider || is_taller || is_missing_lines || is_low_conf_or_degenerate {
                         let pad_x = if is_rl_vert { 16 } else { 15 };
-                        let pad_y = if is_rl_vert { 12 } else { 10 };
+                        let pad_y = if is_rl_vert { 12 } else { 15 };
                         let cx = (cb_x - pad_x).max(0) as u32;
                         let cy = (cb_y - pad_y).max(0) as u32;
                         let cw = ((cb_w + pad_x * 2) as u32).min(w - cx);

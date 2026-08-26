@@ -122,7 +122,7 @@
 </script>
 
 <svelte:head>
-	<title>{status} — {meta.title} | XianScan</title>
+	<title>{status} - {meta.title} | XianScan</title>
 </svelte:head>
 
 <div class="relative flex min-h-[calc(100vh-3.5rem)] flex-col items-center justify-center overflow-hidden px-4 py-12 text-center sm:px-6">

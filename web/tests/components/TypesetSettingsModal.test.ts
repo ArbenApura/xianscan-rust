@@ -26,8 +26,24 @@ describe('TypesetSettingsModal Component UI', () => {
 		});
 
 		expect(screen.getByText('Typesetting & Lettering Studio')).toBeTruthy();
-		expect(screen.getByText('Reset Defaults')).toBeTruthy();
 		expect(screen.getByText('Done')).toBeTruthy();
+
+		// Initially at defaults, Reset Defaults should not be visible
+		expect(screen.queryByText('Reset Defaults')).toBeNull();
+
+		// Modify a typesetting setting via UI button
+		const poppinsBtn = screen.getByText('Poppins').closest('button');
+		await fireEvent.click(poppinsBtn!);
+		await tick();
+
+		// Now Reset Defaults should appear
+		const resetBtn = screen.getByText('Reset Defaults');
+		expect(resetBtn).toBeTruthy();
+
+		// Clicking Reset Defaults returns to defaults and hides the button
+		await fireEvent.click(resetBtn);
+		await tick();
+		expect(screen.queryByText('Reset Defaults')).toBeNull();
 	});
 
 	it('switches preview presets and updates sample text', async () => {

@@ -12,7 +12,7 @@
 		ConfirmDialog,
 		ActionMenu,
 		LanguagePicker,
-		Toggle,
+		Switch,
 		LazyImage,
 		Checkbox,
 	} from '$lib/components/ui';
@@ -23,6 +23,7 @@
 	import { settings, THEME_POPOVER, THEME_PANEL_BORDER, CH_LAYOUT_COOKIE, setCookie } from '$lib/stores/settings';
 	import { jobTracker } from '$lib/stores/job-tracker';
 	import { batchTracker, batchProgress } from '$lib/stores/batch-tracker';
+	import type { Chapter } from '$lib/types';
 	import { cn } from '$lib/utils/cn';
 	import { fly, slide } from 'svelte/transition';
 	import { cubicOut } from 'svelte/easing';
@@ -58,6 +59,7 @@
 	import Upload from 'lucide-svelte/icons/upload';
 	import FolderUploadGuideModal from '$lib/components/book/FolderUploadGuideModal.svelte';
 	import FolderImportProgressModal from '$lib/components/book/FolderImportProgressModal.svelte';
+	import ChapterListItem from '$lib/components/chapter/ChapterListItem.svelte';
 	import ClearProgressModal from '$lib/components/book/ClearProgressModal.svelte';
 	import BookMetadataFields from '$lib/components/book/BookMetadataFields.svelte';
 	import BookCoverPicker from '$lib/components/book/BookCoverPicker.svelte';
@@ -88,19 +90,6 @@
 
 	type BookStatus = (typeof BOOK_STATUSES)[number];
 
-	interface Chapter {
-		id: number;
-		title: string;
-		titleTarget?: string | null;
-		seq: number;
-		status: 'pending' | 'processing' | 'done' | 'error';
-		pageCount: number;
-		translatedPageCount: number;
-		coverPageId?: number | null;
-		coverHasOutput?: boolean;
-		translatedAt?: number | null;
-	}
-
 	// -- STATES -- //
 
 	let book: Book | null = data.book;
@@ -108,11 +97,11 @@
 	let loading = false;
 	let chapterTitle = '';
 	let chapterTitleTarget = '';
+	let createModalOpen = false;
 	let creating = false;
 	let searchQuery = '';
 	let searchInputEl: HTMLInputElement;
-	let createModalOpen = false;
-	let sortAscending = true;
+	let sortAscending = (data as any)?.preferences?.chapterSortAsc !== undefined ? (data as any).preferences.chapterSortAsc : ($settings.chapterSortAsc !== undefined ? $settings.chapterSortAsc : true);
 	let sortMenuOpen = false;
 	let statusFilter: 'all' | 'done' | 'pending' | 'error' = 'all';
 
@@ -122,7 +111,14 @@
 	}
 
 	// VIEW LAYOUT MODES: 'grid' (Comfortable Cards) | 'list' (Media List Rows) | 'compact' (Dense Table Rows)
-	let viewLayout: 'grid' | 'list' | 'compact' = (data as any)?.preferences?.chapterLayout || 'grid';
+	let viewLayout: 'grid' | 'list' | 'compact' = (data as any)?.preferences?.chapterLayout || $settings.chapterLayout || 'grid';
+
+	$: if ($settings.chapterSortAsc !== undefined && $settings.chapterSortAsc !== sortAscending) {
+		sortAscending = $settings.chapterSortAsc;
+	}
+	$: if ($settings.chapterLayout && $settings.chapterLayout !== viewLayout) {
+		viewLayout = $settings.chapterLayout;
+	}
 
 	function handleGlobalKeydown(e: KeyboardEvent) {
 		if (
@@ -237,6 +233,13 @@
 		} catch {
 			// ignore
 		}
+		settings.update((s) => ({ ...s, chapterLayout: mode }));
+	}
+
+	function setSortAscending(asc: boolean) {
+		sortAscending = asc;
+		sortMenuOpen = false;
+		settings.update((s) => ({ ...s, chapterSortAsc: asc }));
 	}
 
 	// -- FUNCTIONS -- //
@@ -607,22 +610,8 @@
 		}
 	}
 
-	$: isBatchActiveForOtherBook = Boolean(
-		$batchTracker.active &&
-			($batchTracker.status === 'running' || $batchTracker.status === 'paused') &&
-			$batchTracker.bookId &&
-			book?.id &&
-			$batchTracker.bookId !== book.id,
-	);
-
 	function startBatchFromSelected(force = false) {
 		if (!book) return;
-		if (isBatchActiveForOtherBook) {
-			toast.warning(
-				`Batch translation is currently active for "${$batchTracker.bookTitle || 'another book'}". Please finish or stop it before starting another.`,
-			);
-			return;
-		}
 		const targetList = selectedChaptersList.length > 0 ? selectedChaptersList : pendingFilteredChapters;
 		if (targetList.length === 0) {
 			toast.info('No chapters with pages to translate.');
@@ -636,12 +625,6 @@
 
 	function startBatchAllPending() {
 		if (!book) return;
-		if (isBatchActiveForOtherBook) {
-			toast.warning(
-				`Batch translation is currently active for "${$batchTracker.bookTitle || 'another book'}". Please finish or stop it before starting another.`,
-			);
-			return;
-		}
 		const pending = chapters
 			.filter(
 				(c) =>
@@ -657,20 +640,110 @@
 		batchTracker.startBatch(book.id, book.titleTarget || book.title, pending, { force: false });
 	}
 
+	$: isBatchActiveForOtherBook = Boolean(
+		$batchTracker.active && $batchTracker.bookId && $batchTracker.bookId !== book?.id,
+	);
+
 	function getChapterLiveProgress(ch: Chapter) {
 		const currentBatchItem = $batchTracker.active ? $batchTracker.queue.find((q) => q.id === ch.id) : null;
 
-		if (currentBatchItem && currentBatchItem.status === 'reslicing') {
-			return {
-				isLive: true,
-				running: true,
-				phaseLabel: 'Smart Re-slicing...',
-				currentPhase: 'reslicing',
-				completedPages: 0,
-				totalPages: ch.pageCount,
-				percent: 0,
-				isComplete: false,
-			};
+		if (currentBatchItem) {
+			if (currentBatchItem.status === 'reslicing') {
+				return {
+					isLive: true,
+					running: true,
+					phaseLabel: 'Smart Re-slicing...',
+					currentPhase: 'reslicing',
+					completedPages: 0,
+					totalPages: ch.pageCount,
+					percent: 0,
+					isComplete: false,
+					isAlreadyQueued: true,
+					effectiveStatus: 'processing' as const,
+				};
+			}
+			if (currentBatchItem.status === 'queued') {
+				const done = currentBatchItem.translatedPages || ch.translatedPageCount || 0;
+				const total = ch.pageCount || 0;
+				return {
+					isLive: true,
+					running: false,
+					phaseLabel: 'Queued',
+					currentPhase: 'queued',
+					completedPages: done,
+					totalPages: total,
+					percent: total > 0 ? Math.round((done / total) * 100) : 0,
+					isComplete: false,
+					isAlreadyQueued: true,
+					effectiveStatus: 'pending' as const,
+				};
+			}
+			if (currentBatchItem.status === 'processing') {
+				const done = currentBatchItem.translatedPages || 0;
+				const total = currentBatchItem.totalPages || ch.pageCount || 0;
+				const percent = total > 0 ? Math.min(100, Math.round((done / total) * 100)) : 0;
+				return {
+					isLive: true,
+					running: true,
+					phaseLabel: 'Translating...',
+					currentPhase: 'phase3_typeset',
+					completedPages: done,
+					totalPages: total,
+					percent,
+					isComplete: false,
+					isAlreadyQueued: true,
+					effectiveStatus: 'processing' as const,
+				};
+			}
+			if (currentBatchItem.status === 'done') {
+				const total = currentBatchItem.totalPages || ch.pageCount || 0;
+				const done = currentBatchItem.translatedPages || total;
+				return {
+					isLive: true,
+					running: false,
+					phaseLabel: 'Done',
+					currentPhase: undefined,
+					completedPages: done,
+					totalPages: total,
+					percent: 100,
+					isComplete: true,
+					isAlreadyQueued: false,
+					effectiveStatus: 'done' as const,
+				};
+			}
+			if (currentBatchItem.status === 'error') {
+				const done = currentBatchItem.translatedPages || ch.translatedPageCount || 0;
+				const total = ch.pageCount || 0;
+				return {
+					isLive: true,
+					running: false,
+					phaseLabel: 'Error',
+					currentPhase: undefined,
+					completedPages: done,
+					totalPages: total,
+					percent: total > 0 ? Math.round((done / total) * 100) : 0,
+					isComplete: false,
+					isAlreadyQueued: false,
+					effectiveStatus: 'error' as const,
+				};
+			}
+			if (currentBatchItem.status === 'cancelled' || currentBatchItem.status === 'skipped') {
+				const done = currentBatchItem.translatedPages || ch.translatedPageCount || 0;
+				const total = ch.pageCount || 0;
+				const isComplete = total > 0 && done === total;
+				return {
+					isLive: true,
+					running: false,
+					phaseLabel: isComplete ? 'Done' : currentBatchItem.status === 'cancelled' ? 'Cancelled' : 'Skipped',
+					currentPhase: undefined,
+					completedPages: done,
+					totalPages: total,
+					percent: total > 0 ? Math.round((done / total) * 100) : 0,
+					isComplete,
+					isAlreadyQueued: false,
+					effectiveStatus: isComplete ? ('done' as const) : ('pending' as const),
+				};
+			}
 		}
 
 		const jobState = $jobTracker.jobs[ch.id];
@@ -699,6 +772,8 @@
 				totalPages: total,
 				percent,
 				isComplete: false,
+				isAlreadyQueued: true,
+				effectiveStatus: 'processing' as const,
 			};
 		}
 
@@ -706,25 +781,42 @@
 		const done = ch.translatedPageCount || 0;
 		const percent = total > 0 ? Math.min(100, Math.round((done / total) * 100)) : 0;
 		const isComplete = total > 0 && (ch.status === 'done' || done === total);
+		const isBatchRunning = $batchTracker.active && ($batchTracker.status === 'running' || $batchTracker.status === 'paused');
+		const isProcessing = ch.status === 'processing' && (isJobRunning || isBatchRunning);
+		const effectiveStatus: Chapter['status'] = isComplete
+			? 'done'
+			: isProcessing
+				? 'processing'
+				: ch.status === 'error'
+					? 'error'
+					: 'pending';
 
 		return {
 			isLive: false,
-			running: ch.status === 'processing',
-			phaseLabel: ch.status === 'processing' ? 'Processing...' : '',
+			running: isProcessing,
+			phaseLabel: isProcessing ? 'Processing...' : '',
 			currentPhase: undefined,
 			completedPages: done,
 			totalPages: total,
 			percent,
 			isComplete,
+			isAlreadyQueued: isJobRunning,
+			effectiveStatus,
 		};
 	}
 
-	// Auto-reload chapter list when batch completed chapters change for this book
+	// AUTO-RELOAD CHAPTER LIST WHEN BATCH STATE CHANGES (START, CANCEL, SKIP, FINISH, CHAPTER COMPLETE)
+	let lastBatchStatus: string | null = null;
 	let lastBatchCompleted = 0;
-	$: if ($batchProgress.completedChapters !== lastBatchCompleted) {
-		lastBatchCompleted = $batchProgress.completedChapters;
-		if (typeof window !== 'undefined' && !loading && book && $batchTracker.bookId === book.id) {
-			void reload();
+	$: {
+		const curStatus = $batchTracker.status;
+		const curCompleted = $batchProgress.completedChapters;
+		if (curStatus !== lastBatchStatus || curCompleted !== lastBatchCompleted) {
+			lastBatchStatus = curStatus;
+			lastBatchCompleted = curCompleted;
+			if (typeof window !== 'undefined' && !loading && book) {
+				void reload();
+			}
 		}
 	}
 
@@ -775,6 +867,9 @@
 	$: pendingChapters = chapters.filter(
 		(c) => (c.pageCount || 0) > 0 && (c.status !== 'done' || (c.translatedPageCount || 0) < (c.pageCount || 0)),
 	).length;
+	$: hasProgressToClear = chapters.some(
+		(c) => (c.translatedPageCount || 0) > 0 || c.status !== 'pending' || c.translatedAt != null,
+	);
 	$: popover = THEME_POPOVER[$settings.theme];
 	$: popoverBorder = THEME_PANEL_BORDER[$settings.theme];
 	// COVER PREVIEW IN THE EDIT MODAL — THE DEDICATED COVER, A PAGE-PROXY THUMB ONLY FOR BOOKS THAT
@@ -801,7 +896,7 @@
 <svelte:window on:keydown={handleGlobalKeydown} />
 
 <svelte:head>
-	<title>{book ? `${book.titleTarget || book.title} — Xianscan` : 'Book Details'}</title>
+	<title>{book ? `${book.titleTarget || book.title} - XianScan` : 'Book Details'}</title>
 </svelte:head>
 
 <!-- BOOK DETAIL & CHAPTER MANAGEMENT -->
@@ -818,12 +913,15 @@
 			class="pointer-events-none fixed inset-0 z-50 flex items-center justify-center bg-[#b23a2e]/20 backdrop-blur-sm"
 		>
 			<div
-				class="flex flex-col items-center gap-3 rounded-2xl border-2 border-dashed border-[#b23a2e] bg-white/90 p-8 shadow-2xl dark:bg-[#1a1713]/90"
+				class="flex max-w-md mx-4 flex-col items-center gap-3 rounded-2xl border-2 border-dashed border-[#b23a2e] bg-white/90 p-8 text-center shadow-2xl dark:border-[#e08a63] dark:bg-[#1a1713]/90"
 			>
 				<Upload size={36} class="animate-bounce text-[#b23a2e] dark:text-[#e08a63]" />
-				<p class="text-sm font-bold">
-					Drop chapter folders or images to import into {book?.titleTarget || book?.title || 'Book'}
-				</p>
+				<div class="space-y-1">
+					<p class="text-sm font-bold sm:text-base">Drop chapter folders or pages to import</p>
+					<p class="text-xs opacity-75">
+						Importing into {book?.titleTarget || book?.title || 'this book'}
+					</p>
+				</div>
 			</div>
 		</div>
 	{/if}
@@ -1046,13 +1144,9 @@
 							<Button
 								variant="secondary"
 								size="md"
-								class={`shadow-xs hidden h-8 shrink-0 gap-1 border-[#b23a2e]/30 bg-[#b23a2e]/10 px-2.5 text-xs font-semibold text-[#b23a2e] transition-all hover:bg-[#b23a2e] hover:text-white dark:text-[#e08a63] dark:hover:bg-[#e08a63] dark:hover:text-black sm:h-9 sm:gap-1.5 sm:px-3 sm:text-sm md:h-10 lg:inline-flex ${
-									isBatchActiveForOtherBook ? 'opacity-80' : ''
-								}`}
+								class="shadow-xs hidden h-8 shrink-0 gap-1 border-[#b23a2e]/30 bg-[#b23a2e]/10 px-2.5 text-xs font-semibold text-[#b23a2e] transition-all hover:bg-[#b23a2e] hover:text-white dark:text-[#e08a63] dark:hover:bg-[#e08a63] dark:hover:text-black sm:h-9 sm:gap-1.5 sm:px-3 sm:text-sm md:h-10 lg:inline-flex"
 								on:click={startBatchAllPending}
-								title={isBatchActiveForOtherBook
-									? `Batch translation is currently running for "${$batchTracker.bookTitle || 'another book'}"`
-									: `Translate all ${pendingChapters} pending chapters sequentially`}
+								title={`Translate all ${pendingChapters} pending chapters sequentially`}
 							>
 								<Languages size={13} class="text-amber-500" />
 								<span>Translate Pending ({pendingChapters})</span>
@@ -1060,7 +1154,7 @@
 						{/if}
 
 						<!-- 4. CLEAR PROGRESS BUTTON: INLINE ON WIDE SCREENS (LG+) -->
-						{#if chapters.length > 0}
+						{#if hasProgressToClear}
 							<Button
 								variant="secondary"
 								size="md"
@@ -1074,41 +1168,43 @@
 						{/if}
 
 						<!-- 5. MORE ACTIONS POPOVER: VISIBLE ONLY ON SMALLER SCREENS (<LG) -->
-						<div class="shrink-0 lg:hidden">
-							<ActionMenu
-								label="More Book Actions"
-								iconSize={15}
-								class="flex h-8 items-center justify-center rounded-xl border border-black/10 px-2 transition hover:bg-black/5 dark:border-white/10 dark:hover:bg-white/5 sm:h-9 md:h-10"
-								items={[
-									...(pendingChapters > 0
-										? [
-												{
-													value: 'translate-pending',
-													label: `Translate Pending (${pendingChapters})`,
-													icon: Languages,
-												},
-											]
-										: []),
-									...(chapters.length > 0
-										? [
-												{
-													value: 'clear-progress',
-													label: 'Clear All Progress',
-													icon: RotateCw,
-													danger: true,
-												},
-											]
-										: []),
-								]}
-								on:select={(e) => {
-									if (e.detail === 'translate-pending') {
-										startBatchAllPending();
-									} else if (e.detail === 'clear-progress') {
-										clearProgressModalOpen = true;
-									}
-								}}
-							/>
-						</div>
+						{#if pendingChapters > 0 || hasProgressToClear}
+							<div class="shrink-0 lg:hidden">
+								<ActionMenu
+									label="More Book Actions"
+									iconSize={15}
+									class="flex h-8 items-center justify-center rounded-xl border border-black/10 px-2 transition hover:bg-black/5 dark:border-white/10 dark:hover:bg-white/5 sm:h-9 md:h-10"
+									items={[
+										...(pendingChapters > 0
+											? [
+													{
+														value: 'translate-pending',
+														label: `Translate Pending (${pendingChapters})`,
+														icon: Languages,
+													},
+												]
+											: []),
+										...(hasProgressToClear
+											? [
+													{
+														value: 'clear-progress',
+														label: 'Clear All Progress',
+														icon: RotateCw,
+														danger: true,
+													},
+												]
+											: []),
+									]}
+									on:select={(e) => {
+										if (e.detail === 'translate-pending') {
+											startBatchAllPending();
+										} else if (e.detail === 'clear-progress') {
+											clearProgressModalOpen = true;
+										}
+									}}
+								/>
+							</div>
+						{/if}
 					</div>
 				</div>
 			</div>
@@ -1204,8 +1300,7 @@
 											: 'opacity-70 hover:bg-black/5 hover:opacity-100 dark:hover:bg-white/5'
 									}`}
 									on:click={() => {
-										sortAscending = true;
-										sortMenuOpen = false;
+										setSortAscending(true);
 									}}
 								>
 									<span>Oldest First (1 → N)</span>
@@ -1221,8 +1316,7 @@
 											: 'opacity-70 hover:bg-black/5 hover:opacity-100 dark:hover:bg-white/5'
 									}`}
 									on:click={() => {
-										sortAscending = false;
-										sortMenuOpen = false;
+										setSortAscending(false);
 									}}
 								>
 									<span>Newest First (N → 1)</span>
@@ -1394,377 +1488,36 @@
 			<!-- MODE 1: COMFORTABLE 2-COLUMN CARDS GRID -->
 			<ul class="grid w-full grid-cols-1 gap-3.5 sm:grid-cols-2 sm:gap-5">
 				{#each displayedChapters as chapter (chapter.id)}
-					{@const liveProg = getChapterLiveProgress(chapter)}
-					{@const isSelected = selectedChapterIds.has(chapter.id)}
-					<li
-						id={`chapter-card-${chapter.id}`}
-						data-chapter-seq={chapter.seq + 1}
-						class={`group relative flex flex-col justify-between rounded-2xl border bg-white/60 p-3.5 transition-all duration-300 dark:bg-white/[0.02] sm:p-4 ${
-							isSelected
-								? 'border-[#b23a2e] shadow-md ring-2 ring-[#b23a2e]/30'
-								: 'border-black/[0.08] hover:border-[#b23a2e]/40 hover:shadow-xl dark:border-white/[0.06]'
-						}`}
-					>
-						<!-- UPPER SECTION: MINI PAGE THUMBNAIL + CHAPTER INFO -->
-						<div class="flex items-start gap-3 sm:gap-3.5">
-							<!-- 2:3 VERTICAL CHAPTER COVER THUMBNAIL WITH CHECKBOX OVERLAY -->
-							<div class="relative w-20 shrink-0 sm:w-24">
-								<a
-									href={`/app/books/${$page.params.id}/chapters/${chapter.id}/`}
-									class="group/cover hover:scale-102 block transition-transform duration-300"
-									title={`Open ${chapter.titleTarget || chapter.title || `Chapter ${chapter.seq + 1}`}`}
-								>
-									<LazyImage
-										src={chapter.coverPageId
-											? `/api/pages/${chapter.coverPageId}/file?kind=thumb&w=260`
-											: ''}
-										alt={chapter.titleTarget || chapter.title || `Chapter ${chapter.seq + 1}`}
-										fallbackText={`Ch.${chapter.seq + 1}`}
-										aspectRatio="aspect-[2/3]"
-										showSpineShadow={true}
-									/>
-								</a>
-
-								<!-- CARD CHECKBOX TOGGLE -->
-								<button
-									type="button"
-									on:click={(e) => toggleSelectChapter(chapter.id, e)}
-									class={`absolute left-1 top-1 z-10 flex h-6 w-6 items-center justify-center rounded-md shadow-sm backdrop-blur transition-all ${
-										isSelected
-											? 'bg-[#b23a2e] text-white ring-1 ring-white/30'
-											: 'bg-black/40 text-white/80 opacity-0 hover:bg-black/60 group-hover:opacity-100'
-									}`}
-									title={isSelected ? 'Deselect chapter' : 'Select chapter for batch actions'}
-									aria-label="Select chapter"
-								>
-									{#if isSelected}
-										<Check size={13} />
-									{:else}
-										<Square size={13} />
-									{/if}
-								</button>
-							</div>
-
-							<!-- CHAPTER DETAILS -->
-							<div class="flex min-w-0 flex-1 flex-col justify-between self-stretch">
-								<div>
-									<div class="flex items-start justify-between gap-1.5">
-										<div class="min-w-0 flex-1">
-											<a
-												href={`/app/books/${$page.params.id}/chapters/${chapter.id}/`}
-												class="block truncate px-0.5 text-sm font-bold tracking-tight hover:text-[#b23a2e] dark:hover:text-[#e08a63] sm:text-base"
-												title={chapter.titleTarget ||
-													chapter.title ||
-													`Chapter ${chapter.seq + 1}`}
-											>
-												{chapter.titleTarget || chapter.title || `Chapter ${chapter.seq + 1}`}
-											</a>
-											{#if chapter.titleTarget && chapter.title && chapter.titleTarget !== chapter.title}
-												<p
-													class="mt-0.5 truncate px-0.5 text-[11px] font-medium opacity-60 sm:text-xs"
-													title={chapter.title}
-												>
-													{chapter.title}
-												</p>
-											{/if}
-										</div>
-
-										<div class="shrink-0">
-											<ActionMenu
-												items={[
-													{ value: 'open', label: 'Open Reader', icon: ExternalLink },
-													{ value: 'translate', label: 'Translate Chapter', icon: Play },
-													{ value: 'edit', label: 'Edit Chapter Details', icon: Pencil },
-													...(chapter.pageCount > 0
-														? [
-																{
-																	value: 'clearPages',
-																	label: 'Clear Pages',
-																	icon: FileX,
-																	danger: true,
-																},
-															]
-														: []),
-													{
-														value: 'delete',
-														label: 'Delete Chapter',
-														icon: Trash2,
-														danger: true,
-													},
-												]}
-												on:select={(e) => {
-													if (e.detail === 'open')
-														goto(`/app/books/${$page.params.id}/chapters/${chapter.id}/`);
-													else if (e.detail === 'translate')
-														batchTracker.startBatch(
-															book?.id || '',
-															book?.titleTarget || book?.title || '',
-															[chapter],
-														);
-													else if (e.detail === 'edit') openEditChapterModal(chapter);
-													else if (e.detail === 'clearPages') promptClearPages(chapter);
-													else if (e.detail === 'delete') promptDeleteChapter(chapter);
-												}}
-											/>
-										</div>
-									</div>
-
-									<!-- STATUS & PAGE BADGES -->
-									<div class="mt-2 flex flex-wrap items-center gap-1.5 text-[10px] sm:text-[11px]">
-										{#if liveProg.running}
-											<span
-												class="inline-flex items-center gap-1 rounded-md bg-[#b23a2e]/10 px-2 py-0.5 font-bold text-[#b23a2e] dark:text-[#e08a63]"
-											>
-												<Loader2 size={11} class="animate-spin" />
-												<span>{liveProg.phaseLabel}</span>
-											</span>
-										{:else}
-											<Badge variant={statusVariant[chapter.status]}>
-												{chapter.status.toUpperCase()}
-											</Badge>
-										{/if}
-										<span
-											class="rounded-md bg-black/5 px-2 py-0.5 font-medium opacity-70 dark:bg-white/5"
-										>
-											{chapter.pageCount}
-											{chapter.pageCount === 1 ? 'page' : 'pages'}
-										</span>
-									</div>
-								</div>
-
-								<!-- CHAPTER PAGE PROGRESS BAR -->
-								<div class="mt-2 sm:mt-2.5">
-									<div class="mb-1 flex items-center justify-between text-[10px] sm:text-[11px]">
-										<span class="truncate text-[10px] font-medium opacity-70">
-											{#if liveProg.running}
-												<span class="font-bold text-[#b23a2e] dark:text-[#e08a63]">
-													Translating: {liveProg.completedPages}/{liveProg.totalPages} pgs ({liveProg.percent}%)
-												</span>
-											{:else if liveProg.isComplete}
-												<span class="font-semibold text-emerald-600 dark:text-emerald-400"
-													>✓ Translated</span
-												>
-											{:else}
-												{chapter.translatedPageCount || 0}/{chapter.pageCount} pgs ({liveProg.percent}%)
-											{/if}
-										</span>
-										<span class="ml-1 shrink-0 font-mono text-[9px] opacity-40 sm:text-[10px]"
-											>#{chapter.seq + 1}</span
-										>
-									</div>
-									<div class="h-1.5 w-full overflow-hidden rounded-full bg-black/10 dark:bg-white/10">
-										<div
-											class={`h-full rounded-full transition-all duration-300 ${
-												liveProg.isComplete
-													? 'bg-emerald-600 dark:bg-emerald-400'
-													: 'bg-[#b23a2e] dark:bg-[#e08a63]'
-											}`}
-											style={`width: ${liveProg.percent}%`}
-										></div>
-									</div>
-								</div>
-							</div>
-						</div>
-
-						<!-- LOWER SECTION: ACTION FOOTER BAR -->
-						<div
-							class="mt-3 flex items-center justify-between border-t border-black/[0.05] pt-2.5 text-xs dark:border-white/[0.05] sm:mt-3.5 sm:pt-3"
-						>
-							<a
-								href={`/app/books/${$page.params.id}/chapters/${chapter.id}/`}
-								class="inline-flex h-8 items-center gap-1.5 rounded-lg bg-[#b23a2e]/10 px-3.5 py-1.5 text-xs font-semibold text-[#b23a2e] transition hover:bg-[#b23a2e] hover:text-white dark:text-[#e08a63] dark:hover:bg-[#e08a63] dark:hover:text-black"
-								use:ripple
-							>
-								<Play size={12} class="fill-current" />
-								<span>Open Reader</span>
-							</a>
-
-							<div class="flex items-center gap-2">
-								{#if chapter.pageCount > 0 && !liveProg.isComplete && !liveProg.running}
-									<button
-										type="button"
-										on:click={() =>
-											batchTracker.startBatch(
-												book?.id || '',
-												book?.titleTarget || book?.title || '',
-												[chapter],
-											)}
-										class="inline-flex items-center gap-1 text-[11px] font-medium opacity-70 transition hover:text-[#b23a2e] hover:opacity-100"
-										title="Translate this chapter"
-									>
-										<Languages size={12} />
-										<span>Translate</span>
-									</button>
-								{/if}
-
-								{#if chapter.pageCount > 0}
-									<a
-										href={`/api/chapters/${chapter.id}/download`}
-										class="inline-flex items-center gap-1 opacity-60 transition hover:text-[#b23a2e] hover:opacity-100"
-										download
-										title="Export Chapter ZIP"
-									>
-										<Download size={13} />
-										<span class="text-[11px]">ZIP</span>
-									</a>
-								{/if}
-							</div>
-						</div>
-					</li>
+					<ChapterListItem
+						{chapter}
+						bookId={$page.params.id || ''}
+						bookTitle={book?.title || ''}
+						bookTitleTarget={book?.titleTarget || ''}
+						viewLayout="grid"
+						isSelected={selectedChapterIds.has(chapter.id)}
+						on:toggleSelect={(e) => toggleSelectChapter(e.detail.id, e.detail.event)}
+						on:editChapter={(e) => openEditChapterModal(e.detail.chapter)}
+						on:clearPages={(e) => promptClearPages(e.detail.chapter)}
+						on:deleteChapter={(e) => promptDeleteChapter(e.detail.chapter)}
+					/>
 				{/each}
 			</ul>
 		{:else if viewLayout === 'list'}
 			<!-- MODE 2: MEDIA LIST STRIP (RESPONSIVE ROWS) -->
 			<ul class="flex w-full flex-col gap-2.5">
 				{#each displayedChapters as chapter (chapter.id)}
-					{@const liveProg = getChapterLiveProgress(chapter)}
-					{@const isSelected = selectedChapterIds.has(chapter.id)}
-					<li
-						id={`chapter-card-${chapter.id}`}
-						data-chapter-seq={chapter.seq + 1}
-						class={`group relative flex items-center justify-between gap-3 rounded-xl border bg-white/60 p-2.5 transition-all dark:bg-white/[0.02] sm:gap-4 sm:p-3 ${
-							isSelected
-								? 'border-[#b23a2e] shadow-md ring-2 ring-[#b23a2e]/30'
-								: 'border-black/[0.07] hover:border-[#b23a2e]/40 hover:bg-white hover:shadow-md dark:border-white/[0.06] dark:hover:bg-white/[0.04]'
-						}`}
-					>
-						<div class="flex min-w-0 flex-1 items-center gap-3">
-							<!-- ROW CHECKBOX -->
-							<button
-								type="button"
-								on:click={(e) => toggleSelectChapter(chapter.id, e)}
-								class={`flex h-6 w-6 shrink-0 items-center justify-center rounded-md border transition-all ${
-									isSelected
-										? 'border-[#b23a2e] bg-[#b23a2e] text-white'
-										: 'border-black/20 bg-transparent text-transparent hover:border-black/40 dark:border-white/20'
-								}`}
-								title={isSelected ? 'Deselect chapter' : 'Select chapter'}
-								aria-label="Select chapter"
-							>
-								<Check size={13} />
-							</button>
-
-							<!-- MINI THUMBNAIL -->
-							<a
-								href={`/app/books/${$page.params.id}/chapters/${chapter.id}/`}
-								class="w-10 shrink-0 transition-transform duration-200 group-hover:scale-105 sm:w-12"
-								title={`Open ${chapter.titleTarget || chapter.title || `Chapter ${chapter.seq + 1}`}`}
-							>
-								<LazyImage
-									src={chapter.coverPageId
-										? `/api/pages/${chapter.coverPageId}/file?kind=thumb&w=140`
-										: ''}
-									alt={chapter.titleTarget || chapter.title || `Chapter ${chapter.seq + 1}`}
-									fallbackText={`#${chapter.seq + 1}`}
-									aspectRatio="aspect-[2/3]"
-									showSpineShadow={false}
-									class="shadow-2xs rounded-lg"
-								/>
-							</a>
-
-							<!-- TITLE & METADATA -->
-							<div class="min-w-0 flex-1">
-								<div class="flex min-w-0 items-center gap-1.5">
-									<span
-										class="py-0.2 shrink-0 rounded bg-black/5 px-1.5 font-mono text-[9px] font-bold opacity-60 dark:bg-white/5 sm:text-[10px]"
-									>
-										#{chapter.seq + 1}
-									</span>
-									<a
-										href={`/app/books/${$page.params.id}/chapters/${chapter.id}/`}
-										class="block truncate px-0.5 text-xs font-bold hover:text-[#b23a2e] dark:hover:text-[#e08a63] sm:text-sm"
-										title={chapter.titleTarget || chapter.title || `Chapter ${chapter.seq + 1}`}
-									>
-										{chapter.titleTarget || chapter.title || `Chapter ${chapter.seq + 1}`}
-									</a>
-									{#if chapter.titleTarget && chapter.title && chapter.titleTarget !== chapter.title}
-										<span
-											class="hidden truncate px-0.5 text-xs font-medium opacity-50 md:inline"
-											title={chapter.title}
-										>
-											({chapter.title})
-										</span>
-									{/if}
-								</div>
-
-								<div class="mt-1 flex flex-wrap items-center gap-2 text-[10px] opacity-65 sm:text-xs">
-									<span>{chapter.pageCount} pgs</span>
-									<span>•</span>
-									{#if liveProg.running}
-										<span
-											class="flex items-center gap-1 font-bold text-[#b23a2e] dark:text-[#e08a63]"
-										>
-											<Loader2 size={11} class="animate-spin" />
-											<span
-												>{liveProg.phaseLabel} ({liveProg.completedPages}/{liveProg.totalPages})</span
-											>
-										</span>
-									{:else}
-										<span
-											class={liveProg.isComplete
-												? 'font-semibold text-emerald-600 dark:text-emerald-400'
-												: ''}
-										>
-											{liveProg.isComplete
-												? '100% Translated'
-												: `${chapter.translatedPageCount || 0}/${chapter.pageCount} translated`}
-										</span>
-									{/if}
-								</div>
-							</div>
-						</div>
-
-						<div class="flex shrink-0 items-center gap-1.5 sm:gap-2.5">
-							<Badge variant={statusVariant[chapter.status]} class="hidden sm:inline-flex">
-								{chapter.status.toUpperCase()}
-							</Badge>
-
-							<a
-								href={`/app/books/${$page.params.id}/chapters/${chapter.id}/`}
-								class="inline-flex h-8 items-center gap-1.5 rounded-lg bg-[#b23a2e]/10 px-3 py-1.5 text-xs font-semibold text-[#b23a2e] transition hover:bg-[#b23a2e] hover:text-white dark:text-[#e08a63] dark:hover:bg-[#e08a63] dark:hover:text-black"
-								use:ripple
-							>
-								<Play size={11} class="fill-current" />
-								<span>Read</span>
-							</a>
-
-							{#if chapter.pageCount > 0}
-								<a
-									href={`/api/chapters/${chapter.id}/download`}
-									class="hidden items-center justify-center p-1.5 opacity-60 hover:text-[#b23a2e] hover:opacity-100 sm:inline-flex"
-									download
-									title="Download ZIP"
-								>
-									<Download size={14} />
-								</a>
-							{/if}
-
-							<ActionMenu
-								items={[
-									{ value: 'open', label: 'Open Reader', icon: ExternalLink },
-									{ value: 'translate', label: 'Translate Chapter', icon: Play },
-									{ value: 'edit', label: 'Edit Chapter Details', icon: Pencil },
-									...(chapter.pageCount > 0
-										? [{ value: 'clearPages', label: 'Clear Pages', icon: FileX, danger: true }]
-										: []),
-									{ value: 'delete', label: 'Delete Chapter', icon: Trash2, danger: true },
-								]}
-								on:select={(e) => {
-									if (e.detail === 'open')
-										goto(`/app/books/${$page.params.id}/chapters/${chapter.id}/`);
-									else if (e.detail === 'translate')
-										batchTracker.startBatch(
-											book?.id || '',
-											book?.titleTarget || book?.title || '',
-											[chapter],
-										);
-									else if (e.detail === 'edit') openEditChapterModal(chapter);
-									else if (e.detail === 'clearPages') promptClearPages(chapter);
-									else if (e.detail === 'delete') promptDeleteChapter(chapter);
-								}}
-							/>
-						</div>
-					</li>
+					<ChapterListItem
+						{chapter}
+						bookId={$page.params.id || ''}
+						bookTitle={book?.title || ''}
+						bookTitleTarget={book?.titleTarget || ''}
+						viewLayout="list"
+						isSelected={selectedChapterIds.has(chapter.id)}
+						on:toggleSelect={(e) => toggleSelectChapter(e.detail.id, e.detail.event)}
+						on:editChapter={(e) => openEditChapterModal(e.detail.chapter)}
+						on:clearPages={(e) => promptClearPages(e.detail.chapter)}
+						on:deleteChapter={(e) => promptDeleteChapter(e.detail.chapter)}
+					/>
 				{/each}
 			</ul>
 		{:else}
@@ -1774,90 +1527,18 @@
 				class="flex flex-col divide-y divide-black/[0.06] rounded-xl border border-black/[0.08] bg-white/60 dark:divide-white/[0.06] dark:border-white/[0.06] dark:bg-white/[0.02] sm:hidden"
 			>
 				{#each displayedChapters as chapter (chapter.id)}
-					{@const liveProg = getChapterLiveProgress(chapter)}
-					{@const isSelected = selectedChapterIds.has(chapter.id)}
-					<div
-						class={`flex items-center justify-between gap-2.5 p-2.5 transition ${isSelected ? 'bg-[#b23a2e]/5' : 'hover:bg-black/[0.02] dark:hover:bg-white/[0.02]'}`}
-					>
-						<div class="flex min-w-0 flex-1 items-center gap-2">
-							<button
-								type="button"
-								on:click={(e) => toggleSelectChapter(chapter.id, e)}
-								class={`flex h-5 w-5 shrink-0 items-center justify-center rounded border transition-all ${
-									isSelected
-										? 'border-[#b23a2e] bg-[#b23a2e] text-white'
-										: 'border-black/20 bg-transparent text-transparent dark:border-white/20'
-								}`}
-								aria-label="Select chapter"
-							>
-								<Check size={11} />
-							</button>
-
-							<span class="shrink-0 font-mono text-[11px] font-bold opacity-60">
-								#{chapter.seq + 1}
-							</span>
-							<div class="min-w-0 flex-1">
-								<a
-									href={`/app/books/${$page.params.id}/chapters/${chapter.id}/`}
-									class="block truncate px-0.5 text-xs font-semibold hover:text-[#b23a2e] dark:hover:text-[#e08a63]"
-									title={chapter.titleTarget || chapter.title || `Chapter ${chapter.seq + 1}`}
-								>
-									{chapter.titleTarget || chapter.title || `Chapter ${chapter.seq + 1}`}
-								</a>
-								<div class="mt-0.5 flex items-center gap-1.5 text-[10px] opacity-60">
-									{#if liveProg.running}
-										<span class="font-bold text-[#b23a2e] dark:text-[#e08a63]">
-											{liveProg.phaseLabel} ({liveProg.completedPages}/{liveProg.totalPages})
-										</span>
-									{:else}
-										<span>{chapter.translatedPageCount || 0}/{chapter.pageCount} pgs</span>
-										<span>•</span>
-										<span
-											class={chapter.status === 'done'
-												? 'font-semibold text-emerald-600 dark:text-emerald-400'
-												: ''}
-										>
-											{chapter.status.toUpperCase()}
-										</span>
-									{/if}
-								</div>
-							</div>
-						</div>
-
-						<div class="flex shrink-0 items-center gap-1">
-							<a
-								href={`/app/books/${$page.params.id}/chapters/${chapter.id}/`}
-								class="h-7.5 inline-flex items-center gap-1 rounded-lg bg-[#b23a2e]/10 px-2.5 py-1 text-xs font-semibold text-[#b23a2e] transition hover:bg-[#b23a2e] hover:text-white dark:text-[#e08a63]"
-							>
-								<Play size={10} class="fill-current" />
-								<span>Read</span>
-							</a>
-							<ActionMenu
-								items={[
-									{ value: 'open', label: 'Open Reader', icon: ExternalLink },
-									{ value: 'translate', label: 'Translate Chapter', icon: Play },
-									{ value: 'edit', label: 'Edit Chapter Details', icon: Pencil },
-									...(chapter.pageCount > 0
-										? [{ value: 'clearPages', label: 'Clear Pages', icon: FileX, danger: true }]
-										: []),
-									{ value: 'delete', label: 'Delete Chapter', icon: Trash2, danger: true },
-								]}
-								on:select={(e) => {
-									if (e.detail === 'open')
-										goto(`/app/books/${$page.params.id}/chapters/${chapter.id}/`);
-									else if (e.detail === 'translate')
-										batchTracker.startBatch(
-											book?.id || '',
-											book?.titleTarget || book?.title || '',
-											[chapter],
-										);
-									else if (e.detail === 'edit') openEditChapterModal(chapter);
-									else if (e.detail === 'clearPages') promptClearPages(chapter);
-									else if (e.detail === 'delete') promptDeleteChapter(chapter);
-								}}
-							/>
-						</div>
-					</div>
+					<ChapterListItem
+						{chapter}
+						bookId={$page.params.id || ''}
+						bookTitle={book?.title || ''}
+						bookTitleTarget={book?.titleTarget || ''}
+						viewLayout="compact"
+						isSelected={selectedChapterIds.has(chapter.id)}
+						on:toggleSelect={(e) => toggleSelectChapter(e.detail.id, e.detail.event)}
+						on:editChapter={(e) => openEditChapterModal(e.detail.chapter)}
+						on:clearPages={(e) => promptClearPages(e.detail.chapter)}
+						on:deleteChapter={(e) => promptDeleteChapter(e.detail.chapter)}
+					/>
 				{/each}
 			</div>
 
@@ -1938,7 +1619,7 @@
 											{liveProg.completedPages}/{liveProg.totalPages}
 										</span>
 									{:else}
-										{chapter.translatedPageCount || 0}/{chapter.pageCount}
+										{liveProg.completedPages}/{chapter.pageCount}
 									{/if}
 								</td>
 								<td class="px-3 py-2">
@@ -1950,15 +1631,15 @@
 											<span>{liveProg.phaseLabel}</span>
 										</span>
 									{:else}
-										<Badge variant={statusVariant[chapter.status]}>
-											{chapter.status.toUpperCase()}
+										<Badge variant={statusVariant[liveProg.effectiveStatus]}>
+											{liveProg.effectiveStatus.toUpperCase()}
 										</Badge>
 									{/if}
 								</td>
 								<td class="py-2 pl-3 pr-4 text-right">
 									<div class="flex items-center justify-end gap-1.5">
 										<a
-											href={`/app/books/${$page.params.id}/chapters/${chapter.id}/`}
+											href={`/app/books/${$page.params.id || ''}/chapters/${chapter.id}/`}
 											class="rounded p-1 opacity-70 hover:text-[#b23a2e] hover:opacity-100"
 											title="Open Reader"
 										>
@@ -1967,7 +1648,9 @@
 										<ActionMenu
 											items={[
 												{ value: 'open', label: 'Open Reader', icon: ExternalLink },
-												{ value: 'translate', label: 'Translate Chapter', icon: Play },
+												...(liveProg.isComplete || liveProg.isAlreadyQueued
+													? []
+													: [{ value: 'translate', label: 'Translate Chapter', icon: Play }]),
 												{ value: 'edit', label: 'Edit Chapter Details', icon: Pencil },
 												...(chapter.pageCount > 0
 													? [
@@ -1988,7 +1671,7 @@
 											]}
 											on:select={(e) => {
 												if (e.detail === 'open')
-													goto(`/app/books/${$page.params.id}/chapters/${chapter.id}/`);
+													goto(`/app/books/${$page.params.id || ''}/chapters/${chapter.id}/`);
 												else if (e.detail === 'translate')
 													batchTracker.startBatch(
 														book?.id || '',
@@ -2097,24 +1780,13 @@
 		<TextField bind:value={chapterTitle} label="Chapter Title (Source Language)" placeholder="e.g. 第1话" />
 
 		<div class="block">
-			<div class="mb-1 flex items-center justify-between">
-				<span class="text-xs font-semibold opacity-60">Target Title (Optional translation)</span>
-				<button
-					type="button"
-					class="inline-flex items-center gap-1 text-[11px] font-semibold text-[#b23a2e] hover:underline disabled:opacity-40 dark:text-[#e08a63]"
-					disabled={translatingNewChapterTitle || !chapterTitle.trim()}
-					on:click={translateNewChapterTitle}
-				>
-					<Languages size={12} />
-					<span>{translatingNewChapterTitle ? 'Translating...' : 'Auto-Translate'}</span>
-				</button>
-			</div>
+			<span class="mb-1 block text-xs font-semibold opacity-60">Target Title (Optional translation)</span>
 			<div class="flex items-center gap-2">
 				<input
 					type="text"
 					bind:value={chapterTitleTarget}
 					placeholder="e.g. Chapter 1: The Awakening"
-					class="h-[38px] w-full rounded-lg border border-black/10 bg-transparent px-3 text-sm outline-none transition-colors placeholder:opacity-40 focus:border-[#b23a2e] focus:ring-2 focus:ring-[#b23a2e]/30 dark:border-white/[0.06]"
+					class="h-[38px] min-w-0 flex-1 rounded-lg border border-black/10 bg-transparent px-3 text-sm outline-none transition-colors placeholder:opacity-40 focus:border-[#b23a2e] focus:ring-2 focus:ring-[#b23a2e]/30 dark:border-white/[0.06]"
 				/>
 				<Button
 					variant="secondary"
@@ -2123,6 +1795,7 @@
 					disabled={translatingNewChapterTitle || !chapterTitle.trim()}
 					on:click={translateNewChapterTitle}
 					title="Auto-translate chapter title"
+					aria-label="Auto-translate chapter title"
 				>
 					{#if !translatingNewChapterTitle}
 						<Languages size={15} />
@@ -2150,24 +1823,13 @@
 			/>
 
 			<div class="block">
-				<div class="mb-1 flex items-center justify-between">
-					<span class="text-xs font-semibold opacity-60">Target Title (Translated title)</span>
-					<button
-						type="button"
-						class="inline-flex items-center gap-1 text-[11px] font-semibold text-[#b23a2e] hover:underline disabled:opacity-40 dark:text-[#e08a63]"
-						disabled={translatingBookTitle || !editBookTitle.trim()}
-						on:click={translateBookTitle}
-					>
-						<Languages size={12} />
-						<span>{translatingBookTitle ? 'Translating...' : 'Auto-Translate'}</span>
-					</button>
-				</div>
+				<span class="mb-1 block text-xs font-semibold opacity-60">Target Title (Translated title)</span>
 				<div class="flex items-center gap-2">
 					<input
 						type="text"
 						bind:value={editBookTitleTarget}
 						placeholder="e.g. Tales of Demons and Gods"
-						class="h-[38px] w-full rounded-lg border border-black/10 bg-transparent px-3 text-sm outline-none transition-colors placeholder:opacity-40 focus:border-[#b23a2e] focus:ring-2 focus:ring-[#b23a2e]/30 dark:border-white/[0.06]"
+						class="h-[38px] min-w-0 flex-1 rounded-lg border border-black/10 bg-transparent px-3 text-sm outline-none transition-colors placeholder:opacity-40 focus:border-[#b23a2e] focus:ring-2 focus:ring-[#b23a2e]/30 dark:border-white/[0.06]"
 					/>
 					<Button
 						variant="secondary"
@@ -2176,6 +1838,7 @@
 						disabled={translatingBookTitle || !editBookTitle.trim()}
 						on:click={translateBookTitle}
 						title="Auto-translate book title"
+						aria-label="Auto-translate book title"
 					>
 						{#if !translatingBookTitle}
 							<Languages size={15} />
@@ -2199,8 +1862,8 @@
 			<div
 				class="flex flex-col gap-3 rounded-xl border border-black/10 bg-black/[0.02] p-3 dark:border-white/10 dark:bg-white/[0.02]"
 			>
-				<Toggle bind:checked={editBookPinned} label="Pin series to top" />
-				<Toggle bind:checked={editBookArchived} label="Archive series" />
+				<Switch bind:checked={editBookPinned} label="Pin series to top" />
+				<Switch bind:checked={editBookArchived} label="Archive series" />
 			</div>
 
 			<BookCoverPicker
@@ -2245,24 +1908,13 @@
 			<TextField bind:value={editChapterTitle} label="Chapter Title (Source Language)" placeholder="e.g. 第1话" />
 
 			<div class="block">
-				<div class="mb-1 flex items-center justify-between">
-					<span class="text-xs font-semibold opacity-60">Target Title (Translated title)</span>
-					<button
-						type="button"
-						class="inline-flex items-center gap-1 text-[11px] font-semibold text-[#b23a2e] hover:underline disabled:opacity-40 dark:text-[#e08a63]"
-						disabled={translatingChapterTitle || !editChapterTitle.trim()}
-						on:click={translateEditChapterTitle}
-					>
-						<Languages size={12} />
-						<span>{translatingChapterTitle ? 'Translating...' : 'Auto-Translate'}</span>
-					</button>
-				</div>
+				<span class="mb-1 block text-xs font-semibold opacity-60">Target Title (Translated title)</span>
 				<div class="flex items-center gap-2">
 					<input
 						type="text"
 						bind:value={editChapterTitleTarget}
 						placeholder="e.g. Chapter 1: The Awakening"
-						class="h-[38px] w-full rounded-lg border border-black/10 bg-transparent px-3 text-sm outline-none transition-colors placeholder:opacity-40 focus:border-[#b23a2e] focus:ring-2 focus:ring-[#b23a2e]/30 dark:border-white/[0.06]"
+						class="h-[38px] min-w-0 flex-1 rounded-lg border border-black/10 bg-transparent px-3 text-sm outline-none transition-colors placeholder:opacity-40 focus:border-[#b23a2e] focus:ring-2 focus:ring-[#b23a2e]/30 dark:border-white/[0.06]"
 					/>
 					<Button
 						variant="secondary"
@@ -2271,6 +1923,7 @@
 						disabled={translatingChapterTitle || !editChapterTitle.trim()}
 						on:click={translateEditChapterTitle}
 						title="Auto-translate chapter title"
+						aria-label="Auto-translate chapter title"
 					>
 						{#if !translatingChapterTitle}
 							<Languages size={15} />

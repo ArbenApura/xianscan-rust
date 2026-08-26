@@ -408,6 +408,26 @@ describe('nextPageSeq & reorderPages', () => {
 		expect(fs.readFileSync(path.join(dataRoot, newPages[0].filePath)).toString()).toBe('pageA');
 		expect(fs.readFileSync(path.join(dataRoot, newPages[1].filePath)).toString()).toBe('pageB');
 
+		// CHAPTER MARKED AS RESLICED: TRUE AND STATUS REVERTED TO PENDING
+		const updatedCh = db.select().from(chapters).where(eq(chapters.id, chapter.id)).get();
+		expect(updatedCh?.resliced).toBe(true);
+		expect(typeof updatedCh?.reslicedAt).toBe('number');
+		expect(updatedCh?.status).toBe('pending');
+		expect(updatedCh?.translatedAt).toBeNull();
+
+		// REORDERING PAGES INVALIDATES RESLICED STATE BACK TO FALSE
+		reorderPages(chapter.id, [newPages[1].id, newPages[0].id]);
+		const reorderedCh = db.select().from(chapters).where(eq(chapters.id, chapter.id)).get();
+		expect(reorderedCh?.resliced).toBe(false);
+		expect(reorderedCh?.reslicedAt).toBeNull();
+
+		// DELETING A PAGE ALSO INVALIDATES RESLICED STATE
+		db.update(chapters).set({ resliced: true, reslicedAt: Date.now() }).where(eq(chapters.id, chapter.id)).run();
+		deletePage(newPages[0].id, dataRoot);
+		const deletedCh = db.select().from(chapters).where(eq(chapters.id, chapter.id)).get();
+		expect(deletedCh?.resliced).toBe(false);
+		expect(deletedCh?.reslicedAt).toBeNull();
+
 		fs.rmSync(dataRoot, { recursive: true, force: true });
 	});
 

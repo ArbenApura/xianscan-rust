@@ -8,9 +8,9 @@
 	import { ConfirmDialog, Modal, TextField, Button } from '$lib/components/ui';
 	import { settings } from '$lib/stores/settings';
 	import { jobTracker } from '$lib/stores/job-tracker';
+	import { batchTracker } from '$lib/stores/batch-tracker';
 	import { readingHistory } from '$lib/stores/reading-history';
 	import ChapterToolbar from '$lib/components/chapter/ChapterToolbar.svelte';
-	import PipelineProgressTracker from '$lib/components/chapter/PipelineProgressTracker.svelte';
 	import ViewModeWebtoon from '$lib/components/chapter/ViewModeWebtoon.svelte';
 	import ViewModeGrid from '$lib/components/chapter/ViewModeGrid.svelte';
 	import ViewModeCompare from '$lib/components/chapter/ViewModeCompare.svelte';
@@ -62,6 +62,8 @@
 		seq: number;
 		title: string | null;
 		titleTarget?: string | null;
+		status?: 'pending' | 'processing' | 'done' | 'error';
+		translatedAt?: number | null;
 	}
 
 	let chapter: ChapterData | null = data.chapter;
@@ -85,6 +87,18 @@
 		pages = data.pages;
 		loading = false;
 	}
+
+	$: hasProgress =
+		pages.some(
+			(p) =>
+				p.status !== 'pending' ||
+				Boolean(p.cleanedPath) ||
+				Boolean(p.outputPath) ||
+				(p.regions && p.regions.length > 0) ||
+				Boolean(p.error),
+		) ||
+		(chapter?.status != null && chapter.status !== 'pending') ||
+		Boolean(chapter?.translatedAt);
 
 	// MODALS & INSPECTOR
 	let inspectPage: ChapterPageItem | null = null;
@@ -256,6 +270,7 @@
 
 	$: chapterId = Number($page.params.chapterId);
 	$: bookId = $page.params.id;
+	$: bookTitle = (data.chapter as any)?.bookTitle || (chapter as any)?.bookTitle || 'Book Translation';
 
 	// ACTIVE TRANSLATION JOB STATE (SELF-HEALING & REACTIVE)
 	$: currentJobState = $jobTracker.jobs[chapterId] || {
@@ -339,7 +354,7 @@
 	}
 
 	// PERSIST LAST READ CHAPTER PER BOOK (COOKIE + LOCAL CACHE)
-	$: if (browser && chapter && bookId) {
+	$: if (browser && chapter && bookId && chapter.bookId === bookId) {
 		readingHistory.recordReading(bookId, {
 			id: chapter.id,
 			seq: chapter.seq,
@@ -348,12 +363,38 @@
 		});
 	}
 
+	function scrollToTargetPageFromUrl() {
+		if (!browser || typeof window === 'undefined') return;
+		const hash = window.location.hash;
+		const params = new URLSearchParams(window.location.search);
+		const targetPageId = params.get('pageId') || (hash.startsWith('#page-') ? hash.replace('#page-', '') : null);
+		const targetSeq = params.get('seq');
+
+		if (targetPageId || targetSeq !== null) {
+			setTimeout(() => {
+				const el = (targetPageId ? document.querySelector(`[data-page-id="${targetPageId}"]`) : null) ||
+					(targetSeq !== null ? document.querySelector(`[data-page-seq="${targetSeq}"]`) : null);
+				if (el) {
+					el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+					el.classList.add('ring-2', 'ring-[#b23a2e]', 'dark:ring-[#e08a63]');
+					setTimeout(() => {
+						el.classList.remove('ring-2', 'ring-[#b23a2e]', 'dark:ring-[#e08a63]');
+					}, 2000);
+				}
+			}, 200);
+		}
+	}
+
+	$: if (browser && $page.url) {
+		scrollToTargetPageFromUrl();
+	}
+
 	onMount(() => {
 		lastLoadedChapterId = chapterId;
 		if (chapterId) {
 			void jobTracker.syncChapter(chapterId);
 		}
-		if (chapter && bookId) {
+		if (chapter && bookId && chapter.bookId === bookId) {
 			readingHistory.recordReading(bookId, {
 				id: chapter.id,
 				seq: chapter.seq,
@@ -361,6 +402,8 @@
 				titleTarget: chapter.titleTarget,
 			});
 		}
+
+		scrollToTargetPageFromUrl();
 
 		window.addEventListener('dragend', handleDragEnd);
 		window.addEventListener('pointerup', handleDragEnd);
@@ -427,8 +470,25 @@
 		}
 
 		try {
-			const shouldForce = force || !currentJobState.running;
-			await jobTracker.startTranslation(chapterId, { force: shouldForce });
+			if (chapter && bookId) {
+				await batchTracker.startBatch(
+					bookId,
+					bookTitle || 'Book Translation',
+					[
+						{
+							id: chapter.id,
+							seq: chapter.seq,
+							title: chapter.title || '',
+							titleTarget: chapter.titleTarget,
+							pageCount: pages.length,
+						},
+					],
+					{ force },
+				);
+			} else {
+				const shouldForce = force || !currentJobState.running;
+				await jobTracker.startTranslation(chapterId, { force: shouldForce });
+			}
 		} catch (e: any) {
 			toast.error(e?.message || 'Translation failed to start.');
 		}
@@ -436,7 +496,11 @@
 
 	async function cancelTranslation() {
 		try {
-			await jobTracker.cancelTranslation(chapterId);
+			if ($batchTracker.active && $batchTracker.queue.some((q) => q.id === chapterId)) {
+				await batchTracker.cancelBatch();
+			} else {
+				await jobTracker.cancelTranslation(chapterId);
+			}
 			toast.info('Translation stopped.');
 			await reload();
 		} catch {
@@ -512,11 +576,26 @@
 			}
 			pg.error = null;
 			pages = [...pages];
-			// If a job is already running, don't supersede it — pass force:false so
-			// the backend attaches the new page(s) to the existing pipeline instead of
-			// aborting it. Only force a fresh start when nothing is currently running.
-			const shouldForce = !currentJobState.running;
-			await jobTracker.startTranslation(chapterId, { force: shouldForce, pageIds: [pg.id] });
+
+			if (chapter && bookId) {
+				await batchTracker.startBatch(
+					bookId,
+					bookTitle || 'Book Translation',
+					[
+						{
+							id: chapter.id,
+							seq: chapter.seq,
+							title: chapter.title || '',
+							titleTarget: chapter.titleTarget,
+							pageCount: pages.length,
+						},
+					],
+					{ force: true, pageIds: [pg.id] },
+				);
+			} else {
+				const shouldForce = !currentJobState.running;
+				await jobTracker.startTranslation(chapterId, { force: shouldForce, pageIds: [pg.id] });
+			}
 		} catch (e: any) {
 			toast.error(e?.message || 'Failed to start single page translation.');
 		}
@@ -865,7 +944,7 @@
 <svelte:head>
 	<title
 		>{chapter
-			? `${chapter.titleTarget || chapter.title || `Chapter ${chapter.seq + 1}`} — Xianscan`
+			? `${chapter.titleTarget || chapter.title || `Chapter ${chapter.seq + 1}`} - XianScan`
 			: 'Chapter Reader'}</title
 	>
 	<meta
@@ -887,10 +966,15 @@
 			class="pointer-events-none fixed inset-0 z-50 flex items-center justify-center bg-[#b23a2e]/20 backdrop-blur-sm"
 		>
 			<div
-				class="flex flex-col items-center gap-3 rounded-2xl border-2 border-dashed border-[#b23a2e] bg-white/90 p-8 shadow-2xl dark:bg-[#1a1713]/90"
+				class="flex max-w-md mx-4 flex-col items-center gap-3 rounded-2xl border-2 border-dashed border-[#b23a2e] bg-white/90 p-8 text-center shadow-2xl dark:border-[#e08a63] dark:bg-[#1a1713]/90"
 			>
 				<Upload size={36} class="animate-bounce text-[#b23a2e] dark:text-[#e08a63]" />
-				<p class="text-sm font-bold">Drop page images or chapter folders</p>
+				<div class="space-y-1">
+					<p class="text-sm font-bold sm:text-base">Drop chapter folders or pages to import</p>
+					<p class="text-xs opacity-75">
+						Append pages to Chapter {chapter ? chapter.seq + 1 : ''} or create new chapters
+					</p>
+				</div>
 			</div>
 		</div>
 	{/if}
@@ -904,7 +988,9 @@
 		totalPages={pages.length}
 		{prevChapter}
 		{nextChapter}
-		running={currentJobState.running}
+		{hasProgress}
+		running={currentJobState.running || Boolean($batchTracker.active && $batchTracker.queue.some((q) => q.id === chapterId && (q.status === 'processing' || q.status === 'reslicing')))}
+		isReslicing={Boolean($batchTracker.active && $batchTracker.queue.find((q) => q.id === chapterId && q.status === 'reslicing'))}
 		{uploading}
 		{exporting}
 		{exportProgress}
@@ -922,16 +1008,6 @@
 		on:changeViewMode={(e) => settings.update((s) => ({ ...s, readerViewMode: e.detail }))}
 		on:changeWebtoonKind={(e) => settings.update((s) => ({ ...s, webtoonKind: e.detail }))}
 		on:changeWebtoonWidth={(e) => settings.update((s) => ({ ...s, webtoonWidth: e.detail }))}
-	/>
-
-	<!-- REAL-TIME TELEMETRY PROGRESS TRACKER -->
-	<PipelineProgressTracker
-		jobState={currentJobState}
-		onCancel={cancelTranslation}
-		onRetryPage={(pageId) => {
-			const pg = pages.find((p) => p.id === pageId);
-			if (pg) translateSinglePage(pg);
-		}}
 	/>
 
 	<!-- MAIN CONTENT VIEWS -->
@@ -1080,24 +1156,13 @@
 			<TextField bind:value={editChapterTitle} label="Chapter Title (Source Language)" placeholder="e.g. 第1话" />
 
 			<div class="block">
-				<div class="mb-1 flex items-center justify-between">
-					<span class="text-xs font-semibold opacity-60">Target Title (Translated title)</span>
-					<button
-						type="button"
-						class="inline-flex items-center gap-1 text-[11px] font-semibold text-[#b23a2e] hover:underline disabled:opacity-40 dark:text-[#e08a63]"
-						disabled={translatingChapterTitle || !editChapterTitle.trim()}
-						on:click={translateChapterTitle}
-					>
-						<Languages size={12} />
-						<span>{translatingChapterTitle ? 'Translating...' : 'Auto-Translate'}</span>
-					</button>
-				</div>
+				<span class="mb-1 block text-xs font-semibold opacity-60">Target Title (Translated title)</span>
 				<div class="flex items-center gap-2">
 					<input
 						type="text"
 						bind:value={editChapterTitleTarget}
 						placeholder="e.g. Chapter 1: The Awakening"
-						class="h-[38px] w-full rounded-lg border border-black/10 bg-transparent px-3 text-sm outline-none transition-colors placeholder:opacity-40 focus:border-[#b23a2e] focus:ring-2 focus:ring-[#b23a2e]/30 dark:border-white/[0.06]"
+						class="h-[38px] min-w-0 flex-1 rounded-lg border border-black/10 bg-transparent px-3 text-sm outline-none transition-colors placeholder:opacity-40 focus:border-[#b23a2e] focus:ring-2 focus:ring-[#b23a2e]/30 dark:border-white/[0.06]"
 					/>
 					<Button
 						variant="secondary"
@@ -1106,6 +1171,7 @@
 						disabled={translatingChapterTitle || !editChapterTitle.trim()}
 						on:click={translateChapterTitle}
 						title="Auto-translate chapter title"
+						aria-label="Auto-translate chapter title"
 					>
 						{#if !translatingChapterTitle}
 							<Languages size={15} />

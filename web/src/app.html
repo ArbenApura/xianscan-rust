@@ -7,6 +7,23 @@
 		<meta name="theme-color" content="%THEME_COLOR%" />
 		<link rel="preconnect" href="https://api.fontshare.com" crossorigin />
 		<link rel="stylesheet" href="https://api.fontshare.com/v2/css?f[]=clash-grotesk@200,300,400,500,600,700&f[]=general-sans@200,300,400,500,600,700&display=swap" />
+		<script>
+			try {
+				const m = document.cookie.match(/mt_theme=([^;]+)/);
+				const t = m ? decodeURIComponent(m[1]) : '';
+				if (t === 'auto') {
+					if (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches) {
+						document.documentElement.classList.add('dark');
+						document.documentElement.style.colorScheme = 'dark';
+						document.documentElement.style.backgroundColor = '#13100c';
+					} else {
+						document.documentElement.classList.remove('dark');
+						document.documentElement.style.colorScheme = 'light';
+						document.documentElement.style.backgroundColor = '#fbfaf7';
+					}
+				}
+			} catch(e) {}
+		</script>
 		%sveltekit.head%
 	</head>
 	<body data-sveltekit-preload-data="hover" class="h-full">

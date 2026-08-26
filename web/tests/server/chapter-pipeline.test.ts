@@ -834,4 +834,154 @@ describe('runChapterPipeline', () => {
 		expect(translationGlossaryBlocks[0]).toBe(translationGlossaryBlocks[1]);
 		expect(translationGlossaryBlocks[0]).toContain('妖灵师 = demon spiritualist');
 	});
+
+	it('suppresses SFX regions from translation, cleaning, and typesetting when enableSfx is false', async () => {
+		seedBook(db, { id: 'b_sfx_test' });
+		const chapter = seedChapter(db, { bookId: 'b_sfx_test', seq: 0 });
+		const p0 = seedPage(db, { chapterId: chapter.id, seq: 0, filePath: 'uploads/sfx0.png' });
+		mkdirSync(join(dataRoot, 'uploads'), { recursive: true });
+		writeFileSync(join(dataRoot, 'uploads', 'sfx0.png'), PAGE_PNG);
+
+		class SfxPipeline extends FakePipeline {
+			override async analyze(): Promise<AnalyzeResult> {
+				return {
+					width: 200,
+					height: 300,
+					backend: 'comic-ctd',
+					regions: [
+						{
+							id: 'r_dialogue',
+							box: { x: 10, y: 10, w: 50, h: 20 },
+							polygon: [[10, 10], [60, 10], [60, 30], [10, 30]],
+							text: '你好世界',
+							kind: 'dialogue_bubble',
+							confidence: 0.95,
+							vertical: false,
+						},
+						{
+							id: 'r_sfx',
+							box: { x: 80, y: 80, w: 60, h: 40 },
+							polygon: [[80, 80], [140, 80], [140, 120], [80, 120]],
+							text: '轰隆隆',
+							kind: 'sound_effect',
+							confidence: 0.95,
+							vertical: false,
+						},
+					],
+				};
+			}
+		}
+
+		let capturedCleanRegions: any[] = [];
+		const sfxPipeline = new SfxPipeline();
+		sfxPipeline.clean = async (_img, cleanRegions) => {
+			capturedCleanRegions = cleanRegions;
+			return _img;
+		};
+
+		let sentToTranslate: any[] = [];
+		const captureLlm = {
+			chat: {
+				completions: {
+					create: async (params: { messages: { role: string; content: string }[] }) => {
+						const userPrompt = params.messages.find((m) => m.role === 'user')?.content ?? '';
+						sentToTranslate.push(userPrompt);
+						return {
+							choices: [{ message: { content: JSON.stringify({ r_dialogue: 'Hello World' }) } }],
+							usage: { prompt_tokens: 10, completion_tokens: 5, total_tokens: 15 },
+						};
+					},
+				},
+			},
+		} as unknown as OpenAI;
+
+		await chapterWork(chapter.id, {
+			pipeline: sfxPipeline,
+			dataRoot,
+			llm: captureLlm,
+			enableSfx: false,
+		})(new AbortController().signal, () => {});
+
+		// 1. LLM ONLY RECEIVED THE DIALOGUE REGION, NOT THE SFX
+		expect(sentToTranslate.length).toBe(1);
+		expect(sentToTranslate[0]).toContain('r_dialogue');
+		expect(sentToTranslate[0]).not.toContain('r_sfx');
+
+		// 2. INPAINT CLEAN ONLY RECEIVED DIALOGUE
+		expect(capturedCleanRegions.map((r) => r.id)).toEqual(['r_dialogue']);
+
+		// 3. PERSISTED REGIONS: DIALOGUE IS TRANSLATED, SFX IS UNTOUCHED/PENDING
+		const allRegions = db.select().from(regions).where(eq(regions.pageId, p0.id)).all();
+		const dlg = allRegions.find((r) => r.textSource === '你好世界');
+		const sfx = allRegions.find((r) => r.textSource === '轰隆隆');
+		expect(dlg?.status).toBe('translated');
+		expect(dlg?.textTarget).toBe('Hello World');
+		expect(sfx?.status).toBe('pending');
+		expect(sfx?.textTarget).toBeNull();
+	});
+
+	it('suppresses oversized SFX exceeding sfxMaxAreaPct', async () => {
+		seedBook(db, { id: 'b_sfx_area' });
+		const chapter = seedChapter(db, { bookId: 'b_sfx_area', seq: 0 });
+		seedPage(db, { chapterId: chapter.id, seq: 0, filePath: 'uploads/sfx_area.png' });
+		mkdirSync(join(dataRoot, 'uploads'), { recursive: true });
+		writeFileSync(join(dataRoot, 'uploads', 'sfx_area.png'), PAGE_PNG);
+
+		class OversizedSfxPipeline extends FakePipeline {
+			override async analyze(): Promise<AnalyzeResult> {
+				return {
+					width: 100,
+					height: 100, // AREA = 10,000
+					backend: 'comic-ctd',
+					regions: [
+						{
+							id: 'r_small_sfx',
+							box: { x: 0, y: 0, w: 10, h: 10 }, // AREA = 100 (1%)
+							polygon: [[0, 0], [10, 0], [10, 10], [0, 10]],
+							text: '咔',
+							kind: 'sound_effect',
+							confidence: 0.95,
+							vertical: false,
+						},
+						{
+							id: 'r_giant_sfx',
+							box: { x: 10, y: 10, w: 80, h: 50 }, // AREA = 4,000 (40%)
+							polygon: [[10, 10], [90, 10], [90, 60], [10, 60]],
+							text: '轰隆',
+							kind: 'sound_effect',
+							confidence: 0.95,
+							vertical: false,
+						},
+					],
+				};
+			}
+		}
+
+		let sentToTranslate = '';
+		const captureLlm = {
+			chat: {
+				completions: {
+					create: async (params: { messages: { role: string; content: string }[] }) => {
+						sentToTranslate = params.messages.find((m) => m.role === 'user')?.content ?? '';
+						return {
+							choices: [{ message: { content: JSON.stringify({ r_small_sfx: 'SNAP' }) } }],
+							usage: { prompt_tokens: 10, completion_tokens: 5, total_tokens: 15 },
+						};
+					},
+				},
+			},
+		} as unknown as OpenAI;
+
+		await chapterWork(chapter.id, {
+			pipeline: new OversizedSfxPipeline(),
+			dataRoot,
+			llm: captureLlm,
+			enableSfx: true,
+			sfxMaxAreaPct: 0.10, // MAX 10%
+		})(new AbortController().signal, () => {});
+
+		// SMALL SFX (1%) WAS SENT, GIANT SFX (40%) WAS FILTERED OUT
+		expect(sentToTranslate).toContain('r_small_sfx');
+		expect(sentToTranslate).not.toContain('r_giant_sfx');
+	});
 });

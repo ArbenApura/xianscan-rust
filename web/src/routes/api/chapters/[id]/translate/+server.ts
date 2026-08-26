@@ -16,6 +16,7 @@ import { DATA_ROOT } from '$lib/server/paths';
 import { aiUsage } from '$lib/server/db/schema';
 import { db } from '$lib/server/db';
 import { getChapterJob, startChapterJob, setChapterJobAddPage, isChapterPageCancelled, type JobHandle } from '$lib/server/translation-service';
+import { getCanonicalSettings } from '$lib/server/settings-service';
 import { translateChapterSchema } from '$lib/schemas';
 
 import type { RequestHandler } from './$types';
@@ -87,47 +88,56 @@ export const POST: RequestHandler = async ({ params, request, cookies }) => {
 	if (!Number.isInteger(chapterId)) throw error(400, 'Invalid chapter id.');
 	await assertChapterExists(chapterId);
 
+	const canonical = getCanonicalSettings();
 	const parsed = translateChapterSchema.safeParse(await request.json().catch(() => null));
 	const force = parsed.success ? parsed.data.force : false;
 	const pageIds = parsed.success ? parsed.data.pageIds : undefined;
-	const inpaintMode = parsed.success && parsed.data.inpaintMode ? parsed.data.inpaintMode : cookies.get('mt_inpaint_mode') ?? 'patch';
+	const inpaintMode = parsed.success && parsed.data.inpaintMode
+		? parsed.data.inpaintMode
+		: cookies.get('mt_inpaint_mode') ?? canonical.inpaintMode ?? 'patch';
 	const pageConcurrency = parsed.success && typeof parsed.data.pageConcurrency === 'number'
 		? Math.max(1, Math.min(16, parsed.data.pageConcurrency))
-		: Math.max(1, Math.min(16, Number(cookies.get('mt_parallel_processes') ?? '3') || 3));
+		: Math.max(1, Math.min(16, Number(cookies.get('mt_parallel_processes')) || canonical.parallelProcesses || 2));
 
 	const typesetOptions = {
 		fontDialogue: parsed.success && parsed.data.typesetOptions?.fontDialogue
 			? parsed.data.typesetOptions.fontDialogue
-			: cookies.get('mt_ts_font'),
+			: (cookies.get('mt_ts_font') || canonical.typesetFont || 'CC Wild Words'),
 		fontCjk: parsed.success && parsed.data.typesetOptions?.fontCjk
 			? parsed.data.typesetOptions.fontCjk
-			: cookies.get('mt_ts_cjk_font'),
+			: (cookies.get('mt_ts_cjk_font') || canonical.typesetCjkFont || 'Friendly Sans'),
 		boxInset: parsed.success && typeof parsed.data.typesetOptions?.boxInset === 'number'
 			? parsed.data.typesetOptions.boxInset
-			: cookies.get('mt_ts_padding') ? Number(cookies.get('mt_ts_padding')) : undefined,
+			: (cookies.get('mt_ts_padding') ? Number(cookies.get('mt_ts_padding')) : canonical.typesetPadding ?? 0.05),
 		outlineMode: parsed.success && parsed.data.typesetOptions?.outlineMode
 			? parsed.data.typesetOptions.outlineMode
-			: (cookies.get('mt_ts_outline') as any),
+			: ((cookies.get('mt_ts_outline') as any) || canonical.typesetOutline || 'standard'),
 		colorMode: parsed.success && parsed.data.typesetOptions?.colorMode
 			? parsed.data.typesetOptions.colorMode
-			: (cookies.get('mt_ts_contrast') as any),
+			: ((cookies.get('mt_ts_contrast') as any) || canonical.typesetContrast || 'auto'),
 		casing: parsed.success && parsed.data.typesetOptions?.casing
 			? parsed.data.typesetOptions.casing
-			: (cookies.get('mt_ts_casing') as any),
+			: ((cookies.get('mt_ts_casing') as any) || canonical.typesetCasing || 'uppercase'),
 		enableRotation: parsed.success && typeof parsed.data.typesetOptions?.enableRotation === 'boolean'
 			? parsed.data.typesetOptions.enableRotation
-			: cookies.get('mt_ts_rot') ? cookies.get('mt_ts_rot') === 'true' : undefined,
+			: (cookies.get('mt_ts_rot') ? cookies.get('mt_ts_rot') === 'true' : (canonical.enableTextRotation ?? true)),
 	};
 
-	const inpaintExpansionPct = cookies.get('mt_inpaint_exp') ? Number(cookies.get('mt_inpaint_exp')) : undefined;
-	const typesetExpansionPct = cookies.get('mt_typeset_exp') ? Number(cookies.get('mt_typeset_exp')) : undefined;
-	const enableWatermarkInpaint = cookies.get('mt_watermark_inpaint') === 'true';
+	const inpaintExpansionPct = parsed.success && typeof parsed.data.inpaintExpansionPct === 'number'
+		? parsed.data.inpaintExpansionPct
+		: (cookies.get('mt_inpaint_exp') ? Number(cookies.get('mt_inpaint_exp')) : canonical.inpaintExpansionPct ?? 0.03);
+	const typesetExpansionPct = parsed.success && typeof parsed.data.typesetExpansionPct === 'number'
+		? parsed.data.typesetExpansionPct
+		: (cookies.get('mt_typeset_exp') ? Number(cookies.get('mt_typeset_exp')) : canonical.typesetExpansionPct ?? 0.06);
+	const enableWatermarkInpaint = parsed.success && typeof parsed.data.enableWatermarkInpaint === 'boolean'
+		? parsed.data.enableWatermarkInpaint
+		: (cookies.get('mt_watermark_inpaint') ? cookies.get('mt_watermark_inpaint') === 'true' : (canonical.enableWatermarkInpaint ?? false));
 	const enableSfx = parsed.success && typeof parsed.data.enableSfx === 'boolean'
 		? parsed.data.enableSfx
-		: cookies.get('mt_enable_sfx') === 'true';
+		: (cookies.get('mt_enable_sfx') ? cookies.get('mt_enable_sfx') === 'true' : (canonical.enableSfx ?? false));
 	const sfxMaxAreaPct = parsed.success && typeof parsed.data.sfxMaxAreaPct === 'number'
 		? parsed.data.sfxMaxAreaPct
-		: cookies.get('mt_sfx_max_area') ? Number(cookies.get('mt_sfx_max_area')) : undefined;
+		: (cookies.get('mt_sfx_max_area') ? Number(cookies.get('mt_sfx_max_area')) : canonical.sfxMaxAreaPct ?? 0.10);
 
 	// RECORD AI SPEND ON THE LEDGER (THE JOB STAYS DETACHED — FAILURES LOG, NOT THROW)
 	const deps = {

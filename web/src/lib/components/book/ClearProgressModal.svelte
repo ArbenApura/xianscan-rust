@@ -125,24 +125,24 @@
 	on:close={handleClose}
 >
 	<!-- HEADER BRANDING HERO -->
-	<div class="flex items-start gap-3.5 rounded-xl border border-red-500/20 bg-red-500/5 p-3.5 dark:border-red-400/20 dark:bg-red-400/5">
-		<div class="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-red-500/10 text-red-600 dark:bg-red-400/15 dark:text-red-400">
+	<div class="flex items-start gap-3 sm:gap-3.5 rounded-xl border border-red-500/20 bg-red-500/5 p-3 sm:p-3.5 dark:border-red-400/20 dark:bg-red-400/5">
+		<div class="flex h-9 w-9 sm:h-10 sm:w-10 shrink-0 items-center justify-center rounded-xl bg-red-500/10 text-red-600 dark:bg-red-400/15 dark:text-red-400">
 			{#if state === 'done'}
-				<CheckCircle2 size={22} class="text-emerald-600 dark:text-emerald-400" />
+				<CheckCircle2 size={20} class="text-emerald-600 dark:text-emerald-400 sm:w-[22px] sm:h-[22px]" />
 			{:else if state === 'error'}
-				<AlertCircle size={22} class="text-rose-600 dark:text-rose-400" />
+				<AlertCircle size={20} class="text-rose-600 dark:text-rose-400 sm:w-[22px] sm:h-[22px]" />
 			{:else}
-				<RotateCw size={20} class={state === 'running' ? 'animate-spin' : ''} />
+				<RotateCw size={18} class="sm:w-5 sm:h-5" />
 			{/if}
 		</div>
 		<div class="min-w-0 flex-1">
-			<div class="flex items-center gap-2">
-				<h3 class="text-sm font-bold tracking-tight">Reset Book Progress</h3>
-				<span class="rounded-md bg-red-500/15 px-2 py-0.5 text-[10px] font-bold text-red-600 dark:bg-red-400/20 dark:text-red-400">
+			<div class="flex flex-wrap items-center gap-1.5 sm:gap-2">
+				<h3 class="text-xs sm:text-sm font-bold tracking-tight">Reset Book Progress</h3>
+				<span class="rounded-md bg-red-500/15 px-1.5 sm:px-2 py-0.5 text-[9px] sm:text-[10px] font-bold text-red-600 dark:bg-red-400/20 dark:text-red-400 whitespace-nowrap">
 					Preserves Original Pages
 				</span>
 			</div>
-			<p class="mt-0.5 text-xs opacity-70 leading-relaxed">
+			<p class="mt-1 text-[11px] sm:text-xs opacity-70 leading-relaxed break-words">
 				{#if bookTitle}
 					Reset all OCR and translations for <strong class="opacity-90">{bookTitle}</strong>.
 				{:else}
@@ -154,10 +154,10 @@
 
 	<!-- BODY: IDLE STATE -->
 	{#if state === 'idle'}
-		<div class="mt-4 space-y-3.5 text-xs">
+		<div class="mt-3.5 sm:mt-4 space-y-2.5 sm:space-y-3.5 text-xs">
 			<!-- OVERVIEW STATS -->
-			<div class="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
-				<div class="flex flex-col gap-1 rounded-xl border border-black/10 bg-black/[0.02] p-3 dark:border-white/10 dark:bg-white/[0.02]">
+			<div class="grid grid-cols-1 sm:grid-cols-2 gap-2 sm:gap-2.5">
+				<div class="flex flex-col gap-1 rounded-xl border border-black/10 bg-black/[0.02] p-2.5 sm:p-3 dark:border-white/10 dark:bg-white/[0.02]">
 					<div class="flex items-center gap-1.5 font-bold text-xs">
 						<Layers size={14} class="text-[#b23a2e] dark:text-[#e08a63]" />
 						<span>Target Scope</span>
@@ -167,7 +167,7 @@
 					</p>
 				</div>
 
-				<div class="flex flex-col gap-1 rounded-xl border border-black/10 bg-black/[0.02] p-3 dark:border-white/10 dark:bg-white/[0.02]">
+				<div class="flex flex-col gap-1 rounded-xl border border-black/10 bg-black/[0.02] p-2.5 sm:p-3 dark:border-white/10 dark:bg-white/[0.02]">
 					<div class="flex items-center gap-1.5 font-bold text-xs">
 						<ShieldCheck size={14} class="text-emerald-600 dark:text-emerald-400" />
 						<span>Image Safety</span>
@@ -179,7 +179,7 @@
 			</div>
 
 			<!-- WARNING NOTICE -->
-			<div class="flex items-start gap-2.5 rounded-xl border border-amber-500/25 bg-amber-500/10 p-3 text-amber-900 dark:text-amber-200">
+			<div class="flex items-start gap-2.5 rounded-xl border border-amber-500/25 bg-amber-500/10 p-2.5 sm:p-3 text-amber-900 dark:text-amber-200">
 				<AlertTriangle size={15} class="shrink-0 mt-0.5 text-amber-600 dark:text-amber-400" />
 				<p class="text-[11px] leading-relaxed opacity-90">
 					This action resets OCR detections, glossary extractions, translations, and inpaint masks. Once started, this process cannot be undone.
@@ -187,14 +187,14 @@
 			</div>
 		</div>
 
-		<div class="mt-6 flex items-center justify-end gap-2.5">
-			<Button variant="secondary" size="md" class="h-10 px-4 text-xs sm:text-sm font-medium" on:click={handleClose}>
+		<div class="mt-5 sm:mt-6 flex items-center justify-end gap-2 sm:gap-2.5">
+			<Button variant="secondary" size="md" class="h-9 sm:h-10 flex-1 sm:flex-initial px-3.5 sm:px-4 text-xs sm:text-sm font-medium" on:click={handleClose}>
 				Cancel
 			</Button>
 			<Button
 				variant="danger"
 				size="md"
-				class="h-10 px-4 text-xs sm:text-sm font-semibold shadow-sm"
+				class="h-9 sm:h-10 flex-1 sm:flex-initial px-3.5 sm:px-4 text-xs sm:text-sm font-semibold shadow-sm"
 				on:click={start}
 			>
 				<RotateCw size={14} />
@@ -204,19 +204,18 @@
 
 	<!-- BODY: RUNNING LOCKED PROGRESS STATE -->
 	{:else if state === 'running'}
-		<div class="mt-4 space-y-4">
+		<div class="mt-3.5 sm:mt-4 space-y-3.5 sm:space-y-4">
 			<!-- STATUS HEADER -->
-			<div class="flex items-center justify-between text-xs font-semibold">
-				<span class="flex items-center gap-2 text-red-600 dark:text-red-400">
-					<Loader2 size={15} class="animate-spin text-red-600 dark:text-red-400" />
-					<span>Clearing Progress in Progress...</span>
+			<div class="flex flex-col sm:flex-row sm:items-center justify-between gap-1 text-xs font-semibold">
+				<span class="text-red-600 dark:text-red-400">
+					Clearing Translation Progress...
 				</span>
-				<span class="text-[11px] font-normal opacity-50">Please keep this dialog open</span>
+				<span class="text-[10.5px] sm:text-[11px] font-normal opacity-50">Please keep this dialog open</span>
 			</div>
 
 			<!-- CURRENT STATUS MESSAGE BANNER -->
-			<div class="rounded-xl border border-black/[0.08] bg-black/[0.02] p-3 text-center text-xs font-medium dark:border-white/[0.08] dark:bg-white/[0.02]">
-				<span class="font-mono text-[11px] text-current opacity-80">{message}</span>
+			<div class="rounded-xl border border-black/[0.08] bg-black/[0.02] p-2.5 sm:p-3 text-center text-xs font-medium dark:border-white/[0.08] dark:bg-white/[0.02]">
+				<span class="font-mono text-[10.5px] sm:text-[11px] text-current opacity-80 break-words">{message}</span>
 			</div>
 
 			<!-- STEP STATUS CHECKLIST -->
@@ -224,7 +223,7 @@
 				{#each STEPS as step, idx}
 					{@const status = stepStatus[step.id]}
 					<div
-						class={`flex items-center gap-3 rounded-xl border px-3.5 py-3 transition-all duration-300 ${
+						class={`flex items-start sm:items-center gap-2.5 sm:gap-3 rounded-xl border px-3 sm:px-3.5 py-2.5 sm:py-3 transition-all duration-300 ${
 							status === 'active'
 								? 'border-red-500/40 bg-red-500/5 ring-2 ring-red-500/20 text-red-600 dark:text-red-400 font-semibold shadow-xs'
 								: status === 'done'
@@ -234,11 +233,11 @@
 					>
 						<!-- STEP INDICATOR ICON -->
 						{#if status === 'done'}
-							<CheckCircle2 size={18} class="shrink-0 text-emerald-600 dark:text-emerald-400" />
+							<CheckCircle2 size={18} class="shrink-0 mt-0.5 sm:mt-0 text-emerald-600 dark:text-emerald-400" />
 						{:else if status === 'active'}
-							<Loader2 size={18} class="shrink-0 animate-spin text-red-600 dark:text-red-400" />
+							<Loader2 size={18} class="shrink-0 mt-0.5 sm:mt-0 animate-spin text-red-600 dark:text-red-400" />
 						{:else}
-							<span class="flex h-[18px] w-[18px] shrink-0 items-center justify-center rounded-full border border-current text-[10px] font-bold opacity-60">
+							<span class="flex h-[18px] w-[18px] shrink-0 mt-0.5 sm:mt-0 items-center justify-center rounded-full border border-current text-[10px] font-bold opacity-60">
 								{idx + 1}
 							</span>
 						{/if}
@@ -251,21 +250,21 @@
 				{/each}
 			</div>
 
-			<div class="mt-4 flex items-center justify-between border-t border-black/[0.06] pt-3 text-[11px] opacity-60 dark:border-white/[0.06]">
+			<div class="mt-3.5 sm:mt-4 flex flex-col sm:flex-row sm:items-center justify-between gap-1 border-t border-black/[0.06] pt-2.5 sm:pt-3 text-[10.5px] sm:text-[11px] opacity-60 dark:border-white/[0.06]">
 				<span>Dialog is locked until completion</span>
-				<span class="font-mono text-[10.5px]">Do not navigate away</span>
+				<span class="font-mono text-[10px] sm:text-[10.5px]">Do not navigate away</span>
 			</div>
 		</div>
 
 	<!-- BODY: DONE STATE -->
 	{:else if state === 'done'}
-		<div class="mt-4 space-y-4 text-xs">
-			<div class="rounded-xl border border-emerald-500/30 bg-emerald-500/10 p-4 text-emerald-950 dark:text-emerald-200 space-y-2">
+		<div class="mt-3.5 sm:mt-4 space-y-3.5 sm:space-y-4 text-xs">
+			<div class="rounded-xl border border-emerald-500/30 bg-emerald-500/10 p-3.5 sm:p-4 text-emerald-950 dark:text-emerald-200 space-y-2">
 				<div class="flex items-center gap-2 font-bold text-sm text-emerald-700 dark:text-emerald-300">
 					<CheckCircle2 size={18} />
 					<span>Progress Cleared Successfully</span>
 				</div>
-				<p class="text-xs opacity-85 leading-relaxed">
+				<p class="text-[11px] sm:text-xs opacity-85 leading-relaxed">
 					Reset translation and OCR progress across
 					<strong>{result?.chaptersReset ?? chapterCount} chapter{(result?.chaptersReset ?? chapterCount) === 1 ? '' : 's'}</strong>
 					{#if result?.pagesReset}
@@ -275,11 +274,11 @@
 				</p>
 			</div>
 
-			<div class="mt-6 flex items-center justify-end">
+			<div class="mt-5 sm:mt-6 flex items-center justify-end">
 				<Button
 					variant="primary"
 					size="md"
-					class="h-10 px-5 text-xs sm:text-sm font-semibold shadow-sm"
+					class="h-9 sm:h-10 w-full sm:w-auto px-5 text-xs sm:text-sm font-semibold shadow-sm"
 					on:click={handleClose}
 				>
 					Done & Refresh
@@ -289,20 +288,20 @@
 
 	<!-- BODY: ERROR STATE -->
 	{:else if state === 'error'}
-		<div class="mt-4 space-y-4 text-xs">
-			<div class="rounded-xl border border-rose-500/30 bg-rose-500/10 p-4 text-rose-950 dark:text-rose-200 space-y-2">
+		<div class="mt-3.5 sm:mt-4 space-y-3.5 sm:space-y-4 text-xs">
+			<div class="rounded-xl border border-rose-500/30 bg-rose-500/10 p-3.5 sm:p-4 text-rose-950 dark:text-rose-200 space-y-2">
 				<div class="flex items-center gap-2 font-bold text-sm text-rose-700 dark:text-rose-300">
 					<AlertCircle size={18} />
 					<span>Clear Progress Failed</span>
 				</div>
-				<p class="text-xs opacity-85 leading-relaxed">{errorMessage}</p>
+				<p class="text-[11px] sm:text-xs opacity-85 leading-relaxed">{errorMessage}</p>
 			</div>
 
-			<div class="mt-6 flex items-center justify-end gap-2.5">
-				<Button variant="secondary" size="md" class="h-10 px-4 text-xs sm:text-sm font-medium" on:click={handleClose}>
+			<div class="mt-5 sm:mt-6 flex items-center justify-end gap-2 sm:gap-2.5">
+				<Button variant="secondary" size="md" class="h-9 sm:h-10 flex-1 sm:flex-initial px-3.5 sm:px-4 text-xs sm:text-sm font-medium" on:click={handleClose}>
 					Close
 				</Button>
-				<Button variant="danger" size="md" class="h-10 px-4 text-xs sm:text-sm font-semibold shadow-sm" on:click={start}>
+				<Button variant="danger" size="md" class="h-9 sm:h-10 flex-1 sm:flex-initial px-3.5 sm:px-4 text-xs sm:text-sm font-semibold shadow-sm" on:click={start}>
 					<RotateCw size={14} /> Retry
 				</Button>
 			</div>

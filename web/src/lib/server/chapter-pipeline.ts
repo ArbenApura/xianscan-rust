@@ -219,7 +219,8 @@ export async function runChapterPipeline(
 	emit({
 		type: 'start',
 		chapterId,
-		totalPages: pageRows.length,
+		totalPages: pageIds && pageIds.length > 0 ? pageIds.length : pageRows.length,
+		targetPageIds: pageIds && pageIds.length > 0 ? pageIds : undefined,
 		pages: pageRows.map((p) => ({
 			id: p.id,
 			seq: p.seq,
@@ -383,20 +384,22 @@ export async function runChapterPipeline(
 		};
 	});
 
-	// EMIT UP FRONT FOR ALREADY-DONE (SKIPPED) PAGES
-	for (let i = 0; i < slots.length; i++) {
-		const slot = slots[i];
-		if (slot.outcome === 'done') {
-			emit({
-				type: 'page-done',
-				chapterId,
-				page: i,
-				pageId: slot.page.id,
-				pageCount: slots.length,
-				outputPath: slot.page.outputPath,
-				cleanedRev: slot.page.cleanedRev,
-				outputRev: slot.page.outputRev,
-			});
+	// EMIT UP FRONT FOR ALREADY-DONE (SKIPPED) PAGES ONLY IF TRANSLATING FULL CHAPTER
+	if (!targetIdSet) {
+		for (let i = 0; i < slots.length; i++) {
+			const slot = slots[i];
+			if (slot.outcome === 'done') {
+				emit({
+					type: 'page-done',
+					chapterId,
+					page: i,
+					pageId: slot.page.id,
+					pageCount: slots.length,
+					outputPath: slot.page.outputPath,
+					cleanedRev: slot.page.cleanedRev,
+					outputRev: slot.page.outputRev,
+				});
+			}
 		}
 	}
 
@@ -628,11 +631,13 @@ export async function runChapterPipeline(
 									byRegion.set(region.id, target);
 								}
 							}
+							const isEligible = isRegionEligible(region);
+							const status = target ? 'translated' : isEligible ? 'failed' : 'pending';
 							tx.update(regions)
 								.set({
 									textTarget: target || null,
 									originalTarget: target || null,
-									status: target ? 'translated' : 'failed',
+									status,
 								})
 								.where(
 									and(
@@ -910,8 +915,21 @@ export async function runChapterPipeline(
 			if (deps.isPageCancelled?.(page.id)) return;
 
 			// 3) TRANSLATE — LLM SEMANTICALLY TRANSLATES VALID DIALOGUE
+			const isSfxEnabled = deps.enableSfx === true;
+			const maxSfxArea = deps.sfxMaxAreaPct ?? 0.30;
+			const pageArea = (analyzed.width * analyzed.height) || 1;
+
+			const isRegionEligible = (r: { kind?: string; box: { w: number; h: number } }) => {
+				if (r.kind === 'sound_effect') {
+					if (!isSfxEnabled) return false;
+					const areaRatio = (r.box.w * r.box.h) / pageArea;
+					if (areaRatio > maxSfxArea) return false;
+				}
+				return true;
+			};
+
 			const sources = analyzed.regions
-				.filter((r) => r.text.trim().length > 0)
+				.filter((r) => r.text.trim().length > 0 && isRegionEligible(r))
 				.map((r) => ({ id: r.id, text: r.text, kind: r.kind, vertical: r.vertical }));
 			const byRegion = new Map<string, string>();
 
@@ -1016,11 +1034,13 @@ export async function runChapterPipeline(
 							byRegion.set(region.id, target);
 						}
 					}
+					const isEligible = isRegionEligible(region);
+					const status = target ? 'translated' : isEligible ? 'failed' : 'pending';
 					tx.update(regions)
 						.set({
 							textTarget: target || null,
 							originalTarget: target || null,
-							status: target ? 'translated' : 'failed',
+							status,
 						})
 						.where(and(eq(regions.pageId, page.id), eq(regions.seq, seqById.get(region.id) ?? -1)))
 						.run();
@@ -1043,7 +1063,7 @@ export async function runChapterPipeline(
 			emit({ type: 'page-step-start', chapterId, page: i, pageId: page.id, step: 'clean' });
 			const tClean0 = performance.now();
 			const cleanRegions = analyzed.regions
-				.filter((r) => Boolean(byRegion.get(r.id)?.trim()))
+				.filter((r) => isRegionEligible(r) && Boolean(byRegion.get(r.id)?.trim()))
 				.map((r) => ({ id: r.id, box: r.inpaint_box ?? r.box, polygon: r.polygon }));
 			const cleaned =
 				cleanRegions.length > 0
@@ -1074,7 +1094,7 @@ export async function runChapterPipeline(
 			emit({ type: 'page-step-start', chapterId, page: i, pageId: page.id, step: 'typeset' });
 			const tType0 = performance.now();
 			const typesetRegions = analyzed.regions
-				.filter((r) => Boolean(byRegion.get(r.id)?.trim()))
+				.filter((r) => isRegionEligible(r) && Boolean(byRegion.get(r.id)?.trim()))
 				.map((r) => ({
 					id: r.id,
 					box: r.typeset_box ?? r.box,
@@ -1179,10 +1199,38 @@ export async function runChapterPipeline(
 		}
 	};
 
+	// ATTACH IMMEDIATE ABORT LISTENER TO FLUSH IN-FLIGHT POOL
+	const onAbort = () => {
+		pool.clear();
+	};
+	signal.addEventListener('abort', onAbort, { once: true });
+
 	// -- STREAMING EXECUTION: ANALYZE EACH PAGE CONCURRENTLY; EACH PAGE TRANSLATES THE MOMENT ITS OWN --
 	// -- OCR FINISHES. THE LLM STEP IS SERIALIZED PER BOOK (chainTranslate); CLEAN + TYPESET OVERLAP.  --
-	await pool.addAll(pageRows.map((page, i) => () => analyzePage(page, i)));
-	await pool.onIdle();
+	try {
+		await pool.addAll(pageRows.map((page, i) => () => analyzePage(page, i)));
+		await pool.onIdle();
+	} finally {
+		signal.removeEventListener('abort', onAbort);
+	}
+
+	if (signal.aborted) {
+		db.update(pages)
+			.set({ status: 'pending', error: null })
+			.where(and(eq(pages.chapterId, chapterId), eq(pages.status, 'processing')))
+			.run();
+		const finalPages = db
+			.select({ status: pages.status, outputPath: pages.outputPath })
+			.from(pages)
+			.where(eq(pages.chapterId, chapterId))
+			.all();
+		const allDone = finalPages.length > 0 && finalPages.every((p) => p.status === 'done' || Boolean(p.outputPath));
+		db.update(chapters)
+			.set({ status: allDone ? 'done' : 'pending' })
+			.where(eq(chapters.id, chapterId))
+			.run();
+		return;
+	}
 
 	// UPDATE CHAPTER FINAL STATUS & TRANSLATED TIMESTAMP
 	const finalPages = db

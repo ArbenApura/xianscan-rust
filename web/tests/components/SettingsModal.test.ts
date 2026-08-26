@@ -173,4 +173,139 @@ describe('SettingsModal Component UI', () => {
 
 		expect(screen.queryByText('Reloading models…')).toBeNull();
 	});
+
+	it('only enables Save Provider button when changes are made to provider', async () => {
+		const fetchMock = vi.fn().mockImplementation(async (url: string) => {
+			if (url.includes('/api/system/providers')) {
+				return {
+					ok: true,
+					json: async () => ({
+						providers: [
+							{
+								id: 'deepseek',
+								name: 'DeepSeek',
+								baseUrl: 'https://api.deepseek.com',
+								activeModel: 'deepseek-chat',
+								availableModels: ['deepseek-chat', 'deepseek-reasoner'],
+								hasKey: true,
+								maskedKey: 'sk-...1234',
+								enabled: true,
+								isDefault: true,
+							},
+						],
+					}),
+				};
+			}
+			return { ok: true, json: async () => ({}) };
+		});
+		global.fetch = fetchMock;
+
+		render(SettingsModal, {
+			props: {
+				open: true,
+				initialTab: 'ai',
+			},
+		});
+		await tick();
+
+		// WAIT UNTIL PROVIDERS ARE LOADED FROM API
+		await vi.waitFor(() => {
+			expect(screen.getByText('Save Provider')).toBeTruthy();
+		});
+
+		// INITIAL STATE: NO CHANGES MADE YET -> SAVE PROVIDER BUTTON SHOULD BE DISABLED
+		const saveButton = screen.getByText('Save Provider').closest('button');
+		expect(saveButton?.hasAttribute('disabled')).toBe(true);
+
+		// CHANGE BASE URL -> SAVE PROVIDER BUTTON BECOMES ENABLED
+		const urlInput = screen.getByLabelText(/Endpoint Base URL/i) as HTMLInputElement;
+		await fireEvent.input(urlInput, { target: { value: 'https://api.deepseek.com/v2' } });
+		await tick();
+		expect(screen.getByText('Save Provider').closest('button')?.hasAttribute('disabled')).toBe(false);
+
+		// CLICK RESET DEFAULT BASE URL -> SAVE PROVIDER BUTTON BECOMES DISABLED AGAIN (MATCHES ORIGINAL)
+		const resetBtn = screen.getByText('Reset Default').closest('button');
+		if (resetBtn) {
+			await fireEvent.click(resetBtn);
+			await tick();
+			expect(screen.getByText('Save Provider').closest('button')?.hasAttribute('disabled')).toBe(true);
+		}
+
+		// SELECT DIFFERENT MODEL -> SAVE PROVIDER BUTTON BECOMES ENABLED
+		const reasonerModelTile = screen.getByText('deepseek-reasoner').closest('button');
+		await fireEvent.click(reasonerModelTile!);
+		await tick();
+		expect(screen.getByText('Save Provider').closest('button')?.hasAttribute('disabled')).toBe(false);
+
+		// REVERT MODEL BACK TO ORIGINAL -> SAVE PROVIDER BUTTON BECOMES DISABLED
+		const chatModelTile = screen.getByText('deepseek-chat').closest('button');
+		await fireEvent.click(chatModelTile!);
+		await tick();
+		expect(screen.getByText('Save Provider').closest('button')?.hasAttribute('disabled')).toBe(true);
+	});
+
+	it('conditionally displays and executes Reset Defaults in Appearance, Typesetting, and Inpainting tabs', async () => {
+		const fetchMock = vi.fn().mockImplementation(async () => ({
+			ok: true,
+			json: async () => ({ providers: [] }),
+		}));
+		global.fetch = fetchMock;
+
+		render(SettingsModal, {
+			props: {
+				open: true,
+				initialTab: 'appearance',
+			},
+		});
+		await tick();
+
+		// 1. GENERAL & APPEARANCE TAB
+		expect(screen.getByRole('heading', { name: /General & Appearance/i })).toBeTruthy();
+		// Initially at defaults, Reset Defaults button should not be rendered
+		expect(screen.queryByText('Reset Defaults')).toBeNull();
+
+		// Change theme to Dark
+		const darkBtn = screen.getByText('Dark').closest('button');
+		await fireEvent.click(darkBtn!);
+		await tick();
+
+		// Reset Defaults should appear
+		const appearanceResetBtn = screen.getByText('Reset Defaults');
+		expect(appearanceResetBtn).toBeTruthy();
+
+		// Clicking Reset Defaults resets back and hides the button
+		await fireEvent.click(appearanceResetBtn);
+		await tick();
+		expect(screen.queryByText('Reset Defaults')).toBeNull();
+
+		// 2. TYPESETTING TAB
+		const typesetTab = screen.getByRole('button', { name: /Typesetting/i });
+		await fireEvent.click(typesetTab);
+		await tick();
+
+		expect(screen.getByRole('heading', { name: /Typesetting & Lettering Studio/i })).toBeTruthy();
+		expect(screen.queryByText('Reset Defaults')).toBeNull();
+
+		// 3. INPAINTING & SFX TAB
+		const inpaintTab = screen.getByRole('button', { name: /Inpainting/i });
+		await fireEvent.click(inpaintTab);
+		await tick();
+
+		expect(screen.getByRole('heading', { name: /Inpainting & Sound Effects/i })).toBeTruthy();
+		expect(screen.queryByText('Reset Defaults')).toBeNull();
+
+		// Toggle Watermark
+		const watermarkSwitch = screen.getByRole('switch', { name: /Chromatic Watermark Inpainting/i }) || screen.getAllByRole('switch')[0];
+		await fireEvent.click(watermarkSwitch);
+		await tick();
+
+		// Reset Defaults appears
+		const inpaintResetBtn = screen.getByText('Reset Defaults');
+		expect(inpaintResetBtn).toBeTruthy();
+
+		// Reset inpainting defaults
+		await fireEvent.click(inpaintResetBtn);
+		await tick();
+		expect(screen.queryByText('Reset Defaults')).toBeNull();
+	});
 });

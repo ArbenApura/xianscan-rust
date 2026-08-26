@@ -585,37 +585,42 @@ pub fn get_fixture_output_paths(src_path: &Path) -> FixturePaths {
 pub fn save_annotated_fixture(img: &DynamicImage, res: &AnalyzeResponse) {
     let key = hash_image(img);
     if let Some(src_path) = get_registered_fixture_path(&key) {
-        let paths = get_fixture_output_paths(&src_path);
+        save_annotated_fixture_to_path(img, res, &src_path);
+    }
+}
 
-        // ROTATE EXISTING ANNOTATED FILES TO PREV FOR VISUAL AND METADATA DIFFING
-        if paths.annotated_img.exists() {
-            let _ = std::fs::copy(&paths.annotated_img, &paths.prev_annotated_img);
-        }
-        if paths.annotated_json.exists() {
-            let _ = std::fs::copy(&paths.annotated_json, &paths.prev_annotated_json);
-        }
+/// SAVES THE ANNOTATED RENDERING DIRECTLY TO A SPECIFIED SOURCE FIXTURE PATH.
+pub fn save_annotated_fixture_to_path(img: &DynamicImage, res: &AnalyzeResponse, src_path: &Path) {
+    let paths = get_fixture_output_paths(src_path);
 
-        // 1. SAVE ANNOTATED GRAPHIC
-        let annotated_img = render_annotated_image(img, res);
-        let _ = annotated_img.save_with_format(&paths.annotated_img, image::ImageFormat::WebP);
+    // ROTATE EXISTING ANNOTATED FILES TO PREV FOR VISUAL AND METADATA DIFFING
+    if paths.annotated_img.exists() {
+        let _ = std::fs::copy(&paths.annotated_img, &paths.prev_annotated_img);
+    }
+    if paths.annotated_json.exists() {
+        let _ = std::fs::copy(&paths.annotated_json, &paths.prev_annotated_json);
+    }
 
-        // 2. SAVE ACCURATE COORDINATES, LABELS, AND TEXT METADATA FOR DEBUGGING
-        #[derive(Serialize)]
-        struct AnnotatedDebugReport<'a> {
-            image_dimensions: (u32, u32),
-            total_regions: usize,
-            regions: &'a [xianscan_rust::ml::schemas::Region],
-        }
+    // 1. SAVE ANNOTATED GRAPHIC
+    let annotated_img = render_annotated_image(img, res);
+    let _ = annotated_img.save_with_format(&paths.annotated_img, image::ImageFormat::WebP);
 
-        let report = AnnotatedDebugReport {
-            image_dimensions: (img.width(), img.height()),
-            total_regions: res.regions.len(),
-            regions: &res.regions,
-        };
+    // 2. SAVE ACCURATE COORDINATES, LABELS, AND TEXT METADATA FOR DEBUGGING
+    #[derive(Serialize)]
+    struct AnnotatedDebugReport<'a> {
+        image_dimensions: (u32, u32),
+        total_regions: usize,
+        regions: &'a [xianscan_rust::ml::schemas::Region],
+    }
 
-        if let Ok(json_str) = serde_json::to_string_pretty(&report) {
-            let _ = std::fs::write(&paths.annotated_json, json_str);
-        }
+    let report = AnnotatedDebugReport {
+        image_dimensions: (img.width(), img.height()),
+        total_regions: res.regions.len(),
+        regions: &res.regions,
+    };
+
+    if let Ok(json_str) = serde_json::to_string_pretty(&report) {
+        let _ = std::fs::write(&paths.annotated_json, json_str);
     }
 }
 
@@ -721,27 +726,18 @@ pub fn get_or_analyze_fixture(img: &DynamicImage) -> AnalyzeResponse {
     get_or_analyze_fixture_with_lang(img, None)
 }
 
-/// LANGUAGE-AWARE HELPER THAT LOADS OR DETECTS LAYOUT & OCR FROM DEDICATED FIXTURE JSONs BEFORE RUNNING PIPELINE POSTPROCESSING.
+/// LANGUAGE-AWARE HELPER THAT LOADS OR DETECTS LAYOUT & OCR FROM DEDICATED FIXTURE JSONs BEFORE RUNNING PIPELINE POSTPROCESSING WITH CUSTOM OPTIONS.
 #[allow(dead_code)]
-pub fn get_or_analyze_fixture_with_lang(
+pub fn get_or_analyze_fixture_with_opts(
     img: &DynamicImage,
-    source_lang: Option<&str>,
+    opts: &AnalyzeOptions,
 ) -> AnalyzeResponse {
     // 1. GENERATE RAW LAYOUT & OCR DETECTIONS IF NOT ALREADY SAVED ON DISK
-    get_or_run_layout_detector_with_lang(img, source_lang);
+    get_or_run_layout_detector_with_lang(img, opts.source_lang.as_deref());
 
     let key = hash_image(img);
     let models_dir = Path::new("models");
     let mut engine = PipelineEngine::new(models_dir);
-    let opts = AnalyzeOptions {
-        source_lang: source_lang.map(|l| l.to_string()),
-        target_lang: Some("en".to_string()),
-        enable_sfx: Some(true),
-        enable_watermark_inpaint: Some(false),
-        inpaint_padding_pct: Some(0.06),
-        typeset_padding_pct: Some(0.12),
-        ..Default::default()
-    };
 
     // FAST-PATH: LOAD RAW LAYOUT & OCR DIRECTLY FROM CASE FOLDER (<0.05s EXECUTION)
     let mut fusion_opt: Option<xianscan_rust::pipeline::fusion::DetectionFusionResult> = None;
@@ -815,16 +811,38 @@ pub fn get_or_analyze_fixture_with_lang(
     }
 
     let res = if let Some(fusion) = fusion_opt {
-        xianscan_rust::pipeline::analyzer::analyze_image_with_fusion(&mut engine, img, &fusion, Some(&opts))
+        xianscan_rust::pipeline::analyzer::analyze_image_with_fusion(&mut engine, img, &fusion, Some(opts))
             .expect("Pipeline analyze_image_with_fusion failed")
     } else {
         engine
-            .analyze_image_with_options(img, Some(&opts))
+            .analyze_image_with_options(img, Some(opts))
             .expect("Pipeline analyze_image failed")
     };
 
-    save_annotated_fixture(img, &res);
+    if let Some(src_path) = get_registered_fixture_path(&key) {
+        save_annotated_fixture_to_path(img, &res, &src_path);
+    } else {
+        save_annotated_fixture(img, &res);
+    }
     res
+}
+
+/// LANGUAGE-AWARE HELPER THAT LOADS OR DETECTS LAYOUT & OCR FROM DEDICATED FIXTURE JSONs BEFORE RUNNING PIPELINE POSTPROCESSING.
+#[allow(dead_code)]
+pub fn get_or_analyze_fixture_with_lang(
+    img: &DynamicImage,
+    source_lang: Option<&str>,
+) -> AnalyzeResponse {
+    let opts = AnalyzeOptions {
+        source_lang: source_lang.map(|l| l.to_string()),
+        target_lang: Some("en".to_string()),
+        enable_sfx: Some(true),
+        enable_watermark_inpaint: Some(false),
+        inpaint_padding_pct: Some(0.06),
+        typeset_padding_pct: Some(0.12),
+        ..Default::default()
+    };
+    get_or_analyze_fixture_with_opts(img, &opts)
 }
 
 /// BYPASSES SAVED LAYOUT AND RUNS LIVE INFERENCE, UPDATING FIXTURE JSONs AND IMAGES.

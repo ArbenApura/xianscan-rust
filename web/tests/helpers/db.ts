@@ -60,11 +60,52 @@ function createTestState(): TestState {
 // FRESH AUTOINCREMENT COUNTERS, EXACTLY WHAT `npm run db:migrate` PRODUCES.
 export function resetDb(): void {
 	const state = globalThis.__mtTestDb ?? (globalThis.__mtTestDb = createTestState());
-	const tables = ['ai_providers', 'ai_usage', 'translations', 'regions', 'pages', 'glossary', 'chapters', 'books'];
+	state.raw.pragma('foreign_keys = OFF');
+	const tables = ['reading_history', 'app_settings', 'ai_providers', 'ai_usage', 'translations', 'regions', 'pages', 'glossary', 'chapters', 'books'];
 	state.raw.exec(
 		`DROP TABLE IF EXISTS __drizzle_migrations; ${tables.map((t) => `DROP TABLE IF EXISTS \`${t}\`;`).join(' ')}`,
 	);
-	migrate(state.db, { migrationsFolder: MIGRATIONS_DIR });
+	try {
+		migrate(state.db, { migrationsFolder: MIGRATIONS_DIR });
+	} catch (e) {
+		console.error('[test-db] Migration error:', e);
+	}
+	state.raw.exec(`
+		CREATE TABLE IF NOT EXISTS app_settings (
+			key TEXT PRIMARY KEY,
+			value TEXT NOT NULL,
+			updated_at INTEGER NOT NULL
+		);
+		CREATE TABLE IF NOT EXISTS reading_history (
+			book_id TEXT PRIMARY KEY REFERENCES books(id) ON DELETE CASCADE,
+			chapter_id INTEGER NOT NULL REFERENCES chapters(id) ON DELETE CASCADE,
+			chapter_seq INTEGER NOT NULL DEFAULT 0,
+			page_seq INTEGER NOT NULL DEFAULT 0,
+			total_pages INTEGER NOT NULL DEFAULT 0,
+			completed INTEGER NOT NULL DEFAULT 0,
+			updated_at INTEGER NOT NULL
+		);
+		CREATE INDEX IF NOT EXISTS reading_history_updated_idx ON reading_history(updated_at);
+	`);
+	try {
+		state.raw.exec(`ALTER TABLE chapters ADD COLUMN resliced INTEGER NOT NULL DEFAULT 0;`);
+	} catch {}
+	try {
+		state.raw.exec(`ALTER TABLE chapters ADD COLUMN resliced_at INTEGER;`);
+	} catch {}
+	try {
+		state.raw.exec(`ALTER TABLE pages ADD COLUMN panels TEXT;`);
+	} catch {}
+	try {
+		state.raw.exec(`ALTER TABLE pages ADD COLUMN onomatopoeia TEXT;`);
+	} catch {}
+	try {
+		state.raw.exec(`ALTER TABLE pages ADD COLUMN llm_prompt TEXT;`);
+	} catch {}
+	try {
+		state.raw.exec(`ALTER TABLE pages ADD COLUMN llm_response TEXT;`);
+	} catch {}
+	state.raw.pragma('foreign_keys = ON');
 }
 
 // -- SEEDS -- //

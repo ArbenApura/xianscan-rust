@@ -10,6 +10,7 @@ export interface DiscoveredChapter {
 }
 
 export interface FolderDropResult {
+	rootFolderName?: string;
 	isMultiChapter: boolean;
 	totalImages: number;
 	chapters: DiscoveredChapter[];
@@ -148,11 +149,15 @@ export async function parseFileList(
 	// GROUP BY TOP-LEVEL RELATIVE DIRECTORY IF webkitRelativePath EXISTS
 	const dirGroups = new Map<string, File[]>();
 	const looseFiles: File[] = [];
+	let rootFolderName: string | undefined = undefined;
 
 	for (const file of files) {
 		const relPath = (file as any).webkitRelativePath as string | undefined;
 		if (relPath && relPath.includes('/')) {
 			const parts = relPath.split('/').filter(Boolean);
+			if (!rootFolderName && parts.length > 0) {
+				rootFolderName = parts[0];
+			}
 			// IF PATH IS "MyManga/Ch01/01.jpg", TOP-LEVEL DIR IS MyManga, SUB IS Ch01
 			// IF PATH IS "Ch01/01.jpg", TOP-LEVEL DIR IS Ch01
 			const chapterDir = parts.length >= 3 ? parts[1] : parts[0];
@@ -190,6 +195,7 @@ export async function parseFileList(
 		});
 
 		return {
+			rootFolderName,
 			isMultiChapter: true,
 			totalImages,
 			chapters,
@@ -199,6 +205,7 @@ export async function parseFileList(
 
 	looseFiles.sort((a, b) => naturalCompare(a.name, b.name));
 	return {
+		rootFolderName,
 		isMultiChapter: false,
 		totalImages: files.length,
 		chapters: [],
@@ -213,6 +220,7 @@ async function processScannedEntries(
 ): Promise<FolderDropResult> {
 	// IF DROPPED SINGLE TOP-LEVEL DIRECTORY, INSPECT ITS SUB-ENTRIES FOR MULTI-CHAPTER STRUCTURE
 	if (rawEntries.length === 1 && rawEntries[0].isDir && rawEntries[0].entry) {
+		const rootFolderName = rawEntries[0].name;
 		const topDir = rawEntries[0].entry as FileSystemDirectoryEntry;
 		const reader = topDir.createReader();
 		const topChildren = await readAllDirectoryEntries(reader);
@@ -249,6 +257,7 @@ async function processScannedEntries(
 				});
 
 				return {
+					rootFolderName,
 					isMultiChapter: true,
 					totalImages,
 					chapters,
@@ -261,6 +270,7 @@ async function processScannedEntries(
 		const allImages = await scanDirectoryForImages(topDir);
 		const files = allImages.map((i) => i.file).sort((a, b) => naturalCompare(a.name, b.name));
 		return {
+			rootFolderName,
 			isMultiChapter: false,
 			totalImages: files.length,
 			chapters: [],

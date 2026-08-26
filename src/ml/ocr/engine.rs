@@ -504,7 +504,22 @@ impl RapidOcr {
         let pad_top = dh / 2;
         let pad_left = dw / 2;
 
-        let mut padded = ImageBuffer::from_pixel(target_w, target_h, Rgb([255_u8, 255, 255]));
+        // ADAPTIVE BACKGROUND LUMINANCE ESTIMATION
+        let mut total_lum = 0_u64;
+        let sample_step = (w * h / 200).max(1);
+        let mut samples = 0_u64;
+        for y in (0..h).step_by(sample_step as usize) {
+            for x in (0..w).step_by(sample_step as usize) {
+                let p = crop.get_pixel(x, y);
+                let lum = (p[0] as u32 * 299 + p[1] as u32 * 587 + p[2] as u32 * 114) / 1000;
+                total_lum += lum as u64;
+                samples += 1;
+            }
+        }
+        let mean_lum = (total_lum / samples.max(1)) as u32;
+        let bg_fill = if mean_lum < 128 { Rgb([0_u8, 0, 0]) } else { Rgb([255_u8, 255, 255]) };
+
+        let mut padded = ImageBuffer::from_pixel(target_w, target_h, bg_fill);
         for y in 0..h {
             for x in 0..w {
                 let p = crop.get_pixel(x, y);

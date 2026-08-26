@@ -92,6 +92,10 @@ fn enumerate_system_gpus_inner() -> Vec<GpuInfo> {
         &vram_by_bus,
         &vram_ordered,
     );
+    // FALLBACK DIRECTLY TO nvidia-smi IF /proc/driver/nvidia/gpus IS MISSING (E.G. CLOUD/CONTAINER/EC2)
+    if gpus.is_empty() {
+        gpus.extend(parse_nvidia_smi_fallback());
+    }
     // AMD GPUS ARE EXPOSED VIA THE OPEN-SOURCE AMDGPU DRIVER AS DRM CARDS UNDER
     // /sys/class/drm/card*/device, WITH `vendor` = 0x1002. PARSE BOTH SO A MIXED
     // OR AMD-ONLY SYSTEM REPORTS ITS REAL GPU INSTEAD OF AN EMPTY LIST.
@@ -226,6 +230,43 @@ fn parse_nvidia_gpu_root(
             None => vram_ordered.get(ordered_idx).copied().unwrap_or(0.0),
         };
         ordered_idx += 1;
+        gpus.push(GpuInfo {
+            device_id: i as u32,
+            name,
+            vendor_id: 0x10DE,
+            vram_mb,
+            is_dedicated: true,
+            is_integrated: false,
+        });
+    }
+    gpus
+}
+
+#[cfg(target_os = "linux")]
+fn parse_nvidia_smi_fallback() -> Vec<GpuInfo> {
+    // FALLBACK FOR EC2 / CLOUD / DOCKER ENVIRONMENTS WHERE /proc/driver/nvidia/gpus
+    // IS NOT POPULATED. DIRECTLY QUERIES nvidia-smi FOR NAME AND VRAM.
+    let Some(out) = run_with_timeout(
+        std::process::Command::new("nvidia-smi")
+            .args(["--query-gpu=name,memory.total,pci.bus_id", "--format=csv,noheader,nounits"]),
+        SUBPROCESS_TIMEOUT,
+    ) else {
+        return Vec::new();
+    };
+    if !out.status.success() {
+        return Vec::new();
+    }
+    let Ok(stdout) = String::from_utf8(out.stdout) else {
+        return Vec::new();
+    };
+    let mut gpus = Vec::new();
+    for (i, line) in stdout.lines().enumerate() {
+        let parts: Vec<&str> = line.split(',').map(|s| s.trim()).collect();
+        if parts.is_empty() || parts[0].is_empty() {
+            continue;
+        }
+        let name = parts[0].to_string();
+        let vram_mb = parts.get(1).and_then(|s| s.parse::<f64>().ok()).unwrap_or(0.0);
         gpus.push(GpuInfo {
             device_id: i as u32,
             name,
@@ -469,6 +510,10 @@ pub fn get_hardware_status() -> HardwareStatus {
         reloading: false,
         cuda_vram_limit_mb,
         configured_cuda_vram_limit_mb,
+        version: env!("CARGO_PKG_VERSION").to_string(),
+        app_version: crate::server::web_assets::APP_VERSION.to_string(),
+        web_build_hash: crate::server::web_assets::WEB_BUILD_HASH.to_string(),
+        web_build_time: crate::server::web_assets::WEB_BUILD_TIME.to_string(),
     }
 }
 

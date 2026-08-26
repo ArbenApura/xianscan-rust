@@ -1,89 +1,101 @@
-// IMPORTED ENVS
+// SETTINGS STORE WITH SCHEMA VERSIONING & SAFE PROGRESSIVE UPGRADE
+// Manages application preferences with SQLite synchronization and cookie mirroring.
+
+import { writable, get } from 'svelte/store';
 import { browser } from '$app/environment';
-// IMPORTED DEP-MODULES
-import { writable } from 'svelte/store';
-// IMPORTED MODULES
-import { DEFAULT_SOURCE_LANG, DEFAULT_TARGET_LANG } from '$lib/languages';
 
 // -- TYPES -- //
 
-export type Theme = 'light' | 'sepia' | 'dark';
-export type AppFont = 'comic' | 'clash' | 'general' | 'poppins' | 'proxima' | 'nunito' | 'montserrat' | 'lexend';
+export type Theme = 'auto' | 'light' | 'sepia' | 'dark';
+
 export type InpaintMode = 'patch' | 'scaled' | 'full';
+
 export type ExecutionDevice = 'auto' | 'cuda' | 'dml' | 'coreml' | 'cpu';
+
+export type ReaderViewMode = 'reader' | 'grid' | 'compare';
+
+export type WebtoonKind = 'output' | 'original';
+
+export type WebtoonWidth = 'sm' | 'md' | 'lg';
+
+export type AppFont = 'comic' | 'clash' | 'general' | 'poppins' | 'proxima' | 'nunito' | 'montserrat' | 'lexend';
+
 export type TypesetOutline = 'none' | 'thin' | 'standard' | 'heavy';
+
 export type TypesetContrast = 'auto' | 'dark' | 'light';
+
 export type TypesetCasing = 'uppercase' | 'original' | 'lowercase';
+
+export type LibraryLayout = 'grid' | 'list' | 'compact';
+
+export type LibrarySort = 'recent' | 'title_asc' | 'title_desc' | 'chapters_desc' | 'chapters_asc';
+
+export type ChapterLayout = 'grid' | 'list' | 'compact';
 
 export interface AppSettings {
 	version: number;
-	theme: Theme;
-	// APP INTERFACE TYPOGRAPHY FONT
-	appFont: AppFont;
-	// THE GLOBAL DEEPSEEK MODEL THE TRANSLATE PIPELINE USES (flash = fast/cheap, pro = best). SENT WITH
-	// EVERY TRANSLATE REQUEST; THE SERVER VALIDATES IT AGAINST ITS ALLOWLIST (src/lib/server/deepseek).
 	model: string;
-	// INPAINTING STRATEGY (patch = fast & native sharp, scaled = 512x512 balanced, full = dynamic canvas)
 	inpaintMode: InpaintMode;
-	// HARDWARE EXECUTION ACCELERATOR FOR ML MODELS
+	theme: Theme;
+	appFont: AppFont;
+	readerViewMode: ReaderViewMode;
+	webtoonKind: WebtoonKind;
+	webtoonWidth: WebtoonWidth;
+	libraryLayout: LibraryLayout;
+	librarySort: LibrarySort;
+	chapterLayout: ChapterLayout;
+	chapterSortAsc: boolean;
 	executionDevice: ExecutionDevice;
-	// OPTIONAL USER OVERRIDE FOR CUDA ONNX SESSION VRAM ALLOCATION (MB) (null = auto-adaptive)
 	cudaVramLimitMb: number | null;
-	// PARALLEL PROCESSES (WORKERS) FOR BATCH AND CHAPTER TRANSLATION
-	parallelProcesses: number; // Parallel page workers per chapter (1 to 8, default 2)
-	parallelChapters: number; // Parallel chapters in batch queue (1 to 4, default 1)
-	resliceBeforeBatch: boolean; // Auto smart-reslice chapter pages before batch translation begins (default false)
-	// DEFAULT TRANSLATION DIRECTION FOR NEWLY CREATED BOOKS (PER-BOOK OVERRIDES AT CREATION)
+	parallelProcesses: number;
+	parallelChapters: number;
+	resliceBeforeBatch: boolean;
 	sourceLang: string;
 	targetLang: string;
-	// PERSISTENT READER CONFIGURATIONS
-	readerViewMode: 'reader' | 'grid' | 'compare';
-	webtoonKind: 'output' | 'original';
-	webtoonWidth: 'sm' | 'md' | 'lg';
-	// TYPESETTING & LETTERING STUDIO CONFIGURATIONS
-	typesetFont: string; // Primary Latin dialogue font (default 'CC Wild Words')
-	typesetCjkFont: string; // CJK East Asian fallback font (default 'Friendly Sans')
-	typesetPadding: number; // Bubble inset padding margin ratio (default 0.05)
-	typesetOutline: TypesetOutline; // Outline stroke weight ('none' | 'thin' | 'standard' | 'heavy')
-	typesetContrast: TypesetContrast; // Color contrast mode ('auto' | 'dark' | 'light')
-	typesetCasing: TypesetCasing; // Casing mode ('uppercase' | 'original' | 'lowercase')
-	typesetPreviewText: string; // Persistent preview dialogue text
-	typesetPreviewPreset: string; // Active preview language preset ('en' | 'zh-hans' | 'zh-hant' | 'ja' | 'ko' | 'custom')
-	typesetAllCaps?: boolean; // Deprecated alias
-	enableTextRotation: boolean; // Follow detected bubble angle (default true)
-	enableWatermarkInpaint: boolean; // Chromatic watermark inpainting pre-pass (default false)
-	enableSfx: boolean; // Inpaint and typeset detected sound effects (default false)
-	sfxMaxAreaPct: number; // Skip SFX taking more than this area percentage to protect artwork (default 0.30)
-	inpaintExpansionPct: number; // Tier 2 inpaint mask margin expansion (default 0.03 = 3%)
-	typesetExpansionPct: number; // Tier 3 typesetting layout box margin expansion (default 0.06 = 6%)
+	// ADVANCED TYPESETTING & INPAINTING CONFIGURATION
+	typesetFont: string;
+	typesetCjkFont: string;
+	typesetPadding: number;
+	typesetOutline: TypesetOutline;
+	typesetContrast: TypesetContrast;
+	typesetCasing: TypesetCasing;
+	typesetPreviewText: string;
+	typesetPreviewPreset: string;
+	typesetAllCaps: boolean;
+	enableTextRotation: boolean;
+	enableWatermarkInpaint: boolean;
+	enableSfx: boolean;
+	sfxMaxAreaPct: number;
+	inpaintExpansionPct: number;
+	typesetExpansionPct: number;
 }
 
-// CLIENT-FACING MODEL CHOICES FOR THE GLOBAL PICKER. THE IDS MIRROR THE SERVER DEFAULTS IN
-// $lib/server/deepseek (resolveModel VALIDATES WHATEVER THE CLIENT SENDS, SO A STALE ID IS SAFE).
+// -- CONSTANTS -- //
+
 export const TRANSLATION_MODELS: { id: string; label: string; blurb: string }[] = [
-	{ id: 'deepseek-v4-flash', label: 'Flash', blurb: 'Ultra-fast (1-2s) — great for everyday comic translation' },
-	{ id: 'deepseek-v4-pro', label: 'Pro', blurb: 'Flagship model — higher-quality prose for complex idioms' },
+	{ id: 'deepseek-v4-flash', label: 'Flash', blurb: 'Ultra-fast (1-2s) - great for everyday comic translation' },
+	{ id: 'deepseek-v4-pro', label: 'Pro', blurb: 'Flagship model - higher-quality prose for complex idioms' },
 ];
 
 export const INPAINT_MODES: { id: InpaintMode; label: string; tag: string; badgeColor: string; blurb: string }[] = [
 	{
 		id: 'patch',
 		label: 'Patch Crop',
-		tag: 'Fastest · Recommended',
+		tag: 'Fastest - Recommended',
 		badgeColor: 'text-emerald-700 bg-emerald-500/10 border-emerald-500/30 dark:text-emerald-300',
 		blurb: 'Fastest with native 1:1 sharpness. Inpaints localized dialogue bubble patches at full resolution, keeping the rest of the page pristine with minimal latency.',
 	},
 	{
 		id: 'scaled',
-		label: 'Balanced (512×512)',
-		tag: 'Fast · Standard',
+		label: 'Balanced (512x512)',
+		tag: 'Fast - Standard',
 		badgeColor: 'text-amber-700 bg-amber-500/10 border-amber-500/30 dark:text-amber-300',
-		blurb: 'Standard quality for low-end hardware. Downsamples canvas to 512×512 before inpainting and upscales; fast and memory-efficient.',
+		blurb: 'Standard quality for low-end hardware. Downsamples canvas to 512x512 before inpainting and upscales; fast and memory-efficient.',
 	},
 	{
 		id: 'full',
 		label: 'Full Dynamic',
-		tag: 'Slowest · Full Canvas',
+		tag: 'Slowest - Full Canvas',
 		badgeColor: 'text-sky-700 bg-sky-500/10 border-sky-500/30 dark:text-sky-300',
 		blurb: 'Highest global context quality. Inpaints the entire uncut image in one pass for seamless full-page texture blending; requires high VRAM and compute.',
 	},
@@ -165,74 +177,26 @@ export const APP_FONTS: { id: AppFont; label: string; sample: string; blurb: str
 	},
 ];
 
-export const FONT_STACKS: Record<AppFont, string> = {
-	comic: "'CC Wild Words', 'WildWorld', 'Montserrat', sans-serif",
-	clash: "'Clash Grotesk', 'Cabinet Grotesk', sans-serif",
-	general: "'General Sans', sans-serif",
-	poppins: "'Poppins', sans-serif",
-	proxima: "'Proxima Nova', 'Montserrat', sans-serif",
-	nunito: "'Nunito Sans', sans-serif",
-	montserrat: "'Montserrat', sans-serif",
-	lexend: "'Lexend', sans-serif",
-};
-
-// INPUT/TEXTAREA FONT STACKS — EXEMPTS ALL-CAPS COMIC FONTS SO TYPING CASE IS CLEAR
-export const INPUT_FONT_STACKS: Record<AppFont, string> = {
-	comic: "'Montserrat', 'Inter', system-ui, sans-serif",
-	clash: "'Clash Grotesk', 'Cabinet Grotesk', sans-serif",
-	general: "'General Sans', sans-serif",
-	poppins: "'Poppins', sans-serif",
-	proxima: "'Proxima Nova', 'Montserrat', sans-serif",
-	nunito: "'Nunito Sans', sans-serif",
-	montserrat: "'Montserrat', sans-serif",
-	lexend: "'Lexend', sans-serif",
-};
-
-export const AVAILABLE_TYPESET_FONTS = [
-	{ id: 'CC Wild Words', label: 'CC Wild Words', sub: 'Classic Comic All-Caps', stack: "'CC Wild Words', 'WildWorld', sans-serif", allCapsOnly: true },
-	{ id: 'General Sans', label: 'General Sans', sub: 'Clean Modern Sans', stack: "'General Sans', sans-serif" },
-	{ id: 'Poppins', label: 'Poppins', sub: 'Geometric Rounded', stack: "'Poppins', sans-serif" },
-	{ id: 'Proxima Nova', label: 'Proxima Nova', sub: 'Editorial Clean', stack: "'Proxima Nova', sans-serif" },
-	{ id: 'Montserrat', label: 'Montserrat', sub: 'Bold Contemporary', stack: "'Montserrat', sans-serif" },
-	{ id: 'Lexend', label: 'Lexend', sub: 'High Legibility', stack: "'Lexend', sans-serif" },
-];
-
-export const AVAILABLE_CJK_FONTS = [
-	{ id: 'Friendly Sans', label: 'Friendly Sans', sub: 'Clean Universal CJK & Latin Fallback' },
-	{ id: 'Yu Gothic', label: 'Yu Gothic', sub: 'Japanese Manga Standard' },
-	{ id: 'Microsoft YaHei', label: 'Microsoft YaHei', sub: 'Chinese Simplified & Traditional' },
-	{ id: 'Malgun Gothic', label: 'Malgun Gothic', sub: 'Korean Hangul Manhwa' },
-];
-
-export const SFX_AREA_PRESETS: { value: number; label: string; sub: string }[] = [
-	{ value: 0.05, label: '5%', sub: 'Ultra Minimal · Tiny sound marks' },
-	{ value: 0.10, label: '10%', sub: 'Standard · 10% Rule (Default)' },
-	{ value: 0.15, label: '15%', sub: 'Conservative · Compact SFX' },
-	{ value: 0.20, label: '20%', sub: 'Moderate · Modest sound art' },
-	{ value: 0.30, label: '30%', sub: 'Generous · Medium sound art' },
-	{ value: 0.50, label: '50%', sub: 'Aggressive · Large splash' },
-	{ value: 1.00, label: '100%', sub: 'All SFX · No area skip' },
-];
-
-// -- CONSTANTS -- //
-
-// BUMP version WHEN DEFAULTS CHANGE — TRIGGERS A ONE-TIME MIGRATION OF SAVED SETTINGS
 export const DEFAULTS: AppSettings = {
-	version: 13,
+	version: 11,
+	model: 'qwen2.5:7b',
+	inpaintMode: 'patch',
 	theme: 'sepia',
 	appFont: 'comic',
-	model: 'deepseek-v4-flash',
-	inpaintMode: 'patch',
+	readerViewMode: 'reader',
+	webtoonKind: 'output',
+	webtoonWidth: 'md',
+	libraryLayout: 'grid',
+	librarySort: 'recent',
+	chapterLayout: 'grid',
+	chapterSortAsc: true,
 	executionDevice: 'auto',
 	cudaVramLimitMb: null,
 	parallelProcesses: 2,
 	parallelChapters: 1,
-	resliceBeforeBatch: false,
-	sourceLang: DEFAULT_SOURCE_LANG,
-	targetLang: DEFAULT_TARGET_LANG,
-	readerViewMode: 'reader',
-	webtoonKind: 'output',
-	webtoonWidth: 'md',
+	resliceBeforeBatch: true,
+	sourceLang: 'zh-Hans',
+	targetLang: 'en',
 	typesetFont: 'CC Wild Words',
 	typesetCjkFont: 'Friendly Sans',
 	typesetPadding: 0.05,
@@ -246,10 +210,45 @@ export const DEFAULTS: AppSettings = {
 	enableWatermarkInpaint: false,
 	enableSfx: false,
 	sfxMaxAreaPct: 0.10,
-	// THREE-TIER REGION GEOMETRY DEFAULTS (INPAINT & TYPESET BOX EXPANSION)
 	inpaintExpansionPct: 0.03,
 	typesetExpansionPct: 0.06,
 };
+
+export const SERVER_CANONICAL_KEYS: (keyof AppSettings)[] = [
+	'theme',
+	'appFont',
+	'readerViewMode',
+	'webtoonKind',
+	'webtoonWidth',
+	'libraryLayout',
+	'librarySort',
+	'chapterLayout',
+	'chapterSortAsc',
+	'model',
+	'inpaintMode',
+	'executionDevice',
+	'cudaVramLimitMb',
+	'parallelProcesses',
+	'parallelChapters',
+	'resliceBeforeBatch',
+	'sourceLang',
+	'targetLang',
+	'typesetFont',
+	'typesetCjkFont',
+	'typesetPadding',
+	'typesetOutline',
+	'typesetContrast',
+	'typesetCasing',
+	'typesetPreviewText',
+	'typesetPreviewPreset',
+	'typesetAllCaps',
+	'enableTextRotation',
+	'enableWatermarkInpaint',
+	'enableSfx',
+	'sfxMaxAreaPct',
+	'inpaintExpansionPct',
+	'typesetExpansionPct',
+];
 
 const KEY = 'xianscan:settings';
 
@@ -280,71 +279,173 @@ export const TYPESET_ROTATION_COOKIE = 'mt_ts_rot';
 export const INPAINT_EXPANSION_COOKIE = 'mt_inpaint_exp';
 export const TYPESET_EXPANSION_COOKIE = 'mt_typeset_exp';
 
-export function setCookie(name: string, value: string): void {
-	if (typeof document === 'undefined') return;
-	document.cookie = `${name}=${encodeURIComponent(value)}; path=/; max-age=31536000; samesite=lax`;
-}
+export const DARK_THEMES: Theme[] = ['dark'];
 
-const DARK_THEMES: Theme[] = ['dark'];
-
-// SINGLE SOURCE OF TRUTH FOR THEME SURFACE COLOURS — APPLIED APP-WIDE AT THE LAYOUT ROOT
-// WARM INK ON PAPER (light/sepia) AND WARM OFF-WHITE ON WARM LACQUER (dark).
-export const THEME_CLASS: Record<Theme, string> = {
-	light: 'bg-[#fbfaf7] text-[#2b2320]',
-	sepia: 'bg-[#f4ecd8] text-[#5b4636]',
-	dark: 'bg-[#13100c] text-[#d8cfc2]',
-};
-
-// ROOT BACKGROUND PER THEME — KEEPS BROWSER CHROME, SCROLLBARS, AND OVERSCROLL IN SYNC
 export const THEME_BG: Record<Theme, string> = {
+	auto: '#fbfaf7',
 	light: '#fbfaf7',
 	sepia: '#f4ecd8',
 	dark: '#13100c',
 };
 
-// OPAQUE ELEVATED SURFACE FOR OVERLAYS (MODALS, BOTTOM SHEETS, DRAWERS). UNLIKE PAGE CARDS — WHICH USE
-// TRANSLUCENT TINTS THAT LAYER OVER THE THEME BG — A FLOATING PANEL MUST BE OPAQUE. SO EACH THEME GETS ITS
-// OWN SOLID PANEL COLOUR THAT SITS ONE STEP ABOVE ITS PAGE BACKGROUND, PLUS A FOREGROUND TUNED FOR CONTRAST.
+export const DEFAULT_SOURCE_LANG = 'zh-Hans';
+export const DEFAULT_TARGET_LANG = 'en';
+
+export const THEME_CLASS: Record<Theme, string> = {
+	auto: 'bg-[#fbfaf7] dark:bg-[#13100c] text-[#2b2320] dark:text-[#d8cfc2]',
+	light: 'bg-[#fbfaf7] text-[#2b2320]',
+	sepia: 'bg-[#f4ecd8] text-[#5b4636]',
+	dark: 'bg-[#13100c] text-[#d8cfc2]',
+};
+
 export const THEME_PANEL: Record<Theme, string> = {
+	auto: 'bg-white dark:bg-[#211c15] text-[#2b2320] dark:text-[#e6ded2]',
 	light: 'bg-white text-[#2b2320]',
 	sepia: 'bg-[#fbf6ea] text-[#5b4636]',
 	dark: 'bg-[#211c15] text-[#e6ded2]',
 };
 
-// POPOVERS / DROPDOWN MENUS — ONE ELEVATION HIGHER THAN A PANEL (THEY OFTEN OPEN ON TOP OF ONE)
 export const THEME_POPOVER: Record<Theme, string> = {
+	auto: 'bg-white dark:bg-[#2a231a] text-[#2b2320] dark:text-[#e6ded2]',
 	light: 'bg-white text-[#2b2320]',
 	sepia: 'bg-[#fdf9f0] text-[#5b4636]',
 	dark: 'bg-[#2a231a] text-[#e6ded2]',
 };
 
-// BORDER FOR ELEVATED OVERLAYS — A SOFT TINT ON LIGHT/DARK, A WARM HAIRLINE ON SEPIA.
 export const THEME_PANEL_BORDER: Record<Theme, string> = {
+	auto: 'border-black/10 dark:border-white/10',
 	light: 'border-black/10',
 	sepia: 'border-[#e2d4b5]',
 	dark: 'border-white/10',
 };
 
-// TRANSLUCENT CHROME BARS (STICKY HEADERS) — SIT OVER backdrop-blur AND THE THEME BG.
 export const THEME_BAR: Record<Theme, string> = {
+	auto: 'bg-white/70 dark:bg-[#13100c]/70',
 	light: 'bg-white/70',
 	sepia: 'bg-[#f4ecd8]/72',
 	dark: 'bg-[#13100c]/70',
 };
 
-// BRAND PALETTE — COMPLETE LITERAL CLASS STRINGS SO TAILWIND'S CONTENT SCANNER PICKS THEM UP FROM THIS
-// .ts FILE. CINNABAR 朱砂 — THE PRIMARY ACTION ACCENT (BUTTONS, LINKS, SELECTED STATES, PROGRESS).
+export const AVAILABLE_TYPESET_FONTS = [
+	{ id: 'CC Wild Words', label: 'CC Wild Words', sub: 'Classic Comic All-Caps', stack: "'CC Wild Words', 'WildWorld', sans-serif", allCapsOnly: true },
+	{ id: 'General Sans', label: 'General Sans', sub: 'Clean Modern Sans', stack: "'General Sans', sans-serif" },
+	{ id: 'Poppins', label: 'Poppins', sub: 'Geometric Rounded', stack: "'Poppins', sans-serif" },
+	{ id: 'Proxima Nova', label: 'Proxima Nova', sub: 'Editorial Clean', stack: "'Proxima Nova', sans-serif" },
+	{ id: 'Montserrat', label: 'Montserrat', sub: 'Bold Contemporary', stack: "'Montserrat', sans-serif" },
+	{ id: 'Lexend', label: 'Lexend', sub: 'High Legibility', stack: "'Lexend', sans-serif" },
+];
+
+export const AVAILABLE_CJK_FONTS = [
+	{ id: 'Friendly Sans', label: 'Friendly Sans', sub: 'Clean Universal CJK & Latin Fallback' },
+	{ id: 'Yu Gothic', label: 'Yu Gothic', sub: 'Japanese Manga Standard' },
+	{ id: 'Microsoft YaHei', label: 'Microsoft YaHei', sub: 'Chinese Simplified & Traditional' },
+	{ id: 'Malgun Gothic', label: 'Malgun Gothic', sub: 'Korean Hangul Manhwa' },
+];
+
+export const SFX_AREA_PRESETS: { value: number; label: string; sub: string }[] = [
+	{ value: 0.05, label: '5%', sub: 'Ultra Minimal' },
+	{ value: 0.10, label: '10%', sub: 'Standard (Default)' },
+	{ value: 0.15, label: '15%', sub: 'Conservative' },
+	{ value: 0.20, label: '20%', sub: 'Moderate' },
+	{ value: 0.30, label: '30%', sub: 'Generous' },
+	{ value: 0.50, label: '50%', sub: 'Aggressive' },
+	{ value: 1.00, label: '100%', sub: 'All SFX' },
+];
+
 export const ACCENT_SOLID = 'bg-[#b23a2e] text-white hover:bg-[#c0392b]';
-// CINNABAR TEXT / ICON ACCENT — ONE STEP BRIGHTER ON THE DARK GROUP FOR CONTRAST.
+
+export function resetSettings() {
+	settings.set({ ...DEFAULTS });
+}
+
+export const FONT_STACKS: Record<AppFont, string> = {
+	comic: "'CC Wild Words', 'WildWorld', 'Montserrat', sans-serif",
+	clash: "'Clash Grotesk', 'Cabinet Grotesk', sans-serif",
+	general: "'General Sans', sans-serif",
+	poppins: "'Poppins', sans-serif",
+	proxima: "'Proxima Nova', 'Montserrat', sans-serif",
+	nunito: "'Nunito Sans', sans-serif",
+	montserrat: "'Montserrat', sans-serif",
+	lexend: "'Lexend', sans-serif",
+};
+
+export const INPUT_FONT_STACKS: Record<AppFont, string> = {
+	comic: "'Montserrat', 'Inter', system-ui, sans-serif",
+	clash: "'Clash Grotesk', 'Cabinet Grotesk', sans-serif",
+	general: "'General Sans', sans-serif",
+	poppins: "'Poppins', sans-serif",
+	proxima: "'Proxima Nova', 'Montserrat', sans-serif",
+	nunito: "'Nunito Sans', sans-serif",
+	montserrat: "'Montserrat', sans-serif",
+	lexend: "'Lexend', sans-serif",
+};
+
+export const FONT_CLASSES: Record<AppFont, string> = {
+	comic: 'font-comic',
+	clash: 'font-clash',
+	general: 'font-general',
+	poppins: 'font-poppins',
+	proxima: 'font-sans',
+	nunito: 'font-nunito',
+	montserrat: 'font-montserrat',
+	lexend: 'font-lexend',
+};
+
+export const THEME_PREVIEWS: Record<Theme, { name: string; bg: string; surface: string; border: string; text: string; subtext: string; accent: string }> = {
+	auto: {
+		name: 'Auto',
+		bg: 'bg-[#faf8f5] dark:bg-[#141210]',
+		surface: 'bg-[#f4efe8] dark:bg-[#1c1917]',
+		border: 'border-[#dfd7cc] dark:border-neutral-800',
+		text: 'text-slate-800 dark:text-slate-200',
+		subtext: 'text-slate-500 dark:text-neutral-500',
+		accent: 'bg-[#b23a2e]',
+	},
+	light: {
+		name: 'Light',
+		bg: 'bg-[#faf8f5]',
+		surface: 'bg-[#f4efe8]',
+		border: 'border-[#dfd7cc]',
+		text: 'text-slate-800',
+		subtext: 'text-slate-500',
+		accent: 'bg-[#b23a2e]',
+	},
+	sepia: {
+		name: 'Sepia',
+		bg: 'bg-[#f4ede2]',
+		surface: 'bg-[#ebe2d3]',
+		border: 'border-[#d8ccb8]',
+		text: 'text-slate-800',
+		subtext: 'text-slate-500',
+		accent: 'bg-[#b23a2e]',
+	},
+	dark: {
+		name: 'Dark',
+		bg: 'bg-[#141210]',
+		surface: 'bg-[#1c1917]',
+		border: 'border-neutral-800',
+		text: 'text-slate-200',
+		subtext: 'text-neutral-500',
+		accent: 'bg-[#b23a2e]',
+	},
+};
+
+export const FONT_OPTIONS: Array<{ id: AppFont; name: string; tag: string; description: string }> = [
+	{ id: 'comic', name: 'Anime Ace', tag: 'Manga / Comic', description: 'Classic comic-book lettering' },
+	{ id: 'clash', name: 'Clash Grotesk', tag: 'Modern / Display', description: 'Striking contemporary sans' },
+	{ id: 'general', name: 'General Sans', tag: 'Neutral / Clean', description: 'Balanced high-legibility UI sans' },
+	{ id: 'poppins', name: 'Poppins', tag: 'Geometric', description: 'Clean modern geometric sans' },
+	{ id: 'proxima', name: 'Plus Jakarta Sans', tag: 'Modern UI', description: 'Crisp contemporary interface font' },
+	{ id: 'nunito', name: 'Nunito', tag: 'Rounded / Soft', description: 'Friendly rounded sans-serif' },
+	{ id: 'montserrat', name: 'Montserrat', tag: 'Classic Sans', description: 'Versatile modernist sans' },
+	{ id: 'lexend', name: 'Lexend', tag: 'High Legibility', description: 'Optimized reading proficiency font' },
+];
+
 export const ACCENT_TEXT = 'text-[#b23a2e] dark:text-[#e08a63]';
-// CINNABAR TINTED FILL FOR ACTIVE / SELECTED PILLS.
 export const ACCENT_SOFT = 'bg-[#b23a2e]/12 text-[#b23a2e] dark:text-[#e08a63]';
-// CINNABAR FOCUS RING.
 export const ACCENT_RING = 'focus:ring-2 focus:ring-[#b23a2e]/40';
-// JADE 青 — SUCCESS / "READ" / CONSISTENT STATE.
 export const JADE_TEXT = 'text-[#4f7a64] dark:text-[#83b39a]';
 export const JADE_SOFT = 'bg-[#5b8a72]/14 text-[#4f7a64] dark:text-[#83b39a]';
-// AGED GOLD 赤金 — PREMIUM (PRO MODEL).
 export const GOLD_TEXT = 'text-[#a97f28] dark:text-[#d8b15a]';
 export const GOLD_SOFT = 'bg-[#c9a24b]/16 text-[#a97f28] dark:text-[#d8b15a]';
 
@@ -355,96 +456,79 @@ export const settings = createSettings();
 // -- FUNCTIONS -- //
 
 export function isDarkTheme(theme: Theme): boolean {
-	return DARK_THEMES.includes(theme);
+	if (theme === 'auto') {
+		if (browser && typeof window !== 'undefined' && window.matchMedia) {
+			return window.matchMedia('(prefers-color-scheme: dark)').matches;
+		}
+		return false;
+	}
+	return theme === 'dark';
 }
 
-// APPLY THE THEME AT THE DOCUMENT ROOT: dark CLASS, color-scheme, AND ROOT BACKGROUND
+export function resolveTheme(theme: Theme): 'light' | 'sepia' | 'dark' {
+	if (theme !== 'auto') return theme;
+	if (browser && typeof window !== 'undefined' && window.matchMedia) {
+		return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+	}
+	return 'light';
+}
+
 export function applyThemeClass(theme: Theme): void {
 	if (!browser || typeof document === 'undefined') return;
-	const isDark = DARK_THEMES.includes(theme);
+	const isDark = isDarkTheme(theme);
 	const root = document.documentElement;
-	root.classList.toggle('dark', isDark);
+	const body = document.body;
+
+	if (isDark) {
+		root.classList.add('dark');
+	} else {
+		root.classList.remove('dark');
+	}
+
 	root.style.colorScheme = isDark ? 'dark' : 'light';
-	root.style.backgroundColor = THEME_BG[theme];
-	// KEEP THE MOBILE BROWSER CHROME (ADDRESS / STATUS BAR) IN SYNC WITH THE ACTIVE THEME — THE SSR HOOK
-	// SEEDS THIS META ON FIRST PAINT; THIS UPDATES IT WHENEVER THE USER SWITCHES THEMES.
-	document.querySelector('meta[name="theme-color"]')?.setAttribute('content', THEME_BG[theme]);
+	const resolved = resolveTheme(theme);
+	const bg = THEME_BG[resolved] || (isDark ? THEME_BG.dark : THEME_BG.light);
+	root.style.backgroundColor = bg;
+	if (body) {
+		body.style.backgroundColor = bg;
+	}
 }
 
-// APPLY THE APP-WIDE INTERFACE FONT FAMILY (WITH INPUT/TEXTAREA EXEMPTION FOR ALL-CAPS FONTS)
 export function applyFontFamily(font: AppFont): void {
 	if (!browser || typeof document === 'undefined') return;
-	const stack = FONT_STACKS[font] || FONT_STACKS.comic;
-	const inputStack = INPUT_FONT_STACKS[font] || INPUT_FONT_STACKS.comic;
-	document.documentElement.style.setProperty('--app-font-family', stack);
-	document.documentElement.style.setProperty('--app-input-font-family', inputStack);
-	document.documentElement.style.fontFamily = stack;
-	if (document.body) {
-		document.body.style.setProperty('--app-font-family', stack);
-		document.body.style.setProperty('--app-input-font-family', inputStack);
-		document.body.style.fontFamily = stack;
-	}
+	const fontStack = FONT_STACKS[font] || FONT_STACKS.comic;
+	const inputFontStack = INPUT_FONT_STACKS[font] || INPUT_FONT_STACKS.comic;
+	const root = document.documentElement;
+	root.style.setProperty('--app-font-family', fontStack);
+	root.style.setProperty('--app-input-font-family', inputFontStack);
 }
 
-export function resetSettings() {
-	settings.set({ ...DEFAULTS });
+export function setCookie(name: string, value: string, maxAgeDays = 365): void {
+	if (!browser || typeof document === 'undefined') return;
+	const maxAge = maxAgeDays * 24 * 60 * 60;
+	document.cookie = `${name}=${encodeURIComponent(value)}; path=/; max-age=${maxAge}; SameSite=Lax`;
 }
 
-// MERGE A PARSED OBJECT ONTO DEFAULTS, KEEPING ONLY KNOWN KEYS WHOSE VALUE TYPE MATCHES THE DEFAULT —
-// SO STALE/REMOVED KEYS AND TYPE-CORRUPTED VALUES ARE DROPPED WHILE VALID PREFERENCES SURVIVE.
 function mergeKnown(parsed: unknown): AppSettings {
-	const out = { ...DEFAULTS };
-	if (parsed && typeof parsed === 'object') {
-		for (const k of Object.keys(DEFAULTS) as (keyof AppSettings)[]) {
-			const v = (parsed as Record<string, unknown>)[k];
-			if (v !== undefined && typeof v === typeof DEFAULTS[k]) (out as Record<string, unknown>)[k] = v;
+	const out: AppSettings = { ...DEFAULTS };
+	if (typeof parsed !== 'object' || parsed === null) return out;
+	const rec = parsed as Record<string, unknown>;
+
+	for (const key of Object.keys(DEFAULTS) as (keyof AppSettings)[]) {
+		if (key in rec) {
+			const val = rec[key];
+			const def = DEFAULTS[key];
+			if (def === null) {
+				if (typeof val === 'number' || val === null) {
+					(out as unknown as Record<string, unknown>)[key] = val;
+				}
+			} else if (typeof val === typeof def) {
+				(out as unknown as Record<string, unknown>)[key] = val;
+			}
 		}
 	}
-	if (!['light', 'sepia', 'dark'].includes(out.theme)) out.theme = 'sepia';
-	if (!['comic', 'poppins', 'proxima', 'nunito', 'montserrat', 'lexend'].includes(out.appFont)) out.appFont = 'comic';
-	if (!['patch', 'scaled', 'full'].includes(out.inpaintMode)) out.inpaintMode = 'patch';
-	if (!['auto', 'cuda', 'dml', 'coreml', 'cpu'].includes(out.executionDevice)) out.executionDevice = 'auto';
-	out.parallelProcesses = Math.max(1, Math.min(8, Number(out.parallelProcesses) || 2));
-	out.parallelChapters = Math.max(1, Math.min(4, Number(out.parallelChapters) || 1));
-	out.resliceBeforeBatch = typeof (parsed as any)?.resliceBeforeBatch === 'boolean' ? (parsed as any).resliceBeforeBatch : false;
-	if (!['reader', 'grid', 'compare'].includes(out.readerViewMode)) out.readerViewMode = 'reader';
-	if (!['output', 'original'].includes(out.webtoonKind)) out.webtoonKind = 'output';
-	if (!['sm', 'md', 'lg'].includes(out.webtoonWidth)) out.webtoonWidth = 'md';
-	if (!out.typesetFont || typeof out.typesetFont !== 'string') out.typesetFont = 'CC Wild Words';
-	if (!out.typesetCjkFont || typeof out.typesetCjkFont !== 'string') out.typesetCjkFont = 'Friendly Sans';
-	out.typesetPadding = Math.max(0.01, Math.min(0.15, Number(out.typesetPadding) || 0.05));
-	if (!['none', 'thin', 'standard', 'heavy'].includes(out.typesetOutline)) out.typesetOutline = 'standard';
-	if (!['auto', 'dark', 'light'].includes(out.typesetContrast)) out.typesetContrast = 'auto';
-	if (!['uppercase', 'original', 'lowercase'].includes(out.typesetCasing)) {
-		out.typesetCasing = (parsed as any)?.typesetAllCaps === false ? 'original' : 'uppercase';
-	}
-	out.typesetPreviewText = typeof (parsed as any)?.typesetPreviewText === 'string' && (parsed as any).typesetPreviewText.trim().length > 0
-		? (parsed as any).typesetPreviewText
-		: DEFAULTS.typesetPreviewText;
-	out.typesetPreviewPreset = typeof (parsed as any)?.typesetPreviewPreset === 'string'
-		? (parsed as any).typesetPreviewPreset
-		: DEFAULTS.typesetPreviewPreset;
-	out.typesetAllCaps = out.typesetCasing === 'uppercase';
-	out.enableTextRotation = typeof (parsed as any)?.enableTextRotation === 'boolean' ? (parsed as any).enableTextRotation : true;
-	out.enableWatermarkInpaint = typeof (parsed as any)?.enableWatermarkInpaint === 'boolean'
-		? (parsed as any).enableWatermarkInpaint
-		: DEFAULTS.enableWatermarkInpaint;
-	out.enableSfx = typeof (parsed as any)?.enableSfx === 'boolean'
-		? (parsed as any).enableSfx
-		: DEFAULTS.enableSfx;
-	out.sfxMaxAreaPct = typeof (parsed as any)?.sfxMaxAreaPct === 'number'
-		? Math.max(0.05, Math.min(1.00, (parsed as any).sfxMaxAreaPct))
-		: DEFAULTS.sfxMaxAreaPct;
-	out.inpaintExpansionPct = typeof (parsed as any)?.inpaintExpansionPct === 'number'
-		? Math.max(0.0, Math.min(0.20, (parsed as any).inpaintExpansionPct))
-		: DEFAULTS.inpaintExpansionPct;
-	out.typesetExpansionPct = typeof (parsed as any)?.typesetExpansionPct === 'number'
-		? Math.max(0.0, Math.min(0.30, (parsed as any).typesetExpansionPct))
-		: DEFAULTS.typesetExpansionPct;
-	if ((parsed as any)?.version < 5 || out.sourceLang === 'zh-CN' || out.sourceLang === 'zh-Hans') {
-		out.sourceLang = DEFAULT_SOURCE_LANG;
-	}
-	if ((parsed as any)?.version < 10 && out.typesetPadding === 0.02) {
+
+	if ((parsed as any)?.version < 11 && (parsed as any)?.typesetPadding === 0.08) {
 		out.typesetPadding = 0.05;
 	}
 	if ((parsed as any)?.version < 11 && (parsed as any)?.parallelProcesses === 3) {
@@ -455,17 +539,15 @@ function mergeKnown(parsed: unknown): AppSettings {
 }
 
 function load(): AppSettings {
-	if (!browser) return { ...DEFAULTS };
+	if (!browser || typeof localStorage === 'undefined') return { ...DEFAULTS };
 	try {
 		const raw = localStorage.getItem(KEY) || localStorage.getItem('manua:settings');
 		if (raw) {
 			const parsed = JSON.parse(raw);
-			// MERGE THE USER'S SAVED VALUES *FORWARD* ONTO THE CURRENT DEFAULTS RATHER THAN DISCARDING THEM
-			// ON A version BUMP — NEW KEYS COME FROM DEFAULTS; KNOWN KEYS KEEP THE SAVED VALUE (TYPE-CHECKED).
 			return mergeKnown(parsed);
 		}
 	} catch {
-		// IGNORE CORRUPT STATE
+		// Ignore corrupted state
 	}
 	return { ...DEFAULTS };
 }
@@ -473,7 +555,62 @@ function load(): AppSettings {
 function createSettings() {
 	const initial = load();
 	const store = writable<AppSettings>(initial);
-	if (browser) {
+	let isRemoteSyncing = false;
+	let lastSyncedCanonical: Partial<AppSettings> = {};
+	let syncTimeout: ReturnType<typeof setTimeout> | null = null;
+	let pendingServerSyncPatch: Partial<AppSettings> = {};
+	const userModifiedKeys = new Set<keyof AppSettings>();
+
+	// Cross-tab broadcast channel
+	let broadcastChannel: BroadcastChannel | null = null;
+	if (browser && typeof window !== 'undefined' && typeof BroadcastChannel !== 'undefined') {
+		try {
+			broadcastChannel = new BroadcastChannel('xianscan_settings_channel');
+			broadcastChannel.onmessage = (event) => {
+				if (event?.data && typeof event.data === 'object') {
+					isRemoteSyncing = true;
+					store.update((local) => {
+						const safePatch: Partial<AppSettings> = {};
+						for (const k of SERVER_CANONICAL_KEYS) {
+							if (k in event.data) {
+								(safePatch as any)[k] = event.data[k];
+							}
+						}
+						return { ...local, ...safePatch };
+					});
+					isRemoteSyncing = false;
+				}
+			};
+		} catch {
+			// Channel unavailable in restricted context
+		}
+	}
+
+	// Populate initial canonical snapshot
+	for (const k of SERVER_CANONICAL_KEYS) {
+		lastSyncedCanonical[k] = initial[k] as any;
+	}
+
+	function flushServerSync() {
+		if (Object.keys(pendingServerSyncPatch).length === 0) return;
+		if (!browser || typeof fetch === 'undefined') return;
+		if (typeof navigator !== 'undefined' && navigator.onLine === false) return;
+
+		const patchToSend = { ...pendingServerSyncPatch };
+		pendingServerSyncPatch = {};
+
+		fetch('/api/settings', {
+			method: 'PATCH',
+			headers: { 'Content-Type': 'application/json' },
+			body: JSON.stringify(patchToSend),
+			keepalive: true,
+		}).catch(() => {
+			// Re-queue on network error
+			pendingServerSyncPatch = { ...patchToSend, ...pendingServerSyncPatch };
+		});
+	}
+
+	if (browser && typeof window !== 'undefined') {
 		let prevTheme: Theme | null = null;
 		let prevFont: AppFont | null = null;
 
@@ -483,36 +620,70 @@ function createSettings() {
 		prevTheme = initial.theme;
 		prevFont = initial.appFont;
 
+		// BFCACHE RESTORATION
+		window.addEventListener('pageshow', (event) => {
+			if (event.persisted) {
+				const fresh = load();
+				store.update((current) => ({ ...current, ...fresh }));
+			}
+		});
+
+		// SYSTEM COLOR SCHEME PREFERENCE LISTENER (FOR AUTO THEME)
+		if (typeof window.matchMedia !== 'undefined') {
+			const mql = window.matchMedia('(prefers-color-scheme: dark)');
+			mql.addEventListener?.('change', () => {
+				const current = get(store);
+				if (current.theme === 'auto') {
+					applyThemeClass('auto');
+				}
+			});
+		}
+
+		// BACKGROUNDING & PAGEHIDE FLUSH
+		window.addEventListener('visibilitychange', () => {
+			if (document.visibilityState === 'hidden') {
+				if (syncTimeout) {
+					clearTimeout(syncTimeout);
+					syncTimeout = null;
+				}
+				flushServerSync();
+			}
+		});
+
+		window.addEventListener('pagehide', () => {
+			if (syncTimeout) {
+				clearTimeout(syncTimeout);
+				syncTimeout = null;
+			}
+			flushServerSync();
+		});
+
+		// RECONNECTION HANDLER
+		window.addEventListener('online', () => {
+			const current = load();
+			for (const k of SERVER_CANONICAL_KEYS) {
+				if (current[k] !== lastSyncedCanonical[k]) {
+					pendingServerSyncPatch[k] = current[k] as any;
+				}
+			}
+			flushServerSync();
+		});
+
 		store.subscribe((s) => {
 			try {
 				localStorage.setItem(KEY, JSON.stringify(s));
-				// MIRROR THE THEME & READER PREFERENCES TO COOKIES SO SSR CAN PRE-RENDER THEM
+				// MIRROR ONLY ESSENTIAL SSR VISUAL COOKIES (<1KB TOTAL HEADER IMPACT)
 				setCookie(THEME_COOKIE, s.theme);
 				setCookie(FONT_COOKIE, s.appFont);
-				setCookie(INPAINT_MODE_COOKIE, s.inpaintMode);
-				setCookie(WATERMARK_INPAINT_COOKIE, String(s.enableWatermarkInpaint));
-				setCookie(ENABLE_SFX_COOKIE, String(s.enableSfx));
-				setCookie(SFX_MAX_AREA_COOKIE, String(s.sfxMaxAreaPct));
-				setCookie(EXEC_DEVICE_COOKIE, s.executionDevice);
-				setCookie(PARALLEL_PROCESSES_COOKIE, String(s.parallelProcesses));
-				setCookie(PARALLEL_CHAPTERS_COOKIE, String(s.parallelChapters));
-				setCookie(RESLICE_BEFORE_BATCH_COOKIE, String(s.resliceBeforeBatch));
 				setCookie(READER_VIEW_COOKIE, s.readerViewMode);
 				setCookie(WEBTOON_KIND_COOKIE, s.webtoonKind);
 				setCookie(WEBTOON_WIDTH_COOKIE, s.webtoonWidth);
-				setCookie(TYPESET_FONT_COOKIE, s.typesetFont);
-				setCookie(TYPESET_CJK_FONT_COOKIE, s.typesetCjkFont);
-				setCookie(TYPESET_PADDING_COOKIE, String(s.typesetPadding));
-				setCookie(TYPESET_OUTLINE_COOKIE, s.typesetOutline);
-				setCookie(TYPESET_CONTRAST_COOKIE, s.typesetContrast);
-				setCookie(TYPESET_CASING_COOKIE, s.typesetCasing);
-				setCookie(TYPESET_ALL_CAPS_COOKIE, String(s.typesetAllCaps));
-				setCookie(TYPESET_ROTATION_COOKIE, String(s.enableTextRotation));
-				setCookie(INPAINT_EXPANSION_COOKIE, String(s.inpaintExpansionPct));
-				setCookie(TYPESET_EXPANSION_COOKIE, String(s.typesetExpansionPct));
+				setCookie(INPAINT_MODE_COOKIE, s.inpaintMode);
+				setCookie(EXEC_DEVICE_COOKIE, s.executionDevice);
 			} catch {
 				// IGNORE STORAGE ERRORS (PRIVATE MODE / QUOTA)
 			}
+
 			// ONLY TOUCH THE DOCUMENT ROOT WHEN THE THEME OR FONT ACTUALLY CHANGED
 			if (s.theme !== prevTheme) {
 				prevTheme = s.theme;
@@ -522,7 +693,75 @@ function createSettings() {
 				prevFont = s.appFont;
 				applyFontFamily(s.appFont);
 			}
+
+			// SYNC CANONICAL SERVER SETTINGS (WITH LOOP PROTECTION & ACCUMULATING DEBOUNCE)
+			if (!isRemoteSyncing) {
+				let hasChanges = false;
+
+				for (const k of SERVER_CANONICAL_KEYS) {
+					if (s[k] !== lastSyncedCanonical[k]) {
+						pendingServerSyncPatch[k] = s[k] as any;
+						lastSyncedCanonical[k] = s[k] as any;
+						userModifiedKeys.add(k);
+						hasChanges = true;
+					}
+				}
+
+				if (hasChanges) {
+					// Broadcast to other open tabs
+					try {
+						broadcastChannel?.postMessage(pendingServerSyncPatch);
+					} catch {
+						// Ignore channel errors
+					}
+
+					if (syncTimeout) clearTimeout(syncTimeout);
+					syncTimeout = setTimeout(() => {
+						flushServerSync();
+					}, 500);
+				}
+			}
 		});
 	}
-	return store;
+
+	return {
+		subscribe: store.subscribe,
+		set: (value: AppSettings) => {
+			for (const k of SERVER_CANONICAL_KEYS) {
+				userModifiedKeys.add(k);
+			}
+			store.set(value);
+		},
+		update: (fn: (current: AppSettings) => AppSettings) => {
+			store.update((current) => {
+				const updated = fn(current);
+				for (const k of SERVER_CANONICAL_KEYS) {
+					if (updated[k] !== current[k]) {
+						userModifiedKeys.add(k);
+					}
+				}
+				return updated;
+			});
+		},
+
+		// Hydrate from SSR canonical server state with hydration race protection
+		hydrateFromRemote(remoteSettings: Partial<AppSettings>) {
+			if (!remoteSettings || typeof remoteSettings !== 'object') return;
+			isRemoteSyncing = true;
+			store.update((local) => {
+				const merged: AppSettings = { ...local };
+				for (const k of SERVER_CANONICAL_KEYS) {
+					// If user already modified this key during early boot, preserve user choice
+					if (userModifiedKeys.has(k)) continue;
+
+					if (remoteSettings[k] !== undefined && remoteSettings[k] !== null) {
+						(merged as any)[k] = remoteSettings[k];
+						lastSyncedCanonical[k] = remoteSettings[k] as any;
+					}
+				}
+				return merged;
+			});
+			isRemoteSyncing = false;
+		},
+	};
 }

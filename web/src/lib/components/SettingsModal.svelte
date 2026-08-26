@@ -18,6 +18,7 @@
 	import { cn } from '$lib/utils/cn';
 	import {
 		settings,
+		DEFAULTS,
 		INPAINT_MODES,
 		EXECUTION_DEVICES,
 		CUDA_VRAM_LIMIT_PRESETS,
@@ -55,6 +56,7 @@
 	import RefreshCw from 'lucide-svelte/icons/refresh-cw';
 	import Loader2 from 'lucide-svelte/icons/loader-2';
 	import AlertCircle from 'lucide-svelte/icons/alert-circle';
+	import AlertTriangle from 'lucide-svelte/icons/alert-triangle';
 	import CheckCircle2 from 'lucide-svelte/icons/check-circle-2';
 	import Palette from 'lucide-svelte/icons/palette';
 	import SlidersHorizontal from 'lucide-svelte/icons/sliders-horizontal';
@@ -63,7 +65,6 @@
 	import Search from 'lucide-svelte/icons/search';
 	import Plus from 'lucide-svelte/icons/plus';
 	import Trash2 from 'lucide-svelte/icons/trash-2';
-	import Sparkles from 'lucide-svelte/icons/sparkles';
 	import Save from 'lucide-svelte/icons/save';
 	import Info from 'lucide-svelte/icons/info';
 	import RotateCcw from 'lucide-svelte/icons/rotate-ccw';
@@ -79,6 +80,7 @@
 	// IMPORTED UI COMPONENTS
 	import Modal from '$lib/components/ui/Modal.svelte';
 	import Button from '$lib/components/ui/Button.svelte';
+	import Switch from '$lib/components/ui/Switch.svelte';
 	import LanguagePicker from '$lib/components/ui/LanguagePicker.svelte';
 	import ProviderLogo from '$lib/components/ui/ProviderLogo.svelte';
 
@@ -161,7 +163,9 @@
 	let hardwareInfo: HardwareInfo | null = null;
 	let hardwareLoading = false;
 	let switchingDevice: ExecutionDevice | null = null;
+	let switchingToastId: string | number | null = null;
 	let settingVramLimit = false;
+	let vramToastId: string | number | null = null;
 
 	// LIVE TELEMETRY STATE
 	let telemetry: SystemTelemetry | null = null;
@@ -280,6 +284,7 @@
 	];
 
 	const THEMES: { id: Theme; label: string; dot: string }[] = [
+		{ id: 'auto', label: 'Auto', dot: 'border-slate-400 bg-gradient-to-r from-[#fbfaf7] via-slate-400 to-[#13100c]' },
 		{ id: 'light', label: 'Light', dot: 'border-slate-300 bg-[#fbfaf7]' },
 		{ id: 'sepia', label: 'Sepia', dot: 'border-[#d4c3a3] bg-[#f4ecd8]' },
 		{ id: 'dark', label: 'Dark', dot: 'border-neutral-700 bg-[#13100c]' },
@@ -331,7 +336,13 @@
 	}
 
 	async function setCudaVramLimit(limitMb: number | null) {
+		if (settingVramLimit || switchingDevice || mlOffline) return;
 		settingVramLimit = true;
+		const label = limitMb ? `${(limitMb / 1024).toFixed(1).replace(/\.0$/, '')} GB` : 'Auto (Adaptive)';
+		if (vramToastId) {
+			toast.dismiss(vramToastId);
+		}
+		vramToastId = toast.loading(`Updating GPU VRAM allocation to ${label}...`);
 		try {
 			const res = await fetch('/api/system/hardware', {
 				method: 'POST',
@@ -344,16 +355,62 @@
 			if (res.ok) {
 				hardwareInfo = (await res.json()) as HardwareInfo;
 				settings.update((s) => ({ ...s, cudaVramLimitMb: limitMb }));
-				const label = limitMb ? `${limitMb / 1024} GB` : 'Auto (Adaptive)';
-				toast.success(`GPU VRAM allocation set to ${label}`);
+				if (hardwareInfo.reloading) {
+					if (vramToastId) {
+						toast.dismiss(vramToastId);
+					}
+					vramToastId = toast.loading(`Reallocating GPU VRAM memory pools (${label})...`);
+					void waitForVramReloadDone(label);
+				} else {
+					if (vramToastId) {
+						toast.dismiss(vramToastId);
+						vramToastId = null;
+					}
+					toast.success(`GPU VRAM allocation set to ${label}`);
+					settingVramLimit = false;
+					void mlStatus.checkHealth();
+				}
 			} else {
+				if (vramToastId) {
+					toast.dismiss(vramToastId);
+					vramToastId = null;
+				}
 				toast.error('Failed to update GPU VRAM allocation limit');
+				settingVramLimit = false;
 			}
 		} catch (e: any) {
+			if (vramToastId) {
+				toast.dismiss(vramToastId);
+				vramToastId = null;
+			}
 			toast.error(e.message || 'Failed to update GPU VRAM allocation');
-		} finally {
 			settingVramLimit = false;
 		}
+	}
+
+	async function waitForVramReloadDone(label: string) {
+		const maxWaitMs = 60000;
+		const startedAt = Date.now();
+		while (Date.now() - startedAt < maxWaitMs) {
+			await new Promise((r) => setTimeout(r, 300));
+			try {
+				const res = await fetch('/api/system/hardware');
+				if (res.ok) {
+					const info = (await res.json()) as HardwareInfo;
+					hardwareInfo = info;
+					if (!info.reloading) break;
+				}
+			} catch {
+				break;
+			}
+		}
+		settingVramLimit = false;
+		if (vramToastId) {
+			toast.dismiss(vramToastId);
+			vramToastId = null;
+		}
+		toast.success(`GPU VRAM allocation set to ${label}`);
+		void mlStatus.checkHealth();
 	}
 
 	async function loadProviders() {
@@ -362,10 +419,13 @@
 			const res = await fetch('/api/system/providers');
 			if (res.ok) {
 				const data = await res.json();
-				providers = (data.providers || []) as ProviderInfo[];
+				providers = (Array.isArray(data.providers)
+					? data.providers.filter((p: any) => p && typeof p === 'object' && typeof p.id === 'string')
+					: []) as ProviderInfo[];
 				for (const p of providers) {
 					activeModelDraft[p.id] = p.activeModel;
 					baseUrlDraft[p.id] = p.baseUrl;
+					apiKeyDraft[p.id] = '';
 				}
 				if (!selectedProviderId || !providers.some((p) => p.id === selectedProviderId)) {
 					const defaultP = providers.find((p) => p.isDefault) || providers[0];
@@ -405,6 +465,14 @@
 		if (telemetryInterval) {
 			clearInterval(telemetryInterval);
 			telemetryInterval = null;
+		}
+		if (switchingToastId) {
+			toast.dismiss(switchingToastId);
+			switchingToastId = null;
+		}
+		if (vramToastId) {
+			toast.dismiss(vramToastId);
+			vramToastId = null;
 		}
 	});
 
@@ -546,26 +614,74 @@
 		settings.update((s) => ({ ...s, targetLang: lang }));
 	}
 
+	// TAB MODIFICATION DETECTORS (FOR CONDITIONAL RESET BUTTON VISIBILITY)
+	$: isAppearanceModified =
+		$settings.theme !== DEFAULTS.theme ||
+		$settings.appFont !== DEFAULTS.appFont ||
+		($settings.sourceLang || 'zh-Hans') !== (DEFAULTS.sourceLang || 'zh-Hans') ||
+		($settings.targetLang || 'en') !== (DEFAULTS.targetLang || 'en');
+
+	$: isTypesettingModified =
+		($settings.typesetFont || 'CC Wild Words') !== DEFAULTS.typesetFont ||
+		($settings.typesetCjkFont || 'Friendly Sans') !== DEFAULTS.typesetCjkFont ||
+		Math.abs(($settings.typesetPadding || 0.05) - DEFAULTS.typesetPadding) >= 0.005 ||
+		($settings.typesetOutline || 'standard') !== DEFAULTS.typesetOutline ||
+		($settings.typesetContrast || 'auto') !== DEFAULTS.typesetContrast ||
+		($settings.typesetCasing || 'uppercase') !== DEFAULTS.typesetCasing ||
+		Boolean($settings.enableTextRotation) !== Boolean(DEFAULTS.enableTextRotation) ||
+		($settings.typesetPreviewPreset || 'en') !== (DEFAULTS.typesetPreviewPreset || 'en') ||
+		($settings.typesetPreviewText || '') !== (DEFAULTS.typesetPreviewText || '');
+
+	$: isInpaintingModified =
+		($settings.inpaintMode || 'patch') !== DEFAULTS.inpaintMode ||
+		Boolean($settings.enableWatermarkInpaint) !== Boolean(DEFAULTS.enableWatermarkInpaint) ||
+		Boolean($settings.enableSfx) !== Boolean(DEFAULTS.enableSfx) ||
+		Math.abs(($settings.sfxMaxAreaPct ?? 0.10) - DEFAULTS.sfxMaxAreaPct) >= 0.005 ||
+		Math.abs(($settings.inpaintExpansionPct ?? 0.03) - DEFAULTS.inpaintExpansionPct) >= 0.005 ||
+		Math.abs(($settings.typesetExpansionPct ?? 0.06) - DEFAULTS.typesetExpansionPct) >= 0.005;
+
+	function resetAppearanceDefaults() {
+		settings.update((s) => ({
+			...s,
+			theme: DEFAULTS.theme,
+			appFont: DEFAULTS.appFont,
+			sourceLang: DEFAULTS.sourceLang,
+			targetLang: DEFAULTS.targetLang,
+		}));
+		toast.success('General & Appearance settings reset to defaults');
+	}
+
 	function resetTypesetDefaults() {
 		settings.update((s) => ({
 			...s,
-			typesetFont: 'CC Wild Words',
-			typesetCjkFont: 'Friendly Sans',
-			typesetPadding: 0.05,
-			typesetOutline: 'standard',
-			typesetContrast: 'auto',
-			typesetCasing: 'uppercase',
-			typesetAllCaps: true,
-			enableTextRotation: true,
-			enableSfx: false,
-			sfxMaxAreaPct: 0.30,
-			inpaintExpansionPct: 0.03,
-			typesetExpansionPct: 0.06,
+			typesetFont: DEFAULTS.typesetFont,
+			typesetCjkFont: DEFAULTS.typesetCjkFont,
+			typesetPadding: DEFAULTS.typesetPadding,
+			typesetOutline: DEFAULTS.typesetOutline,
+			typesetContrast: DEFAULTS.typesetContrast,
+			typesetCasing: DEFAULTS.typesetCasing,
+			typesetAllCaps: DEFAULTS.typesetAllCaps,
+			enableTextRotation: DEFAULTS.enableTextRotation,
+			typesetPreviewPreset: DEFAULTS.typesetPreviewPreset,
+			typesetPreviewText: DEFAULTS.typesetPreviewText,
 		}));
 		selectedPresetId = 'en';
 		previewSampleText = SAMPLE_TEXT_PRESETS[0].text;
 		isCustomTextMode = false;
 		toast.success('Typesetting settings reset to defaults');
+	}
+
+	function resetInpaintingDefaults() {
+		settings.update((s) => ({
+			...s,
+			inpaintMode: DEFAULTS.inpaintMode,
+			enableWatermarkInpaint: DEFAULTS.enableWatermarkInpaint,
+			enableSfx: DEFAULTS.enableSfx,
+			sfxMaxAreaPct: DEFAULTS.sfxMaxAreaPct,
+			inpaintExpansionPct: DEFAULTS.inpaintExpansionPct,
+			typesetExpansionPct: DEFAULTS.typesetExpansionPct,
+		}));
+		toast.success('Inpainting & SFX settings reset to defaults');
 	}
 
 	// HARDWARE ACCELERATION METHODS
@@ -574,7 +690,7 @@
 		if (!hardwareInfo) return false;
 		if (devId === 'cuda') return hardwareInfo.has_cuda;
 		if (devId === 'coreml') return hardwareInfo.has_coreml;
-		if (devId === 'dml') return hardwareInfo.has_directml;
+		if (devId === 'dml') return hardwareInfo.has_directml_raw ?? hardwareInfo.has_directml;
 		return true;
 	}
 
@@ -582,7 +698,7 @@
 		if (!hardwareInfo) return 'Detecting available hardware...';
 		if (devId === 'cuda' && !hardwareInfo.has_cuda) return 'Dedicated NVIDIA CUDA GPU not detected';
 		if (devId === 'coreml' && !hardwareInfo.has_coreml) return 'Apple Silicon GPU (CoreML) not detected';
-		if (devId === 'dml' && !hardwareInfo.has_directml) {
+		if (devId === 'dml' && !(hardwareInfo.has_directml_raw ?? hardwareInfo.has_directml)) {
 			if (hardwareInfo.detected_gpus && hardwareInfo.detected_gpus.some((g) => g.is_integrated)) {
 				const igpuName = hardwareInfo.detected_gpus.find((g) => g.is_integrated)?.name || 'Integrated GPU';
 				return `Only ${igpuName} detected. DirectML disabled to protect system against freezing and driver TDR crashes.`;
@@ -607,7 +723,12 @@
 		if (switchingDevice) return;
 
 		const found = EXECUTION_DEVICES.find((d) => d.id === dev);
+		const targetLabel = found?.label || dev;
 		switchingDevice = dev;
+		if (switchingToastId) {
+			toast.dismiss(switchingToastId);
+		}
+		switchingToastId = toast.loading(`Initializing compute accelerator: ${targetLabel}...`);
 
 		try {
 			const res = await fetch('/api/system/hardware', {
@@ -626,26 +747,53 @@
 								? 'CoreMLExecutionProvider'
 								: null;
 				const active = hardwareInfo.providers?.[0] ?? hardwareInfo.active_provider;
-				const resolvedLabel = formatDeviceLabel(hardwareInfo.device_label) || found?.label || dev;
+				const resolvedLabel = formatDeviceLabel(hardwareInfo.device_label) || targetLabel;
 				if (expectedEp && active && active !== expectedEp) {
 					settings.update((s) => ({ ...s, executionDevice: 'auto' }));
-					toast.error(`${found?.label || dev} is not available. Running on ${resolvedLabel}.`);
+					if (switchingToastId) {
+						toast.dismiss(switchingToastId);
+						switchingToastId = null;
+					}
+					toast.error(`${targetLabel} is not available. Running on ${resolvedLabel}.`);
+					switchingDevice = null;
 				} else {
 					settings.update((s) => ({ ...s, executionDevice: dev }));
-					toast.success(`Compute hardware set to ${resolvedLabel}`);
+					if (hardwareInfo.reloading) {
+						if (switchingToastId) {
+							toast.dismiss(switchingToastId);
+						}
+						switchingToastId = toast.loading(`Reloading neural models on ${resolvedLabel}...`);
+						void waitForReloadDone(dev, resolvedLabel);
+					} else {
+						if (switchingToastId) {
+							toast.dismiss(switchingToastId);
+							switchingToastId = null;
+						}
+						toast.success(`Compute accelerator active: ${resolvedLabel}`);
+						switchingDevice = null;
+						void mlStatus.checkHealth();
+					}
 				}
-				void waitForReloadDone(dev);
 			} else {
-				toast.error(`Failed to switch compute hardware to ${found?.label || dev}`);
+				if (switchingToastId) {
+					toast.dismiss(switchingToastId);
+					switchingToastId = null;
+				}
+				toast.error(`Failed to switch compute hardware to ${targetLabel}`);
 				switchingDevice = null;
 			}
 		} catch {
+			if (switchingToastId) {
+				toast.dismiss(switchingToastId);
+				switchingToastId = null;
+			}
+			toast.error(`Failed to switch compute hardware to ${targetLabel}`);
 			switchingDevice = null;
 			void mlStatus.checkHealth();
 		}
 	}
 
-	async function waitForReloadDone(dev: ExecutionDevice) {
+	async function waitForReloadDone(dev: ExecutionDevice, resolvedLabel?: string) {
 		const maxWaitMs = 60000;
 		const startedAt = Date.now();
 		while (Date.now() - startedAt < maxWaitMs) {
@@ -662,6 +810,13 @@
 			}
 		}
 		switchingDevice = null;
+		if (switchingToastId) {
+			toast.dismiss(switchingToastId);
+			switchingToastId = null;
+		}
+		if (resolvedLabel) {
+			toast.success(`Compute accelerator ready: ${resolvedLabel}`);
+		}
 		void mlStatus.checkHealth();
 	}
 
@@ -676,6 +831,29 @@
 		lmstudio: 'http://localhost:1234/v1',
 		custom: 'http://localhost:8000/v1',
 	};
+
+	function hasChangesForProvider(
+		providerId: string,
+		provList: ProviderInfo[],
+		keyDraft: Record<string, string>,
+		urlDraft: Record<string, string>,
+		modelDraft: Record<string, string>
+	): boolean {
+		const prov = provList.find((p) => p.id === providerId);
+		if (!prov) return false;
+		const hasKey = Boolean(keyDraft[providerId] && keyDraft[providerId].trim().length > 0);
+		const hasUrl = urlDraft[providerId] !== undefined && urlDraft[providerId] !== (prov.baseUrl || '');
+		const hasModel = modelDraft[providerId] !== undefined && modelDraft[providerId] !== (prov.activeModel || '');
+		return hasKey || hasUrl || hasModel;
+	}
+
+	$: hasProviderChanges = hasChangesForProvider(
+		selectedProviderId,
+		providers,
+		{ ...apiKeyDraft },
+		{ ...baseUrlDraft },
+		{ ...activeModelDraft },
+	);
 
 	async function saveProvider(providerId: string, setAsDefault = false) {
 		savingProvider = true;
@@ -1347,9 +1525,22 @@
 				<!-- SECTION 1: GENERAL & APPEARANCE -->
 				{#if activeCategory === 'appearance'}
 					<div class="space-y-6">
-						<div>
-							<h2 class="text-base font-bold">General & Appearance</h2>
-							<p class="text-xs opacity-60 mt-0.5">Surface themes, typography styles, and default localization settings</p>
+						<div class="flex flex-col sm:flex-row sm:items-center justify-between gap-2 sm:gap-4">
+							<div class="min-w-0 flex-1">
+								<h2 class="text-base font-bold">General & Appearance</h2>
+								<p class="text-xs opacity-60 mt-0.5">Surface themes, typography styles, and default localization settings</p>
+							</div>
+							{#if isAppearanceModified}
+								<button
+									type="button"
+									on:click={resetAppearanceDefaults}
+									class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-semibold text-neutral-600 dark:text-neutral-300 bg-black/5 dark:bg-white/10 hover:bg-black/10 dark:hover:bg-white/15 hover:text-neutral-900 dark:hover:text-white transition-colors shrink-0 whitespace-nowrap self-start sm:self-auto cursor-pointer"
+									use:ripple
+								>
+									<RotateCcw size={12} />
+									<span>Reset Defaults</span>
+								</button>
+							{/if}
 						</div>
 
 						<!-- THEME SELECTOR -->
@@ -1358,7 +1549,7 @@
 							class={`space-y-2.5 transition-all duration-300 ${highlightedSettingId === 'theme' ? 'ring-2 ring-[#b23a2e] dark:ring-[#e08a63] bg-[#b23a2e]/[0.06] dark:bg-[#e08a63]/[0.08] rounded-2xl p-2.5 -m-1' : ''}`}
 						>
 							<div class="text-xs font-bold uppercase tracking-wider opacity-80">Reader Surface Theme</div>
-							<div class="grid grid-cols-3 gap-2.5">
+							<div class="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
 								{#each THEMES as theme}
 									<button
 										type="button"
@@ -1444,19 +1635,22 @@
 				<!-- SECTION 2: TYPESETTING & LETTERING STUDIO -->
 				{:else if activeCategory === 'typesetting'}
 					<div class="space-y-5">
-						<div class="flex items-center justify-between">
-							<div>
+						<div class="flex flex-col sm:flex-row sm:items-center justify-between gap-2 sm:gap-4">
+							<div class="min-w-0 flex-1">
 								<h2 class="text-base font-bold">Typesetting & Lettering Studio</h2>
 								<p class="text-xs opacity-60 mt-0.5">Dialogue fonts, CJK fallback engines, stroke borders, and live bubble rendering</p>
 							</div>
-							<button
-								type="button"
-								on:click={resetTypesetDefaults}
-								class="inline-flex items-center gap-1 text-xs font-semibold text-neutral-500 hover:text-neutral-800 dark:hover:text-neutral-200 cursor-pointer"
-							>
-								<RotateCcw size={12} />
-								<span>Reset Defaults</span>
-							</button>
+							{#if isTypesettingModified}
+								<button
+									type="button"
+									on:click={resetTypesetDefaults}
+									class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-semibold text-neutral-600 dark:text-neutral-300 bg-black/5 dark:bg-white/10 hover:bg-black/10 dark:hover:bg-white/15 hover:text-neutral-900 dark:hover:text-white transition-colors shrink-0 whitespace-nowrap self-start sm:self-auto cursor-pointer"
+									use:ripple
+								>
+									<RotateCcw size={12} />
+									<span>Reset Defaults</span>
+								</button>
+							{/if}
 						</div>
 
 						<!-- LIVE SPEECH BUBBLE PREVIEW CARD -->
@@ -1708,17 +1902,47 @@
 									<div class="text-xs font-bold">Bubble Tilt Angle</div>
 									<div class="text-[10px] opacity-60 mt-0.5">Rotate text along detected bubble angle</div>
 								</div>
-								<button
-									type="button"
+								<Switch
+									checked={$settings.enableTextRotation}
 									on:click={toggleTextRotation}
-									class={`relative inline-flex h-5 w-10 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out ${
-										$settings.enableTextRotation ? 'bg-[#b23a2e] dark:bg-[#e08a63]' : 'bg-black/20 dark:bg-white/20'
-									}`}
-									role="switch"
-									aria-checked={$settings.enableTextRotation}
-								>
-									<span class={`pointer-events-none inline-block h-4 w-4 transform rounded-full bg-white shadow-sm ring-0 transition duration-200 ease-in-out ${$settings.enableTextRotation ? 'translate-x-5' : 'translate-x-0'}`}></span>
-								</button>
+									ariaLabel="Bubble Tilt Angle"
+								/>
+							</div>
+						</div>
+
+						<!-- DIALOGUE LETTERFORM CASING -->
+						<div
+							id="setting-typeset-casing"
+							class={`border-t border-black/10 pt-4 dark:border-white/10 space-y-1.5 transition-all duration-300 ${highlightedSettingId === 'typeset-casing' ? 'ring-2 ring-[#b23a2e] dark:ring-[#e08a63] bg-[#b23a2e]/[0.06] dark:bg-[#e08a63]/[0.08] rounded-2xl p-2.5 -m-1' : ''}`}
+						>
+							<div class="flex items-center justify-between">
+								<div class="text-xs font-bold uppercase tracking-wider opacity-80">Dialogue Letterform Casing</div>
+								{#if !isCasingApplicable}
+									<span class="text-[10px] opacity-50 italic">Active font is all-caps / CJK</span>
+								{/if}
+							</div>
+							<div class="grid grid-cols-1 sm:grid-cols-3 gap-2">
+								{#each CASING_PRESETS as cPreset}
+									{@const isSelected = ($settings.typesetCasing || 'uppercase') === cPreset.id}
+									<button
+										type="button"
+										on:click={() => setCasing(cPreset.id)}
+										class={`flex flex-col justify-between rounded-xl border p-2.5 text-left transition-all ${
+											isSelected
+												? 'border-[#b23a2e] bg-[#b23a2e]/[0.08] text-[#b23a2e] dark:text-[#e08a63] ring-2 ring-[#b23a2e]/30 font-bold shadow-xs'
+												: 'border-black/10 hover:border-black/20 hover:bg-black/[0.02] dark:border-white/10 dark:hover:border-white/20 dark:hover:bg-white/[0.02]'
+										}`}
+										use:ripple
+									>
+										<div class="flex items-center justify-between">
+											<span class="text-xs font-bold pl-0.5">{cPreset.label}</span>
+											{#if isSelected}
+												<Check size={12} class="text-[#b23a2e] dark:text-[#e08a63] shrink-0" />
+											{/if}
+										</div>
+										<div class="mt-1 text-[9px] opacity-60 leading-tight pl-0.5">{cPreset.desc}</div>
+									</button>
+								{/each}
 							</div>
 						</div>
 					</div>
@@ -1726,9 +1950,22 @@
 				<!-- SECTION 3: INPAINTING & SFX -->
 				{:else if activeCategory === 'inpainting'}
 					<div class="space-y-5">
-						<div>
-							<h2 class="text-base font-bold">Inpainting & Sound Effects (SFX)</h2>
-							<p class="text-xs opacity-60 mt-0.5">Artwork cleaning strategies, watermark removal, and three-tier geometry bounds</p>
+						<div class="flex flex-col sm:flex-row sm:items-center justify-between gap-2 sm:gap-4">
+							<div class="min-w-0 flex-1">
+								<h2 class="text-base font-bold">Inpainting & Sound Effects (SFX)</h2>
+								<p class="text-xs opacity-60 mt-0.5">Artwork cleaning strategies, watermark removal, and three-tier geometry bounds</p>
+							</div>
+							{#if isInpaintingModified}
+								<button
+									type="button"
+									on:click={resetInpaintingDefaults}
+									class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-semibold text-neutral-600 dark:text-neutral-300 bg-black/5 dark:bg-white/10 hover:bg-black/10 dark:hover:bg-white/15 hover:text-neutral-900 dark:hover:text-white transition-colors shrink-0 whitespace-nowrap self-start sm:self-auto cursor-pointer"
+									use:ripple
+								>
+									<RotateCcw size={12} />
+									<span>Reset Defaults</span>
+								</button>
+							{/if}
 						</div>
 
 						<!-- INPAINTING STRATEGY -->
@@ -1777,17 +2014,11 @@
 									</div>
 									<p class="text-[11px] opacity-60 mt-0.5">Detect and inpaint colored scanlator logos and watermarks colliding with bubbles before OCR.</p>
 								</div>
-								<button
-									type="button"
+								<Switch
+									checked={$settings.enableWatermarkInpaint}
 									on:click={toggleWatermarkInpaint}
-									class={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out ${
-										$settings.enableWatermarkInpaint ? 'bg-[#b23a2e] dark:bg-[#e08a63]' : 'bg-black/20 dark:bg-white/20'
-									}`}
-									role="switch"
-									aria-checked={$settings.enableWatermarkInpaint}
-								>
-									<span class={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow-sm ring-0 transition duration-200 ease-in-out ${$settings.enableWatermarkInpaint ? 'translate-x-5' : 'translate-x-0'}`}></span>
-								</button>
+									ariaLabel="Chromatic Watermark Inpainting"
+								/>
 							</div>
 
 							<div
@@ -1802,17 +2033,11 @@
 										</div>
 										<p class="text-[11px] opacity-60 mt-0.5">Inpaint and typeset onomatopoeia sound art. When disabled, original sound art is left untouched.</p>
 									</div>
-									<button
-										type="button"
+									<Switch
+										checked={$settings.enableSfx}
 										on:click={toggleSfx}
-										class={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out ${
-											$settings.enableSfx ? 'bg-[#b23a2e] dark:bg-[#e08a63]' : 'bg-black/20 dark:bg-white/20'
-										}`}
-										role="switch"
-										aria-checked={$settings.enableSfx}
-									>
-										<span class={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow-sm ring-0 transition duration-200 ease-in-out ${$settings.enableSfx ? 'translate-x-5' : 'translate-x-0'}`}></span>
-									</button>
+										ariaLabel="Sound Effects (SFX) Inpaint & Typeset"
+									/>
 								</div>
 
 								{#if $settings.enableSfx}
@@ -2172,7 +2397,7 @@
 											<input
 												id={`prov-url-${currentP.id}`}
 												type="text"
-												bind:value={baseUrlDraft[currentP.id]}
+												bind:value={baseUrlDraft[selectedProviderId]}
 												placeholder={DEFAULT_PROVIDER_BASE_URLS[currentP.id] || 'https://api.fireworks.ai/inference/v1'}
 												class="h-[38px] w-full rounded-lg border border-black/10 bg-transparent px-3 text-xs font-mono outline-none transition-colors placeholder:opacity-40 focus:border-[#b23a2e] focus:ring-2 focus:ring-[#b23a2e]/30 dark:border-white/[0.08]"
 											/>
@@ -2217,7 +2442,7 @@
 												<input
 													id={`prov-key-${currentP.id}`}
 													type="text"
-													bind:value={apiKeyDraft[currentP.id]}
+													bind:value={apiKeyDraft[selectedProviderId]}
 													placeholder={currentP.hasKey ? `Replace key (${currentP.maskedKey})...` : 'Enter API Key...'}
 													class="h-[38px] w-full rounded-lg border border-black/10 bg-transparent px-3 pr-10 text-xs font-mono outline-none transition-colors placeholder:opacity-40 focus:border-[#b23a2e] focus:ring-2 focus:ring-[#b23a2e]/30 dark:border-white/[0.08]"
 												/>
@@ -2225,7 +2450,7 @@
 												<input
 													id={`prov-key-${currentP.id}`}
 													type="password"
-													bind:value={apiKeyDraft[currentP.id]}
+													bind:value={apiKeyDraft[selectedProviderId]}
 													placeholder={currentP.hasKey ? `Replace key (${currentP.maskedKey})...` : 'Enter API Key...'}
 													class="h-[38px] w-full rounded-lg border border-black/10 bg-transparent px-3 pr-10 text-xs font-mono outline-none transition-colors placeholder:opacity-40 focus:border-[#b23a2e] focus:ring-2 focus:ring-[#b23a2e]/30 dark:border-white/[0.08]"
 												/>
@@ -2253,7 +2478,7 @@
 								>
 									<div class="flex items-center justify-between gap-2">
 										<div class="flex items-center gap-1.5 min-w-0">
-											<Sparkles size={12} class="text-[#b23a2e] dark:text-[#e08a63] shrink-0" />
+											<Cpu size={12} class="text-[#b23a2e] dark:text-[#e08a63] shrink-0" />
 											<span class="text-[11px] font-semibold opacity-80 truncate">Available Models ({currentP.availableModels.length})</span>
 										</div>
 										<button
@@ -2385,11 +2610,11 @@
 								<div class="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-2.5 pt-3 border-t border-black/10 dark:border-white/10">
 									<!-- TEST CONNECTION BUTTON -->
 									<button
-										id="setting-test-btn"
+										id="setting-test-connection"
 										type="button"
 										on:click={() => testConnection(currentP.id)}
 										disabled={testingProvider}
-										class="inline-flex items-center justify-center gap-2 rounded-xl border border-black/15 bg-white px-3.5 py-2 text-xs font-semibold hover:bg-neutral-50 dark:border-white/15 dark:bg-white/5 dark:hover:bg-white/10 cursor-pointer w-full sm:w-auto"
+										class={`inline-flex items-center justify-center gap-2 rounded-xl border border-black/15 bg-white px-3.5 py-2 text-xs font-semibold hover:bg-neutral-50 dark:border-white/15 dark:bg-white/5 dark:hover:bg-white/10 cursor-pointer w-full sm:w-auto transition-all duration-300 ${highlightedSettingId === 'test-connection' ? 'ring-2 ring-[#b23a2e] dark:ring-[#e08a63] bg-[#b23a2e]/[0.06] dark:bg-[#e08a63]/[0.08]' : ''}`}
 										use:ripple
 									>
 										<RefreshCw size={13} class={testingProvider ? 'animate-spin' : ''} />
@@ -2402,15 +2627,15 @@
 										<button
 											type="button"
 											on:click={() => saveProvider(currentP.id, false)}
-											disabled={savingProvider}
+											disabled={savingProvider || !hasProviderChanges}
 											class={cn(
-												'inline-flex items-center justify-center gap-1.5 rounded-xl px-3.5 py-2 text-xs font-semibold cursor-pointer w-full sm:w-auto transition-colors',
+												'inline-flex items-center justify-center gap-1.5 rounded-xl px-3.5 py-2 text-xs font-semibold cursor-pointer w-full sm:w-auto transition-colors disabled:opacity-40 disabled:cursor-not-allowed',
 												currentP.isDefault
 													? 'bg-[#b23a2e] hover:bg-[#962f25] text-white font-bold shadow-xs'
 													: 'border border-black/15 bg-white hover:bg-neutral-50 dark:border-white/15 dark:bg-white/5 dark:hover:bg-white/10'
 											)}
-											title="Save endpoint and API credentials"
-											use:ripple
+											title={hasProviderChanges ? 'Save endpoint and API credentials' : 'No changes to save'}
+											use:ripple={{ disabled: !hasProviderChanges || savingProvider }}
 										>
 											<Save size={13} />
 											<span>Save Provider</span>
@@ -2426,7 +2651,7 @@
 												title="Save configuration and route all chapter translations through this engine"
 												use:ripple
 											>
-												<Sparkles size={13} />
+												<Check size={13} />
 												<span>Save & Set Active</span>
 											</button>
 										{/if}
@@ -2479,44 +2704,97 @@
 						<!-- DEVICE CARDS -->
 						<div
 							id="setting-compute-device"
-							class={`grid grid-cols-1 sm:grid-cols-2 gap-2.5 transition-all duration-300 ${highlightedSettingId === 'compute-device' ? 'ring-2 ring-[#b23a2e] dark:ring-[#e08a63] bg-[#b23a2e]/[0.06] dark:bg-[#e08a63]/[0.08] rounded-2xl p-2.5 -m-1' : ''}`}
+							class={`space-y-2.5 transition-all duration-300 ${highlightedSettingId === 'compute-device' ? 'ring-2 ring-[#b23a2e] dark:ring-[#e08a63] bg-[#b23a2e]/[0.06] dark:bg-[#e08a63]/[0.08] rounded-2xl p-2.5 -m-1' : ''}`}
 						>
-							{#each EXECUTION_DEVICES as dev (dev.id)}
+							<!-- AUTO DETECT FEATURED CARD -->
+							{#if EXECUTION_DEVICES[0]}
+								{@const autoDev = EXECUTION_DEVICES[0]}
 								<button
 									type="button"
-									disabled={!!switchingDevice || mlOffline}
-									on:click={() => setExecutionDevice(dev.id)}
-									class={`flex flex-col justify-between rounded-xl border p-3 text-left transition-all ${
-										mlOffline || !isDeviceAvailable(dev.id)
+									disabled={!!switchingDevice || !!hardwareInfo?.reloading || mlOffline || !isDeviceAvailable(autoDev.id)}
+									on:click={() => setExecutionDevice(autoDev.id)}
+									class={`w-full flex items-center justify-between rounded-xl border p-3 text-left transition-all ${
+										mlOffline || !isDeviceAvailable(autoDev.id)
 											? 'opacity-40 border-black/5 bg-black/[0.01] dark:border-white/5 cursor-not-allowed'
-											: $settings.executionDevice === dev.id
-												? 'border-[#b23a2e] bg-[#b23a2e]/[0.08] text-[#b23a2e] dark:text-[#e08a63] ring-2 ring-[#b23a2e]/30 shadow-xs'
-												: 'border-black/10 hover:border-black/20 hover:bg-black/[0.02] dark:border-white/10 dark:hover:border-white/20 dark:hover:bg-white/[0.02]'
+											: switchingDevice || hardwareInfo?.reloading
+												? $settings.executionDevice === autoDev.id
+													? 'border-[#b23a2e] bg-[#b23a2e]/[0.08] text-[#b23a2e] dark:text-[#e08a63] ring-2 ring-[#b23a2e]/30 shadow-xs cursor-wait opacity-85'
+													: 'border-black/10 opacity-50 cursor-not-allowed dark:border-white/10'
+												: $settings.executionDevice === autoDev.id
+													? 'border-[#b23a2e] bg-[#b23a2e]/[0.08] text-[#b23a2e] dark:text-[#e08a63] ring-2 ring-[#b23a2e]/30 shadow-xs'
+													: 'border-black/10 hover:border-black/20 hover:bg-black/[0.02] dark:border-white/10 dark:hover:border-white/20 dark:hover:bg-white/[0.02]'
 									}`}
+									use:ripple
 								>
 									<div>
-										<div class="flex items-center justify-between">
-											<div class="flex items-center gap-1.5 font-bold text-xs">
-												{#if switchingDevice === dev.id}
-													<Loader2 size={13} class="animate-spin text-[#b23a2e]" />
-												{:else}
-													<Cpu size={13} class={isDeviceAvailable(dev.id) ? 'opacity-80' : 'opacity-40'} />
-												{/if}
-												<span>{dev.label}</span>
-											</div>
-											{#if $settings.executionDevice === dev.id && switchingDevice !== dev.id}
-												<Check size={14} class="text-[#b23a2e] dark:text-[#e08a63]" />
+										<div class="flex items-center gap-2 font-bold text-xs">
+											{#if switchingDevice === autoDev.id}
+												<Loader2 size={13} class="animate-spin text-[#b23a2e]" />
+											{:else}
+												<Cpu size={13} class={isDeviceAvailable(autoDev.id) ? 'opacity-80' : 'opacity-40'} />
 											{/if}
+											<span>{autoDev.label}</span>
+											<span class="rounded-full bg-[#b23a2e]/10 dark:bg-[#e08a63]/15 px-2 py-0.5 text-[9.5px] font-semibold text-[#b23a2e] dark:text-[#e08a63] uppercase tracking-wider">Recommended</span>
 										</div>
-										<p class="mt-1 text-[10px] opacity-70 leading-relaxed">{dev.blurb}</p>
+										<p class="mt-1 text-[10.5px] opacity-70 leading-relaxed">{autoDev.blurb}</p>
 									</div>
-									{#if !isDeviceAvailable(dev.id) && getDeviceAvailabilityReason(dev.id)}
-										<div class="mt-1.5 text-[9px] font-semibold text-amber-600 dark:text-amber-400">
-											{getDeviceAvailabilityReason(dev.id)}
-										</div>
-									{/if}
+									<div class="shrink-0 ml-3">
+										{#if $settings.executionDevice === autoDev.id && switchingDevice !== autoDev.id}
+											<Check size={15} class="text-[#b23a2e] dark:text-[#e08a63]" />
+										{/if}
+									</div>
 								</button>
-							{/each}
+							{/if}
+
+							<!-- MANUAL EXPLICIT BACKENDS (2x2 GRID) -->
+							<div class="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+								{#each EXECUTION_DEVICES.slice(1) as dev (dev.id)}
+									<button
+										type="button"
+										id={dev.id === 'dml' ? 'setting-igpu-protect' : undefined}
+										disabled={!!switchingDevice || !!hardwareInfo?.reloading || mlOffline || !isDeviceAvailable(dev.id)}
+										on:click={() => setExecutionDevice(dev.id)}
+										class={`flex flex-col justify-between rounded-xl border p-3 text-left transition-all ${
+											highlightedSettingId === 'igpu-protect' && dev.id === 'dml'
+												? 'ring-2 ring-[#b23a2e] dark:ring-[#e08a63] bg-[#b23a2e]/[0.06] dark:bg-[#e08a63]/[0.08]'
+												: ''
+										} ${
+											mlOffline || !isDeviceAvailable(dev.id)
+												? 'opacity-40 border-black/5 bg-black/[0.01] dark:border-white/5 cursor-not-allowed'
+												: switchingDevice || hardwareInfo?.reloading
+													? $settings.executionDevice === dev.id
+														? 'border-[#b23a2e] bg-[#b23a2e]/[0.08] text-[#b23a2e] dark:text-[#e08a63] ring-2 ring-[#b23a2e]/30 shadow-xs cursor-wait opacity-85'
+														: 'border-black/10 opacity-50 cursor-not-allowed dark:border-white/10'
+													: $settings.executionDevice === dev.id
+														? 'border-[#b23a2e] bg-[#b23a2e]/[0.08] text-[#b23a2e] dark:text-[#e08a63] ring-2 ring-[#b23a2e]/30 shadow-xs'
+														: 'border-black/10 hover:border-black/20 hover:bg-black/[0.02] dark:border-white/10 dark:hover:border-white/20 dark:hover:bg-white/[0.02]'
+										}`}
+										use:ripple
+									>
+										<div>
+											<div class="flex items-center justify-between">
+												<div class="flex items-center gap-1.5 font-bold text-xs">
+													{#if switchingDevice === dev.id}
+														<Loader2 size={13} class="animate-spin text-[#b23a2e]" />
+													{:else}
+														<Cpu size={13} class={isDeviceAvailable(dev.id) ? 'opacity-80' : 'opacity-40'} />
+													{/if}
+													<span>{dev.label}</span>
+												</div>
+												{#if $settings.executionDevice === dev.id && switchingDevice !== dev.id}
+													<Check size={14} class="text-[#b23a2e] dark:text-[#e08a63]" />
+												{/if}
+											</div>
+											<p class="mt-1 text-[10px] opacity-70 leading-relaxed">{dev.blurb}</p>
+										</div>
+										{#if !isDeviceAvailable(dev.id) && getDeviceAvailabilityReason(dev.id)}
+											<div class="mt-1.5 text-[9px] font-semibold text-amber-600 dark:text-amber-400">
+												{getDeviceAvailabilityReason(dev.id)}
+											</div>
+										{/if}
+									</button>
+								{/each}
+							</div>
 						</div>
 
 						<!-- GPU VRAM MEMORY ALLOCATOR -->
@@ -2545,14 +2823,19 @@
 								<div class="grid grid-cols-3 sm:grid-cols-6 gap-1.5 pt-1">
 									{#each CUDA_VRAM_LIMIT_PRESETS as preset}
 										{@const isSelected = $settings.cudaVramLimitMb === preset.value || ($settings.cudaVramLimitMb === null && preset.value === null)}
+										{@const isBusy = settingVramLimit || !!switchingDevice || !!hardwareInfo?.reloading || mlOffline}
 										<button
 											type="button"
-											disabled={settingVramLimit}
+											disabled={isBusy}
 											on:click={() => setCudaVramLimit(preset.value)}
-											class={`flex flex-col items-center justify-center rounded-lg border py-2 px-1 text-center transition-all cursor-pointer ${
-												isSelected
-													? 'border-[#b23a2e] bg-[#b23a2e]/[0.08] text-[#b23a2e] dark:text-[#e08a63] ring-1 ring-[#b23a2e]/30 font-bold'
-													: 'border-black/10 hover:border-black/20 dark:border-white/10 opacity-75'
+											class={`flex flex-col items-center justify-center rounded-lg border py-2 px-1 text-center transition-all ${
+												isBusy
+													? isSelected
+														? 'border-[#b23a2e] bg-[#b23a2e]/[0.08] text-[#b23a2e] dark:text-[#e08a63] ring-1 ring-[#b23a2e]/30 font-bold opacity-85 cursor-wait'
+														: 'border-black/10 opacity-40 cursor-not-allowed dark:border-white/10'
+													: isSelected
+														? 'border-[#b23a2e] bg-[#b23a2e]/[0.08] text-[#b23a2e] dark:text-[#e08a63] ring-1 ring-[#b23a2e]/30 font-bold cursor-pointer'
+														: 'border-black/10 hover:border-black/20 dark:border-white/10 opacity-75 cursor-pointer'
 											}`}
 											use:ripple
 										>
@@ -2657,17 +2940,11 @@
 									</div>
 									<p class="text-[11px] opacity-60 mt-0.5">Recombine and cut vertical webtoon chapters along whitespace gutters before OCR to protect speech bubbles.</p>
 								</div>
-								<button
-									type="button"
+								<Switch
+									checked={$settings.resliceBeforeBatch}
 									on:click={toggleResliceBeforeBatch}
-									class={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out ${
-										$settings.resliceBeforeBatch ? 'bg-[#b23a2e] dark:bg-[#e08a63]' : 'bg-black/20 dark:bg-white/20'
-									}`}
-									role="switch"
-									aria-checked={$settings.resliceBeforeBatch}
-								>
-									<span class={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow-sm ring-0 transition duration-200 ease-in-out ${$settings.resliceBeforeBatch ? 'translate-x-5' : 'translate-x-0'}`}></span>
-								</button>
+									ariaLabel="Auto-Reslice Before Batch Translation"
+								/>
 							</div>
 
 							<div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
@@ -2717,6 +2994,14 @@
 									</div>
 								</div>
 							</div>
+
+							<!-- NOTICE: CONCURRENCY HARDWARE STRAIN WARNING -->
+							<div class="flex items-start gap-2 rounded-xl border border-amber-500/25 bg-amber-500/10 p-2.5 text-[10.5px] leading-relaxed text-amber-800 dark:text-amber-300">
+								<AlertTriangle size={14} class="shrink-0 text-amber-600 dark:text-amber-400 mt-0.5" />
+								<span>
+									<strong>Warning:</strong> Setting parallel page workers or batch chapters too high may put heavy strain on your processor and system memory, potentially causing crashes or out-of-memory errors. Only configure concurrency levels that your CPU, GPU, and RAM can handle efficiently.
+								</span>
+							</div>
 						</div>
 					</div>
 
@@ -2734,12 +3019,18 @@
 								class={`flex items-center justify-between text-xs py-1 border-b border-black/5 dark:border-white/5 transition-all duration-300 ${highlightedSettingId === 'version-info' ? 'ring-2 ring-[#b23a2e] dark:ring-[#e08a63] bg-[#b23a2e]/[0.06] dark:bg-[#e08a63]/[0.08] rounded-lg p-1.5' : ''}`}
 							>
 								<span class="opacity-60">Native Core Version</span>
-								<span class="font-mono font-bold text-[#b23a2e] dark:text-[#e08a63]">v{hardwareInfo?.version || '0.1.0'}</span>
+								{#if hardwareInfo?.version || $mlStatus.version}
+									<span class="font-mono font-bold text-[#b23a2e] dark:text-[#e08a63]">v{hardwareInfo?.version || $mlStatus.version}</span>
+								{:else if hardwareLoading || $mlStatus.loading}
+									<span class="inline-block h-3.5 w-12 animate-pulse rounded bg-black/10 dark:bg-white/10"></span>
+								{:else}
+									<span class="font-mono font-bold text-[#b23a2e] dark:text-[#e08a63]">v--</span>
+								{/if}
 							</div>
-							{#if hardwareInfo?.web_build_hash}
+							{#if hardwareInfo?.web_build_hash || $mlStatus.webBuildHash}
 								<div class="flex items-center justify-between text-xs py-1 border-b border-black/5 dark:border-white/5">
 									<span class="opacity-60">Web Build Hash</span>
-									<span class="font-mono">{hardwareInfo.web_build_hash}</span>
+									<span class="font-mono">{hardwareInfo?.web_build_hash || $mlStatus.webBuildHash}</span>
 								</div>
 							{/if}
 							<div

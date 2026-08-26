@@ -3,7 +3,7 @@
 	import { goto } from '$app/navigation';
 	import { onMount } from 'svelte';
 	import { toast } from 'svelte-sonner';
-	import { Button, TextField, Modal, ConfirmDialog, ActionMenu, LanguagePicker, Toggle, LazyImage, Badge } from '$lib/components/ui';
+	import { Button, TextField, Modal, ConfirmDialog, ActionMenu, LanguagePicker, Switch, LazyImage, Badge } from '$lib/components/ui';
 	import { ripple } from '$lib/actions/ripple';
 	import { settings, THEME_POPOVER, THEME_PANEL_BORDER, LIB_LAYOUT_COOKIE, setCookie } from '$lib/stores/settings';
 	import { readingHistory } from '$lib/stores/reading-history';
@@ -31,9 +31,13 @@
 	import Check from 'lucide-svelte/icons/check';
 	import X from 'lucide-svelte/icons/x';
 	import Languages from 'lucide-svelte/icons/languages';
+	import FolderTree from 'lucide-svelte/icons/folder-tree';
+	import FolderUp from 'lucide-svelte/icons/folder-up';
+	import Upload from 'lucide-svelte/icons/upload';
 	// IMPORTED COMPONENTS
 	import BookMetadataFields from '$lib/components/book/BookMetadataFields.svelte';
 	import BookCoverPicker from '$lib/components/book/BookCoverPicker.svelte';
+	import BookDropImportModal from '$lib/components/book/BookDropImportModal.svelte';
 	import { apiJson } from '$lib/api';
 	import { validateForm } from '$lib/utils/form';
 	import { BOOK_STATUSES, createBookSchema, updateBookSchema } from '$lib/schemas';
@@ -113,13 +117,20 @@
 	let searchInputEl: HTMLInputElement;
 	let createModalOpen = false;
 	let activeTab: 'all' | 'active' | 'pinned' | 'archived' = 'active';
-	let sortBy: SortOption = 'recent';
+	let sortBy: SortOption = (data as any)?.preferences?.librarySort || $settings.librarySort || 'recent';
 	let sortMenuOpen = false;
 
 	$: books = data.books;
 
 	// VIEW LAYOUT MODES: 'grid' (Comfortable Cards) | 'list' (Media List Rows) | 'compact' (Dense Table Rows)
-	let viewLayout: 'grid' | 'list' | 'compact' = (data as any)?.preferences?.libraryLayout || 'grid';
+	let viewLayout: 'grid' | 'list' | 'compact' = (data as any)?.preferences?.libraryLayout || $settings.libraryLayout || 'grid';
+
+	$: if ($settings.librarySort && $settings.librarySort !== sortBy) {
+		sortBy = $settings.librarySort;
+	}
+	$: if ($settings.libraryLayout && $settings.libraryLayout !== viewLayout) {
+		viewLayout = $settings.libraryLayout;
+	}
 
 	// EDIT BOOK STATES
 	let editModalOpen = false;
@@ -154,6 +165,36 @@
 	let clearChaptersConfirmOpen = false;
 	let clearingChapters = false;
 
+	// FOLDER DRAG & DROP STATES
+	let isDraggingOverLibrary = false;
+	let bookDropImportModal: BookDropImportModal;
+
+	function handleLibraryDragOver(e: DragEvent) {
+		if (!e.dataTransfer?.types?.includes('Files')) return;
+		e.preventDefault();
+		isDraggingOverLibrary = true;
+	}
+
+	function handleLibraryDragLeave(e: DragEvent) {
+		if (e.currentTarget && (e.currentTarget as HTMLElement).contains(e.relatedTarget as Node)) return;
+		isDraggingOverLibrary = false;
+	}
+
+	async function handleLibraryDrop(e: DragEvent) {
+		e.preventDefault();
+		e.stopPropagation();
+		isDraggingOverLibrary = false;
+
+		if (e.dataTransfer?.items && e.dataTransfer.items.length > 0) {
+			bookDropImportModal?.startImport(e.dataTransfer.items);
+			return;
+		}
+
+		if (e.dataTransfer?.files && e.dataTransfer.files.length > 0) {
+			bookDropImportModal?.startImport(e.dataTransfer.files);
+		}
+	}
+
 	// -- LIFECYCLES -- //
 
 	onMount(() => {
@@ -178,6 +219,12 @@
 		} catch {
 			// ignore
 		}
+		settings.update((s) => ({ ...s, libraryLayout: mode }));
+	}
+
+	function setSortBy(sort: SortOption) {
+		sortBy = sort;
+		settings.update((s) => ({ ...s, librarySort: sort }));
 	}
 
 	// -- FUNCTIONS -- //
@@ -487,11 +534,12 @@
 	}
 
 	function cycleSort() {
-		if (sortBy === 'recent') sortBy = 'title_asc';
-		else if (sortBy === 'title_asc') sortBy = 'title_desc';
-		else if (sortBy === 'title_desc') sortBy = 'chapters_desc';
-		else if (sortBy === 'chapters_desc') sortBy = 'chapters_asc';
-		else sortBy = 'recent';
+		let next: SortOption = 'recent';
+		if (sortBy === 'recent') next = 'title_asc';
+		else if (sortBy === 'title_asc') next = 'title_desc';
+		else if (sortBy === 'title_desc') next = 'chapters_desc';
+		else if (sortBy === 'chapters_desc') next = 'chapters_asc';
+		setSortBy(next);
 	}
 
 	// REACTIVE FILTERED & SORTED BOOKS (PINNED FLOATS TO TOP)
@@ -603,12 +651,18 @@
 <svelte:window on:keydown={handleGlobalKeydown} />
 
 <svelte:head>
-	<title>Library — Xianscan</title>
+	<title>Library - XianScan</title>
 	<meta name="description" content="Browse and manage translated comics, manhua, and manga series." />
 </svelte:head>
 
 <!-- LIBRARY DASHBOARD -->
-<div class="flex flex-col gap-6 pb-8 sm:pb-0">
+<!-- svelte-ignore a11y-no-static-element-interactions -->
+<div
+	class="flex flex-col gap-6 pb-8 sm:pb-0"
+	on:dragover={handleLibraryDragOver}
+	on:dragleave={handleLibraryDragLeave}
+	on:drop={handleLibraryDrop}
+>
 	<!-- HEADER SECTION -->
 	<div class="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
 		<div>
@@ -617,6 +671,9 @@
 		</div>
 
 		<div class="hidden sm:flex items-center gap-3">
+			<Button variant="secondary" class="gap-1.5" on:click={() => bookDropImportModal?.open()}>
+				<FolderUp size={16} /> Import Folder
+			</Button>
 			<Button variant="primary" on:click={() => (createModalOpen = true)}>
 				<Plus size={16} /> New Book
 			</Button>
@@ -692,7 +749,7 @@
 											: 'opacity-70 hover:opacity-100 hover:bg-black/5 dark:hover:bg-white/5'
 									}`}
 									on:click={() => {
-										sortBy = opt.value;
+										setSortBy(opt.value);
 										sortMenuOpen = false;
 									}}
 								>
@@ -836,10 +893,15 @@
 				<BookOpen size={24} />
 			</div>
 			<h2 class="mt-4 text-base font-semibold">No books in your library</h2>
-			<p class="mt-1 max-w-sm text-xs opacity-60">Create your first book series to start uploading chapter images for translation.</p>
-			<Button variant="primary" size="sm" class="mt-4" on:click={() => (createModalOpen = true)}>
-				<Plus size={14} /> Create First Book
-			</Button>
+			<p class="mt-1 max-w-sm text-xs opacity-60">Create a book series or drop a folder to automatically scan and import chapters.</p>
+			<div class="mt-4 flex items-center gap-2.5">
+				<Button variant="secondary" size="sm" class="gap-1.5" on:click={() => bookDropImportModal?.open()}>
+					<FolderUp size={14} /> Import Folder
+				</Button>
+				<Button variant="primary" size="sm" class="gap-1.5" on:click={() => (createModalOpen = true)}>
+					<Plus size={14} /> Create First Book
+				</Button>
+			</div>
 		</div>
 	{:else if filteredBooks.length === 0}
 		<p class="py-8 text-center text-sm opacity-60">No books found matching "{searchQuery}".</p>
@@ -1294,24 +1356,13 @@
 		/>
 
 		<div class="block">
-			<div class="flex items-center justify-between mb-1">
-				<span class="text-xs font-semibold opacity-60">Target Title (Optional translation)</span>
-				<button
-					type="button"
-					class="inline-flex items-center gap-1 text-[11px] font-semibold text-[#b23a2e] hover:underline disabled:opacity-40 dark:text-[#e08a63]"
-					disabled={translatingTitle || !title.trim()}
-					on:click={translateNewTitle}
-				>
-					<Languages size={12} />
-					<span>{translatingTitle ? 'Translating...' : 'Auto-Translate'}</span>
-				</button>
-			</div>
+			<span class="mb-1 block text-xs font-semibold opacity-60">Target Title (Optional translation)</span>
 			<div class="flex items-center gap-2">
 				<input
 					type="text"
 					bind:value={titleTarget}
 					placeholder="e.g. Stardust"
-					class="h-[38px] w-full rounded-lg border border-black/10 bg-transparent px-3 text-sm outline-none transition-colors placeholder:opacity-40 focus:border-[#b23a2e] focus:ring-2 focus:ring-[#b23a2e]/30 dark:border-white/[0.06]"
+					class="h-[38px] min-w-0 flex-1 rounded-lg border border-black/10 bg-transparent px-3 text-sm outline-none transition-colors placeholder:opacity-40 focus:border-[#b23a2e] focus:ring-2 focus:ring-[#b23a2e]/30 dark:border-white/[0.06]"
 				/>
 				<Button
 					variant="secondary"
@@ -1320,6 +1371,7 @@
 					disabled={translatingTitle || !title.trim()}
 					on:click={translateNewTitle}
 					title="Auto-translate book title"
+					aria-label="Auto-translate book title"
 				>
 					{#if !translatingTitle}
 						<Languages size={15} />
@@ -1368,24 +1420,13 @@
 			/>
 
 			<div class="block">
-				<div class="flex items-center justify-between mb-1">
-					<span class="text-xs font-semibold opacity-60">Target Title (Translated title)</span>
-					<button
-						type="button"
-						class="inline-flex items-center gap-1 text-[11px] font-semibold text-[#b23a2e] hover:underline disabled:opacity-40 dark:text-[#e08a63]"
-						disabled={translatingEditTitle || !editTitle.trim()}
-						on:click={translateEditTitle}
-					>
-						<Languages size={12} />
-						<span>{translatingEditTitle ? 'Translating...' : 'Auto-Translate'}</span>
-					</button>
-				</div>
+				<span class="mb-1 block text-xs font-semibold opacity-60">Target Title (Translated title)</span>
 				<div class="flex items-center gap-2">
 					<input
 						type="text"
 						bind:value={editTitleTarget}
 						placeholder="e.g. Stardust"
-						class="h-[38px] w-full rounded-lg border border-black/10 bg-transparent px-3 text-sm outline-none transition-colors placeholder:opacity-40 focus:border-[#b23a2e] focus:ring-2 focus:ring-[#b23a2e]/30 dark:border-white/[0.06]"
+						class="h-[38px] min-w-0 flex-1 rounded-lg border border-black/10 bg-transparent px-3 text-sm outline-none transition-colors placeholder:opacity-40 focus:border-[#b23a2e] focus:ring-2 focus:ring-[#b23a2e]/30 dark:border-white/[0.06]"
 					/>
 					<Button
 						variant="secondary"
@@ -1394,6 +1435,7 @@
 						disabled={translatingEditTitle || !editTitle.trim()}
 						on:click={translateEditTitle}
 						title="Auto-translate book title"
+						aria-label="Auto-translate book title"
 					>
 						{#if !translatingEditTitle}
 							<Languages size={15} />
@@ -1415,8 +1457,8 @@
 			</div>
 
 			<div class="flex flex-col gap-3 rounded-xl border border-black/10 bg-black/[0.02] p-3 dark:border-white/10 dark:bg-white/[0.02]">
-				<Toggle bind:checked={editPinned} label="Pin series to top of library" />
-				<Toggle bind:checked={editArchived} label="Archive series (hide from active view)" />
+				<Switch bind:checked={editPinned} label="Pin series to top of library" />
+				<Switch bind:checked={editArchived} label="Archive series (hide from active view)" />
 			</div>
 
 			<BookCoverPicker bookId={editingBook.id} coverSrc={editCoverSrc} on:uploaded={onCoverUploaded} on:removed={onCoverRemoved} />
@@ -1462,3 +1504,26 @@
 	on:confirm={confirmClearChapters}
 	on:cancel={() => (clearChaptersConfirmOpen = false)}
 />
+
+<!-- BOOK DROP IMPORT MODAL -->
+<BookDropImportModal
+	bind:this={bookDropImportModal}
+	on:created={loadBooks}
+/>
+
+<!-- DRAG OVERLAY -->
+{#if isDraggingOverLibrary}
+	<div
+		class="pointer-events-none fixed inset-0 z-50 flex items-center justify-center bg-[#b23a2e]/20 backdrop-blur-sm"
+	>
+		<div
+			class="flex max-w-md mx-4 flex-col items-center gap-3 rounded-2xl border-2 border-dashed border-[#b23a2e] bg-white/90 p-8 text-center shadow-2xl dark:border-[#e08a63] dark:bg-[#1a1713]/90"
+		>
+			<Upload size={36} class="animate-bounce text-[#b23a2e] dark:text-[#e08a63]" />
+			<div class="space-y-1">
+				<p class="text-sm font-bold sm:text-base">Drop folder to create a new Book</p>
+				<p class="text-xs opacity-75">Folders and chapters will be scanned automatically to create the series</p>
+			</div>
+		</div>
+	</div>
+{/if}

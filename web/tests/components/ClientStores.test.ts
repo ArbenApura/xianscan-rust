@@ -14,9 +14,14 @@ describe('Client Svelte Stores', () => {
 
 	it('settings store initializes with default theme and handles switching', () => {
 		settings.update((s) => ({ ...s, theme: 'dark' }));
-		const current = get(settings);
+		let current = get(settings);
 		expect(current.theme).toBe('dark');
 		expect(THEME_CLASS.dark).toBe('bg-[#13100c] text-[#d8cfc2]');
+
+		settings.update((s) => ({ ...s, theme: 'auto' }));
+		current = get(settings);
+		expect(current.theme).toBe('auto');
+		expect(THEME_CLASS.auto).toContain('dark:bg-[#13100c]');
 	});
 
 	it('applyFontFamily exempts input and textarea font stacks for comic all-caps font', async () => {

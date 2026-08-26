@@ -24,6 +24,8 @@
 	export let chapterTitleTarget: string | null = null;
 	export let totalPages: number = 0;
 	export let running: boolean = false;
+	export let isReslicing: boolean = false;
+	export let resliceProgress: number = 0;
 	export let uploading: boolean = false;
 	export let exporting: boolean = false;
 	export let exportProgress: number = 0;
@@ -32,6 +34,7 @@
 	export let webtoonWidth: 'sm' | 'md' | 'lg' = 'md';
 	export let prevChapter: { id: number; seq: number; title: string | null; titleTarget?: string | null } | null = null;
 	export let nextChapter: { id: number; seq: number; title: string | null; titleTarget?: string | null } | null = null;
+	export let hasProgress: boolean = false;
 
 	const dispatch = createEventDispatcher<{
 		translate: void;
@@ -52,24 +55,31 @@
 	let fileInput: HTMLInputElement;
 
 	$: chapterMenuItems = [
-		{ value: 'upload', label: uploading ? 'Uploading...' : 'Add Images', icon: Upload, disabled: uploading || running },
+		{ value: 'upload', label: uploading ? 'Uploading...' : 'Add Images', icon: Upload, disabled: uploading || running || isReslicing },
 		...(totalPages > 0
 			? [
 					running
 						? { value: 'cancel', label: 'Cancel Translation', icon: Square, danger: true }
-						: { value: 'translate', label: 'Translate All', icon: Play },
-					{ value: 'reslice', label: 'Smart Re-slice', icon: Scissors, disabled: running },
-					{ value: 'clearProgress', label: 'Clear Progress', icon: RotateCcw, disabled: running },
+						: { value: 'translate', label: 'Translate All', icon: Play, disabled: isReslicing },
+					{
+						value: 'reslice',
+						label: isReslicing ? `Re-slicing ${resliceProgress}%...` : 'Smart Re-slice',
+						icon: isReslicing ? Loader2 : Scissors,
+						disabled: running || isReslicing,
+					},
+					...(hasProgress
+						? [{ value: 'clearProgress', label: 'Clear Progress', icon: RotateCcw, disabled: running || isReslicing }]
+						: []),
 					{
 						value: 'exportZip',
 						label: exporting ? `Exporting ${exportProgress}%` : 'Export ZIP',
 						icon: exporting ? Loader2 : Download,
-						disabled: exporting || running,
+						disabled: exporting || running || isReslicing,
 					},
-					{ value: 'clearAllPages', label: 'Clear Pages', icon: FileX, danger: true, disabled: running },
+					{ value: 'clearAllPages', label: 'Clear Pages', icon: FileX, danger: true, disabled: running || isReslicing },
 				]
 			: []),
-		{ value: 'editChapter', label: 'Edit Chapter Details', icon: Pencil },
+		{ value: 'editChapter', label: 'Edit Chapter Details', icon: Pencil, disabled: running || isReslicing },
 	] as MenuAction[];
 
 	function handleMenuAction(action: string) {
@@ -208,27 +218,34 @@
 			<Button
 				variant="secondary"
 				size="sm"
-				disabled={running}
+				disabled={running || isReslicing}
 				on:click={() => dispatch('openReslice')}
 			>
-				<Scissors size={14} />
-				<span>Reslice</span>
+				{#if isReslicing}
+					<Loader2 size={14} class="animate-spin text-[#b23a2e] dark:text-[#e08a63]" />
+					<span>Re-slicing {resliceProgress > 0 ? `${resliceProgress}%` : ''}</span>
+				{:else}
+					<Scissors size={14} />
+					<span>Reslice</span>
+				{/if}
 			</Button>
+
+			{#if hasProgress}
+				<Button
+					variant="secondary"
+					size="sm"
+					disabled={running || isReslicing}
+					on:click={() => dispatch('clearProgress')}
+				>
+					<RotateCcw size={14} />
+					<span>Clear Progress</span>
+				</Button>
+			{/if}
 
 			<Button
 				variant="secondary"
 				size="sm"
-				disabled={running}
-				on:click={() => dispatch('clearProgress')}
-			>
-				<RotateCcw size={14} />
-				<span>Clear Progress</span>
-			</Button>
-
-			<Button
-				variant="secondary"
-				size="sm"
-				disabled={running}
+				disabled={running || isReslicing}
 				class="text-red-600 hover:bg-red-500/10 dark:text-red-400"
 				on:click={() => dispatch('clearAllPages')}
 			>
@@ -249,6 +266,7 @@
 				<Button
 					variant="primary"
 					size="sm"
+					disabled={isReslicing}
 					on:click={() => dispatch('translate')}
 				>
 					<Play size={14} />
@@ -332,7 +350,7 @@
 		/>
 	</div>
 
-	<!-- SECONDARY TOOLBAR: VIEW MODE TABS + WEBTOON CONFIG (CENTERED) -->
+	<!-- SECONDARY TOOLBAR: VIEW MODE TABS + WEBTOON CONFIG (CENTERED ON TOP) -->
 	{#if totalPages > 0}
 		<div class="flex flex-wrap items-center justify-center gap-2.5 sm:gap-4 border-y border-black/[0.06] py-2 dark:border-white/[0.06] w-full">
 			<!-- VIEW MODES (CENTERED) -->
@@ -340,9 +358,9 @@
 				<button
 					type="button"
 					on:click={() => dispatch('changeViewMode', 'reader')}
-					class={`flex items-center gap-1.5 rounded-lg px-3 py-1 text-xs font-medium transition ${
+					class={`flex items-center gap-1.5 rounded-lg px-3 py-1 text-xs font-medium transition cursor-pointer ${
 						activeViewMode === 'reader'
-							? 'bg-white text-black shadow-sm dark:bg-[#201c18] dark:text-white'
+							? 'bg-white text-black shadow-sm dark:bg-[#201c18] dark:text-white font-bold'
 							: 'opacity-60 hover:opacity-100'
 					}`}
 					use:ripple
@@ -354,9 +372,9 @@
 				<button
 					type="button"
 					on:click={() => dispatch('changeViewMode', 'grid')}
-					class={`flex items-center gap-1.5 rounded-lg px-3 py-1 text-xs font-medium transition ${
+					class={`flex items-center gap-1.5 rounded-lg px-3 py-1 text-xs font-medium transition cursor-pointer ${
 						activeViewMode === 'grid'
-							? 'bg-white text-black shadow-sm dark:bg-[#201c18] dark:text-white'
+							? 'bg-white text-black shadow-sm dark:bg-[#201c18] dark:text-white font-bold'
 							: 'opacity-60 hover:opacity-100'
 					}`}
 					use:ripple
@@ -368,9 +386,9 @@
 				<button
 					type="button"
 					on:click={() => dispatch('changeViewMode', 'compare')}
-					class={`flex items-center gap-1.5 rounded-lg px-3 py-1 text-xs font-medium transition ${
+					class={`flex items-center gap-1.5 rounded-lg px-3 py-1 text-xs font-medium transition cursor-pointer ${
 						activeViewMode === 'compare'
-							? 'bg-white text-black shadow-sm dark:bg-[#201c18] dark:text-white'
+							? 'bg-white text-black shadow-sm dark:bg-[#201c18] dark:text-white font-bold'
 							: 'opacity-60 hover:opacity-100'
 					}`}
 					use:ripple
@@ -388,9 +406,9 @@
 						<button
 							type="button"
 							on:click={() => dispatch('changeWebtoonKind', 'output')}
-							class={`rounded-md px-2 py-0.5 font-medium transition ${
+							class={`rounded-md px-2 py-0.5 font-medium transition cursor-pointer ${
 								webtoonKind === 'output'
-									? 'bg-[#b23a2e] text-white shadow-xs'
+									? 'bg-[#b23a2e] text-white shadow-xs font-bold'
 									: 'opacity-60 hover:opacity-100'
 							}`}
 						>
@@ -399,9 +417,9 @@
 						<button
 							type="button"
 							on:click={() => dispatch('changeWebtoonKind', 'original')}
-							class={`rounded-md px-2 py-0.5 font-medium transition ${
+							class={`rounded-md px-2 py-0.5 font-medium transition cursor-pointer ${
 								webtoonKind === 'original'
-									? 'bg-[#b23a2e] text-white shadow-xs'
+									? 'bg-[#b23a2e] text-white shadow-xs font-bold'
 									: 'opacity-60 hover:opacity-100'
 							}`}
 						>
@@ -416,7 +434,7 @@
 								<button
 									type="button"
 									on:click={() => dispatch('changeWebtoonWidth', w)}
-									class={`rounded-md px-2 py-0.5 uppercase font-medium transition ${
+									class={`rounded-md px-2 py-0.5 uppercase font-medium transition cursor-pointer ${
 										webtoonWidth === w
 											? 'bg-black/10 font-bold dark:bg-white/10'
 											: 'opacity-50 hover:opacity-100'

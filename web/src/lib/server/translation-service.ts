@@ -42,6 +42,7 @@ export interface JobEvent {
 	seq?: number;
 	pageCount?: number;
 	totalPages?: number;
+	targetPageIds?: number[];
 	phase?: PipelinePhase;
 	step?: PipelineStep;
 	stepStatus?: StepTiming['status'];
@@ -135,18 +136,33 @@ function updateSnapshot(snapshot: ChapterJobSnapshot, event: JobEvent): void {
 	if (event.type === 'start') {
 		snapshot.startedAt = now;
 		snapshot.status = 'running';
-		if (event.totalPages !== undefined) snapshot.totalPages = event.totalPages;
+		if (event.targetPageIds && event.targetPageIds.length > 0) {
+			snapshot.targetPageIds = event.targetPageIds;
+			snapshot.totalPages = event.targetPageIds.length;
+		} else if (event.totalPages !== undefined) {
+			snapshot.totalPages = event.totalPages;
+		}
 		if (event.pages && event.pages.length > 0) {
-			snapshot.totalPages = event.pages.length;
+			if (!event.targetPageIds || event.targetPageIds.length === 0) {
+				snapshot.totalPages = event.pages.length;
+			}
+			const targetSet = event.targetPageIds && event.targetPageIds.length > 0 ? new Set(event.targetPageIds) : null;
 			snapshot.pages = event.pages.map((p, idx) => ({
 				pageIndex: idx,
 				pageId: p.id,
 				seq: p.seq,
-				status: (p.status as PageProgressState['status']) || 'pending',
+				status: targetSet
+					? (targetSet.has(p.id) ? ((p.status as PageProgressState['status']) || 'pending') : 'skipped')
+					: ((p.status as PageProgressState['status']) || 'pending'),
 				timings: {},
 				cleanedRev: p.cleanedRev,
 				outputRev: p.outputRev,
 			}));
+			if (targetSet) {
+				snapshot.completedPages = snapshot.pages.filter((p) => targetSet.has(p.pageId) && p.status === 'done').length;
+			} else {
+				snapshot.completedPages = snapshot.pages.filter((p) => p.status === 'done').length;
+			}
 		}
 	} else if (event.type === 'phase-change' && event.phase) {
 		snapshot.currentPhase = event.phase;
@@ -179,7 +195,7 @@ function updateSnapshot(snapshot: ChapterJobSnapshot, event: JobEvent): void {
 	} else if (event.type === 'page-cancelled') {
 		const p = findTargetPage(snapshot.pages, event.page, event.pageId);
 		if (p) {
-			p.status = 'pending';
+			p.status = 'skipped';
 			p.currentStep = undefined;
 			for (const [step, t] of Object.entries(p.timings)) {
 				if (t && t.status === 'running') {
@@ -190,6 +206,15 @@ function updateSnapshot(snapshot: ChapterJobSnapshot, event: JobEvent): void {
 					};
 				}
 			}
+		}
+		if (snapshot.targetPageIds && snapshot.targetPageIds.length > 0) {
+			snapshot.targetPageIds = snapshot.targetPageIds.filter((id) => id !== event.pageId);
+			snapshot.totalPages = snapshot.targetPageIds.length;
+			const targetSet = new Set(snapshot.targetPageIds);
+			snapshot.completedPages = snapshot.pages.filter((p) => targetSet.has(p.pageId) && p.status === 'done').length;
+		} else {
+			snapshot.totalPages = Math.max(0, snapshot.totalPages - 1);
+			snapshot.completedPages = snapshot.pages.filter((p) => p.status === 'done').length;
 		}
 	} else if (event.type === 'page-step-start') {
 		const step = event.step;
@@ -303,7 +328,7 @@ async function run(key: string, chapterId: number, work: ChapterJobWork, initial
 export function startChapterJob(chapterId: number, work: ChapterJobWork, opts: { force?: boolean } = {}): JobHandle {
 	const key = `chapter:${chapterId}`;
 	const existing = jobs.get(key);
-	if (existing && existing.status === 'running') {
+	if (existing && existing.status === 'running' && !existing.controller.signal.aborted) {
 		if (!opts.force) return toHandle(existing);
 		// SUPERSEDE — THE NEW RUN REPLACES THE OLD ONE
 		existing.status = 'superseded';
@@ -466,7 +491,7 @@ export function isChapterPageCancelled(chapterId: number, pageId: number): boole
 	return Boolean(job?.cancelledPages.has(pageId));
 }
 
-/** CANCEL A SINGLE PAGE'S PROCESSING WITHOUT KILLING THE WHOLE CHAPTER JOB. */
+/** CANCEL A SINGLE PAGE'S PROCESSING WITHOUT KILLING THE WHOLE CHAPTER JOB (OR TERMINATE JOB IF NO REMAINING PAGES). */
 export function cancelChapterPage(chapterId: number, pageId: number): boolean {
 	const job = jobs.get(`chapter:${chapterId}`);
 	if (!job || job.status !== 'running') return false;
@@ -479,6 +504,21 @@ export function cancelChapterPage(chapterId: number, pageId: number): boolean {
 			page: pageIdx,
 			pageId,
 		});
+	}
+
+	// CHECK IF ANY TARGETED / ACTIVE PAGES ARE STILL PROCESSING OR PENDING
+	const targetSet = job.snapshot.targetPageIds && job.snapshot.targetPageIds.length > 0
+		? new Set(job.snapshot.targetPageIds)
+		: null;
+	const hasRemainingWork = job.snapshot.pages.some((p) => {
+		if (targetSet && !targetSet.has(p.pageId)) return false;
+		if (job.cancelledPages.has(p.pageId)) return false;
+		return p.status === 'processing' || p.status === 'pending';
+	});
+
+	if (!hasRemainingWork) {
+		// ALL TARGET PAGES CANCELLED — ABORT IN-FLIGHT PIPELINE TO FINISH CHAPTER IMMEDIATELY
+		abortChapterJob(chapterId);
 	}
 	return true;
 }

@@ -21,8 +21,12 @@ export function uploadSingleFile(
 	file: File,
 	url: string,
 	onProgress: (loaded: number, total: number) => void,
+	signal?: AbortSignal,
 ): Promise<{ added?: number }> {
 	return new Promise((resolve, reject) => {
+		if (signal?.aborted) {
+			return reject(new Error('Upload cancelled'));
+		}
 		const form = new FormData();
 		form.append('files', file);
 		const xhr = new XMLHttpRequest();
@@ -48,6 +52,9 @@ export function uploadSingleFile(
 		};
 		xhr.onerror = () => reject(new Error('Network error during upload'));
 		xhr.onabort = () => reject(new Error('Upload cancelled'));
+		if (signal) {
+			signal.addEventListener('abort', () => xhr.abort(), { once: true });
+		}
 		xhr.send(form);
 	});
 }

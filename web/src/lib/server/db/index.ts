@@ -83,6 +83,36 @@ if (!globalThis.__mtSqlite) {
 		console.warn('[db] auto-migration warning:', err);
 	}
 
+	// ENSURE RECENT TABLES EXIST ON ANY PRE-MIGRATION LEGACY DATABASES
+	try {
+		sqlite.exec(`
+			CREATE TABLE IF NOT EXISTS app_settings (
+				key TEXT PRIMARY KEY,
+				value TEXT NOT NULL,
+				updated_at INTEGER NOT NULL
+			);
+		`);
+	} catch {
+		// Table already exists
+	}
+	try {
+		sqlite.exec(`
+			CREATE TABLE IF NOT EXISTS reading_history (
+				book_id TEXT PRIMARY KEY REFERENCES books(id) ON DELETE CASCADE,
+				chapter_id INTEGER NOT NULL REFERENCES chapters(id) ON DELETE CASCADE,
+				chapter_seq INTEGER NOT NULL DEFAULT 0,
+				page_seq INTEGER NOT NULL DEFAULT 0,
+				total_pages INTEGER NOT NULL DEFAULT 0,
+				completed INTEGER NOT NULL DEFAULT 0,
+				updated_at INTEGER NOT NULL
+			);
+			CREATE INDEX IF NOT EXISTS reading_history_updated_idx ON reading_history(updated_at);
+			CREATE INDEX IF NOT EXISTS reading_history_chapter_idx ON reading_history(chapter_id);
+		`);
+	} catch {
+		// Table already exists
+	}
+
 	// ENSURE RECENT COLUMNS EXIST ON ANY PRE-MIGRATION LEGACY DATABASES
 	try {
 		sqlite.exec(`ALTER TABLE pages ADD COLUMN panels TEXT;`);
@@ -101,6 +131,16 @@ if (!globalThis.__mtSqlite) {
 	}
 	try {
 		sqlite.exec(`ALTER TABLE pages ADD COLUMN llm_response TEXT;`);
+	} catch {
+		// Column already exists
+	}
+	try {
+		sqlite.exec(`ALTER TABLE chapters ADD COLUMN resliced INTEGER NOT NULL DEFAULT 0;`);
+	} catch {
+		// Column already exists
+	}
+	try {
+		sqlite.exec(`ALTER TABLE chapters ADD COLUMN resliced_at INTEGER;`);
 	} catch {
 		// Column already exists
 	}
@@ -147,6 +187,17 @@ if (!globalThis.__mtSqlite) {
 	process.once('SIGTERM', closeHandler);
 }
 const sqlite = globalThis.__mtSqlite!;
+
+try {
+	sqlite.exec(`ALTER TABLE chapters ADD COLUMN resliced INTEGER NOT NULL DEFAULT 0;`);
+} catch {
+	// Column already exists
+}
+try {
+	sqlite.exec(`ALTER TABLE chapters ADD COLUMN resliced_at INTEGER;`);
+} catch {
+	// Column already exists
+}
 
 export const db = drizzle(sqlite, { schema });
 

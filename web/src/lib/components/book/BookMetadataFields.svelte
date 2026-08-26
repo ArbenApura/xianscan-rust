@@ -96,6 +96,7 @@ export let status = 'unknown';
 
 	<!-- SERIALIZATION STATUS -->
 	<SelectField
+		class="pt-2"
 		label="Serialization Status"
 		bind:value={status}
 		items={BOOK_STATUS_OPTIONS}

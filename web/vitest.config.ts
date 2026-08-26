@@ -32,6 +32,7 @@ export default defineConfig({
 			'$env/dynamic/public': fileURLToPath(new URL('./tests/helpers/env-dynamic.ts', import.meta.url)),
 			'$app/environment': fileURLToPath(new URL('./tests/helpers/app-environment.ts', import.meta.url)),
 			'$app/navigation': fileURLToPath(new URL('./tests/helpers/app-environment.ts', import.meta.url)),
+			'$app/stores': fileURLToPath(new URL('./tests/helpers/app-environment.ts', import.meta.url)),
 		},
 	},
 	test: {

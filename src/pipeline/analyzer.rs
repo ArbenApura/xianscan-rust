@@ -171,14 +171,13 @@ pub fn analyze_image_with_fusion(
                     && (ly as f32 >= by + bh - 25.0)
                     && ((ly as f32) <= by + bh + 45.0)
                     && ix >= 0.35 * (lw as f32).min(bw);
-                // Tight leading row check: only merge upwards if detector box is single-line and the leading line is immediately above with high horizontal overlap
+                // Leading row check: merge upwards if a leading line is immediately above with high horizontal overlap
                 let is_adjacent_leading_row = !is_subtitle_to_title
-                    && (bh <= 55.0)
                     && (lx as f32 >= bx - 35.0)
                     && ((lx + lw) as f32 <= bx + bw + 35.0)
-                    && ((ly + lh) as f32 >= by - 20.0)
-                    && ((ly + lh) as f32 <= by + 15.0)
-                    && ix >= 0.50 * (lw as f32).min(bw);
+                    && ((ly + lh) as f32 >= by - 25.0)
+                    && ((ly + lh) as f32 <= by + 20.0)
+                    && (ix >= 0.35 * (lw as f32).min(bw) || (bx >= (lx as f32 - 35.0) && bx + bw <= (lx + lw) as f32 + 35.0));
 
                 if (ix > 0.0 && iy > 0.0) || is_adjacent_trailing_row || is_adjacent_leading_row {
                     let inter_area = ix.max(0.0) * iy.max(0.0);
@@ -218,7 +217,10 @@ pub fn analyze_image_with_fusion(
             }
             if !overlaps_any {
                 // DO NOT RESCUE LINE AS MISSED TEXT IF IT OVERLAPS DETECTED ONOMATOPOEIA (SFX) AND SFX IS DISABLED OR OVERSIZED
-                let overlaps_sfx = fusion_res.onomatopoeia.iter().any(|(sfx_b, _)| {
+                let overlaps_sfx = fusion_res.onomatopoeia.iter().any(|(sfx_b, score)| {
+                    if *score < 0.20 {
+                        return false;
+                    }
                     let sx = sfx_b.x as f32;
                     let sy = sfx_b.y as f32;
                     let sw = sfx_b.w as f32;
@@ -228,7 +230,8 @@ pub fn analyze_image_with_fusion(
                     if ix > 0.0 && iy > 0.0 {
                         let inter_area = ix * iy;
                         let l_area = (lw * lh).max(1) as f32;
-                        inter_area / l_area >= 0.35
+                        let s_area = (sfx_b.w * sfx_b.h).max(1) as f32;
+                        inter_area / l_area >= 0.20 || inter_area / s_area >= 0.20
                     } else {
                         false
                     }
@@ -248,8 +251,11 @@ pub fn analyze_image_with_fusion(
                 if (lw as f32) >= (page_w as f32 * 0.55) && lh >= 70 {
                     continue;
                 }
-                if lw <= 40 && lh <= 55 && line.score < 0.85 {
-                    continue;
+                if lw <= 40 && lh <= 55 {
+                    let has_cjk = crate::ml::detect::has_cjk_characters(&line.text);
+                    if (!has_cjk && line.score < 0.85) || (has_cjk && line.score < 0.70) {
+                        continue;
+                    }
                 }
                 candidate_boxes.push(line.polygon.iter().map(|p| [p[0] as f32, p[1] as f32]).collect());
                 candidate_scores.push(line.score);

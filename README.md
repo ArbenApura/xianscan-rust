@@ -93,13 +93,13 @@ XianScan is designed to be CPU-first, running on standard laptops without requir
 
 | GPU Type | Windows (`directml`) | Linux (`cuda`) | macOS (`coreml`) |
 | :--- | :--- | :--- | :--- |
-| **NVIDIA Dedicated** | DirectML | CUDA (Driver + cuDNN required) | N/A |
+| **NVIDIA Dedicated** | DirectML | CUDA ([Driver + cuDNN setup](docs/linux-cuda-setup.md)) | N/A |
 | **AMD Discrete (Radeon)** | DirectML | CPU only (ROCm planned) | N/A |
 | **Intel Arc Discrete** | DirectML | CPU only | N/A |
 | **Integrated GPU (Intel/AMD)** | CPU only (stability fallback) | CPU only | N/A |
 | **Apple Silicon (M-Series)** | N/A | N/A | CoreML / Metal |
 
-> All GPU acceleration is optional. If an unsupported GPU is detected or dependencies are absent, XianScan automatically routes inference to the multi-threaded CPU engine.
+> All GPU acceleration is optional. If an unsupported GPU is detected or dependencies are absent, XianScan automatically routes inference to the multi-threaded CPU engine. For Linux NVIDIA GPU configuration and driver/cuDNN prerequisites, see the [Linux CUDA Acceleration Guide](docs/linux-cuda-setup.md).
 
 </details>
 

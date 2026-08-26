@@ -14,7 +14,7 @@
 	export { className as class };
 </script>
 
-<!-- CHECKBOX — CUSTOM CINNABAR BOX WITH REAL role/aria-checked (REPLACES BARE accent-* INPUTS) -->
+<!-- CHECKBOX - CUSTOM CINNABAR BOX WITH REAL role/aria-checked (REPLACES BARE accent-* INPUTS) -->
 <button
 	type="button"
 	role="checkbox"

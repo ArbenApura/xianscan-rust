@@ -21,24 +21,48 @@ describe('BatchProgressWidget Component UI', () => {
 		render(BatchProgressWidget);
 		await tick();
 
-		expect(screen.queryByText('Batch Translating')).toBeNull();
+		expect(screen.queryByText('Batch')).toBeNull();
 	});
 
 	it('displays progress bar when batch is running', async () => {
-		batchTracker.startBatch(
+		// Mock apiJson for the unit test
+		vi.spyOn(globalThis, 'fetch').mockImplementation(() =>
+			Promise.resolve(
+				new Response(
+					JSON.stringify({
+						active: true,
+						status: 'running',
+						bookId: 'test-book-id',
+						bookTitle: 'Test Book',
+						queue: [
+							{ id: 1, seq: 1, title: 'Chapter 1', pageCount: 10, status: 'processing', translatedPages: 2 },
+							{ id: 2, seq: 2, title: 'Chapter 2', pageCount: 10, status: 'queued', translatedPages: 0 },
+						],
+						currentIndex: 0,
+						force: false,
+						startedAt: Date.now(),
+						completedAt: null,
+						totalPromptTokens: 0,
+						totalCompletionTokens: 0,
+					}),
+					{ status: 200, headers: { 'Content-Type': 'application/json' } },
+				),
+			),
+		);
+
+		await batchTracker.startBatch(
 			'test-book-id',
 			'Test Book',
 			[
-				{ id: 1, seq: 1, title: 'Chapter 1' },
-				{ id: 2, seq: 2, title: 'Chapter 2' },
+				{ id: 1, seq: 1, title: 'Chapter 1', pageCount: 10 },
+				{ id: 2, seq: 2, title: 'Chapter 2', pageCount: 10 },
 			],
-			'test-batch-123',
 		);
 
 		render(BatchProgressWidget);
 		await tick();
 
-		expect(screen.getByText('Batch Translating')).toBeTruthy();
-		expect(screen.getByTitle('Test Book')).toBeTruthy();
+		expect(screen.getByText(/Queue Active/i)).toBeTruthy();
+		expect(screen.getByText('Chapter 1')).toBeTruthy();
 	});
 });

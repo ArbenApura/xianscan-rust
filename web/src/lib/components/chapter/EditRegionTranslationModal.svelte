@@ -276,7 +276,7 @@
 						{/if}
 					</div>
 					<div class="font-mono text-xs leading-relaxed select-text p-2.5 rounded-lg bg-black/5 dark:bg-white/5 text-neutral-900 dark:text-neutral-100 break-words">
-						{region.textSource || '— (No OCR text detected)'}
+						{region.textSource || '- (No OCR text detected)'}
 					</div>
 				</div>
 

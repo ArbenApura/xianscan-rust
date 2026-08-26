@@ -1,11 +1,11 @@
-// CHAPTER STITCHING AND RESLICING
-import { mkdirSync, readFileSync, writeFileSync, unlinkSync } from 'node:fs';
+import { mkdirSync, readFileSync, writeFileSync, unlinkSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { error } from '@sveltejs/kit';
 import { and, eq, sql } from 'drizzle-orm';
 import { db } from '../db';
-import { pages, regions, translations } from '../db/schema';
+import { chapters, pages, regions, translations } from '../db/schema';
+import { clearChapterJob } from '../translation-service';
 import { DATA_ROOT } from '../paths';
 import type { PipelineClient } from '../pipeline-client';
 import { getImageDimensionsFromBuffer } from './dimensions';
@@ -258,13 +258,37 @@ async function runReslicePipeline(
 		for (const nr of newPageRows) {
 			db.insert(pages).values(nr).run();
 		}
+		db.update(chapters)
+			.set({
+				status: 'pending',
+				translatedAt: null,
+				resliced: true,
+				reslicedAt: Date.now(),
+			})
+			.where(eq(chapters.id, chapterId))
+			.run();
 	});
+
+	for (const p of pageRows) {
+		prunePageThumbs(p.id, dataRoot);
+	}
+
+	clearChapterJob(chapterId);
 
 	for (const oldPath of oldFilePaths) {
 		try {
 			unlinkSync(oldPath);
 		} catch {
 			// ignore missing files
+		}
+	}
+
+	for (const folder of ['clean', 'output']) {
+		const dir = join(dataRoot, folder, String(chapterId));
+		try {
+			rmSync(dir, { recursive: true, force: true });
+		} catch {
+			// ignore
 		}
 	}
 

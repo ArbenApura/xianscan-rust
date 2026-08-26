@@ -7,7 +7,7 @@ import { tick } from 'svelte';
 import Modal from '$lib/components/ui/Modal.svelte';
 import ConfirmDialog from '$lib/components/ui/ConfirmDialog.svelte';
 import LanguagePicker from '$lib/components/ui/LanguagePicker.svelte';
-import Toggle from '$lib/components/ui/Toggle.svelte';
+import Switch from '$lib/components/ui/Switch.svelte';
 import TextField from '$lib/components/ui/TextField.svelte';
 import Checkbox from '$lib/components/ui/Checkbox.svelte';
 import Button from '$lib/components/ui/Button.svelte';
@@ -79,8 +79,8 @@ describe('Core UI Primitive Components', () => {
 		expect(screen.getByText('English')).toBeTruthy();
 	});
 
-	it('renders Toggle and switches state', async () => {
-		render(Toggle, {
+	it('renders Switch and switches state', async () => {
+		render(Switch, {
 			props: {
 				checked: false,
 			},

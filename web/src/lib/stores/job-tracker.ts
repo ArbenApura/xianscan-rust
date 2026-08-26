@@ -122,7 +122,7 @@ function createJobTrackerStore() {
 		} else if (event.type === 'page-cancelled') {
 			const p = findTargetPage(s.pages, event.page as number, event.pageId as number);
 			if (p) {
-				p.status = 'pending';
+				p.status = 'skipped';
 				p.currentStep = undefined;
 				for (const [step, t] of Object.entries(p.timings) as [PipelineStep, StepTiming | undefined][]) {
 					if (t && t.status === 'running') {
@@ -133,6 +133,15 @@ function createJobTrackerStore() {
 						};
 					}
 				}
+			}
+			if (s.targetPageIds && s.targetPageIds.length > 0) {
+				s.targetPageIds = s.targetPageIds.filter((id) => id !== event.pageId);
+				s.totalPages = s.targetPageIds.length;
+				const targetSet = new Set(s.targetPageIds);
+				s.completedPages = s.pages.filter((p) => targetSet.has(p.pageId) && p.status === 'done').length;
+			} else {
+				s.totalPages = Math.max(0, s.totalPages - 1);
+				s.completedPages = s.pages.filter((p) => p.status === 'done').length;
 			}
 		} else if (event.type === 'page-step-start') {
 			const step = event.step as PipelineStep;
@@ -402,6 +411,20 @@ function createJobTrackerStore() {
 				pageIds: opts.pageIds,
 				inpaintMode: curSettings?.inpaintMode,
 				pageConcurrency: opts.pageConcurrency ?? curSettings?.parallelProcesses,
+				enableSfx: curSettings?.enableSfx,
+				sfxMaxAreaPct: curSettings?.sfxMaxAreaPct,
+				inpaintExpansionPct: curSettings?.inpaintExpansionPct,
+				typesetExpansionPct: curSettings?.typesetExpansionPct,
+				enableWatermarkInpaint: curSettings?.enableWatermarkInpaint,
+				typesetOptions: {
+					fontDialogue: curSettings?.typesetFont,
+					fontCjk: curSettings?.typesetCjkFont,
+					boxInset: curSettings?.typesetPadding,
+					outlineMode: curSettings?.typesetOutline,
+					colorMode: curSettings?.typesetContrast,
+					casing: curSettings?.typesetCasing,
+					enableRotation: curSettings?.enableTextRotation,
+				},
 			};
 
 			// If a job is already running and we're NOT forcing a supersede, just POST
@@ -517,13 +540,23 @@ function createJobTrackerStore() {
 						}
 						return {
 							...p,
-							status: 'pending' as const,
+							status: 'skipped' as const,
 							currentStep: undefined,
 							timings,
 						};
 					}
 					return p;
 				});
+
+				const updatedTargetPageIds = existing.snapshot.targetPageIds
+					? existing.snapshot.targetPageIds.filter((id) => id !== pageId)
+					: undefined;
+				const newTotalPages = updatedTargetPageIds
+					? updatedTargetPageIds.length
+					: Math.max(0, (existing.snapshot.totalPages || existing.snapshot.pages.length) - 1);
+				const targetSet = updatedTargetPageIds ? new Set(updatedTargetPageIds) : null;
+				const completedCount = updatedPages.filter((p) => (targetSet ? targetSet.has(p.pageId) : true) && p.status === 'done').length;
+
 				return {
 					...state,
 					jobs: {
@@ -532,6 +565,9 @@ function createJobTrackerStore() {
 							...existing,
 							snapshot: {
 								...existing.snapshot,
+								targetPageIds: updatedTargetPageIds,
+								totalPages: newTotalPages,
+								completedPages: completedCount,
 								pages: updatedPages,
 							},
 						},
