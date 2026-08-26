@@ -214,6 +214,7 @@ async function executeChapterJob(chapter: BatchChapterItem, force: boolean) {
 			cacheSalt: getActiveProvider().baseUrl,
 			pageConcurrency: effectivePageConcurrency,
 			isPageCancelled: (pageId: number) => isChapterPageCancelled(chapter.id, pageId),
+			force: force || activeBatchState.force,
 			onUsage: (u: { model: string; promptTokens: number; cachedTokens: number; completionTokens: number }) => {
 				try {
 					db.insert(aiUsage)
@@ -562,16 +563,14 @@ export const batchService = {
 
 		if (isCurrentlyActive) {
 			// IF NEW CHAPTERS WERE ADDED, APPEND THEM TO ACTIVE QUEUE
-			if (newItems.length > 0) {
-				activeBatchState = {
-					...activeBatchState,
-					status: 'running',
-					queue: [...activeBatchState.queue, ...newItems],
-				};
-				startWatchdog();
-				emitState();
-				dispatchNextItems();
-			}
+			activeBatchState = {
+				...activeBatchState,
+				status: 'running',
+				queue: newItems.length > 0 ? [...activeBatchState.queue, ...newItems] : [...activeBatchState.queue],
+			};
+			startWatchdog();
+			emitState();
+			dispatchNextItems();
 			return this.getState();
 		}
 

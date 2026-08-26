@@ -506,6 +506,40 @@ describe('runChapterPipeline', () => {
 		expect(events.find((e) => e.type === 'page-done')?.pageId).toBe(p2.id);
 	});
 
+	it('re-translates a previously done page and cleans existing artifacts', async () => {
+		seedBook(db, { id: 'b_retranslate' });
+		const chapter = seedChapter(db, { bookId: 'b_retranslate', seq: 0 });
+		const p1 = seedPage(db, {
+			chapterId: chapter.id,
+			seq: 0,
+			status: 'done',
+			filePath: 'uploads/p1.png',
+			cleanedPath: 'clean/0/0.webp',
+			outputPath: 'output/0/0.webp',
+		});
+		mkdirSync(join(dataRoot, 'uploads'), { recursive: true });
+		mkdirSync(join(dataRoot, 'clean', '0'), { recursive: true });
+		mkdirSync(join(dataRoot, 'output', '0'), { recursive: true });
+		writeFileSync(join(dataRoot, 'uploads', 'p1.png'), PAGE_PNG);
+		writeFileSync(join(dataRoot, 'clean', '0', '0.webp'), PAGE_PNG);
+		writeFileSync(join(dataRoot, 'output', '0', '0.webp'), PAGE_PNG);
+
+		const events: any[] = [];
+		const fake = new FakePipeline();
+		// TARGET p1 EXPLICITLY FOR RE-TRANSLATION
+		await chapterWork(chapter.id, { pipeline: fake, dataRoot, llm: fakeLlm() }, [p1.id])(
+			new AbortController().signal,
+			(e) => events.push(e),
+		);
+
+		// ANALYZE AND CLEAN SHOULD HAVE BEEN CALLED DESPITE INITIAL STATUS BEING DONE
+		expect(fake.analyzeCalls).toBe(1);
+		expect(fake.cleanCalls).toBe(1);
+		const rows = db.select().from(pages).where(eq(pages.id, p1.id)).all();
+		expect(rows[0].status).toBe('done');
+		expect(events.filter((e) => e.type === 'page-done').length).toBe(1);
+	});
+
 	it('executes cleanly when SSR data loaders run concurrently with parallel pipeline writes', async () => {
 		const { getChapterReaderData } = await import('$lib/server/chapters');
 		const { getBookDetails } = await import('$lib/server/books');

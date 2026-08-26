@@ -10,6 +10,7 @@
 	// IMPORTED DEP-COMPONENTS
 	import Loader2 from 'lucide-svelte/icons/loader-2';
 	import CheckCircle2 from 'lucide-svelte/icons/check-circle-2';
+	import Check from 'lucide-svelte/icons/check';
 	import AlertTriangle from 'lucide-svelte/icons/alert-triangle';
 	import AlertCircle from 'lucide-svelte/icons/alert-circle';
 	import Pause from 'lucide-svelte/icons/pause';
@@ -17,6 +18,7 @@
 	import SkipForward from 'lucide-svelte/icons/skip-forward';
 	import X from 'lucide-svelte/icons/x';
 	import ChevronUp from 'lucide-svelte/icons/chevron-up';
+	import Minimize2 from 'lucide-svelte/icons/minimize-2';
 	import Layers from 'lucide-svelte/icons/layers';
 	import Clock from 'lucide-svelte/icons/clock';
 	import BookOpen from 'lucide-svelte/icons/book-open';
@@ -38,6 +40,7 @@
 
 	let widgetEl: HTMLElement | null = null;
 	let expanded = false;
+	let isMinimized = true;
 	let activeTab: 'queue' | 'telemetry' = 'queue';
 	let tabContentInnerEl: HTMLElement | null = null;
 	let animatedHeight: number | null = null;
@@ -55,6 +58,8 @@
 	let posY: number | null = null;
 	let anchor: 'bottom' | 'top' = 'bottom';
 	let anchorDist: number | null = null;
+	let anchorX: 'left' | 'right' = 'right';
+	let anchorXDist: number | null = null;
 	let isDragging = false;
 	let dragStartX = 0;
 	let dragStartY = 0;
@@ -75,6 +80,8 @@
 						posX = parsed.x;
 						anchor = parsed.anchor === 'top' ? 'top' : 'bottom';
 						anchorDist = typeof parsed.dist === 'number' ? parsed.dist : (typeof parsed.y === 'number' ? parsed.y : null);
+						anchorX = parsed.anchorX === 'left' ? 'left' : 'right';
+						anchorXDist = typeof parsed.distX === 'number' ? parsed.distX : null;
 						posY = typeof parsed.y === 'number' ? parsed.y : null;
 						void tick().then(clampPosition);
 					}
@@ -95,22 +102,60 @@
 		}
 	});
 
+	function getViewportWidth(): number {
+		if (typeof document !== 'undefined' && document.documentElement?.clientWidth) {
+			return document.documentElement.clientWidth;
+		}
+		if (typeof window !== 'undefined') {
+			return window.innerWidth;
+		}
+		return 1024;
+	}
+
+	function getViewportHeight(): number {
+		if (typeof document !== 'undefined' && document.documentElement?.clientHeight) {
+			return document.documentElement.clientHeight;
+		}
+		if (typeof window !== 'undefined') {
+			return window.innerHeight;
+		}
+		return 768;
+	}
+
 	// CLAMP POSITION TO VIEWPORT WITH PERMANENT SCREEN PADDING
 	function clampPosition() {
-		if (posX === null || anchorDist === null || !widgetEl || typeof window === 'undefined') return;
-		const marginX = window.innerWidth < 640 ? 12 : 24;
-		const marginY = window.innerWidth < 640 ? 12 : 16;
-		const width = widgetEl.offsetWidth || 480;
-		const height = widgetEl.offsetHeight || 64;
-		const maxX = Math.max(marginX, window.innerWidth - width - marginX);
-		posX = Math.max(marginX, Math.min(posX, maxX));
+		if (typeof window === 'undefined' || !widgetEl) return;
+		if (posX === null && anchorDist === null && anchorXDist === null) return;
+		const vw = getViewportWidth();
+		const vh = getViewportHeight();
+		const isMobile = vw < 640;
+		const marginX = 12;
+		const marginY = 12;
+		const width = isMinimized ? 56 : (isMobile ? vw - 24 : 480);
+		const height = widgetEl.offsetHeight || (isMinimized ? 56 : 64);
 
-		if (anchor === 'bottom') {
-			const maxBottom = Math.max(marginY, window.innerHeight - height - marginY);
+		if (isMobile && !isMinimized) {
+			anchorX = 'left';
+			anchorXDist = 12;
+			posX = 12;
+		} else if (anchorX === 'right' && anchorXDist !== null) {
+			const maxRight = Math.max(marginX, vw - width - marginX);
+			anchorXDist = Math.max(marginX, Math.min(anchorXDist, maxRight));
+			posX = vw - width - anchorXDist;
+		} else if (posX !== null) {
+			const maxX = Math.max(marginX, vw - width - marginX);
+			posX = Math.max(marginX, Math.min(posX, maxX));
+			anchorXDist = posX;
+		}
+
+		if (anchor === 'bottom' && anchorDist !== null) {
+			const maxBottom = Math.max(marginY, vh - height - marginY);
 			anchorDist = Math.max(marginY, Math.min(anchorDist, maxBottom));
-		} else {
-			const maxTop = Math.max(marginY, window.innerHeight - height - marginY);
+			posY = vh - height - anchorDist;
+		} else if (posY !== null && anchorDist !== null) {
+			const maxTop = Math.max(marginY, vh - height - marginY);
 			anchorDist = Math.max(marginY, Math.min(anchorDist, maxTop));
+			posY = anchorDist;
 		}
 	}
 
@@ -118,7 +163,7 @@
 		clampPosition();
 	}
 
-	$: if (expanded !== undefined) {
+	$: if (expanded !== undefined || isMinimized !== undefined) {
 		void tick().then(clampPosition);
 	}
 
@@ -144,14 +189,43 @@
 
 	$: isSingleMode = !isBatchActive && Boolean(singleJobState);
 
-	$: if (isSingleRunning) {
+	let prevStartedAt: number | null = null;
+	$: if ($batchTracker.startedAt && $batchTracker.startedAt !== prevStartedAt) {
+		prevStartedAt = $batchTracker.startedAt;
+		isMinimized = true;
+		expanded = false;
+	}
+
+	let prevSingleChapterId: number | null = null;
+	let prevSingleRunning = false;
+	$: if (isSingleRunning && (!prevSingleRunning || singleJobState?.chapterId !== prevSingleChapterId)) {
+		isMinimized = true;
+		expanded = false;
 		singleChapterDismissed = false;
 	}
+	$: prevSingleRunning = isSingleRunning;
+	$: prevSingleChapterId = singleJobState?.chapterId ?? null;
+
+	let prevIsBatchActive = false;
+	$: if (isBatchActive && !prevIsBatchActive) {
+		isMinimized = true;
+		expanded = false;
+	}
+	$: prevIsBatchActive = isBatchActive;
 
 	$: isRunning = isBatchActive ? batchStatus === 'running' : isSingleRunning;
 	$: isPaused = isBatchActive && batchStatus === 'paused';
-	$: isCompleted = isBatchActive && batchStatus === 'completed';
+	$: isCompleted = isBatchActive
+		? (batchStatus === 'completed' || (progress.overallProgressPercent === 100 && !isRunning && progress.totalChapters > 0))
+		: Boolean(
+				singleSnapshot &&
+				(singleSnapshot.status === 'done' || (!isSingleRunning && singleDonePages > 0 && singleDonePages === singleTotalPages))
+		  );
 	$: isCancelled = isBatchActive && batchStatus === 'cancelled';
+	$: isFailed = isBatchActive
+		? false
+		: Boolean(singleSnapshot && singleSnapshot.status === 'failed');
+	$: isPending = !isRunning && !isPaused && !isCompleted && !isCancelled && !isFailed;
 
 	$: progress = $batchProgress;
 	$: currentChapter = isBatchActive ? progress.currentChapter : null;
@@ -320,6 +394,8 @@
 	}
 
 	function dismissWidget() {
+		isMinimized = true;
+		expanded = false;
 		if (isCompleted || isCancelled) {
 			batchTracker.clearBatch();
 		} else if (isSingleMode) {
@@ -332,17 +408,6 @@
 		const bookId = itemBookId || currentChapter?.bookId || $batchTracker.bookId || $page.params.id;
 		if (targetId && bookId) {
 			goto(`/app/books/${bookId}/chapters/${targetId}/`);
-		}
-	}
-
-	async function cancelTelemetryPage(targetChapterId: number | undefined | null, targetPageId: number, pageSeq: number) {
-		if (!targetChapterId || !targetPageId) return;
-		try {
-			await jobTracker.cancelPage(targetChapterId, targetPageId);
-			batchTracker.cancelPage?.(targetChapterId, targetPageId);
-			toast.info(`Cancelled Page ${pageSeq + 1} processing.`);
-		} catch (err: any) {
-			toast.error(err?.message || `Could not cancel Page ${pageSeq + 1}.`);
 		}
 	}
 
@@ -504,14 +569,44 @@
 		if (Math.hypot(dx, dy) > 4) {
 			hasDraggedFar = true;
 		}
-		const marginX = typeof window !== 'undefined' && window.innerWidth < 640 ? 12 : 24;
-		const marginY = typeof window !== 'undefined' && window.innerWidth < 640 ? 12 : 16;
-		const width = widgetEl.offsetWidth || 480;
-		const height = widgetEl.offsetHeight || 64;
-		const maxX = Math.max(marginX, window.innerWidth - width - marginX);
-		const maxY = Math.max(marginY, window.innerHeight - height - marginY);
-		posX = Math.max(marginX, Math.min(initialWidgetX + dx, maxX));
+		const vw = getViewportWidth();
+		const vh = getViewportHeight();
+		const isMobile = vw < 640;
+		const marginX = 12;
+		const marginY = 12;
+		const width = widgetEl.offsetWidth || (isMinimized ? 56 : (isMobile ? vw - 24 : 480));
+		const height = widgetEl.offsetHeight || (isMinimized ? 56 : 64);
+		const maxX = Math.max(marginX, vw - width - marginX);
+		const maxY = Math.max(marginY, vh - height - marginY);
+		posX = isMobile && !isMinimized ? 12 : Math.max(marginX, Math.min(initialWidgetX + dx, maxX));
 		posY = Math.max(marginY, Math.min(initialWidgetY + dy, maxY));
+	}
+
+	function saveWidgetPosition() {
+		if (posX !== null && posY !== null) {
+			try {
+				sessionStorage.setItem(
+					'xianscan_queue_widget_pos',
+					JSON.stringify({ x: posX, y: posY, anchor, dist: anchorDist, anchorX, distX: anchorXDist }),
+				);
+			} catch {
+				// IGNORE
+			}
+		}
+	}
+
+	function minimizeWidget() {
+		isMinimized = true;
+		expanded = false;
+		void tick().then(clampPosition);
+		saveWidgetPosition();
+	}
+
+	function expandFromOrb() {
+		isMinimized = false;
+		expanded = true;
+		void tick().then(clampPosition);
+		saveWidgetPosition();
 	}
 
 	function handleHeaderPointerUp(e: PointerEvent) {
@@ -526,12 +621,30 @@
 			}
 		}
 		if (posX !== null && posY !== null && widgetEl) {
-			const height = widgetEl.offsetHeight || 64;
-			const marginY = typeof window !== 'undefined' && window.innerWidth < 640 ? 12 : 16;
-			const distFromBottom = Math.max(marginY, window.innerHeight - (posY + height));
+			const vw = getViewportWidth();
+			const vh = getViewportHeight();
+			const isMobile = vw < 640;
+			const width = widgetEl.offsetWidth || (isMinimized ? 56 : (isMobile ? vw - 24 : 480));
+			const height = widgetEl.offsetHeight || (isMinimized ? 56 : 64);
+			const marginX = 12;
+			const marginY = 12;
+			const distFromRight = Math.max(marginX, vw - (posX + width));
+			const distFromBottom = Math.max(marginY, vh - (posY + height));
+
+			if (isMobile && !isMinimized) {
+				anchorX = 'left';
+				anchorXDist = 12;
+				posX = 12;
+			} else if (posX + width / 2 >= vw / 2) {
+				anchorX = 'right';
+				anchorXDist = distFromRight;
+			} else {
+				anchorX = 'left';
+				anchorXDist = Math.max(marginX, posX);
+			}
 
 			// IF IN LOWER HALF OF VIEWPORT, ANCHOR TO BOTTOM SO DRAWER EXPANDS UPWARDS NATURALLY
-			if (posY + height / 2 >= window.innerHeight / 2) {
+			if (posY + height / 2 >= vh / 2) {
 				anchor = 'bottom';
 				anchorDist = distFromBottom;
 			} else {
@@ -539,17 +652,15 @@
 				anchorDist = Math.max(marginY, posY);
 			}
 
-			try {
-				sessionStorage.setItem(
-					'xianscan_queue_widget_pos',
-					JSON.stringify({ x: posX, y: posY, anchor, dist: anchorDist }),
-				);
-			} catch {
-				// IGNORE
-			}
+			clampPosition();
+			saveWidgetPosition();
 		}
 		if (!hasDraggedFar) {
-			expanded = !expanded;
+			if (isMinimized) {
+				expandFromOrb();
+			} else {
+				expanded = !expanded;
+			}
 		}
 	}
 
@@ -562,6 +673,8 @@
 		posY = null;
 		anchor = 'bottom';
 		anchorDist = null;
+		anchorX = 'right';
+		anchorXDist = null;
 		try {
 			sessionStorage.removeItem('xianscan_queue_widget_pos');
 		} catch {
@@ -582,37 +695,126 @@
 		bind:this={widgetEl}
 		aria-label="Translation studio HUD"
 		class={cn(
-			'fixed z-50 flex flex-col items-center sm:items-end w-[calc(100vw-24px)] sm:w-[480px] max-w-[calc(100vw-24px)] sm:max-w-[480px] select-none',
-			(posX === null || (!isDragging && anchorDist === null)) && 'bottom-3 sm:bottom-6 left-3 right-3 sm:left-auto sm:right-7',
+			'fixed z-50 flex flex-col select-none',
+			isMinimized
+				? 'items-center justify-center w-14 h-14'
+				: 'items-center sm:items-end left-3 right-3 w-auto sm:left-auto sm:right-auto sm:w-[480px] max-w-[calc(100vw-24px)] sm:max-w-[480px]',
+			(posX === null || (!isDragging && anchorDist === null && anchorXDist === null)) && 'bottom-3 sm:bottom-6 left-3 right-3 sm:left-auto sm:right-7',
 			isDragging ? 'shadow-3xl transition-none' : 'transition-all duration-200 ease-out'
 		)}
 		style={isDragging && posX !== null && posY !== null
 			? `left: ${posX}px; top: ${posY}px; right: auto; bottom: auto;`
-			: posX !== null && anchorDist !== null
-				? anchor === 'bottom'
-					? `left: ${posX}px; bottom: ${anchorDist}px; top: auto; right: auto;`
-					: `left: ${posX}px; top: ${anchorDist}px; bottom: auto; right: auto;`
+			: (anchorDist !== null || anchorXDist !== null || posX !== null)
+				? `${!isMinimized && typeof window !== 'undefined' && window.innerWidth < 640 ? 'left: 12px; right: 12px; width: auto;' : (anchorX === 'right' && anchorXDist !== null ? `right: ${anchorXDist}px; left: auto;` : `left: ${anchorXDist ?? posX ?? 12}px; right: auto;`)} ${anchor === 'bottom' && anchorDist !== null ? `bottom: ${anchorDist}px; top: auto;` : `top: ${anchorDist ?? posY ?? 12}px; bottom: auto;`}`
 				: undefined}
 		transition:fly={{ y: 20, duration: 220, easing: cubicOut }}
 	>
-		<!-- MAIN CARD CONTAINER -->
-		<div
-			class={cn(
-				'w-full overflow-hidden rounded-2xl border shadow-2xl backdrop-blur-2xl',
-				THEME_PANEL[$settings.theme],
-				THEME_PANEL_BORDER[$settings.theme],
-				expanded ? 'max-h-[80vh] flex flex-col' : 'h-auto'
-			)}
-		>
-			<!-- 1. SUMMARY BAR (DRAGGABLE REGION) -->
+		{#if isMinimized}
+			<!-- COMPACT FLOATING PROGRESS ORB -->
 			<div
+				role="button"
+				tabindex="0"
+				aria-label="Expand translation studio queue (Drag to reposition)"
+				title={`Translation Queue (${isSingleMode ? singleProgressPercent : progress.overallProgressPercent}%)\nClick to expand • Drag to move`}
 				on:pointerdown={handleHeaderPointerDown}
 				on:pointermove={handleHeaderPointerMove}
 				on:pointerup={handleHeaderPointerUp}
 				on:pointercancel={handleHeaderPointerCancel}
+				on:dblclick|stopPropagation={resetWidgetPosition}
 				style="touch-action: none;"
-				class="flex items-center justify-between gap-2 sm:gap-2.5 p-2 sm:p-3 shrink-0 cursor-grab active:cursor-grabbing select-none"
+				class={cn(
+					'relative flex h-14 w-14 items-center justify-center rounded-2xl border shadow-2xl backdrop-blur-2xl transition-all cursor-grab active:cursor-grabbing hover:scale-105 active:scale-95 group select-none',
+					THEME_PANEL[$settings.theme],
+					THEME_PANEL_BORDER[$settings.theme]
+				)}
 			>
+				<!-- CIRCULAR SVG RADIAL PROGRESS RING -->
+				<svg class="absolute inset-0 h-full w-full -rotate-90 p-1 pointer-events-none" viewBox="0 0 48 48">
+					<!-- BACKGROUND TRACK -->
+					<circle
+						cx="24"
+						cy="24"
+						r="19"
+						fill="none"
+						stroke="currentColor"
+						stroke-width="3.5"
+						class="text-black/10 dark:text-white/10"
+					/>
+					<!-- PROGRESS STROKE -->
+					<circle
+						cx="24"
+						cy="24"
+						r="19"
+						fill="none"
+						stroke="currentColor"
+						stroke-width="3.5"
+						stroke-linecap="round"
+						stroke-dasharray="119.38"
+						stroke-dashoffset={isCompleted ? 0 : 119.38 - (119.38 * (isSingleMode ? singleProgressPercent : progress.overallProgressPercent)) / 100}
+						class={cn(
+							'transition-all duration-300',
+							isFailed
+								? 'text-rose-500 dark:text-rose-400'
+								: isCompleted
+									? 'text-emerald-500 dark:text-emerald-400'
+									: isPaused
+										? 'text-amber-500 dark:text-amber-400'
+										: isCancelled
+											? 'text-neutral-400 dark:text-neutral-500'
+											: isPending
+												? 'text-sky-500 dark:text-sky-400'
+												: isRunning
+													? 'text-[#b23a2e] dark:text-[#e08a63]'
+													: 'text-[#b23a2e] dark:text-[#e08a63]'
+						)}
+					/>
+				</svg>
+
+				<!-- CENTER METRIC / ICON -->
+				<div class="relative z-10 flex flex-col items-center justify-center">
+					{#if isFailed}
+						<AlertCircle size={20} class="text-rose-500 dark:text-rose-400" />
+					{:else if isCompleted}
+						<Check size={20} strokeWidth={3} class="text-emerald-500 dark:text-emerald-400" />
+					{:else if isPaused}
+						<Pause size={16} class="text-amber-500 dark:text-amber-400 fill-current ml-0.5" />
+					{:else if isRunning}
+						<span class="text-[11.5px] font-black font-mono tracking-tight text-[#b23a2e] dark:text-[#e08a63]">
+							{isSingleMode ? singleProgressPercent : progress.overallProgressPercent}%
+						</span>
+					{:else if isCancelled}
+						<X size={17} class="text-neutral-400 dark:text-neutral-500" />
+					{:else if isPending}
+						<Clock size={17} class="text-sky-500 dark:text-sky-400" />
+					{:else}
+						<Check size={20} strokeWidth={3} class="text-emerald-500 dark:text-emerald-400" />
+					{/if}
+				</div>
+
+				<!-- ACTIVE BREATHING PING WHEN RUNNING -->
+				{#if isRunning}
+					<div class="absolute inset-0 rounded-2xl bg-[#b23a2e]/10 dark:bg-[#e08a63]/10 animate-ping pointer-events-none -z-10 opacity-50"></div>
+				{/if}
+			</div>
+		{:else}
+			<!-- MAIN CARD CONTAINER -->
+			<div
+				class={cn(
+					'w-full overflow-hidden rounded-2xl border shadow-2xl backdrop-blur-2xl',
+					THEME_PANEL[$settings.theme],
+					THEME_PANEL_BORDER[$settings.theme],
+					expanded ? 'max-h-[80vh] flex flex-col' : 'h-auto'
+				)}
+			>
+				<!-- 1. SUMMARY BAR (DRAGGABLE REGION) -->
+				<div
+					on:pointerdown={handleHeaderPointerDown}
+					on:pointermove={handleHeaderPointerMove}
+					on:pointerup={handleHeaderPointerUp}
+					on:pointercancel={handleHeaderPointerCancel}
+					style="touch-action: none;"
+					class="flex items-center justify-between gap-2 sm:gap-2.5 p-2 sm:p-3 shrink-0 cursor-grab active:cursor-grabbing select-none"
+				>
 				<!-- LEFT: DRAG GRIP + SUMMARY DETAILS -->
 				<div class="flex items-center gap-2 sm:gap-2.5 min-w-0 flex-1">
 					<!-- DRAG GRIP HANDLE -->
@@ -630,7 +832,7 @@
 					<!-- STATUS ICON BADGE -->
 					<div
 						class={cn(
-							'flex h-8.5 w-8.5 sm:h-9 sm:w-9 shrink-0 items-center justify-center rounded-xl transition-transform duration-200 shadow-2xs',
+							'flex h-9 w-9 min-h-[36px] min-w-[36px] shrink-0 items-center justify-center rounded-xl transition-transform duration-200 shadow-2xs',
 							isRunning
 								? 'bg-[#b23a2e]/10 text-[#b23a2e] dark:bg-[#b23a2e]/20 dark:text-[#e08a63]'
 								: isPaused
@@ -641,13 +843,13 @@
 						)}
 					>
 						{#if isRunning}
-							<Loader2 size={17} class="animate-spin text-[#b23a2e] dark:text-[#e08a63]" />
+							<Loader2 size={17} class="animate-spin text-[#b23a2e] dark:text-[#e08a63] shrink-0" />
 						{:else if isPaused}
-							<Pause size={16} />
+							<Pause size={16} class="shrink-0" />
 						{:else if isCompleted}
-							<CheckCircle2 size={17} />
+							<Check size={17} strokeWidth={2.6} class="shrink-0" />
 						{:else}
-							<Layers size={17} />
+							<Layers size={17} class="shrink-0" />
 						{/if}
 					</div>
 
@@ -671,8 +873,8 @@
 						</div>
 
 						<!-- ROW 2: CLEAN INLINE METRICS (NO WRAPPING, TRUNCATABLE) -->
-						<div class="flex items-center gap-1 sm:gap-1.5 text-[9.5px] sm:text-[11px] font-medium opacity-70 truncate leading-none min-w-0">
-							<span class="font-bold uppercase tracking-wider text-[8.5px] sm:text-[10px] opacity-90 shrink-0">
+						<div class="flex items-center gap-1 sm:gap-1.5 text-[9.5px] sm:text-[11px] font-medium opacity-70 leading-none min-w-0">
+							<span class="font-bold uppercase tracking-wider text-[8.5px] sm:text-[10px] opacity-90 truncate min-w-0 shrink">
 								{#if isSingleMode}
 									Queue Active
 								{:else}
@@ -683,7 +885,7 @@
 							<span class="opacity-35 shrink-0">•</span>
 
 							<!-- PROGRESS BADGE -->
-							<span class="font-semibold shrink-0">
+							<span class="font-semibold shrink-0 whitespace-nowrap">
 								{#if isSingleMode}
 									{singleDonePages}/{singleTotalPages} pgs ({singleProgressPercent}%)
 								{:else}
@@ -693,8 +895,8 @@
 
 							<!-- ELAPSED DURATION -->
 							<span class="opacity-35 shrink-0">•</span>
-							<span class="flex items-center gap-0.5 shrink-0">
-								<Clock size={10} class="opacity-75 inline" />
+							<span class="flex items-center gap-0.5 shrink-0 whitespace-nowrap">
+								<Clock size={10} class="opacity-75 inline shrink-0" />
 								<span>{formatDuration(elapsedMs)}</span>
 							</span>
 						</div>
@@ -779,20 +981,20 @@
 					class="flex flex-col min-h-0 border-t border-black/[0.06] dark:border-white/[0.06]"
 				>
 					<!-- STUDIO TAB BAR (QUEUE & LIVE TELEMETRY) -->
-					<div class="flex items-center justify-between border-b border-black/[0.06] px-3 py-2 dark:border-white/[0.06] shrink-0 bg-black/[0.02] dark:bg-white/[0.02]">
-						<div class="flex items-center gap-1.5 text-xs font-semibold">
+					<div class="flex items-center justify-between border-b border-black/[0.06] px-2 sm:px-3 py-1.5 sm:py-2 dark:border-white/[0.06] shrink-0 bg-black/[0.02] dark:bg-white/[0.02] gap-1">
+						<div class="flex items-center gap-1 sm:gap-1.5 text-[10.5px] sm:text-xs font-semibold min-w-0">
 							<button
 								type="button"
 								use:ripple
 								on:click={() => switchTab('queue')}
 								class={cn(
-									'px-3 py-1.5 rounded-lg transition-all cursor-pointer flex items-center gap-1.5',
+									'px-2 sm:px-3 py-1 sm:py-1.5 rounded-lg transition-all cursor-pointer flex items-center gap-1 sm:gap-1.5 text-[10.5px] sm:text-xs whitespace-nowrap',
 									activeTab === 'queue'
 										? 'bg-white text-black shadow-xs dark:bg-neutral-800 dark:text-white font-bold'
 										: 'opacity-60 hover:opacity-100'
 								)}
 							>
-								<Layers size={13} />
+								<Layers size={12} class="shrink-0" />
 								<span>Queue ({$batchTracker.active ? $batchTracker.queue.length : (isSingleRunning ? 1 : 0)})</span>
 							</button>
 
@@ -801,23 +1003,38 @@
 								use:ripple
 								on:click={() => switchTab('telemetry')}
 								class={cn(
-									'px-3 py-1.5 rounded-lg transition-all cursor-pointer flex items-center gap-1.5',
+									'px-2 sm:px-3 py-1 sm:py-1.5 rounded-lg transition-all cursor-pointer flex items-center gap-1 sm:gap-1.5 text-[10.5px] sm:text-xs whitespace-nowrap',
 									activeTab === 'telemetry'
 										? 'bg-white text-black shadow-xs dark:bg-neutral-800 dark:text-white font-bold'
 										: 'opacity-60 hover:opacity-100'
 								)}
 							>
-								<Activity size={13} />
+								<Activity size={12} class="shrink-0" />
 								<span>Live Telemetry</span>
 							</button>
 						</div>
 
-						{#if (currentSnapshot?.cacheHitCount || 0) > 0}
-							<div class="flex items-center gap-1 rounded-md border border-[#4f7a64]/30 bg-[#4f7a64]/10 px-2 py-0.5 text-[10px] font-bold text-[#4f7a64] dark:text-[#83b39a]">
-								<Zap size={11} />
-								<span>{currentSnapshot?.cacheHitCount} Cache HIT</span>
-							</div>
-						{/if}
+						<div class="flex items-center gap-1 sm:gap-1.5 shrink-0">
+							{#if (currentSnapshot?.cacheHitCount || 0) > 0}
+								<div class="hidden xs:flex items-center gap-1 rounded-md border border-[#4f7a64]/30 bg-[#4f7a64]/10 px-1.5 sm:px-2 py-0.5 text-[9px] sm:text-[10px] font-bold text-[#4f7a64] dark:text-[#83b39a]">
+									<Zap size={11} class="shrink-0" />
+									<span>{currentSnapshot?.cacheHitCount} HIT</span>
+								</div>
+							{/if}
+
+							<!-- MINIMIZE TO ORB BUTTON (NO CLOSE, ONLY MINI) -->
+							<button
+								type="button"
+								use:ripple
+								on:click={minimizeWidget}
+								class="flex h-7 w-[56px] sm:w-[70px] items-center justify-center gap-1 sm:gap-1.5 rounded-lg border border-black/10 dark:border-white/10 hover:bg-black/5 dark:hover:bg-white/5 text-xs font-semibold opacity-75 hover:opacity-100 transition cursor-pointer shrink-0"
+								title="Minimize to floating progress orb"
+								aria-label="Minimize to floating progress orb"
+							>
+								<Minimize2 size={12} class="shrink-0" />
+								<span class="text-[10px] sm:text-[11px] font-bold tracking-tight">Mini</span>
+							</button>
+						</div>
 					</div>
 
 					<!-- TAB CONTENT BODY WITH SMOOTH HEIGHT TRANSITION -->
@@ -1101,7 +1318,6 @@
 														<th class="py-2 px-3">LLM</th>
 														<th class="py-2 px-3">Inpaint</th>
 														<th class="py-2 px-3 text-right">Total</th>
-														<th class="py-2 px-1 text-right w-7"></th>
 													</tr>
 												</thead>
 												<tbody class="divide-y divide-black/[0.04] dark:divide-white/[0.04]">
@@ -1194,20 +1410,6 @@
 															<td class="py-2.5 px-3 text-right font-semibold font-mono text-neutral-900 dark:text-neutral-100 whitespace-nowrap">
 																{formatDuration(totalDur)}
 															</td>
-															<td class="py-2.5 px-1 text-right whitespace-nowrap">
-																{#if p.status === 'processing' || p.status === 'pending'}
-																	<button
-																		type="button"
-																		on:click={() => cancelTelemetryPage(effectiveTelemetryChapter?.id || currentChapter?.id || singleJobState?.chapterId, p.pageId, p.seq)}
-																		class="flex h-5 w-5 items-center justify-center rounded-md text-neutral-400 hover:text-red-500 hover:bg-red-500/10 transition cursor-pointer ml-auto"
-																		title="Cancel page translation"
-																		aria-label="Cancel page translation"
-																		use:ripple
-																	>
-																		<X size={12} />
-																	</button>
-																{/if}
-															</td>
 														</tr>
 													{/each}
 												</tbody>
@@ -1262,16 +1464,16 @@
 						</div>
 					{:else if isCompleted || isCancelled}
 						<div class="flex items-center justify-between gap-2 p-3 border-t border-black/[0.06] dark:border-white/[0.06] bg-black/[0.02] dark:bg-white/[0.02] shrink-0">
-							<div class="flex items-center gap-1.5 text-xs font-semibold">
+							<div class="flex items-center gap-1.5 text-xs font-semibold min-w-0 flex-1">
 								{#if isCompleted}
-									<span class="text-emerald-600 dark:text-emerald-400 flex items-center gap-1">
-										<CheckCircle2 size={14} />
-										<span>Queue Finished ({progress.completedChapters}/{progress.totalChapters} chapters)</span>
+									<span class="text-[#4f7a64] dark:text-[#83b39a] flex items-center gap-1.5 font-semibold truncate min-w-0">
+										<Check size={14} strokeWidth={2.6} class="shrink-0" />
+										<span class="truncate">Queue Finished ({progress.completedChapters}/{progress.totalChapters} chapters)</span>
 									</span>
 								{:else}
-									<span class="text-neutral-500 flex items-center gap-1">
-										<X size={14} />
-										<span>Queue Cancelled</span>
+									<span class="text-neutral-500 flex items-center gap-1 truncate min-w-0">
+										<X size={14} class="shrink-0" />
+										<span class="truncate">Queue Cancelled</span>
 									</span>
 								{/if}
 							</div>
@@ -1282,7 +1484,7 @@
 								class="inline-flex items-center gap-1.5 rounded-xl border border-black/10 px-3 py-1.5 text-xs font-medium hover:bg-black/5 dark:border-white/10 dark:hover:bg-white/5 transition cursor-pointer"
 								use:ripple
 							>
-								<CheckCircle2 size={13} class="text-emerald-600 dark:text-emerald-400" />
+								<Check size={13} class="text-[#4f7a64] dark:text-[#83b39a]" strokeWidth={2.6} />
 								<span>Dismiss</span>
 							</button>
 						</div>
@@ -1290,5 +1492,6 @@
 				</div>
 			{/if}
 		</div>
-	</aside>
+	{/if}
+</aside>
 {/if}

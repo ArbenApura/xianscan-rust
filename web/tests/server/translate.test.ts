@@ -80,6 +80,45 @@ describe('systemPrompt', () => {
 		expect(p).toContain('Korean (ko)');
 		expect(p).toContain('Chinese & Manhua Rules');
 	});
+
+	it('completely strips SFX rules and taxonomy when enableSfx is false for token efficiency', () => {
+		const pZh = systemPrompt('zh-Hans', 'en', false);
+		expect(pZh).not.toContain('Sound Effects (sfx)');
+		expect(pZh).not.toContain('Manhua SFX Taxonomy');
+		expect(pZh).not.toContain('吧唧');
+		expect(pZh).toContain('Chinese & Manhua Rules');
+		expect(pZh).toContain('Wuxia/Cultivation');
+
+		const pKo = systemPrompt('ko', 'en', false);
+		expect(pKo).not.toContain('Sound Effects (sfx)');
+		expect(pKo).not.toContain('Manhwa SFX Taxonomy');
+		expect(pKo).not.toContain('Stylized Font Shift');
+
+		const pJa = systemPrompt('ja', 'en', false);
+		expect(pJa).not.toContain('Sound Effects (sfx)');
+		expect(pJa).not.toContain('Manga SFX Taxonomy');
+		expect(pJa).not.toContain('ドキドキ');
+
+		const pRu = systemPrompt('ru', 'en', false);
+		expect(pRu).not.toContain('Sound Effects (sfx)');
+		expect(pRu).not.toContain('Cyrillic Comic SFX Taxonomy');
+
+		const pFr = systemPrompt('fr', 'en', false);
+		expect(pFr).not.toContain('Sound Effects (sfx)');
+		expect(pFr).not.toContain('Western Comic SFX Taxonomy');
+		expect(pFr).toContain('Western Comic (BD) Rules');
+		expect(pFr).toContain('Accents');
+
+		const pId = systemPrompt('id', 'en', false);
+		expect(pId).not.toContain('Sound Effects (sfx)');
+		expect(pId).not.toContain('Webtoon SFX Taxonomy');
+		expect(pId).toContain('Indonesian & Malay Webtoon Rules');
+
+		const pTh = systemPrompt('th', 'en', false);
+		expect(pTh).not.toContain('Sound Effects (sfx)');
+		expect(pTh).not.toContain('Thai SFX Taxonomy');
+		expect(pTh).toContain('Thai Webtoon Rules');
+	});
 });
 
 describe('glossaryBlock', () => {

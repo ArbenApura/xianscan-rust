@@ -219,6 +219,12 @@ function createBatchTrackerStore() {
 						toast.info(
 							`Queued ${chapters.length - alreadyQueuedCount} chapter(s) (${alreadyQueuedCount} already in queue).`,
 						);
+					} else if (opts.pageIds && opts.pageIds.length > 0) {
+						toast.info(
+							opts.pageIds.length === 1
+								? 'Started translation for 1 page.'
+								: `Started translation for ${opts.pageIds.length} pages.`,
+						);
 					} else {
 						toast.info(
 							`Started batch translation for ${chapters.length} chapter${chapters.length === 1 ? '' : 's'}.`,
@@ -226,7 +232,12 @@ function createBatchTrackerStore() {
 					}
 				}
 			} catch (err: any) {
-				toast.error(err?.message || 'Failed to start batch translation.');
+				toast.error(
+					err?.message ||
+						(opts.pageIds && opts.pageIds.length > 0
+							? 'Failed to start page translation.'
+							: 'Failed to start batch translation.'),
+				);
 			}
 		},
 

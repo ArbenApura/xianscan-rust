@@ -19,7 +19,7 @@
 //   - PER-PAGE ERROR ISOLATION: ONE BAD PAGE MARKS ITSELF 'error' AND THE JOB CONTINUES.
 //   - THE WORK FUNCTION FITS startChapterJob() (translation-service) — signal + emit.
 //   - ALL FILE PATHS ARE RELATIVE TO dataRoot (web/data/); THE API LAYER PASSES IT.
-import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { mkdirSync, readFileSync, writeFileSync, unlinkSync } from 'node:fs';
 import { join } from 'node:path';
 import type OpenAI from 'openai';
 // IMPORTED ENVS ($env/...)
@@ -35,12 +35,13 @@ import { matchTerms } from './glossary-match';
 import type { JobEvent } from './translation-service';
 import type { AnalyzeResult, PipelineClient, PipelineRegion } from './pipeline-client';
 import { db } from './db';
-import { chapters, pages, regions, books, type Page } from './db/schema';
+import { chapters, pages, regions, translations, books, type Page } from './db/schema';
 import { translatePage, classifyRegionForTranslation } from './translate';
 import { ChapterDialogueTracker, parseKindFromBox, type PageDialogueRecord } from './translate/dialogue-tracker';
 import { typesetPage, type TypesetOptions } from './typeset';
 import { detectSourceLanguage } from '$lib/languages';
 import { detectImageFormat, isAnimatedWebP } from './chapters/dimensions';
+import { prunePageThumbs } from './chapters/mutations';
 import { syncBus } from './sync-bus';
 
 // -- TYPES -- //
@@ -69,6 +70,8 @@ export interface ChapterPipelineDeps {
 	pageConcurrency?: number;
 	/** OPTIONAL CANCELLATION CHECK FOR INDIVIDUAL PAGES */
 	isPageCancelled?: (pageId: number) => boolean;
+	/** WHETHER TO FORCE RE-TRANSLATION OF ALL PAGES */
+	force?: boolean;
 }
 
 export type PipelineEmit = (e: JobEvent) => void;
@@ -370,18 +373,66 @@ export async function runChapterPipeline(
 
 	const targetIdSet = pageIds && pageIds.length > 0 ? new Set(pageIds) : null;
 
+	// IF SPECIFIC TARGET PAGES ARE GIVEN OR FORCE MODE IS ACTIVE,
+	// CLEAN UP DISK ARTIFACTS AND DATABASE REGIONS / TRANSLATIONS BEFORE PROCESSING
+	for (const page of pageRows) {
+		const isExplicitTarget = targetIdSet ? targetIdSet.has(page.id) : Boolean(deps.force);
+		if (isExplicitTarget) {
+			if (page.cleanedPath) {
+				try {
+					unlinkSync(join(deps.dataRoot, page.cleanedPath));
+				} catch {
+					// IGNORE IF FILE MISSING
+				}
+			}
+			if (page.outputPath) {
+				try {
+					unlinkSync(join(deps.dataRoot, page.outputPath));
+				} catch {
+					// IGNORE IF FILE MISSING
+				}
+			}
+			prunePageThumbs(page.id, deps.dataRoot);
+			db.delete(translations).where(eq(translations.pageId, page.id)).run();
+			db.delete(regions).where(eq(regions.pageId, page.id)).run();
+			db.update(pages)
+				.set({
+					status: 'pending',
+					cleanedPath: null,
+					outputPath: null,
+					error: null,
+					onomatopoeia: null,
+					ocrStats: null,
+					llmPrompt: null,
+					llmResponse: null,
+				})
+				.where(eq(pages.id, page.id))
+				.run();
+			page.status = 'pending';
+			page.cleanedPath = null;
+			page.outputPath = null;
+			page.error = null;
+		}
+	}
+
 	// -- EMISSION WATERMARK STATE -- //
 	const slots: PageSlot[] = pageRows.map((page) => {
-		const isTarget = !targetIdSet || targetIdSet.has(page.id);
+		if (targetIdSet) {
+			// TARGETED SUBSET OF PAGES: ONLY TARGETED PAGES GET PROCESSED
+			return {
+				page,
+				outcome: targetIdSet.has(page.id)
+					? undefined
+					: page.status === 'done'
+						? 'done'
+						: 'skipped',
+			};
+		}
+
+		// WHOLE CHAPTER: SKIP ALREADY DONE PAGES UNLESS FORCE IS EXPLICITLY SET
 		return {
 			page,
-			outcome: !isTarget
-				? page.status === 'done'
-					? 'done'
-					: 'skipped'
-				: page.status === 'done'
-					? 'done'
-					: undefined,
+			outcome: !deps.force && page.status === 'done' ? 'done' : undefined,
 		};
 	});
 
@@ -411,6 +462,43 @@ export async function runChapterPipeline(
 			if (signal.aborted) return;
 			const injectRow = db.select().from(pages).where(eq(pages.id, injectPageId)).get();
 			if (!injectRow) return;
+
+			// PRUNE DISK ARTIFACTS AND DB PROGRESS FOR INJECTED RE-TRANSLATION
+			if (injectRow.cleanedPath) {
+				try {
+					unlinkSync(join(deps.dataRoot, injectRow.cleanedPath));
+				} catch {
+					// IGNORE IF FILE MISSING
+				}
+			}
+			if (injectRow.outputPath) {
+				try {
+					unlinkSync(join(deps.dataRoot, injectRow.outputPath));
+				} catch {
+					// IGNORE IF FILE MISSING
+				}
+			}
+			prunePageThumbs(injectRow.id, deps.dataRoot);
+			db.delete(translations).where(eq(translations.pageId, injectRow.id)).run();
+			db.delete(regions).where(eq(regions.pageId, injectRow.id)).run();
+			db.update(pages)
+				.set({
+					status: 'pending',
+					cleanedPath: null,
+					outputPath: null,
+					error: null,
+					onomatopoeia: null,
+					ocrStats: null,
+					llmPrompt: null,
+					llmResponse: null,
+				})
+				.where(eq(pages.id, injectRow.id))
+				.run();
+			injectRow.status = 'pending';
+			injectRow.cleanedPath = null;
+			injectRow.outputPath = null;
+			injectRow.error = null;
+
 			// If this page is already in the slots array (re-translate of a done/error page within the
 			// same running job), reuse its slot index so events route to the right snapshot entry.
 			// Otherwise push a new slot (genuinely new parallel injection).
@@ -600,6 +688,7 @@ export async function runChapterPipeline(
 									model,
 									signal,
 									dialogueContext,
+									enableSfx: deps.enableSfx,
 								});
 								return result;
 							});
@@ -1033,6 +1122,7 @@ export async function runChapterPipeline(
 							model,
 							signal,
 							dialogueContext,
+							enableSfx: deps.enableSfx,
 						});
 						return result;
 					});

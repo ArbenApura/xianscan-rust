@@ -24,6 +24,7 @@ export interface PageTranslationOptions {
 	model?: string;
 	signal?: AbortSignal;
 	dialogueContext?: DialogueContextWindow | null;
+	enableSfx?: boolean;
 }
 
 export interface PageTranslation {
@@ -51,7 +52,7 @@ async function callTranslate(
 ): Promise<{ raw: string; usage: TranslationUsage; messages: OpenAI.Chat.ChatCompletionMessageParam[] }> {
 	const client = opts.client ?? createClient();
 	const model = resolveModel(opts.model);
-	const messages = buildMessages(regions, terms, pair, opts.dialogueContext);
+	const messages = buildMessages(regions, terms, pair, opts.dialogueContext, opts.enableSfx ?? true);
 
 	const sourceChars = regions.reduce((n, r) => n + r.text.length, 0);
 	const maxTokens = Math.max(1024, Math.ceil(sourceChars * 4 + 1024));

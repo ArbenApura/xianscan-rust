@@ -568,12 +568,11 @@
 
 	async function translateSinglePage(pg: ChapterPageItem) {
 		try {
-			if (pg.status === 'done') {
-				const resetResp = await fetch(`/api/pages/${pg.id}/reset`, { method: 'POST' });
-				if (!resetResp.ok) throw new Error('Reset failed');
-				pg.status = 'pending';
-				pg.outputPath = null;
-			}
+			const resetResp = await fetch(`/api/pages/${pg.id}/reset`, { method: 'POST' });
+			if (!resetResp.ok) throw new Error('Reset failed');
+			pg.status = 'pending';
+			pg.cleanedPath = null;
+			pg.outputPath = null;
 			pg.error = null;
 			pages = [...pages];
 

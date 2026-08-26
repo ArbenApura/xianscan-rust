@@ -62,7 +62,17 @@ describe('BatchProgressWidget Component UI', () => {
 		render(BatchProgressWidget);
 		await tick();
 
+		// DEFAULT INITIAL STATE IS THE SMALL ROUNDED SQUARE FLOATING ORB (SHOWS PROGRESS PERCENTAGE)
+		expect(screen.getByRole('button', { name: /Expand translation studio queue/i })).toBeTruthy();
+		expect(screen.getByText(/10%/i)).toBeTruthy();
+
+		// CLICK / TAP TO EXPAND INTO THE FULL HUD MODAL
+		const orb = screen.getByRole('button', { name: /Expand translation studio queue/i });
+		await fireEvent.pointerDown(orb, { clientX: 100, clientY: 100 });
+		await fireEvent.pointerUp(orb, { clientX: 100, clientY: 100 });
+		await tick();
+
 		expect(screen.getByText(/Queue Active/i)).toBeTruthy();
-		expect(screen.getByText('Chapter 1')).toBeTruthy();
+		expect(screen.getAllByText(/Chapter 1/i).length).toBeGreaterThan(0);
 	});
 });
