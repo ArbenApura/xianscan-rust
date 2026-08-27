@@ -850,7 +850,13 @@ pub fn create_session_from_memory(bytes: &[u8], model_tag: &str) -> Result<Sessi
                         .map_err(|e| anyhow::anyhow!("Config entry error: {}", e))?
                         .with_execution_providers([
                             ort::ep::CUDA::default()
-                                .with_arena_extend_strategy(ort::ep::ArenaExtendStrategy::SameAsRequested)
+                                // NEXT_POWER_OF_TWO LETS THE BFCArena GROW IN POWER-OF-TWO CHUNKS
+                                // UP TO mem_limit, RATHER THAN PRE-ALLOCATING THE ENTIRE LIMIT AT
+                                // SESSION CREATION. SameAsRequested CAUSED REPRODUCIBLE OOM: MODEL
+                                // WEIGHTS CONSUMED THE FULL ARENA BUDGET AT LOAD TIME, LEAVING ONLY
+                                // A FEW MB HEADROOM FOR RUNTIME INFERENCE TENSORS (SOFTMAX, EINSUM,
+                                // FFC PAD), EVEN WHEN mem_limit WAS GENEROUS (6 GB RF-DETR, 2.5 GB LAMA).
+                                .with_arena_extend_strategy(ort::ep::ArenaExtendStrategy::NextPowerOfTwo)
                                 .with_memory_limit(mem_limit)
                                 .build()
                         ])
