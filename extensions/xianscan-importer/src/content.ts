@@ -732,6 +732,7 @@ class InPlaceTranslationCoordinator {
 	private replacer: DomReplacerEngine;
 	private client: XianScanClient;
 	private activeMapping: ChapterMappingEntry | null = null;
+	private inPlaceEnabled = true;
 	private serverUrl = 'http://127.0.0.1:8124';
 	private pollingTimer: ReturnType<typeof setInterval> | null = null;
 	private keepAlivePort: chrome.runtime.Port | null = null;
@@ -751,8 +752,9 @@ class InPlaceTranslationCoordinator {
 			this.replacer.setBaseUrl(this.serverUrl);
 		}
 
-		if (stored.inPlaceReplacement !== false) {
-			this.bindLifecycleEvents();
+		this.inPlaceEnabled = stored.inPlaceReplacement !== false;
+		this.bindLifecycleEvents();
+		if (this.inPlaceEnabled) {
 			await this.recheckUrlMapping();
 		}
 	}
@@ -962,6 +964,7 @@ class InPlaceTranslationCoordinator {
 			return;
 		}
 		if (!this.activeMapping) return;
+		if (!this.inPlaceEnabled) return;
 
 		try {
 			const chapterResult = await this.client.getChapterDetails(this.activeMapping.chapterId);
@@ -1006,6 +1009,7 @@ class InPlaceTranslationCoordinator {
 	}
 
 	handlePageTranslated(msg: PageTranslatedMessage) {
+		if (!this.inPlaceEnabled) return;
 		if (!this.activeMapping) {
 			this.activeMapping = {
 				url: window.location.href,
@@ -1024,7 +1028,11 @@ class InPlaceTranslationCoordinator {
 	}
 
 	setMode(mode: 'translated' | 'raw') {
+		this.inPlaceEnabled = mode === 'translated';
 		this.replacer.setMode(mode);
+		if (this.inPlaceEnabled) {
+			void this.recheckUrlMapping();
+		}
 	}
 
 	destroy() {

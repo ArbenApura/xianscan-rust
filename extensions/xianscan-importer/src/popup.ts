@@ -1012,8 +1012,9 @@ class PopupController {
 	private renderTrackerGrid() {
 		this.trackerGrid.innerHTML = '';
 		if (this.activeChapterPages.length === 0) {
-			if (this.activeTrackerPhase === 'uploading') {
-				this.trackerGrid.innerHTML = `
+		if (this.activeTrackerPhase === 'uploading') {
+			this.trackerRetryBtn.classList.add('hidden');
+			this.trackerGrid.innerHTML = `
 					<div class="tracker-loading-state uploading" style="grid-column: 1 / -1;">
 						<div class="loading-scanner-ring">
 							<div class="scanner-pulse upload"></div>
@@ -1034,8 +1035,9 @@ class PopupController {
 				`;
 				return;
 			}
-			if (this.activeTrackerPhase === 'reslicing') {
-				this.trackerGrid.innerHTML = `
+		if (this.activeTrackerPhase === 'reslicing') {
+			this.trackerRetryBtn.classList.add('hidden');
+			this.trackerGrid.innerHTML = `
 					<div class="tracker-loading-state reslicing" style="grid-column: 1 / -1;">
 						<div class="loading-scanner-ring">
 							<div class="scanner-pulse reslice"></div>
@@ -1058,8 +1060,9 @@ class PopupController {
 				`;
 				return;
 			}
-			if (this.activeTrackerPhase === 'translating') {
-				this.trackerGrid.innerHTML = `
+		if (this.activeTrackerPhase === 'translating') {
+			this.trackerRetryBtn.classList.add('hidden');
+			this.trackerGrid.innerHTML = `
 					<div class="tracker-loading-state translating" style="grid-column: 1 / -1;">
 						<div class="loading-scanner-ring">
 							<div class="scanner-pulse translate"></div>
@@ -1150,8 +1153,9 @@ class PopupController {
 			this.trackerGrid.appendChild(card);
 		});
 
-		// SHOW THE RETRY BUTTON ONLY WHEN THERE ARE PENDING OR ERROR PAGES (NOT YET DONE).
-		const hasRetryable = this.activeChapterPages.some(
+		// SHOW THE RETRY BUTTON ONLY WHEN THE PIPELINE IS NOT RUNNING AND THERE ARE
+		// PENDING OR ERROR PAGES (NOT YET DONE). HIDE IT WHILE TRANSLATING.
+		const hasRetryable = !this.isChapterTranslating && this.activeChapterPages.some(
 			p => (p.status === 'pending' || p.status === 'error') && !(p.outputPath || (p.outputRev ?? 0) > 0)
 		);
 		this.trackerRetryBtn.classList.toggle('hidden', !hasRetryable);

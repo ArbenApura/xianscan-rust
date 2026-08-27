@@ -550,20 +550,40 @@ export class DomReplacerEngine {
 
 	private attachImageErrorHandler(img: HTMLImageElement, pageId: number, targetUrl: string) {
 		let retries = 0;
-		img.onerror = () => {
-			if (retries < 3) {
-				retries++;
-				console.warn(`[XianScan] Image load error on page #${pageId}, retrying (attempt ${retries})...`);
-				safeDataUrlCache.delete(targetUrl);
-				setTimeout(() => {
-					void resolveSafeImageUrl(targetUrl).then(freshSafeUrl => {
-						if (img.getAttribute('data-xianscan-page-id') === String(pageId)) {
-							img.src = freshSafeUrl;
-							img.srcset = '';
-						}
-					});
-				}, retries * 500);
+		const isHttpsPage = typeof window !== 'undefined' && window.location.protocol === 'https:';
+
+		// RESTORE THE ORIGINAL HOST IMAGE SO THE READER NEVER SHOWS A BROKEN SLICE.
+		// ON HTTPS PAGES A RAW HTTP SERVER URL IS ALWAYS BLOCKED AS MIXED CONTENT, SO IT
+		// IS POINTLESS TO KEEP RETRYING IT — FALL BACK TO THE ORIGINAL IMAGE INSTEAD.
+		const fallbackToOriginal = () => {
+			console.warn(`[XianScan] Image load failed on page #${pageId}, restoring original image.`);
+			const origSrc = img.getAttribute('data-xianscan-orig-src');
+			if (origSrc) {
+				img.src = origSrc;
+				img.srcset = '';
 			}
+		};
+
+		img.onerror = () => {
+			if (retries >= 3) {
+				fallbackToOriginal();
+				return;
+			}
+			retries++;
+			console.warn(`[XianScan] Image load error on page #${pageId}, retrying (attempt ${retries})...`);
+			safeDataUrlCache.delete(targetUrl);
+			setTimeout(() => {
+				void resolveSafeImageUrl(targetUrl).then(freshSafeUrl => {
+					if (img.getAttribute('data-xianscan-page-id') !== String(pageId)) return;
+					// AVOID REASSIGNING A MIXED-CONTENT-BLOCKED RAW HTTP URL ON AN HTTPS PAGE.
+					if (freshSafeUrl === targetUrl && targetUrl.startsWith('http://') && isHttpsPage) {
+						fallbackToOriginal();
+						return;
+					}
+					img.src = freshSafeUrl;
+					img.srcset = '';
+				});
+			}, retries * 500);
 		};
 	}
 
