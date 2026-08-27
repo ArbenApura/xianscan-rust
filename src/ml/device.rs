@@ -587,7 +587,11 @@ pub fn get_cuda_memory_limit_for_model(model_tag: &str) -> usize {
     }
 
     // 3. MODEL-DIFFERENTIATED VRAM ALLOCATION SCALED BY DETECTED HARDWARE:
-    // - RF-DETR (DETECTOR): REQUIRES 2.5 GB - 4 GB FOR 1152px ATTENTION MATMUL BUFFERS
+    // - RF-DETR (DETECTOR): REQUIRES 4 GB - 6 GB FOR 1152px ATTENTION MATMUL BUFFERS.
+    //   MODEL WEIGHTS ALONE CONSUME ~2.1 GB OF THE ARENA AT LOAD TIME. THE SOFTMAX
+    //   ATTENTION LAYER THEN REQUIRES AN ADDITIONAL ~1.94 GB OF RUNTIME INTERMEDIATE
+    //   TENSORS (BFCArena: 2040201728 BYTES), SO THE TOTAL PEAK ALLOCATION EXCEEDS 4 GB
+    //   ON LARGE PAGES. SET TO 6 GB ON 16GB+ GPUS TO GUARANTEE SUFFICIENT HEADROOM.
     // - LAMA (INPAINTER): REQUIRES 1.5 GB - 2.5 GB FOR FOURIER CONVOLUTION
     // - RAPIDOCR (REC / DET / LAZY): LIGHTWEIGHT CNN+CTC / DBNET REQUIRES 512 MB - 1 GB
     let tag = model_tag.to_ascii_lowercase();
@@ -595,7 +599,7 @@ pub fn get_cuda_memory_limit_for_model(model_tag: &str) -> usize {
 
     if tag.contains("rfdetr") || (tag.contains("det") && !tag.contains("ocr")) {
         if total_vram_mb >= 14000.0 {
-            4 * 1024 * 1024 * 1024 // 4 GB ON 16GB+ GPUS (TESLA T4 / A10G / RTX 4090)
+            6 * 1024 * 1024 * 1024 // 6 GB ON 16GB+ GPUS (TESLA T4 / A10G / RTX 4090) - WEIGHTS ~2.1 GB + SOFTMAX MATMUL ~1.94 GB
         } else if total_vram_mb >= 7000.0 {
             3 * 1024 * 1024 * 1024 // 3 GB ON 8GB-12GB GPUS
         } else {
