@@ -1580,7 +1580,7 @@
 								<Type size={14} class="text-[#b23a2e] dark:text-[#e08a63]" />
 								<span>Studio System Font</span>
 							</div>
-							<div class="grid grid-cols-2 sm:grid-cols-4 gap-2">
+							<div class="grid grid-cols-2 sm:grid-cols-3 gap-2">
 								{#each APP_FONTS as font}
 									<button
 										type="button"
@@ -1808,7 +1808,7 @@
 							class={`border-t border-black/10 pt-4 dark:border-white/10 space-y-2 transition-all duration-300 ${highlightedSettingId === 'typeset-cjk' ? 'ring-2 ring-[#b23a2e] dark:ring-[#e08a63] bg-[#b23a2e]/[0.06] dark:bg-[#e08a63]/[0.08] rounded-2xl p-2.5 -m-1' : ''}`}
 						>
 							<div class="text-xs font-bold uppercase tracking-wider opacity-80">CJK East Asian Fallback Engine</div>
-							<div class="grid grid-cols-2 sm:grid-cols-4 gap-2">
+							<div class="grid grid-cols-2 sm:grid-cols-3 gap-2">
 								{#each AVAILABLE_CJK_FONTS as cjk}
 									{@const isSelected = ($settings.typesetCjkFont || 'Microsoft YaHei') === cjk.id}
 									{@const status = $fontAvailabilityStore[cjk.id]}

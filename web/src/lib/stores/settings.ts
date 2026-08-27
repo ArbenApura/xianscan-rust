@@ -147,13 +147,6 @@ export const APP_FONTS: { id: AppFont; label: string; sample: string; blurb: str
 		stack: "'Poppins', sans-serif",
 	},
 	{
-		id: 'proxima',
-		label: 'Proxima Nova',
-		sample: 'Clean Editorial Sans',
-		blurb: 'Modern proportions blending classic geometric and humanist sans',
-		stack: "'Proxima Nova', 'Montserrat', sans-serif",
-	},
-	{
 		id: 'nunito',
 		label: 'Nunito Sans',
 		sample: 'Balanced Rounded Sans',
@@ -341,7 +334,6 @@ export const AVAILABLE_TYPESET_FONTS: TypesetFontOption[] = [
 	{ id: 'Poppins', label: 'Poppins', sub: 'Geometric Rounded', stack: "'Poppins', sans-serif", bundled: true },
 	{ id: 'Montserrat', label: 'Montserrat', sub: 'Bold Contemporary', stack: "'Montserrat', sans-serif", bundled: true },
 	{ id: 'Lexend', label: 'Lexend', sub: 'High Legibility', stack: "'Lexend', sans-serif", bundled: true },
-	{ id: 'Proxima Nova', label: 'Proxima Nova', sub: 'Editorial Clean', stack: "'Proxima Nova', sans-serif" },
 ];
 
 export const AVAILABLE_CJK_FONTS: TypesetFontOption[] = [
@@ -350,7 +342,6 @@ export const AVAILABLE_CJK_FONTS: TypesetFontOption[] = [
 	{ id: 'Yu Gothic', label: 'Yu Gothic', sub: 'Japanese Manga Standard' },
 	{ id: 'Malgun Gothic', label: 'Malgun Gothic', sub: 'Korean Hangul Manhwa' },
 	{ id: 'Noto Sans CJK SC', label: 'Noto Sans CJK', sub: 'Universal CJK (Linux / Noto)' },
-	{ id: 'PingFang SC', label: 'PingFang SC', sub: 'macOS Chinese System' },
 	{ id: 'Friendly Sans', label: 'Friendly Sans', sub: 'Clean Latin / Symbol Fallback', bundled: true },
 ];
 

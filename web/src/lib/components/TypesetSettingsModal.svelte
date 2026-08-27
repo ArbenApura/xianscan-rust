@@ -457,7 +457,7 @@
 			<!-- CJK FALLBACK STACK -->
 			<div class="space-y-1.5 pt-1">
 				<div class="text-[11px] font-semibold opacity-75 pl-0.5">CJK / East Asian Fallback Engine</div>
-				<div class="grid grid-cols-2 sm:grid-cols-4 gap-2">
+				<div class="grid grid-cols-2 sm:grid-cols-3 gap-2">
 					{#each AVAILABLE_CJK_FONTS as cjk}
 						{@const isSelected = ($settings.typesetCjkFont || 'Microsoft YaHei') === cjk.id}
 						{@const status = $fontAvailabilityStore[cjk.id]}
