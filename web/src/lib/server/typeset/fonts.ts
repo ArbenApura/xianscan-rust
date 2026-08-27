@@ -260,8 +260,13 @@ export function resolveScriptFont(text?: string, customCjk?: string): string {
 export function splitTextRuns(text: string, primaryFont?: string, fallbackFont?: string): TextRun[] {
 	const fontMain = primaryFont || FONT_DIALOGUE;
 
-	// MATCHES NON-LATIN SCRIPTS, CJK / FULLWIDTH PUNCTUATION, OR CC WILD WORDS REMAPPED SYMBOLS ([ ], { }, |, \)
-	const fallbackCharsRegex = /([\u3040-\u30ff\u31f0-\u31ff\u3400-\u4dbf\u4e00-\u9fff\uf900-\ufaff\uac00-\ud7af\u1100-\u11ff\u3130-\u318f\u0900-\u097f\u0e00-\u0e7f\u0400-\u04ff\uff01-\uffee\u3000-\u303f]+|[\[\]{}|\\]+)/g;
+	// CC WILD WORDS DOES NOT CONTAIN ACCENTED LATIN GLYPHS (À-ÿ, Ā-ž) OR REMAPPED COMIC BRACKETS
+	const isWildWords = fontMain === FONT_DIALOGUE || fontMain.toLowerCase().includes('wild words');
+
+	// MATCHES NON-LATIN SCRIPTS, CJK / FULLWIDTH PUNCTUATION, REMAPPED SYMBOLS ([ ], { }, |, \), AND EXTENDED LATIN (IF WILD WORDS)
+	const fallbackCharsRegex = isWildWords
+		? /([\u3040-\u30ff\u31f0-\u31ff\u3400-\u4dbf\u4e00-\u9fff\uf900-\ufaff\uac00-\ud7af\u1100-\u11ff\u3130-\u318f\u0900-\u097f\u0e00-\u0e7f\u0400-\u04ff\uff01-\uffee\u3000-\u303f]+|[\[\]{}|\\]+|[\u00C0-\u024F\u00A1\u00BF]+)/g
+		: /([\u3040-\u30ff\u31f0-\u31ff\u3400-\u4dbf\u4e00-\u9fff\uf900-\ufaff\uac00-\ud7af\u1100-\u11ff\u3130-\u318f\u0900-\u097f\u0e00-\u0e7f\u0400-\u04ff\uff01-\uffee\u3000-\u303f]+|[\[\]{}|\\]+)/g;
 
 	if (!fallbackCharsRegex.test(text)) {
 		return [{ text, font: fontMain, isFallbackSymbol: false }];

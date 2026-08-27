@@ -752,6 +752,43 @@ Tattered Flesh-Cutting Knife`;
 			expect(availability[name].available, `font ${name} should be available`).toBe(true);
 		}
 	});
+
+	it('routes Italian accented characters (e.g. "Non è...", "così") to Friendly Sans when using CC Wild Words', () => {
+		const runs = splitTextRuns('Non è così che avrei dovuto morire...', 'CC Wild Words');
+		expect(runs.length).toBeGreaterThan(1);
+		const accentedRuns = runs.filter((r) => r.isFallbackSymbol);
+		expect(accentedRuns.length).toBeGreaterThan(0);
+		expect(accentedRuns[0].font).toBe('Friendly Sans');
+	});
+
+	it('renders Italian dialogue text with accents in typesetPage (Page 3143)', async () => {
+		const pageImage = createCanvas(800, 2047).toBuffer('image/png');
+		const resultBuf = await typesetPage(
+			pageImage,
+			[
+				{
+					id: '4377',
+					box: { x: 459, y: 479, w: 277, h: 107 },
+					text: 'Come ha potuto\nquel vecchio farmi\nquesto?!',
+					kind: 'dialogue_bubble',
+				},
+				{
+					id: '4378',
+					box: { x: 105, y: 960, w: 211, h: 44 },
+					text: 'Non è...',
+					kind: 'dialogue_bubble',
+				},
+				{
+					id: '4379',
+					box: { x: 528, y: 1482, w: 212, h: 125 },
+					text: 'Non\nè così che\navrei dovuto\nmorire...',
+					kind: 'dialogue_bubble',
+				},
+			],
+		);
+		expect(resultBuf).toBeInstanceOf(Buffer);
+		expect(resultBuf.length).toBeGreaterThan(0);
+	});
 });
 
 
