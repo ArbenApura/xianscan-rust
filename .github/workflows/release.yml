@@ -227,8 +227,25 @@ jobs:
           distribution: 'temurin'
           java-version: '21'
 
-      - name: Setup Android SDK
-        uses: android-actions/setup-android@v3
+      - name: Setup Android SDK (no emulator)
+        # android-actions/setup-android@v3 installs the Android Emulator by default, which this
+        # APK-only build never needs and which periodically fails with "Error on ZipFile unknown
+        # archive" on a corrupt emulator download. Install only the SDK components required to
+        # compile (:app:assembleRelease) and pin sdk.dir to the runner's preinstalled SDK.
+        run: |
+          export ANDROID_HOME="${ANDROID_HOME:-/usr/local/lib/android/sdk}"
+          SDKMANAGER=""
+          for CAND in "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "$ANDROID_HOME/cmdline-tools/16.0/bin/sdkmanager"; do
+            if [ -x "$CAND" ]; then SDKMANAGER="$CAND"; break; fi
+          done
+          if [ -n "$SDKMANAGER" ]; then
+            yes | "$SDKMANAGER" --licenses >/dev/null 2>&1 || true
+            yes | "$SDKMANAGER" "platform-tools" "platforms;android-34" "build-tools;34.0.0" >/dev/null 2>&1 || true
+          else
+            echo "::warning::sdkmanager not found; relying on preinstalled Android SDK"
+          fi
+          echo "sdk.dir=$ANDROID_HOME" > extensions/xianscan-mihon/local.properties
+          echo "ANDROID_HOME=$ANDROID_HOME"
 
       - name: Setup Signing Keystore
         working-directory: extensions/xianscan-mihon
