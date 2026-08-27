@@ -103,7 +103,8 @@ export type JobEventType =
 	| 'page-done'
 	| 'usage'
 	| 'done'
-	| 'error';
+	| 'error'
+	| 'paused';
 
 export type PipelineStep =
 	| 'queued'

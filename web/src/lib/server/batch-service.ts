@@ -8,6 +8,7 @@ import { and, eq, inArray } from 'drizzle-orm';
 import {
 	startChapterJob,
 	abortChapterJob,
+	pauseChapterJob,
 	clearChapterJob,
 	getChapterJobSnapshot,
 	getChapterJob,
@@ -598,29 +599,46 @@ export const batchService = {
 
 			// DUPLICATE QUEUE DETECTION
 			if (existingItem) {
-				// IF TRANSLATING SPECIFIC PAGES ON AN ACTIVE CHAPTER JOB, ATTACH PAGES IMMEDIATELY
-				if (targetPageIds && existingItem.status === 'processing') {
+				// INDIVIDUAL-PAGE QUEUEING: MERGE THE NEW PAGES INTO THE EXISTING QUEUE ITEM
+				// INSTEAD OF REPLACING pageIds — SO PAGES ALREADY QUEUED FOR THIS CHAPTER (EVEN WHILE
+				// IT IS 'queued' BEHIND ANOTHER CHAPTER IN A DIFFERENT BOOK) ARE NOT LOST. IF THE
+				// CHAPTER JOB IS STILL RUNNING, INJECT THE NEW PAGES INTO THE LIVE PIPELINE.
+				if (targetPageIds && targetPageIds.length > 0) {
+					const isRunningJob =
+						existingItem.status === 'processing' || existingItem.status === 'reslicing';
 					const job = getChapterJob(id);
-					if (job?.addPages) {
+					if (isRunningJob && job?.addPages) {
 						job.addPages(targetPageIds);
 					}
+					const mergedPageIds = Array.from(new Set([...(existingItem.pageIds || []), ...targetPageIds]));
+					const finished =
+						existingItem.status === 'done' ||
+						existingItem.status === 'error' ||
+						existingItem.status === 'cancelled' ||
+						existingItem.status === 'skipped';
 					activeBatchState = {
 						...activeBatchState,
 						queue: activeBatchState.queue.map((item) =>
 							item.id === id
 								? {
 										...item,
-										pageIds: Array.from(new Set([...(item.pageIds || []), ...targetPageIds])),
-										totalPages: (item.totalPages || item.pageCount) + targetPageIds.length,
+										status: finished ? ('queued' as const) : item.status,
+										pageIds: mergedPageIds,
+										totalPages: mergedPageIds.length,
+										translatedPages: isRunningJob ? item.translatedPages : 0,
+										error: null,
 									}
 								: item,
 						),
 					};
-					emitState();
+					completedChapterIds.delete(id);
+					failedChapterIds.delete(id);
+					clearChapterRetryTimer(id);
+					chapterRetryCount.delete(id);
 					continue;
 				}
 
-				// ALREADY ACTIVELY TRANSLATING OR QUEUED (DO NOT DOUBLE QUEUE UNLESS FORCED)
+				// WHOLE-CHAPTER DEDUP (NO PAGE FILTER): DO NOT DOUBLE QUEUE UNLESS FORCED
 				if (existingItem.status === 'processing' || existingItem.status === 'reslicing' || existingItem.status === 'queued') {
 					if (!opts.force) {
 						continue;
@@ -664,15 +682,19 @@ export const batchService = {
 		}
 
 		if (isCurrentlyActive) {
-			// IF NEW CHAPTERS WERE ADDED, APPEND THEM TO ACTIVE QUEUE
+			// IF NEW CHAPTERS WERE ADDED, APPEND THEM TO ACTIVE QUEUE. QUEUEING WHILE PAUSED MUST NOT
+			// AUTO-RESUME THE BATCH — THE NEW ITEMS STAY 'queued' UNTIL THE USER RESUMES.
+			const wasPaused = activeBatchState.status === 'paused';
 			activeBatchState = {
 				...activeBatchState,
-				status: 'running',
+				status: wasPaused ? 'paused' : 'running',
 				queue: newItems.length > 0 ? [...activeBatchState.queue, ...newItems] : [...activeBatchState.queue],
 			};
-			startWatchdog();
+			if (!wasPaused) {
+				startWatchdog();
+				dispatchNextItems();
+			}
 			emitState();
-			dispatchNextItems();
 			return this.getState();
 		}
 
@@ -733,13 +755,14 @@ export const batchService = {
 		activeResliceControllers.forEach((c) => c.abort());
 		activeResliceControllers.clear();
 
-		// ABORT IN-FLIGHT TRANSLATION JOBS SO THEY PAUSE IMMEDIATELY
+		// ABORT IN-FLIGHT TRANSLATION JOBS SO THEY PAUSE IMMEDIATELY — USING THE GENTLE pauseChapterJob
+		// (NOT abortChapterJob) SO THE RUNNING PAGE'S STEP IS NOT MARKED 'failed' AND STAYS RESUMABLE.
 		for (const ch of activeBatchState.queue) {
 			if (ch.status !== 'done') {
 				completedChapterIds.delete(ch.id);
 				failedChapterIds.delete(ch.id);
 			}
-			abortChapterJob(ch.id);
+			pauseChapterJob(ch.id);
 			clearChapterJob(ch.id);
 		}
 

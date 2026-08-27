@@ -218,6 +218,18 @@ function createJobTrackerStore() {
 			const u = event.usage as any;
 			s.totalPromptTokens += u.promptTokens || 0;
 			s.totalCompletionTokens += u.completionTokens || 0;
+		} else if (event.type === 'paused') {
+			// THE BATCH WAS PAUSED: THE RUNNING PIPELINE WAS HALTED. RESET ANY IN-FLIGHT PAGES BACK TO
+			// 'pending' AND CLEAR THEIR RUNNING STEP TIMINGS SO THE UI SHOWS THEM AS PAUSED/RESUMABLE
+			// RATHER THAN 'failed' (ABORTING ON PAUSE MUST NOT LOOK LIKE A FAILURE).
+			s.status = 'superseded';
+			for (const p of s.pages) {
+				if (p.status === 'processing') {
+					p.status = 'pending';
+					p.currentStep = undefined;
+					p.timings = {};
+				}
+			}
 		} else if (event.type === 'done') {
 			s.status = 'done';
 			s.currentPhase = 'completed';
@@ -308,7 +320,9 @@ function createJobTrackerStore() {
 
 						const updatedSnapshot = applyEventToSnapshot(baseSnapshot, event);
 						const isTerminal =
-							event.type === 'done' || (event.type === 'error' && event.page === undefined);
+							event.type === 'done' ||
+							event.type === 'paused' ||
+							(event.type === 'error' && event.page === undefined);
 
 						return {
 							...state,

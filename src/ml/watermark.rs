@@ -333,5 +333,17 @@ pub fn is_likely_watermark(rect: &BoxRect, text: &str, img_w: u32, img_h: u32) -
         return true;
     }
 
+    // Large platform logo stamp suppression: wide box sitting at the bottom 15% of the page.
+    // Platform watermarks (e.g. ACloudMerge "儿云数据", "ACloudMerge.com") are rendered as
+    // large decorative logos that span >35% of the page width and sit near the bottom edge.
+    // Genuine dialogue boxes inside panels never span this proportion of the canvas from the
+    // bottom margin.
+    let bottom_15pct = (img_h as f32 * 0.85) as i32;
+    let wide_threshold = (img_w as f32 * 0.35) as i32;
+    if rect.y >= bottom_15pct && rect.w >= wide_threshold {
+        return true;
+    }
+
     false
 }
+

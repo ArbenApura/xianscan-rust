@@ -301,7 +301,6 @@ export function resetPageProgress(pageId: number, dataRoot: string = DATA_ROOT):
 				.where(eq(chapters.id, pageRow.chapterId))
 				.run();
 		}
-		batchService.resetChapter(pageRow.chapterId);
 	}
 }
 

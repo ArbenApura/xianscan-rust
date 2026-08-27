@@ -49,7 +49,7 @@
 		cleanedRev: number;
 		outputRev: number;
 		originalRev: number;
-		status: 'pending' | 'processing' | 'done' | 'error';
+		status: 'pending' | 'queued' | 'processing' | 'done' | 'error';
 		error: string | null;
 		width?: number | null;
 		height?: number | null;
@@ -91,7 +91,7 @@
 	$: hasProgress =
 		pages.some(
 			(p) =>
-				p.status !== 'pending' ||
+				(p.status !== 'pending' && p.status !== 'queued') ||
 				Boolean(p.cleanedPath) ||
 				Boolean(p.outputPath) ||
 				(p.regions && p.regions.length > 0) ||
@@ -282,6 +282,21 @@
 		reconnectAttempts: 0,
 	};
 
+	// ACTIVE BATCH ITEM FOR THIS CHAPTER — USED TO DERIVE THE 'queued' PAGE STATUS (A PAGE THAT HAS BEEN
+	// ADDED TO THE TRANSLATION QUEUE BUT HAS NOT STARTED PROCESSING YET, DISTINCT FROM A PLAIN 'pending'
+	// PAGE THAT HAS NOT BEEN QUEUED AT ALL).
+	$: activeQueuedBatch = (() => {
+		if (!$batchTracker.active) return null;
+		const item = $batchTracker.queue.find((q) => q.id === chapterId);
+		if (!item) return null;
+		if (item.status === 'queued' || item.status === 'processing') return item;
+		return null;
+	})();
+	$: queuedPageIdSet = activeQueuedBatch?.pageIds?.length ? new Set(activeQueuedBatch.pageIds) : null;
+	$: isWholeChapterQueued = Boolean(
+		activeQueuedBatch && (!activeQueuedBatch.pageIds || activeQueuedBatch.pageIds.length === 0),
+	);
+
 	// REAL-TIME SYNCHRONIZED PAGES MERGED WITH SNAPSHOT
 	$: displayPages = ((): ChapterPageItem[] => {
 		if (!currentJobState.snapshot?.pages?.length) return pages;
@@ -296,13 +311,20 @@
 			const isProcessing = sp.status === 'processing' && currentJobState.running;
 			const isError = sp.status === 'error';
 			const isDone = sp.status === 'done' || (!isProcessing && !isError && p.status === 'done');
-			const status: 'pending' | 'processing' | 'done' | 'error' = isProcessing
+			const isQueued =
+				!isProcessing &&
+				!isError &&
+				!isDone &&
+				(isWholeChapterQueued || (queuedPageIdSet ? queuedPageIdSet.has(p.id) : false));
+			const status: 'pending' | 'queued' | 'processing' | 'done' | 'error' = isProcessing
 				? 'processing'
-				: isError
-					? 'error'
-					: isDone
-						? 'done'
-						: 'pending';
+				: isQueued
+					? 'queued'
+					: isError
+						? 'error'
+						: isDone
+							? 'done'
+							: 'pending';
 
 			return {
 				...p,
@@ -372,7 +394,8 @@
 
 		if (targetPageId || targetSeq !== null) {
 			setTimeout(() => {
-				const el = (targetPageId ? document.querySelector(`[data-page-id="${targetPageId}"]`) : null) ||
+				const el =
+					(targetPageId ? document.querySelector(`[data-page-id="${targetPageId}"]`) : null) ||
 					(targetSeq !== null ? document.querySelector(`[data-page-seq="${targetSeq}"]`) : null);
 				if (el) {
 					el.scrollIntoView({ behavior: 'smooth', block: 'center' });
@@ -968,7 +991,7 @@
 			class="pointer-events-none fixed inset-0 z-50 flex items-center justify-center bg-[#b23a2e]/20 backdrop-blur-sm"
 		>
 			<div
-				class="flex max-w-md mx-4 flex-col items-center gap-3 rounded-2xl border-2 border-dashed border-[#b23a2e] bg-white/90 p-8 text-center shadow-2xl dark:border-[#e08a63] dark:bg-[#1a1713]/90"
+				class="mx-4 flex max-w-md flex-col items-center gap-3 rounded-2xl border-2 border-dashed border-[#b23a2e] bg-white/90 p-8 text-center shadow-2xl dark:border-[#e08a63] dark:bg-[#1a1713]/90"
 			>
 				<Upload size={36} class="animate-bounce text-[#b23a2e] dark:text-[#e08a63]" />
 				<div class="space-y-1">
@@ -991,8 +1014,16 @@
 		{prevChapter}
 		{nextChapter}
 		{hasProgress}
-		running={currentJobState.running || Boolean($batchTracker.active && $batchTracker.queue.some((q) => q.id === chapterId && (q.status === 'processing' || q.status === 'reslicing')))}
-		isReslicing={Boolean($batchTracker.active && $batchTracker.queue.find((q) => q.id === chapterId && q.status === 'reslicing'))}
+		running={currentJobState.running ||
+			Boolean(
+				$batchTracker.active &&
+					$batchTracker.queue.some(
+						(q) => q.id === chapterId && (q.status === 'processing' || q.status === 'reslicing'),
+					),
+			)}
+		isReslicing={Boolean(
+			$batchTracker.active && $batchTracker.queue.find((q) => q.id === chapterId && q.status === 'reslicing'),
+		)}
 		{uploading}
 		{exporting}
 		{exportProgress}
@@ -1240,7 +1271,8 @@
 					{:else if uploadStage === 'processing'}
 						Processing & ingesting into chapter...
 					{:else if uploadStage === 'done'}
-						{@const doneCount = uploadAddedCount || uploadFilesList.filter((f) => f.status === 'done').length}
+						{@const doneCount =
+							uploadAddedCount || uploadFilesList.filter((f) => f.status === 'done').length}
 						{doneCount} page{doneCount === 1 ? '' : 's'} successfully uploaded!
 					{:else}
 						Upload Failed
@@ -1312,11 +1344,7 @@
 							<div class="flex min-w-0 flex-1 items-center gap-2">
 								<!-- PER-IMAGE CIRCULAR PROGRESS BADGE -->
 								<div class="relative h-[22px] w-[22px] shrink-0">
-									<svg
-										viewBox="0 0 24 24"
-										class="h-full w-full -rotate-90"
-										aria-hidden="true"
-									>
+									<svg viewBox="0 0 24 24" class="h-full w-full -rotate-90" aria-hidden="true">
 										<circle
 											cx="12"
 											cy="12"
@@ -1350,7 +1378,11 @@
 											class="absolute inset-0 flex items-center justify-center"
 											in:scale={{ duration: 200, start: 0.2 }}
 										>
-											<Check size={12} stroke-width={3.2} class="text-[#4f7a64] dark:text-[#83b39a]" />
+											<Check
+												size={12}
+												stroke-width={3.2}
+												class="text-[#4f7a64] dark:text-[#83b39a]"
+											/>
 										</div>
 									{/if}
 								</div>

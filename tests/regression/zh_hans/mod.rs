@@ -1,6 +1,7 @@
 // -- MODULE DECLARATIONS -- //
 mod base;
 mod page_aaah_energy_burst_huff_hallucination;
+mod page_acloudmerge_watermark_cover;
 mod page_chariot_easy_to_block_sfx;
 mod page_dagger_catch_thought_bubble_split;
 mod page_demon_hands_green_flame_zero_text_artwork;

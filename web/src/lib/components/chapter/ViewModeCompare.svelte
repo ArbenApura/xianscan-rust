@@ -14,7 +14,6 @@
 	import PageImage from '$lib/components/chapter/PageImage.svelte';
 	import VirtualPageList from '$lib/components/chapter/VirtualPageList.svelte';
 
-
 	export let pages: any[] = [];
 	export let running = false;
 	export let draggedPageIndex: number | null = null;
@@ -31,6 +30,7 @@
 
 	const statusVariant: Record<string, any> = {
 		pending: 'neutral',
+		queued: 'neutral',
 		processing: 'warning',
 		done: 'success',
 		error: 'danger',
@@ -38,6 +38,7 @@
 
 	const statusLabel: Record<string, string> = {
 		pending: 'Pending',
+		queued: 'Queued',
 		processing: 'Processing',
 		done: 'Translated',
 		error: 'Error',
@@ -129,34 +130,34 @@
 				data-page-seq={page.seq}
 				data-page-id={page.id}
 			>
-				<div class="mb-3 flex items-center justify-between gap-1.5 min-w-0 text-xs font-bold">
-					<div class="flex items-center gap-1.5 min-w-0 overflow-hidden">
+				<div class="mb-3 flex min-w-0 items-center justify-between gap-1.5 text-xs font-bold">
+					<div class="flex min-w-0 items-center gap-1.5 overflow-hidden">
 						<!-- svelte-ignore a11y-no-static-element-interactions -->
 						<span
 							draggable="true"
 							on:dragstart={(e) => dispatch('dragStart', { event: e, index: idx })}
 							on:dragend={(e) => dispatch('dragEnd', e)}
-							class="flex cursor-grab select-none items-center gap-1 rounded px-1.5 py-0.5 transition hover:bg-black/5 active:cursor-grabbing dark:hover:bg-white/5 shrink-0"
+							class="flex shrink-0 cursor-grab select-none items-center gap-1 rounded px-1.5 py-0.5 transition hover:bg-black/5 active:cursor-grabbing dark:hover:bg-white/5"
 						>
 							<GripVertical size={14} class="opacity-40" /> Page {page.seq + 1}
 						</span>
-						<Badge
-							variant={statusVariant[page.status]}
-							class="truncate text-[10px] sm:text-xs"
-						>
+						<Badge variant={statusVariant[page.status]} class="truncate text-[10px] sm:text-xs">
 							{#if page.status === 'processing'}
-								{page.currentStep ? stepBadgeLabels[page.currentStep] || page.currentStep : 'Processing...'}
+								{page.currentStep
+									? stepBadgeLabels[page.currentStep] || page.currentStep
+									: 'Processing...'}
 							{:else}
 								{statusLabel[page.status]}
 							{/if}
 						</Badge>
 					</div>
 
-					<div class="flex items-center gap-1 shrink-0">
+					<div class="flex shrink-0 items-center gap-1">
 						<button
 							type="button"
 							disabled={page.status === 'processing'}
-							on:click={() => dispatch('inspect', { page, initialTab: page.outputPath ? 'output' : 'original' })}
+							on:click={() =>
+								dispatch('inspect', { page, initialTab: page.outputPath ? 'output' : 'original' })}
 							use:ripple
 							title="Inspect Page"
 							class="flex items-center gap-1 rounded-md bg-black/5 px-2 py-1 text-xs font-semibold transition hover:bg-black/10 disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-black/5 dark:bg-white/5 dark:hover:bg-white/10 dark:disabled:hover:bg-white/5"
@@ -184,7 +185,9 @@
 								src={`/api/pages/${page.id}/file?kind=original&rev=${page.originalRev ?? 0}`}
 								alt={`Page ${page.seq + 1} Original`}
 								imgClass={`object-contain ${page.status === 'processing' ? 'opacity-80' : ''}`}
-								on:click={(e) => page.status !== 'processing' && dispatch('inspect', { page, initialTab: 'original' })}
+								on:click={(e) =>
+									page.status !== 'processing' &&
+									dispatch('inspect', { page, initialTab: 'original' })}
 							/>
 							<div class="pointer-events-none absolute bottom-2 left-2 flex items-center gap-1.5">
 								<span
@@ -201,7 +204,9 @@
 						{#if page.outputPath}
 							<div
 								class="group/img relative overflow-hidden rounded-lg border border-black/10 bg-black/5 dark:border-white/10"
-								style={hasRatio ? `aspect-ratio: ${page.width} / ${page.height};` : 'aspect-ratio: 2 / 3;'}
+								style={hasRatio
+									? `aspect-ratio: ${page.width} / ${page.height};`
+									: 'aspect-ratio: 2 / 3;'}
 							>
 								<!-- svelte-ignore a11y-click-events-have-key-events -->
 								<!-- svelte-ignore a11y-no-noninteractive-element-interactions -->
@@ -209,7 +214,9 @@
 									src={`/api/pages/${page.id}/file?kind=output&rev=${page.outputRev ?? 0}`}
 									alt={`Page ${page.seq + 1} Output`}
 									imgClass={`object-contain ${page.status === 'processing' ? 'opacity-80' : ''}`}
-									on:click={(e) => page.status !== 'processing' && dispatch('inspect', { page, initialTab: 'output' })}
+									on:click={(e) =>
+										page.status !== 'processing' &&
+										dispatch('inspect', { page, initialTab: 'output' })}
 								/>
 								<div class="pointer-events-none absolute bottom-2 left-2 flex items-center gap-1.5">
 									<span
@@ -222,7 +229,9 @@
 						{:else}
 							<div
 								class="flex items-center justify-center rounded-lg border border-dashed border-black/20 text-xs opacity-50 dark:border-white/20"
-								style={hasRatio ? `aspect-ratio: ${page.width} / ${page.height};` : 'min-height: 240px;'}
+								style={hasRatio
+									? `aspect-ratio: ${page.width} / ${page.height};`
+									: 'min-height: 240px;'}
 							>
 								Translation not completed yet
 							</div>
@@ -233,4 +242,3 @@
 		</svelte:fragment>
 	</VirtualPageList>
 </div>
-

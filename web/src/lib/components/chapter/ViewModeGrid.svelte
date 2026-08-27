@@ -14,7 +14,6 @@
 	import PageImage from '$lib/components/chapter/PageImage.svelte';
 	import VirtualPageList from '$lib/components/chapter/VirtualPageList.svelte';
 
-
 	export let pages: any[] = [];
 	export let running = false;
 	export let webtoonKind: 'output' | 'original' = 'output';
@@ -32,6 +31,7 @@
 
 	const statusVariant: Record<string, any> = {
 		pending: 'neutral',
+		queued: 'neutral',
 		processing: 'warning',
 		done: 'success',
 		error: 'danger',
@@ -39,6 +39,7 @@
 
 	const statusLabel: Record<string, string> = {
 		pending: 'Pending',
+		queued: 'Queued',
 		processing: 'Processing',
 		done: 'Translated',
 		error: 'Error',
@@ -131,7 +132,7 @@
 				on:dragover={(e) => dispatch('dragOver', { event: e, index: idx })}
 				on:drop={(e) => dispatch('drop', { event: e, index: idx })}
 				on:dragend={(e) => dispatch('dragEnd', e)}
-				class={`group relative flex flex-col justify-between rounded-xl border p-3 sm:p-3.5 transition-all ${
+				class={`group relative flex flex-col justify-between rounded-xl border p-3 transition-all sm:p-3.5 ${
 					dragOverPageIndex === idx
 						? 'z-10 scale-[1.02] border-[#b23a2e] bg-[#b23a2e]/5 ring-2 ring-[#b23a2e]/40'
 						: 'border-black/[0.08] bg-white/40 hover:border-[#b23a2e]/40 hover:shadow-md dark:border-white/[0.06] dark:bg-white/[0.02]'
@@ -141,21 +142,18 @@
 				style="content-visibility: auto; contain-intrinsic-size: auto 380px;"
 			>
 				<div class="min-w-0">
-					<div class="mb-2 flex items-center justify-between gap-1.5 min-w-0">
-						<div class="flex items-center gap-1.5 min-w-0 overflow-hidden">
+					<div class="mb-2 flex min-w-0 items-center justify-between gap-1.5">
+						<div class="flex min-w-0 items-center gap-1.5 overflow-hidden">
 							<!-- svelte-ignore a11y-no-static-element-interactions -->
 							<span
 								draggable="true"
 								on:dragstart={(e) => dispatch('dragStart', { event: e, index: idx })}
 								on:dragend={(e) => dispatch('dragEnd', e)}
-								class="flex cursor-grab select-none items-center gap-1 rounded px-1.5 py-0.5 text-xs font-bold transition hover:bg-black/5 active:cursor-grabbing dark:hover:bg-white/5 shrink-0"
+								class="flex shrink-0 cursor-grab select-none items-center gap-1 rounded px-1.5 py-0.5 text-xs font-bold transition hover:bg-black/5 active:cursor-grabbing dark:hover:bg-white/5"
 							>
 								<GripVertical size={13} class="opacity-40" /> Page {page.seq + 1}
 							</span>
-							<Badge
-								variant={statusVariant[page.status]}
-								class="truncate text-[10px] sm:text-xs"
-							>
+							<Badge variant={statusVariant[page.status]} class="truncate text-[10px] sm:text-xs">
 								{#if page.status === 'processing'}
 									{page.currentStep
 										? stepBadgeLabels[page.currentStep] || page.currentStep
@@ -165,7 +163,7 @@
 								{/if}
 							</Badge>
 						</div>
-						<div class="flex items-center gap-1 shrink-0">
+						<div class="flex shrink-0 items-center gap-1">
 							<button
 								type="button"
 								disabled={page.status === 'processing'}
@@ -207,4 +205,3 @@
 		</svelte:fragment>
 	</VirtualPageList>
 </div>
-

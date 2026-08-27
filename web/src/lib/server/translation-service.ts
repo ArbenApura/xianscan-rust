@@ -31,7 +31,8 @@ export type JobEventType =
 	| 'page-done'
 	| 'usage'
 	| 'done'
-	| 'error';
+	| 'error'
+	| 'paused';
 
 export interface JobEvent {
 	type: JobEventType;
@@ -317,7 +318,11 @@ async function run(key: string, chapterId: number, work: ChapterJobWork, initial
 			expiresAt: Date.now() + RETENTION_TTL_MS,
 		});
 		job.listeners.clear();
-		jobs.delete(key);
+		// ONLY DELETE OUR OWN ENTRY — A SUPERSEDING JOB MAY HAVE BEEN REGISTERED AT THIS KEY
+		// (startChapterJob → existing.controller.abort()), AND WE MUST NOT ORPHAN THE NEW RUN.
+		if (jobs.get(key) === job) {
+			jobs.delete(key);
+		}
 	}
 }
 
@@ -414,6 +419,31 @@ export function abortChapterJob(chapterId: number): boolean {
 		return true;
 	}
 	return false;
+}
+
+/** ABORT A CHAPTER JOB FOR A PAUSE — STOPS THE PIPELINE BUT LEAVES PAGES IN A RESUMABLE 'pending'
+ *  STATE: NO 'failed' TIMINGS AND NO CHAPTER-LEVEL 'error' EVENT, SO A RESUME RE-RUNS THEM CLEANLY
+ *  WITHOUT THE UI EVER SHOWING THE IN-FLIGHT STEP AS FAILED. */
+export function pauseChapterJob(chapterId: number): boolean {
+	const job = jobs.get(`chapter:${chapterId}`);
+	if (!job) return false;
+	const now = Date.now();
+	job.status = 'superseded';
+	job.snapshot.status = 'superseded';
+	job.snapshot.completedAt = now;
+	job.snapshot.totalDurationMs = job.snapshot.startedAt ? now - job.snapshot.startedAt : 0;
+	if (job.snapshot.pages) {
+		for (const p of job.snapshot.pages) {
+			if (p.status === 'processing') {
+				p.status = 'pending';
+				p.currentStep = undefined;
+				p.timings = {};
+			}
+		}
+	}
+	emit(job, { type: 'paused', chapterId });
+	job.controller.abort();
+	return true;
 }
 
 export function clearChapterJob(chapterId: number): void {
