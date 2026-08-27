@@ -599,7 +599,7 @@ pub fn get_cuda_memory_limit_for_model(model_tag: &str) -> usize {
 
     if tag.contains("rfdetr") || (tag.contains("det") && !tag.contains("ocr")) {
         if total_vram_mb >= 14000.0 {
-            6 * 1024 * 1024 * 1024 // 6 GB ON 16GB+ GPUS (TESLA T4 / A10G / RTX 4090) - WEIGHTS ~2.1 GB + SOFTMAX MATMUL ~1.94 GB
+            8 * 1024 * 1024 * 1024 // 8 GB ON 16GB+ GPUS (TESLA T4 / A10G / RTX 4090) - WEIGHTS ~2.1 GB + SEGMENTATION HEAD + SOFTMAX MATMUL ~1.94 GB
         } else if total_vram_mb >= 7000.0 {
             3 * 1024 * 1024 * 1024 // 3 GB ON 8GB-12GB GPUS
         } else {

@@ -198,7 +198,7 @@ export const DEFAULTS: AppSettings = {
 	sourceLang: 'zh-Hans',
 	targetLang: 'en',
 	typesetFont: 'CC Wild Words',
-	typesetCjkFont: 'Microsoft YaHei',
+	typesetCjkFont: 'WenQuanYi Micro Hei',
 	typesetPadding: 0.05,
 	typesetOutline: 'standard',
 	typesetContrast: 'auto',

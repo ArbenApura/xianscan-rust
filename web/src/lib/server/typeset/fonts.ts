@@ -10,7 +10,7 @@ export const FONT_DIALOGUE = 'CC Wild Words';
 export const FONT_SFX = 'CC Wild Words';
 export const FONT_MONO = 'CC Wild Words';
 export const FONT_FALLBACK_NAME = 'Friendly Sans';
-export const FONT_DEFAULT_CJK = 'Microsoft YaHei';
+export const FONT_DEFAULT_CJK = 'WenQuanYi Micro Hei';
 
 // MATCHES CJK, DEVANAGARI (HINDI), THAI, CYRILLIC, FULLWIDTH / CJK PUNCTUATION, AND OTHER NON-LATIN COMPLEX SCRIPTS
 export const NON_LATIN_SCRIPT_REGEX = /[\u3040-\u30ff\u31f0-\u31ff\u3400-\u4dbf\u4e00-\u9fff\uf900-\ufaff\uac00-\ud7af\u1100-\u11ff\u3130-\u318f\u0900-\u097f\u0e00-\u0e7f\u0400-\u04ff\uff01-\uffee\u3000-\u303f]/;
