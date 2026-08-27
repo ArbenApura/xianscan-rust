@@ -15,7 +15,7 @@ import {
 	isChapterPageCancelled,
 	type JobEvent,
 } from '$lib/server/translation-service';
-import { chapterWork } from '$lib/server/chapter-pipeline';
+import { chapterWork, setAllActiveChapterPageConcurrencies } from '$lib/server/chapter-pipeline';
 import { createPipelineClient } from '$lib/server/pipeline-client';
 import { getActiveProvider } from '$lib/server/providers';
 import { DATA_ROOT } from '$lib/server/paths';
@@ -77,6 +77,24 @@ const preReslicedChapterIds = new Set<number>();
 const preReslicingChapterIds = new Set<number>();
 const completedChapterIds = new Set<number>();
 const failedChapterIds = new Set<number>();
+const chapterRetryCount = new Map<number, number>();
+const chapterRetryTimers = new Map<number, ReturnType<typeof setTimeout>>();
+const chapterGenerationMap = new Map<number, number>();
+
+function clearChapterRetryTimer(chapterId: number) {
+	const timer = chapterRetryTimers.get(chapterId);
+	if (timer) {
+		clearTimeout(timer);
+		chapterRetryTimers.delete(chapterId);
+	}
+}
+
+function clearAllChapterRetryTimers() {
+	for (const timer of chapterRetryTimers.values()) {
+		clearTimeout(timer);
+	}
+	chapterRetryTimers.clear();
+}
 let maxParallelWorkers = MAX_PARALLEL_WORKERS_DEFAULT;
 let batchPageConcurrency: number | undefined = undefined;
 let batchResliceBeforeBatch: boolean = false;
@@ -88,12 +106,29 @@ let batchEnableSfx: boolean = false;
 let batchSfxMaxAreaPct: number | undefined = undefined;
 let batchTypesetOptions: TypesetOptions | undefined = undefined;
 let batchWatchdogTimer: ReturnType<typeof setInterval> | null = null;
+let settingsDebounceTimer: ReturnType<typeof setTimeout> | null = null;
 
-// SYNC LIVE PREFERENCES IN REAL TIME (SEAMLESS PAUSE / RESUME CYCLE RE-DISPATCHES WITH NEW SETTINGS)
+// SYNC LIVE PREFERENCES IN REAL TIME (SEAMLESS HOT-RESIZING & DEBOUNCED DISPATCH)
 onSettingsUpdated(() => {
-	if (activeBatchState.active && activeBatchState.status === 'running') {
-		batchService.reloadActiveBatch();
+	if (!activeBatchState.active || activeBatchState.status !== 'running') return;
+
+	const liveSettings = getCanonicalSettings();
+
+	// 1. HOT-RESIZE PAGE CONCURRENCY ACROSS ALL ACTIVE PIPELINES IMMEDIATELY WITHOUT ABORTING JOBS
+	if (liveSettings.parallelProcesses) {
+		setAllActiveChapterPageConcurrencies(liveSettings.parallelProcesses);
 	}
+
+	// 2. HOT-DISPATCH ANY FREED OR NEWLY AVAILABLE WORKER SLOTS
+	dispatchNextItems();
+
+	// 3. DEBOUNCE FULL DISPATCH CHECK BY 300MS
+	if (settingsDebounceTimer) clearTimeout(settingsDebounceTimer);
+	settingsDebounceTimer = setTimeout(() => {
+		if (activeBatchState.active && activeBatchState.status === 'running') {
+			dispatchNextItems();
+		}
+	}, 300);
 });
 
 // -- BROADCASTING & STATE HELPERS -- //
@@ -198,6 +233,9 @@ async function executeChapterJob(chapter: BatchChapterItem, force: boolean) {
 	emitState();
 
 	try {
+		const gen = (chapterGenerationMap.get(chapter.id) || 0) + 1;
+		chapterGenerationMap.set(chapter.id, gen);
+
 		const liveSettings = getCanonicalSettings();
 		const effectivePageConcurrency = liveSettings.parallelProcesses || batchPageConcurrency;
 
@@ -242,6 +280,11 @@ async function executeChapterJob(chapter: BatchChapterItem, force: boolean) {
 
 		// ATTACH REAL-TIME LISTENER FOR SNAPSHOT ADVANCEMENT
 		const unsub = handle.subscribe((e: JobEvent) => {
+			if (chapterGenerationMap.get(chapter.id) !== gen) {
+				unsub();
+				return;
+			}
+
 			if (!activeBatchState.active || activeBatchState.status === 'paused' || activeBatchState.status === 'cancelled') {
 				unsub();
 				return;
@@ -279,7 +322,6 @@ async function executeChapterJob(chapter: BatchChapterItem, force: boolean) {
 				(!getChapterJob(chapter.id) && snap?.status !== 'done' && (snap?.completedPages || 0) === 0));
 
 			if (isDone && !completedChapterIds.has(chapter.id)) {
-				completedChapterIds.add(chapter.id);
 				unsub();
 				onChapterCompleted(chapter, snap);
 			} else if (isFailed && !failedChapterIds.has(chapter.id)) {
@@ -287,7 +329,6 @@ async function executeChapterJob(chapter: BatchChapterItem, force: boolean) {
 					unsub();
 					return;
 				}
-				failedChapterIds.add(chapter.id);
 				unsub();
 				onChapterFailed(chapter, e.message || 'Translation failed');
 			} else if (isCancelledOrSuperseded) {
@@ -300,6 +341,11 @@ async function executeChapterJob(chapter: BatchChapterItem, force: boolean) {
 }
 
 function onChapterCompleted(chapter: BatchChapterItem, snapshot: ChapterJobSnapshot | null) {
+	clearChapterRetryTimer(chapter.id);
+	chapterRetryCount.delete(chapter.id);
+	completedChapterIds.add(chapter.id);
+	failedChapterIds.delete(chapter.id);
+
 	activeBatchState = {
 		...activeBatchState,
 		queue: activeBatchState.queue.map((item) =>
@@ -309,6 +355,7 @@ function onChapterCompleted(chapter: BatchChapterItem, snapshot: ChapterJobSnaps
 						status: 'done' as const,
 						translatedPages: snapshot?.completedPages || item.pageCount,
 						totalPages: snapshot?.totalPages || item.pageCount,
+						error: null,
 					}
 				: item,
 		),
@@ -327,6 +374,50 @@ function onChapterCompleted(chapter: BatchChapterItem, snapshot: ChapterJobSnaps
 }
 
 function onChapterFailed(chapter: BatchChapterItem, errorMsg: string) {
+	if (!activeBatchState.active || activeBatchState.status === 'paused' || activeBatchState.status === 'cancelled') {
+		return;
+	}
+
+	const currentRetries = chapterRetryCount.get(chapter.id) || 0;
+	if (currentRetries < 3) {
+		const nextRetry = currentRetries + 1;
+		chapterRetryCount.set(chapter.id, nextRetry);
+		const backoffMs = nextRetry * 1500;
+		console.warn(
+			`[batchService] Chapter #${chapter.id} encountered error (${errorMsg}). Scheduling auto-retry (${nextRetry}/3) in ${backoffMs}ms...`,
+		);
+
+		activeBatchState = {
+			...activeBatchState,
+			queue: activeBatchState.queue.map((item) =>
+				item.id === chapter.id
+					? {
+							...item,
+							status: 'queued' as const,
+							resliceMessage: `Retrying (attempt ${nextRetry}/3)...`,
+							error: null,
+						}
+					: item,
+			),
+		};
+		emitState();
+
+		clearChapterRetryTimer(chapter.id);
+		const timer = setTimeout(() => {
+			chapterRetryTimers.delete(chapter.id);
+			if (activeBatchState.active && activeBatchState.status === 'running') {
+				dispatchNextItems();
+			}
+		}, backoffMs);
+		chapterRetryTimers.set(chapter.id, timer);
+		return;
+	}
+
+	// 3 RETRIES EXHAUSTED: MARK AS PERMANENT ERROR FOR THIS BATCH
+	clearChapterRetryTimer(chapter.id);
+	chapterRetryCount.delete(chapter.id);
+	failedChapterIds.add(chapter.id);
+
 	activeBatchState = {
 		...activeBatchState,
 		queue: activeBatchState.queue.map((item) =>
@@ -397,7 +488,7 @@ function startWatchdog() {
 			return;
 		}
 
-		// CHECK ACTIVE CHAPTERS AND VERIFY STREAM HEALTH
+		// 1. CHECK ACTIVE CHAPTERS AND VERIFY STREAM HEALTH
 		const processing = activeBatchState.queue.filter((c) => c.status === 'processing');
 		for (const ch of processing) {
 			const job = getChapterJob(ch.id);
@@ -405,9 +496,18 @@ function startWatchdog() {
 			if (!job && snap?.status === 'done' && !completedChapterIds.has(ch.id)) {
 				completedChapterIds.add(ch.id);
 				onChapterCompleted(ch, snap);
+			} else if (!job && (!snap || snap.status === 'failed' || snap.status === 'superseded')) {
+				// ORPHANED PROCESSING STATE DETECTED
+				console.warn(
+					`[batchService] Watchdog detected orphaned processing state on chapter #${ch.id}, recovering for retry...`,
+				);
+				onChapterFailed(ch, 'Job unexpectedly terminated in background');
 			}
 		}
-	}, 2000);
+
+		// 2. DISPATCH ANY STALLED QUEUED ITEMS IF SLOTS ARE OPEN
+		dispatchNextItems();
+	}, 3000);
 }
 
 function stopWatchdog() {
@@ -579,12 +679,15 @@ export const batchService = {
 		}
 
 		// RESET INTERNAL TRACKER SETS FOR FRESH QUEUE
+		clearAllChapterRetryTimers();
 		activeResliceControllers.forEach((c) => c.abort());
 		activeResliceControllers.clear();
 		preReslicedChapterIds.clear();
 		preReslicingChapterIds.clear();
 		completedChapterIds.clear();
 		failedChapterIds.clear();
+		chapterRetryCount.clear();
+		chapterGenerationMap.clear();
 
 		activeBatchState = {
 			active: true,
@@ -622,6 +725,7 @@ export const batchService = {
 			),
 		};
 		stopWatchdog();
+		clearAllChapterRetryTimers();
 
 		// ABORT IN-FLIGHT RESLICE CONTROLLERS
 		activeResliceControllers.forEach((c) => c.abort());
@@ -701,6 +805,9 @@ export const batchService = {
 				activeBatchState.queue[activeBatchState.currentIndex];
 
 		if (!target) return this.getState();
+
+		clearChapterRetryTimer(target.id);
+		chapterRetryCount.delete(target.id);
 
 		const ctrl = activeResliceControllers.get(target.id);
 		if (ctrl) {
@@ -782,6 +889,9 @@ export const batchService = {
 
 		completedChapterIds.delete(target.id);
 		failedChapterIds.delete(target.id);
+		clearChapterRetryTimer(target.id);
+		chapterRetryCount.delete(target.id);
+		chapterGenerationMap.delete(target.id);
 
 		const remainingQueue = activeBatchState.queue.filter((q) => q.id !== chapterId);
 
@@ -862,6 +972,7 @@ export const batchService = {
 	cancelBatch(): BatchTranslationState {
 		if (!activeBatchState.active) return this.getState();
 
+		clearAllChapterRetryTimers();
 		activeResliceControllers.forEach((c) => c.abort());
 		activeResliceControllers.clear();
 		stopWatchdog();
@@ -921,6 +1032,9 @@ export const batchService = {
 	// DISMISS / CLEAR COMPLETED OR CANCELLED BATCH
 	clearBatch(): BatchTranslationState {
 		stopWatchdog();
+		clearAllChapterRetryTimers();
+		chapterRetryCount.clear();
+		chapterGenerationMap.clear();
 		activeBatchState = {
 			active: false,
 			status: 'idle',
@@ -943,6 +1057,8 @@ export const batchService = {
 	resetChapter(chapterId: number): void {
 		completedChapterIds.delete(chapterId);
 		failedChapterIds.delete(chapterId);
+		chapterRetryCount.delete(chapterId);
+		chapterGenerationMap.delete(chapterId);
 		preReslicedChapterIds.delete(chapterId);
 		preReslicingChapterIds.delete(chapterId);
 		if (activeResliceControllers.has(chapterId)) {

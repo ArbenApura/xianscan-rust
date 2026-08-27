@@ -272,14 +272,15 @@ let activeJobCancelled = false;
 const activeSseStreams = new Map<number, AbortController>();
 
 // 3. LISTEN TO SERVER-SENT EVENTS DURING TRANSLATION & BROADCAST LIVE PAGE EVENTS
-async function attachLiveTranslationListener(chapterId: number, serverUrl: string) {
+async function attachLiveTranslationListener(chapterId: number, serverUrl: string, retryCount = 0) {
 	if (!chapterId) return;
-	if (activeSseStreams.has(chapterId)) {
+	if (activeSseStreams.has(chapterId) && retryCount === 0) {
 		return;
 	}
 
 	const controller = new AbortController();
 	activeSseStreams.set(chapterId, controller);
+	let streamCompletedCleanly = false;
 
 	try {
 		const targetUrl = `${serverUrl}/api/chapters/${chapterId}/translate`;
@@ -332,6 +333,7 @@ async function attachLiveTranslationListener(chapterId: number, serverUrl: strin
 							total: data.pageCount || data.totalPages || 0
 						});
 					} else if (data.type === 'done') {
+						streamCompletedCleanly = true;
 						const syncMsg: ChapterSyncMessage = {
 							type: 'CHAPTER_SYNC_UPDATE',
 							chapterId,
@@ -348,10 +350,21 @@ async function attachLiveTranslationListener(chapterId: number, serverUrl: strin
 		}
 	} catch (e: any) {
 		if (e?.name !== 'AbortError') {
-			console.warn('[XianScan] SSE stream disconnected:', e);
+			console.warn(`[XianScan] SSE stream disconnected for chapter #${chapterId}:`, e);
 		}
 	} finally {
 		activeSseStreams.delete(chapterId);
+
+		// AUTO-RECONNECT IF STREAM TERMINATED UNEXPECTEDLY BEFORE COMPLETION
+		if (!streamCompletedCleanly && !controller.signal.aborted && retryCount < 5) {
+			const delay = Math.min(1000 * Math.pow(1.5, retryCount), 6000);
+			console.info(`[XianScan] Scheduling SSE auto-reconnect for chapter #${chapterId} in ${delay}ms (attempt ${retryCount + 1})...`);
+			setTimeout(() => {
+				if (!activeJobCancelled) {
+					void attachLiveTranslationListener(chapterId, serverUrl, retryCount + 1);
+				}
+			}, delay);
+		}
 	}
 }
 
@@ -658,4 +671,25 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 	}
 
 	return false;
+});
+
+// 6. KEEP-ALIVE PORT LISTENER (PREVENTS MANIFEST V3 SERVICE WORKER TERMINATION DURING ACTIVE JOBS)
+const activeKeepAlivePorts = new Set<chrome.runtime.Port>();
+
+chrome.runtime.onConnect.addListener(port => {
+	if (port.name === 'xianscan-keepalive') {
+		activeKeepAlivePorts.add(port);
+		port.onMessage.addListener(msg => {
+			if (msg && msg.type === 'KEEPALIVE_PING') {
+				try {
+					port.postMessage({ type: 'KEEPALIVE_PONG', timestamp: Date.now() });
+				} catch {
+					// IGNORE DISCONNECTED PORT
+				}
+			}
+		});
+		port.onDisconnect.addListener(() => {
+			activeKeepAlivePorts.delete(port);
+		});
+	}
 });

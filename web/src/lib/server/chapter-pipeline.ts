@@ -24,8 +24,7 @@ import { join } from 'node:path';
 import type OpenAI from 'openai';
 // IMPORTED ENVS ($env/...)
 import { env } from '$env/dynamic/private';
-// IMPORTED DEP-MODULES
-import PQueue from 'p-queue';
+import PQueue from './queue';
 import { and, asc, desc, eq, inArray, lt, sql } from 'drizzle-orm';
 // IMPORTED TYPES
 import type { TranslationUsage, PipelineStep, LangPair, TermDraft } from '$lib/types';
@@ -43,6 +42,23 @@ import { detectSourceLanguage } from '$lib/languages';
 import { detectImageFormat, isAnimatedWebP } from './chapters/dimensions';
 import { prunePageThumbs } from './chapters/mutations';
 import { syncBus } from './sync-bus';
+
+// -- ACTIVE POOL REGISTRY FOR DYNAMIC CONCURRENCY HOT-RESIZING -- //
+const activeChapterPools = new Map<number, PQueue>();
+
+export function setChapterPageConcurrency(chapterId: number, concurrency: number): void {
+	const pool = activeChapterPools.get(chapterId);
+	if (pool) {
+		pool.concurrency = Math.max(1, concurrency || 1);
+	}
+}
+
+export function setAllActiveChapterPageConcurrencies(concurrency: number): void {
+	const clamped = Math.max(1, concurrency || 1);
+	for (const pool of activeChapterPools.values()) {
+		pool.concurrency = clamped;
+	}
+}
 
 // -- TYPES -- //
 
@@ -513,386 +529,7 @@ export async function runChapterPipeline(
 			// ANNOUNCE THE NEW PAGE TO BOTH SERVER AND CLIENT SNAPSHOTS BEFORE ANY STEP EVENTS
 			emit({ type: 'page-added', chapterId, page: injectIdx, pageId: injectRow.id, seq: injectRow.seq });
 			void pool.add(async () => {
-				if (signal.aborted || deps.isPageCancelled?.(injectRow.id)) return;
-				try {
-					db.update(pages).set({ status: 'processing', error: null }).where(eq(pages.id, injectRow.id)).run();
-					// PHASE 1: ANALYZE
-					emit({
-						type: 'page-step-start',
-						chapterId,
-						page: injectIdx,
-						pageId: injectRow.id,
-						step: 'analyze',
-					});
-					const tA0 = performance.now();
-					const rawImage = readFileSync(join(deps.dataRoot, injectRow.filePath));
-					const image = await ensureWebPBuffer(rawImage);
-					const analyzed = await deps.pipeline.analyze(image, signal, {
-						sourceLang: pair.sourceLang,
-						targetLang: pair.targetLang,
-						inpaintPaddingPct: deps.inpaintExpansionPct,
-						typesetPaddingPct: deps.typesetExpansionPct,
-						enableWatermarkInpaint: deps.enableWatermarkInpaint,
-						enableSfx: deps.enableSfx,
-						sfxMaxAreaPct: deps.sfxMaxAreaPct,
-					});
-					if (signal.aborted || deps.isPageCancelled?.(injectRow.id)) return;
-					const tAnalyze = performance.now() - tA0;
-					emit({
-						type: 'page-step-end',
-						chapterId,
-						page: injectIdx,
-						pageId: injectRow.id,
-						step: 'analyze',
-						stepStatus: 'completed',
-						durationMs: tAnalyze,
-						stepDetails: { regionsCount: analyzed.regions.length },
-					});
-					emit({
-						type: 'page-step-start',
-						chapterId,
-						page: injectIdx,
-						pageId: injectRow.id,
-						step: 'persist_regions',
-					});
-					const enrichedStats = analyzed.stats
-						? {
-								...analyzed.stats,
-								wall_time_ms: Math.round(tAnalyze),
-								queue_wait_ms:
-									analyzed.stats.queue_wait_ms ??
-									Math.max(0, Math.round(tAnalyze - (analyzed.stats.total_time_ms || 0))),
-							}
-						: null;
-					db.transaction((tx) => {
-						tx.update(pages)
-							.set({
-								onomatopoeia: null,
-								ocrStats: enrichedStats ? JSON.stringify(enrichedStats) : null,
-							})
-							.where(eq(pages.id, injectRow.id))
-							.run();
-						tx.delete(regions).where(eq(regions.pageId, injectRow.id)).run();
-						if (analyzed.regions.length > 0) {
-							tx.insert(regions)
-								.values(
-									analyzed.regions.map((r, idx) => ({ ...regionRow(r, idx), pageId: injectRow.id })),
-								)
-								.run();
-						}
-					});
-					emit({
-						type: 'page-step-end',
-						chapterId,
-						page: injectIdx,
-						pageId: injectRow.id,
-						step: 'persist_regions',
-						stepStatus: 'completed',
-					});
-					dialogueTracker.recordOcr(injectRow.seq, injectRow.id, analyzed.regions);
-
-					if (signal.aborted || deps.isPageCancelled?.(injectRow.id)) return;
-
-					// PHASE 2 & 3: TRANSLATE AND CLEAN IN PARALLEL
-					const isSfxEnabled = deps.enableSfx === true;
-					const maxSfxArea = deps.sfxMaxAreaPct ?? 0.30;
-					const pageArea = (analyzed.width * analyzed.height) || 1;
-
-					const isRegionEligible = (r: { kind?: string; box: { w: number; h: number } }) => {
-						if (r.kind === 'sound_effect') {
-							if (!isSfxEnabled) return false;
-							const areaRatio = (r.box.w * r.box.h) / pageArea;
-							if (areaRatio > maxSfxArea) return false;
-						}
-						return true;
-					};
-
-					const isRegionInpaintable = (r: PipelineRegion) => {
-						if (!r.text.trim() || !isRegionEligible(r)) return false;
-						const classification = classifyRegionForTranslation(
-							{ id: r.id, text: r.text, kind: r.kind },
-							pair.sourceLang,
-							pair.targetLang,
-						);
-						return classification.disposition !== 'skip_empty';
-					};
-
-					const cleanRegions = analyzed.regions
-						.filter(isRegionInpaintable)
-						.map((r) => ({ id: r.id, box: r.inpaint_box ?? r.box, polygon: r.polygon }));
-
-					// 1. INPAINT TASK (LOCAL ONNX COMPUTE)
-					const inpaintPromise = (async () => {
-						emit({ type: 'page-step-start', chapterId, page: injectIdx, pageId: injectRow.id, step: 'clean' });
-						const tC0 = performance.now();
-						const cleaned =
-							cleanRegions.length > 0
-								? await deps.pipeline.clean(image, cleanRegions, deps.inpaintMode ?? 'patch', signal)
-								: image;
-						if (signal.aborted || deps.isPageCancelled?.(injectRow.id)) return { cleaned: image, cleanPath: '' };
-						const cleanPath = `clean/${chapterId}/${injectRow.seq}.webp`;
-						const cleanAbs = join(deps.dataRoot, cleanPath);
-						cleanDir(join(deps.dataRoot, 'clean', String(chapterId)));
-						writeFileSync(cleanAbs, cleaned);
-						emit({
-							type: 'page-step-end',
-							chapterId,
-							page: injectIdx,
-							pageId: injectRow.id,
-							step: 'clean',
-							stepStatus: 'completed',
-							durationMs: performance.now() - tC0,
-						});
-						return { cleaned, cleanPath };
-					})();
-
-					// 2. TRANSLATE TASK (GLOSSARY MATCH + LLM NETWORK I/O)
-					const sources = analyzed.regions
-						.filter((r) => r.text.trim().length > 0 && isRegionEligible(r))
-						.map((r) => ({ id: r.id, text: r.text, kind: r.kind, vertical: r.vertical }));
-
-					const translatePromise = (async () => {
-						const byRegion = new Map<string, string>();
-						if (sources.length > 0) {
-							emit({
-								type: 'page-step-start',
-								chapterId,
-								page: injectIdx,
-								pageId: injectRow.id,
-								step: 'match_glossary',
-							});
-							const pageSourceText = sources.map((s) => s.text).join('\n');
-							const pageMatchedTerms = await matchTerms(chapter.bookId, pageSourceText);
-							emit({
-								type: 'page-step-end',
-								chapterId,
-								page: injectIdx,
-								pageId: injectRow.id,
-								step: 'match_glossary',
-								stepStatus: 'completed',
-								stepDetails: { matchedCount: pageMatchedTerms.length },
-							});
-							if (signal.aborted || deps.isPageCancelled?.(injectRow.id)) return byRegion;
-							emit({
-								type: 'page-step-start',
-								chapterId,
-								page: injectIdx,
-								pageId: injectRow.id,
-								step: 'translate',
-							});
-							const tT0 = performance.now();
-							const translated = await chainTranslate(async () => {
-								const dialogueContext = dialogueTracker.getContextWindow(injectRow.seq);
-								const result = await translatePage(sources, pageMatchedTerms, pair, {
-									client: deps.llm,
-									model,
-									signal,
-									dialogueContext,
-									enableSfx: deps.enableSfx,
-								});
-								return result;
-							});
-							if (signal.aborted || deps.isPageCancelled?.(injectRow.id)) return byRegion;
-							dialogueTracker.recordTranslation(injectRow.seq, translated.byRegion);
-							for (const [id, text] of translated.byRegion) byRegion.set(id, text);
-							if (translated.newTerms && translated.newTerms.length > 0) {
-								await addNewTerms(chapter.bookId, translated.newTerms, chapterId);
-							}
-							const llmResponseData = {
-								raw: translated.rawResponse ?? '',
-								model: translated.usage.model,
-								durationMs: translated.durationMs ?? Math.round(performance.now() - tT0),
-								promptTokens: translated.usage.promptTokens ?? 0,
-								cachedTokens: translated.usage.cachedTokens ?? 0,
-								completionTokens: translated.usage.completionTokens ?? 0,
-								timestamp: Date.now(),
-							};
-							db.update(pages)
-								.set({
-									llmPrompt: translated.rawPrompt ?? null,
-									llmResponse: JSON.stringify(llmResponseData),
-								})
-								.where(eq(pages.id, injectRow.id))
-								.run();
-							emit({
-								type: 'page-step-end',
-								chapterId,
-								page: injectIdx,
-								pageId: injectRow.id,
-								step: 'translate',
-								stepStatus: 'completed',
-								durationMs: performance.now() - tT0,
-								stepDetails: {
-									cacheHit: false,
-									model: translated.usage.model,
-									tokens: (translated.usage.promptTokens ?? 0) + (translated.usage.completionTokens ?? 0),
-								},
-							});
-							if (translated.usage && deps.onUsage) deps.onUsage(translated.usage);
-						} else {
-							emit({
-								type: 'page-step-end',
-								chapterId,
-								page: injectIdx,
-								pageId: injectRow.id,
-								step: 'translate',
-								stepStatus: 'completed',
-								durationMs: 0,
-								stepDetails: { skipped: true, textCount: 0 },
-							});
-						}
-						return byRegion;
-					})();
-
-					const [{ cleaned, cleanPath }, byRegion] = await Promise.all([inpaintPromise, translatePromise]);
-
-					if (signal.aborted || deps.isPageCancelled?.(injectRow.id)) return;
-
-					// PERSIST TRANSLATIONS
-					emit({
-						type: 'page-step-start',
-						chapterId,
-						page: injectIdx,
-						pageId: injectRow.id,
-						step: 'persist_translations',
-					});
-					const seqById = new Map(analyzed.regions.map((r, idx) => [r.id, idx]));
-					db.transaction((tx) => {
-						for (const region of analyzed.regions) {
-							let target = byRegion.get(region.id)?.trim() ?? '';
-							if (!target) {
-								const punct = resolveDialoguePunctuation(region.text);
-								if (punct) {
-									target = punct;
-									byRegion.set(region.id, target);
-								}
-							}
-							const isEligible = isRegionEligible(region);
-							const status = target ? 'translated' : isEligible ? 'failed' : 'pending';
-							tx.update(regions)
-								.set({
-									textTarget: target || null,
-									originalTarget: target || null,
-									status,
-								})
-								.where(
-									and(
-										eq(regions.pageId, injectRow.id),
-										eq(regions.seq, seqById.get(region.id) ?? -1),
-									),
-								)
-								.run();
-						}
-					});
-					emit({
-						type: 'page-step-end',
-						chapterId,
-						page: injectIdx,
-						pageId: injectRow.id,
-						step: 'persist_translations',
-						stepStatus: 'completed',
-					});
-
-					if (signal.aborted || deps.isPageCancelled?.(injectRow.id)) return;
-
-					// TYPESET
-					emit({
-						type: 'page-step-start',
-						chapterId,
-						page: injectIdx,
-						pageId: injectRow.id,
-						step: 'typeset',
-					});
-					const tTy0 = performance.now();
-					const typesetRegions = analyzed.regions
-						.filter((r) => isRegionEligible(r) && Boolean(byRegion.get(r.id)?.trim()))
-						.map((r) => ({
-							id: r.id,
-							box: r.typeset_box ?? r.box,
-							text: byRegion.get(r.id)!,
-							vertical: r.vertical,
-							angle: r.angle,
-						}));
-					const out = await typesetPage(cleaned, typesetRegions, deps.typesetOptions);
-					if (signal.aborted || deps.isPageCancelled?.(injectRow.id)) return;
-					const outputPath = `output/${chapterId}/${injectRow.seq}.webp`;
-					cleanDir(join(deps.dataRoot, 'output', String(chapterId)));
-					writeFileSync(join(deps.dataRoot, outputPath), out);
-					emit({
-						type: 'page-step-end',
-						chapterId,
-						page: injectIdx,
-						pageId: injectRow.id,
-						step: 'typeset',
-						stepStatus: 'completed',
-						durationMs: performance.now() - tTy0,
-					});
-
-					if (signal.aborted || deps.isPageCancelled?.(injectRow.id)) return;
-
-					// SAVE OUTPUT
-					emit({
-						type: 'page-step-start',
-						chapterId,
-						page: injectIdx,
-						pageId: injectRow.id,
-						step: 'save_output',
-					});
-					db.update(pages)
-						.set({
-							status: 'done',
-							cleanedPath: cleanPath,
-							outputPath,
-							cleanedRev: sql`${pages.cleanedRev} + 1`,
-							outputRev: sql`${pages.outputRev} + 1`,
-							width: analyzed.width,
-							height: analyzed.height,
-						})
-						.where(eq(pages.id, injectRow.id))
-						.run();
-					emit({
-						type: 'page-step-end',
-						chapterId,
-						page: injectIdx,
-						pageId: injectRow.id,
-						step: 'save_output',
-						stepStatus: 'completed',
-					});
-				// RE-READ THE STORED REVS AFTER THE ATOMIC sql +1 BUMP SO THE EMITTED
-				// VALUES MATCH THE DATABASE EVEN UNDER CONCURRENT JOB BUMPS.
-				const freshRow = db
-					.select({ cleanedRev: pages.cleanedRev, outputRev: pages.outputRev })
-					.from(pages)
-					.where(eq(pages.id, injectRow.id))
-					.get();
-				const finalCleanedRev = freshRow?.cleanedRev ?? injectRow.cleanedRev + 1;
-				const finalOutputRev = freshRow?.outputRev ?? injectRow.outputRev + 1;
-				emit({
-					type: 'page-done',
-					chapterId,
-					page: injectIdx,
-					pageId: injectRow.id,
-					pageCount: slots.length,
-					outputPath,
-					cleanedRev: finalCleanedRev,
-					outputRev: finalOutputRev,
-					durationMs: performance.now() - tA0,
-				});
-				syncBus.broadcast({
-					type: 'page-translated',
-					chapterId,
-					pageId: injectRow.id,
-					pageSeq: injectIdx,
-					outputRev: finalOutputRev,
-				});
-				slots[injectIdx].outcome = 'done';
-				} catch (e) {
-					if (signal.aborted || deps.isPageCancelled?.(injectRow.id)) return;
-					const message = e instanceof Error ? e.message : String(e);
-					db.update(pages).set({ status: 'error', error: message }).where(eq(pages.id, injectRow.id)).run();
-					slots[injectIdx].outcome = 'error';
-					emit({ type: 'error', chapterId, page: injectIdx, pageId: injectRow.id, message });
-				}
+				await analyzePageWithRetry(injectRow, injectIdx);
 			});
 		});
 	}
@@ -1342,37 +979,65 @@ export async function runChapterPipeline(
 		}
 	};
 
+	const analyzePageWithRetry = async (page: Page, i: number, attempt = 0): Promise<void> => {
+		try {
+			await analyzePage(page, i);
+		} catch (e: any) {
+			if (signal.aborted || deps.isPageCancelled?.(page.id)) {
+				if (signal.aborted) {
+					const abortErr = new Error('The operation was aborted');
+					abortErr.name = 'AbortError';
+					throw abortErr;
+				}
+				return;
+			}
+			if (attempt < 3) {
+				const nextAttempt = attempt + 1;
+				const delay = Math.round(1000 * Math.pow(1.5, attempt));
+				console.warn(
+					`[chapterPipeline] Page #${page.id} (seq ${i}) failed on step ${slots[i]?.failedStep || 'pipeline'}: ${e?.message || e}. Scheduling retry ${nextAttempt}/3 in ${delay}ms...`,
+				);
+				await new Promise((r) => setTimeout(r, delay));
+				if (signal.aborted || deps.isPageCancelled?.(page.id)) {
+					if (signal.aborted) {
+						const abortErr = new Error('The operation was aborted');
+						abortErr.name = 'AbortError';
+						throw abortErr;
+					}
+					return;
+				}
+				return analyzePageWithRetry(page, i, nextAttempt);
+			}
+		}
+	};
+
 	// ATTACH IMMEDIATE ABORT LISTENER TO FLUSH IN-FLIGHT POOL
 	const onAbort = () => {
 		pool.clear();
 	};
 	signal.addEventListener('abort', onAbort, { once: true });
+	activeChapterPools.set(chapterId, pool);
 
 	// -- STREAMING EXECUTION: ANALYZE EACH PAGE CONCURRENTLY; EACH PAGE TRANSLATES THE MOMENT ITS OWN --
 	// -- OCR FINISHES. THE LLM STEP IS SERIALIZED PER BOOK (chainTranslate); CLEAN + TYPESET OVERLAP.  --
 	try {
-		await pool.addAll(pageRows.map((page, i) => () => analyzePage(page, i)));
+		await pool.addAll(pageRows.map((page, i) => () => analyzePageWithRetry(page, i)));
 		await pool.onIdle();
+	} catch (err: any) {
+		if (signal.aborted || err?.name === 'AbortError') {
+			// ABORT CAUGHT CLEANLY
+		} else {
+			throw err;
+		}
 	} finally {
 		signal.removeEventListener('abort', onAbort);
+		activeChapterPools.delete(chapterId);
 	}
 
 	if (signal.aborted) {
-		db.update(pages)
-			.set({ status: 'pending', error: null })
-			.where(and(eq(pages.chapterId, chapterId), eq(pages.status, 'processing')))
-			.run();
-		const finalPages = db
-			.select({ status: pages.status, outputPath: pages.outputPath })
-			.from(pages)
-			.where(eq(pages.chapterId, chapterId))
-			.all();
-		const allDone = finalPages.length > 0 && finalPages.every((p) => p.status === 'done' || Boolean(p.outputPath));
-		db.update(chapters)
-			.set({ status: allDone ? 'done' : 'pending' })
-			.where(eq(chapters.id, chapterId))
-			.run();
-		return;
+		const abortErr = new Error('The operation was aborted');
+		abortErr.name = 'AbortError';
+		throw abortErr;
 	}
 
 	// UPDATE CHAPTER FINAL STATUS & TRANSLATED TIMESTAMP

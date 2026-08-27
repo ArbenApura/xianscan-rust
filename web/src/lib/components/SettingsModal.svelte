@@ -277,8 +277,8 @@
 
 	const TYPESET_EXPANSION_PRESETS: { value: number; label: string; sub: string }[] = [
 		{ value: 0.0, label: '0%', sub: 'Exact text bound' },
-		{ value: 0.03, label: '3%', sub: 'Minimal wrap margin' },
-		{ value: 0.06, label: '6%', sub: 'Compact margin (Default)' },
+		{ value: 0.03, label: '3%', sub: 'Minimal wrap margin (Default)' },
+		{ value: 0.06, label: '6%', sub: 'Compact wrap margin' },
 		{ value: 0.09, label: '9%', sub: 'Broad wrap margin' },
 		{ value: 0.12, label: '12%', sub: 'Balanced wrap' },
 	];
@@ -2148,7 +2148,7 @@
 								<div class="w-full max-w-[280px] rounded-lg border-2 border-[#7f1d1d] dark:border-red-500 bg-[#7f1d1d]/20 dark:bg-red-500/20 p-2 flex flex-col items-center text-center">
 									<div class="flex items-center justify-between w-full text-[9px] font-bold text-[#7f1d1d] dark:text-red-300 mb-1 px-1">
 										<span>Tier 3: Typesetting Box</span>
-										<span class="font-mono">+{Math.round(($settings.typesetExpansionPct ?? 0.06) * 100)}%</span>
+										<span class="font-mono">+{Math.round(($settings.typesetExpansionPct ?? 0.03) * 100)}%</span>
 									</div>
 									<div class="w-[90%] rounded-md border-2 border-dashed border-black/80 dark:border-white/80 bg-black/10 dark:bg-white/10 p-1.5 flex flex-col items-center">
 										<div class="flex items-center justify-between w-full text-[8.5px] font-semibold text-neutral-800 dark:text-neutral-200 mb-1 px-0.5">
@@ -2189,11 +2189,11 @@
 							<div class="space-y-1.5">
 								<div class="flex items-center justify-between text-[11px]">
 									<span class="font-semibold opacity-75">Tier 3: Typeset Box Margin</span>
-									<span class="font-mono opacity-60">+{Math.round(($settings.typesetExpansionPct ?? 0.06) * 100)}%</span>
+									<span class="font-mono opacity-60">+{Math.round(($settings.typesetExpansionPct ?? 0.03) * 100)}%</span>
 								</div>
 								<div class="grid grid-cols-5 gap-1.5">
 									{#each TYPESET_EXPANSION_PRESETS as preset}
-										{@const isSelected = Math.abs(($settings.typesetExpansionPct ?? 0.06) - preset.value) < 0.005}
+										{@const isSelected = Math.abs(($settings.typesetExpansionPct ?? 0.03) - preset.value) < 0.005}
 										<button
 											type="button"
 											on:click={() => setTypesetExpansion(preset.value)}
@@ -2831,24 +2831,29 @@
 								<div class="grid grid-cols-3 sm:grid-cols-6 gap-1.5 pt-1">
 									{#each CUDA_VRAM_LIMIT_PRESETS as preset}
 										{@const isSelected = $settings.cudaVramLimitMb === preset.value || ($settings.cudaVramLimitMb === null && preset.value === null)}
-										{@const isBusy = settingVramLimit || !!switchingDevice || !!hardwareInfo?.reloading || mlOffline}
+										{@const maxGpuVramMb = hardwareInfo?.detected_gpus?.[0]?.vram_mb ?? 0}
+										{@const exceedsPhysicalVram = preset.value !== null && maxGpuVramMb > 0 && preset.value > maxGpuVramMb}
+										{@const isBusy = settingVramLimit || !!switchingDevice || !!hardwareInfo?.reloading || mlOffline || exceedsPhysicalVram}
 										<button
 											type="button"
 											disabled={isBusy}
 											on:click={() => setCudaVramLimit(preset.value)}
 											class={`flex flex-col items-center justify-center rounded-lg border py-2 px-1 text-center transition-all ${
-												isBusy
-													? isSelected
-														? 'border-[#b23a2e] bg-[#b23a2e]/[0.08] text-[#b23a2e] dark:text-[#e08a63] ring-1 ring-[#b23a2e]/30 font-bold opacity-85 cursor-wait'
-														: 'border-black/10 opacity-40 cursor-not-allowed dark:border-white/10'
-													: isSelected
-														? 'border-[#b23a2e] bg-[#b23a2e]/[0.08] text-[#b23a2e] dark:text-[#e08a63] ring-1 ring-[#b23a2e]/30 font-bold cursor-pointer'
-														: 'border-black/10 hover:border-black/20 dark:border-white/10 opacity-75 cursor-pointer'
+												exceedsPhysicalVram
+													? 'border-black/5 bg-black/[0.01] dark:border-white/5 opacity-30 cursor-not-allowed'
+													: isBusy
+														? isSelected
+															? 'border-[#b23a2e] bg-[#b23a2e]/[0.08] text-[#b23a2e] dark:text-[#e08a63] ring-1 ring-[#b23a2e]/30 font-bold opacity-85 cursor-wait'
+															: 'border-black/10 opacity-40 cursor-not-allowed dark:border-white/10'
+														: isSelected
+															? 'border-[#b23a2e] bg-[#b23a2e]/[0.08] text-[#b23a2e] dark:text-[#e08a63] ring-1 ring-[#b23a2e]/30 font-bold cursor-pointer'
+															: 'border-black/10 hover:border-black/20 dark:border-white/10 opacity-75 cursor-pointer'
 											}`}
+											title={exceedsPhysicalVram ? `Exceeds detected GPU VRAM (${(maxGpuVramMb / 1024).toFixed(1)} GB)` : ''}
 											use:ripple
 										>
 											<span class="text-xs font-mono">{preset.label}</span>
-											<span class="text-[9px] opacity-60 mt-0.5">{preset.sub}</span>
+											<span class="text-[9px] opacity-60 mt-0.5">{exceedsPhysicalVram ? 'Exceeds GPU' : preset.sub}</span>
 										</button>
 									{/each}
 								</div>

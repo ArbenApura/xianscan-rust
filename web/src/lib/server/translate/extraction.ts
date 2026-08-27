@@ -118,7 +118,15 @@ export function parseExtractedTerms(raw: string, contentSource?: string): TermDr
 		const target = String(t?.target ?? '').trim();
 		if (!sourceTerm || !target) continue;
 
-		if (contentSource && !contentSource.includes(sourceTerm)) continue;
+		if (contentSource) {
+			const normContent = contentSource.replace(/\\n|\\r|[\r\n\s\u3000\u200B-\u200D\uFEFF]/g, '').toLowerCase();
+			const normSource = sourceTerm.replace(/\\n|\\r|[\r\n\s\u3000\u200B-\u200D\uFEFF]/g, '').toLowerCase();
+			const rawContentLower = contentSource.toLowerCase();
+			const rawSourceLower = sourceTerm.toLowerCase();
+			if (!rawContentLower.includes(rawSourceLower) && (!normSource || !normContent.includes(normSource))) {
+				continue;
+			}
+		}
 
 		if (seen.has(sourceTerm)) continue;
 		seen.add(sourceTerm);
@@ -150,7 +158,14 @@ export function parseExtractedTerms(raw: string, contentSource?: string): TermDr
 
 		// DETERMINISTIC RECURRENCE PIN: A MULTI-CHARACTER TERM THAT APPEARS >=2x IN THE CHAPTER TEXT IS
 		// STORY-LEVEL TERMINOLOGY AND MUST BE LOCKED ACROSS PAGES EVEN IF THE MODEL FORGOT "pinned": true.
-		const occurrences = contentSource && sourceTerm.length >= 2 ? contentSource.split(sourceTerm).length - 1 : 0;
+		let occurrences = 0;
+		if (contentSource && sourceTerm.length >= 2) {
+			const normContent = contentSource.replace(/\\n|\\r|[\r\n\s\u3000\u200B-\u200D\uFEFF]/g, '').toLowerCase();
+			const normSource = sourceTerm.replace(/\\n|\\r|[\r\n\s\u3000\u200B-\u200D\uFEFF]/g, '').toLowerCase();
+			if (normSource) {
+				occurrences = normContent.split(normSource).length - 1;
+			}
+		}
 		const pinned = t?.pinned === true || occurrences >= 2;
 
 		// EXTRACT ALIASES (SUPPORTING ARRAYS, COMMA-SEPARATED STRINGS, AND SYNONYM KEYS)

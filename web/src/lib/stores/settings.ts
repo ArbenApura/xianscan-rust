@@ -211,7 +211,7 @@ export const DEFAULTS: AppSettings = {
 	enableSfx: false,
 	sfxMaxAreaPct: 0.10,
 	inpaintExpansionPct: 0.03,
-	typesetExpansionPct: 0.06,
+	typesetExpansionPct: 0.03,
 };
 
 export const SERVER_CANONICAL_KEYS: (keyof AppSettings)[] = [

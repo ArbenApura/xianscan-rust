@@ -2,7 +2,7 @@
 import type { LangPair, TermDraft, TranslationUsage } from '$lib/types';
 import type OpenAI from 'openai';
 import { languageName } from '$lib/languages';
-import { computeUsage, createClient, queued, resolveModel, thinkingParam, withRetry } from './llm';
+import { computeUsage, createClient, queued, resolveModel, stripThinkingTags, thinkingParam, withRetry } from './llm';
 
 // SUBMODULE RE-EXPORTS FOR BACKWARD COMPATIBILITY
 export * from './translate/prompts';
@@ -237,12 +237,13 @@ Rules:
 		const u = computeUsage(res.usage, model);
 		mergeUsage(usage, u);
 
-		let out = res.choices[0]?.message?.content?.trim() || '';
+		let out = stripThinkingTags(res.choices[0]?.message?.content?.trim() || '').trim();
 		if (
 			(out.startsWith('"') && out.endsWith('"')) ||
 			(out.startsWith('“') && out.endsWith('”')) ||
 			(out.startsWith('\'') && out.endsWith('\'')) ||
-			(out.startsWith('「') && out.endsWith('」'))
+			(out.startsWith('「') && out.endsWith('」')) ||
+			(out.startsWith('«') && out.endsWith('»'))
 		) {
 			out = out.slice(1, -1).trim();
 		}

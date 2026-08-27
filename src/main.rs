@@ -160,6 +160,7 @@ async fn main() -> anyhow::Result<()> {
         .init();
 
     enable_ansi_support();
+    xianscan_rust::ml::device::init_linux_gpu_persistence();
 
     let args: Vec<String> = std::env::args().collect();
     let is_dev_mode = args.iter().any(|arg| arg == "--dev" || arg == "-d")

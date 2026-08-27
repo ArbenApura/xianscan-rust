@@ -53,7 +53,7 @@ export function sanitizeSettingValue(key: keyof AppSettings, value: unknown): un
 
 		case 'typesetExpansionPct': {
 			const n = Number(value);
-			return Math.max(0.0, Math.min(0.30, isNaN(n) ? 0.06 : n));
+			return Math.max(0.0, Math.min(0.30, isNaN(n) ? 0.03 : n));
 		}
 
 		case 'typesetPadding': {

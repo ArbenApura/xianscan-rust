@@ -192,25 +192,58 @@ export async function addTerm(
 	draft: TermDraft,
 	pair: LangPair,
 ): Promise<GlossaryEntry> {
-	const [row] = await db
-		.insert(glossary)
-		.values({
-			scope,
-			bookId: scope === 'global' ? null : bookId,
-			sourceLang: pair.sourceLang,
-			targetLang: pair.targetLang,
-			source: draft.source.trim(),
-			target: draft.target.trim(),
-			gender: draft.gender,
-			context: draft.context?.trim() || null,
-			tags: draft.tags ?? null,
-			category: draft.category ?? null,
-			pinned: draft.pinned ?? false,
-			// A HAND-ADDED TERM IS AUTHORITATIVE — MARK IT 'user' SO EXTRACTION NEVER TREATS IT AS UNREVIEWED.
-			status: 'user',
-			aliases: aliasesJson(draft.aliases),
-		})
-		.returning();
+	const effBookId = scope === 'global' ? null : bookId;
+	const values = {
+		scope,
+		bookId: effBookId,
+		sourceLang: pair.sourceLang,
+		targetLang: pair.targetLang,
+		source: draft.source.trim(),
+		target: draft.target.trim(),
+		gender: draft.gender ?? 'neuter',
+		context: draft.context?.trim() || null,
+		tags: draft.tags ?? null,
+		category: draft.category ?? null,
+		pinned: draft.pinned ?? false,
+		// A HAND-ADDED TERM IS AUTHORITATIVE — MARK IT 'user' SO EXTRACTION NEVER TREATS IT AS UNREVIEWED.
+		status: 'user' as const,
+		aliases: aliasesJson(draft.aliases),
+		updatedAt: Date.now(),
+	};
+
+	const set = {
+		target: sql`excluded.target`,
+		gender: sql`excluded.gender`,
+		context: sql`excluded.context`,
+		tags: sql`excluded.tags`,
+		category: sql`excluded.category`,
+		pinned: sql`excluded.pinned`,
+		status: sql`excluded.status`,
+		aliases: sql`excluded.aliases`,
+		updatedAt: sql`excluded.updated_at`,
+	};
+
+	const [row] =
+		scope === 'global'
+			? await db
+					.insert(glossary)
+					.values(values)
+					.onConflictDoUpdate({
+						target: [glossary.sourceLang, glossary.targetLang, glossary.source],
+						targetWhere: sql`${glossary.scope} = 'global'`,
+						set,
+					})
+					.returning()
+			: await db
+					.insert(glossary)
+					.values(values)
+					.onConflictDoUpdate({
+						target: [glossary.bookId, glossary.source],
+						targetWhere: sql`${glossary.scope} = 'book'`,
+						set,
+					})
+					.returning();
+
 	invalidate(scope, bookId);
 	return row;
 }

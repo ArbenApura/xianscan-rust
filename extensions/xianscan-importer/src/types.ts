@@ -150,3 +150,17 @@ export interface HudState {
 	totalPages: number;
 	chapterTitle?: string;
 }
+
+export interface FetchImageDataResponse {
+	ok: boolean;
+	dataUrl?: string;
+	arrayBuffer?: number[];
+	mimeType?: string;
+	error?: string;
+}
+
+export interface KeepAliveMessage {
+	type: 'KEEPALIVE_PING' | 'KEEPALIVE_PONG';
+	chapterId?: number;
+	timestamp: number;
+}

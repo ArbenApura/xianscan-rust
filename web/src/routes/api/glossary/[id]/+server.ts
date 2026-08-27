@@ -20,10 +20,18 @@ export const PUT: RequestHandler = async ({ params, request }) => {
 	if (id === null) throw error(400, 'Invalid id.');
 	const parsed = updateGlossaryTermSchema.safeParse(await request.json().catch(() => null));
 	if (!parsed.success) throw error(400, 'Invalid update.');
-	// updateTerm RETURNS null FOR A MISSING id → 404.
-	const row = await updateTerm(id, parsed.data);
-	if (!row) throw error(404, 'Term not found.');
-	return json(row);
+	try {
+		// updateTerm RETURNS null FOR A MISSING id → 404.
+		const row = await updateTerm(id, parsed.data);
+		if (!row) throw error(404, 'Term not found.');
+		return json(row);
+	} catch (e) {
+		const msg = e instanceof Error ? e.message : String(e);
+		if (msg.includes('UNIQUE constraint failed')) {
+			throw error(409, 'A term with this source already exists in this glossary.');
+		}
+		throw e;
+	}
 };
 
 export const DELETE: RequestHandler = async ({ params }) => {

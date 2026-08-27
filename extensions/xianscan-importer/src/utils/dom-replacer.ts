@@ -27,10 +27,68 @@ export function getCanonicalUrl(url: string): string {
 	}
 }
 
-// IN-MEMORY CACHE FOR CONVERTED SAFE DATA URLS
+// IN-MEMORY CACHE FOR CONVERTED SAFE DATA / OBJECT URLS
 const safeDataUrlCache = new Map<string, string>();
+const activeObjectUrls = new Set<string>();
 
-// RESOLVE AN IMAGE URL: IF HOST PAGE IS HTTPS AND SERVER IS HTTP, PROXY THROUGH BACKGROUND AS BASE64 DATA URL TO PREVENT MIXED CONTENT
+// BOUNDED CONCURRENCY QUEUE FOR SAFE IMAGE RESOLUTION (MAX 3 CONCURRENT)
+type QueueTask = () => Promise<void>;
+const fetchQueue: QueueTask[] = [];
+let activeFetches = 0;
+const MAX_CONCURRENT_IMAGE_FETCHES = 3;
+
+function processFetchQueue() {
+	while (activeFetches < MAX_CONCURRENT_IMAGE_FETCHES && fetchQueue.length > 0) {
+		const nextTask = fetchQueue.shift();
+		if (nextTask) {
+			activeFetches++;
+			nextTask().finally(() => {
+				activeFetches--;
+				processFetchQueue();
+			});
+		}
+	}
+}
+
+function enqueueFetch<T>(fn: () => Promise<T>): Promise<T> {
+	return new Promise((resolve, reject) => {
+		fetchQueue.push(async () => {
+			try {
+				const result = await fn();
+				resolve(result);
+			} catch (err) {
+				reject(err);
+			}
+		});
+		processFetchQueue();
+	});
+}
+
+// CONVERT BASE64 DATA URL TO BLOB OBJECT URL FOR SMOOTH RENDERING
+function createSafeBlobUrlFromData(dataUrl: string): string {
+	try {
+		if (typeof window === 'undefined' || !window.URL || !window.URL.createObjectURL) {
+			return dataUrl;
+		}
+		const parts = dataUrl.split(',');
+		const mimeMatch = parts[0].match(/:(.*?);/);
+		const mime = mimeMatch ? mimeMatch[1] : 'image/jpeg';
+		const bstr = atob(parts[1]);
+		let n = bstr.length;
+		const u8arr = new Uint8Array(n);
+		while (n--) {
+			u8arr[n] = bstr.charCodeAt(n);
+		}
+		const blob = new Blob([u8arr], { type: mime });
+		const objUrl = URL.createObjectURL(blob);
+		activeObjectUrls.add(objUrl);
+		return objUrl;
+	} catch {
+		return dataUrl;
+	}
+}
+
+// RESOLVE AN IMAGE URL: IF HOST PAGE IS HTTPS AND SERVER IS HTTP, PROXY THROUGH BACKGROUND TO PREVENT MIXED CONTENT
 export async function resolveSafeImageUrl(rawUrl: string): Promise<string> {
 	if (!rawUrl) return rawUrl;
 	if (safeDataUrlCache.has(rawUrl)) {
@@ -40,16 +98,22 @@ export async function resolveSafeImageUrl(rawUrl: string): Promise<string> {
 	const isHttpsPage = typeof window !== 'undefined' && window.location.protocol === 'https:';
 	const isHttpServer = rawUrl.startsWith('http://');
 
-	// IF WE ARE ON AN HTTPS PAGE AND THE IMAGE SERVER IS HTTP, REQUEST DATA URL FROM BACKGROUND
+	// IF WE ARE ON AN HTTPS PAGE AND THE IMAGE SERVER IS HTTP, REQUEST DATA URL FROM BACKGROUND VIA QUEUE
 	if (isHttpsPage && isHttpServer && typeof chrome !== 'undefined' && chrome.runtime?.sendMessage) {
-		return new Promise(resolve => {
-			chrome.runtime.sendMessage({ type: 'FETCH_IMAGE_DATA', url: rawUrl }, res => {
-				if (chrome.runtime.lastError || !res || !res.ok || !res.dataUrl) {
-					resolve(rawUrl);
-				} else {
-					safeDataUrlCache.set(rawUrl, res.dataUrl);
-					resolve(res.dataUrl);
-				}
+		return enqueueFetch(async () => {
+			if (safeDataUrlCache.has(rawUrl)) {
+				return safeDataUrlCache.get(rawUrl)!;
+			}
+			return new Promise<string>(resolve => {
+				chrome.runtime.sendMessage({ type: 'FETCH_IMAGE_DATA', url: rawUrl }, res => {
+					if (chrome.runtime.lastError || !res || !res.ok || !res.dataUrl) {
+						resolve(rawUrl);
+					} else {
+						const safeUrl = createSafeBlobUrlFromData(res.dataUrl);
+						safeDataUrlCache.set(rawUrl, safeUrl);
+						resolve(safeUrl);
+					}
+				});
 			});
 		});
 	}
@@ -239,8 +303,8 @@ export function getHostReaderImages(excludedUrls?: string[], includedUrls?: stri
 		}
 	}
 
-	const excludedSet = new Set((excludedUrls || []).map(u => getCanonicalUrl(u)));
-	const includedSet = includedUrls && includedUrls.length > 0 ? new Set(includedUrls.map(u => getCanonicalUrl(u))) : null;
+	const excludedSet = new Set((excludedUrls || []).flatMap(u => [u, getCanonicalUrl(u)]));
+	const includedSet = includedUrls && includedUrls.length > 0 ? new Set(includedUrls.flatMap(u => [u, getCanonicalUrl(u)])) : null;
 
 	const allImages = Array.from(rootScope.querySelectorAll<HTMLImageElement>('img, picture img'));
 	return allImages.filter(img => {
@@ -251,6 +315,7 @@ export function getHostReaderImages(excludedUrls?: string[], includedUrls?: stri
 
 		// RESOLVE CANDIDATE URLS FOR EXCLUSION MATCHING
 		const candidates = [
+			img.getAttribute('data-xianscan-orig-src'),
 			img.getAttribute('src'),
 			img.getAttribute('data-src'),
 			img.getAttribute('data-original'),
@@ -260,13 +325,15 @@ export function getHostReaderImages(excludedUrls?: string[], includedUrls?: stri
 			img.currentSrc
 		].filter(Boolean) as string[];
 
-		const canonicalCandidates = candidates.map(c => {
+		const canonicalCandidates = candidates.flatMap(c => {
+			const list = [c, getCanonicalUrl(c)];
 			try {
 				const abs = new URL(c, typeof window !== 'undefined' ? window.location.href : 'http://localhost').href;
-				return getCanonicalUrl(abs);
+				list.push(abs, getCanonicalUrl(abs));
 			} catch {
-				return getCanonicalUrl(c);
+				// IGNORE URL PARSE ERRORS
 			}
+			return list;
 		});
 
 		// 1. IF EXPLICITLY EXCLUDED BY USER IN POPUP: SKIP COMPLETELY
@@ -294,6 +361,8 @@ export function getHostReaderImages(excludedUrls?: string[], includedUrls?: stri
 	});
 }
 
+let activeDomReplacerInstance: DomReplacerEngine | null = null;
+
 export class DomReplacerEngine {
 	private baseUrl: string;
 	private isTranslatedActive = false;
@@ -301,8 +370,13 @@ export class DomReplacerEngine {
 	private activePageUrls = new Map<number, string>();
 	private activeExcludedUrls?: string[];
 	private activeIncludedUrls?: string[];
+	private latestServerPages: ChapterReaderPage[] = [];
 
 	constructor(baseUrl = 'http://127.0.0.1:8124') {
+		if (activeDomReplacerInstance && activeDomReplacerInstance !== this) {
+			activeDomReplacerInstance.destroy();
+		}
+		activeDomReplacerInstance = this;
 		this.baseUrl = baseUrl.replace(/\/+$/, '');
 	}
 
@@ -388,6 +462,25 @@ export class DomReplacerEngine {
 		}
 	}
 
+	private attachImageErrorHandler(img: HTMLImageElement, pageId: number, targetUrl: string) {
+		let retries = 0;
+		img.onerror = () => {
+			if (retries < 3) {
+				retries++;
+				console.warn(`[XianScan] Image load error on page #${pageId}, retrying (attempt ${retries})...`);
+				safeDataUrlCache.delete(targetUrl);
+				setTimeout(() => {
+					void resolveSafeImageUrl(targetUrl).then(freshSafeUrl => {
+						if (img.getAttribute('data-xianscan-page-id') === String(pageId)) {
+							img.src = freshSafeUrl;
+							img.srcset = '';
+						}
+					});
+				}, retries * 500);
+			}
+		};
+	}
+
 	private sanitizeLazyAttributes(img: HTMLImageElement) {
 		if (!img.getAttribute('data-xianscan-orig-src')) {
 			img.setAttribute('data-xianscan-orig-src', img.src || img.getAttribute('data-src') || '');
@@ -412,37 +505,107 @@ export class DomReplacerEngine {
 		this.observer = new MutationObserver(mutations => {
 			if (!this.isTranslatedActive) return;
 
+			let hasAddedNodes = false;
+
 			for (const mutation of mutations) {
-				const target = mutation.target as HTMLImageElement;
-				if (!target || target.tagName !== 'IMG') continue;
+				// 1. ATTRIBUTE MUTATIONS ON MANAGED IMAGES
+				if (mutation.type === 'attributes') {
+					const target = mutation.target as HTMLImageElement;
+					if (!target || target.tagName !== 'IMG') continue;
 
-				const pageIdStr = target.getAttribute('data-xianscan-page-id');
-				if (!pageIdStr) continue;
+					const pageIdStr = target.getAttribute('data-xianscan-page-id');
+					if (!pageIdStr) continue;
 
-				const pageId = Number(pageIdStr);
-				const expectedSafeUrl = this.activePageUrls.get(pageId);
-				if (expectedSafeUrl && target.src !== expectedSafeUrl) {
-					// SITE LAZY LOADER TRIED TO OVERWRITE OUR IMAGE: RESTORE IMMEDIATELY
-					target.src = expectedSafeUrl;
-					target.srcset = '';
-					for (const attr of LAZY_ATTRS) {
-						target.removeAttribute(attr);
+					const pageId = Number(pageIdStr);
+					const expectedSafeUrl = this.activePageUrls.get(pageId);
+					if (expectedSafeUrl && target.src !== expectedSafeUrl) {
+						// SITE LAZY LOADER TRIED TO OVERWRITE OUR IMAGE: RESTORE IMMEDIATELY
+						target.src = expectedSafeUrl;
+						target.srcset = '';
+						for (const attr of LAZY_ATTRS) {
+							target.removeAttribute(attr);
+						}
+					}
+				} else if (mutation.type === 'childList' && mutation.addedNodes.length > 0) {
+					for (const node of Array.from(mutation.addedNodes)) {
+						if (node.nodeType === 1) {
+							const el = node as HTMLElement;
+							if (el.tagName === 'IMG' || el.querySelector('img')) {
+								hasAddedNodes = true;
+								break;
+							}
+						}
 					}
 				}
+			}
+
+			// 2. DYNAMIC VIRTUAL-SCROLL / INFINITE-SCROLL NODE RECONCILIATION
+			if (hasAddedNodes && this.latestServerPages.length > 0) {
+				this.reconcileDynamicHostImages();
 			}
 		});
 
 		this.observer.observe(document.body, {
 			attributes: true,
 			attributeFilter: ['src', 'srcset', ...LAZY_ATTRS],
+			childList: true,
 			subtree: true
 		});
+	}
+
+	// RECONCILE FRESHLY INSERTED DOM IMAGES (FROM VIRTUAL SCROLL OR INFINITE SCROLL) WITH SERVER SCRIPT PAGES
+	private reconcileDynamicHostImages(): void {
+		if (!this.isTranslatedActive || this.latestServerPages.length === 0) return;
+
+		const hostImgs = getHostReaderImages(this.activeExcludedUrls, this.activeIncludedUrls);
+		const isHttpsHost = typeof window !== 'undefined' && window.location.protocol === 'https:';
+
+		for (let i = 0; i < hostImgs.length && i < this.latestServerPages.length; i++) {
+			const img = hostImgs[i];
+			if (img.getAttribute('data-xianscan-page-id')) continue;
+
+			const page = this.latestServerPages[i];
+			const isOutputReady = !!page.outputPath || page.outputRev > 0;
+			const targetUrl = isOutputReady
+				? `${this.baseUrl}/api/pages/${page.id}/file?kind=output&rev=${page.outputRev}`
+				: `${this.baseUrl}/api/pages/${page.id}/file?kind=original&rev=${page.originalRev || 0}`;
+
+			this.sanitizeLazyAttributes(img);
+			img.setAttribute('data-xianscan-page-id', String(page.id));
+			img.setAttribute('data-xianscan-page-seq', String(page.seq));
+			img.setAttribute('data-xianscan-status', isOutputReady ? 'ready' : 'pending');
+
+			if (!isHttpsHost || !targetUrl.includes('127.0.0.1') && !targetUrl.includes('localhost')) {
+				img.src = targetUrl;
+			}
+			img.style.display = '';
+			img.style.transition = 'filter 0.35s ease';
+			img.style.filter = isOutputReady ? 'none' : 'brightness(0.38) contrast(1.15)';
+
+			this.attachImageErrorHandler(img, page.id, targetUrl);
+			this.activePageUrls.set(page.id, targetUrl);
+
+			if (!isOutputReady) {
+				this.attachPendingBadge(img, page.id);
+			} else {
+				this.removePendingBadge(page.id);
+			}
+
+			void resolveSafeImageUrl(targetUrl).then(safeUrl => {
+				this.activePageUrls.set(page.id, safeUrl);
+				if (img.getAttribute('data-xianscan-page-id') === String(page.id)) {
+					img.src = safeUrl;
+					img.srcset = '';
+				}
+			});
+		}
 	}
 
 	// SWAP ORIGINAL IMAGES IN-PLACE PRESERVING HOST CONTAINERS & EXACT STYLES
 	mountTranslatedPages(pages: ChapterReaderPage[], excludedUrls?: string[], includedUrls?: string[]): boolean {
 		this.activeExcludedUrls = excludedUrls;
 		this.activeIncludedUrls = includedUrls;
+		this.latestServerPages = pages;
 		const hostImgs = getHostReaderImages(excludedUrls, includedUrls);
 		if (hostImgs.length === 0 || pages.length === 0) {
 			return false;
@@ -478,6 +641,7 @@ export class DomReplacerEngine {
 				img.style.filter = isOutputReady ? 'none' : 'brightness(0.38) contrast(1.15)';
 				lastAnchor = img;
 
+				this.attachImageErrorHandler(img, page.id, targetUrl);
 				this.activePageUrls.set(page.id, targetUrl);
 
 				if (!isOutputReady) {
@@ -512,6 +676,7 @@ export class DomReplacerEngine {
 				lastAnchor.insertAdjacentElement('afterend', clone);
 				lastAnchor = clone;
 
+				this.attachImageErrorHandler(clone, page.id, targetUrl);
 				this.activePageUrls.set(page.id, targetUrl);
 
 				if (!isOutputReady) {
@@ -548,6 +713,14 @@ export class DomReplacerEngine {
 	updatePageSlice(pageId: number, pageSeq: number, outputRev: number): void {
 		this.removePendingBadge(pageId);
 
+		// Update in latestServerPages
+		const existingMeta = this.latestServerPages.find(p => p.id === pageId || p.seq === pageSeq);
+		if (existingMeta) {
+			existingMeta.outputRev = outputRev;
+			existingMeta.outputPath = existingMeta.outputPath || `out_${pageId}.webp`;
+			existingMeta.status = 'done';
+		}
+
 		let img = document.querySelector<HTMLImageElement>(`img[data-xianscan-page-id="${pageId}"]`);
 		if (!img) {
 			img = document.querySelector<HTMLImageElement>(`img[data-xianscan-page-seq="${pageSeq}"]`);
@@ -575,6 +748,7 @@ export class DomReplacerEngine {
 			img.style.transition = 'filter 0.35s ease';
 			img.style.filter = 'none';
 
+			this.attachImageErrorHandler(img, pageId, newUrl);
 			this.activePageUrls.set(pageId, newUrl);
 
 			void resolveSafeImageUrl(newUrl).then(safeUrl => {
@@ -606,6 +780,7 @@ export class DomReplacerEngine {
 				clone.style.filter = 'none';
 
 				prevImg.insertAdjacentElement('afterend', clone);
+				this.attachImageErrorHandler(clone, pageId, newUrl);
 				this.activePageUrls.set(pageId, newUrl);
 
 				void resolveSafeImageUrl(newUrl).then(safeUrl => {
@@ -691,6 +866,18 @@ export class DomReplacerEngine {
 				wrapper.remove();
 			}
 		});
+
+		// REVOKE ALL CREATED OBJECT URLS TO PREVENT MEMORY LEAKS
+		for (const objUrl of activeObjectUrls) {
+			try {
+				URL.revokeObjectURL(objUrl);
+			} catch {
+				// IGNORE
+			}
+		}
+		activeObjectUrls.clear();
+		safeDataUrlCache.clear();
+		this.latestServerPages = [];
 		this.isTranslatedActive = false;
 	}
 }

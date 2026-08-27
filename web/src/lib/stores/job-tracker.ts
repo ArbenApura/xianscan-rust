@@ -71,9 +71,18 @@ function createJobTrackerStore() {
 			s.totalPromptTokens = 0;
 			s.totalCompletionTokens = 0;
 			s.cacheHitCount = 0;
-			if (typeof event.totalPages === 'number') s.totalPages = event.totalPages;
+			const targetPageIds = Array.isArray(event.targetPageIds) ? (event.targetPageIds as number[]) : undefined;
+			if (targetPageIds && targetPageIds.length > 0) {
+				s.targetPageIds = targetPageIds;
+				s.totalPages = targetPageIds.length;
+			} else if (typeof event.totalPages === 'number') {
+				s.totalPages = event.totalPages;
+			}
 			if (Array.isArray(event.pages) && event.pages.length > 0) {
-				s.totalPages = event.pages.length;
+				if (!targetPageIds || targetPageIds.length === 0) {
+					s.totalPages = event.pages.length;
+				}
+				const targetSet = targetPageIds && targetPageIds.length > 0 ? new Set(targetPageIds) : null;
 				s.pages = event.pages.map(
 					(p: { id: number; seq: number; status?: string; cleanedRev?: number; outputRev?: number }, idx: number) => ({
 						pageIndex: idx,
@@ -85,7 +94,11 @@ function createJobTrackerStore() {
 						outputRev: p.outputRev,
 					}),
 				);
-				s.completedPages = s.pages.filter((p) => p.status === 'done').length;
+				if (targetSet) {
+					s.completedPages = s.pages.filter((p) => targetSet.has(p.pageId) && p.status === 'done').length;
+				} else {
+					s.completedPages = s.pages.filter((p) => p.status === 'done').length;
+				}
 			}
 		} else if (event.type === 'phase-change' && typeof event.phase === 'string') {
 			s.currentPhase = event.phase as any;

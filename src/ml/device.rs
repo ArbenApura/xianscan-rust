@@ -35,6 +35,24 @@ const GPU_ENUM_CACHE_TTL: Duration = Duration::from_secs(15);
 #[cfg(target_os = "linux")]
 const SUBPROCESS_TIMEOUT: Duration = Duration::from_secs(3);
 
+/// AUTOMATICALLY INITIALIZES LINUX NVIDIA DRIVER PERSISTENCE IN THE BACKGROUND ON APP STARTUP.
+/// PREVENTS DRIVER TEARDOWN/REINITIALIZATION LATENCIES AND TRANSIENT CUDA FAILURES ON EC2/CLOUD RESTARTS.
+pub fn init_linux_gpu_persistence() {
+    #[cfg(target_os = "linux")]
+    {
+        std::thread::spawn(|| {
+            // ATTEMPT TO ENABLE PERSISTENCE MODE VIA NVIDIA-SMI NON-BLOCKINGLY
+            let _ = std::process::Command::new("nvidia-smi")
+                .args(["-pm", "1"])
+                .stdout(std::process::Stdio::null())
+                .stderr(std::process::Stdio::null())
+                .spawn()
+                .and_then(|mut child| child.wait());
+        });
+    }
+}
+
+
 #[cfg(windows)]
 fn enumerate_system_gpus_inner() -> Vec<GpuInfo> {
     use windows::Win32::Graphics::Dxgi::*;
@@ -522,6 +540,12 @@ pub fn set_active_provider(mode: &str) -> HardwareStatus {
     let mut guard = OVERRIDE_DEVICE.lock().unwrap();
     *guard = if clean == "auto" { None } else { Some(clean) };
     drop(guard);
+
+    // RESET TRANSIENT RUNTIME FAILURE FLAGS WHEN USER SWITCHES / PROBES PROVIDERS
+    CUDA_RUNTIME_FAILED.store(false, Ordering::Relaxed);
+    COREML_RUNTIME_FAILED.store(false, Ordering::Relaxed);
+    *LAST_GPU_ERROR.lock().unwrap() = None;
+
     get_hardware_status()
 }
 
@@ -544,8 +568,8 @@ pub fn get_optimal_cpu_threads() -> usize {
     num_cpus::get().min(8).max(1)
 }
 
-/// DETERMINES OPTIMAL GPU MEMORY LIMIT PER ONNX SESSION FOR CUDA EP DYNAMICALLY SCALED BY DETECTED VRAM
-pub fn get_cuda_gpu_memory_limit() -> usize {
+/// DETERMINES OPTIMAL GPU MEMORY LIMIT PER ONNX SESSION FOR CUDA EP DYNAMICALLY SCALED BY MODEL ARCHITECTURE AND DETECTED VRAM
+pub fn get_cuda_memory_limit_for_model(model_tag: &str) -> usize {
     // 1. RUNTIME EXPLICIT USER CONFIGURATION FROM SETTINGS UI
     if let Some(limit) = *OVERRIDE_CUDA_MEM_LIMIT_MB.lock().unwrap() {
         if limit > 0 {
@@ -562,22 +586,42 @@ pub fn get_cuda_gpu_memory_limit() -> usize {
         }
     }
 
-    // 3. DYNAMIC VRAM ALLOCATION BASED ON DETECTED DEDICATED GPU HARDWARE:
-    // - >= 14 GB VRAM (E.G. 16GB TESLA T4, 16GB-24GB RTX 4080/4090/3090): ALLOCATE 8 GB
-    // - >= 7 GB VRAM (E.G. 8GB-12GB RTX 3060/3070/4060/4070): ALLOCATE 6 GB
-    // - >= 4 GB VRAM (E.G. 4GB-6GB GTX 1650/1660, RTX 3050): ALLOCATE 80% OF VRAM (MIN 3.2 GB)
-    // - FALLBACK / UNKNOWN: ALLOCATE 6 GB (ENSURES 1152px RF-DETR 2XL CONTIGUOUS 2.04GB MATMUL BUFFER FITS CLEANLY)
-    if let Some(gpu) = get_dedicated_gpu() {
-        if gpu.vram_mb >= 14000.0 {
-            return 8 * 1024 * 1024 * 1024;
-        } else if gpu.vram_mb >= 7000.0 {
-            return 6 * 1024 * 1024 * 1024;
-        } else if gpu.vram_mb >= 4000.0 {
-            return ((gpu.vram_mb * 0.80) as usize) * 1024 * 1024;
+    // 3. MODEL-DIFFERENTIATED VRAM ALLOCATION SCALED BY DETECTED HARDWARE:
+    // - RF-DETR (DETECTOR): REQUIRES 2.5 GB - 4 GB FOR 1152px ATTENTION MATMUL BUFFERS
+    // - LAMA (INPAINTER): REQUIRES 1.5 GB - 2.5 GB FOR FOURIER CONVOLUTION
+    // - RAPIDOCR (REC / DET / LAZY): LIGHTWEIGHT CNN+CTC / DBNET REQUIRES 512 MB - 1 GB
+    let tag = model_tag.to_ascii_lowercase();
+    let total_vram_mb = get_dedicated_gpu().map(|g| g.vram_mb).unwrap_or(8192.0);
+
+    if tag.contains("rfdetr") || (tag.contains("det") && !tag.contains("ocr")) {
+        if total_vram_mb >= 14000.0 {
+            4 * 1024 * 1024 * 1024 // 4 GB ON 16GB+ GPUS (TESLA T4 / A10G / RTX 4090)
+        } else if total_vram_mb >= 7000.0 {
+            3 * 1024 * 1024 * 1024 // 3 GB ON 8GB-12GB GPUS
+        } else {
+            2 * 1024 * 1024 * 1024 // 2 GB ON <= 6GB GPUS
+        }
+    } else if tag.contains("lama") || tag.contains("inpaint") {
+        if total_vram_mb >= 14000.0 {
+            2560 * 1024 * 1024 // 2.5 GB ON 16GB+ GPUS
+        } else if total_vram_mb >= 7000.0 {
+            2048 * 1024 * 1024 // 2 GB ON 8GB-12GB GPUS
+        } else {
+            1536 * 1024 * 1024 // 1.5 GB ON <= 6GB GPUS
+        }
+    } else {
+        // OCR RECOGNITION / DETECTION / LAZY FOREIGN SESSIONS
+        if total_vram_mb >= 14000.0 {
+            1024 * 1024 * 1024 // 1 GB ON 16GB+ GPUS
+        } else {
+            512 * 1024 * 1024 // 512 MB ON <= 12GB GPUS
         }
     }
+}
 
-    6 * 1024 * 1024 * 1024
+/// DETERMINES OPTIMAL GPU MEMORY LIMIT PER ONNX SESSION FOR CUDA EP DYNAMICALLY SCALED BY DETECTED VRAM
+pub fn get_cuda_gpu_memory_limit() -> usize {
+    get_cuda_memory_limit_for_model("rfdetr")
 }
 
 #[cfg(target_os = "linux")]
@@ -784,42 +828,64 @@ pub fn create_session_from_memory(bytes: &[u8], model_tag: &str) -> Result<Sessi
     if wants_cuda {
         #[cfg(feature = "cuda")]
         {
-            let cuda_res = (|| -> Result<Session> {
-                let session = Session::builder()
-                    .map_err(|e| anyhow::anyhow!("Builder error: {}", e))?
-                    .with_intra_threads(get_optimal_gpu_host_threads())
-                    .map_err(|e| anyhow::anyhow!("Intra threads error: {}", e))?
-                    .with_optimization_level(GraphOptimizationLevel::Level3)
-                    .map_err(|e| anyhow::anyhow!("Opt level error: {}", e))?
-                    .with_memory_pattern(false)
-                    .map_err(|e| anyhow::anyhow!("Memory pattern error: {}", e))?
-                    .with_config_entry("session.enable_cpu_mem_arena", "0")
-                    .map_err(|e| anyhow::anyhow!("Config entry error: {}", e))?
-                    .with_execution_providers([
-                        ort::ep::CUDA::default()
-                            .with_arena_extend_strategy(ort::ep::ArenaExtendStrategy::NextPowerOfTwo)
-                            .with_memory_limit(get_cuda_gpu_memory_limit())
-                            .build()
-                    ])
-                    .map_err(|e| anyhow::anyhow!("CUDA provider error: {}", e))?
-                    .commit_from_memory(bytes)
-                    .map_err(|e| anyhow::anyhow!("Commit error: {}", e))?;
-                Ok(session)
-            })();
+            let mut last_err = None;
+            let max_retries = 3;
+            let mem_limit = get_cuda_memory_limit_for_model(model_tag);
 
-            match cuda_res {
-                Ok(s) => {
-                    tracing::info!("Successfully initialized ONNX model '{}' with CUDA GPU acceleration.", model_tag);
-                    return Ok(s);
+            for attempt in 1..=max_retries {
+                let cuda_res = (|| -> Result<Session> {
+                    let session = Session::builder()
+                        .map_err(|e| anyhow::anyhow!("Builder error: {}", e))?
+                        .with_intra_threads(get_optimal_gpu_host_threads())
+                        .map_err(|e| anyhow::anyhow!("Intra threads error: {}", e))?
+                        .with_optimization_level(GraphOptimizationLevel::Level3)
+                        .map_err(|e| anyhow::anyhow!("Opt level error: {}", e))?
+                        .with_memory_pattern(false)
+                        .map_err(|e| anyhow::anyhow!("Memory pattern error: {}", e))?
+                        .with_config_entry("session.enable_cpu_mem_arena", "0")
+                        .map_err(|e| anyhow::anyhow!("Config entry error: {}", e))?
+                        .with_execution_providers([
+                            ort::ep::CUDA::default()
+                                .with_arena_extend_strategy(ort::ep::ArenaExtendStrategy::SameAsRequested)
+                                .with_memory_limit(mem_limit)
+                                .build()
+                        ])
+                        .map_err(|e| anyhow::anyhow!("CUDA provider error: {}", e))?
+                        .commit_from_memory(bytes)
+                        .map_err(|e| anyhow::anyhow!("Commit error: {}", e))?;
+                    Ok(session)
+                })();
+
+                match cuda_res {
+                    Ok(s) => {
+                        tracing::info!(
+                            "Successfully initialized ONNX model '{}' with CUDA GPU acceleration (VRAM limit: {} MB).",
+                            model_tag,
+                            mem_limit / (1024 * 1024)
+                        );
+                        *LAST_GPU_ERROR.lock().unwrap() = None;
+                        return Ok(s);
+                    }
+                    Err(e) => {
+                        last_err = Some(e);
+                        if attempt < max_retries {
+                            tracing::debug!(
+                                "Transient CUDA init failure for '{}' (attempt {}/{}); retrying after backoff...",
+                                model_tag, attempt, max_retries
+                            );
+                            trim_process_memory();
+                            std::thread::sleep(Duration::from_millis(attempt as u64 * 250));
+                        }
+                    }
                 }
-                Err(e) => {
-                    CUDA_RUNTIME_FAILED.store(true, Ordering::Relaxed);
-                    *LAST_GPU_ERROR.lock().unwrap() = Some(format!("CUDA init error: {}", e));
-                    tracing::warn!(
-                        "Failed to initialize ONNX model '{}' with CUDA ({}); falling back to CPU multi-threaded.",
-                        model_tag, e
-                    );
-                }
+            }
+
+            if let Some(e) = last_err {
+                *LAST_GPU_ERROR.lock().unwrap() = Some(format!("CUDA init error for {}: {}", model_tag, e));
+                tracing::warn!(
+                    "Failed to initialize ONNX model '{}' with CUDA after {} attempts ({}); falling back to CPU multi-threaded.",
+                    model_tag, max_retries, e
+                );
             }
         }
     }
@@ -1071,15 +1137,34 @@ mod tests {
 
     #[test]
     fn cuda_memory_limit_scales_dynamically_and_honors_env() {
-        // 1. DEFAULT LIMIT MUST BE AT LEAST 6GB (PREVENTS 1152px RF-DETR 2XL 2.04GB MATMUL OOM)
+        let _ = set_cuda_memory_limit_override(None);
+        unsafe {
+            std::env::remove_var("ORT_CUDA_MEM_LIMIT_MB");
+        }
+
+        // 1. DEFAULT LIMIT MUST BE AT LEAST 2GB (PREVENTS 1152px RF-DETR 2XL 2.04GB MATMUL OOM)
         let default_limit = get_cuda_gpu_memory_limit();
         assert!(
-            default_limit >= 6 * 1024 * 1024 * 1024,
-            "Default CUDA memory limit must be at least 6GB to prevent RF-DETR 2XL OOM, got: {} bytes",
+            default_limit >= 2 * 1024 * 1024 * 1024,
+            "Default CUDA memory limit must be at least 2GB for RF-DETR 2XL, got: {} bytes",
             default_limit
         );
 
-        // 2. EXPLICIT ENV OVERRIDE MUST BE HONORED
+        // 2. MODEL-DIFFERENTIATED VRAM ALLOCATION
+        let det_limit = get_cuda_memory_limit_for_model("rfdetr-seg-2xlarge");
+        let lama_limit = get_cuda_memory_limit_for_model("lama");
+        let ocr_rec_limit = get_cuda_memory_limit_for_model("rapid_ocr_rec");
+        let ocr_det_limit = get_cuda_memory_limit_for_model("rapid_ocr_det");
+
+        assert!(det_limit >= 2 * 1024 * 1024 * 1024);
+        assert!(lama_limit >= 1536 * 1024 * 1024);
+        assert!(ocr_rec_limit <= 1024 * 1024 * 1024);
+        assert!(ocr_det_limit <= 1024 * 1024 * 1024);
+
+        let total_combined = det_limit + lama_limit + ocr_rec_limit + ocr_det_limit;
+        assert!(total_combined <= 9 * 1024 * 1024 * 1024);
+
+        // 3. EXPLICIT ENV OVERRIDE MUST BE HONORED
         unsafe {
             std::env::set_var("ORT_CUDA_MEM_LIMIT_MB", "10240");
         }
@@ -1089,16 +1174,16 @@ mod tests {
             std::env::remove_var("ORT_CUDA_MEM_LIMIT_MB");
         }
 
-        // 3. RUNTIME EXPLICIT USER OVERRIDE OVERRULES ENV VAR
+        // 4. RUNTIME EXPLICIT USER OVERRIDE OVERRULES ENV VAR
         let status = set_cuda_memory_limit_override(Some(12288));
         assert_eq!(status.configured_cuda_vram_limit_mb, Some(12288));
         assert_eq!(status.cuda_vram_limit_mb, Some(12288));
         assert_eq!(get_cuda_gpu_memory_limit(), 12288 * 1024 * 1024);
 
-        // 4. RESET TO AUTO RESTORES ADAPTIVE ALLOCATION
+        // 5. RESET TO AUTO RESTORES ADAPTIVE ALLOCATION
         let reset_status = set_cuda_memory_limit_override(None);
         assert_eq!(reset_status.configured_cuda_vram_limit_mb, None);
-        assert!(reset_status.cuda_vram_limit_mb.unwrap_or(0) >= 6144);
+        assert!(reset_status.cuda_vram_limit_mb.unwrap_or(0) >= 2048);
     }
 
     #[test]

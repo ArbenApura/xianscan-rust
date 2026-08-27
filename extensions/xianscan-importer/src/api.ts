@@ -43,38 +43,59 @@ export class XianScanClient {
 		const targetUrl = `${this.baseUrl}${path}`;
 		const isFormData = typeof FormData !== 'undefined' && options.body instanceof FormData;
 		const isServiceWorker = typeof window === 'undefined';
+		const isWebPageContext = typeof window !== 'undefined' && !isServiceWorker;
+		const isHttpsPage = typeof window !== 'undefined' && window.location?.protocol === 'https:';
 
-		// 1. Try background proxy ONLY from popup/window context for JSON requests (FormData cannot cross IPC)
-		if (!isFormData && !isServiceWorker && typeof chrome !== 'undefined' && chrome?.runtime?.sendMessage) {
-			try {
-				const proxyResult = await new Promise<{ ok: boolean; status: number; data?: any; error?: string }>(resolve => {
-					chrome.runtime.sendMessage(
-						{
-							type: 'PROXY_REQUEST',
-							url: targetUrl,
-							options
-						},
-						res => {
-							if (chrome.runtime.lastError || !res) {
-								resolve({ ok: false, status: 0, error: chrome.runtime.lastError?.message || 'Proxy unavailable' });
-							} else {
-								resolve(res);
+		// 1. Try background proxy from popup or content script context for JSON requests (FormData cannot cross IPC)
+		if (!isFormData && isWebPageContext && typeof chrome !== 'undefined' && chrome?.runtime?.sendMessage) {
+			let proxyResult: { ok: boolean; status: number; data?: any; error?: string } | null = null;
+			let attempts = 0;
+			const maxAttempts = 3;
+
+			while (attempts < maxAttempts) {
+				attempts++;
+				try {
+					proxyResult = await new Promise<{ ok: boolean; status: number; data?: any; error?: string }>(resolve => {
+						chrome.runtime.sendMessage(
+							{
+								type: 'PROXY_REQUEST',
+								url: targetUrl,
+								options
+							},
+							res => {
+								if (chrome.runtime.lastError || !res) {
+									resolve({ ok: false, status: 0, error: chrome.runtime.lastError?.message || 'Proxy unavailable' });
+								} else {
+									resolve(res);
+								}
 							}
-						}
-					);
-				});
+						);
+					});
 
-				if (proxyResult.ok) {
-					return proxyResult.data as T;
-				} else if (proxyResult.status > 0) {
-					const msg = (proxyResult.data as { message?: string })?.message || `Request failed with status ${proxyResult.status}`;
-					throw new Error(msg);
+					if (proxyResult.ok) {
+						return proxyResult.data as T;
+					}
+
+					if (proxyResult.status > 0) {
+						const msg = (proxyResult.data as { message?: string })?.message || `Request failed with status ${proxyResult.status}`;
+						throw new Error(msg);
+					}
+
+					// If status === 0 (service worker waking up / IPC blip), retry with short backoff
+					if (attempts < maxAttempts) {
+						await new Promise(r => setTimeout(r, attempts * 250));
+					}
+				} catch (err) {
+					if (err instanceof Error && !err.message.includes('Proxy unavailable') && !err.message.includes('status 0')) {
+						throw err;
+					}
 				}
-			} catch (err) {
-				if (err instanceof Error && !err.message.includes('Proxy unavailable')) {
-					throw err;
-				}
-				// FALLBACK TO DIRECT FETCH ONLY IF PROXY WAS UNREACHABLE
+			}
+
+			// If proxy succeeded or failed with explicit HTTP status, we already returned or threw.
+			// If on HTTPS page and target is HTTP, DO NOT attempt direct fetch as it is guaranteed to fail due to Mixed Content / PNA.
+			if (isHttpsPage && targetUrl.startsWith('http://')) {
+				throw new Error(proxyResult?.error || 'Could not connect to XianScan backend via extension background proxy.');
 			}
 		}
 

@@ -383,6 +383,9 @@ class InPlaceTranslationCoordinator {
 	private activeMapping: ChapterMappingEntry | null = null;
 	private serverUrl = 'http://127.0.0.1:8124';
 	private pollingTimer: ReturnType<typeof setInterval> | null = null;
+	private watchdogTimer: ReturnType<typeof setInterval> | null = null;
+	private keepAlivePort: chrome.runtime.Port | null = null;
+	private keepAliveInterval: ReturnType<typeof setInterval> | null = null;
 
 	constructor() {
 		this.client = new XianScanClient(this.serverUrl);
@@ -400,7 +403,32 @@ class InPlaceTranslationCoordinator {
 		const inPlaceEnabled = stored.inPlaceReplacement !== false;
 		if (!inPlaceEnabled) return;
 
-		// QUERY MAPPING FOR CURRENT TAB URL
+		this.bindLifecycleEvents();
+		await this.recheckUrlMapping();
+	}
+
+	private bindLifecycleEvents() {
+		// 1. INSTANT CATCH-UP SYNC ON TAB VISIBILITY CHANGE
+		document.addEventListener('visibilitychange', () => {
+			if (document.visibilityState === 'visible' && this.activeMapping) {
+				void this.syncWithServer();
+			}
+		});
+
+		// 2. INSTANT CATCH-UP SYNC ON WINDOW FOCUS
+		window.addEventListener('focus', () => {
+			if (this.activeMapping) {
+				void this.syncWithServer();
+			}
+		});
+
+		// 3. SPA ROUTE NAVIGATION (POPSTATE)
+		window.addEventListener('popstate', () => {
+			void this.recheckUrlMapping();
+		});
+	}
+
+	async recheckUrlMapping() {
 		chrome.runtime.sendMessage(
 			{ type: 'GET_SITE_MAPPING', url: window.location.href },
 			async (res: { mapping?: ChapterMappingEntry | null }) => {
@@ -419,11 +447,59 @@ class InPlaceTranslationCoordinator {
 		void this.syncWithServer();
 	}
 
+	private startKeepAlive(chapterId: number) {
+		if (this.keepAlivePort) return;
+		try {
+			if (typeof chrome !== 'undefined' && chrome.runtime?.connect) {
+				this.keepAlivePort = chrome.runtime.connect({ name: 'xianscan-keepalive' });
+				this.keepAlivePort.onDisconnect.addListener(() => {
+					this.keepAlivePort = null;
+				});
+
+				this.keepAliveInterval = setInterval(() => {
+					if (this.keepAlivePort) {
+						try {
+							this.keepAlivePort.postMessage({
+								type: 'KEEPALIVE_PING',
+								chapterId,
+								timestamp: Date.now()
+							});
+						} catch {
+							this.stopKeepAlive();
+						}
+					}
+				}, 12000);
+			}
+		} catch {
+			// IGNORE PORT CONNECTION ERRORS
+		}
+	}
+
+	private stopKeepAlive() {
+		if (this.keepAliveInterval) {
+			clearInterval(this.keepAliveInterval);
+			this.keepAliveInterval = null;
+		}
+		if (this.keepAlivePort) {
+			try {
+				this.keepAlivePort.disconnect();
+			} catch {
+				// IGNORE
+			}
+			this.keepAlivePort = null;
+		}
+	}
+
 	private startPollingIfNeeded(pages: ChapterReaderPage[]) {
 		const hasPending = pages.some(p => !p.outputPath && (p.outputRev || 0) === 0);
 		if (!hasPending) {
 			this.stopPolling();
+			this.stopKeepAlive();
 			return;
+		}
+
+		if (this.activeMapping?.chapterId) {
+			this.startKeepAlive(this.activeMapping.chapterId);
 		}
 
 		if (this.pollingTimer) return;
@@ -438,7 +514,7 @@ class InPlaceTranslationCoordinator {
 			});
 		}
 
-		// BACKUP INTERVAL POLLING IN CASE OF DROPPED SSE PACKETS
+		// BACKUP INTERVAL POLLING & SELF-HEALING WATCHDOG (EVERY 2.5S)
 		this.pollingTimer = setInterval(async () => {
 			if (!this.activeMapping?.chapterId) {
 				this.stopPolling();
@@ -461,6 +537,7 @@ class InPlaceTranslationCoordinator {
 
 				if (allDone) {
 					this.stopPolling();
+					this.stopKeepAlive();
 				}
 			} catch {
 				// SILENT POLLING FAILURE
@@ -498,6 +575,7 @@ class InPlaceTranslationCoordinator {
 			if (errMsg.includes('Chapter not found') || errMsg.includes('404')) {
 				console.info('[XianScan] Mapped chapter was removed from server. Auto-clearing local mapping.');
 				this.stopPolling();
+				this.stopKeepAlive();
 				chrome.runtime.sendMessage({
 					type: 'DELETE_SITE_MAPPING',
 					url: window.location.href
@@ -536,6 +614,7 @@ class InPlaceTranslationCoordinator {
 
 	destroy() {
 		this.stopPolling();
+		this.stopKeepAlive();
 		this.replacer.destroy();
 	}
 }

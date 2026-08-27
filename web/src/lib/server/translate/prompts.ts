@@ -130,11 +130,12 @@ export function systemPrompt(src: string, tgt: string, enableSfx = true): string
 		`1. Target Language & Zero Leakage: ALL translations MUST be strictly in ${tgtName} (${tgt}). Never leave raw source characters (Hanzi/Hangul/Kanji/Cyrillic) in the output.`,
 		`2. Strict 1:1 Region Mapping: Every input region ID must have exactly one corresponding translation in the output JSON. You must translate ALL input IDs: no more, no less. Never merge regions, split regions, or omit any region ID.`,
 		`3. Dialogue Style & Casing: Write natural spoken ${tgtName} dialogue suitable for comic voice acting. Keep lines punchy to fit bubble space. Dialogue and thoughts MUST use natural standard sentence case (never ALL-CAPS).`,
+		`4. Mandatory Glossary Adherence (Zero Deviation): The project Glossary provided in the system messages contains authoritative terminology overrides. Whenever a source term (or its alias) appears in the dialogue (including across OCR line breaks or in compound phrases), you MUST use its EXACT specified target translation verbatim. Never substitute with standard dictionary definitions, synonyms, or your own variations.`,
 	];
 
 	if (enableSfx) {
 		rules.push(
-			`4. Sound Effects (sfx): Render sound effects as concise, punchy ALL-CAPS ${tgtName} onomatopoeia matching the scene category (e.g. Dining: NOM NOM / MUNCH / SLURP; Combat: BOOM / SLASH / THUD; Emotion: SIGH / GASP).`,
+			`5. Sound Effects (sfx): Render sound effects as concise, punchy ALL-CAPS ${tgtName} onomatopoeia matching the scene category (e.g. Dining: NOM NOM / MUNCH / SLURP; Combat: BOOM / SLASH / THUD; Emotion: SIGH / GASP).`,
 		);
 	}
 
@@ -162,7 +163,7 @@ export function glossaryBlock(terms: TermDraft[], src: string, tgt: string): str
 		const context = t.context ? ` — ${t.context}` : '';
 		return `★${t.source}${aliases} = ${t.target}${gender}${context}`;
 	});
-	return `Glossary (${srcName} → ${tgtName}) — use these exact renderings for the listed terms:
+	return `Glossary (${srcName} → ${tgtName}) — Use these EXACT target renderings for the listed terms whenever their source characters appear in dialogue. These overrides take strict precedence over default dictionary translations:
 ${lines.join('\n')}`;
 }
 
@@ -221,12 +222,13 @@ ${regionPayload(regions)}
 1. Return a valid JSON object containing two top-level keys: "translations" and "newTerms".
 2. Strict 1:1 Region Mapping in "translations": You MUST provide a translation for ALL ${count} region IDs (${idList || 'none'}). Exactly one translation per ID: no more, no less. Do not skip or omit any region.
 3. Target Language: All translation values and context descriptions MUST be strictly in ${tgtName} (${tgtLang}).
-4. Mandatory Glossary Extraction in "newTerms": Extract ALL new character names, proper nouns, locations, sects/organizations, martial arts, cultivation tiers, items, and artifacts appearing on this page that are NOT already in the glossary.
+4. Mandatory Glossary Compliance (Zero Deviation): For every term listed in the project Glossary, you MUST use the EXACT target translation string verbatim whenever its source characters appear in any region. Do NOT re-translate, synonymize, or alter Glossary terms.
+5. Mandatory Glossary Extraction in "newTerms": Extract ALL new character names, proper nouns, locations, sects/organizations, martial arts, cultivation tiers, items, and artifacts appearing on this page that are NOT already in the glossary.
    - High-Recall Directive: Be thorough and extract as many valid story terms, names, and techniques as possible. Err on the side of extracting rather than omitting; term consistency across pages is critical.
    - Strict Anti-Duplicate Rule: If a term or any of its aliases is ALREADY present in the Glossary (shown in the system messages), do NOT include it in "newTerms". Extract ONLY completely new, unlisted terms.
    - For every new term, provide its source, target translation, category, gender, aliases (e.g. ["小凡"] or []), and a 1-sentence context description.
    - If there are no new terms appearing on this page, output an empty array: "newTerms": [].
-5. Output JSON Structure:
+6. Output JSON Structure:
 ${templateJson}
 
 No markdown fences, no commentary. Output ONLY the JSON object.`;

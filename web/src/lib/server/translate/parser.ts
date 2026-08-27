@@ -152,14 +152,14 @@ export function parseTranslations(
 				const num = parseInt(idxMatch[1], 10);
 				if (num >= 0 && num < regions.length) {
 					const targetReg = regions[num];
-					if (!out.has(targetReg.id) && !/^r\d+$/i.test(targetReg.id)) {
+					if (!out.has(targetReg.id) && targetReg.id !== k) {
 						out.set(targetReg.id, text);
 						continue;
 					}
 				}
 				if (num >= 1 && num <= regions.length) {
 					const targetReg = regions[num - 1];
-					if (!out.has(targetReg.id) && !/^r\d+$/i.test(targetReg.id)) {
+					if (!out.has(targetReg.id) && targetReg.id !== k) {
 						out.set(targetReg.id, text);
 						continue;
 					}

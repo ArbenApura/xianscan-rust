@@ -293,15 +293,15 @@
 		return pages.map((p) => {
 			const sp = snapshotPageMap.get(p.id);
 			if (!sp) return p;
-			const isDone = sp.status === 'done';
-			const isError = sp.status === 'error';
 			const isProcessing = sp.status === 'processing' && currentJobState.running;
-			const status: 'pending' | 'processing' | 'done' | 'error' = isDone
-				? 'done'
+			const isError = sp.status === 'error';
+			const isDone = sp.status === 'done' || (!isProcessing && !isError && p.status === 'done');
+			const status: 'pending' | 'processing' | 'done' | 'error' = isProcessing
+				? 'processing'
 				: isError
 					? 'error'
-					: isProcessing
-						? 'processing'
+					: isDone
+						? 'done'
 						: 'pending';
 
 			return {

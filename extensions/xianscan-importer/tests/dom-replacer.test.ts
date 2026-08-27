@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 // -- TESTS FOR IN-PLACE DOM REPLACER & URL NORMALIZATION -- //
 
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { normalizePageUrl, DomReplacerEngine, getHostReaderImages } from '../src/utils/dom-replacer';
 import type { ChapterReaderPage } from '../src/types';
 
@@ -26,8 +26,13 @@ describe('DomReplacerEngine', () => {
 	let container: HTMLElement;
 	let img1: HTMLImageElement;
 	let img2: HTMLImageElement;
+	let engine: DomReplacerEngine | null = null;
 
 	beforeEach(() => {
+		if (engine) {
+			engine.destroy();
+			engine = null;
+		}
 		document.body.innerHTML = '';
 		container = document.createElement('div');
 		container.className = 'reading-content';
@@ -47,6 +52,14 @@ describe('DomReplacerEngine', () => {
 		document.body.appendChild(container);
 	});
 
+	afterEach(() => {
+		if (engine) {
+			engine.destroy();
+			engine = null;
+		}
+		document.body.innerHTML = '';
+	});
+
 	it('collects host reader images accurately', () => {
 		const imgs = getHostReaderImages();
 		expect(imgs.length).toBe(2);
@@ -55,7 +68,7 @@ describe('DomReplacerEngine', () => {
 	});
 
 	it('swaps original image sources directly in-place', () => {
-		const engine = new DomReplacerEngine('http://127.0.0.1:8124');
+		engine = new DomReplacerEngine('http://127.0.0.1:8124');
 		const testPages: ChapterReaderPage[] = [
 			{
 				id: 101,
@@ -95,7 +108,7 @@ describe('DomReplacerEngine', () => {
 	});
 
 	it('handles reslicing with more server pages by cloning host image elements', () => {
-		const engine = new DomReplacerEngine('http://127.0.0.1:8124');
+		engine = new DomReplacerEngine('http://127.0.0.1:8124');
 		const testPages: ChapterReaderPage[] = [
 			{
 				id: 101,
@@ -145,7 +158,7 @@ describe('DomReplacerEngine', () => {
 	});
 
 	it('handles reslicing with fewer server pages by hiding surplus images', () => {
-		const engine = new DomReplacerEngine('http://127.0.0.1:8124');
+		engine = new DomReplacerEngine('http://127.0.0.1:8124');
 		const testPages: ChapterReaderPage[] = [
 			{
 				id: 101,
@@ -169,7 +182,7 @@ describe('DomReplacerEngine', () => {
 	});
 
 	it('toggles seamlessly between translated and raw modes', () => {
-		const engine = new DomReplacerEngine('http://127.0.0.1:8124');
+		engine = new DomReplacerEngine('http://127.0.0.1:8124');
 		const testPages: ChapterReaderPage[] = [
 			{
 				id: 101,
@@ -201,7 +214,7 @@ describe('DomReplacerEngine', () => {
 	});
 
 	it('preserves and skips user-deselected/excluded image URLs completely', () => {
-		const engine = new DomReplacerEngine('http://127.0.0.1:8124');
+		engine = new DomReplacerEngine('http://127.0.0.1:8124');
 		const testPages: ChapterReaderPage[] = [
 			{
 				id: 101,
@@ -234,7 +247,7 @@ describe('DomReplacerEngine', () => {
 	});
 
 	it('creates tight fit-content wrapper and attaches pending badge when page is pending', () => {
-		const engine = new DomReplacerEngine('http://127.0.0.1:8124');
+		engine = new DomReplacerEngine('http://127.0.0.1:8124');
 		const testPages: ChapterReaderPage[] = [
 			{
 				id: 201,
@@ -267,5 +280,53 @@ describe('DomReplacerEngine', () => {
 		expect(img1.getAttribute('data-xianscan-status')).toBe('ready');
 		expect(img1.style.filter).toBe('none');
 		expect(img1.src).toContain('/api/pages/201/file?kind=output&rev=1');
+	});
+
+	it('attaches error retry handler that retries on image load failure', () => {
+		engine = new DomReplacerEngine('http://127.0.0.1:8124');
+		const testPages: ChapterReaderPage[] = [
+			{
+				id: 301,
+				seq: 0,
+				filePath: 'orig1.jpg',
+				cleanedPath: null,
+				outputPath: 'out1.webp',
+				cleanedRev: 0,
+				outputRev: 1,
+				originalRev: 1,
+				status: 'done',
+				error: null
+			}
+		];
+
+		engine.mountTranslatedPages(testPages);
+		expect(img1.onerror).toBeDefined();
+		expect(typeof img1.onerror).toBe('function');
+	});
+
+	it('cleans up resources and revokes object URLs on destroy', () => {
+		engine = new DomReplacerEngine('http://127.0.0.1:8124');
+		const testPages: ChapterReaderPage[] = [
+			{
+				id: 401,
+				seq: 0,
+				filePath: 'orig1.jpg',
+				cleanedPath: null,
+				outputPath: 'out1.webp',
+				cleanedRev: 0,
+				outputRev: 1,
+				originalRev: 1,
+				status: 'done',
+				error: null
+			}
+		];
+
+		engine.mountTranslatedPages(testPages);
+		expect(engine.getIsTranslatedActive()).toBe(true);
+
+		engine.destroy();
+		expect(engine.getIsTranslatedActive()).toBe(false);
+		expect(document.querySelector('[data-xianscan-wrapper="true"]')).toBeNull();
+		expect(document.querySelector('[data-xianscan-badge-id]')).toBeNull();
 	});
 });

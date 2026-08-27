@@ -147,3 +147,101 @@ describe('sourcesPresentIn — the "new to this chapter" set', () => {
 		expect([...present].sort()).toEqual(['king', 'sword']);
 	});
 });
+
+describe('matchTerms — resilient normalization & OCR recovery', () => {
+	beforeEach(() => {
+		seedBook(db, { id: 'b1', sourceLang: 'zh-Hans', targetLang: 'en' });
+	});
+
+	it('matches terms broken by speech bubble line breaks (e.g. 蓝\\n银草 regression)', async () => {
+		await seedTerm({ bookId: 'b1', scope: 'book', sourceLang: 'zh-Hans', targetLang: 'en', source: '蓝银草' });
+		invalidateBook('b1');
+		const rawBubbleOcr = '什么……折\n腾了半天原\n来就是个蓝\n银草……';
+		const terms = await matchTerms('b1', rawBubbleOcr);
+		expect(terms.map((t) => t.source)).toEqual(['蓝银草']);
+	});
+
+	it('matches terms with intra-term spaces and fullwidth spaces', async () => {
+		await seedTerm({ bookId: 'b1', scope: 'book', sourceLang: 'zh-Hans', targetLang: 'en', source: '蓝银草' });
+		invalidateBook('b1');
+		const spaceOcr = '原来是 蓝 银草 以及 蓝\u3000银草';
+		const terms = await matchTerms('b1', spaceOcr);
+		expect(terms.map((t) => t.source)).toEqual(['蓝银草']);
+	});
+
+	it('fuzzy-recovers 1-character OCR typos for terms of length >= 3', async () => {
+		await seedTerm({ bookId: 'b1', scope: 'book', sourceLang: 'zh-Hans', targetLang: 'en', source: '蓝银草' });
+		await seedTerm({ bookId: 'b1', scope: 'book', sourceLang: 'zh-Hans', targetLang: 'en', source: '武魂殿' });
+		invalidateBook('b1');
+		// "兰银草" (OCR CONFUSED 蓝 WITH 兰) AND "武魂店" (OCR CONFUSED 殿 WITH 店)
+		const noisyOcr = '竟然是兰银草！速去武魂店禀报！';
+		const terms = await matchTerms('b1', noisyOcr);
+		const sources = terms.map((t) => t.source);
+		expect(sources).toContain('蓝银草');
+		expect(sources).toContain('武魂殿');
+	});
+
+	it('does not fuzzy-match short 1-2 character terms to prevent false positives', async () => {
+		await seedTerm({ bookId: 'b1', scope: 'book', sourceLang: 'zh-Hans', targetLang: 'en', source: '武魂' });
+		invalidateBook('b1');
+		// "武店" HAS 1 CHAR OVERLAP WITH "武魂" BUT SHORT TERMS MUST BE EXACT-ONLY
+		const terms = await matchTerms('b1', '去武店买东西');
+		expect(terms).toHaveLength(0);
+	});
+});
+
+describe('matchTerms — global scope glossary utilization', () => {
+	it('matches global glossary terms across any book with the matching language pair', async () => {
+		seedBook(db, { id: 'book_zh_1', sourceLang: 'zh-Hans', targetLang: 'en' });
+		seedBook(db, { id: 'book_zh_2', sourceLang: 'zh-Hans', targetLang: 'en' });
+		seedBook(db, { id: 'book_ja', sourceLang: 'ja', targetLang: 'en' });
+
+		// GLOBAL TERM FOR zh-Hans -> en
+		await seedTerm({
+			scope: 'global',
+			sourceLang: 'zh-Hans',
+			targetLang: 'en',
+			source: '斗罗大陆',
+		});
+		invalidateAll();
+
+		// BOTH CHINESE BOOKS AUTOMATICALLY MATCH AND UTILIZE THE GLOBAL TERM
+		const match1 = await matchTerms('book_zh_1', '来到了斗罗大陆');
+		expect(match1.map((t) => t.source)).toEqual(['斗罗大陆']);
+
+		const match2 = await matchTerms('book_zh_2', '在斗罗大陆之上');
+		expect(match2.map((t) => t.source)).toEqual(['斗罗大陆']);
+
+		// JAPANESE BOOK DOES NOT MATCH CHINESE GLOBAL TERM
+		const matchJa = await matchTerms('book_ja', '来到了斗罗大陆');
+		expect(matchJa).toHaveLength(0);
+	});
+
+	it('allows a book-specific term to override a global term with the same source', async () => {
+		seedBook(db, { id: 'book_override', sourceLang: 'zh-Hans', targetLang: 'en' });
+
+		await seedTerm({
+			scope: 'global',
+			sourceLang: 'zh-Hans',
+			targetLang: 'en',
+			source: '武魂',
+		});
+		// SEED A BOOK-SPECIFIC TERM WITH THE SAME SOURCE BUT DIFFERENT TARGET
+		seedGlossary(db, {
+			scope: 'book',
+			bookId: 'book_override',
+			sourceLang: 'zh-Hans',
+			targetLang: 'en',
+			source: '武魂',
+			target: 'Marites Soldes',
+		});
+		invalidateAll();
+
+		const matched = await matchTerms('book_override', '你的武魂是什么');
+		expect(matched).toHaveLength(1);
+		expect(matched[0].source).toBe('武魂');
+		expect(matched[0].target).toBe('Marites Soldes');
+	});
+});
+
+

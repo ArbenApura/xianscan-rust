@@ -151,9 +151,7 @@ function updateSnapshot(snapshot: ChapterJobSnapshot, event: JobEvent): void {
 				pageIndex: idx,
 				pageId: p.id,
 				seq: p.seq,
-				status: targetSet
-					? (targetSet.has(p.id) ? ((p.status as PageProgressState['status']) || 'pending') : 'skipped')
-					: ((p.status as PageProgressState['status']) || 'pending'),
+				status: (p.status as PageProgressState['status']) || 'pending',
 				timings: {},
 				cleanedRev: p.cleanedRev,
 				outputRev: p.outputRev,

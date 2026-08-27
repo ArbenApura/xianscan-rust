@@ -27,6 +27,7 @@ pub fn analyze_image_with_options(
     img: &DynamicImage,
     options: Option<&AnalyzeOptions>,
 ) -> Result<AnalyzeResponse> {
+    let t_total_start = std::time::Instant::now();
     let source_lang = options.and_then(|o| o.source_lang.as_deref());
     let enable_watermark_inpaint = options.and_then(|o| o.enable_watermark_inpaint).unwrap_or(false);
     let allow_degraded_fallback = options.and_then(|o| o.allow_degraded_fallback).unwrap_or(false);
@@ -44,7 +45,7 @@ pub fn analyze_image_with_options(
         allow_degraded_fallback,
     )?;
 
-    analyze_image_with_fusion(engine, img, &fusion_res, options)
+    analyze_image_with_fusion_timed(engine, img, &fusion_res, options, t_total_start)
 }
 
 /// FAST-PATH POSTPROCESSING: EXECUTES STAGE 2 & 3 DIRECTLY GIVEN PRE-COMPUTED DETECTION FUSION RESULTS
@@ -55,6 +56,16 @@ pub fn analyze_image_with_fusion(
     options: Option<&AnalyzeOptions>,
 ) -> Result<AnalyzeResponse> {
     let t_total_start = std::time::Instant::now();
+    analyze_image_with_fusion_timed(engine, img, fusion_res, options, t_total_start)
+}
+
+pub fn analyze_image_with_fusion_timed(
+    engine: &mut PipelineEngine,
+    img: &DynamicImage,
+    fusion_res: &super::fusion::DetectionFusionResult,
+    options: Option<&AnalyzeOptions>,
+    t_total_start: std::time::Instant,
+) -> Result<AnalyzeResponse> {
     let (page_w, page_h) = img.dimensions();
     let source_lang = options.and_then(|o| o.source_lang.as_deref());
     let enable_sfx = options.and_then(|o| o.enable_sfx).unwrap_or(false);

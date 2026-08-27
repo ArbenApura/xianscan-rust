@@ -11,14 +11,28 @@ export interface TaskOptions {
 	throwOnTimeout?: boolean;
 }
 
+interface QueuedTask {
+	run: () => void;
+	reject: (err: any) => void;
+}
+
 export default class PQueue {
-	public concurrency: number;
+	private _concurrency: number;
 	private _pending = 0;
-	private _queue: Array<() => void> = [];
+	private _queue: Array<QueuedTask> = [];
 	private _idleResolvers: Array<() => void> = [];
 
 	constructor(options?: QueueOptions) {
-		this.concurrency = options?.concurrency ?? Infinity;
+		this._concurrency = options?.concurrency ?? Infinity;
+	}
+
+	get concurrency(): number {
+		return this._concurrency;
+	}
+
+	set concurrency(newConcurrency: number) {
+		this._concurrency = Math.max(1, Math.floor(newConcurrency) || 1);
+		this._tryNext();
 	}
 
 	get size(): number {
@@ -27,6 +41,25 @@ export default class PQueue {
 
 	get pending(): number {
 		return this._pending;
+	}
+
+	clear(): void {
+		const abortErr = new Error('The operation was aborted');
+		abortErr.name = 'AbortError';
+		while (this._queue.length > 0) {
+			const item = this._queue.shift();
+			if (item) {
+				item.reject(abortErr);
+			}
+		}
+		if (this._pending === 0) {
+			while (this._idleResolvers.length > 0) {
+				const resolver = this._idleResolvers.shift();
+				if (resolver) {
+					resolver();
+				}
+			}
+		}
 	}
 
 	async add<T>(fn: () => Promise<T> | T, _options?: TaskOptions): Promise<T> {
@@ -44,10 +77,10 @@ export default class PQueue {
 				}
 			};
 
-			if (this._pending < this.concurrency) {
+			if (this._pending < this._concurrency) {
 				void runTask();
 			} else {
-				this._queue.push(runTask);
+				this._queue.push({ run: runTask, reject });
 			}
 		});
 	}
@@ -66,12 +99,14 @@ export default class PQueue {
 	}
 
 	private _tryNext(): void {
-		if (this._queue.length > 0 && this._pending < this.concurrency) {
+		while (this._queue.length > 0 && this._pending < this._concurrency) {
 			const next = this._queue.shift();
 			if (next) {
-				void next();
+				void next.run();
 			}
-		} else if (this._pending === 0 && this._queue.length === 0) {
+		}
+
+		if (this._pending === 0 && this._queue.length === 0) {
 			while (this._idleResolvers.length > 0) {
 				const resolver = this._idleResolvers.shift();
 				if (resolver) {

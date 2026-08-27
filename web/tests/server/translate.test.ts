@@ -538,6 +538,22 @@ describe('parseExtractedTerms & extractTerms', () => {
 		expect(terms[0].source).toBe('萧炎');
 	});
 
+	it('accepts terms whose characters are split across speech bubble line breaks in contentSource', async () => {
+		const { parseExtractedTerms } = await import('$lib/server/translate');
+		const json = `[
+			{ "source": "武魂", "target": "Martial Soul", "category": "concept" },
+			{ "source": "蓝银草", "target": "Blue Silver Grass", "category": "item" },
+			{ "source": "虚假词汇", "target": "Fake Term", "category": "item" }
+		]`;
+		const rawPageText = '马上就要出来了！到底是什\n么了不得的武\n魂？！\n欸?蓝\n银草？';
+		const terms = parseExtractedTerms(json, rawPageText);
+		expect(terms).toHaveLength(2);
+		expect(terms[0].source).toBe('武魂');
+		expect(terms[0].target).toBe('Martial Soul');
+		expect(terms[1].source).toBe('蓝银草');
+		expect(terms[1].target).toBe('Blue Silver Grass');
+	});
+
 	it('auto-pins recurring multi-char terms even when the model omits pinned:true', async () => {
 		const { parseExtractedTerms } = await import('$lib/server/translate');
 		// 妖灵师 appears 3× across the chapter — a recurring class noun MUST be locked (pinned) so it

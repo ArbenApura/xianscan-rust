@@ -88,6 +88,21 @@ describe('addTerm + getGlossaryPage', () => {
 		expect(rows[0].aliases).toEqual(['系统君']);
 	});
 
+	it('upserts on duplicate source instead of throwing UNIQUE constraint error', async () => {
+		seedBook(db, { id: 'b1' });
+		const term1 = await addTerm('book', 'b1', { source: '武魂', target: 'Martial Spirit', gender: 'neuter' }, PAIR);
+		expect(term1.target).toBe('Martial Spirit');
+
+		// RE-ADDING THE SAME SOURCE WITH A NEW TARGET OVERWRITES/UPGRADES THE TERM
+		const term2 = await addTerm('book', 'b1', { source: '武魂', target: 'Martial Soul', gender: 'neuter', category: 'concept' }, PAIR);
+		expect(term2.target).toBe('Martial Soul');
+		expect(term2.category).toBe('concept');
+
+		const { rows, total } = await getGlossaryPage('book', 'b1', { limit: 50, offset: 0 });
+		expect(total).toBe(1);
+		expect(rows[0].target).toBe('Martial Soul');
+	});
+
 	it('searches source and target case-insensitively (ASCII), treating LIKE wildcards literally', async () => {
 		await addTerm('global', null, { source: 'System', target: '系统', gender: 'neuter' }, PAIR);
 		await addTerm('global', null, { source: '100%真实', target: '100% Real', gender: 'neuter' }, PAIR);
