@@ -26,6 +26,8 @@
 		AVAILABLE_TYPESET_FONTS,
 		AVAILABLE_CJK_FONTS,
 		SFX_AREA_PRESETS,
+		fontAvailabilityStore,
+		refreshFontAvailability,
 		type Theme,
 		type AppFont,
 		type InpaintMode,
@@ -451,6 +453,7 @@
 		loadHardwareStatus();
 		loadProviders();
 		loadTelemetry();
+		void refreshFontAvailability();
 		if (telemetryInterval) clearInterval(telemetryInterval);
 		telemetryInterval = setInterval(loadTelemetry, 2000);
 		void mlStatus.checkHealth();
@@ -1765,21 +1768,35 @@
 							<div class="grid grid-cols-2 sm:grid-cols-3 gap-2">
 								{#each AVAILABLE_TYPESET_FONTS as font}
 									{@const isSelected = ($settings.typesetFont || 'CC Wild Words') === font.id}
+									{@const status = $fontAvailabilityStore[font.id]}
+									{@const isAvailable = status ? status.available : (font.bundled ?? true)}
 									<button
 										type="button"
-										on:click={() => setTypesetFont(font.id)}
+										disabled={!isAvailable}
+										on:click={() => isAvailable && setTypesetFont(font.id)}
+										title={!isAvailable ? `${font.label} is not installed on this system / server` : font.label}
 										class={`flex flex-col justify-between rounded-xl border p-2.5 text-left transition-all ${
-											isSelected
-												? 'border-[#b23a2e] bg-[#b23a2e]/[0.08] text-[#b23a2e] dark:text-[#e08a63] ring-2 ring-[#b23a2e]/30 shadow-xs'
-												: 'border-black/10 hover:border-black/20 hover:bg-black/[0.02] dark:border-white/10 dark:hover:border-white/20 dark:hover:bg-white/[0.02]'
+											!isAvailable
+												? 'opacity-40 cursor-not-allowed border-black/5 bg-black/[0.01] dark:border-white/5 dark:bg-white/[0.01]'
+												: isSelected
+													? 'border-[#b23a2e] bg-[#b23a2e]/[0.08] text-[#b23a2e] dark:text-[#e08a63] ring-2 ring-[#b23a2e]/30 shadow-xs cursor-pointer'
+													: 'border-black/10 hover:border-black/20 hover:bg-black/[0.02] dark:border-white/10 dark:hover:border-white/20 dark:hover:bg-white/[0.02] cursor-pointer'
 										}`}
 										use:ripple
 									>
 										<div class="flex items-center justify-between">
 											<span class="text-xs font-bold pl-1.5" style="font-family: {font.stack};">{font.label}</span>
-											{#if isSelected}<Check size={13} class="text-[#b23a2e] dark:text-[#e08a63]" />{/if}
+											{#if isSelected}
+												<Check size={13} class="text-[#b23a2e] dark:text-[#e08a63] shrink-0" />
+											{:else if !isAvailable}
+												<span class="text-[8.5px] font-mono font-semibold px-1 py-0.2 rounded bg-neutral-200/70 text-neutral-600 dark:bg-neutral-800 dark:text-neutral-400">Missing</span>
+											{:else if font.bundled}
+												<span class="text-[8.5px] font-mono font-semibold px-1 py-0.2 rounded bg-[#4f7a64]/15 text-[#4f7a64] dark:bg-[#4f7a64]/25 dark:text-[#83b39a]">Bundled</span>
+											{/if}
 										</div>
-										<div class="mt-1 text-[10px] opacity-60 truncate pl-1.5">{font.sub}</div>
+										<div class="mt-1 text-[10px] opacity-60 truncate pl-1.5">
+											{!isAvailable ? 'Not Installed on Server' : font.sub}
+										</div>
 									</button>
 								{/each}
 							</div>
@@ -1794,21 +1811,35 @@
 							<div class="grid grid-cols-2 sm:grid-cols-4 gap-2">
 								{#each AVAILABLE_CJK_FONTS as cjk}
 									{@const isSelected = ($settings.typesetCjkFont || 'Microsoft YaHei') === cjk.id}
+									{@const status = $fontAvailabilityStore[cjk.id]}
+									{@const isAvailable = status ? status.available : (cjk.bundled ?? true)}
 									<button
 										type="button"
-										on:click={() => setTypesetCjkFont(cjk.id)}
+										disabled={!isAvailable}
+										on:click={() => isAvailable && setTypesetCjkFont(cjk.id)}
+										title={!isAvailable ? `${cjk.label} is not installed on this system / server` : cjk.label}
 										class={`flex flex-col justify-between rounded-xl border p-2.5 text-left transition-all ${
-											isSelected
-												? 'border-[#b23a2e] bg-[#b23a2e]/[0.08] text-[#b23a2e] dark:text-[#e08a63] ring-2 ring-[#b23a2e]/30 shadow-xs'
-												: 'border-black/10 hover:border-black/20 hover:bg-black/[0.02] dark:border-white/10 dark:hover:border-white/20 dark:hover:bg-white/[0.02]'
+											!isAvailable
+												? 'opacity-40 cursor-not-allowed border-black/5 bg-black/[0.01] dark:border-white/5 dark:bg-white/[0.01]'
+												: isSelected
+													? 'border-[#b23a2e] bg-[#b23a2e]/[0.08] text-[#b23a2e] dark:text-[#e08a63] ring-2 ring-[#b23a2e]/30 shadow-xs cursor-pointer'
+													: 'border-black/10 hover:border-black/20 hover:bg-black/[0.02] dark:border-white/10 dark:hover:border-white/20 dark:hover:bg-white/[0.02] cursor-pointer'
 										}`}
 										use:ripple
 									>
 										<div class="flex items-center justify-between">
 											<span class="text-xs font-bold truncate pl-1.5">{cjk.label}</span>
-											{#if isSelected}<Check size={12} class="text-[#b23a2e] dark:text-[#e08a63]" />{/if}
+											{#if isSelected}
+												<Check size={12} class="text-[#b23a2e] dark:text-[#e08a63] shrink-0" />
+											{:else if !isAvailable}
+												<span class="text-[8.5px] font-mono font-semibold px-1 py-0.2 rounded bg-neutral-200/70 text-neutral-600 dark:bg-neutral-800 dark:text-neutral-400">Missing</span>
+											{:else if cjk.bundled}
+												<span class="text-[8.5px] font-mono font-semibold px-1 py-0.2 rounded bg-[#4f7a64]/15 text-[#4f7a64] dark:bg-[#4f7a64]/25 dark:text-[#83b39a]">Bundled</span>
+											{/if}
 										</div>
-										<div class="mt-1 text-[9px] opacity-60 truncate pl-1.5">{cjk.sub}</div>
+										<div class="mt-1 text-[9px] opacity-60 truncate pl-1.5">
+											{!isAvailable ? 'Not Installed on Server' : cjk.sub}
+										</div>
 									</button>
 								{/each}
 							</div>

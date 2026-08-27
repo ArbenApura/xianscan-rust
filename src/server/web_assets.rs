@@ -231,7 +231,12 @@ pub fn extract_if_needed() -> anyhow::Result<Option<PathBuf>> {
             .join("static")
             .join("fonts")
             .join("CCWildWords-Roman.ttf")
-            .exists();
+            .exists()
+            && app_dir
+                .join("static")
+                .join("fonts")
+                .join("wqy-microhei.ttc")
+                .exists();
 
         let icu_exist = if !SKIA_ICU_BYTES.is_empty() {
             app_dir

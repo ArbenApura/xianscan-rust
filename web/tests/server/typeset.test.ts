@@ -13,6 +13,7 @@ import {
 	sanitizeForFont,
 	splitTextRuns,
 	resolveScriptFont,
+	getFontAvailability,
 	typesetPage,
 	wrapText,
 } from '$lib/server/typeset';
@@ -732,6 +733,21 @@ Tattered Flesh-Cutting Knife`;
 		);
 		expect(resultBuf).toBeInstanceOf(Buffer);
 		expect(resultBuf.length).toBeGreaterThan(0);
+	});
+
+	it('returns availability and bundled status for dialogue and CJK fonts in getFontAvailability', () => {
+		const availability = getFontAvailability();
+		expect(availability['CC Wild Words']).toBeDefined();
+		expect(availability['CC Wild Words'].bundled).toBe(true);
+		expect(availability['CC Wild Words'].available).toBe(true);
+
+		expect(availability['WenQuanYi Micro Hei']).toBeDefined();
+		expect(availability['WenQuanYi Micro Hei'].bundled).toBe(true);
+		expect(availability['WenQuanYi Micro Hei'].available).toBe(true);
+
+		expect(availability['Friendly Sans']).toBeDefined();
+		expect(availability['Friendly Sans'].bundled).toBe(true);
+		expect(availability['Friendly Sans'].available).toBe(true);
 	});
 });
 

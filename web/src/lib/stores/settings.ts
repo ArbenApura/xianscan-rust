@@ -326,8 +326,18 @@ export const THEME_BAR: Record<Theme, string> = {
 	dark: 'bg-[#13100c]/70',
 };
 
-export const AVAILABLE_TYPESET_FONTS = [
-	{ id: 'CC Wild Words', label: 'CC Wild Words', sub: 'Classic Comic All-Caps', stack: "'CC Wild Words', 'WildWorld', sans-serif", allCapsOnly: true },
+export interface TypesetFontOption {
+	id: string;
+	label: string;
+	sub: string;
+	stack?: string;
+	allCapsOnly?: boolean;
+	bundled?: boolean;
+}
+
+export const AVAILABLE_TYPESET_FONTS: TypesetFontOption[] = [
+	{ id: 'CC Wild Words', label: 'CC Wild Words', sub: 'Classic Comic All-Caps', stack: "'CC Wild Words', 'WildWorld', sans-serif", allCapsOnly: true, bundled: true },
+	{ id: 'Friendly Sans', label: 'Friendly Sans', sub: 'Clean Comic Sans-Serif', stack: "'Friendly Sans', sans-serif", bundled: true },
 	{ id: 'General Sans', label: 'General Sans', sub: 'Clean Modern Sans', stack: "'General Sans', sans-serif" },
 	{ id: 'Poppins', label: 'Poppins', sub: 'Geometric Rounded', stack: "'Poppins', sans-serif" },
 	{ id: 'Proxima Nova', label: 'Proxima Nova', sub: 'Editorial Clean', stack: "'Proxima Nova', sans-serif" },
@@ -335,13 +345,43 @@ export const AVAILABLE_TYPESET_FONTS = [
 	{ id: 'Lexend', label: 'Lexend', sub: 'High Legibility', stack: "'Lexend', sans-serif" },
 ];
 
-export const AVAILABLE_CJK_FONTS = [
+export const AVAILABLE_CJK_FONTS: TypesetFontOption[] = [
+	{ id: 'WenQuanYi Micro Hei', label: 'WenQuanYi Micro Hei', sub: 'Bundled Universal CJK Engine', bundled: true },
 	{ id: 'Microsoft YaHei', label: 'Microsoft YaHei', sub: 'Chinese Simplified & Traditional' },
 	{ id: 'Yu Gothic', label: 'Yu Gothic', sub: 'Japanese Manga Standard' },
 	{ id: 'Malgun Gothic', label: 'Malgun Gothic', sub: 'Korean Hangul Manhwa' },
-	{ id: 'Noto Sans CJK SC', label: 'Noto Sans CJK', sub: 'Universal CJK Open Source' },
-	{ id: 'Friendly Sans', label: 'Friendly Sans', sub: 'Clean Universal Latin Fallback' },
+	{ id: 'Noto Sans CJK SC', label: 'Noto Sans CJK', sub: 'Universal CJK (Linux / Noto)' },
+	{ id: 'PingFang SC', label: 'PingFang SC', sub: 'macOS Chinese System' },
+	{ id: 'Friendly Sans', label: 'Friendly Sans', sub: 'Clean Latin / Symbol Fallback', bundled: true },
 ];
+
+export interface FontAvailabilityStatus {
+	available: boolean;
+	bundled: boolean;
+	note: string;
+}
+
+export const fontAvailabilityStore = writable<Record<string, FontAvailabilityStatus>>({
+	'CC Wild Words': { available: true, bundled: true, note: 'Bundled comic dialogue font' },
+	'Friendly Sans': { available: true, bundled: true, note: 'Bundled clean Latin / symbol fallback' },
+	'WenQuanYi Micro Hei': { available: true, bundled: true, note: 'Bundled universal CJK engine' },
+});
+
+export async function refreshFontAvailability(): Promise<Record<string, FontAvailabilityStatus>> {
+	try {
+		const res = await fetch('/api/system/fonts');
+		if (res.ok) {
+			const data = await res.json();
+			if (data.fonts) {
+				fontAvailabilityStore.set(data.fonts);
+				return data.fonts;
+			}
+		}
+	} catch {
+		// FALLBACK: PRESERVE DEFAULT BUNDLED STATUS
+	}
+	return get(fontAvailabilityStore);
+}
 
 export const SFX_AREA_PRESETS: { value: number; label: string; sub: string }[] = [
 	{ value: 0.05, label: '5%', sub: 'Ultra Minimal' },

@@ -16,7 +16,7 @@ export const FONT_DEFAULT_CJK = 'Microsoft YaHei';
 export const NON_LATIN_SCRIPT_REGEX = /[\u3040-\u30ff\u31f0-\u31ff\u3400-\u4dbf\u4e00-\u9fff\uf900-\ufaff\uac00-\ud7af\u1100-\u11ff\u3130-\u318f\u0900-\u097f\u0e00-\u0e7f\u0400-\u04ff\uff01-\uffee\u3000-\u303f]/;
 export const CJK_REGEX = NON_LATIN_SCRIPT_REGEX;
 
-export const CJK_FONT_STACK = '"Microsoft YaHei Bold", "Microsoft YaHei", "Yu Gothic Bold", "Yu Gothic", "Malgun Gothic Bold", "Malgun Gothic", "Noto Sans CJK SC", "Noto Sans CJK JP", "Noto Sans CJK KR", "PingFang SC", "PingFang TC", "WenQuanYi Micro Hei", "Nirmala UI Bold", "Nirmala UI", "Leelawadee UI Bold", "Leelawadee UI", "Friendly Sans", Arial, "Segoe UI", sans-serif';
+export const CJK_FONT_STACK = '"Microsoft YaHei Bold", "Microsoft YaHei", "WenQuanYi Micro Hei", "Noto Sans CJK SC", "Noto Sans CJK JP", "Noto Sans CJK KR", "Yu Gothic Bold", "Yu Gothic", "Malgun Gothic Bold", "Malgun Gothic", "PingFang SC", "PingFang TC", "WenQuanYi Zen Hei", "Nirmala UI Bold", "Nirmala UI", "Leelawadee UI Bold", "Leelawadee UI", "Friendly Sans", Arial, "Segoe UI", sans-serif';
 
 export const FONT_FALLBACK = `, ${CJK_FONT_STACK}`;
 
@@ -86,6 +86,8 @@ export function registerFonts(): void {
 	const fontDir = resolveFontDir();
 	tryRegisterFont(join(fontDir, 'CCWildWords-Roman.ttf'), FONT_DIALOGUE);
 	tryRegisterFont(join(fontDir, 'FriendlySans-Regular.ttf'), FONT_FALLBACK_NAME);
+	tryRegisterFont(join(fontDir, 'wqy-microhei.ttc'), 'WenQuanYi Micro Hei');
+	tryRegisterFont(join(fontDir, 'wqy-microhei.ttc'), 'WenQuanYi Micro Hei Bold');
 
 	// PLATFORM SYSTEM FONTS (WINDOWS, LINUX, MACOS)
 	if (process.platform === 'win32') {
@@ -151,36 +153,94 @@ export function registerFonts(): void {
 	fontsRegistered = true;
 }
 
+export interface FontAvailabilityItem {
+	available: boolean;
+	bundled: boolean;
+	note: string;
+}
+
+/**
+ * DETECTS AND RETURNS AVAILABILITY STATUS FOR ALL SUPPORTED DIALOGUE & CJK FONTS
+ */
+export function getFontAvailability(): Record<string, FontAvailabilityItem> {
+	registerFonts();
+	const fontMeta: Record<string, { bundled: boolean; note: string }> = {
+		'CC Wild Words': { bundled: true, note: 'Bundled comic dialogue font' },
+		'Friendly Sans': { bundled: true, note: 'Bundled clean Latin / symbol fallback' },
+		'WenQuanYi Micro Hei': { bundled: true, note: 'Bundled universal CJK engine' },
+		'Microsoft YaHei': { bundled: false, note: 'Windows Chinese font' },
+		'Yu Gothic': { bundled: false, note: 'Windows Japanese font' },
+		'Malgun Gothic': { bundled: false, note: 'Windows Korean font' },
+		'Noto Sans CJK SC': { bundled: false, note: 'Linux / Open Source Noto CJK package' },
+		'PingFang SC': { bundled: false, note: 'macOS Chinese font' },
+		'General Sans': { bundled: false, note: 'Requires local font install' },
+		'Poppins': { bundled: false, note: 'Requires local font install' },
+		'Proxima Nova': { bundled: false, note: 'Requires local font install' },
+		'Montserrat': { bundled: false, note: 'Requires local font install' },
+		'Lexend': { bundled: false, note: 'Requires local font install' },
+	};
+
+	const result: Record<string, FontAvailabilityItem> = {};
+	for (const [name, meta] of Object.entries(fontMeta)) {
+		const isAvail = meta.bundled || GlobalFonts.has(name);
+		result[name] = {
+			available: isAvail,
+			bundled: meta.bundled,
+			note: meta.note,
+		};
+	}
+
+	return result;
+}
+
 /**
  * AUTOMATICALLY RESOLVES THE MOST APPROPRIATE CJK / NON-LATIN SCRIPT FONT FAMILY FOR GIVEN TEXT
  */
 export function resolveScriptFont(text?: string, customCjk?: string): string {
+	registerFonts();
+
 	if (customCjk && customCjk !== FONT_FALLBACK_NAME && customCjk !== FONT_DIALOGUE) {
 		return customCjk;
 	}
-	if (!text) return FONT_DEFAULT_CJK;
+	if (!text) {
+		if (GlobalFonts.has(FONT_DEFAULT_CJK)) return FONT_DEFAULT_CJK;
+		if (GlobalFonts.has('WenQuanYi Micro Hei')) return 'WenQuanYi Micro Hei';
+		return FONT_FALLBACK_NAME;
+	}
 
 	// KOREAN HANGUL
 	if (/[\uac00-\ud7af\u1100-\u11ff\u3130-\u318f]/.test(text)) {
+		if (GlobalFonts.has('Malgun Gothic')) return 'Malgun Gothic';
+		if (GlobalFonts.has('WenQuanYi Micro Hei')) return 'WenQuanYi Micro Hei';
 		return 'Malgun Gothic';
 	}
 	// JAPANESE KANA
 	if (/[\u3040-\u30ff\u31f0-\u31ff]/.test(text)) {
+		if (GlobalFonts.has('Yu Gothic')) return 'Yu Gothic';
+		if (GlobalFonts.has('WenQuanYi Micro Hei')) return 'WenQuanYi Micro Hei';
 		return 'Yu Gothic';
 	}
 	// THAI
 	if (/[\u0e00-\u0e7f]/.test(text)) {
+		if (GlobalFonts.has('Leelawadee UI')) return 'Leelawadee UI';
 		return 'Leelawadee UI';
 	}
 	// DEVANAGARI (HINDI)
 	if (/[\u0900-\u097f]/.test(text)) {
+		if (GlobalFonts.has('Nirmala UI')) return 'Nirmala UI';
 		return 'Nirmala UI';
 	}
 	// CYRILLIC
 	if (/[\u0400-\u04ff]/.test(text)) {
+		if (GlobalFonts.has('Arial')) return 'Arial';
 		return 'Arial';
 	}
 	// CHINESE HANZI & DEFAULT CJK
+	if (GlobalFonts.has('Microsoft YaHei')) return 'Microsoft YaHei';
+	if (GlobalFonts.has('Noto Sans CJK SC')) return 'Noto Sans CJK SC';
+	if (GlobalFonts.has('WenQuanYi Micro Hei')) return 'WenQuanYi Micro Hei';
+	if (GlobalFonts.has('PingFang SC')) return 'PingFang SC';
+
 	return FONT_DEFAULT_CJK;
 }
 
