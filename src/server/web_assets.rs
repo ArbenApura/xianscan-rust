@@ -235,6 +235,11 @@ pub fn extract_if_needed() -> anyhow::Result<Option<PathBuf>> {
             && app_dir
                 .join("static")
                 .join("fonts")
+                .join("GeneralSans-Bold.ttf")
+                .exists()
+            && app_dir
+                .join("static")
+                .join("fonts")
                 .join("wqy-microhei.ttc")
                 .exists();
 

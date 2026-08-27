@@ -737,17 +737,20 @@ Tattered Flesh-Cutting Knife`;
 
 	it('returns availability and bundled status for dialogue and CJK fonts in getFontAvailability', () => {
 		const availability = getFontAvailability();
-		expect(availability['CC Wild Words']).toBeDefined();
-		expect(availability['CC Wild Words'].bundled).toBe(true);
-		expect(availability['CC Wild Words'].available).toBe(true);
-
-		expect(availability['WenQuanYi Micro Hei']).toBeDefined();
-		expect(availability['WenQuanYi Micro Hei'].bundled).toBe(true);
-		expect(availability['WenQuanYi Micro Hei'].available).toBe(true);
-
-		expect(availability['Friendly Sans']).toBeDefined();
-		expect(availability['Friendly Sans'].bundled).toBe(true);
-		expect(availability['Friendly Sans'].available).toBe(true);
+		const expectedBundled = [
+			'CC Wild Words',
+			'Friendly Sans',
+			'General Sans',
+			'Poppins',
+			'Montserrat',
+			'Lexend',
+			'WenQuanYi Micro Hei',
+		];
+		for (const name of expectedBundled) {
+			expect(availability[name], `font ${name} should be defined`).toBeDefined();
+			expect(availability[name].bundled, `font ${name} should be bundled`).toBe(true);
+			expect(availability[name].available, `font ${name} should be available`).toBe(true);
+		}
 	});
 });
 

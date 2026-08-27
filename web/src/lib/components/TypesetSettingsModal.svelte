@@ -414,7 +414,7 @@
 			<!-- LATIN DIALOGUE FONTS -->
 			<div class="space-y-1.5">
 				<div class="text-[11px] font-semibold opacity-75 pl-0.5">Latin / English Dialogue Font</div>
-				<div class="grid grid-cols-2 sm:grid-cols-3 gap-2">
+				<div class="grid grid-cols-2 sm:grid-cols-4 gap-2">
 					{#each AVAILABLE_TYPESET_FONTS as font}
 						{@const isSelected = ($settings.typesetFont || 'CC Wild Words') === font.id}
 						{@const status = $fontAvailabilityStore[font.id]}

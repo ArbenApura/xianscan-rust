@@ -1765,7 +1765,7 @@
 							class={`space-y-2 transition-all duration-300 ${highlightedSettingId === 'typeset-font' ? 'ring-2 ring-[#b23a2e] dark:ring-[#e08a63] bg-[#b23a2e]/[0.06] dark:bg-[#e08a63]/[0.08] rounded-2xl p-2.5 -m-1' : ''}`}
 						>
 							<div class="text-xs font-bold uppercase tracking-wider opacity-80">Latin / English Dialogue Font</div>
-							<div class="grid grid-cols-2 sm:grid-cols-3 gap-2">
+							<div class="grid grid-cols-2 sm:grid-cols-4 gap-2">
 								{#each AVAILABLE_TYPESET_FONTS as font}
 									{@const isSelected = ($settings.typesetFont || 'CC Wild Words') === font.id}
 									{@const status = $fontAvailabilityStore[font.id]}

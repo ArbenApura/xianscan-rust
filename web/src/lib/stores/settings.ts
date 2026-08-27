@@ -338,11 +338,11 @@ export interface TypesetFontOption {
 export const AVAILABLE_TYPESET_FONTS: TypesetFontOption[] = [
 	{ id: 'CC Wild Words', label: 'CC Wild Words', sub: 'Classic Comic All-Caps', stack: "'CC Wild Words', 'WildWorld', sans-serif", allCapsOnly: true, bundled: true },
 	{ id: 'Friendly Sans', label: 'Friendly Sans', sub: 'Clean Comic Sans-Serif', stack: "'Friendly Sans', sans-serif", bundled: true },
-	{ id: 'General Sans', label: 'General Sans', sub: 'Clean Modern Sans', stack: "'General Sans', sans-serif" },
-	{ id: 'Poppins', label: 'Poppins', sub: 'Geometric Rounded', stack: "'Poppins', sans-serif" },
+	{ id: 'General Sans', label: 'General Sans', sub: 'Clean Modern Sans', stack: "'General Sans', sans-serif", bundled: true },
+	{ id: 'Poppins', label: 'Poppins', sub: 'Geometric Rounded', stack: "'Poppins', sans-serif", bundled: true },
+	{ id: 'Montserrat', label: 'Montserrat', sub: 'Bold Contemporary', stack: "'Montserrat', sans-serif", bundled: true },
+	{ id: 'Lexend', label: 'Lexend', sub: 'High Legibility', stack: "'Lexend', sans-serif", bundled: true },
 	{ id: 'Proxima Nova', label: 'Proxima Nova', sub: 'Editorial Clean', stack: "'Proxima Nova', sans-serif" },
-	{ id: 'Montserrat', label: 'Montserrat', sub: 'Bold Contemporary', stack: "'Montserrat', sans-serif" },
-	{ id: 'Lexend', label: 'Lexend', sub: 'High Legibility', stack: "'Lexend', sans-serif" },
 ];
 
 export const AVAILABLE_CJK_FONTS: TypesetFontOption[] = [
@@ -364,6 +364,10 @@ export interface FontAvailabilityStatus {
 export const fontAvailabilityStore = writable<Record<string, FontAvailabilityStatus>>({
 	'CC Wild Words': { available: true, bundled: true, note: 'Bundled comic dialogue font' },
 	'Friendly Sans': { available: true, bundled: true, note: 'Bundled clean Latin / symbol fallback' },
+	'General Sans': { available: true, bundled: true, note: 'Bundled clean modern sans' },
+	'Poppins': { available: true, bundled: true, note: 'Bundled geometric rounded' },
+	'Montserrat': { available: true, bundled: true, note: 'Bundled bold contemporary' },
+	'Lexend': { available: true, bundled: true, note: 'Bundled high legibility' },
 	'WenQuanYi Micro Hei': { available: true, bundled: true, note: 'Bundled universal CJK engine' },
 });
 

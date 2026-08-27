@@ -86,6 +86,14 @@ export function registerFonts(): void {
 	const fontDir = resolveFontDir();
 	tryRegisterFont(join(fontDir, 'CCWildWords-Roman.ttf'), FONT_DIALOGUE);
 	tryRegisterFont(join(fontDir, 'FriendlySans-Regular.ttf'), FONT_FALLBACK_NAME);
+	tryRegisterFont(join(fontDir, 'GeneralSans-Bold.ttf'), 'General Sans Bold');
+	tryRegisterFont(join(fontDir, 'GeneralSans-Regular.ttf'), 'General Sans');
+	tryRegisterFont(join(fontDir, 'Poppins-Bold.ttf'), 'Poppins Bold');
+	tryRegisterFont(join(fontDir, 'Poppins-Bold.ttf'), 'Poppins');
+	tryRegisterFont(join(fontDir, 'Montserrat-Bold.ttf'), 'Montserrat Bold');
+	tryRegisterFont(join(fontDir, 'Montserrat-Bold.ttf'), 'Montserrat');
+	tryRegisterFont(join(fontDir, 'Lexend-Bold.ttf'), 'Lexend Bold');
+	tryRegisterFont(join(fontDir, 'Lexend-Bold.ttf'), 'Lexend');
 	tryRegisterFont(join(fontDir, 'wqy-microhei.ttc'), 'WenQuanYi Micro Hei');
 	tryRegisterFont(join(fontDir, 'wqy-microhei.ttc'), 'WenQuanYi Micro Hei Bold');
 
@@ -167,17 +175,17 @@ export function getFontAvailability(): Record<string, FontAvailabilityItem> {
 	const fontMeta: Record<string, { bundled: boolean; note: string }> = {
 		'CC Wild Words': { bundled: true, note: 'Bundled comic dialogue font' },
 		'Friendly Sans': { bundled: true, note: 'Bundled clean Latin / symbol fallback' },
+		'General Sans': { bundled: true, note: 'Bundled clean modern sans' },
+		'Poppins': { bundled: true, note: 'Bundled geometric rounded' },
+		'Montserrat': { bundled: true, note: 'Bundled bold contemporary' },
+		'Lexend': { bundled: true, note: 'Bundled high legibility' },
 		'WenQuanYi Micro Hei': { bundled: true, note: 'Bundled universal CJK engine' },
 		'Microsoft YaHei': { bundled: false, note: 'Windows Chinese font' },
 		'Yu Gothic': { bundled: false, note: 'Windows Japanese font' },
 		'Malgun Gothic': { bundled: false, note: 'Windows Korean font' },
 		'Noto Sans CJK SC': { bundled: false, note: 'Linux / Open Source Noto CJK package' },
 		'PingFang SC': { bundled: false, note: 'macOS Chinese font' },
-		'General Sans': { bundled: false, note: 'Requires local font install' },
-		'Poppins': { bundled: false, note: 'Requires local font install' },
-		'Proxima Nova': { bundled: false, note: 'Requires local font install' },
-		'Montserrat': { bundled: false, note: 'Requires local font install' },
-		'Lexend': { bundled: false, note: 'Requires local font install' },
+		'Proxima Nova': { bundled: false, note: 'Proprietary font (requires local install)' },
 	};
 
 	const result: Record<string, FontAvailabilityItem> = {};
