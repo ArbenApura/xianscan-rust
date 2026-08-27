@@ -11,8 +11,8 @@ export const GET: RequestHandler = async () => {
 			const hw = await pipeline.getHardware();
 			return json({
 				...hw,
-				version: hw.version || '0.4.0-beta.2',
-				app_version: hw.app_version || '0.4.0-beta.2+dev',
+				version: hw.version || '0.4.0-beta.5',
+				app_version: hw.app_version || '0.4.0-beta.5+dev',
 				web_build_hash: hw.web_build_hash || 'dev',
 				web_build_time: hw.web_build_time || '0',
 			});
@@ -33,8 +33,8 @@ export const GET: RequestHandler = async () => {
 			has_cuda: false,
 			has_directml: false,
 			has_coreml: false,
-			version: health.version || '0.4.0-beta.4',
-			app_version: health.app_version || '0.4.0-beta.4+dev',
+			version: health.version || '0.4.0-beta.5',
+			app_version: health.app_version || '0.4.0-beta.5+dev',
 			web_build_hash: health.web_build_hash || 'dev',
 			web_build_time: health.web_build_time || '0',
 		});
@@ -48,8 +48,8 @@ export const GET: RequestHandler = async () => {
 				has_cuda: false,
 				has_directml: false,
 				has_coreml: false,
-				version: '0.4.0-beta.4',
-				app_version: '0.4.0-beta.4+dev',
+				version: '0.4.0-beta.5',
+				app_version: '0.4.0-beta.5+dev',
 				web_build_hash: 'dev',
 				web_build_time: '0',
 				error: (e as Error).message,

@@ -151,8 +151,9 @@ describe('SSR Data Loaders and Services', () => {
 		expect(readerData.prevChapter?.id).toBe(30);
 		expect(readerData.nextChapter?.id).toBe(32);
 		expect(readerData.pages).toHaveLength(1);
-		expect(readerData.pages[0].regions).toHaveLength(1);
-		expect(readerData.pages[0].regions[0].textTarget).toBe('Hello');
+		// REGIONS ARE NOT INCLUDED IN THE INITIAL PAYLOAD — THEY ARE FETCHED ON-DEMAND VIA
+		// GET /api/pages/:id WHEN THE INSPECT MODAL OPENS (reader.ts keeps regions: []).
+		expect(readerData.pages[0].regions).toHaveLength(0);
 	});
 
 	it('getGlossaryPage returns paginated glossary rows with total count', async () => {

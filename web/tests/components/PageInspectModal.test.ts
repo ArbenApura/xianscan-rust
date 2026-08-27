@@ -204,7 +204,7 @@ describe('PageInspectModal Component UI', () => {
 		expect(typesetCall[1].method).toBe('POST');
 		const body = JSON.parse(typesetCall[1].body);
 		expect(body.typesetOptions).toBeDefined();
-		expect(body.typesetOptions.fontCjk).toBe('Microsoft YaHei');
+		expect(body.typesetOptions.fontCjk).toBe('WenQuanYi Micro Hei');
 	});
 });
 
