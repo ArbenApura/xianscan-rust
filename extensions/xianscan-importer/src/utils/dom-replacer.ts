@@ -553,10 +553,7 @@ export class DomReplacerEngine {
 		const isHttpsPage = typeof window !== 'undefined' && window.location.protocol === 'https:';
 
 		// RESTORE THE ORIGINAL HOST IMAGE SO THE READER NEVER SHOWS A BROKEN SLICE.
-		// ON HTTPS PAGES A RAW HTTP SERVER URL IS ALWAYS BLOCKED AS MIXED CONTENT, SO IT
-		// IS POINTLESS TO KEEP RETRYING IT — FALL BACK TO THE ORIGINAL IMAGE INSTEAD.
 		const fallbackToOriginal = () => {
-			console.warn(`[XianScan] Image load failed on page #${pageId}, restoring original image.`);
 			const origSrc = img.getAttribute('data-xianscan-orig-src');
 			if (origSrc) {
 				img.src = origSrc;
@@ -565,12 +562,26 @@ export class DomReplacerEngine {
 		};
 
 		img.onerror = () => {
+			// MIXED-CONTENT BLOCK: A RAW HTTP SERVER URL ASSIGNED TO THE IMG SRC ON AN HTTPS PAGE
+			// IS ALWAYS BLOCKED BY THE BROWSER, SO RETRYING THE SAME URL IS POINTLESS. WHEN THE
+			// HTTPS PROXY FAILED TO REPLACE IT WITH A BLOB URL (IMG STILL HOLDS THE RAW HTTP URL),
+			// RESTORE THE ORIGINAL IMAGE IMMEDIATELY — NO RETRY LOOP AND NO CONSOLE SPAM.
+			const isMixedContentBlocked =
+				isHttpsPage &&
+				targetUrl.startsWith('http://') &&
+				(img.src === targetUrl || img.currentSrc === targetUrl);
+
+			if (isMixedContentBlocked) {
+				fallbackToOriginal();
+				return;
+			}
+
 			if (retries >= 3) {
 				fallbackToOriginal();
 				return;
 			}
+
 			retries++;
-			console.warn(`[XianScan] Image load error on page #${pageId}, retrying (attempt ${retries})...`);
 			safeDataUrlCache.delete(targetUrl);
 			setTimeout(() => {
 				void resolveSafeImageUrl(targetUrl).then(freshSafeUrl => {
