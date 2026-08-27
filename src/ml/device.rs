@@ -607,7 +607,7 @@ pub fn get_cuda_memory_limit_for_model(model_tag: &str) -> usize {
         }
     } else if tag.contains("lama") || tag.contains("inpaint") {
         if total_vram_mb >= 14000.0 {
-            2560 * 1024 * 1024 // 2.5 GB ON 16GB+ GPUS
+            4 * 1024 * 1024 * 1024 // 4 GB ON 16GB+ GPUS - FOURIER CONV INTERMEDIATE TENSORS EXCEED 2.5 GB ARENA
         } else if total_vram_mb >= 7000.0 {
             2048 * 1024 * 1024 // 2 GB ON 8GB-12GB GPUS
         } else {
