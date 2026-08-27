@@ -2859,7 +2859,7 @@
 								<p class="text-[10.5px] opacity-60 leading-relaxed">
 									Sets the maximum memory capacity allocated per ONNX CUDA session to prevent out-of-memory errors on large transformer layers.
 								</p>
-								<div class="grid grid-cols-3 sm:grid-cols-6 gap-1.5 pt-1">
+								<div class="grid grid-cols-3 sm:grid-cols-5 gap-1.5 pt-1">
 									{#each CUDA_VRAM_LIMIT_PRESETS as preset}
 										{@const isSelected = $settings.cudaVramLimitMb === preset.value || ($settings.cudaVramLimitMb === null && preset.value === null)}
 										{@const maxGpuVramMb = hardwareInfo?.detected_gpus?.[0]?.vram_mb ?? 0}
