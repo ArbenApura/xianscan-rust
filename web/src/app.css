@@ -153,3 +153,10 @@
 		padding-bottom: calc(4rem + env(safe-area-inset-bottom));
 	}
 }
+
+/* SHIMMER SWEEP ANIMATION — USED BY VirtualPageList SKELETON PLACEHOLDERS */
+@keyframes shimmer {
+	0%   { transform: translateX(-100%); }
+	100% { transform: translateX(200%); }
+}
+

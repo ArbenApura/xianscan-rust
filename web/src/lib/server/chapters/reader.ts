@@ -89,63 +89,48 @@ export async function getChapterReaderData(chapterId: number): Promise<ChapterRe
 		.orderBy(pages.seq)
 		.all();
 
-	const missingDims: { id: number; width: number; height: number }[] = [];
-	for (const p of pageRows) {
-		if ((p.width === null || p.height === null) && p.filePath) {
-			const absPath = join(DATA_ROOT, p.filePath);
-			try {
-				const buf = readFileSync(absPath);
-				const dims = getImageDimensionsFromBuffer(buf);
-				let w = dims.width;
-				let h = dims.height;
-				if (!w || !h) {
-					const { loadImage } = await import('@napi-rs/canvas');
-					const img = await loadImage(buf);
-					w = img.width || null;
-					h = img.height || null;
+	// DIMENSION BACKFILL: DEFERRED AFTER RESPONSE — READS IMAGE FILES FROM DISK ONLY
+	// FOR PAGES WITH NULL width/height. RUNS IN BACKGROUND SO THE RESPONSE IS NOT BLOCKED.
+	// ON NEXT LOAD THE CACHED DIMS WILL BE IN THE DB.
+	setImmediate(async () => {
+		const missingDims: { id: number; width: number; height: number }[] = [];
+		for (const p of pageRows) {
+			if ((p.width === null || p.height === null) && p.filePath) {
+				const absPath = join(DATA_ROOT, p.filePath);
+				try {
+					const buf = readFileSync(absPath);
+					const dims = getImageDimensionsFromBuffer(buf);
+					let w = dims.width;
+					let h = dims.height;
+					if (!w || !h) {
+						const { loadImage } = await import('@napi-rs/canvas');
+						const img = await loadImage(buf);
+						w = img.width || null;
+						h = img.height || null;
+					}
+					if (w && h) {
+						missingDims.push({ id: p.id, width: w, height: h });
+					}
+				} catch {
+					// Ignore if file is missing or unreadable
 				}
-				if (w && h) {
-					p.width = w;
-					p.height = h;
-					missingDims.push({ id: p.id, width: w, height: h });
-				}
-			} catch {
-				// ignore if file is missing or unreadable
 			}
 		}
-	}
-
-	if (missingDims.length > 0) {
-		try {
-			db.transaction((tx) => {
-				for (const item of missingDims) {
-					tx.update(pages)
-						.set({ width: item.width, height: item.height })
-						.where(eq(pages.id, item.id))
-						.run();
-				}
-			});
-		} catch {
-			// Non-blocking
+		if (missingDims.length > 0) {
+			try {
+				db.transaction((tx) => {
+					for (const item of missingDims) {
+						tx.update(pages)
+							.set({ width: item.width, height: item.height })
+							.where(eq(pages.id, item.id))
+							.run();
+					}
+				});
+			} catch {
+				// Non-blocking
+			}
 		}
-	}
-
-	const pageIds = pageRows.map((p) => p.id);
-	const regionRows =
-		pageIds.length > 0
-			? db
-					.select()
-					.from(regions)
-					.where(inArray(regions.pageId, pageIds))
-					.orderBy(regions.seq)
-					.all()
-			: [];
-	const byPage = new Map<number, typeof regionRows>();
-	for (const r of regionRows) {
-		const arr = byPage.get(r.pageId) ?? [];
-		arr.push(r);
-		byPage.set(r.pageId, arr);
-	}
+	});
 
 	const chapterRow = db
 		.select()
@@ -192,6 +177,9 @@ export async function getChapterReaderData(chapterId: number): Promise<ChapterRe
 		allChapters: allChaptersInBook,
 		prevChapter,
 		nextChapter,
+		// REGIONS ARE NOT INCLUDED IN THE INITIAL PAYLOAD. THE INSPECT MODAL FETCHES
+		// THEM ON-DEMAND VIA GET /api/pages/:id WHEN OPENED, ENSURING THEY ARE ALWAYS
+		// FRESH WITHOUT LOADING ALL REGION DATA FOR ALL PAGES UPFRONT.
 		pages: pageRows.map((p) => ({
 			id: p.id,
 			seq: p.seq,
@@ -208,25 +196,7 @@ export async function getChapterReaderData(chapterId: number): Promise<ChapterRe
 			ocrStats: (p as any).ocrStats ?? null,
 			width: p.width,
 			height: p.height,
-			regions: (byPage.get(p.id) ?? []).map((r) => {
-				const parsedBox = safeJson(r.box) as any;
-				return {
-					id: r.id,
-					seq: r.seq,
-					box: parsedBox,
-					inpaintBox: r.inpaintBox ? safeJson(r.inpaintBox) : (parsedBox?.inpaint_box ?? null),
-					typesetBox: r.typesetBox ? safeJson(r.typesetBox) : (parsedBox?.typeset_box ?? null),
-					polygon: safeJson(r.polygon),
-					bubble_box: parsedBox?.bubble_box ?? null,
-					bubble_polygon: parsedBox?.bubble_polygon ?? null,
-					centroid: parsedBox?.centroid ?? null,
-					kind: parsedBox?.kind ?? 'dialogue_bubble',
-					textSource: r.textSource,
-					textTarget: r.textTarget,
-					originalTarget: (r as any).originalTarget ?? r.textTarget,
-					conf: r.conf,
-				};
-			}),
+			regions: [],
 		})),
 	};
 }

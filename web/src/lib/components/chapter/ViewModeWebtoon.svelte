@@ -5,6 +5,7 @@
 
 	// IMPORTED COMPONENTS
 	import PageImage from '$lib/components/chapter/PageImage.svelte';
+	import VirtualPageList from '$lib/components/chapter/VirtualPageList.svelte';
 
 	const widthClasses = {
 		sm: 'max-w-lg',
@@ -17,25 +18,28 @@
 	<div
 		class={`w-full ${widthClasses[webtoonWidth]} flex flex-col items-center bg-black shadow-2xl transition-all duration-300`}
 	>
-		{#each pages as page (page.id)}
-			{@const hasRatio = Boolean(page.width && page.height)}
-			<div
-				class="relative m-0 w-full border-0 bg-black p-0 leading-none"
-				data-page-seq={page.seq}
-				data-page-id={page.id}
-				style={hasRatio ? `aspect-ratio: ${page.width} / ${page.height};` : ''}
-			>
+		<VirtualPageList {pages} windowSize={9} overscan={2} placeholderClass="w-full bg-black">
+			<svelte:fragment slot="default" let:page>
+				{@const hasRatio = Boolean(page.width && page.height)}
 				<div
-					class="h-full w-full overflow-hidden bg-black/40"
+					class="relative m-0 w-full border-0 bg-black p-0 leading-none"
+					data-page-seq={page.seq}
+					data-page-id={page.id}
 					style={hasRatio ? `aspect-ratio: ${page.width} / ${page.height};` : ''}
 				>
-					<PageImage
-						src={`/api/pages/${page.id}/file?kind=${webtoonKind === 'output' && page.outputPath ? 'output' : 'original'}&rev=${webtoonKind === 'output' && page.outputPath ? (page.outputRev ?? 0) : (page.originalRev ?? 0)}`}
-						alt={`Page ${page.seq + 1}`}
-						imgClass="pointer-events-none object-contain"
-					/>
+					<div
+						class="h-full w-full overflow-hidden bg-black/40"
+						style={hasRatio ? `aspect-ratio: ${page.width} / ${page.height};` : ''}
+					>
+						<PageImage
+							src={`/api/pages/${page.id}/file?kind=${webtoonKind === 'output' && page.outputPath ? 'output' : 'original'}&rev=${webtoonKind === 'output' && page.outputPath ? (page.outputRev ?? 0) : (page.originalRev ?? 0)}`}
+							alt={`Page ${page.seq + 1}`}
+							imgClass="pointer-events-none object-contain"
+						/>
+					</div>
 				</div>
-			</div>
-		{/each}
+			</svelte:fragment>
+		</VirtualPageList>
 	</div>
 </div>
+

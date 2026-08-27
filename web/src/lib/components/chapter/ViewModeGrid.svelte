@@ -12,6 +12,8 @@
 
 	// IMPORTED COMPONENTS
 	import PageImage from '$lib/components/chapter/PageImage.svelte';
+	import VirtualPageList from '$lib/components/chapter/VirtualPageList.svelte';
+
 
 	export let pages: any[] = [];
 	export let running = false;
@@ -110,87 +112,99 @@
 	}
 </script>
 
+<!-- GRID LAYOUT WRAPS VIRTUAL LIST — PLACEHOLDER CELLS USE FIXED HEIGHT TO MATCH GRID ROW SIZING -->
 <div class="grid w-full grid-cols-1 gap-3.5 sm:grid-cols-2 lg:grid-cols-3">
-	{#each pages as page, idx (page.id)}
-		{@const isOutput = webtoonKind === 'output' && Boolean(page.outputPath)}
-		{@const hasRatio = Boolean(page.width && page.height)}
-		<!-- svelte-ignore a11y-no-static-element-interactions -->
-		<div
-			on:dragover={(e) => dispatch('dragOver', { event: e, index: idx })}
-			on:drop={(e) => dispatch('drop', { event: e, index: idx })}
-			on:dragend={(e) => dispatch('dragEnd', e)}
-			class={`group relative flex flex-col justify-between rounded-xl border p-3 sm:p-3.5 transition-all ${
-				dragOverPageIndex === idx
-					? 'z-10 scale-[1.02] border-[#b23a2e] bg-[#b23a2e]/5 ring-2 ring-[#b23a2e]/40'
-					: 'border-black/[0.08] bg-white/40 hover:border-[#b23a2e]/40 hover:shadow-md dark:border-white/[0.06] dark:bg-white/[0.02]'
-			} ${draggedPageIndex === idx ? 'scale-95 opacity-40' : ''}`}
-			data-page-seq={page.seq}
-			data-page-id={page.id}
-			style="content-visibility: auto; contain-intrinsic-size: auto 380px;"
-		>
-			<div class="min-w-0">
-				<div class="mb-2 flex items-center justify-between gap-1.5 min-w-0">
-					<div class="flex items-center gap-1.5 min-w-0 overflow-hidden">
-						<!-- svelte-ignore a11y-no-static-element-interactions -->
-						<span
-							draggable="true"
-							on:dragstart={(e) => dispatch('dragStart', { event: e, index: idx })}
-							on:dragend={(e) => dispatch('dragEnd', e)}
-							class="flex cursor-grab select-none items-center gap-1 rounded px-1.5 py-0.5 text-xs font-bold transition hover:bg-black/5 active:cursor-grabbing dark:hover:bg-white/5 shrink-0"
-						>
-							<GripVertical size={13} class="opacity-40" /> Page {page.seq + 1}
-						</span>
-						<Badge
-							variant={statusVariant[page.status]}
-							class="truncate text-[10px] sm:text-xs"
-						>
-							{#if page.status === 'processing'}
-								{page.currentStep
-									? stepBadgeLabels[page.currentStep] || page.currentStep
-									: 'Processing...'}
-							{:else}
-								{statusLabel[page.status]}
-							{/if}
-						</Badge>
+	<VirtualPageList
+		{pages}
+		windowSize={12}
+		overscan={3}
+		placeholderHeightPx={380}
+		skeletonVariant="card"
+		placeholderClass="rounded-xl border border-black/[0.08] bg-black/[0.03] dark:border-white/[0.06] dark:bg-white/[0.02]"
+	>
+		<svelte:fragment slot="default" let:page let:i>
+			{@const idx = i}
+			{@const isOutput = webtoonKind === 'output' && Boolean(page.outputPath)}
+			{@const hasRatio = Boolean(page.width && page.height)}
+			<!-- svelte-ignore a11y-no-static-element-interactions -->
+			<div
+				on:dragover={(e) => dispatch('dragOver', { event: e, index: idx })}
+				on:drop={(e) => dispatch('drop', { event: e, index: idx })}
+				on:dragend={(e) => dispatch('dragEnd', e)}
+				class={`group relative flex flex-col justify-between rounded-xl border p-3 sm:p-3.5 transition-all ${
+					dragOverPageIndex === idx
+						? 'z-10 scale-[1.02] border-[#b23a2e] bg-[#b23a2e]/5 ring-2 ring-[#b23a2e]/40'
+						: 'border-black/[0.08] bg-white/40 hover:border-[#b23a2e]/40 hover:shadow-md dark:border-white/[0.06] dark:bg-white/[0.02]'
+				} ${draggedPageIndex === idx ? 'scale-95 opacity-40' : ''}`}
+				data-page-seq={page.seq}
+				data-page-id={page.id}
+				style="content-visibility: auto; contain-intrinsic-size: auto 380px;"
+			>
+				<div class="min-w-0">
+					<div class="mb-2 flex items-center justify-between gap-1.5 min-w-0">
+						<div class="flex items-center gap-1.5 min-w-0 overflow-hidden">
+							<!-- svelte-ignore a11y-no-static-element-interactions -->
+							<span
+								draggable="true"
+								on:dragstart={(e) => dispatch('dragStart', { event: e, index: idx })}
+								on:dragend={(e) => dispatch('dragEnd', e)}
+								class="flex cursor-grab select-none items-center gap-1 rounded px-1.5 py-0.5 text-xs font-bold transition hover:bg-black/5 active:cursor-grabbing dark:hover:bg-white/5 shrink-0"
+							>
+								<GripVertical size={13} class="opacity-40" /> Page {page.seq + 1}
+							</span>
+							<Badge
+								variant={statusVariant[page.status]}
+								class="truncate text-[10px] sm:text-xs"
+							>
+								{#if page.status === 'processing'}
+									{page.currentStep
+										? stepBadgeLabels[page.currentStep] || page.currentStep
+										: 'Processing...'}
+								{:else}
+									{statusLabel[page.status]}
+								{/if}
+							</Badge>
+						</div>
+						<div class="flex items-center gap-1 shrink-0">
+							<button
+								type="button"
+								disabled={page.status === 'processing'}
+								on:click={() => dispatch('inspect', page)}
+								use:ripple
+								title="Inspect Page"
+								class="flex items-center gap-1 rounded-md bg-black/5 px-2 py-1 text-xs font-semibold transition hover:bg-black/10 disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-black/5 dark:bg-white/5 dark:hover:bg-white/10 dark:disabled:hover:bg-white/5"
+							>
+								<Eye size={12} />
+								<span class="hidden min-[400px]:inline">Inspect</span>
+							</button>
+							<ActionMenu
+								items={getMenuItems(page, idx, running)}
+								on:select={(e) => dispatch('menuAction', { action: e.detail, page })}
+							/>
+						</div>
 					</div>
-					<div class="flex items-center gap-1 shrink-0">
-						<button
-							type="button"
-							disabled={page.status === 'processing'}
-							on:click={() => dispatch('inspect', page)}
-							use:ripple
-							title="Inspect Page"
-							class="flex items-center gap-1 rounded-md bg-black/5 px-2 py-1 text-xs font-semibold transition hover:bg-black/10 disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-black/5 dark:bg-white/5 dark:hover:bg-white/10 dark:disabled:hover:bg-white/5"
-						>
-							<Eye size={12} />
-							<span class="hidden min-[400px]:inline">Inspect</span>
-						</button>
-						<ActionMenu
-							items={getMenuItems(page, idx, running)}
-							on:select={(e) => dispatch('menuAction', { action: e.detail, page })}
+
+					<!-- IMAGE CONTAINER (USES FAST 480PX MEMOIZED THUMBNAIL CACHE) -->
+					<div
+						class="relative overflow-hidden rounded-lg border border-black/10 bg-black/5 dark:border-white/10"
+						style={hasRatio ? `aspect-ratio: ${page.width} / ${page.height};` : 'aspect-ratio: 2 / 3;'}
+					>
+						<!-- svelte-ignore a11y-click-events-have-key-events -->
+						<!-- svelte-ignore a11y-no-noninteractive-element-interactions -->
+						<PageImage
+							src={`/api/pages/${page.id}/file?kind=thumb&w=480&target=${isOutput ? 'output' : 'original'}&rev=${isOutput ? (page.outputRev ?? 0) : (page.originalRev ?? 0)}`}
+							alt={`Page ${page.seq + 1}`}
+							imgClass={`object-cover ${page.status === 'processing' ? 'opacity-80' : ''}`}
+							on:click={(e) => page.status !== 'processing' && dispatch('inspect', page)}
 						/>
 					</div>
-				</div>
 
-				<!-- IMAGE CONTAINER (USES FAST 480PX MEMOIZED THUMBNAIL CACHE) -->
-				<div
-					class="relative overflow-hidden rounded-lg border border-black/10 bg-black/5 dark:border-white/10"
-					style={hasRatio ? `aspect-ratio: ${page.width} / ${page.height};` : 'aspect-ratio: 2 / 3;'}
-				>
-					<!-- svelte-ignore a11y-click-events-have-key-events -->
-					<!-- svelte-ignore a11y-no-noninteractive-element-interactions -->
-					<PageImage
-						src={`/api/pages/${page.id}/file?kind=thumb&w=480&target=${isOutput ? 'output' : 'original'}&rev=${isOutput ? (page.outputRev ?? 0) : (page.originalRev ?? 0)}`}
-						alt={`Page ${page.seq + 1}`}
-						imgClass={`object-cover ${page.status === 'processing' ? 'opacity-80' : ''}`}
-						on:click={(e) => page.status !== 'processing' && dispatch('inspect', page)}
-					/>
+					{#if page.error}
+						<p class="mt-2 text-xs text-red-600 dark:text-red-400">{page.error}</p>
+					{/if}
 				</div>
-
-				{#if page.error}
-					<p class="mt-2 text-xs text-red-600 dark:text-red-400">{page.error}</p>
-				{/if}
 			</div>
-		</div>
-	{/each}
+		</svelte:fragment>
+	</VirtualPageList>
 </div>
+
