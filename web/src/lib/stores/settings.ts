@@ -111,8 +111,7 @@ export const EXECUTION_DEVICES: { id: ExecutionDevice; label: string; blurb: str
 
 export const CUDA_VRAM_LIMIT_PRESETS: { value: number | null; label: string; sub: string }[] = [
 	{ value: null, label: 'Auto', sub: 'Hardware adaptive (8 GB on 16 GB+ GPUs)' },
-	{ value: 4096, label: '4 GB', sub: 'Compact GPU (8-10 GB cards)' },
-	{ value: 8192, label: '8 GB', sub: 'Tesla T4 / RTX 3070+ (16 GB min)' },
+	{ value: 8192, label: '8 GB', sub: 'Minimum viable - Tesla T4 / RTX 3070+ (16 GB)' },
 	{ value: 12288, label: '12 GB', sub: 'RTX 4070 / 3080' },
 	{ value: 16384, label: '16 GB', sub: 'RTX 4090 / A10G' },
 	{ value: 24576, label: '24 GB', sub: 'A100 / RTX 3090 / 4090 24 GB' },
