@@ -199,6 +199,26 @@ body {
 	height: 14px;
 }
 
+/* TRANSLATE BUTTON IN THE CREATE BOOK MODAL — MATCH THE CANCEL BUTTON'S BORDER/BACKGROUND */
+#translateBookTitleBtn {
+	border: 1px solid var(--border);
+	background: var(--surface);
+	width: 27px;
+	height: 27px;
+	padding: 0;
+	aspect-ratio: 1 / 1;
+	flex-shrink: 0;
+}
+
+#translateBookTitleBtn:hover {
+	border-color: var(--border-light);
+}
+
+#translateBookTitleBtn:disabled {
+	opacity: 0.5;
+	cursor: not-allowed;
+}
+
 /* -- SETTINGS PANEL -- */
 .settings-panel {
 	background: var(--surface);
@@ -536,6 +556,13 @@ body {
 	padding: 5px 8px;
 	gap: 4px;
 	font-size: 10px;
+}
+
+.tracker-subrow-actions {
+	display: flex;
+	align-items: center;
+	gap: 6px;
+	flex-shrink: 0;
 }
 
 .tracker-gallery-container {

@@ -47,6 +47,31 @@ describe('XianScanClient', () => {
 		}));
 	});
 
+	it('sends titleTarget when creating a book', async () => {
+		mockFetch.mockResolvedValueOnce({
+			ok: true,
+			json: async () => ({ id: 'uuid-6' })
+		});
+
+		await client.createBook({ title: '나 혼자만 레벨업', titleTarget: 'Solo Leveling', sourceLang: 'ko', targetLang: 'en' });
+		const [, init] = mockFetch.mock.calls[0];
+		expect(JSON.parse(init.body).titleTarget).toBe('Solo Leveling');
+	});
+
+	it('translates a title via /api/translate-text', async () => {
+		mockFetch.mockResolvedValueOnce({
+			ok: true,
+			json: async () => ({ text: 'Solo Leveling' })
+		});
+
+		const res = await client.translateText({ text: '나 혼자만 레벨업', kind: 'title', sourceLang: 'ko', targetLang: 'en' });
+		expect(res.text).toBe('Solo Leveling');
+		expect(mockFetch).toHaveBeenCalledWith('http://localhost:8124/api/translate-text', expect.objectContaining({
+			method: 'POST',
+			body: JSON.stringify({ text: '나 혼자만 레벨업', kind: 'title', sourceLang: 'ko', targetLang: 'en' })
+		}));
+	});
+
 	it('creates a new chapter', async () => {
 		mockFetch.mockResolvedValueOnce({
 			ok: true,
@@ -111,5 +136,122 @@ describe('XianScanClient', () => {
 		expect(mockFetch).toHaveBeenCalledWith('http://localhost:8124/api/chapters/42/translate', expect.objectContaining({
 			method: 'POST'
 		}));
+	});
+
+	it('fetches canonical settings from /api/settings', async () => {
+		mockFetch.mockResolvedValueOnce({
+			ok: true,
+			json: async () => ({ parallelProcesses: 1, parallelChapters: 1, enableSfx: false })
+		});
+
+		const settings = await client.getSettings();
+		expect(settings.parallelProcesses).toBe(1);
+		expect(settings.enableSfx).toBe(false);
+		expect(mockFetch).toHaveBeenCalledWith('http://localhost:8124/api/settings', expect.any(Object));
+	});
+
+	it('starts a batch translation relaying canonical settings', async () => {
+		mockFetch.mockResolvedValueOnce({
+			ok: true,
+			status: 200,
+			json: async () => ({ active: true, queue: [] })
+		});
+
+		const result = await client.startBatchTranslation({
+			bookId: 'uuid-5',
+			bookTitle: 'My Book',
+			chapterId: 42,
+			settings: {
+				parallelProcesses: 1,
+				parallelChapters: 1,
+				inpaintMode: 'patch',
+				inpaintExpansionPct: 0.03,
+				typesetExpansionPct: 0.03,
+				enableWatermarkInpaint: false,
+				enableSfx: false,
+				sfxMaxAreaPct: 0.1,
+				typesetFont: 'CC Wild Words',
+				typesetCjkFont: 'WenQuanYi Micro Hei',
+				typesetPadding: 0.05,
+				typesetOutline: 'standard',
+				typesetContrast: 'auto',
+				typesetCasing: 'uppercase',
+				enableTextRotation: true
+			}
+		});
+
+		expect(result.success).toBe(true);
+		expect(mockFetch).toHaveBeenCalledWith('http://localhost:8124/api/batch', expect.objectContaining({
+			method: 'POST',
+			body: JSON.stringify({
+				bookId: 'uuid-5',
+				bookTitle: 'My Book',
+				chapterIds: [42],
+				force: false,
+				parallelWorkers: 1,
+				pageConcurrency: 1,
+				resliceBeforeBatch: false,
+				inpaintMode: 'patch',
+				inpaintExpansionPct: 0.03,
+				typesetExpansionPct: 0.03,
+				enableWatermarkInpaint: false,
+				enableSfx: false,
+				sfxMaxAreaPct: 0.1,
+				typesetOptions: {
+					fontDialogue: 'CC Wild Words',
+					fontCjk: 'WenQuanYi Micro Hei',
+					boxInset: 0.05,
+					outlineMode: 'standard',
+					colorMode: 'auto',
+					casing: 'uppercase',
+					enableRotation: true
+				}
+			})
+		}));
+	});
+
+	it('startBatchTranslation falls back to empty settings and stringifies bookId', async () => {
+		mockFetch.mockResolvedValueOnce({
+			ok: true,
+			status: 200,
+			json: async () => ({ active: true, queue: [] })
+		});
+
+		const result = await client.startBatchTranslation({ bookId: 7, chapterId: 42 });
+		expect(result.success).toBe(true);
+		const [, init] = mockFetch.mock.calls[0];
+		const body = JSON.parse(init.body);
+		expect(body.bookId).toBe('7');
+		expect(body.resliceBeforeBatch).toBe(false);
+		expect(body.parallelWorkers).toBeUndefined();
+		expect(body.enableSfx).toBeUndefined();
+	});
+
+	it('removes a chapter from the active batch on cancel', async () => {
+		mockFetch.mockResolvedValueOnce({
+			ok: true,
+			status: 200,
+			json: async () => ({ success: true, removed: true })
+		});
+
+		const result = await client.cancelBatchTranslation(42);
+		expect(result.success).toBe(true);
+		expect(result.removed).toBe(true);
+		expect(mockFetch).toHaveBeenCalledWith('http://localhost:8124/api/batch', expect.objectContaining({
+			method: 'DELETE',
+			body: JSON.stringify({ chapterId: 42 })
+		}));
+	});
+
+	it('reports when batch cancel had nothing to remove', async () => {
+		mockFetch.mockResolvedValueOnce({
+			ok: true,
+			status: 200,
+			json: async () => ({ success: true, removed: false })
+		});
+
+		const result = await client.cancelBatchTranslation(42);
+		expect(result.success).toBe(true);
+		expect(result.removed).toBe(false);
 	});
 });

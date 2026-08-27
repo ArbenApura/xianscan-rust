@@ -282,6 +282,43 @@ describe('DomReplacerEngine', () => {
 		expect(img1.src).toContain('/api/pages/201/file?kind=output&rev=1');
 	});
 
+	it('updates the slice badge to PROCESSING when a pending page starts translating', () => {
+		engine = new DomReplacerEngine('http://127.0.0.1:8124');
+		const testPages: ChapterReaderPage[] = [
+			{
+				id: 601,
+				seq: 0,
+				filePath: 'orig1.jpg',
+				cleanedPath: null,
+				outputPath: null,
+				cleanedRev: 0,
+				outputRev: 0,
+				originalRev: 1,
+				status: 'pending',
+				error: null
+			}
+		];
+
+		engine.mountTranslatedPages(testPages);
+		let badge = document.querySelector('[data-xianscan-badge-id="601"]');
+		expect(badge?.textContent).toBe('PENDING');
+
+		// SIMULATE THE 2.5S POLL OBSERVING THE PAGE NOW PROCESSING (NO OUTPUT YET)
+		engine.updatePageStatus(601, 0, 'processing');
+		const processingBadge = document.querySelector('[data-xianscan-badge-id="601"].processing');
+		expect(processingBadge).not.toBeNull();
+		expect(processingBadge?.textContent).toBe('PROCESSING');
+		// SLICE STAYS DIM / ORIGINAL UNTIL OUTPUT EXISTS
+		expect(img1.getAttribute('data-xianscan-status')).toBe('processing');
+		expect(img1.style.filter).toBe('brightness(0.38) contrast(1.15)');
+		expect(img1.src).toContain('/api/pages/601/file?kind=original');
+
+		// ONCE OUTPUT IS READY, THE BADGE IS REPLACED BY THE TRANSLATED IMAGE
+		engine.updatePageSlice(601, 0, 1);
+		expect(img1.getAttribute('data-xianscan-status')).toBe('ready');
+		expect(img1.src).toContain('/api/pages/601/file?kind=output&rev=1');
+	});
+
 	it('removes ALL pending badges (not just the first) when a page is replaced', () => {
 		engine = new DomReplacerEngine('http://127.0.0.1:8124');
 		const testPages: ChapterReaderPage[] = [

@@ -78,6 +78,7 @@ class PopupController {
 
 	private trackerOpenStudioBtn!: HTMLButtonElement;
 	private trackerSyncTabBtn!: HTMLButtonElement;
+	private trackerRetryBtn!: HTMLButtonElement;
 
 	// MODALS
 	private settingsModalOverlay!: HTMLElement;
@@ -88,11 +89,20 @@ class PopupController {
 
 	private bookModalOverlay!: HTMLElement;
 	private newBookTitleInput!: HTMLInputElement;
+	private newBookTitleTargetInput!: HTMLInputElement;
+	private translateBookTitleBtn!: HTMLButtonElement;
+	private translateBookTitleIcon!: HTMLElement;
+	private translateBookTitleSpinner!: HTMLElement;
 	private newBookLangCustomSelect!: HTMLElement;
 	private newBookLangBtn!: HTMLButtonElement;
 	private newBookLangLabel!: HTMLElement;
 	private newBookLangDropdown!: HTMLElement;
 	private selectedNewBookSourceLang = 'ko';
+	private newBookTargetLangCustomSelect!: HTMLElement;
+	private newBookTargetLangBtn!: HTMLButtonElement;
+	private newBookTargetLangLabel!: HTMLElement;
+	private newBookTargetLangDropdown!: HTMLElement;
+	private selectedNewBookTargetLang = 'en';
 	private closeBookModalBtn!: HTMLElement;
 	private cancelBookModalBtn!: HTMLElement;
 	private confirmBookModalBtn!: HTMLButtonElement;
@@ -203,6 +213,7 @@ class PopupController {
 
 		this.trackerOpenStudioBtn = $('trackerOpenStudioBtn') as HTMLButtonElement;
 		this.trackerSyncTabBtn = $('trackerSyncTabBtn') as HTMLButtonElement;
+		this.trackerRetryBtn = $('trackerRetryBtn') as HTMLButtonElement;
 
 		// Modals
 		this.settingsModalOverlay = $('settingsModalOverlay');
@@ -213,10 +224,18 @@ class PopupController {
 
 		this.bookModalOverlay = $('bookModalOverlay');
 		this.newBookTitleInput = $('newBookTitleInput') as HTMLInputElement;
+		this.newBookTitleTargetInput = $('newBookTitleTargetInput') as HTMLInputElement;
+		this.translateBookTitleBtn = $('translateBookTitleBtn') as HTMLButtonElement;
+		this.translateBookTitleIcon = $('translateBookTitleIcon');
+		this.translateBookTitleSpinner = $('translateBookTitleSpinner');
 		this.newBookLangCustomSelect = $('newBookLangCustomSelect');
 		this.newBookLangBtn = $('newBookLangBtn') as HTMLButtonElement;
 		this.newBookLangLabel = $('newBookLangLabel');
 		this.newBookLangDropdown = $('newBookLangDropdown');
+		this.newBookTargetLangCustomSelect = $('newBookTargetLangCustomSelect');
+		this.newBookTargetLangBtn = $('newBookTargetLangBtn') as HTMLButtonElement;
+		this.newBookTargetLangLabel = $('newBookTargetLangLabel');
+		this.newBookTargetLangDropdown = $('newBookTargetLangDropdown');
 		this.closeBookModalBtn = $('closeBookModalBtn');
 		this.cancelBookModalBtn = $('cancelBookModalBtn');
 		this.confirmBookModalBtn = $('confirmBookModalBtn');
@@ -274,6 +293,7 @@ class PopupController {
 			this.bookCustomSelect.classList.remove('open');
 			this.chapterCustomSelect.classList.remove('open');
 			this.newBookLangCustomSelect.classList.remove('open');
+			this.newBookTargetLangCustomSelect.classList.remove('open');
 		});
 
 		this.newBookLangBtn.addEventListener('click', (e) => {
@@ -292,6 +312,25 @@ class PopupController {
 					o.classList.toggle('active', o === target);
 				});
 				this.newBookLangCustomSelect.classList.remove('open');
+			});
+		});
+
+		this.newBookTargetLangBtn.addEventListener('click', (e) => {
+			e.stopPropagation();
+			this.newBookTargetLangCustomSelect.classList.toggle('open');
+		});
+
+		this.newBookTargetLangDropdown.querySelectorAll('.custom-select-option').forEach(btn => {
+			btn.addEventListener('click', (e) => {
+				e.stopPropagation();
+				const target = btn as HTMLElement;
+				const val = target.dataset.value || 'en';
+				this.selectedNewBookTargetLang = val;
+				this.newBookTargetLangLabel.textContent = target.textContent || val;
+				this.newBookTargetLangDropdown.querySelectorAll('.custom-select-option').forEach(o => {
+					o.classList.toggle('active', o === target);
+				});
+				this.newBookTargetLangCustomSelect.classList.remove('open');
 			});
 		});
 
@@ -485,6 +524,45 @@ class PopupController {
 			}
 		});
 
+		// RETRY: RESUME PENDING / ERROR PAGES AFTER A CANCEL OR PARTIAL FAILURE.
+		this.trackerRetryBtn.addEventListener('click', async () => {
+			if (!this.selectedChapterId) return;
+			const retryPageIds = this.activeChapterPages
+				.filter(p => (p.status === 'pending' || p.status === 'error') && !(p.outputPath || (p.outputRev ?? 0) > 0))
+				.map(p => p.id);
+			if (retryPageIds.length === 0) {
+				this.showToast('No pending or failed pages to retry.', true);
+				return;
+			}
+
+			this.trackerRetryBtn.disabled = true;
+			try {
+				let bookId = this.selectedBookId ?? '';
+				if (!bookId) {
+					const details = await this.client.getChapterDetails(this.selectedChapterId).catch(() => null);
+					bookId = String(details?.chapter?.bookId ?? '');
+				}
+				const settings = await this.client.getSettings().catch(() => ({}));
+				const res = await this.client.startBatchTranslation({
+					bookId,
+					chapterId: this.selectedChapterId,
+					settings,
+					pageIds: retryPageIds
+				});
+				if (!res.success) {
+					throw new Error(res.message || 'Failed to retry translation');
+				}
+				// RESET THE BACKGROUND CANCELLATION FLAG SO LIVE SSE / RECONNECTS ARE NOT BLOCKED.
+				chrome.runtime.sendMessage({ type: 'CLEAR_ACTIVE_JOB_CANCELLED' }, () => void chrome.runtime.lastError);
+				this.showToast(`Resuming ${retryPageIds.length} pending page(s)...`);
+				void this.loadAndRenderTracker(this.selectedChapterId, this.selectedBookId ?? undefined);
+			} catch (e: any) {
+				this.showToast(e?.message || 'Failed to retry translation.', true);
+			} finally {
+				this.trackerRetryBtn.disabled = false;
+			}
+		});
+
 		// Modals
 		const setModalSourceLang = (lang: string) => {
 			this.selectedNewBookSourceLang = lang;
@@ -492,6 +570,17 @@ class PopupController {
 			if (opt) {
 				this.newBookLangLabel.textContent = opt.textContent;
 				this.newBookLangDropdown.querySelectorAll('.custom-select-option').forEach(o => {
+					o.classList.toggle('active', o === opt);
+				});
+			}
+		};
+
+		const setModalTargetLang = (lang: string) => {
+			this.selectedNewBookTargetLang = lang;
+			const opt = this.newBookTargetLangDropdown.querySelector<HTMLButtonElement>(`[data-value="${lang}"]`);
+			if (opt) {
+				this.newBookTargetLangLabel.textContent = opt.textContent;
+				this.newBookTargetLangDropdown.querySelectorAll('.custom-select-option').forEach(o => {
 					o.classList.toggle('active', o === opt);
 				});
 			}
@@ -548,21 +637,29 @@ class PopupController {
 			if (bookTitle) {
 				this.newBookTitleInput.value = bookTitle;
 			}
+			this.newBookTitleTargetInput.value = '';
 			if (this.metadata.sourceLang && this.metadata.sourceLang !== 'auto') {
 				setModalSourceLang(this.metadata.sourceLang);
 			} else {
 				setModalSourceLang('ko');
 			}
+			// DEFAULT TARGET NEVER COLLIDES WITH THE SOURCE (SERVER REJECTS A MATCH).
+			setModalTargetLang(this.selectedNewBookSourceLang === 'en' ? 'zh-Hans' : 'en');
 			this.newBookLangCustomSelect.classList.remove('open');
+			this.newBookTargetLangCustomSelect.classList.remove('open');
 			openModal(this.bookModalOverlay);
 			setTimeout(() => this.newBookTitleInput.focus(), 50);
 		};
 
 		const closeBookModal = () => {
 			this.newBookLangCustomSelect.classList.remove('open');
+			this.newBookTargetLangCustomSelect.classList.remove('open');
 			closeModal(this.bookModalOverlay, () => {
 				this.confirmBookModalBtn.disabled = false;
 				this.confirmBookModalBtn.textContent = 'Create Book';
+				this.translateBookTitleBtn.disabled = false;
+				this.translateBookTitleIcon.classList.remove('hidden');
+				this.translateBookTitleSpinner.classList.add('hidden');
 			});
 		};
 
@@ -571,6 +668,38 @@ class PopupController {
 		this.cancelBookModalBtn.addEventListener('click', closeBookModal);
 		this.bookModalOverlay.addEventListener('click', (e) => {
 			if (e.target === this.bookModalOverlay) closeBookModal();
+		});
+
+		// AUTO-TRANSLATE THE SOURCE TITLE INTO THE TARGET TITLE FIELD (MIRRORS WEB UI).
+		this.translateBookTitleBtn.addEventListener('click', async () => {
+			const src = this.newBookTitleInput.value.trim();
+			if (!src) {
+				this.showToast('Enter a book title to translate.', true);
+				return;
+			}
+			this.translateBookTitleBtn.disabled = true;
+			this.translateBookTitleIcon.classList.add('hidden');
+			this.translateBookTitleSpinner.classList.remove('hidden');
+			try {
+				const res = await this.client.translateText({
+					text: src,
+					kind: 'title',
+					sourceLang: this.selectedNewBookSourceLang || 'ko',
+					targetLang: this.selectedNewBookTargetLang || 'en'
+				});
+				if (res?.text) {
+					this.newBookTitleTargetInput.value = res.text;
+					this.showToast('Title translated!');
+				} else {
+					this.showToast('Could not translate title.', true);
+				}
+			} catch (e: any) {
+				this.showToast(e?.message || 'Could not translate title.', true);
+			} finally {
+				this.translateBookTitleBtn.disabled = false;
+				this.translateBookTitleSpinner.classList.add('hidden');
+				this.translateBookTitleIcon.classList.remove('hidden');
+			}
 		});
 
 		this.confirmBookModalBtn.addEventListener('click', async () => {
@@ -583,13 +712,13 @@ class PopupController {
 				const chosenSource = this.selectedNewBookSourceLang || 'ko';
 				// ENSURE THE TARGET NEVER COLLIDES WITH THE SELECTED SOURCE, OR THE SERVER REJECTS
 				// WITH "Target translation language must be different from source language" (400).
-				let targetLang = 'en';
-				if (chosenSource === 'en') {
-					// ENGLISH SOURCE: TRANSLATE INTO SOMETHING DISTINCT FROM ENGLISH.
-					targetLang = 'zh-Hans';
+				let targetLang = this.selectedNewBookTargetLang || 'en';
+				if (chosenSource === targetLang) {
+					targetLang = chosenSource === 'en' ? 'zh-Hans' : 'en';
 				}
 				const created = await this.client.createBook({
 					title,
+					titleTarget: this.newBookTitleTargetInput.value.trim() || undefined,
 					sourceLang: chosenSource,
 					targetLang
 				});
@@ -1020,6 +1149,12 @@ class PopupController {
 			card.appendChild(img);
 			this.trackerGrid.appendChild(card);
 		});
+
+		// SHOW THE RETRY BUTTON ONLY WHEN THERE ARE PENDING OR ERROR PAGES (NOT YET DONE).
+		const hasRetryable = this.activeChapterPages.some(
+			p => (p.status === 'pending' || p.status === 'error') && !(p.outputPath || (p.outputRev ?? 0) > 0)
+		);
+		this.trackerRetryBtn.classList.toggle('hidden', !hasRetryable);
 	}
 
 	private updateTrackerProgress(current: number, total: number, phase: string) {

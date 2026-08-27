@@ -368,6 +368,9 @@ async function attachLiveTranslationListener(chapterId: number, serverUrl: strin
 
 		if (!res.ok || !res.body) {
 			activeSseStreams.delete(chapterId);
+			// NOTE: A BATCH-STARTED JOB IS CREATED ASYNCHRONOUSLY BY DISPATCH, SO A FIRST GET CAN
+			// 404. THE `finally` AUTO-RECONNECT BELOW ALREADY SCHEDULES A SINGLE RETRY FOR ANY
+			// NON-CLEAN TERMINATION (INCLUDING THIS 404) — DO NOT ADD A SECOND RETRY HERE.
 			return;
 		}
 
@@ -614,9 +617,18 @@ async function runBatchImportJob(payload: ImportJobPayload, refererUrl?: string)
 				current: 0,
 				total: totalPagesToTranslate
 			});
-			await client.triggerTranslate(payload.chapterId);
+			// RELAY THE SERVER'S STORED SQLITE PREFERENCES AND ROUTE THROUGH THE BATCH QUEUE
+			// SO THE JOB RESPECTS PARALLELISM / SFX / INPAINT / TYPESET AND SHOWS LIVE IN THE
+			// QUEUE MODAL ON EVERY PAGE (READER, LIBRARY & CHAPTER LIST).
+			const canonicalSettings = await client.getSettings().catch(() => ({}));
+			await client.startBatchTranslation({
+				bookId: payload.bookId,
+				bookTitle: currentChapter?.chapter?.bookTitle || '',
+				chapterId: payload.chapterId,
+				settings: canonicalSettings
+			});
 			// ATTACH BACKGROUND SSE BROADCASTER
-			attachLiveTranslationListener(payload.chapterId, serverUrl);
+			void attachLiveTranslationListener(payload.chapterId, serverUrl);
 		} catch (e) {
 			console.warn('Auto-translate trigger failed:', e);
 		}
@@ -681,9 +693,22 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 			}
 			getServerUrl().then(url => {
 				const client = new XianScanClient(url, safeFetch);
-				void client.cancelTranslation(message.chapterId);
+				// CANCEL THROUGH THE BATCH FIRST SO THE WATCHDOG DOES NOT AUTO-RETRY THE ABORTED JOB.
+				void client.cancelBatchTranslation(Number(message.chapterId)).then(res => {
+					// FALL BACK TO A CHAPTER-LEVEL ABORT WHEN THERE IS NO ACTIVE BATCH TO REMOVE FROM.
+					if (!res.success || !res.removed) {
+						void client.cancelTranslation(message.chapterId);
+					}
+				});
 			});
 		}
+		sendResponse({ success: true });
+		return true;
+	}
+
+	// RESET THE CANCELLATION FLAG AFTER A RETRY SO NEW TRANSLATION WORK / SSE RECONNECTS PROCEED.
+	if (message.type === 'CLEAR_ACTIVE_JOB_CANCELLED') {
+		activeJobCancelled = false;
 		sendResponse({ success: true });
 		return true;
 	}

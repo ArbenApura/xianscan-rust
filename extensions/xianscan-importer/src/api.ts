@@ -1,7 +1,8 @@
-import type { BookSummary, ChapterSummary, ChapterReaderResult } from './types';
+import type { BookSummary, ChapterSummary, ChapterReaderResult, ServerCanonicalSettings } from './types';
 
 export interface CreateBookPayload {
 	title: string;
+	titleTarget?: string;
 	sourceLang?: string;
 	targetLang?: string;
 }
@@ -188,6 +189,7 @@ export class XianScanClient {
 			headers: { 'Content-Type': 'application/json' },
 			body: JSON.stringify({
 				title: payload.title,
+				titleTarget: payload.titleTarget?.trim() || undefined,
 				sourceLang: payload.sourceLang || 'zh-Hans',
 				targetLang: payload.targetLang || 'en'
 			})
@@ -198,6 +200,26 @@ export class XianScanClient {
 			sourceLang: payload.sourceLang || 'zh-Hans',
 			targetLang: payload.targetLang || 'en'
 		};
+	}
+
+	// TRANSLATE A SINGLE TITLE STRING VIA THE SERVER (kind: 'title') — MIRRORS THE WEB UI'S
+	// "AUTO-TRANSLATE BOOK TITLE" BUTTON NEXT TO THE TARGET TITLE FIELD.
+	async translateText(payload: {
+		text: string;
+		kind?: 'title' | 'chapter' | 'term' | 'general';
+		sourceLang?: string;
+		targetLang?: string;
+	}): Promise<{ text: string }> {
+		return this.request<{ text: string }>('/api/translate-text', {
+			method: 'POST',
+			headers: { 'Content-Type': 'application/json' },
+			body: JSON.stringify({
+				text: payload.text,
+				kind: payload.kind || 'title',
+				sourceLang: payload.sourceLang,
+				targetLang: payload.targetLang,
+			}),
+		});
 	}
 
 	async getChapters(bookId: string | number): Promise<ChapterSummary[]> {
@@ -302,6 +324,65 @@ export class XianScanClient {
 		return this.request<ChapterReaderResult>(`/api/chapters/${chapterId}`);
 	}
 
+	// FETCH THE SERVER'S CANONICAL app_settings (SQLITE) — THE SOURCE OF TRUTH FOR THE
+	// USER'S TRANSLATION PREFERENCES THAT THE WEB UI RELIES ON FOR ITS REQUEST BODY.
+	async getSettings(): Promise<ServerCanonicalSettings> {
+		return this.request<ServerCanonicalSettings>('/api/settings');
+	}
+
+	// START A CHAPTER TRANSLATION THROUGH THE SERVER-SIDE BATCH QUEUE SO THE JOB IS
+	// BROADCAST VIA /api/batch/events (THE QUEUE MODAL ON READER, LIBRARY & CHAPTER LIST
+	// STAYS LIVE), AND RELAY THE USER'S STORED SQLITE PREFERENCES IN THE BODY SO THE JOB
+	// HONORS PARALLELISM, SFX, INPAINT & TYPESET EXACTLY LIKE A WEB-UI-TRIGGERED BATCH.
+	// RESLICING IS LEFT TO THE EXTENSION'S OWN autoReslice STEP (resliceBeforeBatch: false).
+	async startBatchTranslation(opts: {
+		bookId: string | number;
+		bookTitle?: string;
+		chapterId: number;
+		settings?: ServerCanonicalSettings;
+		force?: boolean;
+		pageIds?: number[];
+	}): Promise<{ success: boolean; message?: string }> {
+		const s = opts.settings || {};
+		const body = {
+			bookId: String(opts.bookId),
+			bookTitle: opts.bookTitle || '',
+			chapterIds: [opts.chapterId],
+			pageIds: opts.pageIds && opts.pageIds.length > 0 ? opts.pageIds : undefined,
+			force: opts.force ?? false,
+			parallelWorkers: s.parallelChapters,
+			pageConcurrency: s.parallelProcesses,
+			resliceBeforeBatch: false,
+			inpaintMode: s.inpaintMode,
+			inpaintExpansionPct: s.inpaintExpansionPct,
+			typesetExpansionPct: s.typesetExpansionPct,
+			enableWatermarkInpaint: s.enableWatermarkInpaint,
+			enableSfx: s.enableSfx,
+			sfxMaxAreaPct: s.sfxMaxAreaPct,
+			typesetOptions: {
+				fontDialogue: s.typesetFont,
+				fontCjk: s.typesetCjkFont,
+				boxInset: s.typesetPadding,
+				outlineMode: s.typesetOutline,
+				colorMode: s.typesetContrast,
+				casing: s.typesetCasing,
+				enableRotation: s.enableTextRotation,
+			},
+		};
+
+		try {
+			await this.request(`/api/batch`, {
+				method: 'POST',
+				headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify(body),
+			});
+			return { success: true };
+		} catch (err: any) {
+			console.warn('BATCH TRANSLATE REQUEST FAILED:', err);
+			return { success: false, message: err?.message };
+		}
+	}
+
 	getPageFileUrl(pageId: number, kind: 'output' | 'original' | 'cleaned' | 'thumb' = 'output', rev?: number): string {
 		const revQuery = rev !== undefined && rev !== null ? `&rev=${rev}` : '';
 		return `${this.baseUrl}/api/pages/${pageId}/file?kind=${kind}${revQuery}`;
@@ -314,6 +395,23 @@ export class XianScanClient {
 			});
 		} catch {
 			// IGNORE IF ALREADY STOPPED
+		}
+	}
+
+	// REMOVE THE CHAPTER FROM THE ACTIVE BATCH QUEUE. THIS ABORTS THE CHAPTER JOB AND STOPS THE
+	// BATCH WATCHDOG FROM AUTO-RETRYING AN EXTERNALLY-CANCELLED JOB. RETURNS false WHEN THERE IS
+	// NO ACTIVE BATCH (SO THE CALLER CAN FALL BACK TO THE CHAPTER-LEVEL ABORT).
+	async cancelBatchTranslation(chapterId: number): Promise<{ success: boolean; removed: boolean }> {
+		try {
+			const res = await this.request<{ success?: boolean; removed?: boolean }>('/api/batch', {
+				method: 'DELETE',
+				headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify({ chapterId }),
+			});
+			return { success: res?.success !== false, removed: Boolean(res?.removed) };
+		} catch (err: any) {
+			console.warn('BATCH CANCEL REQUEST FAILED:', err);
+			return { success: false, removed: false };
 		}
 	}
 }

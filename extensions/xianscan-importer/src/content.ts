@@ -785,6 +785,24 @@ class InPlaceTranslationCoordinator {
 			}
 			void this.recheckUrlMapping();
 		});
+
+		window.addEventListener('pagehide', () => {
+			// PAGE MOVED INTO THE BACK/FORWARD CACHE OR CLOSED — TEAR DOWN THE KEEPALIVE PORT
+			// BEFORE CHROME CLOSES THE CHANNEL SO IT DOES NOT RAISE AN "UNCHECKED lastError".
+			this.stopKeepAlive();
+		});
+
+		window.addEventListener('pageshow', () => {
+			if (!isExtensionValid()) {
+				this.destroy();
+				return;
+			}
+			// RESTORED FROM THE BACK/FORWARD CACHE — RE-SYNC (RE-ESTABLISHES THE KEEPALIVE
+			// PORT AND POLLING VIA startPollingIfNeeded).
+			if (this.activeMapping) {
+				void this.syncWithServer();
+			}
+		});
 	}
 
 	async recheckUrlMapping() {
@@ -813,6 +831,13 @@ class InPlaceTranslationCoordinator {
 			if (typeof chrome !== 'undefined' && chrome.runtime?.connect) {
 				this.keepAlivePort = chrome.runtime.connect({ name: 'xianscan-keepalive' });
 				this.keepAlivePort.onDisconnect.addListener(() => {
+					// CLEAN UP THE PORT AND ITS PING TIMER WHEN CHROME CLOSES THE CHANNEL
+					// (E.G. THE PAGE IS MOVED INTO THE BACK/FORWARD CACHE) SO WE NEVER
+					// POST TO A DEAD PORT / TRIGGER AN "UNCHECKED runtime.lastError".
+					if (this.keepAliveInterval) {
+						clearInterval(this.keepAliveInterval);
+						this.keepAliveInterval = null;
+					}
 					this.keepAlivePort = null;
 				});
 
@@ -821,7 +846,8 @@ class InPlaceTranslationCoordinator {
 						this.destroy();
 						return;
 					}
-					if (this.keepAlivePort) {
+					// ONLY PING WHILE THE PORT IS STILL OPEN — A CLOSED PORT RAISES lastError.
+					if (this.keepAlivePort && !(this.keepAlivePort as { disconnected?: boolean }).disconnected) {
 						try {
 							this.keepAlivePort.postMessage({
 								type: 'KEEPALIVE_PING',
@@ -900,6 +926,13 @@ class InPlaceTranslationCoordinator {
 						this.replacer.updatePageSlice(p.id, p.seq, p.outputRev || 1);
 					} else {
 						allDone = false;
+						// REFLECT THE LIVE non-DONE STATUS ON THE SLICE (pending → processing)
+						// SO THE ON-PAGE BADGE UPDATES WHILE THE TRANSLATION IS IN FLIGHT.
+						this.replacer.updatePageStatus(
+							p.id,
+							p.seq,
+							p.status === 'processing' ? 'processing' : 'pending'
+						);
 					}
 				}
 

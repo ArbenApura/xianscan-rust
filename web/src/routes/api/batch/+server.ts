@@ -11,6 +11,23 @@ export const GET: RequestHandler = async () => {
 	return json(state);
 };
 
+// REMOVE / CANCEL A SINGLE CHAPTER FROM THE ACTIVE BATCH (STOPS THE WATCHDOG FROM AUTO-RETRYING
+// AN EXTERNALLY-ABORTED JOB — USED BY THE WEB EXTENSION'S CANCEL).
+export const DELETE: RequestHandler = async ({ request }) => {
+	const body = await request.json().catch(() => ({}));
+	const chapterId = Number(body.chapterId);
+	if (!Number.isInteger(chapterId)) {
+		throw error(400, 'Invalid or missing chapterId');
+	}
+	const before = batchService.getState();
+	batchService.removeFromQueue(chapterId);
+	const after = batchService.getState();
+	const removed =
+		before.queue.some((q) => q.id === chapterId) &&
+		!after.queue.some((q) => q.id === chapterId);
+	return json({ success: true, removed });
+};
+
 // START NEW BATCH TRANSLATION
 export const POST: RequestHandler = async ({ request, cookies }) => {
 	const canonical = getCanonicalSettings();

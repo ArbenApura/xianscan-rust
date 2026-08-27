@@ -433,6 +433,9 @@ export class DomReplacerEngine {
 	private activeExcludedUrls?: string[];
 	private activeIncludedUrls?: string[];
 	private latestServerPages: ChapterReaderPage[] = [];
+	// LAST RENDERED PER-PAGE SLICE STATUS (pending | processing | ready) — USED TO SKIP REDUNDANT
+	// BADGE RE-RENDERS ON EVERY 2.5S POLL AND TO DETECT THE pending → processing TRANSITION.
+	private pageStatuses = new Map<number, string>();
 
 	constructor(baseUrl = 'http://127.0.0.1:8124') {
 		if (activeDomReplacerInstance && activeDomReplacerInstance !== this) {
@@ -480,21 +483,26 @@ export class DomReplacerEngine {
 	}
 
 	private attachPendingBadge(img: HTMLImageElement, pageId: number): void {
+		this.attachStatusBadge(img, pageId, 'pending');
+	}
+
+	private attachStatusBadge(img: HTMLImageElement, pageId: number, status: 'pending' | 'processing'): void {
 		this.removePendingBadge(pageId);
 		const wrapper = this.ensureSliceWrapper(img);
 
+		const isProcessing = status === 'processing';
 		const badge = document.createElement('span');
-		badge.className = 'xianscan-slice-badge pending';
+		badge.className = `xianscan-slice-badge ${status}`;
 		badge.setAttribute('data-xianscan-badge-id', String(pageId));
-		badge.textContent = 'PENDING';
+		badge.textContent = isProcessing ? 'PROCESSING' : 'PENDING';
 		badge.style.cssText = [
 			'position: absolute',
 			'top: 10px',
 			'right: 10px',
 			'z-index: 9999',
 			'background: rgba(15, 23, 42, 0.88)',
-			'color: #f87171',
-			'border: 1px solid rgba(239, 68, 68, 0.55)',
+			`color: ${isProcessing ? '#fbbf24' : '#f87171'}`,
+			`border: 1px solid ${isProcessing ? 'rgba(251, 191, 36, 0.55)' : 'rgba(239, 68, 68, 0.55)'}`,
 			'font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace',
 			'font-size: 10px',
 			'font-weight: 700',
@@ -502,7 +510,7 @@ export class DomReplacerEngine {
 			'text-transform: uppercase',
 			'padding: 3px 9px',
 			'border-radius: 9999px',
-			'box-shadow: 0 2px 8px rgba(0, 0, 0, 0.6), 0 0 10px rgba(239, 68, 68, 0.25)',
+			`box-shadow: 0 2px 8px rgba(0, 0, 0, 0.6), 0 0 10px ${isProcessing ? 'rgba(251, 191, 36, 0.25)' : 'rgba(239, 68, 68, 0.25)'}`,
 			'pointer-events: none',
 			'user-select: none',
 			'backdrop-filter: blur(4px)',
@@ -702,6 +710,7 @@ export class DomReplacerEngine {
 		for (let i = 0; i < totalServerPages; i++) {
 			const page = pages[i];
 			const isOutputReady = !!page.outputPath || page.outputRev > 0;
+			this.pageStatuses.set(page.id, isOutputReady ? 'ready' : (page.status === 'processing' ? 'processing' : 'pending'));
 			const targetUrl = isOutputReady
 				? `${this.baseUrl}/api/pages/${page.id}/file?kind=output&rev=${page.outputRev}`
 				: `${this.baseUrl}/api/pages/${page.id}/file?kind=original&rev=${page.originalRev || 0}`;
@@ -792,6 +801,7 @@ export class DomReplacerEngine {
 	// UPDATE A SINGLE PAGE IMAGE IMMEDIATELY WHEN SSE PAGE_DONE ARRIVES
 	updatePageSlice(pageId: number, pageSeq: number, outputRev: number): void {
 		this.removePendingBadge(pageId);
+		this.pageStatuses.set(pageId, 'ready');
 
 		// Update in latestServerPages
 		const existingMeta = this.latestServerPages.find(p => p.id === pageId || p.seq === pageSeq);
@@ -875,6 +885,34 @@ export class DomReplacerEngine {
 
 		this.isTranslatedActive = true;
 		this.startLazyLoadShield();
+	}
+
+	// REFLECT A NON-READY PAGE'S LIVE STATUS ON THE SLICE (pending → processing) WITHOUT TOUCHING
+	// THE IMAGE SOURCE OR FILTER — THE OUTPUT IS NOT AVAILABLE YET, ONLY THE BADGE LABEL CHANGES.
+	updatePageStatus(pageId: number, pageSeq: number, status: 'pending' | 'processing'): void {
+		// SKIP REDUNDANT RE-RENDERS WHEN THE SLICE ALREADY SHOWS THIS STATUS (2.5S POLL).
+		if (this.pageStatuses.get(pageId) === status) return;
+		this.pageStatuses.set(pageId, status);
+
+		const existingMeta = this.latestServerPages.find(p => p.id === pageId || p.seq === pageSeq);
+		if (existingMeta) {
+			existingMeta.status = status;
+		}
+
+		let img = document.querySelector<HTMLImageElement>(`img[data-xianscan-page-id="${pageId}"]`);
+		if (!img) {
+			img = document.querySelector<HTMLImageElement>(`img[data-xianscan-page-seq="${pageSeq}"]`);
+		}
+		if (!img) {
+			const hostImgs = getHostReaderImages(this.activeExcludedUrls, this.activeIncludedUrls);
+			if (pageSeq < hostImgs.length) {
+				img = hostImgs[pageSeq];
+			}
+		}
+		if (!img) return;
+
+		img.setAttribute('data-xianscan-status', status);
+		this.attachStatusBadge(img, pageId, status);
 	}
 
 	// TOGGLE BETWEEN TRANSLATED AND RAW ORIGINAL VIEW
