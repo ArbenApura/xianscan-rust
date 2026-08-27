@@ -282,6 +282,67 @@ describe('DomReplacerEngine', () => {
 		expect(img1.src).toContain('/api/pages/201/file?kind=output&rev=1');
 	});
 
+	it('removes ALL pending badges (not just the first) when a page is replaced', () => {
+		engine = new DomReplacerEngine('http://127.0.0.1:8124');
+		const testPages: ChapterReaderPage[] = [
+			{
+				id: 401,
+				seq: 0,
+				filePath: 'orig1.jpg',
+				cleanedPath: null,
+				outputPath: null,
+				cleanedRev: 0,
+				outputRev: 0,
+				originalRev: 1,
+				status: 'pending',
+				error: null
+			}
+		];
+
+		// TWO HOST IMAGES BECOME MANAGED BY THE SAME PAGE (DUPLICATE CLONE SCENARIO)
+		img1.setAttribute('data-xianscan-page-id', '401');
+		img2.setAttribute('data-xianscan-page-id', '401');
+		engine.mountTranslatedPages(testPages);
+
+		// SANITY: PENDING BADGE PRESENT
+		expect(document.querySelectorAll('[data-xianscan-badge-id="401"]').length).toBeGreaterThan(0);
+
+		// ONCE THE PAGE IS TRANSLATED, ALL BADGES FOR THAT PAGE MUST BE SCHEDULED FOR REMOVAL
+		engine.updatePageSlice(401, 0, 1);
+		const remaining = document.querySelectorAll('[data-xianscan-badge-id="401"]');
+		// badge.remove() RUNS VIA setTimeout(300): ELEMENT MAY STILL EXIST IN VISIBLE DOM
+		// UNTIL THEN, BUT removePendingBadge MUST ISSUE A REMOVAL FOR EACH MATCH.
+		// WE ASSERT VIA THE OPACITY SENTINEL TO AVOID FLAKY TIMING.
+		for (const b of remaining) {
+			expect((b as HTMLElement).style.opacity).toBe('0');
+		}
+	});
+
+	it('purges orphaned pending badges whose page id is no longer in the server set', () => {
+		engine = new DomReplacerEngine('http://127.0.0.1:8124');
+		// FIRST MOUNT WITH PAGE 501 -> BADGE CREATED
+		engine.mountTranslatedPages([
+			{
+				id: 501, seq: 0, filePath: 'a.jpg', cleanedPath: null, outputPath: null,
+				cleanedRev: 0, outputRev: 0, originalRev: 1, status: 'pending', error: null
+			}
+		]);
+		expect(document.querySelector('[data-xianscan-badge-id="501"]')).not.toBeNull();
+
+		// RESLICE REMAPS TO A DIFFERENT PAGE SET (501 GONE, 502 ADDED)
+		engine.mountTranslatedPages([
+			{
+				id: 502, seq: 0, filePath: 'b.jpg', cleanedPath: null, outputPath: null,
+				cleanedRev: 0, outputRev: 0, originalRev: 1, status: 'pending', error: null
+			}
+		]);
+
+		const orphaned = document.querySelector('[data-xianscan-badge-id="501"]');
+		expect(orphaned).not.toBeNull();
+		// PURGED ORPHAN MARKED FOR REMOVAL VIA OPACITY SENTINEL (remove() IS ASYNC 300MS)
+		expect((orphaned as HTMLElement).style.opacity).toBe('0');
+	});
+
 	it('attaches error retry handler that retries on image load failure', () => {
 		engine = new DomReplacerEngine('http://127.0.0.1:8124');
 		const testPages: ChapterReaderPage[] = [

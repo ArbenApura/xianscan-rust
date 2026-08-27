@@ -75,4 +75,26 @@ describe('batchService state management and retries', () => {
 		expect(state.status).toBe('idle');
 		expect(state.queue).toHaveLength(0);
 	});
+
+	it('PQueue addAll waits for all items even when a task rejects', async () => {
+		const queue = new PQueue({ concurrency: 1 });
+		const order: number[] = [];
+
+		const task1 = async () => {
+			await new Promise((r) => setTimeout(r, 20));
+			order.push(1);
+			throw new Error('Task 1 failed');
+		};
+
+		const task2 = async () => {
+			await new Promise((r) => setTimeout(r, 20));
+			order.push(2);
+			return 'ok';
+		};
+
+		await expect(queue.addAll([task1, task2])).rejects.toThrow('Task 1 failed');
+		// BOTH TASKS COMPLETED THEIR ATTEMPT SEQUENTIALLY
+		expect(order).toEqual([1, 2]);
+		expect(queue.pending).toBe(0);
+	});
 });

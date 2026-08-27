@@ -105,7 +105,7 @@ export const POST: RequestHandler = async ({ params, request, cookies }) => {
 			: (cookies.get('mt_ts_font') || canonical.typesetFont || 'CC Wild Words'),
 		fontCjk: parsed.success && parsed.data.typesetOptions?.fontCjk
 			? parsed.data.typesetOptions.fontCjk
-			: (cookies.get('mt_ts_cjk_font') || canonical.typesetCjkFont || 'Friendly Sans'),
+			: (cookies.get('mt_ts_cjk_font') || canonical.typesetCjkFont || 'Microsoft YaHei'),
 		boxInset: parsed.success && typeof parsed.data.typesetOptions?.boxInset === 'number'
 			? parsed.data.typesetOptions.boxInset
 			: (cookies.get('mt_ts_padding') ? Number(cookies.get('mt_ts_padding')) : canonical.typesetPadding ?? 0.05),

@@ -276,7 +276,7 @@ export async function updateRegionTranslation(
 			const canonical = getCanonicalSettings();
 			const defaultTypesetOpts = {
 				fontDialogue: canonical.typesetFont || 'CC Wild Words',
-				fontCjk: canonical.typesetCjkFont || 'Friendly Sans',
+				fontCjk: canonical.typesetCjkFont || 'Microsoft YaHei',
 				boxInset: canonical.typesetPadding ?? 0.05,
 				outlineMode: canonical.typesetOutline || 'standard',
 				colorMode: canonical.typesetContrast || 'auto',
@@ -344,7 +344,7 @@ export async function retypesetPage(
 		const canonical = getCanonicalSettings();
 		const mergedOpts = {
 			fontDialogue: _opts?.fontDialogue || _opts?.fontFamily || (canonical.typesetFont || 'CC Wild Words'),
-			fontCjk: _opts?.fontCjk || (canonical.typesetCjkFont || 'Friendly Sans'),
+			fontCjk: _opts?.fontCjk || (canonical.typesetCjkFont || 'Microsoft YaHei'),
 			boxInset: typeof _opts?.boxInset === 'number' ? _opts.boxInset : (canonical.typesetPadding ?? 0.05),
 			outlineMode: _opts?.outlineMode || _opts?.outline || (canonical.typesetOutline || 'standard'),
 			colorMode: _opts?.colorMode || (canonical.typesetContrast || 'auto'),

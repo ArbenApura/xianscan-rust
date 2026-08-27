@@ -122,10 +122,12 @@ describe('EditRegionTranslationModal Component UI', () => {
 		expect(fetchMock).toHaveBeenCalledTimes(1);
 		expect(fetchMock.mock.calls[0][0]).toBe('/api/pages/1/regions/10');
 		expect(fetchMock.mock.calls[0][1].method).toBe('PATCH');
-		expect(JSON.parse(fetchMock.mock.calls[0][1].body)).toEqual({
-			textTarget: 'Custom Edited Text',
-			action: 'save',
-		});
+		expect(JSON.parse(fetchMock.mock.calls[0][1].body)).toEqual(
+			expect.objectContaining({
+				textTarget: 'Custom Edited Text',
+				action: 'save',
+			})
+		);
 
 		expect(savedHandler).toHaveBeenCalled();
 	});

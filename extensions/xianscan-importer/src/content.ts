@@ -3,7 +3,7 @@
 import type { ScannedImage, ScanPageResponse, ChapterMappingEntry, PageTranslatedMessage, ChapterSyncMessage } from './types';
 import { XianScanClient } from './api';
 import { parseChapterMetadata } from './utils/chapter-parser';
-import { sortImagesByCoordinates, getCanonicalUrl, computeDHashFromElement } from './utils/sorter';
+import { sortImagesByCoordinates, getCanonicalUrl, computeDHashFromElement, isPlaceholderImage } from './utils/sorter';
 import { DomReplacerEngine } from './utils/dom-replacer';
 
 // -- SCANNER HELPERS -- //
@@ -104,42 +104,28 @@ export function isFloatingOrSticky(el: HTMLElement): boolean {
 }
 
 export function isLikelyAdOrBannerImage(img: HTMLImageElement): boolean {
-	// 1. CHECK PARENT LINK (<a> TAGS): COMIC PANELS ARE ALMOST NEVER EXTERNAL AD LINKS
-	const parentLink = img.closest('a');
-	if (parentLink && parentLink.href) {
-		const href = parentLink.href.toLowerCase();
-		if (
-			href.includes('telegram') ||
-			href.includes('t.me') ||
-			href.includes('click') ||
-			href.includes('affiliate') ||
-			href.includes('track') ||
-			href.includes('redirect') ||
-			href.includes('casino') ||
-			href.includes('bet') ||
-			href.includes('game') ||
-			href.includes('apk') ||
-			href.includes('app') ||
-			parentLink.target === '_blank'
-		) {
+	// 1. ANCESTOR NOISE CONTAINER CHECK
+	let curr: HTMLElement | null = img.parentElement;
+	let depth = 0;
+	while (curr && depth < 6 && curr !== document.body) {
+		if (curr.matches && curr.matches(NOISE_CONTAINER_SELECTOR)) {
 			return true;
 		}
-	}
-
-	// 2. CHECK AD NOISE CONTAINERS & AD CLASS NAMES
-	const AD_CLASS_PATTERNS = [
-		'ad', 'ads', 'advert', 'banner', 'promo', 'sponsor', 'floating',
-		'sticky', 'fixed', 'guanggao', 'gg', 'pop', 'aff', 'tg', 'notice'
-	];
-	let curr: HTMLElement | null = img;
-	let depth = 0;
-	while (curr && curr !== document.body && depth < 5) {
-		const classList = curr.className ? String(curr.className).toLowerCase() : '';
-		const id = curr.id ? String(curr.id).toLowerCase() : '';
-		for (const pattern of AD_CLASS_PATTERNS) {
+		// CHECK ANCHOR HREF FOR EXTERNAL ADS / GAMBLING / SLOT AFFILIATE LINKS
+		if (curr.tagName === 'A') {
+			const href = (curr.getAttribute('href') || '').toLowerCase();
 			if (
-				(classList && (classList === pattern || classList.includes(`-${pattern}`) || classList.includes(`${pattern}-`) || classList.includes(`_${pattern}`) || classList.includes(`${pattern}_`))) ||
-				(id && (id === pattern || id.includes(`-${pattern}`) || id.includes(`${pattern}-`) || id.includes(`_${pattern}`) || id.includes(`${pattern}_`)))
+				href.includes('doubleclick') ||
+				href.includes('googleads') ||
+				href.includes('adservice') ||
+				href.includes('affiliate') ||
+				href.includes('slot') ||
+				href.includes('judi') ||
+				href.includes('bet') ||
+				href.includes('casino') ||
+				href.includes('cuan') ||
+				href.includes('gacor') ||
+				href.includes('iklan')
 			) {
 				return true;
 			}
@@ -148,33 +134,11 @@ export function isLikelyAdOrBannerImage(img: HTMLImageElement): boolean {
 		depth++;
 	}
 
-	// 3. ASPECT RATIO & DIMENSION FILTER FOR AD BANNERS
-	const rect = img.getBoundingClientRect ? img.getBoundingClientRect() : { width: img.width || 0, height: img.height || 0 };
-	const width = img.naturalWidth || rect.width || img.width || 0;
-	const height = img.naturalHeight || rect.height || img.height || 0;
-
-	if (width > 0 && height > 0) {
-		const aspectRatio = width / height;
-		// HORIZONTAL BANNER AD DETECTION (e.g. 880x99, 728x90, 970x90, 1000x120)
-		if (aspectRatio >= 3.0 && height <= 260) {
-			return true;
-		}
-		if (aspectRatio >= 4.5) {
-			return true;
-		}
-		if (width >= 250 && height < 130) {
-			return true;
-		}
-		// VERTICAL SKYSCRAPER BANNER AD DETECTION
-		if (aspectRatio <= 0.25 && width <= 200) {
-			return true;
-		}
-	}
-
-	// 4. SOURCE URL NOISE DETECTION
+	// 2. SOURCE URL NOISE DETECTION
 	const src = (img.currentSrc || img.src || img.getAttribute('data-src') || img.getAttribute('data-original') || '').toLowerCase();
 	if (
 		src.includes('banner') ||
+		src.includes('iklan') ||
 		src.includes('advert') ||
 		src.includes('guanggao') ||
 		src.includes('promo') ||
@@ -182,31 +146,350 @@ export function isLikelyAdOrBannerImage(img: HTMLImageElement): boolean {
 		src.includes('avatar') ||
 		src.includes('logo') ||
 		src.includes('/ad/') ||
+		src.includes('/ads/') ||
 		src.includes('_ad.') ||
-		src.includes('-ad.')
+		src.includes('-ad.') ||
+		src.includes('app-qr') ||
+		src.includes('qrcode') ||
+		src.includes('qr-code') ||
+		/[\/_-]ad\d*\.(?:gif|jpg|png|webp)/i.test(src) ||
+		src.includes('slot') ||
+		src.includes('judi') ||
+		src.includes('doubleclick') ||
+		src.includes('googleads') ||
+		src.includes('noimg') ||
+		src.includes('readerarea.svg')
 	) {
 		return true;
+	}
+
+	// 3. DIMENSION & ASPECT RATIO CHECKS FOR BANNER ADS (PRESERVES TALL WEBTOON PANELS)
+	const rect = img.getBoundingClientRect ? img.getBoundingClientRect() : { width: img.width || 0, height: img.height || 0 };
+	const width = img.naturalWidth || rect.width || img.width || 0;
+	const height = img.naturalHeight || rect.height || img.height || 0;
+
+	if (width > 0 && height > 0) {
+		const aspectRatio = width / height;
+		// HORIZONTAL BANNER AD DETECTION (e.g. 728x90, 300x37, 880x99, 1440x90)
+		if (aspectRatio >= 2.5 && height <= 260) {
+			return true;
+		}
+		if (aspectRatio >= 4.0 && height <= 350) {
+			return true;
+		}
+		if (width >= 250 && height <= 100) {
+			return true;
+		}
+		if (height <= 50) {
+			return true;
+		}
+	}
+
+	// 4. ANIMATED GIF BANNER DETECTION (COMIC PANELS ARE ALMOST NEVER ANIMATED GIFS)
+	if (src.endsWith('.gif') || src.includes('.gif?')) {
+		if (height <= 300 || src.includes('iklan') || src.includes('banner')) {
+			return true;
+		}
 	}
 
 	return false;
 }
 
-// SCAN DOM FOR READER IMAGES WITH SCAN-TIME DEDUPLICATION
+// -- VIRTUAL-SCROLL & LAZY IMAGE URL CAPTURE -- //
+
+// MODULE-LEVEL SET OF EVERY ABSOLUTE IMAGE URL OBSERVED DURING THE PAGE LIFETIME.
+// VIRTUAL-SCROLL READERS EVICT OFFSCREEN <IMG> NODES FROM THE DOM, SO
+// SNAPSHOT SCANS NEVER SEE THEM. THIS SET PRESERVES THEIR URLS PERMANENTLY.
+const capturedImageUrls = new Set<string>();
+
+const IMG_LAZY_ATTRIBUTES = [
+	'data-src',
+	'data-original',
+	'data-url',
+	'data-lazy-src',
+	'data-actual-src',
+	'data-full-image',
+	'data-real-src',
+	'data-origin'
+];
+
+function absoluteImageUrl(src: string): string | null {
+	if (!src) return null;
+	const clean = src.trim();
+	if (clean.startsWith('data:')) return null;
+	try {
+		return new URL(clean, window.location.href).href;
+	} catch {
+		// IGNORE INVALID URL
+		return null;
+	}
+}
+
+function recordElementImageUrls(el: Element): void {
+	// IGNORE MUTATIONS OCCURRING INSIDE NOISE CONTAINERS (HEADERS, FOOTERS, ADS, SIDEBARS)
+	if (el.closest && el.closest(NOISE_CONTAINER_SELECTOR)) {
+		return;
+	}
+
+	const readerContainer = findPrimaryReaderContainer();
+	if (readerContainer && el.closest && !readerContainer.contains(el)) {
+		return;
+	}
+
+	if (el instanceof HTMLImageElement) {
+		if (isLikelyAdOrBannerImage(el)) return;
+		// RESOLVE ALL CANDIDATE SOURCES (DOM + LAZY ATTRIBUTES)
+		const candidates = [
+			...IMG_LAZY_ATTRIBUTES.map(a => el.getAttribute(a)),
+			el.srcset ? parseSrcset(el.srcset).pop() : null,
+			el.currentSrc,
+			el.getAttribute('src'),
+			el.src
+		].filter(Boolean) as string[];
+		for (const cand of candidates) {
+			const abs = absoluteImageUrl(cand);
+			if (abs && !isPlaceholderImage(abs)) {
+				capturedImageUrls.add(abs);
+			}
+		}
+	}
+
+	// CSS BACKGROUND-IMAGE CONTAINERS
+	if (el instanceof HTMLElement) {
+		const style = el.getAttribute('style') || '';
+		const match = style.match(/url\(['"]?([^'")]+)['"]?\)/);
+		if (match && match[1]) {
+			const abs = absoluteImageUrl(match[1]);
+			if (abs && !isPlaceholderImage(abs)) {
+				capturedImageUrls.add(abs);
+			}
+		}
+	}
+}
+
+let captureObserverAttached = false;
+// WATCH THE DOCUMENT FOR IMAGE ELEMENTS AS A VIRTUAL-SCROLL READER MOUNTS THEM
+export function attachImageCaptureObserver(): void {
+	if (captureObserverAttached) return;
+	captureObserverAttached = true;
+
+	// SNAPSHOT CURRENTLY MOUNTED ELEMENTS TO PRIME THE SET
+	document
+		.querySelectorAll('img, picture img, div[style*="background-image"], section[style*="background-image"]')
+		.forEach(recordElementImageUrls);
+
+	const observer = new MutationObserver(mutations => {
+		for (const mutation of mutations) {
+			if (mutation.type === 'attributes') {
+				// IMAGE SOURCE CHANGED ON AN EXISTING ELEMENT
+				recordElementImageUrls(mutation.target as Element);
+				continue;
+			}
+			for (const node of mutation.addedNodes) {
+				if (!(node instanceof Element)) continue;
+				recordElementImageUrls(node);
+				node
+					.querySelectorAll('img, picture img, [style*="background-image"]')
+					.forEach(recordElementImageUrls);
+			}
+		}
+	});
+
+	observer.observe(document, {
+		childList: true,
+		subtree: true,
+		attributes: true,
+		attributeFilter: ['src', 'srcset', 'style', ...IMG_LAZY_ATTRIBUTES]
+	});
+}
+
+// RETURN CAPTURED URLS OBSERVED (VIRTUAL-SCROLL PAGES, LAZY IMAGES, BACKGROUNDS)
+export function getCapturedImageUrls(): string[] {
+	return Array.from(capturedImageUrls);
+}
+
+export function registerCapturedImageUrl(url: string): void {
+	const abs = absoluteImageUrl(url);
+	if (abs && !isPlaceholderImage(abs)) {
+		capturedImageUrls.add(abs);
+	}
+}
+
+export function resetCapturedImageUrls(): void {
+	capturedImageUrls.clear();
+}
+
+// -- READER CONTAINER & URL-BASE REASONING -- //
+
+// DERIVE THE "URL BASE" AN IMAGE IS HOSTED UNDER: ORIGIN + ITS PARENT DIRECTORY.
+// REAL READER PANELS OF ONE CHAPTER SHARE A CDN ORIGIN AND A COMMON DIRECTORY
+// (E.G. /manga/<slug>/chapters/<chapter-id>/), WHILE ADS LIVE ON UNRELATED HOSTS/PATHS.
+function urlBase(url: string): string {
+	try {
+		const u = new URL(url);
+		const parts = u.pathname.split('/').filter(Boolean);
+		parts.pop(); // DROP THE FILENAME
+		return `${u.protocol}//${u.host}/${parts.join('/')}`;
+	} catch {
+		return url;
+	}
+}
+
+function urlOrigin(url: string): string {
+	try {
+		const u = new URL(url);
+		return `${u.protocol}//${u.host}`;
+	} catch {
+		return url;
+	}
+}
+
+// CHECK WHETHER A CANDIDATE URL IS A SEQUENTIAL/INDEXED COMIC PANEL RATHER THAN A SINGLE AD.
+// PANEL FILENAMES END IN AN INCREMENTING NUMBER (1.jpeg, 002.webp, page-3.png) OR A UUID.
+function looksLikeSequentialPanel(url: string): boolean {
+	try {
+		const name = new URL(url).pathname.split('/').pop() || '';
+		if (/(?:^|[^0-9])[0-9]{1,4}(?=\.(?:jpe?g|png|webp|avif|gif)$)/i.test(name)) return true;
+		if (/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\./i.test(name)) return true;
+		return false;
+	} catch {
+		return false;
+	}
+}
+
+// FIND THE MOST FREQUENT URL BASE AMONG A SET OF IMAGES.
+function getDominantUrlBase(images: ScannedImage[]): string {
+	if (images.length < 1) return '';
+	if (images.length === 1) return urlBase(images[0].url);
+	const counts = new Map<string, number>();
+	for (const img of images) {
+		const base = urlBase(img.url);
+		counts.set(base, (counts.get(base) || 0) + 1);
+	}
+	let dominant = '';
+	let max = 0;
+	for (const [base, count] of counts) {
+		if (count > max) { dominant = base; max = count; }
+	}
+	// IF >= 1 SHARE EXACT DIRECTORY BASE, USE IT
+	if (max >= 1) return dominant;
+
+	// FALLBACK: CHECK BY CDN HOST ORIGIN
+	const originCounts = new Map<string, number>();
+	for (const img of images) {
+		const o = urlOrigin(img.url);
+		originCounts.set(o, (originCounts.get(o) || 0) + 1);
+	}
+	let dominantOrigin = '';
+	let maxOrigin = 0;
+	for (const [o, count] of originCounts) {
+		if (count > maxOrigin) { dominantOrigin = o; maxOrigin = count; }
+	}
+	return maxOrigin >= 1 ? dominantOrigin : '';
+}
+
+// PARSE INLINE ASPECT RATIO OR HEIGHT TO RECOVER GENUINE TALL STRIP DIMENSIONS
+function extractPlaceholderDimensions(el?: Element | null): { width: number; height: number } {
+	if (!el || !(el instanceof HTMLElement)) return { width: 800, height: 1200 };
+	const style = el.getAttribute('style') || '';
+	// MATCH aspect-ratio: 720 / 18484 OR aspect-ratio: 720/18484 OR aspect-ratio: auto 720 / 18484
+	const ratioMatch = style.match(/aspect-ratio:\s*(?:auto\s+)?([0-9.]+)\s*(?:\/|\:)\s*([0-9.]+)/i);
+	if (ratioMatch && ratioMatch[1] && ratioMatch[2]) {
+		const w = parseFloat(ratioMatch[1]);
+		const h = parseFloat(ratioMatch[2]);
+		if (w > 0 && h > 0) {
+			return { width: Math.round(w), height: Math.round(h) };
+		}
+	}
+	const heightMatch = style.match(/(?:min-)?height:\s*([0-9.]+)px/i);
+	const widthMatch = style.match(/(?:max-|min-)?width:\s*([0-9.]+)px/i);
+	if (heightMatch && heightMatch[1]) {
+		const h = parseFloat(heightMatch[1]);
+		const w = widthMatch && widthMatch[1] ? parseFloat(widthMatch[1]) : 800;
+		if (h >= 400) {
+			return { width: Math.round(w), height: Math.round(h) };
+		}
+	}
+	const rect = el.getBoundingClientRect ? el.getBoundingClientRect() : null;
+	if (rect && rect.height >= 400) {
+		return { width: Math.round(rect.width) || 800, height: Math.round(rect.height) };
+	}
+	return { width: 800, height: 1200 };
+}
+
+// DISCOVER THE PRIMARY COMIC READER CONTAINER BASED ON DENSITY AND TALL-PANEL HEIGHT SCORE
+export function findPrimaryReaderContainer(): HTMLElement | null {
+	// 1. CHECK SPECIFIC HIGH-PRIORITY MANGA/WEBTOON READER CONTAINERS FIRST
+	const priorityCandidates = Array.from(
+		document.querySelectorAll<HTMLElement>(
+			'#readerarea, div[class*="reading-content"], div[class*="reader-area"], div[class*="readerarea"], div[class*="chapter-images"], div[class*="wt_viewer"], #comic_view_area, div[class*="viewer-cnt"], div[class*="v-reader"]'
+		)
+	);
+	for (const container of priorityCandidates) {
+		if (container.closest && container.closest(NOISE_CONTAINER_SELECTOR)) continue;
+		const imgs = Array.from(container.querySelectorAll<HTMLImageElement>('img, picture img')).filter(
+			img => !img.getAttribute('data-xianscan-injected') && !isLikelyAdOrBannerImage(img)
+		);
+		const placeholders = Array.from(container.querySelectorAll<HTMLElement>('[data-page], [class*="page"], [id*="page"]'));
+		if (imgs.length >= 1 || placeholders.length >= 1) {
+			return container;
+		}
+	}
+
+	// 2. GENERAL CANDIDATES
+	const candidates = Array.from(
+		document.querySelectorAll<HTMLElement>(
+			'main, article, div[class*="viewer"], div[class*="reading"], div[class*="reader"], div[id*="reader"], div[class*="chapter"], div[id*="chapter"], section, div[class*="comic"], div[id*="comic"], div[class*="entry-content"], div[class*="post-content"]'
+		)
+	);
+
+	let bestContainer: HTMLElement | null = null;
+	let highestScore = -1;
+
+	for (const container of candidates) {
+		if (container.closest && container.closest(NOISE_CONTAINER_SELECTOR)) continue;
+
+		const imgs = Array.from(container.querySelectorAll<HTMLImageElement>('img, picture img')).filter(
+			img => !img.getAttribute('data-xianscan-injected') && !isLikelyAdOrBannerImage(img) && !img.closest(NOISE_CONTAINER_SELECTOR)
+		);
+		const placeholders = Array.from(container.querySelectorAll<HTMLElement>('[data-page], [class*="page"], [id*="page"]'));
+
+		const totalItems = Math.max(imgs.length, placeholders.length);
+		if (totalItems < 1) continue;
+
+		// CALCULATE HEIGHT SCORE (REWARD TALL COMIC STRIP PANELS > 700PX)
+		let heightScore = 0;
+		for (const img of imgs) {
+			const rect = img.getBoundingClientRect ? img.getBoundingClientRect() : null;
+			const h = img.naturalHeight || (rect ? rect.height : 0);
+			if (h >= 700) heightScore += 5;
+			else if (h >= 400) heightScore += 2;
+		}
+		for (const p of placeholders) {
+			const dims = extractPlaceholderDimensions(p);
+			if (dims.height >= 700) heightScore += 5;
+			else if (dims.height >= 400) heightScore += 2;
+		}
+
+		// SCORE = ITEM COUNT * 5 + HEIGHT SCORE
+		const score = totalItems * 5 + heightScore;
+		if (score > highestScore && totalItems >= 1) {
+			highestScore = score;
+			bestContainer = container;
+		}
+	}
+
+	return bestContainer;
+}
+
 export function scanPageForImages(): ScannedImage[] {
 	const imagesMap = new Map<string, ScannedImage>();
 	const seenHashes = new Set<string>();
 	const seenCanonicalUrls = new Set<string>();
 
-	// CHECK IF A DEDICATED HIGH-CONFIDENCE READER CONTAINER EXISTS
-	const readerContainers = document.querySelectorAll(READER_CONTAINER_SELECTOR);
-	let rootScope: Document | Element = document;
-	for (const container of Array.from(readerContainers)) {
-		const imgsInContainer = container.querySelectorAll('img, picture img');
-		if (imgsInContainer.length >= 3) {
-			rootScope = container;
-			break;
-		}
-	}
+	// DISCOVER HIGH-CONFIDENCE PRIMARY READER CONTAINER DYNAMICALLY
+	const dynamicContainer = findPrimaryReaderContainer();
+	const rootScope: Document | Element = dynamicContainer || document;
 
 	// 1. SCAN STANDARD <img> AND <picture> ELEMENTS WITHIN ROOTSCOPE
 	const imgElements = rootScope.querySelectorAll<HTMLImageElement>('img, picture img');
@@ -238,7 +521,7 @@ export function scanPageForImages(): ScannedImage[] {
 			img.srcset ? parseSrcset(img.srcset).pop() : null,
 			img.currentSrc,
 			img.src
-		].filter(Boolean) as string[];
+		].map(s => (s ? s.trim() : null)).filter(Boolean) as string[];
 
 		let possibleSrc: string | null = null;
 		for (const cand of candidates) {
@@ -256,7 +539,7 @@ export function scanPageForImages(): ScannedImage[] {
 
 		let absoluteUrl = possibleSrc;
 		try {
-			absoluteUrl = new URL(possibleSrc, window.location.href).href;
+			absoluteUrl = new URL(possibleSrc.trim(), window.location.href).href;
 		} catch {
 			continue;
 		}
@@ -268,14 +551,7 @@ export function scanPageForImages(): ScannedImage[] {
 
 		let dhash: string | undefined;
 		if (img.complete && img.naturalWidth > 0) {
-			const computedHash = computeDHashFromElement(img);
-			if (computedHash) {
-				if (seenHashes.has(computedHash)) {
-					continue;
-				}
-				seenHashes.add(computedHash);
-				dhash = computedHash;
-			}
+			dhash = computeDHashFromElement(img) || undefined;
 		}
 
 		const rect = img.getBoundingClientRect();
@@ -303,9 +579,10 @@ export function scanPageForImages(): ScannedImage[] {
 		});
 	}
 
-	// 2. SCAN CSS BACKGROUND-IMAGE CONTAINERS
-	const bgElements = document.querySelectorAll<HTMLElement>('div[style*="background-image"], section[style*="background-image"]');
+	// 2. SCAN CSS BACKGROUND-IMAGE CONTAINERS WITHIN ROOTSCOPE
+	const bgElements = rootScope.querySelectorAll<HTMLElement>('div[style*="background-image"], section[style*="background-image"]');
 	for (const el of Array.from(bgElements)) {
+		if (el.closest(NOISE_CONTAINER_SELECTOR)) continue;
 		const style = el.getAttribute('style') || '';
 		const match = style.match(/url\(['"]?([^'")]+)['"]?\)/);
 		if (match && match[1] && !match[1].startsWith('data:')) {
@@ -335,9 +612,9 @@ export function scanPageForImages(): ScannedImage[] {
 	}
 
 	// 3. SUPPLEMENT WITH EMBEDDED JSON STATE IF DOM HAS FEW IMAGES
+	let fallbackTop = 0;
 	if (imagesMap.size < 3) {
 		const jsonUrls = extractFromEmbeddedJson();
-		let fallbackTop = 0;
 		for (const url of jsonUrls) {
 			const canonicalUrl = getCanonicalUrl(url);
 			if (!imagesMap.has(url) && !seenCanonicalUrls.has(canonicalUrl)) {
@@ -356,26 +633,100 @@ export function scanPageForImages(): ScannedImage[] {
 		}
 	}
 
+	// 4. SUPPLEMENT WITH CAPTURED VIRTUAL-SCROLL / LAZY URLS NOT PRESENT IN THE DOM SNAPSHOT.
+	const capturedUrls = getCapturedImageUrls();
+	// MAP OF PLACEHOLDERS (DIVS WITHOUT IMGS) IN ROOTSCOPE TO EXTRACT GENUINE TALL STRIP DIMENSIONS
+	const unmountedPlaceholders = Array.from(rootScope.querySelectorAll<HTMLElement>('[data-page], [class*="page"], [id*="page"]')).filter(
+		el => el.querySelectorAll('img').length === 0
+	);
+	let placeholderIdx = 0;
+
+	for (const url of capturedUrls) {
+		const canonicalUrl = getCanonicalUrl(url);
+		if (!imagesMap.has(url) && !seenCanonicalUrls.has(canonicalUrl)) {
+			seenCanonicalUrls.add(canonicalUrl);
+			const placeholderEl = unmountedPlaceholders[placeholderIdx] || null;
+			const dims = extractPlaceholderDimensions(placeholderEl);
+			placeholderIdx++;
+
+			imagesMap.set(url, {
+				url,
+				canonicalUrl,
+				width: dims.width,
+				height: dims.height,
+				top: fallbackTop,
+				left: 0,
+				selected: true
+			});
+			fallbackTop += dims.height;
+		}
+	}
+
 	const rawImages = Array.from(imagesMap.values());
 	return sortImagesByCoordinates(rawImages);
 }
 
-// AUTO-SCROLL THROUGH THE ENTIRE READER TO TRIGGER LAZY-LOADS
+// FIND SINGLE ELEMENT THAT SCROLLS ITS CONTENT (USED BY VIRTUAL-SCROLL READERS WHOSE
+// SCROLL CONTAINER IS NOT THE WINDOW)
+function findScrollableReaderContainer(): HTMLElement | null {
+	const candidates = Array.from(
+		document.querySelectorAll<HTMLElement>(
+			'[class*="reader"], [id*="reader"], [class*="viewport"], [class*="scroll-container"], main'
+		)
+	);
+	for (const el of candidates) {
+		const style = typeof window !== 'undefined' && window.getComputedStyle ? window.getComputedStyle(el) : null;
+		if (!style) continue;
+		const overflowY = style.overflowY;
+		if (overflowY === 'auto' || overflowY === 'scroll') {
+			if (el.scrollHeight > el.clientHeight + 1) {
+				return el;
+			}
+		}
+	}
+	return null;
+}
+
+// AUTO-SCROLL THROUGH THE ENTIRE READER (WINDOW AND/OR INNER VIRTUAL-SCROLL CONTAINER)
+// TO TRIGGER LAZY-LOADS AND LET THE MUTATIONOBSERVER CAPTURE EVERY MOUNTED PANEL.
 export async function fastScrollPreload(): Promise<void> {
-	const initialScrollY = window.scrollY;
-	const scrollHeight = Math.max(document.body.scrollHeight, document.documentElement.scrollHeight);
 	const step = 800;
 	const delay = 40;
 
-	for (let y = 0; y < scrollHeight; y += step) {
-		window.scrollTo(0, y);
-		await new Promise(r => setTimeout(r, delay));
+	// COLLECT SCROLL TARGETS: WINDOW PLUS ANY INNER VIRTUAL-SCROLL CONTAINER
+	type ScrollTarget = { max: number; init: number; set: (y: number) => void };
+	const targets: ScrollTarget[] = [];
+
+	const windowMax = Math.max(document.body.scrollHeight, document.documentElement.scrollHeight);
+	if (windowMax > 0) {
+		targets.push({ max: windowMax, init: window.scrollY, set: (y) => window.scrollTo(0, y) });
 	}
 
-	window.scrollTo(0, initialScrollY);
+	const inner = findScrollableReaderContainer();
+	if (inner) {
+		targets.push({ max: inner.scrollHeight, init: inner.scrollTop, set: (y) => { inner.scrollTop = y; } });
+	}
+
+	// SCROLL EACH TARGET FULLY SO LAZY/VIRTUAL PANELS MOUNT AND THE OBSERVER CAPTURES THEM
+	for (const t of targets) {
+		for (let y = 0; y < t.max; y += step) {
+			t.set(y);
+			await new Promise(r => setTimeout(r, delay));
+		}
+		// RESTORE ORIGINAL POSITION
+		t.set(t.init);
+	}
 }
 
 // -- IN-PLACE REPLACEMENT COORDINATOR -- //
+
+function isExtensionValid(): boolean {
+	try {
+		return typeof chrome !== 'undefined' && !!chrome.runtime && !!chrome.runtime.id;
+	} catch {
+		return false;
+	}
+}
 
 class InPlaceTranslationCoordinator {
 	private replacer: DomReplacerEngine;
@@ -383,7 +734,6 @@ class InPlaceTranslationCoordinator {
 	private activeMapping: ChapterMappingEntry | null = null;
 	private serverUrl = 'http://127.0.0.1:8124';
 	private pollingTimer: ReturnType<typeof setInterval> | null = null;
-	private watchdogTimer: ReturnType<typeof setInterval> | null = null;
 	private keepAlivePort: chrome.runtime.Port | null = null;
 	private keepAliveInterval: ReturnType<typeof setInterval> | null = null;
 
@@ -393,6 +743,7 @@ class InPlaceTranslationCoordinator {
 	}
 
 	async init() {
+		if (!isExtensionValid()) return;
 		const stored = await chrome.storage.local.get(['serverUrl', 'inPlaceReplacement']);
 		if (stored.serverUrl) {
 			this.serverUrl = stored.serverUrl;
@@ -400,46 +751,55 @@ class InPlaceTranslationCoordinator {
 			this.replacer.setBaseUrl(this.serverUrl);
 		}
 
-		const inPlaceEnabled = stored.inPlaceReplacement !== false;
-		if (!inPlaceEnabled) return;
-
-		this.bindLifecycleEvents();
-		await this.recheckUrlMapping();
+		if (stored.inPlaceReplacement !== false) {
+			this.bindLifecycleEvents();
+			await this.recheckUrlMapping();
+		}
 	}
 
 	private bindLifecycleEvents() {
-		// 1. INSTANT CATCH-UP SYNC ON TAB VISIBILITY CHANGE
 		document.addEventListener('visibilitychange', () => {
+			if (!isExtensionValid()) {
+				this.destroy();
+				return;
+			}
 			if (document.visibilityState === 'visible' && this.activeMapping) {
 				void this.syncWithServer();
 			}
 		});
 
-		// 2. INSTANT CATCH-UP SYNC ON WINDOW FOCUS
 		window.addEventListener('focus', () => {
+			if (!isExtensionValid()) {
+				this.destroy();
+				return;
+			}
 			if (this.activeMapping) {
 				void this.syncWithServer();
 			}
 		});
 
-		// 3. SPA ROUTE NAVIGATION (POPSTATE)
 		window.addEventListener('popstate', () => {
+			if (!isExtensionValid()) {
+				this.destroy();
+				return;
+			}
 			void this.recheckUrlMapping();
 		});
 	}
 
 	async recheckUrlMapping() {
-		chrome.runtime.sendMessage(
-			{ type: 'GET_SITE_MAPPING', url: window.location.href },
-			async (res: { mapping?: ChapterMappingEntry | null }) => {
-				if (chrome.runtime.lastError || !res || !res.mapping) {
-					return;
-				}
-
-				this.activeMapping = res.mapping;
-				await this.syncWithServer();
-			}
-		);
+		if (!isExtensionValid()) {
+			this.destroy();
+			return;
+		}
+		chrome.runtime.sendMessage({
+			type: 'GET_SITE_MAPPING',
+			url: window.location.href
+		}, async (res) => {
+			if (chrome.runtime.lastError || !res || !res.mapping) return;
+			this.activeMapping = res.mapping;
+			await this.syncWithServer();
+		});
 	}
 
 	setActiveMapping(entry: ChapterMappingEntry) {
@@ -448,7 +808,7 @@ class InPlaceTranslationCoordinator {
 	}
 
 	private startKeepAlive(chapterId: number) {
-		if (this.keepAlivePort) return;
+		if (this.keepAlivePort || !isExtensionValid()) return;
 		try {
 			if (typeof chrome !== 'undefined' && chrome.runtime?.connect) {
 				this.keepAlivePort = chrome.runtime.connect({ name: 'xianscan-keepalive' });
@@ -457,6 +817,10 @@ class InPlaceTranslationCoordinator {
 				});
 
 				this.keepAliveInterval = setInterval(() => {
+					if (!isExtensionValid()) {
+						this.destroy();
+						return;
+					}
 					if (this.keepAlivePort) {
 						try {
 							this.keepAlivePort.postMessage({
@@ -505,7 +869,7 @@ class InPlaceTranslationCoordinator {
 		if (this.pollingTimer) return;
 
 		// ATTACH LIVE SSE IN BACKGROUND WORKER
-		if (this.activeMapping?.chapterId) {
+		if (this.activeMapping?.chapterId && isExtensionValid()) {
 			chrome.runtime.sendMessage({
 				type: 'ATTACH_LIVE_SSE',
 				chapterId: this.activeMapping.chapterId
@@ -516,6 +880,10 @@ class InPlaceTranslationCoordinator {
 
 		// BACKUP INTERVAL POLLING & SELF-HEALING WATCHDOG (EVERY 2.5S)
 		this.pollingTimer = setInterval(async () => {
+			if (!isExtensionValid()) {
+				this.destroy();
+				return;
+			}
 			if (!this.activeMapping?.chapterId) {
 				this.stopPolling();
 				return;
@@ -539,8 +907,11 @@ class InPlaceTranslationCoordinator {
 					this.stopPolling();
 					this.stopKeepAlive();
 				}
-			} catch {
-				// SILENT POLLING FAILURE
+			} catch (err: any) {
+				const errMsg = err?.message || String(err);
+				if (errMsg.includes('context invalidated') || errMsg.includes('Context invalidated')) {
+					this.destroy();
+				}
 			}
 		}, 2500);
 	}
@@ -553,6 +924,10 @@ class InPlaceTranslationCoordinator {
 	}
 
 	async syncWithServer() {
+		if (!isExtensionValid()) {
+			this.destroy();
+			return;
+		}
 		if (!this.activeMapping) return;
 
 		try {
@@ -572,16 +947,23 @@ class InPlaceTranslationCoordinator {
 			}
 		} catch (err: any) {
 			const errMsg = err?.message || String(err);
+			if (errMsg.includes('context invalidated') || errMsg.includes('Context invalidated')) {
+				// EXTENSION WAS RELOADED OR UPDATED; CLEANLY SELF-TERMINATE TO AVOID CONSOLE SPAM
+				this.destroy();
+				return;
+			}
 			if (errMsg.includes('Chapter not found') || errMsg.includes('404')) {
 				console.info('[XianScan] Mapped chapter was removed from server. Auto-clearing local mapping.');
 				this.stopPolling();
 				this.stopKeepAlive();
-				chrome.runtime.sendMessage({
-					type: 'DELETE_SITE_MAPPING',
-					url: window.location.href
-				}, () => {
-					void chrome.runtime.lastError;
-				});
+				if (isExtensionValid()) {
+					chrome.runtime.sendMessage({
+						type: 'DELETE_SITE_MAPPING',
+						url: window.location.href
+					}, () => {
+						void chrome.runtime.lastError;
+					});
+				}
 				this.activeMapping = null;
 				this.replacer.destroy();
 			} else {
@@ -625,6 +1007,9 @@ if (typeof window !== 'undefined' && !(window as any).__xianscan_content_injecte
 
 	const coordinator = new InPlaceTranslationCoordinator();
 	coordinator.init();
+
+	// ATTACH MUTATIONOBSERVER TO CAPTURE VIRTUAL-SCROLL / LAZY IMAGE URLS AS THE READER MOUNTS THEM
+	attachImageCaptureObserver();
 
 	chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
 		if (message.type === 'SCAN_PAGE') {
@@ -686,6 +1071,53 @@ if (typeof window !== 'undefined' && !(window as any).__xianscan_content_injecte
 
 		if (message.type === 'PING') {
 			sendResponse({ status: 'alive' });
+			return true;
+		}
+
+		if (message.type === 'FETCH_IMAGE_DATA_IN_TAB') {
+			(async () => {
+				try {
+					const res = await fetch(message.url);
+					if (res.ok) {
+						const contentType = (res.headers.get('content-type') || '').toLowerCase();
+						if (!contentType.includes('text/html') && !contentType.includes('text/plain')) {
+							const blob = await res.blob();
+							if (blob.size >= 100) {
+								const reader = new FileReader();
+								reader.onloadend = () => {
+									sendResponse({ ok: true, dataUrl: reader.result as string });
+								};
+								reader.onerror = () => {
+									sendResponse({ ok: false, error: 'FileReader failed to read blob' });
+								};
+								reader.readAsDataURL(blob);
+								return;
+							}
+						}
+					}
+				} catch {}
+
+				// FALLBACK: EXTRACT FROM ALREADY LOADED DOM IMAGE ELEMENT VIA CANVAS
+				try {
+					const imgEl = Array.from(document.querySelectorAll<HTMLImageElement>('img')).find(
+						i => i.src === message.url || i.currentSrc === message.url || i.getAttribute('data-src') === message.url
+					);
+					if (imgEl && imgEl.complete && imgEl.naturalWidth > 0 && imgEl.naturalHeight > 0) {
+						const canvas = document.createElement('canvas');
+						canvas.width = imgEl.naturalWidth;
+						canvas.height = imgEl.naturalHeight;
+						const ctx = canvas.getContext('2d');
+						if (ctx) {
+							ctx.drawImage(imgEl, 0, 0);
+							const dataUrl = canvas.toDataURL('image/jpeg', 0.95);
+							sendResponse({ ok: true, dataUrl });
+							return;
+						}
+					}
+				} catch {}
+
+				sendResponse({ ok: false, error: 'Failed to retrieve image in tab' });
+			})();
 			return true;
 		}
 

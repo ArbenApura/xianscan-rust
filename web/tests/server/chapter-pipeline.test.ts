@@ -1018,4 +1018,81 @@ describe('runChapterPipeline', () => {
 		expect(sentToTranslate).toContain('r_small_sfx');
 		expect(sentToTranslate).not.toContain('r_giant_sfx');
 	});
+
+	it('aborts in-flight inpainting and maintains strict sequential queue when translation fails', async () => {
+		seedBook(db, { id: 'b_concurrency_safe' });
+		const chapter = seedChapter(db, { bookId: 'b_concurrency_safe', seq: 0 });
+		seedPage(db, { chapterId: chapter.id, seq: 0, filePath: 'uploads/p0.png' });
+		seedPage(db, { chapterId: chapter.id, seq: 1, filePath: 'uploads/p1.png' });
+		mkdirSync(join(dataRoot, 'uploads'), { recursive: true });
+		writeFileSync(join(dataRoot, 'uploads', 'p0.png'), PAGE_PNG);
+		writeFileSync(join(dataRoot, 'uploads', 'p1.png'), PAGE_PNG);
+
+		let inpaintingActiveCount = 0;
+		let maxInpaintingActive = 0;
+		let inpaint0Aborted = false;
+
+		class TrackingPipeline extends FakePipeline {
+			override async clean(image: Buffer, _regions: unknown[], _mode?: string, signal?: AbortSignal): Promise<Buffer> {
+				inpaintingActiveCount++;
+				if (inpaintingActiveCount > maxInpaintingActive) {
+					maxInpaintingActive = inpaintingActiveCount;
+				}
+
+				return new Promise<Buffer>((resolve, reject) => {
+					const timer = setTimeout(() => {
+						inpaintingActiveCount--;
+						resolve(image);
+					}, 100);
+
+					if (signal) {
+						signal.addEventListener('abort', () => {
+							clearTimeout(timer);
+							inpaintingActiveCount--;
+							inpaint0Aborted = true;
+							const err = new Error('Inpainting aborted');
+							err.name = 'AbortError';
+							reject(err);
+						}, { once: true });
+					}
+				});
+			}
+		}
+
+		// LLM THROWS AN ERROR ON PAGE 0 AND SUCCEEDS ON PAGE 1
+		let callCount = 0;
+		const failingLlm = {
+			chat: {
+				completions: {
+					create: async () => {
+						callCount++;
+						if (callCount === 1) {
+							// SIMULATE NON-RETRYABLE LLM ERROR (e.g. INVALID REQUEST OR BAD KEY)
+							const err = new Error('LLM invalid prompt error');
+							(err as any).status = 400;
+							throw err;
+						}
+						return {
+							choices: [{ message: { content: JSON.stringify({ r0: 'Success Page 1' }) } }],
+							usage: { prompt_tokens: 10, completion_tokens: 5, total_tokens: 15 },
+						};
+					},
+				},
+			},
+		} as unknown as OpenAI;
+
+		const customPipeline = new TrackingPipeline();
+
+		await chapterWork(chapter.id, {
+			pipeline: customPipeline,
+			dataRoot,
+			llm: failingLlm,
+			pageConcurrency: 1,
+		})(new AbortController().signal, () => {});
+
+		// 1. INPAINTING CONCURRENCY NEVER EXCEEDED 1 AT ANY POINT
+		expect(maxInpaintingActive).toBeLessThanOrEqual(1);
+		// 2. PAGE 0'S IN-FLIGHT INPAINTING RECEIVED ABORT SIGNAL WHEN TRANSLATION FAILED
+		expect(inpaint0Aborted).toBe(true);
+	});
 });

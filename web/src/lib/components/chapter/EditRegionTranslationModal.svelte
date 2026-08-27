@@ -135,6 +135,16 @@
 		const payload = {
 			textTarget: action === 'reset_ai' ? (region.originalTarget ?? region.textTarget) : editTargetText,
 			action,
+			typesetOptions: {
+				fontDialogue: $settings.typesetFont,
+				fontCjk: $settings.typesetCjkFont,
+				boxInset: $settings.typesetPadding,
+				outlineMode: $settings.typesetOutline,
+				colorMode: $settings.typesetContrast,
+				casing: $settings.typesetCasing,
+				allCaps: $settings.typesetAllCaps,
+				enableRotation: $settings.enableTextRotation,
+			},
 		};
 		const validation = validateForm(updateRegionSchema, payload);
 		if (!validation.success) {

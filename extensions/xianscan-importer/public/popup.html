@@ -105,12 +105,34 @@
 					<span id="selectionCountText">0 / 0 pages</span>
 				</label>
 				<div class="toolbar-btns">
+					<button id="copyDebugBtn" class="ctrl-btn-xs" title="Copy debug diagnostic details to clipboard" type="button">
+						<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+							<rect width="14" height="14" x="8" y="8" rx="2" ry="2"/>
+							<path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"/>
+						</svg>
+						Debug
+					</button>
 					<button id="fastScanBtn" class="ctrl-btn-xs gold" title="Scrolls page to trigger lazy-loads" type="button">
 						<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
 							<polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/>
 						</svg>
 						Fast Scan
 					</button>
+				</div>
+			</div>
+
+			<!-- PROTECTED / ACCESS RESTRICTED WARNING BANNER -->
+			<div id="protectedWarningBanner" class="protected-banner hidden">
+				<div class="protected-banner-icon">
+					<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+						<path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
+						<line x1="12" y1="8" x2="12" y2="12"/>
+						<line x1="12" y1="16" x2="12.01" y2="16"/>
+					</svg>
+				</div>
+				<div class="protected-banner-content">
+					<div class="protected-banner-title mono">Protected Images Detected</div>
+					<div class="protected-banner-desc" id="protectedWarningCount">Some comic pages are hotlink protected by the host CDN.</div>
 				</div>
 			</div>
 

@@ -86,7 +86,12 @@ export default class PQueue {
 	}
 
 	async addAll<T>(functions: Array<() => Promise<T> | T>): Promise<T[]> {
-		return Promise.all(functions.map((fn) => this.add(fn)));
+		const results = await Promise.allSettled(functions.map((fn) => this.add(fn)));
+		const rejected = results.find((r): r is PromiseRejectedResult => r.status === 'rejected');
+		if (rejected) {
+			throw rejected.reason;
+		}
+		return results.map((r) => (r as PromiseFulfilledResult<T>).value);
 	}
 
 	async onIdle(): Promise<void> {

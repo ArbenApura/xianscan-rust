@@ -1,7 +1,7 @@
 import type { ScannedImage } from '../types';
 
 // NOISE AND ADVERTISEMENT PATTERNS
-const NOISE_URL_PATTERN = /(?:data:image|placeholder|blurhash|lqip|blur|skeleton|shimmer|loading|loader|blank\.gif|spacer\.gif|pixel\.gif|avatar|favicon|emoji|discord|patreon|kofi|paypal|doubleclick|googleads|adservice|adserver|banner_ad|ad_banner|affiliate|sponsor|watermark_logo)/i;
+const NOISE_URL_PATTERN = /(?:data:image|placeholder|blurhash|lqip|blur|skeleton|shimmer|loading|loader|blank\.gif|spacer\.gif|pixel\.gif|avatar|favicon|emoji|discord|patreon|kofi|paypal|doubleclick|googleads|adservice|adserver|banner|iklan|advert|guanggao|promo|sponsor|\/ad\/|\/ads\/|[\/_-]ad\d*\.(?:gif|jpg|png|webp)|app-qr|qrcode|qr-code|watermark_logo)/i;
 
 // TRANSIENT CACHE-BUSTING AND TRACKING QUERY PARAMS TO STRIP (PRESERVING PRESIGNED AUTH TOKENS)
 const VOLATILE_QUERY_PARAMS = new Set([
@@ -15,10 +15,11 @@ const VOLATILE_QUERY_PARAMS = new Set([
 // EXTRACT CANONICAL CLEAN IMAGE URL FOR DEDUPLICATION
 export function getCanonicalUrl(rawUrl: string): string {
 	if (!rawUrl) return '';
-	if (rawUrl.startsWith('data:')) return rawUrl;
+	const cleanRaw = rawUrl.trim();
+	if (cleanRaw.startsWith('data:')) return cleanRaw;
 
 	try {
-		const parsed = new URL(rawUrl, 'https://localhost');
+		const parsed = new URL(cleanRaw, 'https://localhost');
 		// COLLECT ALL UNIQUE KEYS FIRST TO AVOID ITERATION ISSUES ON DELETION
 		const allKeys = Array.from(new Set(parsed.searchParams.keys()));
 		for (const key of allKeys) {
@@ -84,10 +85,9 @@ export function computeDHashFromElement(img: HTMLImageElement): string | null {
 	}
 }
 
-// DEDUPLICATE SCANNED IMAGES BY CANONICAL URL, VISUAL HASH, AND IDENTICAL SPATIAL COORDINATES
+// DEDUPLICATE SCANNED IMAGES BY CANONICAL URL AND IDENTICAL SPATIAL COORDINATES
 export function deduplicateScannedImages(images: ScannedImage[]): ScannedImage[] {
 	const seenUrls = new Set<string>();
-	const seenHashes = new Set<string>();
 	const seenCoords = new Set<string>();
 	const result: ScannedImage[] = [];
 
@@ -99,14 +99,7 @@ export function deduplicateScannedImages(images: ScannedImage[]): ScannedImage[]
 			continue;
 		}
 
-		// 2. DEDUPLICATE BY VISUAL PERCEPTUAL DHASH IF AVAILABLE
-		if (img.dhash) {
-			if (seenHashes.has(img.dhash)) {
-				continue;
-			}
-		}
-
-		// 3. DEDUPLICATE BY IDENTICAL SPATIAL BOUNDING BOX (OVERLAPPING CLONES)
+		// 2. DEDUPLICATE BY IDENTICAL SPATIAL BOUNDING BOX (OVERLAPPING CLONES)
 		if (img.top > 0 || img.left > 0) {
 			const coordKey = `${Math.round(img.top)}_${Math.round(img.left)}_${img.width}_${img.height}`;
 			if (seenCoords.has(coordKey)) {
@@ -116,7 +109,6 @@ export function deduplicateScannedImages(images: ScannedImage[]): ScannedImage[]
 		}
 
 		if (canonical) seenUrls.add(canonical);
-		if (img.dhash) seenHashes.add(img.dhash);
 
 		result.push({
 			...img,
@@ -127,38 +119,46 @@ export function deduplicateScannedImages(images: ScannedImage[]): ScannedImage[]
 	return result;
 }
 
-export function isPlaceholderImage(url: string, width?: number, height?: number): boolean {
+export function isPlaceholderImage(url: string, _width?: number, _height?: number): boolean {
 	if (!url) return true;
 	if (url.startsWith('data:')) return true;
 	if (NOISE_URL_PATTERN.test(url)) return true;
-	// REJECT TINY MICRO-THUMBNAILS (< 100PX) WHEN DIMENSIONS ARE KNOWN
-	if (width !== undefined && height !== undefined && width > 0 && height > 0) {
-		if (width < 100 && height < 100) return true;
-		// REJECT EXTREME NEEDLE-THIN DIVIDING LINES OR BORDERS
-		const ratio = Math.max(width / height, height / width);
-		if (ratio > 20) return true;
-	}
 	return false;
 }
 
 export function filterOutlierThumbnails(images: ScannedImage[]): ScannedImage[] {
-	if (images.length < 5) return images;
+	if (images.length < 2) return images;
 
-	// CALCULATE MEDIAN WIDTH FOR IMAGES WITH KNOWN WIDTH > 0
-	const widths = images.map(i => i.width).filter(w => w > 0).sort((a, b) => a - b);
-	if (widths.length < 5) return images;
-
-	const medianWidth = widths[Math.floor(widths.length / 2)];
-	// IF MEDIAN IS SUBSTANTIAL (E.G. COMIC STRIPS >= 400PX), DROP IMAGES LESS THAN 35% OF MEDIAN
-	if (medianWidth >= 400) {
+	// IF CHAPTER HAS REAL FULL-SIZED COMIC PANELS (HEIGHT >= 600 OR WIDTH >= 500),
+	// DROP RECOMMENDATION WIDGET COVERS AND OUTLIER THUMBNAILS (E.G. WIDTH <= 320 AND HEIGHT <= 450)
+	const hasLargePanels = images.some(i => i.height >= 600 || i.width >= 500);
+	if (hasLargePanels) {
 		return images.filter(img => {
-			if (img.width > 0 && img.width < medianWidth * 0.35) {
+			if (img.height >= 600) return true;
+			if (img.width > 0 && img.height > 0 && img.width <= 320 && img.height <= 450) {
 				return false;
 			}
 			return true;
 		});
 	}
+
 	return images;
+}
+
+export function filterResolutionOutliers(images: ScannedImage[]): ScannedImage[] {
+	if (images.length < 3) return images;
+
+	// DROP SHORT WIDE HORIZONTAL BANNER ADS (ASPECT RATIO >= 2.5 WITH HEIGHT <= 120 OR HEIGHT <= 50)
+	// ALWAYS PRESERVE TALL WEBTOON COMIC PANELS (HEIGHT >= 600)
+	return images.filter(img => {
+		if (img.height >= 600) return true;
+		if (img.width > 0 && img.height > 0) {
+			const ratio = img.width / img.height;
+			if (ratio >= 2.5 && img.height <= 260) return false;
+			if (img.height <= 50) return false;
+		}
+		return true;
+	});
 }
 
 export function sortImagesByCoordinates(
@@ -179,7 +179,10 @@ export function sortImagesByCoordinates(
 	const deduplicated = deduplicateScannedImages(filtered);
 
 	// 3. FILTER OUTLIER THUMBNAILS IF STRIP HAS CONSISTENT PAGES
-	const cleanImages = filterOutlierThumbnails(deduplicated);
+	const outlierFiltered = filterOutlierThumbnails(deduplicated);
+
+	// 3b. MODERATE RESOLUTION-COHERENCE FILTER: DROP DIMENSION/ORIENTATION OUTLIERS (ADS)
+	const cleanImages = filterResolutionOutliers(outlierFiltered);
 
 	// 4. SPATIAL 2D SORTING: TOP-TO-BOTTOM PRIMARY, LEFT-TO-RIGHT SECONDARY (WITHIN 20PX BAND)
 	return cleanImages.sort((a, b) => {

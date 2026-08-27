@@ -46,11 +46,15 @@ class PopupController {
 	private inPlaceReplacementCheckbox!: HTMLInputElement;
 	private selectAllCheckbox!: HTMLInputElement;
 	private selectionCountText!: HTMLElement;
+	private copyDebugBtn!: HTMLButtonElement;
 	private fastScanBtn!: HTMLButtonElement;
 
 	private galleryContainer!: HTMLElement;
 	private galleryEmptyState!: HTMLElement;
 	private galleryGrid!: HTMLElement;
+	private protectedWarningBanner!: HTMLElement;
+	private protectedWarningCount!: HTMLElement;
+	private protectedImagesCount = 0;
 
 	private autoResliceCheckbox!: HTMLInputElement;
 	private autoTranslateCheckbox!: HTMLInputElement;
@@ -168,11 +172,14 @@ class PopupController {
 		this.inPlaceReplacementCheckbox = $('inPlaceReplacementCheckbox') as HTMLInputElement;
 		this.selectAllCheckbox = $('selectAllCheckbox') as HTMLInputElement;
 		this.selectionCountText = $('selectionCountText');
+		this.copyDebugBtn = $('copyDebugBtn') as HTMLButtonElement;
 		this.fastScanBtn = $('fastScanBtn') as HTMLButtonElement;
 
 		this.galleryContainer = $('galleryContainer');
 		this.galleryEmptyState = $('galleryEmptyState');
 		this.galleryGrid = $('galleryGrid');
+		this.protectedWarningBanner = $('protectedWarningBanner');
+		this.protectedWarningCount = $('protectedWarningCount');
 
 		this.autoResliceCheckbox = $('autoResliceCheckbox') as HTMLInputElement;
 		this.autoTranslateCheckbox = $('autoTranslateCheckbox') as HTMLInputElement;
@@ -305,6 +312,53 @@ class PopupController {
 			this.images.forEach(img => { img.selected = checked; });
 			this.renderGalleryGrid();
 			this.updateSelectionSummary();
+		});
+
+		this.copyDebugBtn.addEventListener('click', async () => {
+			const debugData = {
+				timestamp: new Date().toISOString(),
+				url: this.currentUrl,
+				serverUrl: this.client.getBaseUrl(),
+				serverStatus: this.serverStatusBadge.textContent?.trim() || 'unknown',
+				metadata: this.metadata,
+				selectedBookId: this.selectedBookId,
+				selectedChapterId: this.selectedChapterId,
+				settings: {
+					inPlaceReplacement: this.inPlaceReplacementCheckbox.checked,
+					autoReslice: this.autoResliceCheckbox.checked,
+					autoTranslate: this.autoTranslateCheckbox.checked
+				},
+				scannedCount: this.images.length,
+				images: this.images.map((img, idx) => ({
+					index: idx + 1,
+					url: img.url,
+					canonicalUrl: img.canonicalUrl,
+					width: img.width,
+					height: img.height,
+					top: Math.round(img.top),
+					left: Math.round(img.left),
+					selected: img.selected,
+					dhash: img.dhash || null
+				}))
+			};
+
+			const text = JSON.stringify(debugData, null, 2);
+			try {
+				await navigator.clipboard.writeText(text);
+				const originalHtml = this.copyDebugBtn.innerHTML;
+				this.copyDebugBtn.innerHTML = `
+					<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+						<polyline points="20 6 9 17 4 12"/>
+					</svg>
+					Copied!
+				`;
+				this.showToast('Debug details copied to clipboard');
+				setTimeout(() => {
+					this.copyDebugBtn.innerHTML = originalHtml;
+				}, 2000);
+			} catch {
+				this.showToast('Failed to copy to clipboard', true);
+			}
 		});
 
 		this.fastScanBtn.addEventListener('click', async () => {
@@ -526,9 +580,18 @@ class PopupController {
 			this.confirmBookModalBtn.textContent = 'Creating...';
 
 			try {
+				const chosenSource = this.selectedNewBookSourceLang || 'ko';
+				// ENSURE THE TARGET NEVER COLLIDES WITH THE SELECTED SOURCE, OR THE SERVER REJECTS
+				// WITH "Target translation language must be different from source language" (400).
+				let targetLang = 'en';
+				if (chosenSource === 'en') {
+					// ENGLISH SOURCE: TRANSLATE INTO SOMETHING DISTINCT FROM ENGLISH.
+					targetLang = 'zh-Hans';
+				}
 				const created = await this.client.createBook({
 					title,
-					sourceLang: this.selectedNewBookSourceLang
+					sourceLang: chosenSource,
+					targetLang
 				});
 				closeBookModal();
 				this.showToast(`Book "${created.title}" created`);
@@ -1387,9 +1450,35 @@ class PopupController {
 			}
 
 			const raw = res.images || [];
-			this.images = sortImagesByCoordinates(
-				raw.filter((img: ScannedImage) => !isPlaceholderImage(img.url, img.width, img.height))
-			);
+			const clean = raw.filter((img: ScannedImage) => !isPlaceholderImage(img.url, img.width, img.height));
+
+			// IF FEW IMAGES FOUND (<3), AUTOMATICALLY TRIGGER FAST SCROLL PRELOAD TO UNMOUNT VIRTUAL/LAZY PANELS
+			if (clean.length < 3) {
+				chrome.tabs.sendMessage(tab.id, { type: 'FAST_SCROLL_PRELOAD' }, (fastRes: ScanPageResponse & { success?: boolean }) => {
+					if (!chrome.runtime.lastError && fastRes && fastRes.images && fastRes.images.length > clean.length) {
+						this.images = sortImagesByCoordinates(
+							fastRes.images.filter((img: ScannedImage) => !isPlaceholderImage(img.url, img.width, img.height))
+						);
+						this.metadata = fastRes.metadata || res.metadata || {};
+					} else {
+						this.images = sortImagesByCoordinates(clean);
+						this.metadata = res.metadata || {};
+					}
+
+					if (this.images.length === 0) {
+						this.galleryEmptyState.classList.remove('hidden');
+						this.galleryGrid.classList.add('hidden');
+					} else {
+						this.galleryEmptyState.classList.add('hidden');
+						this.galleryGrid.classList.remove('hidden');
+						this.renderGalleryGrid();
+					}
+					this.updateSelectionSummary();
+				});
+				return;
+			}
+
+			this.images = sortImagesByCoordinates(clean);
 			this.metadata = res.metadata || {};
 
 			if (this.images.length === 0) {
@@ -1407,6 +1496,11 @@ class PopupController {
 
 	private renderGalleryGrid() {
 		this.galleryGrid.innerHTML = '';
+		this.protectedImagesCount = 0;
+		if (this.protectedWarningBanner) {
+			this.protectedWarningBanner.classList.add('hidden');
+		}
+
 		if (this.images.length === 0) {
 			this.galleryEmptyState.classList.remove('hidden');
 			this.galleryGrid.classList.add('hidden');
@@ -1426,18 +1520,6 @@ class PopupController {
 			image.loading = 'lazy';
 			image.alt = `Page ${idx + 1}`;
 
-			image.addEventListener('load', () => {
-				if (!img.dhash && image.naturalWidth > 0) {
-					const hash = computeDHashFromElement(image);
-					if (hash) img.dhash = hash;
-				}
-				if (img.width === 0 && image.naturalWidth > 0) {
-					img.width = image.naturalWidth;
-					img.height = image.naturalHeight;
-					dim.textContent = `${img.width}×${img.height}`;
-				}
-			});
-
 			const indexBadge = document.createElement('span');
 			indexBadge.className = 'thumb-index mono';
 			indexBadge.textContent = `#${idx + 1}`;
@@ -1450,6 +1532,53 @@ class PopupController {
 			const dim = document.createElement('span');
 			dim.className = 'thumb-dim mono';
 			dim.textContent = img.width > 0 ? `${img.width}×${img.height}` : '...';
+
+			image.addEventListener('load', () => {
+				if (!img.dhash && image.naturalWidth > 0) {
+					const hash = computeDHashFromElement(image);
+					if (hash) img.dhash = hash;
+				}
+				if (img.width === 0 && image.naturalWidth > 0) {
+					img.width = image.naturalWidth;
+					img.height = image.naturalHeight;
+					dim.textContent = `${img.width}×${img.height}`;
+				}
+			});
+
+			let fallbackAttempted = false;
+			image.addEventListener('error', () => {
+				if (fallbackAttempted) return;
+				fallbackAttempted = true;
+
+				// RENDER BEAUTIFULLY STYLED PROTECTED / ACCESS RESTRICTED CARD
+				card.classList.add('failed');
+				image.style.display = 'none';
+
+				if (!card.querySelector('.failed-protected-view')) {
+					const failedView = document.createElement('div');
+					failedView.className = 'failed-protected-view';
+					failedView.innerHTML = `
+						<svg class="failed-shield-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+							<path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
+							<line x1="12" y1="8" x2="12" y2="12"/>
+							<line x1="12" y1="16" x2="12.01" y2="16"/>
+						</svg>
+						<span class="failed-tag mono">PROTECTED</span>
+						<span class="failed-sub mono">CORS / Hotlink</span>
+					`;
+					card.insertBefore(failedView, dim);
+				}
+
+				dim.textContent = img.width > 0 ? `${img.width}×${img.height}` : 'Protected';
+
+				this.protectedImagesCount++;
+				if (this.protectedWarningBanner) {
+					this.protectedWarningBanner.classList.remove('hidden');
+					if (this.protectedWarningCount) {
+						this.protectedWarningCount.textContent = `${this.protectedImagesCount} page${this.protectedImagesCount > 1 ? 's' : ''} protected by CDN hotlink policy.`;
+					}
+				}
+			});
 
 			card.appendChild(image);
 			card.appendChild(indexBadge);

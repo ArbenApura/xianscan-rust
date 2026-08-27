@@ -17,6 +17,7 @@ import {
 	drawTextLineWithRuns,
 	FONT_DIALOGUE,
 	FONT_FALLBACK_NAME,
+	FONT_DEFAULT_CJK,
 	CJK_REGEX,
 	type TextColor,
 } from './typeset/fonts';
@@ -52,7 +53,7 @@ export async function typesetPage(
 ): Promise<Buffer> {
 	registerFonts();
 	const fontDialogue = opts.fontDialogue || FONT_DIALOGUE;
-	const fontCjk = opts.fontCjk || FONT_FALLBACK_NAME;
+	const fontCjk = opts.fontCjk || FONT_DEFAULT_CJK;
 	const inset = opts.boxInset ?? BOX_INSET;
 	const outlineMode = opts.outlineMode ?? 'standard';
 	const colorMode = opts.colorMode ?? 'auto';
@@ -113,9 +114,9 @@ export async function typesetPage(
 		const sizeCap = Math.max(MAX_SFX_FONT_SIZE, Math.max(w, h));
 		let size: number;
 		if (isSfx) {
-			size = fitSingleLineSize(ctx, text, font, maxW, maxH, sizeCap);
+			size = fitSingleLineSize(ctx, text, font, maxW, maxH, sizeCap, fontCjk);
 		} else {
-			size = fitFontSize(ctx, text, font, w, h, sizeCap, sizeCap, inset);
+			size = fitFontSize(ctx, text, font, w, h, sizeCap, sizeCap, inset, fontCjk);
 		}
 
 		ctx.font = fontSpec(size, font, text, fontCjk);

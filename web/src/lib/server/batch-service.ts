@@ -417,6 +417,7 @@ function onChapterFailed(chapter: BatchChapterItem, errorMsg: string) {
 	clearChapterRetryTimer(chapter.id);
 	chapterRetryCount.delete(chapter.id);
 	failedChapterIds.add(chapter.id);
+	abortChapterJob(chapter.id);
 
 	activeBatchState = {
 		...activeBatchState,
@@ -454,11 +455,11 @@ function dispatchNextItems() {
 	if (availableSlots <= 0) return;
 
 	const queuedItems = activeBatchState.queue
-		.filter((c) => c.status === 'queued')
+		.filter((c) => c.status === 'queued' && !chapterRetryTimers.has(c.id))
 		.slice(0, availableSlots);
 
 	if (queuedItems.length === 0) {
-		if (activeItems.length === 0) {
+		if (activeItems.length === 0 && chapterRetryTimers.size === 0) {
 			finishBatch();
 		}
 		return;
@@ -471,6 +472,7 @@ function dispatchNextItems() {
 
 function finishBatch() {
 	stopWatchdog();
+	clearAllChapterRetryTimers();
 	activeBatchState = {
 		...activeBatchState,
 		status: 'completed',

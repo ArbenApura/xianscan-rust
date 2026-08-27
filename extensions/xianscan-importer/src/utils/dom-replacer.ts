@@ -204,42 +204,27 @@ export function isFloatingOrSticky(el: HTMLElement): boolean {
 }
 
 export function isLikelyAdOrBannerImage(img: HTMLImageElement): boolean {
-	// 1. CHECK PARENT LINK (<a> TAGS): COMIC PANELS ARE ALMOST NEVER EXTERNAL AD LINKS
-	const parentLink = img.closest('a');
-	if (parentLink && parentLink.href) {
-		const href = parentLink.href.toLowerCase();
-		if (
-			href.includes('telegram') ||
-			href.includes('t.me') ||
-			href.includes('click') ||
-			href.includes('affiliate') ||
-			href.includes('track') ||
-			href.includes('redirect') ||
-			href.includes('casino') ||
-			href.includes('bet') ||
-			href.includes('game') ||
-			href.includes('apk') ||
-			href.includes('app') ||
-			parentLink.target === '_blank'
-		) {
+	// 1. ANCESTOR NOISE CONTAINER CHECK
+	let curr: HTMLElement | null = img.parentElement;
+	let depth = 0;
+	while (curr && depth < 6 && curr !== document.body) {
+		if (curr.matches && curr.matches(NOISE_CONTAINER_SELECTORS)) {
 			return true;
 		}
-	}
-
-	// 2. CHECK AD NOISE CONTAINERS & AD CLASS NAMES
-	const AD_CLASS_PATTERNS = [
-		'ad', 'ads', 'advert', 'banner', 'promo', 'sponsor', 'floating',
-		'sticky', 'fixed', 'guanggao', 'gg', 'pop', 'aff', 'tg', 'notice'
-	];
-	let curr: HTMLElement | null = img;
-	let depth = 0;
-	while (curr && curr !== document.body && depth < 5) {
-		const classList = curr.className ? String(curr.className).toLowerCase() : '';
-		const id = curr.id ? String(curr.id).toLowerCase() : '';
-		for (const pattern of AD_CLASS_PATTERNS) {
+		if (curr.tagName === 'A') {
+			const href = (curr.getAttribute('href') || '').toLowerCase();
 			if (
-				(classList && (classList === pattern || classList.includes(`-${pattern}`) || classList.includes(`${pattern}-`) || classList.includes(`_${pattern}`) || classList.includes(`${pattern}_`))) ||
-				(id && (id === pattern || id.includes(`-${pattern}`) || id.includes(`${pattern}-`) || id.includes(`_${pattern}`) || id.includes(`${pattern}_`)))
+				href.includes('doubleclick') ||
+				href.includes('googleads') ||
+				href.includes('adservice') ||
+				href.includes('affiliate') ||
+				href.includes('slot') ||
+				href.includes('judi') ||
+				href.includes('bet') ||
+				href.includes('casino') ||
+				href.includes('cuan') ||
+				href.includes('gacor') ||
+				href.includes('iklan')
 			) {
 				return true;
 			}
@@ -248,33 +233,11 @@ export function isLikelyAdOrBannerImage(img: HTMLImageElement): boolean {
 		depth++;
 	}
 
-	// 3. ASPECT RATIO & DIMENSION FILTER FOR AD BANNERS
-	const rect = img.getBoundingClientRect ? img.getBoundingClientRect() : { width: img.width || 0, height: img.height || 0 };
-	const width = img.naturalWidth || rect.width || img.width || 0;
-	const height = img.naturalHeight || rect.height || img.height || 0;
-
-	if (width > 0 && height > 0) {
-		const aspectRatio = width / height;
-		// HORIZONTAL BANNER AD DETECTION (e.g. 880x99, 728x90, 970x90, 1000x120)
-		if (aspectRatio >= 3.0 && height <= 260) {
-			return true;
-		}
-		if (aspectRatio >= 4.5) {
-			return true;
-		}
-		if (width >= 250 && height < 130) {
-			return true;
-		}
-		// VERTICAL SKYSCRAPER BANNER AD DETECTION
-		if (aspectRatio <= 0.25 && width <= 200) {
-			return true;
-		}
-	}
-
-	// 4. SOURCE URL NOISE DETECTION
+	// 2. SOURCE URL NOISE DETECTION
 	const src = (img.currentSrc || img.src || img.getAttribute('data-src') || img.getAttribute('data-original') || '').toLowerCase();
 	if (
 		src.includes('banner') ||
+		src.includes('iklan') ||
 		src.includes('advert') ||
 		src.includes('guanggao') ||
 		src.includes('promo') ||
@@ -282,26 +245,125 @@ export function isLikelyAdOrBannerImage(img: HTMLImageElement): boolean {
 		src.includes('avatar') ||
 		src.includes('logo') ||
 		src.includes('/ad/') ||
+		src.includes('/ads/') ||
 		src.includes('_ad.') ||
-		src.includes('-ad.')
+		src.includes('-ad.') ||
+		src.includes('app-qr') ||
+		src.includes('qrcode') ||
+		src.includes('qr-code') ||
+		/[\/_-]ad\d*\.(?:gif|jpg|png|webp)/i.test(src) ||
+		src.includes('slot') ||
+		src.includes('judi') ||
+		src.includes('doubleclick') ||
+		src.includes('googleads') ||
+		src.includes('noimg') ||
+		src.includes('readerarea.svg')
 	) {
 		return true;
+	}
+
+	// 3. DIMENSION & ASPECT RATIO CHECKS FOR BANNER ADS (PRESERVES TALL WEBTOON PANELS)
+	const rect = img.getBoundingClientRect ? img.getBoundingClientRect() : { width: img.width || 0, height: img.height || 0 };
+	const width = img.naturalWidth || rect.width || img.width || 0;
+	const height = img.naturalHeight || rect.height || img.height || 0;
+
+	if (width > 0 && height > 0) {
+		const aspectRatio = width / height;
+		if (aspectRatio >= 2.5 && height <= 260) {
+			return true;
+		}
+		if (aspectRatio >= 4.0 && height <= 350) {
+			return true;
+		}
+		if (width >= 250 && height <= 100) {
+			return true;
+		}
+		if (height <= 50) {
+			return true;
+		}
+	}
+
+	// 4. ANIMATED GIF BANNER DETECTION (COMIC PANELS ARE ALMOST NEVER ANIMATED GIFS)
+	if (src.endsWith('.gif') || src.includes('.gif?')) {
+		if (height <= 300 || src.includes('iklan') || src.includes('banner')) {
+			return true;
+		}
 	}
 
 	return false;
 }
 
-// COLLECT ALL COMIC READER IMAGES PRESENT IN THE HOST DOM
-export function getHostReaderImages(excludedUrls?: string[], includedUrls?: string[]): HTMLImageElement[] {
-	const readerContainers = document.querySelectorAll(READER_CONTAINER_SELECTORS);
-	let rootScope: Document | Element = document;
-	for (const container of Array.from(readerContainers)) {
-		const imgsInContainer = container.querySelectorAll('img, picture img');
-		if (imgsInContainer.length >= 3) {
-			rootScope = container;
-			break;
+// DISCOVER THE PRIMARY COMIC READER CONTAINER BASED ON DENSITY AND TALL-PANEL HEIGHT SCORE
+export function findPrimaryReaderContainer(): HTMLElement | null {
+	// 1. CHECK SPECIFIC HIGH-PRIORITY MANGA/WEBTOON READER CONTAINERS FIRST
+	const priorityCandidates = Array.from(
+		document.querySelectorAll<HTMLElement>(
+			'#readerarea, div[class*="reading-content"], div[class*="reader-area"], div[class*="readerarea"], div[class*="chapter-images"], div[class*="wt_viewer"], #comic_view_area, div[class*="viewer-cnt"], div[class*="v-reader"]'
+		)
+	);
+	for (const container of priorityCandidates) {
+		if (container.closest && container.closest(NOISE_CONTAINER_SELECTORS)) continue;
+		const imgs = Array.from(container.querySelectorAll<HTMLImageElement>('img, picture img')).filter(
+			img => !img.getAttribute('data-xianscan-injected') && !isLikelyAdOrBannerImage(img)
+		);
+		const placeholders = Array.from(container.querySelectorAll<HTMLElement>('[data-page], [class*="page"], [id*="page"]'));
+		if (imgs.length >= 1 || placeholders.length >= 1) {
+			return container;
 		}
 	}
+
+	// 2. GENERAL CANDIDATES
+	const candidates = Array.from(
+		document.querySelectorAll<HTMLElement>(
+			'main, article, div[class*="viewer"], div[class*="reading"], div[class*="reader"], div[id*="reader"], div[class*="chapter"], div[id*="chapter"], section, div[class*="comic"], div[id*="comic"], div[class*="entry-content"], div[class*="post-content"]'
+		)
+	);
+
+	let bestContainer: HTMLElement | null = null;
+	let highestScore = -1;
+
+	for (const container of candidates) {
+		if (container.closest && container.closest(NOISE_CONTAINER_SELECTORS)) continue;
+
+		const imgs = Array.from(container.querySelectorAll<HTMLImageElement>('img, picture img')).filter(
+			img => !img.getAttribute('data-xianscan-injected') && !isLikelyAdOrBannerImage(img) && !img.closest(NOISE_CONTAINER_SELECTORS)
+		);
+		const placeholders = Array.from(container.querySelectorAll<HTMLElement>('[data-page], [class*="page"], [id*="page"]'));
+
+		const totalItems = Math.max(imgs.length, placeholders.length);
+		if (totalItems < 1) continue;
+
+		let heightScore = 0;
+		for (const img of imgs) {
+			const rect = img.getBoundingClientRect ? img.getBoundingClientRect() : null;
+			const h = img.naturalHeight || (rect ? rect.height : 0);
+			if (h >= 700) heightScore += 5;
+			else if (h >= 400) heightScore += 2;
+		}
+		for (const p of placeholders) {
+			const style = p.getAttribute('style') || '';
+			const ratioMatch = style.match(/aspect-ratio:\s*(?:auto\s+)?([0-9.]+)\s*(?:\/|\:)\s*([0-9.]+)/i);
+			if (ratioMatch && ratioMatch[2]) {
+				const h = parseFloat(ratioMatch[2]);
+				if (h >= 700) heightScore += 5;
+				else if (h >= 400) heightScore += 2;
+			}
+		}
+
+		const score = totalItems * 5 + heightScore;
+		if (score > highestScore && totalItems >= 1) {
+			highestScore = score;
+			bestContainer = container;
+		}
+	}
+
+	return bestContainer;
+}
+
+// COLLECT ALL COMIC READER IMAGES PRESENT IN THE HOST DOM
+export function getHostReaderImages(excludedUrls?: string[], includedUrls?: string[]): HTMLImageElement[] {
+	const dynamicContainer = findPrimaryReaderContainer();
+	const rootScope: Document | Element = dynamicContainer || document;
 
 	const excludedSet = new Set((excludedUrls || []).flatMap(u => [u, getCanonicalUrl(u)]));
 	const includedSet = includedUrls && includedUrls.length > 0 ? new Set(includedUrls.flatMap(u => [u, getCanonicalUrl(u)])) : null;
@@ -452,14 +514,30 @@ export class DomReplacerEngine {
 	}
 
 	private removePendingBadge(pageId: number): void {
-		const badge = document.querySelector<HTMLElement>(`[data-xianscan-badge-id="${pageId}"]`);
-		if (badge) {
+		// REMOVE EVERY MATCHING BADGE. DUPLICATE HOST CLONES CAN SHARE A PAGEID, AND
+		// querySelector(ONLY-FIRST) WOULD LEAVE THE REST ORPHANED WHEN A PAGE IS REPLACED.
+		document.querySelectorAll<HTMLElement>(`[data-xianscan-badge-id="${pageId}"]`).forEach(badge => {
 			badge.style.opacity = '0';
 			badge.style.transform = 'scale(0.9)';
 			setTimeout(() => {
 				badge.remove();
 			}, 300);
-		}
+		});
+	}
+
+	// PURGE PENDING BADGES WHOSE PAGE ID IS NO LONGER PRESENT IN THE CURRENT SERVER PAGE SET.
+	// RESLICING OR RE-SYNC CAN REMAP HOST IMAGES TO NEW PAGE IDS, ORPHANING OLD BADGES.
+	private purgeOrphanedBadges(pages: ChapterReaderPage[]): void {
+		const currentPageIds = new Set(pages.map(p => p.id));
+		document.querySelectorAll<HTMLElement>('[data-xianscan-badge-id]').forEach(badge => {
+			const id = Number(badge.getAttribute('data-xianscan-badge-id'));
+			if (!currentPageIds.has(id)) {
+				badge.style.opacity = '0';
+				setTimeout(() => {
+					badge.remove();
+				}, 300);
+			}
+		});
 	}
 
 	private attachImageErrorHandler(img: HTMLImageElement, pageId: number, targetUrl: string) {
@@ -606,6 +684,8 @@ export class DomReplacerEngine {
 		this.activeExcludedUrls = excludedUrls;
 		this.activeIncludedUrls = includedUrls;
 		this.latestServerPages = pages;
+		// PURGE BADGES WHOSE PAGE IDS NO LONGER EXIST (RESLICE/RE-SYNC REMAPPED THEM)
+		this.purgeOrphanedBadges(pages);
 		const hostImgs = getHostReaderImages(excludedUrls, includedUrls);
 		if (hostImgs.length === 0 || pages.length === 0) {
 			return false;

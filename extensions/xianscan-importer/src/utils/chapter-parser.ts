@@ -122,7 +122,7 @@ export function parseChapterMetadata(title: string, url = '', htmlLang = ''): Ch
 
 	// 5. EXTRACT BOOK TITLE BY REMOVING CHAPTER AND TRAILING WEBSITE NOISE
 	let bookTitle = title;
-	// REMOVE COMMON SITE SUFFIX: " - MangaDex", " | Read Manhwa Online", " :: 네이버 웹툰", ETC.
+	// REMOVE COMMON SITE SUFFIX: " | Read Online", ETC.
 	bookTitle = bookTitle.replace(/\s*(?:[-|–]|::|\|)\s*[^–|-|:]*(?:manga|manhua|manhwa|scans|comics|online|read|webtoon|naver|kakao|웹툰|네이버|카카오|만화|漫画|咚漫|快看).*$/i, '');
 	
 	// REMOVE CHAPTER SEGMENTS

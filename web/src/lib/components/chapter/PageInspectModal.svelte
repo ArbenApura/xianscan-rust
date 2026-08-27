@@ -6,6 +6,7 @@
 	// IMPORTED MODULES
 	import { ripple } from '$lib/actions/ripple';
 	import { cn } from '$lib/utils/cn';
+	import { settings } from '$lib/stores/settings';
 
 	// IMPORTED DEP-COMPONENTS
 	import Copy from 'lucide-svelte/icons/copy';
@@ -647,10 +648,20 @@
 	async function handleQuickResetRegion(region: any) {
 		if (!page) return;
 		try {
+			const typesetOptions = {
+				fontDialogue: $settings.typesetFont,
+				fontCjk: $settings.typesetCjkFont,
+				boxInset: $settings.typesetPadding,
+				outlineMode: $settings.typesetOutline,
+				colorMode: $settings.typesetContrast,
+				casing: $settings.typesetCasing,
+				allCaps: $settings.typesetAllCaps,
+				enableRotation: $settings.enableTextRotation,
+			};
 			const res = await fetch(`/api/pages/${page.id}/regions/${region.id}`, {
 				method: 'PATCH',
 				headers: { 'Content-Type': 'application/json' },
-				body: JSON.stringify({ action: 'reset_ai' }),
+				body: JSON.stringify({ action: 'reset_ai', typesetOptions }),
 			});
 			if (!res.ok) throw new Error('Failed to reset translation');
 			const data = await res.json();
@@ -680,10 +691,20 @@
 		if (!page?.id || retypesetting) return;
 		retypesetting = true;
 		try {
+			const typesetOptions = {
+				fontDialogue: $settings.typesetFont,
+				fontCjk: $settings.typesetCjkFont,
+				boxInset: $settings.typesetPadding,
+				outlineMode: $settings.typesetOutline,
+				colorMode: $settings.typesetContrast,
+				casing: $settings.typesetCasing,
+				allCaps: $settings.typesetAllCaps,
+				enableRotation: $settings.enableTextRotation,
+			};
 			const res = await fetch(`/api/pages/${page.id}/typeset`, {
 				method: 'POST',
 				headers: { 'Content-Type': 'application/json' },
-				body: JSON.stringify({}),
+				body: JSON.stringify({ typesetOptions }),
 			});
 			if (!res.ok) {
 				const errData = await res.json().catch(() => ({}));

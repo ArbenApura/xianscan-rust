@@ -240,6 +240,7 @@ export function fitFontSize(
 	startSize: number,
 	maxSize?: number,
 	boxInset?: number,
+	customCjk?: string,
 ): number {
 	const inset = boxInset ?? BOX_INSET;
 	const maxW = Math.max(10, boxW * (1 - 2 * inset));
@@ -254,7 +255,7 @@ export function fitFontSize(
 	while (lo <= hi) {
 		const mid = Math.floor((lo + hi) / 2);
 		if (mid === 0) break;
-		ctx.font = fontSpec(mid, fontFamily);
+		ctx.font = fontSpec(mid, fontFamily, text, customCjk);
 
 		const maxWordWidth = Math.max(0, ...words.map((w) => ctx.measureText(w).width));
 		if (maxWordWidth <= maxW) {
@@ -283,7 +284,7 @@ export function fitFontSize(
 	while (lo <= hi) {
 		const mid = Math.floor((lo + hi) / 2);
 		if (mid === 0) break;
-		ctx.font = fontSpec(mid, fontFamily);
+		ctx.font = fontSpec(mid, fontFamily, text, customCjk);
 		const lines = reflowText(ctx, text, maxW);
 		const lineH = mid * LINE_HEIGHT;
 		const allLinesFitW = lines.every((l) => ctx.measureText(l).width <= maxW + 0.5);
@@ -305,12 +306,13 @@ export function fitSingleLineSize(
 	maxW: number,
 	maxH: number,
 	startSize: number,
+	customCjk?: string,
 ): number {
 	let lo = MIN_FONT_SIZE;
 	let hi = Math.max(lo, startSize);
 	while (lo < hi) {
 		const mid = Math.ceil((lo + hi) / 2);
-		ctx.font = fontSpec(mid, fontFamily);
+		ctx.font = fontSpec(mid, fontFamily, text, customCjk);
 		const textWidth = ctx.measureText(text).width;
 		const lineH = mid * LINE_HEIGHT;
 		if (textWidth <= maxW && lineH <= maxH) lo = mid;
@@ -318,3 +320,4 @@ export function fitSingleLineSize(
 	}
 	return lo;
 }
+

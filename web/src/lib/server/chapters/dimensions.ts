@@ -86,6 +86,10 @@ export async function convertBufferToWebP(
 	buffer: Buffer,
 	originalExt: string,
 ): Promise<{ data: Buffer; ext: string; width: number | null; height: number | null }> {
+	if (!buffer || buffer.length === 0) {
+		throw new Error('Image buffer is empty (0 bytes received)');
+	}
+
 	const fastDims = getImageDimensionsFromBuffer(buffer);
 	const fmt = detectImageFormat(buffer);
 

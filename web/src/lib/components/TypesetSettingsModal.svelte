@@ -214,7 +214,7 @@
 
 	$: isTypesettingModified =
 		($settings.typesetFont || 'CC Wild Words') !== DEFAULTS.typesetFont ||
-		($settings.typesetCjkFont || 'Friendly Sans') !== DEFAULTS.typesetCjkFont ||
+		($settings.typesetCjkFont || 'Microsoft YaHei') !== DEFAULTS.typesetCjkFont ||
 		Math.abs(($settings.typesetPadding || 0.05) - DEFAULTS.typesetPadding) >= 0.005 ||
 		($settings.typesetOutline || 'standard') !== DEFAULTS.typesetOutline ||
 		($settings.typesetContrast || 'auto') !== DEFAULTS.typesetContrast ||
@@ -256,7 +256,7 @@
 	$: isTextCjk = CJK_REGEX.test(previewSampleText);
 	$: isCasingApplicable = !isTextCjk && !selectedFont?.allCapsOnly && $settings.typesetFont !== 'CC Wild Words';
 	$: previewFontFamily = isTextCjk
-		? `"${$settings.typesetCjkFont || 'Friendly Sans'}", "Yu Gothic", "Microsoft YaHei", sans-serif`
+		? `"${$settings.typesetCjkFont || 'Microsoft YaHei'}", "Yu Gothic", "Malgun Gothic", "Noto Sans CJK SC", sans-serif`
 		: (selectedFont?.stack || "'CC Wild Words', sans-serif");
 	$: previewIsDarkBubble = $settings.typesetContrast === 'light' ? true : $settings.typesetContrast === 'dark' ? false : previewDarkBackground;
 	$: previewTextColor = previewIsDarkBubble ? '#ffffff' : '#111111';
@@ -443,7 +443,7 @@
 				<div class="text-[11px] font-semibold opacity-75 pl-0.5">CJK / East Asian Fallback Engine</div>
 				<div class="grid grid-cols-2 sm:grid-cols-4 gap-2">
 					{#each AVAILABLE_CJK_FONTS as cjk}
-						{@const isSelected = ($settings.typesetCjkFont || 'Friendly Sans') === cjk.id}
+						{@const isSelected = ($settings.typesetCjkFont || 'Microsoft YaHei') === cjk.id}
 						<button
 							type="button"
 							on:click={() => setTypesetCjkFont(cjk.id)}

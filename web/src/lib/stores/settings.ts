@@ -198,7 +198,7 @@ export const DEFAULTS: AppSettings = {
 	sourceLang: 'zh-Hans',
 	targetLang: 'en',
 	typesetFont: 'CC Wild Words',
-	typesetCjkFont: 'Friendly Sans',
+	typesetCjkFont: 'Microsoft YaHei',
 	typesetPadding: 0.05,
 	typesetOutline: 'standard',
 	typesetContrast: 'auto',
@@ -336,10 +336,11 @@ export const AVAILABLE_TYPESET_FONTS = [
 ];
 
 export const AVAILABLE_CJK_FONTS = [
-	{ id: 'Friendly Sans', label: 'Friendly Sans', sub: 'Clean Universal CJK & Latin Fallback' },
-	{ id: 'Yu Gothic', label: 'Yu Gothic', sub: 'Japanese Manga Standard' },
 	{ id: 'Microsoft YaHei', label: 'Microsoft YaHei', sub: 'Chinese Simplified & Traditional' },
+	{ id: 'Yu Gothic', label: 'Yu Gothic', sub: 'Japanese Manga Standard' },
 	{ id: 'Malgun Gothic', label: 'Malgun Gothic', sub: 'Korean Hangul Manhwa' },
+	{ id: 'Noto Sans CJK SC', label: 'Noto Sans CJK', sub: 'Universal CJK Open Source' },
+	{ id: 'Friendly Sans', label: 'Friendly Sans', sub: 'Clean Universal Latin Fallback' },
 ];
 
 export const SFX_AREA_PRESETS: { value: number; label: string; sub: string }[] = [

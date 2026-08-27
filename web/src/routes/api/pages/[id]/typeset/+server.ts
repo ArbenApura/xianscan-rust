@@ -22,7 +22,7 @@ export const POST: RequestHandler = async ({ params, request, cookies }) => {
 
 	const typesetOptions = {
 		fontDialogue: userOpts?.fontDialogue || userOpts?.fontFamily || (cookies?.get('mt_ts_font') || canonical.typesetFont || 'CC Wild Words'),
-		fontCjk: userOpts?.fontCjk || (cookies?.get('mt_ts_cjk_font') || canonical.typesetCjkFont || 'Friendly Sans'),
+		fontCjk: userOpts?.fontCjk || (cookies?.get('mt_ts_cjk_font') || canonical.typesetCjkFont || 'Microsoft YaHei'),
 		boxInset: typeof userOpts?.boxInset === 'number'
 			? userOpts.boxInset
 			: (cookies?.get('mt_ts_padding') ? Number(cookies.get('mt_ts_padding')) : canonical.typesetPadding ?? 0.05),

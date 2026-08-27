@@ -670,6 +670,10 @@ export async function runChapterPipeline(
 			if (deps.isPageCancelled?.(page.id)) return;
 
 			// 3) PARALLEL TRANSLATE & CLEAN: EXECUTE INPAINTING AND LLM TRANSLATION SIMULTANEOUSLY
+			const pageAbortController = new AbortController();
+			const onParentAbort = () => pageAbortController.abort();
+			signal.addEventListener('abort', onParentAbort, { once: true });
+
 			const isSfxEnabled = deps.enableSfx === true;
 			const maxSfxArea = deps.sfxMaxAreaPct ?? 0.30;
 			const pageArea = (analyzed.width * analyzed.height) || 1;
@@ -698,14 +702,14 @@ export async function runChapterPipeline(
 				.map((r) => ({ id: r.id, box: r.inpaint_box ?? r.box, polygon: r.polygon }));
 
 			// TASK A: INPAINT (LOCAL ONNX COMPUTE)
-			const inpaintPromise = (async () => {
+			const inpaintTask = (async () => {
 				emit({ type: 'page-step-start', chapterId, page: i, pageId: page.id, step: 'clean' });
 				const tClean0 = performance.now();
 				const cleaned =
 					cleanRegions.length > 0
-						? await deps.pipeline.clean(image, cleanRegions, deps.inpaintMode ?? 'patch', signal)
+						? await deps.pipeline.clean(image, cleanRegions, deps.inpaintMode ?? 'patch', pageAbortController.signal)
 						: image;
-				signal.throwIfAborted();
+				pageAbortController.signal.throwIfAborted();
 				if (deps.isPageCancelled?.(page.id)) return { cleaned: image, cleanPath: '' };
 				const cleanPath = `clean/${chapterId}/${page.seq}.webp`;
 				const cleanAbs = join(deps.dataRoot, cleanPath);
@@ -729,7 +733,7 @@ export async function runChapterPipeline(
 				.filter((r) => r.text.trim().length > 0 && isRegionEligible(r))
 				.map((r) => ({ id: r.id, text: r.text, kind: r.kind, vertical: r.vertical }));
 
-			const translatePromise = (async () => {
+			const translateTask = (async () => {
 				const byRegion = new Map<string, string>();
 
 				if (sources.length > 0) {
@@ -746,7 +750,7 @@ export async function runChapterPipeline(
 						stepDetails: { matchedCount: pageMatchedTerms.length },
 					});
 
-					signal.throwIfAborted();
+					pageAbortController.signal.throwIfAborted();
 					if (deps.isPageCancelled?.(page.id)) return byRegion;
 
 					emit({ type: 'page-step-start', chapterId, page: i, pageId: page.id, step: 'translate' });
@@ -757,13 +761,13 @@ export async function runChapterPipeline(
 						const result = await translatePage(sources, pageMatchedTerms, pair, {
 							client: deps.llm,
 							model,
-							signal,
+							signal: pageAbortController.signal,
 							dialogueContext,
 							enableSfx: deps.enableSfx,
 						});
 						return result;
 					});
-					signal.throwIfAborted();
+					pageAbortController.signal.throwIfAborted();
 					if (deps.isPageCancelled?.(page.id)) return byRegion;
 					dialogueTracker.recordTranslation(page.seq, translated.byRegion);
 					for (const [id, text] of translated.byRegion) byRegion.set(id, text);
@@ -817,7 +821,27 @@ export async function runChapterPipeline(
 				return byRegion;
 			})();
 
-			const [{ cleaned, cleanPath }, byRegion] = await Promise.all([inpaintPromise, translatePromise]);
+			// ABORT SIBLING SUB-TASK IMMEDIATELY UPON FIRST FAILURE TO PREVENT GPU / WORKER CONCURRENCY LEAKS
+			translateTask.catch(() => pageAbortController.abort());
+			inpaintTask.catch(() => pageAbortController.abort());
+
+			let inpaintResult: { cleaned: Buffer; cleanPath: string };
+			let byRegion: Map<string, string>;
+
+			try {
+				const [inpaintRes, transRes] = await Promise.all([inpaintTask, translateTask]);
+				inpaintResult = inpaintRes;
+				byRegion = transRes;
+			} catch (subErr) {
+				pageAbortController.abort();
+				// GUARANTEE INPAINTING HAS FULLY SETTLED BEFORE RETURNING AND RELEASING THE WORKER CONCURRENCY SLOT
+				await Promise.allSettled([inpaintTask, translateTask]);
+				throw subErr;
+			} finally {
+				signal.removeEventListener('abort', onParentAbort);
+			}
+
+			const { cleaned, cleanPath } = inpaintResult;
 
 			signal.throwIfAborted();
 			if (deps.isPageCancelled?.(page.id)) return;
@@ -1022,7 +1046,6 @@ export async function runChapterPipeline(
 	// -- OCR FINISHES. THE LLM STEP IS SERIALIZED PER BOOK (chainTranslate); CLEAN + TYPESET OVERLAP.  --
 	try {
 		await pool.addAll(pageRows.map((page, i) => () => analyzePageWithRetry(page, i)));
-		await pool.onIdle();
 	} catch (err: any) {
 		if (signal.aborted || err?.name === 'AbortError') {
 			// ABORT CAUGHT CLEANLY
@@ -1030,6 +1053,7 @@ export async function runChapterPipeline(
 			throw err;
 		}
 	} finally {
+		await pool.onIdle();
 		signal.removeEventListener('abort', onAbort);
 		activeChapterPools.delete(chapterId);
 	}

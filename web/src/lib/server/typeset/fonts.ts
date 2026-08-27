@@ -10,12 +10,15 @@ export const FONT_DIALOGUE = 'CC Wild Words';
 export const FONT_SFX = 'CC Wild Words';
 export const FONT_MONO = 'CC Wild Words';
 export const FONT_FALLBACK_NAME = 'Friendly Sans';
+export const FONT_DEFAULT_CJK = 'Microsoft YaHei';
 
-// MATCHES CJK, DEVANAGARI (HINDI), THAI, CYRILLIC, AND OTHER NON-LATIN COMPLEX SCRIPTS
-export const NON_LATIN_SCRIPT_REGEX = /[\u3040-\u30ff\u3400-\u4dbf\u4e00-\u9fff\uf900-\ufaff\uac00-\ud7af\u0900-\u097f\u0e00-\u0e7f\u0400-\u04ff]/;
+// MATCHES CJK, DEVANAGARI (HINDI), THAI, CYRILLIC, FULLWIDTH / CJK PUNCTUATION, AND OTHER NON-LATIN COMPLEX SCRIPTS
+export const NON_LATIN_SCRIPT_REGEX = /[\u3040-\u30ff\u31f0-\u31ff\u3400-\u4dbf\u4e00-\u9fff\uf900-\ufaff\uac00-\ud7af\u1100-\u11ff\u3130-\u318f\u0900-\u097f\u0e00-\u0e7f\u0400-\u04ff\uff01-\uffee\u3000-\u303f]/;
 export const CJK_REGEX = NON_LATIN_SCRIPT_REGEX;
 
-export const FONT_FALLBACK = ', "Friendly Sans", "Nirmala UI Bold", "Nirmala UI", "Leelawadee UI Bold", "Leelawadee UI", "Malgun Gothic Bold", "Malgun Gothic", "Yu Gothic Bold", "Yu Gothic", "Microsoft YaHei Bold", "Microsoft YaHei", Arial, "Segoe UI", sans-serif';
+export const CJK_FONT_STACK = '"Microsoft YaHei Bold", "Microsoft YaHei", "Yu Gothic Bold", "Yu Gothic", "Malgun Gothic Bold", "Malgun Gothic", "Noto Sans CJK SC", "Noto Sans CJK JP", "Noto Sans CJK KR", "PingFang SC", "PingFang TC", "WenQuanYi Micro Hei", "Nirmala UI Bold", "Nirmala UI", "Leelawadee UI Bold", "Leelawadee UI", "Friendly Sans", Arial, "Segoe UI", sans-serif';
+
+export const FONT_FALLBACK = `, ${CJK_FONT_STACK}`;
 
 // CHARACTERS REMAPPED TO ARROW GLYPHS IN CC WILD WORDS (e.g. [ AND ] ARE COMIC BUBBLE ARROWS)
 export const UNSUPPORTED_WILDWORDS_REGEX = /[\[\]{}|\\]/;
@@ -64,57 +67,133 @@ export function resolveFontDir(): string {
 	return candidates[0];
 }
 
+function tryRegisterFont(fontPath: string, fontName?: string): boolean {
+	try {
+		if (!existsSync(fontPath)) return false;
+		if (fontName) {
+			GlobalFonts.registerFromPath(fontPath, fontName);
+		} else {
+			GlobalFonts.registerFromPath(fontPath);
+		}
+		return true;
+	} catch {
+		return false;
+	}
+}
+
 export function registerFonts(): void {
 	if (fontsRegistered) return;
 	const fontDir = resolveFontDir();
-	GlobalFonts.registerFromPath(join(fontDir, 'CCWildWords-Roman.ttf'), FONT_DIALOGUE);
-	GlobalFonts.registerFromPath(join(fontDir, 'FriendlySans-Regular.ttf'), FONT_FALLBACK_NAME);
-	try {
-		if (process.platform === 'win32') {
-			GlobalFonts.registerFromPath('C:\\Windows\\Fonts\\arial.ttf', 'Arial');
-			GlobalFonts.registerFromPath('C:\\Windows\\Fonts\\arialbd.ttf', 'Arial Bold');
-			GlobalFonts.registerFromPath('C:\\Windows\\Fonts\\segoeui.ttf', 'Segoe UI');
-			GlobalFonts.registerFromPath('C:\\Windows\\Fonts\\segoeuib.ttf', 'Segoe UI Bold');
-			// Indic & Devanagari (Hindi, Marathi, Nepali, Sanskrit)
-			GlobalFonts.registerFromPath('C:\\Windows\\Fonts\\Nirmala.ttc', 'Nirmala UI');
-			// Thai (Thai Webtoons)
-			GlobalFonts.registerFromPath('C:\\Windows\\Fonts\\LeelaUIb.ttf', 'Leelawadee UI Bold');
-			GlobalFonts.registerFromPath('C:\\Windows\\Fonts\\LeelawUI.ttf', 'Leelawadee UI');
-			// Korean (Hangul)
-			GlobalFonts.registerFromPath('C:\\Windows\\Fonts\\malgunbd.ttf', 'Malgun Gothic Bold');
-			GlobalFonts.registerFromPath('C:\\Windows\\Fonts\\malgun.ttf', 'Malgun Gothic');
-			// Japanese (Kanji, Hiragana, Katakana)
-			GlobalFonts.registerFromPath('C:\\Windows\\Fonts\\YuGothB.ttc', 'Yu Gothic Bold');
-			GlobalFonts.registerFromPath('C:\\Windows\\Fonts\\YuGothM.ttc', 'Yu Gothic');
-			// Chinese (Simplified & Traditional)
-			GlobalFonts.registerFromPath('C:\\Windows\\Fonts\\msyhbd.ttc', 'Microsoft YaHei Bold');
-			GlobalFonts.registerFromPath('C:\\Windows\\Fonts\\msyh.ttc', 'Microsoft YaHei');
+	tryRegisterFont(join(fontDir, 'CCWildWords-Roman.ttf'), FONT_DIALOGUE);
+	tryRegisterFont(join(fontDir, 'FriendlySans-Regular.ttf'), FONT_FALLBACK_NAME);
+
+	// PLATFORM SYSTEM FONTS (WINDOWS, LINUX, MACOS)
+	if (process.platform === 'win32') {
+		const winFontDir = 'C:\\Windows\\Fonts';
+		// Standard Western
+		tryRegisterFont(join(winFontDir, 'arial.ttf'), 'Arial');
+		tryRegisterFont(join(winFontDir, 'arialbd.ttf'), 'Arial Bold');
+		tryRegisterFont(join(winFontDir, 'segoeui.ttf'), 'Segoe UI');
+		tryRegisterFont(join(winFontDir, 'segoeuib.ttf'), 'Segoe UI Bold');
+		// Chinese (Simplified & Traditional)
+		tryRegisterFont(join(winFontDir, 'msyhbd.ttc'), 'Microsoft YaHei Bold');
+		tryRegisterFont(join(winFontDir, 'msyh.ttc'), 'Microsoft YaHei');
+		tryRegisterFont(join(winFontDir, 'simhei.ttf'), 'SimHei');
+		tryRegisterFont(join(winFontDir, 'simsun.ttc'), 'SimSun');
+		tryRegisterFont(join(winFontDir, 'msjh.ttc'), 'Microsoft JhengHei');
+		tryRegisterFont(join(winFontDir, 'msjhbd.ttc'), 'Microsoft JhengHei Bold');
+		// Japanese (Kanji, Hiragana, Katakana)
+		tryRegisterFont(join(winFontDir, 'YuGothB.ttc'), 'Yu Gothic Bold');
+		tryRegisterFont(join(winFontDir, 'YuGothM.ttc'), 'Yu Gothic');
+		tryRegisterFont(join(winFontDir, 'msgothic.ttc'), 'MS Gothic');
+		tryRegisterFont(join(winFontDir, 'meiryo.ttc'), 'Meiryo');
+		// Korean (Hangul)
+		tryRegisterFont(join(winFontDir, 'malgunbd.ttf'), 'Malgun Gothic Bold');
+		tryRegisterFont(join(winFontDir, 'malgun.ttf'), 'Malgun Gothic');
+		tryRegisterFont(join(winFontDir, 'gulim.ttc'), 'Gulim');
+		// Indic & Devanagari (Hindi, Marathi, Nepali, Sanskrit)
+		tryRegisterFont(join(winFontDir, 'Nirmala.ttc'), 'Nirmala UI');
+		// Thai (Thai Webtoons)
+		tryRegisterFont(join(winFontDir, 'LeelaUIb.ttf'), 'Leelawadee UI Bold');
+		tryRegisterFont(join(winFontDir, 'LeelawUI.ttf'), 'Leelawadee UI');
+	} else if (process.platform === 'linux') {
+		// Linux Font Paths (Debian/Ubuntu, Arch, RHEL, Alpine, EC2)
+		const linuxFonts = [
+			['/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc', 'Noto Sans CJK SC'],
+			['/usr/share/fonts/opentype/noto/NotoSansCJK-Bold.ttc', 'Noto Sans CJK SC Bold'],
+			['/usr/share/fonts/truetype/noto/NotoSansCJK-Regular.ttc', 'Noto Sans CJK SC'],
+			['/usr/share/fonts/truetype/wqy/wqy-microhei.ttc', 'WenQuanYi Micro Hei'],
+			['/usr/share/fonts/truetype/wqy/wqy-zenhei.ttc', 'WenQuanYi Zen Hei'],
+			['/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf', 'DejaVu Sans'],
+			['/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf', 'DejaVu Sans Bold'],
+			['/usr/share/fonts/truetype/freefont/FreeSans.ttf', 'FreeSans'],
+		];
+		for (const [fontPath, alias] of linuxFonts) {
+			tryRegisterFont(fontPath, alias);
 		}
-	} catch {
-		// FALLBACK TO SKIA SYSTEM FONT RESOLUTION
+	} else if (process.platform === 'darwin') {
+		// macOS Font Paths
+		const macFonts = [
+			['/System/Library/Fonts/PingFang.ttc', 'PingFang SC'],
+			['/System/Library/Fonts/Hiragino Sans GB.ttc', 'Hiragino Sans GB'],
+			['/System/Library/Fonts/AppleSDGothicNeo.ttc', 'Apple SD Gothic Neo'],
+			['/Library/Fonts/Arial Unicode.ttf', 'Arial Unicode MS'],
+		];
+		for (const [fontPath, alias] of macFonts) {
+			tryRegisterFont(fontPath, alias);
+		}
 	}
-	if (!GlobalFonts.has(FONT_DIALOGUE) || !GlobalFonts.has(FONT_FALLBACK_NAME)) {
+
+	if (!GlobalFonts.has(FONT_DIALOGUE) && !GlobalFonts.has(FONT_FALLBACK_NAME)) {
 		fontsRegistered = false;
-		throw new Error(`typeset fonts not found in ${fontDir} — run the font download step`);
+		throw new Error(`typeset fonts not found in ${fontDir} : run the font download step`);
 	}
 	fontsRegistered = true;
 }
 
 /**
+ * AUTOMATICALLY RESOLVES THE MOST APPROPRIATE CJK / NON-LATIN SCRIPT FONT FAMILY FOR GIVEN TEXT
+ */
+export function resolveScriptFont(text?: string, customCjk?: string): string {
+	if (customCjk && customCjk !== FONT_FALLBACK_NAME && customCjk !== FONT_DIALOGUE) {
+		return customCjk;
+	}
+	if (!text) return FONT_DEFAULT_CJK;
+
+	// KOREAN HANGUL
+	if (/[\uac00-\ud7af\u1100-\u11ff\u3130-\u318f]/.test(text)) {
+		return 'Malgun Gothic';
+	}
+	// JAPANESE KANA
+	if (/[\u3040-\u30ff\u31f0-\u31ff]/.test(text)) {
+		return 'Yu Gothic';
+	}
+	// THAI
+	if (/[\u0e00-\u0e7f]/.test(text)) {
+		return 'Leelawadee UI';
+	}
+	// DEVANAGARI (HINDI)
+	if (/[\u0900-\u097f]/.test(text)) {
+		return 'Nirmala UI';
+	}
+	// CYRILLIC
+	if (/[\u0400-\u04ff]/.test(text)) {
+		return 'Arial';
+	}
+	// CHINESE HANZI & DEFAULT CJK
+	return FONT_DEFAULT_CJK;
+}
+
+/**
  * SPLITS A STRING INTO RUNS SO COMPATIBLE CHARACTERS STAY IN PRIMARY DIALOGUE FONT (e.g. CC WILD WORDS)
  * WHILE NON-LATIN CHARACTERS (HANGUL, CJK, DEVANAGARI, THAI, ETC.) AND UNMATCHED/REMAPPED SYMBOLS
- * (e.g. [ ], { }, |, \) USE THE DESIGNATED FALLBACK / CJK FONT STACK.
+ * USE THE DESIGNATED SCRIPT-AWARE FALLBACK / CJK FONT STACK.
  */
 export function splitTextRuns(text: string, primaryFont?: string, fallbackFont?: string): TextRun[] {
 	const fontMain = primaryFont || FONT_DIALOGUE;
-	const fontFb = fallbackFont || FONT_FALLBACK_NAME;
 
-	if (fontMain === fontFb) {
-		return [{ text, font: fontMain, isFallbackSymbol: false }];
-	}
-
-	// MATCHES ANY NON-LATIN SCRIPT CHUNKS OR CC WILD WORDS REMAPPED SYMBOLS ([ ], { }, |, \)
-	const fallbackCharsRegex = /([\u3040-\u30ff\u3400-\u4dbf\u4e00-\u9fff\uf900-\ufaff\uac00-\ud7af\u0900-\u097f\u0e00-\u0e7f\u0400-\u04ff]+|[\[\]{}|\\]+)/g;
+	// MATCHES NON-LATIN SCRIPTS, CJK / FULLWIDTH PUNCTUATION, OR CC WILD WORDS REMAPPED SYMBOLS ([ ], { }, |, \)
+	const fallbackCharsRegex = /([\u3040-\u30ff\u31f0-\u31ff\u3400-\u4dbf\u4e00-\u9fff\uf900-\ufaff\uac00-\ud7af\u1100-\u11ff\u3130-\u318f\u0900-\u097f\u0e00-\u0e7f\u0400-\u04ff\uff01-\uffee\u3000-\u303f]+|[\[\]{}|\\]+)/g;
 
 	if (!fallbackCharsRegex.test(text)) {
 		return [{ text, font: fontMain, isFallbackSymbol: false }];
@@ -128,18 +207,23 @@ export function splitTextRuns(text: string, primaryFont?: string, fallbackFont?:
 	while ((match = fallbackCharsRegex.exec(text)) !== null) {
 		const matchStart = match.index;
 		const matchEnd = fallbackCharsRegex.lastIndex;
+		const matchedStr = match[0];
+
+		const chunkFont = fallbackFont
+			? fallbackFont
+			: (NON_LATIN_SCRIPT_REGEX.test(matchedStr) ? resolveScriptFont(matchedStr) : FONT_FALLBACK_NAME);
 
 		if (matchStart > lastIndex) {
 			const slice = text.slice(lastIndex, matchStart);
 			// IF SLICE IS PURE WHITESPACE BETWEEN TWO FALLBACK MATCHES, KEEP IT IN FALLBACK FONT
 			if (slice.trim() === '' && rawRuns.length > 0 && rawRuns[rawRuns.length - 1].isFallbackSymbol) {
-				rawRuns.push({ text: slice, font: fontFb, isFallbackSymbol: true });
+				rawRuns.push({ text: slice, font: chunkFont, isFallbackSymbol: true });
 			} else {
 				rawRuns.push({ text: slice, font: fontMain, isFallbackSymbol: false });
 			}
 		}
 
-		rawRuns.push({ text: match[0], font: fontFb, isFallbackSymbol: true });
+		rawRuns.push({ text: matchedStr, font: chunkFont, isFallbackSymbol: true });
 		lastIndex = matchEnd;
 	}
 
@@ -164,32 +248,31 @@ export function splitTextRuns(text: string, primaryFont?: string, fallbackFont?:
 
 export function fontFor(text?: string, customDialogue?: string, customCjk?: string): string {
 	const fontDialogue = customDialogue || FONT_DIALOGUE;
-	const fontCjk = customCjk || FONT_FALLBACK_NAME;
 	if (!text) return fontDialogue;
 	// IF TEXT CONTAINS LATIN CHARACTERS ALONGSIDE NON-LATIN SCRIPTS, USE DIALOGUE FONT AS PRIMARY
-	// (RUN SPLITTING WILL ROUTE THE NON-LATIN/CJK WORDS TO FONT_CJK)
+	// (RUN SPLITTING WILL ROUTE THE NON-LATIN/CJK WORDS TO SCRIPT FONT)
 	if (/[a-zA-Z]/.test(text)) {
 		return fontDialogue;
 	}
-	// PURELY NON-LATIN (CJK / HANGUL / DEVANAGARI)
+	// PURELY NON-LATIN (CJK / HANGUL / DEVANAGARI / THAI)
 	if (NON_LATIN_SCRIPT_REGEX.test(text)) {
-		return fontCjk;
+		return customCjk || resolveScriptFont(text);
 	}
 	return fontDialogue;
 }
 
 export function fontSpec(size: number, fontNameOrText?: string, text?: string, customCjk?: string): string {
-	let fontName: string;
-	if (fontNameOrText && fontNameOrText !== FONT_DIALOGUE && fontNameOrText !== FONT_FALLBACK_NAME && fontNameOrText !== customCjk) {
-		fontName = fontNameOrText;
-	} else if (text && NON_LATIN_SCRIPT_REGEX.test(text) && !/[a-zA-Z]/.test(text)) {
-		fontName = customCjk || FONT_FALLBACK_NAME;
-	} else {
-		fontName = fontNameOrText ?? FONT_DIALOGUE;
+	const isPureNonLatin = Boolean(text && NON_LATIN_SCRIPT_REGEX.test(text) && !/[a-zA-Z]/.test(text));
+	const isNonLatinFont = fontNameOrText && fontNameOrText !== FONT_DIALOGUE && fontNameOrText !== FONT_FALLBACK_NAME;
+
+	if (isPureNonLatin || isNonLatinFont) {
+		const cjkPrimary = fontNameOrText && fontNameOrText !== FONT_DIALOGUE && fontNameOrText !== FONT_FALLBACK_NAME
+			? fontNameOrText
+			: resolveScriptFont(text, customCjk);
+		return `bold ${size}px "${cjkPrimary}", ${CJK_FONT_STACK}`;
 	}
-	if (fontName === (customCjk || FONT_FALLBACK_NAME)) {
-		return `bold ${size}px "${fontName}", "${FONT_FALLBACK_NAME}", "Nirmala UI Bold", "Nirmala UI", "Leelawadee UI Bold", "Leelawadee UI", "Malgun Gothic Bold", "Malgun Gothic", "Yu Gothic Bold", "Yu Gothic", "Microsoft YaHei Bold", "Microsoft YaHei", Arial, "Segoe UI", sans-serif`;
-	}
+
+	const fontName = fontNameOrText ?? FONT_DIALOGUE;
 	return `${size}px "${fontName}"${FONT_FALLBACK}`;
 }
 
@@ -262,3 +345,4 @@ export function drawTextLineWithRuns(
 		curX += ctx.measureText(run.text).width;
 	}
 }
+

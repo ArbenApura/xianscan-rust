@@ -48,6 +48,10 @@ export class XianScanClient {
 
 		// 1. Try background proxy from popup or content script context for JSON requests (FormData cannot cross IPC)
 		if (!isFormData && isWebPageContext && typeof chrome !== 'undefined' && chrome?.runtime?.sendMessage) {
+			if (!chrome.runtime?.id) {
+				throw new Error('Extension context invalidated.');
+			}
+
 			let proxyResult: { ok: boolean; status: number; data?: any; error?: string } | null = null;
 			let attempts = 0;
 			const maxAttempts = 3;
@@ -55,25 +59,37 @@ export class XianScanClient {
 			while (attempts < maxAttempts) {
 				attempts++;
 				try {
+					if (!chrome.runtime?.id) {
+						throw new Error('Extension context invalidated.');
+					}
+
 					proxyResult = await new Promise<{ ok: boolean; status: number; data?: any; error?: string }>(resolve => {
-						chrome.runtime.sendMessage(
-							{
-								type: 'PROXY_REQUEST',
-								url: targetUrl,
-								options
-							},
-							res => {
-								if (chrome.runtime.lastError || !res) {
-									resolve({ ok: false, status: 0, error: chrome.runtime.lastError?.message || 'Proxy unavailable' });
-								} else {
-									resolve(res);
+						try {
+							chrome.runtime.sendMessage(
+								{
+									type: 'PROXY_REQUEST',
+									url: targetUrl,
+									options
+								},
+								res => {
+									if (chrome.runtime.lastError || !res) {
+										resolve({ ok: false, status: 0, error: chrome.runtime.lastError?.message || 'Proxy unavailable' });
+									} else {
+										resolve(res);
+									}
 								}
-							}
-						);
+							);
+						} catch (sendErr: any) {
+							resolve({ ok: false, status: 0, error: sendErr?.message || 'Extension context invalidated.' });
+						}
 					});
 
 					if (proxyResult.ok) {
 						return proxyResult.data as T;
+					}
+
+					if (proxyResult.error && (proxyResult.error.includes('context invalidated') || proxyResult.error.includes('Context invalidated'))) {
+						throw new Error('Extension context invalidated.');
 					}
 
 					if (proxyResult.status > 0) {
@@ -86,8 +102,13 @@ export class XianScanClient {
 						await new Promise(r => setTimeout(r, attempts * 250));
 					}
 				} catch (err) {
-					if (err instanceof Error && !err.message.includes('Proxy unavailable') && !err.message.includes('status 0')) {
-						throw err;
+					if (err instanceof Error) {
+						if (err.message.includes('Extension context invalidated') || err.message.includes('context invalidated')) {
+							throw err;
+						}
+						if (!err.message.includes('Proxy unavailable') && !err.message.includes('status 0')) {
+							throw err;
+						}
 					}
 				}
 			}

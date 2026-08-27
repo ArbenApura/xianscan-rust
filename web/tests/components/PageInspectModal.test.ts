@@ -164,4 +164,47 @@ describe('PageInspectModal Component UI', () => {
 		expect(screen.getByText('Phase Latency Breakdown')).toBeTruthy();
 		expect(screen.getByText('0. Concurrency Queue & Engine Lock Wait')).toBeTruthy();
 	});
+
+	it('triggers retypeset with user typeset preferences when Retypeset button is clicked', async () => {
+		const fetchMock = vi.fn().mockResolvedValue({
+			ok: true,
+			json: async () => ({
+				outputPath: 'output/1/2.webp',
+				outputRev: 2,
+			}),
+		});
+		global.fetch = fetchMock;
+
+		const mockPage = {
+			id: 106282,
+			seq: 1,
+			filePath: 'page_2.png',
+			cleanedPath: 'cleaned/1/2.png',
+			outputPath: 'output/page_2.png',
+			width: 800,
+			height: 1389,
+			regions: [],
+		};
+
+		render(PageInspectModal, {
+			props: {
+				open: true,
+				page: mockPage,
+			},
+		});
+
+		const retypesetBtn = screen.getByText('Retypeset');
+		expect(retypesetBtn).toBeTruthy();
+
+		await fireEvent.click(retypesetBtn);
+		await tick();
+
+		const typesetCall = fetchMock.mock.calls.find((call) => call[0] === '/api/pages/106282/typeset');
+		expect(typesetCall).toBeDefined();
+		expect(typesetCall[1].method).toBe('POST');
+		const body = JSON.parse(typesetCall[1].body);
+		expect(body.typesetOptions).toBeDefined();
+		expect(body.typesetOptions.fontCjk).toBe('Microsoft YaHei');
+	});
 });
+

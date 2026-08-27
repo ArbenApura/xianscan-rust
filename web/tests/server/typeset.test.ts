@@ -12,6 +12,7 @@ import {
 	sampleBackground,
 	sanitizeForFont,
 	splitTextRuns,
+	resolveScriptFont,
 	typesetPage,
 	wrapText,
 } from '$lib/server/typeset';
@@ -68,7 +69,8 @@ describe('fontFor & splitTextRuns', () => {
 	});
 
 	it('uses fallback font for CJK text', () => {
-		expect(fontFor('还有那些侠女的花边新闻')).toBe('Friendly Sans');
+		expect(fontFor('还有那些侠女的花边新闻')).toBe('Microsoft YaHei');
+		expect(fontFor('还有那些侠女的花边新闻', undefined, 'Custom CJK')).toBe('Custom CJK');
 	});
 
 	it('splits mixed English and Korean/CJK text into dialogue font and CJK fallback font runs (Page 65013)', () => {
@@ -686,7 +688,53 @@ Tattered Flesh-Cutting Knife`;
 		const lines = reflowText(x, text, maxW);
 		expect(lines.length * size * 1.2).toBeLessThanOrEqual(140 * 0.9);
 	});
+
+	it('resolves appropriate script font family for Chinese, Japanese, Korean, Thai, Hindi, and Cyrillic', () => {
+		expect(resolveScriptFont('该死！')).toBe('Microsoft YaHei');
+		expect(resolveScriptFont('こんにちは！')).toBe('Yu Gothic');
+		expect(resolveScriptFont('안녕하세요!')).toBe('Malgun Gothic');
+		expect(resolveScriptFont('สวัสดีครับ')).toBe('Leelawadee UI');
+		expect(resolveScriptFont('नमस्ते')).toBe('Nirmala UI');
+		expect(resolveScriptFont('Привет')).toBe('Arial');
+		expect(resolveScriptFont('Hello World')).toBe('Microsoft YaHei');
+		expect(resolveScriptFont('Custom override', 'Custom CJK Font')).toBe('Custom CJK Font');
+	});
+
+	it('keeps full-width punctuation together with CJK characters in splitTextRuns', () => {
+		const runs = splitTextRuns('该死！');
+		expect(runs).toHaveLength(1);
+		expect(runs[0].text).toBe('该死！');
+		expect(runs[0].font).toBe('Microsoft YaHei');
+		expect(runs[0].isFallbackSymbol).toBe(true);
+	});
+
+	it('correctly splits mixed Latin and CJK with punctuation in splitTextRuns', () => {
+		const runs = splitTextRuns('Wait! 该死！ Stop!');
+		expect(runs.length).toBeGreaterThan(1);
+		const cjkRun = runs.find((r: any) => r.text.includes('该死'));
+		expect(cjkRun).toBeDefined();
+		expect(cjkRun?.font).toBe('Microsoft YaHei');
+	});
+
+	it('renders Simplified Chinese dialogue text (e.g. "该死！") in typesetPage', async () => {
+		const pageImage = createCanvas(800, 1389).toBuffer('image/png');
+		const resultBuf = await typesetPage(
+			pageImage,
+			[
+				{
+					id: '4344',
+					box: { x: 72, y: 542, w: 246, h: 84 },
+					text: '该死！',
+					kind: 'dialogue_bubble',
+				},
+			],
+			{ fontCjk: 'Microsoft YaHei' },
+		);
+		expect(resultBuf).toBeInstanceOf(Buffer);
+		expect(resultBuf.length).toBeGreaterThan(0);
+	});
 });
+
 
 
 

@@ -3,7 +3,9 @@ import {
 	sortImagesByCoordinates,
 	naturalAlphanumericSort,
 	getCanonicalUrl,
-	deduplicateScannedImages
+	deduplicateScannedImages,
+	filterOutlierThumbnails,
+	filterResolutionOutliers
 } from '../src/utils/sorter';
 import type { ScannedImage } from '../src/types';
 
@@ -41,11 +43,10 @@ describe('deduplicateScannedImages', () => {
 		expect(deduped[1].url).toBe('https://site.com/ch1/02.jpg?v=1');
 	});
 
-	it('deduplicates images by visual perceptual dhash', () => {
+	it('preserves images with distinct URLs even if dhash is computed', () => {
 		const images: ScannedImage[] = [
 			{ url: 'https://site.com/ch1/01.jpg', dhash: 'f0f0f0f0a5a5a5a5', width: 800, height: 1200, top: 0, left: 0 },
-			{ url: 'https://mirror.cdn.com/different_name.jpg', dhash: 'f0f0f0f0a5a5a5a5', width: 800, height: 1200, top: 50, left: 0 },
-			{ url: 'https://site.com/ch1/02.jpg', dhash: '0000ffff11112222', width: 800, height: 1200, top: 1200, left: 0 }
+			{ url: 'https://site.com/ch1/02.jpg', dhash: 'f0f0f0f0a5a5a5a5', width: 800, height: 1200, top: 1200, left: 0 }
 		];
 
 		const deduped = deduplicateScannedImages(images);
@@ -97,7 +98,9 @@ describe('sortImagesByCoordinates', () => {
 			{ url: 'https://site.com/blurhash_thumb.jpg', width: 800, height: 1200, top: 40, left: 0 },
 			{ url: 'https://site.com/loading.gif', width: 100, height: 100, top: 50, left: 0 },
 			{ url: 'https://site.com/discord_banner.png', width: 400, height: 100, top: 60, left: 0 },
-			{ url: 'https://googleads.g.doubleclick.net/ad.jpg', width: 728, height: 90, top: 70, left: 0 }
+			{ url: 'https://googleads.g.doubleclick.net/ad.jpg', width: 728, height: 90, top: 70, left: 0 },
+			{ url: 'https://site.com/assets/ad/ad5.gif', width: 800, height: 1772, top: 0, left: 0 },
+			{ url: 'https://site.com/assets/app/app-qr.png', width: 400, height: 400, top: 65822, left: 0 }
 		];
 
 		const filtered = sortImagesByCoordinates(images);
@@ -111,7 +114,7 @@ describe('sortImagesByCoordinates', () => {
 			{ url: 'https://site.com/page3.jpg', width: 800, height: 1200, top: 2400, left: 0 },
 			{ url: 'https://site.com/page4.jpg', width: 800, height: 1200, top: 3600, left: 0 },
 			{ url: 'https://site.com/page5.jpg', width: 800, height: 1200, top: 4800, left: 0 },
-			{ url: 'https://site.com/sidebar_recom.jpg', width: 150, height: 200, top: 500, left: 900 }
+			{ url: 'https://site.com/sidebar_recom.jpg', width: 150, height: 120, top: 500, left: 900 }
 		];
 
 		const filtered = sortImagesByCoordinates(images);
@@ -122,6 +125,32 @@ describe('sortImagesByCoordinates', () => {
 			'https://site.com/page4.jpg',
 			'https://site.com/page5.jpg'
 		]);
+	});
+
+	it('drops bottom recommendation cover thumbnails when tall strip panels are present', () => {
+		const images: ScannedImage[] = [
+			{ url: 'https://cdn.example.org/1/1.jpg', width: 720, height: 9105, top: 633, left: 503 },
+			{ url: 'https://site.example/uploads/cover1-300x400.webp', width: 168, height: 224, top: 112764, left: 320 },
+			{ url: 'https://site.example/uploads/cover2-300x400.webp', width: 168, height: 224, top: 112764, left: 503 }
+		];
+
+		const filtered = filterOutlierThumbnails(images);
+		expect(filtered.length).toBe(1);
+		expect(filtered[0].url).toBe('https://cdn.example.org/1/1.jpg');
+	});
+});
+
+describe('filterResolutionOutliers', () => {
+	it('keeps portrait panels and drops a clear ad-shaped outlier', () => {
+		const images: ScannedImage[] = [
+			{ url: 'https://cdn.com/ch1/1.jpg', width: 800, height: 1200, top: 0, left: 0 },
+			{ url: 'https://cdn.com/ch1/2.jpg', width: 800, height: 1200, top: 1200, left: 0 },
+			{ url: 'https://ads.example.net/unit/300x37', width: 300, height: 37, top: 1500, left: 0 }
+		];
+
+		const filtered = filterResolutionOutliers(images);
+		expect(filtered.some(i => i.url.includes('ads.example.net'))).toBe(false);
+		expect(filtered.filter(i => i.url.includes('/ch1/')).length).toBe(2);
 	});
 });
 
