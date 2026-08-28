@@ -33,7 +33,8 @@ export function getSourceLanguageProfile(src: string, tgtName: string, enableSfx
 		return `Korean Manhwa Rules:
 - Pro-drop: Korean omits subjects. Never default to "I"/"my". Strictly distinguish intransitive states from active actions (죽다 "to die/perish" vs 죽이다 "to kill" -> "많이 죽긴 했어" = "Too many died", not "I killed many").
 - Livestream & Gamer Handles: Translate bracketed spectator/player usernames into ${tgtName} (e.g. [형 궁서체다] -> [Dead Serious Bro]). Never leave raw Hangul inside brackets.${sfxSection}
-- Honorifics: Adapt address terms (Hyung, Oppa, Noona, Sunbae, Nim) matching character relationships.`;
+- Honorifics: Adapt address terms (Hyung, Oppa, Noona, Sunbae, Nim) matching character relationships.
+- Speech Levels: Maintain consistent conversational tone across sentence clauses (honorific/formal 존댓말 vs casual/intimate 반말).`;
 	}
 
 	if (primary === 'ja') {
@@ -48,7 +49,8 @@ export function getSourceLanguageProfile(src: string, tgtName: string, enableSfx
 			: '';
 		return `Japanese Manga Rules:
 - Pro-drop: Japanese dialogue omits subjects. Never insert "I"/"me" into impersonal observations. Strictly distinguish intransitive/passive verbs from transitive/causative actions (落ちる/落とす, 消える/消す, 死ぬ/杀す).${sfxSection}
-- Honorifics: Preserve or adapt honorifics (-san, -kun, -chan, -sama, senpai, sensei) according to speaker personality and relationship.`;
+- Honorifics: Preserve or adapt honorifics (-san, -kun, -chan, -sama, senpai, sensei) according to speaker personality and relationship.
+- Visual Kanji/Kana Recovery: Reconstruct visually similar Kanji/Kana OCR stroke confusions (e.g. 盲↔育, 友↔反) from context.`;
 	}
 
 	if (primary === 'zh') {
@@ -62,6 +64,7 @@ export function getSourceLanguageProfile(src: string, tgtName: string, enableSfx
 			: '';
 		return `Chinese & Manhua Rules:
 - Pro-drop: Chinese conversational dialogue frequently omits subjects. Never default to "I"/"my" unless referring to self. Distinguish passive/intransitive (died/broke) from active actions (killed/destroyed).
+- Hanzi OCR Recovery: Correct common visually similar character stroke confusions (e.g. 拔↔拨, 己↔已↔巳, 崇↔祟, 治↔冶, 呜↔鸣, 未↔末, 刺↔剌) by inferring intended terms from story and martial context.
 - Names & Listings: Separate 2-character names in multi-name sequences (e.g. "子龙童菲，张肥关鱼" -> "Zilong, Tong Fei, Zhang Fei, Guan Yu"). Recognize homophone/parody names (e.g. 张肥 for 张飞) as character names. Translate army unit titles (e.g. 龙字军, 虎字营) into ${tgtName} divisions.
 - Wuxia/Cultivation: Localize idioms, exclamations, and martial address (师尊, 掌门, 本座) into punchy ${tgtName}.${sfxSection}
 - Stat Panels: Only use [brackets] if source explicitly has 【】 brackets. Translate rarity tiers (LEGENDARY, EPIC, RARE, COMMON, MYTHIC) fused with item type. Keep parenthetical qualifiers on their own line with ().`;
@@ -141,6 +144,8 @@ export function systemPrompt(src: string, tgt: string, enableSfx = true): string
 
 	rules.push(
 		`${rules.length + 1}. Pro-Drop & Subject Resolution: In pro-drop languages, infer omitted subjects naturally from page/scene context: NEVER default to inserting "I"/"my" unless explicitly referring to self. Distinguish passive/intransitive states from active transitive actions.`,
+		`${rules.length + 1}. Contextual OCR Typo & Degradation Recovery: Source text from comic OCR may contain visually similar stroke confusions, spurious intra-word spaces, or rogue border symbols (| / \\ ~). Never translate corrupted OCR text literally if it produces nonsensical dialogue. Infer the intended natural spoken words from page and dialogue context.`,
+		`${rules.length + 1}. Sentence Continuations Across Regions: Consecutive regions on a page frequently contain split clauses of a single continuous sentence. Maintain grammatical continuity, cohesive flow, and consistent phrasing across connected regions without inserting duplicate subjects.`,
 		`${rules.length + 1}. OCR Artifact & Bubble-Tail Cleaning: Strip trailing bubble-tail digits, zero-clusters, or dots caused by circular thought-bubble tails (e.g. "! 20...", "oo"). Strip stray unmatched leading/trailing border parentheses (e.g. isolated "(" at line start).`,
 		`${rules.length + 1}. Punctuation & Handles: Translate reaction punctuation (……, ？！, !) to natural ${tgtName} (..., ?!, !). Translate all bracketed usernames [Username]: into ${tgtName}.`,
 		`${rules.length + 1}. Line Breaks: Preserve all \\n line breaks from source text to maintain comic panel layout.`,
@@ -160,10 +165,10 @@ export function glossaryBlock(terms: TermDraft[], src: string, tgt: string): str
 	const lines = terms.map((t) => {
 		const aliases = t.aliases && t.aliases.length > 0 ? ` (also: ${t.aliases.join(', ')})` : '';
 		const gender = t.gender === 'masculine' ? ' [masculine]' : t.gender === 'feminine' ? ' [feminine]' : '';
-		const context = t.context ? ` — ${t.context}` : '';
+		const context = t.context ? ` - ${t.context}` : '';
 		return `★${t.source}${aliases} = ${t.target}${gender}${context}`;
 	});
-	return `Glossary (${srcName} → ${tgtName}) — Use these EXACT target renderings for the listed terms whenever their source characters appear in dialogue. These overrides take strict precedence over default dictionary translations:
+	return `Glossary (${srcName} → ${tgtName}) - Use these EXACT target renderings for the listed terms whenever their source characters appear in dialogue. These overrides take strict precedence over default dictionary translations:
 ${lines.join('\n')}`;
 }
 

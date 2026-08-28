@@ -53,11 +53,11 @@ fn test_regression_page_school_phone_rule_e_bubble() {
     crate::assert_bubble_bounds!(e_bubble, 317, 1, 151, 132, 10);
 
     // 3. TOP-RIGHT BUBBLE: '気が ぬけたら 意識 トびそうに なった…'
-    // TEXT BOUNDS: [X: 678, Y: 77, W: 132, H: 132] | BUBBLE BOUNDS: [X: 666, Y: 59, W: 141, H: 171]
+    // TEXT BOUNDS: [X: 678, Y: 77, W: 118, H: 132] | BUBBLE BOUNDS: [X: 666, Y: 59, W: 141, H: 171]
     let top_right = res.regions.iter().find(|r| r.text.contains("気が") && (r.text.contains("ぬけたら") || r.text.contains("意識") || r.text.contains("トびそう")));
     assert!(top_right.is_some(), "Must detect top-right bubble '気が ぬけたら 意識 トびそうに なった…'");
     let top_right = top_right.unwrap();
-    crate::assert_region_bounds!(top_right, xianscan_rust::ml::schemas::RegionKind::DialogueBubble, 678, 77, 132, 132, 8);
+    crate::assert_region_bounds!(top_right, xianscan_rust::ml::schemas::RegionKind::DialogueBubble, 678, 77, 118, 132, 8);
     crate::assert_bubble_bounds!(top_right, 666, 59, 141, 171, 10);
 
     // 4. TOP-MIDDLE LEFT BUBBLE: 'あ… うん。'

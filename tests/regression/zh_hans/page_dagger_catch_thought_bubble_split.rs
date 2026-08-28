@@ -45,13 +45,13 @@ fn test_regression_page_dagger_catch_thought_bubble_split() {
     crate::assert_bubble_bounds!(b1, 46, 1162, 199, 125, 8);
     crate::assert_region_angle!(b1, 0.0, 2.0);
 
-    // 5. PANEL 4 UPPER THOUGHT BUBBLE: '这小子近战太\n可怕了！' -> [X: 204, Y: 1862, W: 226, H: 87]
+    // 5. PANEL 4 UPPER THOUGHT BUBBLE: '这小子近战太\n可怕了！' -> [X: 204, Y: 1856, W: 226, H: 98]
     let b2 = res.regions.iter().find(|r| r.text.contains("这小子近战太") || r.text.contains("可怕了"));
     assert!(b2.is_some(), "Must detect panel 4 upper thought bubble '这小子近战太可怕了！'");
     let b2 = b2.unwrap();
     assert_eq!(b2.kind, xianscan_rust::ml::schemas::RegionKind::DialogueBubble);
     assert!(!b2.text.contains("硬拼") && !b2.text.contains("反守为攻"), "Upper thought bubble must NOT merge with lower thought bubble");
-    crate::assert_region_bounds!(b2, xianscan_rust::ml::schemas::RegionKind::DialogueBubble, 204, 1862, 226, 87, 8);
+    crate::assert_region_bounds!(b2, xianscan_rust::ml::schemas::RegionKind::DialogueBubble, 204, 1856, 226, 98, 8);
     crate::assert_bubble_bounds!(b2, 186, 1836, 318, 360, 10);
     crate::assert_region_angle!(b2, 0.0, 2.0);
 

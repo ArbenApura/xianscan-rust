@@ -69,6 +69,17 @@ export function resolveDialoguePunctuation(text: string): string | null {
 }
 
 /**
+ * PRE-CLEANS STRAY BORDER OCR NOISE (LEADING/TRAILING VERTICAL LINES, STRAY SLASHES)
+ */
+export function sanitizeOcrSourceText(text: string): string {
+	if (!text) return '';
+	let cleaned = text.normalize('NFKC');
+	// STRIP STRAY LEADING / TRAILING BORDER ARTIFACTS (| \ / _ -)
+	cleaned = cleaned.replace(/^[\s|/\\_—–~`-]+/u, '').replace(/[\s|/\\_—–~`-]+$/u, '').trim();
+	return cleaned;
+}
+
+/**
  * CLASSIFIES A REGION BEFORE LLM DISPATCH
  * DETERMINES WHETHER IT NEEDS TRANSLATION, CAN BE RESOLVED DIRECTLY, OR SHOULD BE SKIPPED AS NOISE/PRESERVED ART.
  */
@@ -77,7 +88,7 @@ export function classifyRegionForTranslation(
 	sourceLang: string,
 	targetLang: string,
 ): PreFilterResult {
-	const text = region.text.trim();
+	const text = sanitizeOcrSourceText(region.text);
 	if (!text) {
 		return { disposition: 'skip_empty', resolvedTarget: '', reason: 'empty_text' };
 	}
@@ -114,7 +125,10 @@ export function classifyRegionForTranslation(
 		}
 
 		// WATERMARKS / URL DOMAINS (E.G. "www.baozimh.com", "baozicdn.com", "https://...")
-		const isWatermarkDomain = /^(?:https?:\/\/)?(?:www\.)?[a-z0-9_\-]+\.(?:com|cn|org|net|cc|tv|xyz|vip|me|top|fun|site|info|icu|io|app|club|space)(?:\/[^\s]*)?$/i.test(text);
+		const isWatermarkDomain =
+			/^(?:https?:\/\/)?(?:www\.)?[a-z0-9_\-]+\.(?:com|cn|org|net|cc|tv|xyz|vip|me|top|fun|site|info|icu|io|app|club|space|co|moe)(?:\/[^\s]*)?$/i.test(
+				text,
+			);
 		if (isWatermarkDomain) {
 			return {
 				disposition: 'skip_empty',

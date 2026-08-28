@@ -29,11 +29,18 @@ fn test_regression_page_spiky_interrobang_caption() {
         println!("  Region r{}: box={:?}, text='{}', conf={:.2}", i, r.box_, r.text.replace('\n', "\\n"), r.confidence);
     }
 
-    // 1. EXACT ELEMENT COUNTS: EXACTLY 1 REGION (0 DIALOGUEBUBBLE, 0 SFX, 1 FREETEXT)
-    // STANDALONE SYMBOL-ONLY BUBBLE '?!' IS SKIPPED FROM ACTIVE REGIONS
-    crate::assert_element_counts!(res, 1, 0, 0, 1);
+    // 1. EXACT ELEMENT COUNTS: EXACTLY 2 REGIONS (1 DIALOGUE BUBBLE, 0 SFX, 1 FREE TEXT)
+    crate::assert_element_counts!(res, 2, 1, 0, 1);
 
-    // 2. LOWER NARRATION CAPTION BOX:
+    // 2. SPIKY INTERROBANG BUBBLE: '?!'
+    let interrobang = res.regions.iter().find(|r| r.text.trim() == "?!" || r.text.trim() == "？！" || r.text.trim() == "！？");
+    assert!(interrobang.is_some(), "Must detect upper spiky interrobang reaction bubble '?!'");
+    let interrobang = interrobang.unwrap();
+    assert_eq!(interrobang.kind, xianscan_rust::ml::schemas::RegionKind::DialogueBubble);
+    crate::assert_region_bounds!(interrobang, xianscan_rust::ml::schemas::RegionKind::DialogueBubble, 394, 209, 194, 158, 10);
+    crate::assert_bubble_bounds!(interrobang, 349, 158, 287, 269, 10);
+
+    // 3. LOWER NARRATION CAPTION BOX:
     // TEXT: 'YANG\nSEHARUSNYA\nSEPERTI BIASA.' -> [X: 102, Y: 858, W: 250, H: 98]
     let narration = res.regions.iter().find(|r| {
         let t = r.text.to_uppercase();
@@ -48,7 +55,7 @@ fn test_regression_page_spiky_interrobang_caption() {
         narration.text
     );
 
-    // 3. EXPLICIT NEGATIVE GUARDS AGAINST BIFURCATED DIGIT ARTIFACTS AND STANDALONE SYMBOLS
+    // 4. EXPLICIT NEGATIVE GUARDS AGAINST BIFURCATED DIGIT ARTIFACTS
     assert!(
         !res.regions.iter().any(|r| r.text.contains("21")),
         "Must never hallucinate '21' in place of '? / !'"
@@ -56,9 +63,5 @@ fn test_regression_page_spiky_interrobang_caption() {
     assert!(
         !res.regions.iter().any(|r| r.text.contains("●")),
         "Must never hallucinate '●' from punctuation dots"
-    );
-    assert!(
-        !res.regions.iter().any(|r| r.text.trim() == "?!" || r.text.trim() == "?" || r.text.trim() == "!"),
-        "Standalone punctuation '?!' should be skipped from active regions"
     );
 }

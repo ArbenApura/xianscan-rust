@@ -33,6 +33,19 @@ export function sanitizeTranslationArtifacts(translated: string, source: string)
 		t = t.replace(/\s+(?:\d{1,3}|oo|o\s*o\s*o)\s*(?:[.．…·]+)?$/i, '').trim();
 	}
 
+	// 3. STRIP REDUNDANT WRAPPING QUOTES IF SOURCE WAS NOT QUOTED
+	const sourceIsQuoted = /^["'“‘「《].*["'”’」》]$/u.test(s);
+	if (!sourceIsQuoted) {
+		if (
+			(t.startsWith('"') && t.endsWith('"') && t.length > 2) ||
+			(t.startsWith('“') && t.endsWith('”') && t.length > 2) ||
+			(t.startsWith('\'') && t.endsWith('\'') && t.length > 2) ||
+			(t.startsWith('«') && t.endsWith('»') && t.length > 2)
+		) {
+			t = t.slice(1, -1).trim();
+		}
+	}
+
 	return t;
 }
 

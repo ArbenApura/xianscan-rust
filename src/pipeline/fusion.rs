@@ -229,11 +229,13 @@ pub fn fuse_detections(
                 if is_aspect_compatible && (iou >= 0.20 || rl_contained || cb_covered || crate::ml::geometry::line_center_inside_box(&rl.polygon, &cb_rect)) {
                     ocr_det_matched[idx] = true;
 
-                    // IF COMIC TEXT DETECTOR BOX IS MULTI-LINE OR SIGNIFICANTLY WIDER/TALLER THAN A SINGLE RAPID OCR LINE (E.G. MISSED LEADING/TRAILING LINES OR ELLIPSIS TRUNCATED)
                     let is_wider = !is_rl_vert && (cb_w >= rw + 8 || (cb_w as f32) >= (rw as f32 * 1.10));
                     let is_taller = is_rl_vert && (cb_h >= rh + 10 || (cb_h as f32) >= (rh as f32 * 1.10));
                     let is_missing_lines = is_multiline_cb && !is_rl_vert && (cb_h >= 45 && cb_w >= 45);
-                    let is_low_conf_or_degenerate = rl.score < 0.65 || (rl.text.trim().chars().count() <= 1 && (rh >= 35 || rw >= 35));
+                    let is_non_latin_corrupted_latin = crate::ml::detect::is_non_latin_source(source_lang)
+                        && !crate::ml::detect::has_native_script_for_lang(&rl.text, source_lang)
+                        && rl.text.chars().any(|c| c.is_ascii_alphabetic());
+                    let is_low_conf_or_degenerate = rl.score < 0.65 || (rl.text.trim().chars().count() <= 1 && (rh >= 35 || rw >= 35)) || is_non_latin_corrupted_latin;
                     if is_wider || is_taller || is_missing_lines || is_low_conf_or_degenerate {
                         let pad_x = if is_rl_vert { 16 } else { 15 };
                         let pad_y = if is_rl_vert { 12 } else { 15 };

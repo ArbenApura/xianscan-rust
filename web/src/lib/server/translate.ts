@@ -16,7 +16,7 @@ import { buildMessages, type RegionSource } from './translate/prompts';
 import { getKnownSfxTranslation } from './translate/sfx';
 import { looksDegenerate, parseTranslations } from './translate/parser';
 import { parseExtractedTerms } from './translate/extraction';
-import { classifyRegionForTranslation } from './translate/filter';
+import { classifyRegionForTranslation, sanitizeOcrSourceText } from './translate/filter';
 import type { DialogueContextWindow } from './translate/dialogue-tracker';
 
 export interface PageTranslationOptions {
@@ -94,7 +94,7 @@ export async function translatePage(
 	for (const r of regions) {
 		const classification = classifyRegionForTranslation(r, pair.sourceLang, pair.targetLang);
 		if (classification.disposition === 'translate') {
-			translatableRegions.push(r);
+			translatableRegions.push({ ...r, text: sanitizeOcrSourceText(r.text) });
 		} else {
 			preResolved.set(r.id, classification.resolvedTarget ?? '');
 		}

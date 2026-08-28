@@ -56,10 +56,14 @@ pub fn try_refine_cluster_crop(
     let is_clean_single_line = cluster_lines.len() == 1 && avg_score >= 0.70 && !is_container_wider && !is_container_taller;
     let full_page_is_complete = (cluster_lines.len() >= 3 || is_clean_single_line) && avg_score >= 0.70 && !is_container_wider && !is_container_taller;
     let is_standalone_alphanumeric_risk = is_cjk && crate::ml::detect::is_standalone_alphanumeric_without_cjk(combined_text);
-    let can_refine_crop = (is_bubble || is_container_wider || is_container_taller || is_short_text_partial || is_standalone_alphanumeric_risk)
+    let is_corrupted_latin_in_bubble = is_bubble
+        && is_cjk
+        && !crate::ml::detect::has_cjk_characters(combined_text)
+        && combined_text.chars().any(|c| c.is_ascii_alphabetic());
+    let can_refine_crop = (is_bubble || is_container_wider || is_container_taller || is_short_text_partial || is_standalone_alphanumeric_risk || is_corrupted_latin_in_bubble)
         && (cluster_rect.w >= 16 || box_rect.w >= 16)
         && (cluster_rect.h >= 16 || box_rect.h >= 16)
-        && !full_page_is_complete;
+        && (!full_page_is_complete || is_corrupted_latin_in_bubble);
 
     if !can_refine_crop {
         return None;
@@ -181,6 +185,7 @@ pub fn try_refine_cluster_crop(
     let is_improved = if is_cjk {
         !is_excessive_expansion && !is_corrupted_punct_to_digits && (
             crop_cjk_count > combined_cjk_count
+                || (is_corrupted_latin_in_bubble && crop_cjk_count >= 1)
                 || has_more_ellipsis
                 || (crop_cjk_count == combined_cjk_count && res.score > avg_score + 0.02)
                 || (res.score >= 0.70 && avg_score < 0.60)

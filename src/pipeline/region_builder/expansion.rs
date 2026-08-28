@@ -16,11 +16,6 @@ const SIBLING_GAP: i32 = 5;
 // THRESHOLDS: ONLY SCALE AN AXIS WHEN THE UNUSED ROOM EXCEEDS THESE (NO-OP ON CRAMPED BUBBLES)
 const MIN_UNUSED_RATIO: f32 = 0.10;
 const MIN_SCALE: f32 = 1.10;
-// PER-AXIS SAFE SCALE CAPS (PRIMARY = READING-DIRECTION AXIS, SECONDARY = CROSS AXIS)
-const CAP_PRIMARY: f32 = 1.35;
-const CAP_SECONDARY: f32 = 1.20;
-// CROSS AXIS USES ONLY THIS FRACTION OF ITS AVAILABLE ROOM
-const CROSS_AXIS_FRACTION: f32 = 0.70;
 
 // -- FUNCTIONS & ALGORITHMS -- //
 
@@ -143,23 +138,15 @@ pub fn expand_bubble_text_boxes(regions: &mut Vec<Region>, page_w: u32, page_h: 
             }
         }
 
-        // TRUST VERTICAL ORIENTATION ONLY WHEN THE CONTAINER IS CLEARLY VERTICAL (STRONG ASPECT EVIDENCE).
-        let vertical = r.vertical && (bh as f32) >= (bw as f32) * 1.25;
-
         let mut new_box = r.box_.clone();
 
-        // WIDTH AXIS (PRIMARY FOR HORIZONTAL TEXT)
+        // WIDTH AXIS
         {
             let center = cx as f32;
             let half = bw as f32 / 2.0;
             let lower_ext = (center - left_limit as f32).max(half);
             let upper_ext = (right_limit as f32 - center).max(half);
-            let is_primary = !vertical;
-            let cap = if is_primary { CAP_PRIMARY } else { CAP_SECONDARY };
-            let mut scale = (lower_ext.min(upper_ext) / half).min(cap);
-            if !is_primary {
-                scale = 1.0 + (scale - 1.0) * CROSS_AXIS_FRACTION;
-            }
+            let scale = lower_ext.min(upper_ext) / half;
             let usable = (right_limit as f32 - left_limit as f32) - bw as f32;
             if usable >= bw as f32 * MIN_UNUSED_RATIO && scale >= MIN_SCALE {
                 let nh = (half * scale).round() as i32;
@@ -172,18 +159,13 @@ pub fn expand_bubble_text_boxes(regions: &mut Vec<Region>, page_w: u32, page_h: 
             }
         }
 
-        // HEIGHT AXIS (PRIMARY FOR VERTICAL TEXT)
+        // HEIGHT AXIS
         {
             let center = cy as f32;
             let half = bh as f32 / 2.0;
             let lower_ext = (center - top_limit as f32).max(half);
             let upper_ext = (bottom_limit as f32 - center).max(half);
-            let is_primary = vertical;
-            let cap = if is_primary { CAP_PRIMARY } else { CAP_SECONDARY };
-            let mut scale = (lower_ext.min(upper_ext) / half).min(cap);
-            if !is_primary {
-                scale = 1.0 + (scale - 1.0) * CROSS_AXIS_FRACTION;
-            }
+            let scale = lower_ext.min(upper_ext) / half;
             let usable = (bottom_limit as f32 - top_limit as f32) - bh as f32;
             if usable >= bh as f32 * MIN_UNUSED_RATIO && scale >= MIN_SCALE {
                 let nh = (half * scale).round() as i32;
@@ -201,42 +183,37 @@ pub fn expand_bubble_text_boxes(regions: &mut Vec<Region>, page_w: u32, page_h: 
         }
     }
 
-    // PHASE 2: APPLY TARGETS AND RE-DERIVE INPAINT / TYPESET BOXES, THEN SANITY-ROLLBACK COLLISIONS.
+    // PHASE 2: APPLY TARGETS AND GUARANTEE BASE BOX STAYS WITHIN BUBBLE BOUNDARY.
     for &i in &indexes {
-        let new_box = match &targets[i] {
-            Some(nb) => nb.clone(),
-            None => continue,
-        };
         let b = regions[i].bubble_box.as_ref().unwrap();
-        let (left, right, top, bottom) = (b.x, b.x + b.w, b.y, b.y + b.h);
+        let (outer_l, outer_r, outer_t, outer_b) = (b.x, b.x + b.w, b.y, b.y + b.h);
 
-        // COLLISION ROLLBACK AGAINST NON-SIBLING REGIONS (FREE TEXT / SFX / OTHER BUBBLES)
-        let collides = regions.iter().enumerate().any(|(j, o)| {
-            j != i
-                && o.box_.w > 0
-                && o.box_.h > 0
-                && {
-                    let ax1 = (new_box.x + new_box.w).min(o.box_.x + o.box_.w);
-                    let ay1 = (new_box.y + new_box.h).min(o.box_.y + o.box_.h);
-                    let ix = (ax1 - new_box.x.max(o.box_.x)).max(0);
-                    let iy = (ay1 - new_box.y.max(o.box_.y)).max(0);
-                    let inter = (ix * iy) as f32;
-                    let area = (new_box.w * new_box.h).max(1) as f32;
-                    inter / area >= 0.35
-                }
-        });
-        if collides {
-            continue;
+        if let Some(new_box) = &targets[i] {
+            // COLLISION ROLLBACK AGAINST NON-SIBLING REGIONS (FREE TEXT / SFX / OTHER BUBBLES)
+            let collides = regions.iter().enumerate().any(|(j, o)| {
+                j != i
+                    && o.box_.w > 0
+                    && o.box_.h > 0
+                    && {
+                        let ax1 = (new_box.x + new_box.w).min(o.box_.x + o.box_.w);
+                        let ay1 = (new_box.y + new_box.h).min(o.box_.y + o.box_.h);
+                        let ix = (ax1 - new_box.x.max(o.box_.x)).max(0);
+                        let iy = (ay1 - new_box.y.max(o.box_.y)).max(0);
+                        let inter = (ix * iy) as f32;
+                        let area = (new_box.w * new_box.h).max(1) as f32;
+                        inter / area >= 0.35
+                    }
+            });
+            if !collides {
+                regions[i].box_ = new_box.clone();
+            }
         }
 
-        regions[i].box_ = new_box;
+        // GUARANTEE: BASE BOX MUST NEVER EXCEED OUTER BUBBLE BOUNDARY
+        clamp_box_to_core(&mut regions[i].box_, outer_l, outer_r, outer_t, outer_b);
 
-        let mut tb = expand_box(&regions[i].box_, typeset_pct, page_w, page_h);
-        clamp_box_to_core(&mut tb, left, right, top, bottom);
-        regions[i].typeset_box = Some(tb);
-
-        let mut ib = expand_box(&regions[i].box_, inpaint_pct, page_w, page_h);
-        clamp_box_to_core(&mut ib, left, right, top, bottom);
-        regions[i].inpaint_box = Some(ib);
+        // ANCHOR TYPESET AND INPAINT BOXES DIRECTLY TO THE VALIDATED BASE BOX
+        regions[i].typeset_box = Some(expand_box(&regions[i].box_, typeset_pct, page_w, page_h));
+        regions[i].inpaint_box = Some(expand_box(&regions[i].box_, inpaint_pct, page_w, page_h));
     }
 }

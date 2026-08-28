@@ -91,7 +91,15 @@ pub fn should_reject_candidate_region(
         return true;
     }
     if crate::ml::detect::is_pure_punctuation_only(cleaned) {
-        return true;
+        // ALLOW MEANINGFUL UTTERANCE EXCLAMATION / QUESTION MARKS INSIDE DETECTED SPEECH BUBBLES (E.G. '！？', '？！', '！', '？')
+        let is_valid_bubble_utterance = is_bubble
+            && avg_score >= 0.65
+            && (cleaned.contains('!') || cleaned.contains('！') || cleaned.contains('?') || cleaned.contains('？'))
+            && !crate::ml::detect::is_pure_watermark_region(cleaned)
+            && !crate::ml::detect::ALL_ELLIPSIS.is_match(cleaned);
+        if !is_valid_bubble_utterance {
+            return true;
+        }
     }
 
     // 7. SUPPRESS STANDALONE DIGIT / DEGREE / PARTICLE NOISE OUTSIDE SPEECH BUBBLES ACROSS ALL LANGUAGES

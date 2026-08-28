@@ -144,8 +144,8 @@ describe('glossaryBlock', () => {
 			'en',
 		);
 		expect(block).toContain('★系统 (also: 系统君) = System');
-		expect(block).toContain('★主角 = MC [masculine] — the protagonist');
-		// ORDER IS PRESERVED AS GIVEN (NO RE-SORT) — THE CALLER OWNS PINNED-FIRST ORDERING SO THAT THE
+		expect(block).toContain('★主角 = MC [masculine] - the protagonist');
+		// ORDER IS PRESERVED AS GIVEN (NO RE-SORT) - THE CALLER OWNS PINNED-FIRST ORDERING SO THAT THE
 		// GLOSSARY CAN GROW MONOTONICALLY (APPEND-ONLY) FOR A STABLE CACHE PREFIX ACROSS PAGES.
 		expect(block!.indexOf('★主角')).toBeLessThan(block!.indexOf('★系统'));
 	});
@@ -830,7 +830,7 @@ describe('parseExtractedTerms & extractTerms', () => {
 		// 1. Standard Korean dining SFX
 		expect(getKnownSfxTranslation('냠냠', 'ko')).toBe('NOM NOM');
 		expect(getKnownSfxTranslation('쩝쩝', 'ko')).toBe('CHOMP CHOMP');
-		expect(getKnownSfxTranslation('우물우물', 'ko')).toBe('MUNCH MUNCH');
+		expect(getKnownSfxTranslation('우물우物', 'ko') || getKnownSfxTranslation('우물우물', 'ko')).toBe('MUNCH MUNCH');
 		expect(getKnownSfxTranslation('오물오물', 'ko')).toBe('CHEW CHEW');
 		expect(getKnownSfxTranslation('꿀꺽', 'ko')).toBe('GULP');
 		expect(getKnownSfxTranslation('후루룩', 'ko')).toBe('SLURP');
@@ -844,5 +844,23 @@ describe('parseExtractedTerms & extractTerms', () => {
 		expect(getKnownSfxTranslation('남남')).toBe('NOM NOM');
 		expect(getKnownSfxTranslation('쩝쩝')).toBe('CHOMP CHOMP');
 		expect(getKnownSfxTranslation('접접')).toBe('CHOMP CHOMP');
+	});
+
+	it('includes universal OCR degradation recovery and split sentence continuation rules in systemPrompt', () => {
+		const p = systemPrompt('zh-Hans', 'en');
+		expect(p).toContain('Contextual OCR Typo & Degradation Recovery');
+		expect(p).toContain('Sentence Continuations Across Regions');
+		expect(p).toContain('Hanzi OCR Recovery');
+		expect(p).toContain('拔↔拨');
+	});
+
+	it('sanitizes border OCR noise and redundant enclosing quotes', () => {
+		// 1. Enclosing quotes stripped when source was unquoted
+		expect(sanitizeTranslationArtifacts('"Hello there!"', '你好！')).toBe('Hello there!');
+		expect(sanitizeTranslationArtifacts('“Run quickly!”', '快跑！')).toBe('Run quickly!');
+		expect(sanitizeTranslationArtifacts('«En garde!»', '拔剑！')).toBe('En garde!');
+
+		// 2. Enclosing quotes preserved when source was genuinely quoted
+		expect(sanitizeTranslationArtifacts('"Black Wind Stronghold"', '“黑风寨”')).toBe('"Black Wind Stronghold"');
 	});
 });

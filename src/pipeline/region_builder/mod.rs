@@ -138,4 +138,77 @@ mod tests {
         assert_eq!(target.w, right - left);
         assert_eq!(target.h, bottom - top);
     }
+
+    #[test]
+    fn test_bubble_base_clamping_and_padding_guarantee() {
+        use crate::ml::schemas::{Region, RegionKind};
+
+        // CASE 1: CRAMPED BUBBLE WHERE OCR BASE BOX EXTENDS OUTSIDE BUBBLE ON LEFT (LIKE "环顾")
+        let bubble = BoxRect { x: 197, y: 496, w: 54, h: 33 };
+        let ocr_box = BoxRect { x: 196, y: 496, w: 51, h: 28 };
+        let mut regions = vec![Region {
+            id: "r0".to_string(),
+            box_: ocr_box,
+            polygon: vec![],
+            inpaint_box: None,
+            typeset_box: None,
+            text: "环顾".to_string(),
+            confidence: 0.95,
+            vertical: false,
+            angle: 0.0,
+            bubble_box: Some(bubble.clone()),
+            bubble_polygon: None,
+            centroid: None,
+            kind: RegionKind::DialogueBubble,
+            is_title: false,
+            is_subtitle: false,
+        }];
+
+        expand_bubble_text_boxes(&mut regions, 800, 1132, 0.05, 0.10);
+
+        // BASE BOX MUST STAY STRICTLY INSIDE THE BUBBLE BOUNDARY
+        assert!(regions[0].box_.x >= bubble.x);
+        assert!(regions[0].box_.x + regions[0].box_.w <= bubble.x + bubble.w);
+        assert!(regions[0].box_.y >= bubble.y);
+        assert!(regions[0].box_.y + regions[0].box_.h <= bubble.y + bubble.h);
+        // VERIFY CLAMPING PREVENTED OVERFLOW (ORIGINAL OCR STARTED AT 196, BUBBLE STARTS AT 197)
+        assert_eq!(regions[0].box_.x, 197);
+        // TYPESET AND INPAINT BOXES ARE ANCHORED TO BASE BOX
+        assert!(regions[0].typeset_box.is_some());
+        assert!(regions[0].inpaint_box.is_some());
+    }
+
+    #[test]
+    fn test_bubble_cross_axis_expansion_for_vertical_text() {
+        use crate::ml::schemas::{Region, RegionKind};
+
+        // CASE 2: SINGLE-COLUMN VERTICAL TEXT IN A WIDE BUBBLE (LIKE "スゴすぎー")
+        let bubble = BoxRect { x: 526, y: 61, w: 142, h: 196 };
+        let ocr_box = BoxRect { x: 569, y: 76, w: 60, h: 159 };
+        let mut regions = vec![Region {
+            id: "r1".to_string(),
+            box_: ocr_box,
+            polygon: vec![],
+            inpaint_box: None,
+            typeset_box: None,
+            text: "スゴすぎー".to_string(),
+            confidence: 0.95,
+            vertical: true,
+            angle: 0.0,
+            bubble_box: Some(bubble.clone()),
+            bubble_polygon: None,
+            centroid: None,
+            kind: RegionKind::DialogueBubble,
+            is_title: false,
+            is_subtitle: false,
+        }];
+
+        expand_bubble_text_boxes(&mut regions, 1370, 1012, 0.05, 0.10);
+
+        // THE BASE BOX MUST EXPAND ITS WIDTH TO UTILIZE THE AVAILABLE BUBBLE ROOM
+        assert!(regions[0].box_.w > 100);
+        // AND REMAIN CONSTRAINED WITHIN THE BUBBLE BOUNDARY
+        assert!(regions[0].box_.x >= bubble.x);
+        assert!(regions[0].box_.x + regions[0].box_.w <= bubble.x + bubble.w);
+    }
 }
