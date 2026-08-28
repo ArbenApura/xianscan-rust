@@ -73,18 +73,16 @@ pub fn should_reject_candidate_region(
     if is_non_latin && lacks_native_script && crate::ml::detect::has_alphanumeric_characters(cleaned) {
         let char_count = cleaned.chars().filter(|c| !c.is_whitespace()).count();
         let is_sparse_giant_box = !is_bubble && (cluster_rect.w >= 100 || cluster_rect.h >= 100) && char_count <= 4;
-        let is_short_noise_code = !is_bubble
-            && char_count <= 3
-            && !crate::ml::detect::is_onomatopoeia_or_shout(cleaned)
-            && !(cluster_rect.w >= 45 && cluster_rect.h >= 25 && (cleaned.contains('Z') || cleaned.contains('z') || cleaned.contains('S') || cleaned.contains('A')));
-        let is_non_bubble_alphanumeric = !is_bubble && !crate::ml::detect::is_onomatopoeia_or_shout(cleaned);
+        let is_valid_sfx = crate::ml::detect::is_onomatopoeia_or_shout(cleaned);
+        let is_short_noise_code = !is_bubble && char_count <= 3 && !is_valid_sfx;
+        let is_non_bubble_alphanumeric = !is_bubble && !is_valid_sfx;
         if cluster_rect.h <= 15
             || is_sparse_giant_box
             || is_short_noise_code
             || is_non_bubble_alphanumeric
             || (!is_bubble && cluster_rect.w <= 35 && cluster_rect.h <= 35)
-            || (!is_bubble && avg_score < 0.70 && !(cluster_rect.w >= 45 && cluster_rect.h >= 25 && (cleaned.contains('Z') || cleaned.contains('z') || cleaned.contains('S') || cleaned.contains('A'))))
-            || (!is_bubble && cleaned.chars().count() == 1 && !(cluster_rect.w >= 45 && cluster_rect.h >= 25 && (cleaned == "Z" || cleaned == "z" || cleaned == "S" || cleaned == "s" || cleaned == "A" || cleaned == "B")))
+            || (!is_bubble && avg_score < 0.70 && !is_valid_sfx)
+            || (!is_bubble && char_count == 1 && !is_valid_sfx)
         {
             return true;
         }
@@ -127,7 +125,7 @@ pub fn should_reject_candidate_region(
     }
 
     // 9. SUPPRESS LOW-CONFIDENCE ISOLATED SINGLE-CHARACTER ARTWORK ARTIFACTS / SFX
-    let is_sign_or_narration_box = is_cjk && cluster_rect.w >= 60 && cluster_rect.h >= 40 && (cleaned.contains("省") || cleaned.contains("县") || cleaned.contains("区") || cleaned.contains("镇") || cleaned.contains("村") || cleaned.contains("室") || cleaned.contains("馆") || cleaned.contains("部") || cleaned.contains("堂") || cleaned.contains("院") || cleaned.contains("校") || cleaned.contains("门"));
+    let is_sign_or_narration_box = is_cjk && cluster_rect.w >= 60 && cluster_rect.h >= 40 && avg_score >= 0.70;
     let is_margin_isolated_char = (cluster_rect.x <= 5 || cluster_rect.x + cluster_rect.w >= page_w as i32 - 5) && avg_score < 0.75;
     let char_count = cleaned.chars().filter(|c| !c.is_whitespace()).count();
     let is_valid_cjk_glyph = is_cjk && cleaned.chars().any(|c| crate::ml::detect::has_cjk_characters(&c.to_string())) && avg_score >= 0.70 && !is_margin_isolated_char;
@@ -152,8 +150,8 @@ pub fn should_reject_candidate_region(
         return true;
     }
 
-    // 11. SUPPRESS LOW-CONFIDENCE REPEATED SFX GLYPHS GENERATED FROM LIGHTNING / SPEEDLINES
-    if is_cjk && !is_bubble && (cleaned.contains("呼呼") || cleaned == "呼" || cleaned == "叫呼呼") && avg_score < 0.65 && compute_chromatic_color_variance(img, cluster_rect) >= 15.0 {
+    // 11. SUPPRESS LOW-CONFIDENCE REPEATED SFX GLYPHS GENERATED ON HIGH-VARIANCE BACKGROUND
+    if is_cjk && !is_bubble && avg_score < 0.65 && compute_chromatic_color_variance(img, cluster_rect) >= 15.0 && crate::ml::detect::is_onomatopoeia_or_shout(cleaned) {
         return true;
     }
 

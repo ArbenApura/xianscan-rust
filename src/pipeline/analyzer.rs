@@ -96,7 +96,7 @@ pub fn analyze_image_with_fusion_timed(
             if matching_subboxes_count >= 2 {
                 continue;
             }
-            // If this is a horizontal single-line sub-box fragment completely enclosed inside a longer single-line box on the same row, skip the fragment
+            // IF THIS IS A HORIZONTAL SINGLE-LINE SUB-BOX FRAGMENT COMPLETELY ENCLOSED INSIDE A LONGER SINGLE-LINE BOX ON THE SAME ROW, SKIP THE FRAGMENT
             let is_subfragment = (b.h <= 45) && fusion_res.text_bubbles.iter().any(|(parent_b, _)| {
                 parent_b != b
                     && parent_b.h <= 45
@@ -109,6 +109,26 @@ pub fn analyze_image_with_fusion_timed(
             if is_subfragment {
                 continue;
             }
+
+            // IF THIS CANDIDATE OVERLAPS DETECTED ONOMATOPOEIA (SFX) WITH HIGHER OR COMPARABLE SCORE, SKIP IT
+            let overlaps_sfx = fusion_res.onomatopoeia.iter().any(|(sfx_b, sfx_score)| {
+                if *sfx_score < 0.25 {
+                    return false;
+                }
+                let ix = (sfx_b.x + sfx_b.w).min(b.x + b.w) - sfx_b.x.max(b.x);
+                let iy = (sfx_b.y + sfx_b.h).min(b.y + b.h) - sfx_b.y.max(b.y);
+                if ix > 0 && iy > 0 {
+                    let inter_area = (ix * iy) as f32;
+                    let b_area = (b.w * b.h).max(1) as f32;
+                    inter_area / b_area >= 0.50 && *sfx_score >= *score - 0.10
+                } else {
+                    false
+                }
+            });
+            if overlaps_sfx {
+                continue;
+            }
+
             candidate_boxes.push(vec![
                 [b.x as f32, b.y as f32],
                 [(b.x + b.w) as f32, b.y as f32],
@@ -245,7 +265,16 @@ pub fn analyze_image_with_fusion_timed(
                 if (lw as f32) >= (page_w as f32 * 0.55) && lh >= 70 {
                     continue;
                 }
-                // Do not rescue unassigned OCR lines on non-bubble background if they lie inside a panel already containing detected speech bubbles
+
+                // LAYOUT-ANCHORED RESCUE: CHECK IF THE OCR LINE IS ADJACENT TO ANY DETECTED LAYOUT BOX (BUBBLE OR TEXT CANDIDATE)
+                let is_near_layout_anchor = fusion_res.bubbles.iter().chain(fusion_res.text_bubbles.iter().map(|(b, _)| b)).chain(fusion_res.text_free.iter().map(|(b, _)| b)).any(|b| {
+                    let (bx, by, bw, bh) = (b.x as f32, b.y as f32, b.w as f32, b.h as f32);
+                    let dx = (bx - (lx + lw) as f32).max((lx as f32) - (bx + bw)).max(0.0);
+                    let dy = (by - (ly + lh) as f32).max((ly as f32) - (by + bh)).max(0.0);
+                    dx <= 35.0 && dy <= 35.0
+                });
+
+                // DO NOT RESCUE UNASSIGNED OCR LINES ON NON-BUBBLE BACKGROUND IF THEY LIE INSIDE A PANEL ALREADY CONTAINING DETECTED SPEECH BUBBLES
                 let inside_bubble_panel = fusion_res.panels.iter().any(|p| {
                     let (px, py, pw, ph) = (p.x as f32, p.y as f32, p.w as f32, p.h as f32);
                     let line_in_p = (lx as f32) >= px - 15.0 && ((lx + lw) as f32) <= (px + pw + 15.0) && (ly as f32) >= py - 15.0 && ((ly + lh) as f32) <= (py + ph + 15.0);
@@ -260,8 +289,21 @@ pub fn analyze_image_with_fusion_timed(
                         false
                     }
                 });
-                if inside_bubble_panel {
+                if inside_bubble_panel && !is_near_layout_anchor {
                     continue;
+                }
+
+                // IF NOT NEAR ANY LAYOUT DETECTION, ONLY RESCUE HIGH-CONFIDENCE NATIVE SCRIPT ON CLEAN GUTTER
+                if !is_near_layout_anchor {
+                    let is_native = match source_lang {
+                        Some(lang) if crate::ml::detect::is_non_latin_source(Some(lang)) => {
+                            crate::ml::detect::has_native_script_for_lang(&line.text, Some(lang))
+                        }
+                        _ => true,
+                    };
+                    if !is_native || line.score < 0.90 {
+                        continue;
+                    }
                 }
 
                 if lw <= 40 && lh <= 55 {
