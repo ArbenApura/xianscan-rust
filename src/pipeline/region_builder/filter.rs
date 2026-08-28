@@ -91,7 +91,16 @@ pub fn should_reject_candidate_region(
         return true;
     }
     if crate::ml::detect::is_pure_punctuation_only(cleaned) {
-        return true;
+        if !is_bubble {
+            return true;
+        }
+        // INSIDE SPEECH BUBBLES, ALLOW EXPRESSIVE DIALOGUE PUNCTUATION (E.G. '！？', '?!', '?', '!', '…', '……')
+        // WHILE FILTERING WEAK MICRO-NOISE OR SINGLE STRAY COMMAS / PERIODS
+        let is_expressive_bubble_punct = cleaned.chars().any(|c| matches!(c, '！' | '？' | '!' | '?' | '…' | '·' | '—' | '～' | '¿' | '¡'));
+        let is_micro_noise = cluster_rect.w <= 12 && cluster_rect.h <= 12;
+        if !is_expressive_bubble_punct || is_micro_noise || avg_score < 0.60 {
+            return true;
+        }
     }
 
     // 7. SUPPRESS STANDALONE DIGIT / DEGREE / PARTICLE NOISE OUTSIDE SPEECH BUBBLES ACROSS ALL LANGUAGES

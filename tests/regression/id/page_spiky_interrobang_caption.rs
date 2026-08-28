@@ -29,10 +29,17 @@ fn test_regression_page_spiky_interrobang_caption() {
         println!("  Region r{}: box={:?}, text='{}', conf={:.2}", i, r.box_, r.text.replace('\n', "\\n"), r.confidence);
     }
 
-    // 1. EXACT ELEMENT COUNTS: EXACTLY 1 REGION (0 DIALOGUE BUBBLE, 0 SFX, 1 FREE TEXT)
-    crate::assert_element_counts!(res, 1, 0, 0, 1);
+    // 1. EXACT ELEMENT COUNTS: EXACTLY 2 REGIONS (1 DIALOGUE BUBBLE, 0 SFX, 1 FREE TEXT)
+    crate::assert_element_counts!(res, 2, 1, 0, 1);
 
-    // 2. LOWER NARRATION CAPTION BOX:
+    // 2. SPIKY INTERROBANG BUBBLE: '?!' -> [X: 367, Y: 176, W: 248, H: 224]
+    let interrobang = res.regions.iter().find(|r| r.text.trim() == "?!" || r.text.trim() == "？！");
+    assert!(interrobang.is_some(), "Must detect upper spiky reaction bubble '?!'");
+    let interrobang = interrobang.unwrap();
+    crate::assert_region_bounds!(interrobang, xianscan_rust::ml::schemas::RegionKind::DialogueBubble, 367, 176, 248, 224, 10);
+    crate::assert_bubble_bounds!(interrobang, 349, 158, 287, 269, 10);
+
+    // 3. LOWER NARRATION CAPTION BOX:
     // TEXT: 'YANG\nSEHARUSNYA\nSEPERTI BIASA.' -> [X: 102, Y: 858, W: 250, H: 98]
     let narration = res.regions.iter().find(|r| {
         let t = r.text.to_uppercase();
@@ -47,11 +54,7 @@ fn test_regression_page_spiky_interrobang_caption() {
         narration.text
     );
 
-    // 3. EXPLICIT NEGATIVE GUARDS AGAINST STANDALONE PUNCTUATION AND BIFURCATED DIGIT ARTIFACTS
-    assert!(
-        !res.regions.iter().any(|r| r.text.trim() == "?!" || r.text.trim() == "？！" || r.text.trim() == "！？" || r.text.trim() == "?" || r.text.trim() == "!"),
-        "Standalone punctuation '?!' should be skipped from active regions"
-    );
+    // 4. EXPLICIT NEGATIVE GUARDS AGAINST BIFURCATED DIGIT ARTIFACTS
     assert!(
         !res.regions.iter().any(|r| r.text.contains("21")),
         "Must never hallucinate '21' in place of '? / !'"

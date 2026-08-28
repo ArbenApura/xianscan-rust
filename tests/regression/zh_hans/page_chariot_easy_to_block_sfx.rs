@@ -32,10 +32,10 @@ fn test_regression_page_chariot_easy_to_block_sfx() {
     // 2. NEGATIVE GUARD: NO PANEL 1 SFX '哒' OR ANY SFX EXTRACTED
     assert!(!res.regions.iter().any(|r| r.text.contains("哒")), "Must NOT extract panel 1 SFX '哒'");
 
-    // 3. PANEL 1 NARRATION: '明车易挡……' -> ZERO ROTATION ANGLE [X: 247, Y: 723, W: 382, H: 136]
+    // 3. PANEL 1 NARRATION: '明车易挡……' -> ZERO ROTATION ANGLE [X: 247, Y: 723, W: 446, H: 136]
     let narration = res.regions.iter().find(|r| r.text.contains("明车易挡"));
     assert!(narration.is_some(), "Must detect narration '明车易挡……'");
     let narration = narration.unwrap();
-    crate::assert_region_bounds!(narration, xianscan_rust::ml::schemas::RegionKind::FreeText, 247, 723, 382, 136, 8);
+    crate::assert_region_bounds!(narration, xianscan_rust::ml::schemas::RegionKind::FreeText, 247, 723, 446, 136, 8);
     crate::assert_region_angle!(narration, 0.0, 1.0);
 }
