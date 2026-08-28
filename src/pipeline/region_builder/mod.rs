@@ -55,6 +55,22 @@ mod tests {
     }
 
     #[test]
+    fn test_expand_box_does_not_over_expand_opposite_side_when_clipped() {
+        // BOX NEAR THE LEFT PAGE EDGE BUT WITH ROOM ON THE RIGHT: THE EXPANSION MUST BE
+        // CLIPPED ON THE LEFT ONLY, NOT SHIFTED TO OVER-EXPAND THE RIGHT EDGE.
+        let base = BoxRect { x: 5, y: 100, w: 50, h: 50 };
+        let page_w = 200;
+        let page_h = 200;
+        // ref_dim = 50 -> uniform_pad = (50 * 0.20 * 1.5) = 15
+        // LEFT CLIPPED TO 0 (5 - 15); RIGHT EDGE = 5 + 50 + 15 = 70 -> WIDTH = 70
+        let expanded = expand_box(&base, 0.20, page_w, page_h);
+        assert_eq!(expanded.x, 0);
+        assert_eq!(expanded.w, 70);
+        assert_eq!(expanded.y, 85);
+        assert_eq!(expanded.h, 80);
+    }
+
+    #[test]
     fn test_noise_strokes_filtering() {
         assert!(crate::ml::detect::is_standalone_noise_stroke(""));
         assert!(crate::ml::detect::is_standalone_noise_stroke("000"));

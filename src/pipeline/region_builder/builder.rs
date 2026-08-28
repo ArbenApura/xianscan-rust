@@ -1547,10 +1547,9 @@ fn expand_bubble_text_boxes(regions: &mut Vec<Region>, page_w: u32, page_h: u32,
             None => continue,
         };
         let b = regions[i].bubble_box.as_ref().unwrap();
-        let (left, right, top, bottom) = match bubble_core(b) {
-            Some(c) => c,
-            None => continue,
-        };
+        // CLAMP TO THE ACTUAL BUBBLE BOX (NOT THE INSCRIBED SAFE CORE) SO THE PADDING
+        // FROM expand_box IS PRESERVED ON ALL SIDES WHILE NEVER BLEEDING PAST THE BUBBLE.
+        let (left, right, top, bottom) = (b.x, b.x + b.w, b.y, b.y + b.h);
 
         // COLLISION ROLLBACK AGAINST NON-SIBLING REGIONS (FREE TEXT / SFX / OTHER BUBBLES)
         let collides = regions.iter().enumerate().any(|(j, o)| {

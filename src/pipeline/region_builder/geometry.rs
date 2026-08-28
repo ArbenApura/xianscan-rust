@@ -14,15 +14,17 @@ pub fn expand_box(b: &BoxRect, pad_pct: f32, page_w: u32, page_h: u32) -> BoxRec
     let ref_dim = (b.w.min(b.h) as f32).max((b.w.max(b.h) as f32) * 0.4);
     let uniform_pad = (ref_dim * pad_pct * 1.5).round().max(1.0) as i32;
 
-    let sx = (b.x - uniform_pad).max(0);
-    let sy = (b.y - uniform_pad).max(0);
-    let sw = (b.w + uniform_pad * 2).min(page_w as i32 - sx);
-    let sh = (b.h + uniform_pad * 2).min(page_h as i32 - sy);
+    // CLAMP EACH EDGE INDEPENDENTLY SO A BOX NEAR THE PAGE BOUNDARY DOES NOT
+    // OVER-EXPAND ON THE OPPOSITE SIDE WHEN ONE SIDE IS CLIPPED.
+    let left = (b.x - uniform_pad).max(0);
+    let right = (b.x + b.w + uniform_pad).min(page_w as i32);
+    let top = (b.y - uniform_pad).max(0);
+    let bottom = (b.y + b.h + uniform_pad).min(page_h as i32);
     BoxRect {
-        x: sx,
-        y: sy,
-        w: sw.max(1),
-        h: sh.max(1),
+        x: left,
+        y: top,
+        w: (right - left).max(1),
+        h: (bottom - top).max(1),
     }
 }
 
