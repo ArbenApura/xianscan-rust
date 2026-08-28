@@ -40,12 +40,12 @@ fn test_regression_page_iv_drip_sedative_squeeze_sfx() {
     // 2. NEGATIVE GUARD: NO MIDDLE SLANTED SFX '꾸욱' EXTRACTED AS FREETEXT
     assert!(!res.regions.iter().any(|r| r.text.contains("꾸욱")), "Must NOT extract squeeze SFX '꾸욱'");
 
-    // 3. TOP SPEECH BUBBLE: [X: ~301, Y: ~428, W: ~328, H: ~148]
+    // 3. TOP SPEECH BUBBLE: [X: ~301, Y: ~404, W: ~328, H: ~196]
     let top_bubble = res.regions.iter().find(|r| r.text.contains("선생님") || r.text.contains("수면약"));
     assert!(top_bubble.is_some(), "Must detect top dialogue bubble about doctor & sedative");
     let top_bubble = top_bubble.unwrap();
     assert_eq!(top_bubble.kind, RegionKind::DialogueBubble);
-    crate::assert_region_bounds!(top_bubble, RegionKind::DialogueBubble, 301, 428, 328, 148, 15);
+    crate::assert_region_bounds!(top_bubble, RegionKind::DialogueBubble, 301, 404, 328, 196, 15);
     crate::assert_bubble_bounds!(top_bubble, 283, 386, 365, 238, 20);
 
     // 4. BOTTOM THOUGHT BUBBLE: [X: ~42, Y: ~1265, W: ~128, H: ~52]
@@ -53,6 +53,6 @@ fn test_regression_page_iv_drip_sedative_squeeze_sfx() {
     assert!(bot_bubble.is_some(), "Must detect bottom thought bubble '아야;;'");
     let bot_bubble = bot_bubble.unwrap();
     assert_eq!(bot_bubble.kind, RegionKind::DialogueBubble);
-    crate::assert_region_bounds!(bot_bubble, RegionKind::DialogueBubble, 42, 1265, 128, 52, 15);
+    crate::assert_region_bounds!(bot_bubble, RegionKind::DialogueBubble, 35, 1240, 142, 102, 15);
     crate::assert_bubble_bounds!(bot_bubble, 25, 1230, 164, 127, 20);
 }

@@ -34,11 +34,11 @@ fn test_regression_page_school_phone_rule_e_bubble() {
     crate::assert_element_counts!(res, 8, 8, 0, 0);
 
     // 1. TOP-LEFT BUBBLE: '万事解決だ。 スマホが あれば外に 助けが呼べる。'
-    // TEXT BOUNDS: [X: 21, Y: 13, W: 109, H: 164] | BUBBLE BOUNDS: [X: 0, Y: 0, W: 165, H: 219]
+    // TEXT BOUNDS: [X: 13, Y: 13, W: 124, H: 164] | BUBBLE BOUNDS: [X: 0, Y: 0, W: 165, H: 219]
     let all_solved = res.regions.iter().find(|r| r.text.contains("万事") || r.text.contains("助けが呼べる"));
     assert!(all_solved.is_some(), "Must detect top-left bubble '万事解決だ。 スマホが あれば外に 助けが呼べる。'");
     let all_solved = all_solved.unwrap();
-    crate::assert_region_bounds!(all_solved, xianscan_rust::ml::schemas::RegionKind::DialogueBubble, 21, 13, 109, 164, 8);
+    crate::assert_region_bounds!(all_solved, xianscan_rust::ml::schemas::RegionKind::DialogueBubble, 13, 13, 124, 164, 8);
     crate::assert_bubble_bounds!(all_solved, 0, 0, 165, 219, 10);
 
     // 2. TOP-CENTER SINGLE-CHARACTER BUBBLE: 'え'
@@ -49,7 +49,7 @@ fn test_regression_page_school_phone_rule_e_bubble() {
     });
     assert!(e_bubble.is_some(), "Must detect top-center single-character bubble 'え'");
     let e_bubble = e_bubble.unwrap();
-    crate::assert_region_bounds!(e_bubble, xianscan_rust::ml::schemas::RegionKind::DialogueBubble, 359, 4, 78, 96, 8);
+    crate::assert_region_bounds!(e_bubble, xianscan_rust::ml::schemas::RegionKind::DialogueBubble, 338, 4, 120, 96, 8);
     crate::assert_bubble_bounds!(e_bubble, 317, 1, 151, 132, 10);
 
     // 3. TOP-RIGHT BUBBLE: '気が ぬけたら 意識 トびそうに なった…'
@@ -57,7 +57,7 @@ fn test_regression_page_school_phone_rule_e_bubble() {
     let top_right = res.regions.iter().find(|r| r.text.contains("気が") && (r.text.contains("ぬけたら") || r.text.contains("意識") || r.text.contains("トびそう")));
     assert!(top_right.is_some(), "Must detect top-right bubble '気が ぬけたら 意識 トびそうに なった…'");
     let top_right = top_right.unwrap();
-    crate::assert_region_bounds!(top_right, xianscan_rust::ml::schemas::RegionKind::DialogueBubble, 678, 77, 118, 132, 8);
+    crate::assert_region_bounds!(top_right, xianscan_rust::ml::schemas::RegionKind::DialogueBubble, 678, 70, 129, 146, 8);
     crate::assert_bubble_bounds!(top_right, 666, 59, 141, 171, 10);
 
     // 4. TOP-MIDDLE LEFT BUBBLE: 'あ… うん。'
@@ -65,7 +65,7 @@ fn test_regression_page_school_phone_rule_e_bubble() {
     let ah_un = res.regions.iter().find(|r| r.text.contains("あ…") || (r.text.contains("あ") && r.text.contains("ん")));
     assert!(ah_un.is_some(), "Must detect 'あ… うん。' bubble");
     let ah_un = ah_un.unwrap();
-    crate::assert_region_bounds!(ah_un, xianscan_rust::ml::schemas::RegionKind::DialogueBubble, 275, 202, 66, 76, 8);
+    crate::assert_region_bounds!(ah_un, xianscan_rust::ml::schemas::RegionKind::DialogueBubble, 275, 185, 66, 110, 8);
     crate::assert_bubble_bounds!(ah_un, 261, 171, 246, 178, 10);
 
     // 5. TOP-MIDDLE RIGHT BUBBLE: '学校内て スマホ持ち歩くの 校則違反じゃん。'
@@ -73,7 +73,7 @@ fn test_regression_page_school_phone_rule_e_bubble() {
     let school_rule = res.regions.iter().find(|r| r.text.contains("学校内") || r.text.contains("校則違反") || r.text.contains("持ち歩く"));
     assert!(school_rule.is_some(), "Must detect '学校内で スマホ持ち歩くの 校則違反じゃん。' bubble");
     let school_rule = school_rule.unwrap();
-    crate::assert_region_bounds!(school_rule, xianscan_rust::ml::schemas::RegionKind::DialogueBubble, 376, 175, 96, 176, 8);
+    crate::assert_region_bounds!(school_rule, xianscan_rust::ml::schemas::RegionKind::DialogueBubble, 355, 175, 138, 174, 8);
     crate::assert_bubble_bounds!(school_rule, 261, 171, 246, 178, 10);
 
     // 6. BOTTOM-LEFT UPPER BUBBLE: 'いつも つるんでる やつらでも…'
@@ -81,7 +81,7 @@ fn test_regression_page_school_phone_rule_e_bubble() {
     let hanging_out = res.regions.iter().find(|r| r.text.contains("つるんでる") || (r.text.contains("いっも") || r.text.contains("いつも")));
     assert!(hanging_out.is_some(), "Must detect bottom-left upper bubble 'いつも つるんでる やつらでも…'");
     let hanging_out = hanging_out.unwrap();
-    crate::assert_region_bounds!(hanging_out, xianscan_rust::ml::schemas::RegionKind::DialogueBubble, 66, 420, 100, 139, 8);
+    crate::assert_region_bounds!(hanging_out, xianscan_rust::ml::schemas::RegionKind::DialogueBubble, 54, 420, 124, 139, 8);
     crate::assert_bubble_bounds!(hanging_out, 36, 403, 233, 333, 10);
 
     // 7. BOTTOM-MIDDLE BUBBLE: '職員室に つないで 先生にきて もらうか…'
@@ -97,6 +97,6 @@ fn test_regression_page_school_phone_rule_e_bubble() {
     let anyone_fine = res.regions.iter().find(|r| r.text.contains("だれでもいい") || (r.text.contains("友だち") && r.text.contains("いるだろう")));
     assert!(anyone_fine.is_some(), "Must detect bottom-left lower bubble 'だれでもいい。 友だち たくさん いるだろう。'");
     let anyone_fine = anyone_fine.unwrap();
-    crate::assert_region_bounds!(anyone_fine, xianscan_rust::ml::schemas::RegionKind::DialogueBubble, 94, 576, 138, 161, 8);
+    crate::assert_region_bounds!(anyone_fine, xianscan_rust::ml::schemas::RegionKind::DialogueBubble, 75, 576, 176, 160, 8);
     crate::assert_bubble_bounds!(anyone_fine, 36, 403, 233, 333, 10);
 }

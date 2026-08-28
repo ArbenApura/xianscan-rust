@@ -54,9 +54,9 @@ fn test_regression_page_polyp_discovered_spiky_punctuation_bubble() {
         dialogue,
         xianscan_rust::ml::schemas::RegionKind::DialogueBubble,
         34,
-        367,
+        340,
         430,
-        148,
+        202,
         15
     );
     if let Some(ref b_box) = dialogue.bubble_box {

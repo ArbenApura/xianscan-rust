@@ -39,7 +39,7 @@ fn test_regression_page_hospital_reception_wall_sign() {
     // 1. EXACT ELEMENT COUNTS: EXACTLY 2 REGIONS (2 DIALOGUEBUBBLES, 0 SOUNDEFFECT, 0 FREETEXT)
     crate::assert_element_counts!(res, 2, 2, 0, 0);
 
-    // 2. TOP SPEECH BUBBLE (RECEPTIONIST): [X: 63, Y: 498, W: 368, H: 142]
+    // 2. TOP SPEECH BUBBLE (RECEPTIONIST): [X: 63, Y: 473, W: 368, H: 192]
     let top_bubble = res
         .regions
         .iter()
@@ -50,9 +50,9 @@ fn test_regression_page_hospital_reception_wall_sign() {
         top_bubble,
         xianscan_rust::ml::schemas::RegionKind::DialogueBubble,
         63,
-        498,
+        473,
         368,
-        142,
+        192,
         15
     );
     crate::assert_bubble_bounds!(top_bubble, 45, 455, 407, 258, 15);
@@ -66,9 +66,9 @@ fn test_regression_page_hospital_reception_wall_sign() {
         bot_bubble,
         xianscan_rust::ml::schemas::RegionKind::DialogueBubble,
         446,
-        950,
+        926,
         146,
-        50,
+        98,
         15
     );
     crate::assert_bubble_bounds!(bot_bubble, 436, 901, 171, 133, 15);

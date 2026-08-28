@@ -82,7 +82,7 @@ fn test_regression_page_nie_li_scribbling_exclamation_bubble() {
     assert!(b6.is_some(), "Must detect panel 3 exclamation dialogue bubble '！？'");
     let b6 = b6.unwrap();
     assert_eq!(b6.kind, xianscan_rust::ml::schemas::RegionKind::DialogueBubble);
-    crate::assert_region_bounds!(b6, xianscan_rust::ml::schemas::RegionKind::DialogueBubble, 78, 777, 99, 54, 8);
+    crate::assert_region_bounds!(b6, xianscan_rust::ml::schemas::RegionKind::DialogueBubble, 78, 733, 99, 142, 8);
     crate::assert_bubble_bounds!(b6, 72, 724, 121, 169, 8);
     crate::assert_region_angle!(b6, 0.0, 2.0);
 

@@ -91,15 +91,7 @@ pub fn should_reject_candidate_region(
         return true;
     }
     if crate::ml::detect::is_pure_punctuation_only(cleaned) {
-        // ALLOW MEANINGFUL UTTERANCE EXCLAMATION / QUESTION MARKS INSIDE DETECTED SPEECH BUBBLES (E.G. '！？', '？！', '！', '？')
-        let is_valid_bubble_utterance = is_bubble
-            && avg_score >= 0.65
-            && (cleaned.contains('!') || cleaned.contains('！') || cleaned.contains('?') || cleaned.contains('？'))
-            && !crate::ml::detect::is_pure_watermark_region(cleaned)
-            && !crate::ml::detect::ALL_ELLIPSIS.is_match(cleaned);
-        if !is_valid_bubble_utterance {
-            return true;
-        }
+        return true;
     }
 
     // 7. SUPPRESS STANDALONE DIGIT / DEGREE / PARTICLE NOISE OUTSIDE SPEECH BUBBLES ACROSS ALL LANGUAGES
@@ -126,7 +118,10 @@ pub fn should_reject_candidate_region(
     let is_margin_isolated_char = (cluster_rect.x <= 5 || cluster_rect.x + cluster_rect.w >= page_w as i32 - 5) && avg_score < 0.75;
     let char_count = cleaned.chars().filter(|c| !c.is_whitespace()).count();
     let is_valid_cjk_glyph = is_cjk && cleaned.chars().any(|c| crate::ml::detect::has_cjk_characters(&c.to_string())) && avg_score >= 0.70 && !is_margin_isolated_char;
-    let is_low_conf_single_char = char_count == 1 && (avg_score < 0.68 || cluster_rect.w >= 100 || cluster_rect.h >= 100);
+    // COMPACT SINGLE-CHAR BOX (W<=40, H<=40): ALWAYS TREAT AS ARTWORK INSCRIPTION (HAT/CLOTHING INSIGNIA, STAMP)
+    // A SINGLE CJK GLYPH IN A TINY NON-BUBBLE BOX IS NEVER STANDALONE DIALOGUE OR NARRATION
+    let is_compact_single_glyph_box = char_count == 1 && cluster_rect.w <= 40 && cluster_rect.h <= 40;
+    let is_low_conf_single_char = char_count == 1 && (avg_score < 0.68 || cluster_rect.w >= 100 || cluster_rect.h >= 100 || is_compact_single_glyph_box);
     let is_isolated_sfx = char_count <= 4 && crate::ml::detect::is_onomatopoeia_or_shout(cleaned);
 
     if char_count <= 4

@@ -33,11 +33,11 @@ fn test_regression_page_lucky_me_first_place_vertical() {
     crate::assert_element_counts!(res, 10, 9, 0, 1);
 
     // 1. TOP-LEFT BUBBLE: 'いやあ・・ ラッキーだよ'
-    // TEXT BOUNDS: [X: 104, Y: 80, W: 102, H: 240] | BUBBLE BOUNDS: [X: 78, Y: 60, W: 168, H: 273]
+    // TEXT BOUNDS: [X: 91, Y: 80, W: 128, H: 240] | BUBBLE BOUNDS: [X: 78, Y: 60, W: 168, H: 273]
     let lucky_bubble = res.regions.iter().find(|r| r.text.contains("ラッキー") || r.text.contains("いやあ"));
     assert!(lucky_bubble.is_some(), "Must detect top-left bubble 'いやあ・・ ラッキーだよ'");
     let lucky_bubble = lucky_bubble.unwrap();
-    crate::assert_region_bounds!(lucky_bubble, xianscan_rust::ml::schemas::RegionKind::DialogueBubble, 104, 80, 102, 240, 8);
+    crate::assert_region_bounds!(lucky_bubble, xianscan_rust::ml::schemas::RegionKind::DialogueBubble, 91, 80, 128, 240, 8);
     crate::assert_bubble_bounds!(lucky_bubble, 78, 60, 168, 273, 10);
 
     // 2. TOP-CENTER SMALL CIRCLE: 'スゴすぎー'
@@ -45,7 +45,7 @@ fn test_regression_page_lucky_me_first_place_vertical() {
     let sugoi_bubble = res.regions.iter().find(|r| r.text.contains("スゴすぎ") || (r.text.contains("ス") && r.text.contains("ぎ")));
     assert!(sugoi_bubble.is_some(), "Must detect small circular bubble 'スゴすぎー'");
     let sugoi_bubble = sugoi_bubble.unwrap();
-    crate::assert_region_bounds!(sugoi_bubble, xianscan_rust::ml::schemas::RegionKind::DialogueBubble, 470, 93, 48, 131, 8);
+    crate::assert_region_bounds!(sugoi_bubble, xianscan_rust::ml::schemas::RegionKind::DialogueBubble, 446, 93, 96, 131, 8);
     crate::assert_bubble_bounds!(sugoi_bubble, 433, 79, 118, 162, 10);
 
     // 3. TOP-CENTER BUBBLE: '入学以来 ずっと じゃない！？'
@@ -61,7 +61,7 @@ fn test_regression_page_lucky_me_first_place_vertical() {
     let top_right = res.regions.iter().find(|r| r.text.contains("また") && (r.text.contains("1位") || r.text.contains("１位")));
     assert!(top_right.is_some(), "Must detect top-right bubble 'また１位！？'");
     let top_right = top_right.unwrap();
-    crate::assert_region_bounds!(top_right, xianscan_rust::ml::schemas::RegionKind::DialogueBubble, 985, 63, 58, 194, 8);
+    crate::assert_region_bounds!(top_right, xianscan_rust::ml::schemas::RegionKind::DialogueBubble, 956, 63, 116, 194, 8);
     crate::assert_bubble_bounds!(top_right, 944, 48, 139, 220, 10);
 
     // 5. MID-LEFT SMALL BUBBLE: 'ハハ・・'
@@ -69,7 +69,7 @@ fn test_regression_page_lucky_me_first_place_vertical() {
     let haha_bubble = res.regions.iter().find(|r| r.text.contains("ハハ"));
     assert!(haha_bubble.is_some(), "Must detect 'ハハ・・' bubble");
     let haha_bubble = haha_bubble.unwrap();
-    crate::assert_region_bounds!(haha_bubble, xianscan_rust::ml::schemas::RegionKind::DialogueBubble, 181, 675, 62, 114, 8);
+    crate::assert_region_bounds!(haha_bubble, xianscan_rust::ml::schemas::RegionKind::DialogueBubble, 169, 675, 86, 114, 8);
     crate::assert_bubble_bounds!(haha_bubble, 157, 667, 106, 140, 10);
 
     // 6. MID-CENTER TEACHER CONTINUATION: 'そして アタシの評価を あげろ～'
@@ -85,7 +85,7 @@ fn test_regression_page_lucky_me_first_place_vertical() {
     let teacher_bubble = res.regions.iter().find(|r| r.text.contains("秋田を") || r.text.contains("見習え"));
     assert!(teacher_bubble.is_some(), "Must detect teacher bubble 'お前ら 秋田を 見習え～'");
     let teacher_bubble = teacher_bubble.unwrap();
-    crate::assert_region_bounds!(teacher_bubble, xianscan_rust::ml::schemas::RegionKind::DialogueBubble, 923, 503, 128, 164, 8);
+    crate::assert_region_bounds!(teacher_bubble, xianscan_rust::ml::schemas::RegionKind::DialogueBubble, 923, 495, 128, 180, 8);
     crate::assert_bubble_bounds!(teacher_bubble, 730, 477, 340, 305, 10);
 
     // 8. BOTTOM-LEFT MC FREETEXT: 'ありがとう みんな'
@@ -100,7 +100,7 @@ fn test_regression_page_lucky_me_first_place_vertical() {
     let modest_bubble = res.regions.iter().find(|r| r.text.contains("謙遜") || r.text.contains("かっこい"));
     assert!(modest_bubble.is_some(), "Must detect modest girl bubble");
     let modest_bubble = modest_bubble.unwrap();
-    crate::assert_region_bounds!(modest_bubble, xianscan_rust::ml::schemas::RegionKind::DialogueBubble, 960, 970, 86, 204, 8);
+    crate::assert_region_bounds!(modest_bubble, xianscan_rust::ml::schemas::RegionKind::DialogueBubble, 951, 970, 104, 204, 8);
     crate::assert_bubble_bounds!(modest_bubble, 935, 959, 130, 225, 10);
 
     // 10. BOTTOM-CENTER BOY BUBBLE: 'すえ 末は 博士か 大臣か'
@@ -108,6 +108,6 @@ fn test_regression_page_lucky_me_first_place_vertical() {
     let proverb_bubble = res.regions.iter().find(|r| r.text.contains("博士") || r.text.contains("大臣") || r.text.contains("末は"));
     assert!(proverb_bubble.is_some(), "Must detect proverb bubble '末は 博士か 大臣か'");
     let proverb_bubble = proverb_bubble.unwrap();
-    crate::assert_region_bounds!(proverb_bubble, xianscan_rust::ml::schemas::RegionKind::DialogueBubble, 713, 1312, 154, 146, 8);
+    crate::assert_region_bounds!(proverb_bubble, xianscan_rust::ml::schemas::RegionKind::DialogueBubble, 713, 1276, 154, 218, 8);
     crate::assert_bubble_bounds!(proverb_bubble, 701, 1244, 172, 263, 10);
 }

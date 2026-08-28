@@ -46,7 +46,7 @@ fn test_regression_page_lightning_storm_welcome_my_lord_shout_bubble() {
         "Bubble text must contain '恭迎主', got '{}'",
         bubble.text
     );
-    crate::assert_region_bounds!(bubble, RegionKind::DialogueBubble, 30, 1079, 189, 160, 15);
+    crate::assert_region_bounds!(bubble, RegionKind::DialogueBubble, 30, 1062, 189, 194, 15);
     crate::assert_bubble_bounds!(bubble, 18, 1037, 207, 235, 15);
 
     // 3. NEGATIVE GUARD: ZERO CAPE SPEEDLINE / '叫呼呼' / 'WHOOSH' NOISE

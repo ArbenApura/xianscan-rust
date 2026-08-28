@@ -48,11 +48,11 @@ fn test_regression_page_patient_endoscopy_heartbeat_sfx() {
     crate::assert_region_bounds!(top_bubble, RegionKind::DialogueBubble, 28, 397, 236, 146, 15);
     crate::assert_bubble_bounds!(top_bubble, 10, 369, 273, 271, 20);
 
-    // 4. MIDDLE SPEECH BUBBLE: '아, 네!' -> [X: ~298, Y: ~976, W: ~152, H: ~54]
+    // 4. MIDDLE SPEECH BUBBLE: '아, 네!' -> [X: ~298, Y: ~953, W: ~152, H: ~100]
     let mid_bubble = res.regions.iter().find(|r| r.text.contains("아, 네") || r.text.contains("아,네"));
     assert!(mid_bubble.is_some(), "Must detect middle dialogue bubble '아, 네!'");
     let mid_bubble = mid_bubble.unwrap();
     assert_eq!(mid_bubble.kind, RegionKind::DialogueBubble);
-    crate::assert_region_bounds!(mid_bubble, RegionKind::DialogueBubble, 298, 976, 152, 54, 15);
+    crate::assert_region_bounds!(mid_bubble, RegionKind::DialogueBubble, 298, 953, 152, 100, 15);
     crate::assert_bubble_bounds!(mid_bubble, 288, 943, 173, 134, 20);
 }

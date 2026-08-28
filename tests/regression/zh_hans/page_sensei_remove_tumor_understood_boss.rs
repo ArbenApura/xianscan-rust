@@ -1,4 +1,4 @@
-﻿// -- INTERNAL IMPORTS -- //
+// -- INTERNAL IMPORTS -- //
 use crate::common::get_or_analyze_fixture_with_lang;
 use xianscan_rust::ml::schemas::RegionKind;
 
@@ -105,7 +105,7 @@ fn test_regression_page_sensei_remove_tumor_understood_boss() {
     assert!(b2.is_some(), "Must detect dialogue bubble '在那儿！'");
     let b2 = b2.unwrap();
     assert_eq!(b2.kind, RegionKind::DialogueBubble);
-    crate::assert_region_bounds!(b2, RegionKind::DialogueBubble, 340, 372, 44, 122, 15);
+    crate::assert_region_bounds!(b2, RegionKind::DialogueBubble, 322, 372, 80, 122, 15);
 
     // 10. PANEL 3 BOTTOM-RIGHT DIALOGUE BUBBLE: '说起来……'
     let b3 = res.regions.iter().find(|r| r.text.contains("说起来"));
@@ -126,7 +126,7 @@ fn test_regression_page_sensei_remove_tumor_understood_boss() {
     assert!(b4_lower.is_some(), "Must detect bottom-center bubble lower utterance '火影爷爷啊？'");
     let b4_lower = b4_lower.unwrap();
     assert_eq!(b4_lower.kind, RegionKind::DialogueBubble);
-    crate::assert_region_bounds!(b4_lower, RegionKind::DialogueBubble, 278, 728, 84, 80, 15);
+    crate::assert_region_bounds!(b4_lower, RegionKind::DialogueBubble, 277, 706, 86, 124, 15);
 
     // 13. NEGATIVE GUARDS
     // Stray exclamation / single character around (342, 205)

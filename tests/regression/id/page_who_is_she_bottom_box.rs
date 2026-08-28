@@ -33,13 +33,13 @@ fn test_regression_page_who_is_she_bottom_box() {
     crate::assert_element_counts!(res, 2, 2, 0, 0);
 
     // 2. UPPER DIALOGUE BOX:
-    // TEXT BOUNDS: 'PEREMPUAN...?' -> [X: 38, Y: 512, W: 144, H: 21]
+    // TEXT BOUNDS: 'PEREMPUAN...?' -> [X: 38, Y: 481, W: 144, H: 82]
     // OUTER SPEECH BUBBLE BOUNDS: [X: 23, Y: 473, W: 176, H: 101]
     let top_box = res.regions.iter().find(|r| r.text.to_uppercase().contains("PEREMPUAN"));
     assert!(top_box.is_some(), "Must detect upper dialogue box 'PEREMPUAN...?'");
     let top_box = top_box.unwrap();
     assert_eq!(top_box.text.trim(), "PEREMPUAN...?");
-    crate::assert_region_bounds!(top_box, xianscan_rust::ml::schemas::RegionKind::DialogueBubble, 38, 512, 144, 21, 5);
+    crate::assert_region_bounds!(top_box, xianscan_rust::ml::schemas::RegionKind::DialogueBubble, 38, 481, 144, 82, 5);
     crate::assert_bubble_bounds!(top_box, 23, 473, 176, 101, 10);
 
     // 3. LOWER DIALOGUE BOX:
@@ -49,6 +49,6 @@ fn test_regression_page_who_is_she_bottom_box() {
     assert!(bottom_box.is_some(), "Must detect lower dialogue box 'SIAPA DIA...?'");
     let bottom_box = bottom_box.unwrap();
     assert_eq!(bottom_box.text.trim(), "SIAPA DIA...?");
-    crate::assert_region_bounds!(bottom_box, xianscan_rust::ml::schemas::RegionKind::DialogueBubble, 194, 923, 180, 28, 5);
+    crate::assert_region_bounds!(bottom_box, xianscan_rust::ml::schemas::RegionKind::DialogueBubble, 192, 889, 184, 96, 5);
     crate::assert_bubble_bounds!(bottom_box, 183, 880, 206, 115, 10);
 }

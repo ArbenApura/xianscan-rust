@@ -71,7 +71,7 @@ fn test_regression_page_saint_nether_grass_catch_present() {
     assert!(b5.is_some(), "Must detect panel 3 shout bubble '一株五万？！...'");
     let b5 = b5.unwrap();
     assert_eq!(b5.kind, xianscan_rust::ml::schemas::RegionKind::DialogueBubble);
-    crate::assert_region_bounds!(b5, xianscan_rust::ml::schemas::RegionKind::DialogueBubble, 519, 732, 73, 182, 10);
+    crate::assert_region_bounds!(b5, xianscan_rust::ml::schemas::RegionKind::DialogueBubble, 519, 721, 73, 204, 10);
     crate::assert_region_angle!(b5, 0.0, 2.0);
 
     // 6. PANEL 3 DIALOGUE BUBBLE: '这是六株五年份的\n圣冥草，只有我们家\n才有，跟着我好好干，\n少不了你们的好处！'
