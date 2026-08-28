@@ -43,12 +43,12 @@ fn test_regression_page_who_is_she_bottom_box() {
     crate::assert_bubble_bounds!(top_box, 23, 473, 176, 101, 10);
 
     // 3. LOWER DIALOGUE BOX:
-    // TEXT BOUNDS: 'SIAPA DIA...?' -> [X: 218, Y: 925, W: 133, H: 24]
+    // TEXT BOUNDS: 'SIAPA DIA...?' -> [X: 194, Y: 923, W: 180, H: 28]
     // OUTER SPEECH BUBBLE BOUNDS: [X: 183, Y: 880, W: 206, H: 115]
     let bottom_box = res.regions.iter().find(|r| r.text.to_uppercase().contains("SIAPA"));
     assert!(bottom_box.is_some(), "Must detect lower dialogue box 'SIAPA DIA...?'");
     let bottom_box = bottom_box.unwrap();
     assert_eq!(bottom_box.text.trim(), "SIAPA DIA...?");
-    crate::assert_region_bounds!(bottom_box, xianscan_rust::ml::schemas::RegionKind::DialogueBubble, 218, 925, 133, 24, 5);
+    crate::assert_region_bounds!(bottom_box, xianscan_rust::ml::schemas::RegionKind::DialogueBubble, 194, 923, 180, 28, 5);
     crate::assert_bubble_bounds!(bottom_box, 183, 880, 206, 115, 10);
 }

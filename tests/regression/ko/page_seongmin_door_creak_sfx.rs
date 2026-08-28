@@ -35,7 +35,7 @@ fn test_regression_page_seongmin_door_creak_sfx_enabled() {
     let b1 = res.regions.iter().find(|r| r.text.contains("성민") || r.text.contains("들어오세요"));
     assert!(b1.is_some(), "Must detect bubble 1 '아! 성민 씨 들어오세요.'");
     let b1 = b1.unwrap();
-    crate::assert_region_bounds!(b1, xianscan_rust::ml::schemas::RegionKind::DialogueBubble, 162, 510, 174, 88, 8);
+    crate::assert_region_bounds!(b1, xianscan_rust::ml::schemas::RegionKind::DialogueBubble, 135, 504, 228, 100, 8);
     crate::assert_bubble_bounds!(b1, 117, 461, 265, 227, 8);
 
     // 3. SFX 1: '끼익' (Door creak sound)
@@ -49,7 +49,7 @@ fn test_regression_page_seongmin_door_creak_sfx_enabled() {
     let b2 = res.regions.iter().find(|r| r.text.contains("엉덩이") || r.text.contains("아프다"));
     assert!(b2.is_some(), "Must detect bubble 2 '엉덩이 아프다...'");
     let b2 = b2.unwrap();
-    crate::assert_region_bounds!(b2, xianscan_rust::ml::schemas::RegionKind::DialogueBubble, 344, 1260, 134, 90, 8);
+    crate::assert_region_bounds!(b2, xianscan_rust::ml::schemas::RegionKind::DialogueBubble, 322, 1254, 178, 102, 8);
     crate::assert_bubble_bounds!(b2, 310, 1225, 204, 161, 8);
 
     // 5. EXPLICIT NEGATIVE GUARDS: BACKGROUND ARTWORK SIGN MUST BE FILTERED
@@ -96,14 +96,14 @@ fn test_regression_page_seongmin_door_creak_sfx_disabled() {
     let b1 = res.regions.iter().find(|r| r.text.contains("성민") || r.text.contains("들어오세요"));
     assert!(b1.is_some(), "Must detect bubble 1 '아! 성민 씨 들어오세요.'");
     let b1 = b1.unwrap();
-    crate::assert_region_bounds!(b1, xianscan_rust::ml::schemas::RegionKind::DialogueBubble, 162, 510, 174, 88, 8);
+    crate::assert_region_bounds!(b1, xianscan_rust::ml::schemas::RegionKind::DialogueBubble, 135, 504, 228, 100, 8);
     crate::assert_bubble_bounds!(b1, 117, 461, 265, 227, 8);
 
     // 3. DIALOGUE BUBBLE 2: '엉덩이 아프다...'
     let b2 = res.regions.iter().find(|r| r.text.contains("엉덩이") || r.text.contains("아프다"));
     assert!(b2.is_some(), "Must detect bubble 2 '엉덩이 아프다...'");
     let b2 = b2.unwrap();
-    crate::assert_region_bounds!(b2, xianscan_rust::ml::schemas::RegionKind::DialogueBubble, 344, 1260, 134, 90, 8);
+    crate::assert_region_bounds!(b2, xianscan_rust::ml::schemas::RegionKind::DialogueBubble, 322, 1254, 178, 102, 8);
     crate::assert_bubble_bounds!(b2, 310, 1225, 204, 161, 8);
 
     // 4. EXPLICIT NEGATIVE GUARDS: SFX AND BACKGROUND WALL TEXT MUST NOT BE PRESENT NOR CONVERTED TO FREE TEXT

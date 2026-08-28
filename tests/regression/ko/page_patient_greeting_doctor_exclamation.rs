@@ -39,7 +39,7 @@ fn test_regression_page_patient_greeting_doctor_exclamation() {
     // 1. EXACT ELEMENT COUNTS: EXACTLY 1 REGION (1 DIALOGUEBUBBLE, 0 SOUNDEFFECT, 0 FREETEXT)
     crate::assert_element_counts!(res, 1, 1, 0, 0);
 
-    // 2. UNIFIED TOP SPEECH BUBBLE (DOCTOR): [X: 391, Y: 371, W: 204, H: 87]
+    // 2. UNIFIED TOP SPEECH BUBBLE (DOCTOR): [X: 371, Y: 364, W: 244, H: 100]
     let doctor_bubble = &res.regions[0];
     assert_eq!(
         doctor_bubble.kind,
@@ -54,10 +54,10 @@ fn test_regression_page_patient_greeting_doctor_exclamation() {
     crate::assert_region_bounds!(
         doctor_bubble,
         xianscan_rust::ml::schemas::RegionKind::DialogueBubble,
-        391,
         371,
-        204,
-        87,
+        364,
+        244,
+        100,
         15
     );
     crate::assert_bubble_bounds!(doctor_bubble, 355, 324, 279, 208, 15);

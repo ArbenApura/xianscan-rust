@@ -32,13 +32,13 @@ fn test_regression_page_girl_hair_touch_sfx_trog() {
     crate::assert_element_counts!(res, 3, 2, 1, 0);
 
     // 2. UPPER DIALOGUE BUBBLE:
-    // TEXT BOUNDS: 'ого...' -> [X: 484, Y: 537, W: 84, H: 42]
+    // TEXT BOUNDS: 'ого...' -> [X: 469, Y: 534, W: 114, H: 48]
     // OUTER SPEECH BUBBLE BOUNDS: [X: 410, Y: 430, W: 232, H: 252]
     let top_bubble = res.regions.iter().find(|r| r.text.to_lowercase().contains("ого"));
     assert!(top_bubble.is_some(), "Must detect upper speech bubble 'ого...'");
     let top_bubble = top_bubble.unwrap();
     assert_eq!(top_bubble.text.trim(), "ого...");
-    crate::assert_region_bounds!(top_bubble, xianscan_rust::ml::schemas::RegionKind::DialogueBubble, 484, 537, 84, 42, 5);
+    crate::assert_region_bounds!(top_bubble, xianscan_rust::ml::schemas::RegionKind::DialogueBubble, 469, 534, 114, 48, 5);
     crate::assert_bubble_bounds!(top_bubble, 410, 430, 232, 252, 10);
 
     // 3. SLANTED CYRILLIC ACTION SFX: 'трог' -> [X: 44, Y: 1163, W: 290, H: 253] (ANGLE ~34.02 DEG)

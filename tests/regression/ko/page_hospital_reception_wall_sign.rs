@@ -39,7 +39,7 @@ fn test_regression_page_hospital_reception_wall_sign() {
     // 1. EXACT ELEMENT COUNTS: EXACTLY 2 REGIONS (2 DIALOGUEBUBBLES, 0 SOUNDEFFECT, 0 FREETEXT)
     crate::assert_element_counts!(res, 2, 2, 0, 0);
 
-    // 2. TOP SPEECH BUBBLE (RECEPTIONIST): [X: 95, Y: 507, W: 304, H: 124]
+    // 2. TOP SPEECH BUBBLE (RECEPTIONIST): [X: 63, Y: 498, W: 368, H: 142]
     let top_bubble = res
         .regions
         .iter()
@@ -49,26 +49,26 @@ fn test_regression_page_hospital_reception_wall_sign() {
     crate::assert_region_bounds!(
         top_bubble,
         xianscan_rust::ml::schemas::RegionKind::DialogueBubble,
-        95,
-        507,
-        304,
-        124,
+        63,
+        498,
+        368,
+        142,
         15
     );
     crate::assert_bubble_bounds!(top_bubble, 45, 455, 407, 258, 15);
     crate::assert_region_angle!(top_bubble, 0.0, 1.5);
 
-    // 3. BOTTOM SPEECH BUBBLE (PATIENT): [X: 458, Y: 953, W: 122, H: 44]
+    // 3. BOTTOM SPEECH BUBBLE (PATIENT): [X: 446, Y: 950, W: 146, H: 50]
     let bot_bubble = res.regions.iter().find(|r| r.text.contains("아") && (r.text.contains("네") || r.text.contains("!")));
     assert!(bot_bubble.is_some(), "Must detect bottom dialogue bubble '아, 네..!'");
     let bot_bubble = bot_bubble.unwrap();
     crate::assert_region_bounds!(
         bot_bubble,
         xianscan_rust::ml::schemas::RegionKind::DialogueBubble,
-        458,
-        953,
-        122,
-        44,
+        446,
+        950,
+        146,
+        50,
         15
     );
     crate::assert_bubble_bounds!(bot_bubble, 436, 901, 171, 133, 15);

@@ -1,4 +1,4 @@
-﻿// -- INTERNAL IMPORTS -- //
+// -- INTERNAL IMPORTS -- //
 use crate::common::get_or_analyze_fixture_with_lang;
 use xianscan_rust::ml::schemas::RegionKind;
 
@@ -38,12 +38,12 @@ fn test_regression_page_spring_up_couch_worry_sfx() {
     // 1. EXACT ELEMENT COUNTS: 4 REGIONS (3 DIALOGUEBUBBLES, 1 SOUNDEFFECT, 0 FREETEXT)
     crate::assert_element_counts!(res, 4, 3, 1, 0);
 
-    // 2. TOP NARRATION BOX [X: ~282, Y: ~344, W: ~371, H: ~126]
+    // 2. TOP NARRATION BOX [X: ~282, Y: ~335, W: ~371, H: ~144]
     let top_narration = res.regions.iter().find(|r| r.text.contains("그리고 그 불안은") || r.text.contains("불안은 당장"));
     assert!(top_narration.is_some(), "Must detect top narration box");
     let top_narration = top_narration.unwrap();
     assert_eq!(top_narration.kind, RegionKind::DialogueBubble);
-    crate::assert_region_bounds!(top_narration, RegionKind::DialogueBubble, 282, 344, 371, 126, 15);
+    crate::assert_region_bounds!(top_narration, RegionKind::DialogueBubble, 282, 335, 371, 144, 15);
 
     // 3. SLANTED ONOMATOPOEIA / SFX: '벌떡' [X: ~13, Y: ~619, W: ~215, H: ~148, Angle: ~ -6.29°]
     let sfx = res.regions.iter().find(|r| r.text.contains("벌떡"));
@@ -57,17 +57,17 @@ fn test_regression_page_spring_up_couch_worry_sfx() {
     crate::assert_region_bounds!(sfx, RegionKind::SoundEffect, 13, 619, 215, 148, 15);
     crate::assert_region_angle!(sfx, -6.29, 4.0);
 
-    // 4. MIDDLE THOUGHT BUBBLE [X: ~111, Y: ~979, W: ~165, H: ~87]
+    // 4. MIDDLE THOUGHT BUBBLE [X: ~98, Y: ~972, W: ~190, H: ~100]
     let mid_bubble = res.regions.iter().find(|r| r.text.contains("부모님한테") || r.text.contains("말할까"));
     assert!(mid_bubble.is_some(), "Must detect middle thought bubble");
     let mid_bubble = mid_bubble.unwrap();
     assert_eq!(mid_bubble.kind, RegionKind::DialogueBubble);
-    crate::assert_region_bounds!(mid_bubble, RegionKind::DialogueBubble, 111, 979, 165, 87, 15);
+    crate::assert_region_bounds!(mid_bubble, RegionKind::DialogueBubble, 98, 972, 190, 100, 15);
 
-    // 5. BOTTOM THOUGHT BUBBLE [X: ~435, Y: ~1300, W: ~184, H: ~132]
+    // 5. BOTTOM THOUGHT BUBBLE [X: ~410, Y: ~1291, W: ~234, H: ~150]
     let bot_bubble = res.regions.iter().find(|r| r.text.contains("아니야, 엄마") || r.text.contains("쓰러질지도"));
     assert!(bot_bubble.is_some(), "Must detect bottom thought bubble");
     let bot_bubble = bot_bubble.unwrap();
     assert_eq!(bot_bubble.kind, RegionKind::DialogueBubble);
-    crate::assert_region_bounds!(bot_bubble, RegionKind::DialogueBubble, 435, 1300, 184, 132, 15);
+    crate::assert_region_bounds!(bot_bubble, RegionKind::DialogueBubble, 410, 1291, 234, 150, 15);
 }

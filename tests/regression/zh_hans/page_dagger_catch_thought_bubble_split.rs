@@ -48,12 +48,12 @@ fn test_regression_page_dagger_catch_thought_bubble_split() {
     crate::assert_region_bounds!(sfx2, xianscan_rust::ml::schemas::RegionKind::SoundEffect, 703, 559, 70, 49, 8);
     crate::assert_region_angle!(sfx2, 0.0, 2.0);
 
-    // 4. PANEL 3 DIALOGUE BUBBLE: '你可不要\n乱动……' -> [X: 66, Y: 1180, W: 156, h: 87]
+    // 4. PANEL 3 DIALOGUE BUBBLE: '你可不要\n乱动……' -> [X: 56, Y: 1174, W: 176, H: 98]
     let b1 = res.regions.iter().find(|r| r.text.contains("你可不要") || r.text.contains("乱动"));
     assert!(b1.is_some(), "Must detect panel 3 dialogue bubble '你可不要乱动……'");
     let b1 = b1.unwrap();
     assert_eq!(b1.kind, xianscan_rust::ml::schemas::RegionKind::DialogueBubble);
-    crate::assert_region_bounds!(b1, xianscan_rust::ml::schemas::RegionKind::DialogueBubble, 66, 1180, 156, 87, 8);
+    crate::assert_region_bounds!(b1, xianscan_rust::ml::schemas::RegionKind::DialogueBubble, 56, 1174, 176, 98, 8);
     crate::assert_bubble_bounds!(b1, 46, 1162, 199, 125, 8);
     crate::assert_region_angle!(b1, 0.0, 2.0);
 

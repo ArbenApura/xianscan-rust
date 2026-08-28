@@ -1,4 +1,4 @@
-﻿// -- INTERNAL IMPORTS -- //
+// -- INTERNAL IMPORTS -- //
 use crate::common::get_or_analyze_fixture_with_lang;
 use xianscan_rust::ml::schemas::RegionKind;
 
@@ -37,12 +37,12 @@ fn test_regression_page_hospital_gown_pattern_team_leader_bubble() {
     // 1. EXACT ELEMENT COUNTS: 2 REGIONS (2 DIALOGUEBUBBLES, 0 SOUNDEFFECT, 0 FREETEXT)
     crate::assert_element_counts!(res, 2, 2, 0, 0);
 
-    // 2. TOP SPEECH BUBBLE [X: ~173, Y: ~362, W: ~153, H: ~92]
+    // 2. TOP SPEECH BUBBLE [X: ~152, Y: ~356, W: ~194, H: ~104]
     let top_bubble = res.regions.iter().find(|r| r.text.contains("몸은") || r.text.contains("괜찮아요"));
     assert!(top_bubble.is_some(), "Must detect top speech bubble");
     let top_bubble = top_bubble.unwrap();
     assert_eq!(top_bubble.kind, RegionKind::DialogueBubble);
-    crate::assert_region_bounds!(top_bubble, RegionKind::DialogueBubble, 173, 362, 153, 92, 15);
+    crate::assert_region_bounds!(top_bubble, RegionKind::DialogueBubble, 152, 356, 194, 104, 15);
 
     // 3. BOTTOM SPEECH BUBBLE: '팀장님?!' [X: ~436, Y: ~1166, W: ~198, H: ~168]
     let team_leader_bubble = res.regions.iter().find(|r| r.text.contains("팀장님"));

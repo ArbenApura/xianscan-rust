@@ -33,12 +33,12 @@ fn test_regression_page_summon_holy_maiden_cheer_sfx() {
     crate::assert_element_counts!(res, 5, 4, 1, 0);
 
     // 2. UPPER HOLY MAIDEN DIALOGUE BUBBLE:
-    // TEXT BOUNDS: 'BER-\nBERHASIL...' -> [X: 140, Y: 589, W: 242, H: 207]
+    // TEXT BOUNDS: 'BER-\nBERHASIL...' -> [X: 98, Y: 574, W: 326, H: 236]
     // OUTER SPEECH BUBBLE BOUNDS: [X: 19, Y: 508, W: 490, H: 350]
     let summon_bubble = res.regions.iter().find(|r| r.text.to_uppercase().contains("BERHASIL") || r.text.to_uppercase().contains("MEMANGGIL"));
     assert!(summon_bubble.is_some(), "Must detect upper speech bubble 'BER-BERHASIL...'");
     let summon_bubble = summon_bubble.unwrap();
-    crate::assert_region_bounds!(summon_bubble, xianscan_rust::ml::schemas::RegionKind::DialogueBubble, 140, 589, 242, 207, 8);
+    crate::assert_region_bounds!(summon_bubble, xianscan_rust::ml::schemas::RegionKind::DialogueBubble, 98, 574, 326, 236, 8);
     crate::assert_bubble_bounds!(summon_bubble, 19, 508, 490, 350, 10);
     assert!(
         !summon_bubble.text.to_uppercase().contains("HEBAT"),
@@ -53,12 +53,12 @@ fn test_regression_page_summon_holy_maiden_cheer_sfx() {
     crate::assert_region_angle!(sfx, 6.88, 2.0);
 
     // 4. SEPARATE RIGHT SPIKY BUBBLE:
-    // TEXT BOUNDS: 'HEBAT!!' -> [X: 468, Y: 1171, W: 127, H: 37]
+    // TEXT BOUNDS: 'HEBAT!!' -> [X: 445, Y: 1168, W: 172, H: 42]
     // OUTER SPEECH BUBBLE BOUNDS: [X: 393, Y: 1081, W: 292, H: 223]
     let hebat_bubble = res.regions.iter().find(|r| r.text.to_uppercase().contains("HEBAT"));
     assert!(hebat_bubble.is_some(), "Must detect separate 'HEBAT!!' bubble");
     let hebat_bubble = hebat_bubble.unwrap();
-    crate::assert_region_bounds!(hebat_bubble, xianscan_rust::ml::schemas::RegionKind::DialogueBubble, 468, 1171, 127, 37, 8);
+    crate::assert_region_bounds!(hebat_bubble, xianscan_rust::ml::schemas::RegionKind::DialogueBubble, 445, 1168, 172, 42, 8);
     crate::assert_bubble_bounds!(hebat_bubble, 393, 1081, 292, 223, 10);
     assert!(
         !hebat_bubble.text.to_uppercase().contains("MEMANGGIL"),
@@ -66,7 +66,7 @@ fn test_regression_page_summon_holy_maiden_cheer_sfx() {
     );
 
     // 5. MIDDLE LEFT BUBBLE:
-    // TEXT BOUNDS: 'KAU BENAR-BENAR GADIS SUCI!' -> [X: 68, Y: 1324, W: 211, H: 108]
+    // TEXT BOUNDS: 'KAU BENAR-BENAR GADIS SUCI!' -> [X: 31, Y: 1316, W: 284, H: 124]
     // OUTER SPEECH BUBBLE BOUNDS: [X: 6, Y: 1267, W: 364, H: 231]
     let middle_bubble = res.regions.iter().find(|r| {
         let t = r.text.to_uppercase();
@@ -74,11 +74,11 @@ fn test_regression_page_summon_holy_maiden_cheer_sfx() {
     });
     assert!(middle_bubble.is_some(), "Must detect middle 'GADIS SUCI' bubble");
     let middle_bubble = middle_bubble.unwrap();
-    crate::assert_region_bounds!(middle_bubble, xianscan_rust::ml::schemas::RegionKind::DialogueBubble, 68, 1324, 211, 108, 8);
+    crate::assert_region_bounds!(middle_bubble, xianscan_rust::ml::schemas::RegionKind::DialogueBubble, 31, 1316, 284, 124, 8);
     crate::assert_bubble_bounds!(middle_bubble, 6, 1267, 364, 231, 10);
 
     // 6. BOTTOM BUBBLE:
-    // TEXT BOUNDS: 'KITA TELAH BERHASIL MEMANGGIL PARA KESATRIA...' -> [X: 274, Y: 2008, W: 330, H: 215]
+    // TEXT BOUNDS: 'KITA TELAH BERHASIL MEMANGGIL PARA KESATRIA...' -> [X: 216, Y: 2008, W: 446, H: 216]
     // OUTER SPEECH BUBBLE BOUNDS: [X: 187, Y: 1918, W: 510, h: 314]
     let bottom_bubble = res.regions.iter().find(|r| {
         let t = r.text.to_uppercase();
@@ -86,7 +86,7 @@ fn test_regression_page_summon_holy_maiden_cheer_sfx() {
     });
     assert!(bottom_bubble.is_some(), "Must detect bottom speech bubble");
     let bottom_bubble = bottom_bubble.unwrap();
-    crate::assert_region_bounds!(bottom_bubble, xianscan_rust::ml::schemas::RegionKind::DialogueBubble, 274, 2008, 330, 215, 8);
+    crate::assert_region_bounds!(bottom_bubble, xianscan_rust::ml::schemas::RegionKind::DialogueBubble, 216, 2008, 446, 216, 8);
     crate::assert_bubble_bounds!(bottom_bubble, 187, 1918, 510, 314, 10);
 
     // 7. EXPLICIT NEGATIVE GUARDS AGAINST HALLUCINATED ARTIFACTS & GIANT MERGES

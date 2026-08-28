@@ -53,10 +53,10 @@ fn test_regression_page_polyp_discovered_spiky_punctuation_bubble() {
     crate::assert_region_bounds!(
         dialogue,
         xianscan_rust::ml::schemas::RegionKind::DialogueBubble,
-        74,
-        377,
-        350,
-        129,
+        34,
+        367,
+        430,
+        148,
         15
     );
     if let Some(ref b_box) = dialogue.bubble_box {
