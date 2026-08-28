@@ -64,8 +64,6 @@ export interface AppSettings {
 	typesetAllCaps: boolean;
 	enableTextRotation: boolean;
 	enableWatermarkInpaint: boolean;
-	enableSfx: boolean;
-	sfxMaxAreaPct: number;
 	inpaintExpansionPct: number;
 	typesetExpansionPct: number;
 }
@@ -200,8 +198,6 @@ export const DEFAULTS: AppSettings = {
 	typesetAllCaps: true,
 	enableTextRotation: true,
 	enableWatermarkInpaint: false,
-	enableSfx: false,
-	sfxMaxAreaPct: 0.10,
 	inpaintExpansionPct: 0.03,
 	typesetExpansionPct: 0.03,
 };
@@ -236,8 +232,6 @@ export const SERVER_CANONICAL_KEYS: (keyof AppSettings)[] = [
 	'typesetAllCaps',
 	'enableTextRotation',
 	'enableWatermarkInpaint',
-	'enableSfx',
-	'sfxMaxAreaPct',
 	'inpaintExpansionPct',
 	'typesetExpansionPct',
 ];
@@ -254,8 +248,6 @@ export const WEBTOON_KIND_COOKIE = 'mt_webtoon_kind';
 export const WEBTOON_WIDTH_COOKIE = 'mt_webtoon_width';
 export const INPAINT_MODE_COOKIE = 'mt_inpaint_mode';
 export const WATERMARK_INPAINT_COOKIE = 'mt_watermark_inpaint';
-export const ENABLE_SFX_COOKIE = 'mt_enable_sfx';
-export const SFX_MAX_AREA_COOKIE = 'mt_sfx_max_area';
 export const EXEC_DEVICE_COOKIE = 'mt_exec_device';
 export const PARALLEL_PROCESSES_COOKIE = 'mt_parallel_processes';
 export const PARALLEL_CHAPTERS_COOKIE = 'mt_parallel_chapters';
@@ -376,16 +368,6 @@ export async function refreshFontAvailability(): Promise<Record<string, FontAvai
 	}
 	return get(fontAvailabilityStore);
 }
-
-export const SFX_AREA_PRESETS: { value: number; label: string; sub: string }[] = [
-	{ value: 0.05, label: '5%', sub: 'Ultra Minimal' },
-	{ value: 0.10, label: '10%', sub: 'Standard (Default)' },
-	{ value: 0.15, label: '15%', sub: 'Conservative' },
-	{ value: 0.20, label: '20%', sub: 'Moderate' },
-	{ value: 0.30, label: '30%', sub: 'Generous' },
-	{ value: 0.50, label: '50%', sub: 'Aggressive' },
-	{ value: 1.00, label: '100%', sub: 'All SFX' },
-];
 
 export const ACCENT_SOLID = 'bg-[#b23a2e] text-white hover:bg-[#c0392b]';
 

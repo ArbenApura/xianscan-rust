@@ -35,27 +35,18 @@ fn test_regression_page_spring_up_couch_worry_sfx() {
         );
     }
 
-    // 1. EXACT ELEMENT COUNTS: 4 REGIONS (3 DIALOGUEBUBBLES, 1 SOUNDEFFECT, 0 FREETEXT)
-    crate::assert_element_counts!(res, 4, 3, 1, 0);
+    // 1. EXACT ELEMENT COUNTS: 3 REGIONS (3 DIALOGUEBUBBLES, 0 FREETEXT)
+    crate::assert_element_counts!(res, 3, 3, 0);
 
-    // 2. TOP NARRATION BOX [X: ~282, Y: ~335, W: ~371, H: ~144]
+    // 2. NEGATIVE GUARD: NO SLANTED SFX '벌떡' EXTRACTED AS FREETEXT
+    assert!(!res.regions.iter().any(|r| r.text.contains("벌떡")), "Must NOT extract '벌떡' onomatopoeia as FreeText");
+
+    // 3. TOP NARRATION BOX [X: ~282, Y: ~335, W: ~371, H: ~144]
     let top_narration = res.regions.iter().find(|r| r.text.contains("그리고 그 불안은") || r.text.contains("불안은 당장"));
     assert!(top_narration.is_some(), "Must detect top narration box");
     let top_narration = top_narration.unwrap();
     assert_eq!(top_narration.kind, RegionKind::DialogueBubble);
     crate::assert_region_bounds!(top_narration, RegionKind::DialogueBubble, 282, 335, 371, 144, 15);
-
-    // 3. SLANTED ONOMATOPOEIA / SFX: '벌떡' [X: ~13, Y: ~619, W: ~215, H: ~148, Angle: ~ -6.29°]
-    let sfx = res.regions.iter().find(|r| r.text.contains("벌떡"));
-    assert!(sfx.is_some(), "Must detect '벌떡' onomatopoeia");
-    let sfx = sfx.unwrap();
-    assert_eq!(
-        sfx.kind,
-        RegionKind::SoundEffect,
-        "Must classify '벌떡' as SoundEffect, not FreeText"
-    );
-    crate::assert_region_bounds!(sfx, RegionKind::SoundEffect, 13, 619, 215, 148, 15);
-    crate::assert_region_angle!(sfx, -6.29, 4.0);
 
     // 4. MIDDLE THOUGHT BUBBLE [X: ~98, Y: ~972, W: ~190, H: ~100]
     let mid_bubble = res.regions.iter().find(|r| r.text.contains("부모님한테") || r.text.contains("말할까"));

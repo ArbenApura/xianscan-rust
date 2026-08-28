@@ -9,7 +9,6 @@
 		DEFAULTS,
 		AVAILABLE_TYPESET_FONTS,
 		AVAILABLE_CJK_FONTS,
-		SFX_AREA_PRESETS,
 		fontAvailabilityStore,
 		refreshFontAvailability,
 		type TypesetOutline,
@@ -18,7 +17,6 @@
 	} from '$lib/stores/settings';
 	// IMPORTED ICONS
 	import Type from 'lucide-svelte/icons/type';
-	import Volume2 from 'lucide-svelte/icons/volume-2';
 	import Check from 'lucide-svelte/icons/check';
 	import Sliders from 'lucide-svelte/icons/sliders';
 	import RotateCcw from 'lucide-svelte/icons/rotate-ccw';
@@ -174,20 +172,6 @@
 		});
 	}
 
-	function toggleSfx() {
-		settings.update((s) => {
-			const next = !s.enableSfx;
-			toast.success(`Sound effects (SFX) translation ${next ? 'enabled' : 'disabled'}`);
-			return { ...s, enableSfx: next };
-		});
-	}
-
-	function setSfxMaxArea(val: number) {
-		settings.update((s) => ({ ...s, sfxMaxAreaPct: val }));
-		const label = SFX_AREA_PRESETS.find((p) => Math.abs(p.value - val) < 0.005)?.label || `${Math.round(val * 100)}%`;
-		toast.success(`SFX max area threshold set to ${label}`);
-	}
-
 	// -- INPAINT EXPANSION PRESETS -- //
 	const INPAINT_EXPANSION_PRESETS: { value: number; label: string; sub: string }[] = [
 		{ value: 0.0, label: '0%', sub: 'Exact text bound' },
@@ -226,8 +210,6 @@
 		($settings.typesetContrast || 'auto') !== DEFAULTS.typesetContrast ||
 		($settings.typesetCasing || 'uppercase') !== DEFAULTS.typesetCasing ||
 		Boolean($settings.enableTextRotation) !== Boolean(DEFAULTS.enableTextRotation) ||
-		Boolean($settings.enableSfx) !== Boolean(DEFAULTS.enableSfx) ||
-		Math.abs(($settings.sfxMaxAreaPct ?? 0.10) - DEFAULTS.sfxMaxAreaPct) >= 0.005 ||
 		Math.abs(($settings.inpaintExpansionPct ?? 0.03) - DEFAULTS.inpaintExpansionPct) >= 0.005 ||
 		Math.abs(($settings.typesetExpansionPct ?? 0.06) - DEFAULTS.typesetExpansionPct) >= 0.005 ||
 		($settings.typesetPreviewPreset || 'en') !== (DEFAULTS.typesetPreviewPreset || 'en') ||
@@ -244,8 +226,6 @@
 			typesetCasing: DEFAULTS.typesetCasing,
 			typesetAllCaps: DEFAULTS.typesetAllCaps,
 			enableTextRotation: DEFAULTS.enableTextRotation,
-			enableSfx: DEFAULTS.enableSfx,
-			sfxMaxAreaPct: DEFAULTS.sfxMaxAreaPct,
 			inpaintExpansionPct: DEFAULTS.inpaintExpansionPct,
 			typesetExpansionPct: DEFAULTS.typesetExpansionPct,
 			typesetPreviewPreset: DEFAULTS.typesetPreviewPreset,
@@ -628,115 +608,6 @@
 					on:click={toggleTextRotation}
 					ariaLabel="Follow Comic Bubble Tilt Angle"
 				/>
-			</div>
-
-			<!-- SOUND EFFECTS (SFX) INPAINTING & TYPESETTING TOGGLE -->
-			<div class="rounded-xl border border-black/10 bg-black/[0.01] p-3 dark:border-white/10 dark:bg-white/[0.01] space-y-3">
-				<div class="flex items-start justify-between gap-4">
-					<div>
-						<div class="text-xs font-bold pl-0.5 flex items-center gap-1.5">
-							<Volume2 size={13} class="text-[#b23a2e] dark:text-[#e08a63]" />
-							<span>Sound Effects (SFX) Inpaint & Typeset</span>
-						</div>
-						<p class="text-[10px] opacity-60 mt-0.5 pl-0.5">
-							Inpaint and typeset onomatopoeia. When disabled, original Japanese/Korean/Chinese sound art is kept untouched.
-						</p>
-					</div>
-
-					<Switch
-						checked={$settings.enableSfx}
-						on:click={toggleSfx}
-						ariaLabel="Sound Effects (SFX) Inpaint & Typeset"
-					/>
-				</div>
-
-				{#if $settings.enableSfx}
-					{@const sfxPct = Math.min(100, Math.max(0, Math.round(($settings.sfxMaxAreaPct || 0.30) * 100)))}
-					<div class="border-t border-black/10 pt-2.5 dark:border-white/10 space-y-2">
-						<div class="flex items-center justify-between">
-							<span class="text-[10px] font-bold uppercase tracking-wider opacity-75 pl-0.5">Artwork Preservation Threshold</span>
-							<span class="text-xs font-mono font-bold text-[#b23a2e] dark:text-[#e08a63]">
-								{sfxPct}%
-								<span class="text-[10px] font-normal opacity-60 ml-0.5">({sfxPct >= 100 ? 'Translate All SFX' : `Skip if > ${sfxPct}% page area`})</span>
-							</span>
-						</div>
-
-					<!-- MATHEMATICALLY ALIGNED STEPPED SLIDER WITH TICKS -->
-					<div class="space-y-3 pt-2 pb-1 px-2.5">
-						<div class="relative flex items-center select-none">
-							<!-- BACKGROUND TRACK -->
-							<div class="relative w-full h-2 rounded-full bg-black/10 dark:bg-white/10 overflow-hidden">
-								<!-- ACTIVE FILLED TRACK -->
-								<div
-									class="h-full bg-[#b23a2e] dark:bg-[#e08a63] rounded-full transition-all duration-75"
-									style="width: {sfxPct}%;"
-								></div>
-							</div>
-
-							<!-- DISCRETE TICK DOTS (INNER STEPS ONLY: 10%, 20%, 30%, 40%, 50%, 60%, 70%, 80%, 90%) -->
-							<div class="absolute inset-x-0 top-1/2 -translate-y-1/2 pointer-events-none">
-								{#each [10, 20, 30, 40, 50, 60, 70, 80, 90] as tick}
-									<div
-										class="absolute top-1/2 -translate-y-1/2 -translate-x-1/2 rounded-full transition-colors duration-150 {tick % 25 === 0 ? 'w-1.5 h-1.5' : 'w-1 h-1'} {tick <= sfxPct ? 'bg-white dark:bg-neutral-900' : 'bg-black/30 dark:bg-white/30'}"
-										style="left: {tick}%;"
-									></div>
-								{/each}
-							</div>
-
-							<!-- INVISIBLE FULL-WIDTH RANGE INPUT FOR DRAG / KEYBOARD NAVIGATION -->
-							<input
-								type="range"
-								min="0"
-								max="100"
-								step="5"
-								value={sfxPct}
-								on:input={(e) => {
-									const val = Number(e.currentTarget.value);
-									settings.update((s) => ({ ...s, sfxMaxAreaPct: val / 100 }));
-								}}
-								class="absolute inset-0 w-full opacity-0 cursor-pointer z-20 h-6"
-							/>
-
-							<!-- CUSTOM DRAGGABLE THUMB INDICATOR -->
-							<div
-								class="absolute top-1/2 -translate-y-1/2 -translate-x-1/2 w-4 h-4 rounded-full bg-white dark:bg-neutral-900 border-2 border-[#b23a2e] dark:border-[#e08a63] shadow-md pointer-events-none z-10 transition-all duration-75"
-								style="left: {sfxPct}%;"
-							></div>
-						</div>
-
-						<!-- MATHEMATICALLY ALIGNED CLICKABLE TICK LABELS -->
-						<div class="relative w-full h-4 select-none">
-							{#each [
-								{ val: 0, label: '0%' },
-								{ val: 10, label: '10%' },
-								{ val: 20, label: '20%' },
-								{ val: 30, label: '30%' },
-								{ val: 50, label: '50%' },
-								{ val: 75, label: '75%' },
-								{ val: 100, label: '100%' }
-							] as m}
-								{@const isCurrent = Math.abs(sfxPct - m.val) < 4}
-								<button
-									type="button"
-									on:click={() => setSfxMaxArea(m.val / 100)}
-									class="absolute top-0 -translate-x-1/2 text-[10px] font-mono transition-all cursor-pointer {isCurrent ? 'font-bold text-[#b23a2e] dark:text-[#e08a63] scale-110' : 'opacity-50 hover:opacity-100 hover:text-black dark:hover:text-white'}"
-									style="left: {m.val}%;"
-								>
-									{m.label}
-								</button>
-							{/each}
-						</div>
-					</div>
-					</div>
-
-					<!-- NOTICE: SFX EXPERIMENTAL & UNSTABLE WARNING -->
-					<div class="flex items-start gap-2 rounded-xl border border-amber-500/25 bg-amber-500/10 p-2.5 text-[10.5px] leading-relaxed text-amber-800 dark:text-amber-300">
-						<AlertTriangle size={14} class="shrink-0 text-amber-600 dark:text-amber-400 mt-0.5" />
-						<span>
-							<strong>Experimental Feature:</strong> Sound effect detection and inpainting is still under active development and not yet production-ready. Enabling SFX translation may occasionally cause visual artifacts, misclassified artwork text, or unstable formatting. We apologize for any inconvenience as we continue refining model accuracy in upcoming releases!
-						</span>
-					</div>
-				{/if}
 			</div>
 
 			<!-- DIALOGUE CASING 3-WAY SELECTOR (ONLY SHOWN FOR FONTS SUPPORTING MIXED/LOWER CASE) -->

@@ -219,8 +219,6 @@ async fn analyze_handler(
     let mut inpaint_padding_pct = None;
     let mut typeset_padding_pct = None;
     let mut enable_watermark_inpaint = None;
-    let mut enable_sfx = None;
-    let mut sfx_max_area_pct = None;
     let mut allow_degraded_fallback = None;
 
     while let Ok(Some(field)) = multipart.next_field().await {
@@ -262,17 +260,6 @@ async fn analyze_handler(
                 let trimmed = text.trim().to_lowercase();
                 enable_watermark_inpaint = Some(trimmed == "true" || trimmed == "1");
             }
-        } else if name == "enable_sfx" || name == "enableSfx" || name == "enable_sfx_inpaint" {
-            if let Ok(text) = field.text().await {
-                let trimmed = text.trim().to_lowercase();
-                enable_sfx = Some(trimmed == "true" || trimmed == "1");
-            }
-        } else if name == "sfx_max_area_pct" || name == "sfxMaxAreaPct" {
-            if let Ok(text) = field.text().await {
-                if let Ok(val) = text.trim().parse::<f32>() {
-                    sfx_max_area_pct = Some(val);
-                }
-            }
         } else if name == "allow_degraded_fallback" || name == "allowDegradedFallback" {
             if let Ok(text) = field.text().await {
                 let trimmed = text.trim().to_lowercase();
@@ -301,8 +288,6 @@ async fn analyze_handler(
         inpaint_padding_pct,
         typeset_padding_pct,
         enable_watermark_inpaint,
-        enable_sfx,
-        sfx_max_area_pct,
         allow_degraded_fallback,
     };
 

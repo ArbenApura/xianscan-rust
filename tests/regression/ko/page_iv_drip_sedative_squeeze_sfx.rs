@@ -34,24 +34,19 @@ fn test_regression_page_iv_drip_sedative_squeeze_sfx() {
         );
     }
 
-    // 1. EXACT ELEMENT COUNTS: EXACTLY 3 REGIONS (2 DIALOGUEBUBBLES, 1 SOUNDEFFECT, 0 FREETEXT)
-    crate::assert_element_counts!(res, 3, 2, 1, 0);
+    // 1. EXACT ELEMENT COUNTS: EXACTLY 2 REGIONS (2 DIALOGUEBUBBLES, 0 FREETEXT)
+    crate::assert_element_counts!(res, 2, 2, 0);
 
-    // 2. TOP SPEECH BUBBLE: [X: ~301, Y: ~428, W: ~328, H: ~148]
+    // 2. NEGATIVE GUARD: NO MIDDLE SLANTED SFX '꾸욱' EXTRACTED AS FREETEXT
+    assert!(!res.regions.iter().any(|r| r.text.contains("꾸욱")), "Must NOT extract squeeze SFX '꾸욱'");
+
+    // 3. TOP SPEECH BUBBLE: [X: ~301, Y: ~428, W: ~328, H: ~148]
     let top_bubble = res.regions.iter().find(|r| r.text.contains("선생님") || r.text.contains("수면약"));
     assert!(top_bubble.is_some(), "Must detect top dialogue bubble about doctor & sedative");
     let top_bubble = top_bubble.unwrap();
     assert_eq!(top_bubble.kind, RegionKind::DialogueBubble);
     crate::assert_region_bounds!(top_bubble, RegionKind::DialogueBubble, 301, 428, 328, 148, 15);
     crate::assert_bubble_bounds!(top_bubble, 283, 386, 365, 238, 20);
-
-    // 3. MIDDLE SLANTED SFX: '꾸욱' -> [X: ~462, Y: ~718, W: ~179, H: ~138, Angle: ~ -10.82°]
-    let sfx = res.regions.iter().find(|r| r.text.contains("꾸욱"));
-    assert!(sfx.is_some(), "Must detect squeeze SFX '꾸욱'");
-    let sfx = sfx.unwrap();
-    assert_eq!(sfx.kind, RegionKind::SoundEffect, "Slanted onomatopoeia '꾸욱' must be classified as SoundEffect");
-    crate::assert_region_bounds!(sfx, RegionKind::SoundEffect, 462, 718, 179, 138, 15);
-    crate::assert_region_angle!(sfx, -10.82, 3.5);
 
     // 4. BOTTOM THOUGHT BUBBLE: [X: ~42, Y: ~1265, W: ~128, H: ~52]
     let bot_bubble = res.regions.iter().find(|r| r.text.contains("아야"));

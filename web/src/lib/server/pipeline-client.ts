@@ -19,7 +19,7 @@ export interface PipelineRegion {
 	bubble_box?: PipelineBox | null;
 	bubble_polygon?: number[][] | null;
 	centroid?: { x: number; y: number } | null;
-	kind?: 'dialogue_bubble' | 'free_text' | 'sound_effect';
+	kind?: 'dialogue_bubble' | 'free_text';
 	text: string;
 	confidence: number;
 	vertical: boolean;
@@ -56,7 +56,6 @@ export interface OcrStats {
 	raw_bubbles_count: number;
 	raw_text_bubbles_count: number;
 	raw_text_free_count: number;
-	raw_sfx_count: number;
 	raw_ocr_lines_count: number;
 	rescued_crops_count: number;
 	watermark_recovered_count: number;
@@ -215,8 +214,6 @@ export class HttpPipelineClient implements PipelineClient {
 			inpaintPaddingPct?: number;
 			typesetPaddingPct?: number;
 			enableWatermarkInpaint?: boolean;
-			enableSfx?: boolean;
-			sfxMaxAreaPct?: number;
 		},
 	): Promise<AnalyzeResult> {
 		const form = new FormData();
@@ -226,8 +223,6 @@ export class HttpPipelineClient implements PipelineClient {
 		if (typeof opts?.inpaintPaddingPct === 'number') form.append('inpaint_padding_pct', String(opts.inpaintPaddingPct));
 		if (typeof opts?.typesetPaddingPct === 'number') form.append('typeset_padding_pct', String(opts.typesetPaddingPct));
 		if (typeof opts?.enableWatermarkInpaint === 'boolean') form.append('enable_watermark_inpaint', String(opts.enableWatermarkInpaint));
-		if (typeof opts?.enableSfx === 'boolean') form.append('enable_sfx', String(opts.enableSfx));
-		if (typeof opts?.sfxMaxAreaPct === 'number') form.append('sfx_max_area_pct', String(opts.sfxMaxAreaPct));
 		const resp = await this.request('/pages/analyze', { method: 'POST', body: form }, signal);
 		if (!resp.ok) throw new PipelineError(`analyze failed (${resp.status}): ${await resp.text()}`, resp.status);
 		return (await resp.json()) as AnalyzeResult;

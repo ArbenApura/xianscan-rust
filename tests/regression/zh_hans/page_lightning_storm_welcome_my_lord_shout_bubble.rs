@@ -51,7 +51,7 @@ fn test_regression_page_lightning_storm_welcome_my_lord_shout_bubble() {
 
     // 3. NEGATIVE GUARD: ZERO CAPE SPEEDLINE / '叫呼呼' / 'WHOOSH' NOISE
     assert!(
-        !res.regions.iter().any(|r| r.text.contains("叫呼") || r.text.contains("呼呼") || r.kind == RegionKind::SoundEffect),
-        "Must NOT hallucinate '叫呼呼' or speedlines noise as SoundEffect"
+        !res.regions.iter().any(|r| r.text.contains("叫呼") || r.text.contains("呼呼")),
+        "Must NOT hallucinate '叫呼呼' or speedlines noise"
     );
 }

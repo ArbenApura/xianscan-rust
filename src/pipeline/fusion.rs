@@ -90,19 +90,19 @@ pub fn fuse_detections(
                             if crate::ml::detect::is_standalone_noise_stroke(t) {
                                 return false;
                             }
-                            // 3. DROP HIGH-TILT NON-DIALOGUE WITH LOW RECOGNITION CONFIDENCE (THETA >= 12.0 DEG, SCORE < 0.60, NON-SFX)
+                            // 3. DROP HIGH-TILT NON-DIALOGUE WITH LOW RECOGNITION CONFIDENCE (THETA >= 12.0 DEG, SCORE < 0.60)
                             let angle = crate::ml::geometry::calculate_box_angle_i32(&line.polygon);
-                            if angle.abs() >= 12.0 && line.score < 0.60 && !crate::ml::detect::is_onomatopoeia_or_shout(t) {
+                            if angle.abs() >= 12.0 && line.score < 0.60 {
                                 return false;
                             }
-                            // In non-Latin script sources (CJK/Korean/Japanese), drop slanted/angled pure Latin lines (theta >= 10.0 deg) that lack native script and are not SFX
-                            if crate::ml::detect::is_non_latin_source(source_lang) && angle.abs() >= 10.0 && !crate::ml::detect::has_native_script_for_lang(t, source_lang) && !crate::ml::detect::is_onomatopoeia_or_shout(t) {
+                            // In non-Latin script sources (CJK/Korean/Japanese), drop slanted/angled pure Latin lines (theta >= 10.0 deg) that lack native script
+                            if crate::ml::detect::is_non_latin_source(source_lang) && angle.abs() >= 10.0 && !crate::ml::detect::has_native_script_for_lang(t, source_lang) {
                                 return false;
                             }
                             // 4. DROP MARGIN ARCHITECTURAL / BUILDING GRID TEXTURE NOISE & SLICED EDGE FRAGMENTS (FLUSH TO MARGIN X <= 5 OR X + LW >= PAGE_W - 5, LOW CONFIDENCE SCORE < 0.75, NO BUBBLE)
                             let (px, _, _, _) = polygon_bounds(&line.polygon);
                             let is_margin_flush = px <= 5 || px + lw >= page_w as i32 - 5;
-                            if is_margin_flush && line.score < 0.75 && !crate::ml::detect::is_onomatopoeia_or_shout(t) {
+                            if is_margin_flush && line.score < 0.75 {
                                 return false;
                             }
                             true
@@ -157,7 +157,7 @@ pub fn fuse_detections(
     let (res_opt, detector_time_ms) = det_result?;
     let (mut rapid_lines, ocr_fullpage_time_ms) = ocr_result;
 
-    let (mut comic_boxes, comic_scores, panels, bubbles, onomatopoeia, text_bubbles, text_free, backend) = match res_opt {
+    let (comic_boxes, comic_scores, panels, bubbles, onomatopoeia, text_bubbles, text_free, backend) = match res_opt {
         Some(res) => (
             res.boxes,
             res.scores,
@@ -179,50 +179,6 @@ pub fn fuse_detections(
             "rapidocr-fallback".to_string(),
         ),
     };
-
-    // FILTER OUT NOISY ONOMATOPOEIA STROKE DETECTIONS:
-    // 1. STROKES THAT LIE DIRECTLY INSIDE SPEECH / THOUGHT BUBBLES
-    // 2. LOW-CONFIDENCE SPRAWLING NOISE DETECTIONS (SCORE < 0.50 WITH W >= 100 OR H >= 100)
-    // 3. OVERSIZED SFX (HEIGHT >= 30% OF CANVAS HEIGHT) EXCEPT HORIZONTAL SENTENCES (ASPECT RATIO >= 2.5 OR HEIGHT <= 35PX)
-    let filtered_onomatopoeia: Vec<(BoxRect, f32)> = onomatopoeia
-        .into_iter()
-        .filter(|(sfx_b, score)| {
-            let s_mid_x = sfx_b.x + sfx_b.w / 2;
-            let s_mid_y = sfx_b.y + sfx_b.h / 2;
-            let inside_bubble = bubbles.iter().any(|b| {
-                s_mid_x >= b.x && s_mid_x <= b.x + b.w && s_mid_y >= b.y && s_mid_y <= b.y + b.h
-            });
-            if inside_bubble {
-                return false;
-            }
-
-            // SUPPRESS LOW-CONFIDENCE NOISE / BACKGROUND TEXTURE HALLUCINATIONS
-            if *score < 0.25 {
-                return false;
-            }
-            if *score < 0.40 && (sfx_b.w >= 200 && sfx_b.h >= 400) {
-                return false;
-            }
-
-            // SENTENCE PROTECTION: WIDE HORIZONTAL STRIPS (W/H >= 2.5) OR SMALL CAPTION HEIGHTS (H <= 35PX) ARE SENTENCES, NOT SFX
-            let is_sentence = (sfx_b.w as f32 / sfx_b.h.max(1) as f32 >= 2.5) || sfx_b.h <= 35;
-            let is_oversized = (sfx_b.w as f32 >= (page_w as f32) * 0.65 && sfx_b.h >= 120)
-                || ((sfx_b.h as f32 >= (page_h as f32) * 0.35) && !is_sentence && sfx_b.w >= 200)
-                || ((sfx_b.h as f32 >= (page_h as f32) * 0.40) && !is_sentence);
-
-            !is_oversized
-        })
-        .collect();
-
-    // CLUSTER OVERLAPPING / ADJACENT ONOMATOPOEIA STROKE FRAGMENTS INTO UNIFIED CANDIDATE ENVELOPES FOR CROP RESCUE
-    if !filtered_onomatopoeia.is_empty() {
-        let clustered_sfx = crate::ml::detect::cluster_adjacent_sfx_boxes(&filtered_onomatopoeia, 25);
-        for (poly, _) in clustered_sfx {
-            let i32_poly: Vec<[i32; 2]> = poly.iter().map(|p| [p[0].round() as i32, p[1].round() as i32]).collect();
-            comic_boxes.push(i32_poly);
-        }
-    }
-    let onomatopoeia = filtered_onomatopoeia;
 
     let raw_ocr_lines_count = rapid_lines.len();
     let mut rescued_crops_count = 0_usize;

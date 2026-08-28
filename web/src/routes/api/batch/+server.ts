@@ -45,8 +45,6 @@ export const POST: RequestHandler = async ({ request, cookies }) => {
 		inpaintExpansionPct,
 		typesetExpansionPct,
 		enableWatermarkInpaint,
-		enableSfx,
-		sfxMaxAreaPct,
 		typesetOptions,
 	} = body;
 
@@ -91,16 +89,6 @@ export const POST: RequestHandler = async ({ request, cookies }) => {
 			? enableWatermarkInpaint
 			: (cookies.get('mt_watermark_inpaint') ? cookies.get('mt_watermark_inpaint') === 'true' : (canonical.enableWatermarkInpaint ?? false));
 
-	const resolvedEnableSfx =
-		typeof enableSfx === 'boolean'
-			? enableSfx
-			: (cookies.get('mt_enable_sfx') ? cookies.get('mt_enable_sfx') === 'true' : (canonical.enableSfx ?? false));
-
-	const resolvedSfxMaxArea =
-		typeof sfxMaxAreaPct === 'number'
-			? sfxMaxAreaPct
-			: (cookies.get('mt_sfx_max_area') ? Number(cookies.get('mt_sfx_max_area')) : canonical.sfxMaxAreaPct ?? 0.10);
-
 	const resolvedTypesetOptions = {
 		fontDialogue: typesetOptions?.fontDialogue || (cookies.get('mt_ts_font') || canonical.typesetFont || 'CC Wild Words'),
 		fontCjk: typesetOptions?.fontCjk || (cookies.get('mt_ts_cjk_font') || canonical.typesetCjkFont || 'Microsoft YaHei'),
@@ -130,8 +118,6 @@ export const POST: RequestHandler = async ({ request, cookies }) => {
 				inpaintExpansionPct: resolvedInpaintExp,
 				typesetExpansionPct: resolvedTypesetExp,
 				enableWatermarkInpaint: resolvedWatermarkInpaint,
-				enableSfx: resolvedEnableSfx,
-				sfxMaxAreaPct: resolvedSfxMaxArea,
 				typesetOptions: resolvedTypesetOptions,
 			},
 		);

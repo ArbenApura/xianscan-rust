@@ -7,8 +7,6 @@ mod page_iv_drip_sedative_squeeze_sfx;
 mod page_patient_endoscopy_heartbeat_sfx;
 mod page_patient_greeting_doctor_exclamation;
 mod page_polyp_discovered_spiky_punctuation_bubble;
-mod page_powder_pour_chwa_sfx;
 mod page_red_dragon_destia_floor_48;
-mod page_seongmin_door_creak_sfx;
 mod page_spring_up_couch_worry_sfx;
 

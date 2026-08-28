@@ -225,7 +225,7 @@ export interface BatchTranslationState {
 	totalCompletionTokens: number;
 }
 
-export type RegionKind = 'dialogue_bubble' | 'free_text' | 'sound_effect';
+export type RegionKind = 'dialogue_bubble' | 'free_text';
 
 export interface PageRegion {
 	id: string;

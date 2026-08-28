@@ -26,15 +26,11 @@ fn test_regression_page_chariot_easy_to_block_sfx() {
         println!("  Region r{}: kind={:?}, angle={:.2}, box={:?}, text='{}', conf={:.2}", i, r.kind, r.angle, r.box_, r.text.replace('\n', "\\n"), r.confidence);
     }
 
-    // 1. EXACT ELEMENT COUNTS: EXACTLY 2 REGIONS (0 DIALOGUEBUBBLES, 1 SOUNDEFFECT, 1 FREETEXT)
-    crate::assert_element_counts!(res, 2, 0, 1, 1);
+    // 1. EXACT ELEMENT COUNTS: EXACTLY 1 REGION (0 DIALOGUEBUBBLES, 1 FREETEXT)
+    crate::assert_element_counts!(res, 1, 0, 1);
 
-    // 2. PANEL 1 SFX: '哒' -> UPPER RIGHT BRIDGE ONOMATOPOEIA [X: 664, Y: 346, W: 179, H: 163]
-    let sfx = res.regions.iter().find(|r| r.text.contains("哒") || r.kind == xianscan_rust::ml::schemas::RegionKind::SoundEffect);
-    assert!(sfx.is_some(), "Must detect panel 1 SFX '哒'");
-    let sfx = sfx.unwrap();
-    crate::assert_region_bounds!(sfx, xianscan_rust::ml::schemas::RegionKind::SoundEffect, 664, 346, 179, 163, 8);
-    crate::assert_region_angle!(sfx, 0.0, 1.0);
+    // 2. NEGATIVE GUARD: NO PANEL 1 SFX '哒' OR ANY SFX EXTRACTED
+    assert!(!res.regions.iter().any(|r| r.text.contains("哒")), "Must NOT extract panel 1 SFX '哒'");
 
     // 3. PANEL 1 NARRATION: '明车易挡……' -> ZERO ROTATION ANGLE [X: 247, Y: 723, W: 382, H: 136]
     let narration = res.regions.iter().find(|r| r.text.contains("明车易挡"));

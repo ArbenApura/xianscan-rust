@@ -41,11 +41,6 @@ export function sanitizeSettingValue(key: keyof AppSettings, value: unknown): un
 			return Math.max(1, Math.min(4, isNaN(n) ? 1 : Math.round(n)));
 		}
 
-		case 'sfxMaxAreaPct': {
-			const n = Number(value);
-			return Math.max(0.05, Math.min(1.00, isNaN(n) ? 0.10 : n));
-		}
-
 		case 'inpaintExpansionPct': {
 			const n = Number(value);
 			return Math.max(0.0, Math.min(0.20, isNaN(n) ? 0.03 : n));
@@ -77,7 +72,6 @@ export function sanitizeSettingValue(key: keyof AppSettings, value: unknown): un
 			return VALID_CASINGS.includes(value as TypesetCasing) ? value : 'uppercase';
 
 		case 'enableWatermarkInpaint':
-		case 'enableSfx':
 		case 'enableTextRotation':
 		case 'resliceBeforeBatch':
 		case 'typesetAllCaps':

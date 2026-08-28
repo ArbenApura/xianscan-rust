@@ -71,8 +71,6 @@ export interface ChapterPipelineDeps {
 	inpaintExpansionPct?: number;
 	typesetExpansionPct?: number;
 	enableWatermarkInpaint?: boolean;
-	enableSfx?: boolean;
-	sfxMaxAreaPct?: number;
 	typesetOptions?: TypesetOptions;
 	/**
 	 * OPACQUE PROVIDER DISCRIMINATOR FOR THE TRANSLATION CACHE — THE API LAYER SETS IT FROM
@@ -572,8 +570,6 @@ export async function runChapterPipeline(
 				inpaintPaddingPct: deps.inpaintExpansionPct,
 				typesetPaddingPct: deps.typesetExpansionPct,
 				enableWatermarkInpaint: deps.enableWatermarkInpaint,
-				enableSfx: deps.enableSfx,
-				sfxMaxAreaPct: deps.sfxMaxAreaPct,
 			});
 			signal.throwIfAborted();
 			if (deps.isPageCancelled?.(page.id)) return;
@@ -686,21 +682,8 @@ export async function runChapterPipeline(
 			const onParentAbort = () => pageAbortController.abort();
 			signal.addEventListener('abort', onParentAbort, { once: true });
 
-			const isSfxEnabled = deps.enableSfx === true;
-			const maxSfxArea = deps.sfxMaxAreaPct ?? 0.30;
-			const pageArea = (analyzed.width * analyzed.height) || 1;
-
-			const isRegionEligible = (r: { kind?: string; box: { w: number; h: number } }) => {
-				if (r.kind === 'sound_effect') {
-					if (!isSfxEnabled) return false;
-					const areaRatio = (r.box.w * r.box.h) / pageArea;
-					if (areaRatio > maxSfxArea) return false;
-				}
-				return true;
-			};
-
 			const isRegionInpaintable = (r: PipelineRegion) => {
-				if (!r.text.trim() || !isRegionEligible(r)) return false;
+				if (!r.text.trim()) return false;
 				const classification = classifyRegionForTranslation(
 					{ id: r.id, text: r.text, kind: r.kind },
 					pair.sourceLang,
@@ -742,7 +725,7 @@ export async function runChapterPipeline(
 
 			// TASK B: TRANSLATE (GLOSSARY MATCH + LLM NETWORK I/O)
 			const sources = analyzed.regions
-				.filter((r) => r.text.trim().length > 0 && isRegionEligible(r))
+				.filter((r) => r.text.trim().length > 0)
 				.map((r) => ({ id: r.id, text: r.text, kind: r.kind, vertical: r.vertical }));
 
 			const translateTask = (async () => {
@@ -775,7 +758,6 @@ export async function runChapterPipeline(
 							model,
 							signal: pageAbortController.signal,
 							dialogueContext,
-							enableSfx: deps.enableSfx,
 						});
 						return result;
 					});
@@ -872,8 +854,7 @@ export async function runChapterPipeline(
 							byRegion.set(region.id, target);
 						}
 					}
-					const isEligible = isRegionEligible(region);
-					const status = target ? 'translated' : isEligible ? 'failed' : 'pending';
+					const status = target ? 'translated' : 'failed';
 					tx.update(regions)
 						.set({
 							textTarget: target || null,
@@ -901,7 +882,7 @@ export async function runChapterPipeline(
 			emit({ type: 'page-step-start', chapterId, page: i, pageId: page.id, step: 'typeset' });
 			const tType0 = performance.now();
 			const typesetRegions = analyzed.regions
-				.filter((r) => isRegionEligible(r) && Boolean(byRegion.get(r.id)?.trim()))
+				.filter((r) => Boolean(byRegion.get(r.id)?.trim()))
 				.map((r) => ({
 					id: r.id,
 					box: r.typeset_box ?? r.box,

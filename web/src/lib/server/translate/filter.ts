@@ -123,15 +123,13 @@ export function classifyRegionForTranslation(
 			};
 		}
 
-		// 3. ALREADY-ENGLISH SFX IN CJK COMICS WHEN TARGET IS ENGLISH (E.G. "MEOW", "BOOM", "BANG", "AHHH")
-		if (isEnTarget && (region.kind === 'sound_effect' || COMMON_LATIN_SFX_REGEX.test(text))) {
-			if (COMMON_LATIN_SFX_REGEX.test(text)) {
-				return {
-					disposition: 'skip_empty',
-					resolvedTarget: '',
-					reason: 'already_english_sfx_preserved_artwork',
-				};
-			}
+		// 3. ALREADY-ENGLISH INTERJECTIONS IN CJK COMICS WHEN TARGET IS ENGLISH (E.G. "MEOW", "BOOM", "BANG", "AHHH")
+		if (isEnTarget && COMMON_LATIN_SFX_REGEX.test(text)) {
+			return {
+				disposition: 'skip_empty',
+				resolvedTarget: '',
+				reason: 'already_english_sfx_preserved_artwork',
+			};
 		}
 	}
 

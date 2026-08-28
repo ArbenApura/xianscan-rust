@@ -58,7 +58,6 @@
 	let showBubbles = true;
 	let showBubbleText = true;
 	let showFreeText = true;
-	let showSfx = true;
 	let showBaseTier = true;
 	let showInpaintTier = true;
 	let showTypesetTier = true;
@@ -89,8 +88,6 @@
 				if (typeof parsed.showBubbles === 'boolean') showBubbles = parsed.showBubbles;
 				if (typeof parsed.showBubbleText === 'boolean') showBubbleText = parsed.showBubbleText;
 				if (typeof parsed.showFreeText === 'boolean') showFreeText = parsed.showFreeText;
-				if (typeof parsed.showSfx === 'boolean') showSfx = parsed.showSfx;
-				else if (typeof parsed.showOnomatopoeia === 'boolean') showSfx = parsed.showOnomatopoeia;
 				if (typeof parsed.showBaseTier === 'boolean') showBaseTier = parsed.showBaseTier;
 				if (typeof parsed.showInpaintTier === 'boolean') showInpaintTier = parsed.showInpaintTier;
 				if (typeof parsed.showTypesetTier === 'boolean') showTypesetTier = parsed.showTypesetTier;
@@ -108,7 +105,6 @@
 					showBubbles,
 					showBubbleText,
 					showFreeText,
-					showSfx,
 					showBaseTier,
 					showInpaintTier,
 					showTypesetTier,
@@ -137,7 +133,7 @@
 
 	// PERSIST LAYER TOGGLES ON USER INTERACTION
 	$: if (typeof window !== 'undefined' && open) {
-		const _ = [showRegions, showBubbles, showBubbleText, showFreeText, showSfx, showBaseTier, showInpaintTier, showTypesetTier];
+		const _ = [showRegions, showBubbles, showBubbleText, showFreeText, showBaseTier, showInpaintTier, showTypesetTier];
 		savePersistedToggles();
 	}
 
@@ -981,8 +977,7 @@
 										!isHidden &&
 										(active ||
 										(kind === 'dialogue_bubble' && showBubbleText) ||
-										(kind === 'free_text' && showFreeText) ||
-										(kind === 'sound_effect' && showSfx))}
+										(kind === 'free_text' && showFreeText))}
 									{#if isVisible && b}
 										{@const bx = b.x}
 										{@const by = b.y}
@@ -990,11 +985,11 @@
 										{@const bh = b.h}
 										{@const angle = getRegionAngle(region)}
 										<!-- COLOR PALETTE: BASE / INPAINT / TYPESET -->
-										{@const stroke = kind === 'sound_effect' ? '#f59e0b' : kind === 'free_text' ? '#8b5cf6' : '#b23a2e'}
-										{@const lightStroke = kind === 'sound_effect' ? '#fbbf24' : kind === 'free_text' ? '#c084fc' : '#f87171'}
-										{@const darkStroke = kind === 'sound_effect' ? '#b45309' : kind === 'free_text' ? '#5b21b6' : '#7f1d1d'}
-										{@const inpaintFill = kind === 'sound_effect' ? 'rgba(245, 158, 11, 0.10)' : kind === 'free_text' ? 'rgba(139, 92, 246, 0.10)' : 'rgba(178, 58, 46, 0.10)'}
-										{@const typesetFill = kind === 'sound_effect' ? 'rgba(180, 83, 9, 0.22)' : kind === 'free_text' ? 'rgba(91, 33, 182, 0.22)' : 'rgba(127, 29, 29, 0.22)'}
+										{@const stroke = kind === 'free_text' ? '#8b5cf6' : '#b23a2e'}
+										{@const lightStroke = kind === 'free_text' ? '#c084fc' : '#f87171'}
+										{@const darkStroke = kind === 'free_text' ? '#5b21b6' : '#7f1d1d'}
+										{@const inpaintFill = kind === 'free_text' ? 'rgba(139, 92, 246, 0.10)' : 'rgba(178, 58, 46, 0.10)'}
+										{@const typesetFill = kind === 'free_text' ? 'rgba(91, 33, 182, 0.22)' : 'rgba(127, 29, 29, 0.22)'}
 
 										<!-- TIER 3: TYPESETTING LAYOUT BOX (SOLID BOLD OUTLINE + OPAQUE RICH FILL) -->
 										{#if (showTypesetTier || active) && typesetB && (typesetB.w !== bw || typesetB.h !== bh)}
@@ -1227,21 +1222,6 @@
 									<span class={`inline-block w-2 h-2 rounded-xs border border-purple-600 ${showFreeText ? 'bg-purple-500' : 'bg-transparent'}`}></span>
 									<span>Free Text</span>
 								</button>
-
-								<!-- SOUND EFFECTS (SFX) TOGGLE -->
-								<button
-									type="button"
-									class={`inline-flex items-center gap-1 px-2 h-full rounded text-[10.5px] sm:text-xs transition-all cursor-pointer shrink-0 ${
-										showSfx
-											? 'bg-amber-600/15 border border-amber-600/30 text-amber-700 dark:text-amber-300 font-semibold'
-											: 'opacity-40 hover:opacity-80 text-neutral-600 dark:text-neutral-400 border border-transparent'
-									}`}
-									title="Toggle Sound Effects (SFX) Outlines (Amber)"
-									on:click={() => (showSfx = !showSfx)}
-								>
-									<span class={`inline-block w-2 h-2 rounded-xs border border-amber-600 ${showSfx ? 'bg-amber-500' : 'bg-transparent'}`}></span>
-									<span>SFX</span>
-								</button>
 							</div>
 						</div>
 
@@ -1367,12 +1347,8 @@
 										<span class="rounded px-1.5 py-0.5 text-[10px] font-bold text-[#b23a2e] bg-[#b23a2e]/10 dark:text-[#e08a63]">
 											#{region.seq + 1}
 										</span>
-										<!-- REGION KIND TAG BADGE: BUBBLE TEXT / FREE TEXT / SFX -->
-										{#if kind === 'sound_effect'}
-											<span class="rounded bg-amber-500/15 border border-amber-500/30 px-1.5 py-0.5 text-[9px] font-bold text-amber-700 dark:text-amber-300">
-												SFX
-											</span>
-										{:else if kind === 'dialogue_bubble'}
+										<!-- REGION KIND TAG BADGE: BUBBLE TEXT / FREE TEXT -->
+										{#if kind === 'dialogue_bubble'}
 											<span class="rounded bg-cyan-500/15 border border-cyan-500/30 px-1.5 py-0.5 text-[9px] font-bold text-cyan-700 dark:text-cyan-300">
 												Bubble Text
 											</span>

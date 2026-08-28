@@ -103,8 +103,6 @@ let batchInpaintMode: string = 'patch';
 let batchInpaintExpansionPct: number | undefined = undefined;
 let batchTypesetExpansionPct: number | undefined = undefined;
 let batchEnableWatermarkInpaint: boolean = false;
-let batchEnableSfx: boolean = false;
-let batchSfxMaxAreaPct: number | undefined = undefined;
 let batchTypesetOptions: TypesetOptions | undefined = undefined;
 let batchWatchdogTimer: ReturnType<typeof setInterval> | null = null;
 let settingsDebounceTimer: ReturnType<typeof setTimeout> | null = null;
@@ -246,8 +244,6 @@ async function executeChapterJob(chapter: BatchChapterItem, force: boolean) {
 			inpaintExpansionPct: liveSettings.inpaintExpansionPct ?? batchInpaintExpansionPct,
 			typesetExpansionPct: liveSettings.typesetExpansionPct ?? batchTypesetExpansionPct,
 			enableWatermarkInpaint: liveSettings.enableWatermarkInpaint ?? batchEnableWatermarkInpaint,
-			enableSfx: liveSettings.enableSfx ?? batchEnableSfx,
-			sfxMaxAreaPct: liveSettings.sfxMaxAreaPct ?? batchSfxMaxAreaPct,
 			typesetOptions: batchTypesetOptions,
 			dataRoot: DATA_ROOT,
 			cacheSalt: getActiveProvider().baseUrl,
@@ -556,8 +552,6 @@ export const batchService = {
 		batchInpaintExpansionPct = opts.inpaintExpansionPct;
 		batchTypesetExpansionPct = opts.typesetExpansionPct;
 		batchEnableWatermarkInpaint = Boolean(opts.enableWatermarkInpaint);
-		batchEnableSfx = Boolean(opts.enableSfx);
-		batchSfxMaxAreaPct = opts.sfxMaxAreaPct;
 		batchTypesetOptions = opts.typesetOptions;
 
 		// QUERY CHAPTER DETAILS FROM DATABASE

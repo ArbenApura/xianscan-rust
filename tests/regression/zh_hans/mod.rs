@@ -1,6 +1,5 @@
 // -- MODULE DECLARATIONS -- //
 mod base;
-mod page_aaah_energy_burst_huff_hallucination;
 mod page_acloudmerge_watermark_cover;
 mod page_chariot_easy_to_block_sfx;
 mod page_dagger_catch_thought_bubble_split;
@@ -10,7 +9,7 @@ mod page_frost_dragon_welcome_my_lord_slanted_shout_bubble;
 mod page_holy_ancestor_mountains_glory_city;
 mod page_lightning_storm_welcome_my_lord_shout_bubble;
 mod page_man_sleeping_in_bed_gutter_watermark_noise;
-mod page_nie_li_sudden_awakening_sfx;
+mod page_sensei_remove_tumor_understood_boss;
 mod page_shadow_demon_nightmare_pillow_watermark_noise;
 mod page_three_units_doorway_light_noise;
 mod page_whose_god_will_i_be_slanted_free_text;

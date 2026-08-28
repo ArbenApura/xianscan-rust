@@ -37,7 +37,6 @@ pub fn build_regions(
     order: &[usize],
     split_lines: &[OcrLine],
     bubbles: &[BoxRect],
-    text_free_boxes: &[(BoxRect, f32)],
     page_w: u32,
     page_h: u32,
     is_cjk: bool,
@@ -81,35 +80,10 @@ pub fn build_regions(
             }
         });
 
-        let mid_x = box_rect.x + box_rect.w / 2;
-        let mid_y = box_rect.y + box_rect.h / 2;
-
-        let is_detector_sfx = text_free_boxes.iter().any(|(tf, _)| {
-            let iou = box_iou(tf, &box_rect);
-            let contains = mid_x >= tf.x && mid_x <= tf.x + tf.w && mid_y >= tf.y && mid_y <= tf.y + tf.h;
-            let tf_mid_x = tf.x + tf.w / 2;
-            let tf_mid_y = tf.y + tf.h / 2;
-            let tf_in_b = tf_mid_x >= box_rect.x && tf_mid_x <= box_rect.x + box_rect.w && tf_mid_y >= box_rect.y && tf_mid_y <= box_rect.y + box_rect.h;
-            let ix = (box_rect.x + box_rect.w).min(tf.x + tf.w) - box_rect.x.max(tf.x);
-            let iy = (box_rect.y + box_rect.h).min(tf.y + tf.h) - box_rect.y.max(tf.y);
-            let overlap = if ix > 0 && iy > 0 {
-                let inter = (ix * iy) as f32;
-                let b_area = (box_rect.w * box_rect.h).max(1) as f32;
-                let tf_area = (tf.w * tf.h).max(1) as f32;
-                inter / b_area >= 0.20 || inter / tf_area >= 0.20
-            } else {
-                false
-            };
-            iou >= 0.15 || contains || tf_in_b || overlap
-        });
-
-        let is_sfx = is_detector_sfx;
         let is_bubble_region = matched_bubble.is_some();
 
-        let mut kind = if is_bubble_region {
+        let kind = if is_bubble_region {
             RegionKind::DialogueBubble
-        } else if is_sfx {
-            RegionKind::SoundEffect
         } else {
             RegionKind::FreeText
         };
@@ -121,7 +95,7 @@ pub fn build_regions(
                 let (lx, ly, lw, lh) = polygon_bounds(&l.polygon);
                 // AN OCR LINE THAT IS SIGNIFICANTLY WIDER THAN THE CONTAINER BOX (LW >= 2.50 * BOX_RECT.W)
                 // IS A CROSS-CONTAINER SPANNED LINE ONLY WHEN BOX_RECT.W IS A SMALL SUB-BOX (< 100PX)
-                if box_rect.w < 100 && lw >= (box_rect.w as f32 * 2.50) as i32 && !is_sfx {
+                if box_rect.w < 100 && lw >= (box_rect.w as f32 * 2.50) as i32 {
                     return false;
                 }
                 if line_center_inside_box(&l.polygon, &box_rect) {
@@ -195,7 +169,7 @@ pub fn build_regions(
                 orientation_filtered.retain(|l| l.score >= 0.60 || l.score >= max_score * 0.85);
             }
 
-            // IN NON-LATIN CONTAINERS (E.G. CJK/KOREAN SPEECH BUBBLES), IF NATIVE SCRIPT LINES EXIST (SCORE >= 0.65), SUPPRESS PURE LATIN NOISE / CLOTHING PATTERN LINES
+            // IN NON-LATIN CONTAINERS (E.G. CJK/KOREAN SPEECH BUBBLES/FREE TEXT), IF NATIVE SCRIPT LINES EXIST (SCORE >= 0.65), SUPPRESS PURE LATIN NOISE / CLOTHING PATTERN / DIGIT NOISE LINES
             let has_native_script_line = orientation_filtered.iter().any(|l| {
                 l.score >= 0.65 && crate::ml::detect::has_native_script_for_lang(&l.text, source_lang)
             });
@@ -204,7 +178,8 @@ pub fn build_regions(
                     let t = l.text.trim();
                     let lacks_native = !crate::ml::detect::has_native_script_for_lang(t, source_lang);
                     let is_pure_latin_word = lacks_native && t.chars().all(|c| c.is_ascii_alphabetic() || c.is_whitespace() || c.is_ascii_punctuation());
-                    !is_pure_latin_word || crate::ml::detect::is_onomatopoeia_or_shout(t)
+                    let is_noise_or_digit = lacks_native && (crate::ml::detect::is_standalone_digit_or_particle_noise(t) || crate::ml::detect::is_standalone_noise_stroke(t));
+                    (!is_pure_latin_word && !is_noise_or_digit) || crate::ml::detect::is_onomatopoeia_or_shout(t)
                 });
             }
 
@@ -316,7 +291,7 @@ pub fn build_regions(
             let rad_a = median_line_angle.to_radians();
             let (sin_a, cos_a) = (rad_a.sin(), rad_a.cos());
 
-            let clusters = cluster_lines_into_utterances(&filtered_matched, is_cjk, is_sfx, is_container_vert, sin_a, cos_a);
+            let clusters = cluster_lines_into_utterances(&filtered_matched, is_cjk, is_container_vert, sin_a, cos_a);
 
             for cluster_lines in clusters {
                 if cluster_lines.is_empty() {
@@ -573,8 +548,7 @@ pub fn build_regions(
                 }
 
                 let cleaned = combined_text.trim().to_string();
-                let is_sfx = is_detector_sfx;
-                if cleaned.is_empty() && !is_sfx {
+                if cleaned.is_empty() {
                     continue;
                 }
 
@@ -582,14 +556,14 @@ pub fn build_regions(
                 if matched_bubble.is_none() && cluster_rect.w >= 300 && cluster_rect.h >= 500 && avg_score < 0.65 {
                     continue;
                 }
-                if matched_bubble.is_none() && !is_sfx {
+                if matched_bubble.is_none() {
                     if cluster_rect.w >= (page_w as f32 * 0.75) as i32 && cluster_rect.h >= 140 {
                         continue;
                     }
                 }
 
                 // 2. DROP HIGH-TILT NON-DIALOGUE WITH LOW RECOGNITION CONFIDENCE
-                if matched_bubble.is_none() && angle_deg.abs() >= 12.0 && avg_score < 0.65 && !is_sfx {
+                if matched_bubble.is_none() && angle_deg.abs() >= 12.0 && avg_score < 0.65 {
                     continue;
                 }
 
@@ -598,36 +572,25 @@ pub fn build_regions(
                     if crate::ml::detect::is_standalone_noise_stroke(&cleaned) {
                         continue;
                     }
-                    // SUPPRESS DETECTOR-SFX ARTWORK GLYPH HALLUCINATIONS ON CHROMATIC BACKGROUNDS:
-                    // DECORATIVE LIGHTNING / ENERGY-BURST GLYPHS IN ACTION SCENES PRODUCE SPURIOUS SFX
-                    // DETECTIONS WITH OCR TEXT LIKE 'M', '1呼', '呼t.1', '41', '产' (SHORT, DIGIT/LATIN-POLLUTED).
-                    // GUARD: NON-BUBBLE CJK DETECTOR-SFX WITH ≤3 NON-WHITESPACE CHARS ON CHROMATIC BACKGROUND
-                    // WHERE EITHER THE TEXT LACKS ANY CJK CONTENT, OR CONTAINS MIXED ASCII DIGITS/LATIN NOISE.
-                    // LEGITIMATE SFX (E.G. '啊啊啊啊啊啊啊！', '吵吵闹闹', '陡然惊醒') ARE ALWAYS MULTI-CHAR
-                    // PURE CJK AND WELL ABOVE THIS CHARACTER COUNT THRESHOLD.
-                    if is_cjk && is_detector_sfx && matched_bubble.is_none() {
-                        let char_count = cleaned.chars().filter(|c| !c.is_whitespace()).count();
-                        let ascii_noise_count = cleaned.chars().filter(|c| c.is_ascii_alphanumeric()).count();
-                        let cjk_count = cleaned.chars().filter(|c| crate::ml::detect::has_cjk_characters(&c.to_string())).count();
-                        // SHORT SPURIOUS SFX: TOTAL ≤5 CHARS WHERE ASCII NOISE DOMINATES (>= CJK COUNT)
-                        // OR ≤3 CHARS WITH ANY ASCII NOISE, OR SINGLE LOW-CONFIDENCE CJK RESIDUE
-                        let is_noise_polluted_sfx = (char_count <= 5 && ascii_noise_count > 0 && ascii_noise_count >= cjk_count)
-                            || (char_count <= 3 && ascii_noise_count > 0)
-                            || (cjk_count <= 1 && char_count <= 2 && avg_score < 0.60);
-                        if is_noise_polluted_sfx && compute_chromatic_color_variance(img, &cluster_rect) >= 15.0 {
+                    // SUPPRESS TINY LOW-CONFIDENCE NOISE BUBBLES (E.G. '一\n0', '4' IN COMPACT ARTIFACT BUBBLES W <= 35, H <= 55)
+                    if matched_bubble.is_some() && (cluster_rect.w <= 35 || box_rect.w <= 35) && (cluster_rect.h <= 55 || box_rect.h <= 55) {
+                        let is_noise_or_digit = crate::ml::detect::is_standalone_digit_or_particle_noise(&cleaned)
+                            || crate::ml::detect::is_standalone_noise_stroke(&cleaned)
+                            || cleaned.lines().all(|l| crate::ml::detect::is_standalone_noise_stroke(l.trim()) || crate::ml::detect::is_standalone_digit_or_particle_noise(l.trim()));
+                        if avg_score < 0.68 || is_noise_or_digit {
                             continue;
                         }
                     }
-                    // IN NON-LATIN SCRIPT SOURCES (CJK, CYRILLIC, THAI), NEVER EXTRACT STANDALONE ALPHANUMERIC / LATIN TEXT UNLESS COMBINED WITH SOURCE SCRIPT OR RECOGNIZED AS EXPLICIT SFX
+                    // IN NON-LATIN SCRIPT SOURCES (CJK, CYRILLIC, THAI), NEVER EXTRACT STANDALONE ALPHANUMERIC / LATIN TEXT UNLESS COMBINED WITH SOURCE SCRIPT
                     let is_non_latin = crate::ml::detect::is_non_latin_source(source_lang);
                     let lacks_native_script = !crate::ml::detect::has_native_script_for_lang(&cleaned, source_lang);
                     let is_pure_latin = lacks_native_script && cleaned.chars().all(|c| c.is_ascii_alphabetic() || c.is_whitespace() || c.is_ascii_punctuation());
-                    if is_non_latin && is_pure_latin && !is_sfx && !is_detector_sfx && !crate::ml::detect::is_onomatopoeia_or_shout(&cleaned) {
+                    if is_non_latin && is_pure_latin && !crate::ml::detect::is_onomatopoeia_or_shout(&cleaned) {
                         // Suppress background texture / clothing words (e.g. "HOSPITAL", "OSPITAL") in CJK/Korean sources
                         // But allow if matched_bubble contains native dialogue that was merged or candidate is native
                         continue;
                     }
-                    if is_non_latin && lacks_native_script && !is_sfx && !is_detector_sfx && crate::ml::detect::has_alphanumeric_characters(&cleaned) {
+                    if is_non_latin && lacks_native_script && crate::ml::detect::has_alphanumeric_characters(&cleaned) {
                         let char_count = cleaned.chars().filter(|c| !c.is_whitespace()).count();
                         let is_sparse_giant_box = matched_bubble.is_none() && (cluster_rect.w >= 100 || cluster_rect.h >= 100) && char_count <= 4;
                         let is_short_noise_code = matched_bubble.is_none()
@@ -641,12 +604,12 @@ pub fn build_regions(
                             || is_non_bubble_alphanumeric
                             || (matched_bubble.is_none() && cluster_rect.w <= 35 && cluster_rect.h <= 35)
                             || (matched_bubble.is_none() && avg_score < 0.70 && !(cluster_rect.w >= 45 && cluster_rect.h >= 25 && (cleaned.contains('Z') || cleaned.contains('z') || cleaned.contains('S') || cleaned.contains('A'))))
-                            || (matched_bubble.is_none() && cleaned.chars().count() == 1 && !is_sfx && !(cluster_rect.w >= 45 && cluster_rect.h >= 25 && (cleaned == "Z" || cleaned == "z" || cleaned == "S" || cleaned == "s" || cleaned == "A" || cleaned == "B")))
+                            || (matched_bubble.is_none() && cleaned.chars().count() == 1 && !(cluster_rect.w >= 45 && cluster_rect.h >= 25 && (cleaned == "Z" || cleaned == "z" || cleaned == "S" || cleaned == "s" || cleaned == "A" || cleaned == "B")))
                         {
                             continue;
                         }
                     }
-                    if !is_sfx && !is_detector_sfx && crate::ml::detect::is_pure_watermark_region(&cleaned) {
+                    if crate::ml::detect::is_pure_watermark_region(&cleaned) {
                         continue;
                     }
                     // SUPPRESS STANDALONE PUNCTUATION / SYMBOL-ONLY REGIONS (E.G. '?!', '!', '?', '…', '~')
@@ -655,7 +618,7 @@ pub fn build_regions(
                     }
 
                     // SUPPRESS STANDALONE DIGIT / DEGREE / PARTICLE NOISE OUTSIDE SPEECH BUBBLES ACROSS ALL LANGUAGES
-                    if matched_bubble.is_none() && !is_sfx && !is_detector_sfx && crate::ml::detect::is_standalone_digit_or_particle_noise(&cleaned) {
+                    if matched_bubble.is_none() && crate::ml::detect::is_standalone_digit_or_particle_noise(&cleaned) {
                         let char_count = cleaned.chars().filter(|c| !c.is_whitespace()).count();
                         let is_sparse_giant_box = (cluster_rect.w >= 100 || cluster_rect.h >= 100) && char_count <= 5;
                         if char_count <= 4
@@ -671,15 +634,17 @@ pub fn build_regions(
                         continue;
                     }
                     // SUPPRESS LOW-CONFIDENCE ISOLATED SINGLE-CHARACTER ARTWORK ARTIFACTS
-                    let is_sign_or_narration_box = is_cjk && is_detector_sfx && cluster_rect.w >= 60 && cluster_rect.h >= 40 && (cleaned.contains("省") || cleaned.contains("县") || cleaned.contains("区") || cleaned.contains("镇") || cleaned.contains("村") || cleaned.contains("室") || cleaned.contains("馆") || cleaned.contains("部") || cleaned.contains("堂") || cleaned.contains("院") || cleaned.contains("校") || cleaned.contains("门"));
+                    let is_sign_or_narration_box = is_cjk && cluster_rect.w >= 60 && cluster_rect.h >= 40 && (cleaned.contains("省") || cleaned.contains("县") || cleaned.contains("区") || cleaned.contains("镇") || cleaned.contains("村") || cleaned.contains("室") || cleaned.contains("馆") || cleaned.contains("部") || cleaned.contains("堂") || cleaned.contains("院") || cleaned.contains("校") || cleaned.contains("门"));
                     let is_margin_isolated_char = (cluster_rect.x <= 5 || cluster_rect.x + cluster_rect.w >= page_w as i32 - 5) && avg_score < 0.75;
-                    let is_valid_cjk_glyph = is_cjk && cleaned.chars().any(|c| crate::ml::detect::has_cjk_characters(&c.to_string())) && avg_score >= 0.70;
-                    let is_low_conf_single_char = cleaned.chars().count() == 1 && (avg_score < 0.68 || cluster_rect.w >= 100 || cluster_rect.h >= 100);
-                    if cleaned.chars().count() == 1 && matched_bubble.is_none() && !is_sfx && !is_detector_sfx && !is_sign_or_narration_box && (!is_valid_cjk_glyph || is_low_conf_single_char) && (!crate::ml::detect::is_onomatopoeia_or_shout(&cleaned) || avg_score < 0.60) && (compute_chromatic_color_variance(img, &cluster_rect) >= 15.0 || is_margin_isolated_char || is_low_conf_single_char || (avg_score < 0.75 && cluster_rect.w <= 40 && cluster_rect.h <= 40)) {
+                    let char_count = cleaned.chars().filter(|c| !c.is_whitespace()).count();
+                    let is_valid_cjk_glyph = is_cjk && cleaned.chars().any(|c| crate::ml::detect::has_cjk_characters(&c.to_string())) && avg_score >= 0.70 && !is_margin_isolated_char;
+                    let is_low_conf_single_char = char_count == 1 && (avg_score < 0.68 || cluster_rect.w >= 100 || cluster_rect.h >= 100);
+                    let is_isolated_sfx = char_count <= 4 && crate::ml::detect::is_onomatopoeia_or_shout(&cleaned);
+                    if char_count <= 4 && matched_bubble.is_none() && !is_sign_or_narration_box && (!is_valid_cjk_glyph || is_low_conf_single_char || is_margin_isolated_char || is_isolated_sfx) && (!crate::ml::detect::is_onomatopoeia_or_shout(&cleaned) || avg_score < 0.60 || is_margin_isolated_char || is_low_conf_single_char || is_isolated_sfx) && (compute_chromatic_color_variance(img, &cluster_rect) >= 15.0 || is_margin_isolated_char || is_low_conf_single_char || is_isolated_sfx || (avg_score < 0.75 && cluster_rect.w <= 40 && cluster_rect.h <= 40)) {
                         continue;
                     }
                     // SUPPRESS TRANSLUCENT AGGREGATOR WATERMARKS (E.G. '数据' OVERLAID WITH 'ACloudMerge.com' OR '集云')
-                    if is_cjk && matched_bubble.is_none() && !is_sfx && !is_detector_sfx && (cleaned == "数据" || cleaned == "集云" || cleaned == "集云数据") {
+                    if is_cjk && matched_bubble.is_none() && (cleaned == "数据" || cleaned == "集云" || cleaned == "集云数据") {
                         continue;
                     }
                     // SUPPRESS LOW-CONFIDENCE REPEATED SFX GLYPHS GENERATED FROM LIGHTNING / BACKGROUND SPEEDLINES (E.G. '呼呼', '叫呼呼' ON CHROMATIC BACKGROUND WITH SCORE < 0.65)
@@ -711,12 +676,12 @@ pub fn build_regions(
                         }
                     }
                     // SUPPRESS FOLIAGE NOISE / CHROMATIC BACKGROUND TEXTURE ON TINY STROKE FRAGMENTS
-                    if matched_bubble.is_none() && !is_detector_sfx && !is_sfx && cluster_rect.w <= 40 && cluster_rect.h <= 55 && compute_chromatic_color_variance(img, &cluster_rect) >= 15.0 {
+                    if matched_bubble.is_none() && cluster_rect.w <= 40 && cluster_rect.h <= 55 && compute_chromatic_color_variance(img, &cluster_rect) >= 15.0 {
                         continue;
                     }
                     // SUPPRESS ISOLATED SINGLE-PUNCTUATION / REACTION SYMBOL SLICES (E.G. '!', '?', 'i', 'l', '1', '|' WITH W <= 12PX)
                     let is_narrow_symbol_slice = cluster_rect.w <= 12 && (cleaned == "i" || cleaned == "l" || cleaned == "!" || cleaned == "1" || cleaned == "|" || cleaned == "I");
-                    if is_narrow_symbol_slice && !is_sfx && !is_detector_sfx {
+                    if is_narrow_symbol_slice {
                         continue;
                     }
 
@@ -727,31 +692,31 @@ pub fn build_regions(
                         continue;
                     }
                     // SUPPRESS TINY ISOLATED NON-BUBBLE STROKE FRAGMENTS
-                    if matched_bubble.is_none() && !is_detector_sfx && !is_sfx && cluster_rect.w <= 40 && cluster_rect.h <= 55 && !is_valid_cjk_glyph {
+                    if matched_bubble.is_none() && cluster_rect.w <= 40 && cluster_rect.h <= 55 && !is_valid_cjk_glyph {
                         continue;
                     }
                     // SUPPRESS OPTICAL BORDER SLIVERS
-                    if matched_bubble.is_none() && !is_sfx && cluster_rect.w <= 35 && cluster_rect.h >= 60 && avg_score < 0.60 {
+                    if matched_bubble.is_none() && cluster_rect.w <= 35 && cluster_rect.h >= 60 && avg_score < 0.60 {
                         continue;
                     }
                     // SUPPRESS LOW-CONFIDENCE ISOLATED PSEUDO-WORD HALLUCINATIONS ON COMPLEX BACKGROUND ARTWORK
-                    if matched_bubble.is_none() && !is_sfx && !is_detector_sfx && !is_sign_or_narration_box && ((avg_score < 0.65 && cleaned.chars().count() <= 6 && compute_chromatic_color_variance(img, &cluster_rect) >= 15.0) || (avg_score < 0.70 && cleaned.chars().count() <= 16)) {
+                    if matched_bubble.is_none() && !is_sign_or_narration_box && ((avg_score < 0.65 && cleaned.chars().count() <= 6 && compute_chromatic_color_variance(img, &cluster_rect) >= 15.0) || (avg_score < 0.70 && cleaned.chars().count() <= 16)) {
                         continue;
                     }
 
                     // SUPPRESS TRUNCATED MARGIN NOISE FRAGMENTS SLICED AT THE VERY EDGE OF THE IMAGE CANVAS (WITHOUT SPEECH BUBBLE)
                     let is_margin_flush = cluster_rect.x <= 5 || cluster_rect.x + cluster_rect.w >= page_w as i32 - 5;
-                    if matched_bubble.is_none() && !is_sfx && !is_detector_sfx && is_margin_flush && (cluster_rect.w <= 75 || cluster_rect.h <= 65) && avg_score < 0.75 {
+                    if matched_bubble.is_none() && is_margin_flush && (cluster_rect.w <= 75 || cluster_rect.h <= 65) && avg_score < 0.75 {
                         continue;
                     }
 
                     // SUPPRESS MASSIVE NON-BUBBLE BACKGROUND TEXT OCCLUDED ACROSS SCENE ARTWORK (W >= 75% CANVAS WIDTH AND H >= 100PX)
-                    if matched_bubble.is_none() && !is_sfx && (cluster_rect.w as f32 >= page_w as f32 * 0.75) && cluster_rect.h >= 100 {
+                    if matched_bubble.is_none() && (cluster_rect.w as f32 >= page_w as f32 * 0.75) && cluster_rect.h >= 100 {
                         continue;
                     }
 
                     // SUPPRESS NON-BUBBLE DETECTOR HALLUCINATIONS WHOSE TEXT IS A DUPLICATE / ECHO OF AN ADJACENT SPEECH BUBBLE (E.G. '雪\n传灵塔组织还')
-                    let is_speech_bubble_echo = matched_bubble.is_none() && !is_sfx && !is_detector_sfx && split_lines.iter().any(|rl| {
+                    let is_speech_bubble_echo = matched_bubble.is_none() && split_lines.iter().any(|rl| {
                         let t_rl = rl.text.trim();
                         let (rx, ry, rw, rh) = polygon_bounds(&rl.polygon);
                         let rl_in_bubble = bubbles.iter().any(|b| {
@@ -776,18 +741,11 @@ pub fn build_regions(
 
                     // SUPPRESS SPARSE GIANT NON-BUBBLE DETECTIONS (E.G. BACKGROUND BUILDING / DOORWAY PLAQUES W >= 250PX, H >= 150PX WITH <= 3 CHARACTERS)
                     let is_sparse_giant_non_bubble = matched_bubble.is_none()
-                        && !is_sfx
-                        && !is_detector_sfx
                         && !crate::ml::detect::is_onomatopoeia_or_shout(&cleaned)
                         && (cluster_rect.w >= 250 && cluster_rect.h >= 150)
                         && cleaned.chars().filter(|c| !c.is_whitespace()).count() <= 3;
                     if is_sparse_giant_non_bubble {
                         continue;
-                    }
-
-                    // RECLASSIFY BORDERLESS ISOLATED ONOMATOPOEIA / SOUND EFFECTS (CONFIRMED BY DETECTOR OR ONOMATOPOEIA)
-                    if matched_bubble.is_none() && (is_sfx || is_detector_sfx || crate::ml::detect::is_onomatopoeia_or_shout(&cleaned)) {
-                        kind = RegionKind::SoundEffect;
                     }
                 }
 
@@ -910,7 +868,7 @@ pub fn build_regions(
                     }).cloned()
                 };
 
-                let final_kind = if matched_bubble_final.is_some() && kind != RegionKind::SoundEffect {
+                let final_kind = if matched_bubble_final.is_some() {
                     RegionKind::DialogueBubble
                 } else {
                     kind
@@ -991,18 +949,17 @@ pub fn build_regions(
             }
 
             let cleaned = isolated_text.trim().to_string();
-            let is_sfx = is_detector_sfx || (matched_bubble.is_none() && crate::ml::detect::is_onomatopoeia_or_shout(&cleaned));
-            if cleaned.is_empty() && !is_sfx {
+            if cleaned.is_empty() {
                 continue;
             }
 
             // 1. DROP GIANT ARTWORK HALLUCINATIONS
-            if matched_bubble.is_none() && !is_sfx && box_rect.w >= (page_w as f32 * 0.65) as i32 && box_rect.h >= 120 {
+            if matched_bubble.is_none() && box_rect.w >= (page_w as f32 * 0.65) as i32 && box_rect.h >= 120 {
                 continue;
             }
 
             // 2. DROP HIGH-TILT NON-DIALOGUE WITH LOW RECOGNITION CONFIDENCE
-            if matched_bubble.is_none() && angle_deg.abs() >= 12.0 && isolated_score < 0.65 && !is_sfx {
+            if matched_bubble.is_none() && angle_deg.abs() >= 12.0 && isolated_score < 0.65 {
                 continue;
             }
 
@@ -1011,14 +968,23 @@ pub fn build_regions(
                 if crate::ml::detect::is_standalone_noise_stroke(&cleaned) {
                     continue;
                 }
-                if is_cjk && !is_detector_sfx && crate::ml::detect::is_standalone_alphanumeric_without_cjk(&cleaned) && (box_rect.h <= 15 || (matched_bubble.is_none() && box_rect.w <= 35 && box_rect.h <= 35) || (matched_bubble.is_none() && isolated_score < 0.70 && !(box_rect.w >= 45 && box_rect.h >= 25 && (cleaned.contains('Z') || cleaned.contains('z') || cleaned.contains('S') || cleaned.contains('A')))) || (matched_bubble.is_none() && cleaned.chars().count() == 1 && !is_sfx && !(box_rect.w >= 45 && box_rect.h >= 25 && (cleaned == "Z" || cleaned == "z" || cleaned == "S" || cleaned == "s" || cleaned == "A" || cleaned == "B")))) {
+                if is_cjk && crate::ml::detect::is_standalone_alphanumeric_without_cjk(&cleaned) && (box_rect.h <= 15 || (matched_bubble.is_none() && box_rect.w <= 35 && box_rect.h <= 35) || (matched_bubble.is_none() && isolated_score < 0.70 && !(box_rect.w >= 45 && box_rect.h >= 25 && (cleaned.contains('Z') || cleaned.contains('z') || cleaned.contains('S') || cleaned.contains('A')))) || (matched_bubble.is_none() && cleaned.chars().count() == 1 && !(box_rect.w >= 45 && box_rect.h >= 25 && (cleaned == "Z" || cleaned == "z" || cleaned == "S" || cleaned == "s" || cleaned == "A" || cleaned == "B")))) {
                     continue;
                 }
-                if !is_sfx && !is_detector_sfx && crate::ml::detect::is_pure_watermark_region(&cleaned) {
+                if crate::ml::detect::is_pure_watermark_region(&cleaned) {
                     continue;
+                }
+                // SUPPRESS TINY LOW-CONFIDENCE NOISE BUBBLES IN FALLBACK (E.G. '一\n0', '4' IN COMPACT ARTIFACT BUBBLES W <= 35, H <= 55)
+                if matched_bubble.is_some() && box_rect.w <= 35 && box_rect.h <= 55 {
+                    let is_noise_or_digit = crate::ml::detect::is_standalone_digit_or_particle_noise(&cleaned)
+                        || crate::ml::detect::is_standalone_noise_stroke(&cleaned)
+                        || cleaned.lines().all(|l| crate::ml::detect::is_standalone_noise_stroke(l.trim()) || crate::ml::detect::is_standalone_digit_or_particle_noise(l.trim()));
+                    if isolated_score < 0.68 || is_noise_or_digit {
+                        continue;
+                    }
                 }
                 // SUPPRESS STANDALONE DIGIT / DEGREE / PARTICLE NOISE OUTSIDE SPEECH BUBBLES ACROSS ALL LANGUAGES
-                if matched_bubble.is_none() && !is_sfx && !is_detector_sfx && crate::ml::detect::is_standalone_digit_or_particle_noise(&cleaned) {
+                if matched_bubble.is_none() && crate::ml::detect::is_standalone_digit_or_particle_noise(&cleaned) {
                     let char_count = cleaned.chars().filter(|c| !c.is_whitespace()).count();
                     let is_sparse_giant_box = (box_rect.w >= 100 || box_rect.h >= 100) && char_count <= 5;
                     if char_count <= 4
@@ -1030,23 +996,18 @@ pub fn build_regions(
                         continue;
                     }
                 }
-                if cleaned.chars().count() == 1 && matched_bubble.is_none() && !is_sfx && !is_detector_sfx && (!crate::ml::detect::is_onomatopoeia_or_shout(&cleaned) || isolated_score < 0.60) && (compute_chromatic_color_variance(img, &box_rect) >= 15.0 || (isolated_score < 0.80 && box_rect.w <= 40 && box_rect.h <= 40)) {
+                if cleaned.chars().count() == 1 && matched_bubble.is_none() && (!crate::ml::detect::is_onomatopoeia_or_shout(&cleaned) || isolated_score < 0.60) && (compute_chromatic_color_variance(img, &box_rect) >= 15.0 || (isolated_score < 0.80 && box_rect.w <= 40 && box_rect.h <= 40)) {
                     continue;
                 }
-                if matched_bubble.is_none() && !is_detector_sfx && box_rect.w <= 40 && box_rect.h <= 55 && compute_chromatic_color_variance(img, &box_rect) >= 15.0 {
+                if matched_bubble.is_none() && box_rect.w <= 40 && box_rect.h <= 55 && compute_chromatic_color_variance(img, &box_rect) >= 15.0 {
                     continue;
                 }
                 if box_rect.w <= 15 && box_rect.h <= 15 {
                     continue;
                 }
-                if matched_bubble.is_none() && !is_detector_sfx && !is_sfx && box_rect.w <= 40 && box_rect.h <= 55 {
+                if matched_bubble.is_none() && box_rect.w <= 40 && box_rect.h <= 55 {
                     continue;
                 }
-            }
-
-            // 4. CHROMATIC VARIANCE GATE FOR FREE-FLOATING TEXT
-            if matched_bubble.is_none() && isolated_score < 0.70 && compute_chromatic_color_variance(img, &box_rect) >= 18.0 {
-                kind = RegionKind::SoundEffect;
             }
 
             let final_box_rect = if !fallback_polys.is_empty() {

@@ -20,8 +20,6 @@ describe('Settings & Reading History Server API Routes', () => {
 			expect(res.status).toBe(200);
 			const data = await res.json();
 			expect(data.inpaintMode).toBe('patch');
-			expect(data.enableSfx).toBe(false);
-			expect(data.sfxMaxAreaPct).toBe(0.10);
 			expect(data.parallelProcesses).toBe(2);
 		});
 	});
@@ -35,8 +33,8 @@ describe('Settings & Reading History Server API Routes', () => {
 				method: 'PATCH',
 				headers: { 'Content-Type': 'application/json' },
 				body: JSON.stringify({
-					enableSfx: true,
-					sfxMaxAreaPct: 0.35,
+					inpaintExpansionPct: 0.08,
+					typesetExpansionPct: 0.15,
 					executionDevice: 'cuda',
 				}),
 			});
@@ -44,8 +42,8 @@ describe('Settings & Reading History Server API Routes', () => {
 			const patchRes = await PATCH({ request: req } as unknown as RequestEvent);
 			expect(patchRes.status).toBe(200);
 			const patchData = await patchRes.json();
-			expect(patchData.enableSfx).toBe(true);
-			expect(patchData.sfxMaxAreaPct).toBe(0.35);
+			expect(patchData.inpaintExpansionPct).toBe(0.08);
+			expect(patchData.typesetExpansionPct).toBe(0.15);
 			expect(patchData.executionDevice).toBe('cuda');
 			// Untouched keys stay default
 			expect(patchData.inpaintMode).toBe('patch');
@@ -53,8 +51,8 @@ describe('Settings & Reading History Server API Routes', () => {
 			// Re-query with GET to confirm persistence in SQLite
 			const getRes = await GET({} as RequestEvent);
 			const getData = await getRes.json();
-			expect(getData.enableSfx).toBe(true);
-			expect(getData.sfxMaxAreaPct).toBe(0.35);
+			expect(getData.inpaintExpansionPct).toBe(0.08);
+			expect(getData.typesetExpansionPct).toBe(0.15);
 		});
 
 		it('gracefully handles and ignores invalid/unknown payload keys', async () => {
@@ -243,8 +241,6 @@ describe('Settings & Reading History Server API Routes', () => {
 				method: 'PATCH',
 				headers: { 'Content-Type': 'application/json' },
 				body: JSON.stringify({
-					enableSfx: false,
-					sfxMaxAreaPct: 0.15,
 					typesetFont: 'Anime Ace',
 					typesetPadding: 0.08,
 					typesetOutline: 'heavy',
@@ -258,8 +254,6 @@ describe('Settings & Reading History Server API Routes', () => {
 
 			const { getCanonicalSettings } = await import('../../src/lib/server/settings-service');
 			const canonical = getCanonicalSettings();
-			expect(canonical.enableSfx).toBe(false);
-			expect(canonical.sfxMaxAreaPct).toBe(0.15);
 			expect(canonical.typesetFont).toBe('Anime Ace');
 			expect(canonical.typesetPadding).toBe(0.08);
 			expect(canonical.typesetOutline).toBe('heavy');

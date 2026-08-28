@@ -189,8 +189,6 @@ function createBatchTrackerStore() {
 						pageConcurrency,
 						resliceBeforeBatch,
 						inpaintMode: curSettings?.inpaintMode,
-						enableSfx: curSettings?.enableSfx,
-						sfxMaxAreaPct: curSettings?.sfxMaxAreaPct,
 						inpaintExpansionPct: curSettings?.inpaintExpansionPct,
 						typesetExpansionPct: curSettings?.typesetExpansionPct,
 						enableWatermarkInpaint: curSettings?.enableWatermarkInpaint,

@@ -6,9 +6,8 @@ use image::{DynamicImage, GenericImageView};
 use crate::ml::detect::{
     deduplicate_boxes, is_cjk_source, is_latin_source, sort_regions_top_to_bottom,
 };
-use crate::ml::geometry::box_iou;
 use crate::ml::schemas::{
-    AnalyzeOptions, AnalyzeResponse, BoxRect, OcrStats, OcrStepLog, OnomatopoeiaFrame,
+    AnalyzeOptions, AnalyzeResponse, OcrStats, OcrStepLog, OnomatopoeiaFrame,
 };
 use super::engine::PipelineEngine;
 use super::fusion::fuse_detections;
@@ -68,12 +67,10 @@ pub fn analyze_image_with_fusion_timed(
 ) -> Result<AnalyzeResponse> {
     let (page_w, page_h) = img.dimensions();
     let source_lang = options.and_then(|o| o.source_lang.as_deref());
-    let enable_sfx = options.and_then(|o| o.enable_sfx).unwrap_or(false);
-    let sfx_max_area_pct = options.and_then(|o| o.sfx_max_area_pct).unwrap_or(0.10);
     let is_cjk = is_cjk_source(source_lang);
     let is_latin = is_latin_source(source_lang);
 
-    // ONOMATOPOEIA FRAMES OMITTED PER USER REQUEST (ONLY BUBBLES, TEXT, AND SFX REGIONS)
+    // ONOMATOPOEIA FRAMES OMITTED PER USER REQUEST (ONLY BUBBLES AND TEXT REGIONS)
     let onomatopoeia: Vec<OnomatopoeiaFrame> = Vec::new();
 
     // =========================================================================
@@ -83,33 +80,10 @@ pub fn analyze_image_with_fusion_timed(
     let mut candidate_boxes: Vec<Vec<[f32; 2]>> = Vec::new();
     let mut candidate_scores: Vec<f32> = Vec::new();
 
-    // A. Use Detector-First Text, Free-Text, and Onomatopoeia (SFX) Boxes if available (Koharu / RT-DETR)
+    // A. Use Detector-First Text and Free-Text Boxes if available (Koharu / RT-DETR)
     let is_detector_first = fusion_res.backend == "rfdetr-seg-2xl" || fusion_res.backend == "rtdetr-v2";
-    if is_detector_first && (!fusion_res.text_bubbles.is_empty() || !fusion_res.text_free.is_empty() || !fusion_res.onomatopoeia.is_empty()) {
+    if is_detector_first && (!fusion_res.text_bubbles.is_empty() || !fusion_res.text_free.is_empty()) {
         for (b, score) in &fusion_res.text_bubbles {
-            // When SFX is disabled, do not ingest a text_bubble if it heavily overlaps an onomatopoeia (SFX) detection
-            if !enable_sfx {
-                let overlaps_sfx = fusion_res.onomatopoeia.iter().any(|(sfx_b, sfx_score)| {
-                    if *sfx_score < 0.20 {
-                        return false;
-                    }
-                    box_iou(b, sfx_b) >= 0.25 || {
-                        let ix = (b.x + b.w).min(sfx_b.x + sfx_b.w) - b.x.max(sfx_b.x);
-                        let iy = (b.y + b.h).min(sfx_b.y + sfx_b.h) - b.y.max(sfx_b.y);
-                        if ix > 0 && iy > 0 {
-                            let inter = (ix * iy) as f32;
-                            let b_area = (b.w * b.h).max(1) as f32;
-                            let s_area = (sfx_b.w * sfx_b.h).max(1) as f32;
-                            inter / b_area >= 0.30 || inter / s_area >= 0.30
-                        } else {
-                            false
-                        }
-                    }
-                });
-                if overlaps_sfx {
-                    continue;
-                }
-            }
             // If this is a loose composite box enclosing 2 or more separate tighter subboxes, skip it
             let matching_subboxes_count = fusion_res.text_bubbles.iter().filter(|(sub_b, sub_score)| {
                 *sub_score >= 0.45
@@ -155,30 +129,6 @@ pub fn analyze_image_with_fusion_timed(
                 [b.x as f32, (b.y + b.h) as f32],
             ]);
             candidate_scores.push(*score);
-        }
-        // CLUSTER ADJACENT / OVERLAPPING ONOMATOPOEIA STROKE FRAGMENTS INTO UNIFIED ENVELOPES (GAP <= 50PX)
-        if enable_sfx {
-            let high_conf_onomatopoeia: Vec<_> = fusion_res
-                .onomatopoeia
-                .iter()
-                .filter(|(_, score)| *score >= 0.40)
-                .cloned()
-                .collect();
-            let page_total_area = (page_w * page_h).max(1) as f32;
-            let clustered_sfx = crate::ml::detect::cluster_adjacent_sfx_boxes(&high_conf_onomatopoeia, 50);
-            for (poly, score) in clustered_sfx {
-                let (_, _, bw, bh) = crate::ml::geometry::box_to_xywh_f32(&poly);
-                let sfx_area = (bw * bh).max(0.0);
-                let area_ratio = sfx_area / page_total_area;
-                if bw >= (page_w as f32 * 0.65) && bh >= 120.0 {
-                    continue;
-                }
-                // SKIP OVERSIZED SFX IF EXCEEDING SFX MAX AREA RATIO TO PROTECT BACKGROUND ART
-                if area_ratio <= sfx_max_area_pct {
-                    candidate_boxes.push(poly);
-                    candidate_scores.push(score);
-                }
-            }
         }
 
         // FUSE HIGH-CONFIDENCE RAPIDOCR LINES: EXPAND NARROW SINGLE-LINE DETECTOR SLICES & PRESERVE MISSED LINES
@@ -267,7 +217,7 @@ pub fn analyze_image_with_fusion_timed(
                 }
             }
             if !overlaps_any {
-                // DO NOT RESCUE LINE AS MISSED TEXT IF IT OVERLAPS DETECTED ONOMATOPOEIA (SFX) AND SFX IS DISABLED OR OVERSIZED
+                // DO NOT RESCUE LINE AS MISSED TEXT IF IT OVERLAPS DETECTED ONOMATOPOEIA (SFX)
                 let overlaps_sfx = fusion_res.onomatopoeia.iter().any(|(sfx_b, score)| {
                     if *score < 0.20 {
                         return false;
@@ -289,14 +239,7 @@ pub fn analyze_image_with_fusion_timed(
                 });
 
                 if overlaps_sfx {
-                    if !enable_sfx {
-                        continue;
-                    }
-                    let page_total_area = (page_w * page_h).max(1) as f32;
-                    let area_ratio = (lw * lh) as f32 / page_total_area;
-                    if area_ratio > sfx_max_area_pct {
-                        continue;
-                    }
+                    continue;
                 }
 
                 if (lw as f32) >= (page_w as f32 * 0.55) && lh >= 70 {
@@ -339,7 +282,6 @@ pub fn analyze_image_with_fusion_timed(
             raw_bubbles_count: fusion_res.bubbles.len(),
             raw_text_bubbles_count: fusion_res.text_bubbles.len(),
             raw_text_free_count: fusion_res.text_free.len(),
-            raw_sfx_count: fusion_res.onomatopoeia.len(),
             raw_ocr_lines_count: fusion_res.raw_ocr_lines_count,
             rescued_crops_count: fusion_res.rescued_crops_count,
             watermark_recovered_count: fusion_res.watermark_recovered_count,
@@ -369,27 +311,6 @@ pub fn analyze_image_with_fusion_timed(
     let order = sort_regions_top_to_bottom(&dedup_boxes, page_h as usize, 0.5);
     let stage2_duration_ms = t_stage2_start.elapsed().as_secs_f64() * 1000.0;
 
-    // Only onomatopoeia detections are classified as SFX (excluding regions with higher-confidence text_bubbles); text_free represents free-floating narrative text / captions
-    let sfx_boxes: Vec<(BoxRect, f32)> = if enable_sfx {
-        fusion_res
-            .onomatopoeia
-            .iter()
-            .filter(|(sfx_b, score)| {
-                if *score < 0.25 {
-                    return false;
-                }
-                // If text_bubbles detected the same region with higher confidence, it is dialogue/narration, not SFX
-                let has_higher_text_bubble = fusion_res.text_bubbles.iter().any(|(tb, tb_score)| {
-                    *tb_score > *score && box_iou(tb, sfx_b) >= 0.35
-                });
-                !has_higher_text_bubble
-            })
-            .cloned()
-            .collect()
-    } else {
-        Vec::new()
-    };
-
     // =========================================================================
     // STAGE 3: TARGETED TEXT RECOGNITION & REGION MASKING
     // =========================================================================
@@ -401,7 +322,6 @@ pub fn analyze_image_with_fusion_timed(
         &order,
         &fusion_res.rapid_lines,
         &fusion_res.bubbles,
-        &sfx_boxes,
         page_w,
         page_h,
         is_cjk,
@@ -411,53 +331,13 @@ pub fn analyze_image_with_fusion_timed(
         options.and_then(|o| o.typeset_padding_pct),
     );
 
-    // Filter out low-confidence standalone single-character artwork artifacts (e.g. blush mark '红', conf < 0.58, w <= 35 && h <= 35), but preserve SoundEffects and signage
+    // Filter out low-confidence standalone single-character artwork artifacts (e.g. blush mark '红', conf < 0.58, w <= 35 && h <= 35)
     final_regions.retain(|r| {
         let t = r.text.trim();
-        if t.chars().count() == 1 && r.confidence < 0.58 && (r.box_.w <= 35 && r.box_.h <= 35) && r.kind != crate::ml::schemas::RegionKind::SoundEffect {
+        if t.chars().count() == 1 && r.confidence < 0.58 && (r.box_.w <= 35 && r.box_.h <= 35) {
             return false;
         }
         true
-    });
-
-    // Filter out SoundEffects if SFX is disabled or if individual SFX region exceeds area threshold
-    // Also suppress FreeText regions that overlap layout-detector SFX boxes when SFX is disabled:
-    // when enable_sfx=false, SFX candidate boxes are not passed to build_regions, so OCR lines
-    // inside those boxes may be re-emitted as FreeText - suppress them using raw onomatopoeia boxes.
-    let raw_sfx_boxes: Vec<&BoxRect> = fusion_res
-        .onomatopoeia
-        .iter()
-        .filter(|(_, score)| *score >= 0.35)
-        .map(|(b, _)| b)
-        .collect();
-    let page_total_area = (page_w * page_h).max(1) as f32;
-    final_regions.retain(|r| {
-        if r.kind == crate::ml::schemas::RegionKind::SoundEffect {
-            if !enable_sfx {
-                return false;
-            }
-            let area_ratio = (r.box_.w * r.box_.h) as f32 / page_total_area;
-            area_ratio <= sfx_max_area_pct
-        } else if !enable_sfx && r.bubble_box.is_none() {
-            // SUPPRESS FREE-TEXT / NON-BUBBLE REGIONS WHOSE BOX SUBSTANTIALLY OVERLAPS A
-            // LAYOUT-DETECTOR SFX BOX. THIS PREVENTS LARGE SFX TEXT (E.G. 啊×7！) FROM
-            // LEAKING THROUGH AS FREE TEXT WHEN SFX RENDERING IS DISABLED.
-            let overlaps_raw_sfx = raw_sfx_boxes.iter().any(|sfx_b| {
-                let ix = (r.box_.x + r.box_.w).min(sfx_b.x + sfx_b.w) - r.box_.x.max(sfx_b.x);
-                let iy = (r.box_.y + r.box_.h).min(sfx_b.y + sfx_b.h) - r.box_.y.max(sfx_b.y);
-                if ix > 0 && iy > 0 {
-                    let inter = (ix * iy) as f32;
-                    let r_area = (r.box_.w * r.box_.h).max(1) as f32;
-                    let sfx_area = (sfx_b.w * sfx_b.h).max(1) as f32;
-                    inter / r_area >= 0.40 || inter / sfx_area >= 0.40
-                } else {
-                    false
-                }
-            });
-            !overlaps_raw_sfx
-        } else {
-            true
-        }
     });
 
     // Re-index sequential region IDs
@@ -548,7 +428,6 @@ pub fn analyze_image_with_fusion_timed(
         raw_bubbles_count: fusion_res.bubbles.len(),
         raw_text_bubbles_count: fusion_res.text_bubbles.len(),
         raw_text_free_count: fusion_res.text_free.len(),
-        raw_sfx_count: fusion_res.onomatopoeia.len(),
         raw_ocr_lines_count: fusion_res.raw_ocr_lines_count,
         rescued_crops_count: fusion_res.rescued_crops_count,
         watermark_recovered_count: fusion_res.watermark_recovered_count,

@@ -25,7 +25,6 @@
 		APP_FONTS,
 		AVAILABLE_TYPESET_FONTS,
 		AVAILABLE_CJK_FONTS,
-		SFX_AREA_PRESETS,
 		fontAvailabilityStore,
 		refreshFontAvailability,
 		type Theme,
@@ -42,7 +41,6 @@
 	import Check from 'lucide-svelte/icons/check';
 	import Cpu from 'lucide-svelte/icons/cpu';
 	import Eraser from 'lucide-svelte/icons/eraser';
-	import Volume2 from 'lucide-svelte/icons/volume-2';
 	import Zap from 'lucide-svelte/icons/zap';
 	import ZapOff from 'lucide-svelte/icons/zap-off';
 	import Layers from 'lucide-svelte/icons/layers';
@@ -534,20 +532,6 @@
 		});
 	}
 
-	function toggleSfx() {
-		settings.update((s) => {
-			const next = !s.enableSfx;
-			toast.success(`Sound effects (SFX) inpainting & translation ${next ? 'enabled' : 'disabled'}`);
-			return { ...s, enableSfx: next };
-		});
-	}
-
-	function setSfxMaxArea(val: number) {
-		settings.update((s) => ({ ...s, sfxMaxAreaPct: val }));
-		const label = SFX_AREA_PRESETS.find((p) => Math.abs(p.value - val) < 0.005)?.label || `${Math.round(val * 100)}%`;
-		toast.success(`SFX max area threshold set to ${label}`);
-	}
-
 	function setTypesetFont(font: string) {
 		settings.update((s) => ({ ...s, typesetFont: font }));
 		toast.success(`Dialogue font set to ${font}`);
@@ -638,8 +622,6 @@
 	$: isInpaintingModified =
 		($settings.inpaintMode || 'patch') !== DEFAULTS.inpaintMode ||
 		Boolean($settings.enableWatermarkInpaint) !== Boolean(DEFAULTS.enableWatermarkInpaint) ||
-		Boolean($settings.enableSfx) !== Boolean(DEFAULTS.enableSfx) ||
-		Math.abs(($settings.sfxMaxAreaPct ?? 0.10) - DEFAULTS.sfxMaxAreaPct) >= 0.005 ||
 		Math.abs(($settings.inpaintExpansionPct ?? 0.03) - DEFAULTS.inpaintExpansionPct) >= 0.005 ||
 		Math.abs(($settings.typesetExpansionPct ?? 0.06) - DEFAULTS.typesetExpansionPct) >= 0.005;
 
@@ -679,12 +661,10 @@
 			...s,
 			inpaintMode: DEFAULTS.inpaintMode,
 			enableWatermarkInpaint: DEFAULTS.enableWatermarkInpaint,
-			enableSfx: DEFAULTS.enableSfx,
-			sfxMaxAreaPct: DEFAULTS.sfxMaxAreaPct,
 			inpaintExpansionPct: DEFAULTS.inpaintExpansionPct,
 			typesetExpansionPct: DEFAULTS.typesetExpansionPct,
 		}));
-		toast.success('Inpainting & SFX settings reset to defaults');
+		toast.success('Inpainting settings reset to defaults');
 	}
 
 	// HARDWARE ACCELERATION METHODS
@@ -1230,7 +1210,7 @@
 			items: [
 				{ id: 'appearance', label: 'General & Appearance', icon: Palette, keywords: ['theme', 'light', 'dark', 'sepia', 'font', 'language', 'locale', 'source', 'target'] },
 				{ id: 'typesetting', label: 'Typesetting & Lettering', icon: Type, keywords: ['font', 'cjk', 'bubble', 'dialogue', 'padding', 'stroke', 'outline', 'contrast', 'casing', 'angle', 'rotation', 'preview'] },
-				{ id: 'inpainting', label: 'Inpainting & SFX', icon: Eraser, keywords: ['inpaint', 'patch', 'scaled', 'full', 'watermark', 'sfx', 'sound', 'geometry', 'expansion', 'mask'] },
+				{ id: 'inpainting', label: 'Inpainting & Masking', icon: Eraser, keywords: ['inpaint', 'patch', 'scaled', 'full', 'watermark', 'geometry', 'expansion', 'mask'] },
 			],
 		},
 		{
@@ -1274,11 +1254,9 @@
 		{ id: 'typeset-casing', label: 'Dialogue Letterform Casing', category: 'typesetting', categoryLabel: 'Typesetting & Lettering', categoryIcon: Type, keywords: ['casing', 'uppercase', 'lowercase', 'all-caps', 'capitalization'] },
 
 		// INPAINTING
-		{ id: 'inpaint-mode', label: 'Inpainting Strategy', category: 'inpainting', categoryLabel: 'Inpainting & SFX', categoryIcon: Eraser, keywords: ['inpaint', 'patch', 'scaled', 'full', 'erase', 'cleaning', 'lama'] },
-		{ id: 'watermark', label: 'Chromatic Watermark Inpainting', category: 'inpainting', categoryLabel: 'Inpainting & SFX', categoryIcon: Eraser, keywords: ['watermark', 'chromatic', 'logo', 'scanlator', 'clean'] },
-		{ id: 'sfx-toggle', label: 'Sound Effects (SFX) Inpaint & Typeset', category: 'inpainting', categoryLabel: 'Inpainting & SFX', categoryIcon: Eraser, keywords: ['sfx', 'sound', 'onomatopoeia', 'action', 'effects'] },
-		{ id: 'sfx-threshold', label: 'Artwork Preservation Threshold', category: 'inpainting', categoryLabel: 'Inpainting & SFX', categoryIcon: Eraser, keywords: ['threshold', 'sfx', 'area', 'preservation', 'percentage', 'skip'] },
-		{ id: 'inpaint-geom', label: 'Three-Tier Region Geometry Expansion', category: 'inpainting', categoryLabel: 'Inpainting & SFX', categoryIcon: Eraser, keywords: ['geometry', 'expansion', 'tier', 'margin', 'bounds', 'inpaint mask', 'typeset box'] },
+		{ id: 'inpaint-mode', label: 'Inpainting Strategy', category: 'inpainting', categoryLabel: 'Inpainting & Masking', categoryIcon: Eraser, keywords: ['inpaint', 'patch', 'scaled', 'full', 'erase', 'cleaning', 'lama'] },
+		{ id: 'watermark', label: 'Chromatic Watermark Inpainting', category: 'inpainting', categoryLabel: 'Inpainting & Masking', categoryIcon: Eraser, keywords: ['watermark', 'chromatic', 'logo', 'scanlator', 'clean'] },
+		{ id: 'inpaint-geom', label: 'Three-Tier Region Geometry Expansion', category: 'inpainting', categoryLabel: 'Inpainting & Masking', categoryIcon: Eraser, keywords: ['geometry', 'expansion', 'tier', 'margin', 'bounds', 'inpaint mask', 'typeset box'] },
 
 		// AI PROVIDERS
 		{ id: 'providers-hub', label: 'AI Translation Provider Selection', category: 'providers', categoryLabel: 'AI Translation Providers', categoryIcon: Zap, keywords: ['provider', 'ai', 'cloud', 'local', 'custom', 'deepseek', 'gemini', 'groq', 'openrouter', 'openai', 'ollama', 'lmstudio'] },
@@ -1978,12 +1956,12 @@
 						</div>
 					</div>
 
-				<!-- SECTION 3: INPAINTING & SFX -->
+				<!-- SECTION 3: INPAINTING & MASKING -->
 				{:else if activeCategory === 'inpainting'}
 					<div class="space-y-5">
 						<div class="flex flex-col sm:flex-row sm:items-center justify-between gap-2 sm:gap-4">
 							<div class="min-w-0 flex-1">
-								<h2 class="text-base font-bold">Inpainting & Sound Effects (SFX)</h2>
+								<h2 class="text-base font-bold">Inpainting & Masking</h2>
 								<p class="text-xs opacity-60 mt-0.5">Artwork cleaning strategies, watermark removal, and three-tier geometry bounds</p>
 							</div>
 							{#if isInpaintingModified}
@@ -2032,7 +2010,7 @@
 							</div>
 						</div>
 
-						<!-- CHROMATIC WATERMARK & SFX TOGGLES -->
+						<!-- CHROMATIC WATERMARK TOGGLE -->
 						<div class="border-t border-black/10 pt-4 dark:border-white/10 space-y-3">
 							<div
 								id="setting-watermark"
@@ -2050,117 +2028,6 @@
 									on:click={toggleWatermarkInpaint}
 									ariaLabel="Chromatic Watermark Inpainting"
 								/>
-							</div>
-
-							<div
-								id="setting-sfx-toggle"
-								class={`rounded-xl border border-black/10 bg-black/[0.02] p-3 dark:border-white/10 dark:bg-white/[0.02] space-y-3 transition-all duration-300 ${highlightedSettingId === 'sfx-toggle' || highlightedSettingId === 'sfx-threshold' ? 'ring-2 ring-[#b23a2e] dark:ring-[#e08a63] bg-[#b23a2e]/[0.06] dark:bg-[#e08a63]/[0.08]' : ''}`}
-							>
-								<div class="flex items-start justify-between gap-4">
-									<div>
-										<div class="text-xs font-bold flex items-center gap-1.5">
-											<Volume2 size={14} class="text-[#b23a2e] dark:text-[#e08a63]" />
-											<span>Sound Effects (SFX) Inpaint & Typeset</span>
-										</div>
-										<p class="text-[11px] opacity-60 mt-0.5">Inpaint and typeset onomatopoeia sound art. When disabled, original sound art is left untouched.</p>
-									</div>
-									<Switch
-										checked={$settings.enableSfx}
-										on:click={toggleSfx}
-										ariaLabel="Sound Effects (SFX) Inpaint & Typeset"
-									/>
-								</div>
-
-								{#if $settings.enableSfx}
-									{@const sfxPct = Math.min(100, Math.max(0, Math.round(($settings.sfxMaxAreaPct || 0.30) * 100)))}
-									<div
-										id="setting-sfx-threshold"
-										class="border-t border-black/10 pt-2.5 dark:border-white/10 space-y-2"
-									>
-										<div class="flex items-center justify-between">
-											<span class="text-[10px] font-bold uppercase tracking-wider opacity-75">Artwork Preservation Threshold</span>
-											<span class="text-xs font-mono font-bold text-[#b23a2e] dark:text-[#e08a63]">
-												{sfxPct}%
-												<span class="text-[10px] font-normal opacity-60 ml-0.5">({sfxPct >= 100 ? 'Translate All SFX' : `Skip if > ${sfxPct}% page area`})</span>
-											</span>
-										</div>
-
-										<!-- MATHEMATICALLY ALIGNED STEPPED SLIDER WITH TICKS -->
-										<div class="space-y-3 pt-2 pb-1 px-2.5">
-											<div class="relative flex items-center select-none">
-												<!-- BACKGROUND TRACK -->
-												<div class="relative w-full h-2 rounded-full bg-black/10 dark:bg-white/10 overflow-hidden">
-													<!-- ACTIVE FILLED TRACK -->
-													<div
-														class="absolute top-0 bottom-0 left-0 bg-[#b23a2e] dark:bg-[#e08a63] rounded-full transition-all duration-75"
-														style="width: {sfxPct}%;"
-													></div>
-												</div>
-
-												<!-- DISCRETE TICK DOTS (INNER STEPS ONLY: 10%, 20%, 30%, 40%, 50%, 60%, 70%, 80%, 90%) -->
-												<div class="absolute inset-x-0 top-1/2 -translate-y-1/2 pointer-events-none">
-													{#each [10, 20, 30, 40, 50, 60, 70, 80, 90] as tick}
-														<div
-															class="absolute top-1/2 -translate-y-1/2 -translate-x-1/2 rounded-full transition-colors duration-150 {tick % 25 === 0 ? 'w-1.5 h-1.5' : 'w-1 h-1'} {tick <= sfxPct ? 'bg-white dark:bg-neutral-900' : 'bg-black/30 dark:bg-white/30'}"
-															style="left: {tick}%;"
-														></div>
-													{/each}
-												</div>
-
-												<!-- INVISIBLE FULL-WIDTH RANGE INPUT FOR DRAG / KEYBOARD NAVIGATION -->
-												<input
-													type="range"
-													min="0"
-													max="100"
-													step="5"
-													value={sfxPct}
-													on:input={(e) => {
-														const val = Number(e.currentTarget.value);
-														settings.update((s) => ({ ...s, sfxMaxAreaPct: val / 100 }));
-													}}
-													class="absolute inset-0 w-full opacity-0 cursor-pointer z-20 h-6"
-												/>
-
-												<!-- CUSTOM DRAGGABLE THUMB INDICATOR -->
-												<div
-													class="absolute top-1/2 -translate-y-1/2 -translate-x-1/2 w-4 h-4 rounded-full bg-white dark:bg-neutral-900 border-2 border-[#b23a2e] dark:border-[#e08a63] shadow-md pointer-events-none z-10 transition-all duration-75"
-													style="left: {sfxPct}%;"
-												></div>
-											</div>
-
-											<!-- MATHEMATICALLY ALIGNED CLICKABLE TICK LABELS -->
-											<div class="relative w-full h-4 select-none">
-												{#each [
-													{ val: 0, label: '0%' },
-													{ val: 10, label: '10%' },
-													{ val: 20, label: '20%' },
-													{ val: 30, label: '30%' },
-													{ val: 50, label: '50%' },
-													{ val: 75, label: '75%' },
-													{ val: 100, label: '100%' }
-												] as m}
-													{@const isCurrent = Math.abs(sfxPct - m.val) < 4}
-													<button
-														type="button"
-														on:click={() => setSfxMaxArea(m.val / 100)}
-														class="absolute top-0 -translate-x-1/2 text-[10px] font-mono transition-all cursor-pointer {isCurrent ? 'font-bold text-[#b23a2e] dark:text-[#e08a63] scale-110' : 'opacity-50 hover:opacity-100 hover:text-black dark:hover:text-white'}"
-														style="left: {m.val}%;"
-													>
-														{m.label}
-													</button>
-												{/each}
-											</div>
-										</div>
-									</div>
-
-									<!-- NOTICE: SFX EXPERIMENTAL & UNSTABLE WARNING -->
-									<div class="flex items-start gap-2 rounded-xl border border-amber-500/25 bg-amber-500/10 p-2.5 text-[10.5px] leading-relaxed text-amber-800 dark:text-amber-300">
-										<AlertTriangle size={14} class="shrink-0 text-amber-600 dark:text-amber-400 mt-0.5" />
-										<span>
-											<strong>Experimental Feature:</strong> Sound effect detection and inpainting is still under active development and not yet production-ready. Enabling SFX translation may occasionally cause visual artifacts, misclassified artwork text, or unstable formatting. We apologize for any inconvenience as we continue refining model accuracy in upcoming releases!
-										</span>
-									</div>
-								{/if}
 							</div>
 						</div>
 

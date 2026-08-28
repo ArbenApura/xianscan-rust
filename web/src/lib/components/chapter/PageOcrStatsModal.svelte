@@ -57,7 +57,6 @@
 		raw_bubbles_count: number;
 		raw_text_bubbles_count: number;
 		raw_text_free_count: number;
-		raw_sfx_count: number;
 		raw_ocr_lines_count: number;
 		rescued_crops_count: number;
 		watermark_recovered_count: number;

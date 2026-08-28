@@ -82,10 +82,15 @@ macro_rules! assert_element_counts {
     ($res:expr, $exp_total:expr, $exp_bubbles:expr, $exp_sfx:expr, $exp_free:expr) => {{
         assert_eq!($res.regions.len(), $exp_total, "Total region count mismatch");
         let actual_bubbles = $res.regions.iter().filter(|r| r.kind == xianscan_rust::ml::schemas::RegionKind::DialogueBubble).count();
-        let actual_sfx = $res.regions.iter().filter(|r| r.kind == xianscan_rust::ml::schemas::RegionKind::SoundEffect).count();
         let actual_free = $res.regions.iter().filter(|r| r.kind == xianscan_rust::ml::schemas::RegionKind::FreeText).count();
         assert_eq!(actual_bubbles, $exp_bubbles, "DialogueBubble count mismatch: got {}, expected {}", actual_bubbles, $exp_bubbles);
-        assert_eq!(actual_sfx, $exp_sfx, "SoundEffect count mismatch: got {}, expected {}", actual_sfx, $exp_sfx);
+        assert_eq!(actual_free, $exp_free, "FreeText count mismatch: got {}, expected {}", actual_free, $exp_free);
+    }};
+    ($res:expr, $exp_total:expr, $exp_bubbles:expr, $exp_free:expr) => {{
+        assert_eq!($res.regions.len(), $exp_total, "Total region count mismatch");
+        let actual_bubbles = $res.regions.iter().filter(|r| r.kind == xianscan_rust::ml::schemas::RegionKind::DialogueBubble).count();
+        let actual_free = $res.regions.iter().filter(|r| r.kind == xianscan_rust::ml::schemas::RegionKind::FreeText).count();
+        assert_eq!(actual_bubbles, $exp_bubbles, "DialogueBubble count mismatch: got {}, expected {}", actual_bubbles, $exp_bubbles);
         assert_eq!(actual_free, $exp_free, "FreeText count mismatch: got {}, expected {}", actual_free, $exp_free);
     }};
 }
@@ -362,12 +367,11 @@ pub fn render_annotated_image(img: &DynamicImage, res: &AnalyzeResponse) -> Dyna
         }
     }
 
-    // 3. RENDER TEXT REGIONS (CINNABAR, PURPLE, AMBER)
+    // 3. RENDER TEXT REGIONS (CINNABAR, PURPLE)
     for r in &res.regions {
         let (stroke_color, fill_color) = match r.kind {
             RegionKind::DialogueBubble => (Rgba([178, 58, 46, 255]), Rgba([178, 58, 46, 50])),
             RegionKind::FreeText => (Rgba([139, 92, 246, 255]), Rgba([139, 92, 246, 50])),
-            RegionKind::SoundEffect => (Rgba([245, 158, 11, 255]), Rgba([245, 158, 11, 50])),
         };
 
         if r.angle.abs() > 0.5 {
@@ -836,7 +840,6 @@ pub fn get_or_analyze_fixture_with_lang(
     let opts = AnalyzeOptions {
         source_lang: source_lang.map(|l| l.to_string()),
         target_lang: Some("en".to_string()),
-        enable_sfx: Some(true),
         enable_watermark_inpaint: Some(false),
         inpaint_padding_pct: Some(0.06),
         typeset_padding_pct: Some(0.12),
@@ -856,7 +859,6 @@ pub fn force_analyze_fixture_with_lang(
     let opts = AnalyzeOptions {
         source_lang: source_lang.map(|l| l.to_string()),
         target_lang: Some("en".to_string()),
-        enable_sfx: Some(true),
         enable_watermark_inpaint: Some(false),
         inpaint_padding_pct: Some(0.06),
         typeset_padding_pct: Some(0.12),

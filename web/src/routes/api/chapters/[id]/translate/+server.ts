@@ -132,12 +132,6 @@ export const POST: RequestHandler = async ({ params, request, cookies }) => {
 	const enableWatermarkInpaint = parsed.success && typeof parsed.data.enableWatermarkInpaint === 'boolean'
 		? parsed.data.enableWatermarkInpaint
 		: (cookies.get('mt_watermark_inpaint') ? cookies.get('mt_watermark_inpaint') === 'true' : (canonical.enableWatermarkInpaint ?? false));
-	const enableSfx = parsed.success && typeof parsed.data.enableSfx === 'boolean'
-		? parsed.data.enableSfx
-		: (cookies.get('mt_enable_sfx') ? cookies.get('mt_enable_sfx') === 'true' : (canonical.enableSfx ?? false));
-	const sfxMaxAreaPct = parsed.success && typeof parsed.data.sfxMaxAreaPct === 'number'
-		? parsed.data.sfxMaxAreaPct
-		: (cookies.get('mt_sfx_max_area') ? Number(cookies.get('mt_sfx_max_area')) : canonical.sfxMaxAreaPct ?? 0.10);
 
 	// RECORD AI SPEND ON THE LEDGER (THE JOB STAYS DETACHED — FAILURES LOG, NOT THROW)
 	const deps = {
@@ -146,8 +140,6 @@ export const POST: RequestHandler = async ({ params, request, cookies }) => {
 		inpaintExpansionPct,
 		typesetExpansionPct,
 		enableWatermarkInpaint,
-		enableSfx,
-		sfxMaxAreaPct,
 		pageConcurrency,
 		typesetOptions,
 		dataRoot: DATA_ROOT,

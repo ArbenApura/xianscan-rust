@@ -26,8 +26,8 @@ describe('Settings & Reading History Sync Engine Stress Tests', () => {
 			// Trigger hydrateFromRemote with new server settings
 			settings.hydrateFromRemote({
 				inpaintMode: 'full',
-				enableSfx: true,
-				sfxMaxAreaPct: 0.40,
+				inpaintExpansionPct: 0.08,
+				typesetExpansionPct: 0.15,
 			});
 
 			// Fast-forward timers
@@ -38,8 +38,8 @@ describe('Settings & Reading History Sync Engine Stress Tests', () => {
 
 			const current = get(settings);
 			expect(current.inpaintMode).toBe('full');
-			expect(current.enableSfx).toBe(true);
-			expect(current.sfxMaxAreaPct).toBe(0.40);
+			expect(current.inpaintExpansionPct).toBe(0.08);
+			expect(current.typesetExpansionPct).toBe(0.15);
 		});
 
 		it('debounces rapid user setting mutations into a single consolidated PATCH', () => {
@@ -50,11 +50,11 @@ describe('Settings & Reading History Sync Engine Stress Tests', () => {
 			global.fetch = fetchSpy;
 
 			// User rapidly adjusts slider 5 times within 200ms
-			settings.update((s) => ({ ...s, sfxMaxAreaPct: 0.15 }));
-			settings.update((s) => ({ ...s, sfxMaxAreaPct: 0.20 }));
-			settings.update((s) => ({ ...s, sfxMaxAreaPct: 0.25 }));
-			settings.update((s) => ({ ...s, sfxMaxAreaPct: 0.30 }));
-			settings.update((s) => ({ ...s, sfxMaxAreaPct: 0.35 }));
+			settings.update((s) => ({ ...s, inpaintExpansionPct: 0.04 }));
+			settings.update((s) => ({ ...s, inpaintExpansionPct: 0.05 }));
+			settings.update((s) => ({ ...s, inpaintExpansionPct: 0.06 }));
+			settings.update((s) => ({ ...s, inpaintExpansionPct: 0.07 }));
+			settings.update((s) => ({ ...s, inpaintExpansionPct: 0.08 }));
 
 			// Advance only 200ms (debounce is 500ms)
 			vi.advanceTimersByTime(200);
@@ -65,7 +65,7 @@ describe('Settings & Reading History Sync Engine Stress Tests', () => {
 			expect(fetchSpy).toHaveBeenCalledTimes(1);
 
 			const callBody = JSON.parse(fetchSpy.mock.calls[0][1].body);
-			expect(callBody.sfxMaxAreaPct).toBe(0.35);
+			expect(callBody.inpaintExpansionPct).toBe(0.08);
 		});
 	});
 

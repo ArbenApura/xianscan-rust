@@ -36,14 +36,14 @@ fn test_regression_page_three_units_doorway_light_noise() {
         );
     }
 
-    // 1. EXACT ELEMENT COUNTS: 4 REGIONS (3 DIALOGUEBUBBLES, 1 SOUNDEFFECT, 0 FREETEXT)
-    crate::assert_element_counts!(res, 4, 3, 1, 0);
+    // 1. EXACT ELEMENT COUNTS: 3 REGIONS (3 DIALOGUEBUBBLES, 0 FREETEXT)
+    crate::assert_element_counts!(res, 3, 3, 0);
 
-    // 2. TOP-LEFT SPARK SFX: '滋'
-    let sfx = res.regions.iter().find(|r| r.kind == RegionKind::SoundEffect);
-    assert!(sfx.is_some(), "Must detect electric spark SFX '滋' as SoundEffect");
-    let sfx = sfx.unwrap();
-    assert!(sfx.text.contains('滋'), "SFX text must be '滋'");
+    // 2. NEGATIVE GUARD: NO TOP-LEFT SPARK ONOMATOPOEIA / SFX '滋' OR FREE TEXT
+    assert!(
+        !res.regions.iter().any(|r| r.text.contains('滋') || r.kind == RegionKind::FreeText),
+        "Must NOT extract electric spark noise '滋' as FreeText"
+    );
 
     // 3. TOP SPEECH BUBBLE: '我们到了。' [X: ~581, Y: ~195, W: ~196, H: ~44]
     let top_bubble = res.regions.iter().find(|r| r.text.contains("我们到了"));

@@ -288,12 +288,12 @@ describe('SettingsModal Component UI', () => {
 		expect(screen.getByRole('heading', { name: /Typesetting & Lettering Studio/i })).toBeTruthy();
 		expect(screen.queryByText('Reset Defaults')).toBeNull();
 
-		// 3. INPAINTING & SFX TAB
+		// 3. INPAINTING TAB
 		const inpaintTab = screen.getByRole('button', { name: /Inpainting/i });
 		await fireEvent.click(inpaintTab);
 		await tick();
 
-		expect(screen.getByRole('heading', { name: /Inpainting & Sound Effects/i })).toBeTruthy();
+		expect(screen.getByRole('heading', { name: /Inpainting & Masking/i })).toBeTruthy();
 		expect(screen.queryByText('Reset Defaults')).toBeNull();
 
 		// Toggle Watermark

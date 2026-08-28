@@ -76,16 +76,14 @@ describe('Settings & Reading History SQLite Persistence', () => {
 	it('loads default settings when app_settings table is empty', () => {
 		const settings = getCanonicalSettings(db as any);
 		expect(settings.inpaintMode).toBe('patch');
-		expect(settings.enableSfx).toBe(false);
-		expect(settings.sfxMaxAreaPct).toBe(0.10);
 		expect(settings.parallelProcesses).toBe(2);
 	});
 
 	it('updates partial settings without overwriting other keys', () => {
-		updateCanonicalSettings({ enableSfx: true, sfxMaxAreaPct: 0.25 }, db as any);
+		updateCanonicalSettings({ inpaintExpansionPct: 0.08, typesetExpansionPct: 0.15 }, db as any);
 		const settings = getCanonicalSettings(db as any);
-		expect(settings.enableSfx).toBe(true);
-		expect(settings.sfxMaxAreaPct).toBe(0.25);
+		expect(settings.inpaintExpansionPct).toBe(0.08);
+		expect(settings.typesetExpansionPct).toBe(0.15);
 		// Unmodified keys remain at their defaults
 		expect(settings.inpaintMode).toBe('patch');
 		expect(settings.parallelProcesses).toBe(2);
@@ -100,11 +98,10 @@ describe('Settings & Reading History SQLite Persistence', () => {
 
 	it('correctly handles nullable and numerical settings like cudaVramLimitMb and clamps out-of-range numbers', () => {
 		// Set valid VRAM number
-		updateCanonicalSettings({ cudaVramLimitMb: 8192, parallelProcesses: 99, sfxMaxAreaPct: 2.5 }, db as any);
+		updateCanonicalSettings({ cudaVramLimitMb: 8192, parallelProcesses: 99 }, db as any);
 		let settings = getCanonicalSettings(db as any);
 		expect(settings.cudaVramLimitMb).toBe(8192);
 		expect(settings.parallelProcesses).toBe(8); // Clamped to max 8
-		expect(settings.sfxMaxAreaPct).toBe(1.0); // Clamped to max 1.0
 
 		// Set VRAM back to null
 		updateCanonicalSettings({ cudaVramLimitMb: null }, db as any);

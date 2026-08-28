@@ -11,8 +11,6 @@ pub enum RegionKind {
     DialogueBubble,
     #[serde(rename = "free_text")]
     FreeText,
-    #[serde(rename = "sound_effect")]
-    SoundEffect,
 }
 
 
@@ -71,10 +69,6 @@ pub struct AnalyzeOptions {
     #[serde(default)]
     pub enable_watermark_inpaint: Option<bool>,
     #[serde(default)]
-    pub enable_sfx: Option<bool>,
-    #[serde(default)]
-    pub sfx_max_area_pct: Option<f32>,
-    #[serde(default)]
     pub allow_degraded_fallback: Option<bool>,
 }
 
@@ -116,7 +110,6 @@ pub struct OcrStats {
     pub raw_bubbles_count: usize,
     pub raw_text_bubbles_count: usize,
     pub raw_text_free_count: usize,
-    pub raw_sfx_count: usize,
     pub raw_ocr_lines_count: usize,
     pub rescued_crops_count: usize,
     pub watermark_recovered_count: usize,

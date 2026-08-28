@@ -27,12 +27,11 @@ pub fn polygon_thickness(poly: &[[i32; 2]]) -> f32 {
 pub fn cluster_lines_into_utterances<'a>(
     lines: &[&'a OcrLine],
     is_cjk: bool,
-    is_sfx: bool,
     is_vertical: bool,
     sin_a: f32,
     cos_a: f32,
 ) -> Vec<Vec<&'a OcrLine>> {
-    if lines.len() <= 1 || !is_cjk || is_sfx || is_vertical {
+    if lines.len() <= 1 || !is_cjk || is_vertical {
         return vec![lines.to_vec()];
     }
 

@@ -29,26 +29,14 @@ fn test_regression_page_dagger_catch_thought_bubble_split() {
         println!("  Region r{}: kind={:?}, angle={:.2}, box={:?}, text='{}', conf={:.2}", i, r.kind, r.angle, r.box_, r.text.replace('\n', "\\n"), r.confidence);
     }
 
-    // 1. EXACT ELEMENT COUNTS: EXACTLY 5 REGIONS (3 DIALOGUEBUBBLES, 2 SOUNDEFFECT, 0 FREETEXT)
-    crate::assert_element_counts!(res, 5, 3, 2, 0);
+    // 1. EXACT ELEMENT COUNTS: EXACTLY 3 REGIONS (3 DIALOGUEBUBBLES, 0 FREETEXT)
+    crate::assert_element_counts!(res, 3, 3, 0);
 
-    // 2. PANEL 1 SFX: '接' -> [X: 169, Y: 189, W: 55, H: 54]
-    let sfx1 = res.regions.iter().find(|r| r.text.trim() == "接");
-    assert!(sfx1.is_some(), "Must detect panel 1 SFX '接'");
-    let sfx1 = sfx1.unwrap();
-    assert_eq!(sfx1.kind, xianscan_rust::ml::schemas::RegionKind::SoundEffect);
-    crate::assert_region_bounds!(sfx1, xianscan_rust::ml::schemas::RegionKind::SoundEffect, 169, 189, 55, 54, 8);
-    crate::assert_region_angle!(sfx1, 0.0, 2.0);
+    // 2. NEGATIVE GUARDS: NO PANEL 1 SFX '接' OR PANEL 2 SFX '啊！' EXTRACTED AS FREETEXT
+    assert!(!res.regions.iter().any(|r| r.text.trim() == "接"), "Must NOT extract panel 1 SFX '接'");
+    assert!(!res.regions.iter().any(|r| r.text.contains("啊")), "Must NOT extract panel 2 SFX '啊！'");
 
-    // 3. PANEL 2 SFX: '啊！' -> [X: 703, Y: 559, W: 70, H: 49]
-    let sfx2 = res.regions.iter().find(|r| r.text.contains("啊"));
-    assert!(sfx2.is_some(), "Must detect panel 2 SFX '啊！'");
-    let sfx2 = sfx2.unwrap();
-    assert_eq!(sfx2.kind, xianscan_rust::ml::schemas::RegionKind::SoundEffect);
-    crate::assert_region_bounds!(sfx2, xianscan_rust::ml::schemas::RegionKind::SoundEffect, 703, 559, 70, 49, 8);
-    crate::assert_region_angle!(sfx2, 0.0, 2.0);
-
-    // 4. PANEL 3 DIALOGUE BUBBLE: '你可不要\n乱动……' -> [X: 56, Y: 1174, W: 176, H: 98]
+    // 3. PANEL 3 DIALOGUE BUBBLE: '你可不要\n乱动……' -> [X: 56, Y: 1174, W: 176, H: 98]
     let b1 = res.regions.iter().find(|r| r.text.contains("你可不要") || r.text.contains("乱动"));
     assert!(b1.is_some(), "Must detect panel 3 dialogue bubble '你可不要乱动……'");
     let b1 = b1.unwrap();

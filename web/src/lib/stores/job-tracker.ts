@@ -438,8 +438,6 @@ function createJobTrackerStore() {
 				pageIds: opts.pageIds,
 				inpaintMode: curSettings?.inpaintMode,
 				pageConcurrency: opts.pageConcurrency ?? curSettings?.parallelProcesses,
-				enableSfx: curSettings?.enableSfx,
-				sfxMaxAreaPct: curSettings?.sfxMaxAreaPct,
 				inpaintExpansionPct: curSettings?.inpaintExpansionPct,
 				typesetExpansionPct: curSettings?.typesetExpansionPct,
 				enableWatermarkInpaint: curSettings?.enableWatermarkInpaint,
