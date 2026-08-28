@@ -528,9 +528,21 @@ export async function runChapterPipeline(
 			}
 			// ANNOUNCE THE NEW PAGE TO BOTH SERVER AND CLIENT SNAPSHOTS BEFORE ANY STEP EVENTS
 			emit({ type: 'page-added', chapterId, page: injectIdx, pageId: injectRow.id, seq: injectRow.seq });
-			void pool.add(async () => {
-				await analyzePageWithRetry(injectRow, injectIdx);
-			});
+			// THIS ADD IS FIRE-AND-FORGET (NO allSettled CONSUMER). WITHOUT A CATCH, THE ABORT
+			// LISTENER'S pool.clear() REJECTS THIS UNOBSERVED PROMISE -> UNHANDLED AbortError.
+			void pool
+				.add(async () => {
+					await analyzePageWithRetry(injectRow, injectIdx);
+				})
+				.catch((err: unknown) => {
+					// AN ABORT REJECTION IS EXPECTED (pool.clear() ON JOB ABORT) — SWALLOW IT.
+					// LOG GENUINE NON-ABORT FAILURES SO A DETACHED PAGE DOES NOT FAIL SILENTLY.
+					if (!(err instanceof Error) || err.name !== 'AbortError') {
+						console.warn(
+							`[chapterPipeline] Injected page #${injectRow.id} failed: ${err instanceof Error ? err.message : String(err)}`,
+						);
+					}
+				});
 		});
 	}
 
