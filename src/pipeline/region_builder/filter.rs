@@ -1,0 +1,240 @@
+// -- CRATE / EXTERNAL IMPORTS -- //
+use image::DynamicImage;
+
+// -- INTERNAL IMPORTS -- //
+use crate::ml::geometry::polygon_bounds;
+use crate::ml::ocr::OcrLine;
+use crate::ml::schemas::BoxRect;
+use super::geometry::compute_chromatic_color_variance;
+
+// -- FUNCTIONS & ALGORITHMS -- //
+
+/// CHECK IF A CANDIDATE TEXT REGION SHOULD BE REJECTED AS ARTIFACT, NOISE, OR HALLUCINATION
+pub fn should_reject_candidate_region(
+    cleaned: &str,
+    cluster_rect: &BoxRect,
+    avg_score: f32,
+    angle_deg: f32,
+    is_bubble: bool,
+    is_cjk: bool,
+    source_lang: Option<&str>,
+    img: &DynamicImage,
+    page_w: u32,
+    page_h: u32,
+    split_lines: &[OcrLine],
+    bubbles: &[BoxRect],
+) -> bool {
+    if cleaned.is_empty() {
+        return true;
+    }
+
+    // 1. DROP GIANT ARTWORK HALLUCINATIONS OR SPRAWLING NOISE BOXES
+    if !is_bubble && cluster_rect.w >= 300 && cluster_rect.h >= 500 && avg_score < 0.65 {
+        return true;
+    }
+    if !is_bubble && cluster_rect.w >= (page_w as f32 * 0.75) as i32 && cluster_rect.h >= 140 {
+        return true;
+    }
+
+    // 2. DROP HIGH-TILT NON-DIALOGUE WITH LOW RECOGNITION CONFIDENCE
+    if !is_bubble && angle_deg.abs() >= 12.0 && avg_score < 0.65 {
+        return true;
+    }
+
+    // 3. DROP STANDALONE REPEATED NOISE STROKES
+    if crate::ml::detect::is_standalone_noise_stroke(cleaned) {
+        return true;
+    }
+
+    // 4. SUPPRESS TINY LOW-CONFIDENCE NOISE BUBBLES (E.G. '一\n0', '4' IN COMPACT ARTIFACT BUBBLES W <= 35, H <= 55)
+    if is_bubble && cluster_rect.w <= 35 && cluster_rect.h <= 55 {
+        let is_noise_or_digit = crate::ml::detect::is_standalone_digit_or_particle_noise(cleaned)
+            || crate::ml::detect::is_standalone_noise_stroke(cleaned)
+            || cleaned.lines().all(|l| {
+                let lt = l.trim();
+                crate::ml::detect::is_standalone_noise_stroke(lt) || crate::ml::detect::is_standalone_digit_or_particle_noise(lt)
+            });
+        if avg_score < 0.68 || is_noise_or_digit {
+            return true;
+        }
+    }
+
+    // 5. IN NON-LATIN SCRIPT SOURCES (CJK, CYRILLIC, THAI), NEVER EXTRACT STANDALONE ALPHANUMERIC / LATIN TEXT UNLESS COMBINED WITH SOURCE SCRIPT
+    let is_non_latin = crate::ml::detect::is_non_latin_source(source_lang);
+    let lacks_native_script = !crate::ml::detect::has_native_script_for_lang(cleaned, source_lang);
+    let is_pure_latin = lacks_native_script && cleaned.chars().all(|c| c.is_ascii_alphabetic() || c.is_whitespace() || c.is_ascii_punctuation());
+    if is_non_latin && is_pure_latin && !crate::ml::detect::is_onomatopoeia_or_shout(cleaned) {
+        return true;
+    }
+    if is_non_latin && lacks_native_script && crate::ml::detect::has_alphanumeric_characters(cleaned) {
+        let char_count = cleaned.chars().filter(|c| !c.is_whitespace()).count();
+        let is_sparse_giant_box = !is_bubble && (cluster_rect.w >= 100 || cluster_rect.h >= 100) && char_count <= 4;
+        let is_short_noise_code = !is_bubble
+            && char_count <= 3
+            && !crate::ml::detect::is_onomatopoeia_or_shout(cleaned)
+            && !(cluster_rect.w >= 45 && cluster_rect.h >= 25 && (cleaned.contains('Z') || cleaned.contains('z') || cleaned.contains('S') || cleaned.contains('A')));
+        let is_non_bubble_alphanumeric = !is_bubble && !crate::ml::detect::is_onomatopoeia_or_shout(cleaned);
+        if cluster_rect.h <= 15
+            || is_sparse_giant_box
+            || is_short_noise_code
+            || is_non_bubble_alphanumeric
+            || (!is_bubble && cluster_rect.w <= 35 && cluster_rect.h <= 35)
+            || (!is_bubble && avg_score < 0.70 && !(cluster_rect.w >= 45 && cluster_rect.h >= 25 && (cleaned.contains('Z') || cleaned.contains('z') || cleaned.contains('S') || cleaned.contains('A'))))
+            || (!is_bubble && cleaned.chars().count() == 1 && !(cluster_rect.w >= 45 && cluster_rect.h >= 25 && (cleaned == "Z" || cleaned == "z" || cleaned == "S" || cleaned == "s" || cleaned == "A" || cleaned == "B")))
+        {
+            return true;
+        }
+    }
+
+    // 6. PURE WATERMARK OR PUNCTUATION-ONLY REGIONS
+    if crate::ml::detect::is_pure_watermark_region(cleaned) {
+        return true;
+    }
+    if crate::ml::detect::is_pure_punctuation_only(cleaned) {
+        return true;
+    }
+
+    // 7. SUPPRESS STANDALONE DIGIT / DEGREE / PARTICLE NOISE OUTSIDE SPEECH BUBBLES ACROSS ALL LANGUAGES
+    if !is_bubble && crate::ml::detect::is_standalone_digit_or_particle_noise(cleaned) {
+        let char_count = cleaned.chars().filter(|c| !c.is_whitespace()).count();
+        let is_sparse_giant_box = (cluster_rect.w >= 100 || cluster_rect.h >= 100) && char_count <= 5;
+        if char_count <= 4
+            || is_sparse_giant_box
+            || cluster_rect.h <= 20
+            || cluster_rect.w <= 40
+            || (avg_score < 0.75 && char_count <= 6)
+        {
+            return true;
+        }
+    }
+
+    // 8. CJK BOTTOM / GUTTER MAGAZINE WATERMARK NOISE
+    if is_cjk && (cluster_rect.y + cluster_rect.h >= page_h as i32 - 50) && cleaned.chars().count() == 1 && (cleaned == "动" || cleaned == "初" || cleaned == "腾" || cleaned == "漫" || cleaned == "漫客" || cleaned == "客") {
+        return true;
+    }
+
+    // 9. SUPPRESS LOW-CONFIDENCE ISOLATED SINGLE-CHARACTER ARTWORK ARTIFACTS / SFX
+    let is_sign_or_narration_box = is_cjk && cluster_rect.w >= 60 && cluster_rect.h >= 40 && (cleaned.contains("省") || cleaned.contains("县") || cleaned.contains("区") || cleaned.contains("镇") || cleaned.contains("村") || cleaned.contains("室") || cleaned.contains("馆") || cleaned.contains("部") || cleaned.contains("堂") || cleaned.contains("院") || cleaned.contains("校") || cleaned.contains("门"));
+    let is_margin_isolated_char = (cluster_rect.x <= 5 || cluster_rect.x + cluster_rect.w >= page_w as i32 - 5) && avg_score < 0.75;
+    let char_count = cleaned.chars().filter(|c| !c.is_whitespace()).count();
+    let is_valid_cjk_glyph = is_cjk && cleaned.chars().any(|c| crate::ml::detect::has_cjk_characters(&c.to_string())) && avg_score >= 0.70 && !is_margin_isolated_char;
+    let is_low_conf_single_char = char_count == 1 && (avg_score < 0.68 || cluster_rect.w >= 100 || cluster_rect.h >= 100);
+    let is_isolated_sfx = char_count <= 4 && crate::ml::detect::is_onomatopoeia_or_shout(cleaned);
+
+    if char_count <= 4
+        && !is_bubble
+        && !is_sign_or_narration_box
+        && (!is_valid_cjk_glyph || is_low_conf_single_char || is_margin_isolated_char || is_isolated_sfx)
+        && (!crate::ml::detect::is_onomatopoeia_or_shout(cleaned) || avg_score < 0.60 || is_margin_isolated_char || is_low_conf_single_char || is_isolated_sfx)
+        && (compute_chromatic_color_variance(img, cluster_rect) >= 15.0 || is_margin_isolated_char || is_low_conf_single_char || is_isolated_sfx || (avg_score < 0.75 && cluster_rect.w <= 40 && cluster_rect.h <= 40))
+    {
+        return true;
+    }
+
+    // 10. SUPPRESS TRANSLUCENT AGGREGATOR WATERMARKS
+    if is_cjk && !is_bubble && (cleaned == "数据" || cleaned == "集云" || cleaned == "集云数据") {
+        return true;
+    }
+
+    // 11. SUPPRESS LOW-CONFIDENCE REPEATED SFX GLYPHS GENERATED FROM LIGHTNING / SPEEDLINES
+    if is_cjk && !is_bubble && (cleaned.contains("呼呼") || cleaned == "呼" || cleaned == "叫呼呼") && avg_score < 0.65 && compute_chromatic_color_variance(img, cluster_rect) >= 15.0 {
+        return true;
+    }
+
+    // 12. SUPPRESS OCR HALLUCINATIONS FROM DECORATIVE ENERGY-BURST / LIGHTNING ARTWORK GLYPHS
+    if is_cjk && !is_bubble && avg_score < 0.70 && compute_chromatic_color_variance(img, cluster_rect) >= 15.0 {
+        let lines: Vec<&str> = cleaned.lines().collect();
+        if lines.len() >= 2 {
+            let cjk_residues: Vec<String> = lines
+                .iter()
+                .map(|l| l.chars().filter(|c| crate::ml::detect::has_cjk_characters(&c.to_string())).collect::<String>())
+                .collect();
+            let all_non_empty = cjk_residues.iter().all(|r| !r.is_empty());
+            let all_single_glyph = cjk_residues.iter().all(|r| r.chars().count() == 1);
+            let all_identical = cjk_residues.windows(2).all(|w| w[0] == w[1]);
+            let has_digit_latin_noise = lines.iter().any(|l| {
+                l.chars().any(|c| c.is_ascii_alphanumeric() && !crate::ml::detect::has_cjk_characters(&c.to_string()))
+            });
+            if all_non_empty && all_single_glyph && all_identical && has_digit_latin_noise {
+                return true;
+            }
+        }
+    }
+
+    // 13. SUPPRESS FOLIAGE NOISE / CHROMATIC BACKGROUND TEXTURE ON TINY STROKE FRAGMENTS
+    if !is_bubble && cluster_rect.w <= 40 && cluster_rect.h <= 55 && compute_chromatic_color_variance(img, cluster_rect) >= 15.0 {
+        return true;
+    }
+
+    // 14. SUPPRESS ISOLATED SINGLE-PUNCTUATION / REACTION SYMBOL SLICES
+    let is_narrow_symbol_slice = cluster_rect.w <= 12 && (cleaned == "i" || cleaned == "l" || cleaned == "!" || cleaned == "1" || cleaned == "|" || cleaned == "I");
+    if is_narrow_symbol_slice {
+        return true;
+    }
+
+    // 15. SUPPRESS TINY SUB-PIXEL / NOISE FRAGMENTS
+    let is_clean_bg = compute_chromatic_color_variance(img, cluster_rect) < 15.0;
+    let is_valid_cjk_glyph = is_cjk && cleaned.chars().any(|c| crate::ml::detect::has_cjk_characters(&c.to_string())) && avg_score >= 0.70 && is_clean_bg;
+    if cluster_rect.w <= 15 && cluster_rect.h <= 15 && !is_valid_cjk_glyph {
+        return true;
+    }
+    if !is_bubble && cluster_rect.w <= 40 && cluster_rect.h <= 55 && !is_valid_cjk_glyph {
+        return true;
+    }
+
+    // 16. SUPPRESS OPTICAL BORDER SLIVERS
+    if !is_bubble && cluster_rect.w <= 35 && cluster_rect.h >= 60 && avg_score < 0.60 {
+        return true;
+    }
+
+    // 17. SUPPRESS LOW-CONFIDENCE ISOLATED PSEUDO-WORD HALLUCINATIONS ON COMPLEX BACKGROUND ARTWORK
+    if !is_bubble && !is_sign_or_narration_box && ((avg_score < 0.65 && cleaned.chars().count() <= 6 && compute_chromatic_color_variance(img, cluster_rect) >= 15.0) || (avg_score < 0.70 && cleaned.chars().count() <= 16)) {
+        return true;
+    }
+
+    // 18. SUPPRESS TRUNCATED MARGIN NOISE FRAGMENTS SLICED AT THE VERY EDGE OF THE IMAGE CANVAS
+    let is_margin_flush = cluster_rect.x <= 5 || cluster_rect.x + cluster_rect.w >= page_w as i32 - 5;
+    if !is_bubble && is_margin_flush && (cluster_rect.w <= 75 || cluster_rect.h <= 65) && avg_score < 0.75 {
+        return true;
+    }
+
+    // 19. SUPPRESS MASSIVE NON-BUBBLE BACKGROUND TEXT OCCLUDED ACROSS SCENE ARTWORK
+    if !is_bubble && (cluster_rect.w as f32 >= page_w as f32 * 0.75) && cluster_rect.h >= 100 {
+        return true;
+    }
+
+    // 20. SUPPRESS NON-BUBBLE DETECTOR HALLUCINATIONS WHOSE TEXT IS A DUPLICATE / ECHO OF AN ADJACENT SPEECH BUBBLE
+    let is_speech_bubble_echo = !is_bubble && split_lines.iter().any(|rl| {
+        let t_rl = rl.text.trim();
+        let (rx, ry, rw, rh) = polygon_bounds(&rl.polygon);
+        let rl_in_bubble = bubbles.iter().any(|b| {
+            let (rcx, rcy) = (rx + rw / 2, ry + rh / 2);
+            rcx >= b.x && rcx <= b.x + b.w && rcy >= b.y && rcy <= b.y + b.h
+        });
+        if rl_in_bubble && t_rl.chars().count() >= 4 {
+            let common_chars = cleaned.chars().filter(|c| !c.is_whitespace() && t_rl.contains(*c)).count();
+            let clean_chars = cleaned.chars().filter(|c| !c.is_whitespace()).count();
+            common_chars >= 4 && (common_chars as f32 / clean_chars.max(1) as f32 >= 0.60)
+        } else {
+            false
+        }
+    }) && bubbles.iter().any(|b| {
+        let (cx, cy) = (cluster_rect.x + cluster_rect.w / 2, cluster_rect.y + cluster_rect.h / 2);
+        let (bx, by) = (b.x + b.w / 2, b.y + b.h / 2);
+        (cx - bx).abs() <= 200 && (cy - by).abs() <= 350
+    });
+    if is_speech_bubble_echo {
+        return true;
+    }
+
+    // 21. SUPPRESS SPARSE GIANT NON-BUBBLE DETECTIONS
+    let is_sparse_giant_non_bubble = !is_bubble
+        && !crate::ml::detect::is_onomatopoeia_or_shout(cleaned)
+        && (cluster_rect.w >= 250 && cluster_rect.h >= 150)
+        && cleaned.chars().filter(|c| !c.is_whitespace()).count() <= 3;
+    if is_sparse_giant_non_bubble {
+        return true;
+    }
+
+    false
+}

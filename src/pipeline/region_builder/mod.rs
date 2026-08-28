@@ -4,11 +4,19 @@
 // -- INTERNAL IMPORTS -- //
 pub mod builder;
 pub mod clustering;
+pub mod dedup;
+pub mod expansion;
+pub mod filter;
 pub mod geometry;
+pub mod refine;
 
 pub use builder::build_regions;
 pub use clustering::{cluster_lines_into_utterances, format_lines_cluster, polygon_thickness};
+pub use dedup::deduplicate_and_unify_regions;
+pub use expansion::{bubble_core, clamp_box_to_core, expand_bubble_text_boxes};
+pub use filter::should_reject_candidate_region;
 pub use geometry::{compute_chromatic_color_variance, expand_box};
+pub use refine::{run_fallback_crop_recognition, try_refine_cluster_crop, FallbackCropOutcome, RefinementOutcome};
 
 // -- TESTS -- //
 
@@ -110,5 +118,24 @@ mod tests {
         }
         let var_color = compute_chromatic_color_variance(&DynamicImage::ImageRgb8(color_img), &rect);
         assert!(var_color > 50.0);
+    }
+
+    #[test]
+    fn test_bubble_core_and_clamping() {
+        let bubble = BoxRect { x: 10, y: 10, w: 100, h: 100 };
+        let core = bubble_core(&bubble);
+        assert!(core.is_some());
+        let (left, right, top, bottom) = core.unwrap();
+        assert!(left > bubble.x);
+        assert!(right < bubble.x + bubble.w);
+        assert!(top > bubble.y);
+        assert!(bottom < bubble.y + bubble.h);
+
+        let mut target = BoxRect { x: 0, y: 0, w: 200, h: 200 };
+        clamp_box_to_core(&mut target, left, right, top, bottom);
+        assert_eq!(target.x, left);
+        assert_eq!(target.y, top);
+        assert_eq!(target.w, right - left);
+        assert_eq!(target.h, bottom - top);
     }
 }
