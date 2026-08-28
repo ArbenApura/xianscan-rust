@@ -245,6 +245,25 @@ pub fn analyze_image_with_fusion_timed(
                 if (lw as f32) >= (page_w as f32 * 0.55) && lh >= 70 {
                     continue;
                 }
+                // Do not rescue unassigned OCR lines on non-bubble background if they lie inside a panel already containing detected speech bubbles
+                let inside_bubble_panel = fusion_res.panels.iter().any(|p| {
+                    let (px, py, pw, ph) = (p.x as f32, p.y as f32, p.w as f32, p.h as f32);
+                    let line_in_p = (lx as f32) >= px - 15.0 && ((lx + lw) as f32) <= (px + pw + 15.0) && (ly as f32) >= py - 15.0 && ((ly + lh) as f32) <= (py + ph + 15.0);
+                    if line_in_p {
+                        fusion_res.bubbles.iter().any(|b| {
+                            let (bx, by, bw, bh) = (b.x as f32, b.y as f32, b.w as f32, b.h as f32);
+                            let inter_x = (bx + bw).min(px + pw) - bx.max(px);
+                            let inter_y = (by + bh).min(py + ph) - by.max(py);
+                            inter_x > 0.0 && inter_y > 0.0
+                        })
+                    } else {
+                        false
+                    }
+                });
+                if inside_bubble_panel {
+                    continue;
+                }
+
                 if lw <= 40 && lh <= 55 {
                     let has_cjk = crate::ml::detect::has_cjk_characters(&line.text);
                     if (!has_cjk && line.score < 0.85) || (has_cjk && line.score < 0.70) {

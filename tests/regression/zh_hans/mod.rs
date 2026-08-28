@@ -7,6 +7,7 @@ mod page_demon_hands_green_flame_zero_text_artwork;
 mod page_desert_stars_separated_by_death;
 mod page_frost_dragon_welcome_my_lord_slanted_shout_bubble;
 mod page_holy_ancestor_mountains_glory_city;
+mod page_inn_couplets_college_virgin_dialogue;
 mod page_lightning_storm_welcome_my_lord_shout_bubble;
 mod page_man_sleeping_in_bed_gutter_watermark_noise;
 mod page_nie_li_scribbling_exclamation_bubble;
