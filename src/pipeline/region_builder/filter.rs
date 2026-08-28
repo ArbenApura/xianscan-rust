@@ -32,7 +32,11 @@ pub fn should_reject_candidate_region(
     if !is_bubble && cluster_rect.w >= 300 && cluster_rect.h >= 500 && avg_score < 0.65 {
         return true;
     }
-    if !is_bubble && cluster_rect.w >= (page_w as f32 * 0.75) as i32 && cluster_rect.h >= 140 {
+    let is_wide_artwork_hallucination = !is_bubble
+        && cluster_rect.w >= (page_w as f32 * 0.75) as i32
+        && cluster_rect.h >= 140
+        && (avg_score < 0.70 || cleaned.chars().filter(|c| !c.is_whitespace()).count() <= 4 || compute_chromatic_color_variance(img, cluster_rect) >= 15.0);
+    if is_wide_artwork_hallucination {
         return true;
     }
 
@@ -211,7 +215,11 @@ pub fn should_reject_candidate_region(
     }
 
     // 19. SUPPRESS MASSIVE NON-BUBBLE BACKGROUND TEXT OCCLUDED ACROSS SCENE ARTWORK
-    if !is_bubble && (cluster_rect.w as f32 >= page_w as f32 * 0.75) && cluster_rect.h >= 100 {
+    let is_massive_background_occlusion = !is_bubble
+        && (cluster_rect.w as f32 >= page_w as f32 * 0.75)
+        && cluster_rect.h >= 100
+        && (avg_score < 0.70 || cleaned.chars().filter(|c| !c.is_whitespace()).count() <= 4 || compute_chromatic_color_variance(img, cluster_rect) >= 15.0);
+    if is_massive_background_occlusion {
         return true;
     }
 
