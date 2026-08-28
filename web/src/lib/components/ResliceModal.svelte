@@ -41,6 +41,12 @@
 	// LIVE 0..=100 PERCENT FROM THE SIDECAR'S SSE FEED (MIRRORS TRANSLATION PROGRESS).
 	let progressPct = 0;
 
+	// PAGE-HEIGHT PRESET — TUNED FOR ~1500PX STRIPS WHERE SHORTER PAGES RAISE THE OCR
+	// DETECTOR'S TEXT SCALE AND IMPROVE QUALITY (PREVIOUS DEFAULTS WERE 1600/1000/2400).
+	let targetHeight = 1150;
+	let minHeight = 850;
+	let maxHeight = 1400;
+
 	let abortController: AbortController | null = null;
 
 	const STEPS: Array<{ id: StepId; label: string; desc: string }> = [
@@ -80,7 +86,7 @@
 
 		streamSse(
 			`/api/chapters/${chapterId}/reslice`,
-			{},
+			{ targetHeight, minHeight, maxHeight },
 			(e: SseEvent) => {
 				if (e.type === 'start') {
 					updateStepFromBackend('read', `Stitching ${pageCount} image slices...`);
@@ -226,6 +232,53 @@
 				<span class="font-mono text-xs font-bold px-2 py-0.5 rounded-md bg-black/5 dark:bg-white/5">
 					{pageCount} slice{pageCount === 1 ? '' : 's'}
 				</span>
+			</div>
+
+			<!-- PAGE-HEIGHT PRESET — SHORTER PAGES RAISE OCR TEXT SCALE AND QUALITY -->
+			<div class="rounded-xl border border-black/10 bg-black/[0.02] p-3.5 dark:border-white/10 dark:bg-white/[0.02]">
+				<div class="flex items-center justify-between">
+					<span class="font-bold text-xs">Page Height (px)</span>
+					<span class="text-[10px] opacity-50">Target / Min / Max</span>
+				</div>
+				<div class="mt-2.5 grid grid-cols-3 gap-2.5">
+					<label class="flex flex-col gap-1">
+						<span class="text-[10px] font-medium uppercase tracking-wide opacity-55">Ideal</span>
+						<input
+							type="number"
+							step="50"
+							min="600"
+							max="4000"
+							bind:value={targetHeight}
+							class="h-9 w-full rounded-lg border border-black/10 bg-transparent px-2.5 text-xs font-mono font-bold focus:border-[#b23a2e]/50 focus:outline-none focus:ring-2 focus:ring-[#b23a2e]/25 dark:border-white/10"
+						/>
+					</label>
+					<label class="flex flex-col gap-1">
+						<span class="text-[10px] font-medium uppercase tracking-wide opacity-55">Minimum</span>
+						<input
+							type="number"
+							step="50"
+							min="500"
+							max="3000"
+							bind:value={minHeight}
+							class="h-9 w-full rounded-lg border border-black/10 bg-transparent px-2.5 text-xs font-mono font-bold focus:border-[#b23a2e]/50 focus:outline-none focus:ring-2 focus:ring-[#b23a2e]/25 dark:border-white/10"
+						/>
+					</label>
+					<label class="flex flex-col gap-1">
+						<span class="text-[10px] font-medium uppercase tracking-wide opacity-55">Maximum</span>
+						<input
+							type="number"
+							step="50"
+							min="600"
+							max="4000"
+							bind:value={maxHeight}
+							class="h-9 w-full rounded-lg border border-black/10 bg-transparent px-2.5 text-xs font-mono font-bold focus:border-[#b23a2e]/50 focus:outline-none focus:ring-2 focus:ring-[#b23a2e]/25 dark:border-white/10"
+						/>
+					</label>
+				</div>
+				<p class="mt-2 text-[10px] leading-relaxed opacity-50">
+					Lower = shorter pages, larger OCR text scale, better detection. For ~1500px-wide strips the tuned
+					default is 1150 / 850 / 1400.
+				</p>
 			</div>
 
 			<!-- WARNING NOTICE -->

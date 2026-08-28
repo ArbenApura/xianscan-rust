@@ -11,6 +11,24 @@ import type { PipelineClient } from '../pipeline-client';
 import { getImageDimensionsFromBuffer } from './dimensions';
 import { prunePageThumbs, reorderPages } from './mutations';
 
+// -- CONSTANTS -- //
+
+// DEFAULT PAGE-HEIGHT PRESET FOR ~1500PX WIDE STRIPS. SHORTER PAGES GIVE THE OCR
+// DETECTOR LARGER TEXT SCALE AND HIGHER QUALITY THAN THE OLD 1600/1000/2400 PROFILE.
+export const DEFAULT_RESLICE_HEIGHTS = {
+	targetHeight: 1150,
+	minHeight: 850,
+	maxHeight: 1400,
+} as const;
+
+// -- TYPES -- //
+
+export interface ResliceHeightOptions {
+	targetHeight: number;
+	minHeight: number;
+	maxHeight: number;
+}
+
 export async function stitchPageWithNext(
 	pageId: number,
 	pipeline: PipelineClient,
@@ -98,6 +116,7 @@ export async function resliceChapterPages(
 	onProgress?: (step: string, message: string, pct: number) => void,
 	signal?: AbortSignal,
 	dataRoot: string = DATA_ROOT,
+	heightOpts?: Partial<ResliceHeightOptions>,
 ): Promise<{ originalCount: number; newCount: number }> {
 	if (!pipeline.reslice) throw new Error('Sidecar reslice operation unavailable.');
 
@@ -115,7 +134,7 @@ export async function resliceChapterPages(
 	try {
 		return await runReslicePipeline(chapterId, pipeline, onProgress, signal, dataRoot, (id) => {
 			runId = id;
-		});
+		}, heightOpts);
 	} finally {
 		signal?.removeEventListener('abort', onAbort);
 	}
@@ -128,8 +147,11 @@ async function runReslicePipeline(
 	signal: AbortSignal | undefined,
 	dataRoot: string,
 	setRunId: (id: number | undefined) => void,
+	heightOpts?: Partial<ResliceHeightOptions>,
 ): Promise<{ originalCount: number; newCount: number }> {
 	if (!pipeline.reslice) throw new Error('Sidecar reslice operation unavailable.');
+
+	const heights = { ...DEFAULT_RESLICE_HEIGHTS, ...(heightOpts ?? {}) };
 
 	const pageRows = db
 		.select()
@@ -174,7 +196,7 @@ async function runReslicePipeline(
 	// POLL THE SIDECAR'S CURRENT RESLICE PROGRESS WHILE THE (BLOCKING) POST RUNS.
 	// THE POST HOLDS THE ENGINE LOCK AND DOES THE HEAVY WORK ON A SEPARATE REQUEST;
 	// THIS LIGHTWEIGHT GET RUNS CONCURRENTLY SO THE UI ANIMATES SMOOTHLY.
-	const reslicePromise = pipeline.reslice(imageBuffers, signal, runId);
+	const reslicePromise = pipeline.reslice(imageBuffers, signal, runId, heights);
 
 	let pollTimer: ReturnType<typeof setInterval> | null = null;
 	if (pipeline.pollResliceStatus) {

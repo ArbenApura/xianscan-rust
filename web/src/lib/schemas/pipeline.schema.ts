@@ -25,9 +25,9 @@ export const translateChapterSchema = z.object({
 });
 
 export const resliceChapterSchema = z.object({
-	minHeight: z.number().positive().optional(),
-	maxHeight: z.number().positive().optional(),
-	overlap: z.number().nonnegative().optional(),
+	targetHeight: z.number().int().positive().optional(),
+	minHeight: z.number().int().positive().optional(),
+	maxHeight: z.number().int().positive().optional(),
 });
 
 export const stitchPagesSchema = z.object({

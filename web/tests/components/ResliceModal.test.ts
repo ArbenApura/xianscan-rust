@@ -32,13 +32,14 @@ describe('ResliceModal Component UI', () => {
 
 	it('validates reslice and stitch pipeline schemas', () => {
 		const reslicePayload = {
-			minHeight: 1200,
-			maxHeight: 2400,
-			overlap: 100,
+			targetHeight: 1150,
+			minHeight: 850,
+			maxHeight: 1400,
 		};
 		const resliceRes = validateForm(resliceChapterSchema, reslicePayload);
 		expect(resliceRes.success).toBe(true);
-		expect(resliceRes.data?.maxHeight).toBe(2400);
+		expect(resliceRes.data?.targetHeight).toBe(1150);
+		expect(resliceRes.data?.maxHeight).toBe(1400);
 
 		const stitchPayload = {
 			targetPageId: 42,

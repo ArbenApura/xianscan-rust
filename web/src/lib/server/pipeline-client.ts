@@ -153,7 +153,12 @@ export interface PipelineClient {
 	getTelemetry?(signal?: AbortSignal): Promise<SystemTelemetry>;
 	setDevice?(device: string, vramLimitMb?: number | null, signal?: AbortSignal): Promise<HardwareStatus>;
 	stitch?(imageTop: Buffer, imageBottom: Buffer, signal?: AbortSignal): Promise<Buffer>;
-	reslice?(images: Buffer[], signal?: AbortSignal, run?: number): Promise<Buffer[]>;
+	reslice?(
+		images: Buffer[],
+		signal?: AbortSignal,
+		run?: number,
+		opts?: { targetHeight?: number; minHeight?: number; maxHeight?: number },
+	): Promise<Buffer[]>;
 	pollResliceStatus?(signal?: AbortSignal): Promise<{ pct: number; message: string; done: boolean; run?: number }>;
 	resetResliceStatus?(signal?: AbortSignal): Promise<{ run: number }>;
 	cancelReslice?(run?: number): Promise<void>;
@@ -273,7 +278,12 @@ export class HttpPipelineClient implements PipelineClient {
 		return Buffer.from(await resp.arrayBuffer());
 	}
 
-	async reslice(images: Buffer[], signal?: AbortSignal, run?: number): Promise<Buffer[]> {
+	async reslice(
+		images: Buffer[],
+		signal?: AbortSignal,
+		run?: number,
+		opts?: { targetHeight?: number; minHeight?: number; maxHeight?: number },
+	): Promise<Buffer[]> {
 		const form = new FormData();
 		for (let i = 0; i < images.length; i++) {
 			form.append('files', new Blob([new Uint8Array(images[i])]), `slice_${i}.webp`);
@@ -281,6 +291,9 @@ export class HttpPipelineClient implements PipelineClient {
 		// TAG THE REQUEST WITH ITS RUN ID (FROM resetResliceStatus) SO THE SIDECAR
 		// MATCHES PROGRESS FRAMES & CANCELS TO THE RIGHT RUN.
 		if (run !== undefined) form.append('run', String(run));
+		if (opts?.targetHeight !== undefined) form.append('target_height', String(opts.targetHeight));
+		if (opts?.minHeight !== undefined) form.append('min_height', String(opts.minHeight));
+		if (opts?.maxHeight !== undefined) form.append('max_height', String(opts.maxHeight));
 		const resp = await this.request('/pages/reslice', { method: 'POST', body: form }, signal);
 		if (!resp.ok) throw new PipelineError(`reslice failed (${resp.status}): ${await resp.text()}`, resp.status);
 		const zipBuf = Buffer.from(await resp.arrayBuffer());

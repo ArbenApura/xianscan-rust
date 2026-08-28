@@ -502,18 +502,48 @@ async fn reslice_handler(
     let mut run_id = state.reslice_progress.run.load(Ordering::Relaxed);
     let mut images = Vec::new();
 
+    // OPTIONAL HEIGHT TUNING FIELDS (PAGE-HEIGHT PRESET FROM THE WEB UI). DEFAULTS
+    // ARE CHOSEN FOR ~1500PX STRIPS WHERE SHORT PAGES IMPROVE DOWNSTREAM OCR QUALITY.
+    let mut target_height = 1150_u32;
+    let mut min_height = 850_u32;
+    let mut max_height = 1400_u32;
+
     while let Ok(Some(field)) = multipart.next_field().await {
-        if field.name() == Some("run") {
-            if let Ok(text) = field.text().await {
-                if let Ok(parsed) = text.parse::<u64>() {
-                    run_id = parsed;
+        match field.name() {
+            Some("run") => {
+                if let Ok(text) = field.text().await {
+                    if let Ok(parsed) = text.parse::<u64>() {
+                        run_id = parsed;
+                    }
                 }
             }
-            continue;
-        }
-        if let Ok(bytes) = field.bytes().await {
-            if let Ok(img) = image::load_from_memory(&bytes) {
-                images.push(img);
+            Some("target_height") => {
+                if let Ok(text) = field.text().await {
+                    if let Ok(parsed) = text.trim().parse::<u32>() {
+                        target_height = parsed;
+                    }
+                }
+            }
+            Some("min_height") => {
+                if let Ok(text) = field.text().await {
+                    if let Ok(parsed) = text.trim().parse::<u32>() {
+                        min_height = parsed;
+                    }
+                }
+            }
+            Some("max_height") => {
+                if let Ok(text) = field.text().await {
+                    if let Ok(parsed) = text.trim().parse::<u32>() {
+                        max_height = parsed;
+                    }
+                }
+            }
+            _ => {
+                if let Ok(bytes) = field.bytes().await {
+                    if let Ok(img) = image::load_from_memory(&bytes) {
+                        images.push(img);
+                    }
+                }
             }
         }
     }
@@ -562,9 +592,9 @@ async fn reslice_handler(
         };
         Ok(smart_reslice_chapter(
             &images,
-            1600,
-            1000,
-            2400,
+            target_height,
+            min_height,
+            max_height,
             engine.detector.as_mut(),
             engine.ocr.as_mut(),
             Some(progress_cb),

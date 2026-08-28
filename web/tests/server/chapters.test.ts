@@ -361,6 +361,7 @@ describe('nextPageSeq & reorderPages', () => {
 		const path = await import('node:path');
 		const os = await import('node:os');
 		const { resliceChapterPages } = await import('$lib/server/chapters');
+		const { DEFAULT_RESLICE_HEIGHTS } = await import('$lib/server/chapters/reslice');
 
 		const dataRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'manua-reslice-'));
 		fs.mkdirSync(path.join(dataRoot, 'uploads', '1'), { recursive: true });
@@ -379,8 +380,10 @@ describe('nextPageSeq & reorderPages', () => {
 			analyze: async () => ({ width: 100, height: 100, backend: 'comic-ctd', regions: [] }),
 			clean: async (b: Buffer) => b,
 			health: async () => ({ status: 'ok', detector: 'mock', inpainter: 'mock' }),
-			reslice: async (images: Buffer[]) => {
+			reslice: async (images: Buffer[], _signal?: AbortSignal, _run?: number, opts?: { targetHeight?: number; minHeight?: number; maxHeight?: number }) => {
 				expect(images).toHaveLength(3);
+				// WHEN NO PRESET IS GIVEN, THE CHAPTER RESLICE FALLS BACK TO TUNED DEFAULTS
+				expect(opts).toEqual(DEFAULT_RESLICE_HEIGHTS);
 				return [Buffer.from('pageA'), Buffer.from('pageB')]; // 3 SLICES -> 2 CLEAN PAGES
 			},
 		};
@@ -427,6 +430,46 @@ describe('nextPageSeq & reorderPages', () => {
 		const deletedCh = db.select().from(chapters).where(eq(chapters.id, chapter.id)).get();
 		expect(deletedCh?.resliced).toBe(false);
 		expect(deletedCh?.reslicedAt).toBeNull();
+
+		fs.rmSync(dataRoot, { recursive: true, force: true });
+	});
+
+	it('resliceChapterPages forwards a custom page-height preset to the sidecar', async () => {
+		const fs = await import('node:fs');
+		const path = await import('node:path');
+		const os = await import('node:os');
+		const { resliceChapterPages } = await import('$lib/server/chapters');
+
+		const dataRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'manua-reslice-h-'));
+		fs.mkdirSync(path.join(dataRoot, 'uploads', '2'), { recursive: true });
+		fs.writeFileSync(path.join(dataRoot, 'uploads/2/h0.png'), Buffer.from('slice0'));
+
+		seedBook(db, { id: 'b_h' });
+		const chapter = seedChapter(db, { id: 2, bookId: 'b_h', seq: 0 });
+		seedPage(db, { chapterId: chapter.id, seq: 0, filePath: 'uploads/2/h0.png' });
+
+		let receivedOpts: unknown;
+		const fakePipeline = {
+			preprocess: async (b: Buffer) => b,
+			analyze: async () => ({ width: 100, height: 100, backend: 'comic-ctd', regions: [] }),
+			clean: async (b: Buffer) => b,
+			health: async () => ({ status: 'ok', detector: 'mock', inpainter: 'mock' }),
+			reslice: async (_images: Buffer[], _signal?: AbortSignal, _run?: number, opts?: unknown) => {
+				receivedOpts = opts;
+				return [Buffer.from('pageA')];
+			},
+		};
+
+		await resliceChapterPages(
+			chapter.id,
+			fakePipeline,
+			() => {},
+			undefined,
+			dataRoot,
+			{ targetHeight: 900, minHeight: 700, maxHeight: 1200 },
+		);
+
+		expect(receivedOpts).toEqual({ targetHeight: 900, minHeight: 700, maxHeight: 1200 });
 
 		fs.rmSync(dataRoot, { recursive: true, force: true });
 	});

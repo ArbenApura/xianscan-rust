@@ -2,6 +2,7 @@
 import { error } from '@sveltejs/kit';
 import { assertChapterExists, resliceChapterPages } from '$lib/server/chapters';
 import { createPipelineClient } from '$lib/server/pipeline-client';
+import { resliceChapterSchema } from '$lib/schemas';
 import { DATA_ROOT } from '$lib/server/paths';
 import { syncBus } from '$lib/server/sync-bus';
 import type { RequestHandler } from './$types';
@@ -10,6 +11,16 @@ export const POST: RequestHandler = async ({ params, request }) => {
 	const chapterId = Number(params.id);
 	if (!Number.isInteger(chapterId)) throw error(400, 'Invalid chapter id.');
 	await assertChapterExists(chapterId);
+
+	// OPTIONAL PAGE-HEIGHT PRESET FROM THE UI — FALLS BACK TO DEFAULTS IN reslice.ts
+	const parsed = resliceChapterSchema.safeParse(await request.json().catch(() => null));
+	const heightOpts = parsed.success
+		? {
+				targetHeight: parsed.data.targetHeight,
+				minHeight: parsed.data.minHeight,
+				maxHeight: parsed.data.maxHeight,
+			}
+		: undefined;
 
 	const pipelineClient = createPipelineClient();
 
@@ -46,9 +57,10 @@ export const POST: RequestHandler = async ({ params, request }) => {
 						(step, message, pct) => {
 							emit({ type: 'progress', step, message, pct });
 						},
-						request.signal,
-						DATA_ROOT,
-					);
+					request.signal,
+					DATA_ROOT,
+					heightOpts,
+				);
 					emit({
 						type: 'done',
 						originalCount: result.originalCount,
