@@ -184,7 +184,7 @@
 							<PageImage
 								src={`/api/pages/${page.id}/file?kind=original&rev=${page.originalRev ?? 0}`}
 								alt={`Page ${page.seq + 1} Original`}
-								imgClass={`object-contain ${page.status === 'processing' ? 'opacity-80' : ''}`}
+								imgClass={`w-full h-full object-cover ${page.status === 'processing' ? 'opacity-80' : ''}`}
 								on:click={(e) =>
 									page.status !== 'processing' &&
 									dispatch('inspect', { page, initialTab: 'original' })}
@@ -213,7 +213,7 @@
 								<PageImage
 									src={`/api/pages/${page.id}/file?kind=output&rev=${page.outputRev ?? 0}`}
 									alt={`Page ${page.seq + 1} Output`}
-									imgClass={`object-contain ${page.status === 'processing' ? 'opacity-80' : ''}`}
+									imgClass={`w-full h-full object-cover ${page.status === 'processing' ? 'opacity-80' : ''}`}
 									on:click={(e) =>
 										page.status !== 'processing' &&
 										dispatch('inspect', { page, initialTab: 'output' })}
@@ -231,7 +231,7 @@
 								class="flex items-center justify-center rounded-lg border border-dashed border-black/20 text-xs opacity-50 dark:border-white/20"
 								style={hasRatio
 									? `aspect-ratio: ${page.width} / ${page.height};`
-									: 'min-height: 240px;'}
+									: 'aspect-ratio: 2 / 3;'}
 							>
 								Translation not completed yet
 							</div>

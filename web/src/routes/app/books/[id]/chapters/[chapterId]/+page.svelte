@@ -299,23 +299,26 @@
 
 	// REAL-TIME SYNCHRONIZED PAGES MERGED WITH SNAPSHOT
 	$: displayPages = ((): ChapterPageItem[] => {
-		if (!currentJobState.snapshot?.pages?.length) return pages;
 		const snapshotPageMap = new Map<number, (typeof currentJobState.snapshot.pages)[0]>();
-		for (const sp of currentJobState.snapshot.pages) {
-			snapshotPageMap.set(sp.pageId, sp);
+		if (currentJobState.snapshot?.pages?.length) {
+			for (const sp of currentJobState.snapshot.pages) {
+				snapshotPageMap.set(sp.pageId, sp);
+			}
 		}
 
 		return pages.map((p) => {
 			const sp = snapshotPageMap.get(p.id);
-			if (!sp) return p;
-			const isProcessing = sp.status === 'processing' && currentJobState.running;
-			const isError = sp.status === 'error';
-			const isDone = sp.status === 'done' || (!isProcessing && !isError && p.status === 'done');
+			const isProcessing =
+				(sp?.status === 'processing' || (!sp && currentJobState.running && p.status === 'processing')) &&
+				currentJobState.running;
+			const isError = sp?.status === 'error';
 			const isQueued =
 				!isProcessing &&
 				!isError &&
-				!isDone &&
-				(isWholeChapterQueued || (queuedPageIdSet ? queuedPageIdSet.has(p.id) : false));
+				(sp?.status === 'queued' ||
+					isWholeChapterQueued ||
+					(queuedPageIdSet ? queuedPageIdSet.has(p.id) : false));
+			const isDone = !isProcessing && !isQueued && !isError && (sp?.status === 'done' || p.status === 'done');
 			const status: 'pending' | 'queued' | 'processing' | 'done' | 'error' = isProcessing
 				? 'processing'
 				: isQueued
@@ -324,21 +327,21 @@
 						? 'error'
 						: isDone
 							? 'done'
-							: 'pending';
+							: p.status || 'pending';
 
 			return {
 				...p,
 				status,
-				currentStep: isProcessing ? sp.currentStep : undefined,
-				outputPath: sp.outputPath || p.outputPath,
+				currentStep: isProcessing ? sp?.currentStep : undefined,
+				outputPath: sp?.outputPath || p.outputPath,
 				// REVS ARE MONOTONIC (NEVER RESET). PREFER THE NEWEST OF THE JOB
 				// SNAPSHOT AND THE SERVER/EDITOR VALUE, SO A MANUAL RETYPESET THAT
 				// BUMPS outputRev AFTER A JOB COMPLETES IS NOT MASKED BY THE STALE
 				// SNAPSHOT (WHICH WOULD OTHERWISE SERVE A STALE IMMUTABLE-CACHED URL).
-				cleanedRev: Math.max(sp.cleanedRev ?? 0, p.cleanedRev ?? 0),
-				outputRev: Math.max(sp.outputRev ?? 0, p.outputRev ?? 0),
+				cleanedRev: Math.max(sp?.cleanedRev ?? 0, p.cleanedRev ?? 0),
+				outputRev: Math.max(sp?.outputRev ?? 0, p.outputRev ?? 0),
 				originalRev: p.originalRev,
-				error: isError ? sp.errorMessage || p.error : null,
+				error: isError ? sp?.errorMessage || p.error : null,
 			};
 		});
 	})();

@@ -116,7 +116,9 @@ export async function typesetPage(
 		if (isSfx) {
 			size = fitSingleLineSize(ctx, text, font, maxW, maxH, sizeCap, fontCjk);
 		} else {
-			size = fitFontSize(ctx, text, font, w, h, sizeCap, sizeCap, inset, fontCjk);
+			const maxDialogueSize = Math.max(24, Math.round(img.width * 0.035));
+			const cap = r.kind === 'dialogue_bubble' ? Math.min(sizeCap, maxDialogueSize) : sizeCap;
+			size = fitFontSize(ctx, text, font, w, h, cap, cap, inset, fontCjk);
 		}
 
 		ctx.font = fontSpec(size, font, text, fontCjk);
