@@ -254,7 +254,9 @@ If you are looking for a **Full-Stack Web Developer** with expertise in modern w
 - **GitHub Profile**: [@ArbenApura](https://github.com/ArbenApura)
 
 ### Support Open-Source Development
-If XianScan enhances your reading flow, language learning, or translation workflow, supporting this project helps fund ongoing independent R&D, model optimization, and future open-source tools:
+**XianScan** is built and maintained entirely independently to bring a fast, convenient personal reading and translation flow to untranslated comics. If this tool brings convenience to your reading experience, saves you time, or enhances your learning workflow, your support makes an immense difference.
+
+Contributions directly help keep this project free and active, covering essential living expenses and medical bills for my family while I build and refine open-source software:
 
 <div align="center">
 
