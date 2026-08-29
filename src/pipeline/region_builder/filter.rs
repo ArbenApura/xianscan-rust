@@ -241,10 +241,13 @@ pub fn should_reject_candidate_region(
             let (rcx, rcy) = (rx + rw / 2, ry + rh / 2);
             rcx >= b.x && rcx <= b.x + b.w && rcy >= b.y && rcy <= b.y + b.h
         });
-        if rl_in_bubble && t_rl.chars().count() >= 4 {
+        if rl_in_bubble && t_rl.chars().count() >= 6 {
             let common_chars = cleaned.chars().filter(|c| !c.is_whitespace() && t_rl.contains(*c)).count();
             let clean_chars = cleaned.chars().filter(|c| !c.is_whitespace()).count();
-            common_chars >= 4 && (common_chars as f32 / clean_chars.max(1) as f32 >= 0.60)
+            let overlap_x = (cluster_rect.x + cluster_rect.w).min(rx + rw) - cluster_rect.x.max(rx);
+            let overlap_y = (cluster_rect.y + cluster_rect.h).min(ry + rh) - cluster_rect.y.max(ry);
+            let is_spatially_close = (overlap_x > -15 && overlap_y > -15) || ((cluster_rect.x - rx).abs() <= 60 && (cluster_rect.y - ry).abs() <= 60);
+            common_chars >= 4 && (common_chars as f32 / clean_chars.max(1) as f32 >= 0.75) && is_spatially_close
         } else {
             false
         }

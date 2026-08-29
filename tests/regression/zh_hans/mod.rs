@@ -17,6 +17,8 @@ mod page_inn_couplets_college_virgin_dialogue;
 mod page_jun_family_ancestral_cemetery_sfx_dong;
 mod page_lightning_city_smoke_sfx_whoosh;
 mod page_lightning_storm_welcome_my_lord_shout_bubble;
+mod page_lingxiao_disciple_hierarchy_pyramid;
+mod page_lingxiao_pavilion_stepped_on_brothers_shoulders;
 mod page_man_sleeping_in_bed_gutter_watermark_noise;
 mod page_mecha_energy_beam_dodge_sfx;
 mod page_mecha_stellar_color_shift_border_noise;
