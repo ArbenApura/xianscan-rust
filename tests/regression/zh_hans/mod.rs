@@ -18,6 +18,7 @@ mod page_nie_li_scribbling_exclamation_bubble;
 mod page_saint_nether_grass_catch_present;
 mod page_sensei_remove_tumor_understood_boss;
 mod page_shadow_demon_nightmare_pillow_watermark_noise;
+mod page_song_yunxiang_star_release_exhale_bubbles;
 mod page_three_units_doorway_light_noise;
 mod page_weakest_weapon_laughter_watermark;
 mod page_whose_god_will_i_be_slanted_free_text;

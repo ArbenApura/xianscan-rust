@@ -106,20 +106,28 @@ pub fn is_pure_watermark_region(text: &str) -> bool {
 
     // Silence ellipsis with OCR tail noise (e.g. "(………)\n6", "……6", "…9")
     let dot_count = t.chars().filter(|&c| c == '…' || c == '.' || c == '·' || c == '。' || c == '‥' || c == '．').count();
-    let other_non_bracket = t.chars().filter(|c| {
-        !c.is_whitespace()
-            && *c != '…'
-            && *c != '.'
-            && *c != '·'
-            && *c != '。'
-            && *c != '‥'
-            && *c != '．'
-            && *c != '('
-            && *c != ')'
-            && *c != '（'
-            && *c != '）'
-    }).count();
-    if dot_count >= 2 && other_non_bracket <= 1 {
+    let is_digit_or_noise_residue = t.chars().all(|c| {
+        c == '…'
+            || c == '.'
+            || c == '·'
+            || c == '。'
+            || c == '‥'
+            || c == '．'
+            || c.is_whitespace()
+            || c == '('
+            || c == ')'
+            || c == '（'
+            || c == '）'
+            || c.is_ascii_digit()
+            || c == '|'
+            || c == 'l'
+            || c == 'I'
+            || c == '1'
+            || c == 'o'
+            || c == 'O'
+            || c == '0'
+    });
+    if dot_count >= 2 && is_digit_or_noise_residue {
         return true;
     }
     false
