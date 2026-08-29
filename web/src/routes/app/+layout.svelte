@@ -28,12 +28,14 @@
 
 	// IMPORTED UI COMPONENTS
 	import SettingsModal from '$lib/components/SettingsModal.svelte';
+	import OnboardingModal from '$lib/components/OnboardingModal.svelte';
 	import BatchProgressWidget from '$lib/components/BatchProgressWidget.svelte';
 	import { batchProgress } from '$lib/stores/batch-tracker';
 
 	// -- STATES -- //
 	let settingsOpen = false;
 	let settingsTab: 'ai' | 'compute' | 'general' = 'ai';
+	let onboardingOpen = false;
 	let lastScrollY = 0;
 	let topbarHidden = false;
 
@@ -41,6 +43,17 @@
 		settingsTab = tab;
 		settingsOpen = true;
 	}
+
+	function openTour() {
+		onboardingOpen = true;
+	}
+
+	// ON FIRST RUN, POP UP THE ONBOARDING GUIDE AUTOMATICALLY
+	onMount(() => {
+		if (!$settings.hasCompletedOnboarding) {
+			onboardingOpen = true;
+		}
+	});
 
 	onMount(() => {
 		mlStatus.startPolling();
@@ -266,4 +279,7 @@
 
 
 <!-- GLOBAL SETTINGS & PREFERENCES MODAL -->
-<SettingsModal bind:open={settingsOpen} initialTab={settingsTab} />
+<SettingsModal bind:open={settingsOpen} initialTab={settingsTab} on:openTour={openTour} />
+
+<!-- ONBOARDING WELCOME TOUR MODAL -->
+<OnboardingModal bind:open={onboardingOpen} />

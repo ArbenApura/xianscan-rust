@@ -75,6 +75,7 @@ export function sanitizeSettingValue(key: keyof AppSettings, value: unknown): un
 		case 'enableTextRotation':
 		case 'resliceBeforeBatch':
 		case 'typesetAllCaps':
+		case 'hasCompletedOnboarding':
 			return Boolean(value);
 
 		case 'version': {

@@ -81,11 +81,11 @@ XianScan is designed to be CPU-first, running on standard laptops without requir
 
 | Component | Minimum Specification | Recommended Specification |
 | :--- | :--- | :--- |
-| **CPU** | 2-Core x86_64 with AVX2 (Intel/AMD ~2013+) or Apple Silicon (M1+) | 4 to 8 Cores (AVX2 / AVX-512 / ARM NEON) |
-| **RAM** | 4 GB (Engine RSS ~1 GB) | 8 GB+ (recommended if hosting local LLMs alongside) |
-| **Disk Space** | ~600 MB (Executable + embedded models) | 2 GB+ for chapter caching and SQLite storage |
+| **CPU** | 4-Core x86_64 with AVX2 (Intel Core 6th Gen+ / AMD Ryzen) or Apple M1+ | 6 to 8 Cores (AVX2 / AVX-512 / ARM NEON) |
+| **RAM** | 8 GB (Engine RSS ~1.2 GB + Image Buffers) | 16 GB+ (Mandatory if running local LLMs like Ollama alongside) |
+| **Disk Space** | 1 GB (Executable + embedded models) | 5 GB+ SSD for chapter caching and SQLite storage |
 | **Dependencies** | None (Node.js runtime & ONNX models are embedded) | None required |
-| **GPU (Optional)** | None (Multi-threaded CPU runs out of the box) | Windows: DirectML • macOS: CoreML • Linux: NVIDIA CUDA |
+| **GPU / VRAM** | None required (Multi-threaded CPU runs out of the box) | Dedicated GPU with 8 GB+ VRAM (DirectML • CoreML • Linux CUDA) |
 
 <details>
   <summary><b>GPU Compatibility Matrix & Platform Notes</b></summary>

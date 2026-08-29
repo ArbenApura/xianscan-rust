@@ -11,7 +11,7 @@
 
 <script lang="ts">
 	// IMPORTED DEP-MODULES
-	import { tick, onDestroy } from 'svelte';
+	import { tick, onDestroy, createEventDispatcher } from 'svelte';
 	import { toast } from 'svelte-sonner';
 	// IMPORTED MODULES
 	import { ripple } from '$lib/actions/ripple';
@@ -76,6 +76,7 @@
 	import ChevronLeft from 'lucide-svelte/icons/chevron-left';
 	import ChevronRight from 'lucide-svelte/icons/chevron-right';
 	import X from 'lucide-svelte/icons/x';
+	import Sparkles from 'lucide-svelte/icons/sparkles';
 
 	// IMPORTED UI COMPONENTS
 	import Modal from '$lib/components/ui/Modal.svelte';
@@ -87,6 +88,10 @@
 	// PROPS COMPATIBILITY: ACCEPTS BOTH LEGACY (ai | compute | general) AND NEW CATEGORIES
 	export let open = false;
 	export let initialTab: 'ai' | 'compute' | 'general' | SettingsCategory = 'appearance';
+
+	const dispatch = createEventDispatcher<{
+		openTour: void;
+	}>();
 
 	// -- MAP LEGACY TABS TO CATEGORIES -- //
 	function normalizeCategory(tab: string): SettingsCategory {
@@ -1277,6 +1282,7 @@
 		// ABOUT
 		{ id: 'version-info', label: 'Native Core & Web Build Fingerprint', category: 'about', categoryLabel: 'About & Diagnostics', categoryIcon: Info, keywords: ['version', 'build', 'hash', 'binary', 'commit', 'fingerprint'] },
 		{ id: 'sidecar-health', label: 'ML Sidecar Health & Status', category: 'about', categoryLabel: 'About & Diagnostics', categoryIcon: Info, keywords: ['sidecar', 'health', 'status', 'online', 'offline', 'ml'] },
+		{ id: 'welcome-tour', label: 'Welcome Tour & Feature Guide', category: 'about', categoryLabel: 'About & Diagnostics', categoryIcon: Sparkles, keywords: ['welcome', 'tour', 'guide', 'onboarding', 'tutorial', 'intro', 'introduction', 'walkthrough', 'step', 'help'] },
 	];
 
 	let searchFocused = false;
@@ -1490,12 +1496,12 @@
 		</div>
 
 		<!-- RIGHT CONTENT PANE (DETAIL VIEW ON MOBILE) -->
-		<div class={`flex-1 overflow-y-auto p-4 sm:p-6 flex-col justify-between ${mobileView === 'menu' ? 'hidden md:flex' : 'flex'}`}>
+		<div class={`flex-1 overflow-y-auto p-4 sm:p-6 flex-col justify-start space-y-4 ${mobileView === 'menu' ? 'hidden md:flex' : 'flex'}`}>
 			<!-- MOBILE DRILL-DOWN BACK BUTTON -->
 			<button
 				type="button"
 				on:click={() => (mobileView = 'menu')}
-				class="md:hidden inline-flex items-center gap-1.5 -ml-1 py-1 px-2.5 rounded-lg text-xs font-bold text-[#b23a2e] dark:text-[#e08a63] bg-[#b23a2e]/[0.08] dark:bg-[#e08a63]/[0.10] hover:bg-[#b23a2e]/15 transition mb-3 self-start cursor-pointer"
+				class="md:hidden inline-flex items-center gap-1.5 -ml-1 py-1 px-2.5 rounded-lg text-xs font-bold text-[#b23a2e] dark:text-[#e08a63] bg-[#b23a2e]/[0.08] dark:bg-[#e08a63]/[0.10] hover:bg-[#b23a2e]/15 transition mb-1 self-start cursor-pointer shrink-0"
 				use:ripple
 			>
 				<ChevronLeft size={15} />
@@ -2953,6 +2959,30 @@
 									{$mlStatus.online ? 'Healthy & Connected' : 'Offline / Unreachable'}
 								</span>
 							</div>
+						</div>
+
+						<!-- ONBOARDING GUIDE REPLAY CARD -->
+						<div
+							id="setting-welcome-tour"
+							class={`flex items-center justify-between rounded-2xl border border-black/10 bg-black/[0.02] p-4 dark:border-white/10 dark:bg-white/[0.02] transition-all duration-300 ${highlightedSettingId === 'welcome-tour' ? 'ring-2 ring-[#b23a2e] dark:ring-[#e08a63] bg-[#b23a2e]/[0.06] dark:bg-[#e08a63]/[0.08] rounded-xl p-4' : ''}`}
+						>
+							<div class="space-y-0.5">
+								<div class="flex items-center gap-1.5 text-xs font-bold">
+									<Sparkles size={14} class="text-[#b23a2e] dark:text-[#e08a63]" />
+									<span>Welcome Tour & Feature Guide</span>
+								</div>
+								<p class="text-[11px] opacity-60">Replay the introductory walkthrough covering the translation pipeline, extension, and setup.</p>
+							</div>
+							<Button
+								variant="secondary"
+								size="sm"
+								on:click={() => {
+									open = false;
+									dispatch('openTour');
+								}}
+							>
+								<span>Replay Tour</span>
+							</Button>
 						</div>
 					</div>
 				{/if}

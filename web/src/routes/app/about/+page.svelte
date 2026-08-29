@@ -18,8 +18,10 @@
 	import ShieldCheck from 'lucide-svelte/icons/shield-check';
 	import Smartphone from 'lucide-svelte/icons/smartphone';
 	import Terminal from 'lucide-svelte/icons/terminal';
+	import Sparkles from 'lucide-svelte/icons/sparkles';
 	// IMPORTED COMPONENTS
 	import { DropCap, InkDivider, Seal } from '$lib/components/ui';
+	import OnboardingModal from '$lib/components/OnboardingModal.svelte';
 
 	// -- CONSTANTS -- //
 	const MIHON_REPO_URL = 'https://raw.githubusercontent.com/ArbenApura/xianscan-rust/repo/index.min.json';
@@ -99,11 +101,11 @@
 	];
 
 	const SYSTEM_SPECS = [
-		{ component: 'CPU Requirements', min: '2 Cores with AVX2 (Intel/AMD ~2013+) or Apple Silicon M1+', rec: '4 to 8 Cores (AVX2 / AVX-512 / ARM NEON)' },
-		{ component: 'Memory (RAM)', min: '4 GB (Engine RSS ~1 GB)', rec: '8 GB+ (recommended if running local LLMs alongside)' },
-		{ component: 'Disk Space', min: '~600 MB (Standalone binary with embedded models)', rec: '2 GB+ for chapter caching and SQLite storage' },
+		{ component: 'CPU Requirements', min: '4 Cores with AVX2 (Intel Core 6th Gen+ / AMD Ryzen) or Apple M1+', rec: '6 to 8 Cores (AVX2 / AVX-512 / ARM NEON)' },
+		{ component: 'Memory (RAM)', min: '8 GB (Engine RSS ~1.2 GB + Image Buffers)', rec: '16 GB+ (Mandatory if running local LLMs like Ollama alongside)' },
+		{ component: 'Disk Space', min: '1 GB (Standalone binary with embedded models)', rec: '5 GB+ SSD for chapter caching and SQLite storage' },
 		{ component: 'External Dependencies', min: 'None (Standalone self-contained binary)', rec: 'None (zero Python / Conda / Node installation needed)' },
-		{ component: 'GPU Acceleration (Optional)', min: 'None required (Multi-threaded CPU default)', rec: 'Windows DirectML • macOS CoreML/Metal • Linux NVIDIA CUDA' },
+		{ component: 'GPU / Hardware Acceleration', min: 'None required (Multi-threaded CPU default)', rec: 'Dedicated GPU with 8 GB+ VRAM (DirectML / CUDA / CoreML)' },
 		{ component: 'Local Database', min: 'SQLite 3 with Write-Ahead Logging (WAL)', rec: '100% private on local disk (%APPDATA% / ~/.local/share)' },
 	];
 
@@ -136,9 +138,10 @@
 	];
 
 	// -- STATES -- //
-	let isCopied = false;
-	let copyTimeout: ReturnType<typeof setTimeout> | null = null;
 	let isMounted = false;
+	let isCopied = false;
+	let tourOpen = false;
+	let copyTimeout: ReturnType<typeof setTimeout> | null = null;
 
 	// -- FUNCTIONS -- //
 	async function copyMihonRepo() {
@@ -253,11 +256,20 @@
 		</div>
 
 		<!-- ACTION BUTTONS / QUICK LINKS -->
-		<div class="grid grid-cols-1 xs:grid-cols-3 sm:flex sm:flex-wrap items-center gap-2 pt-2">
+		<div class="grid grid-cols-1 xs:grid-cols-2 sm:flex sm:flex-wrap items-center gap-2 pt-2">
+			<button
+				type="button"
+				on:click={() => (tourOpen = true)}
+				use:ripple
+				class="inline-flex items-center justify-center gap-2 rounded-lg bg-[#b23a2e] px-4 py-2.5 sm:py-2 text-xs font-bold text-white transition hover:bg-[#c0392b] active:scale-95 cursor-pointer shadow-xs shadow-[#b23a2e]/20"
+			>
+				<Sparkles size={14} />
+				<span>Start Welcome Tour</span>
+			</button>
 			<a
 				href="/app"
 				use:ripple
-				class="inline-flex items-center justify-center gap-2 rounded-lg bg-[#b23a2e] px-4 py-2.5 sm:py-2 text-xs font-bold text-white transition hover:bg-[#c0392b] active:scale-95"
+				class="inline-flex items-center justify-center gap-2 rounded-lg border border-black/15 bg-white/50 px-3.5 py-2.5 sm:py-2 text-xs font-semibold text-neutral-800 hover:bg-neutral-100 dark:border-white/15 dark:bg-white/5 dark:text-neutral-200 dark:hover:bg-white/10 transition"
 			>
 				<BookOpen size={14} />
 				<span>Open Library</span>
@@ -712,3 +724,6 @@
 		</div>
 	</footer>
 </div>
+
+<!-- ONBOARDING WELCOME TOUR MODAL -->
+<OnboardingModal bind:open={tourOpen} />

@@ -66,6 +66,7 @@ export interface AppSettings {
 	enableWatermarkInpaint: boolean;
 	inpaintExpansionPct: number;
 	typesetExpansionPct: number;
+	hasCompletedOnboarding: boolean;
 }
 
 // -- CONSTANTS -- //
@@ -148,21 +149,28 @@ export const APP_FONTS: { id: AppFont; label: string; sample: string; blurb: str
 		id: 'nunito',
 		label: 'Nunito Sans',
 		sample: 'Balanced Rounded Sans',
-		blurb: 'Highly readable modern sans-serif optimized for reading UI',
+		blurb: 'Soft, readable rounded sans-serif optimal for clean navigation',
 		stack: "'Nunito Sans', sans-serif",
+	},
+	{
+		id: 'proxima',
+		label: 'Proxima Nova',
+		sample: 'Clean Modern Editorial',
+		blurb: 'Clear modern grotesque bridging geometric and classic sans proportions',
+		stack: "'Proxima Nova', 'Montserrat', sans-serif",
 	},
 	{
 		id: 'montserrat',
 		label: 'Montserrat',
-		sample: 'Urban Modern Sans',
-		blurb: 'Bold geometric typeface inspired by classic urban posters',
+		sample: 'Geometric Urban Display',
+		blurb: 'Warm, geometric sans inspired by traditional Buenos Aires neighborhood signage',
 		stack: "'Montserrat', sans-serif",
 	},
 	{
 		id: 'lexend',
 		label: 'Lexend',
-		sample: 'Fluent Reading Sans',
-		blurb: 'Engineered specifically to reduce visual stress and improve readability',
+		sample: 'High-Legibility Reading',
+		blurb: 'Specially engineered typography designed to reduce visual reading fatigue',
 		stack: "'Lexend', sans-serif",
 	},
 ];
@@ -200,6 +208,7 @@ export const DEFAULTS: AppSettings = {
 	enableWatermarkInpaint: false,
 	inpaintExpansionPct: 0.03,
 	typesetExpansionPct: 0.03,
+	hasCompletedOnboarding: false,
 };
 
 export const SERVER_CANONICAL_KEYS: (keyof AppSettings)[] = [
@@ -234,6 +243,7 @@ export const SERVER_CANONICAL_KEYS: (keyof AppSettings)[] = [
 	'enableWatermarkInpaint',
 	'inpaintExpansionPct',
 	'typesetExpansionPct',
+	'hasCompletedOnboarding',
 ];
 
 const KEY = 'xianscan:settings';
