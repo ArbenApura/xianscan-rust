@@ -33,8 +33,8 @@ pub fn build_regions(
     inpaint_padding_pct: Option<f32>,
     typeset_padding_pct: Option<f32>,
 ) -> Vec<Region> {
-    let inpaint_pct = inpaint_padding_pct.unwrap_or(0.06);
-    let typeset_pct = typeset_padding_pct.unwrap_or(0.12);
+    let inpaint_pct = inpaint_padding_pct.unwrap_or(0.03);
+    let typeset_pct = typeset_padding_pct.unwrap_or(0.00);
     let mut regions: Vec<Region> = Vec::new();
 
     for &idx in order {

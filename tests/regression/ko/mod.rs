@@ -9,6 +9,7 @@ mod page_iv_drip_sedative_squeeze_sfx;
 mod page_korean_gamers_365_days_continuous;
 mod page_patient_endoscopy_heartbeat_sfx;
 mod page_patient_greeting_doctor_exclamation;
+mod page_physician_seok_treatment_bubble_centering;
 mod page_polyp_discovered_spiky_punctuation_bubble;
 mod page_red_dragon_destia_floor_48;
 mod page_snake_skewer_crackle_sfx_tadak;

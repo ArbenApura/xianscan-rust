@@ -987,19 +987,19 @@
 										<!-- COLOR PALETTE: BASE / INPAINT / TYPESET -->
 										{@const stroke = kind === 'free_text' ? '#8b5cf6' : '#b23a2e'}
 										{@const lightStroke = kind === 'free_text' ? '#c084fc' : '#f87171'}
-										{@const darkStroke = kind === 'free_text' ? '#5b21b6' : '#7f1d1d'}
 										{@const inpaintFill = kind === 'free_text' ? 'rgba(139, 92, 246, 0.10)' : 'rgba(178, 58, 46, 0.10)'}
-										{@const typesetFill = kind === 'free_text' ? 'rgba(91, 33, 182, 0.22)' : 'rgba(127, 29, 29, 0.22)'}
+										{@const typesetStroke = '#059669'}
+										{@const typesetFill = 'rgba(16, 185, 129, 0.16)'}
 
-										<!-- TIER 3: TYPESETTING LAYOUT BOX (SOLID BOLD OUTLINE + OPAQUE RICH FILL) -->
+										<!-- TIER 3: TYPESETTING LAYOUT BOX (SOLID EMERALD GREEN OUTLINE + SOFT GREEN FILL) -->
 										{#if (showTypesetTier || active) && typesetB && (typesetB.w !== bw || typesetB.h !== bh)}
 											<rect
 												x={typesetB.x}
 												y={typesetB.y}
 												width={typesetB.w}
 												height={typesetB.h}
-												fill={active ? `${darkStroke}35` : typesetFill}
-												stroke={darkStroke}
+												fill={active ? 'rgba(16, 185, 129, 0.30)' : typesetFill}
+												stroke={typesetStroke}
 												stroke-width={active ? 2.8 : 2.0}
 												rx="5"
 												opacity={active ? 1 : 0.9}
@@ -1011,8 +1011,8 @@
 												y={by}
 												width={bw}
 												height={bh}
-												fill={active ? `${darkStroke}35` : typesetFill}
-												stroke={darkStroke}
+												fill={active ? 'rgba(16, 185, 129, 0.30)' : typesetFill}
+												stroke={typesetStroke}
 												stroke-width={active ? 2.8 : 2.0}
 												rx="5"
 												opacity={active ? 1 : 0.9}

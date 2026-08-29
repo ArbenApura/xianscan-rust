@@ -2,8 +2,9 @@
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
+use ab_glyph::{FontArc, PxScale};
 use image::{DynamicImage, Rgba, RgbaImage};
-use imageproc::drawing::{draw_hollow_rect_mut, draw_line_segment_mut};
+use imageproc::drawing::{draw_hollow_rect_mut, draw_line_segment_mut, draw_text_mut};
 use imageproc::rect::Rect;
 use serde::Serialize;
 use sha2::{Digest, Sha256};
@@ -345,6 +346,30 @@ fn blend_filled_rect(canvas: &mut RgbaImage, x: i32, y: i32, w: u32, h: u32, fil
     }
 }
 
+/// LOADS A SUITABLE CJK-COMPATIBLE TTF/OTF FONT FOR DEBUG ANNOTATION OVERLAYS.
+fn load_annotation_font() -> Option<FontArc> {
+    let font_candidates = [
+        "C:\\Windows\\Fonts\\malgun.ttf",
+        "C:\\Windows\\Fonts\\msyh.ttc",
+        "C:\\Windows\\Fonts\\arial.ttf",
+        "C:\\Windows\\Fonts\\segoeui.ttf",
+        "/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc",
+        "/usr/share/fonts/truetype/noto/NotoSansCJK-Regular.ttc",
+        "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
+        "/System/Library/Fonts/PingFang.ttc",
+        "/System/Library/Fonts/AppleSDGothicNeo.ttc",
+        "web/static/fonts/GeneralSans-Bold.ttf",
+    ];
+    for path in &font_candidates {
+        if let Ok(bytes) = std::fs::read(path) {
+            if let Ok(font) = FontArc::try_from_vec(bytes) {
+                return Some(font);
+            }
+        }
+    }
+    None
+}
+
 /// DRAWS ANNOTATED PIPELINE REGIONS WITH MATCHING THEME STYLES (MATCHES WEB UI INSPECT MODAL).
 pub fn render_annotated_image(img: &DynamicImage, res: &AnalyzeResponse) -> DynamicImage {
     let mut canvas = img.to_rgba8();
@@ -367,7 +392,7 @@ pub fn render_annotated_image(img: &DynamicImage, res: &AnalyzeResponse) -> Dyna
         }
     }
 
-    // 3. RENDER TEXT REGIONS (CINNABAR, PURPLE)
+    // 2. RENDER TEXT REGIONS (CINNABAR, PURPLE)
     for r in &res.regions {
         let (stroke_color, fill_color) = match r.kind {
             RegionKind::DialogueBubble => (Rgba([178, 58, 46, 255]), Rgba([178, 58, 46, 50])),
@@ -432,6 +457,116 @@ pub fn render_annotated_image(img: &DynamicImage, res: &AnalyzeResponse) -> Dyna
             if w > 2 && h > 2 {
                 let inner_rect = Rect::at(x + 1, y + 1).of_size(w - 2, h - 2);
                 draw_hollow_rect_mut(&mut canvas, inner_rect, stroke_color);
+            }
+        }
+    }
+
+    // 3. RENDER TYPESET BOUNDARY BOXES AT THE VERY TOP (ONLY ON SPEECH BUBBLES)
+    for r in &res.regions {
+        if r.kind == RegionKind::DialogueBubble {
+            if let Some(tb) = &r.typeset_box {
+                let stroke_color = Rgba([4, 120, 87, 255]);
+                let fill_color = Rgba([5, 150, 105, 80]);
+
+                if r.angle.abs() > 0.5 {
+                    let rad = r.angle.to_radians();
+                    let cx = tb.x as f32 + tb.w as f32 / 2.0;
+                    let cy = tb.y as f32 + tb.h as f32 / 2.0;
+                    let hw = tb.w as f32 / 2.0;
+                    let hh = tb.h as f32 / 2.0;
+
+                    let corners = [(-hw, -hh), (hw, -hh), (hw, hh), (-hw, hh)];
+                    let rotated_pts: Vec<(f32, f32)> = corners
+                        .iter()
+                        .map(|&(dx, dy)| {
+                            let rx = dx * rad.cos() - dy * rad.sin() + cx;
+                            let ry = dx * rad.sin() + dy * rad.cos() + cy;
+                            (rx, ry)
+                        })
+                        .collect();
+
+                    // 1. RASTERIZE FILLED ROTATED POLYGON
+                    blend_filled_polygon(&mut canvas, &rotated_pts, fill_color);
+
+                    // 2. DRAW 2PX ROTATED OUTLINE
+                    for idx in 0..4 {
+                        let p1 = rotated_pts[idx];
+                        let p2 = rotated_pts[(idx + 1) % 4];
+                        draw_line_segment_mut(&mut canvas, p1, p2, stroke_color);
+                    }
+                    if hw > 2.0 && hh > 2.0 {
+                        let inner_corners = [(-hw + 1.0, -hh + 1.0), (hw - 1.0, -hh + 1.0), (hw - 1.0, hh - 1.0), (-hw + 1.0, hh - 1.0)];
+                        let inner_pts: Vec<(f32, f32)> = inner_corners
+                            .iter()
+                            .map(|&(dx, dy)| {
+                                let rx = dx * rad.cos() - dy * rad.sin() + cx;
+                                let ry = dx * rad.sin() + dy * rad.cos() + cy;
+                                (rx, ry)
+                            })
+                            .collect();
+                        for idx in 0..4 {
+                            let p1 = inner_pts[idx];
+                            let p2 = inner_pts[(idx + 1) % 4];
+                            draw_line_segment_mut(&mut canvas, p1, p2, stroke_color);
+                        }
+                    }
+                } else {
+                    let x = tb.x.clamp(0, width.saturating_sub(1) as i32);
+                    let y = tb.y.clamp(0, height.saturating_sub(1) as i32);
+                    let max_w = (width as i32 - x).max(1) as u32;
+                    let max_h = (height as i32 - y).max(1) as u32;
+                    let w = (tb.w.max(1) as u32).min(max_w);
+                    let h = (tb.h.max(1) as u32).min(max_h);
+
+                    blend_filled_rect(&mut canvas, x, y, w, h, fill_color);
+
+                    let rect = Rect::at(x, y).of_size(w, h);
+                    draw_hollow_rect_mut(&mut canvas, rect, stroke_color);
+                    if w > 2 && h > 2 {
+                        let inner_rect = Rect::at(x + 1, y + 1).of_size(w - 2, h - 2);
+                        draw_hollow_rect_mut(&mut canvas, inner_rect, stroke_color);
+                    }
+                }
+            }
+        }
+    }
+
+    // 4. RENDER DETECTED OCR TEXT AT THE BOTTOM INNER AREA (ONLY ON SPEECH BUBBLES)
+    if let Some(font) = load_annotation_font() {
+        for r in &res.regions {
+            if r.kind != RegionKind::DialogueBubble {
+                continue;
+            }
+            let tb = r.typeset_box.as_ref().unwrap_or(&r.box_);
+            let lines: Vec<&str> = r.text.lines().collect();
+            if lines.is_empty() {
+                continue;
+            }
+
+            let font_size = 12.0;
+            let line_height = 15.0;
+            let scale = PxScale::from(font_size);
+            let total_h = (lines.len() as f32 * line_height) as i32;
+
+            // Anchor text near bottom-left inner corner with 4px padding
+            let start_y = (tb.y + tb.h - total_h - 4).max(tb.y + 4);
+            let start_x = tb.x + 6;
+
+            for (idx, line) in lines.iter().enumerate() {
+                let line_y = start_y + (idx as f32 * line_height) as i32;
+                if line_y + (line_height as i32) > (height as i32) {
+                    continue;
+                }
+
+                // 1px subtle white outline for separation
+                draw_text_mut(&mut canvas, Rgba([255, 255, 255, 180]), start_x - 1, line_y, scale, &font, line);
+                draw_text_mut(&mut canvas, Rgba([255, 255, 255, 180]), start_x + 1, line_y, scale, &font, line);
+                draw_text_mut(&mut canvas, Rgba([255, 255, 255, 180]), start_x, line_y - 1, scale, &font, line);
+                draw_text_mut(&mut canvas, Rgba([255, 255, 255, 180]), start_x, line_y + 1, scale, &font, line);
+
+                // Deep sharp emerald green text (#064e3b, bolded)
+                draw_text_mut(&mut canvas, Rgba([6, 78, 59, 255]), start_x, line_y, scale, &font, line);
+                draw_text_mut(&mut canvas, Rgba([6, 78, 59, 255]), start_x + 1, line_y, scale, &font, line);
             }
         }
     }
@@ -838,8 +973,8 @@ pub fn get_or_analyze_fixture_with_lang(
     let opts = AnalyzeOptions {
         source_lang: source_lang.map(|l| l.to_string()),
         target_lang: Some("en".to_string()),
-        inpaint_padding_pct: Some(0.06),
-        typeset_padding_pct: Some(0.12),
+        inpaint_padding_pct: Some(0.03),
+        typeset_padding_pct: Some(0.00),
         ..Default::default()
     };
     get_or_analyze_fixture_with_opts(img, &opts)
@@ -856,8 +991,8 @@ pub fn force_analyze_fixture_with_lang(
     let opts = AnalyzeOptions {
         source_lang: source_lang.map(|l| l.to_string()),
         target_lang: Some("en".to_string()),
-        inpaint_padding_pct: Some(0.06),
-        typeset_padding_pct: Some(0.12),
+        inpaint_padding_pct: Some(0.03),
+        typeset_padding_pct: Some(0.00),
         ..Default::default()
     };
 

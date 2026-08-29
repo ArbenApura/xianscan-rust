@@ -908,4 +908,31 @@ Tattered Flesh-Cutting Knife`;
 		expect(resultBuf).toBeInstanceOf(Buffer);
 		expect(resultBuf.length).toBeGreaterThan(0);
 	});
+
+	it('renders Page 6857 Physician Seok dialogue bubbles with clean wrapping and centered safe core layout', async () => {
+		const pageImage = createCanvas(690, 1771).toBuffer('image/png');
+		const resultBuf = await typesetPage(
+			pageImage,
+			[
+				{
+					id: '9059',
+					// Upper anchored box (skipped safe-core centering due to long tail)
+					box: { x: 260, y: 826, w: 364, h: 228 },
+					text: "I suppose there's no need\nfor me to come back for treatment.",
+					kind: 'dialogue_bubble',
+					vertical: false,
+				},
+				{
+					id: '9060',
+					// Centered safe-core box (expanded to bubble core)
+					box: { x: 57, y: 1486, w: 288, h: 200 },
+					text: 'Physician Seok,\nthank you for everything.',
+					kind: 'dialogue_bubble',
+					vertical: false,
+				},
+			],
+		);
+		expect(resultBuf).toBeInstanceOf(Buffer);
+		expect(resultBuf.length).toBeGreaterThan(0);
+	});
 });

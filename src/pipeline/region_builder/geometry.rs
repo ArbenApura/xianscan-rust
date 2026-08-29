@@ -12,7 +12,11 @@ pub fn expand_box(b: &BoxRect, pad_pct: f32, page_w: u32, page_h: u32) -> BoxRec
     // BASE PADDING ON THE DIAGONAL / GEOMETRIC SCALE OF THE TEXT REGION SO WIDE BANNERS AND TALL STRIPS
     // EXPAND WITH EQUAL MARGINS ON ALL 4 SIDES (LEFT, RIGHT, TOP, BOTTOM) INSTEAD OF ASPECT RATIO DISTORTION.
     let ref_dim = (b.w.min(b.h) as f32).max((b.w.max(b.h) as f32) * 0.4);
-    let uniform_pad = (ref_dim * pad_pct * 1.5).round().max(1.0) as i32;
+    let uniform_pad = if pad_pct <= 0.001 {
+        0
+    } else {
+        (ref_dim * pad_pct * 1.5).round().max(1.0) as i32
+    };
 
     // CLAMP EACH EDGE INDEPENDENTLY SO A BOX NEAR THE PAGE BOUNDARY DOES NOT
     // OVER-EXPAND ON THE OPPOSITE SIDE WHEN ONE SIDE IS CLIPPED.

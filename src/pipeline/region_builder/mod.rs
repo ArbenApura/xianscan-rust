@@ -261,4 +261,74 @@ mod tests {
         assert!(typeset_box.x >= bubble.x);
         assert!(typeset_box.x + typeset_box.w <= bubble.x + bubble.w);
     }
+
+    #[test]
+    fn test_sole_occupant_centered_horizontal_bubble_uses_safe_core() {
+        use crate::ml::schemas::{Region, RegionKind};
+
+        // BOTTOM BUBBLE #2: CLEAN LANDSCAPE BUBBLE, CENTERED TEXT
+        let bubble = BoxRect { x: 12, y: 1455, w: 378, h: 262 };
+        let ocr_box = BoxRect { x: 51, y: 1504, w: 291, h: 136 };
+        let mut regions = vec![Region {
+            id: "r_bot".to_string(),
+            box_: ocr_box,
+            polygon: vec![],
+            inpaint_box: None,
+            typeset_box: None,
+            text: "석 의원,\n그동안 고마웠네.".to_string(),
+            confidence: 0.95,
+            vertical: false,
+            angle: 0.0,
+            bubble_box: Some(bubble.clone()),
+            bubble_polygon: None,
+            centroid: None,
+            kind: RegionKind::DialogueBubble,
+            is_title: false,
+            is_subtitle: false,
+        }];
+
+        expand_bubble_text_boxes(&mut regions, 690, 1771, 0.03, 0.00);
+
+        let typeset_box = regions[0].typeset_box.as_ref().expect("typeset_box should exist");
+
+        // MUST CENTER EXPANDED BOX AT BUBBLE CENTROID (201, 1586)
+        assert_eq!(typeset_box.w, 291);
+        assert_eq!(typeset_box.h, 154);
+        assert_eq!(typeset_box.x + typeset_box.w / 2, bubble.x + bubble.w / 2);
+        assert_eq!(typeset_box.y + typeset_box.h / 2, bubble.y + bubble.h / 2);
+    }
+
+    #[test]
+    fn test_vertically_skewed_tail_bubble_skips_safe_core_centering() {
+        use crate::ml::schemas::{Region, RegionKind};
+
+        // TOP BUBBLE #1: LONG TAIL BELOW (LOW VERTICAL FILL RATIO ~38%)
+        let bubble = BoxRect { x: 208, y: 779, w: 463, h: 352 };
+        let ocr_box = BoxRect { x: 260, y: 872, w: 364, h: 136 };
+        let mut regions = vec![Region {
+            id: "r_top".to_string(),
+            box_: ocr_box,
+            polygon: vec![],
+            inpaint_box: None,
+            typeset_box: None,
+            text: "이제 다시 진료받으러\n올 필요는 없겠군.".to_string(),
+            confidence: 0.95,
+            vertical: false,
+            angle: 0.0,
+            bubble_box: Some(bubble.clone()),
+            bubble_polygon: None,
+            centroid: None,
+            kind: RegionKind::DialogueBubble,
+            is_title: false,
+            is_subtitle: false,
+        }];
+
+        expand_bubble_text_boxes(&mut regions, 690, 1771, 0.05, 0.10);
+
+        let typeset_box = regions[0].typeset_box.as_ref().expect("typeset_box should exist");
+
+        // MUST NOT BE EXPANDED DOWNWARD INTO THE TAIL (MUST RETAIN UPPER ANCHOR)
+        assert_eq!(typeset_box.y, 826, "typeset_box y should remain anchored around text center");
+        assert_eq!(typeset_box.h, 228, "typeset_box height should remain anchored to text (228), not safe core (268)");
+    }
 }

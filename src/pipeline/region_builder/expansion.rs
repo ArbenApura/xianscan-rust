@@ -225,10 +225,38 @@ pub fn expand_bubble_text_boxes(regions: &mut Vec<Region>, page_w: u32, page_h: 
         // GUARANTEE: BASE BOX MUST NEVER EXCEED OUTER BUBBLE BOUNDARY
         clamp_box_to_core(&mut regions[i].box_, outer_l, outer_r, outer_t, outer_b);
 
-        // ANCHOR TYPESET AND INPAINT BOXES DIRECTLY TO THE VALIDATED BASE BOX, CLAMPED TO BUBBLE BOUNDS
-        let mut typeset_box = expand_box(&regions[i].box_, typeset_pct, page_w, page_h);
-        clamp_box_to_core(&mut typeset_box, outer_l, outer_r, outer_t, outer_b);
-        regions[i].typeset_box = Some(typeset_box);
+        // SAFE-CORE CENTERING FOR SOLE-OCCUPANT HORIZONTAL BUBBLES
+        let is_sole_occupant = indexes.iter().all(|&j| {
+            if i == j {
+                return true;
+            }
+            match regions[j].bubble_box.as_ref() {
+                Some(bj) => box_iou(&b, bj) < 0.5,
+                None => true,
+            }
+        });
+
+        let is_horizontal_bubble = (b.w as f32) >= (b.h as f32) * 1.35;
+        let vertical_fill_ratio = regions[i].box_.h as f32 / b.h.max(1) as f32;
+        let has_healthy_vertical_fill = vertical_fill_ratio >= 0.45 && vertical_fill_ratio <= 0.85;
+
+        let dx = ((regions[i].box_.x + regions[i].box_.w / 2) - (b.x + b.w / 2)).abs() as f32;
+        let dy = ((regions[i].box_.y + regions[i].box_.h / 2) - (b.y + b.h / 2)).abs() as f32;
+        let is_near_center = dx <= (b.w as f32 * 0.055) && dy <= (b.h as f32 * 0.055);
+
+        if is_sole_occupant && is_horizontal_bubble && has_healthy_vertical_fill && is_near_center {
+            let mut typeset_box = expand_box(&regions[i].box_, typeset_pct, page_w, page_h);
+            let bubble_cx = b.x + b.w / 2;
+            let bubble_cy = b.y + b.h / 2;
+            typeset_box.x = bubble_cx - typeset_box.w / 2;
+            typeset_box.y = bubble_cy - typeset_box.h / 2;
+            clamp_box_to_core(&mut typeset_box, outer_l, outer_r, outer_t, outer_b);
+            regions[i].typeset_box = Some(typeset_box);
+        } else {
+            let mut typeset_box = expand_box(&regions[i].box_, typeset_pct, page_w, page_h);
+            clamp_box_to_core(&mut typeset_box, outer_l, outer_r, outer_t, outer_b);
+            regions[i].typeset_box = Some(typeset_box);
+        }
 
         let mut inpaint_box = expand_box(&regions[i].box_, inpaint_pct, page_w, page_h);
         clamp_box_to_core(&mut inpaint_box, outer_l, outer_r, outer_t, outer_b);

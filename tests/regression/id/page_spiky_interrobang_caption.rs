@@ -7,12 +7,12 @@ use crate::common::get_or_analyze_fixture_with_lang;
 ///
 /// ## PURPOSE & BEHAVIOR TESTED:
 /// - **SPIKY INTERROBANG BUBBLE (`?!`)**:
-///   STANDALONE PUNCTUATION / SYMBOL-ONLY REACTION BUBBLES ARE SKIPPED AS ACTIVE REGIONS.
+///   PRESERVES EXPRESSIVE PUNCTUATION REACTION BUBBLES (`?!`) AS ACTIVE DIALOGUE BUBBLE REGIONS.
 /// - **LOWER NARRATION CAPTION BOX**:
 ///   `"YANG\nSEHARUSNYA\nSEPERTI BIASA."`
 /// - **EXPLICIT NEGATIVE GUARDS**:
 ///   ENSURES NO REGION CONTAINS THE BIFURCATED DIGIT ARTIFACT `"21"` OR BULLET `"●"`.
-/// - **EXACT COUNTS**: EXACTLY 1 REGION TOTAL (0 DIALOGUE BUBBLE, 0 SFX, 1 FREE TEXT).
+/// - **EXACT COUNTS**: EXACTLY 2 REGIONS TOTAL (1 DIALOGUE BUBBLE, 0 SFX, 1 FREE TEXT).
 #[test]
 fn test_regression_page_spiky_interrobang_caption() {
     let img = match crate::common::load_fixture_or_skip("id", "page_spiky_interrobang_caption.webp") {
