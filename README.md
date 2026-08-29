@@ -68,7 +68,7 @@ flowchart LR
 2. **Webtoon Gutter Reslicing**: Automatically recombines and splits tall vertical strips along natural panel gutters before processing, ensuring speech bubbles are never cut in half across slice seams.
 3. **Speech Bubble & Panel Segmentation**: Uses high-resolution segmentation (Koharu RF-DETR Seg 2XL / RT-DETR) to identify dialogue bubbles, comic sound effects, and panel boundaries.
 4. **Multi-Language OCR**: High-accuracy text extraction with support for vertical and horizontal text layouts across 10 languages.
-5. **Context-Aware AI Translation**: Integrates with local LLMs (Ollama, LM Studio) or cloud APIs (Gemini, OpenAI, OpenRouter, Groq). Uses dynamic glossaries and a sliding-window dialogue memory tracker to preserve character names, gender pronouns, and story tone.
+5. **Context-Aware AI Translation & Glossaries**: Integrates with local LLMs (Ollama, LM Studio with Qwen, Llama, Gemma) or cloud APIs (Gemini, OpenAI, Groq, OpenRouter). Uses an elastic multi-page dialogue memory tracker (up to 5 previous pages) to keep speaker identity, pronouns, and topic consistent across page turns, combined with Aho-Corasick terminology glossaries to enforce consistent names and cultivation terms across chapters.
 6. **Neural Artwork Inpainting (LaMa)**: Removes dialogue text while reconstructing underlying artwork, gradients, and textures with configurable edge padding.
 7. **Typesetting Studio & Typography**: Automatically computes font sizing, line breaks, outline strokes, and bubble tilt.
 8. **Interactive Studio Inspector**: Visual overlay to inspect raw OCR bounding boxes, character confidence scores, model prompts, and make quick text adjustments before saving.
@@ -117,18 +117,6 @@ XianScan is designed to be CPU-first, running on standard laptops without requir
 - **East Asian**: Chinese (Simplified & Traditional), Japanese, Korean
 - **Southeast Asian**: Thai, Indonesian
 - **European & Global**: English, Spanish, French, Russian
-
----
-
-## Translation Providers & AI Engine
-
-XianScan connects to your preferred local or cloud AI models, equipped with narrative memory and terminology enforcement:
-
-- **Multi-Page Dialogue Memory**: Injects up to 5 preceding pages of dialogue (and trailing pages of the previous chapter) into the LLM context to maintain consistent topic flow, speaker identity, and correct gender pronouns across page turns.
-- **Terminology Glossaries**: Built-in Aho-Corasick matching and fuzzy search instantly detect and enforce character names, cultivation realms, honorifics, and attack names across entire books with CSV import/export.
-- **Local AI (Free & Offline)**: Connects to **Ollama** or **LM Studio** (supports **Qwen 2.5**, **Llama 3**, **Gemma 2**, and **Mistral**).
-- **Cloud AI APIs**: Fast integration with **Google Gemini**, **OpenAI**, **Groq**, and **OpenRouter**.
-- **Structured JSON Schema**: Maps localized text directly back to exact speech bubble geometry without formatting drift.
 
 ---
 
