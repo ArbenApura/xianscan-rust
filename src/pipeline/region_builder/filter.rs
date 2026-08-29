@@ -50,7 +50,7 @@ pub fn should_reject_candidate_region(
         return true;
     }
 
-    // 4. SUPPRESS TINY LOW-CONFIDENCE NOISE BUBBLES (E.G. '一\n0', '4' IN COMPACT ARTIFACT BUBBLES W <= 35, H <= 55, OR ISOLATED SINGLE-KANA GASP 'っ' IN NARROW BUBBLES W <= 30, H <= 95)
+    // 4. SUPPRESS TINY LOW-CONFIDENCE NOISE BUBBLES
     if is_bubble && cluster_rect.w <= 35 && cluster_rect.h <= 55 {
         let is_noise_or_digit = crate::ml::detect::is_standalone_digit_or_particle_noise(cleaned)
             || crate::ml::detect::is_standalone_noise_stroke(cleaned)
@@ -68,7 +68,7 @@ pub fn should_reject_candidate_region(
         }
     }
 
-    // 5. IN NON-LATIN SCRIPT SOURCES (CJK, CYRILLIC, THAI), NEVER EXTRACT STANDALONE ALPHANUMERIC / LATIN TEXT UNLESS COMBINED WITH SOURCE SCRIPT
+    // 5. IN NON-LATIN SCRIPT SOURCES
     let is_non_latin = crate::ml::detect::is_non_latin_source(source_lang);
     let lacks_native_script = !crate::ml::detect::has_native_script_for_lang(cleaned, source_lang);
     let is_pure_latin = lacks_native_script && cleaned.chars().all(|c| c.is_ascii_alphabetic() || c.is_whitespace() || c.is_ascii_punctuation());
@@ -101,8 +101,6 @@ pub fn should_reject_candidate_region(
         if !is_bubble {
             return true;
         }
-        // INSIDE SPEECH BUBBLES, ALLOW EXPRESSIVE DIALOGUE PUNCTUATION (E.G. '！？', '?!', '?', '!', '…', '……')
-        // WHILE FILTERING WEAK MICRO-NOISE OR SINGLE STRAY COMMAS / PERIODS
         let is_expressive_bubble_punct = cleaned.chars().any(|c| matches!(c, '！' | '？' | '!' | '?' | '…' | '·' | '—' | '～' | '¿' | '¡'));
         let is_micro_noise = cluster_rect.w <= 12 && cluster_rect.h <= 12;
         if !is_expressive_bubble_punct || is_micro_noise || avg_score < 0.60 {
@@ -130,13 +128,11 @@ pub fn should_reject_candidate_region(
     }
 
     // 9. SUPPRESS LOW-CONFIDENCE ISOLATED SINGLE-CHARACTER ARTWORK ARTIFACTS / SFX
-    let is_sign_or_narration_box = is_cjk && cluster_rect.w >= 60 && cluster_rect.h >= 40 && avg_score >= 0.70;
+    let is_sign_or_narration_box = is_cjk && cluster_rect.w >= 60 && cluster_rect.h >= 40 && avg_score >= 0.70 && !crate::ml::detect::is_onomatopoeia_or_shout(cleaned);
     let is_margin_isolated_char = (cluster_rect.x <= 5 || cluster_rect.x + cluster_rect.w >= page_w as i32 - 5) && avg_score < 0.75;
     let char_count = cleaned.chars().filter(|c| !c.is_whitespace()).count();
     let is_valid_cjk_glyph = is_cjk && cleaned.chars().any(|c| crate::ml::detect::has_cjk_characters(&c.to_string())) && avg_score >= 0.70 && !is_margin_isolated_char;
-    // COMPACT SINGLE-CHAR BOX (W<=40, H<=40): ALWAYS TREAT AS ARTWORK INSCRIPTION (HAT/CLOTHING INSIGNIA, STAMP)
-    // A SINGLE CJK GLYPH IN A TINY NON-BUBBLE BOX IS NEVER STANDALONE DIALOGUE OR NARRATION
-    let is_compact_single_glyph_box = char_count == 1 && cluster_rect.w <= 40 && cluster_rect.h <= 40;
+    let is_compact_single_glyph_box = char_count == 1 && cluster_rect.w <= 55 && cluster_rect.h <= 55;
     let is_low_conf_single_char = char_count == 1 && (avg_score < 0.68 || cluster_rect.w >= 100 || cluster_rect.h >= 100 || is_compact_single_glyph_box);
     let is_isolated_sfx = char_count <= 4 && crate::ml::detect::is_onomatopoeia_or_shout(cleaned);
 
@@ -244,7 +240,8 @@ pub fn should_reject_candidate_region(
     }) && bubbles.iter().any(|b| {
         let (cx, cy) = (cluster_rect.x + cluster_rect.w / 2, cluster_rect.y + cluster_rect.h / 2);
         let (bx, by) = (b.x + b.w / 2, b.y + b.h / 2);
-        (cx - bx).abs() <= 200 && (cy - by).abs() <= 350
+        let is_center_inside_this_bubble = cx >= b.x && cx <= b.x + b.w && cy >= b.y && cy <= b.y + b.h;
+        !is_center_inside_this_bubble && (cx - bx).abs() <= 200 && (cy - by).abs() <= 350
     });
     if is_speech_bubble_echo {
         return true;
@@ -252,7 +249,6 @@ pub fn should_reject_candidate_region(
 
     // 21. SUPPRESS SPARSE GIANT NON-BUBBLE DETECTIONS
     let is_sparse_giant_non_bubble = !is_bubble
-        && !crate::ml::detect::is_onomatopoeia_or_shout(cleaned)
         && (cluster_rect.w >= 250 && cluster_rect.h >= 150)
         && cleaned.chars().filter(|c| !c.is_whitespace()).count() <= 3;
     if is_sparse_giant_non_bubble {

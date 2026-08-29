@@ -14,7 +14,7 @@ pub static CHINESE_RE: LazyLock<Regex> = LazyLock::new(|| {
 
 pub static WATERMARK_RE: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(
-        r"(?i)(\.com|\.net|\.org|\.cn|\.cc|\.xyz|\.top|\.me|\.tv|\.app|http|discord|scanlat|bilibili|速漫库|速漫|漫库|qumanku|quman|包子|baozimh|baozi|colamanga|colamanhua|colam|acloudmerge|acloud|loudmer|udmer|merd|oamanhua|merge|cloud|manga|manhua|comic|yumanhua|mangabox|comick|集云数据|集云|儿云数据|腾讯[动漫慢机动初]*|腾[动漫慢机动初]{1,2}|阅文[集团]*|快看(?:漫画|动漫|app|独家|首发)|微信|公众号|qq群|企鹅群|群号|严禁转载|独家(?:首发|连载|授权|发布|提供)|扫图|录入|修图|嵌字|翻译[:：]|翻译组|汉化组|免费漫画|最新免费|漫画网|看漫画网|首发|独家首发|漫客[栈拌祥]?|漫[客喜][栈拌祥]?|mkzhan|nga\.com|^[祥拌]$|澳[祥拌]?)"
+        r"(?i)(\.com|\.net|\.org|\.cn|\.cc|\.xyz|\.top|\.me|\.tv|\.app|http|discord|scanlat|bilibili|速漫库|速漫|漫库|qumanku|quman|包子|baozimh|baozi|colamanga|colamanhua|colam|acloudmerge|acloud|loudmer|udmer|merd|oamanhua|merge|cloud|manga|manhua|comic|yumanhua|mangabox|comick|集云数据|集云|儿云数据|腾讯[动漫慢机动初]*|腾[动漫慢机动初]{1,2}|阅文[集团]*|快[看刮](?:[漫慢]画|动漫|app|独家|首发)|微信|公众号|qq群|企鹅群|群号|严禁转载|独家(?:首发|连载|授权|发布|提供)|扫图|录入|修图|嵌字|翻译[:：]|翻译组|汉化组|免费漫画|最新免费|漫画网|看漫画网|首发|独家首发|漫客[栈拌祥]?|漫[客喜][栈拌祥]?|mkzhan|nga\.com|^[祥拌]$|澳[祥拌]?)"
     ).unwrap()
 });
 
@@ -131,13 +131,14 @@ pub fn is_onomatopoeia_or_shout(text: &str) -> bool {
     if t.is_empty() {
         return false;
     }
-    // Single-character action onomatopoeia or shouts (e.g. "哒", "嗒", "接", "啪", "轰", "噗", "砰", "咚", "嘶", "嗖", "刷", "咔", "呼", "嗤", "铛", "啐", "哈", "啧", "哼", "呃", "呀", "切", "嘟", "滋", "嗡", "哔", "滴", "嘭", "哐", "唰", "吼")
+    // Single-character action onomatopoeia or shouts (e.g. "哒", "嗒", "接", "啪", "轰", "噗", "砰", "咚", "嘶", "嗖", "刷", "咔", "呼", "嗤", "铛", "啐", "哈", "啧", "哼", "呃", "呀", "切", "嘟", "滋", "嗡", "哔", "滴", "嘭", "哐", "唰", "吼", "碌", "骨", "咕", "簌", "沙", "哗")
     let is_action_sfx_char = matches!(
         t.chars().next(),
         Some(
             '哒' | '嗒' | '接' | '啪' | '轰' | '噗' | '砰' | '咚' | '嘶' | '嗖' | '刷' | '咔'
                 | '呼' | '嗤' | '铛' | '啐' | '哈' | '啧' | '哼' | '呃' | '呀' | '切'
                 | '嘟' | '滋' | '嗡' | '哔' | '滴' | '嘭' | '哐' | '唰' | '吼'
+                | '碌' | '骨' | '咕' | '簌' | '沙' | '哗'
         )
     ) && t.chars().count() <= 3
         && (t.contains('！') || t.contains('!') || t.chars().count() <= 2);

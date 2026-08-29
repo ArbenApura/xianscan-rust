@@ -227,7 +227,59 @@ export async function runChapterPipeline(
 	// UPDATE CHAPTER STATUS TO PROCESSING
 	db.update(chapters).set({ status: 'processing' }).where(eq(chapters.id, chapterId)).run();
 
-	const pageRows = db.select().from(pages).where(eq(pages.chapterId, chapterId)).orderBy(asc(pages.seq)).all();
+	const targetIdSet = pageIds && pageIds.length > 0 ? new Set(pageIds) : null;
+
+	// IF SPECIFIC TARGET PAGES ARE GIVEN OR FORCE MODE IS ACTIVE,
+	// CLEAN UP DISK ARTIFACTS AND DATABASE REGIONS / TRANSLATIONS BEFORE PROCESSING
+	const initialPageRows = db
+		.select()
+		.from(pages)
+		.where(eq(pages.chapterId, chapterId))
+		.orderBy(asc(pages.seq))
+		.all();
+
+	for (const page of initialPageRows) {
+		const isExplicitTarget = targetIdSet ? targetIdSet.has(page.id) : Boolean(deps.force);
+		if (isExplicitTarget) {
+			if (page.cleanedPath) {
+				try {
+					unlinkSync(join(deps.dataRoot, page.cleanedPath));
+				} catch {
+					// IGNORE IF FILE MISSING
+				}
+			}
+			if (page.outputPath) {
+				try {
+					unlinkSync(join(deps.dataRoot, page.outputPath));
+				} catch {
+					// IGNORE IF FILE MISSING
+				}
+			}
+			prunePageThumbs(page.id, deps.dataRoot);
+			db.delete(translations).where(eq(translations.pageId, page.id)).run();
+			db.delete(regions).where(eq(regions.pageId, page.id)).run();
+			db.update(pages)
+				.set({
+					status: 'pending',
+					cleanedPath: null,
+					outputPath: null,
+					error: null,
+					onomatopoeia: null,
+					ocrStats: null,
+					llmPrompt: null,
+					llmResponse: null,
+				})
+				.where(eq(pages.id, page.id))
+				.run();
+		}
+	}
+
+	const pageRows = db
+		.select()
+		.from(pages)
+		.where(eq(pages.chapterId, chapterId))
+		.orderBy(asc(pages.seq))
+		.all();
 
 	if (pageRows.length === 0) {
 		emit({ type: 'done', chapterId });
@@ -385,50 +437,6 @@ export async function runChapterPipeline(
 		return run;
 	};
 
-	const targetIdSet = pageIds && pageIds.length > 0 ? new Set(pageIds) : null;
-
-	// IF SPECIFIC TARGET PAGES ARE GIVEN OR FORCE MODE IS ACTIVE,
-	// CLEAN UP DISK ARTIFACTS AND DATABASE REGIONS / TRANSLATIONS BEFORE PROCESSING
-	for (const page of pageRows) {
-		const isExplicitTarget = targetIdSet ? targetIdSet.has(page.id) : Boolean(deps.force);
-		if (isExplicitTarget) {
-			if (page.cleanedPath) {
-				try {
-					unlinkSync(join(deps.dataRoot, page.cleanedPath));
-				} catch {
-					// IGNORE IF FILE MISSING
-				}
-			}
-			if (page.outputPath) {
-				try {
-					unlinkSync(join(deps.dataRoot, page.outputPath));
-				} catch {
-					// IGNORE IF FILE MISSING
-				}
-			}
-			prunePageThumbs(page.id, deps.dataRoot);
-			db.delete(translations).where(eq(translations.pageId, page.id)).run();
-			db.delete(regions).where(eq(regions.pageId, page.id)).run();
-			db.update(pages)
-				.set({
-					status: 'pending',
-					cleanedPath: null,
-					outputPath: null,
-					error: null,
-					onomatopoeia: null,
-					ocrStats: null,
-					llmPrompt: null,
-					llmResponse: null,
-				})
-				.where(eq(pages.id, page.id))
-				.run();
-			page.status = 'pending';
-			page.cleanedPath = null;
-			page.outputPath = null;
-			page.error = null;
-		}
-	}
-
 	// -- EMISSION WATERMARK STATE -- //
 	const slots: PageSlot[] = pageRows.map((page) => {
 		if (targetIdSet) {
@@ -512,6 +520,9 @@ export async function runChapterPipeline(
 			injectRow.cleanedPath = null;
 			injectRow.outputPath = null;
 			injectRow.error = null;
+
+			// CLEAR STALE DIALOGUE TRACKER RECORD FOR INJECTED RE-TRANSLATION
+			dialogueTracker.clearPage(injectRow.seq);
 
 			// If this page is already in the slots array (re-translate of a done/error page within the
 			// same running job), reuse its slot index so events route to the right snapshot entry.

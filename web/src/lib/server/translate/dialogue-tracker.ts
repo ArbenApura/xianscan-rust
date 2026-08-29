@@ -119,6 +119,11 @@ export class ChapterDialogueTracker {
 		this.priorChapterPages = records.map((r) => ({ ...r, isPriorChapter: true }));
 	}
 
+	// CLEAR SPECIFIC PAGE RECORD FROM DIALOGUE TRACKER (FOR RE-TRANSLATION)
+	public clearPage(pageSeq: number): void {
+		this.pages.delete(pageSeq);
+	}
+
 	// CALLED WHEN A PAGE FINISHES OCR (persist_regions)
 	public recordOcr(
 		pageSeq: number,
@@ -133,12 +138,11 @@ export class ChapterDialogueTracker {
 				kind: r.kind,
 			}));
 
-		const existing = this.pages.get(pageSeq);
 		this.pages.set(pageSeq, {
 			pageSeq,
 			pageId,
 			lines,
-			isTranslated: existing?.isTranslated ?? false,
+			isTranslated: false,
 		});
 	}
 

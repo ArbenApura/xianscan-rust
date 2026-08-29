@@ -235,3 +235,32 @@ fn test_40_page_reslice_performance_and_progress() {
     assert!(!pcts.is_empty());
     assert_eq!(*pcts.last().unwrap(), 90);
 }
+
+/// # Reslice Test: Bypass Indicated Measurements When Search Window Is Blocked By Dialogue
+///
+/// ## Purpose:
+/// Verifies that when a large continuous dialogue / narration block completely covers
+/// the entire min_height..max_height search window (e.g. 1000..2200), the reslicer
+/// expands its search radius outward to bypass nominal height bounds rather than
+/// slicing through text.
+#[test]
+fn test_find_optimal_cut_points_bypasses_measurements_when_window_blocked() {
+    let canvas_buf = ImageBuffer::from_pixel(400, 3500, Rgb([200_u8, 200, 200]));
+    let canvas = DynamicImage::ImageRgb8(canvas_buf);
+
+    // SPEECH BUBBLE COVERS ENTIRE SEARCH WINDOW (1000..2200)
+    let forbidden_zones = vec![(950, 2250)];
+    let cuts = find_optimal_cut_points(&canvas, 1600, 1000, 2200, &forbidden_zones);
+
+    assert!(cuts.len() >= 2);
+    for &cut_y in &cuts {
+        if cut_y < 3500 {
+            assert!(
+                !is_point_forbidden(cut_y as i32, &forbidden_zones),
+                "Cut point {} fell inside forbidden dialogue bubble zone when window was blocked!",
+                cut_y
+            );
+        }
+    }
+}
+

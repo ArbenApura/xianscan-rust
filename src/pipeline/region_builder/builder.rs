@@ -52,7 +52,7 @@ pub fn build_regions(
             h: sh,
         };
 
-        // CONTAINER & BUBBLE ASSOCIATION (REQUIRES >= 60% COVERAGE INSIDE BUBBLE)
+        // CONTAINER & BUBBLE ASSOCIATION (REQUIRES >= 50% COVERAGE INSIDE BUBBLE)
         let (bx, by, bw, bh) = (box_rect.x, box_rect.y, box_rect.w, box_rect.h);
         let box_area = (bw * bh).max(1);
 
@@ -62,7 +62,7 @@ pub fn build_regions(
             if inter_x > 0 && inter_y > 0 {
                 let inter_area = inter_x * inter_y;
                 let coverage = inter_area as f32 / box_area as f32;
-                coverage >= 0.60
+                coverage >= 0.50
             } else {
                 false
             }
@@ -364,13 +364,19 @@ pub fn build_regions(
                     }
                 }
 
+                let is_cluster_in_bubble = is_bubble_region || matched_bubble.is_some() || bubbles.iter().any(|b| {
+                    let cx = cluster_rect.x + cluster_rect.w / 2;
+                    let cy = cluster_rect.y + cluster_rect.h / 2;
+                    cx >= b.x && cx <= b.x + b.w && cy >= b.y && cy <= b.y + b.h
+                });
+
                 let cleaned = combined_text.trim().to_string();
                 if should_reject_candidate_region(
                     &cleaned,
                     &cluster_rect,
                     avg_score,
                     angle_deg,
-                    is_bubble_region,
+                    is_cluster_in_bubble,
                     is_cjk,
                     source_lang,
                     img,

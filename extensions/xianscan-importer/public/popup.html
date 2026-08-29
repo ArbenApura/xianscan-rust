@@ -208,6 +208,48 @@
 				<div id="trackerStatusBadge" class="tracker-badge ready">Ready</div>
 			</div>
 
+			<!-- PIPELINE STAGE STEPPER -->
+			<div id="pipelineStepper" class="pipeline-stepper mono">
+				<div class="stepper-step" id="stepUpload">
+					<div class="step-indicator">
+						<span class="step-dot"></span>
+						<svg class="step-icon-done" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+							<polyline points="20 6 9 17 4 12"/>
+						</svg>
+					</div>
+					<div class="step-content">
+						<span class="step-name">1. Upload</span>
+						<span class="step-meta" id="stepUploadMeta">Waiting</span>
+					</div>
+				</div>
+				<div class="stepper-connector"></div>
+				<div class="stepper-step" id="stepReslice">
+					<div class="step-indicator">
+						<span class="step-dot"></span>
+						<svg class="step-icon-done" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+							<polyline points="20 6 9 17 4 12"/>
+						</svg>
+					</div>
+					<div class="step-content">
+						<span class="step-name">2. Reslice</span>
+						<span class="step-meta" id="stepResliceMeta">Waiting</span>
+					</div>
+				</div>
+				<div class="stepper-connector"></div>
+				<div class="stepper-step" id="stepTranslate">
+					<div class="step-indicator">
+						<span class="step-dot"></span>
+						<svg class="step-icon-done" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+							<polyline points="20 6 9 17 4 12"/>
+						</svg>
+					</div>
+					<div class="step-content">
+						<span class="step-name">3. Translate</span>
+						<span class="step-meta" id="stepTranslateMeta">Waiting</span>
+					</div>
+				</div>
+			</div>
+
 			<!-- IN-PLACE TOGGLE SUBROW (WITH COMPACT REFRESH BUTTON) -->
 			<div class="tracker-subrow">
 				<label class="pipeline-chip mono in-place-chip" for="trackerInPlaceCheckbox" title="Toggle translated vs raw images on reader page">

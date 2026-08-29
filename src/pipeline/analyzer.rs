@@ -175,8 +175,20 @@ pub fn analyze_image_with_fusion_timed(
                         && (tb.y as f32 >= by + bh || by as f32 >= (tb.y + tb.h) as f32)
                         && tb.h <= 40
                 });
+                let parent_bubble = fusion_res.bubbles.iter().find(|b| {
+                    let ix = (bx + bw).min((b.x + b.w) as f32) - bx.max(b.x as f32);
+                    let iy = (by + bh).min((b.y + b.h) as f32) - by.max(b.y as f32);
+                    ix > 0.0 && iy > 0.0 && (ix * iy) / (bw * bh).max(1.0) >= 0.50
+                });
+                let leaks_outside_bubble = if let Some(pb) = parent_bubble {
+                    (ly + lh) as f32 > (pb.y + pb.h + 15) as f32 || (ly as f32) < (pb.y - 15) as f32
+                } else {
+                    false
+                };
+
                 let is_adjacent_trailing_row = !is_subtitle_to_title
                     && !is_separate_detector_box
+                    && !leaks_outside_bubble
                     && bw >= bh * 1.15
                     && (lx as f32 >= bx - 35.0)
                     && ((lx + lw) as f32 <= bx + bw + 35.0)
@@ -186,6 +198,7 @@ pub fn analyze_image_with_fusion_timed(
                 // Leading row check: merge upwards if a leading line is immediately above with high horizontal overlap
                 let is_adjacent_leading_row = !is_subtitle_to_title
                     && !is_separate_detector_box
+                    && !leaks_outside_bubble
                     && (lx as f32 >= bx - 35.0)
                     && ((lx + lw) as f32 <= bx + bw + 35.0)
                     && ((ly + lh) as f32 >= by - 25.0)
@@ -213,6 +226,7 @@ pub fn analyze_image_with_fusion_timed(
                         };
                         let is_partial_vert_container = !is_subtitle_to_title
                             && !is_trailing_latin_noise
+                            && !leaks_outside_bubble
                             && (bw >= bh * 1.15)
                             && (lx as f32 >= bx - 35.0)
                             && ((lx + lw) as f32 <= bx + bw + 35.0)
@@ -319,6 +333,32 @@ pub fn analyze_image_with_fusion_timed(
     } else {
         // Fallback: Use RapidOCR line bounding boxes directly without distance clumping
         for line in &fusion_res.rapid_lines {
+            if line.score < 0.50 {
+                continue;
+            }
+            let (lx, ly, lw, lh) = crate::ml::geometry::polygon_bounds(&line.polygon);
+            let overlaps_sfx = fusion_res.onomatopoeia.iter().any(|(sfx_b, score)| {
+                if *score < 0.20 {
+                    return false;
+                }
+                let sx = sfx_b.x as f32;
+                let sy = sfx_b.y as f32;
+                let sw = sfx_b.w as f32;
+                let sh = sfx_b.h as f32;
+                let ix = (sx + sw).min((lx + lw) as f32) - sx.max(lx as f32);
+                let iy = (sy + sh).min((ly + lh) as f32) - sy.max(ly as f32);
+                if ix > 0.0 && iy > 0.0 {
+                    let inter_area = ix * iy;
+                    let l_area = (lw * lh).max(1) as f32;
+                    let s_area = (sfx_b.w * sfx_b.h).max(1) as f32;
+                    inter_area / l_area >= 0.20 || inter_area / s_area >= 0.20
+                } else {
+                    false
+                }
+            });
+            if overlaps_sfx {
+                continue;
+            }
             candidate_boxes.push(line.polygon.iter().map(|p| [p[0] as f32, p[1] as f32]).collect());
             candidate_scores.push(line.score);
         }

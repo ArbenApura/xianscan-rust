@@ -488,10 +488,10 @@ async fn reslice_handler(
     let mut images = Vec::new();
 
     // OPTIONAL HEIGHT TUNING FIELDS (PAGE-HEIGHT PRESET FROM THE WEB UI). DEFAULTS
-    // ARE CHOSEN FOR ~1500PX STRIPS WHERE SHORT PAGES IMPROVE DOWNSTREAM OCR QUALITY.
-    let mut target_height = 1150_u32;
-    let mut min_height = 850_u32;
-    let mut max_height = 1400_u32;
+    // (1600/1200/2000) BALANCE NATURAL MANGA / WEBTOON PROPORTIONS AND OCR DETECTION QUALITY.
+    let mut target_height = 1600_u32;
+    let mut min_height = 1200_u32;
+    let mut max_height = 2000_u32;
 
     while let Ok(Some(field)) = multipart.next_field().await {
         match field.name() {

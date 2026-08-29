@@ -246,7 +246,7 @@ describe('DomReplacerEngine', () => {
 		expect(img2.getAttribute('data-xianscan-page-id')).toBe('101');
 	});
 
-	it('creates tight fit-content wrapper and attaches pending badge when page is pending', () => {
+	it('mounts pending page without injecting extra DOM badge elements', () => {
 		engine = new DomReplacerEngine('http://127.0.0.1:8124');
 		const testPages: ChapterReaderPage[] = [
 			{
@@ -265,15 +265,10 @@ describe('DomReplacerEngine', () => {
 
 		engine.mountTranslatedPages(testPages);
 
-		const wrapper = img1.parentElement;
-		expect(wrapper).not.toBeNull();
-		expect(wrapper?.getAttribute('data-xianscan-wrapper')).toBe('true');
-		expect(wrapper?.style.width).toBe('fit-content');
-		expect(wrapper?.style.position).toBe('relative');
-
-		const badge = document.querySelector('[data-xianscan-badge-id="201"]');
-		expect(badge).not.toBeNull();
-		expect(badge?.textContent).toBe('PENDING');
+		// Host container maintains direct image hierarchy with zero injected wrapper/badge DOM elements
+		expect(img1.parentElement).toBe(container);
+		expect(document.querySelectorAll('[data-xianscan-badge-id]').length).toBe(0);
+		expect(img1.getAttribute('data-xianscan-status')).toBe('pending');
 
 		// DYNAMICALLY UPDATE TO READY VIA SSE/POLLING EVENT
 		engine.updatePageSlice(201, 0, 1);
@@ -282,7 +277,7 @@ describe('DomReplacerEngine', () => {
 		expect(img1.src).toContain('/api/pages/201/file?kind=output&rev=1');
 	});
 
-	it('updates the slice badge to PROCESSING when a pending page starts translating', () => {
+	it('updates slice status to processing when pending page starts translating', () => {
 		engine = new DomReplacerEngine('http://127.0.0.1:8124');
 		const testPages: ChapterReaderPage[] = [
 			{
@@ -300,84 +295,16 @@ describe('DomReplacerEngine', () => {
 		];
 
 		engine.mountTranslatedPages(testPages);
-		let badge = document.querySelector('[data-xianscan-badge-id="601"]');
-		expect(badge?.textContent).toBe('PENDING');
+		expect(img1.getAttribute('data-xianscan-status')).toBe('pending');
 
-		// SIMULATE THE 2.5S POLL OBSERVING THE PAGE NOW PROCESSING (NO OUTPUT YET)
+		// SIMULATE THE 2.5S POLL OBSERVING THE PAGE NOW PROCESSING
 		engine.updatePageStatus(601, 0, 'processing');
-		const processingBadge = document.querySelector('[data-xianscan-badge-id="601"].processing');
-		expect(processingBadge).not.toBeNull();
-		expect(processingBadge?.textContent).toBe('PROCESSING');
-		// SLICE STAYS DIM / ORIGINAL UNTIL OUTPUT EXISTS
 		expect(img1.getAttribute('data-xianscan-status')).toBe('processing');
-		expect(img1.style.filter).toBe('brightness(0.38) contrast(1.15)');
-		expect(img1.src).toContain('/api/pages/601/file?kind=original');
 
-		// ONCE OUTPUT IS READY, THE BADGE IS REPLACED BY THE TRANSLATED IMAGE
+		// ONCE OUTPUT IS READY, REPLACED BY THE TRANSLATED IMAGE
 		engine.updatePageSlice(601, 0, 1);
 		expect(img1.getAttribute('data-xianscan-status')).toBe('ready');
 		expect(img1.src).toContain('/api/pages/601/file?kind=output&rev=1');
-	});
-
-	it('removes ALL pending badges (not just the first) when a page is replaced', () => {
-		engine = new DomReplacerEngine('http://127.0.0.1:8124');
-		const testPages: ChapterReaderPage[] = [
-			{
-				id: 401,
-				seq: 0,
-				filePath: 'orig1.jpg',
-				cleanedPath: null,
-				outputPath: null,
-				cleanedRev: 0,
-				outputRev: 0,
-				originalRev: 1,
-				status: 'pending',
-				error: null
-			}
-		];
-
-		// TWO HOST IMAGES BECOME MANAGED BY THE SAME PAGE (DUPLICATE CLONE SCENARIO)
-		img1.setAttribute('data-xianscan-page-id', '401');
-		img2.setAttribute('data-xianscan-page-id', '401');
-		engine.mountTranslatedPages(testPages);
-
-		// SANITY: PENDING BADGE PRESENT
-		expect(document.querySelectorAll('[data-xianscan-badge-id="401"]').length).toBeGreaterThan(0);
-
-		// ONCE THE PAGE IS TRANSLATED, ALL BADGES FOR THAT PAGE MUST BE SCHEDULED FOR REMOVAL
-		engine.updatePageSlice(401, 0, 1);
-		const remaining = document.querySelectorAll('[data-xianscan-badge-id="401"]');
-		// badge.remove() RUNS VIA setTimeout(300): ELEMENT MAY STILL EXIST IN VISIBLE DOM
-		// UNTIL THEN, BUT removePendingBadge MUST ISSUE A REMOVAL FOR EACH MATCH.
-		// WE ASSERT VIA THE OPACITY SENTINEL TO AVOID FLAKY TIMING.
-		for (const b of remaining) {
-			expect((b as HTMLElement).style.opacity).toBe('0');
-		}
-	});
-
-	it('purges orphaned pending badges whose page id is no longer in the server set', () => {
-		engine = new DomReplacerEngine('http://127.0.0.1:8124');
-		// FIRST MOUNT WITH PAGE 501 -> BADGE CREATED
-		engine.mountTranslatedPages([
-			{
-				id: 501, seq: 0, filePath: 'a.jpg', cleanedPath: null, outputPath: null,
-				cleanedRev: 0, outputRev: 0, originalRev: 1, status: 'pending', error: null
-			}
-		]);
-		expect(document.querySelector('[data-xianscan-badge-id="501"]')).not.toBeNull();
-
-		// RESLICE REMAPS TO A DIFFERENT PAGE SET (501 GONE, 502 ADDED)
-		engine.mountTranslatedPages([
-			{
-				id: 502, seq: 0, filePath: 'b.jpg', cleanedPath: null, outputPath: null,
-				cleanedRev: 0, outputRev: 0, originalRev: 1, status: 'pending', error: null
-			}
-		]);
-
-		const orphaned = document.querySelector('[data-xianscan-badge-id="501"]');
-		expect(orphaned).not.toBeNull();
-		// PURGED ORPHAN MARKED FOR REMOVAL VIA OPACITY SENTINEL (remove() IS ASYNC 300MS)
-		expect((orphaned as HTMLElement).style.opacity).toBe('0');
 	});
 
 	it('attaches error retry handler that retries on image load failure', () => {

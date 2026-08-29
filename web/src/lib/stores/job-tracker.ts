@@ -104,6 +104,12 @@ function createJobTrackerStore() {
 			s.currentPhase = event.phase as any;
 		} else if (event.type === 'page-added' && event.page !== undefined && event.pageId !== undefined) {
 			// DYNAMICALLY INJECTED PAGE — ADD A SNAPSHOT SLOT BEFORE ANY STEP EVENTS ARRIVE.
+			if (s.targetPageIds && s.targetPageIds.length > 0) {
+				if (!s.targetPageIds.includes(event.pageId as number)) {
+					s.targetPageIds.push(event.pageId as number);
+				}
+				s.totalPages = s.targetPageIds.length;
+			}
 			// If the page already has a slot (e.g. re-translating a 'done' page from the same job),
 			// reset it to pending so it shows as processing again. Otherwise push a new slot.
 			const existingSlotIdx = s.pages.findIndex((p) => p.pageId === (event.pageId as number));
@@ -129,7 +135,15 @@ function createJobTrackerStore() {
 						timings: {},
 					},
 				];
-				s.totalPages = s.pages.length;
+				if (!s.targetPageIds || s.targetPageIds.length === 0) {
+					s.totalPages = s.pages.length;
+				}
+			}
+			if (s.targetPageIds && s.targetPageIds.length > 0) {
+				const targetSet = new Set(s.targetPageIds);
+				s.completedPages = s.pages.filter((p) => targetSet.has(p.pageId) && p.status === 'done').length;
+			} else {
+				s.completedPages = s.pages.filter((p) => p.status === 'done').length;
 			}
 
 		} else if (event.type === 'page-cancelled') {

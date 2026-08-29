@@ -25,15 +25,27 @@ function safeBroadcast(msg: any) {
 	}
 }
 
-// BROADCAST TO ALL TABS THAT ARE VIEWING A MAPPED CHAPTER
+// BROADCAST TO ALL TABS THAT ARE VIEWING A MAPPED CHAPTER OR REFERER
 async function broadcastToChapterTabs(chapterId: number, msg: any) {
 	try {
+		const mappings = await getSiteMappings();
+		// COLLECT ALL NORMALIZED URLS BOUND TO THIS CHAPTER
+		const targetUrls = new Set<string>();
+		for (const [url, entry] of Object.entries(mappings)) {
+			if (Number(entry.chapterId) === Number(chapterId)) {
+				targetUrls.add(normalizePageUrl(url));
+			}
+		}
+
 		const tabs = await chrome.tabs.query({});
 		for (const tab of tabs) {
-			if (tab.id) {
-				chrome.tabs.sendMessage(tab.id, msg, () => {
-					void chrome.runtime.lastError;
-				});
+			if (tab.id && tab.url) {
+				const tabNormalized = normalizePageUrl(tab.url);
+				if (targetUrls.size === 0 || targetUrls.has(tabNormalized) || (msg.entry?.url && normalizePageUrl(msg.entry.url) === tabNormalized)) {
+					chrome.tabs.sendMessage(tab.id, msg, () => {
+						void chrome.runtime.lastError;
+					});
+				}
 			}
 		}
 	} catch {
@@ -72,12 +84,6 @@ async function findMappingForUrl(rawUrl: string): Promise<ChapterMappingEntry | 
 		return mappings[normalized];
 	}
 
-	for (const [key, mapping] of Object.entries(mappings)) {
-		if (normalized.startsWith(key) || key.startsWith(normalized)) {
-			return mapping;
-		}
-	}
-
 	return null;
 }
 
@@ -85,11 +91,6 @@ async function deleteSiteMapping(rawUrl: string): Promise<void> {
 	const mappings = await getSiteMappings();
 	const normalized = normalizePageUrl(rawUrl);
 	delete mappings[normalized];
-	for (const key of Object.keys(mappings)) {
-		if (normalized.startsWith(key) || key.startsWith(normalized)) {
-			delete mappings[key];
-		}
-	}
 	await chrome.storage.local.set({ siteMappings: mappings });
 }
 
@@ -119,7 +120,7 @@ chrome.runtime.onInstalled.addListener(() => {
 // DOWNLOAD IMAGE AS BLOB WITH ROBUST TIMEOUT & FORMAT DETECTION
 async function fetchImageBlob(url: string, _referer?: string): Promise<{ blob: Blob; ext: string }> {
 	const controller = new AbortController();
-	const timeoutId = setTimeout(() => controller.abort(), 20000);
+	const timeoutId = setTimeout(() => controller.abort(), 4000);
 
 	try {
 
@@ -490,8 +491,8 @@ async function runBatchImportJob(payload: ImportJobPayload, refererUrl?: string)
 		});
 	}
 
-	// CONCURRENCY LIMIT = 4
-	const concurrency = 4;
+	// CONCURRENCY LIMIT = 8 FOR HIGH-SPEED PIPELINE
+	const concurrency = 8;
 	const chunks: string[][] = [];
 	for (let i = 0; i < payload.imageUrls.length; i += concurrency) {
 		chunks.push(payload.imageUrls.slice(i, i + concurrency));
@@ -581,7 +582,9 @@ async function runBatchImportJob(payload: ImportJobPayload, refererUrl?: string)
 				type: 'PIPELINE_PHASE',
 				phase: 'reslicing',
 				chapterId: payload.chapterId,
-				bookId: payload.bookId
+				bookId: payload.bookId,
+				current: uploadedSuccessCount,
+				total: uploadedSuccessCount || total
 			});
 			await client.triggerReslice(payload.chapterId);
 

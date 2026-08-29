@@ -167,6 +167,12 @@ function updateSnapshot(snapshot: ChapterJobSnapshot, event: JobEvent): void {
 		snapshot.currentPhase = event.phase;
 	} else if (event.type === 'page-added' && event.page !== undefined && event.pageId !== undefined) {
 		// DYNAMICALLY INJECTED PAGE — ADD OR RESET A SLOT SO ALL SUBSEQUENT INDEXED EVENTS RESOLVE.
+		if (snapshot.targetPageIds && snapshot.targetPageIds.length > 0) {
+			if (!snapshot.targetPageIds.includes(event.pageId)) {
+				snapshot.targetPageIds.push(event.pageId);
+			}
+			snapshot.totalPages = snapshot.targetPageIds.length;
+		}
 		const existingIdx = snapshot.pages.findIndex((p) => p.pageId === event.pageId);
 		if (existingIdx >= 0) {
 			// RE-TRANSLATE CASE: reset the existing slot to pending
@@ -188,7 +194,15 @@ function updateSnapshot(snapshot: ChapterJobSnapshot, event: JobEvent): void {
 				status: 'pending',
 				timings: {},
 			});
-			snapshot.totalPages = snapshot.pages.length;
+			if (!snapshot.targetPageIds || snapshot.targetPageIds.length === 0) {
+				snapshot.totalPages = snapshot.pages.length;
+			}
+		}
+		if (snapshot.targetPageIds && snapshot.targetPageIds.length > 0) {
+			const targetSet = new Set(snapshot.targetPageIds);
+			snapshot.completedPages = snapshot.pages.filter((p) => targetSet.has(p.pageId) && p.status === 'done').length;
+		} else {
+			snapshot.completedPages = snapshot.pages.filter((p) => p.status === 'done').length;
 		}
 
 	} else if (event.type === 'page-cancelled') {

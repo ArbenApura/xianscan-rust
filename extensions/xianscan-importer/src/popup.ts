@@ -80,6 +80,14 @@ class PopupController {
 	private trackerSyncTabBtn!: HTMLButtonElement;
 	private trackerRetryBtn!: HTMLButtonElement;
 
+	// STEPPER ELEMENTS
+	private stepUpload!: HTMLElement;
+	private stepUploadMeta!: HTMLElement;
+	private stepReslice!: HTMLElement;
+	private stepResliceMeta!: HTMLElement;
+	private stepTranslate!: HTMLElement;
+	private stepTranslateMeta!: HTMLElement;
+
 	// MODALS
 	private settingsModalOverlay!: HTMLElement;
 	private serverUrlInput!: HTMLInputElement;
@@ -214,6 +222,13 @@ class PopupController {
 		this.trackerOpenStudioBtn = $('trackerOpenStudioBtn') as HTMLButtonElement;
 		this.trackerSyncTabBtn = $('trackerSyncTabBtn') as HTMLButtonElement;
 		this.trackerRetryBtn = $('trackerRetryBtn') as HTMLButtonElement;
+
+		this.stepUpload = $('stepUpload');
+		this.stepUploadMeta = $('stepUploadMeta');
+		this.stepReslice = $('stepReslice');
+		this.stepResliceMeta = $('stepResliceMeta');
+		this.stepTranslate = $('stepTranslate');
+		this.stepTranslateMeta = $('stepTranslateMeta');
 
 		// Modals
 		this.settingsModalOverlay = $('settingsModalOverlay');
@@ -1009,23 +1024,61 @@ class PopupController {
 		}
 	}
 
+	private updateStepper(phase: string, current: number, total: number) {
+		const isUploading = phase === 'uploading';
+		const isReslicing = phase === 'reslicing';
+		const isTranslating = phase === 'translating';
+		const isDone = phase === 'done' || (isTranslating && current === total && total > 0);
+
+		// Step 1: Upload
+		this.stepUpload.classList.toggle('active', isUploading);
+		this.stepUpload.classList.toggle('done', !isUploading && (isReslicing || isTranslating || isDone));
+		if (isUploading) {
+			this.stepUploadMeta.textContent = `${current}/${total || '?'}`;
+		} else if (isReslicing || isTranslating || isDone) {
+			this.stepUploadMeta.textContent = 'Completed';
+		} else {
+			this.stepUploadMeta.textContent = 'Queued';
+		}
+
+		// Step 2: Reslice
+		this.stepReslice.classList.toggle('active', isReslicing);
+		this.stepReslice.classList.toggle('done', isTranslating || isDone);
+		if (isReslicing) {
+			this.stepResliceMeta.textContent = 'Running';
+		} else if (isTranslating || isDone) {
+			this.stepResliceMeta.textContent = 'Completed';
+		} else {
+			this.stepResliceMeta.textContent = 'Queued';
+		}
+
+		// Step 3: Translate
+		this.stepTranslate.classList.toggle('active', isTranslating && !isDone);
+		this.stepTranslate.classList.toggle('done', isDone);
+		if (isTranslating && !isDone) {
+			this.stepTranslateMeta.textContent = `${current}/${total || '?'}`;
+		} else if (isDone) {
+			this.stepTranslateMeta.textContent = 'Ready';
+		} else {
+			this.stepTranslateMeta.textContent = 'Queued';
+		}
+	}
+
 	private renderTrackerGrid() {
 		this.trackerGrid.innerHTML = '';
 		if (this.activeChapterPages.length === 0) {
-		if (this.activeTrackerPhase === 'uploading') {
-			this.trackerRetryBtn.classList.add('hidden');
-			this.trackerGrid.innerHTML = `
+			if (this.activeTrackerPhase === 'uploading') {
+				this.trackerRetryBtn.classList.add('hidden');
+				this.trackerGrid.innerHTML = `
 					<div class="tracker-loading-state uploading" style="grid-column: 1 / -1;">
 						<div class="loading-scanner-ring">
-							<div class="scanner-pulse upload"></div>
-							<svg class="loading-icon upload-anim" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-								<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
-								<polyline points="17 8 12 3 7 8"/>
-								<line x1="12" y1="3" x2="12" y2="15"/>
+							<svg class="loading-icon spin" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+								<circle cx="12" cy="12" r="10" stroke-opacity="0.25"/>
+								<path d="M12 2a10 10 0 0 1 10 10"/>
 							</svg>
 						</div>
-						<div class="loading-title mono">UPLOADING COMIC STRIPS</div>
-						<div class="loading-subtitle mono">Transferring high-res panels to server...</div>
+						<div class="loading-title mono">Uploading Chapter Assets</div>
+						<div class="loading-subtitle mono">Transferring pages to server chapter...</div>
 						<div class="skeleton-grid">
 							<div class="skeleton-card"></div>
 							<div class="skeleton-card"></div>
@@ -1035,22 +1088,18 @@ class PopupController {
 				`;
 				return;
 			}
-		if (this.activeTrackerPhase === 'reslicing') {
-			this.trackerRetryBtn.classList.add('hidden');
-			this.trackerGrid.innerHTML = `
+			if (this.activeTrackerPhase === 'reslicing') {
+				this.trackerRetryBtn.classList.add('hidden');
+				this.trackerGrid.innerHTML = `
 					<div class="tracker-loading-state reslicing" style="grid-column: 1 / -1;">
 						<div class="loading-scanner-ring">
-							<div class="scanner-pulse reslice"></div>
-							<svg class="loading-icon reslice-anim" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-								<circle cx="6" cy="6" r="3"/>
-								<circle cx="6" cy="18" r="3"/>
-								<line x1="20" y1="4" x2="8.12" y2="15.88"/>
-								<line x1="14.47" y1="14.48" x2="20" y2="20"/>
-								<line x1="8.12" y1="8.12" x2="12" y2="12"/>
+							<svg class="loading-icon spin" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+								<circle cx="12" cy="12" r="10" stroke-opacity="0.25"/>
+								<path d="M12 2a10 10 0 0 1 10 10"/>
 							</svg>
 						</div>
-						<div class="loading-title mono">INTELLIGENT RESLICING</div>
-						<div class="loading-subtitle mono">Detecting whitespace borders and slicing strips...</div>
+						<div class="loading-title mono">Detecting Seams & Reslicing</div>
+						<div class="loading-subtitle mono">Dividing continuous strip into reader pages...</div>
 						<div class="skeleton-grid">
 							<div class="skeleton-card"></div>
 							<div class="skeleton-card"></div>
@@ -1060,20 +1109,18 @@ class PopupController {
 				`;
 				return;
 			}
-		if (this.activeTrackerPhase === 'translating') {
-			this.trackerRetryBtn.classList.add('hidden');
-			this.trackerGrid.innerHTML = `
+			if (this.activeTrackerPhase === 'translating') {
+				this.trackerRetryBtn.classList.add('hidden');
+				this.trackerGrid.innerHTML = `
 					<div class="tracker-loading-state translating" style="grid-column: 1 / -1;">
 						<div class="loading-scanner-ring">
-							<div class="scanner-pulse translate"></div>
 							<svg class="loading-icon spin" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-								<circle cx="12" cy="12" r="10"/>
-								<line x1="2" y1="12" x2="22" y2="12"/>
-								<path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/>
+								<circle cx="12" cy="12" r="10" stroke-opacity="0.25"/>
+								<path d="M12 2a10 10 0 0 1 10 10"/>
 							</svg>
 						</div>
-						<div class="loading-title mono">NEURAL TRANSLATION PIPELINE</div>
-						<div class="loading-subtitle mono">Running text detection and OCR...</div>
+						<div class="loading-title mono">Translating & Typesetting</div>
+						<div class="loading-subtitle mono">Running OCR, inpainting, and text rendering...</div>
 						<div class="skeleton-grid">
 							<div class="skeleton-card"></div>
 							<div class="skeleton-card"></div>
@@ -1090,7 +1137,7 @@ class PopupController {
 						<circle cx="9" cy="9" r="2"/>
 						<path d="m21 15-3.086-3.086a2 2 0 0 0-2.828 0L6 21"/>
 					</svg>
-					<p>No server slices uploaded yet.</p>
+					<p>No chapter pages uploaded yet.</p>
 				</div>
 			`;
 			return;
@@ -1164,22 +1211,28 @@ class PopupController {
 	private updateTrackerProgress(current: number, total: number, phase: string) {
 		this.activeTrackerPhase = phase;
 		this.trackerProgressWrap.classList.remove('hidden');
-		const pct = total > 0 ? Math.min(100, Math.round((current / total) * 100)) : 0;
+		const safeTotal = total > 0 ? total : (this.activeChapterPages.length || (this.images.length || 0));
+		const pct = safeTotal > 0 ? Math.min(100, Math.round((current / safeTotal) * 100)) : 0;
 		this.trackerProgressBarFill.style.width = `${pct}%`;
-		this.trackerProgressCount.textContent = `${current} / ${total}`;
+
+		this.updateStepper(phase, current, safeTotal);
 
 		if (phase === 'uploading') {
-			this.trackerProgressStatus.textContent = `Uploading page ${current} of ${total}...`;
+			this.trackerProgressCount.textContent = safeTotal > 0 ? `${current} / ${safeTotal}` : `${current}`;
+			this.trackerProgressStatus.textContent = safeTotal > 0 ? `Uploading page ${current} of ${safeTotal}...` : 'Uploading pages...';
 			this.trackerStatusBadge.className = 'tracker-badge uploading';
 			this.trackerStatusBadge.textContent = 'Uploading';
 		} else if (phase === 'reslicing') {
-			this.trackerProgressStatus.textContent = 'Smart reslicing comic strips...';
+			this.trackerProgressBarFill.style.width = '100%';
+			this.trackerProgressCount.textContent = safeTotal > 0 ? `${safeTotal} pages` : 'In Progress';
+			this.trackerProgressStatus.textContent = safeTotal > 0 ? `Reslicing ${safeTotal} pages...` : 'Smart reslicing strips...';
 			this.trackerStatusBadge.className = 'tracker-badge reslicing';
 			this.trackerStatusBadge.textContent = 'Reslicing';
 		} else if (phase === 'translating') {
-			this.trackerProgressStatus.textContent = `Translating page ${current} of ${total}...`;
+			this.trackerProgressCount.textContent = safeTotal > 0 ? `${current} / ${safeTotal}` : `${current}`;
+			this.trackerProgressStatus.textContent = safeTotal > 0 ? `Translating page ${current} of ${safeTotal}...` : 'Translating pages...';
 			this.trackerStatusBadge.className = 'tracker-badge translating';
-			this.trackerStatusBadge.textContent = `Translating ${current}/${total}`;
+			this.trackerStatusBadge.textContent = safeTotal > 0 ? `Translating ${current}/${safeTotal}` : 'Translating';
 		}
 
 		if (this.activeChapterPages.length === 0) {
@@ -1248,6 +1301,7 @@ class PopupController {
 					this.renderTrackerGrid();
 				} else if (msg.status === 'done') {
 					this.isChapterTranslating = false;
+					this.updateStepper('done', this.activeChapterPages.length, this.activeChapterPages.length);
 					this.trackerProgressWrap.classList.add('hidden');
 					this.trackerStatusBadge.className = 'tracker-badge ready';
 					this.trackerStatusBadge.textContent = 'Ready';

@@ -823,6 +823,13 @@ class InPlaceTranslationCoordinator {
 	}
 
 	setActiveMapping(entry: ChapterMappingEntry) {
+		if (entry?.url) {
+			const currentNormalized = normalizePageUrl(window.location.href);
+			const entryNormalized = normalizePageUrl(entry.url);
+			if (currentNormalized !== entryNormalized) {
+				return;
+			}
+		}
 		this.activeMapping = entry;
 		void this.syncWithServer();
 	}
@@ -1011,15 +1018,8 @@ class InPlaceTranslationCoordinator {
 	handlePageTranslated(msg: PageTranslatedMessage) {
 		if (!this.inPlaceEnabled) return;
 		if (!this.activeMapping) {
-			this.activeMapping = {
-				url: window.location.href,
-				bookId: '',
-				chapterId: msg.chapterId,
-				isResliced: true,
-				pageCount: msg.total || 0,
-				enabled: true,
-				lastSyncedAt: Date.now()
-			};
+			// Tab has not been mapped to any chapter; ignore foreign translation broadcasts
+			return;
 		}
 
 		if (String(this.activeMapping.chapterId) === String(msg.chapterId)) {

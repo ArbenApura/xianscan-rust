@@ -528,6 +528,125 @@ body {
 	transform-origin: center center;
 }
 
+/* -- PIPELINE STAGE STEPPER -- */
+.pipeline-stepper {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	padding: 8px 14px;
+	background: var(--surface-secondary, rgba(16, 14, 23, 0.95));
+	border-bottom: 1px solid var(--border);
+	gap: 6px;
+	flex-shrink: 0;
+}
+
+.stepper-step {
+	display: flex;
+	align-items: center;
+	gap: 6px;
+	flex: 1;
+	min-width: 0;
+	opacity: 0.45;
+	transition: opacity 0.25s ease;
+}
+
+.stepper-step.active {
+	opacity: 1;
+}
+
+.stepper-step.done {
+	opacity: 0.9;
+}
+
+.step-indicator {
+	width: 14px;
+	height: 14px;
+	border-radius: 50%;
+	border: 1.5px solid var(--border-light, #524f68);
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	flex-shrink: 0;
+	background: var(--bg);
+	transition: all 0.25s ease;
+}
+
+.step-dot {
+	width: 4px;
+	height: 4px;
+	border-radius: 50%;
+	background: var(--text-muted);
+}
+
+.step-icon-done {
+	display: none;
+	width: 9px;
+	height: 9px;
+	color: #34D399;
+}
+
+.stepper-step.active .step-indicator {
+	border-color: var(--gold);
+	box-shadow: 0 0 6px rgba(212, 154, 61, 0.45);
+}
+
+.stepper-step.active .step-dot {
+	background: var(--gold);
+	animation: pulseBadge 1.2s infinite;
+}
+
+.stepper-step.done .step-indicator {
+	border-color: rgba(52, 211, 153, 0.8);
+	background: rgba(34, 158, 112, 0.15);
+}
+
+.stepper-step.done .step-dot {
+	display: none;
+}
+
+.stepper-step.done .step-icon-done {
+	display: block;
+}
+
+.step-content {
+	display: flex;
+	flex-direction: column;
+	min-width: 0;
+	line-height: 1.15;
+}
+
+.step-name {
+	font-size: 9.5px;
+	font-weight: 700;
+	color: var(--text-heading);
+	white-space: nowrap;
+	overflow: hidden;
+	text-overflow: ellipsis;
+}
+
+.step-meta {
+	font-size: 8px;
+	color: var(--text-muted);
+	white-space: nowrap;
+	overflow: hidden;
+	text-overflow: ellipsis;
+}
+
+.stepper-step.active .step-name {
+	color: var(--gold);
+}
+
+.stepper-step.done .step-name {
+	color: #34D399;
+}
+
+.stepper-connector {
+	width: 12px;
+	height: 1px;
+	background: var(--border);
+	flex-shrink: 0;
+}
+
 .tracker-summary {
 	font-size: 10px;
 	color: var(--text-muted);
@@ -1291,13 +1410,13 @@ body {
 	transform: translateY(0);
 }
 
-/* -- ANIMATED LOADING & PROCESSING HUD -- */
+/* -- CLEAN TRACKER LOADING HUD -- */
 .tracker-loading-state {
 	display: flex;
 	flex-direction: column;
 	align-items: center;
 	justify-content: center;
-	padding: 16px 8px 12px;
+	padding: 24px 12px 16px;
 	text-align: center;
 	width: 100%;
 	min-height: 180px;
@@ -1305,51 +1424,26 @@ body {
 
 .loading-scanner-ring {
 	position: relative;
-	width: 44px;
-	height: 44px;
+	width: 36px;
+	height: 36px;
 	display: flex;
 	align-items: center;
 	justify-content: center;
-	margin-bottom: 10px;
-}
-
-.scanner-pulse {
-	position: absolute;
-	inset: 0;
+	margin-bottom: 12px;
 	border-radius: 50%;
-	border: 2px solid var(--cinnabar);
-	opacity: 0.8;
-	animation: radarPulse 1.8s cubic-bezier(0.215, 0.61, 0.355, 1) infinite;
-}
-
-.scanner-pulse.upload {
-	border-color: var(--cinnabar);
-}
-
-.scanner-pulse.reslice {
-	border-color: #a855f7;
-	animation-duration: 1.5s;
-}
-
-.scanner-pulse.translate {
-	border-color: var(--gold);
-	animation-duration: 1.6s;
-}
-
-.scanner-pulse.scan {
-	border-color: var(--gold);
-	animation-duration: 1.4s;
+	background: var(--surface-secondary, rgba(23, 21, 32, 0.8));
+	border: 1px solid var(--border);
 }
 
 .loading-icon {
-	width: 20px;
-	height: 20px;
+	width: 18px;
+	height: 18px;
 	color: var(--text-heading);
 	z-index: 2;
 }
 
 .tracker-loading-state.uploading .loading-icon {
-	color: var(--cinnabar);
+	color: #f87171;
 }
 
 .tracker-loading-state.reslicing .loading-icon {
@@ -1363,17 +1457,17 @@ body {
 .loading-title {
 	font-size: 11px;
 	font-weight: 700;
-	letter-spacing: 0.08em;
+	letter-spacing: 0.05em;
 	color: var(--text-heading);
-	margin-bottom: 3px;
+	margin-bottom: 4px;
 }
 
 .loading-subtitle {
 	font-size: 9.5px;
 	color: var(--text-muted);
-	line-height: 1.3;
-	margin-bottom: 14px;
-	max-width: 260px;
+	line-height: 1.35;
+	margin-bottom: 16px;
+	max-width: 280px;
 }
 
 /* -- SKELETON CARDS SHIMMER -- */

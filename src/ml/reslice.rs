@@ -227,18 +227,19 @@ pub fn detect_forbidden_zones_in_window(
     let tile = canvas.crop_imm(0, y_min, canvas.width(), h);
     let mut raw_intervals: Vec<(i32, i32)> = Vec::new();
 
-    // 1. ULTRA-FAST OCR DETECTOR (DBNet) — FINDS ALL TEXT POLYGONS & BOUNDING BOXES IN ~30MS (80X FASTER THAN RF-DETR).
+    // 1. ULTRA-FAST OCR DETECTOR (DBNet) — FINDS ALL TEXT POLYGONS & LINES IN ~25-35MS.
     if let Some(ref mut o) = ocr {
         if let Ok(boxes) = o.detect_only(&tile) {
             for poly in &boxes {
                 let (_, by, _, bh) = polygon_bounds(poly);
+                // GENEROUS SAFETY MARGIN (35PX) COVERS ENTIRE OUTER SPEECH BUBBLE SURROUNDING TEXT
                 let z_min = (by + y_min as i32 - safety_margin).max(0);
                 let z_max = (by + bh + y_min as i32 + safety_margin).min(total_h as i32);
                 raw_intervals.push((z_min, z_max));
             }
         }
     } else if let Some(ref mut det) = detector {
-        // FALLBACK: COMIC DETECTOR (RF-DETR / RT-DETR) RUNS ONLY WHEN RAPIDOCR IS ABSENT
+        // FALLBACK: COMIC LAYOUT DETECTOR (RF-DETR / RT-DETR) RUNS ONLY WHEN RAPIDOCR IS ABSENT
         if let Ok(res) = det.detect(&tile) {
             for box_poly in &res.boxes {
                 let (_, by, _, bh) = polygon_bounds(box_poly);
@@ -418,11 +419,12 @@ pub fn find_optimal_cut_points(
             }
         }
 
-        // 3RD PASS: EXPAND SEARCH OUTWARDS TO FIND ANY NON-FORBIDDEN ROW BEFORE DEFAULTING
+        // 3RD PASS: EXPAND SEARCH OUTWARDS TO FIND ANY NON-FORBIDDEN ROW (BYPASSING INDICATED MEASUREMENTS)
         let selected_y = best_y.unwrap_or_else(|| {
             let mut fallback_y = None;
-            for offset in 1..=600 {
-                if search_start >= offset + current_y + 100 {
+            let max_radius = total_h.max(2000);
+            for offset in 1..=max_radius {
+                if search_start >= offset + current_y + 64 {
                     let y = search_start - offset;
                     if !is_point_forbidden(y as i32, forbidden_zones) {
                         fallback_y = Some(y);
@@ -526,13 +528,15 @@ pub fn find_optimal_cut_points_with_detectors(
             cb(pct);
         }
 
-        // 1ST PASS (FAST-PATH): SOLID GUTTER BANDS WITH CLEAR AIRSPACE (TOLERATES STANDARD COMPRESSION NOISE)
+        // 1ST PASS (FAST-PATH): OBVIOUS WIDE SOLID GUTTER BANDS WITH GENEROUS AIRSPACE
+        // A wide (>= 12px) continuous solid white/black gutter with generous clear airspace is physically
+        // impossible to contain text (letters have high ink variance). This executes in sub-millisecond time.
         let mut pure_gutter_candidates = Vec::new();
         for y in search_start..=search_end {
             let yi = y as usize;
-            if profile.row_variances[yi] < 30.0
-                && profile.max_col_var[yi] < 35.0
-                && profile.row_edge_energy[yi] < 15.0
+            if profile.row_variances[yi] < 15.0
+                && profile.max_col_var[yi] < 20.0
+                && profile.row_edge_energy[yi] < 10.0
             {
                 pure_gutter_candidates.push(y);
             }
@@ -554,15 +558,12 @@ pub fn find_optimal_cut_points_with_detectors(
             }
             bands.push(curr_band);
 
-            // ACCEPT BANDS WITH AT LEAST 4 PIXELS OF CONTINUOUS FLAT GUTTER
-            let valid_bands: Vec<_> = bands.into_iter().filter(|b| b.len() >= 4).collect();
-            if !valid_bands.is_empty() {
+            // WIDE OBVIOUS GUTTERS (>= 10px continuous) WITH CLEAR AIRSPACE
+            let wide_bands: Vec<_> = bands.into_iter().filter(|b| b.len() >= 10 && has_clear_airspace(&profile, b[b.len() / 2], total_h)).collect();
+            if !wide_bands.is_empty() {
                 let mut best_band_score = -f32::INFINITY;
-                for band in valid_bands {
+                for band in wide_bands {
                     let mid_y = band[band.len() / 2];
-                    if band.len() < 6 && !has_clear_airspace(&profile, mid_y, total_h) {
-                        continue;
-                    }
                     if is_point_forbidden(mid_y as i32, &cached_forbidden_zones) {
                         continue;
                     }
@@ -577,7 +578,7 @@ pub fn find_optimal_cut_points_with_detectors(
             }
         }
 
-        // 2ND PASS: IF NO UNAMBIGUOUS GUTTER EXISTS, DETECT TEXT IN CANDIDATE WINDOW ON-DEMAND
+        // 2ND PASS: IF NO OBVIOUS WIDE GUTTER EXISTS, DETECT TEXT/BUBBLES IN CANDIDATE WINDOW ON-DEMAND
         if best_y.is_none() {
             if detector_ref.is_some() || ocr_ref.is_some() {
                 let win_top = search_start.saturating_sub(64);
@@ -594,6 +595,7 @@ pub fn find_optimal_cut_points_with_detectors(
                 cached_forbidden_zones = merge_intervals(cached_forbidden_zones);
             }
 
+            // 2ND PASS: SEARCH FOR FALLBACK GUTTER CANDIDATES (RUNS ONLY IF NO OBVIOUS GUTTER WAS FOUND)
             let mut fallback_gutter_candidates = Vec::new();
             for y in search_start..=search_end {
                 if !is_point_forbidden(y as i32, &cached_forbidden_zones) {
@@ -640,10 +642,11 @@ pub fn find_optimal_cut_points_with_detectors(
                 }
             }
 
-            // EXPAND OUTWARDS BEFORE DEFAULTING
+            // EXPAND SEARCH OUTWARDS TO BYPASS INDICATED MEASUREMENTS IF WINDOW IS BLOCKED BY TEXT
             if best_y.is_none() {
-                for offset in 1..=600 {
-                    if search_start >= offset + current_y + 100 {
+                let max_search_radius = total_h.max(2000);
+                for offset in 1..=max_search_radius {
+                    if search_start >= offset + current_y + 64 {
                         let y = search_start - offset;
                         if !is_point_forbidden(y as i32, &cached_forbidden_zones) {
                             best_y = Some(y);
@@ -736,9 +739,10 @@ fn fallback_cut(
         return y;
     }
 
-    // PASS C: EXPAND OUTWARD FOR THE NEAREST NON-FORBIDDEN ROW BEFORE DEFAULTING.
-    for offset in 1..=600 {
-        if search_start >= offset + current_y + 100 {
+    // PASS C: EXPAND OUTWARD ACROSS CANVAS TO FIND NEAREST NON-FORBIDDEN ROW (BYPASSING INDICATED MEASUREMENTS).
+    let max_radius = total_h.max(2000);
+    for offset in 1..=max_radius {
+        if search_start >= offset + current_y + 64 {
             let y = search_start - offset;
             if !is_point_forbidden(y as i32, forbidden_zones) {
                 return y;
@@ -752,7 +756,7 @@ fn fallback_cut(
         }
     }
 
-    // LAST RESORT: EVERY CANDIDATE ROW IS FORBIDDEN — CUT AT THE IDEAL HEIGHT.
+    // LAST RESORT: IF LITERALLY EVERY ROW ON CANVAS IS COVERED BY FORBIDDEN ZONES, ADVANCE SAFELY
     let clamped = ideal_cut.min(search_end as f32).max(search_start as f32) as u32;
     clamped.max(current_y + 64)
 }

@@ -333,7 +333,13 @@
 				...p,
 				status,
 				currentStep: isProcessing ? sp?.currentStep : undefined,
-				outputPath: sp?.outputPath || p.outputPath,
+				outputPath: sp
+					? sp.status === 'done'
+						? sp.outputPath || p.outputPath
+						: null
+					: isProcessing || isQueued
+						? null
+						: p.outputPath,
 				// REVS ARE MONOTONIC (NEVER RESET). PREFER THE NEWEST OF THE JOB
 				// SNAPSHOT AND THE SERVER/EDITOR VALUE, SO A MANUAL RETYPESET THAT
 				// BUMPS outputRev AFTER A JOB COMPLETES IS NOT MASKED BY THE STALE
