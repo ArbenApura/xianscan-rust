@@ -252,6 +252,7 @@ If you are looking for a **Full-Stack Web Developer** with expertise in modern w
 - **Portfolio & Inquiries**: [arbenger.com/contact](https://arbenger.com/contact/)
 - **Direct Email**: [arbenapura.official@gmail.com](mailto:arbenapura.official@gmail.com)
 - **GitHub Profile**: [@ArbenApura](https://github.com/ArbenApura)
+- **Discord Community**: [Join the XianScan Discord](https://discord.gg/J5mjJX6c)
 
 ### Support Open-Source Development
 **XianScan** is built and maintained entirely independently to bring a fast, convenient personal reading and translation flow to untranslated comics. If this tool brings convenience to your reading experience, saves you time, or enhances your learning workflow, your support makes an immense difference.
@@ -261,6 +262,8 @@ Contributions directly help keep this project free and active, covering essentia
 <div align="center">
 
 [![Support on Ko-Fi](https://img.shields.io/badge/Support_on-Ko--Fi-FF5E5B?style=for-the-badge&logo=kofi&logoColor=white)](https://ko-fi.com/arbenapura)
+&nbsp;
+[![Discord Community](https://img.shields.io/badge/Discord-Join_Community-5865F2?style=for-the-badge&logo=discord&logoColor=white)](https://discord.gg/J5mjJX6c)
 
 </div>
 

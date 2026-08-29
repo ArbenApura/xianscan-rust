@@ -691,32 +691,63 @@
 					<Github size={13} />
 					<span>@ArbenApura</span>
 				</a>
+				<span class="opacity-30">·</span>
+				<a href="https://discord.gg/J5mjJX6c" target="_blank" rel="noopener noreferrer" class="inline-flex items-center gap-1 text-[#5865F2] hover:underline font-medium">
+					<MessageSquare size={13} />
+					<span>Discord Community</span>
+				</a>
 			</div>
 		</div>
 
-		<!-- KO-FI CONTRIBUTION -->
-		<div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3 sm:gap-4 rounded-xl border border-black/10 bg-black/[0.015] p-3.5 sm:p-5 dark:border-white/10 dark:bg-white/[0.015]">
-			<div class="space-y-0.5">
-				<h3 class="font-bold text-neutral-900 dark:text-neutral-100 flex items-center gap-2 text-xs sm:text-sm">
-					<Heart size={14} class="text-[#b23a2e]" fill="currentColor" />
-					Support Open-Source Development
-				</h3>
-				<p class="text-[11px] sm:text-xs text-neutral-500 dark:text-neutral-400">
-					Supporting this project helps fund ongoing independent R&D, model optimization, and future open-source tools.
-				</p>
+		<!-- KO-FI CONTRIBUTION & DISCORD COMMUNITY CARDS -->
+		<div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+			<div class="flex flex-col justify-between gap-3 rounded-xl border border-black/10 bg-black/[0.015] p-3.5 sm:p-4 dark:border-white/10 dark:bg-white/[0.015]">
+				<div class="space-y-1">
+					<h3 class="font-bold text-neutral-900 dark:text-neutral-100 flex items-center gap-1.5 text-xs sm:text-sm">
+						<Heart size={14} class="text-[#b23a2e]" fill="currentColor" />
+						<span>Support Open-Source R&D</span>
+					</h3>
+					<p class="text-[11px] sm:text-xs text-neutral-500 dark:text-neutral-400 leading-relaxed">
+						Directly sustain independent development, essential living costs, and model optimization.
+					</p>
+				</div>
+
+				<a
+					href="https://ko-fi.com/arbenapura"
+					target="_blank"
+					rel="noopener noreferrer"
+					use:ripple
+					class="w-full inline-flex items-center justify-center gap-1.5 rounded-lg bg-[#b23a2e] hover:bg-[#c0392b] text-white px-3.5 py-2 text-xs font-bold transition"
+				>
+					<Coffee size={14} />
+					<span>Support on Ko-fi</span>
+					<ExternalLink size={11} class="opacity-60" />
+				</a>
 			</div>
 
-			<a
-				href="https://ko-fi.com/arbenapura"
-				target="_blank"
-				rel="noopener noreferrer"
-				use:ripple
-				class="w-full sm:w-auto inline-flex items-center justify-center gap-2 rounded-lg bg-[#b23a2e] hover:bg-[#c0392b] text-white px-4 py-2.5 sm:py-2 text-xs font-bold transition shrink-0"
-			>
-				<Coffee size={14} />
-				<span>Support on Ko-fi</span>
-				<ExternalLink size={11} class="opacity-60" />
-			</a>
+			<div class="flex flex-col justify-between gap-3 rounded-xl border border-black/10 bg-black/[0.015] p-3.5 sm:p-4 dark:border-white/10 dark:bg-white/[0.015]">
+				<div class="space-y-1">
+					<h3 class="font-bold text-neutral-900 dark:text-neutral-100 flex items-center gap-1.5 text-xs sm:text-sm">
+						<MessageSquare size={14} class="text-[#5865F2]" />
+						<span>Join the Community</span>
+					</h3>
+					<p class="text-[11px] sm:text-xs text-neutral-500 dark:text-neutral-400 leading-relaxed">
+						Chat with fellow readers, report bugs, request features, and discuss pipeline setups on Discord.
+					</p>
+				</div>
+
+				<a
+					href="https://discord.gg/J5mjJX6c"
+					target="_blank"
+					rel="noopener noreferrer"
+					use:ripple
+					class="w-full inline-flex items-center justify-center gap-1.5 rounded-lg bg-[#5865F2] hover:bg-[#4752c4] text-white px-3.5 py-2 text-xs font-bold transition"
+				>
+					<MessageSquare size={14} />
+					<span>Join Discord Server</span>
+					<ExternalLink size={11} class="opacity-60" />
+				</a>
+			</div>
 		</div>
 
 		<div class="text-center text-[10px] sm:text-xs opacity-40 pt-2 sm:pt-4">

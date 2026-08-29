@@ -77,6 +77,7 @@
 	import ChevronRight from 'lucide-svelte/icons/chevron-right';
 	import X from 'lucide-svelte/icons/x';
 	import Sparkles from 'lucide-svelte/icons/sparkles';
+	import MessageSquare from 'lucide-svelte/icons/message-square';
 
 	// IMPORTED UI COMPONENTS
 	import Modal from '$lib/components/ui/Modal.svelte';
@@ -2983,6 +2984,27 @@
 							>
 								<span>Replay Tour</span>
 							</Button>
+						</div>
+
+						<!-- DISCORD COMMUNITY CARD -->
+						<div class="flex items-center justify-between rounded-2xl border border-black/10 bg-black/[0.02] p-4 dark:border-white/10 dark:bg-white/[0.02]">
+							<div class="space-y-0.5">
+								<div class="flex items-center gap-1.5 text-xs font-bold text-[#5865F2]">
+									<MessageSquare size={14} />
+									<span>Discord Community</span>
+								</div>
+								<p class="text-[11px] opacity-60">Join our community server to ask questions, share feedback, report bugs, or hang out.</p>
+							</div>
+							<a
+								href="https://discord.gg/J5mjJX6c"
+								target="_blank"
+								rel="noopener noreferrer"
+								class="inline-flex items-center gap-1.5 rounded-lg bg-[#5865F2] hover:bg-[#4752c4] text-white px-3 py-1.5 text-xs font-bold transition shrink-0"
+								use:ripple
+							>
+								<span>Join Discord</span>
+								<ExternalLink size={11} class="opacity-60" />
+							</a>
 						</div>
 					</div>
 				{/if}
