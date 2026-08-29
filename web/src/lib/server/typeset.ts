@@ -22,7 +22,7 @@ import {
 	type TextColor,
 } from './typeset/fonts';
 import { parseStatPanel, isSfxOrShout, type TypesetRegion } from './typeset/stat-panel';
-import { fitFontSize, fitSingleLineSize, reflowText } from './typeset/layout';
+import { fitFontSize, fitSingleLineSize, reflowText, isStructuredList } from './typeset/layout';
 import { pickTextColor, sampleBackground } from './typeset/color';
 import { decollideRegions } from './typeset/decollision';
 import { sanitizeForFont } from './typeset/sanitize';
@@ -122,7 +122,12 @@ export async function typesetPage(
 		}
 
 		ctx.font = fontSpec(size, font, text, fontCjk);
-		const lines = isSfx ? [text] : reflowText(ctx, text, maxW);
+		const isNarrowVertical = h / w >= 1.4 && h >= 65;
+		const lines = isSfx
+			? [text]
+			: (isNarrowVertical && text.includes('\n') && !isStructuredList(text))
+				? reflowText(ctx, text.replace(/\n+/g, ' ').trim(), maxW)
+				: reflowText(ctx, text, maxW);
 		const lineH = size * LINE_HEIGHT;
 		const totalH = lines.length * lineH;
 

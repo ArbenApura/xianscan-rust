@@ -50,7 +50,7 @@ pub fn should_reject_candidate_region(
         return true;
     }
 
-    // 4. SUPPRESS TINY LOW-CONFIDENCE NOISE BUBBLES (E.G. '一\n0', '4' IN COMPACT ARTIFACT BUBBLES W <= 35, H <= 55)
+    // 4. SUPPRESS TINY LOW-CONFIDENCE NOISE BUBBLES (E.G. '一\n0', '4' IN COMPACT ARTIFACT BUBBLES W <= 35, H <= 55, OR ISOLATED SINGLE-KANA GASP 'っ' IN NARROW BUBBLES W <= 30, H <= 95)
     if is_bubble && cluster_rect.w <= 35 && cluster_rect.h <= 55 {
         let is_noise_or_digit = crate::ml::detect::is_standalone_digit_or_particle_noise(cleaned)
             || crate::ml::detect::is_standalone_noise_stroke(cleaned)
@@ -59,6 +59,11 @@ pub fn should_reject_candidate_region(
                 crate::ml::detect::is_standalone_noise_stroke(lt) || crate::ml::detect::is_standalone_digit_or_particle_noise(lt)
             });
         if avg_score < 0.68 || is_noise_or_digit {
+            return true;
+        }
+    } else if is_bubble && cluster_rect.w <= 30 && cluster_rect.h <= 95 {
+        let is_small_kana_gasp = cleaned.trim() == "っ" || cleaned.trim() == "ッ" || cleaned.trim() == "ー";
+        if is_small_kana_gasp {
             return true;
         }
     }

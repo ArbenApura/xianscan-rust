@@ -39,7 +39,7 @@ fn test_regression_page_ye_ziyun_noble_status_grow_up_vow() {
     assert!(r0.is_some(), "Must detect panel 1 top bubble '怪人！'");
     let r0 = r0.unwrap();
     assert_eq!(r0.kind, xianscan_rust::ml::schemas::RegionKind::DialogueBubble);
-    crate::assert_region_bounds!(r0, xianscan_rust::ml::schemas::RegionKind::DialogueBubble, 440, 34, 136, 90, 8);
+    crate::assert_region_bounds!(r0, xianscan_rust::ml::schemas::RegionKind::DialogueBubble, 463, 58, 90, 42, 8);
     crate::assert_bubble_bounds!(r0, 431, 25, 170, 122, 12);
     crate::assert_region_angle!(r0, 0.0, 1.5);
 
@@ -66,7 +66,7 @@ fn test_regression_page_ye_ziyun_noble_status_grow_up_vow() {
     assert!(r3.is_some(), "Must detect panel 3 left bubble '她是我的女人!'");
     let r3 = r3.unwrap();
     assert_eq!(r3.kind, xianscan_rust::ml::schemas::RegionKind::DialogueBubble);
-    crate::assert_region_bounds!(r3, xianscan_rust::ml::schemas::RegionKind::DialogueBubble, 50, 897, 126, 192, 10);
+    crate::assert_region_bounds!(r3, xianscan_rust::ml::schemas::RegionKind::DialogueBubble, 59, 943, 108, 100, 10);
     crate::assert_bubble_bounds!(r3, 37, 884, 163, 222, 12);
     crate::assert_region_angle!(r3, 0.0, 1.5);
 
@@ -83,7 +83,7 @@ fn test_regression_page_ye_ziyun_noble_status_grow_up_vow() {
     assert!(r5.is_some(), "Must detect panel 4 left bubble");
     let r5 = r5.unwrap();
     assert_eq!(r5.kind, xianscan_rust::ml::schemas::RegionKind::DialogueBubble);
-    crate::assert_region_bounds!(r5, xianscan_rust::ml::schemas::RegionKind::DialogueBubble, 329, 1181, 150, 140, 10);
+    crate::assert_region_bounds!(r5, xianscan_rust::ml::schemas::RegionKind::DialogueBubble, 343, 1193, 123, 116, 10);
     crate::assert_bubble_bounds!(r5, 315, 1167, 184, 197, 12);
     crate::assert_region_angle!(r5, 0.0, 1.5);
 

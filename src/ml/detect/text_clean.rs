@@ -43,7 +43,7 @@ pub static QUESTION_TAIL: LazyLock<Regex> = LazyLock::new(|| {
 });
 
 pub static NOISE_STROKES_RE: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(r"^(?:[0oO·•●○\s]{1,6}|[\s一1丨Il|二ニ]{1,2}|(?:しし|いい|ここ|くく|し|い)|[1IlL|!/\\~][しい]|し[1IlL|!/\\~])$").unwrap()
+    Regex::new(r"^(?:[0oO·•●○\s]{1,6}|[\s一1丨Il|二ニ]{1,2}|(?:しし|いい|ここ|くく|し|い|っ|ッ)|[1IlL|!/\\~][しいっッ]|[しいっッ][1IlL|!/\\~])$").unwrap()
 });
 
 /// CHECK IF A GIVEN TEXT STRING IS ISOLATED NOISE OR SINGLE REPEATED STROKES

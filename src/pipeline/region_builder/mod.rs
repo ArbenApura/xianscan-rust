@@ -211,4 +211,54 @@ mod tests {
         assert!(regions[0].box_.x >= bubble.x);
         assert!(regions[0].box_.x + regions[0].box_.w <= bubble.x + bubble.w);
     }
+
+    #[test]
+    fn test_bubble_expansion_preserves_exact_centroid_anchor() {
+        use crate::ml::schemas::{Region, RegionKind};
+
+        // CASE 3: VERIFY ANCHOR POINT (CENTROID) NEVER DRIFTS ON EXPANDED BUBBLE
+        let bubble = BoxRect { x: 78, y: 247, w: 576, h: 488 };
+        let ocr_box = BoxRect { x: 153, y: 353, w: 435, h: 265 };
+        let orig_cx = ocr_box.x + ocr_box.w / 2;
+        let orig_cy = ocr_box.y + ocr_box.h / 2;
+
+        let mut regions = vec![Region {
+            id: "r2".to_string(),
+            box_: ocr_box,
+            polygon: vec![],
+            inpaint_box: None,
+            typeset_box: None,
+            text: "아이가 스물을\n넘기기 힘들 걸세.\n그런 체질이야.".to_string(),
+            confidence: 0.95,
+            vertical: false,
+            angle: 0.0,
+            bubble_box: Some(bubble.clone()),
+            bubble_polygon: None,
+            centroid: None,
+            kind: RegionKind::DialogueBubble,
+            is_title: false,
+            is_subtitle: false,
+        }];
+
+        expand_bubble_text_boxes(&mut regions, 690, 2095, 0.05, 0.10);
+
+        let expanded = &regions[0].box_;
+        let new_cx = expanded.x + expanded.w / 2;
+        let new_cy = expanded.y + expanded.h / 2;
+
+        // ANCHOR POINT CENTROID INVARIANT: CENTROID MUST REMAIN IDENTICAL
+        assert_eq!(new_cx, orig_cx, "Centroid X drifted during expansion!");
+        assert_eq!(new_cy, orig_cy, "Centroid Y drifted during expansion!");
+
+        // BOUNDARY CHECK: MUST NOT OVERKILL INTO THE BUBBLE TOP/BOTTOM CURVES
+        assert!(expanded.y >= bubble.y + 48, "Expanded box y too close to bubble top peak");
+        assert!(expanded.y + expanded.h <= bubble.y + bubble.h - 48, "Expanded box bottom too close to bubble bottom peak");
+
+        // TYPESET BOX MUST BE SAFELY BOUNDED WITHIN THE BUBBLE
+        let typeset_box = regions[0].typeset_box.as_ref().unwrap();
+        assert!(typeset_box.y >= bubble.y);
+        assert!(typeset_box.y + typeset_box.h <= bubble.y + bubble.h);
+        assert!(typeset_box.x >= bubble.x);
+        assert!(typeset_box.x + typeset_box.w <= bubble.x + bubble.w);
+    }
 }

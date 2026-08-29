@@ -203,7 +203,7 @@ pub fn analyze_image_with_fusion_timed(
                         // IF DETECTOR BOX IS A PARTIAL SINGLE-LINE SLICE AND RAPID OCR DETECTED A LONGER SENTENCE ON THE SAME ROW
                         let is_horiz_single_line = iy >= 0.40 * bh.min(lh as f32) && bh <= (lh as f32 * 1.6) && (lw as f32 >= bw * 1.05 || ix >= 0.25 * bw.min(lw as f32));
                         let is_vert_single_line = ix >= 0.40 * bw.min(lw as f32) && bw <= (lw as f32 * 1.6) && (lh as f32 >= bh * 1.05 || iy >= 0.25 * bh.min(lh as f32));
-                        // IF DETECTOR BOX COVERS MULTI-LINE TEXT BUT MISSES THE BOTTOM-MOST LINE
+                        // IF DETECTOR BOX COVERS MULTI-LINE TEXT BUT MISSES THE BOTTOM-MOST LINE OR TOP-MOST EXTENSION
                         // GUARD: Do not expand into trailing pure-Latin OCR noise lines (e.g. clothing pattern HOSPITAL)
                         // when the source language is non-Latin (Korean/CJK) and the line has no native script.
                         let is_trailing_latin_noise = crate::ml::detect::is_non_latin_source(source_lang) && {

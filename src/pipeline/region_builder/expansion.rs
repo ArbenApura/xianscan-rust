@@ -8,24 +8,28 @@ use super::geometry::expand_box;
 
 // -- CONSTANTS -- //
 // SAFE INTERIOR INSET FROM THE STROKED BUBBLE OUTLINE (INSCRIBED CORE THE TEXT MAY FILL)
-const BUBBLE_INSET_FRAC: f32 = 0.08;
-const BUBBLE_INSET_MIN: i32 = 6;
-const BUBBLE_INSET_MAX: i32 = 18;
+const BUBBLE_INSET_FRAC: f32 = 0.12;
+const BUBBLE_INSET_MIN: i32 = 8;
+const BUBBLE_INSET_MAX: i32 = 48;
 // MIN GAP KEPT BETWEEN A BUBBLE TEXT BOX AND ITS SIBLING TEXT (FUSED 2-3 TEXT BUBBLES)
 const SIBLING_GAP: i32 = 5;
 // THRESHOLDS: ONLY SCALE AN AXIS WHEN THE UNUSED ROOM EXCEEDS THESE (NO-OP ON CRAMPED BUBBLES)
 const MIN_UNUSED_RATIO: f32 = 0.10;
 const MIN_SCALE: f32 = 1.10;
+const EXPANSION_SLACK_DAMPING: f32 = 0.50;
+const MAX_EXPANSION_SCALE: f32 = 1.30;
+const MAX_EXPANSION_SCALE_VERTICAL: f32 = 2.00;
 
 // -- FUNCTIONS & ALGORITHMS -- //
 
 /// INSCRIBED SAFE CORE OF A BUBBLE (THE STROKED OUTLINE IS AVOIDED). RETURNS (LEFT, RIGHT, TOP, BOTTOM).
 pub fn bubble_core(b: &BoxRect) -> Option<(i32, i32, i32, i32)> {
-    let m = ((b.w.min(b.h) as f32 * BUBBLE_INSET_FRAC) as i32).clamp(BUBBLE_INSET_MIN, BUBBLE_INSET_MAX);
-    let left = b.x + m;
-    let right = b.x + b.w - m;
-    let top = b.y + m;
-    let bottom = b.y + b.h - m;
+    let mx = ((b.w as f32 * BUBBLE_INSET_FRAC) as i32).clamp(BUBBLE_INSET_MIN, BUBBLE_INSET_MAX);
+    let my = ((b.h as f32 * BUBBLE_INSET_FRAC) as i32).clamp(BUBBLE_INSET_MIN, BUBBLE_INSET_MAX);
+    let left = b.x + mx;
+    let right = b.x + b.w - mx;
+    let top = b.y + my;
+    let bottom = b.y + b.h - my;
     if right - left <= 8 || bottom - top <= 8 {
         None
     } else {
@@ -60,7 +64,7 @@ pub fn clamp_box_to_core(b: &mut BoxRect, left: i32, right: i32, top: i32, botto
 
 /// EXPAND DIALOGUE-BUBBLE TEXT BASE BOUNDARY TO BETTER UTILIZE THE UNUSED AREA WITHIN ITS BUBBLE.
 ///
-/// KEEPS THE TEXT ANCHOR (BOX CENTROID) EXACTLY FIXED AND SCALES EACH AXIS SYMMETRICALLY ABOUT IT.
+/// KEEPS THE TEXT ANCHOR (BOX CENTROID) STRICTLY FIXED AND SCALES EACH AXIS SYMMETRICALLY ABOUT IT.
 /// EVERY SCALED BOX IS BOUNDED BY (A) THE BUBBLE'S INSCRIBED SAFE CORE AND (B) THE NEAREST SIBLING
 /// TEXT REGION INSIDE THE SAME COMBINED BUBBLE. IT IS A NO-OP WHEN THE UNUSED ROOM FALLS BELOW
 /// THRESHOLD, SO CRAMPED BUBBLES ARE NEVER ALTERED. THE INPAINT MASK POLYGON IS LEFT TIGHT.
@@ -140,40 +144,49 @@ pub fn expand_bubble_text_boxes(regions: &mut Vec<Region>, page_w: u32, page_h: 
 
         let mut new_box = r.box_.clone();
 
-        // WIDTH AXIS
+        // WIDTH AXIS: STRICT CENTROID ANCHOR WITH DAMPED SLACK EXPANSION
         {
             let center = cx as f32;
             let half = bw as f32 / 2.0;
-            let lower_ext = (center - left_limit as f32).max(half);
-            let upper_ext = (right_limit as f32 - center).max(half);
-            let scale = lower_ext.min(upper_ext) / half;
-            let usable = (right_limit as f32 - left_limit as f32) - bw as f32;
-            if usable >= bw as f32 * MIN_UNUSED_RATIO && scale >= MIN_SCALE {
-                let nh = (half * scale).round() as i32;
-                let nx = cx - nh;
-                let nr = cx + nh;
-                if nr > nx {
-                    new_box.x = nx.max(left);
-                    new_box.w = (nr.min(right) - new_box.x).max(1);
+            let max_safe_half = (center - left_limit as f32).min(right_limit as f32 - center);
+            if max_safe_half > half {
+                let raw_scale = max_safe_half / half;
+                let usable = (right_limit as f32 - left_limit as f32) - bw as f32;
+                if usable >= bw as f32 * MIN_UNUSED_RATIO && raw_scale >= MIN_SCALE {
+                    let is_narrow_vertical = r.vertical && bw < bh / 2;
+                    let damping = if is_narrow_vertical { 1.0 } else { EXPANSION_SLACK_DAMPING };
+                    let cap = if is_narrow_vertical { MAX_EXPANSION_SCALE_VERTICAL } else { MAX_EXPANSION_SCALE };
+                    let damped_scale = 1.0 + (raw_scale - 1.0) * damping;
+                    let final_scale = damped_scale.min(cap).min(raw_scale);
+                    let nh = (half * final_scale).round() as i32;
+                    let nx = cx - nh;
+                    let nr = cx + nh;
+                    if nr > nx && nx >= left_limit && nr <= right_limit {
+                        new_box.x = nx;
+                        new_box.w = nr - nx;
+                    }
                 }
             }
         }
 
-        // HEIGHT AXIS
+        // HEIGHT AXIS: STRICT CENTROID ANCHOR WITH DAMPED SLACK EXPANSION
         {
             let center = cy as f32;
             let half = bh as f32 / 2.0;
-            let lower_ext = (center - top_limit as f32).max(half);
-            let upper_ext = (bottom_limit as f32 - center).max(half);
-            let scale = lower_ext.min(upper_ext) / half;
-            let usable = (bottom_limit as f32 - top_limit as f32) - bh as f32;
-            if usable >= bh as f32 * MIN_UNUSED_RATIO && scale >= MIN_SCALE {
-                let nh = (half * scale).round() as i32;
-                let ny = cy - nh;
-                let nb = cy + nh;
-                if nb > ny {
-                    new_box.y = ny.max(top);
-                    new_box.h = (nb.min(bottom) - new_box.y).max(1);
+            let max_safe_half = (center - top_limit as f32).min(bottom_limit as f32 - center);
+            if max_safe_half > half {
+                let raw_scale = max_safe_half / half;
+                let usable = (bottom_limit as f32 - top_limit as f32) - bh as f32;
+                if usable >= bh as f32 * MIN_UNUSED_RATIO && raw_scale >= MIN_SCALE {
+                    let damped_scale = 1.0 + (raw_scale - 1.0) * EXPANSION_SLACK_DAMPING;
+                    let final_scale = damped_scale.min(MAX_EXPANSION_SCALE).min(raw_scale);
+                    let nh = (half * final_scale).round() as i32;
+                    let ny = cy - nh;
+                    let nb = cy + nh;
+                    if nb > ny && ny >= top_limit && nb <= bottom_limit {
+                        new_box.y = ny;
+                        new_box.h = nb - ny;
+                    }
                 }
             }
         }
@@ -185,7 +198,7 @@ pub fn expand_bubble_text_boxes(regions: &mut Vec<Region>, page_w: u32, page_h: 
 
     // PHASE 2: APPLY TARGETS AND GUARANTEE BASE BOX STAYS WITHIN BUBBLE BOUNDARY.
     for &i in &indexes {
-        let b = regions[i].bubble_box.as_ref().unwrap();
+        let b = regions[i].bubble_box.clone().unwrap();
         let (outer_l, outer_r, outer_t, outer_b) = (b.x, b.x + b.w, b.y, b.y + b.h);
 
         if let Some(new_box) = &targets[i] {
@@ -212,8 +225,13 @@ pub fn expand_bubble_text_boxes(regions: &mut Vec<Region>, page_w: u32, page_h: 
         // GUARANTEE: BASE BOX MUST NEVER EXCEED OUTER BUBBLE BOUNDARY
         clamp_box_to_core(&mut regions[i].box_, outer_l, outer_r, outer_t, outer_b);
 
-        // ANCHOR TYPESET AND INPAINT BOXES DIRECTLY TO THE VALIDATED BASE BOX
-        regions[i].typeset_box = Some(expand_box(&regions[i].box_, typeset_pct, page_w, page_h));
-        regions[i].inpaint_box = Some(expand_box(&regions[i].box_, inpaint_pct, page_w, page_h));
+        // ANCHOR TYPESET AND INPAINT BOXES DIRECTLY TO THE VALIDATED BASE BOX, CLAMPED TO BUBBLE BOUNDS
+        let mut typeset_box = expand_box(&regions[i].box_, typeset_pct, page_w, page_h);
+        clamp_box_to_core(&mut typeset_box, outer_l, outer_r, outer_t, outer_b);
+        regions[i].typeset_box = Some(typeset_box);
+
+        let mut inpaint_box = expand_box(&regions[i].box_, inpaint_pct, page_w, page_h);
+        clamp_box_to_core(&mut inpaint_box, outer_l, outer_r, outer_t, outer_b);
+        regions[i].inpaint_box = Some(inpaint_box);
     }
 }

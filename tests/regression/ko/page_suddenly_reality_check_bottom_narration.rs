@@ -1,4 +1,4 @@
-﻿// -- INTERNAL IMPORTS -- //
+// -- INTERNAL IMPORTS -- //
 use crate::common::get_or_analyze_fixture_with_lang;
 
 // -- TESTS -- //
@@ -36,11 +36,11 @@ fn test_regression_page_suddenly_reality_check_bottom_narration() {
     // 1. EXACT ELEMENT COUNTS: EXACTLY 2 REGIONS (1 DIALOGUEBUBBLES, 0 SOUNDEFFECT, 1 FREETEXT)
     crate::assert_element_counts!(res, 2, 1, 0, 1);
 
-    // 2. TOP DIALOGUE BUBBLE: [X: ~351, Y: ~369, W: ~264, H: ~150]
+    // 2. TOP DIALOGUE BUBBLE: [X: 376, Y: 390, W: 214, H: 108]
     let r0 = &res.regions[0];
     assert_eq!(r0.kind, xianscan_rust::ml::schemas::RegionKind::DialogueBubble);
     assert!(r0.text.contains("반가워요") && r0.text.contains("이하린"), "Top bubble must contain '반가워요.\\n이하린이에요.'");
-    crate::assert_region_bounds!(r0, xianscan_rust::ml::schemas::RegionKind::DialogueBubble, 351, 369, 264, 150, 10);
+    crate::assert_region_bounds!(r0, xianscan_rust::ml::schemas::RegionKind::DialogueBubble, 376, 390, 214, 108, 10);
 
     // 3. BOTTOM LARGE NARRATION / FREE TEXT: [X: ~49, Y: ~1501, W: ~600, H: ~106]
     let r1 = &res.regions[1];

@@ -45,26 +45,26 @@ fn test_regression_page_three_units_doorway_light_noise() {
         "Must NOT extract electric spark noise '滋' as FreeText"
     );
 
-    // 3. TOP SPEECH BUBBLE: '我们到了。' [X: ~581, Y: ~195, W: ~196, H: ~44]
+    // 3. TOP SPEECH BUBBLE: '我们到了。' [X: 599, Y: 192, W: 160, H: 50]
     let top_bubble = res.regions.iter().find(|r| r.text.contains("我们到了"));
     assert!(top_bubble.is_some(), "Must detect top speech bubble '我们到了。'");
     let top_bubble = top_bubble.unwrap();
     assert_eq!(top_bubble.kind, RegionKind::DialogueBubble);
-    crate::assert_region_bounds!(top_bubble, RegionKind::DialogueBubble, 578, 134, 202, 166, 15);
+    crate::assert_region_bounds!(top_bubble, RegionKind::DialogueBubble, 599, 192, 160, 50, 15);
 
-    // 4. MIDDLE-LEFT SPEECH BUBBLE [X: ~70, Y: ~900, W: ~238, H: ~138]
+    // 4. MIDDLE-LEFT SPEECH BUBBLE [X: 86, Y: 896, W: 206, H: 146]
     let mid_left_bubble = res.regions.iter().find(|r| r.text.contains("楼房") || r.text.contains("20"));
     assert!(mid_left_bubble.is_some(), "Must detect middle-left speech bubble");
     let mid_left_bubble = mid_left_bubble.unwrap();
     assert_eq!(mid_left_bubble.kind, RegionKind::DialogueBubble);
-    crate::assert_region_bounds!(mid_left_bubble, RegionKind::DialogueBubble, 53, 869, 272, 200, 15);
+    crate::assert_region_bounds!(mid_left_bubble, RegionKind::DialogueBubble, 86, 896, 206, 146, 15);
 
-    // 5. MIDDLE-RIGHT SPEECH BUBBLE [X: ~626, Y: ~971, W: ~228, H: ~222]
-    let mid_right_bubble = res.regions.iter().find(|r| r.text.contains("放心啦") || r.text.contains("800"));
-    assert!(mid_right_bubble.is_some(), "Must detect middle-right speech bubble");
-    let mid_right_bubble = mid_right_bubble.unwrap();
-    assert_eq!(mid_right_bubble.kind, RegionKind::DialogueBubble);
-    crate::assert_region_bounds!(mid_right_bubble, RegionKind::DialogueBubble, 626, 971, 228, 222, 15);
+    // 5. BOTTOM-RIGHT SPEECH BUBBLE [X: 626, Y: 997, W: 228, H: 170]
+    let bot_right_bubble = res.regions.iter().find(|r| r.text.contains("放心啦") || r.text.contains("800"));
+    assert!(bot_right_bubble.is_some(), "Must detect bottom-right speech bubble");
+    let bot_right_bubble = bot_right_bubble.unwrap();
+    assert_eq!(bot_right_bubble.kind, RegionKind::DialogueBubble);
+    crate::assert_region_bounds!(bot_right_bubble, RegionKind::DialogueBubble, 626, 997, 228, 170, 15);
 
     // 6. NEGATIVE GUARD: NO DOORWAY SIGN / BACKGROUND PLAQUE '单元' / '三单元'
     assert!(

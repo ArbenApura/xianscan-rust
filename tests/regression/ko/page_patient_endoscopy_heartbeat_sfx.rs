@@ -40,19 +40,19 @@ fn test_regression_page_patient_endoscopy_heartbeat_sfx() {
     // 2. NEGATIVE GUARD: NO BOTTOM SLANTED SFX '두근두근' EXTRACTED AS FREETEXT
     assert!(!res.regions.iter().any(|r| r.text.contains("두근")), "Must NOT extract heartbeat SFX '두근두근'");
 
-    // 3. TOP SPEECH BUBBLE: [X: ~28, Y: ~397, W: ~236, H: ~146]
+    // 3. TOP SPEECH BUBBLE: [X: 50, Y: 406, W: 192, H: 128]
     let top_bubble = res.regions.iter().find(|r| r.text.contains("검사한") || r.text.contains("부분"));
     assert!(top_bubble.is_some(), "Must detect top dialogue bubble about endoscopy exam");
     let top_bubble = top_bubble.unwrap();
     assert_eq!(top_bubble.kind, RegionKind::DialogueBubble);
-    crate::assert_region_bounds!(top_bubble, RegionKind::DialogueBubble, 28, 397, 236, 146, 15);
+    crate::assert_region_bounds!(top_bubble, RegionKind::DialogueBubble, 50, 406, 192, 128, 15);
     crate::assert_bubble_bounds!(top_bubble, 10, 369, 273, 271, 20);
 
-    // 4. MIDDLE SPEECH BUBBLE: '아, 네!' -> [X: ~298, Y: ~953, W: ~152, H: ~100]
+    // 4. MIDDLE SPEECH BUBBLE: '아, 네!' -> [X: 312, Y: 972, W: 124, H: 62]
     let mid_bubble = res.regions.iter().find(|r| r.text.contains("아, 네") || r.text.contains("아,네"));
     assert!(mid_bubble.is_some(), "Must detect middle dialogue bubble '아, 네!'");
     let mid_bubble = mid_bubble.unwrap();
     assert_eq!(mid_bubble.kind, RegionKind::DialogueBubble);
-    crate::assert_region_bounds!(mid_bubble, RegionKind::DialogueBubble, 298, 953, 152, 100, 15);
+    crate::assert_region_bounds!(mid_bubble, RegionKind::DialogueBubble, 312, 972, 124, 62, 15);
     crate::assert_bubble_bounds!(mid_bubble, 288, 943, 173, 134, 20);
 }

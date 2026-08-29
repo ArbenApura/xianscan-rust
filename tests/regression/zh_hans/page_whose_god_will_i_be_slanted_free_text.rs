@@ -64,21 +64,21 @@ fn test_regression_page_whose_god_will_i_be_slanted_free_text() {
     assert!(b2.is_some(), "Must detect panel 2 main bubble '从当初霍雨浩创建传灵塔组织...'");
     let b2 = b2.unwrap();
     assert_eq!(b2.kind, RegionKind::DialogueBubble);
-    crate::assert_region_bounds!(b2, RegionKind::DialogueBubble, 112, 1081, 167, 148, 20);
+    crate::assert_region_bounds!(b2, RegionKind::DialogueBubble, 112, 1097, 167, 116, 20);
 
     // 5. PANEL 3 RIGHT UPPER BUBBLE: '传灵塔组织还在，可我们魂兽……'
     let b3 = res.regions.iter().find(|r| r.kind == RegionKind::DialogueBubble && r.text.contains("传灵塔组织还") && (r.text.contains("魂兽") || r.text.contains("我们")));
     assert!(b3.is_some(), "Must detect panel 3 upper bubble '传灵塔组织还在，可我们魂兽……'");
     let b3 = b3.unwrap();
     assert_eq!(b3.kind, RegionKind::DialogueBubble);
-    crate::assert_region_bounds!(b3, RegionKind::DialogueBubble, 635, 977, 147, 140, 20);
+    crate::assert_region_bounds!(b3, RegionKind::DialogueBubble, 635, 998, 147, 98, 20);
 
     // 6. PANEL 3 RIGHT LOWER BUBBLE: '就要从这个世界上灭绝了吗……'
     let b4 = res.regions.iter().find(|r| r.text.contains("灭绝") || r.text.contains("世界上"));
     assert!(b4.is_some(), "Must detect panel 3 lower bubble '就要从这个世界上灭绝了吗……'");
     let b4 = b4.unwrap();
     assert_eq!(b4.kind, RegionKind::DialogueBubble);
-    crate::assert_region_bounds!(b4, RegionKind::DialogueBubble, 701, 1122, 148, 104, 20);
+    crate::assert_region_bounds!(b4, RegionKind::DialogueBubble, 714, 1130, 122, 88, 20);
 
     // 7. NEGATIVE GUARD: NO PHANTOM FREETEXT DUPLICATE '雪\n传灵塔组织还'
     assert!(

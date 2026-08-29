@@ -54,10 +54,10 @@ fn test_regression_page_patient_greeting_doctor_exclamation() {
     crate::assert_region_bounds!(
         doctor_bubble,
         xianscan_rust::ml::schemas::RegionKind::DialogueBubble,
-        371,
-        340,
-        244,
-        148,
+        391,
+        359,
+        204,
+        110,
         15
     );
     crate::assert_bubble_bounds!(doctor_bubble, 355, 324, 279, 208, 15);

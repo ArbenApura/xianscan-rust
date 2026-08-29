@@ -1,4 +1,4 @@
-﻿// -- INTERNAL IMPORTS -- //
+// -- INTERNAL IMPORTS -- //
 use crate::common::get_or_analyze_fixture_with_lang;
 
 // -- TESTS -- //
@@ -37,17 +37,17 @@ fn test_regression_page_talk_like_that_bottom_narration() {
     // 1. EXACT ELEMENT COUNTS: EXACTLY 3 REGIONS (2 DIALOGUEBUBBLES, 0 SOUNDEFFECT, 1 FREETEXT)
     crate::assert_element_counts!(res, 3, 2, 0, 1);
 
-    // 2. TOP DIALOGUE BUBBLE: [X: ~97, Y: ~351, W: ~298, H: ~180]
+    // 2. TOP DIALOGUE BUBBLE: [X: 122, Y: 372, W: 248, H: 138]
     let r0 = &res.regions[0];
     assert_eq!(r0.kind, xianscan_rust::ml::schemas::RegionKind::DialogueBubble);
     assert!(r0.text.contains("마음 급하다고") && r0.text.contains("만나려고 하지 마"), "Top bubble must contain dialogue");
-    crate::assert_region_bounds!(r0, xianscan_rust::ml::schemas::RegionKind::DialogueBubble, 97, 351, 298, 180, 10);
+    crate::assert_region_bounds!(r0, xianscan_rust::ml::schemas::RegionKind::DialogueBubble, 122, 372, 248, 138, 10);
 
-    // 3. MIDDLE-RIGHT DIALOGUE BUBBLE: [X: ~425, Y: ~1005, W: ~226, H: ~192]
+    // 3. MIDDLE-RIGHT DIALOGUE BUBBLE: [X: 443, Y: 1028, W: 190, H: 146]
     let r1 = &res.regions[1];
     assert_eq!(r1.kind, xianscan_rust::ml::schemas::RegionKind::DialogueBubble);
     assert!(r1.text.contains("오히려") && r1.text.contains("상처") && r1.text.contains("있다고"), "Middle-right bubble must contain dialogue");
-    crate::assert_region_bounds!(r1, xianscan_rust::ml::schemas::RegionKind::DialogueBubble, 425, 1005, 226, 192, 10);
+    crate::assert_region_bounds!(r1, xianscan_rust::ml::schemas::RegionKind::DialogueBubble, 443, 1028, 190, 146, 10);
 
     // 4. BOTTOM LARGE NARRATION / FREE TEXT: [X: ~47, Y: ~1461, W: ~602, H: ~205]
     let r2 = &res.regions[2];

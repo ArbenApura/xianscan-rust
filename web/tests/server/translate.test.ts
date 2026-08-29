@@ -42,18 +42,17 @@ function fakeClient(
 // -- PROMPT CONSTRUCTION -- //
 
 describe('systemPrompt', () => {
-	it('covers the manhua localization rules, SFX rules, and story captions for Chinese', () => {
+	it('covers the manhua localization rules and story captions for Chinese', () => {
 		const p = systemPrompt('zh-Hans', 'en');
 		expect(p).toMatch(/comic/i);
 		expect(p).toMatch(/JSON object/);
 		expect(p).toContain('zh-Hans');
 		expect(p).toContain('Names & Listings');
 		expect(p).toContain('Chinese & Manhua Rules');
-		expect(p).toContain('Sound Effects (sfx)');
+		expect(p).not.toContain('Sound Effects (sfx)');
 		expect(p).toContain('Wuxia/Cultivation');
 		expect(p).toContain('OCR Artifact & Bubble-Tail Cleaning');
-		expect(p).toContain('Pro-Drop & Subject Resolution');
-		expect(p).toContain('passive/intransitive states');
+		expect(p).not.toContain('Pro-Drop & Subject Resolution');
 	});
 
 	it('produces specialized Russian/Cyrillic prompt without Chinese Wuxia rules', () => {

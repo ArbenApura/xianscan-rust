@@ -32,11 +32,11 @@ fn test_regression_page_spiky_interrobang_caption() {
     // 1. EXACT ELEMENT COUNTS: EXACTLY 2 REGIONS (1 DIALOGUE BUBBLE, 0 SFX, 1 FREE TEXT)
     crate::assert_element_counts!(res, 2, 1, 0, 1);
 
-    // 2. SPIKY INTERROBANG BUBBLE: '?!' -> [X: 367, Y: 176, W: 248, H: 224]
+    // 2. SPIKY INTERROBANG BUBBLE: '?!' -> [X: 401, Y: 204, W: 180, H: 168]
     let interrobang = res.regions.iter().find(|r| r.text.trim() == "?!" || r.text.trim() == "？！");
     assert!(interrobang.is_some(), "Must detect upper spiky reaction bubble '?!'");
     let interrobang = interrobang.unwrap();
-    crate::assert_region_bounds!(interrobang, xianscan_rust::ml::schemas::RegionKind::DialogueBubble, 367, 176, 248, 224, 10);
+    crate::assert_region_bounds!(interrobang, xianscan_rust::ml::schemas::RegionKind::DialogueBubble, 401, 204, 180, 168, 10);
     crate::assert_bubble_bounds!(interrobang, 349, 158, 287, 269, 10);
 
     // 3. LOWER NARRATION CAPTION BOX:

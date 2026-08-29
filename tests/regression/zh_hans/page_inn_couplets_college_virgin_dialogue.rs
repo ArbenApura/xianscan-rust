@@ -1,4 +1,4 @@
-﻿// -- INTERNAL IMPORTS -- //
+// -- INTERNAL IMPORTS -- //
 use crate::common::get_or_analyze_fixture_with_lang;
 use xianscan_rust::ml::schemas::RegionKind;
 
@@ -50,43 +50,43 @@ fn test_regression_page_inn_couplets_college_virgin_dialogue() {
     );
 
     // 3. VERIFY ALL 7 SPEECH BUBBLES WITH STRICT BOUNDS
-    // r0: Top-left bubble [X: ~62, Y: ~43, W: ~249, H: ~202]
+    // r0: Top-left bubble [X: 62, Y: 66, W: 249, H: 156]
     let r0 = &res.regions[0];
     assert_eq!(r0.kind, RegionKind::DialogueBubble);
     assert!(r0.text.contains("你说那姑") && r0.text.contains("还没回"), "Top-left bubble must contain dialogue");
-    crate::assert_region_bounds!(r0, RegionKind::DialogueBubble, 62, 43, 249, 202, 10);
+    crate::assert_region_bounds!(r0, RegionKind::DialogueBubble, 62, 66, 249, 156, 10);
 
-    // r1: Panel 2 left bubble [X: ~50, Y: ~308, W: ~256, H: ~99]
+    // r1: Panel 2 left bubble [X: 50, Y: 308, W: 256, H: 99]
     let r1 = &res.regions[1];
     assert_eq!(r1.kind, RegionKind::DialogueBubble);
     assert!(r1.text.contains("牛啊") && r1.text.contains("学"), "Panel 2 left bubble must contain dialogue");
     crate::assert_region_bounds!(r1, RegionKind::DialogueBubble, 50, 308, 256, 99, 10);
 
-    // r2: Panel 2 right bubble [X: ~569, Y: ~378, W: ~172, H: ~128]
+    // r2: Panel 2 right bubble [X: 569, Y: 419, W: 172, H: 46]
     let r2 = &res.regions[2];
     assert_eq!(r2.kind, RegionKind::DialogueBubble);
     assert!(r2.text.contains("怎么的"), "Panel 2 right bubble must contain dialogue");
-    crate::assert_region_bounds!(r2, RegionKind::DialogueBubble, 569, 378, 172, 128, 10);
+    crate::assert_region_bounds!(r2, RegionKind::DialogueBubble, 569, 419, 172, 46, 10);
 
-    // r3: Panel 3 left bubble [X: ~55, Y: ~699, W: ~185, H: ~72]
+    // r3: Panel 3 left bubble [X: 55, Y: 703, W: 185, H: 65]
     let r3 = &res.regions[3];
     assert_eq!(r3.kind, RegionKind::DialogueBubble);
     assert!(r3.text.contains("女大学"), "Panel 3 left bubble must contain dialogue");
-    crate::assert_region_bounds!(r3, RegionKind::DialogueBubble, 55, 699, 185, 72, 10);
+    crate::assert_region_bounds!(r3, RegionKind::DialogueBubble, 55, 703, 185, 65, 10);
 
-    // r4: Panel 3 middle spiky bubble [X: ~267, Y: ~670, W: ~222, H: ~124]
+    // r4: Panel 3 middle spiky bubble [X: 292, Y: 688, W: 173, H: 88]
     let r4 = &res.regions[4];
     assert_eq!(r4.kind, RegionKind::DialogueBubble);
     assert!(r4.text.contains("弄你大爷") && r4.text.contains("一边呆着去"), "Panel 3 spiky bubble must contain dialogue");
-    crate::assert_region_bounds!(r4, RegionKind::DialogueBubble, 267, 670, 222, 124, 10);
+    crate::assert_region_bounds!(r4, RegionKind::DialogueBubble, 292, 688, 173, 88, 10);
 
-    // r5: Panel 3 bottom-left bubble [X: ~261, Y: ~955, W: ~189, H: ~138]
+    // r5: Panel 3 bottom-left bubble [X: 261, Y: 969, W: 189, h: 110]
     let r5 = &res.regions[5];
     assert_eq!(r5.kind, RegionKind::DialogueBubble);
     assert!(r5.text.contains("童蛋子") || r5.text.contains("这么多年"), "Panel 3 bottom-left bubble must contain dialogue");
-    crate::assert_region_bounds!(r5, RegionKind::DialogueBubble, 261, 955, 189, 138, 10);
+    crate::assert_region_bounds!(r5, RegionKind::DialogueBubble, 261, 969, 189, 110, 10);
 
-    // r6: Panel 3 bottom-right bubble [X: ~575, Y: ~975, W: ~174, H: ~82]
+    // r6: Panel 3 bottom-right bubble [X: 575, Y: 975, W: 174, H: 82]
     let r6 = &res.regions[6];
     assert_eq!(r6.kind, RegionKind::DialogueBubble);
     assert!(r6.text.contains("哥我儿子都"), "Panel 3 bottom-right bubble must contain dialogue");

@@ -299,7 +299,7 @@
 
 	// REAL-TIME SYNCHRONIZED PAGES MERGED WITH SNAPSHOT
 	$: displayPages = ((): ChapterPageItem[] => {
-		const snapshotPageMap = new Map<number, (typeof currentJobState.snapshot.pages)[0]>();
+		const snapshotPageMap = new Map<number, NonNullable<NonNullable<typeof currentJobState.snapshot>['pages']>[0]>();
 		if (currentJobState.snapshot?.pages?.length) {
 			for (const sp of currentJobState.snapshot.pages) {
 				snapshotPageMap.set(sp.pageId, sp);
@@ -311,22 +311,22 @@
 			const isProcessing =
 				(sp?.status === 'processing' || (!sp && currentJobState.running && p.status === 'processing')) &&
 				currentJobState.running;
-			const isError = sp?.status === 'error';
+			const isError = !isProcessing && (sp?.status === 'error' || (!sp && p.status === 'error'));
+			const isDone = !isProcessing && !isError && (sp?.status === 'done' || (!sp && p.status === 'done'));
 			const isQueued =
 				!isProcessing &&
 				!isError &&
-				(sp?.status === 'queued' ||
-					isWholeChapterQueued ||
+				!isDone &&
+				(isWholeChapterQueued ||
 					(queuedPageIdSet ? queuedPageIdSet.has(p.id) : false));
-			const isDone = !isProcessing && !isQueued && !isError && (sp?.status === 'done' || p.status === 'done');
 			const status: 'pending' | 'queued' | 'processing' | 'done' | 'error' = isProcessing
 				? 'processing'
-				: isQueued
-					? 'queued'
-					: isError
-						? 'error'
-						: isDone
-							? 'done'
+				: isError
+					? 'error'
+					: isDone
+						? 'done'
+						: isQueued
+							? 'queued'
 							: p.status || 'pending';
 
 			return {

@@ -37,7 +37,7 @@ fn test_regression_page_nie_li_scribbling_exclamation_bubble() {
     assert!(b1.is_some(), "Must detect panel 1 dialogue bubble '聂离一直神神叨叨...'");
     let b1 = b1.unwrap();
     assert_eq!(b1.kind, xianscan_rust::ml::schemas::RegionKind::DialogueBubble);
-    crate::assert_region_bounds!(b1, xianscan_rust::ml::schemas::RegionKind::DialogueBubble, 346, 39, 150, 80, 8);
+    crate::assert_region_bounds!(b1, xianscan_rust::ml::schemas::RegionKind::DialogueBubble, 358, 39, 127, 80, 8);
     crate::assert_bubble_bounds!(b1, 338, 37, 173, 101, 8);
     crate::assert_region_angle!(b1, 0.0, 2.0);
 
@@ -46,7 +46,7 @@ fn test_regression_page_nie_li_scribbling_exclamation_bubble() {
     assert!(b2.is_some(), "Must detect panel 1 dialogue bubble '管他呢，先多研究一下...'");
     let b2 = b2.unwrap();
     assert_eq!(b2.kind, xianscan_rust::ml::schemas::RegionKind::DialogueBubble);
-    crate::assert_region_bounds!(b2, xianscan_rust::ml::schemas::RegionKind::DialogueBubble, 464, 246, 128, 92, 8);
+    crate::assert_region_bounds!(b2, xianscan_rust::ml::schemas::RegionKind::DialogueBubble, 470, 249, 116, 86, 8);
     crate::assert_bubble_bounds!(b2, 454, 231, 164, 125, 8);
     crate::assert_region_angle!(b2, 0.0, 2.0);
 
@@ -55,7 +55,7 @@ fn test_regression_page_nie_li_scribbling_exclamation_bubble() {
     assert!(b3.is_some(), "Must detect panel 2 dialogue bubble '想要修炼到很高的境界...'");
     let b3 = b3.unwrap();
     assert_eq!(b3.kind, xianscan_rust::ml::schemas::RegionKind::DialogueBubble);
-    crate::assert_region_bounds!(b3, xianscan_rust::ml::schemas::RegionKind::DialogueBubble, 182, 388, 218, 93, 8);
+    crate::assert_region_bounds!(b3, xianscan_rust::ml::schemas::RegionKind::DialogueBubble, 193, 388, 197, 93, 8);
     crate::assert_bubble_bounds!(b3, 155, 382, 255, 135, 8);
     crate::assert_region_angle!(b3, 0.0, 2.0);
 
@@ -64,7 +64,7 @@ fn test_regression_page_nie_li_scribbling_exclamation_bubble() {
     assert!(b4.is_some(), "Must detect panel 2 left dialogue bubble '哦？'");
     let b4 = b4.unwrap();
     assert_eq!(b4.kind, xianscan_rust::ml::schemas::RegionKind::DialogueBubble);
-    crate::assert_region_bounds!(b4, xianscan_rust::ml::schemas::RegionKind::DialogueBubble, 159, 586, 65, 58, 8);
+    crate::assert_region_bounds!(b4, xianscan_rust::ml::schemas::RegionKind::DialogueBubble, 159, 587, 65, 56, 8);
     crate::assert_bubble_bounds!(b4, 152, 576, 86, 78, 8);
     crate::assert_region_angle!(b4, 0.0, 2.0);
 
@@ -82,7 +82,7 @@ fn test_regression_page_nie_li_scribbling_exclamation_bubble() {
     assert!(b6.is_some(), "Must detect panel 3 exclamation dialogue bubble '！？'");
     let b6 = b6.unwrap();
     assert_eq!(b6.kind, xianscan_rust::ml::schemas::RegionKind::DialogueBubble);
-    crate::assert_region_bounds!(b6, xianscan_rust::ml::schemas::RegionKind::DialogueBubble, 78, 733, 99, 142, 8);
+    crate::assert_region_bounds!(b6, xianscan_rust::ml::schemas::RegionKind::DialogueBubble, 78, 773, 99, 62, 8);
     crate::assert_bubble_bounds!(b6, 72, 724, 121, 169, 8);
     crate::assert_region_angle!(b6, 0.0, 2.0);
 

@@ -49,10 +49,10 @@ fn test_regression_page_hospital_reception_wall_sign() {
     crate::assert_region_bounds!(
         top_bubble,
         xianscan_rust::ml::schemas::RegionKind::DialogueBubble,
-        63,
-        473,
-        368,
-        192,
+        95,
+        496,
+        304,
+        146,
         15
     );
     crate::assert_bubble_bounds!(top_bubble, 45, 455, 407, 258, 15);
@@ -65,10 +65,10 @@ fn test_regression_page_hospital_reception_wall_sign() {
     crate::assert_region_bounds!(
         bot_bubble,
         xianscan_rust::ml::schemas::RegionKind::DialogueBubble,
-        446,
-        926,
-        146,
-        98,
+        458,
+        946,
+        122,
+        58,
         15
     );
     crate::assert_bubble_bounds!(bot_bubble, 436, 901, 171, 133, 15);

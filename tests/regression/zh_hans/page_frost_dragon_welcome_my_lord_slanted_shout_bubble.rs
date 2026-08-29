@@ -45,7 +45,7 @@ fn test_regression_page_frost_dragon_welcome_my_lord_slanted_shout_bubble() {
         "Bubble text must contain '恭迎主', got '{}'",
         bubble.text
     );
-    crate::assert_region_bounds!(bubble, RegionKind::DialogueBubble, 102, 660, 324, 282, 15);
+    crate::assert_region_bounds!(bubble, RegionKind::DialogueBubble, 139, 689, 250, 224, 15);
     crate::assert_bubble_bounds!(bubble, 84, 625, 369, 335, 15);
 
     // 3. ROTATION ANGLE: MUST BE SLANTED / NON-ZERO (TILTED ~17.77°)

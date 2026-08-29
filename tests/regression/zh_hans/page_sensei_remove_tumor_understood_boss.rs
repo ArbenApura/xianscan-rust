@@ -98,14 +98,14 @@ fn test_regression_page_sensei_remove_tumor_understood_boss() {
     assert!(b1.is_some(), "Must detect dialogue bubble '刷！'");
     let b1 = b1.unwrap();
     assert_eq!(b1.kind, RegionKind::DialogueBubble);
-    crate::assert_region_bounds!(b1, RegionKind::DialogueBubble, 227, 427, 29, 64, 15);
+    crate::assert_region_bounds!(b1, RegionKind::DialogueBubble, 227, 429, 29, 60, 15);
 
     // 9. PANEL 2 DIALOGUE BUBBLE 2: '在那儿！'
     let b2 = res.regions.iter().find(|r| r.text.contains("在那儿") || r.text.contains("在那"));
     assert!(b2.is_some(), "Must detect dialogue bubble '在那儿！'");
     let b2 = b2.unwrap();
     assert_eq!(b2.kind, RegionKind::DialogueBubble);
-    crate::assert_region_bounds!(b2, RegionKind::DialogueBubble, 322, 372, 80, 122, 15);
+    crate::assert_region_bounds!(b2, RegionKind::DialogueBubble, 326, 383, 72, 100, 15);
 
     // 10. PANEL 3 BOTTOM-RIGHT DIALOGUE BUBBLE: '说起来……'
     let b3 = res.regions.iter().find(|r| r.text.contains("说起来"));
@@ -119,14 +119,14 @@ fn test_regression_page_sensei_remove_tumor_understood_boss() {
     assert!(b4_upper.is_some(), "Must detect bottom-center bubble upper utterance '为什么你那么想打倒……'");
     let b4_upper = b4_upper.unwrap();
     assert_eq!(b4_upper.kind, RegionKind::DialogueBubble);
-    crate::assert_region_bounds!(b4_upper, RegionKind::DialogueBubble, 276, 586, 91, 108, 15);
+    crate::assert_region_bounds!(b4_upper, RegionKind::DialogueBubble, 276, 593, 91, 94, 15);
 
     // 12. PANEL 3 BOTTOM-CENTER SPLIT DIALOGUE BUBBLE - LOWER: '火影爷爷啊？'
     let b4_lower = res.regions.iter().find(|r| r.text.contains("火影爷") || r.text.contains("爷啊"));
     assert!(b4_lower.is_some(), "Must detect bottom-center bubble lower utterance '火影爷爷啊？'");
     let b4_lower = b4_lower.unwrap();
     assert_eq!(b4_lower.kind, RegionKind::DialogueBubble);
-    crate::assert_region_bounds!(b4_lower, RegionKind::DialogueBubble, 277, 706, 86, 124, 15);
+    crate::assert_region_bounds!(b4_lower, RegionKind::DialogueBubble, 285, 733, 70, 71, 15);
 
     // 13. NEGATIVE GUARDS
     // Stray exclamation / single character around (342, 205)

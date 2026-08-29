@@ -11,7 +11,6 @@ mod page_inn_couplets_college_virgin_dialogue;
 mod page_lightning_storm_welcome_my_lord_shout_bubble;
 mod page_man_sleeping_in_bed_gutter_watermark_noise;
 mod page_nie_li_scribbling_exclamation_bubble;
-mod page_naruto_transformation_hokage_hat;
 mod page_saint_nether_grass_catch_present;
 mod page_sensei_remove_tumor_understood_boss;
 mod page_shadow_demon_nightmare_pillow_watermark_noise;

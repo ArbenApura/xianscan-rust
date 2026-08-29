@@ -41,24 +41,24 @@ fn test_regression_page_spring_up_couch_worry_sfx() {
     // 2. NEGATIVE GUARD: NO SLANTED SFX '벌떡' EXTRACTED AS FREETEXT
     assert!(!res.regions.iter().any(|r| r.text.contains("벌떡")), "Must NOT extract '벌떡' onomatopoeia as FreeText");
 
-    // 3. TOP NARRATION BOX [X: ~282, Y: ~322, W: ~371, H: ~170]
+    // 3. TOP NARRATION BOX [X: 282, Y: 337, W: 371, H: 140]
     let top_narration = res.regions.iter().find(|r| r.text.contains("그리고 그 불안은") || r.text.contains("불안은 당장"));
     assert!(top_narration.is_some(), "Must detect top narration box");
     let top_narration = top_narration.unwrap();
     assert_eq!(top_narration.kind, RegionKind::DialogueBubble);
-    crate::assert_region_bounds!(top_narration, RegionKind::DialogueBubble, 282, 322, 371, 170, 15);
+    crate::assert_region_bounds!(top_narration, RegionKind::DialogueBubble, 282, 337, 371, 140, 15);
 
-    // 4. MIDDLE THOUGHT BUBBLE [X: ~98, Y: ~972, W: ~190, H: ~100]
+    // 4. MIDDLE THOUGHT BUBBLE [X: 111, Y: 969, W: 165, H: 106]
     let mid_bubble = res.regions.iter().find(|r| r.text.contains("부모님한테") || r.text.contains("말할까"));
     assert!(mid_bubble.is_some(), "Must detect middle thought bubble");
     let mid_bubble = mid_bubble.unwrap();
     assert_eq!(mid_bubble.kind, RegionKind::DialogueBubble);
-    crate::assert_region_bounds!(mid_bubble, RegionKind::DialogueBubble, 98, 952, 190, 140, 15);
+    crate::assert_region_bounds!(mid_bubble, RegionKind::DialogueBubble, 111, 969, 165, 106, 15);
 
-    // 5. BOTTOM THOUGHT BUBBLE [X: ~410, Y: ~1291, W: ~234, H: ~150]
+    // 5. BOTTOM THOUGHT BUBBLE [X: 435, Y: 1293, W: 184, H: 146]
     let bot_bubble = res.regions.iter().find(|r| r.text.contains("아니야, 엄마") || r.text.contains("쓰러질지도"));
     assert!(bot_bubble.is_some(), "Must detect bottom thought bubble");
     let bot_bubble = bot_bubble.unwrap();
     assert_eq!(bot_bubble.kind, RegionKind::DialogueBubble);
-    crate::assert_region_bounds!(bot_bubble, RegionKind::DialogueBubble, 410, 1278, 234, 176, 15);
+    crate::assert_region_bounds!(bot_bubble, RegionKind::DialogueBubble, 435, 1293, 184, 146, 15);
 }

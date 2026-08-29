@@ -418,6 +418,8 @@ pub fn build_regions(
 
                     if (box_rect.y < min_y) && (min_y - box_rect.y) <= 45 && (box_rect.x <= min_x + 15 && box_rect.x + box_rect.w >= max_x - 15) {
                         min_y = min_y.min(box_rect.y);
+                    } else if matched_bubble.is_some() && box_rect.y < min_y && (min_y - box_rect.y) <= 180 {
+                        min_y = min_y.min(box_rect.y);
                     }
 
                     let max_vert_trailing_pad = ((box_rect.h as f32 * 0.50).round() as i32).max(180);

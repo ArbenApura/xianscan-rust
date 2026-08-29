@@ -789,10 +789,27 @@ Tattered Flesh-Cutting Knife`;
 		expect(resultBuf).toBeInstanceOf(Buffer);
 		expect(resultBuf.length).toBeGreaterThan(0);
 	});
+
+	it('renders narrow vertical dialogue bubbles with newlines without ReferenceError (isStructuredList)', async () => {
+		const pageImage = createCanvas(1093, 2110).toBuffer('image/png');
+		const resultBuf = await typesetPage(
+			pageImage,
+			[
+				{
+					id: '56303',
+					box: { x: 67, y: 125, w: 178, h: 308 },
+					text: "Confirmed.\nI will create a body\nthat doesn't need blood.",
+					kind: 'dialogue_bubble',
+				},
+				{
+					id: '56311',
+					box: { x: 90, y: 1103, w: 97, h: 360 },
+					text: 'Erase the data\ncompletely for me...',
+					kind: 'dialogue_bubble',
+				},
+			],
+		);
+		expect(resultBuf).toBeInstanceOf(Buffer);
+		expect(resultBuf.length).toBeGreaterThan(0);
+	});
 });
-
-
-
-
-
-
