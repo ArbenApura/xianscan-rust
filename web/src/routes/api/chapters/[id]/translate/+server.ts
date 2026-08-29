@@ -128,7 +128,7 @@ export const POST: RequestHandler = async ({ params, request, cookies }) => {
 		: (cookies.get('mt_inpaint_exp') ? Number(cookies.get('mt_inpaint_exp')) : canonical.inpaintExpansionPct ?? 0.03);
 	const typesetExpansionPct = parsed.success && typeof parsed.data.typesetExpansionPct === 'number'
 		? parsed.data.typesetExpansionPct
-		: (cookies.get('mt_typeset_exp') ? Number(cookies.get('mt_typeset_exp')) : canonical.typesetExpansionPct ?? 0.03);
+		: (cookies.get('mt_typeset_exp') ? Number(cookies.get('mt_typeset_exp')) : canonical.typesetExpansionPct ?? 0.0);
 	const enableWatermarkInpaint = parsed.success && typeof parsed.data.enableWatermarkInpaint === 'boolean'
 		? parsed.data.enableWatermarkInpaint
 		: (cookies.get('mt_watermark_inpaint') ? cookies.get('mt_watermark_inpaint') === 'true' : (canonical.enableWatermarkInpaint ?? false));

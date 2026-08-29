@@ -207,7 +207,7 @@ export const DEFAULTS: AppSettings = {
 	enableTextRotation: true,
 	enableWatermarkInpaint: false,
 	inpaintExpansionPct: 0.03,
-	typesetExpansionPct: 0.03,
+	typesetExpansionPct: 0.0,
 	hasCompletedOnboarding: false,
 };
 

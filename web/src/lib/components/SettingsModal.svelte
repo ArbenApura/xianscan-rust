@@ -628,7 +628,7 @@
 		($settings.inpaintMode || 'patch') !== DEFAULTS.inpaintMode ||
 		Boolean($settings.enableWatermarkInpaint) !== Boolean(DEFAULTS.enableWatermarkInpaint) ||
 		Math.abs(($settings.inpaintExpansionPct ?? 0.03) - DEFAULTS.inpaintExpansionPct) >= 0.005 ||
-		Math.abs(($settings.typesetExpansionPct ?? 0.06) - DEFAULTS.typesetExpansionPct) >= 0.005;
+		Math.abs(($settings.typesetExpansionPct ?? 0.0) - DEFAULTS.typesetExpansionPct) >= 0.005;
 
 	function resetAppearanceDefaults() {
 		settings.update((s) => ({

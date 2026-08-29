@@ -82,7 +82,7 @@ export const POST: RequestHandler = async ({ request, cookies }) => {
 	const resolvedTypesetExp =
 		typeof typesetExpansionPct === 'number'
 			? typesetExpansionPct
-			: (cookies.get('mt_typeset_exp') ? Number(cookies.get('mt_typeset_exp')) : canonical.typesetExpansionPct ?? 0.06);
+			: (cookies.get('mt_typeset_exp') ? Number(cookies.get('mt_typeset_exp')) : canonical.typesetExpansionPct ?? 0.0);
 
 	const resolvedWatermarkInpaint =
 		typeof enableWatermarkInpaint === 'boolean'
