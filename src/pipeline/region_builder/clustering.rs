@@ -163,7 +163,14 @@ pub fn cluster_lines_into_utterances<'a>(
             let is_repeated_bracketed_tag = (prev_row_text.starts_with('[') || prev_row_text.starts_with('【'))
                 && (curr_row_text.starts_with('[') || curr_row_text.starts_with('【'))
                 && vert_gap >= 8.0;
-            let should_split = vert_gap >= 35.0 || (ends_with_punct && vert_gap >= 10.0) || is_caption_to_title || is_repeated_bracketed_tag;
+            let min_line_h = prev_height.min(curr_height);
+            let is_standalone_line_rank_split = prev_row.len() == 1
+                && row.len() == 1
+                && min_line_h >= 24.0
+                && vert_gap >= (min_line_h * 0.80).max(25.0)
+                && (prev_row_text.ends_with("弟子") || prev_row_text.ends_with("阶") || prev_row_text.ends_with("级") || prev_row_text.ends_with("层") || prev_row_text.ends_with("段") || prev_row_text.ends_with("境") || prev_row_text.ends_with("部"));
+            let is_substantial_gap = vert_gap >= 35.0 || is_standalone_line_rank_split;
+            let should_split = is_substantial_gap || (ends_with_punct && vert_gap >= 10.0) || is_caption_to_title || is_repeated_bracketed_tag;
 
             if should_split && !current_cluster.is_empty() {
                 paragraph_clusters.push(current_cluster);

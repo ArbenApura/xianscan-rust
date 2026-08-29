@@ -137,9 +137,10 @@ export function systemPrompt(src: string, tgt: string, enableSfx = true): string
 		`5. Contextual OCR Typo & Degradation Recovery: Source text from comic OCR may contain visually similar stroke confusions, spurious intra-word spaces, or rogue border symbols (| / \\ ~). Never translate corrupted OCR text literally if it produces nonsensical dialogue. Infer the intended natural spoken words from page and dialogue context.`,
 		`6. Sentence Continuations Across Regions: Consecutive regions on a page frequently contain split clauses of a single continuous sentence. Maintain grammatical continuity, cohesive flow, and consistent phrasing across connected regions without inserting duplicate subjects.`,
 		`7. OCR Artifact & Bubble-Tail Cleaning: Strip trailing bubble-tail digits, zero-clusters, or dots caused by circular thought-bubble tails (e.g. "! 20...", "oo"). Strip stray unmatched leading/trailing border parentheses (e.g. isolated "(" at line start).`,
-		`8. Punctuation & Handles: Translate reaction punctuation (……, ？！, !) to natural ${tgtName} (..., ?!, !). Translate all bracketed usernames [Username]: into ${tgtName}.`,
-		`9. Line Breaks: Preserve all \\n line breaks from source text to maintain comic panel layout.`,
-		`10. Output: Reply with ONLY a valid JSON object matching the requested schema. No commentary, no markdown fences.`,
+		`8. Bilingual Title Logos & Subtitle Deduplication: When a title, logo, or cover region contains both a native title and an accompanying decorative/official ${tgtName} subtitle (e.g. "星魂将传\\nLEGEND OF STAR GENERAL" or "나 혼자만 레벨업\\nSOLO LEVELING"), do NOT output redundant duplicate titles. Unify them into a single clean title in ${tgtName} (e.g. "Legend of Star General"), adopting the official subtitle unless a glossary entry overrides it.`,
+		`9. Punctuation & Handles: Translate reaction punctuation (……, ？！, !) to natural ${tgtName} (..., ?!, !). Translate all bracketed usernames [Username]: into ${tgtName}.`,
+		`10. Line Breaks: Preserve all \\n line breaks from source text to maintain comic panel layout (except when deduplicating bilingual title logos as specified in rule 8).`,
+		`11. Output: Reply with ONLY a valid JSON object matching the requested schema. No commentary, no markdown fences.`,
 	];
 
 	return `You are a professional comic and manga localizer translating ${srcLabel} dialogue into natural, fluent, and immersive ${tgtLabel}.

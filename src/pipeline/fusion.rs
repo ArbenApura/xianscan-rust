@@ -109,13 +109,13 @@ pub fn fuse_detections(
                         })
                         .collect();
 
-                    // 4. DROP THIN CONTRAST-BORDER OPTICAL SLIVERS (LH <= 25PX) THAT OVERLAP NORMAL-HEIGHT LINES (LH >= 35PX)
-                    let normal_lines: Vec<([i32; 4], f32)> = filtered
+                    // 4. DROP THIN CONTRAST-BORDER OPTICAL SLIVERS OR SUBSEGMENTS (LH <= 25PX) THAT OVERLAP NORMAL-HEIGHT LINES (LH >= 28PX)
+                    let normal_lines: Vec<([i32; 4], String, f32)> = filtered
                         .iter()
                         .filter_map(|l| {
                             let (x, y, w, h) = polygon_bounds(&l.polygon);
-                            if h >= 35 && l.score >= 0.65 {
-                                Some(([x, y, w, h], l.score))
+                            if h >= 28 && l.score >= 0.65 {
+                                Some(([x, y, w, h], l.text.trim().to_string(), l.score))
                             } else {
                                 None
                             }
@@ -124,14 +124,16 @@ pub fn fuse_detections(
 
                     filtered.retain(|l| {
                         let (lx, ly, lw, lh) = polygon_bounds(&l.polygon);
+                        let lt = l.text.trim();
                         if lh <= 25 {
-                            let is_sliver = normal_lines.iter().any(|([nx, ny, nw, nh], _)| {
+                            let is_sliver = normal_lines.iter().any(|([nx, ny, nw, nh], nt, _)| {
                                 let ix = (lx + lw).min(nx + nw) - lx.max(*nx);
                                 let iy = (ly + lh).min(ny + nh) - ly.max(*ny);
                                 if ix > 0 && iy > 0 {
                                     let overlap_y = iy as f32 / lh as f32;
                                     let overlap_x = ix as f32 / lw.min(*nw) as f32;
-                                    overlap_y >= 0.60 && overlap_x >= 0.50
+                                    let is_sub = nt.contains(lt) && nt.chars().count() > lt.chars().count();
+                                    (overlap_y >= 0.60 && overlap_x >= 0.50) || (overlap_y >= 0.50 && is_sub)
                                 } else {
                                     false
                                 }

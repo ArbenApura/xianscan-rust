@@ -52,6 +52,7 @@ describe('systemPrompt', () => {
 		expect(p).not.toContain('Sound Effects (sfx)');
 		expect(p).toContain('Wuxia/Cultivation');
 		expect(p).toContain('OCR Artifact & Bubble-Tail Cleaning');
+		expect(p).toContain('Bilingual Title Logos & Subtitle Deduplication');
 		expect(p).not.toContain('Pro-Drop & Subject Resolution');
 	});
 

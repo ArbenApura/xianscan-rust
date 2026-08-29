@@ -47,8 +47,8 @@ fn test_regression_page_lingxiao_disciple_hierarchy_pyramid() {
         );
     }
 
-    // 1. EXACT ELEMENT COUNTS: EXACTLY 12 REGIONS (4 DIALOGUEBUBBLES, 0 SOUNDEFFECT, 8 FREETEXT)
-    crate::assert_element_counts!(res, 12, 4, 0, 8);
+    // 1. EXACT ELEMENT COUNTS: EXACTLY 12 REGIONS (3 DIALOGUEBUBBLES, 0 SOUNDEFFECT, 9 FREETEXT)
+    crate::assert_element_counts!(res, 12, 3, 0, 9);
 
     // 2. PANEL 1 DIALOGUE BUBBLES
     assert!(res.regions.iter().any(|r| r.text.contains("杨开") && r.text.contains("淬体三层")));

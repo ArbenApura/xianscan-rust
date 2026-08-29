@@ -172,10 +172,10 @@ pub fn try_refine_cluster_crop(
     let combined_cjk_count = combined_text.chars().filter(|c| !c.is_whitespace()).count();
     let has_more_ellipsis = (clean_crop_text.contains('…') && !combined_text.contains('…')) || (clean_crop_text.contains("..") && !combined_text.contains(".."));
 
-    // IF THE CROP RESULT MERGED LINES ACROSS MULTIPLE SEPARATE DIALOGUE SENTENCES, DO NOT REPLACE
+    // IF THE CROP RESULT MERGED LINES ACROSS MULTIPLE SEPARATE DIALOGUE SENTENCES OR EXPANDED A CLEAN SINGLE LINE ACROSS VERTICAL GAPS, DO NOT REPLACE
     let is_excessive_expansion = !is_bubble && (
         (combined_cjk_count >= 3 && crop_cjk_count >= (combined_cjk_count * 5 / 2))
-            || (cluster_lines.len() == 1 && avg_score >= 0.70 && !combined_text.contains('\n') && clean_crop_text.contains('\n') && !is_container_vert && combined_cjk_count >= 8)
+            || (cluster_lines.len() == 1 && avg_score >= 0.70 && !combined_text.contains('\n') && clean_crop_text.contains('\n') && !is_container_vert && (combined_cjk_count >= 4 || target_rect.h <= 45))
     );
 
     // PREVENT CORRUPTING VALID PUNCTUATION CLUSTERS (?!, !?, ...) INTO SPLIT DIGIT/BULLET/LETTER ARTIFACTS (21, ●, 12, N)
