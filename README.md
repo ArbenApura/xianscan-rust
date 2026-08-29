@@ -120,15 +120,29 @@ XianScan is designed to be CPU-first, running on standard laptops without requir
 
 ---
 
-## Translation Providers
+## Translation Providers & AI Context Engine
 
-XianScan connects to your preferred local or cloud AI models:
+XianScan is built specifically for narrative manga and webtoon storytelling, solving the major flaws of naive machine translation:
 
+### 1. Elastic Multi-Page Dialogue Context Window
+Unlike traditional page-by-page OCR translators that lose context between cuts, XianScan implements an **elastic backward-looking dialogue memory tracker**:
+- **Topic & Pronoun Continuity**: Injects up to 5 preceding pages of dialogue into the LLM system prompt as structured background context. The AI always knows who is speaking, their gender pronouns, relationship hierarchy, and the conversation subject across page turns.
+- **Cross-Chapter Lookback**: Automatically retrieves the trailing pages of the *preceding chapter* when translating Page 1 of a new chapter, eliminating cliffhanger confusion.
+- **Dynamic Density Balancing**: Automatically calculates dialogue density per page (halting lookback early for text-heavy battle recaps, and expanding backward for visual-heavy action sequences).
+
+### 2. High-Performance Terminology Glossaries
+Enforce consistent names, cultivation techniques, honorifics, and attack names across entire books:
+- **Aho-Corasick Multi-Pattern Matching**: Sub-millisecond $O(N)$ string search automaton identifying thousands of glossary entries simultaneously.
+- **Scriptura Continua & Word Boundary Normalization**: Handles unspaced CJK scripts (Chinese/Japanese) without false positives, while enforcing Unicode word boundaries and hyphenation repair for Latin and Cyrillic languages.
+- **Fuzzy 2-Gram Index**: Recovers and matches glossary terms even when raw OCR text contains minor scanning noise or character misrecognitions.
+- **Custom CSV & In-App Term Management**: Create, search, alias, and export terminology dictionaries directly within the Web Studio.
+
+### 3. Supported Translation Backends
 - **Local AI (Free & Offline)**:
-  - **Ollama / LM Studio**: Works with Qwen (recommended for CJK), Llama, Gemma, and Mistral models.
+  - **Ollama / LM Studio**: Works with **Qwen 2.5** (recommended for Chinese/Japanese/Korean), **Llama 3**, **Gemma 2**, and **Mistral**. Zero API fees, 100% private.
 - **Cloud AI APIs**:
-  - Google Gemini, OpenAI, OpenRouter, Groq, and standard OpenAI-compatible endpoints.
-- **Terminology Glossaries**: Match specific names, cultivation realms, and custom terminology across chapters.
+  - Direct integration with **Google Gemini 2.0 / 1.5**, **OpenAI (GPT-4o / GPT-4o-mini)**, **OpenRouter**, **Groq (Llama 3.3 70B @ 300+ tok/s)**, and any OpenAI-compatible custom gateway.
+- **Structured JSON Schema Output**: Guaranteed formatting that maps translations directly back to exact bubble geometry coordinates.
 
 ---
 
