@@ -83,7 +83,7 @@ pub fn is_pure_watermark_region(text: &str) -> bool {
     if t.chars().all(|c| c == '0' || c == 'o' || c == 'O' || c == '2' || c == '3' || c == '5' || c == '8' || c == '9') && t.chars().count() <= 4 {
         return true;
     }
-    // Thought bubble tail ornament strings (e.g. "……", "...", "…", "。。", "○", "●", "(…………)")
+    // Thought bubble tail ornament strings or silence ellipsis bubbles (e.g. "……", "...", "…", "。。", "○", "●", "(…………)", "(………)\n6")
     let is_tail_ornament_only = t.chars().all(|c| {
         c == '…'
             || c == '.'
@@ -101,6 +101,25 @@ pub fn is_pure_watermark_region(text: &str) -> bool {
             || c == '）'
     });
     if is_tail_ornament_only {
+        return true;
+    }
+
+    // Silence ellipsis with OCR tail noise (e.g. "(………)\n6", "……6", "…9")
+    let dot_count = t.chars().filter(|&c| c == '…' || c == '.' || c == '·' || c == '。' || c == '‥' || c == '．').count();
+    let other_non_bracket = t.chars().filter(|c| {
+        !c.is_whitespace()
+            && *c != '…'
+            && *c != '.'
+            && *c != '·'
+            && *c != '。'
+            && *c != '‥'
+            && *c != '．'
+            && *c != '('
+            && *c != ')'
+            && *c != '（'
+            && *c != '）'
+    }).count();
+    if dot_count >= 2 && other_non_bracket <= 1 {
         return true;
     }
     false

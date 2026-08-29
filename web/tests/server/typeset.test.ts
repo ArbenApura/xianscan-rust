@@ -690,6 +690,49 @@ Tattered Flesh-Cutting Knife`;
 		expect(lines.length * size * 1.2).toBeLessThanOrEqual(140 * 0.9);
 	});
 
+	it('wraps compound hyphenated names cleanly at high font size in vertical bubble ("Ikushima-kun")', () => {
+		const c = createCanvas(10, 10);
+		const x = c.getContext('2d');
+		const text = "WHAT'S UP, IKUSHIMA-KUN?";
+		// Page 101077 Region #4: w: 127, h: 177
+		const size = fitFontSize(x, text, 'CC Wild Words', 127, 177, 40);
+		expect(size).toBeGreaterThanOrEqual(15); // Must stay legible (>= 15px)
+
+		x.font = `${size}px "CC Wild Words"`;
+		const maxW = 127 * (1 - 2 * 0.05);
+		const lines = reflowText(x, text, maxW);
+		expect(lines.length).toBeGreaterThanOrEqual(2);
+		expect(lines.length * size * 1.2).toBeLessThanOrEqual(177 * 0.9);
+	});
+
+	it('hyphenates long syllable words to preserve tall vertical box fill ratio ("evaluation.")', () => {
+		const c = createCanvas(10, 10);
+		const x = c.getContext('2d');
+		const text = 'AND NOW,\nBOOST MY EVALUATION.';
+		// Page 101074 Region #6: w: 116, h: 217
+		const size = fitFontSize(x, text, 'CC Wild Words', 116, 217, 40);
+		expect(size).toBeGreaterThanOrEqual(15); // Must stay legible (>= 15px)
+
+		x.font = `${size}px "CC Wild Words"`;
+		const maxW = 116 * (1 - 2 * 0.05);
+		const lines = reflowText(x, text, maxW);
+		expect(lines.length * size * 1.2).toBeLessThanOrEqual(217 * 0.9);
+	});
+
+	it('reflows multi-clause dialogue with newlines cleanly in narrow boxes ("Since enrolling...")', () => {
+		const c = createCanvas(10, 10);
+		const x = c.getContext('2d');
+		const text = "SINCE ENROLLING,\nHASN'T HE BEEN\nFIRST THE WHOLE TIME?!";
+		// Page 101074 Region #3: w: 107, h: 149
+		const size = fitFontSize(x, text, 'CC Wild Words', 107, 149, 40);
+		expect(size).toBeGreaterThanOrEqual(15); // Must avoid 9px collapse (>= 15px)
+
+		x.font = `${size}px "CC Wild Words"`;
+		const maxW = 107 * (1 - 2 * 0.05);
+		const lines = reflowText(x, text, maxW);
+		expect(lines.length * size * 1.2).toBeLessThanOrEqual(149 * 0.9);
+	});
+
 	it('resolves appropriate script font family for Chinese, Japanese, Korean, Thai, Hindi, and Cyrillic', () => {
 		expect(resolveScriptFont('该死！')).toBe('Microsoft YaHei');
 		expect(resolveScriptFont('こんにちは！')).toBe('Yu Gothic');

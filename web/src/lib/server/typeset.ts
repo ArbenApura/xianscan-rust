@@ -67,6 +67,10 @@ export async function typesetPage(
 
 	const decollided = decollideRegions(regions);
 
+	// PASS 1: PRE-PARSE REGIONS AND COMPUTE PAGE-LEVEL DIALOGUE BASELINE
+	const dialogueSizes: number[] = [];
+	const preparedRegions = [];
+
 	for (const r of decollided) {
 		const rawText = sanitizeForFont(r.text.trim());
 		if (!rawText) continue;
@@ -77,18 +81,18 @@ export async function typesetPage(
 		} else if (colorMode === 'light') {
 			color = { fill: 'white', stroke: 'black' };
 		} else {
-			const bg = sampleBackground(ctx, r.box.x, r.box.y, r.box.w, r.box.h);
+			const bg = sampleBackground(img, r.box.x, r.box.y, r.box.w, r.box.h);
 			color = pickTextColor(bg);
 		}
 
-		// STAT-PANEL PATH — structured multi-segment rendering
+		// STAT-PANEL PATH — STRUCTURED MULTI-SEGMENT RENDERING
 		const statSegments = parseStatPanel(rawText);
 		if (statSegments) {
-			typesetStatPanel(ctx, r, statSegments, color);
+			preparedRegions.push({ r, rawText, text: rawText, statSegments, color, isSfx: false, font: fontDialogue, maxW: r.box.w, maxH: r.box.h, sizeCap: 0 });
 			continue;
 		}
 
-		// STANDARD PATH — unified natural multi-line wrapping with user casing
+		// STANDARD PATH — UNIFIED NATURAL MULTI-LINE WRAPPING WITH USER CASING
 		const isCjk = CJK_REGEX.test(rawText);
 		let text: string;
 		if (isCjk) {
@@ -100,29 +104,59 @@ export async function typesetPage(
 		} else {
 			text = rawText.toUpperCase();
 		}
-		const { x, y, w, h } = r.box;
-
-		const angleDeg = r.angle ?? 0;
-		const hasRotation = enableRotation && Math.abs(angleDeg) >= 2.0 && Math.abs(angleDeg) <= 45.0;
 
 		const font = fontFor(text, fontDialogue, fontCjk);
 		const isSfx = isSfxOrShout(text);
+		const maxW = Math.max(10, r.box.w * (1 - 2 * inset));
+		const maxH = Math.max(10, r.box.h * (1 - 2 * inset));
+		const sizeCap = Math.max(MAX_SFX_FONT_SIZE, Math.max(r.box.w, r.box.h));
 
-		const maxW = Math.max(10, w * (1 - 2 * inset));
-		const maxH = Math.max(10, h * (1 - 2 * inset));
+		if (!isSfx && r.kind === 'dialogue_bubble') {
+			const maxDialogueSize = Math.max(24, Math.round(img.width * 0.035));
+			const cap = Math.min(sizeCap, maxDialogueSize);
+			const initialSize = fitFontSize(ctx, text, font, r.box.w, r.box.h, cap, cap, inset, fontCjk);
+			if (text.split(/\s+/).length >= 2) {
+				dialogueSizes.push(initialSize);
+			}
+		}
 
-		const sizeCap = Math.max(MAX_SFX_FONT_SIZE, Math.max(w, h));
+		preparedRegions.push({ r, rawText, text, statSegments: null, color, isSfx, font, maxW, maxH, sizeCap });
+	}
+
+	// COMPUTE PAGE DIALOGUE MEDIAN BASELINE
+	let pageDialogueBaseline = 0;
+	if (dialogueSizes.length > 0) {
+		dialogueSizes.sort((a, b) => a - b);
+		pageDialogueBaseline = dialogueSizes[Math.floor(dialogueSizes.length / 2)];
+	}
+
+	// PASS 2: RENDER REGIONS WITH HARMONIZED SIZING
+	for (const prep of preparedRegions) {
+		const { r, text, statSegments, color, isSfx, font, maxW, maxH, sizeCap } = prep;
+		if (statSegments) {
+			typesetStatPanel(ctx, r, statSegments, color);
+			continue;
+		}
+
+		const { x, y, w, h } = r.box;
+		const angleDeg = r.angle ?? 0;
+		const hasRotation = enableRotation && Math.abs(angleDeg) >= 2.0 && Math.abs(angleDeg) <= 45.0;
+
 		let size: number;
 		if (isSfx) {
 			size = fitSingleLineSize(ctx, text, font, maxW, maxH, sizeCap, fontCjk);
 		} else {
 			const maxDialogueSize = Math.max(24, Math.round(img.width * 0.035));
-			const cap = r.kind === 'dialogue_bubble' ? Math.min(sizeCap, maxDialogueSize) : sizeCap;
+			let cap = r.kind === 'dialogue_bubble' ? Math.min(sizeCap, maxDialogueSize) : sizeCap;
+			const isShortNonShout = text.split(/\s+/).length <= 2 && !/[!！]/.test(text);
+			if (pageDialogueBaseline > 0 && isShortNonShout && r.kind === 'dialogue_bubble') {
+				cap = Math.min(cap, Math.max(18, Math.round(pageDialogueBaseline * 1.25)));
+			}
 			size = fitFontSize(ctx, text, font, w, h, cap, cap, inset, fontCjk);
 		}
 
 		ctx.font = fontSpec(size, font, text, fontCjk);
-		const isNarrowVertical = h / w >= 1.4 && h >= 65;
+		const isNarrowVertical = (h / w >= 1.15 || h >= 120) && h >= 65;
 		const lines = isSfx
 			? [text]
 			: (isNarrowVertical && text.includes('\n') && !isStructuredList(text))

@@ -1,10 +1,124 @@
 // TEXT REFLOW, WRAPPING, AND FONT SIZE FITTING ALGORITHMS
+// IMPORTED MODULES
 import { CJK_REGEX, fontSpec } from './fonts';
+
+// -- CONSTANTS -- //
 
 const BOX_INSET = 0.05;
 const MIN_FONT_SIZE = 6;
 const LINE_HEIGHT = 1.2;
 const LONE_PUNCT = /^[.．…·!！?？,，;；:：~～)"'']{1,3}$/;
+
+// COMMON ENGLISH PREFIXES AND SUFFIXES FOR SYLLABLE HYPHENATION
+const HYPHEN_PREFIXES = [
+	'under', 'super', 'inter', 'intra', 'trans', 'every', 'multi',
+	'over', 'some', 'with', 'fore', 'back', 'down', 'post',
+	'anti', 'semi', 'auto', 'para', 'self', 'dis', 'mis', 'out', 'pre', 'pro', 'sub', 'non', 'un',
+	'con', 'com', 'per', 'for', 'tra', 'tri', 'be', 'de', 're', 'in', 'im', 'ex', 'en'
+];
+
+const HYPHEN_SUFFIXES = [
+	'ization', 'isation', 'ational',
+	'action', 'ection', 'iction', 'uction', 'ation', 'ition', 'ution', 'sion', 'tion',
+	'ement', 'iment', 'nment', 'ment',
+	'able', 'ible', 'ness', 'less', 'ful', 'ing', 'est', 'ity', 'ive', 'ous', 'ish', 'ize', 'ise', 'ism', 'ist', 'tor', 'ter'
+];
+
+// -- FUNCTIONS -- //
+
+export function findHyphenationPoints(rawWord: string): number[] {
+	const word = rawWord.toLowerCase();
+	const len = word.length;
+	if (len < 6) return [];
+
+	const points = new Set<number>();
+
+	// 1. EXPLICIT INTERNAL HYPHEN (E.G. "IKUSHIMA-KUN", "TWENTY-FIVE")
+	for (let i = 1; i < len - 1; i++) {
+		if (word[i] === '-') {
+			points.add(i + 1);
+		}
+	}
+
+	// 2. COMMON PREFIXES
+	for (const p of HYPHEN_PREFIXES) {
+		if (word.startsWith(p) && len - p.length >= 3) {
+			points.add(p.length);
+		}
+	}
+
+	// 3. COMMON SUFFIXES
+	for (const s of HYPHEN_SUFFIXES) {
+		if (word.endsWith(s) && len - s.length >= 3) {
+			points.add(len - s.length);
+		}
+	}
+
+	// 4. DOUBLE CONSONANTS: TT, LL, PP, NN, SS, RR, DD, BB, GG, FF, MM, CC, CK
+	for (let i = 2; i < len - 2; i++) {
+		const c1 = word[i - 1];
+		const c2 = word[i];
+		if (c1 === c2 && 'bcdfghjklmnpqrstvwxz'.includes(c1)) {
+			points.add(i);
+		} else if (c1 === 'c' && c2 === 'k') {
+			points.add(i);
+		}
+	}
+
+	// 5. VOWEL-CONSONANT-CONSONANT-VOWEL (VC-CV)
+	const vowels = 'aeiouy';
+	for (let i = 2; i < len - 2; i++) {
+		const v1 = vowels.includes(word[i - 2]);
+		const c1 = !vowels.includes(word[i - 1]) && word[i - 1] !== '-';
+		const c2 = !vowels.includes(word[i]) && word[i] !== '-';
+		const v2 = vowels.includes(word[i + 1]);
+		if (v1 && c1 && c2 && v2) {
+			const pair = word.slice(i - 1, i + 1);
+			if (!['th', 'sh', 'ch', 'ph', 'wh', 'qu', 'gh', 'ng'].includes(pair)) {
+				points.add(i);
+			}
+		}
+	}
+
+	// 6. VOWEL-CONSONANT-VOWEL (V-CV)
+	for (let i = 2; i < len - 2; i++) {
+		const v1 = vowels.includes(word[i - 1]);
+		const c1 = !vowels.includes(word[i]) && word[i] !== '-';
+		const v2 = vowels.includes(word[i + 1]);
+		if (v1 && c1 && v2) {
+			points.add(i);
+		}
+	}
+
+	return Array.from(points)
+		.filter((p) => p >= 2 && len - p >= 2)
+		.sort((a, b) => a - b);
+}
+
+export function getEffectiveMaxWordWidth(
+	ctx: { measureText(t: string): { width: number } },
+	wordList: string[],
+): number {
+	let maxW = 0;
+	for (const w of wordList) {
+		const punctMatch = w.match(/^(.*?)([.!?,:;~…"']+)?$/);
+		const stem = punctMatch && punctMatch[1] ? punctMatch[1] : w;
+		const points = findHyphenationPoints(stem);
+		if (points.length > 0) {
+			let prev = 0;
+			for (const p of points) {
+				const segment = stem[p - 1] === '-' ? stem.slice(prev, p) : `${stem.slice(prev, p)}-`;
+				maxW = Math.max(maxW, ctx.measureText(segment).width);
+				prev = p;
+			}
+			const lastSegment = stem.slice(prev) + (punctMatch?.[2] || '');
+			maxW = Math.max(maxW, ctx.measureText(lastSegment).width);
+		} else {
+			maxW = Math.max(maxW, ctx.measureText(w).width);
+		}
+	}
+	return maxW;
+}
 
 export function wrapText(ctx: { measureText(t: string): { width: number } }, text: string, maxWidth: number): string[] {
 	const lines: string[] = [];
@@ -28,6 +142,30 @@ export function wrapText(ctx: { measureText(t: string): { width: number } }, tex
 		}
 
 		while (ctx.measureText(current).width > maxWidth && current.length > 1) {
+			const curPunctMatch = current.match(/^(.*?)([.!?,:;~…"']+)?$/);
+			const curStem = curPunctMatch && curPunctMatch[1] ? curPunctMatch[1] : current;
+			const curPunct = curPunctMatch && curPunctMatch[2] ? curPunctMatch[2] : '';
+
+			// 1. TRY NATURAL SYLLABLE / HYPHEN POINTS FIRST
+			const points = findHyphenationPoints(curStem);
+			let chosenSplit = -1;
+			for (let i = points.length - 1; i >= 0; i--) {
+				const p = points[i];
+				const candHead = curStem[p - 1] === '-' ? curStem.slice(0, p) : `${curStem.slice(0, p)}-`;
+				if (ctx.measureText(candHead).width <= maxWidth) {
+					chosenSplit = p;
+					break;
+				}
+			}
+
+			if (chosenSplit > 0) {
+				const candHead = curStem[chosenSplit - 1] === '-' ? curStem.slice(0, chosenSplit) : `${curStem.slice(0, chosenSplit)}-`;
+				heads.push(candHead);
+				current = curStem.slice(chosenSplit) + curPunct;
+				continue;
+			}
+
+			// 2. CHARACTER FALLBACK FOR UNBREAKABLE TOKENS
 			let kRaw = current.length - 1;
 			while (kRaw > 0 && ctx.measureText(current.slice(0, kRaw)).width > maxWidth) {
 				kRaw--;
@@ -68,7 +206,25 @@ export function wrapText(ctx: { measureText(t: string): { width: number } }, tex
 			continue;
 		}
 
-		for (const word of paragraph.split(/\s+/)) {
+		// SPLIT WORDS ON WHITESPACE, ALSO RECOGNIZING HYPHENATED COMPOUNDS
+		const rawWords = paragraph.split(/\s+/).filter(Boolean);
+		const expandedWords: string[] = [];
+		for (const w of rawWords) {
+			if (w.includes('-') && !w.startsWith('-') && !w.endsWith('-') && w.length >= 5) {
+				const sub = w.split('-');
+				for (let i = 0; i < sub.length; i++) {
+					if (i < sub.length - 1) {
+						expandedWords.push(`${sub[i]}-`);
+					} else {
+						expandedWords.push(sub[i]);
+					}
+				}
+			} else {
+				expandedWords.push(w);
+			}
+		}
+
+		for (const word of expandedWords) {
 			if (!word) continue;
 			if (!current) {
 				if (ctx.measureText(word).width <= maxWidth) {
@@ -79,7 +235,7 @@ export function wrapText(ctx: { measureText(t: string): { width: number } }, tex
 					current = tail;
 				}
 			} else {
-				const candidate = `${current} ${word}`;
+				const candidate = current.endsWith('-') ? `${current}${word}` : `${current} ${word}`;
 				if (ctx.measureText(candidate).width <= maxWidth) {
 					current = candidate;
 				} else {
@@ -246,7 +402,19 @@ export function fitFontSize(
 	const maxW = Math.max(10, boxW * (1 - 2 * inset));
 	const maxH = Math.max(10, boxH * (1 - 2 * inset));
 
-	const words = text.split(/[\s\n]+/).filter(Boolean);
+	const rawWords = text.split(/[\s\n]+/).filter(Boolean);
+	const words: string[] = [];
+	for (const w of rawWords) {
+		if (w.includes('-') && !w.startsWith('-') && !w.endsWith('-') && w.length >= 5) {
+			const sub = w.split('-');
+			for (let i = 0; i < sub.length; i++) {
+				words.push(i < sub.length - 1 ? `${sub[i]}-` : sub[i]);
+			}
+		} else {
+			words.push(w);
+		}
+	}
+
 	let lo = MIN_FONT_SIZE;
 	let hi = Math.max(lo, maxSize ?? startSize);
 	let cleanBest = MIN_FONT_SIZE;
@@ -272,8 +440,8 @@ export function fitFontSize(
 		hi = mid - 1;
 	}
 
-	const isNarrowVertical = boxH / boxW >= 1.4 && boxH >= 65;
-	if (foundClean && (cleanBest >= 11 || !isNarrowVertical)) {
+	const isNarrowVertical = (boxH / boxW >= 1.15 || boxH >= 120) && boxH >= 65;
+	if (foundClean && (cleanBest >= 15 || !isNarrowVertical)) {
 		return cleanBest;
 	}
 
@@ -296,9 +464,9 @@ export function fitFontSize(
 		}
 	}
 
-	// IF NARROW VERTICAL CONTAINER FORCED FONT DOWN BELOW LEGIBLE THRESHOLD (< 12pt) DESPITE AMPLE HEIGHT,
-	// TRY REFLOWING WITHOUT HARD NEWLINES TO ALLOW BALANCED HORIZONTAL WRAPPING AT A LEGIBLE FONT SIZE
-	if (best < 12 && isNarrowVertical && text.includes('\n') && !isStructuredList(text)) {
+	// IF NARROW VERTICAL CONTAINER FORCED FONT DOWN BELOW COMFORTABLE THRESHOLD (< 18pt) DESPITE AMPLE HEIGHT,
+	// TRY REFLOWING WITHOUT HARD NEWLINES TO ALLOW BALANCED MULTI-LINE WRAPPING AT A LEGIBLE FONT SIZE
+	if (best < 18 && isNarrowVertical && text.includes('\n') && !isStructuredList(text)) {
 		const flattenedText = text.replace(/\n+/g, ' ').trim();
 		let flatLo = Math.max(best, MIN_FONT_SIZE);
 		let flatHi = Math.max(flatLo, maxSize ?? startSize);
