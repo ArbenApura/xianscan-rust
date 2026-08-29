@@ -71,7 +71,8 @@ pub fn should_reject_candidate_region(
     // 5. IN NON-LATIN SCRIPT SOURCES
     let is_non_latin = crate::ml::detect::is_non_latin_source(source_lang);
     let lacks_native_script = !crate::ml::detect::has_native_script_for_lang(cleaned, source_lang);
-    let is_pure_latin = lacks_native_script && cleaned.chars().all(|c| c.is_ascii_alphabetic() || c.is_whitespace() || c.is_ascii_punctuation());
+    let is_expressive_punct = cleaned.chars().any(|c| matches!(c, '！' | '？' | '!' | '?' | '…' | '·' | '—' | '～' | '¿' | '¡'));
+    let is_pure_latin = lacks_native_script && !is_expressive_punct && cleaned.chars().all(|c| c.is_ascii_alphabetic() || c.is_whitespace() || c.is_ascii_punctuation());
     if is_non_latin && is_pure_latin && !crate::ml::detect::is_onomatopoeia_or_shout(cleaned) {
         return true;
     }
@@ -81,10 +82,12 @@ pub fn should_reject_candidate_region(
         let is_valid_sfx = crate::ml::detect::is_onomatopoeia_or_shout(cleaned);
         let is_short_noise_code = !is_bubble && char_count <= 3 && !is_valid_sfx;
         let is_non_bubble_alphanumeric = !is_bubble && !is_valid_sfx;
+        let is_pure_digits_in_bubble = is_bubble && cleaned.chars().all(|c| c.is_ascii_digit() || c.is_whitespace()) && char_count <= 3;
         if cluster_rect.h <= 15
             || is_sparse_giant_box
             || is_short_noise_code
             || is_non_bubble_alphanumeric
+            || is_pure_digits_in_bubble
             || (!is_bubble && cluster_rect.w <= 35 && cluster_rect.h <= 35)
             || (!is_bubble && avg_score < 0.70 && !is_valid_sfx)
             || (!is_bubble && char_count == 1 && !is_valid_sfx)
@@ -128,20 +131,20 @@ pub fn should_reject_candidate_region(
     }
 
     // 9. SUPPRESS LOW-CONFIDENCE ISOLATED SINGLE-CHARACTER ARTWORK ARTIFACTS / SFX
-    let is_sign_or_narration_box = is_cjk && cluster_rect.w >= 60 && cluster_rect.h >= 40 && avg_score >= 0.70 && !crate::ml::detect::is_onomatopoeia_or_shout(cleaned);
-    let is_margin_isolated_char = (cluster_rect.x <= 5 || cluster_rect.x + cluster_rect.w >= page_w as i32 - 5) && avg_score < 0.75;
     let char_count = cleaned.chars().filter(|c| !c.is_whitespace()).count();
-    let is_valid_cjk_glyph = is_cjk && cleaned.chars().any(|c| crate::ml::detect::has_cjk_characters(&c.to_string())) && avg_score >= 0.70 && !is_margin_isolated_char;
+    let is_oversized_single_char = char_count == 1 && (cluster_rect.w >= 75 || cluster_rect.h >= 75);
+    let is_sign_or_narration_box = is_cjk && char_count >= 2 && cluster_rect.w >= 60 && cluster_rect.h >= 40 && avg_score >= 0.70 && !crate::ml::detect::is_onomatopoeia_or_shout(cleaned);
+    let is_margin_isolated_char = (cluster_rect.x <= 5 || cluster_rect.x + cluster_rect.w >= page_w as i32 - 5) && avg_score < 0.75;
+    let is_valid_cjk_glyph = is_cjk && char_count >= 2 && cleaned.chars().any(|c| crate::ml::detect::has_cjk_characters(&c.to_string())) && avg_score >= 0.70 && !is_margin_isolated_char;
     let is_compact_single_glyph_box = char_count == 1 && cluster_rect.w <= 55 && cluster_rect.h <= 55;
-    let is_low_conf_single_char = char_count == 1 && (avg_score < 0.68 || cluster_rect.w >= 100 || cluster_rect.h >= 100 || is_compact_single_glyph_box);
+    let is_low_conf_single_char = char_count == 1 && (avg_score < 0.75 || is_oversized_single_char || is_compact_single_glyph_box);
     let is_isolated_sfx = char_count <= 4 && crate::ml::detect::is_onomatopoeia_or_shout(cleaned);
 
     if char_count <= 4
         && !is_bubble
         && !is_sign_or_narration_box
-        && (!is_valid_cjk_glyph || is_low_conf_single_char || is_margin_isolated_char || is_isolated_sfx)
-        && (!crate::ml::detect::is_onomatopoeia_or_shout(cleaned) || avg_score < 0.60 || is_margin_isolated_char || is_low_conf_single_char || is_isolated_sfx)
-        && (compute_chromatic_color_variance(img, cluster_rect) >= 15.0 || is_margin_isolated_char || is_low_conf_single_char || is_isolated_sfx || (avg_score < 0.75 && cluster_rect.w <= 40 && cluster_rect.h <= 40))
+        && (!is_valid_cjk_glyph || is_low_conf_single_char || is_margin_isolated_char || is_isolated_sfx || is_oversized_single_char)
+        && (compute_chromatic_color_variance(img, cluster_rect) >= 15.0 || is_margin_isolated_char || is_low_conf_single_char || is_isolated_sfx || is_oversized_single_char || (avg_score < 0.75 && cluster_rect.w <= 40 && cluster_rect.h <= 40))
     {
         return true;
     }

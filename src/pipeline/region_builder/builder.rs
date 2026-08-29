@@ -99,11 +99,15 @@ pub fn build_regions(
             .collect();
 
         // IN NON-LATIN SCRIPT SOURCES (E.G. KOREAN, CJK), DROP OVERLAPPING PURE LATIN NOISE LINES
-        if crate::ml::detect::is_non_latin_source(source_lang) && matched.iter().any(|l| crate::ml::detect::has_native_script_for_lang(&l.text, source_lang)) {
+        if crate::ml::detect::is_non_latin_source(source_lang) && matched.iter().any(|l| {
+            let t = l.text.trim();
+            crate::ml::detect::has_native_script_for_lang(t, source_lang) || t.chars().any(|c| matches!(c, '！' | '？' | '!' | '?' | '…'))
+        }) {
             matched.retain(|l| {
                 let t = l.text.trim();
                 let lacks_native = !crate::ml::detect::has_native_script_for_lang(t, source_lang);
-                let is_pure_latin_word = lacks_native && t.chars().all(|c| c.is_ascii_alphabetic() || c.is_whitespace() || c.is_ascii_punctuation());
+                let is_punct = t.chars().any(|c| matches!(c, '！' | '？' | '!' | '?' | '…'));
+                let is_pure_latin_word = lacks_native && !is_punct && t.chars().all(|c| c.is_ascii_alphabetic() || c.is_whitespace() || c.is_ascii_punctuation());
                 !is_pure_latin_word || crate::ml::detect::is_onomatopoeia_or_shout(t)
             });
         }
@@ -154,15 +158,17 @@ pub fn build_regions(
             }
 
             // IN NON-LATIN CONTAINERS, SUPPRESS PURE LATIN NOISE / CLOTHING PATTERN / DIGIT NOISE LINES
-            let has_native_script_line = orientation_filtered.iter().any(|l| {
-                l.score >= 0.65 && crate::ml::detect::has_native_script_for_lang(&l.text, source_lang)
+            let has_native_or_punct_line = orientation_filtered.iter().any(|l| {
+                let t = l.text.trim();
+                l.score >= 0.65 && (crate::ml::detect::has_native_script_for_lang(t, source_lang) || t.chars().any(|c| matches!(c, '！' | '？' | '!' | '?' | '…')))
             });
-            if has_native_script_line && crate::ml::detect::is_non_latin_source(source_lang) {
+            if has_native_or_punct_line && crate::ml::detect::is_non_latin_source(source_lang) {
                 orientation_filtered.retain(|l| {
                     let t = l.text.trim();
                     let lacks_native = !crate::ml::detect::has_native_script_for_lang(t, source_lang);
-                    let is_pure_latin_word = lacks_native && t.chars().all(|c| c.is_ascii_alphabetic() || c.is_whitespace() || c.is_ascii_punctuation());
-                    let is_noise_or_digit = lacks_native && (crate::ml::detect::is_standalone_digit_or_particle_noise(t) || crate::ml::detect::is_standalone_noise_stroke(t));
+                    let is_punct = t.chars().any(|c| matches!(c, '！' | '？' | '!' | '?' | '…'));
+                    let is_pure_latin_word = lacks_native && !is_punct && t.chars().all(|c| c.is_ascii_alphabetic() || c.is_whitespace() || c.is_ascii_punctuation());
+                    let is_noise_or_digit = lacks_native && !is_punct && (crate::ml::detect::is_standalone_digit_or_particle_noise(t) || crate::ml::detect::is_standalone_noise_stroke(t));
                     (!is_pure_latin_word && !is_noise_or_digit) || crate::ml::detect::is_onomatopoeia_or_shout(t)
                 });
             }

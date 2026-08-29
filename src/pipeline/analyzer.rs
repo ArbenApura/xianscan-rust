@@ -111,7 +111,13 @@ pub fn analyze_image_with_fusion_timed(
             }
 
             // IF THIS CANDIDATE OVERLAPS DETECTED ONOMATOPOEIA (SFX) WITH HIGHER OR COMPARABLE SCORE, SKIP IT
-            let overlaps_sfx = fusion_res.onomatopoeia.iter().any(|(sfx_b, sfx_score)| {
+            // GUARD: If this text_bubble sits securely inside an actual speech bubble container, do not drop it (spiky bubbles often trigger onomatopoeia detectors)
+            let is_inside_bubble = fusion_res.bubbles.iter().any(|pb| {
+                let ix = (pb.x + pb.w).min(b.x + b.w) - pb.x.max(b.x);
+                let iy = (pb.y + pb.h).min(b.y + b.h) - pb.y.max(b.y);
+                ix > 0 && iy > 0 && (ix * iy) as f32 / (b.w * b.h).max(1) as f32 >= 0.50
+            });
+            let overlaps_sfx = !is_inside_bubble && fusion_res.onomatopoeia.iter().any(|(sfx_b, sfx_score)| {
                 if *sfx_score < 0.25 {
                     return false;
                 }

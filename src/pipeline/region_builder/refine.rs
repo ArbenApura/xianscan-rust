@@ -60,10 +60,12 @@ pub fn try_refine_cluster_crop(
         && is_cjk
         && !crate::ml::detect::has_cjk_characters(combined_text)
         && combined_text.chars().any(|c| c.is_ascii_alphabetic());
+    let is_clean_expressive_punct = is_combined_pure_punct && avg_score >= 0.70;
     let can_refine_crop = (is_bubble || is_container_wider || is_container_taller || is_short_text_partial || is_standalone_alphanumeric_risk || is_corrupted_latin_in_bubble)
         && (cluster_rect.w >= 16 || box_rect.w >= 16)
         && (cluster_rect.h >= 16 || box_rect.h >= 16)
-        && (!full_page_is_complete || is_corrupted_latin_in_bubble);
+        && (!full_page_is_complete || is_corrupted_latin_in_bubble)
+        && !is_clean_expressive_punct;
 
     if !can_refine_crop {
         return None;
@@ -176,17 +178,18 @@ pub fn try_refine_cluster_crop(
             || (cluster_lines.len() == 1 && avg_score >= 0.70 && !combined_text.contains('\n') && clean_crop_text.contains('\n') && !is_container_vert && combined_cjk_count >= 8)
     );
 
-    // PREVENT CORRUPTING VALID PUNCTUATION CLUSTERS (?!, !?, ...) INTO SPLIT DIGIT/BULLET ARTIFACTS (21, ●)
-    let is_crop_digits_or_bullets_only = clean_crop_text.chars().all(|c| {
-        c.is_ascii_digit() || c.is_whitespace() || matches!(c, '●' | '○' | '•' | '·')
+    // PREVENT CORRUPTING VALID PUNCTUATION CLUSTERS (?!, !?, ...) INTO SPLIT DIGIT/BULLET/LETTER ARTIFACTS (21, ●, 12, N)
+    let is_crop_digits_bullets_or_noise = clean_crop_text.chars().all(|c| {
+        c.is_ascii_digit() || c.is_whitespace() || matches!(c, '●' | '○' | '•' | '·' | 'N' | 'n' | 'v' | 'V' | 'u' | 'U' | 'l' | 'I' | '|')
     });
-    let is_corrupted_punct_to_digits = is_combined_pure_punct && is_crop_digits_or_bullets_only;
+    let is_corrupted_punct_to_digits = is_combined_pure_punct && is_crop_digits_bullets_or_noise;
 
     let is_improved = if is_cjk {
         !is_excessive_expansion && !is_corrupted_punct_to_digits && (
             crop_cjk_count > combined_cjk_count
                 || (is_corrupted_latin_in_bubble && crop_cjk_count >= 1)
                 || has_more_ellipsis
+                || (is_combined_pure_punct && clean_crop_text.chars().any(|c| matches!(c, '！' | '？' | '!' | '?')))
                 || (crop_cjk_count == combined_cjk_count && res.score > avg_score + 0.02)
                 || (res.score >= 0.70 && avg_score < 0.60)
         )

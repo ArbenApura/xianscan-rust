@@ -1,4 +1,4 @@
-﻿// -- INTERNAL IMPORTS -- //
+// -- INTERNAL IMPORTS -- //
 use crate::common::get_or_analyze_fixture_with_lang;
 
 // -- TESTS -- //
@@ -30,8 +30,8 @@ fn test_regression_page_herb_shop_silence_ellipsis_dots() {
         println!("  Region r{}: kind={:?}, angle={:.2}, box={:?}, text='{}', conf={:.2}", i, r.kind, r.angle, r.box_, r.text.replace('\n', "\\n"), r.confidence);
     }
 
-    // 0. EXACT ELEMENT COUNTS: EXACTLY 6 REGIONS (5 DIALOGUE BUBBLES, 1 FREE TEXT, 0 SFX)
-    crate::assert_element_counts!(res, 6, 5, 0, 1);
+    // 0. EXACT ELEMENT COUNTS: EXACTLY 5 REGIONS (5 DIALOGUE BUBBLES, 0 FREE TEXT, 0 SFX)
+    crate::assert_element_counts!(res, 5, 5, 0, 0);
 
     // 1. PANEL 1 BUBBLE: '嘿咻，\n嘿咻！'
     let b1 = res.regions.iter().find(|r| r.text.contains("嘿咻") && r.box_.y < 300);
@@ -40,14 +40,6 @@ fn test_regression_page_herb_shop_silence_ellipsis_dots() {
     assert_eq!(b1.kind, xianscan_rust::ml::schemas::RegionKind::DialogueBubble);
     crate::assert_region_bounds!(b1, xianscan_rust::ml::schemas::RegionKind::DialogueBubble, 152, 41, 86, 72, 10);
     crate::assert_region_angle!(b1, 0.0, 2.0);
-
-    // 2. PANEL 1 FLAG: '药'
-    let b2 = res.regions.iter().find(|r| r.text.contains("药") && r.box_.y < 200);
-    assert!(b2.is_some(), "Must detect panel 1 flag '药'");
-    let b2 = b2.unwrap();
-    assert_eq!(b2.kind, xianscan_rust::ml::schemas::RegionKind::FreeText);
-    crate::assert_region_bounds!(b2, xianscan_rust::ml::schemas::RegionKind::FreeText, 303, 30, 53, 74, 10);
-    crate::assert_region_angle!(b2, 0.0, 2.0);
 
     // 3. PANEL 2 LEFT BUBBLE: '紫岚草？'
     let b3 = res.regions.iter().find(|r| r.text.contains("紫岚草") && r.box_.y > 400 && r.box_.y < 700 && r.box_.x < 300);

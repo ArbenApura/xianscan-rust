@@ -41,32 +41,10 @@
 	// LIVE 0..=100 PERCENT FROM THE SIDECAR'S SSE FEED (MIRRORS TRANSLATION PROGRESS).
 	let progressPct = 0;
 
-	// PAGE-HEIGHT PRESET (DEFAULT: COMPACT / MOBILE 1600/1200/2000).
-	// BALANCES MANGA SINGLE-PAGE PANELS AND WEBTOON STRIPS.
+	// PAGE-HEIGHT PRESET (1600 / 1200 / 2000 PX)
 	let targetHeight = 1600;
 	let minHeight = 1200;
 	let maxHeight = 2000;
-
-	interface HeightPreset {
-		id: string;
-		label: string;
-		desc: string;
-		target: number;
-		min: number;
-		max: number;
-	}
-
-	const PRESETS: HeightPreset[] = [
-		{ id: 'compact', label: 'Compact / Mobile', desc: '1600 / 1200 / 2000 px', target: 1600, min: 1200, max: 2000 },
-		{ id: 'manga', label: 'Manga Standard', desc: '2200 / 1600 / 2600 px', target: 2200, min: 1600, max: 2600 },
-		{ id: 'webtoon', label: 'Webtoon Strip', desc: '2600 / 1800 / 3200 px', target: 2600, min: 1800, max: 3200 },
-	];
-
-	function applyPreset(p: HeightPreset) {
-		targetHeight = p.target;
-		minHeight = p.min;
-		maxHeight = p.max;
-	}
 
 	let abortController: AbortController | null = null;
 
@@ -255,33 +233,10 @@
 				</span>
 			</div>
 
-			<!-- PAGE-HEIGHT PRESETS & CUSTOM INPUTS -->
+			<!-- PAGE-HEIGHT PRESET -->
 			<div class="rounded-xl border border-black/10 bg-black/[0.02] p-3.5 dark:border-white/10 dark:bg-white/[0.02]">
-				<div class="flex items-center justify-between mb-2">
-					<span class="font-bold text-xs">Page Height Presets</span>
-					<span class="text-[10px] opacity-50">Quick Formats</span>
-				</div>
-
-				<div class="grid grid-cols-3 gap-2 mb-3">
-					{#each PRESETS as preset}
-						{@const isSelected = targetHeight === preset.target && minHeight === preset.min && maxHeight === preset.max}
-						<button
-							type="button"
-							class={`flex flex-col items-start rounded-lg border p-2 text-left transition-all ${
-								isSelected
-									? 'border-[#b23a2e] bg-[#b23a2e]/10 text-[#b23a2e] dark:border-[#e08a63] dark:bg-[#e08a63]/15 dark:text-[#e08a63] font-semibold'
-									: 'border-black/10 hover:border-black/20 dark:border-white/10 dark:hover:border-white/20'
-							}`}
-							on:click={() => applyPreset(preset)}
-						>
-							<span class="text-[11px] leading-tight">{preset.label}</span>
-							<span class="text-[9px] opacity-60 font-mono mt-0.5">{preset.desc}</span>
-						</button>
-					{/each}
-				</div>
-
 				<div class="flex items-center justify-between">
-					<span class="font-bold text-xs">Custom Height (px)</span>
+					<span class="font-bold text-xs">Page Height (px)</span>
 					<span class="text-[10px] opacity-50">Target / Min / Max</span>
 				</div>
 				<div class="mt-2.5 grid grid-cols-3 gap-2.5">
@@ -320,7 +275,7 @@
 					</label>
 				</div>
 				<p class="mt-2 text-[10px] leading-relaxed opacity-50">
-					Default is 1600 / 1200 / 2000 (Compact / Mobile). Select Manga Standard (2200) for full single-page panels or Webtoon Strip (2600) for long continuous vertical chapters.
+					Tuned default is 1600 / 1200 / 2000 for balanced manga panels, continuous webtoon reading, and OCR quality.
 				</p>
 			</div>
 

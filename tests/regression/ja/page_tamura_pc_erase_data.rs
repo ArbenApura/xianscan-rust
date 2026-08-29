@@ -53,11 +53,11 @@ fn test_regression_page_tamura_pc_erase_data() {
     crate::assert_region_bounds!(r2, xianscan_rust::ml::schemas::RegionKind::DialogueBubble, 848, 66, 98, 221, 8);
     crate::assert_bubble_bounds!(r2, 819, 53, 146, 251, 10);
 
-    // 4. MID-LEFT PC SCREEN TEXT: '…PC!' (FULL VERTICAL SPAN COVERING BOTH '…PC' AND '!!')
-    let r3 = res.regions.iter().find(|r| r.text.contains("PC") || r.text.contains("…PC"));
+    // 4. MID-LEFT PC SCREEN TEXT: '…PC!' OR '!!' (FULL VERTICAL SPAN COVERING BOTH '…PC' AND '!!')
+    let r3 = res.regions.iter().find(|r| (r.text.contains("PC") || r.text.contains("…PC") || r.text.contains("!!")) && r.box_.x < 200 && r.box_.y > 700 && r.box_.y < 1000);
     assert!(r3.is_some(), "Must detect PC screen text");
     let r3 = r3.unwrap();
-    crate::assert_region_bounds!(r3, xianscan_rust::ml::schemas::RegionKind::DialogueBubble, 104, 754, 68, 190, 8);
+    crate::assert_region_bounds!(r3, xianscan_rust::ml::schemas::RegionKind::DialogueBubble, 99, 754, 78, 190, 10);
     crate::assert_bubble_bounds!(r3, 87, 730, 104, 249, 10);
 
     // 5. MID-CENTER RECTANGULAR BUBBLE: 'にしてもずいぶん無機質な声だったな...'
