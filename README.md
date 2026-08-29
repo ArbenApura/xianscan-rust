@@ -255,9 +255,9 @@ If you are looking for a **Full-Stack Web Developer** with expertise in modern w
 - **Discord Community**: [Join the XianScan Discord](https://discord.gg/J5mjJX6c)
 
 ### Support Open-Source Development
-**XianScan** is built and maintained entirely independently to bring a fast, convenient personal reading and translation flow to untranslated comics. If this tool brings convenience to your reading experience, saves you time, or enhances your learning workflow, your support makes an immense difference.
+**XianScan** is built and maintained entirely independently to give readers and language learners a seamless, effortless way to enjoy untranslated comics. If XianScan brings convenience to your daily reading, saves you time, or enriches your workflow, any support is received with heartfelt gratitude.
 
-Contributions directly help keep this project free and active, covering essential living expenses and medical bills for my family while I build and refine open-source software:
+Your sponsorship directly sustains ongoing development, helping cover essential family living and healthcare costs, alongside the AI model subscriptions and API fees required for continuous testing and optimization:
 
 <div align="center">
 
