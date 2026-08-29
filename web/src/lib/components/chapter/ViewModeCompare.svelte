@@ -110,13 +110,28 @@
 
 		return items;
 	}
+
+	let clientRatios: Record<number, number> = {};
+
+	function handleImgLoad(pageId: number, e: CustomEvent<{ naturalWidth?: number; naturalHeight?: number }>): void {
+		const nw = e.detail?.naturalWidth;
+		const nh = e.detail?.naturalHeight;
+		if (nw && nh && nh > 0) {
+			clientRatios[pageId] = nw / nh;
+		}
+	}
 </script>
 
 <div class="flex w-full flex-col gap-6">
 	<VirtualPageList {pages} windowSize={7} overscan={2}>
 		<svelte:fragment slot="default" let:page let:i>
 			{@const idx = i}
-			{@const hasRatio = Boolean(page.width && page.height)}
+			{@const ratio = (page.width && page.height && page.height > 0)
+				? (page.width / page.height)
+				: (clientRatios[page.id] || null)}
+			{@const ratioStyle = ratio
+				? `aspect-ratio: ${ratio};`
+				: 'aspect-ratio: 2 / 3;'}
 			<!-- svelte-ignore a11y-no-static-element-interactions -->
 			<div
 				on:dragover={(e) => dispatch('dragOver', { event: e, index: idx })}
@@ -177,14 +192,15 @@
 					<div class="flex flex-col">
 						<div
 							class="group/img relative overflow-hidden rounded-lg border border-black/10 bg-black/5 dark:border-white/10"
-							style={hasRatio ? `aspect-ratio: ${page.width} / ${page.height};` : 'aspect-ratio: 2 / 3;'}
+							style={ratioStyle}
 						>
 							<!-- svelte-ignore a11y-click-events-have-key-events -->
 							<!-- svelte-ignore a11y-no-noninteractive-element-interactions -->
 							<PageImage
 								src={`/api/pages/${page.id}/file?kind=original&rev=${page.originalRev ?? 0}`}
 								alt={`Page ${page.seq + 1} Original`}
-								imgClass={`w-full h-full object-cover ${page.status === 'processing' ? 'opacity-80' : ''}`}
+								imgClass={`w-full h-full object-contain ${page.status === 'processing' ? 'opacity-80' : ''}`}
+								on:load={(e) => handleImgLoad(page.id, e)}
 								on:click={(e) =>
 									page.status !== 'processing' &&
 									dispatch('inspect', { page, initialTab: 'original' })}
@@ -204,16 +220,15 @@
 						{#if page.outputPath}
 							<div
 								class="group/img relative overflow-hidden rounded-lg border border-black/10 bg-black/5 dark:border-white/10"
-								style={hasRatio
-									? `aspect-ratio: ${page.width} / ${page.height};`
-									: 'aspect-ratio: 2 / 3;'}
+								style={ratioStyle}
 							>
 								<!-- svelte-ignore a11y-click-events-have-key-events -->
 								<!-- svelte-ignore a11y-no-noninteractive-element-interactions -->
 								<PageImage
 									src={`/api/pages/${page.id}/file?kind=output&rev=${page.outputRev ?? 0}`}
 									alt={`Page ${page.seq + 1} Output`}
-									imgClass={`w-full h-full object-cover ${page.status === 'processing' ? 'opacity-80' : ''}`}
+									imgClass={`w-full h-full object-contain ${page.status === 'processing' ? 'opacity-80' : ''}`}
+									on:load={(e) => handleImgLoad(page.id, e)}
 									on:click={(e) =>
 										page.status !== 'processing' &&
 										dispatch('inspect', { page, initialTab: 'output' })}
@@ -229,9 +244,7 @@
 						{:else}
 							<div
 								class="flex items-center justify-center rounded-lg border border-dashed border-black/20 text-xs opacity-50 dark:border-white/20"
-								style={hasRatio
-									? `aspect-ratio: ${page.width} / ${page.height};`
-									: 'aspect-ratio: 2 / 3;'}
+								style={ratioStyle}
 							>
 								Translation not completed yet
 							</div>

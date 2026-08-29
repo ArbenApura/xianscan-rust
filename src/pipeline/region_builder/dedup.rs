@@ -250,6 +250,119 @@ pub fn deduplicate_and_unify_regions(
         }
     }
 
+    // C. UNIFY MULTI-COLUMN LINES INSIDE THE SAME SPEECH BUBBLE WITH MATCHING TOP-HEIGHT & SCALE-PROPORTIONAL GAP
+    let mut bubble_merged: Vec<Region> = Vec::new();
+    for r in deduped_regions {
+        let mut merged = false;
+        if let Some(ref r_bb) = r.bubble_box {
+            for existing in &mut bubble_merged {
+                if let Some(ref e_bb) = existing.bubble_box {
+                    let is_same_bubble = (r_bb.x - e_bb.x).abs() <= 10
+                        && (r_bb.y - e_bb.y).abs() <= 10
+                        && (r_bb.w - e_bb.w).abs() <= 15
+                        && (r_bb.h - e_bb.h).abs() <= 15;
+
+                    if is_same_bubble {
+                        let (rx, ry, rw, rh) = (r.box_.x, r.box_.y, r.box_.w, r.box_.h);
+                        let (ex, ey, ew, eh) = (existing.box_.x, existing.box_.y, existing.box_.w, existing.box_.h);
+
+                        if r.vertical || existing.vertical {
+                            // Top height anchor difference: if tops are not strictly aligned, do not merge
+                            let top_delta = (ry - ey).abs();
+                            let min_h = rh.min(eh);
+                            let max_allowed_top_delta = (min_h as f32 * 0.08).max(12.0) as i32;
+                            if top_delta > max_allowed_top_delta {
+                                continue;
+                            }
+
+                            // Scale-proportional horizontal gap check
+                            let horiz_gap = if rx >= ex + ew { rx - (ex + ew) } else if ex >= rx + rw { ex - (rx + rw) } else { 0 };
+                            let max_allowed_gap = (rw.min(ew) as f32 * 0.15).max(4.0) as i32;
+                            if horiz_gap > max_allowed_gap {
+                                continue;
+                            }
+
+                            // Vertical overlap check
+                            let overlap_y = (ry + rh).min(ey + eh) - ry.max(ey);
+                            if (overlap_y.max(0) as f32 / min_h.max(1) as f32) < 0.75 {
+                                continue;
+                            }
+                        } else {
+                            // Horizontal lines: left baseline difference must be small
+                            let left_delta = (rx - ex).abs();
+                            let min_w = rw.min(ew);
+                            if left_delta > (min_w as f32 * 0.20).max(8.0) as i32 {
+                                continue;
+                            }
+
+                            // Scale-proportional vertical gap check
+                            let vert_gap = if ry >= ey + eh { ry - (ey + eh) } else if ey >= ry + rh { ey - (ry + rh) } else { 0 };
+                            let max_allowed_gap = (rh.min(eh) as f32 * 0.35).max(6.0) as i32;
+                            if vert_gap > max_allowed_gap {
+                                continue;
+                            }
+
+                            // Horizontal overlap check
+                            let overlap_x = (rx + rw).min(ex + ew) - rx.max(ex);
+                            if (overlap_x.max(0) as f32 / min_w.max(1) as f32) < 0.65 {
+                                continue;
+                            }
+                        }
+
+                        let min_x = rx.min(ex);
+                        let min_y = ry.min(ey);
+                        let max_x = (rx + rw).max(ex + ew);
+                        let max_y = (ry + rh).max(ey + eh);
+
+                        existing.box_ = BoxRect {
+                            x: min_x,
+                            y: min_y,
+                            w: (max_x - min_x).min(page_w as i32 - min_x),
+                            h: (max_y - min_y).min(page_h as i32 - min_y),
+                        };
+                        existing.inpaint_box = Some(expand_box(&existing.box_, inpaint_pct, page_w, page_h));
+                        existing.typeset_box = Some(expand_box(&existing.box_, typeset_pct, page_w, page_h));
+                        existing.polygon = vec![
+                            [min_x, min_y],
+                            [max_x, min_y],
+                            [max_x, max_y],
+                            [min_x, max_y],
+                        ];
+
+                        let mut all_lines: Vec<(i32, String)> = Vec::new();
+                        for l in existing.text.lines() {
+                            let lt = l.trim();
+                            if !lt.is_empty() {
+                                all_lines.push((ex + ew / 2, lt.to_string()));
+                            }
+                        }
+                        for l in r.text.lines() {
+                            let lt = l.trim();
+                            if !lt.is_empty() && !all_lines.iter().any(|(_, s)| s == lt || s.contains(lt)) {
+                                all_lines.push((rx + rw / 2, lt.to_string()));
+                            }
+                        }
+
+                        if existing.vertical || r.vertical {
+                            all_lines.sort_by(|a, b| b.0.cmp(&a.0));
+                        } else {
+                            all_lines.sort_by(|a, b| a.0.cmp(&b.0));
+                        }
+
+                        existing.text = all_lines.into_iter().map(|(_, s)| s).collect::<Vec<_>>().join("\n");
+                        existing.confidence = existing.confidence.max(r.confidence);
+                        merged = true;
+                        break;
+                    }
+                }
+            }
+        }
+        if !merged {
+            bubble_merged.push(r);
+        }
+    }
+    let mut deduped_regions = bubble_merged;
+
     // CLEAN UI HEADER NAVIGATION CHEVRONS & RE-INDEX REGION IDS
     for (i, r) in deduped_regions.iter_mut().enumerate() {
         r.text = crate::ml::detect::clean_ui_header_text(&r.text);

@@ -122,8 +122,13 @@ pub fn fuse_detections(
                     filtered.retain(|l| {
                         let (lx, ly, lw, lh) = polygon_bounds(&l.polygon);
                         let lt = l.text.trim();
-                        if lh <= 25 {
+                        let is_l_vert = lh > (lw as f32 * 1.25) as i32;
+                        if !is_l_vert && lh <= 25 {
                             let is_sliver = normal_lines.iter().any(|([nx, ny, nw, nh], nt, _)| {
+                                let is_n_vert = *nh > (*nw as f32 * 1.25) as i32;
+                                if is_n_vert {
+                                    return false;
+                                }
                                 let ix = (lx + lw).min(nx + nw) - lx.max(*nx);
                                 let iy = (ly + lh).min(ny + nh) - ly.max(*ny);
                                 if ix > 0 && iy > 0 {
@@ -238,7 +243,7 @@ pub fn fuse_detections(
                 let cb_covered = overlap_area as f32 / cb_area as f32 >= 0.20;
                 let is_cb_vert = cb_h > (cb_w as f32 * 1.3) as i32;
                 let is_rl_vert = rh > (rw as f32 * 1.3) as i32;
-                let is_aspect_compatible = is_cb_vert == is_rl_vert;
+                let is_aspect_compatible = is_cb_vert == is_rl_vert || rl_contained || (is_cb_vert && rh >= 30);
 
                 let is_multiline_cb = (cb_h as f32) >= (rh as f32 * 1.8);
                 if is_aspect_compatible && (iou >= 0.20 || rl_contained || cb_covered || crate::ml::geometry::line_center_inside_box(&rl.polygon, &cb_rect)) {

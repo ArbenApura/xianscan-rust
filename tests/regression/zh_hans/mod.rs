@@ -22,6 +22,7 @@ mod page_lingxiao_pavilion_stepped_on_brothers_shoulders;
 mod page_man_sleeping_in_bed_gutter_watermark_noise;
 mod page_mecha_energy_beam_dodge_sfx;
 mod page_mecha_stellar_color_shift_border_noise;
+mod page_mizuki_teacher_transformation_migu_watermark;
 mod page_monster_claw_rubble_interrobang_bubble;
 mod page_nie_li_scribbling_exclamation_bubble;
 mod page_ruins_mother_child_exclamation_bubble;

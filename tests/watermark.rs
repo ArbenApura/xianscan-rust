@@ -12,6 +12,8 @@ fn test_watermark_remover_keywords() {
     assert!(is_likely_watermark(&rect, "www.mangaupdates.com", 800, 1200));
     assert!(is_likely_watermark(&rect, "Join our Discord server", 800, 1200));
     assert!(is_likely_watermark(&rect, "Scanlated by Bilibili", 800, 1200));
+    assert!(is_likely_watermark(&rect, "米古", 800, 1200));
+    assert!(is_likely_watermark(&rect, "MIGU", 800, 1200));
 }
 
 /// # Watermark Test: Genuine Story Dialogue Non-Watermark Protection

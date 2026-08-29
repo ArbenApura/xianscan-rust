@@ -1,5 +1,5 @@
 // CHAPTER READER SSR AND REGION RETYPESETTING HELPERS
-import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { mkdirSync, readFileSync, writeFileSync, openSync, readSync, closeSync } from 'node:fs';
 import { join } from 'node:path';
 import { error } from '@sveltejs/kit';
 import { and, asc, eq, inArray, sql } from 'drizzle-orm';
@@ -89,27 +89,23 @@ export async function getChapterReaderData(chapterId: number): Promise<ChapterRe
 		.orderBy(pages.seq)
 		.all();
 
-	// DIMENSION BACKFILL: DEFERRED AFTER RESPONSE — READS IMAGE FILES FROM DISK ONLY
-	// FOR PAGES WITH NULL width/height. RUNS IN BACKGROUND SO THE RESPONSE IS NOT BLOCKED.
-	// ON NEXT LOAD THE CACHED DIMS WILL BE IN THE DB.
-	setImmediate(async () => {
+	// ZERO-LATENCY BACKGROUND DIMENSION BACKFILL: NON-BLOCKING FOR SSR
+	// USES A 64-BYTE HEADER BUFFER ONLY (NO MASSIVE MULTI-MEGABYTE DISK READS)
+	setImmediate(() => {
 		const missingDims: { id: number; width: number; height: number }[] = [];
+		const headerBuf = Buffer.alloc(64);
 		for (const p of pageRows) {
 			if ((p.width === null || p.height === null) && p.filePath) {
 				const absPath = join(DATA_ROOT, p.filePath);
 				try {
-					const buf = readFileSync(absPath);
-					const dims = getImageDimensionsFromBuffer(buf);
-					let w = dims.width;
-					let h = dims.height;
-					if (!w || !h) {
-						const { loadImage } = await import('@napi-rs/canvas');
-						const img = await loadImage(buf);
-						w = img.width || null;
-						h = img.height || null;
-					}
-					if (w && h) {
-						missingDims.push({ id: p.id, width: w, height: h });
+					const fd = openSync(absPath, 'r');
+					const bytesRead = readSync(fd, headerBuf, 0, 64, 0);
+					closeSync(fd);
+					if (bytesRead >= 24) {
+						const dims = getImageDimensionsFromBuffer(headerBuf);
+						if (dims.width && dims.height) {
+							missingDims.push({ id: p.id, width: dims.width, height: dims.height });
+						}
 					}
 				} catch {
 					// Ignore if file is missing or unreadable

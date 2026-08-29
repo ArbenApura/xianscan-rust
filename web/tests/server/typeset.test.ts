@@ -16,6 +16,7 @@ import {
 	getFontAvailability,
 	typesetPage,
 	wrapText,
+	tryVerticalSingleWordLayout,
 } from '$lib/server/typeset';
 
 function ctx() {
@@ -849,6 +850,58 @@ Tattered Flesh-Cutting Knife`;
 					box: { x: 90, y: 1103, w: 97, h: 360 },
 					text: 'Erase the data\ncompletely for me...',
 					kind: 'dialogue_bubble',
+				},
+			],
+		);
+		expect(resultBuf).toBeInstanceOf(Buffer);
+		expect(resultBuf.length).toBeGreaterThan(0);
+	});
+
+	it('stacks single words vertically in tall speech bubbles to eliminate empty space (AWESOME!, TRANSFORM!, WAAAAAH!)', async () => {
+		const c = ctx();
+		const awesomeLayout = tryVerticalSingleWordLayout(c, 'AWESOME!', 'Arial', 56, 124, 40, true);
+		expect(awesomeLayout).not.toBeNull();
+		expect(awesomeLayout?.lines).toEqual(['A', 'W', 'E', 'S', 'O', 'M', 'E', '!']);
+		expect(awesomeLayout?.size).toBeGreaterThanOrEqual(11);
+
+		const waaaaahLayout = tryVerticalSingleWordLayout(c, 'WAAAAAH!', 'Arial', 40, 118, 40, true);
+		expect(waaaaahLayout).not.toBeNull();
+		expect(waaaaahLayout?.lines).toEqual(['W', 'A', 'A', 'A', 'A', 'A', 'H', '!']);
+		expect(waaaaahLayout?.size).toBeGreaterThanOrEqual(11);
+
+		// Overly long words like TRANSFORMATION! (14 letters) must NOT be stacked into tiny dots
+		expect(tryVerticalSingleWordLayout(c, 'TRANSFORMATION!', 'Arial', 66, 137, 40, true)).toBeNull();
+
+		// Must return null if isVertical is false
+		expect(tryVerticalSingleWordLayout(c, 'AWESOME!', 'Arial', 56, 124, 40, false)).toBeNull();
+
+		// Multi-word phrases should NOT be vertically stacked even if isVertical is true
+		expect(tryVerticalSingleWordLayout(c, "I'M NOT MIZUKI...", 'Arial', 78, 102, 40, true)).toBeNull();
+
+		const pageImage = createCanvas(623, 675).toBuffer('image/png');
+		const resultBuf = await typesetPage(
+			pageImage,
+			[
+				{
+					id: '8997',
+					box: { x: 325, y: 37, w: 56, h: 124 },
+					text: 'Awesome!',
+					kind: 'dialogue_bubble',
+					vertical: true,
+				},
+				{
+					id: '8998',
+					box: { x: 519, y: 33, w: 40, h: 118 },
+					text: 'Waaaaah!',
+					kind: 'dialogue_bubble',
+					vertical: true,
+				},
+				{
+					id: '9002',
+					box: { x: 167, y: 247, w: 66, h: 137 },
+					text: 'Transform!',
+					kind: 'dialogue_bubble',
+					vertical: true,
 				},
 			],
 		);

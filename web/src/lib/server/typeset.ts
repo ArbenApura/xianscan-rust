@@ -22,7 +22,7 @@ import {
 	type TextColor,
 } from './typeset/fonts';
 import { parseStatPanel, isSfxOrShout, type TypesetRegion } from './typeset/stat-panel';
-import { fitFontSize, fitSingleLineSize, reflowText, isStructuredList } from './typeset/layout';
+import { fitFontSize, fitSingleLineSize, reflowText, isStructuredList, tryVerticalSingleWordLayout } from './typeset/layout';
 import { pickTextColor, sampleBackground } from './typeset/color';
 import { decollideRegions } from './typeset/decollision';
 import { sanitizeForFont } from './typeset/sanitize';
@@ -142,26 +142,34 @@ export async function typesetPage(
 		const angleDeg = r.angle ?? 0;
 		const hasRotation = enableRotation && Math.abs(angleDeg) >= 2.0 && Math.abs(angleDeg) <= 45.0;
 
+		const maxDialogueSize = Math.max(24, Math.round(img.width * 0.035));
+		let cap = r.kind === 'dialogue_bubble' ? Math.min(sizeCap, maxDialogueSize) : sizeCap;
+		const isShortNonShout = text.split(/\s+/).length <= 2 && !/[!！]/.test(text);
+		if (pageDialogueBaseline > 0 && isShortNonShout && r.kind === 'dialogue_bubble') {
+			cap = Math.min(cap, Math.max(18, Math.round(pageDialogueBaseline * 1.25)));
+		}
+
+		// SINGLE-WORD VERTICAL STACKING FOR NARROW TALL BUBBLES (ONLY IF REGION IS MARKED VERTICAL)
+		const vertWordLayout = tryVerticalSingleWordLayout(ctx, text, font, w, h, isSfx ? sizeCap : cap, Boolean(r.vertical), inset, fontCjk);
+
 		let size: number;
-		if (isSfx) {
+		let lines: string[];
+
+		if (vertWordLayout) {
+			size = vertWordLayout.size;
+			lines = vertWordLayout.lines;
+		} else if (isSfx) {
 			size = fitSingleLineSize(ctx, text, font, maxW, maxH, sizeCap, fontCjk);
+			lines = [text];
 		} else {
-			const maxDialogueSize = Math.max(24, Math.round(img.width * 0.035));
-			let cap = r.kind === 'dialogue_bubble' ? Math.min(sizeCap, maxDialogueSize) : sizeCap;
-			const isShortNonShout = text.split(/\s+/).length <= 2 && !/[!！]/.test(text);
-			if (pageDialogueBaseline > 0 && isShortNonShout && r.kind === 'dialogue_bubble') {
-				cap = Math.min(cap, Math.max(18, Math.round(pageDialogueBaseline * 1.25)));
-			}
 			size = fitFontSize(ctx, text, font, w, h, cap, cap, inset, fontCjk);
+			const isNarrowVertical = (h / w >= 1.15 || h >= 120) && h >= 65;
+			lines = (isNarrowVertical && text.includes('\n') && !isStructuredList(text))
+				? reflowText(ctx, text.replace(/\n+/g, ' ').trim(), maxW)
+				: reflowText(ctx, text, maxW);
 		}
 
 		ctx.font = fontSpec(size, font, text, fontCjk);
-		const isNarrowVertical = (h / w >= 1.15 || h >= 120) && h >= 65;
-		const lines = isSfx
-			? [text]
-			: (isNarrowVertical && text.includes('\n') && !isStructuredList(text))
-				? reflowText(ctx, text.replace(/\n+/g, ' ').trim(), maxW)
-				: reflowText(ctx, text, maxW);
 		const lineH = size * LINE_HEIGHT;
 		const totalH = lines.length * lineH;
 

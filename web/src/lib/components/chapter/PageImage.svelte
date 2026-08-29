@@ -70,8 +70,15 @@
 		next.send();
 	}
 
-	function onImgLoad(): void {
+	function onImgLoad(e: Event): void {
 		phase = 'done';
+		const target = e.target as HTMLImageElement;
+		if (target && target.naturalWidth && target.naturalHeight) {
+			dispatch('load', {
+				naturalWidth: target.naturalWidth,
+				naturalHeight: target.naturalHeight,
+			});
+		}
 	}
 
 	function handleRootClick(e: MouseEvent): void {

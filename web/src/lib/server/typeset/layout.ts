@@ -515,3 +515,70 @@ export function fitSingleLineSize(
 	return lo;
 }
 
+export function tryVerticalSingleWordLayout(
+	ctx: { font: string; measureText(t: string): { width: number } },
+	text: string,
+	fontFamily: string,
+	boxW: number,
+	boxH: number,
+	maxCap: number,
+	isVertical?: boolean,
+	boxInset?: number,
+	customCjk?: string,
+): { lines: string[]; size: number } | null {
+	// ONLY APPLY IF THE OCR / PIPELINE DETECTED REGION IS MARKED AS VERTICAL
+	if (!isVertical) return null;
+
+	const trimmed = text.trim();
+	if (!trimmed || /\s/.test(trimmed)) return null;
+	if (CJK_REGEX.test(trimmed)) return null;
+
+	const inset = boxInset ?? BOX_INSET;
+	const maxW = Math.max(10, boxW * (1 - 2 * inset));
+	const maxH = Math.max(10, boxH * (1 - 2 * inset));
+
+	if (boxH / boxW < 1.2 || boxH < 50) return null;
+
+	const match = trimmed.match(/^([^!！?？.．…~～]+)([.!！?？…~～]*)$/);
+	if (!match) return null;
+
+	const letters = match[1];
+	const punct = match[2] || '';
+	// ONLY APPLY ON SHORT SINGLE WORDS (3 TO 8 LETTERS) TO AVOID OVERLY LONG/TINY VERTICAL STRINGS
+	if (letters.length < 3 || letters.length > 8) return null;
+
+	const chars = letters.split('');
+	if (punct) {
+		chars.push(...punct.split(''));
+	}
+
+	const horizSize = fitSingleLineSize(ctx, trimmed, fontFamily, maxW, maxH, maxCap, customCjk);
+
+	let lo = MIN_FONT_SIZE;
+	let hi = Math.max(lo, maxCap);
+	let vertBest = MIN_FONT_SIZE;
+	let vertFound = false;
+
+	while (lo <= hi) {
+		const mid = Math.floor((lo + hi) / 2);
+		if (mid === 0) break;
+		ctx.font = fontSpec(mid, fontFamily, trimmed, customCjk);
+		const allCharsFitW = chars.every((c) => ctx.measureText(c).width <= maxW);
+		const totalH = chars.length * mid * 1.15;
+		if (allCharsFitW && totalH <= maxH) {
+			vertBest = mid;
+			vertFound = true;
+			lo = mid + 1;
+		} else {
+			hi = mid - 1;
+		}
+	}
+
+	// ENSURE LETTERS STAY LARGE AND BOLD (>= 11px)
+	if (vertFound && vertBest >= 11 && (vertBest >= horizSize * 1.25 || (horizSize <= 9 && vertBest >= 11))) {
+		return { lines: chars, size: vertBest };
+	}
+
+	return null;
+}
+

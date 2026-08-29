@@ -141,7 +141,7 @@ pub fn should_reject_candidate_region(
     let char_count = cleaned.chars().filter(|c| !c.is_whitespace()).count();
     let is_oversized_single_char = char_count == 1 && (cluster_rect.w >= 75 || cluster_rect.h >= 75);
     let is_shout = crate::ml::detect::is_onomatopoeia_or_shout(cleaned) && char_count <= 4;
-    let is_sign_or_narration_box = is_cjk && char_count >= 2 && cluster_rect.w >= 60 && cluster_rect.h >= 24 && avg_score >= 0.70 && !is_shout;
+    let is_sign_or_narration_box = is_cjk && char_count >= 2 && ((cluster_rect.w >= 60 && cluster_rect.h >= 24) || (cluster_rect.w >= 15 && cluster_rect.h >= 30 && char_count >= 4) || (cluster_rect.w >= 20 && cluster_rect.h >= 30 && char_count >= 3)) && avg_score >= 0.70 && !is_shout;
     let is_margin_isolated_char = (cluster_rect.x <= 5 || cluster_rect.x + cluster_rect.w >= page_w as i32 - 5) && avg_score < 0.75;
     let is_valid_cjk_glyph = is_cjk && char_count >= 2 && cleaned.chars().any(|c| crate::ml::detect::has_cjk_characters(&c.to_string())) && avg_score >= 0.70 && !is_margin_isolated_char;
     let is_compact_single_glyph_box = char_count == 1 && cluster_rect.w <= 55 && cluster_rect.h <= 55;
@@ -208,7 +208,10 @@ pub fn should_reject_candidate_region(
         return true;
     }
 
-    // 16. SUPPRESS OPTICAL BORDER SLIVERS
+    // 16. SUPPRESS OPTICAL BORDER SLIVERS & FLATTENED ARTIFACT SLICES
+    if !is_bubble && cluster_rect.h <= 18 && cluster_rect.w >= 25 && cleaned.chars().count() <= 3 && !cleaned.contains('\n') {
+        return true;
+    }
     if !is_bubble && cluster_rect.w <= 35 && cluster_rect.h >= 60 && avg_score < 0.60 {
         return true;
     }
