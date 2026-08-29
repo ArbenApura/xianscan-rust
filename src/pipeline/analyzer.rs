@@ -92,13 +92,14 @@ pub fn analyze_image_with_fusion_timed(
             });
             let matching_subboxes_count = fusion_res.text_bubbles.iter().filter(|(sub_b, sub_score)| {
                 let is_distinct_col = (sub_b.x >= b.x + b.w / 2) || (sub_b.x + sub_b.w <= b.x + b.w / 2);
+                let is_distinct_row = (sub_b.y >= b.y + b.h / 3) || (sub_b.y + sub_b.h <= b.y + b.h * 2 / 3);
                 let is_bubble_split = inside_any_bubble && *sub_score >= 0.25;
-                (is_bubble_split || (*sub_score >= 0.45 && is_distinct_col))
-                    && sub_b.x >= b.x - 15
-                    && sub_b.y >= b.y - 15
-                    && (sub_b.x + sub_b.w) <= (b.x + b.w + 15)
-                    && (sub_b.y + sub_b.h) <= (b.y + b.h + 15)
-                    && (sub_b.w * sub_b.h) < (b.w * b.h * 4 / 5)
+                (is_bubble_split || (*sub_score >= 0.45 && (is_distinct_col || is_distinct_row)))
+                    && sub_b.x >= b.x - 20
+                    && sub_b.y >= b.y - 20
+                    && (sub_b.x + sub_b.w) <= (b.x + b.w + 20)
+                    && (sub_b.y + sub_b.h) <= (b.y + b.h + 20)
+                    && (sub_b.w * sub_b.h) < (b.w * b.h * 9 / 10)
             }).count();
             if matching_subboxes_count >= 2 {
                 continue;
@@ -113,7 +114,51 @@ pub fn analyze_image_with_fusion_timed(
                     && b.x >= parent_b.x - 8
                     && (b.x + b.w) <= (parent_b.x + parent_b.w + 8)
             });
-            if is_subfragment {
+
+            // IF THIS IS A PARTIAL VERTICAL SUB-BOX INSIDE A TALLER MULTI-LINE CONTAINER ON THE SAME COLUMN (WITHOUT MULTI-COLUMN SPLITS), SKIP THE PARTIAL SUB-BOX
+            let is_vertical_subbox_redundancy = fusion_res.text_bubbles.iter().any(|(parent_b, parent_score)| {
+                let parent_is_composite = fusion_res.text_bubbles.iter().filter(|(sub_b, sub_score)| {
+                    let is_distinct_col = (sub_b.x >= parent_b.x + parent_b.w / 2) || (sub_b.x + sub_b.w <= parent_b.x + parent_b.w / 2);
+                    let is_distinct_row = (sub_b.y >= parent_b.y + parent_b.h / 3) || (sub_b.y + sub_b.h <= parent_b.y + parent_b.h * 2 / 3);
+                    (*sub_score >= 0.25 || (*sub_score >= 0.45 && (is_distinct_col || is_distinct_row)))
+                        && sub_b.x >= parent_b.x - 20
+                        && sub_b.y >= parent_b.y - 20
+                        && (sub_b.x + sub_b.w) <= (parent_b.x + parent_b.w + 20)
+                        && (sub_b.y + sub_b.h) <= (parent_b.y + parent_b.h + 20)
+                        && (sub_b.w * sub_b.h) < (parent_b.w * parent_b.h * 9 / 10)
+                }).count() >= 2;
+
+                !parent_is_composite
+                    && parent_b != b
+                    && *score <= *parent_score + 0.10
+                    && parent_b.h >= b.h + 15
+                    && (b.x - parent_b.x).abs() <= 50
+                    && (b.x + b.w - (parent_b.x + parent_b.w)).abs() <= 50
+                    && b.y >= parent_b.y - 15
+                    && (b.y + b.h) <= (parent_b.y + parent_b.h + 20)
+            });
+            // IF THIS IS A REDUNDANT PARTIAL ROW/SUB-CONTAINER (H <= 100) COVERED BY A TALLER NARRATION/BUBBLE CONTAINER
+            let is_shorter_overlap_redundancy = (b.h <= 100)
+                && fusion_res.text_bubbles.iter().any(|(parent_b, parent_score)| {
+                    let parent_is_composite = fusion_res.text_bubbles.iter().filter(|(sub_b, sub_score)| {
+                        let is_distinct_col = (sub_b.x >= parent_b.x + parent_b.w / 2) || (sub_b.x + sub_b.w <= parent_b.x + parent_b.w / 2);
+                        let is_distinct_row = (sub_b.y >= parent_b.y + parent_b.h / 3) || (sub_b.y + sub_b.h <= parent_b.y + parent_b.h * 2 / 3);
+                        (*sub_score >= 0.25 || (*sub_score >= 0.45 && (is_distinct_col || is_distinct_row)))
+                            && sub_b.x >= parent_b.x - 20
+                            && sub_b.y >= parent_b.y - 20
+                            && (sub_b.x + sub_b.w) <= (parent_b.x + parent_b.w + 20)
+                            && (sub_b.y + sub_b.h) <= (parent_b.y + parent_b.h + 20)
+                            && (sub_b.w * sub_b.h) < (parent_b.w * parent_b.h * 9 / 10)
+                    }).count() >= 2;
+
+                    !parent_is_composite
+                        && parent_b != b
+                        && *score <= *parent_score + 0.30
+                        && parent_b.h >= b.h + 10
+                        && ((b.x + b.w).min(parent_b.x + parent_b.w) - b.x.max(parent_b.x)).max(0) as f32 / (b.w as f32) >= 0.50
+                        && ((b.y + b.h).min(parent_b.y + parent_b.h) - b.y.max(parent_b.y)).max(0) as f32 / (b.h as f32) >= 0.70
+                });
+            if is_subfragment || is_vertical_subbox_redundancy || is_shorter_overlap_redundancy {
                 continue;
             }
 
@@ -181,12 +226,11 @@ pub fn analyze_image_with_fusion_timed(
                 // For horizontal text paragraphs (bw >= bh * 1.15), extend downwards or upwards to catch immediate row continuations
                 // (Only for multi-line paragraph continuation; do not merge single-line subtitles into large title headers where lh >= bh * 1.5, or across separate standalone single-line detector containers)
                 let is_subtitle_to_title = bh <= 35.0 && (lh as f32) >= bh * 1.50;
-                let is_separate_detector_box = (lw as f32) < bw * 1.5 && fusion_res.text_bubbles.iter().chain(fusion_res.text_free.iter()).any(|(tb, _)| {
+                let is_separate_detector_box = bh <= 90.0 && fusion_res.text_bubbles.iter().chain(fusion_res.text_free.iter()).any(|(tb, _)| {
                     let tb_iy = (tb.y + tb.h).min(ly + lh) - tb.y.max(ly);
                     let tb_ix = (tb.x + tb.w).min(lx + lw) - tb.x.max(lx);
-                    tb_iy > 0 && tb_ix > 0 && (tb_ix * tb_iy) as f32 / (lw * lh).max(1) as f32 >= 0.50
-                        && (tb.y as f32 >= by + bh || by as f32 >= (tb.y + tb.h) as f32)
-                        && tb.h <= 40
+                    tb_iy > 0 && tb_ix > 0 && (tb_ix * tb_iy) as f32 / (lw * lh).max(1) as f32 >= 0.40
+                        && (tb.y as f32 >= by + bh - 5.0 || by as f32 >= (tb.y + tb.h) as f32 - 5.0)
                 });
                 let parent_bubble = fusion_res.bubbles.iter().find(|b| {
                     let ix = (bx + bw).min((b.x + b.w) as f32) - bx.max(b.x as f32);
@@ -199,8 +243,12 @@ pub fn analyze_image_with_fusion_timed(
                     false
                 };
 
+                let is_distinct_rank_line = (bh <= 35.0 || (lh as f32) <= 35.0)
+                    && (line.text.trim().ends_with("弟子") || line.text.trim().ends_with("阶") || line.text.trim().ends_with("级") || line.text.trim().ends_with("层") || line.text.trim().ends_with("段") || line.text.trim().ends_with("境") || line.text.trim().ends_with("部"))
+                    && (ly as f32 >= by + bh + 10.0);
                 let is_adjacent_trailing_row = !is_subtitle_to_title
                     && !is_separate_detector_box
+                    && !is_distinct_rank_line
                     && !leaks_outside_bubble
                     && bw >= bh * 1.15
                     && (lx as f32 >= bx - 35.0)
@@ -212,11 +260,10 @@ pub fn analyze_image_with_fusion_timed(
                 let is_adjacent_leading_row = !is_subtitle_to_title
                     && !is_separate_detector_box
                     && !leaks_outside_bubble
-                    && (lx as f32 >= bx - 35.0)
-                    && ((lx + lw) as f32 <= bx + bw + 35.0)
+                    && (lx as f32 >= bx - 35.0 || (lx + lw) as f32 <= bx + bw + 35.0 || (lx as f32 <= bx && (lx + lw) as f32 >= bx + bw))
                     && ((ly + lh) as f32 >= by - 25.0)
                     && ((ly + lh) as f32 <= by + 20.0)
-                    && (ix >= 0.35 * (lw as f32).min(bw) || (bx >= (lx as f32 - 35.0) && bx + bw <= (lx + lw) as f32 + 35.0));
+                    && (ix >= 0.25 * (lw as f32).min(bw) || (bx >= (lx as f32 - 35.0) && bx + bw <= (lx + lw) as f32 + 35.0));
 
                 if (ix > 0.0 && iy > 0.0) || is_adjacent_trailing_row || is_adjacent_leading_row {
                     let inter_area = ix.max(0.0) * iy.max(0.0);

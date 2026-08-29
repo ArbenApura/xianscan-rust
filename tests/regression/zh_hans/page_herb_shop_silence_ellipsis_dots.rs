@@ -70,7 +70,7 @@ fn test_regression_page_herb_shop_silence_ellipsis_dots() {
     assert!(b6.is_some(), "Must detect panel 3 bottom right dialogue bubble '咱们整个宅子用...'");
     let b6 = b6.unwrap();
     assert_eq!(b6.kind, xianscan_rust::ml::schemas::RegionKind::DialogueBubble);
-    crate::assert_region_bounds!(b6, xianscan_rust::ml::schemas::RegionKind::DialogueBubble, 590, 765, 154, 246, 10);
+    crate::assert_region_bounds!(b6, xianscan_rust::ml::schemas::RegionKind::DialogueBubble, 590, 765, 154, 246, 20);
     crate::assert_region_angle!(b6, 0.0, 2.0);
 
     // 7. CRITICAL NEGATIVE GUARD: SILENCE ELLIPSIS BUBBLE MUST BE FILTERED

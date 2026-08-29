@@ -44,30 +44,38 @@ pub fn deduplicate_and_unify_regions(
             let has_shared_major_line = lines_r.iter().any(|lr| lr.chars().count() >= 3 && lines_e.iter().any(|le| le == lr || le.contains(lr) || lr.contains(le)));
             let clean_r_no_space: String = clean_r.chars().filter(|c| !c.is_whitespace()).collect();
             let clean_e_no_space: String = clean_e.chars().filter(|c| !c.is_whitespace()).collect();
+            let clean_r_pure: String = clean_r_no_space.chars().filter(|c| !c.is_ascii_punctuation() && !matches!(*c, '…' | '·' | '—' | '～' | '。' | '，' | '、' | '！' | '？' | '!' | '?')).collect();
+            let clean_e_pure: String = clean_e_no_space.chars().filter(|c| !c.is_ascii_punctuation() && !matches!(*c, '…' | '·' | '—' | '～' | '。' | '，' | '、' | '！' | '？' | '!' | '?')).collect();
             let is_contained_text = clean_r_no_space == clean_e_no_space
                 || clean_e_no_space.contains(&clean_r_no_space)
-                || clean_r_no_space.contains(&clean_e_no_space);
+                || clean_r_no_space.contains(&clean_e_no_space)
+                || (!clean_r_pure.is_empty() && !clean_e_pure.is_empty() && (clean_e_pure.contains(&clean_r_pure) || clean_r_pure.contains(&clean_e_pure)));
             let has_cjk_sub = (clean_r_no_space.chars().count() >= 2 && clean_e_no_space.contains(&clean_r_no_space))
-                || (clean_e_no_space.chars().count() >= 2 && clean_r_no_space.contains(&clean_e_no_space));
-            let has_shared_char_subset = (clean_r_no_space.chars().count() <= clean_e_no_space.chars().count() && clean_r_no_space.chars().all(|c| clean_e_no_space.contains(c)))
-                || (clean_e_no_space.chars().count() <= clean_r_no_space.chars().count() && clean_e_no_space.chars().all(|c| clean_r_no_space.contains(c)));
+                || (clean_e_no_space.chars().count() >= 2 && clean_r_no_space.contains(&clean_e_no_space))
+                || (clean_r_pure.chars().count() >= 2 && clean_e_pure.contains(&clean_r_pure))
+                || (clean_e_pure.chars().count() >= 2 && clean_r_pure.contains(&clean_e_pure));
 
-            let text_contains = clean_r == clean_e || clean_e.contains(clean_r) || clean_r.contains(clean_e) || has_shared_major_line || is_contained_text || has_cjk_sub || has_shared_char_subset;
+            let text_contains = clean_r == clean_e || clean_e.contains(clean_r) || clean_r.contains(clean_e) || has_shared_major_line || is_contained_text || has_cjk_sub;
 
             let is_bubble_subset = (existing.bubble_box.is_some() || r.bubble_box.is_some())
                 && text_contains
                 && inter_area > 0
                 && (overlap_r >= 0.40 || overlap_e >= 0.40 || iou >= 0.30);
 
-            let is_spatial_containment_subset = text_contains
+            let is_spatial_containment_subset = (text_contains || has_shared_major_line)
                 && inter_area > 0
                 && (overlap_r >= 0.40 || overlap_e >= 0.40 || iou >= 0.30);
+
+            let is_deep_spatial_containment = inter_area > 0
+                && (overlap_r >= 0.80 || overlap_e >= 0.80)
+                && (text_contains || has_shared_major_line || clean_r.is_empty() || clean_e.is_empty());
 
             let is_high_spatial_overlap = inter_area > 0 && (iou >= 0.50 || overlap_r >= 0.60 || overlap_e >= 0.60);
 
             if (is_high_spatial_overlap && text_contains)
                 || is_bubble_subset
                 || is_spatial_containment_subset
+                || is_deep_spatial_containment
             {
                 is_duplicate = true;
                 let clean_r_chars = clean_r_no_space.chars().count();

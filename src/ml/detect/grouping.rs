@@ -45,8 +45,8 @@ pub fn deduplicate_boxes(
             let overlap_ratio = if min_area > 0.0 { inter / min_area } else { 0.0 };
 
             // CHECK IF CURRENT CANDIDATE BOX ENCLOSES KEPT SUB-BOX (MACRO-CONTAINER VS SLICE)
-            let is_multi_line_container = h >= 1.25 * kh;
-            if is_multi_line_container && box_area >= 1.25 * karea && inter >= 0.70 * karea && (ix >= 0.70 * kw) && (iy >= 0.70 * kh) {
+            let is_multi_line_container = h >= 1.20 * kh;
+            if is_multi_line_container && box_area >= 1.15 * karea && inter >= 0.65 * karea && (ix >= 0.65 * kw) && (iy >= 0.65 * kh) {
                 if score >= kept_scores[k] * 0.70 {
                     // CURRENT CANDIDATE IS A LARGER CONTAINER ENCLOSING THE SMALLER KEPT BOX WITH SUFFICIENT CONFIDENCE -> REPLACE
                     replace_indices.push(k);

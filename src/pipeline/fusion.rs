@@ -207,7 +207,23 @@ pub fn fuse_detections(
                 (center_in || iou >= 0.20) && rl.score >= 0.72
             }).count();
 
-            if is_cb_multiline && internal_rapid_lines_count >= 2 {
+            let internal_rapid_span_h = rapid_lines.iter().filter_map(|rl| {
+                let (rx, ry, rw, rh) = polygon_bounds(&rl.polygon);
+                let rc_x = rx + rw / 2;
+                let rc_y = ry + rh / 2;
+                let center_in = rc_x >= cb_x && rc_x <= cb_x + cb_w && rc_y >= cb_y && rc_y <= cb_y + cb_h;
+                let iou = box_iou_pts(cb, &rl.polygon);
+                if (center_in || iou >= 0.20) && rl.score >= 0.72 {
+                    Some((ry, ry + rh))
+                } else {
+                    None
+                }
+            }).fold(None::<(i32, i32)>, |acc, (y1, y2)| match acc {
+                None => Some((y1, y2)),
+                Some((min_y, max_y)) => Some((min_y.min(y1), max_y.max(y2))),
+            }).map(|(min_y, max_y)| max_y - min_y).unwrap_or(0);
+
+            if is_cb_multiline && (internal_rapid_lines_count >= 3 || (internal_rapid_lines_count >= 2 && internal_rapid_span_h >= (cb_h * 3 / 4))) {
                 ocr_det_matched[idx] = true;
                 continue;
             }
