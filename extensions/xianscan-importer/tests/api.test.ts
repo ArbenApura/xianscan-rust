@@ -138,6 +138,18 @@ describe('XianScanClient', () => {
 		}));
 	});
 
+	it('handles triggerTranslate failure when server returns error status', async () => {
+		mockFetch.mockResolvedValueOnce({
+			ok: false,
+			status: 500,
+			json: async () => ({ message: 'CUDA out of memory' })
+		});
+
+		const result = await client.triggerTranslate(42);
+		expect(result.success).toBe(false);
+		expect(result.message).toBe('CUDA out of memory');
+	});
+
 	it('fetches canonical settings from /api/settings', async () => {
 		mockFetch.mockResolvedValueOnce({
 			ok: true,

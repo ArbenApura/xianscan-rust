@@ -50,6 +50,7 @@
 		outputRev: number;
 		originalRev: number;
 		status: 'pending' | 'queued' | 'processing' | 'done' | 'error';
+		currentStep?: string;
 		error: string | null;
 		width?: number | null;
 		height?: number | null;
@@ -297,7 +298,8 @@
 		activeQueuedBatch && (!activeQueuedBatch.pageIds || activeQueuedBatch.pageIds.length === 0),
 	);
 
-	// REAL-TIME SYNCHRONIZED PAGES MERGED WITH SNAPSHOT
+	// REAL-TIME SYNCHRONIZED PAGES MERGED WITH SNAPSHOT (MEMOIZED REFERENCES)
+	let lastDisplayPagesMap = new Map<number, ChapterPageItem>();
 	$: displayPages = ((): ChapterPageItem[] => {
 		const snapshotPageMap = new Map<number, NonNullable<NonNullable<typeof currentJobState.snapshot>['pages']>[0]>();
 		if (currentJobState.snapshot?.pages?.length) {
@@ -306,7 +308,8 @@
 			}
 		}
 
-		return pages.map((p) => {
+		const nextMap = new Map<number, ChapterPageItem>();
+		const result = pages.map((p) => {
 			const sp = snapshotPageMap.get(p.id);
 			const isProcessing =
 				(sp?.status === 'processing' || (!sp && currentJobState.running && p.status === 'processing')) &&
@@ -329,27 +332,54 @@
 							? 'queued'
 							: p.status || 'pending';
 
-			return {
+			const currentStep = isProcessing ? sp?.currentStep : undefined;
+			const outputPath = sp
+				? sp.status === 'done'
+					? sp.outputPath || p.outputPath
+					: null
+				: isProcessing || isQueued
+					? null
+					: p.outputPath;
+			const cleanedRev = Math.max(sp?.cleanedRev ?? 0, p.cleanedRev ?? 0);
+			const outputRev = Math.max(sp?.outputRev ?? 0, p.outputRev ?? 0);
+			const originalRev = p.originalRev;
+			const error = isError ? sp?.errorMessage || p.error : null;
+
+			const prev = lastDisplayPagesMap.get(p.id);
+			if (
+				prev &&
+				prev.seq === p.seq &&
+				prev.status === status &&
+				(prev as any).currentStep === currentStep &&
+				prev.outputPath === outputPath &&
+				prev.cleanedPath === p.cleanedPath &&
+				prev.cleanedRev === cleanedRev &&
+				prev.outputRev === outputRev &&
+				prev.originalRev === originalRev &&
+				prev.error === error &&
+				prev.width === p.width &&
+				prev.height === p.height
+			) {
+				nextMap.set(p.id, prev);
+				return prev;
+			}
+
+			const nextItem: ChapterPageItem = {
 				...p,
 				status,
-				currentStep: isProcessing ? sp?.currentStep : undefined,
-				outputPath: sp
-					? sp.status === 'done'
-						? sp.outputPath || p.outputPath
-						: null
-					: isProcessing || isQueued
-						? null
-						: p.outputPath,
-				// REVS ARE MONOTONIC (NEVER RESET). PREFER THE NEWEST OF THE JOB
-				// SNAPSHOT AND THE SERVER/EDITOR VALUE, SO A MANUAL RETYPESET THAT
-				// BUMPS outputRev AFTER A JOB COMPLETES IS NOT MASKED BY THE STALE
-				// SNAPSHOT (WHICH WOULD OTHERWISE SERVE A STALE IMMUTABLE-CACHED URL).
-				cleanedRev: Math.max(sp?.cleanedRev ?? 0, p.cleanedRev ?? 0),
-				outputRev: Math.max(sp?.outputRev ?? 0, p.outputRev ?? 0),
-				originalRev: p.originalRev,
-				error: isError ? sp?.errorMessage || p.error : null,
+				currentStep,
+				outputPath,
+				cleanedRev,
+				outputRev,
+				originalRev,
+				error,
 			};
+			nextMap.set(p.id, nextItem);
+			return nextItem;
 		});
+
+		lastDisplayPagesMap = nextMap;
+		return result;
 	})();
 
 	// PERSISTENT USER SETTINGS

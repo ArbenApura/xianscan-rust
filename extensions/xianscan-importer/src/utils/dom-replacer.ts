@@ -27,9 +27,29 @@ export function getCanonicalUrl(url: string): string {
 	}
 }
 
-// IN-MEMORY CACHE FOR CONVERTED SAFE DATA / OBJECT URLS
+// IN-MEMORY CACHE FOR CONVERTED SAFE DATA / OBJECT URLS (BOUNDED TO PREVENT MEMORY LEAKS)
+const MAX_SAFE_DATA_URL_CACHE_SIZE = 100;
 const safeDataUrlCache = new Map<string, string>();
 const activeObjectUrls = new Set<string>();
+
+function setCachedSafeUrl(key: string, url: string): void {
+	if (safeDataUrlCache.size >= MAX_SAFE_DATA_URL_CACHE_SIZE) {
+		const oldestKey = safeDataUrlCache.keys().next().value;
+		if (oldestKey) {
+			const oldUrl = safeDataUrlCache.get(oldestKey);
+			if (oldUrl && oldUrl.startsWith('blob:')) {
+				try {
+					URL.revokeObjectURL(oldUrl);
+					activeObjectUrls.delete(oldUrl);
+				} catch {
+					// IGNORE
+				}
+			}
+			safeDataUrlCache.delete(oldestKey);
+		}
+	}
+	safeDataUrlCache.set(key, url);
+}
 
 // BOUNDED CONCURRENCY QUEUE FOR SAFE IMAGE RESOLUTION (MAX 3 CONCURRENT)
 type QueueTask = () => Promise<void>;
@@ -189,7 +209,7 @@ export async function resolveSafeImageUrl(rawUrl: string, status?: 'pending' | '
 							finalDataUrl = await drawBadgeOnDataUrl(res.dataUrl, status);
 						}
 						const safeUrl = createSafeBlobUrlFromData(finalDataUrl);
-						safeDataUrlCache.set(cacheKey, safeUrl);
+						setCachedSafeUrl(cacheKey, safeUrl);
 						resolve(safeUrl);
 					}
 				});
@@ -200,7 +220,7 @@ export async function resolveSafeImageUrl(rawUrl: string, status?: 'pending' | '
 	if (status === 'pending' || status === 'processing') {
 		const badgedDataUrl = await drawBadgeOnDataUrl(rawUrl, status);
 		const safeUrl = createSafeBlobUrlFromData(badgedDataUrl);
-		safeDataUrlCache.set(cacheKey, safeUrl);
+		setCachedSafeUrl(cacheKey, safeUrl);
 		return safeUrl;
 	}
 
@@ -519,7 +539,7 @@ export class DomReplacerEngine {
 	private activeExcludedUrls?: string[];
 	private activeIncludedUrls?: string[];
 	private latestServerPages: ChapterReaderPage[] = [];
-	// LAST RENDERED PER-PAGE SLICE STATUS (pending | processing | ready) — USED TO SKIP REDUNDANT
+	// LAST RENDERED PER-PAGE SLICE STATUS (pending | processing | ready): USED TO SKIP REDUNDANT
 	// BADGE RE-RENDERS ON EVERY 2.5S POLL AND TO DETECT THE pending → processing TRANSITION.
 	private pageStatuses = new Map<number, string>();
 
@@ -556,7 +576,7 @@ export class DomReplacerEngine {
 			// MIXED-CONTENT BLOCK: A RAW HTTP SERVER URL ASSIGNED TO THE IMG SRC ON AN HTTPS PAGE
 			// IS ALWAYS BLOCKED BY THE BROWSER, SO RETRYING THE SAME URL IS POINTLESS. WHEN THE
 			// HTTPS PROXY FAILED TO REPLACE IT WITH A BLOB URL (IMG STILL HOLDS THE RAW HTTP URL),
-			// RESTORE THE ORIGINAL IMAGE IMMEDIATELY — NO RETRY LOOP AND NO CONSOLE SPAM.
+			// RESTORE THE ORIGINAL IMAGE IMMEDIATELY: NO RETRY LOOP AND NO CONSOLE SPAM.
 			const isMixedContentBlocked =
 				isHttpsPage &&
 				targetUrl.startsWith('http://') &&
@@ -810,7 +830,7 @@ export class DomReplacerEngine {
 	updatePageSlice(pageId: number, pageSeq: number, outputRev: number): void {
 		this.pageStatuses.set(pageId, 'ready');
 
-		// Update in latestServerPages
+		// UPDATE IN latestServerPages
 		const existingMeta = this.latestServerPages.find(p => p.id === pageId || p.seq === pageSeq);
 		if (existingMeta) {
 			existingMeta.outputRev = outputRev;
@@ -857,7 +877,7 @@ export class DomReplacerEngine {
 				}
 			});
 		} else {
-			// Find element for previous sequence or last mounted image to insert consecutively
+			// FIND ELEMENT FOR PREVIOUS SEQUENCE OR LAST MOUNTED IMAGE TO INSERT CONSECUTIVELY
 			const prevImg = document.querySelector<HTMLImageElement>(`img[data-xianscan-page-seq="${pageSeq - 1}"]`) ||
 			                document.querySelector<HTMLImageElement>('img[data-xianscan-injected="true"]:last-of-type') ||
 			                getHostReaderImages().pop();

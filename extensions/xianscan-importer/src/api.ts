@@ -47,7 +47,7 @@ export class XianScanClient {
 		const isWebPageContext = typeof window !== 'undefined' && !isServiceWorker;
 		const isHttpsPage = typeof window !== 'undefined' && window.location?.protocol === 'https:';
 
-		// 1. Try background proxy from popup or content script context for JSON requests (FormData cannot cross IPC)
+		// 1. TRY BACKGROUND PROXY FROM POPUP OR CONTENT SCRIPT CONTEXT FOR JSON REQUESTS (FormData CANNOT CROSS IPC)
 		if (!isFormData && isWebPageContext && typeof chrome !== 'undefined' && chrome?.runtime?.sendMessage) {
 			if (!chrome.runtime?.id) {
 				throw new Error('Extension context invalidated.');
@@ -94,11 +94,16 @@ export class XianScanClient {
 					}
 
 					if (proxyResult.status > 0) {
-						const msg = (proxyResult.data as { message?: string })?.message || `Request failed with status ${proxyResult.status}`;
+						let msg = `Request failed with status ${proxyResult.status}`;
+						if (typeof proxyResult.data === 'string' && proxyResult.data.trim()) {
+							msg = proxyResult.data.trim();
+						} else if (proxyResult.data && typeof (proxyResult.data as any).message === 'string') {
+							msg = (proxyResult.data as any).message;
+						}
 						throw new Error(msg);
 					}
 
-					// If status === 0 (service worker waking up / IPC blip), retry with short backoff
+					// IF STATUS === 0 (SERVICE WORKER WAKING UP / IPC BLIP), RETRY WITH SHORT BACKOFF
 					if (attempts < maxAttempts) {
 						await new Promise(r => setTimeout(r, attempts * 250));
 					}
@@ -114,14 +119,14 @@ export class XianScanClient {
 				}
 			}
 
-			// If proxy succeeded or failed with explicit HTTP status, we already returned or threw.
-			// If on HTTPS page and target is HTTP, DO NOT attempt direct fetch as it is guaranteed to fail due to Mixed Content / PNA.
+			// IF PROXY SUCCEEDED OR FAILED WITH EXPLICIT HTTP STATUS, WE ALREADY RETURNED OR THREW.
+			// IF ON HTTPS PAGE AND TARGET IS HTTP, DO NOT ATTEMPT DIRECT FETCH AS IT IS GUARANTEED TO FAIL DUE TO MIXED CONTENT / PNA.
 			if (isHttpsPage && targetUrl.startsWith('http://')) {
 				throw new Error(proxyResult?.error || 'Could not connect to XianScan backend via extension background proxy.');
 			}
 		}
 
-		// 2. Direct fetch with IPv4 / localhost fallback
+		// 2. DIRECT FETCH WITH IPV4 / LOCALHOST FALLBACK
 		const tryDirectFetch = async (urlToTry: string): Promise<Response> => {
 			const controller = new AbortController();
 			const timeoutMs = isFormData ? 45000 : 8000;
@@ -139,7 +144,7 @@ export class XianScanClient {
 		try {
 			res = await tryDirectFetch(targetUrl);
 		} catch (primaryErr) {
-			// If localhost failed, try 127.0.0.1 (or vice-versa)
+			// IF LOCALHOST FAILED, TRY 127.0.0.1 (OR VICE-VERSA)
 			const altBase = this.baseUrl.includes('localhost')
 				? this.baseUrl.replace('localhost', '127.0.0.1')
 				: this.baseUrl.replace('127.0.0.1', 'localhost');
@@ -202,7 +207,7 @@ export class XianScanClient {
 		};
 	}
 
-	// TRANSLATE A SINGLE TITLE STRING VIA THE SERVER (kind: 'title') — MIRRORS THE WEB UI'S
+	// TRANSLATE A SINGLE TITLE STRING VIA THE SERVER (kind: 'title'): MIRRORS THE WEB UI'S
 	// "AUTO-TRANSLATE BOOK TITLE" BUTTON NEXT TO THE TARGET TITLE FIELD.
 	async translateText(payload: {
 		text: string;
@@ -299,8 +304,7 @@ export class XianScanClient {
 		const targetUrl = `${this.baseUrl}/api/chapters/${chapterId}/translate`;
 		try {
 			const controller = new AbortController();
-			// THE SERVER STARTS THE DETACHED TRANSLATION JOB IMMEDIATELY UPON RECEIVING POST
-			const timeoutId = setTimeout(() => controller.abort(), 2000);
+			const timeoutId = setTimeout(() => controller.abort(), 10000);
 			try {
 				const fn = this.fetchImpl || safeFetch;
 				const scope = typeof self !== 'undefined' ? self : globalThis;
@@ -310,13 +314,20 @@ export class XianScanClient {
 					body: JSON.stringify({ force: false }),
 					signal: controller.signal
 				});
-				return { success: res.ok || res.status === 200 };
+				if (!res.ok) {
+					const errorData = await res.json().catch(() => ({}));
+					const msg = (errorData as { message?: string }).message || `Translate failed with status ${res.status}`;
+					return { success: false, message: msg };
+				}
+				return { success: true };
 			} finally {
 				clearTimeout(timeoutId);
 			}
-		} catch {
-			// DETACHED SERVER JOB PROCEEDS EVEN IF SSE STREAM IS CLOSED ON CLIENT
-			return { success: true };
+		} catch (err: any) {
+			if (err?.name === 'AbortError') {
+				return { success: false, message: 'Translation request timed out' };
+			}
+			return { success: false, message: err?.message || 'Failed to trigger translation' };
 		}
 	}
 
@@ -324,7 +335,7 @@ export class XianScanClient {
 		return this.request<ChapterReaderResult>(`/api/chapters/${chapterId}`);
 	}
 
-	// FETCH THE SERVER'S CANONICAL app_settings (SQLITE) — THE SOURCE OF TRUTH FOR THE
+	// FETCH THE SERVER'S CANONICAL app_settings (SQLITE): THE SOURCE OF TRUTH FOR THE
 	// USER'S TRANSLATION PREFERENCES THAT THE WEB UI RELIES ON FOR ITS REQUEST BODY.
 	async getSettings(): Promise<ServerCanonicalSettings> {
 		return this.request<ServerCanonicalSettings>('/api/settings');

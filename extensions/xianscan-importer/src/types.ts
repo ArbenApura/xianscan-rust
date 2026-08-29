@@ -121,7 +121,7 @@ export interface ExtensionSettings {
 	liveSwapOnTranslate: boolean;
 }
 
-// SUBSET OF THE SERVER'S CANONICAL app_settings RETURNED BY GET /api/settings —
+// SUBSET OF THE SERVER'S CANONICAL app_settings RETURNED BY GET /api/settings:
 // THE EXTENSION RELAYS THESE VERBATIM SO A QUEUE-TRIGGERED JOB RESPECTS THE USER'S
 // STORED SQLITE PREFERENCES (PARALLELISM, SFX, INPAINT, TYPESET) EXACTLY LIKE THE WEB UI.
 export interface ServerCanonicalSettings {

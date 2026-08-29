@@ -41,7 +41,7 @@ async function broadcastToChapterTabs(chapterId: number, msg: any) {
 		for (const tab of tabs) {
 			if (tab.id && tab.url) {
 				const tabNormalized = normalizePageUrl(tab.url);
-				if (targetUrls.size === 0 || targetUrls.has(tabNormalized) || (msg.entry?.url && normalizePageUrl(msg.entry.url) === tabNormalized)) {
+				if (targetUrls.has(tabNormalized) || (msg.entry?.url && normalizePageUrl(msg.entry.url) === tabNormalized)) {
 					chrome.tabs.sendMessage(tab.id, msg, () => {
 						void chrome.runtime.lastError;
 					});
@@ -371,7 +371,7 @@ async function attachLiveTranslationListener(chapterId: number, serverUrl: strin
 			activeSseStreams.delete(chapterId);
 			// NOTE: A BATCH-STARTED JOB IS CREATED ASYNCHRONOUSLY BY DISPATCH, SO A FIRST GET CAN
 			// 404. THE `finally` AUTO-RECONNECT BELOW ALREADY SCHEDULES A SINGLE RETRY FOR ANY
-			// NON-CLEAN TERMINATION (INCLUDING THIS 404) — DO NOT ADD A SECOND RETRY HERE.
+			// NON-CLEAN TERMINATION (INCLUDING THIS 404): DO NOT ADD A SECOND RETRY HERE.
 			return;
 		}
 
@@ -600,37 +600,13 @@ async function runBatchImportJob(payload: ImportJobPayload, refererUrl?: string)
 				broadcastToChapterTabs(payload.chapterId, syncMsg);
 				safeBroadcast(syncMsg);
 
-				// PROGRAMMATICALLY RELOAD THE MAPPED READER TAB(S) ONLY WHEN IN-PLACE TRANSLATION IS ENABLED
-				const storedSettings = await chrome.storage.local.get(['inPlaceReplacement']);
-				const inPlaceEnabled = storedSettings.inPlaceReplacement !== false;
-
-				if (inPlaceEnabled && typeof chrome !== 'undefined' && chrome.tabs?.query) {
-					try {
-						const mappings = await getSiteMappings();
-						const targetUrls = new Set<string>();
-						if (refererUrl) {
-							targetUrls.add(normalizePageUrl(refererUrl));
-						}
-						for (const [url, entry] of Object.entries(mappings)) {
-							if (Number(entry.chapterId) === Number(payload.chapterId)) {
-								targetUrls.add(normalizePageUrl(url));
-							}
-						}
-
-						const tabs = await chrome.tabs.query({});
-						for (const tab of tabs) {
-							if (tab.id && tab.url) {
-								const tabNorm = normalizePageUrl(tab.url);
-								if (targetUrls.has(tabNorm)) {
-									console.log(`Reloading reader tab #${tab.id} (${tab.url}) after reslice...`);
-									chrome.tabs.reload(tab.id);
-								}
-							}
-						}
-					} catch (reloadErr) {
-						console.warn('Failed to reload mapped reader tabs after reslice:', reloadErr);
-					}
-				}
+				// BROADCAST SYNC TO TABS SO CONTENT SCRIPTS DYNAMICALLY REMOUNT AND PRESERVE SCROLL POSITION
+				broadcastToChapterTabs(payload.chapterId, {
+					type: 'CHAPTER_SYNC_UPDATE',
+					chapterId: payload.chapterId,
+					status: 'resliced',
+					pages: reslicedDetails.pages
+				});
 			}
 		} catch (e) {
 			console.warn('Auto-reslice trigger failed:', e);

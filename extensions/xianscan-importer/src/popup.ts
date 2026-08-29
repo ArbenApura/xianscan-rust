@@ -1414,7 +1414,10 @@ class PopupController {
 			this.renderBookDropdown(selectBookId);
 		} catch (e) {
 			console.error('Failed to load books:', e);
-			this.bookLabel.textContent = 'Failed to load books';
+			this.bookLabel.textContent = 'Server unreachable. Click + or check settings';
+			this.chapterBtn.disabled = true;
+			this.newChapterBtn.disabled = true;
+			this.updateImportButtonState();
 		}
 	}
 
@@ -1561,6 +1564,8 @@ class PopupController {
 			}
 		} catch (e) {
 			console.error('Failed to load chapters:', e);
+			this.chapterLabel.textContent = 'Failed to load chapters';
+			this.selectNewChapterPreset();
 		}
 	}
 

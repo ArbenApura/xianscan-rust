@@ -8,10 +8,13 @@ const CHAPTER_REGEXES = [
 	/(?:제\s*)?(\d+(?:\.\d+)?)\s*화/i,
 	// JAPANESE: 第123話, 123話
 	/(?:第\s*)?(\d+(?:\.\d+)?)\s*話/i,
-	// ENGLISH / LATIN: Chapter 123, Ch. 123, Ep. 123, Episode 123.5, #123
-	/(?:chapter|chap|ch|episode|ep|vol|volume|\b#)\s*[\.:#]?\s*(\d+(?:\.\d+)?)/i,
+	// ENGLISH / LATIN: Chapter 123, Ch. 123, Ep. 123, Episode 123.5, #123 (PRIORITIZE CHAPTER OVER VOLUME)
+	/(?:chapter|chap|ch|episode|ep|\b#)\s*[\.:#]?\s*(\d+(?:\.\d+)?)/i,
+	// FALLBACK VOLUME-ONLY PATTERN
+	/(?:vol|volume)\s*[\.:#]?\s*(\d+(?:\.\d+)?)/i,
 	// URL-STYLE: /chapter-123, /c123, /123.html
-	/[\/-](?:chapter|chap|ch|ep)?-?(\d+(?:\.\d+)?)(?:\.html|\/|$)/i
+	/[\/-](?:chapter|chap|ch|ep)-?(\d+(?:\.\d+)?)(?:\.html|\/|$)/i,
+	/[\/-](\d+(?:\.\d+)?)(?:\.html|\/|$)/i
 ];
 
 const TRADITIONAL_HAN_PATTERN = /[們這為會經說國動時現實體學業發問門沒進聽階級歡迎龍鳳飛鳥馬魚車書長萬與變並單當點對讓頭儘幾後畫兒極總處愛鐵無樂義氣開專鬥蒼術靈斬寶閣莊記話職師歸來劍聖陣傳廣導應隊戰惡獸護衛歷險煉]/;

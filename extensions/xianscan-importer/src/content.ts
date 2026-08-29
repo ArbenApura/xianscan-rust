@@ -789,7 +789,7 @@ class InPlaceTranslationCoordinator {
 		});
 
 		window.addEventListener('pagehide', () => {
-			// PAGE MOVED INTO THE BACK/FORWARD CACHE OR CLOSED — TEAR DOWN THE KEEPALIVE PORT
+			// PAGE MOVED INTO THE BACK/FORWARD CACHE OR CLOSED: TEAR DOWN THE KEEPALIVE PORT
 			// BEFORE CHROME CLOSES THE CHANNEL SO IT DOES NOT RAISE AN "UNCHECKED lastError".
 			this.stopKeepAlive();
 		});
@@ -799,7 +799,7 @@ class InPlaceTranslationCoordinator {
 				this.destroy();
 				return;
 			}
-			// RESTORED FROM THE BACK/FORWARD CACHE — RE-SYNC (RE-ESTABLISHES THE KEEPALIVE
+			// RESTORED FROM THE BACK/FORWARD CACHE: RE-SYNC (RE-ESTABLISHES THE KEEPALIVE
 			// PORT AND POLLING VIA startPollingIfNeeded).
 			if (this.activeMapping) {
 				void this.syncWithServer();
@@ -855,7 +855,7 @@ class InPlaceTranslationCoordinator {
 						this.destroy();
 						return;
 					}
-					// ONLY PING WHILE THE PORT IS STILL OPEN — A CLOSED PORT RAISES lastError.
+					// ONLY PING WHILE THE PORT IS STILL OPEN: A CLOSED PORT RAISES lastError.
 					if (this.keepAlivePort && !(this.keepAlivePort as { disconnected?: boolean }).disconnected) {
 						try {
 							this.keepAlivePort.postMessage({
@@ -1018,7 +1018,7 @@ class InPlaceTranslationCoordinator {
 	handlePageTranslated(msg: PageTranslatedMessage) {
 		if (!this.inPlaceEnabled) return;
 		if (!this.activeMapping) {
-			// Tab has not been mapped to any chapter; ignore foreign translation broadcasts
+			// TAB HAS NOT BEEN MAPPED TO ANY CHAPTER: IGNORE FOREIGN TRANSLATION BROADCASTS
 			return;
 		}
 
@@ -1049,11 +1049,9 @@ if (typeof window !== 'undefined' && !(window as any).__xianscan_content_injecte
 	const coordinator = new InPlaceTranslationCoordinator();
 	coordinator.init();
 
-	// ATTACH MUTATIONOBSERVER TO CAPTURE VIRTUAL-SCROLL / LAZY IMAGE URLS AS THE READER MOUNTS THEM
-	attachImageCaptureObserver();
-
 	chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
 		if (message.type === 'SCAN_PAGE') {
+			attachImageCaptureObserver();
 			const images = scanPageForImages();
 			const htmlLang = document.documentElement.lang || '';
 			const metadata = parseChapterMetadata(document.title, window.location.href, htmlLang);
@@ -1116,6 +1114,17 @@ if (typeof window !== 'undefined' && !(window as any).__xianscan_content_injecte
 		}
 
 		if (message.type === 'FETCH_IMAGE_DATA_IN_TAB') {
+			let responded = false;
+			const safeSend = (resp: any) => {
+				if (responded) return;
+				responded = true;
+				try {
+					sendResponse(resp);
+				} catch {
+					// IGNORE IF TAB/CHANNEL CLOSED
+				}
+			};
+
 			(async () => {
 				try {
 					const res = await fetch(message.url);
@@ -1126,17 +1135,19 @@ if (typeof window !== 'undefined' && !(window as any).__xianscan_content_injecte
 							if (blob.size >= 100) {
 								const reader = new FileReader();
 								reader.onloadend = () => {
-									sendResponse({ ok: true, dataUrl: reader.result as string });
+									safeSend({ ok: true, dataUrl: reader.result as string });
 								};
 								reader.onerror = () => {
-									sendResponse({ ok: false, error: 'FileReader failed to read blob' });
+									safeSend({ ok: false, error: 'FileReader failed to read blob' });
 								};
 								reader.readAsDataURL(blob);
 								return;
 							}
 						}
 					}
-				} catch {}
+				} catch {
+					// FALL THROUGH TO DOM CANVAS FALLBACK
+				}
 
 				// FALLBACK: EXTRACT FROM ALREADY LOADED DOM IMAGE ELEMENT VIA CANVAS
 				try {
@@ -1151,13 +1162,15 @@ if (typeof window !== 'undefined' && !(window as any).__xianscan_content_injecte
 						if (ctx) {
 							ctx.drawImage(imgEl, 0, 0);
 							const dataUrl = canvas.toDataURL('image/jpeg', 0.95);
-							sendResponse({ ok: true, dataUrl });
+							safeSend({ ok: true, dataUrl });
 							return;
 						}
 					}
-				} catch {}
+				} catch {
+					// IGNORE CANVAS TAINT ERROR
+				}
 
-				sendResponse({ ok: false, error: 'Failed to retrieve image in tab' });
+				safeSend({ ok: false, error: 'Failed to retrieve image in tab' });
 			})();
 			return true;
 		}

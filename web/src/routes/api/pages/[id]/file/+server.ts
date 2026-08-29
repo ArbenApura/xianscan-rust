@@ -36,6 +36,9 @@ const IMMUTABLE_HEADERS = {
 	'cache-control': 'public, max-age=31536000, immutable',
 };
 
+// IN-FLIGHT THUMBNAIL DEDUPLICATION MAP TO PREVENT THUNDERING HERD CPU STARVATION
+const inFlightThumbs = new Map<string, Promise<Uint8Array>>();
+
 export const GET: RequestHandler = async ({ params, url, request }) => {
 	const pageId = Number(params.id);
 	if (!Number.isInteger(pageId)) throw error(400, 'Invalid page id.');
@@ -45,7 +48,7 @@ export const GET: RequestHandler = async ({ params, url, request }) => {
 	const page = db.select().from(pages).where(eq(pages.id, pageId)).get();
 	if (!page) throw error(404, 'Page not found.');
 
-	// REV PARAM — WHEN PRESENT THE RESPONSE IS IMMUTABLE-CACHEABLE (THE REV IS THE
+	// REV PARAM (WHEN PRESENT THE RESPONSE IS IMMUTABLE-CACHEABLE: THE REV IS THE
 	// CONTENT VERSION, EMBEDDED IN THE URL BY THE CLIENT VIEW COMPONENTS).
 	const revParam = url.searchParams.get('rev');
 	const rev = revParam ? Number(revParam) : null;
@@ -53,13 +56,13 @@ export const GET: RequestHandler = async ({ params, url, request }) => {
 	if (isImmutable) {
 		const stored =
 			kind === 'original' ? page.originalRev : kind === 'cleaned' ? page.cleanedRev : kind === 'output' ? page.outputRev : null;
-		// ORIGINALS CHANGE ONLY VIA STITCH (originalRev BUMP) — VALIDATE LIKE ANY OTHER KIND.
+		// ORIGINALS CHANGE ONLY VIA STITCH (originalRev BUMP): VALIDATE LIKE ANY OTHER KIND.
 		if (stored !== null && rev! > stored) {
 			throw error(404, 'Stale image revision.');
 		}
 	}
 
-	// THUMBNAIL SERVING & MEMOIZED DISK CACHING
+	// THUMBNAIL SERVING & MEMOIZED DISK CACHING WITH DEDUPLICATION
 	if (kind === 'thumb') {
 		const targetWidth = Math.min(800, Math.max(80, parseInt(url.searchParams.get('w') || '280', 10)));
 		const target = url.searchParams.get('target') || (url.searchParams.get('output') === '0' ? 'original' : 'output');
@@ -71,9 +74,6 @@ export const GET: RequestHandler = async ({ params, url, request }) => {
 
 		const isOutput = rel === page.outputPath;
 		const thumbDir = join(DATA_ROOT, 'cache', 'thumbs');
-		// THE REV IS THE CONTENT VERSION — IF THE CACHED FILE EXISTS FOR THIS EXACT
-		// KEY IT IS CURRENT (NO MTIME HEURISTIC NEEDED). THUMBS ARE OF OUTPUT OR
-		// ORIGINAL ONLY (cleaned IS NEVER THUMBNAILED).
 		const cacheKey = `${page.id}_${isOutput ? 'out' : 'orig'}_${targetWidth}_${isOutput ? page.outputRev : page.originalRev}.jpg`;
 		const cachePath = join(thumbDir, cacheKey);
 
@@ -91,7 +91,7 @@ export const GET: RequestHandler = async ({ params, url, request }) => {
 			}
 
 			const cachedBytes = await readFile(cachePath);
-			return new Response(cachedBytes, {
+			return new Response(new Uint8Array(cachedBytes), {
 				headers: {
 					'content-type': 'image/jpeg',
 					'content-length': String(cachedBytes.byteLength),
@@ -101,37 +101,42 @@ export const GET: RequestHandler = async ({ params, url, request }) => {
 			});
 		}
 
-		try {
-			mkdirSync(thumbDir, { recursive: true });
-			const img = await loadImage(sourcePath);
-			const scale = targetWidth / img.width;
-			const targetHeight = Math.round(img.height * scale);
+		// DEDUPLICATE CONCURRENT GENERATION REQUESTS FOR THE SAME CACHE KEY
+		let thumbPromise = inFlightThumbs.get(cacheKey);
+		if (!thumbPromise) {
+			thumbPromise = (async (): Promise<Uint8Array> => {
+				try {
+					mkdirSync(thumbDir, { recursive: true });
+					const img = await loadImage(sourcePath);
+					const scale = targetWidth / img.width;
+					const targetHeight = Math.round(img.height * scale);
 
-			const canvas = createCanvas(targetWidth, targetHeight);
-			const ctx = canvas.getContext('2d');
-			ctx.drawImage(img, 0, 0, targetWidth, targetHeight);
-			const jpegBuffer = canvas.toBuffer('image/jpeg', 80);
+					const canvas = createCanvas(targetWidth, targetHeight);
+					const ctx = canvas.getContext('2d');
+					ctx.drawImage(img, 0, 0, targetWidth, targetHeight);
+					const jpegBuffer = canvas.toBuffer('image/jpeg', 80);
 
-			writeFileSync(cachePath, jpegBuffer);
-
-			return new Response(new Uint8Array(jpegBuffer), {
-				headers: {
-					'content-type': 'image/jpeg',
-					'content-length': String(jpegBuffer.byteLength),
-					...NO_CACHE_HEADERS,
-				},
-			});
-		} catch {
-			// FALLBACK TO FULL IMAGE IF THUMBNAIL RESIZING ENCOUNTERS AN UNEXPECTED IO ISSUE
-			const bytes = await readFile(sourcePath);
-			return new Response(bytes, {
-				headers: {
-					'content-type': MIME_BY_EXT[extname(rel).toLowerCase()] ?? 'image/jpeg',
-					'content-length': String(bytes.byteLength),
-					...NO_CACHE_HEADERS,
-				},
-			});
+					writeFileSync(cachePath, jpegBuffer);
+					return new Uint8Array(jpegBuffer);
+				} catch {
+					// FALLBACK TO FULL IMAGE IF THUMBNAIL RESIZING ENCOUNTERS AN UNEXPECTED IO ISSUE
+					const raw = await readFile(sourcePath);
+					return new Uint8Array(raw);
+				} finally {
+					inFlightThumbs.delete(cacheKey);
+				}
+			})();
+			inFlightThumbs.set(cacheKey, thumbPromise);
 		}
+
+		const thumbBytes = await thumbPromise;
+		return new Response(new Uint8Array(thumbBytes), {
+			headers: {
+				'content-type': 'image/jpeg',
+				'content-length': String(thumbBytes.byteLength),
+				...NO_CACHE_HEADERS,
+			},
+		});
 	}
 
 	const rel =

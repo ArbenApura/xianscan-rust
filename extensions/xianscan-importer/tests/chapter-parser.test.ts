@@ -45,6 +45,12 @@ describe('parseChapterMetadata', () => {
 		const meta = parseChapterMetadata('One Piece Ch. 1044.5 Extra', 'https://example.com/op/1044.5');
 		expect(meta.chapterNumber).toBe(1044.5);
 	});
+
+	it('prioritizes chapter over volume when both are present in title', () => {
+		const meta = parseChapterMetadata('Solo Leveling Vol. 2 Chapter 15 - The Awakening', 'https://example.com/manga/solo-leveling-vol-2/chapter-15');
+		expect(meta.chapterNumber).toBe(15);
+		expect(meta.chapterTitle).toBe('Chapter 15: The Awakening');
+	});
 });
 
 describe('detectSourceLanguageFromPage', () => {

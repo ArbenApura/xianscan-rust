@@ -1302,6 +1302,26 @@ body {
 	font-weight: 600;
 }
 
+.chip-experimental-badge {
+	font-size: 7.5px;
+	font-weight: 700;
+	letter-spacing: 0.5px;
+	padding: 1px 4.5px;
+	border-radius: 3px;
+	background: rgba(212, 154, 61, 0.16);
+	color: var(--gold);
+	border: 1px solid rgba(212, 154, 61, 0.35);
+	margin-left: auto;
+	flex-shrink: 0;
+	line-height: 1.2;
+}
+
+.pipeline-chip:has(input:checked) .chip-experimental-badge,
+.pipeline-chip.checked .chip-experimental-badge {
+	background: rgba(212, 154, 61, 0.22);
+	border-color: rgba(212, 154, 61, 0.55);
+}
+
 /* -- BUTTONS -- */
 .action-btn {
 	width: 100%;

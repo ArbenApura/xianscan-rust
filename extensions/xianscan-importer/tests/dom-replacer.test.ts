@@ -230,18 +230,18 @@ describe('DomReplacerEngine', () => {
 			}
 		];
 
-		// Exclude img1 ('https://site.com/raw1.jpg')
+		// EXCLUDE img1 ('https://site.com/raw1.jpg')
 		const hostImgs = getHostReaderImages(['https://site.com/raw1.jpg']);
 		expect(hostImgs.length).toBe(1);
 		expect(hostImgs[0]).toBe(img2);
 
 		engine.mountTranslatedPages(testPages, ['https://site.com/raw1.jpg']);
 
-		// img1 is NOT modified or replaced (remains original ad/unselected content)
+		// img1 IS NOT MODIFIED OR REPLACED (REMAINS ORIGINAL AD/UNSELECTED CONTENT)
 		expect(img1.src).toBe('https://site.com/raw1.jpg');
 		expect(img1.getAttribute('data-xianscan-page-id')).toBeNull();
 
-		// img2 is replaced with testPage 101
+		// img2 IS REPLACED WITH testPage 101
 		expect(img2.src).toContain('/api/pages/101/file?kind=output&rev=1');
 		expect(img2.getAttribute('data-xianscan-page-id')).toBe('101');
 	});
@@ -265,7 +265,7 @@ describe('DomReplacerEngine', () => {
 
 		engine.mountTranslatedPages(testPages);
 
-		// Host container maintains direct image hierarchy with zero injected wrapper/badge DOM elements
+		// HOST CONTAINER MAINTAINS DIRECT IMAGE HIERARCHY WITH ZERO INJECTED WRAPPER/BADGE DOM ELEMENTS
 		expect(img1.parentElement).toBe(container);
 		expect(document.querySelectorAll('[data-xianscan-badge-id]').length).toBe(0);
 		expect(img1.getAttribute('data-xianscan-status')).toBe('pending');

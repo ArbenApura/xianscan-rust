@@ -21,18 +21,21 @@ describe('sanitizeFileName', () => {
 		expect(sanitizeFileName('nul')).toBe('nul_file');
 		expect(sanitizeFileName('com1')).toBe('com1_file');
 		expect(sanitizeFileName('lpt3')).toBe('lpt3_file');
+		expect(sanitizeFileName('com1.page.png')).toBe('com1_file.page.png');
 	});
 
 	it('handles empty or blank strings with fallback', () => {
 		expect(sanitizeFileName('')).toBe('untitled');
 		expect(sanitizeFileName('   ')).toBe('untitled');
 		expect(sanitizeFileName('???')).toBe('untitled');
+		expect(sanitizeFileName('.png')).toBe('untitled.png');
 	});
 
-	it('limits excessively long filenames', () => {
-		const long = 'a'.repeat(300);
+	it('limits excessively long filenames while preserving extension', () => {
+		const long = 'a'.repeat(300) + '.jpg';
 		const sanitized = sanitizeFileName(long, 100);
 		expect(sanitized.length).toBeLessThanOrEqual(100);
+		expect(sanitized.endsWith('.jpg')).toBe(true);
 	});
 });
 
