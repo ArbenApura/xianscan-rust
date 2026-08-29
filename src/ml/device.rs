@@ -556,6 +556,55 @@ pub fn set_cuda_memory_limit_override(mb: Option<usize>) -> HardwareStatus {
     get_hardware_status()
 }
 
+/// LOADS PERSISTED HARDWARE SETTINGS (CUDA MEMORY LIMIT, EXECUTION DEVICE) FROM SQLITE IF AVAILABLE
+pub fn load_persisted_hardware_settings(db_path: &std::path::Path) {
+    if !db_path.exists() {
+        return;
+    }
+
+    let Ok(conn) = rusqlite::Connection::open_with_flags(
+        db_path,
+        rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY | rusqlite::OpenFlags::SQLITE_OPEN_NO_MUTEX,
+    ) else {
+        return;
+    };
+
+    let mut stmt = match conn.prepare("SELECT key, value FROM app_settings WHERE key IN ('cudaVramLimitMb', 'executionDevice')") {
+        Ok(s) => s,
+        Err(_) => return, // TABLE MIGHT NOT EXIST YET ON FIRST BOOT
+    };
+
+    let rows = match stmt.query_map([], |row| {
+        let key: String = row.get(0)?;
+        let value: String = row.get(1)?;
+        Ok((key, value))
+    }) {
+        Ok(r) => r,
+        Err(_) => return,
+    };
+
+    for row in rows.flatten() {
+        let (key, value) = row;
+        if key == "cudaVramLimitMb" {
+            // VALUE IS STORED AS JSON (e.g. 12288 OR null)
+            if let Ok(mb) = serde_json::from_str::<Option<usize>>(&value) {
+                if let Some(limit) = mb {
+                    if limit > 0 {
+                        tracing::info!(vram_limit_mb = limit, "LOADED PERSISTED CUDA VRAM LIMIT SETTING");
+                        set_cuda_memory_limit_override(Some(limit));
+                    }
+                }
+            }
+        } else if key == "executionDevice" {
+            // VALUE IS STORED AS JSON STRING (e.g. \"cuda\", \"auto\", \"cpu\")
+            if let Ok(dev) = serde_json::from_str::<String>(&value) {
+                tracing::info!(device = %dev, "LOADED PERSISTED EXECUTION DEVICE SETTING");
+                set_active_provider(&dev);
+            }
+        }
+    }
+}
+
 /// DETERMINES OPTIMAL CPU INTRA-OP THREADS ADAPTIVELY FOR CONSUMER CPUS (BOUNDED TO MAX 8 TO AVOID THREAD CONTENTION & MULTIPLICATION)
 pub fn get_optimal_cpu_threads() -> usize {
     if let Ok(val) = std::env::var("ONNX_THREADS") {

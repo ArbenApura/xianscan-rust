@@ -272,6 +272,7 @@ pub fn fuse_detections(
                                         || (clean_chars == rl_chars && line_res.score > rl.score + 0.05)
                                 );
                                 if is_better {
+                                    let rl_orig_score = rl.score;
                                     let union_x = cb_x.min(rx);
                                     let union_y = cb_y.min(ry);
                                     let union_w = (cb_x + cb_w).max(rx + rw) - union_x;
@@ -285,7 +286,7 @@ pub fn fuse_detections(
                                     rapid_lines[r_idx] = OcrLine {
                                         polygon: offset_poly,
                                         text: clean_c,
-                                        score: line_res.score.max(rl.score),
+                                        score: line_res.score.max(rl_orig_score),
                                     };
                                     rescued_crops_count += 1;
                                 }

@@ -1,6 +1,7 @@
 // -- MODULE DECLARATIONS -- //
 mod base;
 mod page_acloudmerge_watermark_cover;
+mod page_bear_lord_calm_down_spiky_shout;
 mod page_chariot_easy_to_block_sfx;
 mod page_civil_war_nations_narration_box_sfx;
 mod page_crystal_swords_ground_sfx_rustle;
@@ -13,6 +14,7 @@ mod page_herb_shop_silence_ellipsis_dots;
 mod page_holy_ancestor_mountains_glory_city;
 mod page_in_decades_years_narration_box;
 mod page_inn_couplets_college_virgin_dialogue;
+mod page_jun_family_ancestral_cemetery_sfx_dong;
 mod page_lightning_city_smoke_sfx_whoosh;
 mod page_lightning_storm_welcome_my_lord_shout_bubble;
 mod page_man_sleeping_in_bed_gutter_watermark_noise;
@@ -24,6 +26,7 @@ mod page_ruins_mother_child_exclamation_bubble;
 mod page_saint_nether_grass_catch_present;
 mod page_sensei_remove_tumor_understood_boss;
 mod page_shadow_demon_nightmare_pillow_watermark_noise;
+mod page_sichuan_zhang_baobao_guesthouse;
 mod page_song_yunxiang_star_release_exhale_bubbles;
 mod page_soul_restoration_pills_gutter_watermark;
 mod page_star_dissolution_spiky_bubble_building_noise;

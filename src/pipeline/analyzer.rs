@@ -84,14 +84,21 @@ pub fn analyze_image_with_fusion_timed(
     let is_detector_first = fusion_res.backend == "rfdetr-seg-2xl" || fusion_res.backend == "rtdetr-v2";
     if is_detector_first && (!fusion_res.text_bubbles.is_empty() || !fusion_res.text_free.is_empty()) {
         for (b, score) in &fusion_res.text_bubbles {
-            // If this is a loose composite box enclosing 2 or more separate tighter subboxes, skip it
+            // If this is a loose composite box enclosing 2 or more separate tighter subboxes across different columns or with distinct bubbles, skip it
+            let inside_any_bubble = fusion_res.bubbles.iter().any(|pb| {
+                let ix = (pb.x + pb.w).min(b.x + b.w) - pb.x.max(b.x);
+                let iy = (pb.y + pb.h).min(b.y + b.h) - pb.y.max(b.y);
+                ix > 0 && iy > 0 && (ix * iy) as f32 / (b.w * b.h).max(1) as f32 >= 0.50
+            });
             let matching_subboxes_count = fusion_res.text_bubbles.iter().filter(|(sub_b, sub_score)| {
-                *sub_score >= 0.45
-                    && sub_b.x >= b.x - 10
-                    && sub_b.y >= b.y - 10
-                    && (sub_b.x + sub_b.w) <= (b.x + b.w + 10)
-                    && (sub_b.y + sub_b.h) <= (b.y + b.h + 10)
-                    && (sub_b.w * sub_b.h) < (b.w * b.h * 3 / 4)
+                let is_distinct_col = (sub_b.x >= b.x + b.w / 2) || (sub_b.x + sub_b.w <= b.x + b.w / 2);
+                let is_bubble_split = inside_any_bubble && *sub_score >= 0.25;
+                (is_bubble_split || (*sub_score >= 0.45 && is_distinct_col))
+                    && sub_b.x >= b.x - 15
+                    && sub_b.y >= b.y - 15
+                    && (sub_b.x + sub_b.w) <= (b.x + b.w + 15)
+                    && (sub_b.y + sub_b.h) <= (b.y + b.h + 15)
+                    && (sub_b.w * sub_b.h) < (b.w * b.h * 4 / 5)
             }).count();
             if matching_subboxes_count >= 2 {
                 continue;
@@ -272,9 +279,12 @@ pub fn analyze_image_with_fusion_timed(
                         let inter_area = ix * iy;
                         let l_area = (lw * lh).max(1) as f32;
                         let s_area = (sfx_b.w * sfx_b.h).max(1) as f32;
-                        inter_area / l_area >= 0.20 || inter_area / s_area >= 0.20
+                        inter_area / l_area >= 0.15 || inter_area / s_area >= 0.15
                     } else {
-                        false
+                        // Proximity check to onomatopoeia box
+                        let dx = (sx - (lx + lw) as f32).max((lx as f32) - (sx + sw)).max(0.0);
+                        let dy = (sy - (ly + lh) as f32).max((ly as f32) - (sy + sh)).max(0.0);
+                        dx <= 20.0 && dy <= 20.0 && (crate::ml::detect::is_onomatopoeia_or_shout(&line.text) || line.text.chars().count() <= 2)
                     }
                 });
 
@@ -313,15 +323,17 @@ pub fn analyze_image_with_fusion_timed(
                     continue;
                 }
 
-                // IF NOT NEAR ANY LAYOUT DETECTION, ONLY RESCUE HIGH-CONFIDENCE NATIVE SCRIPT ON CLEAN GUTTER
-                if !is_near_layout_anchor {
+                // IF NOT NEAR ANY LAYOUT DETECTION, ONLY RESCUE HIGH-CONFIDENCE NATIVE SCRIPT ON CLEAN GUTTER OR TITLE NARRATION
+                let has_any_layout = !fusion_res.bubbles.is_empty() || !fusion_res.text_bubbles.is_empty() || !fusion_res.text_free.is_empty();
+                if has_any_layout && !is_near_layout_anchor {
+                    // Check if background is dark/artwork
                     let is_native = match source_lang {
                         Some(lang) if crate::ml::detect::is_non_latin_source(Some(lang)) => {
                             crate::ml::detect::has_native_script_for_lang(&line.text, Some(lang))
                         }
                         _ => true,
                     };
-                    if !is_native || line.score < 0.90 {
+                    if !is_native || line.score < 0.75 || line.text.chars().count() <= 4 {
                         continue;
                     }
                 }

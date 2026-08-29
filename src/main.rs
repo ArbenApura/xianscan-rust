@@ -223,6 +223,9 @@ async fn main() -> anyhow::Result<()> {
         );
     }
 
+    // LOAD PERSISTED HARDWARE SETTINGS (CUDA MEMORY LIMIT, EXECUTION DEVICE) BEFORE HARDWARE PROBE & ENGINE INITIALIZATION
+    xianscan_rust::ml::device::load_persisted_hardware_settings(&proper_db);
+
     // RESOLVE WEB DIR: PREFER EMBEDDED EXTRACTION → ON-DISK FALLBACK.
     let web_dir = embedded_app_dir.or_else(find_web_dir);
     let hw = get_hardware_status();

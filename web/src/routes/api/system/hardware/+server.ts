@@ -1,6 +1,7 @@
 import { json } from '@sveltejs/kit';
 import { createPipelineClient } from '$lib/server/pipeline-client';
 import { setHardwareDeviceSchema } from '$lib/schemas';
+import { getCanonicalSettings } from '$lib/server/settings-service';
 import type { RequestHandler } from './$types';
 
 export const GET: RequestHandler = async () => {
@@ -8,7 +9,26 @@ export const GET: RequestHandler = async () => {
 		const pipeline = createPipelineClient();
 
 		if (pipeline.getHardware) {
-			const hw = await pipeline.getHardware();
+			let hw = await pipeline.getHardware();
+			const canonical = getCanonicalSettings();
+
+			// AUTO-SYNC PERSISTED SETTINGS IF PIPELINE SIDECAR STARTED UNCONFIGURED
+			const shouldSyncVram =
+				canonical.cudaVramLimitMb !== undefined &&
+				canonical.cudaVramLimitMb !== null &&
+				hw.configured_cuda_vram_limit_mb !== canonical.cudaVramLimitMb;
+
+			if (shouldSyncVram && pipeline.setDevice) {
+				try {
+					hw = await pipeline.setDevice(
+						canonical.executionDevice || 'auto',
+						canonical.cudaVramLimitMb ?? undefined
+					);
+				} catch {
+					// SILENT FALLBACK TO INITIAL HW STATUS
+				}
+			}
+
 			return json({
 				...hw,
 				version: hw.version || '0.4.0-beta.7',

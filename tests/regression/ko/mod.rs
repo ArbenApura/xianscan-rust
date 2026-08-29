@@ -1,9 +1,12 @@
 // -- MODULE DECLARATIONS -- //
 mod base;
 mod page_dragon_spiky_sfx;
+mod page_dull_ending_black_bubble;
+mod page_eleven_years_red_smoke_narration;
 mod page_hospital_gown_pattern_team_leader_bubble;
 mod page_hospital_reception_wall_sign;
 mod page_iv_drip_sedative_squeeze_sfx;
+mod page_korean_gamers_365_days_continuous;
 mod page_patient_endoscopy_heartbeat_sfx;
 mod page_patient_greeting_doctor_exclamation;
 mod page_polyp_discovered_spiky_punctuation_bubble;

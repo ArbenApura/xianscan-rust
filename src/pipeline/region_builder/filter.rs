@@ -32,10 +32,11 @@ pub fn should_reject_candidate_region(
     if !is_bubble && cluster_rect.w >= 300 && cluster_rect.h >= 500 && avg_score < 0.65 {
         return true;
     }
+    let char_count = cleaned.chars().filter(|c| !c.is_whitespace()).count();
     let is_wide_artwork_hallucination = !is_bubble
         && cluster_rect.w >= (page_w as f32 * 0.75) as i32
         && cluster_rect.h >= 140
-        && (avg_score < 0.70 || cleaned.chars().filter(|c| !c.is_whitespace()).count() <= 4 || compute_chromatic_color_variance(img, cluster_rect) >= 15.0);
+        && (avg_score < 0.68 || char_count <= 4 || (compute_chromatic_color_variance(img, cluster_rect) >= 15.0 && char_count <= 8));
     if is_wide_artwork_hallucination {
         return true;
     }
@@ -51,14 +52,18 @@ pub fn should_reject_candidate_region(
     }
 
     // 4. SUPPRESS TINY LOW-CONFIDENCE NOISE BUBBLES
-    if is_bubble && cluster_rect.w <= 35 && cluster_rect.h <= 55 {
+    let is_expressive_bubble_punct = cleaned.chars().any(|c| matches!(c, '！' | '？' | '!' | '?' | '…' | '·' | '—' | '～' | '¿' | '¡'));
+    if is_bubble {
         let is_noise_or_digit = crate::ml::detect::is_standalone_digit_or_particle_noise(cleaned)
             || crate::ml::detect::is_standalone_noise_stroke(cleaned)
             || cleaned.lines().all(|l| {
                 let lt = l.trim();
                 crate::ml::detect::is_standalone_noise_stroke(lt) || crate::ml::detect::is_standalone_digit_or_particle_noise(lt)
             });
-        if avg_score < 0.68 || is_noise_or_digit {
+        let is_cjk_garbage = is_cjk && avg_score < 0.70 && !crate::ml::detect::has_cjk_characters(cleaned) && !is_expressive_bubble_punct;
+        if (cluster_rect.w <= 35 && cluster_rect.h <= 55 && (avg_score < 0.68 || is_noise_or_digit || is_cjk_garbage))
+            || is_cjk_garbage
+        {
             return true;
         }
     } else if is_bubble && cluster_rect.w <= 30 && cluster_rect.h <= 95 {
@@ -83,11 +88,13 @@ pub fn should_reject_candidate_region(
         let is_short_noise_code = !is_bubble && char_count <= 3 && !is_valid_sfx;
         let is_non_bubble_alphanumeric = !is_bubble && !is_valid_sfx;
         let is_pure_digits_in_bubble = is_bubble && cleaned.chars().all(|c| c.is_ascii_digit() || c.is_whitespace()) && char_count <= 3;
+        let is_low_conf_bubble_garbage = is_bubble && avg_score < 0.70 && !is_expressive_punct && (cleaned.lines().count() >= 2 || char_count <= 2);
         if cluster_rect.h <= 15
             || is_sparse_giant_box
             || is_short_noise_code
             || is_non_bubble_alphanumeric
             || is_pure_digits_in_bubble
+            || is_low_conf_bubble_garbage
             || (!is_bubble && cluster_rect.w <= 35 && cluster_rect.h <= 35)
             || (!is_bubble && avg_score < 0.70 && !is_valid_sfx)
             || (!is_bubble && char_count == 1 && !is_valid_sfx)
@@ -133,12 +140,13 @@ pub fn should_reject_candidate_region(
     // 9. SUPPRESS LOW-CONFIDENCE ISOLATED SINGLE-CHARACTER ARTWORK ARTIFACTS / SFX
     let char_count = cleaned.chars().filter(|c| !c.is_whitespace()).count();
     let is_oversized_single_char = char_count == 1 && (cluster_rect.w >= 75 || cluster_rect.h >= 75);
-    let is_sign_or_narration_box = is_cjk && char_count >= 2 && cluster_rect.w >= 60 && cluster_rect.h >= 40 && avg_score >= 0.70 && !crate::ml::detect::is_onomatopoeia_or_shout(cleaned);
+    let is_shout = crate::ml::detect::is_onomatopoeia_or_shout(cleaned) && char_count <= 4;
+    let is_sign_or_narration_box = is_cjk && char_count >= 2 && cluster_rect.w >= 60 && cluster_rect.h >= 40 && avg_score >= 0.70 && !is_shout;
     let is_margin_isolated_char = (cluster_rect.x <= 5 || cluster_rect.x + cluster_rect.w >= page_w as i32 - 5) && avg_score < 0.75;
     let is_valid_cjk_glyph = is_cjk && char_count >= 2 && cleaned.chars().any(|c| crate::ml::detect::has_cjk_characters(&c.to_string())) && avg_score >= 0.70 && !is_margin_isolated_char;
     let is_compact_single_glyph_box = char_count == 1 && cluster_rect.w <= 55 && cluster_rect.h <= 55;
     let is_low_conf_single_char = char_count == 1 && (avg_score < 0.75 || is_oversized_single_char || is_compact_single_glyph_box);
-    let is_isolated_sfx = char_count <= 4 && crate::ml::detect::is_onomatopoeia_or_shout(cleaned);
+    let is_isolated_sfx = char_count <= 4 && is_shout;
 
     if char_count <= 4
         && !is_bubble
@@ -206,7 +214,7 @@ pub fn should_reject_candidate_region(
     }
 
     // 17. SUPPRESS LOW-CONFIDENCE ISOLATED PSEUDO-WORD HALLUCINATIONS ON COMPLEX BACKGROUND ARTWORK
-    if !is_bubble && !is_sign_or_narration_box && ((avg_score < 0.65 && cleaned.chars().count() <= 6 && compute_chromatic_color_variance(img, cluster_rect) >= 15.0) || (avg_score < 0.70 && cleaned.chars().count() <= 16)) {
+    if !is_bubble && !is_sign_or_narration_box && ((avg_score < 0.65 && cleaned.chars().count() <= 6 && compute_chromatic_color_variance(img, cluster_rect) >= 15.0) || (avg_score < 0.68 && cleaned.chars().count() <= 8 && !cleaned.contains('\n'))) {
         return true;
     }
 
@@ -220,7 +228,7 @@ pub fn should_reject_candidate_region(
     let is_massive_background_occlusion = !is_bubble
         && (cluster_rect.w as f32 >= page_w as f32 * 0.75)
         && cluster_rect.h >= 100
-        && (avg_score < 0.70 || cleaned.chars().filter(|c| !c.is_whitespace()).count() <= 4 || compute_chromatic_color_variance(img, cluster_rect) >= 15.0);
+        && (avg_score < 0.68 || char_count <= 4 || (compute_chromatic_color_variance(img, cluster_rect) >= 15.0 && char_count <= 8));
     if is_massive_background_occlusion {
         return true;
     }
