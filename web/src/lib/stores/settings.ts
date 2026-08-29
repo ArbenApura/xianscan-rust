@@ -63,7 +63,6 @@ export interface AppSettings {
 	typesetPreviewPreset: string;
 	typesetAllCaps: boolean;
 	enableTextRotation: boolean;
-	enableWatermarkInpaint: boolean;
 	inpaintExpansionPct: number;
 	typesetExpansionPct: number;
 	hasCompletedOnboarding: boolean;
@@ -205,7 +204,6 @@ export const DEFAULTS: AppSettings = {
 	typesetPreviewPreset: 'en',
 	typesetAllCaps: true,
 	enableTextRotation: true,
-	enableWatermarkInpaint: false,
 	inpaintExpansionPct: 0.03,
 	typesetExpansionPct: 0.0,
 	hasCompletedOnboarding: false,
@@ -240,7 +238,6 @@ export const SERVER_CANONICAL_KEYS: (keyof AppSettings)[] = [
 	'typesetPreviewPreset',
 	'typesetAllCaps',
 	'enableTextRotation',
-	'enableWatermarkInpaint',
 	'inpaintExpansionPct',
 	'typesetExpansionPct',
 	'hasCompletedOnboarding',

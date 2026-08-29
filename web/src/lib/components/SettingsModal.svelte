@@ -530,14 +530,6 @@
 		});
 	}
 
-	function toggleWatermarkInpaint() {
-		settings.update((s) => {
-			const next = !s.enableWatermarkInpaint;
-			toast.success(`Chromatic watermark inpainting ${next ? 'enabled' : 'disabled'}`);
-			return { ...s, enableWatermarkInpaint: next };
-		});
-	}
-
 	function setTypesetFont(font: string) {
 		settings.update((s) => ({ ...s, typesetFont: font }));
 		toast.success(`Dialogue font set to ${font}`);
@@ -627,7 +619,6 @@
 
 	$: isInpaintingModified =
 		($settings.inpaintMode || 'patch') !== DEFAULTS.inpaintMode ||
-		Boolean($settings.enableWatermarkInpaint) !== Boolean(DEFAULTS.enableWatermarkInpaint) ||
 		Math.abs(($settings.inpaintExpansionPct ?? 0.03) - DEFAULTS.inpaintExpansionPct) >= 0.005 ||
 		Math.abs(($settings.typesetExpansionPct ?? 0.0) - DEFAULTS.typesetExpansionPct) >= 0.005;
 
@@ -666,7 +657,6 @@
 		settings.update((s) => ({
 			...s,
 			inpaintMode: DEFAULTS.inpaintMode,
-			enableWatermarkInpaint: DEFAULTS.enableWatermarkInpaint,
 			inpaintExpansionPct: DEFAULTS.inpaintExpansionPct,
 			typesetExpansionPct: DEFAULTS.typesetExpansionPct,
 		}));
@@ -1261,7 +1251,6 @@
 
 		// INPAINTING
 		{ id: 'inpaint-mode', label: 'Inpainting Strategy', category: 'inpainting', categoryLabel: 'Inpainting & Masking', categoryIcon: Eraser, keywords: ['inpaint', 'patch', 'scaled', 'full', 'erase', 'cleaning', 'lama'] },
-		{ id: 'watermark', label: 'Chromatic Watermark Inpainting', category: 'inpainting', categoryLabel: 'Inpainting & Masking', categoryIcon: Eraser, keywords: ['watermark', 'chromatic', 'logo', 'scanlator', 'clean'] },
 		{ id: 'inpaint-geom', label: 'Three-Tier Region Geometry Expansion', category: 'inpainting', categoryLabel: 'Inpainting & Masking', categoryIcon: Eraser, keywords: ['geometry', 'expansion', 'tier', 'margin', 'bounds', 'inpaint mask', 'typeset box'] },
 
 		// AI PROVIDERS
@@ -2014,27 +2003,6 @@
 										<p class="mt-2 text-[11px] opacity-75 leading-relaxed">{mode.blurb}</p>
 									</button>
 								{/each}
-							</div>
-						</div>
-
-						<!-- CHROMATIC WATERMARK TOGGLE -->
-						<div class="border-t border-black/10 pt-4 dark:border-white/10 space-y-3">
-							<div
-								id="setting-watermark"
-								class={`flex items-start justify-between gap-4 rounded-xl border border-black/10 bg-black/[0.02] p-3 dark:border-white/10 dark:bg-white/[0.02] transition-all duration-300 ${highlightedSettingId === 'watermark' ? 'ring-2 ring-[#b23a2e] dark:ring-[#e08a63] bg-[#b23a2e]/[0.06] dark:bg-[#e08a63]/[0.08]' : ''}`}
-							>
-								<div>
-									<div class="text-xs font-bold flex items-center gap-1.5">
-										<Eraser size={14} class="text-[#b23a2e] dark:text-[#e08a63]" />
-										<span>Chromatic Watermark Inpainting</span>
-									</div>
-									<p class="text-[11px] opacity-60 mt-0.5">Detect and inpaint colored scanlator logos and watermarks colliding with bubbles before OCR.</p>
-								</div>
-								<Switch
-									checked={$settings.enableWatermarkInpaint}
-									on:click={toggleWatermarkInpaint}
-									ariaLabel="Chromatic Watermark Inpainting"
-								/>
 							</div>
 						</div>
 

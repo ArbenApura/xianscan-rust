@@ -70,7 +70,6 @@ export interface ChapterPipelineDeps {
 	inpaintMode?: string;
 	inpaintExpansionPct?: number;
 	typesetExpansionPct?: number;
-	enableWatermarkInpaint?: boolean;
 	typesetOptions?: TypesetOptions;
 	/**
 	 * OPACQUE PROVIDER DISCRIMINATOR FOR THE TRANSLATION CACHE — THE API LAYER SETS IT FROM
@@ -580,7 +579,6 @@ export async function runChapterPipeline(
 				targetLang: pair.targetLang,
 				inpaintPaddingPct: deps.inpaintExpansionPct,
 				typesetPaddingPct: deps.typesetExpansionPct,
-				enableWatermarkInpaint: deps.enableWatermarkInpaint,
 			});
 			signal.throwIfAborted();
 			if (deps.isPageCancelled?.(page.id)) return;

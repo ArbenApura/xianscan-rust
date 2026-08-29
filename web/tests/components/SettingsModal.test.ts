@@ -296,9 +296,9 @@ describe('SettingsModal Component UI', () => {
 		expect(screen.getByRole('heading', { name: /Inpainting & Masking/i })).toBeTruthy();
 		expect(screen.queryByText('Reset Defaults')).toBeNull();
 
-		// Toggle Watermark
-		const watermarkSwitch = screen.getByRole('switch', { name: /Chromatic Watermark Inpainting/i }) || screen.getAllByRole('switch')[0];
-		await fireEvent.click(watermarkSwitch);
+		// Change inpaint mode to Scaled (512x512)
+		const scaledBtn = screen.getByText('Balanced (512x512)').closest('button');
+		await fireEvent.click(scaledBtn!);
 		await tick();
 
 		// Reset Defaults appears

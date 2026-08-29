@@ -129,17 +129,12 @@ export const POST: RequestHandler = async ({ params, request, cookies }) => {
 	const typesetExpansionPct = parsed.success && typeof parsed.data.typesetExpansionPct === 'number'
 		? parsed.data.typesetExpansionPct
 		: (cookies.get('mt_typeset_exp') ? Number(cookies.get('mt_typeset_exp')) : canonical.typesetExpansionPct ?? 0.0);
-	const enableWatermarkInpaint = parsed.success && typeof parsed.data.enableWatermarkInpaint === 'boolean'
-		? parsed.data.enableWatermarkInpaint
-		: (cookies.get('mt_watermark_inpaint') ? cookies.get('mt_watermark_inpaint') === 'true' : (canonical.enableWatermarkInpaint ?? false));
-
 	// RECORD AI SPEND ON THE LEDGER (THE JOB STAYS DETACHED — FAILURES LOG, NOT THROW)
 	const deps = {
 		pipeline: createPipelineClient(),
 		inpaintMode,
 		inpaintExpansionPct,
 		typesetExpansionPct,
-		enableWatermarkInpaint,
 		pageConcurrency,
 		typesetOptions,
 		dataRoot: DATA_ROOT,

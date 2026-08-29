@@ -1,5 +1,5 @@
+use xianscan_rust::ml::detect::is_likely_watermark;
 use xianscan_rust::ml::schemas::BoxRect;
-use xianscan_rust::ml::watermark::is_likely_watermark;
 
 /// # Watermark Test: Scanlator & Domain Keyword Classification
 ///

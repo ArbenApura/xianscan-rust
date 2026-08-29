@@ -84,11 +84,6 @@ export const POST: RequestHandler = async ({ request, cookies }) => {
 			? typesetExpansionPct
 			: (cookies.get('mt_typeset_exp') ? Number(cookies.get('mt_typeset_exp')) : canonical.typesetExpansionPct ?? 0.0);
 
-	const resolvedWatermarkInpaint =
-		typeof enableWatermarkInpaint === 'boolean'
-			? enableWatermarkInpaint
-			: (cookies.get('mt_watermark_inpaint') ? cookies.get('mt_watermark_inpaint') === 'true' : (canonical.enableWatermarkInpaint ?? false));
-
 	const resolvedTypesetOptions = {
 		fontDialogue: typesetOptions?.fontDialogue || (cookies.get('mt_ts_font') || canonical.typesetFont || 'CC Wild Words'),
 		fontCjk: typesetOptions?.fontCjk || (cookies.get('mt_ts_cjk_font') || canonical.typesetCjkFont || 'Microsoft YaHei'),
@@ -117,7 +112,6 @@ export const POST: RequestHandler = async ({ request, cookies }) => {
 				inpaintMode: resolvedInpaintMode,
 				inpaintExpansionPct: resolvedInpaintExp,
 				typesetExpansionPct: resolvedTypesetExp,
-				enableWatermarkInpaint: resolvedWatermarkInpaint,
 				typesetOptions: resolvedTypesetOptions,
 			},
 		);

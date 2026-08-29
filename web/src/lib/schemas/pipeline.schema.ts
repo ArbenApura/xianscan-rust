@@ -7,7 +7,6 @@ export const translateChapterSchema = z.object({
 	pageConcurrency: z.number().int().min(1).max(16).optional(),
 	inpaintExpansionPct: z.number().min(0.0).max(0.20).optional(),
 	typesetExpansionPct: z.number().min(0.0).max(0.30).optional(),
-	enableWatermarkInpaint: z.boolean().optional(),
 	typesetOptions: z
 		.object({
 			fontDialogue: z.string().optional(),

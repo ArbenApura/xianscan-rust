@@ -712,10 +712,8 @@ pub fn get_or_run_layout_detector_with_lang(
     let fusion = xianscan_rust::pipeline::fusion::fuse_detections(
         &mut engine.detector,
         &mut engine.ocr,
-        &engine.watermark,
         img,
         source_lang,
-        false,
         false,
     )
     .expect("fuse_detections failed");
@@ -840,7 +838,6 @@ pub fn get_or_analyze_fixture_with_lang(
     let opts = AnalyzeOptions {
         source_lang: source_lang.map(|l| l.to_string()),
         target_lang: Some("en".to_string()),
-        enable_watermark_inpaint: Some(false),
         inpaint_padding_pct: Some(0.06),
         typeset_padding_pct: Some(0.12),
         ..Default::default()
@@ -859,7 +856,6 @@ pub fn force_analyze_fixture_with_lang(
     let opts = AnalyzeOptions {
         source_lang: source_lang.map(|l| l.to_string()),
         target_lang: Some("en".to_string()),
-        enable_watermark_inpaint: Some(false),
         inpaint_padding_pct: Some(0.06),
         typeset_padding_pct: Some(0.12),
         ..Default::default()
@@ -868,10 +864,8 @@ pub fn force_analyze_fixture_with_lang(
     let fusion = xianscan_rust::pipeline::fusion::fuse_detections(
         &mut engine.detector,
         &mut engine.ocr,
-        &engine.watermark,
         img,
         source_lang,
-        false,
         false,
     )
     .expect("fuse_detections failed");

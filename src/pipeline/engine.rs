@@ -6,7 +6,6 @@ use crate::ml::detect::ComicTextDetector;
 use crate::ml::inpaint::LamaInpainter;
 use crate::ml::ocr::RapidOcr;
 use crate::ml::schemas::{AnalyzeOptions, AnalyzeResponse, CleanRequestRegion};
-use crate::ml::watermark::WatermarkRemover;
 use super::analyzer::{analyze_image, analyze_image_with_options};
 use super::cleaner::clean_image;
 
@@ -14,7 +13,6 @@ pub struct PipelineEngine {
     pub detector: Option<ComicTextDetector>,
     pub ocr: Option<RapidOcr>,
     pub inpainter: Option<LamaInpainter>,
-    pub watermark: WatermarkRemover,
 }
 
 impl PipelineEngine {
@@ -104,13 +102,10 @@ impl PipelineEngine {
             }
         };
 
-        let watermark = WatermarkRemover::new();
-
         Self {
             detector,
             ocr,
             inpainter,
-            watermark,
         }
     }
 

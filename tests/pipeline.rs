@@ -78,7 +78,6 @@ fn test_pipeline_analyze_with_language_filtering() {
         target_lang: Some("en".to_string()),
         inpaint_padding_pct: None,
         typeset_padding_pct: None,
-        enable_watermark_inpaint: None,
         ..Default::default()
     };
     let zh_res = engine.analyze_image_with_options(&img, Some(&zh_opts)).expect("ZH analyze failed");
@@ -112,7 +111,6 @@ fn test_end_to_end_pipeline_with_rfdetr_on_manga_fixture() {
         target_lang: Some("en".to_string()),
         inpaint_padding_pct: None,
         typeset_padding_pct: None,
-        enable_watermark_inpaint: None,
         ..Default::default()
     };
 

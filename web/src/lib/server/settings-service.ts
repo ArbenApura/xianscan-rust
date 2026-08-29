@@ -71,7 +71,6 @@ export function sanitizeSettingValue(key: keyof AppSettings, value: unknown): un
 		case 'typesetCasing':
 			return VALID_CASINGS.includes(value as TypesetCasing) ? value : 'uppercase';
 
-		case 'enableWatermarkInpaint':
 		case 'enableTextRotation':
 		case 'resliceBeforeBatch':
 		case 'typesetAllCaps':

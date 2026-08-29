@@ -6,4 +6,3 @@ pub mod inpaint;
 pub mod ocr;
 pub mod reslice;
 pub mod schemas;
-pub mod watermark;

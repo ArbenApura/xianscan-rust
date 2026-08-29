@@ -115,7 +115,6 @@ fn test_analyze_options_serialization() {
         target_lang: Some("en".to_string()),
         inpaint_padding_pct: None,
         typeset_padding_pct: None,
-        enable_watermark_inpaint: None,
         allow_degraded_fallback: None,
     };
     let json = serde_json::to_string(&opts).unwrap();

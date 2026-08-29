@@ -3,11 +3,10 @@ use image::{DynamicImage, GenericImageView};
 
 // -- INTERNAL IMPORTS -- //
 use crate::ml::detect::ComicTextDetector;
-use crate::ml::detect::{clean_stray_ocr_artifacts, is_watermark_line, CHINESE_RE};
+use crate::ml::detect::clean_stray_ocr_artifacts;
 use crate::ml::geometry::{box_iou_f32, box_iou_pts, box_to_xywh_f32, polygon_bounds};
 use crate::ml::ocr::{OcrLine, RapidOcr};
 use crate::ml::schemas::BoxRect;
-use crate::ml::watermark::WatermarkRemover;
 
 use anyhow::Result;
 
@@ -37,13 +36,11 @@ pub struct DetectionFusionResult {
 pub fn fuse_detections(
     detector: &mut Option<ComicTextDetector>,
     ocr: &mut Option<RapidOcr>,
-    watermark: &WatermarkRemover,
     img: &DynamicImage,
     source_lang: Option<&str>,
-    enable_watermark_inpaint: bool,
     allow_degraded_fallback: bool,
 ) -> Result<DetectionFusionResult> {
-    let (page_w, page_h) = img.dimensions();
+    let (page_w, _page_h) = img.dimensions();
 
     // 1 & 2. PARALLEL EXECUTION: RUN COMIC LAYOUT DETECTOR AND RAPIDOCR CONCURRENTLY VIA SCOPED THREADS
     let (det_result, ocr_result) = std::thread::scope(|s| {
@@ -405,112 +402,6 @@ pub fn fuse_detections(
     }
     let rescue_time_ms = t_rescue0.elapsed().as_secs_f64() * 1000.0;
 
-    // 4. Chromatic Watermark Recovery on Localized Region (Optional, default OFF)
-    let t_wm0 = std::time::Instant::now();
-    let mut watermark_recovered_count = 0_usize;
-
-    if enable_watermark_inpaint {
-        let color_wm_mask = watermark.create_bubble_watermark_mask(img, 210, 20, 35, 15);
-        let mut has_color_wm = false;
-        let mut wm_pix_count = 0;
-        let mut min_wm_x = page_w;
-        let mut max_wm_x = 0;
-        let mut min_wm_y = page_h;
-        let mut max_wm_y = 0;
-
-        for y in 0..page_h {
-            for x in 0..page_w {
-                if color_wm_mask.get_pixel(x, y)[0] > 0 {
-                    has_color_wm = true;
-                    wm_pix_count += 1;
-                    min_wm_x = min_wm_x.min(x);
-                    max_wm_x = max_wm_x.max(x);
-                    min_wm_y = min_wm_y.min(y);
-                    max_wm_y = max_wm_y.max(y);
-                }
-            }
-        }
-
-        if has_color_wm && wm_pix_count > 50 {
-            let clean_wm_img = watermark.inpaint_colliding_watermarks(img, &color_wm_mask);
-            if let Some(ref mut o) = ocr {
-                let wm_crop_x0 = (min_wm_x as i32 - 40).max(0) as u32;
-                let wm_crop_y0 = (min_wm_y as i32 - 40).max(0) as u32;
-                let wm_crop_x1 = (max_wm_x + 40).min(page_w);
-                let wm_crop_y1 = (max_wm_y + 40).min(page_h);
-                let wm_crop_w = wm_crop_x1.saturating_sub(wm_crop_x0);
-                let wm_crop_h = wm_crop_y1.saturating_sub(wm_crop_y0);
-
-                if wm_crop_w >= 16 && wm_crop_h >= 16 {
-                    let clean_wm_crop = clean_wm_img.crop_imm(wm_crop_x0, wm_crop_y0, wm_crop_w, wm_crop_h);
-                    if let Ok(mut clean_lines) = o.detect_and_recognize_tiled_with_lang(&clean_wm_crop, false, source_lang) {
-                        for cl in &mut clean_lines {
-                            for p in &mut cl.polygon {
-                                p[0] += wm_crop_x0 as i32;
-                                p[1] += wm_crop_y0 as i32;
-                            }
-                            let (cx, cy, cw, ch) = polygon_bounds(&cl.polygon);
-                            let mut overlap_pix = 0;
-                            for y in cy.max(0)..(cy + ch).min(page_h as i32) {
-                                for x in cx.max(0)..(cx + cw).min(page_w as i32) {
-                                    if color_wm_mask.get_pixel(x as u32, y as u32)[0] > 0 {
-                                        overlap_pix += 1;
-                                    }
-                                }
-                            }
-
-                            if overlap_pix >= 15 && (CHINESE_RE.is_match(&cl.text) || !crate::ml::detect::is_cjk_source(source_lang)) && !is_watermark_line(&cl.text) {
-                                let mut replaced = false;
-                                let (cx, cy, cw, ch) = polygon_bounds(&cl.polygon);
-                                let c_mid_x = cx as f32 + cw as f32 / 2.0;
-                                let c_mid_y = cy as f32 + ch as f32 / 2.0;
-
-                                for rl in &mut rapid_lines {
-                                    let iou = box_iou_pts(&cl.polygon, &rl.polygon);
-                                    let (rx, ry, rw, rh) = polygon_bounds(&rl.polygon);
-                                    let r_mid_x = rx as f32 + rw as f32 / 2.0;
-                                    let r_mid_y = ry as f32 + rh as f32 / 2.0;
-                                    let dist_sq = (c_mid_x - r_mid_x).powi(2) + (c_mid_y - r_mid_y).powi(2);
-                                    let is_spatial_neighbor = dist_sq <= (cw.max(rw) as f32 * 0.75).powi(2) + (ch.max(rh) as f32 * 1.5).powi(2);
-
-                                    let has_latin = rl.text.chars().any(|c| c.is_ascii_alphabetic());
-                                    let same_text = cl.text == rl.text || cl.text.contains(&rl.text) || rl.text.contains(&cl.text);
-
-                                    if (has_latin && iou >= 0.15) || (iou >= 0.50) || (same_text && (iou >= 0.25 || is_spatial_neighbor)) {
-                                        // If existing line is already clean and has no latin watermark corruption, keep the original unless cl has higher confidence without trailing suffix noise
-                                        let cl_clean = cl.text.trim();
-                                        let has_trailing_noise = cl_clean.ends_with('一') || cl_clean.ends_with('-') || cl_clean.ends_with('1');
-                                        if has_latin || (!has_trailing_noise && cl.score > rl.score) {
-                                            *rl = cl.clone();
-                                        }
-                                        replaced = true;
-                                        watermark_recovered_count += 1;
-                                        break;
-                                    }
-                                }
-                                // ONLY INSERT AS A BRAND NEW LINE IF IT DOES NOT SPATIALLY OVERLAP ANY EXISTING LINE
-                                if !replaced {
-                                    let overlaps_existing = rapid_lines.iter().any(|rl| {
-                                        let iou = box_iou_pts(&cl.polygon, &rl.polygon);
-                                        let (rx, ry, rw, rh) = polygon_bounds(&rl.polygon);
-                                        let ix = (cx + cw).min(rx + rw) - cx.max(rx);
-                                        let iy = (cy + ch).min(ry + rh) - cy.max(ry);
-                                        iou >= 0.20 || (ix > 0 && iy > 0 && (ix * iy) as f32 / (cw * ch).max(1) as f32 >= 0.35)
-                                    });
-                                    if !overlaps_existing {
-                                        rapid_lines.push(cl.clone());
-                                        watermark_recovered_count += 1;
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        }
-    }
-    let watermark_time_ms = t_wm0.elapsed().as_secs_f64() * 1000.0;
-
     Ok(DetectionFusionResult {
         comic_boxes,
         comic_scores,
@@ -524,9 +415,9 @@ pub fn fuse_detections(
         detector_time_ms,
         ocr_fullpage_time_ms,
         rescue_time_ms,
-        watermark_time_ms,
+        watermark_time_ms: 0.0,
         rescued_crops_count,
-        watermark_recovered_count,
+        watermark_recovered_count: 0,
         raw_ocr_lines_count,
     })
 }

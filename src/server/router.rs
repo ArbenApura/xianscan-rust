@@ -218,7 +218,6 @@ async fn analyze_handler(
     let mut target_lang = None;
     let mut inpaint_padding_pct = None;
     let mut typeset_padding_pct = None;
-    let mut enable_watermark_inpaint = None;
     let mut allow_degraded_fallback = None;
 
     while let Ok(Some(field)) = multipart.next_field().await {
@@ -255,11 +254,6 @@ async fn analyze_handler(
                     typeset_padding_pct = Some(val);
                 }
             }
-        } else if name == "enable_watermark_inpaint" || name == "enableWatermarkInpaint" {
-            if let Ok(text) = field.text().await {
-                let trimmed = text.trim().to_lowercase();
-                enable_watermark_inpaint = Some(trimmed == "true" || trimmed == "1");
-            }
         } else if name == "allow_degraded_fallback" || name == "allowDegradedFallback" {
             if let Ok(text) = field.text().await {
                 let trimmed = text.trim().to_lowercase();
@@ -287,7 +281,6 @@ async fn analyze_handler(
         target_lang,
         inpaint_padding_pct,
         typeset_padding_pct,
-        enable_watermark_inpaint,
         allow_degraded_fallback,
     };
 
@@ -394,7 +387,7 @@ async fn clean_handler(
 }
 
 async fn preprocess_handler(
-    State(state): State<AppState>,
+    State(_state): State<AppState>,
     mut multipart: Multipart,
 ) -> Result<Response, (StatusCode, String)> {
     let mut image_bytes = None;
@@ -417,26 +410,14 @@ async fn preprocess_handler(
     let img = image::load_from_memory(&bytes)
         .map_err(|e| (StatusCode::BAD_REQUEST, format!("Invalid image format: {}", e)))?;
 
-    let engine_lock = state.engine.clone();
-    let out_bytes = tokio::task::spawn_blocking(move || -> Result<Vec<u8>, (StatusCode, String)> {
-        let engine = engine_lock.lock().map_err(|e| {
-            (StatusCode::INTERNAL_SERVER_ERROR, format!("Failed to lock engine: {}", e))
-        })?;
-        let color_wm_mask = engine.watermark.create_bubble_watermark_mask(&img, 210, 20, 35, 15);
-        let cleaned = engine.watermark.inpaint_colliding_watermarks(&img, &color_wm_mask);
-
-        let mut out_bytes = std::io::Cursor::new(Vec::new());
-        cleaned.write_to(&mut out_bytes, image::ImageFormat::WebP)
-            .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("WebP encode failed: {}", e)))?;
-        Ok(out_bytes.into_inner())
-    })
-    .await
-    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("Task join error: {}", e)))??;
+    let mut out_bytes = std::io::Cursor::new(Vec::new());
+    img.write_to(&mut out_bytes, image::ImageFormat::WebP)
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("WebP encode failed: {}", e)))?;
 
     Ok((
         StatusCode::OK,
         [(header::CONTENT_TYPE, "image/webp")],
-        out_bytes,
+        out_bytes.into_inner(),
     ).into_response())
 }
 

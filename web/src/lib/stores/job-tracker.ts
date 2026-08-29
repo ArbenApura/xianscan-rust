@@ -454,7 +454,6 @@ function createJobTrackerStore() {
 				pageConcurrency: opts.pageConcurrency ?? curSettings?.parallelProcesses,
 				inpaintExpansionPct: curSettings?.inpaintExpansionPct,
 				typesetExpansionPct: curSettings?.typesetExpansionPct,
-				enableWatermarkInpaint: curSettings?.enableWatermarkInpaint,
 				typesetOptions: {
 					fontDialogue: curSettings?.typesetFont,
 					fontCjk: curSettings?.typesetCjkFont,

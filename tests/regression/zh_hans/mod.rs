@@ -28,7 +28,6 @@ mod page_ruins_mother_child_exclamation_bubble;
 mod page_saint_nether_grass_catch_present;
 mod page_sensei_remove_tumor_understood_boss;
 mod page_shadow_demon_nightmare_pillow_watermark_noise;
-mod page_sichuan_zhang_baobao_guesthouse;
 mod page_song_yunxiang_star_release_exhale_bubbles;
 mod page_soul_restoration_pills_gutter_watermark;
 mod page_star_dissolution_spiky_bubble_building_noise;

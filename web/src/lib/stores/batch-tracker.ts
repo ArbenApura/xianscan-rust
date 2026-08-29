@@ -191,7 +191,6 @@ function createBatchTrackerStore() {
 						inpaintMode: curSettings?.inpaintMode,
 						inpaintExpansionPct: curSettings?.inpaintExpansionPct,
 						typesetExpansionPct: curSettings?.typesetExpansionPct,
-						enableWatermarkInpaint: curSettings?.enableWatermarkInpaint,
 						typesetOptions: {
 							fontDialogue: curSettings?.typesetFont,
 							fontCjk: curSettings?.typesetCjkFont,

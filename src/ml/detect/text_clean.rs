@@ -280,6 +280,35 @@ pub fn is_timestamp_or_date_line(text: &str) -> bool {
     TIMESTAMP_RE.is_match(t)
 }
 
+/// CHECK IF A GIVEN TEXT STRING OR BOUNDING REGION REPRESENTS A WATERMARK OR SCANLATOR LOGO
+pub fn is_likely_watermark(rect: &crate::ml::schemas::BoxRect, text: &str, img_w: u32, img_h: u32) -> bool {
+    if is_watermark_line(text) || is_pure_watermark_region(text) {
+        return true;
+    }
+
+    // Border suppression: tiny text strips sitting in the outer 3% margins
+    let margin_x = (img_w as f32 * 0.03) as i32;
+    let margin_y = (img_h as f32 * 0.03) as i32;
+
+    let is_at_extreme_edge = rect.x < margin_x
+        || (rect.x + rect.w) > (img_w as i32 - margin_x)
+        || rect.y < margin_y
+        || (rect.y + rect.h) > (img_h as i32 - margin_y);
+
+    if is_at_extreme_edge && (rect.w < 80 || rect.h < 25) {
+        return true;
+    }
+
+    // Large platform logo stamp suppression: wide box sitting at the bottom 15% of the page.
+    let bottom_15pct = (img_h as f32 * 0.85) as i32;
+    let wide_threshold = (img_w as f32 * 0.35) as i32;
+    if rect.y >= bottom_15pct && rect.w >= wide_threshold {
+        return true;
+    }
+
+    false
+}
+
 /// CLEAN STANDALONE UI NAVIGATION CHEVRONS (E.G. LEADING '<' IN BACK BUTTONS LIKE '<현성민')
 pub fn clean_ui_header_text(text: &str) -> String {
     let t = text.trim();

@@ -213,7 +213,6 @@ export class HttpPipelineClient implements PipelineClient {
 			targetLang?: string;
 			inpaintPaddingPct?: number;
 			typesetPaddingPct?: number;
-			enableWatermarkInpaint?: boolean;
 		},
 	): Promise<AnalyzeResult> {
 		const form = new FormData();
@@ -222,7 +221,6 @@ export class HttpPipelineClient implements PipelineClient {
 		if (opts?.targetLang) form.append('target_lang', opts.targetLang);
 		if (typeof opts?.inpaintPaddingPct === 'number') form.append('inpaint_padding_pct', String(opts.inpaintPaddingPct));
 		if (typeof opts?.typesetPaddingPct === 'number') form.append('typeset_padding_pct', String(opts.typesetPaddingPct));
-		if (typeof opts?.enableWatermarkInpaint === 'boolean') form.append('enable_watermark_inpaint', String(opts.enableWatermarkInpaint));
 		const resp = await this.request('/pages/analyze', { method: 'POST', body: form }, signal);
 		if (!resp.ok) throw new PipelineError(`analyze failed (${resp.status}): ${await resp.text()}`, resp.status);
 		return (await resp.json()) as AnalyzeResult;

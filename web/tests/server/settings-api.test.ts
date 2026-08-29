@@ -246,7 +246,6 @@ describe('Settings & Reading History Server API Routes', () => {
 					typesetOutline: 'heavy',
 					inpaintExpansionPct: 0.07,
 					typesetExpansionPct: 0.12,
-					enableWatermarkInpaint: true,
 				}),
 			});
 			const patchRes = await PATCH({ request: patchReq } as unknown as RequestEvent);
@@ -259,7 +258,6 @@ describe('Settings & Reading History Server API Routes', () => {
 			expect(canonical.typesetOutline).toBe('heavy');
 			expect(canonical.inpaintExpansionPct).toBe(0.07);
 			expect(canonical.typesetExpansionPct).toBe(0.12);
-			expect(canonical.enableWatermarkInpaint).toBe(true);
 		});
 	});
 });
