@@ -19,6 +19,7 @@
 	import Smartphone from 'lucide-svelte/icons/smartphone';
 	import Terminal from 'lucide-svelte/icons/terminal';
 	import Sparkles from 'lucide-svelte/icons/sparkles';
+	import MessageSquare from 'lucide-svelte/icons/message-square';
 	// IMPORTED COMPONENTS
 	import { DropCap, InkDivider, Seal } from '$lib/components/ui';
 	import OnboardingModal from '$lib/components/OnboardingModal.svelte';
