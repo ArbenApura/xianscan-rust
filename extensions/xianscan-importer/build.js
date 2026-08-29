@@ -34,6 +34,7 @@ function prepareDist() {
 	cpSync('dist', 'dist-firefox', { recursive: true });
 
 	const firefoxManifest = { ...baseManifest };
+	delete firefoxManifest.version_name;
 	firefoxManifest.background = {
 		scripts: ['background.js']
 	};
