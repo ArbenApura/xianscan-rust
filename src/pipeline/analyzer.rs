@@ -447,7 +447,6 @@ pub fn analyze_image_with_fusion_timed(
             detector_time_ms: fusion_res.detector_time_ms,
             ocr_fullpage_time_ms: fusion_res.ocr_fullpage_time_ms,
             rescue_time_ms: fusion_res.rescue_time_ms,
-            watermark_time_ms: fusion_res.watermark_time_ms,
             assembly_time_ms: 0.0,
             backend: fusion_res.backend.clone(),
             device: Some(crate::ml::device::get_hardware_status().active_provider),
@@ -458,7 +457,6 @@ pub fn analyze_image_with_fusion_timed(
             raw_text_free_count: fusion_res.text_free.len(),
             raw_ocr_lines_count: fusion_res.raw_ocr_lines_count,
             rescued_crops_count: fusion_res.rescued_crops_count,
-            watermark_recovered_count: fusion_res.watermark_recovered_count,
             final_regions_count: 0,
             avg_confidence: 0.0,
             steps: vec![
@@ -558,14 +556,6 @@ pub fn analyze_image_with_fusion_timed(
             ),
         },
         OcrStepLog {
-            step: "Chromatic Watermark Inpainting".to_string(),
-            duration_ms: fusion_res.watermark_time_ms,
-            details: format!(
-                "Inpainted watermarks and recovered {} obscured lines",
-                fusion_res.watermark_recovered_count
-            ),
-        },
-        OcrStepLog {
             step: "Candidate Deduplication & Sort".to_string(),
             duration_ms: stage2_duration_ms,
             details: format!(
@@ -593,7 +583,6 @@ pub fn analyze_image_with_fusion_timed(
         detector_time_ms: fusion_res.detector_time_ms,
         ocr_fullpage_time_ms: fusion_res.ocr_fullpage_time_ms,
         rescue_time_ms: fusion_res.rescue_time_ms,
-        watermark_time_ms: fusion_res.watermark_time_ms,
         assembly_time_ms,
         backend: fusion_res.backend.clone(),
         device: Some(crate::ml::device::get_hardware_status().active_provider),
@@ -604,7 +593,6 @@ pub fn analyze_image_with_fusion_timed(
         raw_text_free_count: fusion_res.text_free.len(),
         raw_ocr_lines_count: fusion_res.raw_ocr_lines_count,
         rescued_crops_count: fusion_res.rescued_crops_count,
-        watermark_recovered_count: fusion_res.watermark_recovered_count,
         final_regions_count: final_regions.len(),
         avg_confidence,
         steps,

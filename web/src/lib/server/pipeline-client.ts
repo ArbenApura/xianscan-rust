@@ -47,7 +47,6 @@ export interface OcrStats {
 	detector_time_ms: number;
 	ocr_fullpage_time_ms: number;
 	rescue_time_ms: number;
-	watermark_time_ms: number;
 	assembly_time_ms: number;
 	backend: string;
 	device?: string;
@@ -58,7 +57,6 @@ export interface OcrStats {
 	raw_text_free_count: number;
 	raw_ocr_lines_count: number;
 	rescued_crops_count: number;
-	watermark_recovered_count: number;
 	final_regions_count: number;
 	avg_confidence: number;
 	steps?: OcrStepLog[];

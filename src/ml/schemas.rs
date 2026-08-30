@@ -98,7 +98,6 @@ pub struct OcrStats {
     pub detector_time_ms: f64,
     pub ocr_fullpage_time_ms: f64,
     pub rescue_time_ms: f64,
-    pub watermark_time_ms: f64,
     pub assembly_time_ms: f64,
     pub backend: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -110,7 +109,6 @@ pub struct OcrStats {
     pub raw_text_free_count: usize,
     pub raw_ocr_lines_count: usize,
     pub rescued_crops_count: usize,
-    pub watermark_recovered_count: usize,
     pub final_regions_count: usize,
     pub avg_confidence: f32,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]

@@ -965,10 +965,8 @@ pub fn get_or_analyze_fixture_with_opts(
                         detector_time_ms: 0.0,
                         ocr_fullpage_time_ms: 0.0,
                         rescue_time_ms: 0.0,
-                        watermark_time_ms: 0.0,
                         raw_ocr_lines_count: 0,
                         rescued_crops_count: 0,
-                        watermark_recovered_count: 0,
                     });
                 }
             }

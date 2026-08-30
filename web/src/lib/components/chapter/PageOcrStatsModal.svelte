@@ -48,7 +48,6 @@
 		detector_time_ms: number;
 		ocr_fullpage_time_ms: number;
 		rescue_time_ms: number;
-		watermark_time_ms: number;
 		assembly_time_ms: number;
 		backend: string;
 		device?: string;
@@ -59,7 +58,6 @@
 		raw_text_free_count: number;
 		raw_ocr_lines_count: number;
 		rescued_crops_count: number;
-		watermark_recovered_count: number;
 		final_regions_count: number;
 		avg_confidence: number;
 		steps?: OcrStepLog[];
@@ -113,13 +111,13 @@
 	}
 
 	function formatDuration(ms?: number): string {
-		if (ms === undefined || ms === null || isNaN(ms)) return '—';
+		if (ms === undefined || ms === null || isNaN(ms)) return '-';
 		if (ms < 1000) return `${Math.round(ms)} ms`;
 		return `${(ms / 1000).toFixed(2)} s`;
 	}
 
 	function formatPercent(val?: number): string {
-		if (val === undefined || val === null || isNaN(val)) return '—';
+		if (val === undefined || val === null || isNaN(val)) return '-';
 		return `${(val * 100).toFixed(1)}%`;
 	}
 
@@ -131,7 +129,7 @@
 
 <Modal
 	{open}
-	title={`OCR & Layout Diagnostics — Page ${page ? page.seq + 1 : ''} (ID: ${page?.id ?? ''})`}
+	title={`OCR & Layout Diagnostics - Page ${page ? page.seq + 1 : ''} (ID: ${page?.id ?? ''})`}
 	size="3xl"
 	bodyClass="p-3 sm:p-5 overflow-hidden flex flex-col h-[88vh] sm:h-[82vh] max-h-[92dvh]"
 	on:close={() => dispatch('close')}
@@ -298,11 +296,11 @@
 				<!-- TIMING WATERFALL & BREAKDOWN -->
 				<div class="space-y-4">
 					<!-- SUMMARY STAT CARDS -->
-					<div class="grid grid-cols-2 gap-2 sm:grid-cols-4">
+					<div class="grid grid-cols-1 gap-2 sm:grid-cols-3">
 						<div class="rounded-xl border border-black/10 bg-black/[0.02] p-3 dark:border-white/10 dark:bg-white/[0.02]">
 							<div class="text-[10px] uppercase font-semibold text-neutral-500">Image Canvas</div>
 							<div class="mt-1 text-sm font-bold font-mono">
-								{parsedStats?.image_width ?? page.width ?? '—'} × {parsedStats?.image_height ?? page.height ?? '—'}
+								{parsedStats?.image_width ?? page.width ?? '-'} × {parsedStats?.image_height ?? page.height ?? '-'}
 							</div>
 							<div class="text-[10px] text-neutral-400">Target Resolution</div>
 						</div>
@@ -310,7 +308,7 @@
 						<div class="rounded-xl border border-black/10 bg-black/[0.02] p-3 dark:border-white/10 dark:bg-white/[0.02]">
 							<div class="text-[10px] uppercase font-semibold text-neutral-500">Speech Bubbles</div>
 							<div class="mt-1 text-sm font-bold font-mono">
-								{parsedStats?.raw_bubbles_count ?? '—'}
+								{parsedStats?.raw_bubbles_count ?? '-'}
 							</div>
 							<div class="text-[10px] text-neutral-400">Containers Detected</div>
 						</div>
@@ -321,14 +319,6 @@
 								{parsedStats?.rescued_crops_count ?? 0} rescued
 							</div>
 							<div class="text-[10px] text-neutral-400">Missed Text Recoveries</div>
-						</div>
-
-						<div class="rounded-xl border border-black/10 bg-black/[0.02] p-3 dark:border-white/10 dark:bg-white/[0.02]">
-							<div class="text-[10px] uppercase font-semibold text-neutral-500">Watermark Clean</div>
-							<div class="mt-1 text-sm font-bold font-mono text-[#a97f28] dark:text-[#d8b15a]">
-								{parsedStats?.watermark_recovered_count ?? 0} lines
-							</div>
-							<div class="text-[10px] text-neutral-400">Inpainted Collisions</div>
 						</div>
 					</div>
 
@@ -404,25 +394,10 @@
 								</div>
 							</div>
 
-							<!-- 4. WATERMARK -->
+							<!-- 4. UTTERANCE ASSEMBLY -->
 							<div>
 								<div class="mb-1 flex items-center justify-between text-xs">
-									<span class="font-medium text-neutral-600 dark:text-neutral-300">4. Chromatic Watermark Inpainting</span>
-									<span class="font-mono font-semibold">{formatDuration(parsedStats?.watermark_time_ms)}</span>
-								</div>
-								<div class="h-2 w-full overflow-hidden rounded-full bg-black/10 dark:bg-white/10">
-									<!-- PROGRESS BAR DYNAMIC WIDTH -->
-									<div
-										class="h-full rounded-full bg-[#a97f28] dark:bg-[#d8b15a]"
-										style="width: {getPhasePercent(parsedStats?.watermark_time_ms ?? 0, parsedStats?.wall_time_ms ?? parsedStats?.total_time_ms ?? 1)}%"
-									></div>
-								</div>
-							</div>
-
-							<!-- 5. UTTERANCE ASSEMBLY -->
-							<div>
-								<div class="mb-1 flex items-center justify-between text-xs">
-									<span class="font-medium text-neutral-600 dark:text-neutral-300">5. Utterance Assembly & Reading Order Sort</span>
+									<span class="font-medium text-neutral-600 dark:text-neutral-300">4. Utterance Assembly & Reading Order Sort</span>
 									<span class="font-mono font-semibold">{formatDuration(parsedStats?.assembly_time_ms)}</span>
 								</div>
 								<div class="h-2 w-full overflow-hidden rounded-full bg-black/10 dark:bg-white/10">

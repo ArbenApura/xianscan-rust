@@ -110,7 +110,6 @@ describe('PageInspectModal Component UI', () => {
 				detector_time_ms: 120.5,
 				ocr_fullpage_time_ms: 80.2,
 				rescue_time_ms: 25.1,
-				watermark_time_ms: 10.0,
 				assembly_time_ms: 10.0,
 				backend: 'Koharu RF-DETR Seg',
 				device: 'DirectML (GPU)',
@@ -122,7 +121,6 @@ describe('PageInspectModal Component UI', () => {
 				raw_sfx_count: 3,
 				raw_ocr_lines_count: 12,
 				rescued_crops_count: 2,
-				watermark_recovered_count: 1,
 				final_regions_count: 7,
 				avg_confidence: 0.954,
 				steps: [
@@ -154,7 +152,7 @@ describe('PageInspectModal Component UI', () => {
 		await fireEvent.click(ocrBtn);
 		await tick();
 
-		expect(screen.getByText(/OCR & Layout Diagnostics — Page 3/)).toBeTruthy();
+		expect(screen.getByText(/OCR & Layout Diagnostics - Page 3/)).toBeTruthy();
 		expect(screen.getByText('540 ms')).toBeTruthy();
 		expect(screen.getByText('Compute: 246 ms')).toBeTruthy();
 		expect(screen.getByText('Koharu RF-DETR Seg')).toBeTruthy();

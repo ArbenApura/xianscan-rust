@@ -25,9 +25,7 @@ pub struct DetectionFusionResult {
     pub detector_time_ms: f64,
     pub ocr_fullpage_time_ms: f64,
     pub rescue_time_ms: f64,
-    pub watermark_time_ms: f64,
     pub rescued_crops_count: usize,
-    pub watermark_recovered_count: usize,
     pub raw_ocr_lines_count: usize,
 }
 
@@ -441,9 +439,7 @@ pub fn fuse_detections(
         detector_time_ms,
         ocr_fullpage_time_ms,
         rescue_time_ms,
-        watermark_time_ms: 0.0,
         rescued_crops_count,
-        watermark_recovered_count: 0,
         raw_ocr_lines_count,
     })
 }
