@@ -70,12 +70,37 @@ pub fn deduplicate_and_unify_regions(
                 && (overlap_r >= 0.80 || overlap_e >= 0.80)
                 && (text_contains || has_shared_major_line || clean_r.is_empty() || clean_e.is_empty());
 
+            // SPATIAL DOMINANCE: two free-text regions with near-identical bounding boxes where
+            // one is clearly a low-content OCR noise artifact of the other. The garbled noise
+            // text (e.g. "一4\nけんー" as a misread of "剣") shares no substring with the primary
+            // reading, so all text-containment checks fail. We identify this purely by geometry
+            // (iou >= 0.85) and a 3:1 character count disparity to suppress the noise duplicate.
+            let r_meaningful: usize = clean_r_no_space.chars().filter(|c| {
+                c.is_alphanumeric() && !c.is_ascii_digit()
+                    || ('\u{3040}'..='\u{9FFF}').contains(c)
+                    || ('\u{AC00}'..='\u{D7AF}').contains(c)
+                    || ('\u{0400}'..='\u{04FF}').contains(c)
+            }).count();
+            let e_meaningful: usize = clean_e_no_space.chars().filter(|c| {
+                c.is_alphanumeric() && !c.is_ascii_digit()
+                    || ('\u{3040}'..='\u{9FFF}').contains(c)
+                    || ('\u{AC00}'..='\u{D7AF}').contains(c)
+                    || ('\u{0400}'..='\u{04FF}').contains(c)
+            }).count();
+            let is_collocated_noise_duplicate = r.bubble_box.is_none()
+                && existing.bubble_box.is_none()
+                && iou >= 0.85
+                && ((r_meaningful > 0 && e_meaningful > 0 && (r_meaningful >= e_meaningful * 3 || e_meaningful >= r_meaningful * 3))
+                    || (r_meaningful == 0 && e_meaningful >= 3)
+                    || (e_meaningful == 0 && r_meaningful >= 3));
+
             let is_high_spatial_overlap = inter_area > 0 && (iou >= 0.50 || overlap_r >= 0.60 || overlap_e >= 0.60);
 
             if (is_high_spatial_overlap && text_contains)
                 || is_bubble_subset
                 || is_spatial_containment_subset
                 || is_deep_spatial_containment
+                || is_collocated_noise_duplicate
             {
                 is_duplicate = true;
                 let clean_r_chars = clean_r_no_space.chars().count();
@@ -84,6 +109,11 @@ pub fn deduplicate_and_unify_regions(
                     // KEEP EXISTING BUBBLE-BACKED REGION OVER NON-BUBBLE CANDIDATE
                 } else if r.bubble_box.is_some() && existing.bubble_box.is_none() {
                     *existing = r.clone();
+                } else if is_collocated_noise_duplicate {
+                    // KEEP THE REGION WITH MORE MEANINGFUL SCRIPT CHARACTERS
+                    if r_meaningful > e_meaningful {
+                        *existing = r.clone();
+                    }
                 } else if clean_r_chars > clean_e_chars || (clean_r_chars == clean_e_chars && r.confidence > existing.confidence) {
                     *existing = r.clone();
                 }
