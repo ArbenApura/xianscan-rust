@@ -44,6 +44,7 @@ class PopupController {
 	private newChapterBtn!: HTMLButtonElement;
 
 	private inPlaceReplacementCheckbox!: HTMLInputElement;
+	private inPlaceNoticeBanner!: HTMLElement;
 	private selectAllCheckbox!: HTMLInputElement;
 	private selectionCountText!: HTMLElement;
 	private copyDebugBtn!: HTMLButtonElement;
@@ -57,6 +58,8 @@ class PopupController {
 	private protectedImagesCount = 0;
 
 	private autoResliceCheckbox!: HTMLInputElement;
+	private autoTranslateChip!: HTMLElement;
+	private autoTranslateLockBadge!: HTMLElement;
 	private autoTranslateCheckbox!: HTMLInputElement;
 	private startImportBtn!: HTMLButtonElement;
 	private importBtnText!: HTMLElement;
@@ -139,19 +142,28 @@ class PopupController {
 			this.serverUrlInput.value = 'http://127.0.0.1:8124';
 		}
 
-		const inPlace = stored.inPlaceReplacement !== false;
+		const inPlace = stored.inPlaceReplacement === true;
 		this.inPlaceReplacementCheckbox.checked = inPlace;
 		this.trackerInPlaceCheckbox.checked = inPlace;
 		this.updateToggleState(this.inPlaceReplacementCheckbox);
 		this.updateToggleState(this.trackerInPlaceCheckbox);
+		this.inPlaceNoticeBanner.classList.toggle('hidden', !inPlace);
 
-		if (stored.autoReslice !== undefined) {
-			this.autoResliceCheckbox.checked = stored.autoReslice;
-		}
+		this.autoResliceCheckbox.checked = stored.autoReslice === true;
 		this.updateToggleState(this.autoResliceCheckbox);
 
-		if (stored.autoTranslate !== undefined) {
-			this.autoTranslateCheckbox.checked = stored.autoTranslate;
+		if (inPlace) {
+			this.autoTranslateCheckbox.checked = true;
+			this.autoTranslateCheckbox.disabled = true;
+			this.autoTranslateChip?.classList.add('locked');
+			this.autoTranslateLockBadge?.classList.remove('hidden');
+			this.autoTranslateChip?.setAttribute('title', 'Auto-Translate is required and locked while In-Place Translation is active');
+		} else {
+			this.autoTranslateCheckbox.checked = stored.autoTranslate === true;
+			this.autoTranslateCheckbox.disabled = false;
+			this.autoTranslateChip?.classList.remove('locked');
+			this.autoTranslateLockBadge?.classList.add('hidden');
+			this.autoTranslateChip?.setAttribute('title', 'Automatically translate and typeset pages after upload');
 		}
 		this.updateToggleState(this.autoTranslateCheckbox);
 
@@ -188,6 +200,7 @@ class PopupController {
 		this.newChapterBtn = $('newChapterBtn') as HTMLButtonElement;
 
 		this.inPlaceReplacementCheckbox = $('inPlaceReplacementCheckbox') as HTMLInputElement;
+		this.inPlaceNoticeBanner = $('inPlaceNoticeBanner');
 		this.selectAllCheckbox = $('selectAllCheckbox') as HTMLInputElement;
 		this.selectionCountText = $('selectionCountText');
 		this.copyDebugBtn = $('copyDebugBtn') as HTMLButtonElement;
@@ -200,6 +213,8 @@ class PopupController {
 		this.protectedWarningCount = $('protectedWarningCount');
 
 		this.autoResliceCheckbox = $('autoResliceCheckbox') as HTMLInputElement;
+		this.autoTranslateChip = $('autoTranslateChip');
+		this.autoTranslateLockBadge = $('autoTranslateLockBadge');
 		this.autoTranslateCheckbox = $('autoTranslateCheckbox') as HTMLInputElement;
 		this.startImportBtn = $('startImportBtn') as HTMLButtonElement;
 		this.importBtnText = $('importBtnText');
@@ -271,7 +286,24 @@ class PopupController {
 			this.trackerInPlaceCheckbox.checked = checked;
 			this.updateToggleState(this.inPlaceReplacementCheckbox);
 			this.updateToggleState(this.trackerInPlaceCheckbox);
+			this.inPlaceNoticeBanner.classList.toggle('hidden', !checked);
 			chrome.storage.local.set({ inPlaceReplacement: checked });
+
+			if (checked) {
+				this.autoTranslateCheckbox.checked = true;
+				this.autoTranslateCheckbox.disabled = true;
+				this.autoTranslateChip?.classList.add('locked');
+				this.autoTranslateLockBadge?.classList.remove('hidden');
+				this.autoTranslateChip?.setAttribute('title', 'Auto-Translate is required and locked while In-Place Translation is active');
+				this.updateToggleState(this.autoTranslateCheckbox);
+				chrome.storage.local.set({ autoTranslate: true });
+			} else {
+				this.autoTranslateCheckbox.disabled = false;
+				this.autoTranslateChip?.classList.remove('locked');
+				this.autoTranslateLockBadge?.classList.add('hidden');
+				this.autoTranslateChip?.setAttribute('title', 'Automatically translate and typeset pages after upload');
+				this.updateToggleState(this.autoTranslateCheckbox);
+			}
 
 			chrome.tabs.query({ active: true, currentWindow: true }).then(([tab]) => {
 				if (tab?.id) {
@@ -289,6 +321,12 @@ class PopupController {
 
 		this.trackerInPlaceCheckbox.addEventListener('change', () => {
 			handleInPlaceChange(this.trackerInPlaceCheckbox.checked);
+		});
+
+		this.autoTranslateChip?.addEventListener('click', () => {
+			if (this.inPlaceReplacementCheckbox.checked) {
+				this.showToast('Auto-Translate is required while In-Place Translation is active');
+			}
 		});
 
 		// Custom Selects: Toggle Dropdowns
@@ -830,6 +868,7 @@ class PopupController {
 		const label = checkbox.closest('.pipeline-chip');
 		if (label) {
 			label.classList.toggle('checked', checkbox.checked);
+			label.classList.toggle('disabled', checkbox.disabled);
 		}
 	}
 

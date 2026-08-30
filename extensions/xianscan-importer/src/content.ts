@@ -732,7 +732,7 @@ class InPlaceTranslationCoordinator {
 	private replacer: DomReplacerEngine;
 	private client: XianScanClient;
 	private activeMapping: ChapterMappingEntry | null = null;
-	private inPlaceEnabled = true;
+	private inPlaceEnabled = false;
 	private serverUrl = 'http://127.0.0.1:8124';
 	private pollingTimer: ReturnType<typeof setInterval> | null = null;
 	private keepAlivePort: chrome.runtime.Port | null = null;
@@ -752,7 +752,7 @@ class InPlaceTranslationCoordinator {
 			this.replacer.setBaseUrl(this.serverUrl);
 		}
 
-		this.inPlaceEnabled = stored.inPlaceReplacement !== false;
+		this.inPlaceEnabled = stored.inPlaceReplacement === true;
 		this.bindLifecycleEvents();
 		if (this.inPlaceEnabled) {
 			await this.recheckUrlMapping();
@@ -788,6 +788,22 @@ class InPlaceTranslationCoordinator {
 			void this.recheckUrlMapping();
 		});
 
+		// INTERCEPT SPA CLIENT-SIDE ROUTING (pushState & replaceState)
+		const wrapHistory = (method: 'pushState' | 'replaceState') => {
+			const original = history[method];
+			if (typeof original === 'function') {
+				history[method] = (...args: any[]) => {
+					const result = original.apply(history, args);
+					if (isExtensionValid()) {
+						setTimeout(() => void this.recheckUrlMapping(), 50);
+					}
+					return result;
+				};
+			}
+		};
+		wrapHistory('pushState');
+		wrapHistory('replaceState');
+
 		window.addEventListener('pagehide', () => {
 			// PAGE MOVED INTO THE BACK/FORWARD CACHE OR CLOSED: TEAR DOWN THE KEEPALIVE PORT
 			// BEFORE CHROME CLOSES THE CHANNEL SO IT DOES NOT RAISE AN "UNCHECKED lastError".
@@ -816,9 +832,17 @@ class InPlaceTranslationCoordinator {
 			type: 'GET_SITE_MAPPING',
 			url: window.location.href
 		}, async (res) => {
-			if (chrome.runtime.lastError || !res || !res.mapping) return;
-			this.activeMapping = res.mapping;
-			await this.syncWithServer();
+			if (chrome.runtime.lastError || !res) return;
+			if (res.mapping) {
+				this.activeMapping = res.mapping;
+				await this.syncWithServer();
+			} else if (this.activeMapping) {
+				// USER NAVIGATED TO AN UNMAPPED CHAPTER: TEAR DOWN PREVIOUS CHAPTER REPLACER
+				this.activeMapping = null;
+				this.replacer.destroy();
+				this.stopPolling();
+				this.stopKeepAlive();
+			}
 		});
 	}
 
@@ -944,13 +968,6 @@ class InPlaceTranslationCoordinator {
 						this.replacer.updatePageSlice(p.id, p.seq, p.outputRev || 1);
 					} else {
 						allDone = false;
-						// REFLECT THE LIVE non-DONE STATUS ON THE SLICE (pending → processing)
-						// SO THE ON-PAGE BADGE UPDATES WHILE THE TRANSLATION IS IN FLIGHT.
-						this.replacer.updatePageStatus(
-							p.id,
-							p.seq,
-							p.status === 'processing' ? 'processing' : 'pending'
-						);
 					}
 				}
 

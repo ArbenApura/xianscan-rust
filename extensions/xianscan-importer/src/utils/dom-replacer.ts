@@ -108,86 +108,11 @@ function createSafeBlobUrlFromData(dataUrl: string): string {
 	}
 }
 
-// DRAW IN-IMAGE PILL BADGE DIRECTLY ONTO CANVAS FOR PENDING / PROCESSING SLICES
-async function drawBadgeOnDataUrl(dataUrl: string, status?: 'pending' | 'processing'): Promise<string> {
-	if (!status || typeof document === 'undefined') return dataUrl;
-
-	return new Promise(resolve => {
-		const img = new Image();
-		img.crossOrigin = 'anonymous';
-		img.onload = () => {
-			try {
-				const canvas = document.createElement('canvas');
-				canvas.width = img.naturalWidth || img.width;
-				canvas.height = img.naturalHeight || img.height;
-				const ctx = canvas.getContext('2d');
-				if (!ctx) {
-					resolve(dataUrl);
-					return;
-				}
-
-				// 1. FIRST: DRAW BASE IMAGE
-				ctx.drawImage(img, 0, 0);
-
-				// 2. SECOND: DRAW SEMI-TRANSPARENT DARK SHADE OVERLAY OVER ENTIRE IMAGE
-				ctx.fillStyle = 'rgba(10, 10, 15, 0.65)';
-				ctx.fillRect(0, 0, canvas.width, canvas.height);
-
-				// 3. THIRD: DRAW CRISP UN-SHADED BADGE PILL IN TOP-RIGHT CORNER ON TOP OF THE SHADE
-				const scale = Math.max(1, Math.min(canvas.width / 800, 2.5));
-				const isProcessing = status === 'processing';
-				const label = isProcessing ? 'PROCESSING' : 'PENDING';
-
-				const fontSize = Math.round(13 * scale);
-				const paddingX = Math.round(14 * scale);
-				const paddingY = Math.round(7 * scale);
-				const radius = Math.round(12 * scale);
-				const margin = Math.round(20 * scale);
-
-				ctx.font = `bold ${fontSize}px ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace`;
-				const textMetrics = ctx.measureText(label);
-				const textWidth = textMetrics.width;
-				const pillWidth = textWidth + paddingX * 2;
-				const pillHeight = fontSize + paddingY * 2;
-				const pillX = canvas.width - pillWidth - margin;
-				const pillY = margin;
-
-				// SOLID BADGE BACKGROUND (NO FILTER / NOT COVERED BY SHADE)
-				ctx.fillStyle = 'rgba(15, 23, 42, 0.95)';
-				ctx.strokeStyle = isProcessing ? 'rgba(251, 191, 36, 0.95)' : 'rgba(239, 68, 68, 0.95)';
-				ctx.lineWidth = Math.max(1.5, Math.round(2 * scale));
-
-				ctx.beginPath();
-				if (typeof ctx.roundRect === 'function') {
-					ctx.roundRect(pillX, pillY, pillWidth, pillHeight, radius);
-				} else {
-					ctx.rect(pillX, pillY, pillWidth, pillHeight);
-				}
-				ctx.fill();
-				ctx.stroke();
-
-				// BADGE TEXT IN VIBRANT AMBER OR CORAL RED
-				ctx.fillStyle = isProcessing ? '#fbbf24' : '#f87171';
-				ctx.textBaseline = 'middle';
-				ctx.textAlign = 'center';
-				ctx.fillText(label, pillX + pillWidth / 2, pillY + pillHeight / 2);
-
-				resolve(canvas.toDataURL('image/jpeg', 0.92));
-			} catch {
-				resolve(dataUrl);
-			}
-		};
-		img.onerror = () => resolve(dataUrl);
-		img.src = dataUrl;
-	});
-}
-
 // RESOLVE AN IMAGE URL: IF HOST PAGE IS HTTPS AND SERVER IS HTTP, PROXY THROUGH BACKGROUND TO PREVENT MIXED CONTENT
-export async function resolveSafeImageUrl(rawUrl: string, status?: 'pending' | 'processing'): Promise<string> {
+export async function resolveSafeImageUrl(rawUrl: string): Promise<string> {
 	if (!rawUrl) return rawUrl;
-	const cacheKey = `${rawUrl}_${status || 'none'}`;
-	if (safeDataUrlCache.has(cacheKey)) {
-		return safeDataUrlCache.get(cacheKey)!;
+	if (safeDataUrlCache.has(rawUrl)) {
+		return safeDataUrlCache.get(rawUrl)!;
 	}
 
 	const isHttpsPage = typeof window !== 'undefined' && window.location.protocol === 'https:';
@@ -196,32 +121,32 @@ export async function resolveSafeImageUrl(rawUrl: string, status?: 'pending' | '
 	// IF WE ARE ON AN HTTPS PAGE AND THE IMAGE SERVER IS HTTP, REQUEST DATA URL FROM BACKGROUND VIA QUEUE
 	if (isHttpsPage && isHttpServer && typeof chrome !== 'undefined' && chrome.runtime?.sendMessage) {
 		return enqueueFetch(async () => {
-			if (safeDataUrlCache.has(cacheKey)) {
-				return safeDataUrlCache.get(cacheKey)!;
+			if (safeDataUrlCache.has(rawUrl)) {
+				return safeDataUrlCache.get(rawUrl)!;
 			}
 			return new Promise<string>(resolve => {
-				chrome.runtime.sendMessage({ type: 'FETCH_IMAGE_DATA', url: rawUrl }, async res => {
-					if (chrome.runtime.lastError || !res || !res.ok || !res.dataUrl) {
-						resolve(rawUrl);
-					} else {
-						let finalDataUrl = res.dataUrl;
-						if (status === 'pending' || status === 'processing') {
-							finalDataUrl = await drawBadgeOnDataUrl(res.dataUrl, status);
+				let attempts = 0;
+				const maxAttempts = 3;
+
+				const doFetch = () => {
+					attempts++;
+					chrome.runtime.sendMessage({ type: 'FETCH_IMAGE_DATA', url: rawUrl }, (res) => {
+						if (chrome.runtime.lastError || !res || !res.ok || !res.dataUrl) {
+							if (attempts < maxAttempts) {
+								setTimeout(doFetch, attempts * 250);
+							} else {
+								resolve(rawUrl);
+							}
+						} else {
+							setCachedSafeUrl(rawUrl, res.dataUrl);
+							resolve(res.dataUrl);
 						}
-						const safeUrl = createSafeBlobUrlFromData(finalDataUrl);
-						setCachedSafeUrl(cacheKey, safeUrl);
-						resolve(safeUrl);
-					}
-				});
+					});
+				};
+
+				doFetch();
 			});
 		});
-	}
-
-	if (status === 'pending' || status === 'processing') {
-		const badgedDataUrl = await drawBadgeOnDataUrl(rawUrl, status);
-		const safeUrl = createSafeBlobUrlFromData(badgedDataUrl);
-		setCachedSafeUrl(cacheKey, safeUrl);
-		return safeUrl;
 	}
 
 	return rawUrl;
@@ -718,27 +643,20 @@ export class DomReplacerEngine {
 			const isOutputReady = !!page.outputPath || page.outputRev > 0;
 			const targetUrl = isOutputReady
 				? `${this.baseUrl}/api/pages/${page.id}/file?kind=output&rev=${page.outputRev}`
-				: `${this.baseUrl}/api/pages/${page.id}/file?kind=original&rev=${page.originalRev || 0}`;
+				: `${this.baseUrl}/api/pages/${page.id}/file?kind=original&rev=${page.originalRev ?? 1}`;
 
 			this.sanitizeLazyAttributes(img);
 			img.setAttribute('data-xianscan-page-id', String(page.id));
 			img.setAttribute('data-xianscan-page-seq', String(page.seq));
-			img.setAttribute('data-xianscan-status', isOutputReady ? 'ready' : 'pending');
+			const shouldProxy = isHttpsHost && targetUrl.startsWith('http://') && typeof chrome !== 'undefined' && !!chrome.runtime?.sendMessage;
 
-			if (!isHttpsHost && !targetUrl.includes('127.0.0.1') && !targetUrl.includes('localhost')) {
+			if (!shouldProxy) {
 				img.src = targetUrl;
 			}
 			img.style.display = '';
-			img.style.transition = 'filter 0.35s ease';
-			img.style.filter = isOutputReady ? 'none' : 'brightness(0.38) contrast(1.15)';
+			img.style.filter = 'none';
 
 			this.attachImageErrorHandler(img, page.id, targetUrl);
-
-			if (!isOutputReady) {
-				this.attachPendingBadge(img, page.id);
-			} else {
-				this.removePendingBadge(page.id);
-			}
 
 			void resolveSafeImageUrl(targetUrl).then(safeUrl => {
 				this.activePageUrls.set(page.id, safeUrl);
@@ -773,10 +691,13 @@ export class DomReplacerEngine {
 		for (let i = 0; i < totalServerPages; i++) {
 			const page = pages[i];
 			const isOutputReady = !!page.outputPath || page.outputRev > 0;
-			this.pageStatuses.set(page.id, isOutputReady ? 'ready' : (page.status === 'processing' ? 'processing' : 'pending'));
+			const pageStatus: 'ready' | 'processing' | 'pending' = isOutputReady
+				? 'ready'
+				: (page.status === 'processing' ? 'processing' : 'pending');
+			this.pageStatuses.set(page.id, pageStatus);
 			const targetUrl = isOutputReady
 				? `${this.baseUrl}/api/pages/${page.id}/file?kind=output&rev=${page.outputRev}`
-				: `${this.baseUrl}/api/pages/${page.id}/file?kind=original&rev=${page.originalRev || 0}`;
+				: `${this.baseUrl}/api/pages/${page.id}/file?kind=original&rev=${page.originalRev ?? 1}`;
 
 			const shouldProxy = isHttpsHost && targetUrl.startsWith('http://') && typeof chrome !== 'undefined' && !!chrome.runtime?.sendMessage;
 
@@ -786,7 +707,7 @@ export class DomReplacerEngine {
 
 				img.setAttribute('data-xianscan-page-id', String(page.id));
 				img.setAttribute('data-xianscan-page-seq', String(page.seq));
-				img.setAttribute('data-xianscan-status', isOutputReady ? 'ready' : 'pending');
+				img.setAttribute('data-xianscan-status', pageStatus);
 				if (!shouldProxy) {
 					img.src = targetUrl;
 				}
@@ -796,7 +717,7 @@ export class DomReplacerEngine {
 
 				this.attachImageErrorHandler(img, page.id, targetUrl);
 
-				void resolveSafeImageUrl(targetUrl, isOutputReady ? undefined : 'pending').then(safeUrl => {
+				void resolveSafeImageUrl(targetUrl).then(safeUrl => {
 					this.activePageUrls.set(page.id, safeUrl);
 					if (img.getAttribute('data-xianscan-page-id') === String(page.id)) {
 						img.src = safeUrl;
@@ -811,7 +732,7 @@ export class DomReplacerEngine {
 				clone.setAttribute('data-xianscan-injected', 'true');
 				clone.setAttribute('data-xianscan-page-id', String(page.id));
 				clone.setAttribute('data-xianscan-page-seq', String(page.seq));
-				clone.setAttribute('data-xianscan-status', isOutputReady ? 'ready' : 'pending');
+				clone.setAttribute('data-xianscan-status', pageStatus);
 				if (!shouldProxy) {
 					clone.src = targetUrl;
 				}
@@ -823,7 +744,7 @@ export class DomReplacerEngine {
 
 				this.attachImageErrorHandler(clone, page.id, targetUrl);
 
-				void resolveSafeImageUrl(targetUrl, isOutputReady ? undefined : 'pending').then(safeUrl => {
+				void resolveSafeImageUrl(targetUrl).then(safeUrl => {
 					this.activePageUrls.set(page.id, safeUrl);
 					if (clone.getAttribute('data-xianscan-page-id') === String(page.id)) {
 						clone.src = safeUrl;
@@ -885,7 +806,6 @@ export class DomReplacerEngine {
 				img.src = newUrl;
 			}
 			img.style.display = '';
-			img.style.transition = 'filter 0.35s ease';
 			img.style.filter = 'none';
 
 			this.attachImageErrorHandler(img, pageId, newUrl);
@@ -915,7 +835,6 @@ export class DomReplacerEngine {
 					clone.src = newUrl;
 				}
 				clone.style.display = '';
-				clone.style.transition = 'filter 0.35s ease';
 				clone.style.filter = 'none';
 
 				prevImg.insertAdjacentElement('afterend', clone);
@@ -935,9 +854,8 @@ export class DomReplacerEngine {
 		this.startLazyLoadShield();
 	}
 
-	// REFLECT A NON-READY PAGE'S LIVE STATUS ON THE SLICE (pending → processing) BY RE-RENDERING THE CANVAS BADGE
+	// UPDATE A NON-READY PAGE'S LIVE STATUS (pending / processing)
 	updatePageStatus(pageId: number, pageSeq: number, status: 'pending' | 'processing'): void {
-		// SKIP REDUNDANT RE-RENDERS WHEN THE SLICE ALREADY SHOWS THIS STATUS (2.5S POLL).
 		if (this.pageStatuses.get(pageId) === status) return;
 		this.pageStatuses.set(pageId, status);
 
@@ -959,15 +877,7 @@ export class DomReplacerEngine {
 		if (!img) return;
 
 		img.setAttribute('data-xianscan-status', status);
-		const targetUrl = `${this.baseUrl}/api/pages/${pageId}/file?kind=original&rev=${existingMeta?.originalRev || 0}`;
-		void resolveSafeImageUrl(targetUrl, status).then(safeUrl => {
-			this.activePageUrls.set(pageId, safeUrl);
-			if (img!.getAttribute('data-xianscan-page-id') === String(pageId) ||
-			    img!.getAttribute('data-xianscan-page-seq') === String(pageSeq)) {
-				img!.src = safeUrl;
-				img!.srcset = '';
-			}
-		});
+		img.style.filter = 'none';
 	}
 
 	// TOGGLE BETWEEN TRANSLATED AND RAW ORIGINAL VIEW
@@ -975,10 +885,8 @@ export class DomReplacerEngine {
 		const hostImgs = document.querySelectorAll<HTMLImageElement>('img[data-xianscan-orig-src]');
 		const injectedImgs = document.querySelectorAll<HTMLImageElement>('img[data-xianscan-injected="true"]');
 		const hiddenImgs = document.querySelectorAll<HTMLImageElement>('img[data-xianscan-hidden="true"]');
-		const badges = document.querySelectorAll('[data-xianscan-badge-id]');
 
 		if (mode === 'raw') {
-			badges.forEach(b => (b as HTMLElement).style.display = 'none');
 			hostImgs.forEach(img => {
 				const origSrc = img.getAttribute('data-xianscan-orig-src');
 				const origSrcset = img.getAttribute('data-xianscan-orig-srcset');
@@ -999,7 +907,6 @@ export class DomReplacerEngine {
 			hiddenImgs.forEach(img => (img.style.display = ''));
 			this.isTranslatedActive = false;
 		} else {
-			badges.forEach(b => (b as HTMLElement).style.display = '');
 			injectedImgs.forEach(img => (img.style.display = ''));
 			hiddenImgs.forEach(img => (img.style.display = 'none'));
 			hostImgs.forEach(img => {
@@ -1007,6 +914,7 @@ export class DomReplacerEngine {
 				if (pageId && this.activePageUrls.has(pageId)) {
 					img.src = this.activePageUrls.get(pageId)!;
 				}
+				img.style.filter = 'none';
 			});
 			this.isTranslatedActive = true;
 			this.startLazyLoadShield();

@@ -57,19 +57,31 @@ async function callTranslate(
 	const sourceChars = regions.reduce((n, r) => n + r.text.length, 0);
 	const maxTokens = Math.max(1024, Math.ceil(sourceChars * 4 + 1024));
 	const resp = await queued(() =>
-		withRetry(async () => {
-			const r = await client.chat.completions.create(
-				{
-					model,
-					messages,
-					temperature: 0.2,
-					max_tokens: maxTokens,
-					...thinkingParam(model),
-				},
-				{ signal: opts.signal },
-			);
-			return r;
-		}),
+		withRetry(
+			async () => {
+				const r = await client.chat.completions.create(
+					{
+						model,
+						messages,
+						temperature: 0.2,
+						max_tokens: maxTokens,
+						...thinkingParam(model),
+					},
+					{ signal: opts.signal },
+				);
+				const rawContent = r.choices[0]?.message?.content ?? '';
+				const stripped = stripThinkingTags(rawContent).trim();
+				if (!stripped) {
+					throw new Error('EMPTY_LLM_RESPONSE');
+				}
+				const parsed = parseTranslations(stripped, new Set(regions.map((reg) => reg.id)), regions);
+				if (!parsed || parsed.size === 0) {
+					throw new Error('EMPTY_LLM_RESPONSE');
+				}
+				return r;
+			},
+			3,
+		),
 	);
 	const raw = resp.choices[0]?.message?.content ?? '';
 	const usage = computeUsage(resp.usage, model);
@@ -113,10 +125,25 @@ export async function translatePage(
 	}
 
 	const t0 = performance.now();
-	const { raw, usage: u1, messages: m1 } = await callTranslate(translatableRegions, terms, pair, opts);
+	let raw = '';
+	let u1 = { model, promptTokens: 0, cachedTokens: 0, completionTokens: 0 } as TranslationUsage;
+	let m1: OpenAI.Chat.ChatCompletionMessageParam[] = [];
+	try {
+		const res = await callTranslate(translatableRegions, terms, pair, opts);
+		raw = res.raw;
+		u1 = res.usage;
+		m1 = res.messages;
+	} catch (err) {
+		if (err instanceof Error && err.message === 'EMPTY_LLM_RESPONSE') {
+			// RETRIED 3 TIMES AND STILL EMPTY: FALL BACK TO EMPTY TRANSLATION MAP
+			raw = '';
+		} else {
+			throw err;
+		}
+	}
 	const durationMs = Math.round(performance.now() - t0);
 	mergeUsage(usage, u1);
-	const byRegion = parseTranslations(raw, new Set(translatableRegions.map((r) => r.id)), translatableRegions) ?? new Map();
+	const byRegion = (raw ? parseTranslations(raw, new Set(translatableRegions.map((r) => r.id)), translatableRegions) : null) ?? new Map();
 
 	// MERGE PRE-RESOLVED REGIONS INTO FINAL TRANSLATION MAP
 	for (const [id, target] of preResolved) {
@@ -220,8 +247,8 @@ Rules:
 	try {
 		const res = await queued(async () =>
 			withRetry(
-				() =>
-					client.chat.completions.create(
+				async () => {
+					const r = await client.chat.completions.create(
 						{
 							model,
 							messages: [
@@ -232,7 +259,14 @@ Rules:
 							...thinkingParam(model),
 						},
 						{ signal: opts.signal },
-					),
+					);
+					const rawContent = r.choices[0]?.message?.content ?? '';
+					const stripped = stripThinkingTags(rawContent).trim();
+					if (!stripped) {
+						throw new Error('EMPTY_LLM_RESPONSE');
+					}
+					return r;
+				},
 				3,
 			),
 		);
@@ -259,6 +293,9 @@ Rules:
 				const rest = match[2]?.trim();
 				return { text: rest ? `Chapter ${num}: ${rest}` : `Chapter ${num}`, usage };
 			}
+		}
+		if (err instanceof Error && err.message === 'EMPTY_LLM_RESPONSE') {
+			return { text: trimmed, usage };
 		}
 		throw err;
 	}

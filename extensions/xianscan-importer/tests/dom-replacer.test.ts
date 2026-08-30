@@ -273,7 +273,6 @@ describe('DomReplacerEngine', () => {
 		// DYNAMICALLY UPDATE TO READY VIA SSE/POLLING EVENT
 		engine.updatePageSlice(201, 0, 1);
 		expect(img1.getAttribute('data-xianscan-status')).toBe('ready');
-		expect(img1.style.filter).toBe('none');
 		expect(img1.src).toContain('/api/pages/201/file?kind=output&rev=1');
 	});
 
@@ -391,5 +390,36 @@ describe('DomReplacerEngine', () => {
 		expect(mounted).toBe(true);
 		expect(lazyImg1.getAttribute('data-xianscan-page-id')).toBe('701');
 		expect(lazyImg2.getAttribute('data-xianscan-page-id')).toBe('702');
+	});
+
+	it('self-heals and mounts newly inserted virtual scroll DOM images dynamically', () => {
+		document.body.innerHTML = '';
+		const reader = document.createElement('div');
+		reader.className = 'reading-content';
+
+		const initialImg = document.createElement('img');
+		initialImg.src = 'https://img.guazicdn.com/th/comics/chapters/74/260420/1.webp';
+		reader.appendChild(initialImg);
+		document.body.appendChild(reader);
+
+		engine = new DomReplacerEngine('http://127.0.0.1:8124');
+		const pages: ChapterReaderPage[] = [
+			{ id: 801, seq: 0, filePath: '1.webp', cleanedPath: null, outputPath: 'out1.webp', cleanedRev: 0, outputRev: 1, originalRev: 0, status: 'done', error: null },
+			{ id: 802, seq: 1, filePath: '2.webp', cleanedPath: null, outputPath: 'out2.webp', cleanedRev: 0, outputRev: 1, originalRev: 0, status: 'done', error: null }
+		];
+
+		engine.mountTranslatedPages(pages);
+		expect(initialImg.getAttribute('data-xianscan-page-id')).toBe('801');
+
+		// SIMULATE VIRTUAL SCROLLER MOUNTING PAGE 2 INTO THE DOM LATER
+		const dynamicImg2 = document.createElement('img');
+		dynamicImg2.src = 'https://img.guazicdn.com/th/comics/chapters/74/260420/2.webp';
+		reader.appendChild(dynamicImg2);
+
+		// TRIGGER DYNAMIC RECONCILIATION
+		(engine as any).reconcileDynamicHostImages();
+
+		expect(dynamicImg2.getAttribute('data-xianscan-page-id')).toBe('802');
+		expect(dynamicImg2.src).toContain('/api/pages/802/file?kind=output&rev=1');
 	});
 });

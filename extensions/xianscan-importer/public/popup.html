@@ -82,7 +82,7 @@
 				<!-- In-Place Reader Live Translation Toggle -->
 				<div class="in-place-row">
 					<label class="pipeline-chip mono in-place-chip" for="inPlaceReplacementCheckbox" title="Replace comic reader images with translated version (Experimental / Beta)">
-						<input type="checkbox" id="inPlaceReplacementCheckbox" checked>
+						<input type="checkbox" id="inPlaceReplacementCheckbox">
 						<span class="chip-check">
 							<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round">
 								<polyline points="20 6 9 17 4 12"/>
@@ -96,6 +96,14 @@
 						<span class="chip-label">In-Place Translation</span>
 						<span class="chip-experimental-badge mono">BETA</span>
 					</label>
+					<div id="inPlaceNoticeBanner" class="in-place-notice-banner hidden">
+						<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+							<circle cx="12" cy="12" r="10"/>
+							<line x1="12" y1="16" x2="12" y2="12"/>
+							<line x1="12" y1="8" x2="12.01" y2="8"/>
+						</svg>
+						<span>Note: If translation does not take effect live, please refresh the comic reader page.</span>
+					</div>
 				</div>
 			</div>
 
@@ -169,7 +177,7 @@
 						</svg>
 						<span class="chip-label">Auto-Reslice</span>
 					</label>
-					<label class="pipeline-chip mono" for="autoTranslateCheckbox" title="Automatically translate and typeset pages after upload">
+					<label id="autoTranslateChip" class="pipeline-chip mono" for="autoTranslateCheckbox" title="Automatically translate and typeset pages after upload">
 						<input type="checkbox" id="autoTranslateCheckbox">
 						<span class="chip-check">
 							<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round">
@@ -182,6 +190,13 @@
 							<path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/>
 						</svg>
 						<span class="chip-label">Auto-Translate</span>
+						<span id="autoTranslateLockBadge" class="chip-lock-badge hidden" title="Locked: Required by In-Place Translation">
+							<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+								<rect x="3" y="11" width="18" height="11" rx="2" ry="2"/>
+								<path d="M7 11V7a5 5 0 0 1 10 0v4"/>
+							</svg>
+							LOCKED
+						</span>
 					</label>
 				</div>
 				<button id="startImportBtn" class="action-btn" disabled type="button">
@@ -254,7 +269,7 @@
 			<!-- IN-PLACE TOGGLE SUBROW (WITH COMPACT REFRESH BUTTON) -->
 			<div class="tracker-subrow">
 				<label class="pipeline-chip mono in-place-chip" for="trackerInPlaceCheckbox" title="Toggle translated vs raw images on reader page (Experimental / Beta)">
-					<input type="checkbox" id="trackerInPlaceCheckbox" checked>
+					<input type="checkbox" id="trackerInPlaceCheckbox">
 					<span class="chip-check">
 						<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round">
 							<polyline points="20 6 9 17 4 12"/>

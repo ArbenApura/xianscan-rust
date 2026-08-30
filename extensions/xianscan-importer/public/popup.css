@@ -1194,6 +1194,45 @@ body {
 	gap: 6px;
 }
 
+/* IN-PLACE NOTICE BANNER */
+.in-place-notice-banner {
+	display: flex;
+	align-items: flex-start;
+	gap: 6px;
+	margin-top: 6px;
+	padding: 6px 8px;
+	border-radius: var(--radius);
+	background: rgba(212, 154, 61, 0.10);
+	border: 1px solid rgba(212, 154, 61, 0.28);
+	color: var(--gold);
+	font-size: 10.5px;
+	line-height: 1.35;
+	animation: bannerFadeIn 0.2s ease;
+}
+
+.in-place-notice-banner.hidden {
+	display: none;
+}
+
+.in-place-notice-banner svg {
+	width: 13px;
+	height: 13px;
+	flex-shrink: 0;
+	margin-top: 1px;
+	stroke: var(--gold);
+}
+
+@keyframes bannerFadeIn {
+	from {
+		opacity: 0;
+		transform: translateY(-3px);
+	}
+	to {
+		opacity: 1;
+		transform: translateY(0);
+	}
+}
+
 /* -- PIPELINE TOGGLE CHIPS -- */
 .pipeline-toggles {
 	display: grid;
@@ -1320,6 +1359,45 @@ body {
 .pipeline-chip.checked .chip-experimental-badge {
 	background: rgba(212, 154, 61, 0.22);
 	border-color: rgba(212, 154, 61, 0.55);
+}
+
+.chip-lock-badge {
+	display: inline-flex;
+	align-items: center;
+	gap: 2.5px;
+	font-size: 7.5px;
+	font-weight: 700;
+	letter-spacing: 0.5px;
+	padding: 1px 4.5px;
+	border-radius: 3px;
+	background: rgba(200, 60, 35, 0.16);
+	color: var(--cinnabar);
+	border: 1px solid rgba(200, 60, 35, 0.40);
+	margin-left: auto;
+	flex-shrink: 0;
+	line-height: 1.2;
+}
+
+.chip-lock-badge svg {
+	width: 8px;
+	height: 8px;
+	stroke: var(--cinnabar);
+}
+
+.chip-lock-badge.hidden {
+	display: none;
+}
+
+/* DISABLED / LOCKED STATE */
+.pipeline-chip:has(input:disabled),
+.pipeline-chip.disabled,
+.pipeline-chip.locked {
+	cursor: not-allowed !important;
+}
+
+.pipeline-chip.locked {
+	border-color: rgba(200, 60, 35, 0.50);
+	background: rgba(200, 60, 35, 0.10);
 }
 
 /* -- BUTTONS -- */

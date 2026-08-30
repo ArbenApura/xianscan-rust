@@ -14,6 +14,7 @@ import {
 	sanitizeTranslationArtifacts,
 	systemPrompt,
 	translatePage,
+	translateSingleText,
 	userPrompt,
 } from '$lib/server/translate';
 
@@ -867,4 +868,36 @@ describe('parseExtractedTerms & extractTerms', () => {
 		// 2. Enclosing quotes preserved when source was genuinely quoted
 		expect(sanitizeTranslationArtifacts('"Black Wind Stronghold"', '“黑风寨”')).toBe('"Black Wind Stronghold"');
 	});
+
+	it('retries translateSingleText on empty LLM responses up to 3 times', async () => {
+		// First two attempts return empty / think-only response, third attempt succeeds
+		const { client, callCount } = fakeClient([
+			'',
+			'<think>Thinking deeply...</think>',
+			'Hello there!',
+		]);
+		const res = await translateSingleText('你好！', PAIR, { client, kind: 'general' });
+		expect(res.text).toBe('Hello there!');
+		expect(callCount()).toBe(3);
+	});
+
+	it('falls back to source text when translateSingleText persistently returns empty after retries', async () => {
+		const { client, callCount } = fakeClient(['', '', '', '']);
+		const res = await translateSingleText('你好！', PAIR, { client, kind: 'general' });
+		expect(res.text).toBe('你好！');
+		expect(callCount()).toBe(4); // initial + 3 retries
+	});
+
+	it('retries translatePage when LLM returns empty content or unparseable JSON', async () => {
+		const dialogueRegions = [{ id: 'r0', text: '你好！', kind: 'dialogue_bubble' }];
+		const { client, callCount } = fakeClient([
+			'',
+			'{}',
+			'{"r0": "Hello!"}',
+		]);
+		const res = await translatePage(dialogueRegions, [], PAIR, { client });
+		expect(res.byRegion.get('r0')).toBe('Hello!');
+		expect(callCount()).toBe(3);
+	});
 });
+
