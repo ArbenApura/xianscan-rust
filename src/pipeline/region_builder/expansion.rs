@@ -238,7 +238,7 @@ pub fn expand_bubble_text_boxes(regions: &mut Vec<Region>, page_w: u32, page_h: 
 
         let is_horizontal_bubble = (b.w as f32) >= (b.h as f32) * 1.35;
         let vertical_fill_ratio = regions[i].box_.h as f32 / b.h.max(1) as f32;
-        let has_healthy_vertical_fill = vertical_fill_ratio >= 0.45 && vertical_fill_ratio <= 0.85;
+        let has_healthy_vertical_fill = vertical_fill_ratio >= 0.25 && vertical_fill_ratio <= 0.85;
 
         let dx = ((regions[i].box_.x + regions[i].box_.w / 2) - (b.x + b.w / 2)).abs() as f32;
         let dy = ((regions[i].box_.y + regions[i].box_.h / 2) - (b.y + b.h / 2)).abs() as f32;

@@ -327,6 +327,7 @@
 		if (region.inpaint_box) return getBox(region.inpaint_box);
 		const b = getBox(region.box);
 		if (b && (b as any).inpaint_box) return getBox((b as any).inpaint_box);
+		if (b && (b as any).inpaintBox) return getBox((b as any).inpaintBox);
 		return null;
 	}
 
@@ -336,6 +337,7 @@
 		if (region.typeset_box) return getBox(region.typeset_box);
 		const b = getBox(region.box);
 		if (b && (b as any).typeset_box) return getBox((b as any).typeset_box);
+		if (b && (b as any).typesetBox) return getBox((b as any).typesetBox);
 		return null;
 	}
 
@@ -749,7 +751,7 @@
 				confidence: r.conf,
 				angle: getRegionAngle(r),
 				vertical: isRegionVertical(r),
-				typesetBox: getBox(r.box),
+				typesetBox: getTypesetBox(r),
 				bubbleBox: getBubbleBox(r),
 				bubblePolygon: getBubblePolygon(r),
 				inpaintPolygon: getPolygon(r.polygon),
@@ -992,7 +994,7 @@
 										{@const typesetFill = 'rgba(16, 185, 129, 0.16)'}
 
 										<!-- TIER 3: TYPESETTING LAYOUT BOX (SOLID EMERALD GREEN OUTLINE + SOFT GREEN FILL) -->
-										{#if (showTypesetTier || active) && typesetB && (typesetB.w !== bw || typesetB.h !== bh)}
+										{#if (showTypesetTier || active) && typesetB}
 											<rect
 												x={typesetB.x}
 												y={typesetB.y}
