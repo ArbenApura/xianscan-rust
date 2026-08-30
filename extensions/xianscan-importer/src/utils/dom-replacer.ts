@@ -484,16 +484,21 @@ export function getHostReaderImages(excludedUrls?: string[], includedUrls?: stri
 		// RESOLVE CANDIDATE URLS FOR EXCLUSION MATCHING
 		const candidates = [
 			img.getAttribute('data-xianscan-orig-src'),
-			img.getAttribute('src'),
 			img.getAttribute('data-src'),
 			img.getAttribute('data-original'),
 			img.getAttribute('data-url'),
+			img.getAttribute('data-lazy-src'),
 			img.getAttribute('data-actual-src'),
-			img.src,
-			img.currentSrc
-		].filter(Boolean) as string[];
+			img.getAttribute('data-full-image'),
+			img.getAttribute('data-real-src'),
+			img.getAttribute('data-origin'),
+			img.getAttribute('src'),
+			img.currentSrc,
+			img.src
+		].map(s => (s ? s.trim() : null)).filter(Boolean) as string[];
 
 		const canonicalCandidates = candidates.flatMap(c => {
+			if (c.startsWith('data:')) return [];
 			const list = [c, getCanonicalUrl(c)];
 			try {
 				const abs = new URL(c, typeof window !== 'undefined' ? window.location.href : 'http://localhost').href;
@@ -520,8 +525,20 @@ export function getHostReaderImages(excludedUrls?: string[], includedUrls?: stri
 		if (isFloatingOrSticky(img)) return false;
 		if (isLikelyAdOrBannerImage(img)) return false;
 
-		const src = img.getAttribute('src') || img.getAttribute('data-src') || img.getAttribute('data-original') || '';
-		if (!src || src.startsWith('data:') || src.includes('avatar') || src.includes('banner') || src.includes('logo') || src.includes('promo') || src.includes('advert')) {
+		// RESOLVE HIGHEST-PRIORITY EFFECTIVE SOURCE ATTRIBUTE (SKIPPING PLACEHOLDERS)
+		let effectiveSrc: string | null = null;
+		for (const cand of candidates) {
+			if (!cand.startsWith('data:') && !cand.includes('placeholder') && !cand.includes('blank.gif') && !cand.includes('spacer.gif') && !cand.includes('pixel.gif')) {
+				effectiveSrc = cand;
+				break;
+			}
+		}
+
+		if (!effectiveSrc && candidates.length > 0) {
+			effectiveSrc = candidates[0];
+		}
+
+		if (!effectiveSrc || effectiveSrc.startsWith('data:') || effectiveSrc.includes('avatar') || effectiveSrc.includes('banner') || effectiveSrc.includes('logo') || effectiveSrc.includes('promo') || effectiveSrc.includes('advert')) {
 			return false;
 		}
 
@@ -647,6 +664,11 @@ export class DomReplacerEngine {
 					const pageId = Number(pageIdStr);
 					const expectedSafeUrl = this.activePageUrls.get(pageId);
 					if (expectedSafeUrl && target.src !== expectedSafeUrl) {
+						// NEVER OVERWRITE WITH A RAW HTTP URL ON AN HTTPS HOST
+						const isHttpsHost = typeof window !== 'undefined' && window.location.protocol === 'https:';
+						if (isHttpsHost && expectedSafeUrl.startsWith('http://')) {
+							continue;
+						}
 						// SITE LAZY LOADER TRIED TO OVERWRITE OUR IMAGE: RESTORE IMMEDIATELY
 						target.src = expectedSafeUrl;
 						target.srcset = '';
@@ -703,7 +725,7 @@ export class DomReplacerEngine {
 			img.setAttribute('data-xianscan-page-seq', String(page.seq));
 			img.setAttribute('data-xianscan-status', isOutputReady ? 'ready' : 'pending');
 
-			if (!isHttpsHost || !targetUrl.includes('127.0.0.1') && !targetUrl.includes('localhost')) {
+			if (!isHttpsHost && !targetUrl.includes('127.0.0.1') && !targetUrl.includes('localhost')) {
 				img.src = targetUrl;
 			}
 			img.style.display = '';
@@ -711,7 +733,6 @@ export class DomReplacerEngine {
 			img.style.filter = isOutputReady ? 'none' : 'brightness(0.38) contrast(1.15)';
 
 			this.attachImageErrorHandler(img, page.id, targetUrl);
-			this.activePageUrls.set(page.id, targetUrl);
 
 			if (!isOutputReady) {
 				this.attachPendingBadge(img, page.id);
@@ -757,6 +778,8 @@ export class DomReplacerEngine {
 				? `${this.baseUrl}/api/pages/${page.id}/file?kind=output&rev=${page.outputRev}`
 				: `${this.baseUrl}/api/pages/${page.id}/file?kind=original&rev=${page.originalRev || 0}`;
 
+			const shouldProxy = isHttpsHost && targetUrl.startsWith('http://') && typeof chrome !== 'undefined' && !!chrome.runtime?.sendMessage;
+
 			if (i < totalHostImgs) {
 				const img = hostImgs[i];
 				this.sanitizeLazyAttributes(img);
@@ -764,7 +787,7 @@ export class DomReplacerEngine {
 				img.setAttribute('data-xianscan-page-id', String(page.id));
 				img.setAttribute('data-xianscan-page-seq', String(page.seq));
 				img.setAttribute('data-xianscan-status', isOutputReady ? 'ready' : 'pending');
-				if (!isHttpsHost || !targetUrl.includes('127.0.0.1') && !targetUrl.includes('localhost')) {
+				if (!shouldProxy) {
 					img.src = targetUrl;
 				}
 				img.style.display = '';
@@ -772,7 +795,6 @@ export class DomReplacerEngine {
 				lastAnchor = img;
 
 				this.attachImageErrorHandler(img, page.id, targetUrl);
-				this.activePageUrls.set(page.id, targetUrl);
 
 				void resolveSafeImageUrl(targetUrl, isOutputReady ? undefined : 'pending').then(safeUrl => {
 					this.activePageUrls.set(page.id, safeUrl);
@@ -790,7 +812,7 @@ export class DomReplacerEngine {
 				clone.setAttribute('data-xianscan-page-id', String(page.id));
 				clone.setAttribute('data-xianscan-page-seq', String(page.seq));
 				clone.setAttribute('data-xianscan-status', isOutputReady ? 'ready' : 'pending');
-				if (!isHttpsHost || !targetUrl.includes('127.0.0.1') && !targetUrl.includes('localhost')) {
+				if (!shouldProxy) {
 					clone.src = targetUrl;
 				}
 				clone.style.display = '';
@@ -800,7 +822,6 @@ export class DomReplacerEngine {
 				lastAnchor = clone;
 
 				this.attachImageErrorHandler(clone, page.id, targetUrl);
-				this.activePageUrls.set(page.id, targetUrl);
 
 				void resolveSafeImageUrl(targetUrl, isOutputReady ? undefined : 'pending').then(safeUrl => {
 					this.activePageUrls.set(page.id, safeUrl);
@@ -853,12 +874,14 @@ export class DomReplacerEngine {
 		const newUrl = `${this.baseUrl}/api/pages/${pageId}/file?kind=output&rev=${outputRev}`;
 		const isHttpsHost = typeof window !== 'undefined' && window.location.protocol === 'https:';
 
+		const shouldProxy = isHttpsHost && newUrl.startsWith('http://') && typeof chrome !== 'undefined' && !!chrome.runtime?.sendMessage;
+
 		if (img) {
 			this.sanitizeLazyAttributes(img);
 			img.setAttribute('data-xianscan-page-id', String(pageId));
 			img.setAttribute('data-xianscan-page-seq', String(pageSeq));
 			img.setAttribute('data-xianscan-status', 'ready');
-			if (!isHttpsHost || !newUrl.includes('127.0.0.1') && !newUrl.includes('localhost')) {
+			if (!shouldProxy) {
 				img.src = newUrl;
 			}
 			img.style.display = '';
@@ -866,7 +889,6 @@ export class DomReplacerEngine {
 			img.style.filter = 'none';
 
 			this.attachImageErrorHandler(img, pageId, newUrl);
-			this.activePageUrls.set(pageId, newUrl);
 
 			void resolveSafeImageUrl(newUrl).then(safeUrl => {
 				this.activePageUrls.set(pageId, safeUrl);
@@ -889,7 +911,7 @@ export class DomReplacerEngine {
 				clone.setAttribute('data-xianscan-page-id', String(pageId));
 				clone.setAttribute('data-xianscan-page-seq', String(pageSeq));
 				clone.setAttribute('data-xianscan-status', 'ready');
-				if (!isHttpsHost || !newUrl.includes('127.0.0.1') && !newUrl.includes('localhost')) {
+				if (!shouldProxy) {
 					clone.src = newUrl;
 				}
 				clone.style.display = '';
@@ -898,7 +920,6 @@ export class DomReplacerEngine {
 
 				prevImg.insertAdjacentElement('afterend', clone);
 				this.attachImageErrorHandler(clone, pageId, newUrl);
-				this.activePageUrls.set(pageId, newUrl);
 
 				void resolveSafeImageUrl(newUrl).then(safeUrl => {
 					this.activePageUrls.set(pageId, safeUrl);

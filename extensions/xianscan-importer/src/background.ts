@@ -29,11 +29,15 @@ function safeBroadcast(msg: any) {
 async function broadcastToChapterTabs(chapterId: number, msg: any) {
 	try {
 		const mappings = await getSiteMappings();
-		// COLLECT ALL NORMALIZED URLS BOUND TO THIS CHAPTER
+		// COLLECT ALL NORMALIZED & CANONICAL URLS BOUND TO THIS CHAPTER
 		const targetUrls = new Set<string>();
 		for (const [url, entry] of Object.entries(mappings)) {
 			if (Number(entry.chapterId) === Number(chapterId)) {
 				targetUrls.add(normalizePageUrl(url));
+				try {
+					const u = new URL(url);
+					targetUrls.add(`${u.origin}${u.pathname}`);
+				} catch {}
 			}
 		}
 
@@ -41,7 +45,17 @@ async function broadcastToChapterTabs(chapterId: number, msg: any) {
 		for (const tab of tabs) {
 			if (tab.id && tab.url) {
 				const tabNormalized = normalizePageUrl(tab.url);
-				if (targetUrls.has(tabNormalized) || (msg.entry?.url && normalizePageUrl(msg.entry.url) === tabNormalized)) {
+				let canonicalTab = '';
+				try {
+					const u = new URL(tab.url);
+					canonicalTab = `${u.origin}${u.pathname}`;
+				} catch {}
+
+				const isTarget = targetUrls.has(tabNormalized) ||
+					(canonicalTab && targetUrls.has(canonicalTab)) ||
+					(msg.entry?.url && (normalizePageUrl(msg.entry.url) === tabNormalized || normalizePageUrl(msg.entry.url) === canonicalTab));
+
+				if (isTarget) {
 					chrome.tabs.sendMessage(tab.id, msg, () => {
 						void chrome.runtime.lastError;
 					});
@@ -485,6 +499,17 @@ async function runBatchImportJob(payload: ImportJobPayload, refererUrl?: string)
 			lastSyncedAt: Date.now()
 		};
 		await saveSiteMapping(mappingEntry);
+		if (typeof chrome !== 'undefined' && chrome.tabs && chrome.scripting) {
+			const activeTabs = await chrome.tabs.query({ active: true, currentWindow: true });
+			if (activeTabs[0]?.id) {
+				try {
+					await chrome.scripting.executeScript({
+						target: { tabId: activeTabs[0].id },
+						files: ['content.js']
+					});
+				} catch {}
+			}
+		}
 		broadcastToChapterTabs(payload.chapterId, {
 			type: 'SET_ACTIVE_MAPPING',
 			entry: mappingEntry
@@ -572,6 +597,25 @@ async function runBatchImportJob(payload: ImportJobPayload, refererUrl?: string)
 			chapterId: payload.chapterId,
 			bookId: payload.bookId
 		});
+	}
+
+	// 0. BROADCAST INITIAL PAGES MOUNT TO TABS IMMEDIATELY SO PENDING BADGES SHOW IN-PLACE WITHOUT REFRESHING
+	if (uploadedSuccessCount > 0 && !activeJobCancelled) {
+		try {
+			const initialDetails = await client.getChapterDetails(payload.chapterId);
+			if (initialDetails?.pages && initialDetails.pages.length > 0) {
+				const syncMsg: ChapterSyncMessage = {
+					type: 'CHAPTER_SYNC_UPDATE',
+					chapterId: payload.chapterId,
+					status: 'uploaded',
+					pages: initialDetails.pages
+				};
+				broadcastToChapterTabs(payload.chapterId, syncMsg);
+				safeBroadcast(syncMsg);
+			}
+		} catch (e) {
+			console.warn('Initial post-upload sync failed:', e);
+		}
 	}
 
 	// 1. OPTIONAL: AUTO-TRIGGER SMART RESLICE FIRST

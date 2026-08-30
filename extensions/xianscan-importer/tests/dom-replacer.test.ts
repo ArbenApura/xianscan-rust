@@ -354,4 +354,42 @@ describe('DomReplacerEngine', () => {
 		expect(document.querySelector('[data-xianscan-wrapper="true"]')).toBeNull();
 		expect(document.querySelector('[data-xianscan-badge-id]')).toBeNull();
 	});
+
+	it('correctly discovers and replaces lazy images with data URL placeholder src', () => {
+		document.body.innerHTML = '';
+		const reader = document.createElement('div');
+		reader.className = 'reading-content';
+
+		const lazyImg1 = document.createElement('img');
+		lazyImg1.src = 'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7';
+		lazyImg1.setAttribute('data-src', 'https://img.guazicdn.com/th/comics/chapters/74/260420/4_1.webp');
+
+		const lazyImg2 = document.createElement('img');
+		lazyImg2.src = 'data:image/svg+xml;base64,PHN2Zz48L3N2Zz4=';
+		lazyImg2.setAttribute('data-lazy-src', 'https://img.guazicdn.com/th/comics/chapters/74/260420/4_2.webp');
+
+		reader.appendChild(lazyImg1);
+		reader.appendChild(lazyImg2);
+		document.body.appendChild(reader);
+
+		const discovered = getHostReaderImages();
+		expect(discovered.length).toBe(2);
+		expect(discovered[0]).toBe(lazyImg1);
+		expect(discovered[1]).toBe(lazyImg2);
+
+		engine = new DomReplacerEngine('http://127.0.0.1:8124');
+		const pages: ChapterReaderPage[] = [
+			{ id: 701, seq: 0, filePath: '1.webp', cleanedPath: null, outputPath: null, cleanedRev: 0, outputRev: 0, originalRev: 0, status: 'pending', error: null },
+			{ id: 702, seq: 1, filePath: '2.webp', cleanedPath: null, outputPath: 'out2.webp', cleanedRev: 0, outputRev: 1, originalRev: 0, status: 'done', error: null }
+		];
+
+		const mounted = engine.mountTranslatedPages(pages, undefined, [
+			'https://img.guazicdn.com/th/comics/chapters/74/260420/4_1.webp',
+			'https://img.guazicdn.com/th/comics/chapters/74/260420/4_2.webp'
+		]);
+
+		expect(mounted).toBe(true);
+		expect(lazyImg1.getAttribute('data-xianscan-page-id')).toBe('701');
+		expect(lazyImg2.getAttribute('data-xianscan-page-id')).toBe('702');
+	});
 });

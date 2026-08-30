@@ -28,14 +28,18 @@ pub fn should_reject_candidate_region(
         return true;
     }
 
+    let ref_dim = (page_w as f32).min(page_h as f32).max(400.0);
+
     // 1. DROP GIANT ARTWORK HALLUCINATIONS OR SPRAWLING NOISE BOXES
-    if !is_bubble && cluster_rect.w >= 300 && cluster_rect.h >= 500 && avg_score < 0.65 {
+    let max_art_w = ((page_w as f32 * 0.35).max(300.0)) as i32;
+    let max_art_h = ((ref_dim * 0.50).max(450.0)) as i32;
+    if !is_bubble && cluster_rect.w >= max_art_w && cluster_rect.h >= max_art_h && avg_score < 0.65 {
         return true;
     }
     let char_count = cleaned.chars().filter(|c| !c.is_whitespace()).count();
     let is_wide_artwork_hallucination = !is_bubble
         && cluster_rect.w >= (page_w as f32 * 0.75) as i32
-        && cluster_rect.h >= 140
+        && cluster_rect.h >= (ref_dim * 0.14).max(120.0) as i32
         && (avg_score < 0.68 || char_count <= 4 || (compute_chromatic_color_variance(img, cluster_rect) >= 15.0 && char_count <= 8));
     if is_wide_artwork_hallucination {
         return true;
@@ -53,6 +57,8 @@ pub fn should_reject_candidate_region(
 
     // 4. SUPPRESS TINY LOW-CONFIDENCE NOISE BUBBLES
     let is_expressive_bubble_punct = cleaned.chars().any(|c| matches!(c, '！' | '？' | '!' | '?' | '…' | '·' | '—' | '～' | '¿' | '¡'));
+    let tiny_bubble_w = ((ref_dim * 0.045).clamp(20.0, 45.0)) as i32;
+    let tiny_bubble_h = ((ref_dim * 0.060).clamp(30.0, 65.0)) as i32;
     if is_bubble {
         let is_noise_or_digit = crate::ml::detect::is_standalone_digit_or_particle_noise(cleaned)
             || crate::ml::detect::is_standalone_noise_stroke(cleaned)
@@ -61,12 +67,12 @@ pub fn should_reject_candidate_region(
                 crate::ml::detect::is_standalone_noise_stroke(lt) || crate::ml::detect::is_standalone_digit_or_particle_noise(lt)
             });
         let is_cjk_garbage = is_cjk && avg_score < 0.70 && !crate::ml::detect::has_cjk_characters(cleaned) && !is_expressive_bubble_punct;
-        if (cluster_rect.w <= 35 && cluster_rect.h <= 55 && (avg_score < 0.68 || is_noise_or_digit || is_cjk_garbage))
+        if (cluster_rect.w <= tiny_bubble_w && cluster_rect.h <= tiny_bubble_h && (avg_score < 0.68 || is_noise_or_digit || is_cjk_garbage))
             || is_cjk_garbage
         {
             return true;
         }
-    } else if is_bubble && cluster_rect.w <= 30 && cluster_rect.h <= 95 {
+    } else if is_bubble && cluster_rect.w <= (ref_dim * 0.035).clamp(18.0, 35.0) as i32 && cluster_rect.h <= (ref_dim * 0.10).clamp(50.0, 110.0) as i32 {
         let is_small_kana_gasp = cleaned.trim() == "っ" || cleaned.trim() == "ッ" || cleaned.trim() == "ー";
         if is_small_kana_gasp {
             return true;
@@ -83,19 +89,21 @@ pub fn should_reject_candidate_region(
     }
     if is_non_latin && lacks_native_script && crate::ml::detect::has_alphanumeric_characters(cleaned) {
         let char_count = cleaned.chars().filter(|c| !c.is_whitespace()).count();
-        let is_sparse_giant_box = !is_bubble && (cluster_rect.w >= 100 || cluster_rect.h >= 100) && char_count <= 4;
+        let is_sparse_giant_box = !is_bubble && (cluster_rect.w >= (page_w as f32 * 0.12).max(100.0) as i32 || cluster_rect.h >= (ref_dim * 0.12).max(100.0) as i32) && char_count <= 4;
         let is_valid_sfx = crate::ml::detect::is_onomatopoeia_or_shout(cleaned);
         let is_short_noise_code = !is_bubble && char_count <= 3 && !is_valid_sfx;
         let is_non_bubble_alphanumeric = !is_bubble && !is_valid_sfx;
         let is_pure_digits_in_bubble = is_bubble && cleaned.chars().all(|c| c.is_ascii_digit() || c.is_whitespace()) && char_count <= 3;
         let is_low_conf_bubble_garbage = is_bubble && avg_score < 0.70 && !is_expressive_punct && (cleaned.lines().count() >= 2 || char_count <= 2);
-        if cluster_rect.h <= 15
+        let micro_h = (ref_dim * 0.015).clamp(10.0, 20.0) as i32;
+        let micro_box = (ref_dim * 0.040).clamp(20.0, 45.0) as i32;
+        if cluster_rect.h <= micro_h
             || is_sparse_giant_box
             || is_short_noise_code
             || is_non_bubble_alphanumeric
             || is_pure_digits_in_bubble
             || is_low_conf_bubble_garbage
-            || (!is_bubble && cluster_rect.w <= 35 && cluster_rect.h <= 35)
+            || (!is_bubble && cluster_rect.w <= micro_box && cluster_rect.h <= micro_box)
             || (!is_bubble && avg_score < 0.70 && !is_valid_sfx)
             || (!is_bubble && char_count == 1 && !is_valid_sfx)
         {
@@ -121,7 +129,7 @@ pub fn should_reject_candidate_region(
     // 7. SUPPRESS STANDALONE DIGIT / DEGREE / PARTICLE NOISE OUTSIDE SPEECH BUBBLES ACROSS ALL LANGUAGES
     if !is_bubble && crate::ml::detect::is_standalone_digit_or_particle_noise(cleaned) {
         let char_count = cleaned.chars().filter(|c| !c.is_whitespace()).count();
-        let is_sparse_giant_box = (cluster_rect.w >= 100 || cluster_rect.h >= 100) && char_count <= 5;
+        let is_sparse_giant_box = (cluster_rect.w >= (page_w as f32 * 0.12).max(100.0) as i32 || cluster_rect.h >= (ref_dim * 0.12).max(100.0) as i32) && char_count <= 5;
         if char_count <= 4
             || is_sparse_giant_box
             || cluster_rect.h <= 20
@@ -133,18 +141,20 @@ pub fn should_reject_candidate_region(
     }
 
     // 8. CJK BOTTOM / GUTTER MAGAZINE WATERMARK NOISE
-    if is_cjk && (cluster_rect.y + cluster_rect.h >= page_h as i32 - 50) && cleaned.chars().count() == 1 && (cleaned == "动" || cleaned == "初" || cleaned == "腾" || cleaned == "漫" || cleaned == "漫客" || cleaned == "客") {
+    let margin_footer_gap = (ref_dim * 0.05).clamp(35.0, 65.0) as i32;
+    if is_cjk && (cluster_rect.y + cluster_rect.h >= page_h as i32 - margin_footer_gap) && cleaned.chars().count() == 1 && (cleaned == "动" || cleaned == "初" || cleaned == "腾" || cleaned == "漫" || cleaned == "漫客" || cleaned == "客") {
         return true;
     }
 
     // 9. SUPPRESS LOW-CONFIDENCE ISOLATED SINGLE-CHARACTER ARTWORK ARTIFACTS / SFX
     let char_count = cleaned.chars().filter(|c| !c.is_whitespace()).count();
-    let is_oversized_single_char = char_count == 1 && (cluster_rect.w >= 75 || cluster_rect.h >= 75);
+    let oversized_char_limit = (ref_dim * 0.08).clamp(55.0, 95.0) as i32;
+    let is_oversized_single_char = char_count == 1 && (cluster_rect.w >= oversized_char_limit || cluster_rect.h >= oversized_char_limit);
     let is_shout = crate::ml::detect::is_onomatopoeia_or_shout(cleaned) && char_count <= 6;
     let is_sign_or_narration_box = is_cjk && char_count >= 2 && ((cluster_rect.w >= 60 && cluster_rect.h >= 24) || (cluster_rect.w >= 15 && cluster_rect.h >= 30 && char_count >= 4) || (cluster_rect.w >= 20 && cluster_rect.h >= 30 && char_count >= 3)) && avg_score >= 0.70 && !is_shout;
     let is_margin_isolated_char = (cluster_rect.x <= 5 || cluster_rect.x + cluster_rect.w >= page_w as i32 - 5) && avg_score < 0.75;
     let is_valid_cjk_glyph = is_cjk && char_count >= 2 && cleaned.chars().any(|c| crate::ml::detect::has_cjk_characters(&c.to_string())) && avg_score >= 0.70 && !is_margin_isolated_char;
-    let is_compact_single_glyph_box = char_count == 1 && cluster_rect.w <= 55 && cluster_rect.h <= 55;
+    let is_compact_single_glyph_box = char_count == 1 && cluster_rect.w <= (ref_dim * 0.06).clamp(35.0, 65.0) as i32 && cluster_rect.h <= (ref_dim * 0.06).clamp(35.0, 65.0) as i32;
     let is_low_conf_single_char = char_count == 1 && (avg_score < 0.75 || is_oversized_single_char || is_compact_single_glyph_box);
     let is_isolated_sfx = char_count <= 6 && is_shout;
 
@@ -188,7 +198,7 @@ pub fn should_reject_candidate_region(
     }
 
     // 13. SUPPRESS FOLIAGE NOISE / CHROMATIC BACKGROUND TEXTURE ON TINY STROKE FRAGMENTS
-    if !is_bubble && cluster_rect.w <= 40 && cluster_rect.h <= 55 && compute_chromatic_color_variance(img, cluster_rect) >= 15.0 {
+    if !is_bubble && cluster_rect.w <= (ref_dim * 0.045).clamp(25.0, 48.0) as i32 && cluster_rect.h <= (ref_dim * 0.065).clamp(35.0, 65.0) as i32 && compute_chromatic_color_variance(img, cluster_rect) >= 15.0 {
         return true;
     }
 
@@ -230,7 +240,7 @@ pub fn should_reject_candidate_region(
     // 19. SUPPRESS MASSIVE NON-BUBBLE BACKGROUND TEXT OCCLUDED ACROSS SCENE ARTWORK
     let is_massive_background_occlusion = !is_bubble
         && (cluster_rect.w as f32 >= page_w as f32 * 0.75)
-        && cluster_rect.h >= 100
+        && cluster_rect.h >= (ref_dim * 0.10).max(90.0) as i32
         && (avg_score < 0.68 || char_count <= 4 || (compute_chromatic_color_variance(img, cluster_rect) >= 15.0 && char_count <= 8));
     if is_massive_background_occlusion {
         return true;
@@ -258,7 +268,9 @@ pub fn should_reject_candidate_region(
         let (cx, cy) = (cluster_rect.x + cluster_rect.w / 2, cluster_rect.y + cluster_rect.h / 2);
         let (bx, by) = (b.x + b.w / 2, b.y + b.h / 2);
         let is_center_inside_this_bubble = cx >= b.x && cx <= b.x + b.w && cy >= b.y && cy <= b.y + b.h;
-        !is_center_inside_this_bubble && (cx - bx).abs() <= 200 && (cy - by).abs() <= 350
+        let echo_radius_x = (b.w as f32 * 1.25).clamp(160.0, 300.0) as i32;
+        let echo_radius_y = (b.h as f32 * 1.25).clamp(250.0, 450.0) as i32;
+        !is_center_inside_this_bubble && (cx - bx).abs() <= echo_radius_x && (cy - by).abs() <= echo_radius_y
     });
     if is_speech_bubble_echo {
         return true;
@@ -266,9 +278,9 @@ pub fn should_reject_candidate_region(
 
     // 21. SUPPRESS SPARSE GIANT NON-BUBBLE DETECTIONS
     let is_sparse_giant_non_bubble = !is_bubble
-        && (((cluster_rect.w >= 250 && cluster_rect.h >= 150) && cleaned.chars().filter(|c| !c.is_whitespace()).count() <= 3)
-            || (cluster_rect.h >= 300 && cluster_rect.w >= 100 && cleaned.chars().filter(|c| !c.is_whitespace()).count() <= 2)
-            || (cluster_rect.h >= 350 && cleaned.chars().filter(|c| !c.is_whitespace()).count() <= 3 && angle_deg.abs() >= 10.0));
+        && (((cluster_rect.w >= (page_w as f32 * 0.30).max(220.0) as i32 && cluster_rect.h >= (ref_dim * 0.15).max(130.0) as i32) && cleaned.chars().filter(|c| !c.is_whitespace()).count() <= 3)
+            || (cluster_rect.h >= (ref_dim * 0.25).max(250.0) as i32 && cluster_rect.w >= 100 && cleaned.chars().filter(|c| !c.is_whitespace()).count() <= 2)
+            || (cluster_rect.h >= (ref_dim * 0.30).max(300.0) as i32 && cleaned.chars().filter(|c| !c.is_whitespace()).count() <= 3 && angle_deg.abs() >= 10.0));
     if is_sparse_giant_non_bubble {
         return true;
     }

@@ -213,8 +213,10 @@ pub fn build_regions(
                     let m_area = (mw * mh).max(1);
                     let overlap_ratio_m = overlap_area as f32 / m_area as f32;
 
+                    let min_h_mo = mh.min(oh);
+                    let max_neg_col_x = -(min_h_mo as f32 * 0.60).max(15.0) as i32;
                     let vert_col_overlap = if is_container_vert && mh > 0 && oh > 0 {
-                        overlap_y.max(0) as f32 / mh.min(oh) as f32 >= 0.50 && overlap_x >= -30
+                        overlap_y.max(0) as f32 / min_h_mo as f32 >= 0.50 && overlap_x >= max_neg_col_x
                     } else {
                         false
                     };
@@ -250,8 +252,10 @@ pub fn build_regions(
                         let overlap_area = overlap_x.max(0) * overlap_y.max(0);
                         let o_area = (ow * oh).max(1);
                         let overlap_ratio_o = overlap_area as f32 / o_area as f32;
+                        let min_h_mo = mh.min(oh);
+                        let max_neg_col_x = -(min_h_mo as f32 * 0.60).max(15.0) as i32;
                         let vert_col_overlap = if is_container_vert && mh > 0 && oh > 0 {
-                            overlap_y.max(0) as f32 / mh.min(oh) as f32 >= 0.50 && overlap_x >= -30
+                            overlap_y.max(0) as f32 / min_h_mo as f32 >= 0.50 && overlap_x >= max_neg_col_x
                         } else {
                             false
                         };
@@ -276,7 +280,9 @@ pub fn build_regions(
                 .iter()
                 .filter_map(|l| {
                     let (_, _, lw, lh) = polygon_bounds(&l.polygon);
-                    if lw >= 40 || lh >= 40 {
+                    let th = super::clustering::polygon_thickness(&l.polygon);
+                    let min_dim = (th * 1.8).max(18.0) as i32;
+                    if lw >= min_dim || lh >= min_dim {
                         let a = calculate_box_angle_i32(&l.polygon);
                         if a != 0.0 { Some(a) } else { None }
                     } else {
@@ -307,7 +313,9 @@ pub fn build_regions(
                     .iter()
                     .filter_map(|l| {
                         let (_, _, lw, lh) = polygon_bounds(&l.polygon);
-                        if lw >= 40 || lh >= 40 {
+                        let th = super::clustering::polygon_thickness(&l.polygon);
+                        let min_dim = (th * 1.8).max(18.0) as i32;
+                        if lw >= min_dim || lh >= min_dim {
                             let a = calculate_box_angle_i32(&l.polygon);
                             if a != 0.0 { Some(a) } else { None }
                         } else {

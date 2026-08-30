@@ -160,19 +160,23 @@ pub fn deduplicate_and_unify_regions(
                     let is_short_label = (clean_e.chars().count() <= 5 && existing_lines_count == 1)
                         || (clean_r.chars().count() <= 5 && r_lines_count == 1);
 
-                    let is_left_aligned = (e_min_u - r_min_u).abs() <= 25.0;
+                    let e_th = super::clustering::polygon_thickness(&existing.polygon);
+                    let r_th = super::clustering::polygon_thickness(&r.polygon);
+                    let font_scale = e_th.min(r_th).max(12.0);
+
+                    let is_left_aligned = (e_min_u - r_min_u).abs() <= (font_scale * 0.80).max(18.0);
                     let max_v_gap = if is_short_label {
-                        25.0
+                        (font_scale * 0.90).max(20.0)
                     } else if u_overlap_ratio >= 0.50 || (is_left_aligned && u_overlap > 0.0) {
-                        48.0
+                        (font_scale * 1.50).max(36.0)
                     } else {
-                        (min_line_h * 1.15).min(32.0)
+                        (font_scale * 1.15).max(25.0)
                     };
 
                     let is_adjacent_v = v_overlap > 0.0 || (v_gap <= max_v_gap);
-                    let is_aligned_u = u_overlap_ratio >= 0.20 || u_gap <= 25.0;
+                    let is_aligned_u = u_overlap_ratio >= 0.20 || u_gap <= (font_scale * 0.90).max(18.0);
 
-                    let is_multi_line_guard = (existing_lines_count >= 3 || r_lines_count >= 3) && v_gap >= 55.0;
+                    let is_multi_line_guard = (existing_lines_count >= 3 || r_lines_count >= 3) && v_gap >= (font_scale * 2.0).max(45.0);
 
                     if is_adjacent_v && is_aligned_u && !is_multi_line_guard {
                         is_duplicate = true;

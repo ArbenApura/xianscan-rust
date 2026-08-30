@@ -6,10 +6,21 @@
   "description": "One-click comic and manga importer for your self-hosted XianScan server.",
   "permissions": [
     "activeTab",
+    "tabs",
     "contextMenus",
     "storage",
     "scripting",
     "notifications"
+  ],
+  "host_permissions": [
+    "<all_urls>"
+  ],
+  "content_scripts": [
+    {
+      "matches": ["http://*/*", "https://*/*"],
+      "js": ["content.js"],
+      "run_at": "document_idle"
+    }
   ],
   "action": {
     "default_popup": "popup.html",

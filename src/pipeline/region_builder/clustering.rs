@@ -31,8 +31,135 @@ pub fn cluster_lines_into_utterances<'a>(
     sin_a: f32,
     cos_a: f32,
 ) -> Vec<Vec<&'a OcrLine>> {
-    if lines.len() <= 1 || !is_cjk || is_vertical {
+    if lines.len() <= 1 || !is_cjk {
         return vec![lines.to_vec()];
+    }
+
+    // PRECOMPUTE GEOMETRY & THICKNESS PER LINE ONCE (O(N))
+    struct LineMeta<'a> {
+        line: &'a OcrLine,
+        bounds: (i32, i32, i32, i32),
+        thickness: f32,
+    }
+
+    let metas: Vec<LineMeta<'a>> = lines
+        .iter()
+        .map(|&l| LineMeta {
+            line: l,
+            bounds: polygon_bounds(&l.polygon),
+            thickness: polygon_thickness(&l.polygon),
+        })
+        .collect();
+
+    let mut all_th: Vec<f32> = metas.iter().map(|m| m.thickness).collect();
+    all_th.sort_by(|a, b| a.total_cmp(b));
+    let median_th = all_th[all_th.len() / 2].max(8.0);
+
+    // 1. VERTICAL TBRL CLUSTERING FOR JAPANESE / CJK
+    if is_vertical {
+        // FOR VERTICAL BUBBLES: MULTI-COLUMN BUBBLES SHARE Y-OVERLAP AND COHESIVE BOUNDS.
+        // IF LINES NATURALLY FORM DISTINCT VERTICAL UTTERANCE CLUSTERS (Y-GAP >= 1.5 * median_th AND OVERLAP_Y == 0),
+        // SPLIT THEM; OTHERWISE PRESERVE THE UNIFIED MULTI-COLUMN CONTAINER.
+        let mut sorted_v = metas;
+        sorted_v.sort_by(|a, b| {
+            let (ax, ay, aw, _) = a.bounds;
+            let (bx, by, bw, _) = b.bounds;
+            let a_rx = (ax + aw / 2) as f32 * cos_a + (ay) as f32 * sin_a;
+            let b_rx = (bx + bw / 2) as f32 * cos_a + (by) as f32 * sin_a;
+            b_rx.total_cmp(&a_rx).then_with(|| ay.cmp(&by))
+        });
+
+        // SPATIAL Y-CONNECTED COMPONENT CLUSTERING FOR VERTICAL UTTERANCES
+        let mut vert_clusters: Vec<Vec<&'a OcrLine>> = Vec::new();
+        for m in sorted_v {
+            let (lx, ly, lw, lh) = m.bounds;
+            let mut merged_indices: Vec<usize> = Vec::new();
+            for (c_idx, cluster) in vert_clusters.iter().enumerate() {
+                let connects = cluster.iter().any(|c_line| {
+                    let (cx, cy, cw, ch) = polygon_bounds(&c_line.polygon);
+                    let overlap_y = (ly + lh).min(cy + ch) - ly.max(cy);
+                    let vert_gap = if ly >= cy + ch { ly - (cy + ch) } else if cy >= ly + lh { cy - (ly + lh) } else { 0 };
+                    let horiz_gap = if lx >= cx + cw { lx - (cx + cw) } else if cx >= lx + lw { cx - (lx + lw) } else { 0 };
+                    let max_horiz_gap = (median_th * 1.80).max(24.0) as i32;
+                    let max_vert_gap = (median_th * 0.80).max(12.0) as i32;
+
+                    (overlap_y > 0 && horiz_gap <= max_horiz_gap) || (vert_gap <= max_vert_gap && horiz_gap <= max_horiz_gap)
+                });
+                if connects {
+                    merged_indices.push(c_idx);
+                }
+            }
+
+            if merged_indices.is_empty() {
+                vert_clusters.push(vec![m.line]);
+            } else {
+                let first = merged_indices[0];
+                vert_clusters[first].push(m.line);
+                for &other in merged_indices.iter().skip(1).rev() {
+                    let other_lines = vert_clusters.remove(other);
+                    vert_clusters[first].extend(other_lines);
+                }
+            }
+        }
+
+        let mut final_vert_utterances: Vec<Vec<&'a OcrLine>> = Vec::new();
+        for cluster in vert_clusters {
+            if cluster.len() <= 1 {
+                final_vert_utterances.push(cluster);
+                continue;
+            }
+
+            // SORT LINES IN READING ORDER: TOP-TO-BOTTOM (Y ASCENDING)
+            let mut col_sorted = cluster;
+            col_sorted.sort_by_key(|l| polygon_bounds(&l.polygon).1);
+
+            let mut sub_cluster: Vec<&'a OcrLine> = Vec::new();
+            let mut prev_bot_y: Option<f32> = None;
+            let mut prev_text = String::new();
+
+            for l in col_sorted {
+                let (_, ly, _, lh) = polygon_bounds(&l.polygon);
+                let curr_top_y = ly as f32;
+                let curr_bot_y = (ly + lh) as f32;
+
+                if let Some(prev_bot) = prev_bot_y {
+                    let vert_gap = curr_top_y - prev_bot;
+                    let ends_with_term = prev_text.ends_with('！')
+                        || prev_text.ends_with('!')
+                        || prev_text.ends_with('？')
+                        || prev_text.ends_with('?')
+                        || prev_text.ends_with('。')
+                        || prev_text.ends_with('…')
+                        || prev_text.ends_with("..")
+                        || prev_text.ends_with('」')
+                        || prev_text.ends_with('』')
+                        || prev_text.ends_with('）')
+                        || prev_text.ends_with("んだ…");
+
+                    let is_vert_lobe_split = vert_gap >= (median_th * 1.35).max(22.0)
+                        || (ends_with_term && vert_gap >= (median_th * 0.45).max(6.0));
+
+                    if is_vert_lobe_split && !sub_cluster.is_empty() {
+                        final_vert_utterances.push(sub_cluster);
+                        sub_cluster = Vec::new();
+                    }
+                }
+
+                sub_cluster.push(l);
+                prev_bot_y = Some(curr_bot_y);
+                prev_text = l.text.trim().to_string();
+            }
+
+            if !sub_cluster.is_empty() {
+                final_vert_utterances.push(sub_cluster);
+            }
+        }
+
+        if final_vert_utterances.len() >= 2 {
+            return final_vert_utterances;
+        } else {
+            return vec![lines.to_vec()];
+        }
     }
 
     let mut sorted_lines: Vec<&'a OcrLine> = lines.to_vec();
@@ -54,7 +181,7 @@ pub fn cluster_lines_into_utterances<'a>(
             let (rx, ry, rw, _) = polygon_bounds(&row[0].polygon);
             let r_th = polygon_thickness(&row[0].polygon);
             let r_rot_y = -(rx + rw / 2) as f32 * sin_a + (ry + r_th as i32 / 2) as f32 * cos_a;
-            let threshold = (l_th.min(r_th) * 0.45).max(5.0);
+            let threshold = (l_th.min(r_th) * 0.45).max(4.0);
             if (l_rot_y - r_rot_y).abs() <= threshold {
                 row.push(l);
                 placed = true;
@@ -66,7 +193,7 @@ pub fn cluster_lines_into_utterances<'a>(
         }
     }
 
-    // 1. CHECK FOR SIDE-BY-SIDE ADJACENT BUBBLE COLUMNS IN CJK DIALOGUE
+    // 2. CHECK FOR SIDE-BY-SIDE ADJACENT BUBBLE COLUMNS IN CJK DIALOGUE
     let mut has_side_by_side = false;
     for r in &rows {
         if r.len() >= 2 {
@@ -75,7 +202,8 @@ pub fn cluster_lines_into_utterances<'a>(
             for i in 0..sorted_r.len() - 1 {
                 let (ax, _, aw, _) = polygon_bounds(&sorted_r[i].polygon);
                 let (bx, _, _, _) = polygon_bounds(&sorted_r[i + 1].polygon);
-                if bx - (ax + aw) >= 20 {
+                let col_gap = (aw as f32 * 0.70).max(6.0) as i32;
+                if bx - (ax + aw) >= col_gap {
                     has_side_by_side = true;
                     break;
                 }
@@ -118,7 +246,7 @@ pub fn cluster_lines_into_utterances<'a>(
         }
     }
 
-    // 2. CHECK FOR VERTICAL PARAGRAPH GAPS AND SENTENCE BOUNDARIES BETWEEN ROWS
+    // 3. CHECK FOR VERTICAL PARAGRAPH GAPS AND SENTENCE BOUNDARIES BETWEEN ROWS
     let mut paragraph_clusters: Vec<Vec<&'a OcrLine>> = Vec::new();
     let mut current_cluster: Vec<&'a OcrLine> = Vec::new();
 
@@ -156,22 +284,20 @@ pub fn cluster_lines_into_utterances<'a>(
             }).fold(f32::MIN, f32::max);
 
             let vert_gap = curr_min_y - prev_max_y;
-            // Split if vertical gap is large (>= 35px), sentence ends with punctuation, row font height changes drastically,
-            // or if both previous row and current row begin with bracketed tags '[ ... ]' (e.g. repeated chat/status ticks)
-            let is_caption_to_title = prev_height > 0.0 && curr_height >= prev_height * 1.60 && vert_gap >= 5.0;
+            let is_caption_to_title = prev_height > 0.0 && curr_height >= prev_height * 1.60 && vert_gap >= (prev_height * 0.20).max(4.0);
             let curr_row_text = row.iter().map(|l| l.text.trim()).collect::<Vec<_>>().join("");
             let is_repeated_bracketed_tag = (prev_row_text.starts_with('[') || prev_row_text.starts_with('【'))
                 && (curr_row_text.starts_with('[') || curr_row_text.starts_with('【'))
-                && vert_gap >= 8.0;
+                && vert_gap >= (prev_height * 0.35).max(6.0);
             let min_line_h = prev_height.min(curr_height);
             let is_standalone_line_rank_split = prev_row.len() == 1
                 && row.len() == 1
-                && min_line_h >= 24.0
-                && vert_gap >= (min_line_h * 0.60).max(20.0)
+                && min_line_h >= 20.0
+                && vert_gap >= (min_line_h * 0.60).max(15.0)
                 && (prev_row_text.ends_with("弟子") || prev_row_text.ends_with("阶") || prev_row_text.ends_with("级") || prev_row_text.ends_with("层") || prev_row_text.ends_with("段") || prev_row_text.ends_with("境") || prev_row_text.ends_with("部"));
-            let is_substantial_gap = vert_gap >= 35.0 || is_standalone_line_rank_split;
-            let is_ellipsis_split = (prev_row_text.ends_with('…') || prev_row_text.ends_with("..")) && vert_gap >= 3.0;
-            let should_split = is_substantial_gap || is_ellipsis_split || (ends_with_punct && vert_gap >= 8.0) || is_caption_to_title || is_repeated_bracketed_tag;
+            let is_substantial_gap = vert_gap >= (min_line_h * 1.10).max(18.0) || is_standalone_line_rank_split;
+            let is_ellipsis_split = (prev_row_text.ends_with('…') || prev_row_text.ends_with("..")) && vert_gap >= (min_line_h * 0.15).max(2.0);
+            let should_split = is_substantial_gap || is_ellipsis_split || (ends_with_punct && vert_gap >= (min_line_h * 0.30).max(4.0)) || is_caption_to_title || is_repeated_bracketed_tag;
 
             if should_split && !current_cluster.is_empty() {
                 paragraph_clusters.push(current_cluster);

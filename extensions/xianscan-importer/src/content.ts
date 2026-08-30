@@ -826,7 +826,16 @@ class InPlaceTranslationCoordinator {
 		if (entry?.url) {
 			const currentNormalized = normalizePageUrl(window.location.href);
 			const entryNormalized = normalizePageUrl(entry.url);
-			if (currentNormalized !== entryNormalized) {
+			let canonicalCurrent = '';
+			let canonicalEntry = '';
+			try {
+				const u1 = new URL(window.location.href);
+				canonicalCurrent = `${u1.origin}${u1.pathname}`;
+				const u2 = new URL(entry.url);
+				canonicalEntry = `${u2.origin}${u2.pathname}`;
+			} catch {}
+
+			if (currentNormalized !== entryNormalized && (!canonicalCurrent || canonicalCurrent !== canonicalEntry)) {
 				return;
 			}
 		}
@@ -965,7 +974,7 @@ class InPlaceTranslationCoordinator {
 		}
 	}
 
-	async syncWithServer() {
+	async syncWithServer(passedPages?: ChapterReaderPage[]) {
 		if (!isExtensionValid()) {
 			this.destroy();
 			return;
@@ -974,13 +983,16 @@ class InPlaceTranslationCoordinator {
 		if (!this.inPlaceEnabled) return;
 
 		try {
-			const chapterResult = await this.client.getChapterDetails(this.activeMapping.chapterId);
-			if (!chapterResult || !chapterResult.chapter || !chapterResult.pages) {
-				throw new Error('Chapter not found.');
+			let pages = passedPages && passedPages.length > 0 ? passedPages : null;
+			if (!pages) {
+				const chapterResult = await this.client.getChapterDetails(this.activeMapping.chapterId);
+				if (!chapterResult || !chapterResult.chapter || !chapterResult.pages) {
+					throw new Error('Chapter not found.');
+				}
+				pages = chapterResult.pages;
 			}
 
-			const pages = chapterResult.pages;
-			if (pages.length > 0) {
+			if (pages && pages.length > 0) {
 				this.replacer.mountTranslatedPages(
 					pages,
 					this.activeMapping.excludedImageUrls,
@@ -1042,17 +1054,19 @@ class InPlaceTranslationCoordinator {
 	}
 }
 
-// RUNTIME MESSAGE LISTENER (GUARDED AGAINST DUPLICATE INJECTIONS & SELF-HOSTED DASHBOARD)
+// RUNTIME MESSAGE LISTENER (GUARDED AGAINST SELF-HOSTED DASHBOARD)
 if (
 	typeof window !== 'undefined' &&
-	!(window as any).__xianscan_content_injected &&
 	!window.location.hostname.includes('localhost') &&
 	!window.location.hostname.includes('127.0.0.1') &&
 	!window.location.pathname.startsWith('/app')
 ) {
-	(window as any).__xianscan_content_injected = true;
+	try {
+		(window as any).__xianscan_coordinator?.destroy?.();
+	} catch {}
 
 	const coordinator = new InPlaceTranslationCoordinator();
+	(window as any).__xianscan_coordinator = coordinator;
 	coordinator.init();
 
 	chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
@@ -1095,7 +1109,7 @@ if (
 		}
 
 		if (message.type === 'CHAPTER_SYNC_UPDATE') {
-			coordinator.syncWithServer().then(() => {
+			coordinator.syncWithServer(message.pages).then(() => {
 				sendResponse({ received: true });
 			});
 			return true;
