@@ -557,6 +557,97 @@ describe('nextPageSeq & reorderPages', () => {
 		expect(updatedCh?.status).toBe('pending');
 		expect(updatedCh?.translatedAt).toBeNull();
 	});
+
+	it('updateChapterDetails shifts chapter sequence without SQLite unique constraint violations', async () => {
+		seedBook(db, { id: 'b_seq' });
+		const c0 = seedChapter(db, { bookId: 'b_seq', seq: 0, title: 'Ch 0' });
+		const c1 = seedChapter(db, { bookId: 'b_seq', seq: 1, title: 'Ch 1' });
+		const c2 = seedChapter(db, { bookId: 'b_seq', seq: 2, title: 'Ch 2' });
+
+		const { updateChapterDetails } = await import('$lib/server/chapters');
+
+		// MOVE c2 FROM SEQ 2 TO SEQ 0
+		updateChapterDetails(c2.id, { seq: 0 });
+
+		const chRows = db.select().from(chapters).where(eq(chapters.bookId, 'b_seq')).orderBy(chapters.seq).all();
+		expect(chRows.map((c) => c.id)).toEqual([c2.id, c0.id, c1.id]);
+		expect(chRows.map((c) => c.seq)).toEqual([0, 1, 2]);
+	});
+
+	it('updateChapterDetails allows updating target title as optional (null / empty)', async () => {
+		seedBook(db, { id: 'b_title' });
+		const ch = seedChapter(db, { bookId: 'b_title', seq: 0, title: 'Ch 1', titleTarget: 'Old Target' });
+
+		const { updateChapterDetails } = await import('$lib/server/chapters');
+
+		// CLEAR TARGET TITLE
+		const updated = updateChapterDetails(ch.id, { titleTarget: null });
+		expect(updated.titleTarget).toBeNull();
+
+		// SET TARGET TITLE
+		const updated2 = updateChapterDetails(ch.id, { titleTarget: 'New Target' });
+		expect(updated2.titleTarget).toBe('New Target');
+	});
+
+	it('reorderChapters reindexes all chapters atomically in a book', async () => {
+		seedBook(db, { id: 'b_reorder' });
+		const c0 = seedChapter(db, { bookId: 'b_reorder', seq: 0 });
+		const c1 = seedChapter(db, { bookId: 'b_reorder', seq: 1 });
+		const c2 = seedChapter(db, { bookId: 'b_reorder', seq: 2 });
+
+		const { reorderChapters } = await import('$lib/server/chapters');
+		reorderChapters('b_reorder', [c1.id, c2.id, c0.id]);
+
+		const chRows = db.select().from(chapters).where(eq(chapters.bookId, 'b_reorder')).orderBy(chapters.seq).all();
+		expect(chRows.map((c) => c.id)).toEqual([c1.id, c2.id, c0.id]);
+		expect(chRows.map((c) => c.seq)).toEqual([0, 1, 2]);
+	});
+
+	it('PATCH /api/chapters/[id] successfully re-sequences chapter and updates details', async () => {
+		seedBook(db, { id: 'b_patch' });
+		const c0 = seedChapter(db, { bookId: 'b_patch', seq: 0, title: 'Ch 1' });
+		const c1 = seedChapter(db, { bookId: 'b_patch', seq: 1, title: 'Ch 2' });
+
+		const { PATCH } = await import('../../src/routes/api/chapters/[id]/+server');
+
+		const req = new Request('http://localhost', {
+			method: 'PATCH',
+			body: JSON.stringify({
+				title: 'Ch 2 Updated',
+				titleTarget: 'Chapter 2 Translated',
+				seq: 0,
+			}),
+		});
+
+		const res = await PATCH({ params: { id: String(c1.id) }, request: req } as any);
+		const data = await res.json();
+		expect(data.chapter.title).toBe('Ch 2 Updated');
+		expect(data.chapter.titleTarget).toBe('Chapter 2 Translated');
+		expect(data.chapter.seq).toBe(0);
+
+		const c0Updated = db.select().from(chapters).where(eq(chapters.id, c0.id)).get();
+		expect(c0Updated?.seq).toBe(1);
+	});
+
+	it('POST /api/books/[id]/chapters/reorder reorders chapters in book endpoint', async () => {
+		seedBook(db, { id: 'b_reorder_ep' });
+		const c0 = seedChapter(db, { bookId: 'b_reorder_ep', seq: 0 });
+		const c1 = seedChapter(db, { bookId: 'b_reorder_ep', seq: 1 });
+
+		const { POST } = await import('../../src/routes/api/books/[id]/chapters/reorder/+server');
+
+		const req = new Request('http://localhost', {
+			method: 'POST',
+			body: JSON.stringify({ chapterIds: [c1.id, c0.id] }),
+		});
+
+		const res = await POST({ params: { id: 'b_reorder_ep' }, request: req } as any);
+		const data = await res.json();
+		expect(data.success).toBe(true);
+
+		const chRows = db.select().from(chapters).where(eq(chapters.bookId, 'b_reorder_ep')).orderBy(chapters.seq).all();
+		expect(chRows.map((c) => c.id)).toEqual([c1.id, c0.id]);
+	});
 });
 
 

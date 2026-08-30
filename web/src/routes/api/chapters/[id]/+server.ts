@@ -3,7 +3,7 @@
 import { error, json } from '@sveltejs/kit';
 import { eq, inArray } from 'drizzle-orm';
 // IMPORTED MODULES
-import { assertChapterExists, getChapterReaderData } from '$lib/server/chapters';
+import { assertChapterExists, getChapterReaderData, updateChapterDetails } from '$lib/server/chapters';
 import { db } from '$lib/server/db';
 import { chapters } from '$lib/server/db/schema';
 import { updateChapterSchema } from '$lib/schemas';
@@ -32,16 +32,12 @@ export const PATCH: RequestHandler = async ({ params, request }) => {
 	const parsed = updateChapterSchema.safeParse(await request.json().catch(() => null));
 	if (!parsed.success) throw error(400, 'Invalid update data.');
 
-	const updates: Record<string, unknown> = {};
+	const updates: { title?: string; titleTarget?: string | null; seq?: number } = {};
 	if (parsed.data.title !== undefined) updates.title = parsed.data.title.trim();
 	if (parsed.data.titleTarget !== undefined) updates.titleTarget = parsed.data.titleTarget ? parsed.data.titleTarget.trim() : null;
 	if (parsed.data.seq !== undefined) updates.seq = parsed.data.seq;
 
-	if (Object.keys(updates).length > 0) {
-		db.update(chapters).set(updates).where(eq(chapters.id, chapterId)).run();
-	}
-
-	const updated = db.select().from(chapters).where(eq(chapters.id, chapterId)).get();
+	const updated = updateChapterDetails(chapterId, updates);
 	if (updated) {
 		syncBus.broadcast({ type: 'chapter-updated', bookId: updated.bookId, chapterId });
 	}

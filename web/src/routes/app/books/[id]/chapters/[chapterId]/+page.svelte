@@ -239,6 +239,8 @@
 
 	async function updateChapter() {
 		if (!chapter) return;
+		const parsedSeq = parseInt(String(editChapterSeq), 10);
+		const seq = Number.isInteger(parsedSeq) && parsedSeq > 0 ? parsedSeq - 1 : 0;
 		updatingChapter = true;
 		try {
 			const resp = await fetch(`/api/chapters/${chapterId}`, {
@@ -247,10 +249,13 @@
 				body: JSON.stringify({
 					title: editChapterTitle.trim(),
 					titleTarget: editChapterTitleTarget.trim() || null,
-					seq: Math.max(0, editChapterSeq - 1),
+					seq,
 				}),
 			});
-			if (!resp.ok) throw new Error('Update failed');
+			if (!resp.ok) {
+				const err = await resp.json().catch(() => null);
+				throw new Error(err?.message || 'Update failed');
+			}
 			const data = await resp.json();
 			chapter = {
 				...chapter,
@@ -258,8 +263,8 @@
 			};
 			toast.success('Chapter updated.');
 			editChapterModalOpen = false;
-		} catch {
-			toast.error('Could not update chapter.');
+		} catch (err: any) {
+			toast.error(err?.message || 'Could not update chapter.');
 		} finally {
 			updatingChapter = false;
 		}
@@ -1228,12 +1233,12 @@
 			<TextField bind:value={editChapterTitle} label="Chapter Title (Source Language)" placeholder="e.g. 第1话" />
 
 			<div class="block">
-				<span class="mb-1 block text-xs font-semibold opacity-60">Target Title (Translated title)</span>
+				<span class="mb-1 block text-xs font-semibold opacity-60">Target Title (Translated title) - Optional</span>
 				<div class="flex items-center gap-2">
 					<input
 						type="text"
 						bind:value={editChapterTitleTarget}
-						placeholder="e.g. Chapter 1: The Awakening"
+						placeholder="e.g. Chapter 1: The Awakening (optional)"
 						class="h-[38px] min-w-0 flex-1 rounded-lg border border-black/10 bg-transparent px-3 text-sm outline-none transition-colors placeholder:opacity-40 focus:border-[#b23a2e] focus:ring-2 focus:ring-[#b23a2e]/30 dark:border-white/[0.06]"
 					/>
 					<Button

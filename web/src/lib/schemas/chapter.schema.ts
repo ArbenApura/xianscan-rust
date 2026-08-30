@@ -14,6 +14,11 @@ export const reorderPagesSchema = z.object({
 	pageIds: z.array(z.number().int()).min(1, 'At least one page id is required'),
 });
 
+export const reorderChaptersSchema = z.object({
+	chapterIds: z.array(z.number().int()).min(1, 'At least one chapter id is required'),
+});
+
 export type CreateChapterInput = z.infer<typeof createChapterSchema>;
 export type UpdateChapterInput = z.infer<typeof updateChapterSchema>;
 export type ReorderPagesInput = z.infer<typeof reorderPagesSchema>;
+export type ReorderChaptersInput = z.infer<typeof reorderChaptersSchema>;

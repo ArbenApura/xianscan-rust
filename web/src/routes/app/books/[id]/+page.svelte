@@ -57,6 +57,7 @@
 	import RotateCw from 'lucide-svelte/icons/rotate-cw';
 	import FolderUp from 'lucide-svelte/icons/folder-up';
 	import Upload from 'lucide-svelte/icons/upload';
+	import GripVertical from 'lucide-svelte/icons/grip-vertical';
 	import FolderUploadGuideModal from '$lib/components/book/FolderUploadGuideModal.svelte';
 	import FolderImportProgressModal from '$lib/components/book/FolderImportProgressModal.svelte';
 	import ChapterListItem from '$lib/components/chapter/ChapterListItem.svelte';
@@ -188,12 +189,27 @@
 	}
 
 	async function handleBookDragOver(e: DragEvent) {
+		if (draggedChapterIndex !== null) return;
 		if (!e.dataTransfer?.types?.includes('Files')) return;
+		if (e.dataTransfer.types.includes('application/x-chapter-index')) return;
 		e.preventDefault();
 		isDraggingOverBook = true;
 	}
 
 	async function handleBookDrop(e: DragEvent) {
+		if (draggedChapterIndex !== null) return;
+		if (!e.dataTransfer?.types?.includes('Files')) return;
+		if (e.dataTransfer.types.includes('application/x-chapter-index')) return;
+
+		const hasFiles =
+			Array.from(e.dataTransfer?.items || []).some((item) => item.kind === 'file') ||
+			Boolean(e.dataTransfer?.files && e.dataTransfer.files.length > 0);
+
+		if (!hasFiles) {
+			isDraggingOverBook = false;
+			return;
+		}
+
 		e.preventDefault();
 		e.stopPropagation();
 		isDraggingOverBook = false;
@@ -356,6 +372,71 @@
 		}
 	}
 
+	// CHAPTER DRAG & DROP REORDERING STATE
+	let draggedChapterIndex: number | null = null;
+	let dragOverChapterIndex: number | null = null;
+
+	function handleChapterDragStart(e: DragEvent, index: number) {
+		draggedChapterIndex = index;
+		if (e.dataTransfer) {
+			e.dataTransfer.effectAllowed = 'move';
+			e.dataTransfer.setData('application/x-chapter-index', String(index));
+			e.dataTransfer.setData('text/plain', String(index));
+		}
+	}
+
+	function handleChapterDragOver(e: DragEvent, index: number) {
+		e.preventDefault();
+		e.stopPropagation();
+		if (e.dataTransfer) {
+			e.dataTransfer.dropEffect = 'move';
+		}
+		dragOverChapterIndex = index;
+	}
+
+	async function handleChapterDrop(e: DragEvent, dropIndex: number) {
+		e.preventDefault();
+		e.stopPropagation();
+		if (draggedChapterIndex === null || draggedChapterIndex === dropIndex) {
+			draggedChapterIndex = null;
+			dragOverChapterIndex = null;
+			return;
+		}
+
+		const fromIndex = draggedChapterIndex;
+		draggedChapterIndex = null;
+		dragOverChapterIndex = null;
+
+		const currentList = [...displayedChapters];
+		const [moved] = currentList.splice(fromIndex, 1);
+		currentList.splice(dropIndex, 0, moved);
+
+		const updatedList = currentList.map((ch, idx) => ({ ...ch, seq: idx }));
+		chapters = updatedList;
+
+		try {
+			const chapterIds = updatedList.map((c) => c.id);
+			const resp = await fetch(`/api/books/${$page.params.id}/chapters/reorder`, {
+				method: 'POST',
+				headers: { 'content-type': 'application/json' },
+				body: JSON.stringify({ chapterIds }),
+			});
+			if (!resp.ok) {
+				const err = await resp.json().catch(() => null);
+				throw new Error(err?.message || 'Failed to reorder chapters');
+			}
+			toast.success('Chapter order updated.');
+		} catch (err: any) {
+			toast.error(err?.message || 'Could not save chapter order.');
+			await reload();
+		}
+	}
+
+	function handleChapterDragEnd() {
+		draggedChapterIndex = null;
+		dragOverChapterIndex = null;
+	}
+
 	function openEditChapterModal(chapter: Chapter) {
 		editingChapter = chapter;
 		editChapterTitle = chapter.title;
@@ -366,10 +447,12 @@
 
 	async function updateChapter() {
 		if (!editingChapter) return;
+		const parsedSeq = parseInt(String(editChapterSeq), 10);
+		const seq = Number.isInteger(parsedSeq) && parsedSeq > 0 ? parsedSeq - 1 : 0;
 		const payload = {
 			title: editChapterTitle.trim(),
 			titleTarget: editChapterTitleTarget.trim() || null,
-			seq: Math.max(0, editChapterSeq - 1),
+			seq,
 		};
 		const validation = validateForm(updateChapterSchema, payload);
 		if (!validation.success) {
@@ -384,15 +467,19 @@
 				headers: { 'content-type': 'application/json' },
 				body: JSON.stringify(validation.data),
 			});
-			if (!resp.ok) throw new Error('Update failed');
+			if (!resp.ok) {
+				const err = await resp.json().catch(() => null);
+				throw new Error(err?.message || 'Update failed');
+			}
 			const data = await resp.json();
 			const updated = data.chapter;
 			chapters = chapters.map((c) => (c.id === updated.id ? { ...c, ...updated } : c));
 			toast.success('Chapter updated.');
 			editChapterModalOpen = false;
 			editingChapter = null;
-		} catch {
-			toast.error('Could not update chapter.');
+			await reload();
+		} catch (err: any) {
+			toast.error(err?.message || 'Could not update chapter.');
 		} finally {
 			updatingChapter = false;
 		}
@@ -1490,9 +1577,12 @@
 		{:else if viewLayout === 'grid'}
 			<!-- MODE 1: COMFORTABLE 2-COLUMN CARDS GRID -->
 			<ul class="grid w-full grid-cols-1 gap-3.5 sm:grid-cols-2 sm:gap-5">
-				{#each displayedChapters as chapter (chapter.id)}
+				{#each displayedChapters as chapter, i (chapter.id)}
 					<ChapterListItem
 						{chapter}
+						index={i}
+						{draggedChapterIndex}
+						{dragOverChapterIndex}
 						bookId={$page.params.id || ''}
 						bookTitle={book?.title || ''}
 						bookTitleTarget={book?.titleTarget || ''}
@@ -1502,15 +1592,22 @@
 						on:editChapter={(e) => openEditChapterModal(e.detail.chapter)}
 						on:clearPages={(e) => promptClearPages(e.detail.chapter)}
 						on:deleteChapter={(e) => promptDeleteChapter(e.detail.chapter)}
+						on:dragStart={(e) => handleChapterDragStart(e.detail.event, e.detail.index)}
+						on:dragOver={(e) => handleChapterDragOver(e.detail.event, e.detail.index)}
+						on:drop={(e) => handleChapterDrop(e.detail.event, e.detail.index)}
+						on:dragEnd={handleChapterDragEnd}
 					/>
 				{/each}
 			</ul>
 		{:else if viewLayout === 'list'}
 			<!-- MODE 2: MEDIA LIST STRIP (RESPONSIVE ROWS) -->
 			<ul class="flex w-full flex-col gap-2.5">
-				{#each displayedChapters as chapter (chapter.id)}
+				{#each displayedChapters as chapter, i (chapter.id)}
 					<ChapterListItem
 						{chapter}
+						index={i}
+						{draggedChapterIndex}
+						{dragOverChapterIndex}
 						bookId={$page.params.id || ''}
 						bookTitle={book?.title || ''}
 						bookTitleTarget={book?.titleTarget || ''}
@@ -1520,6 +1617,10 @@
 						on:editChapter={(e) => openEditChapterModal(e.detail.chapter)}
 						on:clearPages={(e) => promptClearPages(e.detail.chapter)}
 						on:deleteChapter={(e) => promptDeleteChapter(e.detail.chapter)}
+						on:dragStart={(e) => handleChapterDragStart(e.detail.event, e.detail.index)}
+						on:dragOver={(e) => handleChapterDragOver(e.detail.event, e.detail.index)}
+						on:drop={(e) => handleChapterDrop(e.detail.event, e.detail.index)}
+						on:dragEnd={handleChapterDragEnd}
 					/>
 				{/each}
 			</ul>
@@ -1529,9 +1630,12 @@
 			<div
 				class="flex flex-col divide-y divide-black/[0.06] rounded-xl border border-black/[0.08] bg-white/60 dark:divide-white/[0.06] dark:border-white/[0.06] dark:bg-white/[0.02] sm:hidden"
 			>
-				{#each displayedChapters as chapter (chapter.id)}
+				{#each displayedChapters as chapter, i (chapter.id)}
 					<ChapterListItem
 						{chapter}
+						index={i}
+						{draggedChapterIndex}
+						{dragOverChapterIndex}
 						bookId={$page.params.id || ''}
 						bookTitle={book?.title || ''}
 						bookTitleTarget={book?.titleTarget || ''}
@@ -1541,6 +1645,10 @@
 						on:editChapter={(e) => openEditChapterModal(e.detail.chapter)}
 						on:clearPages={(e) => promptClearPages(e.detail.chapter)}
 						on:deleteChapter={(e) => promptDeleteChapter(e.detail.chapter)}
+						on:dragStart={(e) => handleChapterDragStart(e.detail.event, e.detail.index)}
+						on:dragOver={(e) => handleChapterDragOver(e.detail.event, e.detail.index)}
+						on:drop={(e) => handleChapterDrop(e.detail.event, e.detail.index)}
+						on:dragEnd={handleChapterDragEnd}
 					/>
 				{/each}
 			</div>
@@ -1569,7 +1677,7 @@
 									<Check size={11} />
 								</button>
 							</th>
-							<th class="w-12 px-2 py-2.5">#</th>
+							<th class="w-14 px-2 py-2.5">#</th>
 							<th class="px-3 py-2.5">Chapter Title</th>
 							<th class="hidden px-3 py-2.5 md:table-cell">Original Title</th>
 							<th class="w-28 px-3 py-2.5">Pages</th>
@@ -1578,15 +1686,22 @@
 						</tr>
 					</thead>
 					<tbody class="divide-y divide-black/[0.04] dark:divide-white/[0.04]">
-						{#each displayedChapters as chapter (chapter.id)}
+						{#each displayedChapters as chapter, i (chapter.id)}
 							{@const liveProg = getChapterLiveProgress(chapter)}
 							{@const isSelected = selectedChapterIds.has(chapter.id)}
 							<tr
 								id={`chapter-card-${chapter.id}`}
 								data-chapter-seq={chapter.seq + 1}
+								on:dragover={(e) => handleChapterDragOver(e, i)}
+								on:drop={(e) => handleChapterDrop(e, i)}
+								on:dragend={handleChapterDragEnd}
 								class={`group transition ${
-									isSelected ? 'bg-[#b23a2e]/5' : 'hover:bg-black/[0.02] dark:hover:bg-white/[0.02]'
-								}`}
+									dragOverChapterIndex === i
+										? 'bg-[#b23a2e]/10 ring-1 ring-[#b23a2e]'
+										: isSelected
+											? 'bg-[#b23a2e]/5'
+											: 'hover:bg-black/[0.02] dark:hover:bg-white/[0.02]'
+								} ${draggedChapterIndex === i ? 'opacity-40' : ''}`}
 							>
 								<td class="py-2 pl-3 pr-2 text-center">
 									<button
@@ -1602,8 +1717,18 @@
 										<Check size={11} />
 									</button>
 								</td>
-								<td class="px-2 py-2 font-mono font-bold opacity-60">
-									#{chapter.seq + 1}
+								<td class="px-2 py-2">
+									<!-- svelte-ignore a11y-no-static-element-interactions -->
+									<span
+										draggable="true"
+										on:dragstart={(e) => handleChapterDragStart(e, i)}
+										on:dragend={handleChapterDragEnd}
+										class="inline-flex cursor-grab select-none items-center gap-0.5 font-mono font-bold opacity-60 active:cursor-grabbing hover:opacity-100"
+										title="Drag to reorder chapter"
+									>
+										<GripVertical size={12} class="opacity-50" />
+										#{chapter.seq + 1}
+									</span>
 								</td>
 								<td class="px-3 py-2 font-semibold">
 									<a
@@ -1677,7 +1802,7 @@
 													goto(`/app/books/${$page.params.id || ''}/chapters/${chapter.id}/`);
 												else if (e.detail === 'translate')
 													batchTracker.startBatch(
-														book?.id || '',
+														$page.params.id || '',
 														book?.titleTarget || book?.title || '',
 														[chapter],
 													);
@@ -1911,12 +2036,12 @@
 			<TextField bind:value={editChapterTitle} label="Chapter Title (Source Language)" placeholder="e.g. 第1话" />
 
 			<div class="block">
-				<span class="mb-1 block text-xs font-semibold opacity-60">Target Title (Translated title)</span>
+				<span class="mb-1 block text-xs font-semibold opacity-60">Target Title (Translated title) - Optional</span>
 				<div class="flex items-center gap-2">
 					<input
 						type="text"
 						bind:value={editChapterTitleTarget}
-						placeholder="e.g. Chapter 1: The Awakening"
+						placeholder="e.g. Chapter 1: The Awakening (optional)"
 						class="h-[38px] min-w-0 flex-1 rounded-lg border border-black/10 bg-transparent px-3 text-sm outline-none transition-colors placeholder:opacity-40 focus:border-[#b23a2e] focus:ring-2 focus:ring-[#b23a2e]/30 dark:border-white/[0.06]"
 					/>
 					<Button

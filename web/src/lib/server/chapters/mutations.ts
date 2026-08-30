@@ -415,3 +415,106 @@ export async function deleteAllBookChapters(
 
 	return { deletedCount: chapterRows.length };
 }
+
+export function updateChapterDetails(
+	chapterId: number,
+	data: { title?: string; titleTarget?: string | null; seq?: number }
+): typeof chapters.$inferSelect {
+	const current = db.select().from(chapters).where(eq(chapters.id, chapterId)).get();
+	if (!current) throw error(404, 'Chapter not found.');
+
+	const bookId = current.bookId;
+	const oldSeq = current.seq;
+	const newSeq = data.seq;
+
+	db.transaction(() => {
+		if (newSeq !== undefined && newSeq !== oldSeq) {
+			const allChapters = db
+				.select({ id: chapters.id, seq: chapters.seq })
+				.from(chapters)
+				.where(eq(chapters.bookId, bookId))
+				.orderBy(asc(chapters.seq), asc(chapters.id))
+				.all();
+
+			// REMOVE CURRENT CHAPTER FROM LIST AND INSERT AT TARGET POSITION
+			const otherChapters = allChapters.filter((c) => c.id !== chapterId);
+			const targetIndex = Math.max(0, Math.min(otherChapters.length, newSeq));
+			otherChapters.splice(targetIndex, 0, { id: chapterId, seq: newSeq });
+
+			// STEP 1: SET ALL SEQS TO TEMPORARY NEGATIVE VALUES TO PREVENT UNIQUE CONSTRAINT VIOLATION
+			for (let i = 0; i < otherChapters.length; i++) {
+				db.update(chapters)
+					.set({ seq: -(i + 1000) })
+					.where(eq(chapters.id, otherChapters[i].id))
+					.run();
+			}
+
+			// STEP 2: ASSIGN COMPACT 0-INDEXED SEQUENTIAL VALUES AND APPLY TITLE UPDATES
+			for (let i = 0; i < otherChapters.length; i++) {
+				const isTarget = otherChapters[i].id === chapterId;
+				db.update(chapters)
+					.set({
+						seq: i,
+						...(isTarget && data.title !== undefined ? { title: data.title } : {}),
+						...(isTarget && data.titleTarget !== undefined ? { titleTarget: data.titleTarget } : {}),
+					})
+					.where(eq(chapters.id, otherChapters[i].id))
+					.run();
+			}
+		} else {
+			const updates: Record<string, unknown> = {};
+			if (data.title !== undefined) updates.title = data.title;
+			if (data.titleTarget !== undefined) updates.titleTarget = data.titleTarget;
+			if (Object.keys(updates).length > 0) {
+				db.update(chapters).set(updates).where(eq(chapters.id, chapterId)).run();
+			}
+		}
+	});
+
+	const updated = db.select().from(chapters).where(eq(chapters.id, chapterId)).get();
+	if (!updated) throw error(404, 'Chapter not found after update.');
+	return updated;
+}
+
+export function reorderChapters(bookId: string, chapterIds: number[]): void {
+	const existing = db
+		.select({ id: chapters.id })
+		.from(chapters)
+		.where(eq(chapters.bookId, bookId))
+		.orderBy(asc(chapters.seq), asc(chapters.id))
+		.all();
+
+	const existingIdSet = new Set(existing.map((c) => c.id));
+	const orderedIds: number[] = [];
+	const seen = new Set<number>();
+
+	for (const id of chapterIds) {
+		if (existingIdSet.has(id) && !seen.has(id)) {
+			orderedIds.push(id);
+			seen.add(id);
+		}
+	}
+
+	for (const c of existing) {
+		if (!seen.has(c.id)) {
+			orderedIds.push(c.id);
+			seen.add(c.id);
+		}
+	}
+
+	db.transaction(() => {
+		for (let i = 0; i < orderedIds.length; i++) {
+			db.update(chapters)
+				.set({ seq: -(i + 1000) })
+				.where(eq(chapters.id, orderedIds[i]))
+				.run();
+		}
+		for (let i = 0; i < orderedIds.length; i++) {
+			db.update(chapters)
+				.set({ seq: i })
+				.where(eq(chapters.id, orderedIds[i]))
+				.run();
+		}
+	});
+}
+

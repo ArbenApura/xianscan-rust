@@ -18,6 +18,7 @@
 	import Pencil from 'lucide-svelte/icons/pencil';
 	import FileX from 'lucide-svelte/icons/file-x';
 	import Trash2 from 'lucide-svelte/icons/trash-2';
+	import GripVertical from 'lucide-svelte/icons/grip-vertical';
 	import LazyImage from '$lib/components/ui/LazyImage.svelte';
 	import Badge from '$lib/components/ui/Badge.svelte';
 	import ActionMenu from '$lib/components/ui/ActionMenu.svelte';
@@ -33,12 +34,19 @@
 	export let bookTitleTarget: string = '';
 	export let viewLayout: 'grid' | 'list' | 'compact' = 'grid';
 	export let isSelected: boolean = false;
+	export let index: number = 0;
+	export let draggedChapterIndex: number | null = null;
+	export let dragOverChapterIndex: number | null = null;
 
 	const dispatch = createEventDispatcher<{
 		toggleSelect: { id: number; event?: MouseEvent | KeyboardEvent };
 		editChapter: { chapter: Chapter };
 		clearPages: { chapter: Chapter };
 		deleteChapter: { chapter: Chapter };
+		dragStart: { event: DragEvent; index: number };
+		dragOver: { event: DragEvent; index: number };
+		drop: { event: DragEvent; index: number };
+		dragEnd: DragEvent;
 	}>();
 
 	const statusVariant: Record<Chapter['status'], 'neutral' | 'amber' | 'jade' | 'cinnabar'> = {
@@ -232,14 +240,31 @@
 
 {#if viewLayout === 'grid'}
 	<!-- MODE 1: COMFORTABLE 2-COLUMN CARDS GRID -->
+	<!-- svelte-ignore a11y-no-noninteractive-element-interactions -->
 	<li
 		id={`chapter-card-${chapter.id}`}
 		data-chapter-seq={chapter.seq + 1}
+		on:dragover={(e) => {
+			e.preventDefault();
+			e.stopPropagation();
+			dispatch('dragOver', { event: e, index });
+		}}
+		on:drop={(e) => {
+			e.preventDefault();
+			e.stopPropagation();
+			dispatch('drop', { event: e, index });
+		}}
+		on:dragend={(e) => {
+			e.stopPropagation();
+			dispatch('dragEnd', e);
+		}}
 		class={`group relative flex flex-col justify-between rounded-2xl border bg-white/60 p-3.5 transition-all duration-300 dark:bg-white/[0.02] sm:p-4 ${
-			isSelected
-				? 'border-[#b23a2e] shadow-md ring-2 ring-[#b23a2e]/30'
-				: 'border-black/[0.08] hover:border-[#b23a2e]/40 hover:shadow-xl dark:border-white/[0.06]'
-		}`}
+			dragOverChapterIndex === index
+				? 'z-10 scale-[1.02] border-[#b23a2e] bg-[#b23a2e]/5 ring-2 ring-[#b23a2e]/40'
+				: isSelected
+					? 'border-[#b23a2e] shadow-md ring-2 ring-[#b23a2e]/30'
+					: 'border-black/[0.08] hover:border-[#b23a2e]/40 hover:shadow-xl dark:border-white/[0.06]'
+		} ${draggedChapterIndex === index ? 'scale-95 opacity-40' : ''}`}
 	>
 		<!-- UPPER SECTION: MINI PAGE THUMBNAIL + CHAPTER INFO -->
 		<div class="flex items-start gap-3 sm:gap-3.5">
@@ -286,15 +311,34 @@
 				<div>
 					<div class="flex items-start justify-between gap-1.5">
 						<div class="min-w-0 flex-1">
-							<a
-								href={`/app/books/${bookId}/chapters/${chapter.id}/`}
-								class="block truncate px-0.5 text-sm font-bold tracking-tight hover:text-[#b23a2e] dark:hover:text-[#e08a63] sm:text-base"
-								title={chapter.titleTarget ||
-									chapter.title ||
-									`Chapter ${chapter.seq + 1}`}
-							>
-								{chapter.titleTarget || chapter.title || `Chapter ${chapter.seq + 1}`}
-							</a>
+							<div class="flex items-center gap-1.5">
+								<!-- svelte-ignore a11y-no-static-element-interactions -->
+								<span
+									draggable="true"
+									on:dragstart={(e) => {
+										e.stopPropagation();
+										dispatch('dragStart', { event: e, index });
+									}}
+									on:dragend={(e) => {
+										e.stopPropagation();
+										dispatch('dragEnd', e);
+									}}
+									class="flex shrink-0 cursor-grab select-none items-center gap-0.5 rounded px-1 py-0.5 font-mono text-[9px] font-bold opacity-50 transition hover:bg-black/5 hover:opacity-100 active:cursor-grabbing dark:hover:bg-white/5 sm:text-[10px]"
+									title="Drag to reorder chapter"
+								>
+									<GripVertical size={12} class="opacity-60" />
+									#{chapter.seq + 1}
+								</span>
+								<a
+									href={`/app/books/${bookId}/chapters/${chapter.id}/`}
+									class="block truncate px-0.5 text-sm font-bold tracking-tight hover:text-[#b23a2e] dark:hover:text-[#e08a63] sm:text-base"
+									title={chapter.titleTarget ||
+										chapter.title ||
+										`Chapter ${chapter.seq + 1}`}
+								>
+									{chapter.titleTarget || chapter.title || `Chapter ${chapter.seq + 1}`}
+								</a>
+							</div>
 							{#if chapter.titleTarget && chapter.title && chapter.titleTarget !== chapter.title}
 								<p
 									class="mt-0.5 truncate px-0.5 text-[11px] font-medium opacity-60 sm:text-xs"
@@ -419,14 +463,31 @@
 	</li>
 {:else if viewLayout === 'list'}
 	<!-- MODE 2: MEDIA LIST STRIP (RESPONSIVE ROWS) -->
+	<!-- svelte-ignore a11y-no-noninteractive-element-interactions -->
 	<li
 		id={`chapter-card-${chapter.id}`}
 		data-chapter-seq={chapter.seq + 1}
+		on:dragover={(e) => {
+			e.preventDefault();
+			e.stopPropagation();
+			dispatch('dragOver', { event: e, index });
+		}}
+		on:drop={(e) => {
+			e.preventDefault();
+			e.stopPropagation();
+			dispatch('drop', { event: e, index });
+		}}
+		on:dragend={(e) => {
+			e.stopPropagation();
+			dispatch('dragEnd', e);
+		}}
 		class={`group relative flex items-center justify-between gap-3 rounded-xl border bg-white/60 p-2.5 transition-all dark:bg-white/[0.02] sm:gap-4 sm:p-3 ${
-			isSelected
-				? 'border-[#b23a2e] shadow-md ring-2 ring-[#b23a2e]/30'
-				: 'border-black/[0.07] hover:border-[#b23a2e]/40 hover:bg-white hover:shadow-md dark:border-white/[0.06] dark:hover:bg-white/[0.04]'
-		}`}
+			dragOverChapterIndex === index
+				? 'z-10 scale-[1.01] border-[#b23a2e] bg-[#b23a2e]/5 ring-2 ring-[#b23a2e]/40'
+				: isSelected
+					? 'border-[#b23a2e] shadow-md ring-2 ring-[#b23a2e]/30'
+					: 'border-black/[0.07] hover:border-[#b23a2e]/40 hover:bg-white hover:shadow-md dark:border-white/[0.06] dark:hover:bg-white/[0.04]'
+		} ${draggedChapterIndex === index ? 'scale-95 opacity-40' : ''}`}
 	>
 		<div class="flex min-w-0 flex-1 items-center gap-3">
 			<!-- ROW CHECKBOX -->
@@ -444,7 +505,25 @@
 				<Check size={13} />
 			</button>
 
-			<!-- MINI THUMBNAIL -->
+			<!-- DRAG HANDLE & MINI THUMBNAIL -->
+			<!-- svelte-ignore a11y-no-static-element-interactions -->
+			<span
+				draggable="true"
+				on:dragstart={(e) => {
+					e.stopPropagation();
+					dispatch('dragStart', { event: e, index });
+				}}
+				on:dragend={(e) => {
+					e.stopPropagation();
+					dispatch('dragEnd', e);
+				}}
+				class="flex shrink-0 cursor-grab select-none items-center gap-0.5 rounded px-1 py-0.5 font-mono text-[9px] font-bold opacity-60 transition hover:bg-black/5 hover:opacity-100 active:cursor-grabbing dark:bg-white/5 sm:text-[10px]"
+				title="Drag to reorder chapter"
+			>
+				<GripVertical size={13} class="opacity-60" />
+				#{chapter.seq + 1}
+			</span>
+
 			<a
 				href={`/app/books/${bookId}/chapters/${chapter.id}/`}
 				class="w-10 shrink-0 transition-transform duration-200 group-hover:scale-105 sm:w-12"
@@ -465,11 +544,6 @@
 			<!-- TITLE & METADATA -->
 			<div class="min-w-0 flex-1">
 				<div class="flex min-w-0 items-center gap-1.5">
-					<span
-						class="py-0.2 shrink-0 rounded bg-black/5 px-1.5 font-mono text-[9px] font-bold opacity-60 dark:bg-white/5 sm:text-[10px]"
-					>
-						#{chapter.seq + 1}
-					</span>
 					<a
 						href={`/app/books/${bookId}/chapters/${chapter.id}/`}
 						class="block truncate px-0.5 text-xs font-bold hover:text-[#b23a2e] dark:hover:text-[#e08a63] sm:text-sm"
@@ -554,8 +628,29 @@
 	</li>
 {:else}
 	<!-- MODE 3: COMPACT ROWS (MOBILE NATIVE STREAM + DESKTOP TABLE) -->
+	<!-- svelte-ignore a11y-no-static-element-interactions -->
 	<div
-		class={`flex items-center justify-between gap-2.5 p-2.5 transition ${isSelected ? 'bg-[#b23a2e]/5' : 'hover:bg-black/[0.02] dark:hover:bg-white/[0.02]'}`}
+		on:dragover={(e) => {
+			e.preventDefault();
+			e.stopPropagation();
+			dispatch('dragOver', { event: e, index });
+		}}
+		on:drop={(e) => {
+			e.preventDefault();
+			e.stopPropagation();
+			dispatch('drop', { event: e, index });
+		}}
+		on:dragend={(e) => {
+			e.stopPropagation();
+			dispatch('dragEnd', e);
+		}}
+		class={`flex items-center justify-between gap-2.5 p-2.5 transition ${
+			dragOverChapterIndex === index
+				? 'bg-[#b23a2e]/10 ring-1 ring-[#b23a2e]'
+				: isSelected
+					? 'bg-[#b23a2e]/5'
+					: 'hover:bg-black/[0.02] dark:hover:bg-white/[0.02]'
+		} ${draggedChapterIndex === index ? 'scale-95 opacity-40' : ''}`}
 	>
 		<div class="flex min-w-0 flex-1 items-center gap-2">
 			<button
@@ -571,7 +666,21 @@
 				<Check size={11} />
 			</button>
 
-			<span class="shrink-0 font-mono text-[11px] font-bold opacity-60">
+			<!-- svelte-ignore a11y-no-static-element-interactions -->
+			<span
+				draggable="true"
+				on:dragstart={(e) => {
+					e.stopPropagation();
+					dispatch('dragStart', { event: e, index });
+				}}
+				on:dragend={(e) => {
+					e.stopPropagation();
+					dispatch('dragEnd', e);
+				}}
+				class="flex shrink-0 cursor-grab select-none items-center gap-0.5 font-mono text-[11px] font-bold opacity-60 active:cursor-grabbing hover:opacity-100"
+				title="Drag to reorder chapter"
+			>
+				<GripVertical size={12} class="opacity-50" />
 				#{chapter.seq + 1}
 			</span>
 			<div class="min-w-0 flex-1">
