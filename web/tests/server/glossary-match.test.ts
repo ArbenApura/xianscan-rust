@@ -244,4 +244,41 @@ describe('matchTerms — global scope glossary utilization', () => {
 	});
 });
 
+describe('matchTerms — Korean (agglutinative / particle matching)', () => {
+	beforeEach(() => {
+		seedBook(db, { id: 'book_ko', sourceLang: 'ko', targetLang: 'en' });
+	});
+
+	it('matches Korean names attached to particles (e.g. 설 in 설이가)', async () => {
+		await seedTerm({
+			bookId: 'book_ko',
+			scope: 'book',
+			sourceLang: 'ko',
+			targetLang: 'en',
+			source: '설',
+		});
+		invalidateBook('book_ko');
+
+		const matched = await matchTerms(
+			'book_ko',
+			'막내 손녀 설이가\n자라는 모습을 보지 못하는\n것만은 아쉽구나.',
+		);
+		expect(matched.map((t) => t.source)).toEqual(['설']);
+	});
+
+	it('matches Korean clan names with particles and line breaks', async () => {
+		await seedTerm({
+			bookId: 'book_ko',
+			scope: 'book',
+			sourceLang: 'ko',
+			targetLang: 'en',
+			source: '유가장',
+		});
+		invalidateBook('book_ko');
+
+		const matched = await matchTerms('book_ko', '이 소중한 유가장은 내 아들과 손주들이...');
+		expect(matched.map((t) => t.source)).toEqual(['유가장']);
+	});
+});
+
 

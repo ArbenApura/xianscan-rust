@@ -47,7 +47,7 @@ export const LANGUAGES: Record<string, Language> = {
 
 	// TIER 2: Major multilingual corpora with strong comic/manga/localization performance
 	ja: { code: 'ja', name: 'Japanese', endonym: '日本語', script: 'kana', romanization: 'Hepburn romaji', wordDelimited: false, tier: 2 },
-	ko: { code: 'ko', name: 'Korean', endonym: '한국어', script: 'hangul', romanization: 'Revised Romanization of Korean', wordDelimited: true, tier: 2 },
+	ko: { code: 'ko', name: 'Korean', endonym: '한국어', script: 'hangul', romanization: 'Revised Romanization of Korean', wordDelimited: false, tier: 2 },
 	es: { code: 'es', name: 'Spanish', endonym: 'Español', script: 'latin', romanization: null, wordDelimited: true, tier: 2 },
 	fr: { code: 'fr', name: 'French', endonym: 'Français', script: 'latin', romanization: null, wordDelimited: true, tier: 2 },
 	de: { code: 'de', name: 'German', endonym: 'Deutsch', script: 'latin', romanization: null, wordDelimited: true, tier: 2 },

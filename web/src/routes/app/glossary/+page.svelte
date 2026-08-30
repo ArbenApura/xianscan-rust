@@ -88,15 +88,10 @@
 	}
 
 	$: selectedBook = books.find((b) => b.id === selectedBookId);
-	$: bookSelectItems = books.map((b) => {
-		const primary = b.titleTarget?.trim() || b.title;
-		const hint = b.titleTarget?.trim() && b.title ? b.title : undefined;
-		return {
-			value: b.id,
-			label: primary,
-			hint,
-		};
-	});
+	$: bookSelectItems = books.map((b) => ({
+		value: b.id,
+		label: b.titleTarget?.trim() || b.title,
+	}));
 </script>
 
 <svelte:head>
