@@ -742,8 +742,13 @@ export async function runChapterPipeline(
 
 				if (sources.length > 0) {
 					emit({ type: 'page-step-start', chapterId, page: i, pageId: page.id, step: 'match_glossary' });
+					const dialogueContext = dialogueTracker.getContextWindow(page.seq);
+					const contextSourceText = dialogueContext.previousPages
+						.flatMap((p) => p.lines.map((l) => l.sourceText))
+						.join('\n');
 					const pageSourceText = sources.map((s) => s.text).join('\n');
-					const pageMatchedTerms = await matchTerms(chapter.bookId, pageSourceText);
+					const fullScanningText = contextSourceText ? `${pageSourceText}\n${contextSourceText}` : pageSourceText;
+					const pageMatchedTerms = await matchTerms(chapter.bookId, fullScanningText);
 					emit({
 						type: 'page-step-end',
 						chapterId,
@@ -761,7 +766,6 @@ export async function runChapterPipeline(
 					const tTrans0 = performance.now();
 
 					const translated = await chainTranslate(async () => {
-						const dialogueContext = dialogueTracker.getContextWindow(page.seq);
 						const result = await translatePage(sources, pageMatchedTerms, pair, {
 							client: deps.llm,
 							model,

@@ -67,7 +67,7 @@ pub fn clamp_box_to_core(b: &mut BoxRect, left: i32, right: i32, top: i32, botto
 /// IN SOLE-OCCUPANT DIALOGUE BUBBLES, TEXT IS CENTERED IN THE MAIN BALLOON BODY (CARRIER).
 /// IF AN ASYMMETRIC TAIL PROTRUDES (SKEW >= 2.0x AND DELTA >= 15PX), TRIMS THE TAIL SLACK
 /// TO RESTORE THE VISUAL CARRIER CHAMBER.
-pub fn derive_carrier_box(b: &BoxRect, t: &BoxRect) -> BoxRect {
+pub fn derive_carrier_box(b: &BoxRect, t: &BoxRect, page_h: u32) -> BoxRect {
     let mut carrier = b.clone();
 
     let m_top = (t.y - b.y).max(0);
@@ -80,9 +80,9 @@ pub fn derive_carrier_box(b: &BoxRect, t: &BoxRect) -> BoxRect {
 
     // VERTICAL TAILS:
     // SKEWED BY >= 1.30x AND MIN 20PX DELTA BETWEEN TOP AND BOTTOM MARGINS.
-    // IF THE BUBBLE TOUCHES THE TOP OR BOTTOM CANVAS EDGE (b.y <= 3), IT IS LIKELY CUT/SEVERED
-    // RATHER THAN HAVING A TRUE ASYMMETRIC TAIL, SO BYPASS VERTICAL TAIL TRIMMING.
-    let is_top_or_bottom_edge = b.y <= 3;
+    // IF THE BUBBLE EXTENDS NEAR THE TOP OR BOTTOM CANVAS EDGE (b.y <= 12 OR b.y + b.h >= page_h - 12),
+    // IT IS CUT/SEVERED BY THE SLICE SEAM RATHER THAN HAVING A TRUE ASYMMETRIC TAIL, SO BYPASS VERTICAL TAIL TRIMMING.
+    let is_top_or_bottom_edge = b.y <= 12 || (b.y + b.h) as u32 >= page_h.saturating_sub(12);
     if !is_top_or_bottom_edge {
         if m_bot as f32 >= m_top as f32 * 1.30 && (m_bot - m_top) >= 20 {
             // DOWNWARD TAIL: TOP/LEFT/RIGHT ARE TRUE BUBBLE BOUNDARIES, TRIM BOTTOM EXCESS
@@ -171,7 +171,7 @@ pub fn expand_bubble_text_boxes(
             if let Some(image) = img {
                 super::geometry::extract_carrier_box_from_image(image, b, &r.box_)
             } else {
-                derive_carrier_box(b, &r.box_)
+                derive_carrier_box(b, &r.box_, page_h)
             }
         } else {
             b.clone()
@@ -326,7 +326,7 @@ pub fn expand_bubble_text_boxes(
                 if let Some(image) = img {
                     super::geometry::extract_carrier_box_from_image(image, &b, &regions[i].box_)
                 } else {
-                    derive_carrier_box(&b, &regions[i].box_)
+                    derive_carrier_box(&b, &regions[i].box_, page_h)
                 }
             } else {
                 b.clone()
@@ -338,7 +338,7 @@ pub fn expand_bubble_text_boxes(
 
         let vertical_fill_ratio = regions[i].box_.h as f32 / carrier.h.max(1) as f32;
         let has_healthy_vertical_fill = vertical_fill_ratio >= 0.15 && vertical_fill_ratio <= 0.90;
-        let is_vertical_edge_cut = b.y <= 3 || (b.y + b.h) as u32 >= page_h.saturating_sub(3);
+        let is_vertical_edge_cut = b.y <= 12 || (b.y + b.h) as u32 >= page_h.saturating_sub(12);
 
         if is_sole_occupant
             && !is_vertical_edge_cut

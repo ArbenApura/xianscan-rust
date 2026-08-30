@@ -81,6 +81,9 @@ describe('systemPrompt', () => {
 		expect(p).toContain('Yu Clan Manor');
 		expect(p).toContain('Mount Hua Sect');
 		expect(p).toContain('Demonic Cult');
+		expect(p).toContain('Unestablished Gender & Direct Scolding');
+		expect(p).toContain('고놈');
+		expect(p).toContain('You little rascal');
 		expect(p).not.toContain('Manhua');
 	});
 

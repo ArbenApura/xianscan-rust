@@ -292,7 +292,7 @@ mod tests {
         let typeset_box = regions[0].typeset_box.as_ref().expect("typeset_box should exist");
 
         // MUST CENTER EXPANDED BOX AT DERIVED CARRIER CHAMBER CENTROID
-        let carrier = derive_carrier_box(&bubble, &ocr_box);
+        let carrier = derive_carrier_box(&bubble, &ocr_box, 1771);
         assert_eq!(typeset_box.w, 291);
         assert_eq!(typeset_box.h, 154);
         assert_eq!(typeset_box.x + typeset_box.w / 2, carrier.x + carrier.w / 2);
@@ -338,7 +338,7 @@ mod tests {
         let bubble = BoxRect { x: 135, y: 324, w: 234, h: 216 };
         let text = BoxRect { x: 168, y: 355, w: 162, h: 106 };
 
-        let carrier = derive_carrier_box(&bubble, &text);
+        let carrier = derive_carrier_box(&bubble, &text, 1000);
         assert_eq!(carrier.x, 135);
         assert_eq!(carrier.y, 324);
         assert_eq!(carrier.w, 234);
@@ -353,7 +353,7 @@ mod tests {
         let bubble = BoxRect { x: 48, y: 831, w: 149, h: 144 };
         let text = BoxRect { x: 69, y: 852, w: 98, h: 90 };
 
-        let carrier = derive_carrier_box(&bubble, &text);
+        let carrier = derive_carrier_box(&bubble, &text, 1000);
         // REMAINS UNTOUCHED FOR SYMMETRIC BUBBLE
         assert_eq!(carrier.x, bubble.x);
         assert_eq!(carrier.y, bubble.y);
