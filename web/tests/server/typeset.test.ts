@@ -517,6 +517,37 @@ describe('typesetPage', () => {
 		// Substantial ink coverage in the vertical bubble region
 		expect(darkPixels).toBeGreaterThan(50);
 	});
+
+	it('typesets single-line punctuation exclamations centered vertically in their bounding box', async () => {
+		const out = await typesetPage(blankPng(400, 400, 'white'), [
+			{
+				id: 'r_punct',
+				box: { x: 100, y: 100, w: 100, h: 100 },
+				text: '?!',
+				kind: 'dialogue_bubble',
+			},
+		]);
+		expect([out.slice(0, 4).toString('ascii'), out.slice(8, 12).toString('ascii')]).toEqual(['RIFF', 'WEBP']);
+		const img = await loadImage(out);
+		const probe = createCanvas(img.width, img.height);
+		const px = probe.getContext('2d');
+		px.drawImage(img, 0, 0);
+
+		// Verify ink is present and vertically distributed around the box center (y: 150)
+		let topHalfDark = 0;
+		let botHalfDark = 0;
+		for (let y = 100; y < 200; y++) {
+			for (let x = 100; x < 200; x++) {
+				const pixel = px.getImageData(x, y, 1, 1).data;
+				if (pixel[0] < 50) {
+					if (y < 150) topHalfDark++;
+					else botHalfDark++;
+				}
+			}
+		}
+		expect(topHalfDark).toBeGreaterThan(0);
+		expect(botHalfDark).toBeGreaterThan(0);
+	});
 });
 
 describe('sampleBackground', () => {

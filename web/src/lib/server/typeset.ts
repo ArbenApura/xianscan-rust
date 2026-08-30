@@ -195,12 +195,14 @@ export async function typesetPage(
 		ctx.strokeStyle = color.stroke;
 		ctx.fillStyle = color.fill;
 
+		const visualH = (lines.length - 1) * lineH + size * 0.75;
+
 		if (hasRotation) {
 			const cx = x + w / 2;
 			const cy = y + h / 2;
 			ctx.translate(cx, cy);
 			ctx.rotate((angleDeg * Math.PI) / 180);
-			let ty = -totalH / 2 + size * 0.85;
+			let ty = -visualH / 2 + size * 0.75;
 			for (const line of lines) {
 				drawTextLineWithRuns(
 					ctx,
@@ -220,7 +222,7 @@ export async function typesetPage(
 			}
 		} else {
 			const tx = x + w / 2;
-			let ty = y + (h - totalH) / 2 + size * 0.85;
+			let ty = y + (h - visualH) / 2 + size * 0.75;
 			for (const line of lines) {
 				drawTextLineWithRuns(
 					ctx,

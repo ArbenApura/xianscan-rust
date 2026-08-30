@@ -79,18 +79,23 @@ pub fn derive_carrier_box(b: &BoxRect, t: &BoxRect) -> BoxRect {
     let m_vert = m_top.min(m_bot);
 
     // VERTICAL TAILS:
-    // SKEWED BY >= 1.50x AND MIN 22PX DELTA BETWEEN TOP AND BOTTOM MARGINS
-    if m_bot as f32 >= m_top as f32 * 1.50 && (m_bot - m_top) >= 22 {
-        // DOWNWARD TAIL: TOP/LEFT/RIGHT ARE TRUE BUBBLE BOUNDARIES, TRIM BOTTOM EXCESS
-        let safe_pad = (m_top as f32).min(m_side as f32 * 0.90).max(12.0).round() as i32;
-        let eff_bottom = (t.y + t.h + safe_pad).min(b.y + b.h);
-        carrier.h = (eff_bottom - b.y).max(t.h + 10);
-    } else if m_top as f32 >= m_bot as f32 * 1.50 && (m_top - m_bot) >= 22 {
-        // UPWARD TAIL: BOTTOM/LEFT/RIGHT ARE TRUE BUBBLE BOUNDARIES, TRIM TOP EXCESS
-        let safe_pad = (m_bot as f32).min(m_side as f32 * 0.90).max(12.0).round() as i32;
-        let eff_top = (t.y - safe_pad).max(b.y);
-        carrier.h = (b.y + b.h - eff_top).max(t.h + 10);
-        carrier.y = eff_top;
+    // SKEWED BY >= 1.30x AND MIN 20PX DELTA BETWEEN TOP AND BOTTOM MARGINS.
+    // IF THE BUBBLE TOUCHES THE TOP OR BOTTOM CANVAS EDGE (b.y <= 3), IT IS LIKELY CUT/SEVERED
+    // RATHER THAN HAVING A TRUE ASYMMETRIC TAIL, SO BYPASS VERTICAL TAIL TRIMMING.
+    let is_top_or_bottom_edge = b.y <= 3;
+    if !is_top_or_bottom_edge {
+        if m_bot as f32 >= m_top as f32 * 1.30 && (m_bot - m_top) >= 20 {
+            // DOWNWARD TAIL: TOP/LEFT/RIGHT ARE TRUE BUBBLE BOUNDARIES, TRIM BOTTOM EXCESS
+            let safe_pad = (m_top as f32).min(m_side as f32 * 0.90).max(12.0).round() as i32;
+            let eff_bottom = (t.y + t.h + safe_pad).min(b.y + b.h);
+            carrier.h = (eff_bottom - b.y).max(t.h + 10);
+        } else if m_top as f32 >= m_bot as f32 * 1.30 && (m_top - m_bot) >= 20 {
+            // UPWARD TAIL: BOTTOM/LEFT/RIGHT ARE TRUE BUBBLE BOUNDARIES, TRIM TOP EXCESS
+            let safe_pad = (m_bot as f32).min(m_side as f32 * 0.90).max(12.0).round() as i32;
+            let eff_top = (t.y - safe_pad).max(b.y);
+            carrier.h = (b.y + b.h - eff_top).max(t.h + 10);
+            carrier.y = eff_top;
+        }
     }
 
     // HORIZONTAL TAILS:
@@ -331,15 +336,12 @@ pub fn expand_bubble_text_boxes(
         let carrier_cx = carrier.x + carrier.w / 2;
         let carrier_cy = carrier.y + carrier.h / 2;
 
-        let is_horizontal_bubble = (carrier.w as f32) >= (carrier.h as f32) * 1.35;
-        let is_symmetric_square = (carrier.w as f32) >= (carrier.h as f32) * 0.85
-            && (carrier.w as f32) <= (carrier.h as f32) * 1.18;
-
         let vertical_fill_ratio = regions[i].box_.h as f32 / carrier.h.max(1) as f32;
-        let has_healthy_vertical_fill = vertical_fill_ratio >= 0.20 && vertical_fill_ratio <= 0.85;
+        let has_healthy_vertical_fill = vertical_fill_ratio >= 0.15 && vertical_fill_ratio <= 0.90;
+        let is_vertical_edge_cut = b.y <= 3 || (b.y + b.h) as u32 >= page_h.saturating_sub(3);
 
         if is_sole_occupant
-            && (is_horizontal_bubble || is_symmetric_square)
+            && !is_vertical_edge_cut
             && has_healthy_vertical_fill
         {
             let mut typeset_box = expand_box(&regions[i].box_, typeset_pct, page_w, page_h);

@@ -328,8 +328,8 @@ mod tests {
 
         let typeset_box = regions[0].typeset_box.as_ref().expect("typeset_box should exist");
 
-        // MUST NOT BE EXPANDED DOWNWARD INTO THE TAIL (MUST RETAIN UPPER ANCHOR)
-        assert_eq!(typeset_box.y, 826, "typeset_box y should remain anchored around text center");
+        // MUST NOT BE EXPANDED DOWNWARD INTO THE TAIL (CENTERS IN UPPER CARRIER CHAMBER Y: 800)
+        assert_eq!(typeset_box.y, 800, "typeset_box y should center in the derived carrier chamber");
         assert_eq!(typeset_box.h, 228, "typeset_box height should remain anchored to text (228), not safe core (268)");
     }
 
