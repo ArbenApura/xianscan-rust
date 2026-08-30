@@ -204,7 +204,9 @@ pub fn build_regions(
                     let (ox, oy, ow, oh) = polygon_bounds(&existing.polygon);
                     let iou = box_iou_pts(&m.polygon, &existing.polygon);
                     let is_exact = clean_m == clean_o;
-                    let is_sub = clean_o.contains(clean_m) && clean_o.chars().count() > clean_m.chars().count();
+                    let norm_m: String = clean_m.chars().filter(|c| !c.is_whitespace()).collect();
+                    let norm_o: String = clean_o.chars().filter(|c| !c.is_whitespace()).collect();
+                    let is_sub = norm_o.contains(&norm_m) && norm_o.chars().count() > norm_m.chars().count();
                     let overlap_x = (mx + mw).min(ox + ow) - mx.max(ox);
                     let overlap_y = (my + mh).min(oy + oh) - my.max(oy);
                     let overlap_area = overlap_x.max(0) * overlap_y.max(0);
@@ -228,7 +230,7 @@ pub fn build_regions(
                     let is_punct_o = clean_o.chars().all(|c| c.is_ascii_punctuation() || matches!(c, '！' | '？' | '!' | '?' | '…'));
                     let is_vert_col_text_and_punct = is_container_vert && (is_punct_m != is_punct_o);
 
-                    if ((iou >= 0.40 || overlap_ratio_m >= 0.60 || (vert_col_overlap && is_sub) || is_horizontal_suffix_noise) && (is_exact || is_sub || is_horizontal_suffix_noise))
+                    if ((iou >= 0.40 || overlap_ratio_m >= 0.60 || (vert_col_overlap && is_sub) || is_horizontal_suffix_noise || (overlap_ratio_m >= 0.30 && is_sub)) && (is_exact || is_sub || is_horizontal_suffix_noise))
                         && !is_vert_col_text_and_punct
                     {
                         is_dup = true;
@@ -240,9 +242,14 @@ pub fn build_regions(
                         let clean_o = existing.text.trim();
                         let (ox, oy, ow, oh) = polygon_bounds(&existing.polygon);
                         let iou = box_iou_pts(&m.polygon, &existing.polygon);
-                        let is_existing_sub = clean_m.contains(clean_o) && clean_m.chars().count() > clean_o.chars().count();
+                        let norm_m: String = clean_m.chars().filter(|c| !c.is_whitespace()).collect();
+                        let norm_o: String = clean_o.chars().filter(|c| !c.is_whitespace()).collect();
+                        let is_existing_sub = norm_m.contains(&norm_o) && norm_m.chars().count() > norm_o.chars().count();
                         let overlap_x = (mx + mw).min(ox + ow) - mx.max(ox);
                         let overlap_y = (my + mh).min(oy + oh) - my.max(oy);
+                        let overlap_area = overlap_x.max(0) * overlap_y.max(0);
+                        let o_area = (ow * oh).max(1);
+                        let overlap_ratio_o = overlap_area as f32 / o_area as f32;
                         let vert_col_overlap = if is_container_vert && mh > 0 && oh > 0 {
                             overlap_y.max(0) as f32 / mh.min(oh) as f32 >= 0.50 && overlap_x >= -30
                         } else {
@@ -259,7 +266,7 @@ pub fn build_regions(
                         let is_punct_m = clean_m.chars().all(|c| c.is_ascii_punctuation() || matches!(c, '！' | '？' | '!' | '?' | '…'));
                         let is_vert_col_text_and_punct = is_container_vert && (is_punct_m != is_punct_o);
 
-                        (!(((iou >= 0.40 || vert_col_overlap) && is_existing_sub) || is_existing_suffix_noise)) || is_vert_col_text_and_punct
+                        (!(((iou >= 0.40 || vert_col_overlap || overlap_ratio_o >= 0.30) && is_existing_sub) || is_existing_suffix_noise)) || is_vert_col_text_and_punct
                     });
                     filtered_matched.push(m);
                 }

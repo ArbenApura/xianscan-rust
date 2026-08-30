@@ -102,6 +102,7 @@
 			for (const p of packs) {
 				p.enabled = selectedPackIds.has(p.id);
 			}
+			packs = [...packs];
 			dispatch('change', { enabledPackIds: enabledList });
 			toast.success(`Active preset themes updated (${enabledList.length} enabled).`);
 			open = false;

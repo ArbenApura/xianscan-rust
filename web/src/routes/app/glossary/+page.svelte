@@ -263,7 +263,16 @@
 		<PresetPacksModal
 			bind:open={presetModalOpen}
 			packs={data.packs || []}
-			on:change={() => packsHash++}
+			on:change={(e) => {
+				const enabledSet = new Set(e.detail.enabledPackIds);
+				if (data.packs) {
+					for (const p of data.packs) {
+						p.enabled = enabledSet.has(p.id);
+					}
+					data.packs = [...data.packs];
+				}
+				packsHash++;
+			}}
 		/>
 
 		{#key `${sourceLang}>${targetLang}>${packsHash}`}
@@ -271,8 +280,8 @@
 				scope="global"
 				{sourceLang}
 				{targetLang}
-				initialRows={data.initialScope === 'global' && data.initialSourceLang === sourceLang && data.initialTargetLang === targetLang ? data.initialGlossary.rows : null}
-				initialTotal={data.initialScope === 'global' && data.initialSourceLang === sourceLang && data.initialTargetLang === targetLang ? data.initialGlossary.total : null}
+				initialRows={packsHash === 0 && data.initialScope === 'global' && data.initialSourceLang === sourceLang && data.initialTargetLang === targetLang ? data.initialGlossary.rows : null}
+				initialTotal={packsHash === 0 && data.initialScope === 'global' && data.initialSourceLang === sourceLang && data.initialTargetLang === targetLang ? data.initialGlossary.total : null}
 			/>
 		{/key}
 	{:else}
