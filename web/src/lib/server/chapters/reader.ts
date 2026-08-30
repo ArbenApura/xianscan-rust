@@ -173,9 +173,8 @@ export async function getChapterReaderData(chapterId: number): Promise<ChapterRe
 		allChapters: allChaptersInBook,
 		prevChapter,
 		nextChapter,
-		// REGIONS ARE NOT INCLUDED IN THE INITIAL PAYLOAD. THE INSPECT MODAL FETCHES
-		// THEM ON-DEMAND VIA GET /api/pages/:id WHEN OPENED, ENSURING THEY ARE ALWAYS
-		// FRESH WITHOUT LOADING ALL REGION DATA FOR ALL PAGES UPFRONT.
+		// REGIONS, LLM DEBUG LOGS, AND OCR STATS ARE NOT INCLUDED IN THE CHAPTER PAYLOAD.
+		// THE INSPECT MODAL FETCHES THEM ON-DEMAND VIA GET /api/pages/:id ONLY WHEN OPENED.
 		pages: pageRows.map((p) => ({
 			id: p.id,
 			seq: p.seq,
@@ -187,9 +186,6 @@ export async function getChapterReaderData(chapterId: number): Promise<ChapterRe
 			originalRev: p.originalRev,
 			status: p.status,
 			error: p.error,
-			llmPrompt: (p as any).llmPrompt ?? null,
-			llmResponse: (p as any).llmResponse ?? null,
-			ocrStats: (p as any).ocrStats ?? null,
 			width: p.width,
 			height: p.height,
 			regions: [],

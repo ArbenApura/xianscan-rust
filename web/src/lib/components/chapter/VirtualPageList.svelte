@@ -1,4 +1,3 @@
-<!-- VIRTUAL PAGE LIST (RENDERS ALL PAGES WITH BROWSER-NATIVE SCROLL STABILITY) -->
 <script lang="ts">
 	// -- REQUIRED PROPS -- //
 	export let pages: any[] = [];

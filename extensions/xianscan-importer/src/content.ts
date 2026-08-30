@@ -1042,8 +1042,14 @@ class InPlaceTranslationCoordinator {
 	}
 }
 
-// RUNTIME MESSAGE LISTENER (GUARDED AGAINST DUPLICATE INJECTIONS)
-if (typeof window !== 'undefined' && !(window as any).__xianscan_content_injected) {
+// RUNTIME MESSAGE LISTENER (GUARDED AGAINST DUPLICATE INJECTIONS & SELF-HOSTED DASHBOARD)
+if (
+	typeof window !== 'undefined' &&
+	!(window as any).__xianscan_content_injected &&
+	!window.location.hostname.includes('localhost') &&
+	!window.location.hostname.includes('127.0.0.1') &&
+	!window.location.pathname.startsWith('/app')
+) {
 	(window as any).__xianscan_content_injected = true;
 
 	const coordinator = new InPlaceTranslationCoordinator();

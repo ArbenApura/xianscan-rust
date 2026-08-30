@@ -23,31 +23,21 @@
 	<div
 		class={`w-full ${widthClasses[webtoonWidth]} flex flex-col items-center bg-black shadow-2xl transition-all duration-300`}
 	>
-		<VirtualPageList {pages}>
-			<svelte:fragment slot="default" let:page>
-				{@const hasRatio = Boolean(page.width && page.height && page.height > 0)}
-				<!-- DYNAMIC RUNTIME ASPECT RATIO AND NATIVE CONTENT VISIBILITY TO PREVENT SCROLL SHIFTS -->
-				<div
-					class="relative m-0 w-full border-0 bg-black p-0 leading-none"
-					data-page-seq={page.seq}
-					data-page-id={page.id}
-					style={hasRatio
-						? `aspect-ratio: ${page.width} / ${page.height}; content-visibility: auto; contain-intrinsic-size: auto ${page.height}px;`
-						: 'content-visibility: auto; contain-intrinsic-size: auto 800px;'}
-				>
-					<div
-						class="h-full w-full overflow-hidden bg-black/40"
-						style={hasRatio ? `aspect-ratio: ${page.width} / ${page.height};` : ''}
-					>
-						<PageImage
-							src={`/api/pages/${page.id}/file?kind=${webtoonKind === 'output' && page.outputPath ? 'output' : 'original'}&rev=${webtoonKind === 'output' && page.outputPath ? (page.outputRev ?? 0) : (page.originalRev ?? 0)}`}
-							alt={`Page ${page.seq + 1}`}
-							imgClass="pointer-events-none object-contain"
-						/>
-					</div>
-				</div>
-			</svelte:fragment>
-		</VirtualPageList>
+		{#each pages as page (page.id)}
+			{@const hasRatio = Boolean(page.width && page.height && page.height > 0)}
+			<div
+				class="relative m-0 w-full border-0 bg-black p-0 leading-none"
+				data-page-seq={page.seq}
+				data-page-id={page.id}
+				style={hasRatio ? `aspect-ratio: ${page.width} / ${page.height};` : 'min-height: 400px;'}
+			>
+				<PageImage
+					src={`/api/pages/${page.id}/file?kind=${webtoonKind === 'output' && page.outputPath ? 'output' : 'original'}&rev=${webtoonKind === 'output' && page.outputPath ? (page.outputRev ?? 0) : (page.originalRev ?? 0)}`}
+					alt={`Page ${page.seq + 1}`}
+					imgClass="pointer-events-none object-contain w-full h-full"
+				/>
+			</div>
+		{/each}
 	</div>
 </div>
 

@@ -153,7 +153,6 @@
 				} ${draggedPageIndex === idx ? 'scale-95 opacity-40' : ''}`}
 				data-page-seq={page.seq}
 				data-page-id={page.id}
-				style="content-visibility: auto; contain-intrinsic-size: auto 700px;"
 			>
 				<div class="mb-3 flex min-w-0 items-center justify-between gap-1.5 text-xs font-bold">
 					<div class="flex min-w-0 items-center gap-1.5 overflow-hidden">
@@ -207,7 +206,7 @@
 							<!-- svelte-ignore a11y-click-events-have-key-events -->
 							<!-- svelte-ignore a11y-no-noninteractive-element-interactions -->
 							<PageImage
-								src={`/api/pages/${page.id}/file?kind=original&rev=${page.originalRev ?? 0}`}
+								src={`/api/pages/${page.id}/file?kind=thumb&w=640&target=original&rev=${page.originalRev ?? 0}`}
 								alt={`Page ${page.seq + 1} Original`}
 								imgClass={`w-full h-full object-contain ${page.status === 'processing' ? 'opacity-80' : ''}`}
 								on:load={(e) => handleImgLoad(page.id, e)}
@@ -217,7 +216,7 @@
 							/>
 							<div class="pointer-events-none absolute bottom-2 left-2 flex items-center gap-1.5">
 								<span
-									class="rounded bg-black/80 px-2 py-0.5 text-[10px] font-bold text-white backdrop-blur"
+									class="rounded bg-black/80 px-2 py-0.5 text-[10px] font-bold text-white"
 								>
 									Original
 								</span>
@@ -235,7 +234,7 @@
 								<!-- svelte-ignore a11y-click-events-have-key-events -->
 								<!-- svelte-ignore a11y-no-noninteractive-element-interactions -->
 								<PageImage
-									src={`/api/pages/${page.id}/file?kind=output&rev=${page.outputRev ?? 0}`}
+									src={`/api/pages/${page.id}/file?kind=thumb&w=640&target=output&rev=${page.outputRev ?? 0}`}
 									alt={`Page ${page.seq + 1} Output`}
 									imgClass={`w-full h-full object-contain ${page.status === 'processing' ? 'opacity-80' : ''}`}
 									on:load={(e) => handleImgLoad(page.id, e)}
@@ -245,7 +244,7 @@
 								/>
 								<div class="pointer-events-none absolute bottom-2 left-2 flex items-center gap-1.5">
 									<span
-										class="rounded bg-black/80 px-2 py-0.5 text-[10px] font-bold text-white backdrop-blur"
+										class="rounded bg-black/80 px-2 py-0.5 text-[10px] font-bold text-white"
 									>
 										Translated
 									</span>
