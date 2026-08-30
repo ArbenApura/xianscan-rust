@@ -1,8 +1,7 @@
 // SYSTEM DEFAULT GLOSSARY PACKS REGISTRY AND PROVIDER
 // IMPORTED TYPES
 import type { LangPair, TermDraft } from '$lib/types';
-import fs from 'fs';
-import path from 'path';
+import MASTER_GLOSSARY from './data/master-glossary.json';
 
 // -- TYPES -- //
 
@@ -21,160 +20,12 @@ export interface GlossaryPack extends GlossaryPackMeta {
 	terms: TermDraft[];
 }
 
-// -- CONSTANTS -- //
-
-const PACKS_DIR = path.resolve(process.cwd(), 'src/lib/server/glossary-packs/data');
-const ALT_PACKS_DIR = path.resolve(process.cwd(), 'web/src/lib/server/glossary-packs/data');
-
-const PACK_METAS: Record<string, Omit<GlossaryPackMeta, 'termCount'>> = {
-	'zh-en-xianxia': {
-		id: 'zh-en-xianxia',
-		name: 'Wuxia & Cultivation (Xianxia)',
-		theme: 'xianxia',
-		description: 'Standard terminology for Cultivation realms, meridians, sects, alchemy, and items.',
-		sourceLang: 'zh-Hans',
-		targetLang: 'en',
-		enabledByDefault: true,
-	},
-	'ko-en-murim-hunter': {
-		id: 'ko-en-murim-hunter',
-		name: 'Murim & Martial Arts (Korean)',
-		theme: 'murim',
-		description: 'Standard terminology for Murim clans, martial sects, internal energy, and Qi deviation.',
-		sourceLang: 'ko',
-		targetLang: 'en',
-		enabledByDefault: true,
-	},
-	'zh-en-murim': {
-		id: 'zh-en-murim',
-		name: 'Murim & Martial Arts (Chinese)',
-		theme: 'murim',
-		description: 'Traditional & Simplified Chinese martial arts terminology for Murim sects, factions, and Neigong.',
-		sourceLang: 'zh-Hant',
-		targetLang: 'en',
-		enabledByDefault: true,
-	},
-	'ko-en-system': {
-		id: 'ko-en-system',
-		name: 'Hunter & System Leveling',
-		theme: 'system',
-		description: 'Standard terminology for Awakened hunters, gates, status windows, constellations, and regressors.',
-		sourceLang: 'ko',
-		targetLang: 'en',
-		enabledByDefault: true,
-	},
-	'ja-en-fantasy': {
-		id: 'ja-en-fantasy',
-		name: 'Fantasy & Isekai Guilds',
-		theme: 'fantasy',
-		description: 'Standard terminology for Adventurers\' Guilds, Demon Lords, Heroes, Saintesses, and magic arrays.',
-		sourceLang: 'ja',
-		targetLang: 'en',
-		enabledByDefault: true,
-	},
-	'ko-en-rofan': {
-		id: 'ko-en-rofan',
-		name: 'Romance Fantasy & Otome Isekai',
-		theme: 'rofan',
-		description: 'Standard terminology for Villainesses, Grand Dukes, Crown Princes, debutantes, and white lotuses.',
-		sourceLang: 'ko',
-		targetLang: 'en',
-		enabledByDefault: true,
-	},
-	'zh-en-palace': {
-		id: 'zh-en-palace',
-		name: 'Imperial Palace & Court Drama',
-		theme: 'palace',
-		description: 'Standard terminology for Emperors, Imperial Consorts, Cold Palace, and royal court etiquette.',
-		sourceLang: 'zh-Hans',
-		targetLang: 'en',
-		enabledByDefault: true,
-	},
-	'zh-en-scifi': {
-		id: 'zh-en-scifi',
-		name: 'Sci-Fi, Mecha & Sentinelverse',
-		theme: 'scifi',
-		description: 'Standard terminology for Sentinels, Guides, mental landscapes, Mecha synchronization, and Zerg.',
-		sourceLang: 'zh-Hans',
-		targetLang: 'en',
-		enabledByDefault: true,
-	},
-};
-
-// DIRECT EMBED OF PRECOMPILED GLOSSARY PACKS MANIFEST
-import MANIFEST_DATA from './data/packs-manifest.json';
-
-// CACHED PACKS MAP
-let cachedPacks: Map<string, GlossaryPack> | null = null;
-
-export function clearPacksCache(): void {
-	cachedPacks = null;
-}
-
-// -- FUNCTIONS -- //
-
-export function loadAllPacks(): Map<string, GlossaryPack> {
-	if (cachedPacks) return cachedPacks;
-	const packs = new Map<string, GlossaryPack>();
-
-	const THEME_TITLES: Record<string, string> = {
-		xianxia: 'Wuxia & Cultivation (Xianxia)',
-		murim: 'Murim & Martial Arts',
-		system: 'Hunter & System Leveling',
-		fantasy: 'Fantasy & Isekai Guilds',
-		rofan: 'Romance Fantasy & Otome Isekai',
-		palace: 'Imperial Palace & Court Drama',
-		scifi: 'Sci-Fi, Mecha & Sentinelverse',
-	};
-
-	try {
-		const manifest = MANIFEST_DATA as Record<string, TermDraft[]>;
-		for (const [packId, terms] of Object.entries(manifest)) {
-			let meta = PACK_METAS[packId];
-			if (!meta) {
-				const parts = packId.split('-');
-				if (parts.length >= 3) {
-					const src = parts[0] === 'zh' ? `${parts[0]}-${parts[1]}` : parts[0];
-					const rem = parts[0] === 'zh' ? parts.slice(2) : parts.slice(1);
-					const tgt = rem[0] === 'zh' ? `${rem[0]}-${rem[1]}` : rem[0];
-					const theme = rem[0] === 'zh' ? rem.slice(2).join('-') : rem.slice(1).join('-');
-
-					meta = {
-						id: packId,
-						name: THEME_TITLES[theme] || theme,
-						theme,
-						description: `Preset terms for ${THEME_TITLES[theme] || theme}`,
-						sourceLang: src,
-						targetLang: tgt,
-						enabledByDefault: true,
-					};
-				} else {
-					meta = {
-						id: packId,
-						name: packId.replace(/[-_]/g, ' '),
-						theme: 'other',
-						description: 'Preset glossary pack',
-						sourceLang: 'zh-Hans',
-						targetLang: 'en',
-						enabledByDefault: true,
-					};
-				}
-			}
-
-			packs.set(packId, {
-				...meta,
-				termCount: terms.length,
-				terms,
-			});
-		}
-
-		cachedPacks = packs;
-		return packs;
-	} catch (err) {
-		console.error('Failed to load embedded packs-manifest:', err);
-		cachedPacks = packs;
-		return packs;
-	}
+export interface MasterGlossaryEntity {
+	theme: string;
+	category: string;
+	gender?: string;
+	context: string;
+	translations: Record<string, string>;
 }
 
 export interface UniversalThemeMeta {
@@ -186,80 +37,111 @@ export interface UniversalThemeMeta {
 	enabledByDefault?: boolean;
 }
 
-export const UNIVERSAL_THEMES: UniversalThemeMeta[] = [
-	{
-		id: 'xianxia',
-		theme: 'xianxia',
-		name: 'Wuxia & Cultivation (Xianxia)',
-		description: 'Standard terminology for Cultivation realms, meridians, sects, alchemy, and items.',
-		termCount: 189,
-		enabledByDefault: true,
-	},
-	{
-		id: 'murim',
-		theme: 'murim',
-		name: 'Murim & Martial Arts',
-		description: 'Standard terminology for Murim clans, martial sects, internal energy, and Qi deviation.',
-		termCount: 195,
-		enabledByDefault: true,
-	},
-	{
-		id: 'system',
-		theme: 'system',
-		name: 'Hunter & System Leveling',
-		description: 'Standard terminology for Awakened hunters, gates, status windows, constellations, and regressors.',
-		termCount: 150,
-		enabledByDefault: true,
-	},
-	{
-		id: 'fantasy',
-		theme: 'fantasy',
-		name: 'Fantasy & Isekai Guilds',
-		description: 'Standard terminology for Adventurers\' Guilds, Demon Lords, Heroes, Saintesses, and magic arrays.',
-		termCount: 120,
-		enabledByDefault: true,
-	},
-	{
-		id: 'rofan',
-		theme: 'rofan',
-		name: 'Romance Fantasy & Otome Isekai',
-		description: 'Standard terminology for Villainesses, Grand Dukes, Crown Princes, debutantes, and white lotuses.',
-		termCount: 140,
-		enabledByDefault: true,
-	},
-	{
-		id: 'palace',
-		theme: 'palace',
-		name: 'Imperial Palace & Court Drama',
-		description: 'Standard terminology for Emperors, Imperial Consorts, Cold Palace, and royal court etiquette.',
-		termCount: 130,
-		enabledByDefault: true,
-	},
-	{
-		id: 'scifi',
-		theme: 'scifi',
-		name: 'Sci-Fi, Mecha & Sentinelverse',
-		description: 'Standard terminology for Sentinels, Guides, mental landscapes, Mecha synchronization, and Zerg.',
-		termCount: 115,
-		enabledByDefault: true,
-	},
-];
+// -- CONSTANTS -- //
 
-export function listAvailablePacks(): UniversalThemeMeta[] {
-	const packs = loadAllPacks();
-	
-	return UNIVERSAL_THEMES.map((themeMeta) => {
-		let maxCount = 0;
-		for (const pack of packs.values()) {
-			if (pack.theme === themeMeta.theme) {
-				if (pack.termCount > maxCount) maxCount = pack.termCount;
+const THEME_TITLES: Record<string, string> = {
+	xianxia: 'Wuxia & Cultivation (Xianxia)',
+	murim: 'Murim & Martial Arts',
+	system: 'Hunter & System Leveling',
+	fantasy: 'Fantasy & Isekai Guilds',
+	rofan: 'Romance Fantasy & Otome Isekai',
+	palace: 'Imperial Palace & Court Drama',
+	scifi: 'Sci-Fi, Mecha & Sentinelverse',
+};
+
+const THEME_DESCRIPTIONS: Record<string, string> = {
+	xianxia: 'Standard terminology for Cultivation realms, meridians, sects, alchemy, and items.',
+	murim: 'Standard terminology for Murim clans, martial sects, internal energy, and Qi deviation.',
+	system: 'Standard terminology for Awakened hunters, gates, status windows, constellations, and regressors.',
+	fantasy: 'Standard terminology for Adventurers\' Guilds, Demon Lords, Heroes, Saintesses, and magic arrays.',
+	rofan: 'Standard terminology for Villainesses, Grand Dukes, Crown Princes, debutantes, and white lotuses.',
+	palace: 'Standard terminology for Emperors, Imperial Consorts, Cold Palace, and royal court etiquette.',
+	scifi: 'Standard terminology for Sentinels, Guides, mental landscapes, Mecha synchronization, and Zerg.',
+};
+
+export const UNIVERSAL_THEMES: UniversalThemeMeta[] = Object.keys(THEME_TITLES).map((theme) => {
+	const count = (MASTER_GLOSSARY as MasterGlossaryEntity[]).filter((e) => e.theme === theme).length;
+	return {
+		id: theme,
+		theme,
+		name: THEME_TITLES[theme],
+		description: THEME_DESCRIPTIONS[theme] || 'Preset terms',
+		termCount: count,
+		enabledByDefault: true,
+	};
+});
+
+// CACHED PACKS MAP
+let cachedPacks: Map<string, GlossaryPack> | null = null;
+
+export function clearPacksCache(): void {
+	cachedPacks = null;
+}
+
+// -- FUNCTIONS -- //
+
+/**
+ * Builds and returns all 2,660 multilingual theme packs derived dynamically in memory (<1ms).
+ */
+export function loadAllPacks(): Map<string, GlossaryPack> {
+	if (cachedPacks) return cachedPacks;
+	const packs = new Map<string, GlossaryPack>();
+	const entities = MASTER_GLOSSARY as MasterGlossaryEntity[];
+
+	const LANGUAGES = [
+		'zh-Hans', 'zh-Hant', 'en', 'ja', 'ko',
+		'es', 'fr', 'de', 'ru', 'pt',
+		'it', 'id', 'th', 'tr', 'nl',
+		'pl', 'hi', 'uk', 'sv', 'fi'
+	];
+
+	for (const src of LANGUAGES) {
+		for (const tgt of LANGUAGES) {
+			if (src === tgt) continue;
+
+			for (const theme of Object.keys(THEME_TITLES)) {
+				const packId = `${src}-${tgt}-${theme}`;
+				const themeEntities = entities.filter((e) => e.theme === theme);
+
+				const terms: TermDraft[] = themeEntities.map((entity) => {
+					const source = entity.translations[src] || entity.translations['en'] || entity.translations['zh-Hans'];
+					const target = entity.translations[tgt] || entity.translations['en'] || entity.translations['zh-Hans'];
+
+					const aliases = Object.values(entity.translations).filter((v) => v && v !== source && v !== target);
+					const uniqueAliases = Array.from(new Set(aliases));
+
+					return {
+						source,
+						target,
+						category: entity.category as any,
+						gender: (entity.gender || 'neuter') as any,
+						aliases: uniqueAliases,
+						context: entity.context,
+						pinned: false,
+					};
+				});
+
+				packs.set(packId, {
+					id: packId,
+					name: THEME_TITLES[theme] || theme,
+					theme,
+					description: THEME_DESCRIPTIONS[theme] || 'Preset glossary pack',
+					sourceLang: src,
+					targetLang: tgt,
+					termCount: terms.length,
+					enabledByDefault: true,
+					terms,
+				});
 			}
 		}
-		return {
-			...themeMeta,
-			termCount: maxCount,
-		};
-	});
+	}
+
+	cachedPacks = packs;
+	return packs;
+}
+
+export function listAvailablePacks(): UniversalThemeMeta[] {
+	return UNIVERSAL_THEMES;
 }
 
 export function getPack(packId: string): GlossaryPack | null {
@@ -269,29 +151,43 @@ export function getPack(packId: string): GlossaryPack | null {
 
 /**
  * Returns all terms for enabled packs matching the given language pair.
- * If enabledPackIds is null/undefined, returns all packs that are enabled by default.
+ * Directly filters the lean master dataset for maximum efficiency.
  */
 export function getActivePackTerms(
 	pair: LangPair,
 	enabledPackIds?: string[] | null,
 ): { term: TermDraft; packId: string }[] {
-	const packs = loadAllPacks();
 	const results: { term: TermDraft; packId: string }[] = [];
+	const entities = MASTER_GLOSSARY as MasterGlossaryEntity[];
+	const { sourceLang: src, targetLang: tgt } = pair;
 
-	for (const pack of packs.values()) {
-		// EXACT SOURCE AND TARGET LANGUAGE MATCH (PREVENTS zh-Hans and zh-Hant DUPLICATION)
-		const srcMatch = pack.sourceLang === pair.sourceLang;
-		const tgtMatch = pack.targetLang === pair.targetLang;
-		if (!srcMatch || !tgtMatch) continue;
-
-		// PACK ENABLEMENT CHECK: IF AN ARRAY IS PASSED, STRICTLY FOLLOW THE ARRAY (MATCHES EITHER pack.id OR pack.theme)
+	for (const theme of Object.keys(THEME_TITLES)) {
+		const packId = `${src}-${tgt}-${theme}`;
 		const isEnabled = Array.isArray(enabledPackIds)
-			? enabledPackIds.includes(pack.id) || enabledPackIds.includes(pack.theme)
-			: pack.enabledByDefault ?? true;
+			? enabledPackIds.includes(packId) || enabledPackIds.includes(theme)
+			: true;
 		if (!isEnabled) continue;
 
-		for (const t of pack.terms) {
-			results.push({ term: t, packId: pack.id });
+		const themeEntities = entities.filter((e) => e.theme === theme);
+		for (const entity of themeEntities) {
+			const source = entity.translations[src] || entity.translations['en'] || entity.translations['zh-Hans'];
+			const target = entity.translations[tgt] || entity.translations['en'] || entity.translations['zh-Hans'];
+
+			const aliases = Object.values(entity.translations).filter((v) => v && v !== source && v !== target);
+			const uniqueAliases = Array.from(new Set(aliases));
+
+			results.push({
+				term: {
+					source,
+					target,
+					category: entity.category as any,
+					gender: (entity.gender || 'neuter') as any,
+					aliases: uniqueAliases,
+					context: entity.context,
+					pinned: false,
+				},
+				packId,
+			});
 		}
 	}
 
