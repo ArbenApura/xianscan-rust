@@ -156,23 +156,29 @@ pub fn is_onomatopoeia_or_shout(text: &str) -> bool {
         && (t.contains('！') || t.contains('!'))
         && t.chars().count() <= 3;
 
-    // Korean action onomatopoeia & shouts (e.g. "촤", "콰", "쿵", "쾅", "띠", "띵", "찌", "쨍", "틱", "톡", "뚝", "팍", "탁", "철", "꾸", "꾹", "끼", "꽉", "콱", "털", "덜", "두", "벌")
+    // Korean action onomatopoeia & shouts (e.g. "촤", "콰", "쿵", "쾅", "띠", "띵", "찌", "쨍", "틱", "톡", "뚝", "팍", "탁", "철", "꾸", "꾹", "끼", "꽉", "콱", "털", "덜", "두", "벌", "웅")
     let is_korean_sfx_char = matches!(
         t.chars().next(),
         Some(
             '촤' | '콰' | '쾅' | '쿵' | '띠' | '띵' | '찌' | '쨍' | '틱' | '톡' | '뚝' | '팍' | '탁' | '철' | '척' | '홱' | '휙' | '쑥' | '쏙' | '또'
-                | '꾸' | '꾹' | '끼' | '꽉' | '콱' | '털' | '덜' | '두' | '벌'
+                | '꾸' | '꾹' | '끼' | '꽉' | '콱' | '털' | '덜' | '두' | '벌' | '웅'
         )
     ) && t.chars().count() <= 3
         && (t.contains('!') || t.contains('~') || t.contains('-') || t.chars().count() <= 2);
 
-    // Repeated onomatopoeia patterns (e.g. "嘟嘟", "嘟嘟嘟", "轰隆隆", "咚咚", "哗啦啦", "嗒嗒", "두근두근", "哗啦哗啦")
-    let chars: Vec<char> = t.chars().filter(|c| !c.is_whitespace() && !c.is_ascii_punctuation() && *c != '！' && *c != '？').collect();
-    let is_repeated_sound = if chars.len() >= 2 && chars.len() <= 4 {
+    // Repeated onomatopoeia patterns (e.g. "嘟嘟", "嘟嘟嘟", "轰隆隆", "咚咚", "哗啦啦", "嗒嗒", "두근두근", "哗啦哗啦", "웅\n웅\nㅇ", "웅\n웅")
+    let chars: Vec<char> = t
+        .chars()
+        .filter(|c| !c.is_whitespace() && !c.is_ascii_punctuation() && *c != '！' && *c != '？' && *c != '\'' && *c != '"' && *c != '’' && *c != '‘')
+        .collect();
+    let is_repeated_sound = if chars.len() >= 2 && chars.len() <= 6 {
         let first = chars[0];
         if first.is_ascii_alphanumeric() || first == 'し' || first == 'い' || first == '一' || first == '丨' {
             false
         } else if chars.iter().all(|&c| c == first) {
+            true
+        } else if chars.len() >= 3 && chars[..chars.len() - 1].iter().all(|&c| c == first) && (chars.last() == Some(&'ㅇ') || chars.last() == Some(&'…') || chars.last() == Some(&'~')) {
+            // Repeated Korean/CJK SFX with trailing jamo or symbol (e.g. '웅\n웅\nㅇ')
             true
         } else if chars.len() == 3 && chars[1] == chars[2] && chars.iter().all(|c| crate::ml::detect::has_cjk_characters(&c.to_string())) {
             true

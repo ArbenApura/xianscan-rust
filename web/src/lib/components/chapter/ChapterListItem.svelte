@@ -121,7 +121,7 @@
 				};
 			}
 			if (currentBatchItem.status === 'done') {
-				const total = currentBatchItem.totalPages || chapter.pageCount || 0;
+				const total = chapter.pageCount || currentBatchItem.totalPages || 0;
 				const done = chapter.translatedPageCount !== undefined ? chapter.translatedPageCount : (currentBatchItem.translatedPages || total);
 				const isReallyDone = total > 0 && done === total;
 				return {

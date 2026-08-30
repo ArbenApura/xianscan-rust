@@ -140,15 +140,15 @@ pub fn should_reject_candidate_region(
     // 9. SUPPRESS LOW-CONFIDENCE ISOLATED SINGLE-CHARACTER ARTWORK ARTIFACTS / SFX
     let char_count = cleaned.chars().filter(|c| !c.is_whitespace()).count();
     let is_oversized_single_char = char_count == 1 && (cluster_rect.w >= 75 || cluster_rect.h >= 75);
-    let is_shout = crate::ml::detect::is_onomatopoeia_or_shout(cleaned) && char_count <= 4;
+    let is_shout = crate::ml::detect::is_onomatopoeia_or_shout(cleaned) && char_count <= 6;
     let is_sign_or_narration_box = is_cjk && char_count >= 2 && ((cluster_rect.w >= 60 && cluster_rect.h >= 24) || (cluster_rect.w >= 15 && cluster_rect.h >= 30 && char_count >= 4) || (cluster_rect.w >= 20 && cluster_rect.h >= 30 && char_count >= 3)) && avg_score >= 0.70 && !is_shout;
     let is_margin_isolated_char = (cluster_rect.x <= 5 || cluster_rect.x + cluster_rect.w >= page_w as i32 - 5) && avg_score < 0.75;
     let is_valid_cjk_glyph = is_cjk && char_count >= 2 && cleaned.chars().any(|c| crate::ml::detect::has_cjk_characters(&c.to_string())) && avg_score >= 0.70 && !is_margin_isolated_char;
     let is_compact_single_glyph_box = char_count == 1 && cluster_rect.w <= 55 && cluster_rect.h <= 55;
     let is_low_conf_single_char = char_count == 1 && (avg_score < 0.75 || is_oversized_single_char || is_compact_single_glyph_box);
-    let is_isolated_sfx = char_count <= 4 && is_shout;
+    let is_isolated_sfx = char_count <= 6 && is_shout;
 
-    if char_count <= 4
+    if char_count <= 6
         && !is_bubble
         && !is_sign_or_narration_box
         && (!is_valid_cjk_glyph || is_low_conf_single_char || is_margin_isolated_char || is_isolated_sfx || is_oversized_single_char)
@@ -163,7 +163,7 @@ pub fn should_reject_candidate_region(
     }
 
     // 11. SUPPRESS LOW-CONFIDENCE REPEATED SFX GLYPHS GENERATED ON HIGH-VARIANCE BACKGROUND
-    if is_cjk && !is_bubble && avg_score < 0.65 && compute_chromatic_color_variance(img, cluster_rect) >= 15.0 && crate::ml::detect::is_onomatopoeia_or_shout(cleaned) {
+    if is_cjk && !is_bubble && (avg_score < 0.75 || is_shout) && compute_chromatic_color_variance(img, cluster_rect) >= 15.0 && crate::ml::detect::is_onomatopoeia_or_shout(cleaned) {
         return true;
     }
 

@@ -107,15 +107,12 @@ export function loadAllPacks(): Map<string, GlossaryPack> {
 					const source = entity.translations[src] || entity.translations['en'] || entity.translations['zh-Hans'];
 					const target = entity.translations[tgt] || entity.translations['en'] || entity.translations['zh-Hans'];
 
-					const aliases = Object.values(entity.translations).filter((v) => v && v !== source && v !== target);
-					const uniqueAliases = Array.from(new Set(aliases));
-
 					return {
 						source,
 						target,
 						category: entity.category as any,
 						gender: (entity.gender || 'neuter') as any,
-						aliases: uniqueAliases,
+						aliases: [],
 						context: entity.context,
 						pinned: false,
 					};
@@ -173,16 +170,13 @@ export function getActivePackTerms(
 			const source = entity.translations[src] || entity.translations['en'] || entity.translations['zh-Hans'];
 			const target = entity.translations[tgt] || entity.translations['en'] || entity.translations['zh-Hans'];
 
-			const aliases = Object.values(entity.translations).filter((v) => v && v !== source && v !== target);
-			const uniqueAliases = Array.from(new Set(aliases));
-
 			results.push({
 				term: {
 					source,
 					target,
 					category: entity.category as any,
 					gender: (entity.gender || 'neuter') as any,
-					aliases: uniqueAliases,
+					aliases: [],
 					context: entity.context,
 					pinned: false,
 				},

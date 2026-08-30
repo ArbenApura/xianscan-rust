@@ -54,10 +54,14 @@ describe('Glossary Packs Registry', () => {
 		expect(esTerms.length).toBeGreaterThan(0);
 
 		const ruTerms = getActivePackTerms({ sourceLang: 'ru', targetLang: 'en' });
-		expect(ruTerms.length).toBe(166);
+		expect(ruTerms.length).toBe(179);
 
 		const thTerms = getActivePackTerms({ sourceLang: 'th', targetLang: 'en' });
-		expect(thTerms.length).toBe(166);
+		expect(thTerms.length).toBe(179);
+
+		expect(zhTerms.some((t) => t.term.source === '宗门' && t.term.target === 'Sect')).toBe(true);
+		expect(zhTerms.some((t) => t.term.source === '教会' && t.term.target === 'Church')).toBe(true);
+		expect(zhTerms.some((t) => t.term.source === '教廷' && t.term.target === 'Holy See')).toBe(true);
 	});
 });
 

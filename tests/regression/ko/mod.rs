@@ -8,6 +8,7 @@ mod page_hospital_reception_wall_sign;
 mod page_iv_drip_sedative_squeeze_sfx;
 mod page_korean_gamers_365_days_continuous;
 mod page_korean_scream_kkaaak_spiky_bubble;
+mod page_meditating_martial_artist_vibration_sfx;
 mod page_one_chance_fuzzy_bubble;
 mod page_patient_endoscopy_heartbeat_sfx;
 mod page_patient_greeting_doctor_exclamation;

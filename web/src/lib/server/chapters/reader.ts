@@ -260,6 +260,7 @@ export async function updateRegionTranslation(
 				.set({ outputPath, outputRev: sql`${pages.outputRev} + 1`, status: 'done' })
 				.where(eq(pages.id, pageId))
 				.run();
+			syncChapterStatus(pageRow.chapterId);
 			const fresh = db
 				.select({ outputRev: pages.outputRev })
 				.from(pages)
@@ -329,6 +330,7 @@ export async function retypesetPage(
 			.set({ outputPath, outputRev: sql`${pages.outputRev} + 1`, status: 'done' })
 			.where(eq(pages.id, pageId))
 			.run();
+		syncChapterStatus(pageRow.chapterId);
 		const fresh = db
 			.select({ outputRev: pages.outputRev })
 			.from(pages)
@@ -338,6 +340,33 @@ export async function retypesetPage(
 	} catch (err) {
 		console.error('Failed to retypeset page:', err);
 		return { outputPath: pageRow.outputPath, outputRev: pageRow.outputRev };
+	}
+}
+
+export function syncChapterStatus(chapterId: number): void {
+	try {
+		const pageRows = db
+			.select({ status: pages.status, outputPath: pages.outputPath })
+			.from(pages)
+			.where(eq(pages.chapterId, chapterId))
+			.all();
+		if (pageRows.length === 0) return;
+		const allDone = pageRows.every((p) => p.status === 'done' || Boolean(p.outputPath));
+		const anyError = pageRows.some((p) => p.status === 'error');
+		const status = allDone ? 'done' : anyError ? 'error' : 'pending';
+
+		const [ch] = db.select().from(chapters).where(eq(chapters.id, chapterId)).all();
+		if (!ch) return;
+
+		db.update(chapters)
+			.set({
+				status,
+				translatedAt: allDone ? Date.now() : ch.translatedAt,
+			})
+			.where(eq(chapters.id, chapterId))
+			.run();
+	} catch (err) {
+		console.error('Failed to sync chapter status:', err);
 	}
 }
 
