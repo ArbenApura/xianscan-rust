@@ -31,8 +31,8 @@ export const GET: RequestHandler = async () => {
 
 			return json({
 				...hw,
-				version: hw.version || '0.4.0-beta.11',
-				app_version: hw.app_version || '0.4.0-beta.11+dev',
+				version: hw.version || '0.5.0-beta.1',
+				app_version: hw.app_version || '0.5.0-beta.1+dev',
 				web_build_hash: hw.web_build_hash || 'dev',
 				web_build_time: hw.web_build_time || '0',
 			});
@@ -53,8 +53,8 @@ export const GET: RequestHandler = async () => {
 			has_cuda: false,
 			has_directml: false,
 			has_coreml: false,
-			version: health.version || '0.4.0-beta.11',
-			app_version: health.app_version || '0.4.0-beta.11+dev',
+			version: health.version || '0.5.0-beta.1',
+			app_version: health.app_version || '0.5.0-beta.1+dev',
 			web_build_hash: health.web_build_hash || 'dev',
 			web_build_time: health.web_build_time || '0',
 		});
