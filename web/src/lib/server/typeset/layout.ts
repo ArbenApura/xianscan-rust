@@ -81,6 +81,21 @@ export function findHyphenationPoints(rawWord: string): number[] {
 		}
 	}
 
+	// 6. VOWEL-CONSONANT-VOWEL (V-CV) FALLBACK: ONLY WHEN NO OTHER RULE FOUND A BREAK POINT.
+	// HANDLES WORDS LIKE "CEREMONY" (CERE-MONY), "RECOVERY" (RECOV-ERY), "FAMILIAR" (FAMIL-IAR)
+	// THAT HAVE NO MATCHING PREFIX, SUFFIX, DOUBLE-CONSONANT, OR VCCV PATTERN.
+	// SKIPPED ENTIRELY IF PRIOR RULES ALREADY FOUND BREAKS (E.G. "EVERYTHING" → "EVERY-THING").
+	if (points.size === 0) {
+		for (let i = 2; i < len - 1; i++) {
+			const prev = word[i - 1];
+			const curr = word[i];
+			const next = word[i + 1];
+			if (vowels.includes(prev) && !vowels.includes(curr) && curr !== '-' && vowels.includes(next)) {
+				points.add(i);
+			}
+		}
+	}
+
 	return Array.from(points)
 		.filter((p) => p >= 3 && len - p >= 3)
 		.sort((a, b) => a - b);
@@ -224,12 +239,19 @@ export function wrapText(ctx: { measureText(t: string): { width: number } }, tex
 				}
 			} else if (w.includes("'") && !w.startsWith("'") && !w.endsWith("'")) {
 				const sub = w.split("'");
-				for (let i = 0; i < sub.length; i++) {
-					if (i < sub.length - 1) {
-						expandedWords.push(`${sub[i]}'`);
-					} else {
-						expandedWords.push(sub[i]);
+				// ONLY SPLIT ON APOSTROPHE IF EVERY SUFFIX SEGMENT IS LONG ENOUGH TO BE A VALID BREAK POINT
+				// SHORT SUFFIXES LIKE 'T, 'S, 'D, 'LL, 'VE, 'RE MUST STAY ATTACHED TO THEIR PREFIX
+				const allSufficesLongEnough = sub.slice(1).every((s) => s.length >= 3);
+				if (allSufficesLongEnough) {
+					for (let i = 0; i < sub.length; i++) {
+						if (i < sub.length - 1) {
+							expandedWords.push(`${sub[i]}'`);
+						} else {
+							expandedWords.push(sub[i]);
+						}
 					}
+				} else {
+					expandedWords.push(w);
 				}
 			} else {
 				const m = w.match(/^(.*?)([.!?,:;~…"']{2,})$/);
@@ -438,8 +460,15 @@ export function fitFontSize(
 			}
 		} else if (w.includes("'") && !w.startsWith("'") && !w.endsWith("'")) {
 			const sub = w.split("'");
-			for (let i = 0; i < sub.length; i++) {
-				words.push(i < sub.length - 1 ? `${sub[i]}'` : sub[i]);
+			// ONLY SPLIT ON APOSTROPHE IF EVERY SUFFIX SEGMENT IS LONG ENOUGH TO BE A VALID BREAK POINT
+			// SHORT SUFFIXES LIKE 'T, 'S, 'D, 'LL, 'VE, 'RE MUST STAY ATTACHED TO THEIR PREFIX
+			const allSufficesLongEnough = sub.slice(1).every((s) => s.length >= 3);
+			if (allSufficesLongEnough) {
+				for (let i = 0; i < sub.length; i++) {
+					words.push(i < sub.length - 1 ? `${sub[i]}'` : sub[i]);
+				}
+			} else {
+				words.push(w);
 			}
 		} else {
 			const m = w.match(/^(.*?)([.!?,:;~…"']{2,})$/);
@@ -461,14 +490,39 @@ export function fitFontSize(
 		if (mid === 0) break;
 		ctx.font = fontSpec(mid, fontFamily, text, customCjk);
 
+		// HYPHENATION-AWARE MAX WORD WIDTH: USE THE WIDEST SEGMENT AFTER APPLYING
+		// HYPHENATION BREAKS (MATCHING WHAT wrapText WILL ACTUALLY PRODUCE).
+		// WITHOUT THIS, WORDS LIKE "SOMETHING" OR "CEREMONY" BLOCK LARGER FONT SIZES
+		// EVEN THOUGH THEY CAN BE BROKEN ACROSS LINES, LEAVING VERTICAL SPACE WASTED.
+		// ONLY SWITCH TO THE HYPHENATED-SEGMENT WIDTH WHEN THE WHOLE WORD ALREADY
+		// OVERFLOWS THE BOX — SO BREAKABLE WORDS LIKE "EVERYTHING" STAY INTACT WHEN THEY FIT.
 		const maxWordWidth = Math.max(
 			0,
 			...words.map((w) => {
 				const punctMatch = w.match(/^(.*?)([.!?,:;~…"']+)?$/);
 				const stem = punctMatch && punctMatch[1] ? punctMatch[1] : w;
+				const trailingPunct = punctMatch?.[2] ?? '';
 				const fullW = ctx.measureText(w).width;
 				const stemW = ctx.measureText(stem).width;
-				return fullW <= maxW * 1.15 || stemW <= maxW ? stemW : fullW;
+				// IF THE WHOLE WORD FITS STRICTLY WITHIN THE BOX, REPORT ITS ACTUAL WIDTH —
+				// DON'T PRETEND IT'S SHORTER JUST BECAUSE IT COULD HYPHENATE.
+				if (stemW <= maxW) {
+					return stemW;
+				}
+				// WORD OVERFLOWS: CHECK WHETHER HYPHENATION GIVES A SHORTER SEGMENT THAT FITS.
+				const points = findHyphenationPoints(stem);
+				if (points.length > 0) {
+					let segMax = 0;
+					let prev = 0;
+					for (const p of points) {
+						const seg = stem[p - 1] === '-' ? stem.slice(prev, p) : `${stem.slice(prev, p)}-`;
+						segMax = Math.max(segMax, ctx.measureText(seg).width);
+						prev = p;
+					}
+					segMax = Math.max(segMax, ctx.measureText(stem.slice(prev) + trailingPunct).width);
+					return segMax;
+				}
+				return fullW;
 			}),
 		);
 		if (maxWordWidth <= maxW * 1.15) {
@@ -502,7 +556,10 @@ export function fitFontSize(
 		const lines = reflowText(ctx, text, maxW);
 		const lineH = mid * LINE_HEIGHT;
 		const allLinesFitW = lines.every((l) => ctx.measureText(l).width <= maxW * 1.15 + 0.5);
-		if (allLinesFitW && lines.length * lineH <= maxH) {
+		// SECOND PASS ALLOWS CHAR-LEVEL BREAKING (OVERFLOW > 1 LETTER) BUT STILL REJECTS
+		// MORPHOLOGICAL HYPHENATION (E.G. "EVERY-THING") — THOSE WERE ALREADY HANDLED IN PASS 1.
+		const hasNoHyphenBreaks = lines.every((l) => !l.endsWith('-') || text.includes(l));
+		if (allLinesFitW && lines.length * lineH <= maxH && hasNoHyphenBreaks) {
 			best = mid;
 			lo = mid + 1;
 		} else {

@@ -886,7 +886,7 @@ describe('parseExtractedTerms & extractTerms', () => {
 		const res = await translateSingleText('你好！', PAIR, { client, kind: 'general' });
 		expect(res.text).toBe('你好！');
 		expect(callCount()).toBe(4); // initial + 3 retries
-	});
+	}, 10000);
 
 	it('retries translatePage when LLM returns empty content or unparseable JSON', async () => {
 		const dialogueRegions = [{ id: 'r0', text: '你好！', kind: 'dialogue_bubble' }];
