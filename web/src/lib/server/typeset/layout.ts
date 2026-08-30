@@ -540,9 +540,55 @@ export function fitFontSize(
 		hi = mid - 1;
 	}
 
+	// TALL-NARROW TYPESET FLOOR: WHEN THE TYPESET BOUNDARY IS MUCH TALLER THAN
+	// WIDE (ASPECT RATIO >= 2.5), THE NARROW WIDTH ALONE BOTTLENECKS THE BINARY
+	// SEARCH INTO AN UNREADABLY TINY FONT. COMPUTE A GEOMETRIC MINIMUM DERIVED
+	// PURELY FROM THE TYPESET BOX DIMENSIONS — NOT THE BUBBLE BOUNDARY.
+	// SLIGHT VERTICAL OVERFLOW IS TOLERATED; HORIZONTAL OVERFLOW IS NOT.
+	// FLOOR IS CLAMPED BY THE EFFECTIVE CAP SO IT NEVER EXCEEDS THE CALLER'S LIMIT.
+	const aspectRatio = maxH / Math.max(maxW, 1);
+	const effectiveCap = Math.max(MIN_FONT_SIZE, maxSize ?? startSize);
+	let tallNarrowFloor = MIN_FONT_SIZE;
+	if (aspectRatio >= 2.5) {
+		const geometricCandidate = Math.min(
+			effectiveCap,
+			Math.max(
+				MIN_FONT_SIZE,
+				Math.round(maxW * 0.28),
+				Math.round(Math.sqrt(maxW * maxH) * 0.10),
+			),
+		);
+		// CLAMP THE GEOMETRIC CANDIDATE TO THE LARGEST SIZE WHERE:
+		//   (A) ALL REFLOWED LINES FIT WITHIN maxW — NO HORIZONTAL CLIPPING.
+		//   (B) TOTAL LINE STACK DOES NOT EXCEED maxH * 1.35 — NO EGREGIOUS
+		//       VERTICAL BLOWOUT. UP TO 35% VERTICAL OVERFLOW IS TOLERATED
+		//       TO LIFT THE FONT ABOVE THE TINY SIZE THE HEIGHT CONSTRAINT ALONE
+		//       WOULD PRODUCE, BUT NOT SO MUCH THAT IT BLEEDS FAR OUTSIDE THE BOX.
+		const TALL_NARROW_VERT_TOLERANCE = 1.35;
+		let floorLo = MIN_FONT_SIZE;
+		let floorHi = geometricCandidate;
+		let safeFloor = MIN_FONT_SIZE;
+		while (floorLo <= floorHi) {
+			const mid = Math.floor((floorLo + floorHi) / 2);
+			if (mid === 0) break;
+			ctx.font = fontSpec(mid, fontFamily, text, customCjk);
+			const lines = reflowText(ctx, text, maxW);
+			const lineH = mid * LINE_HEIGHT;
+			const allFitW = lines.every((l) => ctx.measureText(l).width <= maxW * 1.15 + 0.5);
+			const totalH = lines.length * lineH;
+			if (allFitW && totalH <= maxH * TALL_NARROW_VERT_TOLERANCE) {
+				safeFloor = mid;
+				floorLo = mid + 1;
+			} else {
+				floorHi = mid - 1;
+			}
+		}
+		tallNarrowFloor = safeFloor;
+	}
+
 	const isNarrowVertical = (boxH / boxW >= 1.15 || boxH >= 120) && boxH >= 65;
 	if (foundClean && (cleanBest >= 14 || !isNarrowVertical)) {
-		return cleanBest;
+		return Math.max(cleanBest, tallNarrowFloor);
 	}
 
 	lo = Math.max(cleanBest, MIN_FONT_SIZE);
@@ -567,7 +613,7 @@ export function fitFontSize(
 		}
 	}
 
-	return best;
+	return Math.max(best, tallNarrowFloor);
 }
 
 export function fitSingleLineSize(

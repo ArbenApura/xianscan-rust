@@ -44,7 +44,7 @@
 			num: '03',
 			title: 'Speech Bubble & Text Segmentation',
 			engine: 'Koharu RF-DETR Seg 2XL & RT-DETR (ONNX Runtime)',
-			body: 'Locates dialogue bubbles, narrative text boxes, and sound effects with sub-pixel bounding polygon coordinates and configurable expansion margins.',
+			body: 'Locates dialogue bubbles and narrative text boxes with sub-pixel bounding polygon coordinates and configurable expansion margins.',
 		},
 		{
 			num: '04',

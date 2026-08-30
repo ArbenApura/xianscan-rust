@@ -66,7 +66,7 @@ flowchart LR
 
 1. **Web Importer Extension**: Captures full comic chapters directly from online reader sites, smoothly handling lazy-loaded images and filtering out ad containers.
 2. **Webtoon Gutter Reslicing**: Automatically recombines and splits tall vertical strips along natural panel gutters before processing, ensuring speech bubbles are never cut in half across slice seams.
-3. **Speech Bubble & Panel Segmentation**: Uses high-resolution segmentation (Koharu RF-DETR Seg 2XL / RT-DETR) to identify dialogue bubbles, comic sound effects, and panel boundaries.
+3. **Speech Bubble & Panel Segmentation**: Uses high-resolution segmentation (Koharu RF-DETR Seg 2XL / RT-DETR) to identify dialogue bubbles and panel boundaries.
 4. **Multi-Language OCR**: High-accuracy text extraction with support for vertical and horizontal text layouts across 10 languages.
 5. **Context-Aware AI Translation & Glossaries**: Integrates with local LLMs (Ollama, LM Studio with Qwen, Llama, Gemma) or cloud APIs (Gemini, OpenAI, Groq, OpenRouter). Uses an elastic multi-page dialogue memory tracker (up to 5 previous pages) to keep speaker identity, pronouns, and topic consistent across page turns, combined with Aho-Corasick terminology glossaries to enforce consistent names and cultivation terms across chapters.
 6. **Neural Artwork Inpainting (LaMa)**: Removes dialogue text while reconstructing underlying artwork, gradients, and textures with configurable edge padding.
