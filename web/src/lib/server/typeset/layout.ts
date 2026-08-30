@@ -525,10 +525,10 @@ export function fitFontSize(
 				return fullW;
 			}),
 		);
-		if (maxWordWidth <= maxW * 1.15) {
+		if (maxWordWidth <= maxW) {
 			const lines = reflowText(ctx, text, maxW);
 			const lineH = mid * LINE_HEIGHT;
-			const allLinesFitW = lines.every((l) => ctx.measureText(l).width <= maxW * 1.15 + 0.5);
+			const allLinesFitW = lines.every((l) => ctx.measureText(l).width <= maxW + 0.5);
 			const hasNoHyphenBreaks = lines.every((l) => !l.endsWith('-') || text.includes(l));
 			if (allLinesFitW && lines.length * lineH <= maxH && hasNoHyphenBreaks) {
 				cleanBest = mid;
@@ -541,7 +541,7 @@ export function fitFontSize(
 	}
 
 	// TALL-NARROW TYPESET FLOOR: WHEN THE TYPESET BOUNDARY IS MUCH TALLER THAN
-	// WIDE (ASPECT RATIO >= 2.5), THE NARROW WIDTH ALONE BOTTLENECKS THE BINARY
+	// WIDE (ASPECT RATIO >= 2.0), THE NARROW WIDTH ALONE BOTTLENECKS THE BINARY
 	// SEARCH INTO AN UNREADABLY TINY FONT. COMPUTE A GEOMETRIC MINIMUM DERIVED
 	// PURELY FROM THE TYPESET BOX DIMENSIONS — NOT THE BUBBLE BOUNDARY.
 	// SLIGHT VERTICAL OVERFLOW IS TOLERATED; HORIZONTAL OVERFLOW IS NOT.
@@ -549,7 +549,7 @@ export function fitFontSize(
 	const aspectRatio = maxH / Math.max(maxW, 1);
 	const effectiveCap = Math.max(MIN_FONT_SIZE, maxSize ?? startSize);
 	let tallNarrowFloor = MIN_FONT_SIZE;
-	if (aspectRatio >= 2.5) {
+	if (aspectRatio >= 2.0) {
 		const geometricCandidate = Math.min(
 			effectiveCap,
 			Math.max(
@@ -559,12 +559,9 @@ export function fitFontSize(
 			),
 		);
 		// CLAMP THE GEOMETRIC CANDIDATE TO THE LARGEST SIZE WHERE:
-		//   (A) ALL REFLOWED LINES FIT WITHIN maxW — NO HORIZONTAL CLIPPING.
-		//   (B) TOTAL LINE STACK DOES NOT EXCEED maxH * 1.15 — NO EGREGIOUS
-		//       VERTICAL BLOWOUT. UP TO 15% VERTICAL OVERFLOW IS TOLERATED
-		//       TO LIFT THE FONT ABOVE THE TINY SIZE THE HEIGHT CONSTRAINT ALONE
-		//       WOULD PRODUCE, BUT NOT SO MUCH THAT IT BLEEDS FAR OUTSIDE THE BOX.
-		const TALL_NARROW_VERT_TOLERANCE = 1.15;
+		//   (A) ALL REFLOWED LINES FIT WITHIN maxW — NO HORIZONTAL OVERFLOW.
+		//   (B) TOTAL LINE STACK DOES NOT EXCEED maxH — NO VERTICAL OVERFLOW.
+		const TALL_NARROW_VERT_TOLERANCE = 1.0;
 		let floorLo = MIN_FONT_SIZE;
 		let floorHi = geometricCandidate;
 		let safeFloor = MIN_FONT_SIZE;
@@ -574,7 +571,7 @@ export function fitFontSize(
 			ctx.font = fontSpec(mid, fontFamily, text, customCjk);
 			const lines = reflowText(ctx, text, maxW);
 			const lineH = mid * LINE_HEIGHT;
-			const allFitW = lines.every((l) => ctx.measureText(l).width <= maxW * 1.25 + 0.5);
+			const allFitW = lines.every((l) => ctx.measureText(l).width <= maxW + 0.5);
 			const totalH = lines.length * lineH;
 			if (allFitW && totalH <= maxH * TALL_NARROW_VERT_TOLERANCE) {
 				safeFloor = mid;
@@ -601,7 +598,7 @@ export function fitFontSize(
 		ctx.font = fontSpec(mid, fontFamily, text, customCjk);
 		const lines = reflowText(ctx, text, maxW);
 		const lineH = mid * LINE_HEIGHT;
-		const allLinesFitW = lines.every((l) => ctx.measureText(l).width <= maxW * 1.15 + 0.5);
+		const allLinesFitW = lines.every((l) => ctx.measureText(l).width <= maxW + 0.5);
 		// SECOND PASS ALLOWS CHAR-LEVEL BREAKING (OVERFLOW > 1 LETTER) BUT STILL REJECTS
 		// MORPHOLOGICAL HYPHENATION (E.G. "EVERY-THING") — THOSE WERE ALREADY HANDLED IN PASS 1.
 		const hasNoHyphenBreaks = lines.every((l) => !l.endsWith('-') || text.includes(l));

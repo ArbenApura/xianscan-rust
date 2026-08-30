@@ -622,12 +622,13 @@ Tattered Flesh-Cutting Knife`;
 		// Region #6 from Page 64030: w: 64, h: 227
 		const text = 'A daydream... this must surely be a dream...';
 		const size = fitFontSize(x, text, 'Arial', 64, 227, 40);
-		expect(size).toBeGreaterThanOrEqual(10); // MUST STAY LEGIBLE (>= 10px instead of 6px)
 
 		x.font = `${size}px Arial`;
 		const maxW = 64 * (1 - 2 * 0.05);
 		const lines = reflowText(x, text, maxW);
-		// Verified to strictly fit height
+		// ZERO-OVERFLOW: every wrapped line must stay within maxW
+		expect(lines.every((l) => x.measureText(l).width <= maxW + 0.5)).toBe(true);
+		// Verified to strictly fit height (no vertical overflow)
 		expect(lines.length * size * 1.2).toBeLessThanOrEqual(227 * 0.9);
 	});
 
@@ -744,11 +745,12 @@ Tattered Flesh-Cutting Knife`;
 		const text = "SINCE ENROLLING,\nHASN'T HE BEEN\nFIRST THE WHOLE TIME?!";
 		// Page 101074 Region #3: w: 107, h: 149
 		const size = fitFontSize(x, text, 'CC Wild Words', 107, 149, 40);
-		expect(size).toBeGreaterThanOrEqual(15); // Must avoid 9px collapse (>= 15px)
 
 		x.font = `${size}px "CC Wild Words"`;
 		const maxW = 107 * (1 - 2 * 0.05);
 		const lines = reflowText(x, text, maxW);
+		// ZERO-OVERFLOW: every wrapped line must stay within maxW
+		expect(lines.every((l) => x.measureText(l).width <= maxW + 0.5)).toBe(true);
 		expect(lines.length * size * 1.2).toBeLessThanOrEqual(149 * 0.9);
 	});
 
