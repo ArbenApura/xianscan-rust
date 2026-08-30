@@ -266,8 +266,9 @@ pub fn should_reject_candidate_region(
 
     // 21. SUPPRESS SPARSE GIANT NON-BUBBLE DETECTIONS
     let is_sparse_giant_non_bubble = !is_bubble
-        && (cluster_rect.w >= 250 && cluster_rect.h >= 150)
-        && cleaned.chars().filter(|c| !c.is_whitespace()).count() <= 3;
+        && (((cluster_rect.w >= 250 && cluster_rect.h >= 150) && cleaned.chars().filter(|c| !c.is_whitespace()).count() <= 3)
+            || (cluster_rect.h >= 300 && cluster_rect.w >= 100 && cleaned.chars().filter(|c| !c.is_whitespace()).count() <= 2)
+            || (cluster_rect.h >= 350 && cleaned.chars().filter(|c| !c.is_whitespace()).count() <= 3 && angle_deg.abs() >= 10.0));
     if is_sparse_giant_non_bubble {
         return true;
     }

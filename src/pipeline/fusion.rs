@@ -293,10 +293,31 @@ pub fn fuse_detections(
                                 );
                                 if is_better {
                                     let rl_orig_score = rl.score;
-                                    let union_x = cb_x.min(rx);
-                                    let union_y = cb_y.min(ry);
-                                    let union_w = (cb_x + cb_w).max(rx + rw) - union_x;
-                                    let union_h = (cb_y + cb_h).max(ry + rh) - union_y;
+                                    let (union_x, union_y, union_w, union_h) = if !line_res.lines.is_empty() {
+                                        let mut min_lx = i32::MAX;
+                                        let mut min_ly = i32::MAX;
+                                        let mut max_lx = i32::MIN;
+                                        let mut max_ly = i32::MIN;
+                                        for (lp, _, _) in &line_res.lines {
+                                            for p in lp {
+                                                min_lx = min_lx.min(p[0] + cx as i32);
+                                                min_ly = min_ly.min(p[1] + cy as i32);
+                                                max_lx = max_lx.max(p[0] + cx as i32);
+                                                max_ly = max_ly.max(p[1] + cy as i32);
+                                            }
+                                        }
+                                        let ux = min_lx.max(0);
+                                        let uy = min_ly.max(0);
+                                        let uw = (max_lx - min_lx).max(1);
+                                        let uh = (max_ly - min_ly).max(1);
+                                        (ux, uy, uw, uh)
+                                    } else {
+                                        let union_x = cb_x.min(rx);
+                                        let union_y = cb_y.min(ry);
+                                        let union_w = (cb_x + cb_w).max(rx + rw) - union_x;
+                                        let union_h = (cb_y + cb_h).max(ry + rh) - union_y;
+                                        (union_x, union_y, union_w, union_h)
+                                    };
                                     let offset_poly = vec![
                                         [union_x, union_y],
                                         [union_x + union_w, union_y],

@@ -7,6 +7,8 @@ mod page_hospital_gown_pattern_team_leader_bubble;
 mod page_hospital_reception_wall_sign;
 mod page_iv_drip_sedative_squeeze_sfx;
 mod page_korean_gamers_365_days_continuous;
+mod page_korean_scream_kkaaak_spiky_bubble;
+mod page_one_chance_fuzzy_bubble;
 mod page_patient_endoscopy_heartbeat_sfx;
 mod page_patient_greeting_doctor_exclamation;
 mod page_physician_seok_treatment_bubble_centering;
@@ -16,4 +18,5 @@ mod page_snake_skewer_crackle_sfx_tadak;
 mod page_spring_up_couch_worry_sfx;
 mod page_suddenly_reality_check_bottom_narration;
 mod page_talk_like_that_bottom_narration;
+mod page_yu_family_spear_technique_slash;
 

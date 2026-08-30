@@ -39,7 +39,7 @@ fn test_regression_page_winner_life_tokyo_univ() {
     assert!(baka_text.is_some(), "Must detect top-right free text '馬鹿で'");
     let baka_text = baka_text.unwrap();
     assert!(baka_text.text.contains("馬鹿で") || baka_text.text.contains("馬鹿"), "Text must contain 馬鹿: got '{}'", baka_text.text);
-    crate::assert_region_bounds!(baka_text, xianscan_rust::ml::schemas::RegionKind::FreeText, 724, 38, 192, 404, 15);
+    crate::assert_region_bounds!(baka_text, xianscan_rust::ml::schemas::RegionKind::FreeText, 737, 55, 173, 358, 15);
 
     // 2. TOP-LEFT FREE TEXT: 'いてくれて'
     // TEXT BOUNDS APPROX: [X: 166, Y: 45, W: 165, H: 590]
@@ -63,6 +63,7 @@ fn test_regression_page_winner_life_tokyo_univ() {
     assert!(tokyo_univ_text.is_some(), "Must detect bottom-left free text '僕は東大に行けるし...'");
     let tokyo_univ_text = tokyo_univ_text.unwrap();
     assert!(tokyo_univ_text.text.contains("東大") && tokyo_univ_text.text.contains("勝ち組"), "Text must contain 東大 and 勝ち組: got '{}'", tokyo_univ_text.text);
+    crate::assert_region_bounds!(tokyo_univ_text, xianscan_rust::ml::schemas::RegionKind::FreeText, 98, 921, 185, 579, 15);
 
     // 5. EXPLICIT NEGATIVE CHECKS: NO DUPLICATE SPLITS OR WINDOW GRID NOISE
     assert!(!res.regions.iter().any(|r| r.text.contains("年年出") || r.text.contains("电用用")), "Must not detect window grid noise");

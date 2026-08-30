@@ -214,14 +214,16 @@ pub fn format_lines_cluster(
             let is_sub_or_fragment = deduped_sorted.iter().any(|existing| {
                 let clean_e = existing.text.trim();
                 let is_sub = clean_e.contains(clean_l) && clean_e.chars().count() > clean_l.chars().count();
-                let has_overlap_chars = clean_l.chars().filter(|c| !c.is_alphanumeric() || !c.is_ascii_digit()).all(|c| clean_e.contains(c));
+                let is_l_punct = clean_l.chars().all(|c| c.is_ascii_punctuation() || matches!(c, '！' | '？' | '!' | '?' | '…'));
+                let has_overlap_chars = !is_l_punct && clean_l.chars().filter(|c| !c.is_alphanumeric() || !c.is_ascii_digit()).all(|c| clean_e.contains(c));
                 is_sub || (has_overlap_chars && clean_l.chars().count() <= clean_e.chars().count() / 2 && clean_e.chars().count() >= 6)
             });
             if !is_sub_or_fragment {
                 deduped_sorted.retain(|existing| {
                     let clean_e = existing.text.trim();
                     let is_sub = clean_l.contains(clean_e) && clean_l.chars().count() > clean_e.chars().count();
-                    let has_overlap_chars = clean_e.chars().filter(|c| !c.is_alphanumeric() || !c.is_ascii_digit()).all(|c| clean_e.contains(c));
+                    let is_e_punct = clean_e.chars().all(|c| c.is_ascii_punctuation() || matches!(c, '！' | '？' | '!' | '?' | '…'));
+                    let has_overlap_chars = !is_e_punct && clean_e.chars().filter(|c| !c.is_alphanumeric() || !c.is_ascii_digit()).all(|c| clean_l.contains(c));
                     !(is_sub || (has_overlap_chars && clean_e.chars().count() <= clean_l.chars().count() / 2 && clean_e.chars().count() >= 6))
                 });
                 deduped_sorted.push(l);

@@ -108,7 +108,8 @@ pub fn try_refine_cluster_crop(
                 if t.is_empty() || crate::ml::detect::is_watermark_line(t) {
                     return false;
                 }
-                if crate::ml::detect::is_standalone_alphanumeric_without_cjk(t) && t.chars().count() <= 5 && *score < 0.85 {
+                let is_punct = t.chars().all(|c| c.is_ascii_punctuation() || matches!(c, '！' | '？' | '!' | '?' | '…'));
+                if !is_punct && crate::ml::detect::is_standalone_alphanumeric_without_cjk(t) && t.chars().count() <= 5 && *score < 0.85 {
                     return false;
                 }
                 true

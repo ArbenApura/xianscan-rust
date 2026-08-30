@@ -81,7 +81,6 @@ pub fn analyze_image_with_fusion_timed(
     let is_detector_first = fusion_res.backend == "rfdetr-seg-2xl" || fusion_res.backend == "rtdetr-v2";
     if is_detector_first && (!fusion_res.text_bubbles.is_empty() || !fusion_res.text_free.is_empty()) {
         for (b, score) in &fusion_res.text_bubbles {
-            // If this is a loose composite box enclosing 2 or more separate tighter subboxes across different columns or with distinct bubbles, skip it
             let inside_any_bubble = fusion_res.bubbles.iter().any(|pb| {
                 let ix = (pb.x + pb.w).min(b.x + b.w) - pb.x.max(b.x);
                 let iy = (pb.y + pb.h).min(b.y + b.h) - pb.y.max(b.y);
@@ -155,7 +154,19 @@ pub fn analyze_image_with_fusion_timed(
                         && ((b.x + b.w).min(parent_b.x + parent_b.w) - b.x.max(parent_b.x)).max(0) as f32 / (b.w as f32) >= 0.50
                         && ((b.y + b.h).min(parent_b.y + parent_b.h) - b.y.max(parent_b.y)).max(0) as f32 / (b.h as f32) >= 0.70
                 });
-            if is_subfragment || is_vertical_subbox_redundancy || is_shorter_overlap_redundancy {
+
+            // IF THIS IS A LOW-CONFIDENCE OVERSIZED VERTICAL EXPANSION (H >= 1.4 * COMPACT_H) EXTENDING INTO EMPTY BUBBLE SPACE WHILE A HIGH-CONFIDENCE COMPACT BOX EXISTS
+            let is_oversized_empty_expansion = fusion_res.text_bubbles.iter().any(|(compact_b, compact_score)| {
+                compact_b != b
+                    && *compact_score >= *score + 0.20
+                    && b.h >= (compact_b.h as f32 * 1.35) as i32
+                    && (b.x - compact_b.x).abs() <= 35
+                    && (b.x + b.w - (compact_b.x + compact_b.w)).abs() <= 35
+                    && (b.y - compact_b.y).abs() <= 25
+                    && (b.y + b.h) >= (compact_b.y + compact_b.h + 40)
+            });
+
+            if is_subfragment || is_vertical_subbox_redundancy || is_shorter_overlap_redundancy || is_oversized_empty_expansion {
                 continue;
             }
 

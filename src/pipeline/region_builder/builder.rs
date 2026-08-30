@@ -135,9 +135,13 @@ pub fn build_regions(
             }
 
             is_container_vert = if v_count > 0 && h_count > 0 {
-                v_area > (h_area as f32 * 1.30) as i64 && v_count > h_count
+                v_area > (h_area as f32 * 1.30) as i64 || (box_rect.h > (box_rect.w as f32 * 1.3) as i32 && v_count >= h_count)
+            } else if v_count > 0 {
+                true
+            } else if h_count > 0 {
+                false
             } else {
-                v_count > h_count
+                box_rect.h > (box_rect.w as f32 * 1.3) as i32
             };
 
             // PRUNE PERPENDICULAR PHANTOM SLICES THAT CONFLICT WITH DOMINANT ORIENTATION
@@ -145,7 +149,9 @@ pub fn build_regions(
                 matched.iter().copied().filter(|m| {
                     let (_, _, lw, lh) = polygon_bounds(&m.polygon);
                     let is_line_vert = lh > (lw as f32 * 1.25) as i32;
-                    is_line_vert == is_container_vert
+                    let t = m.text.trim();
+                    let is_punct = t.chars().all(|c| c.is_ascii_punctuation() || matches!(c, '！' | '？' | '!' | '?' | '…'));
+                    is_line_vert == is_container_vert || (is_container_vert && is_punct)
                 }).collect()
             } else {
                 matched.clone()
@@ -173,7 +179,6 @@ pub fn build_regions(
                 });
             }
 
-            let mut filtered_matched: Vec<&OcrLine> = Vec::new();
             let mut sanitized_lines: Vec<OcrLine> = Vec::new();
             for &m in &orientation_filtered {
                 let clean_m = crate::ml::detect::clean_stray_ocr_artifacts(&m.text);
@@ -186,6 +191,7 @@ pub fn build_regions(
                 sanitized_lines.push(clone_line);
             }
 
+            let mut filtered_matched: Vec<&OcrLine> = Vec::new();
             for m in &sanitized_lines {
                 let clean_m = m.text.trim();
                 if clean_m.is_empty() || crate::ml::detect::is_watermark_line(clean_m) {
@@ -218,7 +224,13 @@ pub fn build_regions(
                         && mx >= ox + (ow * 3 / 4)
                         && overlap_y.max(0) as f32 / mh.min(oh).max(1) as f32 >= 0.50;
 
-                    if (iou >= 0.40 || overlap_ratio_m >= 0.60 || (vert_col_overlap && is_sub) || is_horizontal_suffix_noise) && (is_exact || is_sub || is_horizontal_suffix_noise) {
+                    let is_punct_m = clean_m.chars().all(|c| c.is_ascii_punctuation() || matches!(c, '！' | '？' | '!' | '?' | '…'));
+                    let is_punct_o = clean_o.chars().all(|c| c.is_ascii_punctuation() || matches!(c, '！' | '？' | '!' | '?' | '…'));
+                    let is_vert_col_text_and_punct = is_container_vert && (is_punct_m != is_punct_o);
+
+                    if ((iou >= 0.40 || overlap_ratio_m >= 0.60 || (vert_col_overlap && is_sub) || is_horizontal_suffix_noise) && (is_exact || is_sub || is_horizontal_suffix_noise))
+                        && !is_vert_col_text_and_punct
+                    {
                         is_dup = true;
                         break;
                     }
@@ -243,7 +255,11 @@ pub fn build_regions(
                             && ox >= mx + (mw * 3 / 4)
                             && overlap_y.max(0) as f32 / mh.min(oh).max(1) as f32 >= 0.50;
 
-                        !(((iou >= 0.40 || vert_col_overlap) && is_existing_sub) || is_existing_suffix_noise)
+                        let is_punct_o = clean_o.chars().all(|c| c.is_ascii_punctuation() || matches!(c, '！' | '？' | '!' | '?' | '…'));
+                        let is_punct_m = clean_m.chars().all(|c| c.is_ascii_punctuation() || matches!(c, '！' | '？' | '!' | '?' | '…'));
+                        let is_vert_col_text_and_punct = is_container_vert && (is_punct_m != is_punct_o);
+
+                        (!(((iou >= 0.40 || vert_col_overlap) && is_existing_sub) || is_existing_suffix_noise)) || is_vert_col_text_and_punct
                     });
                     filtered_matched.push(m);
                 }
@@ -430,7 +446,7 @@ pub fn build_regions(
 
                     if (box_rect.y < min_y) && (min_y - box_rect.y) <= 45 && (box_rect.x <= min_x + 15 && box_rect.x + box_rect.w >= max_x - 15) {
                         min_y = min_y.min(box_rect.y);
-                    } else if matched_bubble.is_some() && box_rect.y < min_y && (min_y - box_rect.y) <= 180 {
+                    } else if (is_container_vert || is_detector_vert || matched_bubble.is_some()) && box_rect.y < min_y && (min_y - box_rect.y) <= 400 {
                         min_y = min_y.min(box_rect.y);
                     }
 
