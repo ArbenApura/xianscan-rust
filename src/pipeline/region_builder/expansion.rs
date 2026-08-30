@@ -1,5 +1,5 @@
 // -- CRATE / EXTERNAL IMPORTS -- //
-// (NO EXTERNAL CRATE IMPORTS)
+use image::DynamicImage;
 
 // -- INTERNAL IMPORTS -- //
 use crate::ml::geometry::box_iou;
@@ -62,13 +62,69 @@ pub fn clamp_box_to_core(b: &mut BoxRect, left: i32, right: i32, top: i32, botto
     b.h = (bot - y).max(1);
 }
 
+/// DERIVE CARRIER (BODY) BOX BY DETECTING AND TRIMMING DIRECTIONAL TAILS/POINTERS.
+///
+/// IN SOLE-OCCUPANT DIALOGUE BUBBLES, TEXT IS CENTERED IN THE MAIN BALLOON BODY (CARRIER).
+/// IF AN ASYMMETRIC TAIL PROTRUDES (SKEW >= 2.0x AND DELTA >= 15PX), TRIMS THE TAIL SLACK
+/// TO RESTORE THE VISUAL CARRIER CHAMBER.
+pub fn derive_carrier_box(b: &BoxRect, t: &BoxRect) -> BoxRect {
+    let mut carrier = b.clone();
+
+    let m_top = (t.y - b.y).max(0);
+    let m_bot = ((b.y + b.h) - (t.y + t.h)).max(0);
+    let m_left = (t.x - b.x).max(0);
+    let m_right = ((b.x + b.w) - (t.x + t.w)).max(0);
+
+    let m_side = m_left.min(m_right);
+    let m_vert = m_top.min(m_bot);
+
+    // VERTICAL TAILS:
+    // SKEWED BY >= 1.50x AND MIN 22PX DELTA BETWEEN TOP AND BOTTOM MARGINS
+    if m_bot as f32 >= m_top as f32 * 1.50 && (m_bot - m_top) >= 22 {
+        // DOWNWARD TAIL: TOP/LEFT/RIGHT ARE TRUE BUBBLE BOUNDARIES, TRIM BOTTOM EXCESS
+        let safe_pad = (m_top as f32).min(m_side as f32 * 0.90).max(12.0).round() as i32;
+        let eff_bottom = (t.y + t.h + safe_pad).min(b.y + b.h);
+        carrier.h = (eff_bottom - b.y).max(t.h + 10);
+    } else if m_top as f32 >= m_bot as f32 * 1.50 && (m_top - m_bot) >= 22 {
+        // UPWARD TAIL: BOTTOM/LEFT/RIGHT ARE TRUE BUBBLE BOUNDARIES, TRIM TOP EXCESS
+        let safe_pad = (m_bot as f32).min(m_side as f32 * 0.90).max(12.0).round() as i32;
+        let eff_top = (t.y - safe_pad).max(b.y);
+        carrier.h = (b.y + b.h - eff_top).max(t.h + 10);
+        carrier.y = eff_top;
+    }
+
+    // HORIZONTAL TAILS:
+    // SKEWED BY >= 1.50x AND MIN 22PX DELTA BETWEEN LEFT AND RIGHT MARGINS
+    if m_right as f32 >= m_left as f32 * 1.50 && (m_right - m_left) >= 22 {
+        // RIGHTWARD TAIL: TOP/BOTTOM/LEFT ARE TRUE BUBBLE BOUNDARIES, TRIM RIGHT EXCESS
+        let safe_pad = (m_left as f32).min(m_vert as f32 * 0.90).max(12.0).round() as i32;
+        let eff_right = (t.x + t.w + safe_pad).min(b.x + b.w);
+        carrier.w = (eff_right - b.x).max(t.w + 10);
+    } else if m_left as f32 >= m_right as f32 * 1.50 && (m_left - m_right) >= 22 {
+        // LEFTWARD TAIL: TOP/BOTTOM/RIGHT ARE TRUE BUBBLE BOUNDARIES, TRIM LEFT EXCESS
+        let safe_pad = (m_right as f32).min(m_vert as f32 * 0.90).max(12.0).round() as i32;
+        let eff_left = (t.x - safe_pad).max(b.x);
+        carrier.w = (b.x + b.w - eff_left).max(t.w + 10);
+        carrier.x = eff_left;
+    }
+
+    carrier
+}
+
 /// EXPAND DIALOGUE-BUBBLE TEXT BASE BOUNDARY TO BETTER UTILIZE THE UNUSED AREA WITHIN ITS BUBBLE.
 ///
 /// KEEPS THE TEXT ANCHOR (BOX CENTROID) STRICTLY FIXED AND SCALES EACH AXIS SYMMETRICALLY ABOUT IT.
 /// EVERY SCALED BOX IS BOUNDED BY (A) THE BUBBLE'S INSCRIBED SAFE CORE AND (B) THE NEAREST SIBLING
 /// TEXT REGION INSIDE THE SAME COMBINED BUBBLE. IT IS A NO-OP WHEN THE UNUSED ROOM FALLS BELOW
 /// THRESHOLD, SO CRAMPED BUBBLES ARE NEVER ALTERED. THE INPAINT MASK POLYGON IS LEFT TIGHT.
-pub fn expand_bubble_text_boxes(regions: &mut Vec<Region>, page_w: u32, page_h: u32, inpaint_pct: f32, typeset_pct: f32) {
+pub fn expand_bubble_text_boxes(
+    regions: &mut Vec<Region>,
+    img: Option<&DynamicImage>,
+    page_w: u32,
+    page_h: u32,
+    inpaint_pct: f32,
+    typeset_pct: f32,
+) {
     if regions.is_empty() {
         return;
     }
@@ -82,6 +138,7 @@ pub fn expand_bubble_text_boxes(regions: &mut Vec<Region>, page_w: u32, page_h: 
     // PHASE 1: COMPUTE TARGET BASE BOXES FROM ORIGINAL GEOMETRY ONLY.
     // SIBLING LIMITS READ ORIGINAL (UNSCALED) BOXES SO THEY NEVER DEPEND ON ALREADY-SCALED NEIGHBORS.
     let mut targets: Vec<Option<BoxRect>> = vec![None; regions.len()];
+    let mut carrier_boxes: Vec<Option<BoxRect>> = vec![None; regions.len()];
 
     for &i in &indexes {
         let r = &regions[i];
@@ -93,6 +150,29 @@ pub fn expand_bubble_text_boxes(regions: &mut Vec<Region>, page_w: u32, page_h: 
             Some(b) => b,
             None => continue,
         };
+
+        // SOLE-OCCUPANT CHECK FOR CARRIER RECONSTRUCTION
+        let is_sole_occupant = indexes.iter().all(|&j| {
+            if i == j {
+                return true;
+            }
+            match regions[j].bubble_box.as_ref() {
+                Some(bj) => box_iou(b, bj) < 0.5,
+                None => true,
+            }
+        });
+
+        let carrier_box = if is_sole_occupant {
+            if let Some(image) = img {
+                super::geometry::extract_carrier_box_from_image(image, b, &r.box_)
+            } else {
+                derive_carrier_box(b, &r.box_)
+            }
+        } else {
+            b.clone()
+        };
+        carrier_boxes[i] = Some(carrier_box.clone());
+
         let (left, right, top, bottom) = match bubble_core(b) {
             Some(c) => c,
             None => continue,
@@ -225,7 +305,7 @@ pub fn expand_bubble_text_boxes(regions: &mut Vec<Region>, page_w: u32, page_h: 
         // GUARANTEE: BASE BOX MUST NEVER EXCEED OUTER BUBBLE BOUNDARY
         clamp_box_to_core(&mut regions[i].box_, outer_l, outer_r, outer_t, outer_b);
 
-        // SAFE-CORE CENTERING FOR SOLE-OCCUPANT HORIZONTAL BUBBLES
+        // SAFE-CORE CENTERING FOR SOLE-OCCUPANT BUBBLES WITHIN THEIR DERIVED CARRIER
         let is_sole_occupant = indexes.iter().all(|&j| {
             if i == j {
                 return true;
@@ -236,20 +316,35 @@ pub fn expand_bubble_text_boxes(regions: &mut Vec<Region>, page_w: u32, page_h: 
             }
         });
 
-        let is_horizontal_bubble = (b.w as f32) >= (b.h as f32) * 1.35;
-        let vertical_fill_ratio = regions[i].box_.h as f32 / b.h.max(1) as f32;
-        let has_healthy_vertical_fill = vertical_fill_ratio >= 0.25 && vertical_fill_ratio <= 0.85;
+        let carrier = carrier_boxes[i].clone().unwrap_or_else(|| {
+            if is_sole_occupant {
+                if let Some(image) = img {
+                    super::geometry::extract_carrier_box_from_image(image, &b, &regions[i].box_)
+                } else {
+                    derive_carrier_box(&b, &regions[i].box_)
+                }
+            } else {
+                b.clone()
+            }
+        });
 
-        let dx = ((regions[i].box_.x + regions[i].box_.w / 2) - (b.x + b.w / 2)).abs() as f32;
-        let dy = ((regions[i].box_.y + regions[i].box_.h / 2) - (b.y + b.h / 2)).abs() as f32;
-        let is_near_center = dx <= (b.w as f32 * 0.055) && dy <= (b.h as f32 * 0.055);
+        let carrier_cx = carrier.x + carrier.w / 2;
+        let carrier_cy = carrier.y + carrier.h / 2;
 
-        if is_sole_occupant && is_horizontal_bubble && has_healthy_vertical_fill && is_near_center {
+        let is_horizontal_bubble = (carrier.w as f32) >= (carrier.h as f32) * 1.35;
+        let is_symmetric_square = (carrier.w as f32) >= (carrier.h as f32) * 0.85
+            && (carrier.w as f32) <= (carrier.h as f32) * 1.18;
+
+        let vertical_fill_ratio = regions[i].box_.h as f32 / carrier.h.max(1) as f32;
+        let has_healthy_vertical_fill = vertical_fill_ratio >= 0.20 && vertical_fill_ratio <= 0.85;
+
+        if is_sole_occupant
+            && (is_horizontal_bubble || is_symmetric_square)
+            && has_healthy_vertical_fill
+        {
             let mut typeset_box = expand_box(&regions[i].box_, typeset_pct, page_w, page_h);
-            let bubble_cx = b.x + b.w / 2;
-            let bubble_cy = b.y + b.h / 2;
-            typeset_box.x = bubble_cx - typeset_box.w / 2;
-            typeset_box.y = bubble_cy - typeset_box.h / 2;
+            typeset_box.x = carrier_cx - typeset_box.w / 2;
+            typeset_box.y = carrier_cy - typeset_box.h / 2;
             clamp_box_to_core(&mut typeset_box, outer_l, outer_r, outer_t, outer_b);
             regions[i].typeset_box = Some(typeset_box);
         } else {

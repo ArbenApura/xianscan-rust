@@ -13,9 +13,9 @@ pub mod refine;
 pub use builder::build_regions;
 pub use clustering::{cluster_lines_into_utterances, format_lines_cluster, polygon_thickness};
 pub use dedup::deduplicate_and_unify_regions;
-pub use expansion::{bubble_core, clamp_box_to_core, expand_bubble_text_boxes};
+pub use expansion::{bubble_core, clamp_box_to_core, derive_carrier_box, expand_bubble_text_boxes};
 pub use filter::should_reject_candidate_region;
-pub use geometry::{compute_chromatic_color_variance, expand_box};
+pub use geometry::{compute_chromatic_color_variance, expand_box, extract_carrier_box_from_image};
 pub use refine::{run_fallback_crop_recognition, try_refine_cluster_crop, FallbackCropOutcome, RefinementOutcome};
 
 // -- TESTS -- //
@@ -164,7 +164,7 @@ mod tests {
             is_subtitle: false,
         }];
 
-        expand_bubble_text_boxes(&mut regions, 800, 1132, 0.05, 0.10);
+        expand_bubble_text_boxes(&mut regions, None, 800, 1132, 0.05, 0.10);
 
         // BASE BOX MUST STAY STRICTLY INSIDE THE BUBBLE BOUNDARY
         assert!(regions[0].box_.x >= bubble.x);
@@ -203,7 +203,7 @@ mod tests {
             is_subtitle: false,
         }];
 
-        expand_bubble_text_boxes(&mut regions, 1370, 1012, 0.05, 0.10);
+        expand_bubble_text_boxes(&mut regions, None, 1370, 1012, 0.05, 0.10);
 
         // THE BASE BOX MUST EXPAND ITS WIDTH TO UTILIZE THE AVAILABLE BUBBLE ROOM
         assert!(regions[0].box_.w > 100);
@@ -240,7 +240,7 @@ mod tests {
             is_subtitle: false,
         }];
 
-        expand_bubble_text_boxes(&mut regions, 690, 2095, 0.05, 0.10);
+        expand_bubble_text_boxes(&mut regions, None, 690, 2095, 0.05, 0.10);
 
         let expanded = &regions[0].box_;
         let new_cx = expanded.x + expanded.w / 2;
@@ -271,7 +271,7 @@ mod tests {
         let ocr_box = BoxRect { x: 51, y: 1504, w: 291, h: 136 };
         let mut regions = vec![Region {
             id: "r_bot".to_string(),
-            box_: ocr_box,
+            box_: ocr_box.clone(),
             polygon: vec![],
             inpaint_box: None,
             typeset_box: None,
@@ -287,15 +287,16 @@ mod tests {
             is_subtitle: false,
         }];
 
-        expand_bubble_text_boxes(&mut regions, 690, 1771, 0.03, 0.00);
+        expand_bubble_text_boxes(&mut regions, None, 690, 1771, 0.03, 0.00);
 
         let typeset_box = regions[0].typeset_box.as_ref().expect("typeset_box should exist");
 
-        // MUST CENTER EXPANDED BOX AT BUBBLE CENTROID (201, 1586)
+        // MUST CENTER EXPANDED BOX AT DERIVED CARRIER CHAMBER CENTROID
+        let carrier = derive_carrier_box(&bubble, &ocr_box);
         assert_eq!(typeset_box.w, 291);
         assert_eq!(typeset_box.h, 154);
-        assert_eq!(typeset_box.x + typeset_box.w / 2, bubble.x + bubble.w / 2);
-        assert_eq!(typeset_box.y + typeset_box.h / 2, bubble.y + bubble.h / 2);
+        assert_eq!(typeset_box.x + typeset_box.w / 2, carrier.x + carrier.w / 2);
+        assert_eq!(typeset_box.y + typeset_box.h / 2, carrier.y + carrier.h / 2);
     }
 
     #[test]
@@ -323,12 +324,93 @@ mod tests {
             is_subtitle: false,
         }];
 
-        expand_bubble_text_boxes(&mut regions, 690, 1771, 0.05, 0.10);
+        expand_bubble_text_boxes(&mut regions, None, 690, 1771, 0.05, 0.10);
 
         let typeset_box = regions[0].typeset_box.as_ref().expect("typeset_box should exist");
 
         // MUST NOT BE EXPANDED DOWNWARD INTO THE TAIL (MUST RETAIN UPPER ANCHOR)
         assert_eq!(typeset_box.y, 826, "typeset_box y should remain anchored around text center");
         assert_eq!(typeset_box.h, 228, "typeset_box height should remain anchored to text (228), not safe core (268)");
+    }
+
+    #[test]
+    fn test_derive_carrier_box_downward_tail() {
+        let bubble = BoxRect { x: 135, y: 324, w: 234, h: 216 };
+        let text = BoxRect { x: 168, y: 355, w: 162, h: 106 };
+
+        let carrier = derive_carrier_box(&bubble, &text);
+        assert_eq!(carrier.x, 135);
+        assert_eq!(carrier.y, 324);
+        assert_eq!(carrier.w, 234);
+        // BOTTOM TAIL TRIMMED FROM 216 TO ~176
+        assert!(carrier.h < bubble.h);
+        assert!(carrier.h >= text.h);
+    }
+
+    #[test]
+    fn test_derive_carrier_box_symmetric_square() {
+        // CLEAN SQUARE BUBBLE WITHOUT TAIL (149x144, 98x90 TEXT)
+        let bubble = BoxRect { x: 48, y: 831, w: 149, h: 144 };
+        let text = BoxRect { x: 69, y: 852, w: 98, h: 90 };
+
+        let carrier = derive_carrier_box(&bubble, &text);
+        // REMAINS UNTOUCHED FOR SYMMETRIC BUBBLE
+        assert_eq!(carrier.x, bubble.x);
+        assert_eq!(carrier.y, bubble.y);
+        assert_eq!(carrier.w, bubble.w);
+        assert_eq!(carrier.h, bubble.h);
+    }
+
+    #[test]
+    fn test_multi_text_bubble_skips_carrier_centering() {
+        use crate::ml::schemas::{Region, RegionKind};
+
+        // 2 TEXT REGIONS IN 1 COMPOSITE BUBBLE
+        let bubble = BoxRect { x: 261, y: 171, w: 246, h: 178 };
+        let mut regions = vec![
+            Region {
+                id: "r0".to_string(),
+                box_: BoxRect { x: 280, y: 199, w: 57, h: 82 },
+                polygon: vec![],
+                inpaint_box: None,
+                typeset_box: None,
+                text: "あ…\nうん。".to_string(),
+                confidence: 0.95,
+                vertical: true,
+                angle: 0.0,
+                bubble_box: Some(bubble.clone()),
+                bubble_polygon: None,
+                centroid: None,
+                kind: RegionKind::DialogueBubble,
+                is_title: false,
+                is_subtitle: false,
+            },
+            Region {
+                id: "r1".to_string(),
+                box_: BoxRect { x: 370, y: 175, w: 108, h: 174 },
+                polygon: vec![],
+                inpaint_box: None,
+                typeset_box: None,
+                text: "学校内て\nスマホ持ち歩くの\n校則違反じゃん。".to_string(),
+                confidence: 0.95,
+                vertical: true,
+                angle: 0.0,
+                bubble_box: Some(bubble.clone()),
+                bubble_polygon: None,
+                centroid: None,
+                kind: RegionKind::DialogueBubble,
+                is_title: false,
+                is_subtitle: false,
+            },
+        ];
+
+        expand_bubble_text_boxes(&mut regions, None, 810, 737, 0.03, 0.00);
+
+        // BOTH REGIONS MUST PRESERVE INDIVIDUAL SIBLING ANCHORS (NOT COLLAPSED TO BUBBLE CENTER)
+        assert!(regions[0].typeset_box.is_some());
+        assert!(regions[1].typeset_box.is_some());
+        let tb0 = regions[0].typeset_box.as_ref().unwrap();
+        let tb1 = regions[1].typeset_box.as_ref().unwrap();
+        assert!(tb0.x < tb1.x, "r0 must stay on the left of r1");
     }
 }

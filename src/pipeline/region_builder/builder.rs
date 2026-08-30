@@ -684,7 +684,7 @@ pub fn build_regions(
     let mut deduped_regions = deduplicate_and_unify_regions(regions, img, page_w, page_h, inpaint_pct, typeset_pct);
 
     // EXPAND DIALOGUE-BUBBLE TEXT BASE BOUNDARY TO UTILIZE UNUSED BUBBLE AREA (BUBBLE TEXT ONLY)
-    expand_bubble_text_boxes(&mut deduped_regions, page_w, page_h, inpaint_pct, typeset_pct);
+    expand_bubble_text_boxes(&mut deduped_regions, Some(img), page_w, page_h, inpaint_pct, typeset_pct);
 
     deduped_regions
 }

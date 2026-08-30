@@ -11,6 +11,7 @@ use sha2::{Digest, Sha256};
 
 // -- INTERNAL IMPORTS -- //
 use xianscan_rust::ml::schemas::{AnalyzeOptions, AnalyzeResponse, BoxRect, RegionKind};
+use xianscan_rust::pipeline::region_builder::extract_carrier_box_from_image;
 use xianscan_rust::pipeline::PipelineEngine;
 
 // -- CONSTANTS -- //
@@ -389,6 +390,33 @@ pub fn render_annotated_image(img: &DynamicImage, res: &AnalyzeResponse) -> Dyna
 
             let rect = Rect::at(x, y).of_size(w, h);
             draw_hollow_rect_mut(&mut canvas, rect, Rgba([6, 182, 212, 200]));
+        }
+    }
+
+    // 1b. RENDER TRIMMED CARRIER CHAMBER BOXES IN YELLOW (#eab308)
+    for r in &res.regions {
+        if r.kind == RegionKind::DialogueBubble {
+            if let Some(b) = &r.bubble_box {
+                let carrier = extract_carrier_box_from_image(img, b, &r.box_);
+                let x = carrier.x.clamp(0, width.saturating_sub(1) as i32);
+                let y = carrier.y.clamp(0, height.saturating_sub(1) as i32);
+                let max_w = (width as i32 - x).max(1) as u32;
+                let max_h = (height as i32 - y).max(1) as u32;
+                let w = (carrier.w.max(1) as u32).min(max_w);
+                let h = (carrier.h.max(1) as u32).min(max_h);
+
+                let fill_color = Rgba([234, 179, 8, 45]);
+                let stroke_color = Rgba([234, 179, 8, 240]);
+
+                blend_filled_rect(&mut canvas, x, y, w, h, fill_color);
+
+                let rect = Rect::at(x, y).of_size(w, h);
+                draw_hollow_rect_mut(&mut canvas, rect, stroke_color);
+                if w > 2 && h > 2 {
+                    let inner_rect = Rect::at(x + 1, y + 1).of_size(w - 2, h - 2);
+                    draw_hollow_rect_mut(&mut canvas, inner_rect, stroke_color);
+                }
+            }
         }
     }
 
