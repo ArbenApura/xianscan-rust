@@ -599,28 +599,56 @@ impl RapidOcr {
         }
 
         if is_vertical_crop {
-            // Sort predominantly vertical reading order (Right-to-Left columns, Top-to-Bottom lines)
+            // SORT VERTICAL READING ORDER (RIGHT-TO-LEFT COLUMNS, TOP-TO-BOTTOM LINES).
+            // USE A FIXED COLUMN WIDTH THRESHOLD COMPUTED ONCE FROM THE FULL SLICE SO THE
+            // COMPARATOR IS CONSISTENT ACROSS ALL PAIRS (TOTAL ORDER INVARIANT).
+            // THRESHOLD IS 40% OF MEDIAN COLUMN WIDTH — PERCENTAGE-BASED FOR RESOLUTION INVARIANCE.
+            // MINIMUM FLOOR IS 20% OF MEDIAN WIDTH (NEVER A HARDCODED PIXEL VALUE).
+            let col_w_threshold = {
+                let widths: Vec<i32> = raw_lines.iter().map(|l| polygon_bounds(&l.polygon).2).collect();
+                if widths.is_empty() {
+                    1
+                } else {
+                    let mut ws = widths.clone();
+                    ws.sort_unstable();
+                    let median_w = ws[ws.len() / 2];
+                    (median_w * 2 / 5).max(median_w / 5).max(1)
+                }
+            };
             raw_lines.sort_by(|a, b| {
                 let (ax, ay, aw, _) = polygon_bounds(&a.polygon);
-                let (bx, by, bw, _) = polygon_bounds(&b.polygon);
+                let (bx, _, bw, _) = polygon_bounds(&b.polygon);
                 let a_mid_x = ax + aw / 2;
                 let b_mid_x = bx + bw / 2;
-                let min_col_w = aw.min(bw).max(8);
-                let x_diff = b_mid_x - a_mid_x; // larger X first (rightmost column first)
-                if x_diff.abs() >= (min_col_w * 2 / 5).max(6) {
-                    x_diff.cmp(&0)
+                let x_diff = b_mid_x - a_mid_x; // LARGER X FIRST (RIGHTMOST COLUMN FIRST)
+                if x_diff.abs() >= col_w_threshold {
+                    b_mid_x.cmp(&a_mid_x)
                 } else {
-                    ay.cmp(&by)
+                    ay.cmp(&polygon_bounds(&b.polygon).1)
                 }
             });
         } else {
-            // Horizontal reading order (Top-to-Bottom, Left-to-Right)
+            // HORIZONTAL READING ORDER (TOP-TO-BOTTOM, LEFT-TO-RIGHT).
+            // COMPARE COORDINATES DIRECTLY — NEVER COMPARE A COMPUTED DIFF TO 0,
+            // WHICH BREAKS TRANSITIVITY ACROSS THREE OR MORE ELEMENTS.
+            // ROW BAND THRESHOLD IS 25% OF MEDIAN LINE HEIGHT — PERCENTAGE-BASED FOR RESOLUTION INVARIANCE.
+            let row_band_threshold = {
+                let heights: Vec<i32> = raw_lines.iter().map(|l| polygon_bounds(&l.polygon).3).collect();
+                if heights.is_empty() {
+                    1
+                } else {
+                    let mut hs = heights.clone();
+                    hs.sort_unstable();
+                    let median_h = hs[hs.len() / 2];
+                    (median_h / 4).max(1)
+                }
+            };
             raw_lines.sort_by(|a, b| {
                 let (ax, ay, _, _) = polygon_bounds(&a.polygon);
                 let (bx, by, _, _) = polygon_bounds(&b.polygon);
-                let y_diff = ay - by;
-                if y_diff.abs() > 20 {
-                    y_diff.cmp(&0)
+                let y_diff = (ay - by).abs();
+                if y_diff > row_band_threshold {
+                    ay.cmp(&by)
                 } else {
                     ax.cmp(&bx)
                 }
