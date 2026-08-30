@@ -186,6 +186,10 @@ export function seedGlossary(
 		targetLang?: string;
 		source: string;
 		target: string;
+		gender?: 'neuter' | 'masculine' | 'feminine';
+		category?: string;
+		context?: string;
+		tags?: string;
 		pinned?: boolean;
 		status?: 'ai' | 'user';
 		aliases?: string[];
@@ -201,6 +205,10 @@ export function seedGlossary(
 			targetLang: input.targetLang ?? 'en',
 			source: input.source,
 			target: input.target,
+			gender: input.gender ?? 'neuter',
+			category: input.category,
+			context: input.context,
+			tags: input.tags,
 			pinned: input.pinned ?? false,
 			status: input.status ?? 'user',
 			aliases: input.aliases ? JSON.stringify(input.aliases) : undefined,

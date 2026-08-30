@@ -6,7 +6,7 @@ import type { RequestHandler } from './$types';
 // IMPORTED MODULES
 import { DEFAULT_SOURCE_LANG, DEFAULT_TARGET_LANG } from '$lib/languages';
 import { assertBookExists } from '$lib/server/books';
-import { getEffectiveGlossary, getGlossary, rowToDraft } from '$lib/server/glossary';
+import { getEffectiveGlobalGlossary, getEffectiveGlossary, getGlossary, rowToDraft } from '$lib/server/glossary';
 import { toGlossaryCsv } from '$lib/server/glossary-csv';
 
 // -- FUNCTIONS -- //
@@ -14,6 +14,7 @@ import { toGlossaryCsv } from '$lib/server/glossary-csv';
 export const GET: RequestHandler = async ({ url }) => {
 	const scope = url.searchParams.get('scope') ?? 'global';
 	const bookId = url.searchParams.get('bookId');
+	const includeSystem = url.searchParams.get('includeSystem') !== 'false';
 	// GLOBAL EXPORT IS SCOPED TO A LANGUAGE PAIR (DEFAULT zh-Hans → en).
 	const pair = {
 		sourceLang: url.searchParams.get('sourceLang') || DEFAULT_SOURCE_LANG,
@@ -25,7 +26,7 @@ export const GET: RequestHandler = async ({ url }) => {
 	if (scope === 'effective') {
 		if (!bookId) throw error(400, 'bookId is required for effective export.');
 		await assertBookExists(bookId);
-		terms = await getEffectiveGlossary(bookId);
+		terms = await getEffectiveGlossary(bookId, { includeSystem });
 		name = `glossary-effective-${bookId}.csv`;
 	} else if (scope === 'book') {
 		if (!bookId) throw error(400, 'bookId is required for book export.');
@@ -34,9 +35,8 @@ export const GET: RequestHandler = async ({ url }) => {
 		terms = rows.map(rowToDraft);
 		name = `glossary-book-${bookId}.csv`;
 	} else if (scope === 'global') {
-		const rows = await getGlossary('global', null, pair);
-		terms = rows.map(rowToDraft);
-		name = 'glossary-global.csv';
+		terms = await getEffectiveGlobalGlossary(pair, { includeSystem });
+		name = `glossary-global-${pair.sourceLang}-${pair.targetLang}.csv`;
 	} else {
 		throw error(400, 'scope must be global, book, or effective.');
 	}

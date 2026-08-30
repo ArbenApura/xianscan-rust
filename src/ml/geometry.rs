@@ -219,7 +219,7 @@ pub fn calculate_box_angle(pts: &[[f32; 2]]) -> f32 {
 
             let box_w = (tr[0] - tl[0] + br[0] - bl[0]) / 2.0;
             let box_h = (bl[1] - tl[1] + br[1] - tr[1]) / 2.0;
-            if box_w <= 1.6 * 1.0_f32.max(box_h) && deg.abs() < 5.0 {
+            if box_w <= 2.2 * 1.0_f32.max(box_h) && deg.abs() < 8.0 {
                 return 0.0;
             }
 

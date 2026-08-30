@@ -2,6 +2,7 @@
 mod base;
 mod page_dragon_spiky_sfx;
 mod page_dull_ending_black_bubble;
+mod page_elder_hmm_bubble_angle;
 mod page_eleven_years_red_smoke_narration;
 mod page_headache_screaming_spiky_bubble;
 mod page_hospital_gown_pattern_team_leader_bubble;

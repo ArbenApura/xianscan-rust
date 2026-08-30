@@ -132,16 +132,9 @@
 	}
 </script>
 
-<!-- GRID LAYOUT WRAPS VIRTUAL LIST — PLACEHOLDER CELLS USE FIXED HEIGHT TO MATCH GRID ROW SIZING -->
+<!-- GRID LAYOUT WRAPS VIRTUAL LIST - NATIVE CONTENT VISIBILITY PRESERVES MULTI-COLUMN SIZING -->
 <div class="grid w-full grid-cols-1 gap-3.5 sm:grid-cols-2 lg:grid-cols-3">
-	<VirtualPageList
-		{pages}
-		windowSize={12}
-		overscan={3}
-		placeholderHeightPx={380}
-		skeletonVariant="card"
-		placeholderClass="rounded-xl border border-black/[0.08] bg-black/[0.03] dark:border-white/[0.06] dark:bg-white/[0.02]"
-	>
+	<VirtualPageList {pages}>
 		<svelte:fragment slot="default" let:page let:i>
 			{@const idx = i}
 			{@const isOutput = webtoonKind === 'output' && Boolean(page.outputPath)}

@@ -197,6 +197,65 @@ export async function getEffectiveGlossary(
 	});
 }
 
+// EFFECTIVE GLOBAL GLOSSARY = systemPacks(SAME PAIR) ∪ global(SAME PAIR),
+// WITH USER GLOBAL TERMS OVERRIDING SYSTEM PACKS ON THE SAME source.
+export async function getEffectiveGlobalGlossary(
+	pair: LangPair,
+	opts: { includeSystem?: boolean } = {},
+): Promise<TermDraft[]> {
+	let enabledPackIds: string[] | null = null;
+	const shouldIncludeSystem = opts.includeSystem ?? true;
+	if (shouldIncludeSystem) {
+		try {
+			const [settingRow] = await db
+				.select({ value: appSettings.value })
+				.from(appSettings)
+				.where(eq(appSettings.key, 'enabled_glossary_packs'))
+				.limit(1);
+
+			if (settingRow?.value) {
+				enabledPackIds = JSON.parse(settingRow.value);
+			}
+		} catch {
+			enabledPackIds = null;
+		}
+	} else {
+		enabledPackIds = [];
+	}
+
+	const packTerms = shouldIncludeSystem ? getActivePackTerms(pair, enabledPackIds) : [];
+	const globals = await db
+		.select()
+		.from(glossary)
+		.where(
+			and(
+				eq(glossary.scope, 'global'),
+				isNull(glossary.bookId),
+				eq(glossary.sourceLang, pair.sourceLang),
+				eq(glossary.targetLang, pair.targetLang),
+			),
+		)
+		.orderBy(glossary.source);
+
+	const map = new Map<string, TermDraft>();
+
+	// LAYER 1: BASE SYSTEM PACKS
+	for (const { term } of packTerms) {
+		map.set(term.source, { ...term });
+	}
+
+	// LAYER 2: USER-DEFINED GLOBAL TERMS OVERRIDE SYSTEM PACKS
+	for (const g of globals) {
+		map.set(g.source, rowToDraft(g));
+	}
+
+	return [...map.values()].sort((a, b) => {
+		if (a.pinned && !b.pinned) return -1;
+		if (!a.pinned && b.pinned) return 1;
+		return a.source.localeCompare(b.source);
+	});
+}
+
 // PAGINATED + SEARCHABLE GLOSSARY ROWS FOR THE EDITOR
 export async function getGlossaryPage(
 	scope: GlossaryScope,

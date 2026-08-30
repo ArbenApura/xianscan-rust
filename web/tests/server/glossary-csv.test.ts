@@ -118,4 +118,9 @@ describe('toGlossaryCsv + round-trip', () => {
 		const header = csv.split(/\r?\n/)[0]; // PAPA UNPARSE DEFAULTS TO \r\n LINE ENDINGS
 		expect(header).toBe('source,target,context,category,pinned,aliases,description');
 	});
+
+	it('exports valid header row when given an empty terms array', () => {
+		const csv = toGlossaryCsv([]);
+		expect(csv.trim()).toBe('source,target,context,category,pinned,aliases,description');
+	});
 });

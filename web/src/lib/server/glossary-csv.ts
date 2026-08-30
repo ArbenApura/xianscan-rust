@@ -102,6 +102,10 @@ function descriptionFor(t: TermDraft): string {
 
 // SERIALISE TERMS BACK TO A `source,target,context,category,pinned,aliases,description` CSV (ROUND-TRIPS WITH IMPORT)
 export function toGlossaryCsv(terms: TermDraft[]): string {
+	const columns = ['source', 'target', 'context', 'category', 'pinned', 'aliases', 'description'];
+	if (terms.length === 0) {
+		return columns.join(',') + '\r\n';
+	}
 	const rows = terms.map((t) => ({
 		source: csvSafe(t.source),
 		target: csvSafe(t.target),
@@ -112,6 +116,6 @@ export function toGlossaryCsv(terms: TermDraft[]): string {
 		description: csvSafe(descriptionFor(t)),
 	}));
 	return Papa.unparse(rows, {
-		columns: ['source', 'target', 'context', 'category', 'pinned', 'aliases', 'description'],
+		columns,
 	});
 }

@@ -5,7 +5,7 @@
 	import { toast } from 'svelte-sonner';
 	import { onMount, onDestroy } from 'svelte';
 	// IMPORTED MODULES
-	import { apiFetch } from '$lib/api';
+	import { apiFetch, apiUrl } from '$lib/api';
 	import { cn } from '$lib/utils/cn';
 	import { ripple } from '$lib/actions/ripple';
 	import { TERM_CATEGORIES } from '$lib/types';
@@ -601,7 +601,7 @@
 			which === 'global'
 				? `&sourceLang=${encodeURIComponent(sourceLang)}&targetLang=${encodeURIComponent(targetLang)}`
 				: '';
-		return `/api/glossary/export?scope=${which}${b}${l}`;
+		return apiUrl(`/api/glossary/export?scope=${which}${b}${l}`);
 	}
 
 	// CAST IN SCRIPT (TS `as` IS NOT ALLOWED INSIDE SVELTE TEMPLATE EXPRESSIONS)
@@ -648,7 +648,7 @@
 			<Button on:click={() => fileInput.click()} disabled={busy}>
 				<Download size={14} /><span class="sr-only min-[750px]:not-sr-only min-[750px]:ml-1.5">Import CSV</span>
 			</Button>
-			<Button href={exportHref(scope)}>
+			<Button href={exportHref(scope)} download rel="external" data-sveltekit-reload>
 				<Upload size={14} /><span class="sr-only min-[750px]:not-sr-only min-[750px]:ml-1.5">Export</span>
 			</Button>
 

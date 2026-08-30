@@ -154,7 +154,7 @@
 	}
 }
 
-/* SHIMMER SWEEP ANIMATION — USED BY VirtualPageList SKELETON PLACEHOLDERS */
+/* SHIMMER SWEEP ANIMATION - USED BY SKELETON PLACEHOLDERS */
 @keyframes shimmer {
 	0%   { transform: translateX(-100%); }
 	100% { transform: translateX(200%); }

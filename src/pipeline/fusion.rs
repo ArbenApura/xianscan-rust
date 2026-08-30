@@ -251,7 +251,7 @@ pub fn fuse_detections(
 
                     let is_wider = !is_rl_vert && (cb_w >= rw + 8 || (cb_w as f32) >= (rw as f32 * 1.10));
                     let is_taller = is_rl_vert && (cb_h >= rh + 10 || (cb_h as f32) >= (rh as f32 * 1.10));
-                    let is_missing_lines = is_multiline_cb && !is_rl_vert && (cb_h >= 45 && cb_w >= 45);
+                    let is_missing_lines = (cb_h as f32) >= (rh as f32 * 1.40) && (cb_h >= 45 && cb_w >= 45);
                     let is_non_latin_corrupted_latin = crate::ml::detect::is_non_latin_source(source_lang)
                         && !crate::ml::detect::has_native_script_for_lang(&rl.text, source_lang)
                         && rl.text.chars().any(|c| c.is_ascii_alphabetic());

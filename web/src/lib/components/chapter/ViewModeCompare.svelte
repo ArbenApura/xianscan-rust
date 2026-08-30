@@ -132,7 +132,7 @@
 </script>
 
 <div class="flex w-full flex-col gap-6">
-	<VirtualPageList {pages} windowSize={7} overscan={2}>
+	<VirtualPageList {pages}>
 		<svelte:fragment slot="default" let:page let:i>
 			{@const idx = i}
 			{@const ratio = (page.width && page.height && page.height > 0)
@@ -153,6 +153,7 @@
 				} ${draggedPageIndex === idx ? 'scale-95 opacity-40' : ''}`}
 				data-page-seq={page.seq}
 				data-page-id={page.id}
+				style="content-visibility: auto; contain-intrinsic-size: auto 700px;"
 			>
 				<div class="mb-3 flex min-w-0 items-center justify-between gap-1.5 text-xs font-bold">
 					<div class="flex min-w-0 items-center gap-1.5 overflow-hidden">
