@@ -101,6 +101,9 @@ const PACK_METAS: Record<string, Omit<GlossaryPackMeta, 'termCount'>> = {
 	},
 };
 
+// DIRECT EMBED OF PRECOMPILED GLOSSARY PACKS MANIFEST
+import MANIFEST_DATA from './data/packs-manifest.json';
+
 // CACHED PACKS MAP
 let cachedPacks: Map<string, GlossaryPack> | null = null;
 
@@ -110,23 +113,10 @@ export function clearPacksCache(): void {
 
 // -- FUNCTIONS -- //
 
-function getResolvedPacksDir(): string {
-	if (fs.existsSync(PACKS_DIR)) return PACKS_DIR;
-	if (fs.existsSync(ALT_PACKS_DIR)) return ALT_PACKS_DIR;
-	return PACKS_DIR;
-}
-
 export function loadAllPacks(): Map<string, GlossaryPack> {
 	if (cachedPacks) return cachedPacks;
-	const dir = getResolvedPacksDir();
 	const packs = new Map<string, GlossaryPack>();
 
-	if (!fs.existsSync(dir)) {
-		cachedPacks = packs;
-		return packs;
-	}
-
-	const manifestPath = path.join(dir, 'packs-manifest.json');
 	const THEME_TITLES: Record<string, string> = {
 		xianxia: 'Wuxia & Cultivation (Xianxia)',
 		murim: 'Murim & Martial Arts',
@@ -137,107 +127,54 @@ export function loadAllPacks(): Map<string, GlossaryPack> {
 		scifi: 'Sci-Fi, Mecha & Sentinelverse',
 	};
 
-	if (fs.existsSync(manifestPath)) {
-		try {
-			const manifest: Record<string, TermDraft[]> = JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
-			for (const [packId, terms] of Object.entries(manifest)) {
-				let meta = PACK_METAS[packId];
-				if (!meta) {
-					const parts = packId.split('-');
-					if (parts.length >= 3) {
-						const src = parts[0] === 'zh' ? `${parts[0]}-${parts[1]}` : parts[0];
-						const rem = parts[0] === 'zh' ? parts.slice(2) : parts.slice(1);
-						const tgt = rem[0] === 'zh' ? `${rem[0]}-${rem[1]}` : rem[0];
-						const theme = rem[0] === 'zh' ? rem.slice(2).join('-') : rem.slice(1).join('-');
+	try {
+		const manifest = MANIFEST_DATA as Record<string, TermDraft[]>;
+		for (const [packId, terms] of Object.entries(manifest)) {
+			let meta = PACK_METAS[packId];
+			if (!meta) {
+				const parts = packId.split('-');
+				if (parts.length >= 3) {
+					const src = parts[0] === 'zh' ? `${parts[0]}-${parts[1]}` : parts[0];
+					const rem = parts[0] === 'zh' ? parts.slice(2) : parts.slice(1);
+					const tgt = rem[0] === 'zh' ? `${rem[0]}-${rem[1]}` : rem[0];
+					const theme = rem[0] === 'zh' ? rem.slice(2).join('-') : rem.slice(1).join('-');
 
-						meta = {
-							id: packId,
-							name: THEME_TITLES[theme] || theme,
-							theme,
-							description: `Preset terms for ${THEME_TITLES[theme] || theme}`,
-							sourceLang: src,
-							targetLang: tgt,
-							enabledByDefault: true,
-						};
-					} else {
-						meta = {
-							id: packId,
-							name: packId.replace(/[-_]/g, ' '),
-							theme: 'other',
-							description: 'Preset glossary pack',
-							sourceLang: 'zh-Hans',
-							targetLang: 'en',
-							enabledByDefault: true,
-						};
-					}
+					meta = {
+						id: packId,
+						name: THEME_TITLES[theme] || theme,
+						theme,
+						description: `Preset terms for ${THEME_TITLES[theme] || theme}`,
+						sourceLang: src,
+						targetLang: tgt,
+						enabledByDefault: true,
+					};
+				} else {
+					meta = {
+						id: packId,
+						name: packId.replace(/[-_]/g, ' '),
+						theme: 'other',
+						description: 'Preset glossary pack',
+						sourceLang: 'zh-Hans',
+						targetLang: 'en',
+						enabledByDefault: true,
+					};
 				}
-
-				packs.set(packId, {
-					...meta,
-					termCount: terms.length,
-					terms,
-				});
 			}
 
-			cachedPacks = packs;
-			return packs;
-		} catch (err) {
-			console.error('Failed to load packs-manifest.json:', err);
-		}
-	}
-
-	const files = fs.readdirSync(dir);
-	for (const file of files) {
-		if (!file.endsWith('.json') || file === 'packs-manifest.json') continue;
-		const packId = file.replace(/\.json$/, '');
-		
-		let meta = PACK_METAS[packId];
-		if (!meta) {
-			const parts = packId.split('-');
-			if (parts.length >= 3) {
-				const src = parts[0] === 'zh' ? `${parts[0]}-${parts[1]}` : parts[0];
-				const rem = parts[0] === 'zh' ? parts.slice(2) : parts.slice(1);
-				const tgt = rem[0] === 'zh' ? `${rem[0]}-${rem[1]}` : rem[0];
-				const theme = rem[0] === 'zh' ? rem.slice(2).join('-') : rem.slice(1).join('-');
-
-				meta = {
-					id: packId,
-					name: THEME_TITLES[theme] || theme,
-					theme,
-					description: `Preset terms for ${THEME_TITLES[theme] || theme}`,
-					sourceLang: src,
-					targetLang: tgt,
-					enabledByDefault: true,
-				};
-			} else {
-				meta = {
-					id: packId,
-					name: packId.replace(/[-_]/g, ' '),
-					theme: 'other',
-					description: 'Preset glossary pack',
-					sourceLang: 'zh-Hans',
-					targetLang: 'en',
-					enabledByDefault: true,
-				};
-			}
-		}
-
-		try {
-			const fullPath = path.join(dir, file);
-			const raw = fs.readFileSync(fullPath, 'utf8');
-			const terms: TermDraft[] = JSON.parse(raw);
 			packs.set(packId, {
 				...meta,
 				termCount: terms.length,
 				terms,
 			});
-		} catch (err) {
-			console.error(`Failed to load glossary pack ${file}:`, err);
 		}
-	}
 
-	cachedPacks = packs;
-	return packs;
+		cachedPacks = packs;
+		return packs;
+	} catch (err) {
+		console.error('Failed to load embedded packs-manifest:', err);
+		cachedPacks = packs;
+		return packs;
+	}
 }
 
 export interface UniversalThemeMeta {
