@@ -268,10 +268,10 @@ pub fn analyze_image_with_fusion_timed(
                 let is_adjacent_leading_row = !is_subtitle_to_title
                     && !is_separate_detector_box
                     && !leaks_outside_bubble
-                    && (lx as f32 >= bx - 35.0 || (lx + lw) as f32 <= bx + bw + 35.0 || (lx as f32 <= bx && (lx + lw) as f32 >= bx + bw))
+                    && (lx as f32 >= bx - 35.0 && (lx + lw) as f32 <= bx + bw + 35.0)
                     && ((ly + lh) as f32 >= by - 25.0)
                     && ((ly + lh) as f32 <= by + 20.0)
-                    && (ix >= 0.25 * (lw as f32).min(bw) || (bx >= (lx as f32 - 35.0) && bx + bw <= (lx + lw) as f32 + 35.0));
+                    && (ix >= 0.50 * (lw as f32).min(bw));
 
                 if (ix > 0.0 && iy > 0.0) || is_adjacent_trailing_row || is_adjacent_leading_row {
                     let inter_area = ix.max(0.0) * iy.max(0.0);

@@ -37,6 +37,7 @@ mod page_weakest_weapon_laughter_watermark;
 mod page_whose_god_will_i_be_slanted_free_text;
 mod page_ye_ziyun_escape_death_rebirth_vow;
 mod page_ye_ziyun_noble_status_grow_up_vow;
+mod page_rice_shop_poison_bandit_split_bubble;
 
 
 

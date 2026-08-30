@@ -141,7 +141,7 @@ pub fn deduplicate_and_unify_regions(
 
                     let e_h_v = (e_max_v - e_min_v).max(1.0);
                     let r_h_v = (r_max_v - r_min_v).max(1.0);
-                    let min_line_h = e_h_v.min(r_h_v);
+                    let _min_line_h = e_h_v.min(r_h_v);
 
                     let e_w_u = (e_max_u - e_min_u).max(1.0);
                     let r_w_u = (r_max_u - r_min_u).max(1.0);
