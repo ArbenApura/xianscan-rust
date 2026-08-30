@@ -39,6 +39,7 @@
 	import ConfirmDialog from '$lib/components/ui/ConfirmDialog.svelte';
 	import Modal from '$lib/components/ui/Modal.svelte';
 	import Select from '$lib/components/ui/Select.svelte';
+	import SystemPresetTermModal, { type SystemTermData } from '$lib/components/glossary/SystemPresetTermModal.svelte';
 
 	// -- REQUIRED PROPS -- //
 
@@ -80,6 +81,8 @@
 		firstSeq: number | null;
 		firstChapterTitle: string | null;
 		firstChapterTitleTarget: string | null;
+		isSystem?: boolean;
+		packId?: string;
 	};
 
 	// -- CONSTANTS -- //
@@ -142,6 +145,8 @@
 				firstSeq: r.firstSeq,
 				firstChapterTitle: r.firstChapterTitle,
 				firstChapterTitleTarget: r.firstChapterTitleTarget,
+				isSystem: r.isSystem,
+				packId: r.packId,
 			}))
 		: [];
 	let total = initialTotal ?? 0;
@@ -292,7 +297,7 @@
 			// IGNORE A RESPONSE THAT A NEWER load() (FROM RAPID PAGINATION/SEARCH) HAS ALREADY SUPERSEDED,
 			// SO AN OLDER, SLOWER RESPONSE CAN'T OVERWRITE THE FRESH ROWS.
 			if (token !== loadToken) return;
-			rows = ((data.rows ?? []) as GlossaryRow[]).map((r) => ({
+			rows = (data.rows ?? []).map((r: GlossaryRow) => ({
 				id: r.id,
 				source: r.source,
 				target: r.target,
@@ -306,6 +311,8 @@
 				firstSeq: r.firstSeq,
 				firstChapterTitle: r.firstChapterTitle,
 				firstChapterTitleTarget: r.firstChapterTitleTarget,
+				isSystem: r.isSystem,
+				packId: r.packId,
 			}));
 			total = data.total ?? 0;
 		} catch {
@@ -318,7 +325,7 @@
 
 	// LOAD THE FIRST PAGE ON MOUNT ONLY IF NOT SSR-PRELOADED.
 	onMount(() => {
-		if (initialRows === null) {
+		if (!initialRows || initialRows.length === 0) {
 			load();
 		}
 	});
@@ -381,6 +388,9 @@
 		return null;
 	}
 
+	let systemPresetModalOpen = false;
+	let activeSystemTerm: SystemTermData | null = null;
+
 	// OPEN THE DIALOG IN ADD MODE (BLANK FIELDS).
 	function openAdd() {
 		formMode = 'add';
@@ -399,6 +409,22 @@
 
 	// OPEN THE DIALOG IN EDIT MODE, PREFILLED FROM THE TAPPED CARD.
 	function openEdit(e: Entry) {
+		if (e.isSystem) {
+			activeSystemTerm = {
+				id: e.id,
+				source: e.source,
+				target: e.target,
+				gender: e.gender,
+				context: e.context,
+				category: e.category,
+				pinned: e.pinned,
+				aliases: e.aliases,
+				packId: e.packId,
+			};
+			systemPresetModalOpen = true;
+			return;
+		}
+
 		formMode = 'edit';
 		formId = e.id;
 		fSource = e.source;
@@ -411,6 +437,24 @@
 		fStatus = e.status;
 		fFirstLabel = firstAppearanceLabel(e);
 		formOpen = true;
+	}
+
+	function handleSystemOverride(event: CustomEvent<{ term: SystemTermData; targetScope: 'global' | 'book' }>) {
+		const { term: st } = event.detail;
+		// OPEN FORM IN ADD MODE PRE-FILLED WITH THE PRESET TERM VALUES
+		formMode = 'add';
+		formId = null;
+		fSource = st.source;
+		fTarget = st.target;
+		fGender = st.gender;
+		fCategory = st.category;
+		fPinned = st.pinned;
+		fContext = st.context ?? '';
+		fAliases = st.aliases.join(', ');
+		fStatus = 'user';
+		fFirstLabel = null;
+		formOpen = true;
+		toast.info(scope === 'book' ? 'Ready to save book-specific override.' : 'Ready to save custom global override.');
 	}
 
 	function closeForm() {
@@ -712,7 +756,7 @@
 								type="button"
 								use:ripple
 								on:click={() => openEdit(e)}
-								class="flex min-w-0 flex-1 items-start gap-3 text-left transition-colors hover:opacity-90"
+								class="flex min-w-0 flex-1 items-start gap-3 rounded-lg p-1.5 -m-1.5 text-left transition-colors hover:bg-black/[0.03] dark:hover:bg-white/[0.03]"
 							>
 								<div class="min-w-0 flex-1">
 									<!-- SOURCE → TARGET (PINNED STAR INLINE, ONLY WHEN PINNED — NO RESERVED LEFT GUTTER; WRAPS ON NARROW WIDTHS) -->
@@ -758,17 +802,25 @@
 												>{firstLabel}</span
 											>
 										{/if}
-										<span
-											class={cn(
-												'rounded px-1.5 py-0.5',
-												e.status === 'user'
-													? 'bg-[#5b8a72]/14 text-[#4f7a64] dark:text-[#83b39a]'
-													: 'opacity-45',
-											)}
-											title={e.status === 'user'
-												? 'Added or confirmed by you'
-												: 'Auto-extracted (unreviewed)'}>{e.status === 'user' ? 'You' : 'AI'}</span
-										>
+										{#if e.isSystem}
+											<span
+												class="rounded bg-amber-500/12 px-1.5 py-0.5 font-medium text-amber-700 dark:text-amber-400 border border-amber-500/20"
+												title="Built-in system preset term (active globally)"
+												>System Preset</span
+											>
+										{:else}
+											<span
+												class={cn(
+													'rounded px-1.5 py-0.5',
+													e.status === 'user'
+														? 'bg-[#5b8a72]/14 text-[#4f7a64] dark:text-[#83b39a]'
+														: 'opacity-45',
+												)}
+												title={e.status === 'user'
+													? 'Added or confirmed by you'
+													: 'Auto-extracted (unreviewed)'}>{e.status === 'user' ? 'You' : 'AI'}</span
+											>
+										{/if}
 									</div>
 								</div>
 								<!-- EDIT AFFORDANCE -->
@@ -903,6 +955,15 @@
 	variant="danger"
 	on:confirm={confirmBatchDelete}
 	on:cancel={() => (batchDeleteConfirmOpen = false)}
+/>
+
+<!-- DEDICATED SYSTEM PRESET TERM MODAL -->
+<SystemPresetTermModal
+	bind:open={systemPresetModalOpen}
+	term={activeSystemTerm}
+	currentScope={scope}
+	{bookTitle}
+	on:override={handleSystemOverride}
 />
 
 <!-- ADD / EDIT TERM DIALOG (ONE FORM, MODE-SWITCHED) -->

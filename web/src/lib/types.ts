@@ -82,6 +82,9 @@ export interface GlossaryRow {
 	firstChapterTitle: string | null;
 	firstChapterTitleTarget: string | null;
 	createdAt: number;
+	// TRUE IF THIS TERM ORIGINATES FROM A BUILT-IN SYSTEM PRESET PACK (READ-ONLY)
+	isSystem?: boolean;
+	packId?: string;
 }
 
 /** TOKEN USAGE FOR ONE TRANSLATION CALL */

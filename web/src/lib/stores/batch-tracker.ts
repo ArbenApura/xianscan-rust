@@ -293,12 +293,13 @@ function createBatchTrackerStore() {
 		},
 
 		// CANCEL INDIVIDUAL PAGE FROM RUNNING BATCH QUEUE
-		cancelPage(chapterId: number, pageId: number) {
+		cancelPage(chapterId: number, pageId: number, fallbackAllPageIds?: number[]) {
 			update((state) => ({
 				...state,
 				queue: state.queue.map((item) => {
 					if (item.id === chapterId) {
-						const updatedPageIds = item.pageIds ? item.pageIds.filter((id) => id !== pageId) : undefined;
+						const baseIds = item.pageIds || fallbackAllPageIds;
+						const updatedPageIds = baseIds ? baseIds.filter((id) => id !== pageId) : undefined;
 						const newTotal = updatedPageIds ? updatedPageIds.length : Math.max(0, (item.totalPages || item.pageCount) - 1);
 						return {
 							...item,

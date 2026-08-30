@@ -624,10 +624,11 @@
 	async function cancelSinglePage(pg: ChapterPageItem) {
 		try {
 			await jobTracker.cancelPage(chapterId, pg.id);
+			batchTracker.cancelPage(chapterId, pg.id, pages.map((p) => p.id));
 			pg.status = 'pending';
 			pg.error = null;
 			pages = [...pages];
-			toast.info(`Cancelled translation for Page ${pg.seq + 1}.`);
+			toast.info(`Removed Page ${pg.seq + 1} from translation.`);
 		} catch {
 			toast.error(`Could not cancel translation for Page ${pg.seq + 1}.`);
 		}

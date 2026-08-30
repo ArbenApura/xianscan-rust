@@ -60,6 +60,8 @@
 	function getMenuItems(pg: any, idx: number, isJobRunning: boolean): MenuAction[] {
 		const items: MenuAction[] = [];
 		const isPageProcessing = pg.status === 'processing';
+		const isPageQueued = pg.status === 'queued';
+		const isBusy = isPageProcessing || isPageQueued;
 
 		if (isPageProcessing) {
 			items.push({
@@ -68,12 +70,19 @@
 				icon: Square,
 				danger: true,
 			});
+		} else if (isPageQueued) {
+			items.push({
+				value: 'cancel',
+				label: 'Remove from Queue',
+				icon: Square,
+				danger: true,
+			});
 		} else {
 			items.push({
 				value: 'translate',
 				label: pg.status === 'done' ? 'Re-translate Page' : 'Translate Page',
 				icon: Languages,
-				disabled: isPageProcessing,
+				disabled: isBusy,
 			});
 		}
 
@@ -89,7 +98,7 @@
 				value: 'stitch',
 				label: `Merge with Page ${pg.seq + 2}`,
 				icon: Layers,
-				disabled: isJobRunning || isPageProcessing,
+				disabled: isJobRunning || isBusy,
 			});
 		}
 
@@ -97,7 +106,7 @@
 			value: 'reset',
 			label: 'Clear Progress',
 			icon: RotateCcw,
-			disabled: isJobRunning || isPageProcessing || (pg.status === 'pending' && !pg.outputPath),
+			disabled: isJobRunning || isBusy || (pg.status === 'pending' && !pg.outputPath),
 		});
 
 		items.push({
@@ -105,7 +114,7 @@
 			label: 'Delete Page',
 			icon: Trash2,
 			danger: true,
-			disabled: isJobRunning || isPageProcessing,
+			disabled: isJobRunning || isBusy,
 		});
 
 		return items;

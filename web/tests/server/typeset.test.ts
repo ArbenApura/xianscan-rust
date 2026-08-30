@@ -935,4 +935,28 @@ Tattered Flesh-Cutting Knife`;
 		expect(resultBuf).toBeInstanceOf(Buffer);
 		expect(resultBuf.length).toBeGreaterThan(0);
 	});
+
+	it('strictly preserves explicit newlines in titles (Page 918 Region 10063: "Episode 1\\nThe Top of the Tower")', async () => {
+		const text = 'Episode 1\nThe Top of the Tower';
+		const c = ctx();
+		const lines = reflowText(c, text.toUpperCase(), 144 * 0.9);
+		// Line 1 must keep "EPISODE 1" together and not orphan "1" onto line 2
+		expect(lines[0]).toBe('EPISODE 1');
+		expect(lines.slice(1).join(' ')).toBe('THE TOP OF THE TOWER');
+
+		const pageImage = createCanvas(690, 2038).toBuffer('image/png');
+		const resultBuf = await typesetPage(
+			pageImage,
+			[
+				{
+					id: '10063',
+					box: { x: 278, y: 851, w: 144, h: 134 },
+					text: 'Episode 1\nThe Top of the Tower',
+					kind: 'free_text',
+				},
+			],
+		);
+		expect(resultBuf).toBeInstanceOf(Buffer);
+		expect(resultBuf.length).toBeGreaterThan(0);
+	});
 });

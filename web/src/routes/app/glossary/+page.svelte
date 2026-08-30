@@ -5,11 +5,17 @@
 	import { ripple } from '$lib/actions/ripple';
 	import GlossaryPanel from '$lib/components/GlossaryPanel.svelte';
 	import LanguagePicker from '$lib/components/ui/LanguagePicker.svelte';
+	import Button from '$lib/components/ui/Button.svelte';
 	import Select from '$lib/components/ui/Select.svelte';
+	import PresetPacksModal from '$lib/components/glossary/PresetPacksModal.svelte';
 	import ArrowLeft from 'lucide-svelte/icons/arrow-left';
 	import ChevronRight from 'lucide-svelte/icons/chevron-right';
 	import BookOpen from 'lucide-svelte/icons/book-open';
 	import Globe from 'lucide-svelte/icons/globe';
+	import Package from 'lucide-svelte/icons/package';
+	import Layers from 'lucide-svelte/icons/layers';
+	import { toast } from 'svelte-sonner';
+	import { apiFetch } from '$lib/api';
 	import type { PageData } from './$types';
 
 	export let data: PageData;
@@ -20,6 +26,28 @@
 	let scope: 'global' | 'book' = data.initialScope;
 	let selectedBookId = data.initialBookId || (books.length > 0 ? books[0].id : '');
 	let mounted = false;
+	let packsHash = 0;
+	let presetModalOpen = false;
+
+	async function togglePack(packId: string, enabled: boolean) {
+		try {
+			const res = await apiFetch('/api/glossary/packs', {
+				method: 'POST',
+				headers: { 'content-type': 'application/json' },
+				body: JSON.stringify({ packId, enabled }),
+			});
+			if (!res.ok) throw new Error('Failed to update pack status');
+			if (data.packs) {
+				const target = data.packs.find((p) => p.id === packId);
+				if (target) target.enabled = enabled;
+				data.packs = [...data.packs];
+			}
+			packsHash++;
+			toast.success(`${enabled ? 'Enabled' : 'Disabled'} ${packId} theme pack.`);
+		} catch {
+			toast.error('Failed to toggle theme pack.');
+		}
+	}
 
 	$: books = data.books;
 
@@ -59,11 +87,17 @@
 
 	function onSourceLangChange(lang: string) {
 		sourceLang = lang;
+		if (targetLang === lang) {
+			targetLang = lang === 'en' ? 'zh-Hans' : 'en';
+		}
 		syncUrl(scope, selectedBookId, sourceLang, targetLang);
 	}
 
 	function onTargetLangChange(lang: string) {
 		targetLang = lang;
+		if (sourceLang === lang) {
+			sourceLang = lang === 'en' ? 'zh-Hans' : 'en';
+		}
 		syncUrl(scope, selectedBookId, sourceLang, targetLang);
 	}
 
@@ -173,21 +207,66 @@
 
 	<!-- SCOPE CONTROLS CARD -->
 	{#if scope === 'global'}
-		<div class="rounded-2xl border border-black/[0.08] bg-white/40 p-4 dark:border-white/[0.06] dark:bg-white/[0.02]">
+		<div class="flex flex-col gap-3 rounded-2xl border border-black/[0.08] bg-white/40 p-4 dark:border-white/[0.06] dark:bg-white/[0.02]">
 			<div class="grid grid-cols-1 gap-3 sm:grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] sm:items-end">
 				<div class="min-w-0">
 					<span class="mb-1 block text-xs font-semibold opacity-60">Source (original)</span>
-					<LanguagePicker mode="source" value={sourceLang} on:change={(e) => onSourceLangChange(e.detail)} />
+					<LanguagePicker mode="source" value={sourceLang} excludeCode={targetLang} on:change={(e) => onSourceLangChange(e.detail)} />
 				</div>
 				<span class="hidden pb-2 text-center text-sm font-bold opacity-40 sm:block">→</span>
 				<div class="min-w-0">
 					<span class="mb-1 block text-xs font-semibold opacity-60">Target (translation)</span>
-					<LanguagePicker value={targetLang} on:change={(e) => onTargetLangChange(e.detail)} />
+					<LanguagePicker value={targetLang} excludeCode={sourceLang} on:change={(e) => onTargetLangChange(e.detail)} />
 				</div>
+			</div>
+
+			<!-- MINIMAL UNIVERSAL THEMES BAR -->
+			<div class="mt-1 flex flex-wrap items-center justify-between gap-2 rounded-xl border border-black/[0.06] bg-black/[0.015] px-3 py-2 text-xs dark:border-white/[0.06] dark:bg-white/[0.015]">
+				<div class="flex flex-wrap items-center gap-1.5 min-w-0">
+					<div class="flex items-center gap-1.5 mr-1 font-semibold opacity-70">
+						<Package size={13} class="text-amber-600 dark:text-amber-400 shrink-0" />
+						<span>Theme Presets</span>
+						<span class="rounded-md bg-black/5 px-1.5 py-0.2 text-[10px] font-mono dark:bg-white/5">
+							{(data.packs || []).filter((p) => p.enabled).length}/{(data.packs || []).length}
+						</span>
+					</div>
+
+					{#each data.packs || [] as pack (pack.id)}
+						<button
+							type="button"
+							on:click={() => togglePack(pack.id, !pack.enabled)}
+							class={`inline-flex items-center gap-1.5 rounded-lg border px-2 py-1 text-[11px] font-medium transition cursor-pointer ${
+								pack.enabled
+									? 'border-amber-500/30 bg-amber-500/10 text-amber-900 dark:text-amber-200'
+									: 'border-transparent bg-black/[0.03] opacity-45 hover:opacity-75 dark:bg-white/[0.03]'
+							}`}
+							title={`${pack.name} (${pack.enabled ? 'Enabled' : 'Disabled'}) - Click to toggle`}
+						>
+							<span class={`h-1.5 w-1.5 rounded-full ${pack.enabled ? 'bg-amber-500' : 'bg-neutral-400'}`}></span>
+							<span>{pack.name.split(' ')[0].replace(/[,/&]/g, '')}</span>
+						</button>
+					{/each}
+				</div>
+
+				<Button
+					size="sm"
+					variant="ghost"
+					class="text-xs h-6 px-2 text-neutral-600 dark:text-neutral-300 hover:bg-black/5 dark:hover:bg-white/5 shrink-0"
+					on:click={() => (presetModalOpen = true)}
+				>
+					<Layers size={12} class="mr-1 opacity-70" />
+					<span>Manage</span>
+				</Button>
 			</div>
 		</div>
 
-		{#key `${sourceLang}>${targetLang}`}
+		<PresetPacksModal
+			bind:open={presetModalOpen}
+			packs={data.packs || []}
+			on:change={() => packsHash++}
+		/>
+
+		{#key `${sourceLang}>${targetLang}>${packsHash}`}
 			<GlossaryPanel
 				scope="global"
 				{sourceLang}

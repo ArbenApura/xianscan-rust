@@ -163,10 +163,7 @@ export async function typesetPage(
 			lines = [text];
 		} else {
 			size = fitFontSize(ctx, text, font, w, h, cap, cap, inset, fontCjk);
-			const isNarrowVertical = (h / w >= 1.15 || h >= 120) && h >= 65;
-			lines = (isNarrowVertical && text.includes('\n') && !isStructuredList(text))
-				? reflowText(ctx, text.replace(/\n+/g, ' ').trim(), maxW)
-				: reflowText(ctx, text, maxW);
+			lines = reflowText(ctx, text, maxW);
 		}
 
 		ctx.font = fontSpec(size, font, text, fontCjk);

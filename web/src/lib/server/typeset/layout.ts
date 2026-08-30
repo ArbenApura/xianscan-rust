@@ -464,32 +464,6 @@ export function fitFontSize(
 		}
 	}
 
-	// IF NARROW VERTICAL CONTAINER FORCED FONT DOWN BELOW COMFORTABLE THRESHOLD (< 18pt) DESPITE AMPLE HEIGHT,
-	// TRY REFLOWING WITHOUT HARD NEWLINES TO ALLOW BALANCED MULTI-LINE WRAPPING AT A LEGIBLE FONT SIZE
-	if (best < 18 && isNarrowVertical && text.includes('\n') && !isStructuredList(text)) {
-		const flattenedText = text.replace(/\n+/g, ' ').trim();
-		let flatLo = Math.max(best, MIN_FONT_SIZE);
-		let flatHi = Math.max(flatLo, maxSize ?? startSize);
-		let flatBest = best;
-		while (flatLo <= flatHi) {
-			const mid = Math.floor((flatLo + flatHi) / 2);
-			if (mid === 0) break;
-			ctx.font = fontSpec(mid, fontFamily, flattenedText, customCjk);
-			const lines = reflowText(ctx, flattenedText, maxW);
-			const lineH = mid * LINE_HEIGHT;
-			const allLinesFitW = lines.every((l) => ctx.measureText(l).width <= maxW + 0.5);
-			if (allLinesFitW && lines.length * lineH <= maxH) {
-				flatBest = mid;
-				flatLo = mid + 1;
-			} else {
-				flatHi = mid - 1;
-			}
-		}
-		if (flatBest > best) {
-			return flatBest;
-		}
-	}
-
 	return best;
 }
 

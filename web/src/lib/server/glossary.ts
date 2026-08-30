@@ -9,8 +9,9 @@ import type { GlossaryRow, GlossaryScope, LangPair, TermDraft } from '$lib/types
 import { and, eq, inArray, isNull, or, sql } from 'drizzle-orm';
 // IMPORTED MODULES
 import { db } from './db';
-import { books, chapters, glossary, type GlossaryEntry } from './db/schema';
+import { appSettings, books, chapters, glossary, type GlossaryEntry } from './db/schema';
 import { invalidateAll, invalidateBook } from './glossary-match';
+import { getActivePackTerms } from './glossary-packs';
 
 // -- CONSTANTS -- //
 
@@ -118,9 +119,40 @@ export async function getGlossary(
 		.orderBy(glossary.source);
 }
 
-// EFFECTIVE GLOSSARY FOR A BOOK = global(SAME PAIR) ∪ book, WITH book OVERRIDING global ON THE SAME source.
-export async function getEffectiveGlossary(bookId: string): Promise<TermDraft[]> {
+// EFFECTIVE GLOSSARY FOR A BOOK = systemPacks(SAME PAIR) ∪ global(SAME PAIR) ∪ book,
+// WITH CUSTOM GLOBAL OVERRIDING SYSTEM PACKS, AND book OVERRIDING global/system ON THE SAME source.
+// PINNED BOOK TERMS ARE EMPHASIZED AND GIVEN ULTIMATE PRECEDENCE.
+export async function getEffectiveGlossary(
+	bookId: string,
+	opts: { includeSystem?: boolean } = {},
+): Promise<TermDraft[]> {
 	const pair = await bookPair(bookId);
+
+	// 1. FETCH PERSISTED ENABLED PACKS SETTING
+	let enabledPackIds: string[] | null = null;
+	const shouldIncludeSystem = opts.includeSystem ?? true;
+	if (shouldIncludeSystem) {
+		try {
+			const [settingRow] = await db
+				.select({ value: appSettings.value })
+				.from(appSettings)
+				.where(eq(appSettings.key, 'enabled_glossary_packs'))
+				.limit(1);
+
+			if (settingRow) {
+				enabledPackIds = JSON.parse(settingRow.value);
+			}
+		} catch {
+			enabledPackIds = null;
+		}
+	} else {
+		enabledPackIds = [];
+	}
+
+	// 2. LOAD ACTIVE SYSTEM DEFAULT PACK TERMS
+	const packTerms = getActivePackTerms(pair, enabledPackIds);
+
+	// 3. LOAD PERSISTED USER GLOBAL TERMS FOR THIS LANGUAGE PAIR
 	const globals = await db
 		.select()
 		.from(glossary)
@@ -132,25 +164,47 @@ export async function getEffectiveGlossary(bookId: string): Promise<TermDraft[]>
 				eq(glossary.targetLang, pair.targetLang),
 			),
 		);
+
+	// 4. LOAD LOCAL BOOK TERMS
 	const bookRows = await db
 		.select()
 		.from(glossary)
 		.where(and(eq(glossary.scope, 'book'), eq(glossary.bookId, bookId), eq(glossary.targetLang, pair.targetLang)));
 
+	// PRECEDENCE MAP: System Pack < User Global < Local Book Term (and Pinned Book Terms)
 	const map = new Map<string, TermDraft>();
-	for (const g of globals) map.set(g.source, rowToDraft(g));
-	for (const b of bookRows) map.set(b.source, rowToDraft(b)); // book OVERRIDES global ON THE SAME source
-	return [...map.values()];
+
+	// LAYER 1: BASE SYSTEM PACKS
+	for (const { term } of packTerms) {
+		map.set(term.source, { ...term });
+	}
+
+	// LAYER 2: USER-DEFINED GLOBAL TERMS OVERRIDE SYSTEM PACKS
+	for (const g of globals) {
+		map.set(g.source, rowToDraft(g));
+	}
+
+	// LAYER 3: BOOK-LEVEL TERMS OVERRIDE ALL GLOBALS
+	for (const b of bookRows) {
+		map.set(b.source, rowToDraft(b));
+	}
+
+	// SORT: PINNED TERMS FIRST, THEN SOURCE INSERTION ORDER / ALPHABETICAL
+	return [...map.values()].sort((a, b) => {
+		if (a.pinned && !b.pinned) return -1;
+		if (!a.pinned && b.pinned) return 1;
+		return 0;
+	});
 }
 
 // PAGINATED + SEARCHABLE GLOSSARY ROWS FOR THE EDITOR
 export async function getGlossaryPage(
 	scope: GlossaryScope,
 	bookId: string | null,
-	opts: { q?: string; limit: number; offset: number; pair?: LangPair },
+	opts: { q?: string; limit: number; offset: number; pair?: LangPair; includeSystem?: boolean },
 ): Promise<{ rows: GlossaryRow[]; total: number }> {
 	const base = scopeWhere(scope, bookId, opts.pair);
-	const q = opts.q?.trim();
+	const q = opts.q?.trim().toLowerCase();
 	const where = q ? and(base, or(likeContains(glossary.source, q), likeContains(glossary.target, q))) : base;
 
 	// LEFT JOIN THE first-appearance CHAPTER FOR ITS seq (THE EDITOR SHOWS "Ch. N"); aliases IS PARSED BELOW.
@@ -175,15 +229,82 @@ export async function getGlossaryPage(
 		.from(glossary)
 		.leftJoin(chapters, eq(glossary.firstChapterId, chapters.id))
 		.where(where)
-		.orderBy(glossary.source)
-		.limit(opts.limit)
-		.offset(opts.offset);
-	const rows: GlossaryRow[] = raw.map((r) => ({ ...r, aliases: parseAliases(r.aliases) }));
+		.orderBy(glossary.source);
+
+	const dbRows: GlossaryRow[] = raw.map((r) => ({ ...r, aliases: parseAliases(r.aliases) }));
+
+	// IF QUERYING GLOBAL SCOPE WITH includeSystem: true (FROM THE EDITOR UI), ALSO INCLUDE ACTIVE SYSTEM PRESET TERMS
+	const shouldIncludeSystem = opts.includeSystem === true;
+	if (scope === 'global' && opts.pair && shouldIncludeSystem) {
+		let enabledPackIds: string[] | null = null;
+		try {
+			const [settingRow] = await db
+				.select({ value: appSettings.value })
+				.from(appSettings)
+				.where(eq(appSettings.key, 'enabled_glossary_packs'))
+				.limit(1);
+
+			if (settingRow?.value) {
+				enabledPackIds = JSON.parse(settingRow.value);
+			}
+		} catch {
+			enabledPackIds = null;
+		}
+
+		const systemItems = getActivePackTerms(opts.pair, enabledPackIds);
+		const userSources = new Set(dbRows.map((r) => r.source.toLowerCase()));
+		const seenSources = new Set<string>();
+
+		const systemRows: GlossaryRow[] = [];
+		let fakeId = -1;
+		for (const { term, packId } of systemItems) {
+			const lowerSource = term.source.toLowerCase();
+			// SKIP IF OVERRIDDEN BY A USER GLOBAL TERM OR ALREADY INCLUDED FROM ANOTHER PACK
+			if (userSources.has(lowerSource) || seenSources.has(lowerSource)) continue;
+			seenSources.add(lowerSource);
+
+			// SEARCH FILTER
+			if (q) {
+				const srcMatch = term.source.toLowerCase().includes(q);
+				const tgtMatch = term.target.toLowerCase().includes(q);
+				const aliasMatch = (term.aliases ?? []).some((a) => a.toLowerCase().includes(q));
+				const ctxMatch = (term.context ?? '').toLowerCase().includes(q);
+				if (!srcMatch && !tgtMatch && !aliasMatch && !ctxMatch) continue;
+			}
+
+			systemRows.push({
+				id: fakeId--,
+				source: term.source,
+				target: term.target,
+				gender: term.gender,
+				context: term.context ?? null,
+				tags: term.tags ?? null,
+				category: term.category ?? null,
+				pinned: term.pinned ?? false,
+				status: 'ai',
+				aliases: term.aliases ?? [],
+				firstChapterId: null,
+				firstSeq: null,
+				firstChapterTitle: null,
+				firstChapterTitleTarget: null,
+				createdAt: 0,
+				isSystem: true,
+				packId,
+			});
+		}
+
+		const combined = [...dbRows, ...systemRows].sort((a, b) => a.source.localeCompare(b.source));
+		const total = combined.length;
+		const paginated = combined.slice(opts.offset, opts.offset + opts.limit);
+		return { rows: paginated, total };
+	}
+
 	const [c] = await db
 		.select({ n: sql<number>`count(*)` })
 		.from(glossary)
 		.where(where);
-	return { rows, total: Number(c?.n ?? 0) };
+	const paginated = dbRows.slice(opts.offset, opts.offset + opts.limit);
+	return { rows: paginated, total: Number(c?.n ?? 0) };
 }
 
 export async function addTerm(

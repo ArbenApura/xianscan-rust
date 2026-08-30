@@ -47,11 +47,15 @@ export const GET: RequestHandler = async ({ url }) => {
 			? pairFrom(url.searchParams.get('sourceLang'), url.searchParams.get('targetLang'))
 			: undefined;
 
+	const includeSystemParam = url.searchParams.get('includeSystem');
+	const includeSystem = includeSystemParam === 'false' ? false : true;
+
 	const { rows, total } = await getGlossaryPage(scope, bookId, {
 		q,
 		limit: pageSize,
 		offset: (page - 1) * pageSize,
 		pair,
+		includeSystem: scope === 'global' ? includeSystem : false,
 	});
 	return json({ rows, total, page, pageSize });
 };

@@ -368,7 +368,7 @@ describe('getEffectiveGlossary', () => {
 		await addTerm('book', 'b1', { source: '主角', target: 'Book MC', gender: 'neuter' }, PAIR);
 		await addTerm('book', 'b1', { source: '独有', target: 'Only here', gender: 'neuter' }, PAIR);
 
-		const terms = await getEffectiveGlossary('b1');
+		const terms = await getEffectiveGlossary('b1', { includeSystem: false });
 		const bySource = new Map(terms.map((t) => [t.source, t.target]));
 		expect(bySource.get('系统')).toBe('System');
 		expect(bySource.get('主角')).toBe('Book MC'); // BOOK WINS
@@ -384,7 +384,7 @@ describe('getEffectiveGlossary', () => {
 			{ source: 'Système', target: 'System', gender: 'neuter' },
 			{ sourceLang: 'fr', targetLang: 'en' },
 		);
-		expect(await getEffectiveGlossary('b1')).toHaveLength(0);
+		expect(await getEffectiveGlossary('b1', { includeSystem: false })).toHaveLength(0);
 	});
 
 	it('bookPair falls back to the zh-Hans → en default for an unknown book', async () => {
@@ -398,7 +398,7 @@ describe('getEffectiveGlossary', () => {
 		// PRODUCTION WRITE PATHS DO VIA mergeGlossary / addTerm).
 		const { invalidateBook } = await import('$lib/server/glossary-match');
 		invalidateBook('b1');
-		const terms = await getEffectiveGlossary('b1');
+		const terms = await getEffectiveGlossary('b1', { includeSystem: false });
 		expect(terms.map((t) => t.source)).toContain('直达');
 	});
 });
@@ -413,7 +413,7 @@ describe('batch glossary operations', () => {
 		const deletedCount = await deleteTerms([t1.id, t2.id], 'book', 'b_batch');
 		expect(deletedCount).toBe(2);
 
-		const remaining = await getEffectiveGlossary('b_batch');
+		const remaining = await getEffectiveGlossary('b_batch', { includeSystem: false });
 		expect(remaining).toHaveLength(1);
 		expect(remaining[0].source).toBe('Term3');
 	});
@@ -472,7 +472,7 @@ describe('batch glossary operations', () => {
 		);
 		expect(updatedCount).toBe(2);
 
-		const effective = await getEffectiveGlossary('b_up');
+		const effective = await getEffectiveGlossary('b_up', { includeSystem: false });
 		expect(effective.every((t) => t.pinned)).toBe(true);
 		expect(effective.every((t) => t.category === 'character')).toBe(true);
 	});

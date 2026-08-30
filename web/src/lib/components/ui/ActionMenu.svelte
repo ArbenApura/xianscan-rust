@@ -55,7 +55,7 @@
 	let open = false;
 	let triggerEl: HTMLButtonElement;
 	let menuEl: HTMLDivElement;
-	let portalTarget: HTMLDivElement;
+	let portalTarget: HTMLDivElement | null = typeof document !== 'undefined' ? document.createElement('div') : null;
 	let menuStyle = '';
 
 	// -- REACTIVE STATES -- //
@@ -126,8 +126,8 @@
 	// -- LIFECYCLES -- //
 
 	onMount(() => {
-		portalTarget = document.createElement('div');
-		document.body.appendChild(portalTarget);
+		if (!portalTarget) portalTarget = document.createElement('div');
+		if (!portalTarget.parentNode) document.body.appendChild(portalTarget);
 		document.addEventListener('mousedown', onClickOutside);
 		document.addEventListener('keydown', onKeydown);
 		window.addEventListener('scroll', onScroll, true);

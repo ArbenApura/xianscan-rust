@@ -93,4 +93,45 @@ describe('Chapter View Modes UI Components', () => {
 		expect(screen.getByText('Previous (Ch. 1)')).toBeTruthy();
 		expect(screen.getByText('Next Chapter (Ch. 3)')).toBeTruthy();
 	});
+
+	it('renders ViewModeGrid with queued, processing, and pending pages', async () => {
+		const pagesWithQueue = [
+			{
+				id: 101,
+				seq: 0,
+				status: 'queued',
+				filePath: 'page_101.png',
+				width: 800,
+				height: 1200,
+			},
+			{
+				id: 102,
+				seq: 1,
+				status: 'processing',
+				currentStep: 'translate',
+				filePath: 'page_102.png',
+				width: 800,
+				height: 1200,
+			},
+			{
+				id: 103,
+				seq: 2,
+				status: 'pending',
+				filePath: 'page_103.png',
+				width: 800,
+				height: 1200,
+			},
+		];
+
+		render(ViewModeGrid, {
+			props: {
+				pages: pagesWithQueue,
+				running: true,
+			},
+		});
+
+		expect(screen.getByText('Queued')).toBeTruthy();
+		expect(screen.getByText('Translating...')).toBeTruthy();
+		expect(screen.getByText('Pending')).toBeTruthy();
+	});
 });
