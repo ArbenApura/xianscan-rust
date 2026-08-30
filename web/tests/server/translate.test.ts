@@ -48,9 +48,9 @@ describe('systemPrompt', () => {
 		expect(p).toMatch(/JSON object/);
 		expect(p).toContain('zh-Hans');
 		expect(p).toContain('Names & Listings');
-		expect(p).toContain('Chinese & Manhua Rules');
+		expect(p).toContain('Chinese Manhua, Wuxia & Xianxia Rules');
 		expect(p).not.toContain('Sound Effects (sfx)');
-		expect(p).toContain('Wuxia/Cultivation');
+		expect(p).toContain('Wuxia, Xianxia & Cultivation Hierarchy');
 		expect(p).toContain('OCR Artifact & Bubble-Tail Cleaning');
 		expect(p).toContain('Bilingual Title Logos & Subtitle Deduplication');
 		expect(p).not.toContain('Pro-Drop & Subject Resolution');
@@ -59,63 +59,72 @@ describe('systemPrompt', () => {
 	it('produces specialized Russian/Cyrillic prompt without Chinese Wuxia rules', () => {
 		const p = systemPrompt('ru', 'en');
 		expect(p).toContain('Cyrillic Comic Rules');
-		expect(p).toContain('Cyrillic Comic SFX Taxonomy');
 		expect(p).toContain('Font & Leetspeak Recovery');
 		expect(p).toContain('(4PyCTb');
 		// Token efficiency: Chinese Wuxia rules MUST NOT leak into Russian prompt
-		expect(p).not.toContain('Wuxia/Cultivation');
+		expect(p).not.toContain('Wuxia');
 		expect(p).not.toContain('师尊');
 	});
 
-	it('produces specialized Japanese Manga prompt', () => {
+	it('produces specialized Japanese Manga prompt with lineage, dojo, and honorific rules', () => {
 		const p = systemPrompt('ja', 'en');
-		expect(p).toContain('Japanese Manga Rules');
-		expect(p).toContain('ドキドキ');
-		expect(p).not.toContain('Wuxia/Cultivation');
+		expect(p).toContain('Japanese Manga & Light Novel Rules');
+		expect(p).toContain('Ichizoku');
+		expect(p).toContain('Shintō-ryū');
+		expect(p).not.toContain('Wuxia');
+	});
+
+	it('produces specialized Korean Manhwa prompt with Murim, Clan, Sect, and Estate hierarchy', () => {
+		const p = systemPrompt('ko', 'en');
+		expect(p).toContain('Korean Manhwa & Murim Rules');
+		expect(p).toContain('Namgung Clan');
+		expect(p).toContain('Yu Clan Manor');
+		expect(p).toContain('Mount Hua Sect');
+		expect(p).toContain('Demonic Cult');
+		expect(p).not.toContain('Manhua');
 	});
 
 	it('enforces strict target language rules when translating zh-Hans to Korean', () => {
 		const p = systemPrompt('zh-Hans', 'ko');
 		expect(p).toContain('Target Language & Zero Leakage');
 		expect(p).toContain('Korean (ko)');
-		expect(p).toContain('Chinese & Manhua Rules');
+		expect(p).toContain('Chinese Manhua, Wuxia & Xianxia Rules');
+		expect(p).toContain('Namgung Clan');
+		expect(p).toContain('Mount Hua Sect');
 	});
 
-	it('completely strips SFX rules and taxonomy when enableSfx is false for token efficiency', () => {
-		const pZh = systemPrompt('zh-Hans', 'en', false);
-		expect(pZh).not.toContain('Sound Effects (sfx)');
+	it('keeps system prompts compact and free of raw SFX taxonomy bloat across all languages', () => {
+		const pZh = systemPrompt('zh-Hans', 'en');
 		expect(pZh).not.toContain('Manhua SFX Taxonomy');
 		expect(pZh).not.toContain('吧唧');
-		expect(pZh).toContain('Chinese & Manhua Rules');
-		expect(pZh).toContain('Wuxia/Cultivation');
+		expect(pZh).toContain('Chinese Manhua, Wuxia & Xianxia Rules');
 
-		const pKo = systemPrompt('ko', 'en', false);
-		expect(pKo).not.toContain('Sound Effects (sfx)');
+		const pKo = systemPrompt('ko', 'en');
 		expect(pKo).not.toContain('Manhwa SFX Taxonomy');
-		expect(pKo).not.toContain('Stylized Font Shift');
+		expect(pKo).not.toContain('냠냠');
+		expect(pKo).toContain('Korean Manhwa & Murim Rules');
 
-		const pJa = systemPrompt('ja', 'en', false);
-		expect(pJa).not.toContain('Sound Effects (sfx)');
+		const pJa = systemPrompt('ja', 'en');
 		expect(pJa).not.toContain('Manga SFX Taxonomy');
-		expect(pJa).not.toContain('ドキドキ');
+		expect(pJa).not.toContain('モグモグ');
+		expect(pJa).toContain('Japanese Manga & Light Novel Rules');
 
-		const pRu = systemPrompt('ru', 'en', false);
-		expect(pRu).not.toContain('Sound Effects (sfx)');
+		const pRu = systemPrompt('ru', 'en');
 		expect(pRu).not.toContain('Cyrillic Comic SFX Taxonomy');
+		expect(pRu).not.toContain('ням-ням');
 
-		const pFr = systemPrompt('fr', 'en', false);
-		expect(pFr).not.toContain('Sound Effects (sfx)');
+		const pFr = systemPrompt('fr', 'en');
 		expect(pFr).not.toContain('Western Comic SFX Taxonomy');
+		expect(pFr).not.toContain('Miam');
 		expect(pFr).toContain('Western Comic (BD) Rules');
 		expect(pFr).toContain('Accents');
 
-		const pId = systemPrompt('id', 'en', false);
-		expect(pId).not.toContain('Sound Effects (sfx)');
+		const pId = systemPrompt('id', 'en');
 		expect(pId).not.toContain('Webtoon SFX Taxonomy');
 		expect(pId).toContain('Indonesian & Malay Webtoon Rules');
+		expect(pId).toContain('Holy Maiden');
 
-		const pTh = systemPrompt('th', 'en', false);
-		expect(pTh).not.toContain('Sound Effects (sfx)');
+		const pTh = systemPrompt('th', 'en');
 		expect(pTh).not.toContain('Thai SFX Taxonomy');
 		expect(pTh).toContain('Thai Webtoon Rules');
 	});

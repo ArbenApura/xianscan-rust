@@ -18,116 +18,76 @@ export interface RegionSource {
 
 // -- FUNCTIONS -- //
 
-export function getSourceLanguageProfile(src: string, tgtName: string, enableSfx = true): string {
+export function getSourceLanguageProfile(src: string, tgtName: string): string {
 	const primary = src.split('-')[0].toLowerCase();
 	if (primary === 'ko') {
-		const sfxSection = enableSfx
-			? `\n- Manhwa SFX Taxonomy & Stylized Font/OCR Recovery:
-  * Dining / Oral: 냠/남 (NOM), 쩝/접 (CHOMP/SMACK), 우물/오물 (MUNCH), 꿀꺽/벌컥 (GULP/GLUG), 후루룩/후룩 (SLURP).
-  * Combat / Impact: 쿵/쾅 (THUD/SLAM), 콰앙 (CRASH/BOOM), 퍽/팍 (SMACK/WHACK), 탁 (SNAP), 챙/챙그랑 (CLANG), 와장창 (SHATTER).
-  * Movement / Body: 슥/스윽 (SWISH/SLIDE), 척/뚜벅 (STEP), 바스락 (RUSTLE), 힐끔 (GLANCE), 덜덜 (SHIVER), 벌떡 (SPRING UP).
-  * Vocal / Emotion: 하하 (HAHA), 흑흑/엉엉 (SOB/CRY), 헉/흡 (GASP), 한숨/휴 (SIGH/PHEW), 소곤 (WHISPER).
-  * Atmosphere / Mimetic: 두근 (BA-DUMP), 번쩍 (FLASH), 찌릿 (ZAP), 주룩주룩 (POUR), 침묵/… (*SILENCE*).
-  * Stylized Font Shift: Calligraphic manhwa fonts frequently shift vowels (ㅑ↔ㅏ e.g. 냠냠↔남남; ㅕ↔ㅓ e.g. 쩝쩝↔접접). Infer root onomatopoeia from scene context; never map dining/quiet sounds to combat impacts (BOOM/SLAM/CRASH).`
-			: '';
-		return `Korean Manhwa Rules:
-- Pro-drop: Korean omits subjects. Never default to "I"/"my". Strictly distinguish intransitive states from active actions (죽다 "to die/perish" vs 죽이다 "to kill" -> "많이 죽긴 했어" = "Too many died", not "I killed many").
-- Livestream & Gamer Handles: Translate bracketed spectator/player usernames into ${tgtName} (e.g. [형 궁서체다] -> [Dead Serious Bro]). Never leave raw Hangul inside brackets.${sfxSection}
-- Honorifics: Adapt address terms (Hyung, Oppa, Noona, Sunbae, Nim) matching character relationships.
+		return `Korean Manhwa & Murim Rules:
+- Pro-drop & State vs Action: Korean frequently omits subjects. Never default to "I"/"my". Strictly distinguish intransitive states from causative actions (죽다 "to die/perish" vs 죽이다 "to kill" -> "많이 죽긴 했어" = "Too many died", not "I killed many").
+- Conversational Invitations: Common social phrases like "밥이나 먹으러 ... 와" (come over for a meal/hang out) are casual invitations, not commercial restaurant references.
+- Murim & Organization Hierarchy:
+  * Clans & Families: ~세가 (~世家, e.g. 남궁세가 -> Namgung Clan/Family, 제갈세가 -> Jaegal Clan), ~가 (家, Clan), ~가장 (家莊, Clan Manor/Estate e.g. 유가장 -> Yu Clan Manor, never "Yu's Restaurant").
+  * Sects & Factions: ~파 (派, Sect e.g. 화산파 -> Mount Hua Sect, 무당파 -> Wudang Sect, 소림사 -> Shaolin Temple), ~문 (門, Sect/Gate e.g. 당문 -> Tang Sect), ~방 (幇, Union/Gang e.g. 개방 -> Beggars' Sect), ~교 (敎, Cult e.g. 마교 -> Demonic Cult / Heavenly Demon Cult).
+  * Halls & Pavilions: ~전 (殿, Hall/Palace), ~당 (堂, Hall), ~각 (閣, Pavilion).
+  * Disciples & Ranks: 가주 (Clan Head), 장문인 (Sect Leader), 장로 (Elder), 사부 (Master/Teacher), 대사형 (Eldest Martial Brother), 사제 (Junior Martial Brother), 사매 (Junior Martial Sister).
+- Livestream, Hunter & Gamer Handles: Translate bracketed spectator/player usernames into ${tgtName} (e.g. [형 궁서체다] -> [Dead Serious Bro]). Never leave raw Hangul inside brackets.
+- Honorifics & Kinship: Adapt address terms (Hyung, Oppa, Noona, Sunbae, Nim, Hubae) matching character relationships.
 - Speech Levels: Maintain consistent conversational tone across sentence clauses (honorific/formal 존댓말 vs casual/intimate 반말).`;
 	}
 
 	if (primary === 'ja') {
-		const sfxSection = enableSfx
-			? `\n- Manga SFX Taxonomy & Cursive OCR Recovery:
-  * Dining / Oral: モグモグ/クチャクチャ (MUNCH/CHOMP), ゴクッ/ゴクゴク (GULP/GLUG), ズルズル (SLURP), パクッ (CHOMP).
-  * Combat / Impact: ドン/ドカーン (BOOM/KABOOM), バッ/バキッ (BAM/CRACK), ガタッ (RATTLE), ドカッ (SMASH), ザッ (SLASH).
-  * Movement / Body: サッ/スッ (SWIFT/SLIP), スタスタ (STRIDE), ギラッ (GLINT), ビクッ (STARTLE), フワッ (FLOAT).
-  * Vocal / Emotion: ハァ/フゥ (PANT/SIGH), クスクス/ニコニコ (GIGGLE/SMILE), ニヤニヤ (SMIRK), ひそひそ (WHISPER).
-  * Atmosphere / Mimetic: ドキドキ (BA-DUMP), シーン (*SILENCE*), ゾクッ (SHIVER), パチパチ (CLAP-CLAP), ワクワク (EXCITED).
-  * Cursive Katakana Recovery: Recover stylized dakuten/stroke confusions (バ↔パ↔ハ, ク↔ワ, ツ↔シ, ソ↔ン) matching scene context.`
-			: '';
-		return `Japanese Manga Rules:
-- Pro-drop: Japanese dialogue omits subjects. Never insert "I"/"me" into impersonal observations. Strictly distinguish intransitive/passive verbs from transitive/causative actions (落ちる/落とす, 消える/消す, 死ぬ/杀す).${sfxSection}
-- Honorifics: Preserve or adapt honorifics (-san, -kun, -chan, -sama, senpai, sensei) according to speaker personality and relationship.
-- Visual Kanji/Kana Recovery: Reconstruct visually similar Kanji/Kana OCR stroke confusions (e.g. 盲↔育, 友↔反) from context.`;
+		return `Japanese Manga & Light Novel Rules:
+- Pro-drop & Transitivity: Japanese dialogue omits subjects. Never insert "I"/"me" into impersonal observations. Strictly distinguish intransitive/passive verbs from transitive/causative actions (落ちる/落とす, 消える/消す, 死ぬ/杀す).
+- Clan, School & Organization Terminology:
+  * Clans & Lineage: ~一族 (~Ichizoku, Clan/Tribe), ~家 (~Family/Clan), 本家 (Honke, Main Family/Branch), 分家 (Bunke, Branch Family).
+  * Martial Schools & Sects: ~流 (~Ryū, School/Style e.g. 神道流 -> Shintō-ryū), ~宗派 (~Shūha, Sect), ~道場 (Dōjō, Training Hall/Dojo), ~組 (~Gumi, Clan/Syndicate).
+  * Guilds & Conglomerates: 財閥 (Zaibatsu, Financial Conglomerate), ギルド (Guild).
+- Honorifics: Preserve or adapt honorifics (-san, -kun, -chan, -sama, senpai, sensei, kouhai) according to speaker personality, hierarchy, and relationship.
+- Visual Kanji/Kana Recovery: Reconstruct visually similar Kanji/Kana OCR stroke confusions (e.g. 盲↔育, 友↔反, バ↔パ↔ハ, ク↔ワ, ツ↔シ, ソ↔ン) from context.`;
 	}
 
 	if (primary === 'zh') {
-		const sfxSection = enableSfx
-			? `\n- Manhua SFX Taxonomy & Stylized Brush Recovery:
-  * Dining / Oral: 吧唧/吧唧吧唧 (CHOMP/SMACK), 咕噜/咕咚 (GULP/GLUG), 吸溜 (SLURP), 嚼 (CHEW/MUNCH).
-  * Combat / Impact: 砰/嘭 (BANG/POW), 咚/咚咚 (THUD/THUMP), 轰/轰隆 (BOOM/RUMBLE), 咔/咔嚓 (CRACK/SNAP), 铛/哐当 (CLANG), 啪 (SLAP).
-  * Movement / Body: 嗖 (SWOOSH), 唰 (SWISH), 踏 (STEP), 扑通 (PLOP), 扑棱 (FLUTTER).
-  * Vocal / Emotion: 哈哈 (HAHA), 呜呜 (SOB), 哧 (SNICKER), 唏嘘 (SIGH).
-  * Atmosphere / Mimetic: 嗡嗡 (BUZZ), 嘶 (HISS), 哗啦 (GUSH), 寂静/… (*SILENCE*).`
-			: '';
-		return `Chinese & Manhua Rules:
+		return `Chinese Manhua, Wuxia & Xianxia Rules:
 - Pro-drop: Chinese conversational dialogue frequently omits subjects. Never default to "I"/"my" unless referring to self. Distinguish passive/intransitive (died/broke) from active actions (killed/destroyed).
 - Hanzi OCR Recovery: Correct common visually similar character stroke confusions (e.g. 拔↔拨, 己↔已↔巳, 崇↔祟, 治↔冶, 呜↔鸣, 未↔末, 刺↔剌) by inferring intended terms from story and martial context.
 - Names & Listings: Separate 2-character names in multi-name sequences (e.g. "子龙童菲，张肥关鱼" -> "Zilong, Tong Fei, Zhang Fei, Guan Yu"). Recognize homophone/parody names (e.g. 张肥 for 张飞) as character names. Translate army unit titles (e.g. 龙字军, 虎字营) into ${tgtName} divisions.
-- Wuxia/Cultivation: Localize idioms, exclamations, and martial address (师尊, 掌门, 本座) into punchy ${tgtName}.${sfxSection}
+- Wuxia, Xianxia & Cultivation Hierarchy:
+  * Clans & Estates: ~世家 (Great Clan/Family e.g. 南宫世家 -> Namgung Clan), ~家庄 (Clan Manor e.g. 刘家庄 -> Liu Clan Manor), ~山庄 (Mountain Villa/Estate), ~堡 (Fortress/Manor).
+  * Sects & Lineages: ~门派 / ~派 (Sect e.g. 华山派 -> Mount Hua Sect, 武当派 -> Wudang Sect, 少林寺 -> Shaolin Temple), ~宗 (Sect/Clan e.g. 天宗 -> Heaven Sect), ~门 (Sect/Gate e.g. 唐门 -> Tang Sect), ~帮 (Sect/Gang e.g. 丐帮 -> Beggars' Sect), ~教 (Cult e.g. 魔教 -> Demonic Cult).
+  * Divisions & Roles: ~堂 (Hall e.g. 执法堂 -> Law Enforcement Hall), ~阁 (Pavilion e.g. 藏经阁 -> Scripture Pavilion). 掌门 (Sect Leader), 家主 (Clan Head), 长老 (Elder), 师尊/师父 (Master), 师兄 (Senior Martial Brother), 师弟 (Junior Martial Brother), 师姐 (Senior Martial Sister), 师妹 (Junior Martial Sister), 徒儿 (Disciple).
+  * Martial World: 江湖 (Jianghu / Martial World), 武林 (Wulin). Localize archaic martial pronouns (本座, 老夫, 晚辈) naturally into ${tgtName}.
 - Stat Panels: Only use [brackets] if source explicitly has 【】 brackets. Translate rarity tiers (LEGENDARY, EPIC, RARE, COMMON, MYTHIC) fused with item type. Keep parenthetical qualifiers on their own line with ().`;
 	}
 
 	if (primary === 'ru' || primary === 'uk' || primary === 'be') {
-		const sfxSection = enableSfx
-			? `\n- Cyrillic Comic SFX Taxonomy & Leetspeak/OCR Recovery:
-  * Dining / Oral: ням-ням/хрум (NOM-NOM/CRUNCH), чавк (CHOMP/SMACK), бульк/глот (GULP/GLUG), ссссурч (SLURP).
-  * Combat / Impact: бабах/бум (KABOOM/BOOM), бах/бам (BANG/BAM), хрусть/хрясь (CRACK/SMACK), бряк/хлоп (CLATTER/SLAM).
-  * Movement / Body: топ-топ (STEP), шурх (RUSTLE), вжух (SWOOSH), кап-кап (DRIP), плюх (SPLASH), скрип (CREAK).
-  * Vocal / Emotion: ах/ох (AH/OH), ха-ха/хи-хи (HAHA/GIGGLE), ух/ой (UGH/OOPS), чмок (SMOOCH), тсс (SHH).
-  * Font & Leetspeak Recovery: Reconstruct stylized/cursive OCR confusions ('4'/'ч' ↔ 'х', '6' ↔ 'б', '0' ↔ 'о', '3' ↔ 'з', 'P' ↔ 'р', 'C' ↔ 'с', 'T' ↔ 'т', 'b' ↔ 'ь', e.g. "(4PyCTb" -> "хрусть" -> CRACK!).`
-			: '';
-		return `Cyrillic Comic Rules:${sfxSection}
-- Conversational Flow: Translate Russian diminutives and conversational particles (давай, ну-ка, же) naturally into ${tgtName}.`;
+		return `Cyrillic Comic Rules:
+- Conversational Flow: Translate Russian diminutives and conversational particles (давай, ну-ка, же) naturally into ${tgtName}.
+- Font & Leetspeak Recovery: Reconstruct stylized/cursive OCR confusions ('4'/'ч' ↔ 'х', '6' ↔ 'б', '0' ↔ 'о', '3' ↔ 'з', 'P' ↔ 'р', 'C' ↔ 'с', 'T' ↔ 'т', 'b' ↔ 'ь', e.g. "(4PyCTb" -> "хрусть").`;
 	}
 
 	if (primary === 'fr' || primary === 'es' || primary === 'de' || primary === 'it' || primary === 'pt') {
-		const sfxSection = enableSfx
-			? `- Western Comic SFX Taxonomy:
-  * Dining / Oral: Miam/Ñam-ñam (YUM/NOM-NOM), Slurp/Gulp (SLURP/GULP), Mastic (CHOMP).
-  * Combat / Impact: Vlan/Pum/Boum (WHAM/BOOM), Crac/Zas (CRACK/WHACK), Pif/Paf (POW/SLAP), Pan/Bang (BANG).
-  * Movement / Body: Froufrou (RUSTLE), Toc-toc (KNOCK), Plaf/Chof (SPLASH/SQUISH), Boing (BOING).
-  * Vocal / Emotion: Ouf/Uff (PHEW), Heu/Euh (UM), Chut (SHH), Smak (SMOOCH).\n`
-			: '';
-		const accents = '- Accents: Recover dropped or substituted OCR accents (é, è, à, ç, ñ, ü) from context.';
-		return `Western Comic (BD) Rules:\n${sfxSection}${accents}`;
+		return `Western Comic (BD) Rules:
+- Accents & Typography: Recover dropped or substituted OCR accents (é, è, à, ç, ñ, ü) from context. Maintain natural idiomatic dialogue flow in ${tgtName}.`;
 	}
 
 	if (primary === 'id' || primary === 'ms') {
-		const sfxSection = enableSfx
-			? `\n- Webtoon SFX Taxonomy:
-  * Dining / Oral: Nyam-nyam (NOM-NOM), Kriuk/Krupuk (CRUNCH), Glek/Teguk (GULP), Sruput (SLURP).
-  * Combat / Impact: Jedag-jedug/Buk (THUD), Duar/Darr (BOOM), Crat-crot (SPLURT), Prak/Krak (CRACK).
-  * Movement / Body: Sret/Srat (SWISH), Derap/Tap-tap (STEP), Kresek-kresek (RUSTLE).
-  * Vocal / Emotion: Hiks-hiks (SOB), Haha/Wkwk (HAHA), Huft/Huh (SIGH).`
-			: '';
 		return `Indonesian & Malay Webtoon Rules:
-- Slang & Particles: Translate dialogue particles (dong, kok, sih, lho, deh, kan, ya, nih) smoothly into natural spoken ${tgtName}. Translate fantasy titles (Gadis Suci, Pendekar, Raja Iblis) cleanly.${sfxSection}`;
+- Slang & Particles: Translate dialogue particles (dong, kok, sih, lho, deh, kan, ya, nih) smoothly into natural spoken ${tgtName}. Translate fantasy and martial titles (Gadis Suci -> Holy Maiden, Pendekar -> Martial Hero/Swordsman, Raja Iblis -> Demon King) cleanly.`;
 	}
 
 	if (primary === 'th') {
-		const sfxSection = enableSfx
-			? `\n- Thai SFX Taxonomy:
-  * Dining / Oral: ง่ำๆ/หงับ (NOM NOM/CHOMP), อึก/กลืน (GULP), ซู้ด (SLURP).
-  * Combat / Impact: ตูม/บึ้ม (BOOM), เปรี้ยง/เพล้ง (CRASH/CLANG), ผัวะ/พลั่ก (SMACK/THUD), ฉับ (SLASH).
-  * Movement / Body: ฟึ่บ/ควับ (SWOOSH/SWISH), ตึกๆ (FOOTSTEPS), กริ๊ก (CLICK).
-  * Vocal / Emotion: ฮ่าๆ (HAHA), ฮึก/ฮือ (SOB), เฮ้อ (SIGH), ชู่ว (SHH).`
-			: '';
 		return `Thai Webtoon Rules:
-- Kinship & Titles: Adapt regional forms of address and pronouns into natural spoken ${tgtName}.${sfxSection}`;
+- Kinship & Titles: Adapt regional forms of address, pronouns, and honorific particles into natural spoken ${tgtName}.`;
 	}
 
 	return '';
 }
 
-export function systemPrompt(src: string, tgt: string, enableSfx = true): string {
+export function systemPrompt(src: string, tgt: string, _enableSfx = false): string {
 	const srcName = languageName(src);
 	const tgtName = languageName(tgt);
 	const srcLabel = srcName === src ? src : `${srcName} (${src})`;
 	const tgtLabel = tgtName === tgt ? tgt : `${tgtName} (${tgt})`;
-	const langProfile = getSourceLanguageProfile(src, tgtName, enableSfx);
+	const langProfile = getSourceLanguageProfile(src, tgtName);
 
 	const rules: string[] = [
 		`1. Target Language & Zero Leakage: ALL translations MUST be strictly in ${tgtName} (${tgt}). Never leave raw source characters (Hanzi/Hangul/Kanji/Cyrillic) in the output.`,
