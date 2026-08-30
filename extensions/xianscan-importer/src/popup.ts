@@ -149,7 +149,7 @@ class PopupController {
 		this.updateToggleState(this.trackerInPlaceCheckbox);
 		this.inPlaceNoticeBanner.classList.toggle('hidden', !inPlace);
 
-		this.autoResliceCheckbox.checked = stored.autoReslice === true;
+		this.autoResliceCheckbox.checked = stored.autoReslice !== false;
 		this.updateToggleState(this.autoResliceCheckbox);
 
 		if (inPlace) {
@@ -159,7 +159,7 @@ class PopupController {
 			this.autoTranslateLockBadge?.classList.remove('hidden');
 			this.autoTranslateChip?.setAttribute('title', 'Auto-Translate is required and locked while In-Place Translation is active');
 		} else {
-			this.autoTranslateCheckbox.checked = stored.autoTranslate === true;
+			this.autoTranslateCheckbox.checked = stored.autoTranslate !== false;
 			this.autoTranslateCheckbox.disabled = false;
 			this.autoTranslateChip?.classList.remove('locked');
 			this.autoTranslateLockBadge?.classList.add('hidden');

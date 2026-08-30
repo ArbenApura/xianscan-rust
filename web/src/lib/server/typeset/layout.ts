@@ -7,21 +7,21 @@ import { CJK_REGEX, fontSpec } from './fonts';
 const BOX_INSET = 0.05;
 const MIN_FONT_SIZE = 6;
 const LINE_HEIGHT = 1.2;
-const LONE_PUNCT = /^[.．…·!！?？,，;；:：~～)"'']{1,3}$/;
+const LONE_PUNCT = /^[.．…·!！?？,，;；:：~～)"'']{1,10}$/;
 
 // COMMON ENGLISH PREFIXES AND SUFFIXES FOR SYLLABLE HYPHENATION
 const HYPHEN_PREFIXES = [
-	'under', 'super', 'inter', 'intra', 'trans', 'every', 'multi',
+	'under', 'super', 'inter', 'intra', 'trans', 'multi',
 	'over', 'some', 'with', 'fore', 'back', 'down', 'post',
 	'anti', 'semi', 'auto', 'para', 'self', 'dis', 'mis', 'out', 'pre', 'pro', 'sub', 'non', 'un',
-	'con', 'com', 'per', 'for', 'tra', 'tri', 'be', 'de', 're', 'in', 'im', 'ex', 'en'
+	'con', 'com', 'per', 'for', 'tra', 'tri'
 ];
 
 const HYPHEN_SUFFIXES = [
 	'ization', 'isation', 'ational',
 	'action', 'ection', 'iction', 'uction', 'ation', 'ition', 'ution', 'sion', 'tion',
 	'ement', 'iment', 'nment', 'ment',
-	'able', 'ible', 'ness', 'less', 'ful', 'ing', 'est', 'ity', 'ive', 'ous', 'ish', 'ize', 'ise', 'ism', 'ist', 'tor', 'ter'
+	'able', 'ible', 'ness', 'less', 'ful', 'est', 'ity', 'ive', 'ous', 'ish', 'ize', 'ise', 'ism', 'ist', 'tor', 'ter'
 ];
 
 // -- FUNCTIONS -- //
@@ -29,7 +29,8 @@ const HYPHEN_SUFFIXES = [
 export function findHyphenationPoints(rawWord: string): number[] {
 	const word = rawWord.toLowerCase();
 	const len = word.length;
-	if (len < 6) return [];
+	// COMIC TYPESETTING: ONLY HYPHENATE WORDS WITH AT LEAST 7 LETTERS
+	if (len < 7) return [];
 
 	const points = new Set<number>();
 
@@ -40,14 +41,14 @@ export function findHyphenationPoints(rawWord: string): number[] {
 		}
 	}
 
-	// 2. COMMON PREFIXES
+	// 2. COMMON PREFIXES (ONLY FOR WORDS WITH SUFFICIENT STEM LENGTH)
 	for (const p of HYPHEN_PREFIXES) {
-		if (word.startsWith(p) && len - p.length >= 3) {
+		if (word.startsWith(p) && len - p.length >= 3 && p.length >= 2) {
 			points.add(p.length);
 		}
 	}
 
-	// 3. COMMON SUFFIXES
+	// 3. COMMON SUFFIXES (ONLY FOR WORDS WITH SUFFICIENT STEM LENGTH)
 	for (const s of HYPHEN_SUFFIXES) {
 		if (word.endsWith(s) && len - s.length >= 3) {
 			points.add(len - s.length);
@@ -80,18 +81,8 @@ export function findHyphenationPoints(rawWord: string): number[] {
 		}
 	}
 
-	// 6. VOWEL-CONSONANT-VOWEL (V-CV)
-	for (let i = 2; i < len - 2; i++) {
-		const v1 = vowels.includes(word[i - 1]);
-		const c1 = !vowels.includes(word[i]) && word[i] !== '-';
-		const v2 = vowels.includes(word[i + 1]);
-		if (v1 && c1 && v2) {
-			points.add(i);
-		}
-	}
-
 	return Array.from(points)
-		.filter((p) => p >= 2 && len - p >= 2)
+		.filter((p) => p >= 3 && len - p >= 3)
 		.sort((a, b) => a - b);
 }
 
@@ -141,10 +132,22 @@ export function wrapText(ctx: { measureText(t: string): { width: number } }, tex
 			}
 		}
 
+		// DO NOT BREAK SHORT WORDS (< 7 LETTERS): KEEP INTACT UNLESS IT HAS TRAILING PUNCTUATION THAT CAN DETACH
+		if (stem.length < 7) {
+			if (trailingPunct && ctx.measureText(stem).width <= maxWidth) {
+				return { head: [stem], tail: trailingPunct };
+			}
+			return { head: [], tail: word };
+		}
+
 		while (ctx.measureText(current).width > maxWidth && current.length > 1) {
 			const curPunctMatch = current.match(/^(.*?)([.!?,:;~…"']+)?$/);
 			const curStem = curPunctMatch && curPunctMatch[1] ? curPunctMatch[1] : current;
 			const curPunct = curPunctMatch && curPunctMatch[2] ? curPunctMatch[2] : '';
+
+			if (curStem.length < 7) {
+				break;
+			}
 
 			// 1. TRY NATURAL SYLLABLE / HYPHEN POINTS FIRST
 			const points = findHyphenationPoints(curStem);
@@ -165,7 +168,7 @@ export function wrapText(ctx: { measureText(t: string): { width: number } }, tex
 				continue;
 			}
 
-			// 2. CHARACTER FALLBACK FOR UNBREAKABLE TOKENS
+			// 2. CHARACTER FALLBACK ONLY FOR LONG WORDS (>= 7 LETTERS) WHEN OVERFLOW > 1 LETTER
 			let kRaw = current.length - 1;
 			while (kRaw > 0 && ctx.measureText(current.slice(0, kRaw)).width > maxWidth) {
 				kRaw--;
@@ -176,11 +179,11 @@ export function wrapText(ctx: { measureText(t: string): { width: number } }, tex
 			}
 
 			let k = current.length - 2;
-			while (k > 0 && ctx.measureText(current.slice(0, k) + '-').width > maxWidth) {
+			while (k >= 3 && ctx.measureText(current.slice(0, k) + '-').width > maxWidth) {
 				k--;
 			}
-			if (k <= 0) {
-				k = 1;
+			if (k < 3 || current.length - k < 3) {
+				break;
 			}
 			const prefix = current.slice(0, k);
 			heads.push(prefix.endsWith('-') ? prefix : `${prefix}-`);
@@ -219,8 +222,22 @@ export function wrapText(ctx: { measureText(t: string): { width: number } }, tex
 						expandedWords.push(sub[i]);
 					}
 				}
+			} else if (w.includes("'") && !w.startsWith("'") && !w.endsWith("'")) {
+				const sub = w.split("'");
+				for (let i = 0; i < sub.length; i++) {
+					if (i < sub.length - 1) {
+						expandedWords.push(`${sub[i]}'`);
+					} else {
+						expandedWords.push(sub[i]);
+					}
+				}
 			} else {
-				expandedWords.push(w);
+				const m = w.match(/^(.*?)([.!?,:;~…"']{2,})$/);
+				if (m && m[1] && m[2]) {
+					expandedWords.push(m[1], m[2]);
+				} else {
+					expandedWords.push(w);
+				}
 			}
 		}
 
@@ -231,12 +248,17 @@ export function wrapText(ctx: { measureText(t: string): { width: number } }, tex
 					current = word;
 				} else {
 					const { head, tail } = breakLongWord(word);
-					lines.push(...head);
-					current = tail;
+					if (head.length > 0) {
+						lines.push(...head);
+						current = tail;
+					} else {
+						current = word;
+					}
 				}
 			} else {
-				const candidate = current.endsWith('-') ? `${current}${word}` : `${current} ${word}`;
-				if (ctx.measureText(candidate).width <= maxWidth) {
+				const isPurePunct = LONE_PUNCT.test(word);
+				const candidate = current.endsWith('-') || current.endsWith("'") || isPurePunct ? `${current}${word}` : `${current} ${word}`;
+				if (ctx.measureText(candidate).width <= (isPurePunct ? maxWidth * 1.15 : maxWidth)) {
 					current = candidate;
 				} else {
 					lines.push(current);
@@ -244,8 +266,12 @@ export function wrapText(ctx: { measureText(t: string): { width: number } }, tex
 						current = word;
 					} else {
 						const { head, tail } = breakLongWord(word);
-						lines.push(...head);
-						current = tail;
+						if (head.length > 0) {
+							lines.push(...head);
+							current = tail;
+						} else {
+							current = word;
+						}
 					}
 				}
 			}
@@ -410,8 +436,18 @@ export function fitFontSize(
 			for (let i = 0; i < sub.length; i++) {
 				words.push(i < sub.length - 1 ? `${sub[i]}-` : sub[i]);
 			}
+		} else if (w.includes("'") && !w.startsWith("'") && !w.endsWith("'")) {
+			const sub = w.split("'");
+			for (let i = 0; i < sub.length; i++) {
+				words.push(i < sub.length - 1 ? `${sub[i]}'` : sub[i]);
+			}
 		} else {
-			words.push(w);
+			const m = w.match(/^(.*?)([.!?,:;~…"']{2,})$/);
+			if (m && m[1] && m[2]) {
+				words.push(m[1], m[2]);
+			} else {
+				words.push(w);
+			}
 		}
 	}
 
@@ -425,12 +461,22 @@ export function fitFontSize(
 		if (mid === 0) break;
 		ctx.font = fontSpec(mid, fontFamily, text, customCjk);
 
-		const maxWordWidth = Math.max(0, ...words.map((w) => ctx.measureText(w).width));
-		if (maxWordWidth <= maxW) {
+		const maxWordWidth = Math.max(
+			0,
+			...words.map((w) => {
+				const punctMatch = w.match(/^(.*?)([.!?,:;~…"']+)?$/);
+				const stem = punctMatch && punctMatch[1] ? punctMatch[1] : w;
+				const fullW = ctx.measureText(w).width;
+				const stemW = ctx.measureText(stem).width;
+				return fullW <= maxW * 1.15 || stemW <= maxW ? stemW : fullW;
+			}),
+		);
+		if (maxWordWidth <= maxW * 1.15) {
 			const lines = reflowText(ctx, text, maxW);
 			const lineH = mid * LINE_HEIGHT;
-			const allLinesFitW = lines.every((l) => ctx.measureText(l).width <= maxW + 0.5);
-			if (allLinesFitW && lines.length * lineH <= maxH) {
+			const allLinesFitW = lines.every((l) => ctx.measureText(l).width <= maxW * 1.15 + 0.5);
+			const hasNoHyphenBreaks = lines.every((l) => !l.endsWith('-') || text.includes(l));
+			if (allLinesFitW && lines.length * lineH <= maxH && hasNoHyphenBreaks) {
 				cleanBest = mid;
 				foundClean = true;
 				lo = mid + 1;
@@ -441,7 +487,7 @@ export function fitFontSize(
 	}
 
 	const isNarrowVertical = (boxH / boxW >= 1.15 || boxH >= 120) && boxH >= 65;
-	if (foundClean && (cleanBest >= 15 || !isNarrowVertical)) {
+	if (foundClean && (cleanBest >= 14 || !isNarrowVertical)) {
 		return cleanBest;
 	}
 
@@ -455,7 +501,7 @@ export function fitFontSize(
 		ctx.font = fontSpec(mid, fontFamily, text, customCjk);
 		const lines = reflowText(ctx, text, maxW);
 		const lineH = mid * LINE_HEIGHT;
-		const allLinesFitW = lines.every((l) => ctx.measureText(l).width <= maxW + 0.5);
+		const allLinesFitW = lines.every((l) => ctx.measureText(l).width <= maxW * 1.15 + 0.5);
 		if (allLinesFitW && lines.length * lineH <= maxH) {
 			best = mid;
 			lo = mid + 1;

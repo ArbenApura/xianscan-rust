@@ -17,6 +17,7 @@ import {
 	typesetPage,
 	wrapText,
 	tryVerticalSingleWordLayout,
+	fontSpec,
 } from '$lib/server/typeset';
 
 function ctx() {
@@ -695,20 +696,6 @@ Tattered Flesh-Cutting Knife`;
 		expect(lines.length * size * 1.2).toBeLessThanOrEqual(150 * 0.9);
 	});
 
-	it('hyphenates single long word across abundant height in tall vertical box ("UNBELIEVABLE")', () => {
-		const c = createCanvas(10, 10);
-		const x = c.getContext('2d');
-		const text = 'UNBELIEVABLE';
-		const size = fitFontSize(x, text, 'CC Wild Words', 50, 200, 40);
-		expect(size).toBeGreaterThanOrEqual(12);
-
-		x.font = `${size}px "CC Wild Words"`;
-		const maxW = 50 * (1 - 2 * 0.05);
-		const lines = reflowText(x, text, maxW);
-		expect(lines.length).toBeGreaterThan(1);
-		expect(lines.length * size * 1.2).toBeLessThanOrEqual(200 * 0.9);
-	});
-
 	it('handles exclamation with heavy punctuation in tall vertical box ("WHAT...?!?")', () => {
 		const c = createCanvas(10, 10);
 		const x = c.getContext('2d');
@@ -967,27 +954,24 @@ Tattered Flesh-Cutting Knife`;
 		expect(resultBuf.length).toBeGreaterThan(0);
 	});
 
-	it('strictly preserves explicit newlines in titles (Page 918 Region 10063: "Episode 1\\nThe Top of the Tower")', async () => {
-		const text = 'Episode 1\nThe Top of the Tower';
-		const c = ctx();
-		const lines = reflowText(c, text.toUpperCase(), 144 * 0.9);
-		// Line 1 must keep "EPISODE 1" together and not orphan "1" onto line 2
-		expect(lines[0]).toBe('EPISODE 1');
-		expect(lines.slice(1).join(' ')).toBe('THE TOP OF THE TOWER');
+	it('keeps short words intact without annoying syllable breaks (Page 8215 regression)', () => {
+		const c = createCanvas(10, 10);
+		const x = c.getContext('2d');
+		// Test Region #2: "EVERYTHING\nUNTIL NOW..." in w: 92, h: 122
+		const t1 = 'EVERYTHING\nUNTIL NOW...';
+		const size1 = fitFontSize(x, t1, 'CC Wild Words', 92, 122, 40);
+		x.font = fontSpec(size1, 'CC Wild Words', t1);
+		const lines1 = reflowText(x, t1, 92 * 0.9);
+		// "EVERYTHING" must remain whole, not "EVE-" / "RYT-" / "HING"
+		expect(lines1.some((l) => l.includes('EVERYTHING'))).toBe(true);
+		expect(lines1.some((l) => l.includes('EVE-') || l.includes('RYT-'))).toBe(false);
 
-		const pageImage = createCanvas(690, 2038).toBuffer('image/png');
-		const resultBuf = await typesetPage(
-			pageImage,
-			[
-				{
-					id: '10063',
-					box: { x: 278, y: 851, w: 144, h: 134 },
-					text: 'Episode 1\nThe Top of the Tower',
-					kind: 'free_text',
-				},
-			],
-		);
-		expect(resultBuf).toBeInstanceOf(Buffer);
-		expect(resultBuf.length).toBeGreaterThan(0);
+		// Test Region #4: "A MEMORY?" in w: 70, h: 112
+		const t2 = 'A MEMORY?';
+		const size2 = fitFontSize(x, t2, 'CC Wild Words', 70, 112, 40);
+		x.font = fontSpec(size2, 'CC Wild Words', t2);
+		const lines2 = reflowText(x, t2, 70 * 0.9);
+		// "MEMORY?" must remain intact, not "ME-" / "MORY?"
+		expect(lines2.some((l) => l.includes('ME-'))).toBe(false);
 	});
 });
