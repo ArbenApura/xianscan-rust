@@ -45,9 +45,12 @@ pub fn should_reject_candidate_region(
         return true;
     }
 
-    // 2. DROP HIGH-TILT NON-DIALOGUE WITH LOW RECOGNITION CONFIDENCE
-    if !is_bubble && angle_deg.abs() >= 12.0 && avg_score < 0.65 {
-        return true;
+    // 2. DROP HIGH-TILT NON-DIALOGUE WITH LOW RECOGNITION CONFIDENCE OR SHORT ARTWORK SFX ON CHROMATIC BACKGROUND
+    let char_count = cleaned.chars().filter(|c| !c.is_whitespace()).count();
+    if !is_bubble {
+        if angle_deg.abs() >= 12.0 && (avg_score < 0.65 || (char_count <= 2 && avg_score < 0.75 && compute_chromatic_color_variance(img, cluster_rect) >= 12.0)) {
+            return true;
+        }
     }
 
     // 3. DROP STANDALONE REPEATED NOISE STROKES
