@@ -426,7 +426,9 @@ pub fn build_regions(
                 }
 
                 let is_detector_vert = box_rect.h >= (box_rect.w as f32 * 1.35) as i32;
-                if is_detector_vert && cleaned.chars().count() <= 4 {
+                // COUNT ONLY MEANINGFUL GLYPHS (NEWLINE / WHITESPACE SEPARATORS BETWEEN VERTICAL STACKED SYLLABLES ARE NOT CHARACTERS)
+                let glyph_count = cleaned.chars().filter(|c| !c.is_whitespace()).count();
+                if is_detector_vert && glyph_count <= 4 {
                     is_container_vert = true;
                     if angle_deg.abs() < 3.5 {
                         angle_deg = 0.0;

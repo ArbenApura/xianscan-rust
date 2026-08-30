@@ -8,7 +8,9 @@ use crate::common::get_or_analyze_fixture_with_lang;
 /// ## CONTEXT & PURPOSE:
 /// - Source: `Ch_01_P088_source.webp`
 /// - Scene: Action panel with background dynamic diagonal slash and stylized calligraphy technique name (`"유가창법"`).
-/// - Invariant: Background stylized SFX / technique calligraphy cut by dynamic brushstrokes must not be extracted as FreeText dialogue.
+/// - Invariant: Stylized calligraphy lettered one syllable per OCR line (`유\n가\n창\n법` pattern) is artwork-integrated
+///   display calligraphy — it must be suppressed so retypesetting never destroys the artwork. Real narration
+///   (multi-glyph lines) is never affected.
 /// - EXPECTED: Exactly 0 regions (0 bubbles, 0 SFX, 0 free text).
 #[test]
 fn test_regression_page_yu_family_spear_technique_slash() {
@@ -39,29 +41,12 @@ fn test_regression_page_yu_family_spear_technique_slash() {
         );
     }
 
-    // 1. EXACT ELEMENT COUNTS: EXACTLY 1 FREE TEXT REGION
-    crate::assert_element_counts!(res, 1, 0, 0, 1);
+    // 1. EXACT ELEMENT COUNTS: EXACTLY 0 REGIONS (CALLIGRAPHY PRESERVED AS ARTWORK)
+    crate::assert_element_counts!(res, 0, 0, 0, 0);
 
-    // 2. VERTICAL TECHNIQUE CALLIGRAPHY: CAPTURES FREE TEXT
-    let technique = &res.regions[0];
-    assert_eq!(
-        technique.kind,
-        xianscan_rust::ml::schemas::RegionKind::FreeText,
-        "Technique region must be classified as FreeText"
-    );
-    crate::assert_region_bounds!(
-        technique,
-        xianscan_rust::ml::schemas::RegionKind::FreeText,
-        11,
-        1150,
-        203,
-        728,
-        15
-    );
-    crate::assert_region_angle!(technique, 0.0, 2.0);
+    // 2. NEGATIVE GUARD: NO GARBLED TECHNIQUE CALLIGRAPHY EXTRACTION
     assert!(
-        technique.text.contains("법") || technique.text.contains("게") || technique.text.contains("장"),
-        "Technique region must capture syllables, got: '{}'",
-        technique.text
+        !res.regions.iter().any(|r| r.text.contains("법") || r.text.contains("게") || r.text.contains("장")),
+        "Stylized technique calligraphy must not leak as FreeText dialogue"
     );
 }

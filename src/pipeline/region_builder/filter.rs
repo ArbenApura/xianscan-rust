@@ -58,6 +58,24 @@ pub fn should_reject_candidate_region(
         return true;
     }
 
+    // 3b. DROP STACKED DISPLAY CALLIGRAPHY COLUMNS (TECHNIQUE NAMES / TITLES LETTERED ONE GLYPH PER LINE)
+    // STYLIZED BRUSH / OUTLINED LETTERING IS ALWAYS SEGMENTED AS ONE HUGE GLYPH PER OCR LINE,
+    // WHILE REAL READING TEXT (NARRATION, CAPTIONS) CARRIES MULTIPLE GLYPHS PER LINE IN EVERY LANGUAGE.
+    // BUBBLE-BACKED DIALOGUE IS NEVER AFFECTED.
+    if !is_bubble && cluster_rect.h > cluster_rect.w {
+        let glyph_rows: Vec<usize> = cleaned
+            .lines()
+            .map(|l| l.chars().filter(|c| !c.is_whitespace()).count())
+            .filter(|&n| n > 0)
+            .collect();
+        let is_stacked_calligraphy = glyph_rows.len() >= 3
+            && glyph_rows.iter().all(|&n| n <= 2)
+            && glyph_rows.iter().sum::<usize>() <= 12;
+        if is_stacked_calligraphy {
+            return true;
+        }
+    }
+
     // 4. SUPPRESS TINY LOW-CONFIDENCE NOISE BUBBLES
     let is_expressive_bubble_punct = cleaned.chars().any(|c| matches!(c, '！' | '？' | '!' | '?' | '…' | '·' | '—' | '～' | '¿' | '¡'));
     let tiny_bubble_w = ((ref_dim * 0.045).clamp(20.0, 45.0)) as i32;
