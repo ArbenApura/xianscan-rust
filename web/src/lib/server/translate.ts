@@ -141,13 +141,16 @@ export async function translatePage(
 	// APPLY LOCAL SFX DICTIONARY FALLBACK DIRECTLY TO ANY UNTRANSLATED OR DEGENERATE REGIONS.
 	for (const r of translatableRegions) {
 		const current = byRegion.get(r.id);
-		if (!current || looksDegenerate(current, r.text)) {
-			const sfxFallback = getKnownSfxTranslation(r.text, pair.sourceLang);
+		const sfxFallback = getKnownSfxTranslation(r.text, pair.sourceLang);
+		if (!current) {
 			if (sfxFallback) {
 				byRegion.set(r.id, sfxFallback);
-			} else if (current && looksDegenerate(current, r.text)) {
-				byRegion.delete(r.id);
 			}
+		} else if (sfxFallback && /^[.．…·\s]+$/.test(current) && !/^[.．…·\s]+$/.test(r.text)) {
+			// REPLACE DEGENERATE ELLIPSIS ON KNOWN SFX WITH CANONICAL SFX FALLBACK
+			byRegion.set(r.id, sfxFallback);
+		} else if (looksDegenerate(current, r.text)) {
+			byRegion.delete(r.id);
 		}
 	}
 

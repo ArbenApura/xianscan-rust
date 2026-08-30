@@ -210,8 +210,5 @@ export function looksDegenerate(translated: string, source: string): boolean {
 	const maxAllowedLength = Math.max(120, cleanSource.length * 10);
 	if (cleanTarget.length > maxAllowedLength) return true;
 
-	if (!/^[.．…·\s]+$/.test(cleanSource) && /^[.．…·\s]+$/.test(cleanTarget)) {
-		return true;
-	}
 	return false;
 }

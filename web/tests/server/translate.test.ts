@@ -333,18 +333,10 @@ describe('looksDegenerate', () => {
 		).toBe(true);
 	});
 
-	it('flags pure ellipsis output when the source was not an ellipsis', () => {
-		expect(looksDegenerate('...', '哒')).toBe(true);
-		expect(looksDegenerate('……', '哒')).toBe(true);
-		expect(looksDegenerate('.', '嗒')).toBe(true);
-	});
-
-	it('accepts legitimate ellipsis translations when source was an ellipsis', () => {
+	it('accepts legitimate translations including single words, sfx, and trailing ellipses', () => {
 		expect(looksDegenerate('...', '……')).toBe(false);
 		expect(looksDegenerate('...', '...')).toBe(false);
-	});
-
-	it('accepts sane translations', () => {
+		expect(looksDegenerate('...', '서')).toBe(false);
 		expect(looksDegenerate('Hello', '你好')).toBe(false);
 		expect(looksDegenerate('BOOM!', '轰')).toBe(false);
 		expect(looksDegenerate('TAP!', '哒')).toBe(false);
