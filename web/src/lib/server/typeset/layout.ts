@@ -574,7 +574,7 @@ export function fitFontSize(
 			ctx.font = fontSpec(mid, fontFamily, text, customCjk);
 			const lines = reflowText(ctx, text, maxW);
 			const lineH = mid * LINE_HEIGHT;
-			const allFitW = lines.every((l) => ctx.measureText(l).width <= maxW * 1.15 + 0.5);
+			const allFitW = lines.every((l) => ctx.measureText(l).width <= maxW * 1.25 + 0.5);
 			const totalH = lines.length * lineH;
 			if (allFitW && totalH <= maxH * TALL_NARROW_VERT_TOLERANCE) {
 				safeFloor = mid;
