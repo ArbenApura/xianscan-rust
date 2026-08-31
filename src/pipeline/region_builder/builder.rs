@@ -164,10 +164,29 @@ pub fn build_regions(
             let mut h_count = 0usize;
             let mut v_count = 0usize;
 
+            // PRUNE WIDE MULTI-LINE COMPOSITE OCR BLOCKS (CONTAINING NEWLINES) WHEN INDIVIDUAL VERTICAL COLUMN LINES ARE ALSO PRESENT IN THE SAME CONTAINER
+            let has_individual_vert_lines = matched.iter().any(|l| {
+                let (_, _, lw, lh) = polygon_bounds(&l.polygon);
+                let is_vert = if is_cjk { lh >= lw || lh > (lw as f32 * 1.10) as i32 } else { lh > (lw as f32 * 1.25) as i32 };
+                is_vert && !l.text.contains('\n')
+            });
+            if has_individual_vert_lines {
+                matched.retain(|l| {
+                    let (_, _, lw, lh) = polygon_bounds(&l.polygon);
+                    let is_wide_composite = (lw as f32) >= lh as f32 * 0.85 && l.text.contains('\n');
+                    !is_wide_composite
+                });
+            }
+
             for &m in &matched {
                 let (_, _, lw, lh) = polygon_bounds(&m.polygon);
                 let area = (lw * lh) as i64;
-                if lh > (lw as f32 * 1.25) as i32 {
+                let is_vert_line = if is_cjk {
+                    lh >= lw || lh > (lw as f32 * 1.10) as i32
+                } else {
+                    lh > (lw as f32 * 1.25) as i32
+                };
+                if is_vert_line {
                     v_count += 1;
                     v_area += area;
                 } else {
@@ -177,7 +196,8 @@ pub fn build_regions(
             }
 
             is_container_vert = if v_count > 0 && h_count > 0 {
-                v_area > (h_area as f32 * 1.30) as i64 || (box_rect.h > (box_rect.w as f32 * 1.3) as i32 && v_count >= h_count)
+                // If there are multiple distinct vertical lines or high vertical count, or container is tall/square-bubble with vertical lines
+                v_area > (h_area as f32 * 1.20) as i64 || (box_rect.h > (box_rect.w as f32 * 1.2) as i32 && v_count >= h_count) || (v_count >= 2 && v_count >= h_count) || (matched_bubble.is_some() && is_cjk && v_count >= 2)
             } else if v_count > 0 {
                 true
             } else if h_count > 0 {
@@ -190,7 +210,11 @@ pub fn build_regions(
             let mut orientation_filtered: Vec<&OcrLine> = if h_count > 0 && v_count > 0 {
                 matched.iter().copied().filter(|m| {
                     let (_, _, lw, lh) = polygon_bounds(&m.polygon);
-                    let is_line_vert = lh > (lw as f32 * 1.25) as i32;
+                    let is_line_vert = if is_cjk {
+                        lh >= lw || lh > (lw as f32 * 1.10) as i32
+                    } else {
+                        lh > (lw as f32 * 1.25) as i32
+                    };
                     let t = m.text.trim();
                     let is_punct = t.chars().all(|c| c.is_ascii_punctuation() || matches!(c, '！' | '？' | '!' | '?' | '…'));
                     is_line_vert == is_container_vert || (is_container_vert && is_punct)
@@ -219,6 +243,21 @@ pub fn build_regions(
                     let is_noise_or_digit = lacks_native && !is_punct && (crate::ml::detect::is_standalone_digit_or_particle_noise(t) || crate::ml::detect::is_standalone_noise_stroke(t));
                     (!is_pure_latin_word && !is_noise_or_digit) || crate::ml::detect::is_onomatopoeia_or_shout(t)
                 });
+            }
+
+            // IN VERTICAL CONTAINERS, IF INDIVIDUAL COLUMN LINES EXIST THAT COVER THE SAME BOUNDS AS A WIDE MULTI-LINE COMPOSITE OCR BLOCK, PRUNE THE COMPOSITE BLOCK
+            if is_container_vert {
+                let has_individual_columns = orientation_filtered.iter().any(|l| {
+                    let (_, _, lw, lh) = polygon_bounds(&l.polygon);
+                    lh > (lw as f32 * 1.50) as i32
+                });
+                if has_individual_columns {
+                    orientation_filtered.retain(|l| {
+                        let (_, _, lw, lh) = polygon_bounds(&l.polygon);
+                        let is_wide_composite = (lw as f32) >= lh as f32 * 0.90 && l.text.contains('\n');
+                        !is_wide_composite
+                    });
+                }
             }
 
             let mut sanitized_lines: Vec<OcrLine> = Vec::new();

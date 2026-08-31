@@ -41,6 +41,8 @@ mod page_rice_shop_poison_bandit_split_bubble;
 mod page_rice_shop_kind_couple_thought_bubbles;
 mod page_skeleton_ribs_cracking_sfx_zero_text;
 mod page_pirate_flag_east_wind_caption;
+mod page_pirate_flag_east_wind_lowres_parity;
+mod page_luffy_dagger_hmph_cheers;
 
 
 

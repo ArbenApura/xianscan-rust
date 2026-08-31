@@ -76,6 +76,32 @@ pub fn analyze_image_with_fusion_timed(
     let t_stage2_start = std::time::Instant::now();
     let mut candidate_boxes: Vec<Vec<[f32; 2]>> = Vec::new();
     let mut candidate_scores: Vec<f32> = Vec::new();
+    // Filter out wide composite multi-line OCR blocks when fine-grained column lines exist
+    let filtered_rapid_lines: Vec<&crate::ml::ocr::OcrLine> = fusion_res.rapid_lines.iter().filter(|line| {
+        if line.score < 0.50 {
+            return false;
+        }
+        let (lx, ly, lw, lh) = crate::ml::geometry::polygon_bounds(&line.polygon);
+        if (lw as f32) >= (page_w as f32 * 0.65) && lh >= 120 {
+            return false;
+        }
+        if is_cjk && line.text.contains('\n') && (lw as f32) >= lh as f32 * 0.85 {
+            let has_sub_lines = fusion_res.rapid_lines.iter().any(|other| {
+                if std::ptr::eq(other, *line) || other.text.contains('\n') {
+                    return false;
+                }
+                let (ox, oy, ow, oh) = crate::ml::geometry::polygon_bounds(&other.polygon);
+                let is_vert = oh > (ow as f32 * 1.10) as i32;
+                let inter_x = (lx + lw).min(ox + ow) - lx.max(ox);
+                let inter_y = (ly + lh).min(oy + oh) - ly.max(oy);
+                is_vert && inter_x > 0 && inter_y > 0 && (inter_x * inter_y) as f32 / (ow * oh).max(1) as f32 >= 0.70
+            });
+            if has_sub_lines {
+                return false;
+            }
+        }
+        true
+    }).collect();
 
     // A. Use Detector-First Text and Free-Text Boxes if available (Koharu / RT-DETR)
     let is_detector_first = fusion_res.backend == "rfdetr-seg-2xl" || fusion_res.backend == "rtdetr-v2";
@@ -218,14 +244,8 @@ pub fn analyze_image_with_fusion_timed(
         }
 
         // FUSE HIGH-CONFIDENCE RAPIDOCR LINES: EXPAND NARROW SINGLE-LINE DETECTOR SLICES & PRESERVE MISSED LINES
-        for line in &fusion_res.rapid_lines {
-            if line.score < 0.50 {
-                continue;
-            }
+        for line in &filtered_rapid_lines {
             let (lx, ly, lw, lh) = crate::ml::geometry::polygon_bounds(&line.polygon);
-            if (lw as f32) >= (page_w as f32 * 0.65) && lh >= 120 {
-                continue;
-            }
             let mut overlaps_any = false;
             for cb in &mut candidate_boxes {
                 let (bx, by, bw, bh) = crate::ml::geometry::box_to_xywh_f32(cb);
@@ -279,7 +299,9 @@ pub fn analyze_image_with_fusion_timed(
                     let b_area = (bw * bh).max(1.0);
                     let coverage_l = inter_area / l_area;
                     let coverage_b = inter_area / b_area;
-                    if (ix > 0.0 && iy > 0.0 && (coverage_l >= 0.25 || coverage_b >= 0.25)) || is_adjacent_trailing_row || is_adjacent_leading_row {
+                    // Do not fuse an unassigned multi-line line if it is much wider than a vertical detector box and extends far outside
+                    let is_cross_panel_sfx_bleed = (bh > bw * 1.5) && ((lw as f32) > bw * 2.0) && ((lx as f32) < bx - 30.0 || ((lx + lw) as f32) > bx + bw + 30.0);
+                    if !is_cross_panel_sfx_bleed && ((ix > 0.0 && iy > 0.0 && (coverage_l >= 0.25 || coverage_b >= 0.25)) || is_adjacent_trailing_row || is_adjacent_leading_row) {
                         overlaps_any = true;
                         // IF DETECTOR BOX IS A PARTIAL SINGLE-LINE SLICE AND RAPID OCR DETECTED A LONGER SENTENCE ON THE SAME ROW
                         let is_horiz_single_line = iy >= 0.40 * bh.min(lh as f32) && bh <= (lh as f32 * 1.6) && (lw as f32 >= bw * 1.05 || ix >= 0.25 * bw.min(lw as f32));
@@ -508,12 +530,13 @@ pub fn analyze_image_with_fusion_timed(
     // STAGE 3: TARGETED TEXT RECOGNITION & REGION MASKING
     // =========================================================================
     let t_stage3_start = std::time::Instant::now();
+    let split_clean_lines: Vec<crate::ml::ocr::OcrLine> = filtered_rapid_lines.into_iter().cloned().collect();
     let mut final_regions = build_regions(
         &mut engine.ocr,
         img,
         &dedup_boxes,
         &order,
-        &fusion_res.rapid_lines,
+        &split_clean_lines,
         &fusion_res.bubbles,
         page_w,
         page_h,

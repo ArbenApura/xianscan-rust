@@ -1056,4 +1056,20 @@ Tattered Flesh-Cutting Knife`;
 		// "MEMORY?" must remain intact, not "ME-" / "MORY?"
 		expect(lines2.some((l) => l.includes('ME-'))).toBe(false);
 	});
+
+	it('renders multi-line dialogue inside small square boxes without horizontal overflow (Region 57171)', () => {
+		const c = createCanvas(10, 10);
+		const x = c.getContext('2d');
+		const text = 'Monkey D. Luffy\nis up to\nsomething\ninteresting again.';
+		const w = 99;
+		const h = 101;
+		const inset = 0.05;
+		const maxW = w * (1 - 2 * inset);
+		const fitted = fitFontSizeWithLines(x, text, 'CC Wild Words', w, h, 28, 28, inset);
+		expect(fitted.lines.length).toBeGreaterThan(1);
+		x.font = fontSpec(fitted.size, 'CC Wild Words', text);
+		for (const line of fitted.lines) {
+			expect(x.measureText(line).width).toBeLessThanOrEqual(maxW + 0.5);
+		}
+	});
 });

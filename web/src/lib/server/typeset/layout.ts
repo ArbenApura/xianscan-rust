@@ -504,7 +504,8 @@ export function fitFontSizeWithLines(
 	// WINNING (SIZE, LINES) PAIR — THE LARGEST VALIDATED LAYOUT ACROSS ALL PASSES.
 	// RENDER MUST DRAW EXACTLY THESE LINES SO THE FIT CHECKS AND THE RENDER MATCH.
 	let finalSize = MIN_FONT_SIZE;
-	let finalLines: string[] = [text];
+	ctx.font = fontSpec(MIN_FONT_SIZE, fontFamily, text, customCjk);
+	let finalLines: string[] = wrapText(ctx, text, maxW);
 	const consider = (size: number, lines: string[]): void => {
 		if (size > finalSize && lines.length > 0) {
 			finalSize = size;
@@ -667,7 +668,7 @@ export function fitFontSizeWithLines(
 		}
 	}
 
-	return { size: Math.max(finalSize, best, tallNarrowFloor), lines: finalLines };
+	return { size: finalSize, lines: finalLines };
 }
 
 export function fitSingleLineSize(
