@@ -281,5 +281,50 @@ describe('startChapterJob', () => {
 		expect(chapterSignalAborted).toBe(false);
 		expect(handle.status).toBe('running');
 	});
+
+	it('marks job status as failed and emits error when pages fail', async () => {
+		const { getChapterJobSnapshot } = await import('$lib/server/translation-service');
+
+		const handle = startChapterJob(8, async (_signal, emit) => {
+			emit({
+				type: 'start',
+				chapterId: 8,
+				totalPages: 1,
+				pages: [{ id: 401, seq: 0, status: 'pending' }],
+			});
+			emit({
+				type: 'page-step-start',
+				chapterId: 8,
+				page: 0,
+				pageId: 401,
+				step: 'translate',
+			});
+			emit({
+				type: 'page-step-end',
+				chapterId: 8,
+				page: 0,
+				pageId: 401,
+				step: 'translate',
+				stepStatus: 'failed',
+				stepDetails: { error: 'LLM Rate limit exceeded' },
+			});
+			emit({
+				type: 'error',
+				chapterId: 8,
+				page: 0,
+				pageId: 401,
+				failedStep: 'translate',
+				message: 'LLM Rate limit exceeded',
+			});
+		});
+
+		await vi.waitFor(() => expect(handle.status).toBe('failed'));
+
+		const snapshot = getChapterJobSnapshot(8);
+		expect(snapshot).not.toBeNull();
+		expect(snapshot?.status).toBe('failed');
+		expect(snapshot?.failedPages).toBe(1);
+		expect(snapshot?.completedPages).toBe(0);
+	});
 });
 

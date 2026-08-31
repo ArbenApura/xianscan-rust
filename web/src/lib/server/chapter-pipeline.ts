@@ -311,6 +311,8 @@ export async function runChapterPipeline(
 
 	// DIALOGUE TRACKER: TRACKS OCR & TRANSLATED LINES ACROSS PAGES FOR SLIDING-WINDOW CONTEXT INJECTION
 	const dialogueTracker = new ChapterDialogueTracker();
+	// ACTIVE CHAPTER GLOSSARY SLATE: PERSISTS MATCHED CHARACTERS & PINNED TERMS ACROSS ALL PAGES IN CHAPTER
+	const activeChapterTerms = new Map<string, TermDraft>();
 	const existingPageIds = pageRows.map((p) => p.id);
 	if (existingPageIds.length > 0) {
 		const existingRegions = db
@@ -644,34 +646,13 @@ export async function runChapterPipeline(
 			// PAGES' OCR). THE LLM CALL ITSELF IS SERIALIZED PER BOOK INSIDE translatePagePipeline.
 			await translatePagePipeline(page, i);
 		} catch (e) {
+			slots[i].failedStep = activeStep;
 			if (signal.aborted) {
 				const abortErr = new Error('The operation was aborted');
 				abortErr.name = 'AbortError';
 				throw abortErr;
 			}
-			if (deps.isPageCancelled?.(page.id)) return;
-			const message = e instanceof Error ? e.message : String(e);
-			emit({
-				type: 'page-step-end',
-				chapterId,
-				page: i,
-				pageId: page.id,
-				step: activeStep,
-				stepStatus: 'failed',
-				stepDetails: { error: message },
-			});
-			db.update(pages).set({ status: 'error', error: message }).where(eq(pages.id, page.id)).run();
-			slot.outcome = 'error';
-			slot.failedStep = activeStep;
-			slot.message = message;
-			emit({
-				type: 'error',
-				chapterId,
-				page: i,
-				pageId: page.id,
-				failedStep: activeStep,
-				message,
-			});
+			throw e;
 		}
 	};
 
@@ -681,6 +662,8 @@ export async function runChapterPipeline(
 		if (!analyzed || slot.outcome !== 'analyzed' || deps.isPageCancelled?.(page.id)) return;
 		const image = slot.image!;
 		let activeStep: PipelineStep = 'match_glossary';
+		let activeTranslateSubStep: PipelineStep = 'match_glossary';
+		let activeInpaintSubStep: PipelineStep = 'clean';
 		const pageT0 = slot.startedAt ?? performance.now();
 
 		try {
@@ -708,6 +691,7 @@ export async function runChapterPipeline(
 
 			// TASK A: INPAINT (LOCAL ONNX COMPUTE)
 			const inpaintTask = (async () => {
+				activeInpaintSubStep = 'clean';
 				emit({ type: 'page-step-start', chapterId, page: i, pageId: page.id, step: 'clean' });
 				const tClean0 = performance.now();
 				const cleaned =
@@ -742,6 +726,7 @@ export async function runChapterPipeline(
 				const byRegion = new Map<string, string>();
 
 				if (sources.length > 0) {
+					activeTranslateSubStep = 'match_glossary';
 					emit({ type: 'page-step-start', chapterId, page: i, pageId: page.id, step: 'match_glossary' });
 					const dialogueContext = dialogueTracker.getContextWindow(page.seq);
 					const contextSourceText = dialogueContext.previousPages
@@ -750,6 +735,16 @@ export async function runChapterPipeline(
 					const pageSourceText = sources.map((s) => s.text).join('\n');
 					const fullScanningText = contextSourceText ? `${pageSourceText}\n${contextSourceText}` : pageSourceText;
 					const pageMatchedTerms = await matchTerms(chapter.bookId, fullScanningText);
+					for (const t of pageMatchedTerms) {
+						if (t.category === 'character' || t.category === 'organization' || t.pinned) {
+							activeChapterTerms.set(t.source, t);
+						}
+					}
+					// MERGE ACTIVE CHAPTER GLOSSARY TERMS WITH CURRENT PAGE MATCHES
+					const effectiveTermsMap = new Map<string, TermDraft>(activeChapterTerms);
+					for (const t of pageMatchedTerms) effectiveTermsMap.set(t.source, t);
+					const effectiveTerms = Array.from(effectiveTermsMap.values());
+
 					emit({
 						type: 'page-step-end',
 						chapterId,
@@ -757,17 +752,18 @@ export async function runChapterPipeline(
 						pageId: page.id,
 						step: 'match_glossary',
 						stepStatus: 'completed',
-						stepDetails: { matchedCount: pageMatchedTerms.length },
+						stepDetails: { matchedCount: effectiveTerms.length },
 					});
 
 					pageAbortController.signal.throwIfAborted();
 					if (deps.isPageCancelled?.(page.id)) return byRegion;
 
+					activeTranslateSubStep = 'translate';
 					emit({ type: 'page-step-start', chapterId, page: i, pageId: page.id, step: 'translate' });
 					const tTrans0 = performance.now();
 
 					const translated = await chainTranslate(async () => {
-						const result = await translatePage(sources, pageMatchedTerms, pair, {
+						const result = await translatePage(sources, effectiveTerms, pair, {
 							client: deps.llm,
 							model,
 							signal: pageAbortController.signal,
@@ -781,6 +777,11 @@ export async function runChapterPipeline(
 					for (const [id, text] of translated.byRegion) byRegion.set(id, text);
 					if (translated.newTerms && translated.newTerms.length > 0) {
 						await addNewTerms(chapter.bookId, translated.newTerms, chapterId);
+						for (const t of translated.newTerms) {
+							if (t.category === 'character' || t.category === 'organization' || t.pinned) {
+								activeChapterTerms.set(t.source, t);
+							}
+						}
 					}
 					const tTrans = performance.now() - tTrans0;
 					const llmResponseData = {
@@ -815,6 +816,7 @@ export async function runChapterPipeline(
 					});
 					if (translated.usage && deps.onUsage) deps.onUsage(translated.usage);
 				} else {
+					activeTranslateSubStep = 'translate';
 					emit({
 						type: 'page-step-end',
 						chapterId,
@@ -843,7 +845,15 @@ export async function runChapterPipeline(
 			} catch (subErr) {
 				pageAbortController.abort();
 				// GUARANTEE INPAINTING HAS FULLY SETTLED BEFORE RETURNING AND RELEASING THE WORKER CONCURRENCY SLOT
-				await Promise.allSettled([inpaintTask, translateTask]);
+				const [inpaintSettled, transSettled] = await Promise.allSettled([inpaintTask, translateTask]);
+				if (transSettled.status === 'rejected') {
+					activeStep = activeTranslateSubStep;
+					throw transSettled.reason;
+				}
+				if (inpaintSettled.status === 'rejected') {
+					activeStep = activeInpaintSubStep;
+					throw inpaintSettled.reason;
+				}
 				throw subErr;
 			} finally {
 				signal.removeEventListener('abort', onParentAbort);
@@ -979,34 +989,13 @@ export async function runChapterPipeline(
 				outputRev: finalOutputRev,
 			});
 		} catch (e) {
+			slots[i].failedStep = activeStep;
 			if (signal.aborted) {
 				const abortErr = new Error('The operation was aborted');
 				abortErr.name = 'AbortError';
 				throw abortErr;
 			}
-			if (deps.isPageCancelled?.(page.id)) return;
-			const message = e instanceof Error ? e.message : String(e);
-			emit({
-				type: 'page-step-end',
-				chapterId,
-				page: i,
-				pageId: page.id,
-				step: activeStep,
-				stepStatus: 'failed',
-				stepDetails: { error: message },
-			});
-			db.update(pages).set({ status: 'error', error: message }).where(eq(pages.id, page.id)).run();
-			slot.outcome = 'error';
-			slot.failedStep = activeStep;
-			slot.message = message;
-			emit({
-				type: 'error',
-				chapterId,
-				page: i,
-				pageId: page.id,
-				failedStep: activeStep,
-				message,
-			});
+			throw e;
 		}
 	};
 
@@ -1039,6 +1028,31 @@ export async function runChapterPipeline(
 				}
 				return analyzePageWithRetry(page, i, nextAttempt);
 			}
+
+			// RETRIES EXHAUSTED: RECORD FINAL STEP AND PAGE FAILURE
+			const message = e instanceof Error ? e.message : String(e);
+			const failedStep: PipelineStep = slots[i]?.failedStep || 'translate';
+			emit({
+				type: 'page-step-end',
+				chapterId,
+				page: i,
+				pageId: page.id,
+				step: failedStep,
+				stepStatus: 'failed',
+				stepDetails: { error: message },
+			});
+			db.update(pages).set({ status: 'error', error: message }).where(eq(pages.id, page.id)).run();
+			slots[i].outcome = 'error';
+			slots[i].failedStep = failedStep;
+			slots[i].message = message;
+			emit({
+				type: 'error',
+				chapterId,
+				page: i,
+				pageId: page.id,
+				failedStep,
+				message,
+			});
 		}
 	};
 

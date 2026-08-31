@@ -292,10 +292,14 @@ function updateSnapshot(snapshot: ChapterJobSnapshot, event: JobEvent): void {
 		snapshot.totalPromptTokens += event.usage.promptTokens ?? 0;
 		snapshot.totalCompletionTokens += event.usage.completionTokens ?? 0;
 	} else if (event.type === 'done') {
-		snapshot.status = 'done';
-		snapshot.currentPhase = 'completed';
+		if ((snapshot.failedPages || 0) === 0) {
+			snapshot.status = 'done';
+			snapshot.currentPhase = 'completed';
+		} else {
+			snapshot.status = 'failed';
+		}
 		snapshot.completedAt = now;
-		snapshot.totalDurationMs = now - snapshot.startedAt;
+		snapshot.totalDurationMs = snapshot.startedAt ? now - snapshot.startedAt : 0;
 		snapshot.completedPages = snapshot.pages.filter((p) => p.status === 'done').length;
 	}
 }
@@ -315,8 +319,37 @@ async function run(key: string, chapterId: number, work: ChapterJobWork, initial
 	try {
 		await work(job.controller.signal, (e) => emit(job, e));
 		if (job.status === 'running') {
-			job.status = 'done';
-			emit(job, { type: 'done', chapterId });
+			const targetSet = job.snapshot.targetPageIds && job.snapshot.targetPageIds.length > 0
+				? new Set(job.snapshot.targetPageIds)
+				: null;
+			const targetPages = targetSet
+				? job.snapshot.pages.filter((p) => targetSet.has(p.pageId))
+				: job.snapshot.pages;
+			const failedPages = targetPages.filter((p) => p.status === 'error').length;
+			const completedPages = targetPages.filter((p) => p.status === 'done').length;
+			const totalTarget = targetPages.length;
+
+			if (failedPages > 0) {
+				job.status = 'failed';
+				job.snapshot.status = 'failed';
+				const firstErr = targetPages.find((p) => p.errorMessage)?.errorMessage;
+				const errMsg =
+					completedPages === 0
+						? (firstErr || 'Chapter translation failed')
+						: `${failedPages} of ${totalTarget} page(s) failed translation: ${firstErr || 'Error occurred'}`;
+				emit(job, {
+					type: 'error',
+					chapterId,
+					message: errMsg,
+				});
+			} else if (completedPages > 0 || totalTarget === 0) {
+				job.status = 'done';
+				emit(job, { type: 'done', chapterId });
+			} else {
+				job.status = 'failed';
+				job.snapshot.status = 'failed';
+				emit(job, { type: 'error', chapterId, message: 'No pages completed translation' });
+			}
 		}
 	} catch (e) {
 		if (job.status !== 'superseded') {

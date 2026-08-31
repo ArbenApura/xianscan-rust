@@ -351,8 +351,8 @@ pub fn analyze_image_with_fusion_timed(
                     continue;
                 }
 
-                // LAYOUT-ANCHORED RESCUE: CHECK IF THE OCR LINE IS ADJACENT TO ANY DETECTED LAYOUT BOX (BUBBLE OR TEXT CANDIDATE)
-                let is_near_layout_anchor = fusion_res.bubbles.iter().chain(fusion_res.text_bubbles.iter().map(|(b, _)| b)).chain(fusion_res.text_free.iter().map(|(b, _)| b)).any(|b| {
+                // LAYOUT-ANCHORED RESCUE: CHECK IF THE OCR LINE IS ADJACENT TO ANY CONFIDENT DETECTED LAYOUT BOX (BUBBLE OR TEXT CANDIDATE)
+                let is_near_layout_anchor = fusion_res.bubbles.iter().chain(fusion_res.text_bubbles.iter().filter(|(_, s)| *s >= 0.40).map(|(b, _)| b)).chain(fusion_res.text_free.iter().filter(|(_, s)| *s >= 0.40).map(|(b, _)| b)).any(|b| {
                     let (bx, by, bw, bh) = (b.x as f32, b.y as f32, b.w as f32, b.h as f32);
                     let dx = (bx - (lx + lw) as f32).max((lx as f32) - (bx + bw)).max(0.0);
                     let dy = (by - (ly + lh) as f32).max((ly as f32) - (by + bh)).max(0.0);
@@ -375,6 +375,27 @@ pub fn analyze_image_with_fusion_timed(
                     }
                 });
                 if inside_bubble_panel && !is_near_layout_anchor {
+                    continue;
+                }
+
+                // DO NOT RESCUE VERTICAL FURIGANA / RUBY SATELLITE LINES (NARROW ADJACENT OCR SLICES ALONGSIDE PRIMARY CANDIDATE BOXES)
+                let is_furigana_satellite = is_cjk && line.text.chars().count() <= 5 && candidate_boxes.iter().any(|cb| {
+                    let (bx, by, bw, bh) = crate::ml::geometry::box_to_xywh_f32(cb);
+                    let overlap_y = ((ly + lh) as f32).min(by + bh) - (ly as f32).max(by);
+                    let vert_coverage = overlap_y.max(0.0) / (lh as f32).max(1.0);
+                    let horiz_gap = if (lx as f32) >= bx + bw {
+                        (lx as f32) - (bx + bw)
+                    } else if bx >= (lx + lw) as f32 {
+                        bx - (lx + lw) as f32
+                    } else {
+                        0.0
+                    };
+                    let is_narrow = (lw as f32) <= bw * 0.40;
+                    let is_vert_col = lh > lw * 2;
+                    let is_close_x = horiz_gap <= bw * 0.35;
+                    is_vert_col && is_narrow && is_close_x && vert_coverage >= 0.70 && bh >= (lh as f32 * 1.5)
+                });
+                if is_furigana_satellite {
                     continue;
                 }
 

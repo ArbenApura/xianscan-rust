@@ -36,6 +36,27 @@ pub fn build_regions(
     let inpaint_pct = inpaint_padding_pct.unwrap_or(0.03);
     let typeset_pct = typeset_padding_pct.unwrap_or(0.00);
     let mut regions: Vec<Region> = Vec::new();
+    if std::env::var("XIANSCAN_PROBE").is_ok() {
+        eprintln!("[PROBE-BOXES] dedup_boxes={:?}", dedup_boxes.iter().map(|cb| {
+            let (x, y, w, h) = crate::ml::geometry::box_to_xywh_f32(cb);
+            format!("({},{},{},{})", x as i32, y as i32, w as i32, h as i32)
+        }).collect::<Vec<_>>());
+    }
+
+    // ORPHAN OCR LINES: LINES WHOSE CENTER LIES INSIDE NO CANDIDATE BOX. IF SUCH A LINE
+    // SITS INSIDE A DETECTED SPEECH BUBBLE IT IS STILL THAT BUBBLE'S DIALOGUE (THE DETECTOR
+    // BOX MAY HUG ONLY ONE LOBE OF A STAGGERED BALLOON), SO THE FIRST BUBBLE-BACKED
+    // CONTAINER THAT COVERS IT CLAIMS IT — EXACTLY ONCE, VIA THIS CLAIM REGISTRY.
+    let mut orphan_claims: Vec<bool> = split_lines
+        .iter()
+        .map(|l| {
+            !dedup_boxes.iter().any(|cb| {
+                let (rx, ry, rw, rh) = crate::ml::geometry::box_to_xywh_f32(cb);
+                let r = BoxRect { x: rx.max(0.0) as i32, y: ry.max(0.0) as i32, w: rw.max(1.0) as i32, h: rh.max(1.0) as i32 };
+                line_center_inside_box(&l.polygon, &r)
+            })
+        })
+        .collect();
 
     for &idx in order {
         let box_pts = &dedup_boxes[idx];
@@ -97,6 +118,27 @@ pub fn build_regions(
                 iou >= 0.25 || coverage >= 0.40
             })
             .collect();
+
+        // BUBBLE-ENVELOPE LINE COMPLETION: A BUBBLE-BACKED CANDIDATE BOX CAN BE A PARTIAL
+        // SLICE OF THE BALLOON (E.G. A STAGGERED DOUBLE-LOBE BALLOON WHERE THE DETECTOR BOX
+        // HUGS ONE LOBE), ORPHANING THE OUTERMOST TEXT COLUMN WHOSE CENTER SITS INSIDE THE
+        // BUBBLE BUT OUTSIDE THE TIGHT CANDIDATE BOX. LINES INSIDE THE MATCHED BUBBLE ARE
+        // SEMANTICALLY THIS BUBBLE'S DIALOGUE — PULL THEM IN SO THE UTTERANCE CLUSTERING
+        // SEES THE COMPLETE SET. THE VERTICAL UTTERANCE CLUSTERER, NOT THE CANDIDATE BOX,
+        // IS THE CORRECT SPLIT AUTHORITY INSIDE A BALLOON.
+        if std::env::var("XIANSCAN_DISABLE_ORPHAN").is_err() {
+            if let Some(mb) = matched_bubble {
+                for (li, l) in split_lines.iter().enumerate() {
+                    if !orphan_claims[li] {
+                        continue;
+                    }
+                    if line_center_inside_box(&l.polygon, mb) {
+                        matched.push(l);
+                        orphan_claims[li] = false;
+                    }
+                }
+            }
+        }
 
         // IN NON-LATIN SCRIPT SOURCES (E.G. KOREAN, CJK), DROP OVERLAPPING PURE LATIN NOISE LINES
         if crate::ml::detect::is_non_latin_source(source_lang) && matched.iter().any(|l| {
@@ -232,7 +274,18 @@ pub fn build_regions(
                     let is_punct_o = clean_o.chars().all(|c| c.is_ascii_punctuation() || matches!(c, '！' | '？' | '!' | '?' | '…'));
                     let is_vert_col_text_and_punct = is_container_vert && (is_punct_m != is_punct_o);
 
-                    if ((iou >= 0.40 || overlap_ratio_m >= 0.60 || (vert_col_overlap && is_sub) || is_horizontal_suffix_noise || (overlap_ratio_m >= 0.30 && is_sub)) && (is_exact || is_sub || is_horizontal_suffix_noise))
+                    // FURIGANA / RUBY PARALLEL SATELLITE COLUMN DEDUPLICATION (M IS MINOR FURIGANA ALONGSIDE O)
+                    // In Japanese typography, furigana (ruby) is distinctly narrower (font width <= 55% of base kanji)
+                    // and spans vertically along the base kanji with short character counts (<= 4 chars).
+                    let is_m_furigana_of_o = is_container_vert
+                        && !is_punct_m
+                        && !is_punct_o
+                        && (mw as f32) <= (ow as f32 * 0.55)
+                        && clean_m.chars().count() <= 4
+                        && (overlap_y.max(0) as f32 / mh.max(1) as f32 >= 0.70)
+                        && (clean_m.chars().count() <= clean_o.chars().count());
+
+                    if ((iou >= 0.40 || overlap_ratio_m >= 0.60 || (vert_col_overlap && is_sub) || is_horizontal_suffix_noise || (overlap_ratio_m >= 0.30 && is_sub) || is_m_furigana_of_o) && (is_exact || is_sub || is_horizontal_suffix_noise || is_m_furigana_of_o))
                         && !is_vert_col_text_and_punct
                     {
                         is_dup = true;
@@ -270,7 +323,15 @@ pub fn build_regions(
                         let is_punct_m = clean_m.chars().all(|c| c.is_ascii_punctuation() || matches!(c, '！' | '？' | '!' | '?' | '…'));
                         let is_vert_col_text_and_punct = is_container_vert && (is_punct_m != is_punct_o);
 
-                        (!(((iou >= 0.40 || vert_col_overlap || overlap_ratio_o >= 0.30) && is_existing_sub) || is_existing_suffix_noise)) || is_vert_col_text_and_punct
+                        let is_o_furigana_of_m = is_container_vert
+                            && !is_punct_o
+                            && !is_punct_m
+                            && (ow as f32) <= (mw as f32 * 0.55)
+                            && clean_o.chars().count() <= 4
+                            && (overlap_y.max(0) as f32 / oh.max(1) as f32 >= 0.70)
+                            && (clean_o.chars().count() <= clean_m.chars().count());
+
+                        (!(((iou >= 0.40 || vert_col_overlap || overlap_ratio_o >= 0.30 || is_o_furigana_of_m) && (is_existing_sub || is_o_furigana_of_m)) || is_existing_suffix_noise)) || is_vert_col_text_and_punct
                     });
                     filtered_matched.push(m);
                 }
@@ -303,6 +364,16 @@ pub fn build_regions(
             let (sin_a, cos_a) = (rad_a.sin(), rad_a.cos());
 
             let clusters = cluster_lines_into_utterances(&filtered_matched, is_cjk, is_container_vert, sin_a, cos_a);
+            if std::env::var("XIANSCAN_PROBE").is_ok() && box_rect.y >= 700 && box_rect.y <= 800 {
+                eprintln!("[PROBE] container x={} y={} w={} h={} clusters={} matched={:?}", box_rect.x, box_rect.y, box_rect.w, box_rect.h, clusters.len(),
+                    matched.iter().map(|l| l.text.trim()).collect::<Vec<_>>());
+                for (ci, cl) in clusters.iter().enumerate() {
+                    eprintln!("[PROBE]   c{}: {:?}", ci, cl.iter().map(|l| format!("{}@{:?}", l.text.trim(), polygon_bounds(&l.polygon))).collect::<Vec<_>>());
+                }
+            }
+
+            // CONTAINER-BOUNDARY EXPANSION IS ONLY VALID FOR A SINGLE-UTTERANCE CONTAINER:
+            let container_is_single_utterance = clusters.len() <= 1;
 
             for cluster_lines in clusters {
                 if cluster_lines.is_empty() {
@@ -375,23 +446,35 @@ pub fn build_regions(
                     h: (c_max_y - c_min_y).max(1),
                 };
 
-                // REFINEMENT VIA TARGETED CROP RECOGNITION
-                if let Some(refined) = try_refine_cluster_crop(
-                    ocr,
-                    img,
-                    &box_rect,
-                    &cluster_rect,
-                    &cluster_lines,
-                    &combined_text,
-                    avg_score,
-                    angle_deg,
-                    is_container_vert,
-                    is_bubble_region,
-                    is_cjk,
-                    source_lang,
-                    page_w,
-                    page_h,
-                ) {
+                // REFINEMENT VIA TARGETED CROP RECOGNITION. A BUBBLE-BACKED CONTAINER THAT THE
+                // UTTERANCE CLUSTERER SPLIT INTO MULTIPLE UTTERANCES (E.G. A TWO-LOBE CONNECTED
+                // BALLOON) MUST NOT RE-SCAN THE WHOLE-BALLOON CROP: THE CROP SPANS BOTH
+                // UTTERANCES, SO THE CROP RESULT CROSS-CONTAMINATES THE SIBLINGS (INTERLEAVED
+                // COLUMNS, FLIPPED ORIENTATION, MERGED UTTERANCES). FREE-TEXT NARRATION
+                // CONTAINERS HAVE NO SIBLING LOBES — EACH CLUSTER IS AN INDEPENDENT PARAGRAPH
+                // WHOSE CROP IS TIGHT TO ITS OWN LINES, SO REFINEMENT IS SAFE FOR ALL
+                // FREE-TEXT CONTAINERS REGARDLESS OF CLUSTER COUNT.
+                let refine_outcome = if container_is_single_utterance || matched_bubble.is_none() {
+                    try_refine_cluster_crop(
+                        ocr,
+                        img,
+                        &box_rect,
+                        &cluster_rect,
+                        &cluster_lines,
+                        &combined_text,
+                        avg_score,
+                        angle_deg,
+                        is_container_vert,
+                        is_bubble_region,
+                        is_cjk,
+                        source_lang,
+                        page_w,
+                        page_h,
+                    )
+                } else {
+                    None
+                };
+                if let Some(refined) = refine_outcome {
                     combined_text = refined.text;
                     avg_score = refined.avg_score;
                     if !refined.active_line_polys.is_empty() {
@@ -452,25 +535,28 @@ pub fn build_regions(
                         }
                     }
 
+                    // CONTAINER-BOUNDARY EXPANSION ONLY FOR SINGLE-UTTERANCE CONTAINERS:
+                    // A SPLIT MULTI-UTTERANCE CONTAINER MUST KEEP PER-CLUSTER TIGHT BOUNDS
+                    // SO SIBLING REGIONS DO NOT OVERLAP INTO CONTAINMENT-DROP AT DEDUP.
                     let max_horiz_pad = if is_container_vert || is_detector_vert { 60 } else { 30 };
-                    if (box_rect.x + box_rect.w) > max_x && (box_rect.x + box_rect.w - max_x) <= max_horiz_pad && min_x >= box_rect.x - 25 {
+                    if container_is_single_utterance && (box_rect.x + box_rect.w) > max_x && (box_rect.x + box_rect.w - max_x) <= max_horiz_pad && min_x >= box_rect.x - 25 {
                         max_x = max_x.max(box_rect.x + box_rect.w);
                     }
 
-                    if (box_rect.x < min_x) && (min_x - box_rect.x) <= 160 && (box_rect.y <= min_y + 15 && box_rect.y + box_rect.h >= max_y - 15) {
+                    if container_is_single_utterance && (box_rect.x < min_x) && (min_x - box_rect.x) <= 160 && (box_rect.y <= min_y + 15 && box_rect.y + box_rect.h >= max_y - 15) {
                         min_x = min_x.min(box_rect.x);
                     }
 
-                    if (box_rect.y < min_y) && (min_y - box_rect.y) <= 45 && (box_rect.x <= min_x + 15 && box_rect.x + box_rect.w >= max_x - 15) {
+                    if container_is_single_utterance && (box_rect.y < min_y) && (min_y - box_rect.y) <= 45 && (box_rect.x <= min_x + 15 && box_rect.x + box_rect.w >= max_x - 15) {
                         min_y = min_y.min(box_rect.y);
-                    } else if (is_container_vert || is_detector_vert || matched_bubble.is_some()) && box_rect.y < min_y && (min_y - box_rect.y) <= 400 {
+                    } else if container_is_single_utterance && (is_container_vert || is_detector_vert || matched_bubble.is_some()) && box_rect.y < min_y && (min_y - box_rect.y) <= 400 {
                         min_y = min_y.min(box_rect.y);
                     }
 
                     let max_vert_trailing_pad = ((box_rect.h as f32 * 0.50).round() as i32).max(180);
-                    if (is_container_vert || is_detector_vert) && (box_rect.y + box_rect.h) > max_y && (box_rect.y + box_rect.h - max_y) <= max_vert_trailing_pad {
+                    if container_is_single_utterance && (is_container_vert || is_detector_vert) && (box_rect.y + box_rect.h) > max_y && (box_rect.y + box_rect.h - max_y) <= max_vert_trailing_pad {
                         max_y = max_y.max(box_rect.y + box_rect.h);
-                    } else if matched_bubble.is_some() && (box_rect.y + box_rect.h) > max_y && (box_rect.y + box_rect.h - max_y) <= 25 && min_x >= box_rect.x - 10 && max_x <= box_rect.x + box_rect.w + 10 {
+                    } else if container_is_single_utterance && matched_bubble.is_some() && (box_rect.y + box_rect.h) > max_y && (box_rect.y + box_rect.h - max_y) <= 25 && min_x >= box_rect.x - 10 && max_x <= box_rect.x + box_rect.w + 10 {
                         max_y = max_y.max(box_rect.y + box_rect.h);
                     }
 
@@ -693,7 +779,13 @@ pub fn build_regions(
     }
 
     // DEDUPLICATE & UNIFY SLANTED STATUS CARD REGIONS
+    if std::env::var("XIANSCAN_PROBE").is_ok() {
+        eprintln!("[PROBE-PREDEDUP] {} regions: {:?}", regions.len(), regions.iter().map(|r| format!("{}@{:?}v{}", r.text.replace('\n', "|"), r.box_, r.vertical as i32)).collect::<Vec<_>>());
+    }
     let mut deduped_regions = deduplicate_and_unify_regions(regions, img, page_w, page_h, inpaint_pct, typeset_pct);
+    if std::env::var("XIANSCAN_PROBE").is_ok() {
+        eprintln!("[PROBE-POSTDEDUP] {} regions: {:?}", deduped_regions.len(), deduped_regions.iter().map(|r| format!("{}@{:?}", r.text.replace('\n', "|"), r.box_)).collect::<Vec<_>>());
+    }
 
     // EXPAND DIALOGUE-BUBBLE TEXT BASE BOUNDARY TO UTILIZE UNUSED BUBBLE AREA (BUBBLE TEXT ONLY)
     expand_bubble_text_boxes(&mut deduped_regions, Some(img), page_w, page_h, inpaint_pct, typeset_pct);

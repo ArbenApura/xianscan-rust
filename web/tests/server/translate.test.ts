@@ -52,9 +52,9 @@ describe('systemPrompt', () => {
 		expect(p).toContain('Chinese Manhua, Wuxia & Xianxia Rules');
 		expect(p).not.toContain('Sound Effects (sfx)');
 		expect(p).toContain('Wuxia, Xianxia & Cultivation Hierarchy');
-		expect(p).toContain('OCR Artifact & Bubble-Tail Cleaning');
-		expect(p).toContain('Bilingual Title Logos & Subtitle Deduplication');
-		expect(p).not.toContain('Pro-Drop & Subject Resolution');
+		expect(p).toContain('Semantic Noise Rejection');
+		expect(p).toContain('Bilingual Title Logos');
+		expect(p).toContain('Positive Identity & Pronoun Disambiguation');
 	});
 
 	it('produces specialized Russian/Cyrillic prompt without Chinese Wuxia rules', () => {
@@ -82,9 +82,8 @@ describe('systemPrompt', () => {
 		expect(p).toContain('Yu Clan Manor');
 		expect(p).toContain('Mount Hua Sect');
 		expect(p).toContain('Demonic Cult');
-		expect(p).toContain('Unestablished Gender & Direct Scolding');
-		expect(p).toContain('고놈');
-		expect(p).toContain('You little rascal');
+		expect(p).toContain('Positive Identity & Pronoun Disambiguation');
+		expect(p).toContain('you little rascal');
 		expect(p).not.toContain('Manhua');
 	});
 
@@ -95,6 +94,24 @@ describe('systemPrompt', () => {
 		expect(p).toContain('Chinese Manhua, Wuxia & Xianxia Rules');
 		expect(p).toContain('Namgung Clan');
 		expect(p).toContain('Mount Hua Sect');
+	});
+
+	it('injects Romance and Slavic target language profiles with gender and T-V register rules', () => {
+		const pEs = systemPrompt('ko', 'es');
+		expect(pEs).toContain('Romance Target Rules (ES)');
+		expect(pEs).toContain('Grammatical Gender Agreement');
+		expect(pEs).toContain('T-V Register');
+		expect(pEs).toContain('usted');
+
+		const pRu = systemPrompt('zh-Hans', 'ru');
+		expect(pRu).toContain('Slavic Target Rules (RU)');
+		expect(pRu).toContain('Past Tense Verb & Participle Gender');
+		expect(pRu).toContain('Вы');
+
+		const pDe = systemPrompt('ja', 'de');
+		expect(pDe).toContain('German Target Rules (DE)');
+		expect(pDe).toContain('Noun Capitalization');
+		expect(pDe).toContain('Sie');
 	});
 
 	it('keeps system prompts compact and free of raw SFX taxonomy bloat across all languages', () => {
@@ -853,9 +870,9 @@ describe('parseExtractedTerms & extractTerms', () => {
 
 	it('includes universal OCR degradation recovery and split sentence continuation rules in systemPrompt', () => {
 		const p = systemPrompt('zh-Hans', 'en');
-		expect(p).toContain('Contextual OCR Typo & Degradation Recovery');
-		expect(p).toContain('Sentence Continuations Across Regions');
-		expect(p).toContain('Hanzi OCR Recovery');
+		expect(p).toContain('Semantic Noise Rejection (OCR Typo & Scream Recovery)');
+		expect(p).toContain('Split-Bubble Continuity');
+		expect(p).toContain('Hanzi OCR Stroke Recovery');
 		expect(p).toContain('拔↔拨');
 	});
 

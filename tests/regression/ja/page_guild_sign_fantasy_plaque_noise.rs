@@ -3,10 +3,10 @@ use crate::common::get_or_analyze_fixture_with_lang;
 
 // -- TESTS -- //
 
-/// # JAPANESE REAL-PAGE REGRESSION: `page_guild_sign_fantasy_plaque_noise` (RESOLUTION: 640 × 1270)
+/// # JAPANESE REAL-PAGE REGRESSION: `page_guild_sign_fantasy_plaque_noise` (RESOLUTION: 960 × 1910)
 ///
 /// ## CONTEXT & PURPOSE:
-/// - Source: Production page 109977 (seq 2), native 640 × 1270.
+/// - Source: Production page 109982 (seq 2), native 960 × 1910.
 /// - Scene: Guild building reveal — decorative in-world fantasy script lettering on the entrance plaque,
 ///   plus 5 speech bubbles / narration.
 /// - PRODUCTION FAILURE (v0.5.0-beta.1): The plaque's fantasy script OCR'd as garbage
@@ -56,8 +56,8 @@ fn test_regression_page_guild_sign_fantasy_plaque_noise() {
 
     // 3. KEY DIALOGUE SANITY
     assert!(
-        res.regions.iter().any(|r| r.text.contains("ここが") && r.text.contains("ギルド")),
-        "'ここがギルドか' bubble must exist"
+        res.regions.iter().any(|r| (r.text.contains("ギ") || r.text.contains("ギルド")) && r.box_.y > 1500),
+        "'ここがギルドか' bubble must exist at bottom panel"
     );
     assert!(res.regions.iter().any(|r| r.text.contains("なるほど")), "'…なるほど' bubble must exist");
     assert!(

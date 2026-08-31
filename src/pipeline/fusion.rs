@@ -284,12 +284,14 @@ pub fn fuse_detections(
                                 let rl_cjk = rl.text.chars().filter(|c| crate::ml::detect::has_cjk_characters(&c.to_string())).count();
                                 let is_excessive_multiline_bleed = !is_multiline_cb && !is_rl_vert && clean_c.contains('\n') && rl.score >= 0.70;
                                 // DISCONNECTED CROP ROW GUARD: WHEN A REFINEMENT CROP RECOGNIZES MULTIPLE ROWS
-                                // WHOSE INTERNAL VERTICAL GAP EXCEEDS ~1.2x THE TALLEST ROW, THE CROP SPANS
+                                // WHOSE INTERNAL GAPS ARE HUGE RELATIVE TO THE ROWS THEMSELVES, THE CROP SPANS
                                 // DISCONNECTED CONTENT ZONES (E.G. A GIANT BRUSH SFX GLYPH FUSED WITH AN ADJACENT
-                                // SPEECH BUBBLE ROW). ACCEPTING IT WOULD FORGE A MONSTER ENVELOPE SPANNING BOTH
-                                // ZONES AND SMEAR THE ARTWORK VIA INPAINT MASKS. LEGIT MULTI-LINE TEXT HAS
-                                // INTER-ROW GAPS OF AT MOST ~0.5x LINE HEIGHT.
-                                let is_disconnected_crop_rows = {
+                                // SPEECH BUBBLE ROW). DETECTED VIA EITHER A HUGE INTER-ROW GAP OR A LOOSE UNION
+                                // ENVELOPE (UNION AREA >> SUM OF ROW AREAS MEANS SCATTERED CONTENT ZONES).
+                                // ACCEPTING IT WOULD FORGE A MONSTER ENVELOPE SPANNING BOTH ZONES AND SMEAR THE
+                                // ARTWORK VIA INPAINT MASKS. LEGIT MULTI-LINE TEXT HAS INTER-ROW GAPS OF AT
+                                // MOST ~0.5x LINE HEIGHT AND A TIGHT UNION.
+                                let is_disconnected_crop_rows = line_res.lines.len() >= 2 && {
                                     let mut row_bands: Vec<(i32, i32)> = line_res
                                         .lines
                                         .iter()
@@ -306,6 +308,36 @@ pub fn fuse_detections(
                                         if gap >= (max_row_h.max(1) * 6 / 5) {
                                             disconnected = true;
                                             break;
+                                        }
+                                    }
+                                    if !disconnected {
+                                        // GIANT-GLYPH SUB-LINE CHECK: A SUB-LINE THAT IS A HUGE NEAR-SQUARE BOX
+                                        // CARRYING AT MOST 2 GLYPHS IS BRUSH / SFX ARTWORK STROKE INSIDE THE CROP,
+                                        // NOT A TEXT ROW. A CROP MIXING SUCH GLYPHS WITH REAL TEXT SPANS DISCONNECTED
+                                        // ARTWORK + CONTENT ZONES AND MUST BE REJECTED. THRESHOLDS ARE RATIOS OF THE
+                                        // CROP AREA — RESOLUTION INVARIANT.
+                                        let mut min_lx = i32::MAX;
+                                        let mut min_ly = i32::MAX;
+                                        let mut max_lx = i32::MIN;
+                                        let mut max_ly = i32::MIN;
+                                        let mut sum_area = 0_i64;
+                                        for (lp, _, _) in &line_res.lines {
+                                            let (lx, ly, lw, lh) = crate::ml::geometry::polygon_bounds(lp);
+                                            min_lx = min_lx.min(lx);
+                                            min_ly = min_ly.min(ly);
+                                            max_lx = max_lx.max(lx + lw);
+                                            max_ly = max_ly.max(ly + lh);
+                                            sum_area += (lw.max(1) * lh.max(1)) as i64;
+                                        }
+                                        let union_area = ((max_lx - min_lx).max(1) as i64) * ((max_ly - min_ly).max(1) as i64);
+                                        let giant_glyph_subline = line_res.lines.iter().any(|(lp, t, _)| {
+                                            let (lx, ly, lw, lh) = crate::ml::geometry::polygon_bounds(lp);
+                                            let glyphs = t.chars().filter(|c| !c.is_whitespace()).count();
+                                            let box_frac = (lw.max(1) as f32 * lh.max(1) as f32) / ((cw.max(1) * ch.max(1)) as f32);
+                                            glyphs <= 2 && box_frac >= 0.30
+                                        });
+                                        if giant_glyph_subline || union_area >= 3 * sum_area.max(1) {
+                                            disconnected = true;
                                         }
                                     }
                                     disconnected

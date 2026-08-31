@@ -30,6 +30,8 @@ pub fn should_reject_candidate_region(
 
     let ref_dim = (page_w as f32).min(page_h as f32).max(400.0);
 
+    let ref_dim = (page_w as f32).min(page_h as f32).max(400.0);
+
     // 1. DROP GIANT ARTWORK HALLUCINATIONS OR SPRAWLING NOISE BOXES
     let max_art_w = ((page_w as f32 * 0.35).max(300.0)) as i32;
     let max_art_h = ((ref_dim * 0.50).max(450.0)) as i32;
@@ -173,23 +175,21 @@ pub fn should_reject_candidate_region(
         return true;
     }
 
-    // 9. SUPPRESS LOW-CONFIDENCE ISOLATED SINGLE-CHARACTER ARTWORK ARTIFACTS / SFX
-    let char_count = cleaned.chars().filter(|c| !c.is_whitespace()).count();
     let oversized_char_limit = (ref_dim * 0.08).clamp(55.0, 95.0) as i32;
-    let is_oversized_single_char = char_count == 1 && (cluster_rect.w >= oversized_char_limit || cluster_rect.h >= oversized_char_limit);
+    let is_oversized_single_char = char_count <= 2 && (cluster_rect.w >= oversized_char_limit || cluster_rect.h >= oversized_char_limit);
     let is_shout = crate::ml::detect::is_onomatopoeia_or_shout(cleaned) && char_count <= 6;
-    let is_sign_or_narration_box = is_cjk && char_count >= 2 && ((cluster_rect.w >= 60 && cluster_rect.h >= 24) || (cluster_rect.w >= 15 && cluster_rect.h >= 30 && char_count >= 4) || (cluster_rect.w >= 20 && cluster_rect.h >= 30 && char_count >= 3)) && avg_score >= 0.70 && !is_shout;
+    let is_sign_or_narration_box = is_cjk && char_count >= 2 && ((cluster_rect.w >= 60 && cluster_rect.h >= 24) || (cluster_rect.w >= 20 && cluster_rect.h >= 45 && char_count >= 3) || (cluster_rect.w >= 30 && cluster_rect.h >= 30 && char_count >= 3)) && avg_score >= 0.70 && !is_shout;
     let is_margin_isolated_char = (cluster_rect.x <= 5 || cluster_rect.x + cluster_rect.w >= page_w as i32 - 5) && avg_score < 0.75;
-    let is_valid_cjk_glyph = is_cjk && char_count >= 2 && cleaned.chars().any(|c| crate::ml::detect::has_cjk_characters(&c.to_string())) && avg_score >= 0.70 && !is_margin_isolated_char;
-    let is_compact_single_glyph_box = char_count == 1 && cluster_rect.w <= (ref_dim * 0.06).clamp(35.0, 65.0) as i32 && cluster_rect.h <= (ref_dim * 0.06).clamp(35.0, 65.0) as i32;
-    let is_low_conf_single_char = char_count == 1 && (avg_score < 0.75 || is_oversized_single_char || is_compact_single_glyph_box);
+    let is_valid_cjk_glyph = is_cjk && char_count >= 3 && cleaned.chars().any(|c| crate::ml::detect::has_cjk_characters(&c.to_string())) && avg_score >= 0.70 && !is_margin_isolated_char;
+    let is_compact_single_glyph_box = char_count <= 2 && cluster_rect.w <= (ref_dim * 0.05).clamp(20.0, 45.0) as i32 && cluster_rect.h <= (ref_dim * 0.05).clamp(20.0, 45.0) as i32;
+    let is_low_conf_single_char = char_count <= 2 && (avg_score < 0.75 || is_oversized_single_char || is_compact_single_glyph_box);
     let is_isolated_sfx = char_count <= 6 && is_shout;
 
     if char_count <= 6
         && !is_bubble
         && !is_sign_or_narration_box
         && (!is_valid_cjk_glyph || is_low_conf_single_char || is_margin_isolated_char || is_isolated_sfx || is_oversized_single_char)
-        && (compute_chromatic_color_variance(img, cluster_rect) >= 15.0 || is_margin_isolated_char || is_low_conf_single_char || is_isolated_sfx || is_oversized_single_char || (avg_score < 0.75 && cluster_rect.w <= 40 && cluster_rect.h <= 40))
+        && (compute_chromatic_color_variance(img, cluster_rect) >= 15.0 || is_margin_isolated_char || is_low_conf_single_char || is_isolated_sfx || is_oversized_single_char || (avg_score < 0.75 && cluster_rect.w <= 45 && cluster_rect.h <= 45))
     {
         return true;
     }

@@ -245,8 +245,12 @@ function createJobTrackerStore() {
 				}
 			}
 		} else if (event.type === 'done') {
-			s.status = 'done';
-			s.currentPhase = 'completed';
+			if ((s.failedPages || 0) === 0) {
+				s.status = 'done';
+				s.currentPhase = 'completed';
+			} else {
+				s.status = 'failed';
+			}
 			s.completedAt = now;
 			s.totalDurationMs = s.startedAt ? now - s.startedAt : 0;
 			s.completedPages = s.pages.filter((p) => p.status === 'done').length;

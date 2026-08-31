@@ -40,6 +40,7 @@ mod page_ye_ziyun_noble_status_grow_up_vow;
 mod page_rice_shop_poison_bandit_split_bubble;
 mod page_rice_shop_kind_couple_thought_bubbles;
 mod page_skeleton_ribs_cracking_sfx_zero_text;
+mod page_pirate_flag_east_wind_caption;
 
 
 

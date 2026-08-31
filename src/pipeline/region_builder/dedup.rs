@@ -96,11 +96,21 @@ pub fn deduplicate_and_unify_regions(
 
             let is_high_spatial_overlap = inter_area > 0 && (iou >= 0.50 || overlap_r >= 0.60 || overlap_e >= 0.60);
 
+            // FURIGANA / RUBY SATELLITE DEDUPLICATION:
+            // IF A SHORT MINOR CANDIDATE (<= 4 CHARACTERS) IS SPATIALLY CONTAINED (OVERLAP >= 65% OF ITS AREA)
+            // WITHIN A LARGER PRIMARY DIALOGUE REGION (>= 6 CHARACTERS), SUPPRESS IT AS A SATELLITE RUBY READING.
+            let clean_r_chars = clean_r_no_space.chars().count();
+            let clean_e_chars = clean_e_no_space.chars().count();
+            let is_furigana_ruby_subset = (inter_area > 0)
+                && ((overlap_r >= 0.65 && clean_r_chars <= 4 && clean_e_chars >= 5 && r_area <= e_area * 3 / 10)
+                    || (overlap_e >= 0.65 && clean_e_chars <= 4 && clean_r_chars >= 5 && e_area <= r_area * 3 / 10));
+
             if (is_high_spatial_overlap && text_contains)
                 || is_bubble_subset
                 || is_spatial_containment_subset
                 || is_deep_spatial_containment
                 || is_collocated_noise_duplicate
+                || is_furigana_ruby_subset
             {
                 is_duplicate = true;
                 let clean_r_chars = clean_r_no_space.chars().count();

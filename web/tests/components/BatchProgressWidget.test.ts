@@ -75,4 +75,46 @@ describe('BatchProgressWidget Component UI', () => {
 		expect(screen.getByText(/Queue Active/i)).toBeTruthy();
 		expect(screen.getAllByText(/Chapter 1/i).length).toBeGreaterThan(0);
 	});
+
+	it('displays Queue Failed and error icons when batch fails (e.g. LLM failure)', async () => {
+		// Mock apiJson returning completed batch with all chapters errored
+		vi.spyOn(globalThis, 'fetch').mockImplementation(() =>
+			Promise.resolve(
+				new Response(
+					JSON.stringify({
+						active: true,
+						status: 'completed',
+						bookId: 'test-book-id',
+						bookTitle: 'Test Book',
+						queue: [
+							{ id: 1, seq: 1, title: 'Chapter 1', pageCount: 10, status: 'error', error: 'LLM Rate limit exceeded', translatedPages: 0 },
+						],
+						currentIndex: 0,
+						force: false,
+						startedAt: Date.now() - 5000,
+						completedAt: Date.now(),
+						totalPromptTokens: 0,
+						totalCompletionTokens: 0,
+					}),
+					{ status: 200, headers: { 'Content-Type': 'application/json' } },
+				),
+			),
+		);
+
+		await batchTracker.sync();
+
+		render(BatchProgressWidget);
+		await tick();
+
+		// CLICK TO EXPAND
+		const orb = screen.getByRole('button', { name: /Expand translation studio queue/i });
+		await fireEvent.pointerDown(orb, { clientX: 100, clientY: 100 });
+		await fireEvent.pointerUp(orb, { clientX: 100, clientY: 100 });
+		await tick();
+
+		// MUST DISPLAY "Queue Failed" AND NOT "Queue Finished" OR SUCCESS CHECKMARK
+		expect(screen.getAllByText(/Queue Failed/i).length).toBeGreaterThan(0);
+		expect(screen.queryByText(/Queue Finished/i)).toBeNull();
+		expect(screen.getByText(/✕ Error/i)).toBeTruthy();
+	});
 });

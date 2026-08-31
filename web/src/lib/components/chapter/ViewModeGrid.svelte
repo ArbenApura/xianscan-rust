@@ -198,7 +198,7 @@
 						</div>
 					</div>
 
-					<!-- IMAGE CONTAINER (USES FAST 480PX MEMOIZED THUMBNAIL CACHE) -->
+					<!-- IMAGE CONTAINER (FULL RESOLUTION WITH NATIVE LAZY LOADING) -->
 					<div
 						class="relative overflow-hidden rounded-lg border border-black/10 bg-black/5 dark:border-white/10"
 						style={ratioStyle}
@@ -206,7 +206,7 @@
 						<!-- svelte-ignore a11y-click-events-have-key-events -->
 						<!-- svelte-ignore a11y-no-noninteractive-element-interactions -->
 						<PageImage
-							src={`/api/pages/${page.id}/file?kind=thumb&w=480&target=${isOutput ? 'output' : 'original'}&rev=${isOutput ? (page.outputRev ?? 0) : (page.originalRev ?? 0)}`}
+							src={`/api/pages/${page.id}/file?kind=${isOutput ? 'output' : 'original'}&rev=${isOutput ? (page.outputRev ?? 0) : (page.originalRev ?? 0)}`}
 							alt={`Page ${page.seq + 1}`}
 							imgClass={`w-full h-full object-contain ${page.status === 'processing' ? 'opacity-80' : ''}`}
 							on:load={(e) => handleImgLoad(page.id, e)}

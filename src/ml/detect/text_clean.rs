@@ -282,29 +282,38 @@ pub fn is_mixed_script_debris(text: &str, source_lang: Option<&str>) -> bool {
         return false;
     }
     let chars: Vec<char> = text.chars().filter(|c| !c.is_whitespace()).collect();
-    if chars.len() < 8 {
+    if chars.len() < 7 {
         return false;
     }
-    let mut ascii_runs = 0usize;
-    let mut in_ascii = false;
+    let mut non_native_runs = 0usize;
+    let mut in_non_native = false;
+    let mut has_greek_symbol = false;
     for c in &chars {
-        if c.is_ascii_alphanumeric() {
-            if !in_ascii {
-                ascii_runs += 1;
+        let is_sym = matches!(*c, 'Φ' | 'Ψ' | 'Ω' | 'α' | 'β' | 'γ' | 'δ' | 'ε' | 'θ' | 'λ' | 'π' | 'σ' | 'φ' | 'ω');
+        if is_sym {
+            has_greek_symbol = true;
+        }
+        let is_non_nat = c.is_ascii_alphanumeric() || is_sym || matches!(*c, 'ェ' | 'ィ' | 'ゥ' | 'ォ' | 'ャ' | 'ュ' | 'ョ');
+        if is_non_nat {
+            if !in_non_native {
+                non_native_runs += 1;
             }
-            in_ascii = true;
+            in_non_native = true;
         } else {
-            in_ascii = false;
+            in_non_native = false;
         }
     }
     let native = chars
         .iter()
         .filter(|c| crate::ml::detect::has_native_script_for_lang(&c.to_string(), source_lang))
         .count();
+    if has_greek_symbol && non_native_runs >= 2 {
+        return true;
+    }
     if native == 0 {
         return false;
     }
-    ascii_runs >= 3 && ascii_runs > native
+    non_native_runs >= 3 && non_native_runs >= native
 }
 
 pub static TIMESTAMP_RE: LazyLock<Regex> = LazyLock::new(|| {

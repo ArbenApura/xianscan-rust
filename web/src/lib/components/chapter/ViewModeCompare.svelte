@@ -206,7 +206,7 @@
 							<!-- svelte-ignore a11y-click-events-have-key-events -->
 							<!-- svelte-ignore a11y-no-noninteractive-element-interactions -->
 							<PageImage
-								src={`/api/pages/${page.id}/file?kind=thumb&w=640&target=original&rev=${page.originalRev ?? 0}`}
+								src={`/api/pages/${page.id}/file?kind=original&rev=${page.originalRev ?? 0}`}
 								alt={`Page ${page.seq + 1} Original`}
 								imgClass={`w-full h-full object-contain ${page.status === 'processing' ? 'opacity-80' : ''}`}
 								on:load={(e) => handleImgLoad(page.id, e)}
@@ -234,7 +234,7 @@
 								<!-- svelte-ignore a11y-click-events-have-key-events -->
 								<!-- svelte-ignore a11y-no-noninteractive-element-interactions -->
 								<PageImage
-									src={`/api/pages/${page.id}/file?kind=thumb&w=640&target=output&rev=${page.outputRev ?? 0}`}
+									src={`/api/pages/${page.id}/file?kind=output&rev=${page.outputRev ?? 0}`}
 									alt={`Page ${page.seq + 1} Output`}
 									imgClass={`w-full h-full object-contain ${page.status === 'processing' ? 'opacity-80' : ''}`}
 									on:load={(e) => handleImgLoad(page.id, e)}

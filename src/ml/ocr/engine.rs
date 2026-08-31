@@ -9,6 +9,27 @@ use crate::ml::geometry::{box_iou_pts, polygon_bounds};
 use super::decode::{decode_ctc_slice, parse_dict_string, OcrLine, OcrResult};
 use super::slicing::{horizontal_paragraph_to_line_strips, vertical_to_upright_horizontal_strip};
 
+// SINGLE CONTINUOUS DET TARGET FOR THE LONG IMAGE SIDE OF A FULL PAGE. EVERY FULL PAGE
+// IS SCALED TO EXACTLY THIS LONG SIDE SO THE EFFECTIVE TEXT SCALE IS IDENTICAL ACROSS
+// SOURCE RESOLUTIONS. THE FORMER THREE-TIER LADDER (960/1500/2000) JUMPED THE EFFECTIVE
+// SCALE BY UP TO 33% AT THE 960 AND 1500 PX BOUNDARIES, MAKING BORDERLINE LINE SPLITS
+// (E.G. TWO-LOBE DOUBLE BUBBLES) FLIP WITH INPUT SIZE.
+const OCR_DET_LIMIT_SIDE: f32 = 2000.0;
+
+/// HISTORICAL TIER LADDER APPLIED TO THE ASSET'S OWN LONG SIDE. TILE SLICES AND CONTENT-
+/// TIGHT CROPS KEEP THIS PER-ASSET SCALING: THEY ARE SMALL CROPS WHOSE ORIGINAL TUNED
+/// BEHAVIOUR IS ALREADY SCALE-STABLE, AND RE-TARGETING THEM TO THE FULL-PAGE LIMIT WOULD
+/// OVER-MAGNIFY SMALL PAGES AND HALLUCINATE FRAGMENT GLYPHS.
+fn ocr_sub_image_det_limit(max_side: u32) -> f32 {
+    if max_side < 960 {
+        960.0
+    } else if max_side < 1500 {
+        1500.0
+    } else {
+        2000.0
+    }
+}
+
 pub struct RapidOcr {
     det_session: Option<Session>,
     rec_session: Session,
@@ -527,9 +548,9 @@ impl RapidOcr {
             }
         }
 
-        let mut raw_lines = self.detect_and_recognize_tiled_with_lang(&DynamicImage::ImageRgb8(padded), false, source_lang)?;
+        let mut raw_lines = self.detect_and_recognize_tiled_inner(&DynamicImage::ImageRgb8(padded), false, source_lang, Some(ocr_sub_image_det_limit(w.max(h))))?;
         if raw_lines.is_empty() {
-            raw_lines = self.detect_and_recognize_tiled_with_lang(crop, false, source_lang)?;
+            raw_lines = self.detect_and_recognize_tiled_inner(crop, false, source_lang, Some(ocr_sub_image_det_limit(w.max(h))))?;
         }
         raw_lines = crate::ml::detect::filter_orthogonal_line_conflicts(raw_lines);
 
@@ -600,8 +621,12 @@ impl RapidOcr {
 
         if is_vertical_crop {
             // SORT VERTICAL READING ORDER (RIGHT-TO-LEFT COLUMNS, TOP-TO-BOTTOM LINES).
-            // USE A FIXED COLUMN WIDTH THRESHOLD COMPUTED ONCE FROM THE FULL SLICE SO THE
-            // COMPARATOR IS CONSISTENT ACROSS ALL PAIRS (TOTAL ORDER INVARIANT).
+            // A PER-PAIR BANDED COMPARATOR (SWITCHING BETWEEN X-ORDER AND Y-ORDER BASED ON A
+            // DIFF THRESHOLD) VIOLATES TRANSITIVITY FOR 3+ LINES WHOSE MID_X STRADDLE THE
+            // THRESHOLD BOUNDARY, CRASHING THE SORT WITH "user-provided comparison function
+            // does not correctly implement a total order". INSTEAD, ASSIGN EACH LINE A COLUMN
+            // REPRESENTATIVE IN A SINGLE FIRST-FIT PASS, THEN SORT BY (COLUMN DESC, Y ASC) —
+            // A STRICT TOTAL ORDER THAT PRESERVES RIGHT-TO-LEFT COLUMN READING ORDER.
             // THRESHOLD IS 40% OF MEDIAN COLUMN WIDTH — PERCENTAGE-BASED FOR RESOLUTION INVARIANCE.
             // MINIMUM FLOOR IS 20% OF MEDIAN WIDTH (NEVER A HARDCODED PIXEL VALUE).
             let col_w_threshold = {
@@ -615,22 +640,35 @@ impl RapidOcr {
                     (median_w * 2 / 5).max(median_w / 5).max(1)
                 }
             };
-            raw_lines.sort_by(|a, b| {
-                let (ax, ay, aw, _) = polygon_bounds(&a.polygon);
-                let (bx, _, bw, _) = polygon_bounds(&b.polygon);
-                let a_mid_x = ax + aw / 2;
-                let b_mid_x = bx + bw / 2;
-                let x_diff = b_mid_x - a_mid_x; // LARGER X FIRST (RIGHTMOST COLUMN FIRST)
-                if x_diff.abs() >= col_w_threshold {
-                    b_mid_x.cmp(&a_mid_x)
+            let mut col_reps: Vec<i32> = Vec::new();
+            let mut col_ids: Vec<usize> = Vec::with_capacity(raw_lines.len());
+            for l in &raw_lines {
+                let (lx, _, lw, _) = polygon_bounds(&l.polygon);
+                let mid_x = lx + lw / 2;
+                if let Some(pos) = col_reps.iter().position(|&rep| (rep - mid_x).abs() < col_w_threshold) {
+                    col_ids.push(pos);
                 } else {
-                    ay.cmp(&polygon_bounds(&b.polygon).1)
+                    col_reps.push(mid_x);
+                    col_ids.push(col_reps.len() - 1);
                 }
-            });
+            }
+            let mut keyed: Vec<_> = raw_lines
+                .drain(..)
+                .zip(col_ids)
+                .map(|(line, col)| {
+                    let (_, ay, _, _) = polygon_bounds(&line.polygon);
+                    (col_reps[col], ay, line)
+                })
+                .collect();
+            // RIGHTMOST COLUMN FIRST (REPRESENTATIVE MID_X DESCENDING), THEN TOP-TO-BOTTOM
+            keyed.sort_by(|a, b| b.0.cmp(&a.0).then_with(|| a.1.cmp(&b.1)));
+            raw_lines = keyed.into_iter().map(|(_, _, line)| line).collect();
         } else {
             // HORIZONTAL READING ORDER (TOP-TO-BOTTOM, LEFT-TO-RIGHT).
-            // COMPARE COORDINATES DIRECTLY — NEVER COMPARE A COMPUTED DIFF TO 0,
-            // WHICH BREAKS TRANSITIVITY ACROSS THREE OR MORE ELEMENTS.
+            // A PER-PAIR BANDED COMPARATOR (Y-DIFF VS THRESHOLD, THEN FALL BACK TO X)
+            // VIOLATES TRANSITIVITY FOR 3+ LINES WHOSE Y COORDINATES STRADDLE THE
+            // THRESHOLD BOUNDARY. INSTEAD, ASSIGN EACH LINE A ROW REPRESENTATIVE IN A
+            // SINGLE FIRST-FIT PASS, THEN SORT BY (ROW ASC, X ASC) — A STRICT TOTAL ORDER.
             // ROW BAND THRESHOLD IS 25% OF MEDIAN LINE HEIGHT — PERCENTAGE-BASED FOR RESOLUTION INVARIANCE.
             let row_band_threshold = {
                 let heights: Vec<i32> = raw_lines.iter().map(|l| polygon_bounds(&l.polygon).3).collect();
@@ -643,16 +681,28 @@ impl RapidOcr {
                     (median_h / 4).max(1)
                 }
             };
-            raw_lines.sort_by(|a, b| {
-                let (ax, ay, _, _) = polygon_bounds(&a.polygon);
-                let (bx, by, _, _) = polygon_bounds(&b.polygon);
-                let y_diff = (ay - by).abs();
-                if y_diff > row_band_threshold {
-                    ay.cmp(&by)
+            let mut row_reps: Vec<i32> = Vec::new();
+            let mut row_ids: Vec<usize> = Vec::with_capacity(raw_lines.len());
+            for l in &raw_lines {
+                let (_, ly, _, _) = polygon_bounds(&l.polygon);
+                if let Some(pos) = row_reps.iter().position(|&rep| (rep - ly).abs() <= row_band_threshold) {
+                    row_ids.push(pos);
                 } else {
-                    ax.cmp(&bx)
+                    row_reps.push(ly);
+                    row_ids.push(row_reps.len() - 1);
                 }
-            });
+            }
+            let mut keyed: Vec<_> = raw_lines
+                .drain(..)
+                .zip(row_ids)
+                .map(|(line, row)| {
+                    let (lx, _, _, _) = polygon_bounds(&line.polygon);
+                    (row_reps[row], lx, line)
+                })
+                .collect();
+            // TOP-TO-BOTTOM (ROW REPRESENTATIVE ASCENDING), THEN LEFT-TO-RIGHT
+            keyed.sort_by(|a, b| a.0.cmp(&b.0).then_with(|| a.1.cmp(&b.1)));
+            raw_lines = keyed.into_iter().map(|(_, _, line)| line).collect();
         }
 
         // Substring & duplicate deduplication
@@ -706,8 +756,8 @@ impl RapidOcr {
 
         if let Some(ref mut det) = self.det_session {
             let max_side = w.max(h);
-            let limit_side = if max_side < 960 { 960 } else if max_side < 1500 { 1500 } else { 2000 };
-            let ratio = limit_side as f32 / max_side as f32;
+            let limit_side = ocr_sub_image_det_limit(max_side);
+            let ratio = limit_side / max_side as f32;
             let resize_w = (((w as f32 * ratio).round() as u32 / 32) * 32).max(32);
             let resize_h = (((h as f32 * ratio).round() as u32 / 32) * 32).max(32);
 
@@ -777,6 +827,13 @@ impl RapidOcr {
     }
 
     pub fn detect_and_recognize_tiled_with_lang(&mut self, img: &DynamicImage, tiled: bool, source_lang: Option<&str>) -> Result<Vec<OcrLine>> {
+        self.detect_and_recognize_tiled_inner(img, tiled, source_lang, None)
+    }
+
+    /// `det_limit_override` REPLACES THE FULL-PAGE TARGET FOR SUB-ASSET PASSES: TILE
+    /// SLICES AND CROP RE-SCANS SCALE BY THEIR OWN SIZE (HISTORICAL LADDER), NOT BY THE
+    /// PAGE TARGET, WHICH WOULD OVER-MAGNIFY SMALL PAGES AND HALLUCINATE FRAGMENTS.
+    fn detect_and_recognize_tiled_inner(&mut self, img: &DynamicImage, tiled: bool, source_lang: Option<&str>, det_limit_override: Option<f32>) -> Result<Vec<OcrLine>> {
         let (w, h) = img.dimensions();
         if w < 16 || h < 16 {
             return Ok(Vec::new());
@@ -785,8 +842,7 @@ impl RapidOcr {
         let mut lines = Vec::new();
         let detected_boxes = if let Some(ref mut det) = self.det_session {
             let max_side = w.max(h);
-            let limit_side = if max_side < 960 { 960 } else if max_side < 1500 { 1500 } else { 2000 };
-            let ratio = limit_side as f32 / max_side as f32;
+            let ratio = det_limit_override.unwrap_or(OCR_DET_LIMIT_SIDE) / max_side as f32;
             let resize_w = (((w as f32 * ratio).round() as u32 / 32) * 32).max(32);
             let resize_h = (((h as f32 * ratio).round() as u32 / 32) * 32).max(32);
 
@@ -948,7 +1004,7 @@ impl RapidOcr {
 
                 if cur_slice_h >= 32 {
                     let tile_crop = img.crop_imm(0, y, w, cur_slice_h);
-                    if let Ok(tile_lines) = self.detect_and_recognize_tiled_with_lang(&tile_crop, false, source_lang) {
+                    if let Ok(tile_lines) = self.detect_and_recognize_tiled_inner(&tile_crop, false, source_lang, Some(ocr_sub_image_det_limit(tile_crop.dimensions().0.max(tile_crop.dimensions().1)))) {
                         for mut tl in tile_lines {
                             for p in &mut tl.polygon {
                                 p[1] += y as i32;

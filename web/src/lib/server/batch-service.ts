@@ -301,18 +301,23 @@ async function executeChapterJob(chapter: BatchChapterItem, force: boolean) {
 				emitState();
 			}
 
-			const isDone = e.type === 'done' || snap?.status === 'done';
-
-			// ONLY FAIL THE ENTIRE CHAPTER IF IT IS A GENUINE CHAPTER-LEVEL FAILURE (NOT DELIBERATE PAUSE / CANCEL / SUPERSEDE)
 			const isCancelledOrSuperseded =
 				e.message?.includes('cancelled') ||
 				e.message?.includes('superseded') ||
 				snap?.status === 'superseded' ||
 				handle.status === 'superseded';
 
+			const isDone =
+				!isCancelledOrSuperseded &&
+				(e.type === 'done' || snap?.status === 'done') &&
+				(snap?.failedPages || 0) === 0;
+
+			// ONLY FAIL THE ENTIRE CHAPTER IF IT IS A GENUINE CHAPTER-LEVEL FAILURE (NOT DELIBERATE PAUSE / CANCEL / SUPERSEDE)
 			const isFailed =
 				!isCancelledOrSuperseded &&
-				((e.type === 'error' && e.page === undefined) ||
+				(snap?.status === 'failed' ||
+				(snap && (snap.failedPages || 0) > 0 && !isDone) ||
+				(e.type === 'error' && e.page === undefined) ||
 				(!getChapterJob(chapter.id) && snap?.status !== 'done' && (snap?.completedPages || 0) === 0));
 
 			if (isDone && !completedChapterIds.has(chapter.id)) {
@@ -324,7 +329,7 @@ async function executeChapterJob(chapter: BatchChapterItem, force: boolean) {
 					return;
 				}
 				unsub();
-				onChapterFailed(chapter, e.message || 'Translation failed');
+				onChapterFailed(chapter, e.message || snap?.pages?.find((p) => p.errorMessage)?.errorMessage || 'Translation failed');
 			} else if (isCancelledOrSuperseded) {
 				unsub();
 			}
@@ -489,15 +494,15 @@ function startWatchdog() {
 		for (const ch of processing) {
 			const job = getChapterJob(ch.id);
 			const snap = getChapterJobSnapshot(ch.id);
-			if (!job && snap?.status === 'done' && !completedChapterIds.has(ch.id)) {
+			if (!job && snap?.status === 'done' && (snap?.failedPages || 0) === 0 && !completedChapterIds.has(ch.id)) {
 				completedChapterIds.add(ch.id);
 				onChapterCompleted(ch, snap);
-			} else if (!job && (!snap || snap.status === 'failed' || snap.status === 'superseded')) {
-				// ORPHANED PROCESSING STATE DETECTED
+			} else if (!job && (!snap || snap.status === 'failed' || (snap?.failedPages || 0) > 0 || snap.status === 'superseded')) {
+				// ORPHANED PROCESSING STATE OR FAILURE DETECTED
 				console.warn(
-					`[batchService] Watchdog detected orphaned processing state on chapter #${ch.id}, recovering for retry...`,
+					`[batchService] Watchdog detected orphaned processing state or failure on chapter #${ch.id}, recovering for retry...`,
 				);
-				onChapterFailed(ch, 'Job unexpectedly terminated in background');
+				onChapterFailed(ch, snap?.pages?.find((p) => p.errorMessage)?.errorMessage || 'Job unexpectedly terminated in background');
 			}
 		}
 

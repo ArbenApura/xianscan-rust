@@ -215,16 +215,17 @@
 
 	$: isRunning = isBatchActive ? batchStatus === 'running' : isSingleRunning;
 	$: isPaused = isBatchActive && batchStatus === 'paused';
-	$: isCompleted = isBatchActive
-		? (batchStatus === 'completed' || (progress.overallProgressPercent === 100 && !isRunning && progress.totalChapters > 0))
-		: Boolean(
-				singleSnapshot &&
-				(singleSnapshot.status === 'done' || (!isSingleRunning && singleDonePages > 0 && singleDonePages === singleTotalPages))
-		  );
 	$: isCancelled = isBatchActive && batchStatus === 'cancelled';
 	$: isFailed = isBatchActive
-		? false
-		: Boolean(singleSnapshot && singleSnapshot.status === 'failed');
+		? !isRunning && !isPaused && !isCancelled && ((batchStatus === 'completed' && progress.failedChapters > 0 && progress.completedChapters === 0) || ($batchTracker.queue.length > 0 && $batchTracker.queue.every((q) => q.status === 'error')))
+		: Boolean(!isSingleRunning && (singleSnapshot?.status === 'failed' || ((singleSnapshot?.failedPages || 0) > 0 && singleDonePages === 0)));
+	$: isCompleted = isBatchActive
+		? (batchStatus === 'completed' || (progress.overallProgressPercent === 100 && !isRunning && progress.totalChapters > 0)) && !isFailed
+		: Boolean(
+				singleSnapshot &&
+				(singleSnapshot.status === 'done' || (!isSingleRunning && singleDonePages > 0 && singleDonePages === singleTotalPages)) &&
+				!isFailed
+		  );
 	$: isPending = !isRunning && !isPaused && !isCompleted && !isCancelled && !isFailed;
 
 	$: progress = $batchProgress;
@@ -396,7 +397,7 @@
 	function dismissWidget() {
 		isMinimized = true;
 		expanded = false;
-		if (isCompleted || isCancelled) {
+		if (isCompleted || isCancelled || isFailed) {
 			batchTracker.clearBatch();
 		} else if (isSingleMode) {
 			singleChapterDismissed = true;
@@ -756,7 +757,7 @@
 							isFailed
 								? 'text-rose-500 dark:text-rose-400'
 								: isCompleted
-									? 'text-emerald-500 dark:text-emerald-400'
+									? (!isSingleMode && progress.failedChapters > 0 ? 'text-amber-500 dark:text-amber-400' : 'text-emerald-500 dark:text-emerald-400')
 									: isPaused
 										? 'text-amber-500 dark:text-amber-400'
 										: isCancelled
@@ -775,7 +776,11 @@
 					{#if isFailed}
 						<AlertCircle size={20} class="text-rose-500 dark:text-rose-400" />
 					{:else if isCompleted}
-						<Check size={20} strokeWidth={3} class="text-emerald-500 dark:text-emerald-400" />
+						{#if !isSingleMode && progress.failedChapters > 0}
+							<AlertTriangle size={18} class="text-amber-500 dark:text-amber-400" />
+						{:else}
+							<Check size={20} strokeWidth={3} class="text-emerald-500 dark:text-emerald-400" />
+						{/if}
 					{:else if isPaused}
 						<Pause size={16} class="text-amber-500 dark:text-amber-400 fill-current ml-0.5" />
 					{:else if isRunning}
@@ -837,17 +842,25 @@
 								? 'bg-[#b23a2e]/10 text-[#b23a2e] dark:bg-[#b23a2e]/20 dark:text-[#e08a63]'
 								: isPaused
 									? 'bg-amber-500/10 text-amber-600 dark:bg-amber-500/20 dark:text-amber-400'
-									: isCompleted
-										? 'bg-emerald-500/15 text-emerald-700 dark:bg-emerald-500/20 dark:text-emerald-400'
-										: 'bg-neutral-500/10 text-neutral-500'
+									: isFailed
+										? 'bg-rose-500/15 text-rose-700 dark:bg-rose-500/20 dark:text-rose-400'
+										: isCompleted
+											? (!isSingleMode && progress.failedChapters > 0 ? 'bg-amber-500/15 text-amber-700 dark:bg-amber-500/20 dark:text-amber-400' : 'bg-emerald-500/15 text-emerald-700 dark:bg-emerald-500/20 dark:text-emerald-400')
+											: 'bg-neutral-500/10 text-neutral-500'
 						)}
 					>
 						{#if isRunning}
 							<Loader2 size={17} class="animate-spin text-[#b23a2e] dark:text-[#e08a63] shrink-0" />
 						{:else if isPaused}
 							<Pause size={16} class="shrink-0" />
+						{:else if isFailed}
+							<AlertCircle size={17} class="shrink-0" />
 						{:else if isCompleted}
-							<Check size={17} strokeWidth={2.6} class="shrink-0" />
+							{#if !isSingleMode && progress.failedChapters > 0}
+								<AlertTriangle size={17} class="shrink-0" />
+							{:else}
+								<Check size={17} strokeWidth={2.6} class="shrink-0" />
+							{/if}
 						{:else}
 							<Layers size={17} class="shrink-0" />
 						{/if}
@@ -876,9 +889,9 @@
 						<div class="flex items-center gap-1 sm:gap-1.5 text-[9.5px] sm:text-[11px] font-medium opacity-70 leading-none min-w-0">
 							<span class="font-bold uppercase tracking-wider text-[8.5px] sm:text-[10px] opacity-90 truncate min-w-0 shrink">
 								{#if isSingleMode}
-									Queue Active
+									{isRunning ? 'Queue Active' : isFailed ? 'Queue Failed' : isCompleted ? 'Queue Finished' : 'Queue Stopped'}
 								{:else}
-									{isRunning ? 'Queue Active' : isPaused ? 'Queue Paused' : isCompleted ? 'Queue Finished' : 'Queue Stopped'}
+									{isRunning ? 'Queue Active' : isPaused ? 'Queue Paused' : isFailed ? 'Queue Failed' : isCompleted ? (progress.failedChapters > 0 ? 'Queue Finished with Errors' : 'Queue Finished') : 'Queue Stopped'}
 								{/if}
 							</span>
 
@@ -939,8 +952,8 @@
 						<ChevronUp size={16} class={cn('opacity-75 transition-transform duration-200', expanded && 'rotate-180')} />
 					</button>
 
-					<!-- CLOSE / DISMISS BUTTON (ONLY WHEN COMPLETED, CANCELLED, OR SINGLE CHAPTER) -->
-					{#if isCompleted || isCancelled || isSingleMode}
+					<!-- CLOSE / DISMISS BUTTON (ONLY WHEN COMPLETED, CANCELLED, FAILED, OR SINGLE CHAPTER) -->
+					{#if isCompleted || isCancelled || isFailed || isSingleMode}
 						<button
 							type="button"
 							data-interactive="true"
@@ -966,9 +979,11 @@
 							? 'bg-neutral-500'
 							: isPaused
 								? 'bg-amber-500'
-								: isCompleted
-									? 'bg-emerald-600'
-									: 'bg-[#b23a2e] dark:bg-[#e08a63]'
+								: isFailed
+									? 'bg-rose-500'
+									: isCompleted
+										? (!isSingleMode && progress.failedChapters > 0 ? 'bg-amber-500' : 'bg-emerald-600')
+										: 'bg-[#b23a2e] dark:bg-[#e08a63]'
 					)}
 					style={`width: ${isSingleMode ? singleProgressPercent : progress.overallProgressPercent}%`}
 				></div>
@@ -1054,6 +1069,15 @@
 												<div class="flex items-center gap-1.5 min-w-0">
 													<span class="truncate">{singleJobState?.chapterId ? `Chapter ${singleJobState.chapterId}` : 'Chapter'}</span>
 												</div>
+												<div class="flex items-center gap-1.5 shrink-0 text-xs">
+													{#if singleSnapshot?.status === 'done' || (!isSingleRunning && singleDonePages > 0 && singleDonePages === singleTotalPages)}
+														<span class="text-emerald-600 dark:text-emerald-400 font-bold">✓ Done</span>
+													{:else if isFailed || singleSnapshot?.status === 'failed' || (!isSingleRunning && (singleSnapshot?.failedPages || 0) > 0)}
+														<span class="text-rose-500 font-bold">✕ Error</span>
+													{:else if isSingleRunning}
+														<span class="text-[#b23a2e] dark:text-[#e08a63] font-bold">⚙ Processing</span>
+													{/if}
+												</div>
 											</div>
 											<div class="mt-2">
 												<div class="flex items-center justify-between text-xs opacity-75 mb-1">
@@ -1061,7 +1085,17 @@
 													<span class="font-bold">{singleDonePages}/{singleTotalPages} pgs ({singleProgressPercent}%)</span>
 												</div>
 												<div class="h-2 w-full overflow-hidden rounded-full bg-black/10 dark:bg-white/10">
-													<div class="h-full rounded-full bg-[#b23a2e] dark:bg-[#e08a63] transition-all duration-300" style="width: {singleProgressPercent}%"></div>
+													<div
+														class={cn(
+															'h-full rounded-full transition-all duration-300',
+															isFailed
+																? 'bg-rose-500'
+																: singleSnapshot?.status === 'done'
+																	? 'bg-emerald-600'
+																	: 'bg-[#b23a2e] dark:bg-[#e08a63]'
+														)}
+														style="width: {singleProgressPercent}%"
+													></div>
 												</div>
 											</div>
 										</div>
@@ -1210,17 +1244,24 @@
 												{/each}
 											</div>
 										</div>
-									{:else if isCompleted || ($batchTracker.queue.length > 0 && !isRunning && !isPaused)}
+									{:else if isCompleted || isFailed || ($batchTracker.queue.length > 0 && !isRunning && !isPaused)}
 										<div class="space-y-1.5">
 											<div class="text-xs font-bold uppercase tracking-wider opacity-50 px-1">
-												{isCompleted ? `Completed Chapters (${$batchTracker.queue.length})` : 'Queue Items'}
+												{isFailed ? 'Failed Chapters' : isCompleted ? `Completed Chapters (${$batchTracker.queue.length})` : 'Queue Items'}
 											</div>
 											<div class="divide-y divide-black/[0.04] dark:divide-white/[0.04] rounded-xl border border-black/10 bg-black/[0.02] dark:border-white/10 dark:bg-white/[0.02] overflow-hidden">
 												{#each $batchTracker.queue as item, idx}
 													<div class="flex items-center justify-between gap-2 px-3 py-2 text-xs">
 														<div class="flex items-center gap-2 min-w-0 flex-1">
-															<span class="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 text-[10px] font-bold">
-																{item.status === 'done' ? '✓' : idx + 1}
+															<span class={cn(
+																'flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-[10px] font-bold',
+																item.status === 'done'
+																	? 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400'
+																	: item.status === 'error'
+																		? 'bg-rose-500/10 text-rose-600 dark:text-rose-400'
+																		: 'bg-black/5 dark:bg-white/10'
+															)}>
+																{item.status === 'done' ? '✓' : item.status === 'error' ? '✕' : idx + 1}
 															</span>
 															<div class="min-w-0 flex-1 truncate">
 																<span class="font-medium">{formatChapterLabel(item.seq, item.title, item.titleTarget)}</span>
@@ -1234,7 +1275,7 @@
 															{#if item.status === 'done'}
 																<span class="text-emerald-600 dark:text-emerald-400 font-bold">✓ Done</span>
 															{:else if item.status === 'error'}
-																<span class="text-red-500 font-bold">✕ Error</span>
+																<span class="text-rose-500 font-bold">✕ Error</span>
 															{:else}
 																<span class="opacity-50">{item.status}</span>
 															{/if}
@@ -1462,14 +1503,26 @@
 								<span>Cancel Queue</span>
 							</button>
 						</div>
-					{:else if isCompleted || isCancelled}
+					{:else if isCompleted || isCancelled || isFailed}
 						<div class="flex items-center justify-between gap-2 p-3 border-t border-black/[0.06] dark:border-white/[0.06] bg-black/[0.02] dark:bg-white/[0.02] shrink-0">
 							<div class="flex items-center gap-1.5 text-xs font-semibold min-w-0 flex-1">
-								{#if isCompleted}
-									<span class="text-[#4f7a64] dark:text-[#83b39a] flex items-center gap-1.5 font-semibold truncate min-w-0">
-										<Check size={14} strokeWidth={2.6} class="shrink-0" />
-										<span class="truncate">Queue Finished ({progress.completedChapters}/{progress.totalChapters} chapters)</span>
+								{#if isFailed}
+									<span class="text-rose-600 dark:text-rose-400 flex items-center gap-1.5 font-semibold truncate min-w-0">
+										<AlertCircle size={14} class="shrink-0" />
+										<span class="truncate">Queue Failed {isSingleMode ? '' : `(${progress.failedChapters}/${progress.totalChapters} failed)`}</span>
 									</span>
+								{:else if isCompleted}
+									{#if !isSingleMode && progress.failedChapters > 0}
+										<span class="text-amber-600 dark:text-amber-400 flex items-center gap-1.5 font-semibold truncate min-w-0">
+											<AlertTriangle size={14} class="shrink-0" />
+											<span class="truncate">Queue Finished ({progress.completedChapters}/{progress.totalChapters} done, {progress.failedChapters} failed)</span>
+										</span>
+									{:else}
+										<span class="text-[#4f7a64] dark:text-[#83b39a] flex items-center gap-1.5 font-semibold truncate min-w-0">
+											<Check size={14} strokeWidth={2.6} class="shrink-0" />
+											<span class="truncate">Queue Finished ({progress.completedChapters}/{progress.totalChapters} chapters)</span>
+										</span>
+									{/if}
 								{:else}
 									<span class="text-neutral-500 flex items-center gap-1 truncate min-w-0">
 										<X size={14} class="shrink-0" />
@@ -1484,7 +1537,11 @@
 								class="inline-flex items-center gap-1.5 rounded-xl border border-black/10 px-3 py-1.5 text-xs font-medium hover:bg-black/5 dark:border-white/10 dark:hover:bg-white/5 transition cursor-pointer"
 								use:ripple
 							>
-								<Check size={13} class="text-[#4f7a64] dark:text-[#83b39a]" strokeWidth={2.6} />
+								{#if isFailed}
+									<X size={13} class="text-rose-600 dark:text-rose-400" />
+								{:else}
+									<Check size={13} class="text-[#4f7a64] dark:text-[#83b39a]" strokeWidth={2.6} />
+								{/if}
 								<span>Dismiss</span>
 							</button>
 						</div>

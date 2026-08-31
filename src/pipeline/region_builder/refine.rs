@@ -148,6 +148,28 @@ pub fn try_refine_cluster_crop(
         dedup_crop_lines.retain(|l| l.2 >= 0.62 || l.2 >= crop_max_score * 0.85);
     }
 
+    // ORIENTATION SANITY GUARD: WHEN THE FULL-PAGE OCR ALREADY ISOLATED >= 3 CLEAN
+    // LINES, THE CROP RE-SCAN OF A VERTICAL TBRL CONTAINER THAT RETURNS PREDOMINANTLY
+    // HORIZONTAL STRIPS IS A PER-GLYPH SLICING ARTIFACT (THE NEAR-SQUARE CROP MAKES
+    // THE CROP DET SPLIT MULTI-COLUMN COLUMNS INTO HORIZONTAL ROW BANDS), NOT
+    // RECOVERED TEXT. ACCEPTING IT GARBLES CLEAN COLUMNS INTO INTERLEAVED ROWS AND
+    // FLIPS THE REGION'S ORIENTATION. A VERTICAL CONTAINER'S CROP MUST CONFIRM THE
+    // VERTICAL READING TO REPLACE A CLEAN MULTI-COLUMN CLUSTER.
+    let mut crop_v_count = 0usize;
+    let mut crop_h_count = 0usize;
+    for (line_poly, _, _) in &valid_crop_lines {
+        let (_, _, lw, lh) = polygon_bounds(line_poly);
+        if lh > (lw as f32 * 1.25) as i32 {
+            crop_v_count += 1;
+        } else {
+            crop_h_count += 1;
+        }
+    }
+    let is_clean_vertical_cluster = is_container_vert && cluster_lines.len() >= 3 && avg_score >= 0.70;
+    if std::env::var("XIANSCAN_DISABLE_REFINE_GUARD").is_err() && is_clean_vertical_cluster && crop_v_count <= crop_h_count {
+        return None;
+    }
+
     // SORT CROP LINES IN READING ORDER
     if is_container_vert {
         dedup_crop_lines.sort_by(|a, b| {
