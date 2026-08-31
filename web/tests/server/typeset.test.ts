@@ -951,11 +951,11 @@ Tattered Flesh-Cutting Knife`;
 		expect(tryVerticalSingleWordLayout(c, 'AWESOME!', 'Arial', 56, 124, 40, false)).toBeNull();
 
 		// UNFLAGGED tall-narrow box (aspect >= 2.5, height >= 120) stacks single words
-		// with punctuation attached: leading "..." keeps its own cell, trailing "." joins "D"
+		// with the trailing punctuation run as one new line after the letters
 		const understood = tryVerticalSingleWordLayout(c, '...UNDERSTOOD.', 'Arial', 95, 420, 40, false);
 		expect(understood).not.toBeNull();
 		expect(understood?.lines[0]).toBe('...');
-		expect(understood?.lines[understood.lines.length - 1]).toBe('D.');
+		expect(understood?.lines[understood.lines.length - 1]).toBe('.');
 		expect(understood?.size).toBeGreaterThanOrEqual(11);
 
 		// WIDE box with a single word must NOT stack even when unflagged (aspect < 2.5)
@@ -964,11 +964,16 @@ Tattered Flesh-Cutting Knife`;
 		// TALL but SHORT box (< 120px height) must NOT stack when unflagged
 		expect(tryVerticalSingleWordLayout(c, 'UNDERSTOOD.', 'Arial', 60, 110, 40, false)).toBeNull();
 
-		// A 10-letter word with a vertical flag stacks into letter cells (trailing "." joins "D")
+		// A 10-letter word with a vertical flag stacks letter cells plus a "." run line
 		const understoodFlagged = tryVerticalSingleWordLayout(c, 'UNDERSTOOD.', 'Arial', 80, 400, 40, true);
 		expect(understoodFlagged).not.toBeNull();
-		expect(understoodFlagged?.lines.length).toBe(10);
-		expect(understoodFlagged?.lines[understoodFlagged.lines.length - 1]).toBe('D.');
+		expect(understoodFlagged?.lines.length).toBe(11);
+		expect(understoodFlagged?.lines[understoodFlagged.lines.length - 1]).toBe('.');
+
+		// PUNCTUATION RUNS STAY TOGETHER AS ONE LINE: "NOW!!" -> N / O / W / !!
+		const nowLayout = tryVerticalSingleWordLayout(c, 'NOW!!', 'Arial', 90, 300, 40, true);
+		expect(nowLayout).not.toBeNull();
+		expect(nowLayout?.lines).toEqual(['N', 'O', 'W', '!!']);
 
 		// Multi-word phrases should NOT be vertically stacked even if isVertical is true
 		expect(tryVerticalSingleWordLayout(c, "I'M NOT MIZUKI...", 'Arial', 78, 102, 40, true)).toBeNull();

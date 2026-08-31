@@ -273,6 +273,40 @@ pub fn is_pure_punctuation_only(text: &str) -> bool {
     !t.chars().any(|c| c.is_alphanumeric())
 }
 
+/// DETECTS DECORATIVE-SCRIPT OCR GARBAGE: NATIVE CHARACTERS INTERLEAVED WITH 3+ SEPARATE
+/// ASCII ALPHANUMERIC FRAGMENTS (E.G. "中1ェc70に4Φ17814" READ FROM IN-WORLD FANTASY LETTERING).
+/// REAL TEXT NEVER INTERLEAVES THREE OR MORE SEPARATE ASCII RUNS INSIDE NATIVE SCRIPT —
+/// LEGIT NUMBERS APPEAR AS CONTIGUOUS RUNS ("第721话", "1対1での", "365일").
+pub fn is_mixed_script_debris(text: &str, source_lang: Option<&str>) -> bool {
+    if !crate::ml::detect::is_non_latin_source(source_lang) {
+        return false;
+    }
+    let chars: Vec<char> = text.chars().filter(|c| !c.is_whitespace()).collect();
+    if chars.len() < 8 {
+        return false;
+    }
+    let mut ascii_runs = 0usize;
+    let mut in_ascii = false;
+    for c in &chars {
+        if c.is_ascii_alphanumeric() {
+            if !in_ascii {
+                ascii_runs += 1;
+            }
+            in_ascii = true;
+        } else {
+            in_ascii = false;
+        }
+    }
+    let native = chars
+        .iter()
+        .filter(|c| crate::ml::detect::has_native_script_for_lang(&c.to_string(), source_lang))
+        .count();
+    if native == 0 {
+        return false;
+    }
+    ascii_runs >= 3 && ascii_runs > native
+}
+
 pub static TIMESTAMP_RE: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(r"(?i)^(?:(?:오전|오후)\s*\d{1,2}:\d{2}|\d{1,2}:\d{2}\s*(?:AM|PM|am|pm)?|(?:AM|PM|am|pm)\s*\d{1,2}:\d{2}|(?:\d{4}|20XX)[.\-/년\s]+\d{1,2}[.\-/월\s]+\d{1,2}[일\s]*(?:[월화수목금토일]요일)?.*)$").unwrap()
 });

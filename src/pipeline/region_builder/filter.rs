@@ -132,6 +132,12 @@ pub fn should_reject_candidate_region(
         }
     }
 
+    // 5b. DROP MIXED-SCRIPT DECORATIVE GARBAGE: NATIVE CHARACTERS INTERLEAVED WITH 3+ SEPARATE
+    // ASCII FRAGMENTS (SIGNATURE OF UNREADABLE IN-WORLD FANTASY LETTERING, E.G. SIGN PLAQUES).
+    if !is_bubble && avg_score < 0.70 && crate::ml::detect::is_mixed_script_debris(cleaned, source_lang) {
+        return true;
+    }
+
     // 6. PURE WATERMARK OR PUNCTUATION-ONLY REGIONS
     if crate::ml::detect::is_pure_watermark_region(cleaned) {
         return true;

@@ -733,14 +733,10 @@ export function tryVerticalSingleWordLayout(
 	if (lead) {
 		cells.unshift(lead);
 	}
+	// THE WHOLE TRAILING PUNCTUATION RUN ("!!", "??", "...", ".") FORMS ONE NEW LINE
+	// INSTEAD OF STACKING EACH TERMINAL CHARACTER AS ITS OWN TINY CELL ("W" / "!" / "!")
 	if (trail) {
-		// KEEP TRAILING DOTS ("...", "..", ".") ATTACHED TO THE LAST LETTER SO BARE DOTS
-		// NEVER STACK AS SEPARATE TINY CELLS; SINGLE TERMINALS (!, ?) STAY OWN-CELL
-		if (trail.length > 1 || /^[.．…]+$/.test(trail)) {
-			cells[cells.length - 1] += trail;
-		} else {
-			cells.push(trail);
-		}
+		cells.push(trail);
 	}
 
 	const horizSize = fitSingleLineSize(ctx, trimmed, fontFamily, maxW, maxH, maxCap, customCjk);
