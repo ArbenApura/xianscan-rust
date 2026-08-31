@@ -236,16 +236,16 @@ For building from source, running tests, or integrating with the backend:
 
 ### Open for Roles & Contract Work
 If you are looking for a **Full-Stack Web Developer** with expertise in modern web technologies (**TypeScript, SvelteKit, Node.js, React**), browser extensions, and applied AI workflows:
-- **Available for**: Full-time Software Engineering / Full-Stack Developer roles, high-impact contract projects, and web development consulting.
+- **Available for**: Full-time Software Engineering / Full-Stack Developer roles, contract projects of any scale (from small features and rapid prototypes to large-scale end-to-end applications), and technical web consulting.
 - **Portfolio & Inquiries**: [arbenger.com/contact](https://arbenger.com/contact/)
 - **Direct Email**: [arbenapura.official@gmail.com](mailto:arbenapura.official@gmail.com)
 - **GitHub Profile**: [@ArbenApura](https://github.com/ArbenApura)
 - **Discord Community**: [Join the XianScan Discord](https://discord.gg/dRWaQftNnR)
 
 ### Support Open-Source Development
-**XianScan** is built and maintained entirely independently to give readers and language learners a seamless, effortless way to enjoy untranslated comics. If XianScan brings convenience to your daily reading, saves you time, or enriches your workflow, any support is received with heartfelt gratitude.
+**XianScan** is an open-source initiative created to give readers and language learners a seamless, effortless way to enjoy untranslated comics. If XianScan brings convenience to your daily reading, saves you time, or enriches your workflow, any support is received with heartfelt gratitude.
 
-Your sponsorship directly sustains ongoing development, helping cover essential family living and healthcare costs, alongside the AI model subscriptions and API fees required for continuous testing and optimization:
+Your sponsorship directly sustains ongoing development and future project growth, helping cover essential family living and healthcare costs, alongside the AI model subscriptions and API fees required for continuous testing and optimization:
 
 <div align="center">
 
