@@ -331,7 +331,7 @@ pub fn fuse_detections(
                                         }
                                         let union_area = ((max_lx - min_lx).max(1) as i64) * ((max_ly - min_ly).max(1) as i64);
                                         let giant_glyph_subline = line_res.lines.iter().any(|(lp, t, _)| {
-                                            let (lx, ly, lw, lh) = crate::ml::geometry::polygon_bounds(lp);
+                                            let (_, _, lw, lh) = crate::ml::geometry::polygon_bounds(lp);
                                             let glyphs = t.chars().filter(|c| !c.is_whitespace()).count();
                                             let box_frac = (lw.max(1) as f32 * lh.max(1) as f32) / ((cw.max(1) * ch.max(1)) as f32);
                                             glyphs <= 2 && box_frac >= 0.30

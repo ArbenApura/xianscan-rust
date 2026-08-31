@@ -30,8 +30,6 @@ pub fn should_reject_candidate_region(
 
     let ref_dim = (page_w as f32).min(page_h as f32).max(400.0);
 
-    let ref_dim = (page_w as f32).min(page_h as f32).max(400.0);
-
     // 1. DROP GIANT ARTWORK HALLUCINATIONS OR SPRAWLING NOISE BOXES
     let max_art_w = ((page_w as f32 * 0.35).max(300.0)) as i32;
     let max_art_h = ((ref_dim * 0.50).max(450.0)) as i32;
