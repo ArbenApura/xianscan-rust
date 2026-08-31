@@ -48,10 +48,11 @@ fn test_page_6857_manhwa_bubble_safe_core_and_tail_handling() {
             kind: RegionKind::DialogueBubble,
             is_title: false,
             is_subtitle: false,
+            carrier_box: None,
         },
         Region {
             id: "9060".to_string(),
-            box_: bot_ocr,
+            box_: bot_ocr.clone(),
             polygon: vec![],
             inpaint_box: None,
             typeset_box: None,
@@ -65,20 +66,25 @@ fn test_page_6857_manhwa_bubble_safe_core_and_tail_handling() {
             kind: RegionKind::DialogueBubble,
             is_title: false,
             is_subtitle: false,
+            carrier_box: None,
         },
     ];
 
-    expand_bubble_text_boxes(&mut regions, page_w, page_h, 0.03, 0.00);
+    expand_bubble_text_boxes(&mut regions, None, page_w, page_h, 0.03, 0.00);
 
-    // VERIFY TOP REGION (9059): SKIPS SAFE CORE, RETAINS ANCHORED UPPER POSITION (0% EXTRA SCALING)
+    // VERIFY TOP REGION (9059): TAIL-CUT CARRIER LIMITS THE TYPESET BOX INSIDE THE UPPER CHAMBER
     let top_tb = regions[0].typeset_box.as_ref().expect("top typeset box should exist");
-    assert_eq!(top_tb.y, 852);
-    assert_eq!(top_tb.h, 176);
+    assert_eq!(top_tb.y, 841);
+    assert_eq!(top_tb.h, 146);
+    // VALIDATED CARRIER PUBLISHED (TAIL TRIMMED FROM 352 TO 271)
+    assert_eq!(regions[0].carrier_box, Some(xianscan_rust::ml::schemas::BoxRect { x: 208, y: 779, w: 463, h: 271 }));
 
-    // VERIFY BOTTOM REGION (9060): CENTERS TO BUBBLE CENTROID WITH PRESERVED DIMENSIONS
+    // VERIFY BOTTOM REGION (9060): CENTERS TO CARRIER CENTROID WITH PRESERVED DIMENSIONS
     let bot_tb = regions[1].typeset_box.as_ref().expect("bottom typeset box should exist");
+    let bot_carrier = xianscan_rust::pipeline::region_builder::derive_carrier_box(&bot_bubble, &bot_ocr, page_h);
     assert_eq!(bot_tb.w, 291);
-    assert_eq!(bot_tb.h, 154);
-    assert_eq!(bot_tb.x + bot_tb.w / 2, bot_bubble.x + bot_bubble.w / 2);
-    assert_eq!(bot_tb.y + bot_tb.h / 2, bot_bubble.y + bot_bubble.h / 2);
+    assert_eq!(bot_tb.h, 146);
+    assert_eq!(bot_tb.x + bot_tb.w / 2, bot_carrier.x + bot_carrier.w / 2);
+    assert_eq!(bot_tb.y + bot_tb.h / 2, bot_carrier.y + bot_carrier.h / 2);
+    assert!(bot_tb.y >= bot_bubble.y && bot_tb.y + bot_tb.h <= bot_bubble.y + bot_bubble.h);
 }

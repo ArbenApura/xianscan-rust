@@ -140,6 +140,7 @@ function regionRow(region: PipelineRegion, seq: number) {
 		typeset_box: region.typeset_box ?? null,
 		bubble_box: region.bubble_box ?? null,
 		bubble_polygon: region.bubble_polygon ?? null,
+		carrier_box: region.carrier_box ?? null,
 		centroid: region.centroid ?? null,
 		kind: region.kind ?? 'dialogue_bubble',
 		angle: region.angle,

@@ -237,6 +237,7 @@ export interface PageRegion {
 	polygon: [number, number][];
 	bubble_box?: { x: number; y: number; w: number; h: number } | null;
 	bubble_polygon?: [number, number][] | null;
+	carrier_box?: { x: number; y: number; w: number; h: number } | null;
 	centroid?: { x: number; y: number } | null;
 	kind?: RegionKind;
 	textSource: string;

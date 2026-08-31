@@ -43,6 +43,8 @@ pub struct Region {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub bubble_polygon: Option<Vec<[i32; 2]>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub carrier_box: Option<BoxRect>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub centroid: Option<Point2D>,
     #[serde(default)]
     pub kind: RegionKind,

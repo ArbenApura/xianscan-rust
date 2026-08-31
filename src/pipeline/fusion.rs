@@ -283,7 +283,34 @@ pub fn fuse_detections(
                                 let clean_cjk = clean_c.chars().filter(|c| crate::ml::detect::has_cjk_characters(&c.to_string())).count();
                                 let rl_cjk = rl.text.chars().filter(|c| crate::ml::detect::has_cjk_characters(&c.to_string())).count();
                                 let is_excessive_multiline_bleed = !is_multiline_cb && !is_rl_vert && clean_c.contains('\n') && rl.score >= 0.70;
-                                let is_better = !is_excessive_multiline_bleed && (
+                                // DISCONNECTED CROP ROW GUARD: WHEN A REFINEMENT CROP RECOGNIZES MULTIPLE ROWS
+                                // WHOSE INTERNAL VERTICAL GAP EXCEEDS ~1.2x THE TALLEST ROW, THE CROP SPANS
+                                // DISCONNECTED CONTENT ZONES (E.G. A GIANT BRUSH SFX GLYPH FUSED WITH AN ADJACENT
+                                // SPEECH BUBBLE ROW). ACCEPTING IT WOULD FORGE A MONSTER ENVELOPE SPANNING BOTH
+                                // ZONES AND SMEAR THE ARTWORK VIA INPAINT MASKS. LEGIT MULTI-LINE TEXT HAS
+                                // INTER-ROW GAPS OF AT MOST ~0.5x LINE HEIGHT.
+                                let is_disconnected_crop_rows = {
+                                    let mut row_bands: Vec<(i32, i32)> = line_res
+                                        .lines
+                                        .iter()
+                                        .map(|(lp, _, _)| {
+                                            let (_, ly, _, lh) = crate::ml::geometry::polygon_bounds(lp);
+                                            (ly, ly + lh)
+                                        })
+                                        .collect();
+                                    row_bands.sort_by_key(|&(top, _)| top);
+                                    let mut disconnected = false;
+                                    for pair in row_bands.windows(2) {
+                                        let gap = pair[1].0 - pair[0].1;
+                                        let max_row_h = (pair[0].1 - pair[0].0).max(pair[1].1 - pair[1].0);
+                                        if gap >= (max_row_h.max(1) * 6 / 5) {
+                                            disconnected = true;
+                                            break;
+                                        }
+                                    }
+                                    disconnected
+                                };
+                                let is_better = !is_excessive_multiline_bleed && !is_disconnected_crop_rows && (
                                     clean_chars > rl_chars
                                         || clean_cjk > rl_cjk
                                         || (clean_c.contains('…') && !rl.text.contains('…'))

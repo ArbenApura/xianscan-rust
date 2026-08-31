@@ -116,12 +116,37 @@ pub fn derive_carrier_box(b: &BoxRect, t: &BoxRect, page_h: u32) -> BoxRect {
     carrier
 }
 
+/// VALIDATES A DERIVED CARRIER AS A GENUINE TAIL-CUT BUBBLE BOUNDARY.
+///
+/// A CARRIER IS TRUSTWORTHY ONLY WHEN AN ACTUAL CUT OCCURRED (CARRIER != BUBBLE), THE CHAMBER
+/// RETAINS SANE DIMENSIONS, AND THE BUBBLE IS NOT SEVERED BY A SLICE SEAM (EDGE-CUT BUBBLES
+/// MIMIC ASYMMETRIC TAILS, MAKING CARRIER DERIVATION UNRELIABLE). DEGENERATE CASES (DARK/TINTED
+/// INTERIORS, SUB-EROSION BODIES) FALL BACK TO THE RAW BUBBLE BOX, WHICH FAILS THE CUT CHECK.
+pub fn valid_tail_cut_carrier(carrier: &BoxRect, b: &BoxRect, page_h: u32) -> bool {
+    // NO REAL CUT HAPPENED (SHARED BUBBLE, SYMMETRIC BODY, OR EXTRACTION FALLBACK TO B)
+    if *carrier == *b {
+        return false;
+    }
+    // DEGENERATE CHAMBER GUARD: EROSION/DILATION ARTIFACTS OR MICRO BODIES ARE UNTRUSTWORTHY
+    if carrier.w < 20 || carrier.h < 20 {
+        return false;
+    }
+    // EDGE-CUT BUBBLES: THE SLICE SEAM MIMICS A TAIL, SO CARRIER DERIVATION IS UNRELIABLE
+    if b.y <= 12 || (b.y + b.h) as u32 >= page_h.saturating_sub(12) {
+        return false;
+    }
+    true
+}
+
 /// EXPAND DIALOGUE-BUBBLE TEXT BASE BOUNDARY TO BETTER UTILIZE THE UNUSED AREA WITHIN ITS BUBBLE.
 ///
 /// KEEPS THE TEXT ANCHOR (BOX CENTROID) STRICTLY FIXED AND SCALES EACH AXIS SYMMETRICALLY ABOUT IT.
-/// EVERY SCALED BOX IS BOUNDED BY (A) THE BUBBLE'S INSCRIBED SAFE CORE AND (B) THE NEAREST SIBLING
-/// TEXT REGION INSIDE THE SAME COMBINED BUBBLE. IT IS A NO-OP WHEN THE UNUSED ROOM FALLS BELOW
-/// THRESHOLD, SO CRAMPED BUBBLES ARE NEVER ALTERED. THE INPAINT MASK POLYGON IS LEFT TIGHT.
+/// EVERY SCALED BOX IS BOUNDED BY (A) THE ACTIVE LIMIT ENVELOPE AND (B) THE NEAREST SIBLING
+/// TEXT REGION INSIDE THE SAME COMBINED BUBBLE. WHEN A TAIL-CUT CARRIER IS VALIDATED FOR A SOLE
+/// OCCUPANT, THE LIMITS COME FROM THE CARRIER CHAMBER INSTEAD OF THE FULL BUBBLE, SO EXPANSION
+/// NEVER LEAKS INTO THE SEVERED TAIL. IT IS A NO-OP WHEN THE UNUSED ROOM FALLS BELOW THRESHOLD,
+/// SO CRAMPED BUBBLES ARE NEVER ALTERED. THE INPAINT MASK POLYGON IS LEFT TIGHT. THE VALIDATED
+/// CARRIER IS PUBLISHED ON THE REGION (`carrier_box`) FOR INSPECT-PAGE BUBBLE VIEWERS.
 pub fn expand_bubble_text_boxes(
     regions: &mut Vec<Region>,
     img: Option<&DynamicImage>,
@@ -144,6 +169,7 @@ pub fn expand_bubble_text_boxes(
     // SIBLING LIMITS READ ORIGINAL (UNSCALED) BOXES SO THEY NEVER DEPEND ON ALREADY-SCALED NEIGHBORS.
     let mut targets: Vec<Option<BoxRect>> = vec![None; regions.len()];
     let mut carrier_boxes: Vec<Option<BoxRect>> = vec![None; regions.len()];
+    let mut carrier_valid: Vec<bool> = vec![false; regions.len()];
 
     for &i in &indexes {
         let r = &regions[i];
@@ -178,9 +204,24 @@ pub fn expand_bubble_text_boxes(
         };
         carrier_boxes[i] = Some(carrier_box.clone());
 
-        let (left, right, top, bottom) = match bubble_core(b) {
-            Some(c) => c,
-            None => continue,
+        // PHASE 1 LIMIT ENVELOPE: VALIDATED TAIL-CUT CARRIER FIRST (TRUE TEXT CHAMBER),
+        // FALLING BACK TO THE FULL BUBBLE SAFE CORE WHEN NO RELIABLE CUT EXISTS.
+        let valid_carrier = valid_tail_cut_carrier(&carrier_box, b, page_h);
+        carrier_valid[i] = valid_carrier;
+
+        let (left, right, top, bottom) = if valid_carrier {
+            match bubble_core(&carrier_box) {
+                Some(c) => c,
+                None => match bubble_core(b) {
+                    Some(c) => c,
+                    None => continue,
+                },
+            }
+        } else {
+            match bubble_core(b) {
+                Some(c) => c,
+                None => continue,
+            }
         };
 
         let cx = bx + bw / 2;
@@ -321,6 +362,10 @@ pub fn expand_bubble_text_boxes(
             }
         });
 
+        // PUBLISH THE VALIDATED TAIL-CUT CARRIER SO THE INSPECT PAGE BUBBLE VIEWER CAN RENDER
+        // THE TRUE BALLOON CHAMBER INSTEAD OF THE TAIL-INCLUSIVE ENVELOPE.
+        regions[i].carrier_box = if carrier_valid[i] { carrier_boxes[i].clone() } else { None };
+
         let carrier = carrier_boxes[i].clone().unwrap_or_else(|| {
             if is_sole_occupant {
                 if let Some(image) = img {
@@ -347,7 +392,12 @@ pub fn expand_bubble_text_boxes(
             let mut typeset_box = expand_box(&regions[i].box_, typeset_pct, page_w, page_h);
             typeset_box.x = carrier_cx - typeset_box.w / 2;
             typeset_box.y = carrier_cy - typeset_box.h / 2;
-            clamp_box_to_core(&mut typeset_box, outer_l, outer_r, outer_t, outer_b);
+            if carrier_valid[i] {
+                // VALIDATED TAIL-CUT CARRIER: THE TYPESET BOX MUST NOT SPILL INTO THE SEVERED TAIL
+                clamp_box_to_core(&mut typeset_box, carrier.x, carrier.x + carrier.w, carrier.y, carrier.y + carrier.h);
+            } else {
+                clamp_box_to_core(&mut typeset_box, outer_l, outer_r, outer_t, outer_b);
+            }
             regions[i].typeset_box = Some(typeset_box);
         } else {
             let mut typeset_box = expand_box(&regions[i].box_, typeset_pct, page_w, page_h);

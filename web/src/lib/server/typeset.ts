@@ -22,7 +22,7 @@ import {
 	type TextColor,
 } from './typeset/fonts';
 import { parseStatPanel, isSfxOrShout, type TypesetRegion } from './typeset/stat-panel';
-import { fitFontSize, fitSingleLineSize, reflowText, isStructuredList, tryVerticalSingleWordLayout } from './typeset/layout';
+import { fitFontSize, fitFontSizeWithLines, fitSingleLineSize, isStructuredList, tryVerticalSingleWordLayout } from './typeset/layout';
 import { pickTextColor, sampleBackground } from './typeset/color';
 import { decollideRegions } from './typeset/decollision';
 import { sanitizeForFont } from './typeset/sanitize';
@@ -162,8 +162,10 @@ export async function typesetPage(
 			size = fitSingleLineSize(ctx, text, font, maxW, maxH, sizeCap, fontCjk);
 			lines = [text];
 		} else {
-			size = fitFontSize(ctx, text, font, w, h, cap, cap, inset, fontCjk);
-			lines = reflowText(ctx, text, maxW);
+			// USE THE FITTED LAYOUT DIRECTLY SO THE RENDER MATCHES THE VALIDATED FIT CHECKS
+			const fitted = fitFontSizeWithLines(ctx, text, font, w, h, cap, cap, inset, fontCjk);
+			size = fitted.size;
+			lines = fitted.lines;
 		}
 
 		ctx.font = fontSpec(size, font, text, fontCjk);

@@ -36,6 +36,7 @@ fn test_region_serialization() {
         typeset_box: None,
         is_title: false,
         is_subtitle: false,
+        carrier_box: None,
     };
 
     let json = serde_json::to_string(&r).unwrap();
@@ -70,6 +71,7 @@ fn test_analyze_response_roundtrip() {
         typeset_box: None,
         is_title: false,
         is_subtitle: false,
+        carrier_box: None,
     };
 
     let resp = AnalyzeResponse {

@@ -5,6 +5,7 @@ import {
 	decollideRegions,
 	fontFor,
 	fitFontSize,
+	fitFontSizeWithLines,
 	isSfxOrShout,
 	pickTextColor,
 	reflowText,
@@ -308,6 +309,60 @@ describe('fitFontSize', () => {
 		// SFX NEVER PASSES maxSize — IMPACT TEXT KEEPS ITS INTENTIONAL WHITESPACE.
 		const size = fitFontSize(x, 'HI!', 'Arial', 200, 100, 25);
 		expect(size).toBe(25);
+	});
+
+	it('fills a tall narrow bubble via syllable hyphenation instead of stranding a tiny line (Page screenshot region #4)', () => {
+		const c = createCanvas(10, 10);
+		const x = c.getContext('2d');
+		// "AUTO-SKINNING." IN A 95x420 VERTICAL BUBBLE USED TO FIT AT ~16px AS ONE
+		// WIDTH-BOUND CLUSTER; THE VERTICAL-FILL PASS MUST RAISE IT VIA HYPHEN BREAKS.
+		const text = 'AUTO-SKINNING.';
+		const fitted = fitFontSizeWithLines(x, text, 'CC Wild Words', 95, 420, 28, 28, 0.05);
+		const maxW = 95 * 0.9;
+		const maxH = 420 * 0.9;
+		expect(fitted.size).toBeGreaterThanOrEqual(20);
+
+		x.font = fontSpec(fitted.size, 'CC Wild Words', text);
+		// ZERO HORIZONTAL OVERFLOW: EVERY RETURNED LINE FITS THE INSET BOX
+		expect(fitted.lines.every((l) => x.measureText(l).width <= maxW + 0.5)).toBe(true);
+		// STRICT VERTICAL FIT: THE LINE STACK NEVER EXCEEDS THE INSET BOX
+		expect(fitted.lines.length * fitted.size * 1.2).toBeLessThanOrEqual(maxH);
+		// NO WORDS LOST: STRIPPING TRAILING HYPHENS RECONSTRUCTS THE ORIGINAL
+		expect(fitted.lines.map((l) => l.replace(/-+$/, '')).join('')).toBe(text.replace(/-/g, ''));
+		// HYPHEN BREAKS ONLY AT PROPER POINTS (EXISTING HYPHEN OR >= 3 LETTER SEGMENTS)
+		for (const line of fitted.lines) {
+			if (line.endsWith('-')) {
+				expect(line.length).toBeGreaterThanOrEqual(4);
+			}
+		}
+	});
+
+	it('raises an underfilled short-text tall bubble from 10px to a legible size (Page screenshot region #6)', () => {
+		const c = createCanvas(10, 10);
+		const x = c.getContext('2d');
+		const text = "IF YOU'RE A NOVICE, THAT MIGHT BE UNAVOIDABLE, BUT...";
+		const fitted = fitFontSizeWithLines(x, text, 'CC Wild Words', 120, 190, 28, 28, 0.05);
+		const maxW = 120 * 0.9;
+		const maxH = 190 * 0.9;
+		// WAS 10px WITH 21% VERTICAL UTILIZATION; FILL MUST AT LEAST DOUBLE THE SIZE
+		expect(fitted.size).toBeGreaterThanOrEqual(15);
+		x.font = fontSpec(fitted.size, 'CC Wild Words', text);
+		expect(fitted.lines.every((l) => x.measureText(l).width <= maxW + 0.5)).toBe(true);
+		expect(fitted.lines.length * fitted.size * 1.2).toBeLessThanOrEqual(maxH);
+		// SUBSTANTIAL VERTICAL UTILIZATION — NO ~80% DEAD SPACE
+		expect(fitted.lines.length * fitted.size * 1.2).toBeGreaterThanOrEqual(maxH * 0.5);
+	});
+
+	it('does not hyphenate text in wide boxes where the clean fit already works', () => {
+		const c = createCanvas(10, 10);
+		const x = c.getContext('2d');
+		const text = 'AUTO-SKINNING.';
+		// WIDE SHALLOW BOX: NO VERTICAL-FILL PASS, WORDS STAY INTACT
+		const size = fitFontSize(x, text, 'CC Wild Words', 300, 60, 28);
+		x.font = fontSpec(size, 'CC Wild Words', text);
+		const lines = reflowText(x, text, 300 * 0.9);
+		expect(lines.some((l) => l.includes('SKIN-'))).toBe(false);
+		expect(lines.join(' ')).toContain('AUTO');
 	});
 });
 
@@ -621,15 +676,15 @@ Tattered Flesh-Cutting Knife`;
 		const x = c.getContext('2d');
 		// Region #6 from Page 64030: w: 64, h: 227
 		const text = 'A daydream... this must surely be a dream...';
-		const size = fitFontSize(x, text, 'Arial', 64, 227, 40);
+		const fitted = fitFontSizeWithLines(x, text, 'Arial', 64, 227, 40);
+		const size = fitted.size;
 
 		x.font = `${size}px Arial`;
 		const maxW = 64 * (1 - 2 * 0.05);
-		const lines = reflowText(x, text, maxW);
-		// ZERO-OVERFLOW: every wrapped line must stay within maxW
-		expect(lines.every((l) => x.measureText(l).width <= maxW + 0.5)).toBe(true);
+		// THE RETURNED LAYOUT IS THE RENDER CONTRACT: ZERO-OVERFLOW ON BOTH AXES
+		expect(fitted.lines.every((l) => x.measureText(l).width <= maxW + 0.5)).toBe(true);
 		// Verified to strictly fit height (no vertical overflow)
-		expect(lines.length * size * 1.2).toBeLessThanOrEqual(227 * 0.9);
+		expect(fitted.lines.length * size * 1.2).toBeLessThanOrEqual(227 * 0.9);
 	});
 
 	it('renders Korean Hangul dialogue text using Korean font stack in typesetPage', async () => {
@@ -894,6 +949,26 @@ Tattered Flesh-Cutting Knife`;
 
 		// Must return null if isVertical is false
 		expect(tryVerticalSingleWordLayout(c, 'AWESOME!', 'Arial', 56, 124, 40, false)).toBeNull();
+
+		// UNFLAGGED tall-narrow box (aspect >= 2.5, height >= 120) stacks single words
+		// with punctuation attached: leading "..." keeps its own cell, trailing "." joins "D"
+		const understood = tryVerticalSingleWordLayout(c, '...UNDERSTOOD.', 'Arial', 95, 420, 40, false);
+		expect(understood).not.toBeNull();
+		expect(understood?.lines[0]).toBe('...');
+		expect(understood?.lines[understood.lines.length - 1]).toBe('D.');
+		expect(understood?.size).toBeGreaterThanOrEqual(11);
+
+		// WIDE box with a single word must NOT stack even when unflagged (aspect < 2.5)
+		expect(tryVerticalSingleWordLayout(c, 'UNDERSTOOD.', 'Arial', 200, 300, 40, false)).toBeNull();
+
+		// TALL but SHORT box (< 120px height) must NOT stack when unflagged
+		expect(tryVerticalSingleWordLayout(c, 'UNDERSTOOD.', 'Arial', 60, 110, 40, false)).toBeNull();
+
+		// A 10-letter word with a vertical flag stacks into letter cells (trailing "." joins "D")
+		const understoodFlagged = tryVerticalSingleWordLayout(c, 'UNDERSTOOD.', 'Arial', 80, 400, 40, true);
+		expect(understoodFlagged).not.toBeNull();
+		expect(understoodFlagged?.lines.length).toBe(10);
+		expect(understoodFlagged?.lines[understoodFlagged.lines.length - 1]).toBe('D.');
 
 		// Multi-word phrases should NOT be vertically stacked even if isVertical is true
 		expect(tryVerticalSingleWordLayout(c, "I'M NOT MIZUKI...", 'Arial', 78, 102, 40, true)).toBeNull();

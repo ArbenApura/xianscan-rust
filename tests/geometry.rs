@@ -68,6 +68,7 @@ fn test_region_schema_default_angle() {
         typeset_box: None,
         is_title: false,
         is_subtitle: false,
+        carrier_box: None,
     };
     assert_eq!(r.angle, 0.0);
 }

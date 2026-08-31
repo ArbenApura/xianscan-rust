@@ -18,6 +18,7 @@ export interface PipelineRegion {
 	polygon: number[][];
 	bubble_box?: PipelineBox | null;
 	bubble_polygon?: number[][] | null;
+	carrier_box?: PipelineBox | null;
 	centroid?: { x: number; y: number } | null;
 	kind?: 'dialogue_bubble' | 'free_text';
 	text: string;

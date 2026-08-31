@@ -349,6 +349,14 @@
 		return null;
 	}
 
+	function getCarrierBox(region: any): { x: number; y: number; w: number; h: number } | null {
+		if (!region) return null;
+		if (region.carrier_box) return getBox(region.carrier_box);
+		const b = getBox(region.box);
+		if (b && (b as any).carrier_box) return getBox((b as any).carrier_box);
+		return null;
+	}
+
 	function getRegionAngle(region: any): number | null {
 		if (typeof region.angle === 'number') return region.angle;
 		const b = getBox(region.box);
@@ -754,6 +762,7 @@
 				typesetBox: getTypesetBox(r),
 				bubbleBox: getBubbleBox(r),
 				bubblePolygon: getBubblePolygon(r),
+				carrierBox: getCarrierBox(r),
 				inpaintPolygon: getPolygon(r.polygon),
 				sourceOcr: r.textSource,
 				translation: r.textTarget,
@@ -945,6 +954,7 @@
 									{#each page.regions || [] as region (region.id)}
 										{@const bb = getBubbleBox(region)}
 										{@const bpoly = getBubblePolygon(region)}
+										{@const carrierB = getCarrierBox(region)}
 										{#if bpoly}
 											<path
 												d={getSquirlyPolygonPath(bpoly)}
@@ -961,6 +971,21 @@
 												stroke="#06b6d4"
 												stroke-width="2.2"
 												stroke-linejoin="round"
+												opacity="0.9"
+											/>
+										{/if}
+										{#if carrierB}
+											<!-- VALIDATED TAIL-CUT CARRIER CHAMBER (TRUE TEXT BOUNDARY EXCLUDING THE TAIL) -->
+											<rect
+												x={carrierB.x}
+												y={carrierB.y}
+												width={carrierB.w}
+												height={carrierB.h}
+												fill="rgba(6, 182, 212, 0.05)"
+												stroke="#22d3ee"
+												stroke-width="1.6"
+												stroke-dasharray="6 3"
+												rx="6"
 												opacity="0.9"
 											/>
 										{/if}

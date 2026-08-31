@@ -13,7 +13,7 @@ pub mod refine;
 pub use builder::build_regions;
 pub use clustering::{cluster_lines_into_utterances, format_lines_cluster, polygon_thickness};
 pub use dedup::deduplicate_and_unify_regions;
-pub use expansion::{bubble_core, clamp_box_to_core, derive_carrier_box, expand_bubble_text_boxes};
+pub use expansion::{bubble_core, clamp_box_to_core, derive_carrier_box, expand_bubble_text_boxes, valid_tail_cut_carrier};
 pub use filter::should_reject_candidate_region;
 pub use geometry::{compute_chromatic_color_variance, expand_box, extract_carrier_box_from_image};
 pub use refine::{run_fallback_crop_recognition, try_refine_cluster_crop, FallbackCropOutcome, RefinementOutcome};
@@ -162,6 +162,7 @@ mod tests {
             kind: RegionKind::DialogueBubble,
             is_title: false,
             is_subtitle: false,
+            carrier_box: None,
         }];
 
         expand_bubble_text_boxes(&mut regions, None, 800, 1132, 0.05, 0.10);
@@ -201,6 +202,7 @@ mod tests {
             kind: RegionKind::DialogueBubble,
             is_title: false,
             is_subtitle: false,
+            carrier_box: None,
         }];
 
         expand_bubble_text_boxes(&mut regions, None, 1370, 1012, 0.05, 0.10);
@@ -238,6 +240,7 @@ mod tests {
             kind: RegionKind::DialogueBubble,
             is_title: false,
             is_subtitle: false,
+            carrier_box: None,
         }];
 
         expand_bubble_text_boxes(&mut regions, None, 690, 2095, 0.05, 0.10);
@@ -285,6 +288,7 @@ mod tests {
             kind: RegionKind::DialogueBubble,
             is_title: false,
             is_subtitle: false,
+            carrier_box: None,
         }];
 
         expand_bubble_text_boxes(&mut regions, None, 690, 1771, 0.03, 0.00);
@@ -294,7 +298,7 @@ mod tests {
         // MUST CENTER EXPANDED BOX AT DERIVED CARRIER CHAMBER CENTROID
         let carrier = derive_carrier_box(&bubble, &ocr_box, 1771);
         assert_eq!(typeset_box.w, 291);
-        assert_eq!(typeset_box.h, 154);
+        assert_eq!(typeset_box.h, 146);
         assert_eq!(typeset_box.x + typeset_box.w / 2, carrier.x + carrier.w / 2);
         assert_eq!(typeset_box.y + typeset_box.h / 2, carrier.y + carrier.h / 2);
     }
@@ -322,15 +326,20 @@ mod tests {
             kind: RegionKind::DialogueBubble,
             is_title: false,
             is_subtitle: false,
+            carrier_box: None,
         }];
 
         expand_bubble_text_boxes(&mut regions, None, 690, 1771, 0.05, 0.10);
 
         let typeset_box = regions[0].typeset_box.as_ref().expect("typeset_box should exist");
 
-        // MUST NOT BE EXPANDED DOWNWARD INTO THE TAIL (CENTERS IN UPPER CARRIER CHAMBER Y: 800)
-        assert_eq!(typeset_box.y, 800, "typeset_box y should center in the derived carrier chamber");
-        assert_eq!(typeset_box.h, 228, "typeset_box height should remain anchored to text (228), not safe core (268)");
+        // MUST NOT BE EXPANDED DOWNWARD INTO THE TAIL: EXPANSION LIMITS COME FROM THE TAIL-CUT
+        // CARRIER CHAMBER, AND THE TYPESET BOX CENTERS IN THE CARRIER WITH ITS HEIGHT ANCHORED
+        // TO THE (GENTLY SCALED) TEXT BOX, NEVER BLEEDING INTO THE TAIL REGION BELOW.
+        assert_eq!(typeset_box.y, 819, "typeset_box y should center in the validated carrier chamber");
+        assert_eq!(typeset_box.h, 190, "typeset_box height must stay clamped inside the tail-cut carrier");
+        // VALIDATED CARRIER IS PUBLISHED ON THE REGION FOR INSPECT-PAGE VIEWERS
+        assert_eq!(regions[0].carrier_box, Some(BoxRect { x: 208, y: 779, w: 463, h: 271 }));
     }
 
     #[test]
@@ -384,6 +393,7 @@ mod tests {
                 kind: RegionKind::DialogueBubble,
                 is_title: false,
                 is_subtitle: false,
+                carrier_box: None,
             },
             Region {
                 id: "r1".to_string(),
@@ -401,6 +411,7 @@ mod tests {
                 kind: RegionKind::DialogueBubble,
                 is_title: false,
                 is_subtitle: false,
+                carrier_box: None,
             },
         ];
 
@@ -412,5 +423,111 @@ mod tests {
         let tb0 = regions[0].typeset_box.as_ref().unwrap();
         let tb1 = regions[1].typeset_box.as_ref().unwrap();
         assert!(tb0.x < tb1.x, "r0 must stay on the left of r1");
+    }
+
+    #[test]
+    fn test_valid_tail_cut_carrier_validation_rules() {
+        // TYPICAL DOWNWARD-TAIL BUBBLE WITH A GENUINE CUT
+        let bubble = BoxRect { x: 100, y: 100, w: 300, h: 400 };
+        let cut = BoxRect { x: 100, y: 100, w: 300, h: 215 };
+        assert!(valid_tail_cut_carrier(&cut, &bubble, 1771));
+
+        // NO REAL CUT (CARRIER == BUBBLE): EXTRACTION FELL BACK, NOT TRUSTWORTHY
+        assert!(!valid_tail_cut_carrier(&bubble, &bubble, 1771));
+
+        // DEGENERATE MICRO CARRIER (EROSION ARTIFACT)
+        let tiny = BoxRect { x: 100, y: 100, w: 300, h: 10 };
+        assert!(!valid_tail_cut_carrier(&tiny, &bubble, 1771));
+
+        // SLICE-SEAM EDGE CUT: BUBBLE TOUCHES THE BOTTOM CANVAS EDGE (500 >= 588)
+        let edge_bubble = BoxRect { x: 100, y: 100, w: 300, h: 400 };
+        let edge_cut = BoxRect { x: 100, y: 100, w: 300, h: 150 };
+        assert!(!valid_tail_cut_carrier(&edge_cut, &edge_bubble, 512));
+        assert!(valid_tail_cut_carrier(&edge_cut, &edge_bubble, 1000));
+    }
+
+    #[test]
+    fn test_tail_cut_carrier_limits_block_tail_expansion() {
+        use crate::ml::schemas::{Region, RegionKind};
+
+        // DOWNWARD-TAIL BUBBLE: EXPANSION LIMITS MUST COME FROM THE CUT CARRIER CHAMBER,
+        // SO THE BOX GROWS UPWARD INTO THE CHAMBER BUT NEVER DOWNWARD INTO THE TAIL.
+        let bubble = BoxRect { x: 100, y: 100, w: 300, h: 400 };
+        let ocr_box = BoxRect { x: 150, y: 150, w: 200, h: 120 };
+        let orig_cx = 150 + 100;
+        let orig_cy = 150 + 60;
+        let mut regions = vec![Region {
+            id: "r_tail".to_string(),
+            box_: ocr_box.clone(),
+            polygon: vec![],
+            inpaint_box: None,
+            typeset_box: None,
+            text: "지금 당장\n돌아가라.".to_string(),
+            confidence: 0.95,
+            vertical: false,
+            angle: 0.0,
+            bubble_box: Some(bubble.clone()),
+            bubble_polygon: None,
+            centroid: None,
+            kind: RegionKind::DialogueBubble,
+            is_title: false,
+            is_subtitle: false,
+            carrier_box: None,
+        }];
+
+        expand_bubble_text_boxes(&mut regions, None, 690, 1771, 0.05, 0.10);
+
+        let carrier = regions[0].carrier_box.clone().expect("validated carrier must be published");
+        assert!(carrier.h < bubble.h, "downward tail must be cut from the published carrier");
+        assert_eq!(carrier.y, bubble.y);
+
+        // CENTROID ANCHOR INVARIANT STILL HOLDS
+        let e = &regions[0].box_;
+        assert_eq!(e.x + e.w / 2, orig_cx, "centroid X drifted");
+        assert_eq!(e.y + e.h / 2, orig_cy, "centroid Y drifted");
+
+        // BASE BOX MUST NEVER EXTEND INTO THE SEVERED TAIL
+        assert!(e.y + e.h <= carrier.y + carrier.h, "base box expanded into the severed tail");
+
+        // TYPESET BOX MUST BE CENTERED IN THE CARRIER AND CLAMPED INSIDE IT (NEVER INTO THE TAIL)
+        let tb = regions[0].typeset_box.as_ref().expect("typeset box should exist");
+        assert_eq!(tb.x + tb.w / 2, carrier.x + carrier.w / 2);
+        assert_eq!(tb.y + tb.h / 2, carrier.y + carrier.h / 2);
+        assert!(tb.y >= carrier.y && tb.y + tb.h <= carrier.y + carrier.h, "typeset box leaked into the tail");
+    }
+
+    #[test]
+    fn test_no_tail_bubble_publishes_no_carrier() {
+        use crate::ml::schemas::{Region, RegionKind};
+
+        // CLEAN SYMMETRIC BUBBLE WITHOUT A TAIL: NO VALID CUT -> NO CARRIER PUBLISHED
+        let bubble = BoxRect { x: 48, y: 831, w: 149, h: 144 };
+        let ocr_box = BoxRect { x: 69, y: 852, w: 98, h: 90 };
+        let mut regions = vec![Region {
+            id: "r_clean".to_string(),
+            box_: ocr_box,
+            polygon: vec![],
+            inpaint_box: None,
+            typeset_box: None,
+            text: "普通の\nセリフ。".to_string(),
+            confidence: 0.95,
+            vertical: false,
+            angle: 0.0,
+            bubble_box: Some(bubble.clone()),
+            bubble_polygon: None,
+            centroid: None,
+            kind: RegionKind::DialogueBubble,
+            is_title: false,
+            is_subtitle: false,
+            carrier_box: None,
+        }];
+
+        expand_bubble_text_boxes(&mut regions, None, 690, 1771, 0.05, 0.10);
+
+        assert!(regions[0].carrier_box.is_none(), "carrier must not be published without a genuine tail cut");
+        // BEHAVIOR IS UNCHANGED: EXPANSION USES THE FULL BUBBLE SAFE CORE
+        assert!(regions[0].box_.x + regions[0].box_.w <= bubble.x + bubble.w);
+        assert!(regions[0].box_.y >= bubble.y);
+        assert!(regions[0].box_.y + regions[0].box_.h <= bubble.y + bubble.h);
     }
 }

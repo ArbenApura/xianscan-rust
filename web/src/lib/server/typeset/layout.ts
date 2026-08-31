@@ -8,6 +8,8 @@ const BOX_INSET = 0.05;
 const MIN_FONT_SIZE = 6;
 const LINE_HEIGHT = 1.2;
 const LONE_PUNCT = /^[.．…·!！?？,，;；:：~～)"'']{1,10}$/;
+// MINIMUM HEIGHT/WIDTH RATIO THAT ACTIVATES THE VERTICAL-FILL HYPHENATION PASS
+const TALL_FILL_MIN_ASPECT = 1.5;
 
 // COMMON ENGLISH PREFIXES AND SUFFIXES FOR SYLLABLE HYPHENATION
 const HYPHEN_PREFIXES = [
@@ -435,6 +437,11 @@ export function reflowText(
 	return out;
 }
 
+export interface FitFontSizeLayout {
+	size: number;
+	lines: string[];
+}
+
 export function fitFontSize(
 	ctx: { font: string; measureText(t: string): { width: number } },
 	text: string,
@@ -446,6 +453,20 @@ export function fitFontSize(
 	boxInset?: number,
 	customCjk?: string,
 ): number {
+	return fitFontSizeWithLines(ctx, text, fontFamily, boxW, boxH, startSize, maxSize, boxInset, customCjk).size;
+}
+
+export function fitFontSizeWithLines(
+	ctx: { font: string; measureText(t: string): { width: number } },
+	text: string,
+	fontFamily: string,
+	boxW: number,
+	boxH: number,
+	startSize: number,
+	maxSize?: number,
+	boxInset?: number,
+	customCjk?: string,
+): FitFontSizeLayout {
 	const inset = boxInset ?? BOX_INSET;
 	const maxW = Math.max(10, boxW * (1 - 2 * inset));
 	const maxH = Math.max(10, boxH * (1 - 2 * inset));
@@ -479,6 +500,17 @@ export function fitFontSize(
 			}
 		}
 	}
+
+	// WINNING (SIZE, LINES) PAIR — THE LARGEST VALIDATED LAYOUT ACROSS ALL PASSES.
+	// RENDER MUST DRAW EXACTLY THESE LINES SO THE FIT CHECKS AND THE RENDER MATCH.
+	let finalSize = MIN_FONT_SIZE;
+	let finalLines: string[] = [text];
+	const consider = (size: number, lines: string[]): void => {
+		if (size > finalSize && lines.length > 0) {
+			finalSize = size;
+			finalLines = lines;
+		}
+	};
 
 	let lo = MIN_FONT_SIZE;
 	let hi = Math.max(lo, maxSize ?? startSize);
@@ -533,6 +565,7 @@ export function fitFontSize(
 			if (allLinesFitW && lines.length * lineH <= maxH && hasNoHyphenBreaks) {
 				cleanBest = mid;
 				foundClean = true;
+				consider(mid, lines);
 				lo = mid + 1;
 				continue;
 			}
@@ -575,6 +608,7 @@ export function fitFontSize(
 			const totalH = lines.length * lineH;
 			if (allFitW && totalH <= maxH * TALL_NARROW_VERT_TOLERANCE) {
 				safeFloor = mid;
+				consider(mid, lines);
 				floorLo = mid + 1;
 			} else {
 				floorHi = mid - 1;
@@ -583,9 +617,31 @@ export function fitFontSize(
 		tallNarrowFloor = safeFloor;
 	}
 
+	// PASS 3: VERTICAL-FILL HYPHENATION FOR TALL-NARROW BOXES (ASPECT RATIO >= 1.5).
+	// THE CLEAN PASSES VALIDATE AGAINST reflowText, WHOSE balancedWrapText MINIMAL-WIDTH
+	// SEARCH CAN DEGENERATE INTO OVERFLOWING INTACT-WORD LINES AT LARGER SIZES —
+	// BLOCKING EVERY SIZE IN THE HYPHENATION BAND AND LEAVING TALL BUBBLES ~80% EMPTY.
+	// THIS PASS VALIDATES AGAINST GREEDY wrapText INSTEAD, WHICH BREAKS LONG WORDS AT
+	// PROPER SYLLABLE / EXISTING-HYPHEN POINTS, LETTING HEIGHT BECOME THE ONLY LIMIT.
+	// ZERO TOLERANCE FOR HORIZONTAL OVERFLOW AND STRICT VERTICAL FIT ARE STILL ENFORCED.
+	// LINEAR SCAN FROM THE CAP DOWNWARDS: WRAP FITTING IS NOT MONOTONE IN SIZE
+	// (A TRAILING-PUNCTUATION WORD CAN STAY INTACT AND OVERFLOW AT SIZE N BUT
+	// HYPHENATE CLEANLY AT SIZE N+1), SO A BINARY SEARCH COULD MISS THE FILL BAND.
+	if (aspectRatio >= TALL_FILL_MIN_ASPECT) {
+		for (let mid = effectiveCap; mid >= MIN_FONT_SIZE; mid--) {
+			ctx.font = fontSpec(mid, fontFamily, text, customCjk);
+			const lines = wrapText(ctx, text, maxW);
+			const allLinesFitW = lines.every((l) => ctx.measureText(l).width <= maxW + 0.5);
+			if (allLinesFitW && lines.length * mid * LINE_HEIGHT <= maxH) {
+				consider(mid, lines);
+				break;
+			}
+		}
+	}
+
 	const isNarrowVertical = (boxH / boxW >= 1.15 || boxH >= 120) && boxH >= 65;
 	if (foundClean && (cleanBest >= 14 || !isNarrowVertical)) {
-		return Math.max(cleanBest, tallNarrowFloor);
+		return { size: finalSize, lines: finalLines };
 	}
 
 	lo = Math.max(cleanBest, MIN_FONT_SIZE);
@@ -604,13 +660,14 @@ export function fitFontSize(
 		const hasNoHyphenBreaks = lines.every((l) => !l.endsWith('-') || text.includes(l));
 		if (allLinesFitW && lines.length * lineH <= maxH && hasNoHyphenBreaks) {
 			best = mid;
+			consider(mid, lines);
 			lo = mid + 1;
 		} else {
 			hi = mid - 1;
 		}
 	}
 
-	return Math.max(best, tallNarrowFloor);
+	return { size: Math.max(finalSize, best, tallNarrowFloor), lines: finalLines };
 }
 
 export function fitSingleLineSize(
@@ -646,8 +703,11 @@ export function tryVerticalSingleWordLayout(
 	boxInset?: number,
 	customCjk?: string,
 ): { lines: string[]; size: number } | null {
-	// ONLY APPLY IF THE OCR / PIPELINE DETECTED REGION IS MARKED AS VERTICAL
-	if (!isVertical) return null;
+	// APPLY WHEN THE OCR / PIPELINE FLAGGED THE REGION VERTICAL, OR WHEN THE BOX
+	// GEOMETRY ALONE IS EXTREMELY TALL-NARROW (ASPECT >= 2.5 AND BOX HEIGHT >= 120).
+	// WIDE BOXES AND LARGE WORDS NEVER RESORT TO VERTICAL STACKING — THE HEIGHT
+	// SEARCH BELOW ALSO REJECTS STACKS THAT CANNOT STAY >= 11px IN THE GIVEN HEIGHT.
+	if (!isVertical && (boxH / boxW < 2.5 || boxH < 120)) return null;
 
 	const trimmed = text.trim();
 	if (!trimmed || /\s/.test(trimmed)) return null;
@@ -659,17 +719,28 @@ export function tryVerticalSingleWordLayout(
 
 	if (boxH / boxW < 1.2 || boxH < 50) return null;
 
-	const match = trimmed.match(/^([^!！?？.．…~～]+)([.!！?？…~～]*)$/);
+	// SPLIT LEADING PUNCTUATION ("..."), THE WORD CORE, AND TRAILING PUNCTUATION (".", "?")
+	const match = trimmed.match(/^([.!！?？.．…~～]*)([^!！?？.．…~～]+)([.!！?？.．…~～]*)$/);
 	if (!match) return null;
 
-	const letters = match[1];
-	const punct = match[2] || '';
-	// ONLY APPLY ON SHORT SINGLE WORDS (3 TO 8 LETTERS) TO AVOID OVERLY LONG/TINY VERTICAL STRINGS
-	if (letters.length < 3 || letters.length > 8) return null;
+	const lead = match[1] || '';
+	const letters = match[2];
+	const trail = match[3] || '';
+	// ONLY APPLY ON SHORT SINGLE WORDS (3 TO 12 LETTERS) TO AVOID OVERLY LONG/TINY VERTICAL STRINGS
+	if (letters.length < 3 || letters.length > 12) return null;
 
-	const chars = letters.split('');
-	if (punct) {
-		chars.push(...punct.split(''));
+	const cells = letters.split('');
+	if (lead) {
+		cells.unshift(lead);
+	}
+	if (trail) {
+		// KEEP TRAILING DOTS ("...", "..", ".") ATTACHED TO THE LAST LETTER SO BARE DOTS
+		// NEVER STACK AS SEPARATE TINY CELLS; SINGLE TERMINALS (!, ?) STAY OWN-CELL
+		if (trail.length > 1 || /^[.．…]+$/.test(trail)) {
+			cells[cells.length - 1] += trail;
+		} else {
+			cells.push(trail);
+		}
 	}
 
 	const horizSize = fitSingleLineSize(ctx, trimmed, fontFamily, maxW, maxH, maxCap, customCjk);
@@ -683,9 +754,9 @@ export function tryVerticalSingleWordLayout(
 		const mid = Math.floor((lo + hi) / 2);
 		if (mid === 0) break;
 		ctx.font = fontSpec(mid, fontFamily, trimmed, customCjk);
-		const allCharsFitW = chars.every((c) => ctx.measureText(c).width <= maxW);
-		const totalH = chars.length * mid * 1.15;
-		if (allCharsFitW && totalH <= maxH) {
+		const allCellsFitW = cells.every((c) => ctx.measureText(c).width <= maxW);
+		const totalH = cells.length * mid * 1.15;
+		if (allCellsFitW && totalH <= maxH) {
 			vertBest = mid;
 			vertFound = true;
 			lo = mid + 1;
@@ -696,7 +767,7 @@ export function tryVerticalSingleWordLayout(
 
 	// ENSURE LETTERS STAY LARGE AND BOLD (>= 11px)
 	if (vertFound && vertBest >= 11 && (vertBest >= horizSize * 1.25 || (horizSize <= 9 && vertBest >= 11))) {
-		return { lines: chars, size: vertBest };
+		return { lines: cells, size: vertBest };
 	}
 
 	return null;

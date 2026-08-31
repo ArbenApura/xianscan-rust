@@ -585,6 +585,7 @@ pub fn build_regions(
                     kind: final_kind,
                     is_title: false,
                     is_subtitle: false,
+                    carrier_box: None,
                 });
             }
         } else {
@@ -685,6 +686,7 @@ pub fn build_regions(
                     kind,
                     is_title: false,
                     is_subtitle: false,
+                    carrier_box: None,
                 });
             }
         }

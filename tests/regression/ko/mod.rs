@@ -3,6 +3,7 @@ mod base;
 mod page_dragon_spiky_sfx;
 mod page_dull_ending_black_bubble;
 mod page_elder_hmm_bubble_angle;
+mod page_elder_pounding_giant_sfx_burst_bubble;
 mod page_eleven_years_red_smoke_narration;
 mod page_ilpimuhun_vertical_title_giant_fist;
 mod page_headache_screaming_spiky_bubble;

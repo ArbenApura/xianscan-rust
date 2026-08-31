@@ -410,6 +410,7 @@ export function getPageWithRegions(pageId: number) {
 				polygon: safeJson(r.polygon),
 				bubble_box: parsedBox?.bubble_box ?? null,
 				bubble_polygon: parsedBox?.bubble_polygon ?? null,
+				carrier_box: parsedBox?.carrier_box ?? null,
 				centroid: parsedBox?.centroid ?? null,
 				kind: parsedBox?.kind ?? 'dialogue_bubble',
 				textSource: r.textSource,
