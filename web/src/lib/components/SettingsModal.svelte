@@ -36,6 +36,7 @@
 		type TypesetCasing,
 	} from '$lib/stores/settings';
 	import { mlStatus } from '$lib/stores/ml-status';
+	import { versionCheck } from '$lib/stores/version-check';
 	// IMPORTED ICONS
 	import Languages from 'lucide-svelte/icons/languages';
 	import Check from 'lucide-svelte/icons/check';
@@ -76,8 +77,9 @@
 	import ChevronLeft from 'lucide-svelte/icons/chevron-left';
 	import ChevronRight from 'lucide-svelte/icons/chevron-right';
 	import X from 'lucide-svelte/icons/x';
-	import Sparkles from 'lucide-svelte/icons/sparkles';
+	import HelpCircle from 'lucide-svelte/icons/help-circle';
 	import MessageSquare from 'lucide-svelte/icons/message-square';
+	import ArrowUpCircle from 'lucide-svelte/icons/arrow-up-circle';
 
 	// IMPORTED UI COMPONENTS
 	import Modal from '$lib/components/ui/Modal.svelte';
@@ -85,6 +87,7 @@
 	import Switch from '$lib/components/ui/Switch.svelte';
 	import LanguagePicker from '$lib/components/ui/LanguagePicker.svelte';
 	import ProviderLogo from '$lib/components/ui/ProviderLogo.svelte';
+	import Badge from '$lib/components/ui/Badge.svelte';
 
 	// PROPS COMPATIBILITY: ACCEPTS BOTH LEGACY (ai | compute | general) AND NEW CATEGORIES
 	export let open = false;
@@ -244,6 +247,23 @@
 			...s,
 			typesetPreviewPreset: 'custom',
 		}));
+	}
+
+	async function handleManualUpdateCheck() {
+		const checkPromise = versionCheck.checkForUpdates(true);
+		toast.promise(checkPromise, {
+			loading: 'Checking GitHub Releases for updates...',
+			success: (res) => {
+				if (!res.ok) {
+					return res.error || 'Failed to check GitHub releases';
+				}
+				if (res.hasUpdate && res.latestVersion) {
+					return `New version v${res.latestVersion} is available!`;
+				}
+				return 'XianScan is up to date!';
+			},
+			error: 'Network error checking for updates',
+		});
 	}
 
 	// PRESETS
@@ -1270,9 +1290,9 @@
 		{ id: 'parallel-chapters', label: 'Parallel Batch Chapters Concurrency', category: 'compute', categoryLabel: 'Hardware & Compute', categoryIcon: Cpu, keywords: ['batch', 'chapter', 'concurrency', 'queue', 'parallel'] },
 
 		// ABOUT
-		{ id: 'version-info', label: 'Native Core & Web Build Fingerprint', category: 'about', categoryLabel: 'About & Diagnostics', categoryIcon: Info, keywords: ['version', 'build', 'hash', 'binary', 'commit', 'fingerprint'] },
+		{ id: 'version-info', label: 'Native Core & Software Updates', category: 'about', categoryLabel: 'About & Diagnostics', categoryIcon: Info, keywords: ['version', 'update', 'latest', 'release', 'github', 'build', 'hash', 'binary', 'commit', 'fingerprint'] },
 		{ id: 'sidecar-health', label: 'ML Sidecar Health & Status', category: 'about', categoryLabel: 'About & Diagnostics', categoryIcon: Info, keywords: ['sidecar', 'health', 'status', 'online', 'offline', 'ml'] },
-		{ id: 'welcome-tour', label: 'Welcome Tour & Feature Guide', category: 'about', categoryLabel: 'About & Diagnostics', categoryIcon: Sparkles, keywords: ['welcome', 'tour', 'guide', 'onboarding', 'tutorial', 'intro', 'introduction', 'walkthrough', 'step', 'help'] },
+		{ id: 'welcome-tour', label: 'Welcome Tour & Feature Guide', category: 'about', categoryLabel: 'About & Diagnostics', categoryIcon: HelpCircle, keywords: ['welcome', 'tour', 'guide', 'onboarding', 'tutorial', 'intro', 'introduction', 'walkthrough', 'step', 'help'] },
 	];
 
 	let searchFocused = false;
@@ -2845,7 +2865,7 @@
 												type="button"
 												on:click={() => setParallelProcesses(count)}
 												class={`rounded-lg border py-2 text-center text-xs font-bold transition-all ${
-													($settings.parallelProcesses || 2) === count
+													($settings.parallelProcesses || 1) === count
 														? 'border-[#b23a2e] bg-[#b23a2e]/[0.08] text-[#b23a2e] dark:text-[#e08a63] ring-1 ring-[#b23a2e]/30'
 														: 'border-black/10 hover:border-black/20 dark:border-white/10'
 												}`}
@@ -2899,34 +2919,94 @@
 							<p class="text-xs opacity-60 mt-0.5">XianScan native runtime environment, build fingerprint, and service states</p>
 						</div>
 
-						<div class="rounded-2xl border border-black/10 bg-black/[0.02] p-4 dark:border-white/10 dark:bg-white/[0.02] space-y-3">
-							<div
-								id="setting-version-info"
-								class={`flex items-center justify-between text-xs py-1 border-b border-black/5 dark:border-white/5 transition-all duration-300 ${highlightedSettingId === 'version-info' ? 'ring-2 ring-[#b23a2e] dark:ring-[#e08a63] bg-[#b23a2e]/[0.06] dark:bg-[#e08a63]/[0.08] rounded-lg p-1.5' : ''}`}
-							>
-								<span class="opacity-60">Native Core Version</span>
-								{#if hardwareInfo?.version || $mlStatus.version}
-									<span class="font-mono font-bold text-[#b23a2e] dark:text-[#e08a63]">v{hardwareInfo?.version || $mlStatus.version}</span>
-								{:else if hardwareLoading || $mlStatus.loading}
-									<span class="inline-block h-3.5 w-12 animate-pulse rounded bg-black/10 dark:bg-white/10"></span>
-								{:else}
-									<span class="font-mono font-bold text-[#b23a2e] dark:text-[#e08a63]">v--</span>
-								{/if}
+						<!-- VERSION & UPDATE STATUS CARD -->
+						<div
+							id="setting-version-info"
+							class={`rounded-2xl border border-black/10 bg-black/[0.02] p-4 dark:border-white/10 dark:bg-white/[0.02] space-y-3.5 transition-all duration-300 ${highlightedSettingId === 'version-info' ? 'ring-2 ring-[#b23a2e] dark:ring-[#e08a63] bg-[#b23a2e]/[0.06] dark:bg-[#e08a63]/[0.08]' : ''}`}
+						>
+							<div class="flex items-center justify-between gap-3 border-b border-black/5 pb-3 dark:border-white/5">
+								<div class="space-y-0.5">
+									<div class="text-xs font-bold flex items-center gap-2">
+										<Info size={14} class="text-[#b23a2e] dark:text-[#e08a63]" />
+										<span>Native Core & Software Version</span>
+									</div>
+									<p class="text-[11px] opacity-60">Runtime build fingerprint, sidecar connectivity, and releases</p>
+								</div>
+								<Button
+									variant="secondary"
+									size="sm"
+									loading={$versionCheck.checking}
+									on:click={handleManualUpdateCheck}
+									title="Check GitHub Releases for newer builds"
+								>
+									<RefreshCw size={12} class={$versionCheck.checking ? 'animate-spin' : ''} />
+									<span>Check Updates</span>
+								</Button>
 							</div>
-							{#if hardwareInfo?.web_build_hash || $mlStatus.webBuildHash}
-								<div class="flex items-center justify-between text-xs py-1 border-b border-black/5 dark:border-white/5">
-									<span class="opacity-60">Web Build Hash</span>
-									<span class="font-mono">{hardwareInfo?.web_build_hash || $mlStatus.webBuildHash}</span>
+
+							<!-- UPDATE AVAILABLE CALLOUT BANNER -->
+							{#if $versionCheck.hasUpdate && $versionCheck.latestVersion}
+								<div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3 rounded-xl border border-[#b23a2e]/25 bg-[#b23a2e]/[0.08] p-3 dark:border-[#e08a63]/30 dark:bg-[#e08a63]/[0.10]">
+									<div class="space-y-0.5">
+										<div class="flex items-center gap-1.5 text-xs font-bold text-[#b23a2e] dark:text-[#e08a63]">
+											<ArrowUpCircle size={14} />
+											<span>New Release v{$versionCheck.latestVersion} Available</span>
+										</div>
+										<p class="text-[11px] opacity-75 leading-relaxed">
+											A newer build is ready on GitHub Releases with features and improvements.
+										</p>
+									</div>
+									{#if $versionCheck.releaseUrl}
+										<a
+											href={$versionCheck.releaseUrl}
+											target="_blank"
+											rel="noopener noreferrer"
+											class="inline-flex items-center justify-center gap-1.5 rounded-lg bg-[#b23a2e] hover:bg-[#c0392b] text-white px-3.5 py-1.5 text-xs font-bold transition shrink-0 shadow-xs"
+											use:ripple
+										>
+											<span>Download v{$versionCheck.latestVersion}</span>
+											<ExternalLink size={11} class="opacity-70" />
+										</a>
+									{/if}
 								</div>
 							{/if}
-							<div
-								id="setting-sidecar-health"
-								class={`flex items-center justify-between text-xs py-1 transition-all duration-300 ${highlightedSettingId === 'sidecar-health' ? 'ring-2 ring-[#b23a2e] dark:ring-[#e08a63] bg-[#b23a2e]/[0.06] dark:bg-[#e08a63]/[0.08] rounded-lg p-1.5' : ''}`}
-							>
-								<span class="opacity-60">ML Sidecar Health</span>
-								<span class={`font-bold ${$mlStatus.online ? 'text-emerald-600' : 'text-red-500'}`}>
-									{$mlStatus.online ? 'Healthy & Connected' : 'Offline / Unreachable'}
-								</span>
+
+							<!-- SPECS & HEALTH GRID -->
+							<div class="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs pt-0.5">
+								<div class="flex items-center justify-between py-1.5 px-2.5 rounded-lg bg-black/[0.02] dark:bg-white/[0.02]">
+									<span class="opacity-60">Installed Core Version</span>
+									<span class="font-mono font-bold text-[#b23a2e] dark:text-[#e08a63]">
+										v{hardwareInfo?.version || $mlStatus.version || $versionCheck.currentVersion}
+									</span>
+								</div>
+								<div class="flex items-center justify-between py-1.5 px-2.5 rounded-lg bg-black/[0.02] dark:bg-white/[0.02]">
+									<span class="opacity-60">Latest Release</span>
+									<div class="flex items-center gap-1.5">
+										<span class="font-mono font-bold text-neutral-800 dark:text-neutral-200">
+											{$versionCheck.latestVersion ? `v${$versionCheck.latestVersion}` : 'v' + ($versionCheck.currentVersion)}
+										</span>
+										{#if $versionCheck.hasUpdate}
+											<Badge variant="gold">Update</Badge>
+										{:else}
+											<Badge variant="jade">Latest</Badge>
+										{/if}
+									</div>
+								</div>
+								{#if hardwareInfo?.web_build_hash || $mlStatus.webBuildHash || $versionCheck.webBuildHash}
+									<div class="flex items-center justify-between py-1.5 px-2.5 rounded-lg bg-black/[0.02] dark:bg-white/[0.02]">
+										<span class="opacity-60">Web Build Hash</span>
+										<span class="font-mono">{hardwareInfo?.web_build_hash || $mlStatus.webBuildHash || $versionCheck.webBuildHash}</span>
+									</div>
+								{/if}
+								<div
+									id="setting-sidecar-health"
+									class={`flex items-center justify-between py-1.5 px-2.5 rounded-lg bg-black/[0.02] dark:bg-white/[0.02] transition-all duration-300 ${highlightedSettingId === 'sidecar-health' ? 'ring-2 ring-[#b23a2e] dark:ring-[#e08a63]' : ''}`}
+								>
+									<span class="opacity-60">ML Sidecar Health</span>
+									<span class={`font-bold ${$mlStatus.online ? 'text-emerald-600' : 'text-red-500'}`}>
+										{$mlStatus.online ? 'Healthy & Connected' : 'Offline / Unreachable'}
+									</span>
+								</div>
 							</div>
 						</div>
 
@@ -2937,7 +3017,7 @@
 						>
 							<div class="space-y-0.5">
 								<div class="flex items-center gap-1.5 text-xs font-bold">
-									<Sparkles size={14} class="text-[#b23a2e] dark:text-[#e08a63]" />
+									<HelpCircle size={14} class="text-[#b23a2e] dark:text-[#e08a63]" />
 									<span>Welcome Tour & Feature Guide</span>
 								</div>
 								<p class="text-[11px] opacity-60">Replay the introductory walkthrough covering the translation pipeline, extension, and setup.</p>

@@ -18,7 +18,7 @@
 	import ShieldCheck from 'lucide-svelte/icons/shield-check';
 	import Smartphone from 'lucide-svelte/icons/smartphone';
 	import Terminal from 'lucide-svelte/icons/terminal';
-	import Sparkles from 'lucide-svelte/icons/sparkles';
+	import Compass from 'lucide-svelte/icons/compass';
 	import MessageSquare from 'lucide-svelte/icons/message-square';
 	// IMPORTED COMPONENTS
 	import { DropCap, InkDivider, Seal } from '$lib/components/ui';
@@ -264,7 +264,7 @@
 				use:ripple
 				class="inline-flex items-center justify-center gap-2 rounded-lg bg-[#b23a2e] px-4 py-2.5 sm:py-2 text-xs font-bold text-white transition hover:bg-[#c0392b] active:scale-95 cursor-pointer shadow-xs shadow-[#b23a2e]/20"
 			>
-				<Sparkles size={14} />
+				<Compass size={14} />
 				<span>Start Welcome Tour</span>
 			</button>
 			<a

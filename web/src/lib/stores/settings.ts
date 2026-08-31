@@ -189,7 +189,7 @@ export const DEFAULTS: AppSettings = {
 	chapterSortAsc: true,
 	executionDevice: 'auto',
 	cudaVramLimitMb: null,
-	parallelProcesses: 2,
+	parallelProcesses: 1,
 	parallelChapters: 1,
 	resliceBeforeBatch: true,
 	sourceLang: 'zh-Hans',

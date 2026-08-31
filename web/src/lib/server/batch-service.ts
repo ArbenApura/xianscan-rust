@@ -307,9 +307,18 @@ async function executeChapterJob(chapter: BatchChapterItem, force: boolean) {
 				snap?.status === 'superseded' ||
 				handle.status === 'superseded';
 
+			// A CHAPTER IS STRICTLY DONE ONLY WHEN THE PIPELINE EMITS ITS TERMINAL 'done' EVENT
+			// (OR WHEN THE SNAPSHOT EXPLICITLY REACHES 'done' WITH NO FAILED PAGES AND ALL TARGET PAGES COMPLETED)
+			const hasCompletedAllPages = Boolean(
+				snap &&
+				snap.totalPages > 0 &&
+				snap.completedPages >= snap.totalPages &&
+				(snap.failedPages || 0) === 0
+			);
+
 			const isDone =
 				!isCancelledOrSuperseded &&
-				(e.type === 'done' || snap?.status === 'done') &&
+				(e.type === 'done' || (snap?.status === 'done' && hasCompletedAllPages)) &&
 				(snap?.failedPages || 0) === 0;
 
 			// ONLY FAIL THE ENTIRE CHAPTER IF IT IS A GENUINE CHAPTER-LEVEL FAILURE (NOT DELIBERATE PAUSE / CANCEL / SUPERSEDE)
@@ -494,11 +503,18 @@ function startWatchdog() {
 		for (const ch of processing) {
 			const job = getChapterJob(ch.id);
 			const snap = getChapterJobSnapshot(ch.id);
-			if (!job && snap?.status === 'done' && (snap?.failedPages || 0) === 0 && !completedChapterIds.has(ch.id)) {
+			const isFullyDone = Boolean(
+				snap &&
+				snap.status === 'done' &&
+				snap.totalPages > 0 &&
+				snap.completedPages >= snap.totalPages &&
+				(snap.failedPages || 0) === 0
+			);
+			if (!job && isFullyDone && !completedChapterIds.has(ch.id)) {
 				completedChapterIds.add(ch.id);
 				onChapterCompleted(ch, snap);
-			} else if (!job && (!snap || snap.status === 'failed' || (snap?.failedPages || 0) > 0 || snap.status === 'superseded')) {
-				// ORPHANED PROCESSING STATE OR FAILURE DETECTED
+			} else if (!job && !chapterRetryTimers.has(ch.id) && (!snap || snap.status === 'failed' || (snap?.failedPages || 0) > 0 || snap.status === 'superseded')) {
+				// ORPHANED PROCESSING STATE OR FAILURE DETECTED (AND NOT CURRENTLY WAITING ON RETRY BACKOFF)
 				console.warn(
 					`[batchService] Watchdog detected orphaned processing state or failure on chapter #${ch.id}, recovering for retry...`,
 				);

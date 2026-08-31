@@ -1098,6 +1098,13 @@
 													></div>
 												</div>
 											</div>
+											{#if isFailed || singleSnapshot?.status === 'failed' || (!isSingleRunning && (singleSnapshot?.failedPages || 0) > 0)}
+												{@const firstErrMsg = singleSnapshot?.pages?.find((p) => p.errorMessage)?.errorMessage || 'Translation failed'}
+												<div class="mt-2 flex items-start gap-1.5 rounded-lg bg-rose-500/10 border border-rose-500/20 px-2 py-1 text-[11px] text-rose-700 dark:text-rose-300">
+													<AlertCircle size={13} class="shrink-0 mt-0.5" />
+													<span class="break-all font-mono leading-tight">{firstErrMsg}</span>
+												</div>
+											{/if}
 										</div>
 									{:else if (isRunning || isPaused) && (($batchProgress.activeChapters && $batchProgress.activeChapters.length > 0) || currentChapter)}
 										{@const activeList = $batchProgress.activeChapters && $batchProgress.activeChapters.length > 0 ? $batchProgress.activeChapters : (currentChapter ? [currentChapter] : [])}
@@ -1251,54 +1258,62 @@
 											</div>
 											<div class="divide-y divide-black/[0.04] dark:divide-white/[0.04] rounded-xl border border-black/10 bg-black/[0.02] dark:border-white/10 dark:bg-white/[0.02] overflow-hidden">
 												{#each $batchTracker.queue as item, idx}
-													<div class="flex items-center justify-between gap-2 px-3 py-2 text-xs">
-														<div class="flex items-center gap-2 min-w-0 flex-1">
-															<span class={cn(
-																'flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-[10px] font-bold',
-																item.status === 'done'
-																	? 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400'
-																	: item.status === 'error'
-																		? 'bg-rose-500/10 text-rose-600 dark:text-rose-400'
-																		: 'bg-black/5 dark:bg-white/10'
-															)}>
-																{item.status === 'done' ? '✓' : item.status === 'error' ? '✕' : idx + 1}
-															</span>
-															<div class="min-w-0 flex-1 truncate">
-																<span class="font-medium">{formatChapterLabel(item.seq, item.title, item.titleTarget)}</span>
-																{#if item.bookTitle}
-																	<span class="text-[10px] opacity-50 ml-1.5 truncate">({item.bookTitle})</span>
+													<div class="flex flex-col gap-1 px-3 py-2 text-xs">
+														<div class="flex items-center justify-between gap-2">
+															<div class="flex items-center gap-2 min-w-0 flex-1">
+																<span class={cn(
+																	'flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-[10px] font-bold',
+																	item.status === 'done'
+																		? 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400'
+																		: item.status === 'error'
+																			? 'bg-rose-500/10 text-rose-600 dark:text-rose-400'
+																			: 'bg-black/5 dark:bg-white/10'
+																)}>
+																	{item.status === 'done' ? '✓' : item.status === 'error' ? '✕' : idx + 1}
+																</span>
+																<div class="min-w-0 flex-1 truncate">
+																	<span class="font-medium">{formatChapterLabel(item.seq, item.title, item.titleTarget)}</span>
+																	{#if item.bookTitle}
+																		<span class="text-[10px] opacity-50 ml-1.5 truncate">({item.bookTitle})</span>
+																	{/if}
+																</div>
+															</div>
+
+															<div class="flex items-center gap-1.5 shrink-0 text-xs">
+																{#if item.status === 'done'}
+																	<span class="text-emerald-600 dark:text-emerald-400 font-bold">✓ Done</span>
+																{:else if item.status === 'error'}
+																	<span class="text-rose-500 font-bold">✕ Error</span>
+																{:else}
+																	<span class="opacity-50">{item.status}</span>
 																{/if}
+																<span class="opacity-50">{item.pageIds && item.pageIds.length > 0 ? item.pageIds.length : (item.totalPages || item.pageCount || 0)} pgs</span>
+																<button
+																	type="button"
+																	on:click={() => jumpToReader(item.id, item.bookId)}
+																	class="inline-flex items-center gap-1 text-xs text-[#b23a2e] dark:text-[#e08a63] hover:underline font-medium cursor-pointer ml-1"
+																>
+																	<BookOpen size={12} />
+																	<span>Open</span>
+																</button>
+																<button
+																	type="button"
+																	on:click={() => batchTracker.removeFromQueue(item.id)}
+																	class="flex h-5 w-5 items-center justify-center rounded-md text-neutral-400 hover:text-red-500 hover:bg-red-500/10 transition cursor-pointer ml-0.5"
+																	title="Remove from queue"
+																	aria-label="Remove from queue"
+																	use:ripple
+																>
+																	<X size={12} />
+																</button>
 															</div>
 														</div>
-
-														<div class="flex items-center gap-1.5 shrink-0 text-xs">
-															{#if item.status === 'done'}
-																<span class="text-emerald-600 dark:text-emerald-400 font-bold">✓ Done</span>
-															{:else if item.status === 'error'}
-																<span class="text-rose-500 font-bold">✕ Error</span>
-															{:else}
-																<span class="opacity-50">{item.status}</span>
-															{/if}
-															<span class="opacity-50">{item.pageIds && item.pageIds.length > 0 ? item.pageIds.length : (item.totalPages || item.pageCount || 0)} pgs</span>
-															<button
-																type="button"
-																on:click={() => jumpToReader(item.id, item.bookId)}
-																class="inline-flex items-center gap-1 text-xs text-[#b23a2e] dark:text-[#e08a63] hover:underline font-medium cursor-pointer ml-1"
-															>
-																<BookOpen size={12} />
-																<span>Open</span>
-															</button>
-															<button
-																type="button"
-																on:click={() => batchTracker.removeFromQueue(item.id)}
-																class="flex h-5 w-5 items-center justify-center rounded-md text-neutral-400 hover:text-red-500 hover:bg-red-500/10 transition cursor-pointer ml-0.5"
-																title="Remove from queue"
-																aria-label="Remove from queue"
-																use:ripple
-															>
-																<X size={12} />
-															</button>
-														</div>
+														{#if item.status === 'error' && item.error}
+															<div class="flex items-start gap-1.5 rounded-lg bg-rose-500/10 border border-rose-500/20 px-2 py-1 text-[11px] text-rose-700 dark:text-rose-300">
+																<AlertCircle size={13} class="shrink-0 mt-0.5" />
+																<span class="break-all font-mono leading-tight">{item.error}</span>
+															</div>
+														{/if}
 													</div>
 												{/each}
 											</div>
@@ -1395,7 +1410,10 @@
 																		<span>{formatDuration(ocrTiming.durationMs)}</span>
 																	</span>
 																{:else if ocrTiming?.status === 'failed'}
-																	<span class="inline-flex items-center gap-1 text-rose-600 dark:text-rose-400 font-semibold text-[11px]">
+																	<span
+																		class="inline-flex items-center gap-1 text-rose-600 dark:text-rose-400 font-semibold text-[11px] cursor-help"
+																		title={ocrTiming.details?.error || p.errorMessage || 'OCR detection failed'}
+																	>
 																		<AlertCircle size={11} class="shrink-0" />
 																		<span>Failed</span>
 																	</span>
@@ -1420,7 +1438,10 @@
 																		{/if}
 																	</span>
 																{:else if transTiming?.status === 'failed'}
-																	<span class="inline-flex items-center gap-1 text-rose-600 dark:text-rose-400 font-semibold text-[11px]">
+																	<span
+																		class="inline-flex items-center gap-1 text-rose-600 dark:text-rose-400 font-semibold text-[11px] cursor-help"
+																		title={transTiming.details?.error || p.errorMessage || 'Translation failed'}
+																	>
 																		<AlertCircle size={11} class="shrink-0" />
 																		<span>Failed</span>
 																	</span>
@@ -1440,7 +1461,10 @@
 																		<span>{formatDuration(cleanTiming.durationMs)}</span>
 																	</span>
 																{:else if cleanTiming?.status === 'failed'}
-																	<span class="inline-flex items-center gap-1 text-rose-600 dark:text-rose-400 font-semibold text-[11px]">
+																	<span
+																		class="inline-flex items-center gap-1 text-rose-600 dark:text-rose-400 font-semibold text-[11px] cursor-help"
+																		title={cleanTiming.details?.error || p.errorMessage || 'Inpainting failed'}
+																	>
 																		<AlertCircle size={11} class="shrink-0" />
 																		<span>Failed</span>
 																	</span>

@@ -996,6 +996,10 @@ export async function runChapterPipeline(
 				throw abortErr;
 			}
 			throw e;
+		} finally {
+			// IMMEDIATELY RELEASE HEAVY IMAGE BUFFERS FROM MEMORY
+			slot.image = undefined;
+			slot.analyzed = undefined;
 		}
 	};
 

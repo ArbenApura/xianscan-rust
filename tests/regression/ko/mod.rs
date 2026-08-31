@@ -27,5 +27,6 @@ mod page_snake_skewer_crackle_sfx_tadak;
 mod page_spring_up_couch_worry_sfx;
 mod page_suddenly_reality_check_bottom_narration;
 mod page_talk_like_that_bottom_narration;
+mod page_tied_pillar_iron_shackles_bottom_bubble;
 mod page_yu_family_spear_technique_slash;
 

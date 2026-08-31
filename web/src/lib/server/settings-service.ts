@@ -33,7 +33,7 @@ export function sanitizeSettingValue(key: keyof AppSettings, value: unknown): un
 
 		case 'parallelProcesses': {
 			const n = Number(value);
-			return Math.max(1, Math.min(8, isNaN(n) ? 2 : Math.round(n)));
+			return Math.max(1, Math.min(8, isNaN(n) ? 1 : Math.round(n)));
 		}
 
 		case 'parallelChapters': {

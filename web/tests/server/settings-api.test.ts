@@ -20,7 +20,7 @@ describe('Settings & Reading History Server API Routes', () => {
 			expect(res.status).toBe(200);
 			const data = await res.json();
 			expect(data.inpaintMode).toBe('patch');
-			expect(data.parallelProcesses).toBe(2);
+			expect(data.parallelProcesses).toBe(1);
 		});
 	});
 

@@ -140,7 +140,7 @@ pub fn build_regions(
             }
         }
 
-        // IN NON-LATIN SCRIPT SOURCES (E.G. KOREAN, CJK), DROP OVERLAPPING PURE LATIN NOISE LINES
+        // IN NON-LATIN SCRIPT SOURCES (E.G. KOREAN, CJK), DROP OVERLAPPING PURE LATIN NOISE LINES AND DIGIT NOISE
         if crate::ml::detect::is_non_latin_source(source_lang) && matched.iter().any(|l| {
             let t = l.text.trim();
             crate::ml::detect::has_native_script_for_lang(t, source_lang) || t.chars().any(|c| matches!(c, '！' | '？' | '!' | '?' | '…'))
@@ -150,7 +150,8 @@ pub fn build_regions(
                 let lacks_native = !crate::ml::detect::has_native_script_for_lang(t, source_lang);
                 let is_punct = t.chars().any(|c| matches!(c, '！' | '？' | '!' | '?' | '…'));
                 let is_pure_latin_word = lacks_native && !is_punct && t.chars().all(|c| c.is_ascii_alphabetic() || c.is_whitespace() || c.is_ascii_punctuation());
-                !is_pure_latin_word || crate::ml::detect::is_onomatopoeia_or_shout(t)
+                let is_noise_or_digit = lacks_native && !is_punct && (crate::ml::detect::is_standalone_digit_or_particle_noise(t) || crate::ml::detect::is_standalone_noise_stroke(t));
+                (!is_pure_latin_word && !is_noise_or_digit) || crate::ml::detect::is_onomatopoeia_or_shout(t)
             });
         }
 
@@ -164,18 +165,20 @@ pub fn build_regions(
             let mut h_count = 0usize;
             let mut v_count = 0usize;
 
-            // PRUNE WIDE MULTI-LINE COMPOSITE OCR BLOCKS (CONTAINING NEWLINES) WHEN INDIVIDUAL VERTICAL COLUMN LINES ARE ALSO PRESENT IN THE SAME CONTAINER
-            let has_individual_vert_lines = matched.iter().any(|l| {
-                let (_, _, lw, lh) = polygon_bounds(&l.polygon);
-                let is_vert = if is_cjk { lh >= lw || lh > (lw as f32 * 1.10) as i32 } else { lh > (lw as f32 * 1.25) as i32 };
-                is_vert && !l.text.contains('\n')
-            });
-            if has_individual_vert_lines {
-                matched.retain(|l| {
+            // PRUNE WIDE MULTI-LINE COMPOSITE OCR BLOCKS (CONTAINING NEWLINES) ONLY WHEN CONTAINER IS DETERMINED VERTICAL AND INDIVIDUAL VERTICAL COLUMN LINES ARE ALSO PRESENT IN THE SAME CONTAINER
+            if is_container_vert {
+                let has_individual_vert_lines = matched.iter().any(|l| {
                     let (_, _, lw, lh) = polygon_bounds(&l.polygon);
-                    let is_wide_composite = (lw as f32) >= lh as f32 * 0.85 && l.text.contains('\n');
-                    !is_wide_composite
+                    let is_vert = if is_cjk { lh >= lw || lh > (lw as f32 * 1.10) as i32 } else { lh > (lw as f32 * 1.25) as i32 };
+                    is_vert && !l.text.contains('\n')
                 });
+                if has_individual_vert_lines {
+                    matched.retain(|l| {
+                        let (_, _, lw, lh) = polygon_bounds(&l.polygon);
+                        let is_wide_composite = (lw as f32) >= lh as f32 * 0.85 && l.text.contains('\n');
+                        !is_wide_composite
+                    });
+                }
             }
 
             for &m in &matched {
@@ -403,13 +406,6 @@ pub fn build_regions(
             let (sin_a, cos_a) = (rad_a.sin(), rad_a.cos());
 
             let clusters = cluster_lines_into_utterances(&filtered_matched, is_cjk, is_container_vert, sin_a, cos_a);
-            if std::env::var("XIANSCAN_PROBE").is_ok() && box_rect.y >= 700 && box_rect.y <= 800 {
-                eprintln!("[PROBE] container x={} y={} w={} h={} clusters={} matched={:?}", box_rect.x, box_rect.y, box_rect.w, box_rect.h, clusters.len(),
-                    matched.iter().map(|l| l.text.trim()).collect::<Vec<_>>());
-                for (ci, cl) in clusters.iter().enumerate() {
-                    eprintln!("[PROBE]   c{}: {:?}", ci, cl.iter().map(|l| format!("{}@{:?}", l.text.trim(), polygon_bounds(&l.polygon))).collect::<Vec<_>>());
-                }
-            }
 
             // CONTAINER-BOUNDARY EXPANSION IS ONLY VALID FOR A SINGLE-UTTERANCE CONTAINER:
             let container_is_single_utterance = clusters.len() <= 1;

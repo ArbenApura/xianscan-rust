@@ -76,7 +76,7 @@ describe('Settings & Reading History SQLite Persistence', () => {
 	it('loads default settings when app_settings table is empty', () => {
 		const settings = getCanonicalSettings(db as any);
 		expect(settings.inpaintMode).toBe('patch');
-		expect(settings.parallelProcesses).toBe(2);
+		expect(settings.parallelProcesses).toBe(1);
 	});
 
 	it('updates partial settings without overwriting other keys', () => {
@@ -86,7 +86,7 @@ describe('Settings & Reading History SQLite Persistence', () => {
 		expect(settings.typesetExpansionPct).toBe(0.15);
 		// Unmodified keys remain at their defaults
 		expect(settings.inpaintMode).toBe('patch');
-		expect(settings.parallelProcesses).toBe(2);
+		expect(settings.parallelProcesses).toBe(1);
 	});
 
 	it('seeds initial settings if database is empty', () => {

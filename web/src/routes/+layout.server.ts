@@ -111,7 +111,7 @@ export const load: LayoutServerLoad = async ({ cookies }) => {
 	const executionDevice: ExecutionDevice = VALID_EXEC_DEVICES.has(rawDevice as ExecutionDevice) ? (rawDevice as ExecutionDevice) : defaultDevice;
 
 	const rawParallelProcesses = cookies.get(PARALLEL_PROCESSES_COOKIE);
-	const parallelProcesses = Math.max(1, Math.min(8, Number(rawParallelProcesses) || canonicalSettings?.parallelProcesses || 2));
+	const parallelProcesses = Math.max(1, Math.min(8, Number(rawParallelProcesses) || canonicalSettings?.parallelProcesses || 1));
 
 	const rawParallelChapters = cookies.get(PARALLEL_CHAPTERS_COOKIE);
 	const parallelChapters = Math.max(1, Math.min(4, Number(rawParallelChapters) || canonicalSettings?.parallelChapters || 1));

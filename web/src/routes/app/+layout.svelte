@@ -13,6 +13,7 @@
 	} from '$lib/stores/settings';
 	import { activeTranslatingChapters } from '$lib/stores/job-tracker';
 	import { mlStatus, type MLStatusState } from '$lib/stores/ml-status';
+	import { versionCheck } from '$lib/stores/version-check';
 	import { syncClient } from '$lib/stores/sync-client';
 	// IMPORTED ICONS
 	import BookOpen from 'lucide-svelte/icons/book-open';
@@ -25,6 +26,9 @@
 	import Cpu from 'lucide-svelte/icons/cpu';
 	import Info from 'lucide-svelte/icons/info';
 	import Loader2 from 'lucide-svelte/icons/loader-2';
+	import ArrowUpCircle from 'lucide-svelte/icons/arrow-up-circle';
+	import X from 'lucide-svelte/icons/x';
+	import ExternalLink from 'lucide-svelte/icons/external-link';
 
 	// IMPORTED UI COMPONENTS
 	import SettingsModal from '$lib/components/SettingsModal.svelte';
@@ -58,6 +62,7 @@
 	onMount(() => {
 		mlStatus.startPolling();
 		syncClient.start();
+		versionCheck.checkForUpdates();
 	});
 
 	onDestroy(() => {
@@ -193,8 +198,37 @@
 				</div>
 			</div>
 
-			<!-- RIGHT: ML SIDECAR STATUS, THEME TOGGLE & SETTINGS BUTTONS -->
+			<!-- RIGHT: UPDATE BADGE, ML SIDECAR STATUS, THEME TOGGLE & SETTINGS BUTTONS -->
 			<div class="flex items-center gap-1.5 sm:gap-2 shrink-0">
+				<!-- NEW VERSION DETECTED PILL (DESKTOP ONLY, DISMISSIBLE) -->
+				{#if $versionCheck.hasUpdate && !$versionCheck.isDismissed && $versionCheck.latestVersion}
+					<div
+						class="hidden min-[750px]:inline-flex items-center gap-1 rounded-xl border border-[#b23a2e]/30 bg-[#b23a2e]/10 py-1 pl-2.5 pr-1.5 text-xs font-semibold text-[#b23a2e] dark:border-[#e08a63]/35 dark:bg-[#e08a63]/10 dark:text-[#e08a63] shadow-2xs backdrop-blur transition-all duration-200"
+					>
+						<a
+							href={$versionCheck.releaseUrl || 'https://github.com/ArbenApura/xianscan-rust/releases'}
+							target="_blank"
+							rel="noopener noreferrer"
+							class="inline-flex items-center gap-1.5 hover:underline font-bold text-[11px] tracking-tight"
+							title={`New XianScan release v${$versionCheck.latestVersion} available. Click to view on GitHub.`}
+							use:ripple
+						>
+							<ArrowUpCircle size={14} class="shrink-0" />
+							<span>Update v{$versionCheck.latestVersion}</span>
+						</a>
+						<button
+							type="button"
+							on:click={() => versionCheck.dismissCurrentUpdate()}
+							class="flex h-5 w-5 items-center justify-center rounded-md hover:bg-[#b23a2e]/20 dark:hover:bg-[#e08a63]/20 transition-colors opacity-70 hover:opacity-100"
+							aria-label="Dismiss update notification"
+							title="Dismiss update notice for this release"
+							use:ripple
+						>
+							<X size={12} />
+						</button>
+					</div>
+				{/if}
+
 				<!-- ML SIDECAR STATUS PILL (DESKTOP ONLY - ON MOBILE A STATUS DOT APPEARS ON SETTINGS) -->
 				<button
 					type="button"

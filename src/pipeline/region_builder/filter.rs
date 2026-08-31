@@ -31,7 +31,7 @@ pub fn should_reject_candidate_region(
     let ref_dim = (page_w as f32).min(page_h as f32).max(400.0);
 
     // 1. DROP GIANT ARTWORK HALLUCINATIONS OR SPRAWLING NOISE BOXES
-    let max_art_w = ((page_w as f32 * 0.35).max(300.0)) as i32;
+    let max_art_w = ((page_w as f32 * 0.70).max(350.0)) as i32;
     let max_art_h = ((ref_dim * 0.50).max(450.0)) as i32;
     if !is_bubble && cluster_rect.w >= max_art_w && cluster_rect.h >= max_art_h && avg_score < 0.65 {
         return true;
@@ -272,30 +272,32 @@ pub fn should_reject_candidate_region(
     }
 
     // 20. SUPPRESS NON-BUBBLE DETECTOR HALLUCINATIONS WHOSE TEXT IS A DUPLICATE / ECHO OF AN ADJACENT SPEECH BUBBLE
-    let is_speech_bubble_echo = !is_bubble && split_lines.iter().any(|rl| {
-        let t_rl = rl.text.trim();
-        let (rx, ry, rw, rh) = polygon_bounds(&rl.polygon);
-        let rl_in_bubble = bubbles.iter().any(|b| {
-            let (rcx, rcy) = (rx + rw / 2, ry + rh / 2);
-            rcx >= b.x && rcx <= b.x + b.w && rcy >= b.y && rcy <= b.y + b.h
-        });
-        if rl_in_bubble && t_rl.chars().count() >= 6 {
-            let common_chars = cleaned.chars().filter(|c| !c.is_whitespace() && t_rl.contains(*c)).count();
-            let clean_chars = cleaned.chars().filter(|c| !c.is_whitespace()).count();
-            let overlap_x = (cluster_rect.x + cluster_rect.w).min(rx + rw) - cluster_rect.x.max(rx);
-            let overlap_y = (cluster_rect.y + cluster_rect.h).min(ry + rh) - cluster_rect.y.max(ry);
-            let is_spatially_close = (overlap_x > -15 && overlap_y > -15) || ((cluster_rect.x - rx).abs() <= 60 && (cluster_rect.y - ry).abs() <= 60);
-            common_chars >= 4 && (common_chars as f32 / clean_chars.max(1) as f32 >= 0.75) && is_spatially_close
-        } else {
-            false
-        }
-    }) && bubbles.iter().any(|b| {
+    let is_speech_bubble_echo = !is_bubble && bubbles.iter().any(|b| {
         let (cx, cy) = (cluster_rect.x + cluster_rect.w / 2, cluster_rect.y + cluster_rect.h / 2);
         let (bx, by) = (b.x + b.w / 2, b.y + b.h / 2);
         let is_center_inside_this_bubble = cx >= b.x && cx <= b.x + b.w && cy >= b.y && cy <= b.y + b.h;
         let echo_radius_x = (b.w as f32 * 1.25).clamp(160.0, 300.0) as i32;
         let echo_radius_y = (b.h as f32 * 1.25).clamp(250.0, 450.0) as i32;
-        !is_center_inside_this_bubble && (cx - bx).abs() <= echo_radius_x && (cy - by).abs() <= echo_radius_y
+        if is_center_inside_this_bubble || (cx - bx).abs() > echo_radius_x || (cy - by).abs() > echo_radius_y {
+            return false;
+        }
+
+        split_lines.iter().any(|rl| {
+            let t_rl = rl.text.trim();
+            let (rx, ry, rw, rh) = polygon_bounds(&rl.polygon);
+            let (rcx, rcy) = (rx + rw / 2, ry + rh / 2);
+            let rl_in_this_bubble = rcx >= b.x && rcx <= b.x + b.w && rcy >= b.y && rcy <= b.y + b.h;
+            if rl_in_this_bubble && t_rl.chars().count() >= 6 {
+                let common_chars = cleaned.chars().filter(|c| !c.is_whitespace() && t_rl.contains(*c)).count();
+                let clean_chars = cleaned.chars().filter(|c| !c.is_whitespace()).count();
+                let overlap_x = (cluster_rect.x + cluster_rect.w).min(rx + rw) - cluster_rect.x.max(rx);
+                let overlap_y = (cluster_rect.y + cluster_rect.h).min(ry + rh) - cluster_rect.y.max(ry);
+                let is_spatially_close = (overlap_x > -15 && overlap_y > -15) || ((cluster_rect.x - rx).abs() <= 60 && (cluster_rect.y - ry).abs() <= 60);
+                common_chars >= 4 && (common_chars as f32 / clean_chars.max(1) as f32 >= 0.75) && is_spatially_close
+            } else {
+                false
+            }
+        })
     });
     if is_speech_bubble_echo {
         return true;
