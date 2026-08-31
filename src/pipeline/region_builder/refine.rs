@@ -208,8 +208,15 @@ pub fn try_refine_cluster_crop(
     });
     let is_corrupted_punct_to_digits = is_combined_pure_punct && is_crop_digits_bullets_or_noise;
 
+    let is_crop_corrupted_latin = is_cjk && !is_bubble && {
+        let has_cjk = clean_crop_text.chars().any(|c| crate::ml::detect::has_cjk_characters(&c.to_string()));
+        let non_native = clean_crop_text.chars().filter(|c| c.is_ascii_alphanumeric() && !crate::ml::detect::has_cjk_characters(&c.to_string())).count();
+        let native = clean_crop_text.chars().filter(|c| crate::ml::detect::has_cjk_characters(&c.to_string())).count();
+        !has_cjk || (non_native >= native && non_native >= 2)
+    };
+
     let is_improved = if is_cjk {
-        !is_excessive_expansion && !is_corrupted_punct_to_digits && (
+        !is_excessive_expansion && !is_corrupted_punct_to_digits && !is_crop_corrupted_latin && (
             crop_cjk_count > combined_cjk_count
                 || (is_corrupted_latin_in_bubble && crop_cjk_count >= 1)
                 || has_more_ellipsis

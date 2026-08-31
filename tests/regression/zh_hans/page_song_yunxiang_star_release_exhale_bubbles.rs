@@ -59,7 +59,7 @@ fn test_regression_page_song_yunxiang_star_release_exhale_bubbles() {
 
     // Countdown: 距离强制星解剩余\n15……14…13
     let r_cd = res.regions.iter().find(|r| r.text.contains("距离强制星解")).expect("Countdown box");
-    crate::assert_region_bounds!(r_cd, xianscan_rust::ml::schemas::RegionKind::DialogueBubble, 616, 786, 247, 72, 8);
+    crate::assert_region_bounds!(r_cd, xianscan_rust::ml::schemas::RegionKind::DialogueBubble, 600, 788, 279, 64, 8);
     crate::assert_bubble_bounds!(r_cd, 592, 770, 299, 104, 8);
     crate::assert_region_angle!(r_cd, 0.0, 2.0);
 

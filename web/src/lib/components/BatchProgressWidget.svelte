@@ -27,6 +27,7 @@
 	import Zap from 'lucide-svelte/icons/zap';
 	import Square from 'lucide-svelte/icons/square';
 	import GripVertical from 'lucide-svelte/icons/grip-vertical';
+	import RefreshCw from 'lucide-svelte/icons/refresh-cw';
 
 	// IMPORTED MODULES
 	import { batchTracker, batchProgress } from '$lib/stores/batch-tracker';
@@ -1380,19 +1381,26 @@
 													{#each displayTelemetryPages as p}
 														{@const ocrTiming = p.timings?.analyze}
 														{@const transTiming = p.timings?.translate}
-														{@const cleanTiming = p.timings?.clean || p.timings?.typeset}
+														{@const cleanTiming = p.timings?.clean}
 														{@const isOcrRunning = ocrTiming?.status === 'running' || (p.status === 'processing' && p.currentStep === 'analyze')}
 														{@const isTransRunning = transTiming?.status === 'running' || (p.status === 'processing' && p.currentStep === 'translate')}
-														{@const isCleanRunning = cleanTiming?.status === 'running' || (p.status === 'processing' && (p.currentStep === 'clean' || p.currentStep === 'typeset'))}
+														{@const isCleanRunning = cleanTiming?.status === 'running' || (p.status === 'processing' && p.currentStep === 'clean')}
+														{@const isRetrying = (p.retryAttempt ?? 0) > 0 || (p.isRetrying ?? false)}
+														{@const retryAttempt = p.retryAttempt ?? 1}
 														{@const totalDur = getPageTotalDuration(p)}
 														<tr class="hover:bg-black/[0.02] dark:hover:bg-white/[0.02] transition-colors">
 															<td class="py-2.5 px-3 font-bold whitespace-nowrap">
 																<button
 																	type="button"
 																	on:click={() => navigateToTelemetryPage(effectiveTelemetryChapter?.id || currentChapter?.id || singleJobState?.chapterId, effectiveTelemetryChapter?.bookId || currentChapter?.bookId || $batchTracker.bookId, p.pageId, p.seq)}
-																	class="inline-flex items-center px-2 py-0.5 rounded-lg border border-black/10 dark:border-white/10 text-[#b23a2e] dark:text-[#e08a63] hover:bg-[#b23a2e]/10 dark:hover:bg-[#e08a63]/10 font-bold transition cursor-pointer select-none"
-																	title="Navigate and scroll to Page {p.seq + 1}"
-																	aria-label="Navigate and scroll to Page {p.seq + 1}"
+																	class={cn(
+																		'inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md border text-[11px] font-bold transition cursor-pointer select-none',
+																		isRetrying
+																			? 'border-amber-500/30 text-amber-700 dark:text-amber-300 bg-amber-500/10'
+																			: 'border-black/10 dark:border-white/10 text-[#b23a2e] dark:text-[#e08a63] hover:bg-[#b23a2e]/10 dark:hover:bg-[#e08a63]/10'
+																	)}
+																	title={`Navigate and scroll to Page ${p.seq + 1}${isRetrying ? ` (Retry ${retryAttempt}/3)` : ''}`}
+																	aria-label={`Navigate and scroll to Page ${p.seq + 1}`}
 																	use:ripple
 																>
 																	Pg {p.seq + 1}
@@ -1400,10 +1408,17 @@
 															</td>
 															<td class="py-2.5 px-3 whitespace-nowrap">
 																{#if isOcrRunning}
-																	<span class="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md bg-[#b23a2e]/10 text-[#b23a2e] dark:bg-[#e08a63]/15 dark:text-[#e08a63] font-mono text-[10px] font-semibold tracking-tight shadow-2xs">
-																		<Loader2 size={9} class="animate-spin shrink-0" />
-																		<span>OCR...</span>
-																	</span>
+																	{#if isRetrying}
+																		<span class="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md bg-amber-500/15 text-amber-700 dark:bg-amber-500/20 dark:text-amber-300 font-mono text-[10px] font-semibold tracking-tight shadow-2xs">
+																			<RefreshCw size={9} class="animate-spin shrink-0 text-amber-600 dark:text-amber-400" />
+																			<span>OCR (R{retryAttempt})...</span>
+																		</span>
+																	{:else}
+																		<span class="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md bg-[#b23a2e]/10 text-[#b23a2e] dark:bg-[#e08a63]/15 dark:text-[#e08a63] font-mono text-[10px] font-semibold tracking-tight shadow-2xs">
+																			<Loader2 size={9} class="animate-spin shrink-0" />
+																			<span>OCR...</span>
+																		</span>
+																	{/if}
 																{:else if ocrTiming?.status === 'completed'}
 																	<span class="inline-flex items-center gap-1 font-mono text-neutral-800 dark:text-neutral-200">
 																		<CheckCircle2 size={11} class="text-[#4f7a64] dark:text-[#83b39a] shrink-0" />
@@ -1423,10 +1438,17 @@
 															</td>
 															<td class="py-2.5 px-3 whitespace-nowrap">
 																{#if isTransRunning}
-																	<span class="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md bg-[#b23a2e]/10 text-[#b23a2e] dark:bg-[#e08a63]/15 dark:text-[#e08a63] font-mono text-[10px] font-semibold tracking-tight shadow-2xs">
-																		<Loader2 size={9} class="animate-spin shrink-0" />
-																		<span>LLM...</span>
-																	</span>
+																	{#if isRetrying}
+																		<span class="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md bg-amber-500/15 text-amber-700 dark:bg-amber-500/20 dark:text-amber-300 font-mono text-[10px] font-semibold tracking-tight shadow-2xs">
+																			<RefreshCw size={9} class="animate-spin shrink-0 text-amber-600 dark:text-amber-400" />
+																			<span>LLM (R{retryAttempt})...</span>
+																		</span>
+																	{:else}
+																		<span class="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md bg-[#b23a2e]/10 text-[#b23a2e] dark:bg-[#e08a63]/15 dark:text-[#e08a63] font-mono text-[10px] font-semibold tracking-tight shadow-2xs">
+																			<Loader2 size={9} class="animate-spin shrink-0" />
+																			<span>LLM...</span>
+																		</span>
+																	{/if}
 																{:else if transTiming?.status === 'completed'}
 																	<span class="inline-flex items-center gap-1 font-mono text-neutral-800 dark:text-neutral-200">
 																		<CheckCircle2 size={11} class="text-[#4f7a64] dark:text-[#83b39a] shrink-0" />
@@ -1451,10 +1473,17 @@
 															</td>
 															<td class="py-2.5 px-3 whitespace-nowrap">
 																{#if isCleanRunning}
-																	<span class="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md bg-[#b23a2e]/10 text-[#b23a2e] dark:bg-[#e08a63]/15 dark:text-[#e08a63] font-mono text-[10px] font-semibold tracking-tight shadow-2xs">
-																		<Loader2 size={9} class="animate-spin shrink-0" />
-																		<span>Inpaint...</span>
-																	</span>
+																	{#if isRetrying}
+																		<span class="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md bg-amber-500/15 text-amber-700 dark:bg-amber-500/20 dark:text-amber-300 font-mono text-[10px] font-semibold tracking-tight shadow-2xs">
+																			<RefreshCw size={9} class="animate-spin shrink-0 text-amber-600 dark:text-amber-400" />
+																			<span>Inpaint (R{retryAttempt})...</span>
+																		</span>
+																	{:else}
+																		<span class="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md bg-[#b23a2e]/10 text-[#b23a2e] dark:bg-[#e08a63]/15 dark:text-[#e08a63] font-mono text-[10px] font-semibold tracking-tight shadow-2xs">
+																			<Loader2 size={9} class="animate-spin shrink-0" />
+																			<span>Inpaint...</span>
+																		</span>
+																	{/if}
 																{:else if cleanTiming?.status === 'completed'}
 																	<span class="inline-flex items-center gap-1 font-mono text-neutral-800 dark:text-neutral-200">
 																		<CheckCircle2 size={11} class="text-[#4f7a64] dark:text-[#83b39a] shrink-0" />

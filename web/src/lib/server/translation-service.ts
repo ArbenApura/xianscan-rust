@@ -50,6 +50,7 @@ export interface JobEvent {
 	stepDetails?: StepTiming['details'];
 	durationMs?: number;
 	failedStep?: PipelineStep;
+	retryAttempt?: number;
 	outputPath?: string | null;
 	cleanedRev?: number;
 	outputRev?: number;
@@ -235,6 +236,9 @@ function updateSnapshot(snapshot: ChapterJobSnapshot, event: JobEvent): void {
 		if (step && p) {
 			p.status = 'processing';
 			p.currentStep = step;
+			const attempt = event.retryAttempt ?? (event.stepDetails?.retryAttempt as number | undefined);
+			p.retryAttempt = attempt;
+			p.isRetrying = typeof attempt === 'number' && attempt > 0;
 			p.timings[step] = {
 				step,
 				status: 'running',

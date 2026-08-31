@@ -149,6 +149,36 @@ describe('systemPrompt', () => {
 		expect(pTh).not.toContain('Thai SFX Taxonomy');
 		expect(pTh).toContain('Thai Webtoon Rules');
 	});
+
+	it('enforces universal pronoun anti-hedging and split-bubble person inheritance invariants', () => {
+		const p = systemPrompt('ja', 'en');
+		expect(p).toContain('Ban on Ambiguous Singular "They/Them"');
+		expect(p).toContain('Gender & Pronoun Locking');
+		expect(p).toContain('Direct Addressee & Split-Bubble Person Inheritance');
+		expect(p).toContain('Subject & Person Lock');
+		expect(p).toContain('Internal Thoughts');
+		expect(p).toContain('1-on-1 Passive Observations');
+	});
+
+	it('includes lexical gender anchors and passive transitivity in Japanese, Korean, and Chinese profiles', () => {
+		const pJa = systemPrompt('ja', 'en');
+		expect(pJa).toContain('Pro-Drop, Passive & Transitivity');
+		expect(pJa).toContain('Direct Address & Addressee Continuity');
+		expect(pJa).toContain('Self-Referential Character Titles');
+		expect(pJa).toContain('彼 (kare)');
+		expect(pJa).toContain('彼女 (kanojo)');
+
+		const pKo = systemPrompt('ko', 'en');
+		expect(pKo).toContain('Pro-Drop, Passive & Transitivity');
+		expect(pKo).toContain('Direct Address & Addressee Continuity');
+		expect(pKo).toContain('형 (hyung)');
+		expect(pKo).toContain('누나 (noona)');
+
+		const pZh = systemPrompt('zh-Hans', 'en');
+		expect(pZh).toContain('Direct Address & Addressee Continuity');
+		expect(pZh).toContain('师兄');
+		expect(pZh).toContain('师姐');
+	});
 });
 
 describe('glossaryBlock', () => {

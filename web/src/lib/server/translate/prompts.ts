@@ -22,7 +22,11 @@ export function getSourceLanguageProfile(src: string, tgtName: string): string {
 	const primary = src.split('-')[0].toLowerCase();
 	if (primary === 'ko') {
 		return `Korean Manhwa & Murim Rules:
-- Pro-Drop & Transitivity: Strictly distinguish intransitive states from causative actions (죽다 "to die/perish" vs 죽이다 "to kill" -> "많이 죽긴 했어" = "Too many died", not "I killed many").
+- Pro-Drop, Passive & Transitivity: Strictly distinguish intransitive/passive states from causative actions (죽다 "to die/perish" vs 죽이다 "to kill" -> "많이 죽긴 했어" = "Too many died", not "I killed many"; 인정받다 "to be recognized/acknowledged", 기대받다 "to have high hopes placed on one").
+- Direct Address & Addressee Continuity: When addressing someone with kinship/honorific titles (형/오빠/누나/언니/도련님/아가씨/당신/너), maintain consistent 2nd-person address ("you") across linked dialogue clauses.
+- Gender Clues & Lexical Anchors:
+  * Masculine: 형 (hyung), 오빠 (oppa), 도련님, 사형 (senior martial brother), 사제 (junior martial brother), 아저씨, 놈/자식 -> male (he/him).
+  * Feminine: 누나 (noona), 언니 (unnie), 아가씨, 사저 (senior martial sister), 사매 (junior martial sister), 성녀 (Holy Maiden), 그녀 -> female (she/her).
 - Conversational Invitations: Common social phrases like "밥이나 먹으러 ... 와" (come over for a meal/hang out) are casual invitations, not commercial restaurant references.
 - Murim & Organization Hierarchy:
   * Clans & Families: ~세가 (~世家, e.g. 남궁세가 -> Namgung Clan), ~가 (家, Clan), ~가장 (家莊, Clan Manor/Estate e.g. 유가장 -> Yu Clan Manor).
@@ -35,7 +39,12 @@ export function getSourceLanguageProfile(src: string, tgtName: string): string {
 
 	if (primary === 'ja') {
 		return `Japanese Manga & Light Novel Rules:
-- Pro-Drop & Transitivity: Strictly distinguish intransitive/passive verbs from transitive/causative actions (落ちる/落とす, 消える/消す, 死ぬ/殺す).
+- Pro-Drop, Passive & Transitivity: Strictly distinguish intransitive/passive verbs from transitive/causative actions (落ちる/落とす, 消える/消す, 死ぬ/殺す). Do not mistranslate passive observations (期待される/期待されてる "having expectations placed upon one", 頼りにされる "being relied upon") into active speaker desires ("I hope...").
+- Direct Address & Addressee Continuity: When addressing someone directly (あなたなら..., 君なら..., [Name]なら...), maintain 2nd-person ("you") across all subsequent predicate bubbles in the turn ("you might become...", not "he might become...").
+- Self-Referential Character Titles: When a character refers to themselves poetically in the 3rd person (e.g. このメルアリアを抱ける -> "wield/embrace me, Melaria"), recognize it as 1st-person self-reference ("me, Melaria" or "this Melaria of mine").
+- Gender Clues & Lexical Anchors:
+  * Masculine: 彼 (kare), 兄貴 (aniki), 坊主, ガキ, 爺さん, 旦那, おじさん, 野郎 -> male (he/him).
+  * Feminine: 彼女 (kanojo), 姉貴 (aneki), お嬢様, 娘, 婆さん, おばさん, 小娘 -> female (she/her).
 - Clan, School & Organization Terminology:
   * Clans & Lineage: ~一族 (~Ichizoku, Clan/Tribe), ~家 (~Family/Clan), 本家 (Honke, Main Family/Branch), 分家 (Bunke, Branch Family).
   * Martial Schools & Sects: ~流 (~Ryū, School/Style e.g. 神道流 -> Shintō-ryū), ~宗派 (~Shūha, Sect), ~道場 (Dōjō, Training Hall/Dojo), ~組 (~Gumi, Clan/Syndicate).
@@ -46,7 +55,11 @@ export function getSourceLanguageProfile(src: string, tgtName: string): string {
 
 	if (primary === 'zh') {
 		return `Chinese Manhua, Wuxia & Xianxia Rules:
-- Pro-Drop & Transitivity: Distinguish passive/intransitive states (died/broke) from active actions (killed/destroyed). Never convert an impersonal observation into a causative first-person action.
+- Pro-Drop & Transitivity: Distinguish passive/intransitive states (died/broke, 被/受) from active actions (killed/destroyed). Never convert an impersonal observation into a causative first-person action.
+- Direct Address & Addressee Continuity: When addressing someone directly (你, 阁下, 兄台, 姑娘, 道友), maintain 2nd-person ("you") throughout consecutive linked dialogue bubbles.
+- Gender Clues & Lexical Anchors:
+  * Masculine: 他 (ta), 师兄, 师弟, 少爷, 臭小子, 老夫, 壮士, 兄弟, 岳父, 伯父, 殿下 (prince/lord) -> male (he/him).
+  * Feminine: 她 (ta), 师姐, 师妹, 小姐, 丫头, 姑娘, 圣女, 仙子, 娘亲, 夫人, 嫂子 -> female (she/her).
 - Hanzi OCR Stroke Recovery: Correct common visually similar character stroke confusions (e.g. 拔↔拨, 己↔已↔巳, 崇↔祟, 治↔冶, 呜↔鸣, 未↔末, 刺↔剌) by inferring intended terms from story and martial context.
 - Names & Listings:
   * Separate 2-character names in multi-name sequences (e.g. "子龙童菲，张肥关鱼" -> "Zilong, Tong Fei, Zhang Fei, Guan Yu").
@@ -131,10 +144,13 @@ export function systemPrompt(src: string, tgt: string, _enableSfx = false): stri
 		`1. Target Language & Zero Leakage: ALL translations and context descriptions MUST be strictly in ${tgtName} (${tgt}). Never leave raw source characters (Hanzi/Hangul/Kanji/Cyrillic) in the output.`,
 		`2. Strict 1:1 Region Mapping: Every input region ID must have exactly one corresponding translation in the "translations" map. You must translate ALL input IDs: no more, no less. Never merge regions, split regions, or omit any region ID.`,
 		`3. Positive Identity & Pronoun Disambiguation:`,
-		`   - Primary (Glossary & Context): If a character or entity has an established gender in the Glossary ([masculine], [feminine]) or preceding dialogue, strictly maintain the matching pronouns (he/him, she/her) throughout their dialogue, thoughts, and third-person references.`,
+		`   - Ban on Ambiguous Singular "They/Them": NEVER use singular "they/them/their" as a hedge for an individual character. Reserve "they/them" strictly for plural groups, mobs, or multiple individuals.`,
+		`   - Gender & Pronoun Locking: Once a character or speaker's gender is established (via Glossary [masculine]/[feminine], honorifics, or preceding dialogue context), strictly maintain matching pronouns (he/him/his vs. she/her/hers) across all subsequent bubbles and pages. Never switch gender mid-scene.`,
+		`   - Direct Addressee & Split-Bubble Person Inheritance: When Character A addresses Character B (e.g. by name, "あなた/君", "너/당신", "你"), all subsequent clauses, praises, predictions, or evaluations within that speech turn MUST remain in natural second-person ("you/your"), never flipping to third-person ("he/she").`,
 		`   - Pro-Drop & Subject Resolution: In dialogue where the subject is omitted:`,
-		`     * If speaking directly to another character in the scene -> use natural second-person ("you").`,
-		`     * If expressing internal thoughts, intentions, or own actions -> use first-person ("I").`,
+		`     * Internal Thoughts ([Thought] regions) -> resolve zero-subject as first-person ("I / me / my") or direct self-talk ("you"), never generic third-person.`,
+		`     * Direct Face-to-Face Dialogue -> resolve zero-subject imperative, questions, or address as second-person ("you").`,
+		`     * 1-on-1 Passive Observations (e.g. "期待されてる", "見られてる") -> resolve the active party directly to their established gender ("She expects so much of me!", "He's watching me!"), not generic "They".`,
 		`     * If describing an ongoing scene -> resolve the subject from the active scene context rather than defaulting to generic pronouns.`,
 		`   - Baby & Child References: When characters refer to or scold an infant/child, use natural direct address ("you little rascal", "look at you") or familial phrasing ("the baby", "the little one", "she/he"). Never use stilted singular "they/them" for affectionate family interactions.`,
 		`4. Spoken Comic Register & Bubble Geometry:`,
@@ -144,6 +160,7 @@ export function systemPrompt(src: string, tgt: string, _enableSfx = false): stri
 		`   - When a continuous sentence spans multiple consecutive speech bubbles:`,
 		`     * Place trailing ellipses (...) on the preceding bubble.`,
 		`     * Begin the succeeding bubble in lowercase continuation without repeating subjects or conjunctions.`,
+		`     * Subject & Person Lock: Succeeding continuation bubbles MUST maintain the exact same grammatical person, subject, and tone established in the preceding bubble.`,
 		`6. Mandatory Glossary Adherence (Zero Deviation):`,
 		`   - The project Glossary provided in the system messages contains authoritative terminology overrides. Whenever a source term (or its alias) appears in dialogue, you MUST use its EXACT specified target translation verbatim. Never substitute with dictionary synonyms, alternate spellings, or grammatical variations.`,
 		`7. Semantic Noise Rejection (OCR Typo & Scream Recovery):`,

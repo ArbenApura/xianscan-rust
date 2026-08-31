@@ -730,15 +730,33 @@ export function tryVerticalSingleWordLayout(
 	// ONLY APPLY ON SHORT SINGLE WORDS (3 TO 12 LETTERS) TO AVOID OVERLY LONG/TINY VERTICAL STRINGS
 	if (letters.length < 3 || letters.length > 12) return null;
 
-	const cells = letters.split('');
-	if (lead) {
-		cells.unshift(lead);
-	}
-	// THE WHOLE TRAILING PUNCTUATION RUN ("!!", "??", "...", ".") FORMS ONE NEW LINE
-	// INSTEAD OF STACKING EACH TERMINAL CHARACTER AS ITS OWN TINY CELL ("W" / "!" / "!")
-	if (trail) {
-		cells.push(trail);
-	}
+	// EXPAND SYMBOLS AND PUNCTUATION INTO INDIVIDUAL VERTICAL CELLS
+	// (E.G. "..." -> ['.', '.', '.'], "...?" -> ['.', '.', '.', '?'])
+	const expandSymbols = (str: string): string[] => {
+		const out: string[] = [];
+		for (const ch of str) {
+			if (ch === '…') {
+				out.push('.', '.', '.');
+			} else if (ch === '‥') {
+				out.push('.', '.');
+			} else if (ch === '．') {
+				out.push('.');
+			} else if (ch === '！') {
+				out.push('!');
+			} else if (ch === '？') {
+				out.push('?');
+			} else if (ch === '～') {
+				out.push('~');
+			} else {
+				out.push(ch);
+			}
+		}
+		return out;
+	};
+
+	const leadCells = expandSymbols(lead);
+	const trailCells = expandSymbols(trail);
+	const cells = [...leadCells, ...letters.split(''), ...trailCells];
 
 	const horizSize = fitSingleLineSize(ctx, trimmed, fontFamily, maxW, maxH, maxCap, customCjk);
 

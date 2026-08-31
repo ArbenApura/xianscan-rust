@@ -8,4 +8,7 @@ mod page_pochita_body_double_lobe_split;
 mod page_pochita_double_lobe_lowres_parity;
 mod page_school_phone_rule_e_bubble;
 mod page_winner_life_tokyo_univ;
+mod page_who_decides_how_it_starts;
+mod page_born_thank_you_for_being_born;
+mod page_faster_more_basilisk_dragon_copy;
 

@@ -155,6 +155,7 @@ export interface StepTiming {
 		model?: string;
 		tokens?: number;
 		error?: string;
+		retryAttempt?: number;
 	};
 }
 
@@ -172,6 +173,8 @@ export interface PageProgressState {
 	outputPath?: string | null;
 	cleanedRev?: number;
 	outputRev?: number;
+	retryAttempt?: number;
+	isRetrying?: boolean;
 }
 
 export type PipelinePhase = 'phase1_analyze' | 'phase2_extract' | 'phase3_typeset' | 'completed';

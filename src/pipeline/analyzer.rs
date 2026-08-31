@@ -112,17 +112,21 @@ pub fn analyze_image_with_fusion_timed(
                 let iy = (pb.y + pb.h).min(b.y + b.h) - pb.y.max(b.y);
                 ix > 0 && iy > 0 && (ix * iy) as f32 / (b.w * b.h).max(1) as f32 >= 0.50
             });
-            let matching_subboxes_count = fusion_res.text_bubbles.iter().filter(|(sub_b, sub_score)| {
-                let is_distinct_col = (sub_b.x >= b.x + b.w / 2) || (sub_b.x + sub_b.w <= b.x + b.w / 2);
-                let is_distinct_row = (sub_b.y >= b.y + b.h / 3) || (sub_b.y + sub_b.h <= b.y + b.h * 2 / 3);
-                let is_bubble_split = inside_any_bubble && *sub_score >= 0.25;
-                (is_bubble_split || (*sub_score >= 0.45 && (is_distinct_col || is_distinct_row)))
-                    && sub_b.x >= b.x - 20
-                    && sub_b.y >= b.y - 20
-                    && (sub_b.x + sub_b.w) <= (b.x + b.w + 20)
-                    && (sub_b.y + sub_b.h) <= (b.y + b.h + 20)
-                    && (sub_b.w * sub_b.h) < (b.w * b.h * 9 / 10)
-            }).count();
+            let matching_subboxes_count = if inside_any_bubble {
+                fusion_res.text_bubbles.iter().filter(|(sub_b, sub_score)| {
+                    let is_distinct_col = (sub_b.x >= b.x + b.w * 2 / 5) || (sub_b.x + sub_b.w <= b.x + b.w * 3 / 5);
+                    let is_distinct_row = (sub_b.y >= b.y + b.h / 3) || (sub_b.y + sub_b.h <= b.y + b.h * 2 / 3);
+                    *sub_score >= 0.35
+                        && (is_distinct_col || is_distinct_row)
+                        && sub_b.x >= b.x - 20
+                        && sub_b.y >= b.y - 20
+                        && (sub_b.x + sub_b.w) <= (b.x + b.w + 20)
+                        && (sub_b.y + sub_b.h) <= (b.y + b.h + 20)
+                        && (sub_b.w * sub_b.h) < (b.w * b.h * 9 / 10)
+                }).count()
+            } else {
+                0
+            };
             if matching_subboxes_count >= 2 {
                 continue;
             }
@@ -140,9 +144,15 @@ pub fn analyze_image_with_fusion_timed(
             // IF THIS IS A PARTIAL VERTICAL SUB-BOX INSIDE A TALLER MULTI-LINE CONTAINER ON THE SAME COLUMN (WITHOUT MULTI-COLUMN SPLITS), SKIP THE PARTIAL SUB-BOX
             let is_vertical_subbox_redundancy = fusion_res.text_bubbles.iter().any(|(parent_b, parent_score)| {
                 let parent_is_composite = fusion_res.text_bubbles.iter().filter(|(sub_b, sub_score)| {
-                    let is_distinct_col = (sub_b.x >= parent_b.x + parent_b.w / 2) || (sub_b.x + sub_b.w <= parent_b.x + parent_b.w / 2);
+                    let is_distinct_col = (sub_b.x >= parent_b.x + parent_b.w * 2 / 5) || (sub_b.x + sub_b.w <= parent_b.x + parent_b.w * 3 / 5);
                     let is_distinct_row = (sub_b.y >= parent_b.y + parent_b.h / 3) || (sub_b.y + sub_b.h <= parent_b.y + parent_b.h * 2 / 3);
-                    (*sub_score >= 0.25 || (*sub_score >= 0.45 && (is_distinct_col || is_distinct_row)))
+                    let is_parent_bubble = fusion_res.bubbles.iter().any(|pb| {
+                        let ix = (pb.x + pb.w).min(parent_b.x + parent_b.w) - pb.x.max(parent_b.x);
+                        let iy = (pb.y + pb.h).min(parent_b.y + parent_b.h) - pb.y.max(parent_b.y);
+                        ix > 0 && iy > 0 && (ix * iy) as f32 / (parent_b.w * parent_b.h).max(1) as f32 >= 0.50
+                    });
+                    let is_bubble_split = is_parent_bubble && *sub_score >= 0.35 && (is_distinct_col || is_distinct_row);
+                    (is_bubble_split || (*sub_score >= 0.40 && (is_distinct_col || is_distinct_row)))
                         && sub_b.x >= parent_b.x - 20
                         && sub_b.y >= parent_b.y - 20
                         && (sub_b.x + sub_b.w) <= (parent_b.x + parent_b.w + 20)
@@ -150,7 +160,10 @@ pub fn analyze_image_with_fusion_timed(
                         && (sub_b.w * sub_b.h) < (parent_b.w * parent_b.h * 9 / 10)
                 }).count() >= 2;
 
+                let is_distinct_side_column = (parent_b.w as f32) >= b.w as f32 * 1.4 && ((b.x + b.w <= parent_b.x + parent_b.w * 3 / 5) || (b.x >= parent_b.x + parent_b.w * 2 / 5));
+
                 !parent_is_composite
+                    && !is_distinct_side_column
                     && parent_b != b
                     && *score <= *parent_score + 0.10
                     && parent_b.h >= b.h + 15

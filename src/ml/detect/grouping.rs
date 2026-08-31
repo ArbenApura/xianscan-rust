@@ -45,7 +45,9 @@ pub fn deduplicate_boxes(
             let overlap_ratio = if min_area > 0.0 { inter / min_area } else { 0.0 };
 
             // CHECK IF CURRENT CANDIDATE BOX ENCLOSES KEPT SUB-BOX (MACRO-CONTAINER VS SLICE)
-            let is_multi_line_container = h >= 1.20 * kh;
+            let is_multi_row_container = h >= 1.20 * kh;
+            let is_multi_col_container = kh >= kw && w >= 1.20 * kw && iy >= 0.65 * kh && iy >= 0.65 * h;
+            let is_multi_line_container = is_multi_row_container || is_multi_col_container;
             if is_multi_line_container && box_area >= 1.15 * karea && inter >= 0.65 * karea && (ix >= 0.65 * kw) && (iy >= 0.65 * kh) {
                 if score >= kept_scores[k] * 0.70 {
                     // CURRENT CANDIDATE IS A LARGER CONTAINER ENCLOSING THE SMALLER KEPT BOX WITH SUFFICIENT CONFIDENCE -> REPLACE
@@ -59,9 +61,10 @@ pub fn deduplicate_boxes(
             }
 
             // CHECK IF KEPT BOX ALREADY ENCLOSES CURRENT CANDIDATE BOX
-            let is_kbox_vert_container = kh >= 1.25 * h;
+            let is_kbox_vert_container = kh >= 1.25 * h && (kw - w).abs() <= 40.0;
             let is_kbox_horiz_container = kw >= 1.25 * w && iy >= 0.70 * h && iy >= 0.70 * kh;
-            let is_kbox_container = is_kbox_vert_container || is_kbox_horiz_container;
+            let is_kbox_multi_col_container = h >= w && kw >= 1.25 * w && ix >= 0.70 * w && iy >= 0.65 * h;
+            let is_kbox_container = is_kbox_vert_container || is_kbox_horiz_container || is_kbox_multi_col_container;
             if is_kbox_container && karea >= 1.25 * box_area && inter >= 0.70 * box_area && (ix >= 0.70 * w) && (iy >= 0.70 * h) {
                 // EXCEPTION: IF KEPT BOX IS A GIANT COVER TITLE / BANNER (KW >= 350PX) AND CURRENT CANDIDATE IS A SMALL CHAPTER SUBTITLE (H <= 35PX),
                 // DO NOT SUPPRESS THE DISTINCT CHAPTER SUBTITLE!

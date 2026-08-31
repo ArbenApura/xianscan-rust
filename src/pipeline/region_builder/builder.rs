@@ -36,12 +36,6 @@ pub fn build_regions(
     let inpaint_pct = inpaint_padding_pct.unwrap_or(0.03);
     let typeset_pct = typeset_padding_pct.unwrap_or(0.00);
     let mut regions: Vec<Region> = Vec::new();
-    if std::env::var("XIANSCAN_PROBE").is_ok() {
-        eprintln!("[PROBE-BOXES] dedup_boxes={:?}", dedup_boxes.iter().map(|cb| {
-            let (x, y, w, h) = crate::ml::geometry::box_to_xywh_f32(cb);
-            format!("({},{},{},{})", x as i32, y as i32, w as i32, h as i32)
-        }).collect::<Vec<_>>());
-    }
 
     // ORPHAN OCR LINES: LINES WHOSE CENTER LIES INSIDE NO CANDIDATE BOX. IF SUCH A LINE
     // SITS INSIDE A DETECTED SPEECH BUBBLE IT IS STILL THAT BUBBLE'S DIALOGUE (THE DETECTOR
@@ -143,14 +137,17 @@ pub fn build_regions(
         // IN NON-LATIN SCRIPT SOURCES (E.G. KOREAN, CJK), DROP OVERLAPPING PURE LATIN NOISE LINES AND DIGIT NOISE
         if crate::ml::detect::is_non_latin_source(source_lang) && matched.iter().any(|l| {
             let t = l.text.trim();
-            crate::ml::detect::has_native_script_for_lang(t, source_lang) || t.chars().any(|c| matches!(c, '！' | '？' | '!' | '?' | '…'))
+            crate::ml::detect::has_native_script_for_lang(t, source_lang)
         }) {
             matched.retain(|l| {
                 let t = l.text.trim();
-                let lacks_native = !crate::ml::detect::has_native_script_for_lang(t, source_lang);
+                let has_nat = crate::ml::detect::has_native_script_for_lang(t, source_lang);
+                if has_nat {
+                    return true;
+                }
                 let is_punct = t.chars().any(|c| matches!(c, '！' | '？' | '!' | '?' | '…'));
-                let is_pure_latin_word = lacks_native && !is_punct && t.chars().all(|c| c.is_ascii_alphabetic() || c.is_whitespace() || c.is_ascii_punctuation());
-                let is_noise_or_digit = lacks_native && !is_punct && (crate::ml::detect::is_standalone_digit_or_particle_noise(t) || crate::ml::detect::is_standalone_noise_stroke(t));
+                let is_pure_latin_word = !is_punct && t.chars().all(|c| c.is_ascii_alphabetic() || c.is_whitespace() || c.is_ascii_punctuation());
+                let is_noise_or_digit = !is_punct && (crate::ml::detect::is_standalone_digit_or_particle_noise(t) || crate::ml::detect::is_standalone_noise_stroke(t));
                 (!is_pure_latin_word && !is_noise_or_digit) || crate::ml::detect::is_onomatopoeia_or_shout(t)
             });
         }
@@ -232,6 +229,12 @@ pub fn build_regions(
                 orientation_filtered.retain(|l| l.score >= 0.60 || l.score >= max_score * 0.85);
             }
 
+            // SUPPRESS ISOLATED WATERMARK AND RESIDUE LINES
+            orientation_filtered.retain(|l| {
+                let t = l.text.trim();
+                !crate::ml::detect::is_pure_watermark_region(t)
+            });
+
             // IN NON-LATIN CONTAINERS, SUPPRESS PURE LATIN NOISE / CLOTHING PATTERN / DIGIT NOISE LINES
             let has_native_or_punct_line = orientation_filtered.iter().any(|l| {
                 let t = l.text.trim();
@@ -244,7 +247,12 @@ pub fn build_regions(
                     let is_punct = t.chars().any(|c| matches!(c, '！' | '？' | '!' | '?' | '…'));
                     let is_pure_latin_word = lacks_native && !is_punct && t.chars().all(|c| c.is_ascii_alphabetic() || c.is_whitespace() || c.is_ascii_punctuation());
                     let is_noise_or_digit = lacks_native && !is_punct && (crate::ml::detect::is_standalone_digit_or_particle_noise(t) || crate::ml::detect::is_standalone_noise_stroke(t));
-                    (!is_pure_latin_word && !is_noise_or_digit) || crate::ml::detect::is_onomatopoeia_or_shout(t)
+                    let is_garbled_latin_debris = {
+                        let non_nat = t.chars().filter(|c| c.is_ascii_alphabetic()).count();
+                        let nat = t.chars().filter(|c| crate::ml::detect::has_native_script_for_lang(&c.to_string(), source_lang)).count();
+                        non_nat >= 3 && non_nat >= nat * 2
+                    };
+                    (!is_pure_latin_word && !is_noise_or_digit && !is_garbled_latin_debris) || crate::ml::detect::is_onomatopoeia_or_shout(t)
                 });
             }
 
@@ -460,6 +468,7 @@ pub fn build_regions(
 
                 let mut active_line_polys: Vec<Vec<[i32; 2]>> = cluster_lines.iter().map(|l| l.polygon.clone()).collect();
                 let mut combined_text = format_lines_cluster(&cluster_lines, is_cjk, is_container_vert, sin_a, cos_a);
+                combined_text = crate::ml::detect::clean_stray_ocr_artifacts(&combined_text);
                 let mut avg_score = cluster_lines.iter().map(|l| l.score).sum::<f32>() / cluster_lines.len() as f32;
 
                 // COMPUTE TIGHT BOUNDS OF THIS CLUSTER

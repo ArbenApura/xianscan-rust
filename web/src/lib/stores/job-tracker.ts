@@ -176,6 +176,9 @@ function createJobTrackerStore() {
 			if (step && p) {
 				p.status = 'processing';
 				p.currentStep = step;
+				const attempt = (event.retryAttempt as number | undefined) ?? ((event.stepDetails as any)?.retryAttempt as number | undefined);
+				p.retryAttempt = attempt;
+				p.isRetrying = typeof attempt === 'number' && attempt > 0;
 				p.timings[step] = {
 					step,
 					status: 'running',

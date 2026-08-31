@@ -560,7 +560,7 @@ export async function runChapterPipeline(
 	// -- PIPELINED EXECUTION: PROCESS PAGES CONCURRENTLY AS A STREAM -- //
 	emit({ type: 'phase-change', chapterId, phase: 'phase1_analyze' });
 
-	const analyzePage = async (page: Page, i: number): Promise<void> => {
+	const analyzePage = async (page: Page, i: number, attempt = 0): Promise<void> => {
 		const slot = slots[i];
 		if (slot.outcome !== undefined || deps.isPageCancelled?.(page.id)) return;
 		let activeStep: PipelineStep = 'analyze';
@@ -573,7 +573,15 @@ export async function runChapterPipeline(
 			db.update(pages).set({ status: 'processing', error: null }).where(eq(pages.id, page.id)).run();
 
 			// 1) ANALYZE — DETECT + OCR VIA THE SIDECAR
-			emit({ type: 'page-step-start', chapterId, page: i, pageId: page.id, step: 'analyze' });
+			emit({
+				type: 'page-step-start',
+				chapterId,
+				page: i,
+				pageId: page.id,
+				step: 'analyze',
+				retryAttempt: attempt > 0 ? attempt : undefined,
+				stepDetails: attempt > 0 ? { retryAttempt: attempt } : undefined,
+			});
 			const tAnalyze0 = performance.now();
 			const rawImage = readFileSync(join(deps.dataRoot, page.filePath));
 			const image = await ensureWebPBuffer(rawImage);
@@ -595,7 +603,7 @@ export async function runChapterPipeline(
 				step: 'analyze',
 				stepStatus: 'completed',
 				durationMs: tAnalyze,
-				stepDetails: { regionsCount: analyzed.regions.length },
+				stepDetails: { regionsCount: analyzed.regions.length, retryAttempt: attempt > 0 ? attempt : undefined },
 			});
 
 			signal.throwIfAborted();
@@ -603,7 +611,15 @@ export async function runChapterPipeline(
 
 			// 2) PERSIST REGIONS
 			activeStep = 'persist_regions';
-			emit({ type: 'page-step-start', chapterId, page: i, pageId: page.id, step: 'persist_regions' });
+			emit({
+				type: 'page-step-start',
+				chapterId,
+				page: i,
+				pageId: page.id,
+				step: 'persist_regions',
+				retryAttempt: attempt > 0 ? attempt : undefined,
+				stepDetails: attempt > 0 ? { retryAttempt: attempt } : undefined,
+			});
 			const enrichedStats = analyzed.stats
 				? {
 						...analyzed.stats,
@@ -644,7 +660,7 @@ export async function runChapterPipeline(
 
 			// STREAM: PROCEED TO TRANSLATE THIS PAGE THE MOMENT ITS ANALYZE FINISHES (NO WAITING FOR OTHER
 			// PAGES' OCR). THE LLM CALL ITSELF IS SERIALIZED PER BOOK INSIDE translatePagePipeline.
-			await translatePagePipeline(page, i);
+			await translatePagePipeline(page, i, attempt);
 		} catch (e) {
 			slots[i].failedStep = activeStep;
 			if (signal.aborted) {
@@ -656,7 +672,7 @@ export async function runChapterPipeline(
 		}
 	};
 
-	const translatePagePipeline = async (page: Page, i: number): Promise<void> => {
+	const translatePagePipeline = async (page: Page, i: number, attempt = 0): Promise<void> => {
 		const slot = slots[i];
 		const analyzed = slot.analyzed;
 		if (!analyzed || slot.outcome !== 'analyzed' || deps.isPageCancelled?.(page.id)) return;
@@ -692,7 +708,15 @@ export async function runChapterPipeline(
 			// TASK A: INPAINT (LOCAL ONNX COMPUTE)
 			const inpaintTask = (async () => {
 				activeInpaintSubStep = 'clean';
-				emit({ type: 'page-step-start', chapterId, page: i, pageId: page.id, step: 'clean' });
+				emit({
+					type: 'page-step-start',
+					chapterId,
+					page: i,
+					pageId: page.id,
+					step: 'clean',
+					retryAttempt: attempt > 0 ? attempt : undefined,
+					stepDetails: attempt > 0 ? { retryAttempt: attempt } : undefined,
+				});
 				const tClean0 = performance.now();
 				const cleaned =
 					cleanRegions.length > 0
@@ -713,6 +737,7 @@ export async function runChapterPipeline(
 					step: 'clean',
 					stepStatus: 'completed',
 					durationMs: tClean,
+					stepDetails: attempt > 0 ? { retryAttempt: attempt } : undefined,
 				});
 				return { cleaned, cleanPath };
 			})();
@@ -727,7 +752,15 @@ export async function runChapterPipeline(
 
 				if (sources.length > 0) {
 					activeTranslateSubStep = 'match_glossary';
-					emit({ type: 'page-step-start', chapterId, page: i, pageId: page.id, step: 'match_glossary' });
+					emit({
+						type: 'page-step-start',
+						chapterId,
+						page: i,
+						pageId: page.id,
+						step: 'match_glossary',
+						retryAttempt: attempt > 0 ? attempt : undefined,
+						stepDetails: attempt > 0 ? { retryAttempt: attempt } : undefined,
+					});
 					const dialogueContext = dialogueTracker.getContextWindow(page.seq);
 					const contextSourceText = dialogueContext.previousPages
 						.flatMap((p) => p.lines.map((l) => l.sourceText))
@@ -752,14 +785,22 @@ export async function runChapterPipeline(
 						pageId: page.id,
 						step: 'match_glossary',
 						stepStatus: 'completed',
-						stepDetails: { matchedCount: effectiveTerms.length },
+						stepDetails: { matchedCount: effectiveTerms.length, retryAttempt: attempt > 0 ? attempt : undefined },
 					});
 
 					pageAbortController.signal.throwIfAborted();
 					if (deps.isPageCancelled?.(page.id)) return byRegion;
 
 					activeTranslateSubStep = 'translate';
-					emit({ type: 'page-step-start', chapterId, page: i, pageId: page.id, step: 'translate' });
+					emit({
+						type: 'page-step-start',
+						chapterId,
+						page: i,
+						pageId: page.id,
+						step: 'translate',
+						retryAttempt: attempt > 0 ? attempt : undefined,
+						stepDetails: attempt > 0 ? { retryAttempt: attempt } : undefined,
+					});
 					const tTrans0 = performance.now();
 
 					const translated = await chainTranslate(async () => {
@@ -866,7 +907,15 @@ export async function runChapterPipeline(
 
 			// 4) WRITE TRANSLATIONS BACK TO REGION ROWS
 			activeStep = 'persist_translations';
-			emit({ type: 'page-step-start', chapterId, page: i, pageId: page.id, step: 'persist_translations' });
+			emit({
+				type: 'page-step-start',
+				chapterId,
+				page: i,
+				pageId: page.id,
+				step: 'persist_translations',
+				retryAttempt: attempt > 0 ? attempt : undefined,
+				stepDetails: attempt > 0 ? { retryAttempt: attempt } : undefined,
+			});
 			const seqById = new Map(analyzed.regions.map((r, idx) => [r.id, idx]));
 			db.transaction((tx) => {
 				for (const region of analyzed.regions) {
@@ -903,7 +952,15 @@ export async function runChapterPipeline(
 
 			// 6) TYPESET — RENDER TRANSLATIONS ONTO CANVAS
 			activeStep = 'typeset';
-			emit({ type: 'page-step-start', chapterId, page: i, pageId: page.id, step: 'typeset' });
+			emit({
+				type: 'page-step-start',
+				chapterId,
+				page: i,
+				pageId: page.id,
+				step: 'typeset',
+				retryAttempt: attempt > 0 ? attempt : undefined,
+				stepDetails: attempt > 0 ? { retryAttempt: attempt } : undefined,
+			});
 			const tType0 = performance.now();
 			const typesetRegions = analyzed.regions
 				.filter((r) => Boolean(byRegion.get(r.id)?.trim()))
@@ -936,7 +993,15 @@ export async function runChapterPipeline(
 
 			// 7) MARK DONE
 			activeStep = 'save_output';
-			emit({ type: 'page-step-start', chapterId, page: i, pageId: page.id, step: 'save_output' });
+			emit({
+				type: 'page-step-start',
+				chapterId,
+				page: i,
+				pageId: page.id,
+				step: 'save_output',
+				retryAttempt: attempt > 0 ? attempt : undefined,
+				stepDetails: attempt > 0 ? { retryAttempt: attempt } : undefined,
+			});
 			db.update(pages)
 				.set({
 					status: 'done',
@@ -1005,7 +1070,7 @@ export async function runChapterPipeline(
 
 	const analyzePageWithRetry = async (page: Page, i: number, attempt = 0): Promise<void> => {
 		try {
-			await analyzePage(page, i);
+			await analyzePage(page, i, attempt);
 		} catch (e: any) {
 			if (signal.aborted || deps.isPageCancelled?.(page.id)) {
 				if (signal.aborted) {

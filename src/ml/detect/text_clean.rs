@@ -43,7 +43,7 @@ pub static QUESTION_TAIL: LazyLock<Regex> = LazyLock::new(|| {
 });
 
 pub static NOISE_STROKES_RE: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(r"^(?:[0oO·•●○\s]{1,6}|[\s一1丨Il|二ニ]{1,2}|(?:しし|いい|ここ|くく|し|い|っ|ッ)|[1IlL|!/\\~][しいっッ]|[しいっッ][1IlL|!/\\~])$").unwrap()
+    Regex::new(r"^(?:[0oO·•●○\s]{1,6}|[\s一1丨Il|二ニ]{1,2}|(?:しし|いい|ここ|くく|し|い|っ|ッ)|[1IlL|!/\\~][しいっッ]|[しいっッ][1IlL|!/\\~]|[※＊†‡米])$").unwrap()
 });
 
 /// CHECK IF A GIVEN TEXT STRING IS ISOLATED NOISE OR SINGLE REPEATED STROKES
@@ -104,7 +104,7 @@ pub fn is_pure_watermark_region(text: &str) -> bool {
         return true;
     }
 
-    // Silence ellipsis with OCR tail noise (e.g. "(………)\n6", "……6", "…9")
+    // Silence ellipsis with OCR tail noise (e.g. "(………)\n6", "……6", "…9", "…...UIn")
     let dot_count = t.chars().filter(|&c| c == '…' || c == '.' || c == '·' || c == '。' || c == '‥' || c == '．').count();
     let is_digit_or_noise_residue = t.chars().all(|c| {
         c == '…'
@@ -126,6 +126,17 @@ pub fn is_pure_watermark_region(text: &str) -> bool {
             || c == 'o'
             || c == 'O'
             || c == '0'
+            || c == 'U'
+            || c == 'u'
+            || c == 'n'
+            || c == 'N'
+            || c == 'i'
+            || c == '!'
+            || c == '/'
+            || c == '\\'
+            || c == '~'
+            || c == '-'
+            || c == '_'
     });
     if dot_count >= 2 && is_digit_or_noise_residue {
         return true;
