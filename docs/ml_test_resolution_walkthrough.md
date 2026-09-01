@@ -10,7 +10,7 @@ This walkthrough guide tracks all test cases being compiled, their strict constr
 - **Language**: `zh_hans`
 - **Source Page ID**: `110249` (File: `uploads/2788/68089546-0d7f-4945-a4fd-8379df24e25a.webp`)
 - **Native Dimensions**: `827 x 1255`
-- **Status**: 📝 Test Case Compiled (Compilation Phase)
+- **Status**: ✅ Completed & Verified (Passing in full suite)
 - **Target Test File**: [`tests/regression/zh_hans/page_lightning_art_chen_fan_shock.rs`](file:///c:/Users/Admin/Desktop/xianscan-rust/tests/regression/zh_hans/page_lightning_art_chen_fan_shock.rs)
 - **Fixture Folder**: `tests/fixtures/private/zh_hans/page_lightning_art_chen_fan_shock/`
 
@@ -38,7 +38,7 @@ This walkthrough guide tracks all test cases being compiled, their strict constr
 - **Language**: `zh_hans`
 - **Source Page ID**: `110251` (File: `uploads/2788/95e6f262-8fb6-4040-86ad-b67bc10c7037.webp`)
 - **Native Dimensions**: `827 x 1256`
-- **Status**: 📝 Test Case Compiled (Compilation Phase)
+- **Status**: ✅ Completed & Verified (Passing in full suite)
 - **Target Test File**: [`tests/regression/zh_hans/page_classroom_evaluation_jiang_tanqiu.rs`](file:///c:/Users/Admin/Desktop/xianscan-rust/tests/regression/zh_hans/page_classroom_evaluation_jiang_tanqiu.rs)
 - **Fixture Folder**: `tests/fixtures/private/zh_hans/page_classroom_evaluation_jiang_tanqiu/`
 
@@ -69,7 +69,7 @@ This walkthrough guide tracks all test cases being compiled, their strict constr
 - **Language**: `zh_hans`
 - **Source Page ID**: `110245` (File: `uploads/2788/b11c962b-5661-4cda-94d2-73961c28baca.webp`)
 - **Native Dimensions**: `827 x 1785`
-- **Status**: 📝 Test Case Compiled (Compilation Phase)
+- **Status**: ✅ Completed & Verified (Passing in full suite)
 - **Target Test File**: [`tests/regression/zh_hans/page_zhou_tianhao_silent_spell_escape.rs`](file:///c:/Users/Admin/Desktop/xianscan-rust/tests/regression/zh_hans/page_zhou_tianhao_silent_spell_escape.rs)
 - **Fixture Folder**: `tests/fixtures/private/zh_hans/page_zhou_tianhao_silent_spell_escape/`
 
@@ -102,7 +102,7 @@ This walkthrough guide tracks all test cases being compiled, their strict constr
 - **Language**: `zh_hans`
 - **Source Page ID**: `110248` (File: `uploads/2788/a06edd33-eba0-4151-9ea6-fa216bb361a1.webp`)
 - **Native Dimensions**: `827 x 1942`
-- **Status**: 📝 Test Case Compiled (Compilation Phase)
+- **Status**: ✅ Completed & Verified (Passing in full suite)
 - **Target Test File**: [`tests/regression/zh_hans/page_small_pei_yuan_pill_watermark_collision.rs`](file:///c:/Users/Admin/Desktop/xianscan-rust/tests/regression/zh_hans/page_small_pei_yuan_pill_watermark_collision.rs)
 - **Fixture Folder**: `tests/fixtures/private/zh_hans/page_small_pei_yuan_pill_watermark_collision/`
 
