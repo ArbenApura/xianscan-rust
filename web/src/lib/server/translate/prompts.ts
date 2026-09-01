@@ -14,6 +14,7 @@ export interface RegionSource {
 	text: string;
 	kind?: string;
 	vertical?: boolean;
+	pos?: string;
 }
 
 // -- FUNCTIONS -- //
@@ -39,9 +40,10 @@ export function getSourceLanguageProfile(src: string, tgtName: string): string {
 
 	if (primary === 'ja') {
 		return `Japanese Manga & Light Novel Rules:
-- Pro-Drop, Passive & Transitivity: Strictly distinguish intransitive/passive verbs from transitive/causative actions (落ちる/落とす, 消える/消す, 死ぬ/殺す). Do not mistranslate passive observations (期待される/期待されてる "having expectations placed upon one", 頼りにされる "being relied upon") into active speaker desires ("I hope...").
-- Direct Address & Addressee Continuity: When addressing someone directly (あなたなら..., 君なら..., [Name]なら...), maintain 2nd-person ("you") across all subsequent predicate bubbles in the turn ("you might become...", not "he might become...").
+- Pro-Drop, Passive & Transitivity: Strictly distinguish intransitive/passive verbs from transitive/causative actions (落ちる/落とす, 消える/消す, 死ぬ/殺す). Do not mistranslate passive observations (期待される/期待されてる "having expectations placed upon one / how could anyone not expect great things", 頼りにされる "being relied upon") into active speaker desires ("I hope...").
+- Direct Address & Addressee Continuity: When addressing someone directly (あなたなら..., 君なら..., [Name]なら..., あなたは違います), maintain 2nd-person ("you/your") across ALL subsequent evaluation, praise, and prediction bubbles in the speech turn ("if you continue to grow...", "summoning such an entity at age seven...", not "he").
 - Self-Referential Character Titles: When a character refers to themselves poetically in the 3rd person (e.g. このメルアリアを抱ける -> "wield/embrace me, Melaria"), recognize it as 1st-person self-reference ("me, Melaria" or "this Melaria of mine").
+- Stutters & Trailing Accusative Particles: When an emotional stammer ends with an accusative/case particle (e.g. "ア…アリアを…" -> "P-possess... Aria...?" / "A-Aria...?"), localize it as a flustered reaction rather than a cold isolated noun.
 - Gender Clues & Lexical Anchors:
   * Masculine: 彼 (kare), 兄貴 (aniki), 坊主, ガキ, 爺さん, 旦那, おじさん, 野郎 -> male (he/him).
   * Feminine: 彼女 (kanojo), 姉貴 (aneki), お嬢様, 娘, 婆さん, おばさん, 小娘 -> female (she/her).
@@ -146,7 +148,11 @@ export function systemPrompt(src: string, tgt: string, _enableSfx = false): stri
 		`3. Positive Identity & Pronoun Disambiguation:`,
 		`   - Ban on Ambiguous Singular "They/Them": NEVER use singular "they/them/their" as a hedge for an individual character. Reserve "they/them" strictly for plural groups, mobs, or multiple individuals.`,
 		`   - Gender & Pronoun Locking: Once a character or speaker's gender is established (via Glossary [masculine]/[feminine], honorifics, or preceding dialogue context), strictly maintain matching pronouns (he/him/his vs. she/her/hers) across all subsequent bubbles and pages. Never switch gender mid-scene.`,
-		`   - Direct Addressee & Split-Bubble Person Inheritance: When Character A addresses Character B (e.g. by name, "あなた/君", "너/당신", "你"), all subsequent clauses, praises, predictions, or evaluations within that speech turn MUST remain in natural second-person ("you/your"), never flipping to third-person ("he/she").`,
+		`   - Scene Monologue & Direct Address Scope: When a character (Speaker A) addresses or marvels at another character (Speaker B) in a 1-on-1 scene (e.g. "あなた/君", "あなたは違います", "あなたなら..."), ALL subsequent praises, assessments, and predictions in that speech turn MUST remain in the second person ("you / your"), NOT third person ("he / she"). Never flip to "he/she" simply because downstream bubbles lack an explicit "you" or are separated by other visual panels.`,
+		`   - Interleaved Speech vs. Inner Monologue Streams: When a scene alternates between an external speaker's monologue (formal/narrative speech evaluating abilities or status) and a listener's inner thoughts (informal reactions, panic, or realizations):`,
+		`     * The external speaker's stream MUST remain strictly in 2nd person ("you / your"), praising or evaluating the listener directly ("Summoning such an entity at age seven...", "If you continue to grow..."). Do NOT let the listener's interspersed 1st-person thoughts cause the speaker's surrounding dialogue to flip into 3rd person ("he / she").`,
+		`     * Spoken praise/evaluation text without speech balloon borders (e.g. "天から授かった才能… 期待されるしかない…") belongs to the external speaker ("A heavenly talent... high expectations are only natural / how could anyone not expect great things from you?"), NOT the listener's internal voice.`,
+		`   - Floating Dialogue vs. Reaction Attribution: In close-up reaction panels, floating text without bubble borders continues the ongoing speaker's spoken monologue, whereas internal panic/SFX text belongs to the listener's internal thought (e.g. "This is bad...!!"). Never merge or attribute the speaker's dialogue to the listener, and never invert passive statements into active first-person wishes.`,
 		`   - Pro-Drop & Subject Resolution: In dialogue where the subject is omitted:`,
 		`     * Internal Thoughts ([Thought] regions) -> resolve zero-subject as first-person ("I / me / my") or direct self-talk ("you"), never generic third-person.`,
 		`     * Direct Face-to-Face Dialogue -> resolve zero-subject imperative, questions, or address as second-person ("you").`,
@@ -199,6 +205,9 @@ export function regionPayload(regions: RegionSource[]): string {
 	return JSON.stringify(
 		regions.map((r) => {
 			const item: Record<string, unknown> = { id: r.id, text: r.text };
+			if (r.pos) {
+				item.pos = r.pos;
+			}
 			if (r.kind && r.kind !== 'dialogue_bubble') {
 				item.kind = r.kind;
 			}

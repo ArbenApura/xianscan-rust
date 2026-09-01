@@ -154,7 +154,9 @@ describe('systemPrompt', () => {
 		const p = systemPrompt('ja', 'en');
 		expect(p).toContain('Ban on Ambiguous Singular "They/Them"');
 		expect(p).toContain('Gender & Pronoun Locking');
-		expect(p).toContain('Direct Addressee & Split-Bubble Person Inheritance');
+		expect(p).toContain('Scene Monologue & Direct Address Scope');
+		expect(p).toContain('Interleaved Speech vs. Inner Monologue Streams');
+		expect(p).toContain('Floating Dialogue vs. Reaction Attribution');
 		expect(p).toContain('Subject & Person Lock');
 		expect(p).toContain('Internal Thoughts');
 		expect(p).toContain('1-on-1 Passive Observations');
@@ -242,14 +244,16 @@ describe('glossaryBlock', () => {
 });
 
 describe('userPrompt', () => {
-	it('carries ids, text, kind, and vertical flags for regions', () => {
+	it('carries ids, text, kind, vertical, and pos flags for regions', () => {
 		const p = userPrompt([
-			{ id: 'r0', text: 'хрусть', kind: 'free_text' },
-			{ id: 'r1', text: '你好', kind: 'dialogue_bubble', vertical: true },
+			{ id: 'r0', text: 'хрусть', kind: 'free_text', pos: 'top-right' },
+			{ id: 'r1', text: '你好', kind: 'dialogue_bubble', vertical: true, pos: 'top-left' },
 		]);
 		expect(p).toContain('"id": "r0"');
 		expect(p).toContain('"text": "хрусть"');
 		expect(p).toContain('"kind": "free_text"');
+		expect(p).toContain('"pos": "top-right"');
+		expect(p).toContain('"pos": "top-left"');
 		expect(p).toContain('"vertical": true');
 		// Default 'dialogue_bubble' is omitted to save prompt tokens
 		expect(p).not.toContain('"kind": "dialogue_bubble"');

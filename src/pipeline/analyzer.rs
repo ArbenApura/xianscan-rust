@@ -536,7 +536,7 @@ pub fn analyze_image_with_fusion_timed(
 
     // Suppress spatial duplicate candidate boxes
     let (dedup_boxes, _) = deduplicate_boxes(&candidate_boxes, &candidate_scores, 0.40);
-    let order = sort_regions_top_to_bottom(&dedup_boxes, page_h as usize, 0.5);
+    let order = sort_regions_top_to_bottom(&dedup_boxes, page_h as usize, 0.5, source_lang);
     let stage2_duration_ms = t_stage2_start.elapsed().as_secs_f64() * 1000.0;
 
     // =========================================================================

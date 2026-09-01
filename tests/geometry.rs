@@ -116,3 +116,37 @@ fn test_pipeline_computes_angle_from_matched_ocr_lines() {
     let median_angle = line_angles[line_angles.len() / 2];
     assert!((median_angle - 9.2).abs() < 0.5);
 }
+
+/// # Geometry Test: Language-Aware Manga Reading Order Sorting
+///
+/// ## Purpose:
+/// Verifies that Japanese (`ja`) sorts candidate boxes in the same horizontal band
+/// from Right-to-Left (R2L), while other languages sort Left-to-Right (L2R).
+#[test]
+fn test_language_aware_reading_order_sorting() {
+    use xianscan_rust::ml::detect::sort_regions_top_to_bottom;
+
+    // Top row: Box 0 (Left, X=100..300, Y=100..200), Box 1 (Right, X=700..900, Y=100..200)
+    // Bottom row: Box 2 (Left, X=150..350, Y=600..700), Box 3 (Right, X=650..850, Y=600..700)
+    let b0 = vec![[100.0, 100.0], [300.0, 100.0], [300.0, 200.0], [100.0, 200.0]];
+    let b1 = vec![[700.0, 100.0], [900.0, 100.0], [900.0, 200.0], [700.0, 200.0]];
+    let b2 = vec![[150.0, 600.0], [350.0, 600.0], [350.0, 700.0], [150.0, 700.0]];
+    let b3 = vec![[650.0, 600.0], [850.0, 600.0], [850.0, 700.0], [650.0, 700.0]];
+
+    let boxes = vec![b0, b1, b2, b3];
+
+    // Japanese Manga (`ja`): Top-Right (1) -> Top-Left (0) -> Bottom-Right (3) -> Bottom-Left (2)
+    let order_ja = sort_regions_top_to_bottom(&boxes, 1000, 0.5, Some("ja"));
+    assert_eq!(order_ja, vec![1, 0, 3, 2]);
+
+    // Korean / Chinese / English: Top-Left (0) -> Top-Right (1) -> Bottom-Left (2) -> Bottom-Right (3)
+    let order_ko = sort_regions_top_to_bottom(&boxes, 1000, 0.5, Some("ko"));
+    assert_eq!(order_ko, vec![0, 1, 2, 3]);
+
+    let order_zh = sort_regions_top_to_bottom(&boxes, 1000, 0.5, Some("zh-Hans"));
+    assert_eq!(order_zh, vec![0, 1, 2, 3]);
+
+    let order_en = sort_regions_top_to_bottom(&boxes, 1000, 0.5, Some("en"));
+    assert_eq!(order_en, vec![0, 1, 2, 3]);
+}
+

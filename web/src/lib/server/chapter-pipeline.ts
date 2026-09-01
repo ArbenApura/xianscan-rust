@@ -36,7 +36,7 @@ import type { AnalyzeResult, PipelineClient, PipelineRegion } from './pipeline-c
 import { db } from './db';
 import { chapters, pages, regions, translations, books, type Page } from './db/schema';
 import { translatePage, classifyRegionForTranslation } from './translate';
-import { ChapterDialogueTracker, parseKindFromBox, type PageDialogueRecord } from './translate/dialogue-tracker';
+import { ChapterDialogueTracker, computePositionTag, parseKindFromBox, type PageDialogueRecord } from './translate/dialogue-tracker';
 import { typesetPage, type TypesetOptions } from './typeset';
 import { detectSourceLanguage } from '$lib/languages';
 import { detectImageFormat, isAnimatedWebP } from './chapters/dimensions';
@@ -745,7 +745,13 @@ export async function runChapterPipeline(
 			// TASK B: TRANSLATE (GLOSSARY MATCH + LLM NETWORK I/O)
 			const sources = analyzed.regions
 				.filter((r) => r.text.trim().length > 0)
-				.map((r) => ({ id: r.id, text: r.text, kind: r.kind, vertical: r.vertical }));
+				.map((r) => ({
+					id: r.id,
+					text: r.text,
+					kind: r.kind,
+					vertical: r.vertical,
+					pos: computePositionTag(r.box),
+				}));
 
 			const translateTask = (async () => {
 				const byRegion = new Map<string, string>();

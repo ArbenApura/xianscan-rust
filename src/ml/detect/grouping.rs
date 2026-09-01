@@ -224,11 +224,23 @@ pub fn cluster_adjacent_sfx_boxes(
     result
 }
 
-/// Sort detected text regions top-to-bottom, grouping lines into horizontal rows.
-pub fn sort_regions_top_to_bottom(boxes: &[Vec<[f32; 2]>], _page_h: usize, row_tolerance: f32) -> Vec<usize> {
+/// Sort detected text regions in reading order (top-to-bottom bands; right-to-left for Japanese, left-to-right otherwise).
+pub fn sort_regions_top_to_bottom(
+    boxes: &[Vec<[f32; 2]>],
+    _page_h: usize,
+    row_tolerance: f32,
+    source_lang: Option<&str>,
+) -> Vec<usize> {
     if boxes.is_empty() {
         return Vec::new();
     }
+
+    let is_r2l = source_lang
+        .map(|l| {
+            let p = l.split('-').next().unwrap_or(l).to_lowercase();
+            p == "ja"
+        })
+        .unwrap_or(false);
 
     let mut centers = Vec::new();
     for b in boxes {
@@ -269,7 +281,13 @@ pub fn sort_regions_top_to_bottom(boxes: &[Vec<[f32; 2]>], _page_h: usize, row_t
 
     let mut order = Vec::new();
     for mut row in rows {
-        row.sort_by(|&a, &b| centers[a].1.total_cmp(&centers[b].1));
+        if is_r2l {
+            // RIGHT-TO-LEFT FOR JAPANESE MANGA (X DESCENDING)
+            row.sort_by(|&a, &b| centers[b].1.total_cmp(&centers[a].1));
+        } else {
+            // LEFT-TO-RIGHT FOR WESTERN COMICS / MANHWA / MANHUA (X ASCENDING)
+            row.sort_by(|&a, &b| centers[a].1.total_cmp(&centers[b].1));
+        }
         order.extend(row);
     }
 

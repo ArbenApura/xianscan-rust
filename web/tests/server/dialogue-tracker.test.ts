@@ -5,6 +5,7 @@ import { beforeEach, describe, expect, it } from 'vitest';
 // IMPORTED MODULES
 import {
 	ChapterDialogueTracker,
+	computePositionTag,
 	formatDialogueContextBlock,
 	getDbDialogueContext,
 	getRegionKindLabel,
@@ -254,3 +255,47 @@ describe('getDbDialogueContext', () => {
 		expect(ctx.previousPages[ctx.previousPages.length - 1].lines[0].sourceText).toBe('Ch1 P1 text');
 	});
 });
+
+describe('computePositionTag & Dialogue Context Position Formatting', () => {
+	it('computes 3x3 quadrant position tags from bounding box and page dimensions', () => {
+		// Top-Right: X=700..900, Y=50..200 on 1000x1000 page (cx=0.8, cy=0.125)
+		expect(computePositionTag({ x: 700, y: 50, w: 200, h: 150 }, 1000, 1000)).toBe('top-right');
+
+		// Top-Left: X=50..250, Y=50..200 on 1000x1000 page (cx=0.15, cy=0.125)
+		expect(computePositionTag({ x: 50, y: 50, w: 200, h: 150 }, 1000, 1000)).toBe('top-left');
+
+		// Top-Center: X=450..550, Y=50..200 on 1000x1000 page (cx=0.5, cy=0.125)
+		expect(computePositionTag({ x: 450, y: 50, w: 100, h: 150 }, 1000, 1000)).toBe('top');
+
+		// Mid-Right: X=700..900, Y=400..550 on 1000x1000 page (cx=0.8, cy=0.475)
+		expect(computePositionTag({ x: 700, y: 400, w: 200, h: 150 }, 1000, 1000)).toBe('mid-right');
+
+		// Bottom-Left: X=50..250, Y=750..900 on 1000x1000 page (cx=0.15, cy=0.825)
+		expect(computePositionTag({ x: 50, y: 750, w: 200, h: 150 }, 1000, 1000)).toBe('bottom-left');
+
+		// Bottom-Right: X=700..900, Y=750..900 on 1000x1000 page (cx=0.8, cy=0.825)
+		expect(computePositionTag({ x: 700, y: 750, w: 200, h: 150 }, 1000, 1000)).toBe('bottom-right');
+	});
+
+	it('formats dialogue context lines with region kinds and position tags', () => {
+		const ctx: DialogueContextWindow = {
+			previousPages: [
+				{
+					pageSeq: 0,
+					isTranslated: true,
+					lines: [
+						{ id: 'r0', sourceText: 'あなたなら...', translatedText: "If it's you...", kind: 'dialogue_bubble', pos: 'top-right' },
+						{ id: 'r1', sourceText: '大器になるかも', translatedText: 'You might grow great', kind: 'dialogue_bubble', pos: 'top-left' },
+						{ id: 'r2', sourceText: '期待されてる...', translatedText: 'She expects so much', kind: 'thought', pos: 'mid' },
+					],
+				},
+			],
+		};
+
+		const formatted = formatDialogueContextBlock(ctx);
+		expect(formatted).toContain('- [Bubble | top-right] "あなたなら..." → "If it\'s you..."');
+		expect(formatted).toContain('- [Bubble | top-left] "大器になるかも" → "You might grow great"');
+		expect(formatted).toContain('- [Thought | mid] "期待されてる..." → "She expects so much"');
+	});
+});
+

@@ -17,6 +17,7 @@ export interface DialogueLine {
 	sourceText: string; // RAW OCR TEXT
 	translatedText?: string; // LOCALIZED TEXT ONCE AVAILABLE
 	kind?: string; // "dialogue_bubble" | "thought" | "free_text" | "sfx" | "other"
+	pos?: string; // "top-right" | "top-left" | "mid" | "bottom"
 }
 
 export interface PageDialogueRecord {
@@ -33,6 +34,38 @@ export interface DialogueContextWindow {
 }
 
 // -- FUNCTIONS -- //
+
+// COMPUTE SPATIAL POSITION TAG (E.G. 'top-right', 'top-left', 'mid', 'bottom') FROM BOX RECT
+export function computePositionTag(
+	box?: { x: number; y: number; w: number; h: number } | null,
+	pageW = 1000,
+	pageH = 1000,
+): string | undefined {
+	if (!box) return undefined;
+	const pw = pageW > 0 ? pageW : 1000;
+	const ph = pageH > 0 ? pageH : 1000;
+
+	const cx = (box.x + box.w / 2) / pw;
+	const cy = (box.y + box.h / 2) / ph;
+
+	let vert: 'top' | 'mid' | 'bottom';
+	if (cy < 0.35) {
+		vert = 'top';
+	} else if (cy > 0.65) {
+		vert = 'bottom';
+	} else {
+		vert = 'mid';
+	}
+
+	let horiz = '';
+	if (cx > 0.6) {
+		horiz = '-right';
+	} else if (cx < 0.4) {
+		horiz = '-left';
+	}
+
+	return `${vert}${horiz}`;
+}
 
 // MAP REGION KIND TO A CONCISE HUMAN-READABLE LABEL FOR THE LLM PROMPT
 export function getRegionKindLabel(kind?: string): RegionKindLabel {
@@ -64,6 +97,17 @@ export function parseKindFromBox(boxJson: string | null): string | undefined {
 	}
 }
 
+// PARSE POSITION TAG FROM REGION BOX JSON IF AVAILABLE
+export function parsePosFromBox(boxJson: string | null): string | undefined {
+	if (!boxJson) return undefined;
+	try {
+		const parsed = JSON.parse(boxJson);
+		return parsed.pos ?? computePositionTag(parsed);
+	} catch {
+		return undefined;
+	}
+}
+
 // FORMAT READ-ONLY DIALOGUE CONTEXT BLOCK FOR PROMPT INJECTION
 export function formatDialogueContextBlock(
 	context?: DialogueContextWindow | null,
@@ -85,10 +129,11 @@ export function formatDialogueContextBlock(
 		const displayedLines = page.lines.slice(-maxLinesPerPage);
 		const linesFormatted = displayedLines.map((l) => {
 			const label = getRegionKindLabel(l.kind);
+			const posTag = l.pos ? ` | ${l.pos}` : '';
 			if (l.translatedText) {
-				return `  - [${label}] "${l.sourceText}" → "${l.translatedText}"`;
+				return `  - [${label}${posTag}] "${l.sourceText}" → "${l.translatedText}"`;
 			}
-			return `  - [${label}] "${l.sourceText}"`;
+			return `  - [${label}${posTag}] "${l.sourceText}"`;
 		});
 
 		const pageLabel = page.isPriorChapter
@@ -128,7 +173,15 @@ export class ChapterDialogueTracker {
 	public recordOcr(
 		pageSeq: number,
 		pageId: number,
-		regionsData: { id: string; text: string; kind?: string }[],
+		regionsData: {
+			id: string;
+			text: string;
+			kind?: string;
+			box?: { x: number; y: number; w: number; h: number };
+			pos?: string;
+		}[],
+		pageW?: number,
+		pageH?: number,
 	): void {
 		const lines: DialogueLine[] = regionsData
 			.filter((r) => r.text && r.text.trim().length > 0)
@@ -136,6 +189,7 @@ export class ChapterDialogueTracker {
 				id: r.id,
 				sourceText: r.text.trim(),
 				kind: r.kind,
+				pos: r.pos ?? computePositionTag(r.box, pageW, pageH),
 			}));
 
 		this.pages.set(pageSeq, {
@@ -275,6 +329,7 @@ export function getDbDialogueContext(
 				sourceText: r.textSource.trim(),
 				translatedText: r.textTarget ? r.textTarget.trim() : undefined,
 				kind: parseKindFromBox(r.box),
+				pos: parsePosFromBox(r.box),
 			}));
 
 		if (lines.length === 0) continue; // SKIP SILENT / EMPTY PAGES
@@ -347,6 +402,7 @@ export function getDbDialogueContext(
 						sourceText: r.textSource.trim(),
 						translatedText: r.textTarget ? r.textTarget.trim() : undefined,
 						kind: parseKindFromBox(r.box),
+						pos: parsePosFromBox(r.box),
 					}));
 
 				if (lines.length === 0) continue;
