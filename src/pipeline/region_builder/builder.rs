@@ -126,6 +126,9 @@ pub fn build_regions(
                     if !orphan_claims[li] {
                         continue;
                     }
+                    if crate::ml::detect::is_repetitive_tabular_text(&l.text) || crate::ml::detect::is_standalone_table_cell(&l.text) {
+                        continue;
+                    }
                     if line_center_inside_box(&l.polygon, mb) {
                         matched.push(l);
                         orphan_claims[li] = false;
@@ -256,10 +259,12 @@ pub fn build_regions(
                 orientation_filtered.retain(|l| l.score >= 0.60 || l.score >= max_score * 0.85);
             }
 
-            // SUPPRESS ISOLATED WATERMARK AND RESIDUE LINES
+            // SUPPRESS ISOLATED WATERMARK, RESIDUE LINES, AND TABULAR NOISE LINES
             orientation_filtered.retain(|l| {
                 let t = l.text.trim();
                 !crate::ml::detect::is_pure_watermark_region(t)
+                    && !crate::ml::detect::is_repetitive_tabular_text(t)
+                    && !crate::ml::detect::is_standalone_table_cell(t)
             });
 
             // IN NON-LATIN CONTAINERS, SUPPRESS PURE LATIN NOISE / CLOTHING PATTERN / DIGIT NOISE LINES

@@ -134,9 +134,9 @@ pub fn deduplicate_and_unify_regions(
             let angle_diff = (r.angle - existing.angle).abs();
             let is_slanted_card_slice = r.bubble_box.is_none()
                 && existing.bubble_box.is_none()
-                && r.angle.abs() >= 6.0
-                && existing.angle.abs() >= 6.0
-                && angle_diff <= 5.0;
+                && r.angle.abs() >= 4.5
+                && existing.angle.abs() >= 4.5
+                && angle_diff <= 6.0;
 
             if is_slanted_card_slice {
                 let is_r_timestamp = crate::ml::detect::is_timestamp_or_date_line(clean_r);
@@ -205,16 +205,16 @@ pub fn deduplicate_and_unify_regions(
                     let font_scale = e_th.min(r_th).max(12.0);
 
                     let is_left_aligned = (e_min_u - r_min_u).abs() <= (font_scale * 0.80).max(18.0);
-                    let max_v_gap = if is_short_label {
+                    let max_v_gap = if u_overlap_ratio >= 0.20 || (is_left_aligned && u_overlap > 0.0) || u_gap <= 25.0 {
+                        (font_scale * 3.50).max(75.0)
+                    } else if is_short_label {
                         (font_scale * 0.90).max(20.0)
-                    } else if u_overlap_ratio >= 0.50 || (is_left_aligned && u_overlap > 0.0) {
-                        (font_scale * 1.50).max(36.0)
                     } else {
                         (font_scale * 1.15).max(25.0)
                     };
 
                     let is_adjacent_v = v_overlap > 0.0 || (v_gap <= max_v_gap);
-                    let is_aligned_u = u_overlap_ratio >= 0.20 || u_gap <= (font_scale * 0.90).max(18.0);
+                    let is_aligned_u = u_overlap_ratio >= 0.20 || u_gap <= (font_scale * 1.20).max(25.0) || is_left_aligned;
 
                     let is_multi_line_guard = (existing_lines_count >= 3 || r_lines_count >= 3) && v_gap >= (font_scale * 2.0).max(45.0);
 

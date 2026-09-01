@@ -14,6 +14,8 @@ mod page_korean_gamers_365_days_continuous;
 mod page_korean_scream_kkaaak_spiky_bubble;
 mod page_marrow_cleansing_exhale_sfx;
 mod page_meditating_martial_artist_vibration_sfx;
+mod page_omniscient_reader_chapter_view_counts;
+mod page_omniscient_reader_phone_chapter_list;
 mod page_one_chance_fuzzy_bubble;
 mod page_yuga_hand_seal_form_captions;
 mod page_patient_endoscopy_heartbeat_sfx;

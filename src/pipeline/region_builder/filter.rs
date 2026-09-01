@@ -58,6 +58,14 @@ pub fn should_reject_candidate_region(
         return true;
     }
 
+    // 3c. DROP REPETITIVE UI TABLES, CHAPTER LISTS, SPREADSHEET PROPS, AND DUPLICATE COUNTER BLOCKS
+    if !is_bubble && crate::ml::detect::is_repetitive_tabular_text(cleaned) {
+        return true;
+    }
+    if !is_bubble && crate::ml::detect::is_standalone_table_cell(cleaned) {
+        return true;
+    }
+
     // 3b. DROP STACKED DISPLAY CALLIGRAPHY COLUMNS (TECHNIQUE NAMES / TITLES LETTERED ONE GLYPH PER LINE)
     // STYLIZED BRUSH / OUTLINED LETTERING IS ALWAYS SEGMENTED AS ONE HUGE GLYPH PER OCR LINE,
     // WHILE REAL READING TEXT (NARRATION, CAPTIONS) CARRIES MULTIPLE GLYPHS PER LINE IN EVERY LANGUAGE.
@@ -83,9 +91,12 @@ pub fn should_reject_candidate_region(
     if is_bubble {
         let is_noise_or_digit = crate::ml::detect::is_standalone_digit_or_particle_noise(cleaned)
             || crate::ml::detect::is_standalone_noise_stroke(cleaned)
+            || crate::ml::detect::is_standalone_table_cell(cleaned)
             || cleaned.lines().all(|l| {
                 let lt = l.trim();
-                crate::ml::detect::is_standalone_noise_stroke(lt) || crate::ml::detect::is_standalone_digit_or_particle_noise(lt)
+                crate::ml::detect::is_standalone_noise_stroke(lt)
+                    || crate::ml::detect::is_standalone_digit_or_particle_noise(lt)
+                    || crate::ml::detect::is_standalone_table_cell(lt)
             });
         let is_cjk_garbage = is_cjk && avg_score < 0.70 && !crate::ml::detect::has_cjk_characters(cleaned) && !is_expressive_bubble_punct;
         if (cluster_rect.w <= tiny_bubble_w && cluster_rect.h <= tiny_bubble_h && (avg_score < 0.68 || is_noise_or_digit || is_cjk_garbage))

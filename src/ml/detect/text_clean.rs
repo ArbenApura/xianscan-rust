@@ -384,5 +384,115 @@ pub fn clean_ui_header_text(text: &str) -> String {
     text.to_string()
 }
 
+/// CHECK IF A GIVEN TEXT BLOCK REPRESENTS A REPETITIVE UI TABLE, CHAPTER LIST, OR DATA GRID PROP
+pub fn is_repetitive_tabular_text(text: &str) -> bool {
+    let t = text.trim();
+    if t.is_empty() {
+        return false;
+    }
+    let lines: Vec<&str> = t.lines().map(|l| l.trim()).filter(|l| !l.is_empty()).collect();
+    if lines.is_empty() {
+        return false;
+    }
+
+    // 1. ALL LINES IDENTICAL (E.G. "댓글:1\n댓글:1" OR "조회수:1\n조회수:1\n조회수:1")
+    if lines.len() >= 2 && lines.iter().all(|&l| l == lines[0]) {
+        return true;
+    }
+
+    // 2. HIGH PROPORTION OF DUPLICATE LINES IN MULTI-LINE BLOCK (>= 3 LINES)
+    if lines.len() >= 3 {
+        let mut counts = std::collections::HashMap::new();
+        for &l in &lines {
+            *counts.entry(l).or_insert(0usize) += 1;
+        }
+        let max_dup = counts.values().copied().max().unwrap_or(0);
+        if max_dup >= 3 && max_dup * 10 >= lines.len() * 6 {
+            return true;
+        }
+        let total_dups: usize = counts.values().filter(|&&c| c >= 2).sum();
+        if total_dups >= 4 && total_dups * 10 >= lines.len() * 7 {
+            return true;
+        }
+    }
+
+    // 3. REPEATED KEY-VALUE / COUNTER DELIMITER PATTERNS (E.G. LINES WITH ": <DIGITS>", ":1", "댓글:1", "조회수:1")
+    if lines.len() >= 3 {
+        let delimiter_lines = lines.iter().filter(|l| {
+            let s = l.trim();
+            if let Some(pos) = s.rfind(':').or_else(|| s.rfind('：')) {
+                let rest = s[pos + 1..].trim();
+                !rest.is_empty() && rest.chars().all(|c| c.is_ascii_digit() || c.is_whitespace() || c == 'T' || c == 't' || c == 'l' || c == 'I')
+            } else if let Some(pos) = s.rfind('|').or_else(|| s.rfind('│')) {
+                let rest = s[pos + 1..].trim();
+                !rest.is_empty() && rest.chars().any(|c| c.is_ascii_digit())
+            } else {
+                false
+            }
+        }).count();
+
+        if delimiter_lines >= 3 && delimiter_lines * 10 >= lines.len() * 7 {
+            return true;
+        }
+    }
+
+    // 4. REPEATED MULTI-CHARACTER SUBSTRING ACROSS >= 60% OF LINES IN A TALL LIST (>= 5 LINES)
+    if lines.len() >= 5 {
+        let mut ngram_counts = std::collections::HashMap::new();
+        for line in &lines {
+            let chars: Vec<char> = line.chars().filter(|c| !c.is_whitespace()).collect();
+            if chars.len() >= 2 {
+                let mut seen_in_line = std::collections::HashSet::new();
+                for w in chars.windows(2) {
+                    let s: String = w.iter().collect();
+                    if !s.chars().all(|c| c.is_ascii_punctuation()) && seen_in_line.insert(s.clone()) {
+                        *ngram_counts.entry(s).or_insert(0usize) += 1;
+                    }
+                }
+                if chars.len() >= 3 {
+                    for w in chars.windows(3) {
+                        let s: String = w.iter().collect();
+                        if !s.chars().all(|c| c.is_ascii_punctuation()) && seen_in_line.insert(s.clone()) {
+                            *ngram_counts.entry(s).or_insert(0usize) += 1;
+                        }
+                    }
+                }
+            }
+        }
+        for (_ngram, count) in ngram_counts {
+            if count >= 4 && count * 10 >= lines.len() * 6 {
+                return true;
+            }
+        }
+    }
+
+    false
+}
+
+/// CHECK IF A SHORT LINE IS A STANDALONE TABLE CELL COUNTER / METRIC DEBRIS
+pub fn is_standalone_table_cell(text: &str) -> bool {
+    let t = text.trim();
+    if t.is_empty() {
+        return true;
+    }
+    if t.chars().count() <= 10 {
+        // 1. Colon + counter (e.g. "댓글:1", "조회수:1", "것글:1", ":1", ":T")
+        if let Some(pos) = t.rfind(':').or_else(|| t.rfind('：')) {
+            let rest = t[pos + 1..].trim();
+            if !rest.is_empty() && rest.chars().all(|c| c.is_ascii_digit() || c == 'T' || c == 't' || c == 'l' || c == 'I' || c == '조' || c == '회') {
+                return true;
+            }
+        }
+        // 2. Standalone chapter / view / metric index (e.g. "열람3125화", "열람11작쪽", "조회수1", "Ch.12", "Vol.3")
+        let is_metric_cell = (t.starts_with("열람") || t.starts_with("조회") || t.starts_with("댓글") || t.starts_with("Ch.") || t.starts_with("Vol."))
+            && t.chars().any(|c| c.is_ascii_digit());
+        if is_metric_cell {
+            return true;
+        }
+    }
+    false
+}
+
+
 
 
