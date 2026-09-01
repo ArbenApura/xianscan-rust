@@ -321,11 +321,12 @@ pub fn should_reject_candidate_region(
         return true;
     }
 
-    // 21. SUPPRESS SPARSE GIANT NON-BUBBLE DETECTIONS
+    // 21. SUPPRESS SPARSE GIANT NON-BUBBLE DETECTIONS (E.G. STYLIZED COVER / CHAPTER TITLE CALLIGRAPHY)
     let is_sparse_giant_non_bubble = !is_bubble
-        && (((cluster_rect.w >= (page_w as f32 * 0.30).max(220.0) as i32 && cluster_rect.h >= (ref_dim * 0.15).max(130.0) as i32) && cleaned.chars().filter(|c| !c.is_whitespace()).count() <= 3)
-            || (cluster_rect.h >= (ref_dim * 0.25).max(250.0) as i32 && cluster_rect.w >= 100 && cleaned.chars().filter(|c| !c.is_whitespace()).count() <= 2)
-            || (cluster_rect.h >= (ref_dim * 0.30).max(300.0) as i32 && cleaned.chars().filter(|c| !c.is_whitespace()).count() <= 3 && angle_deg.abs() >= 10.0));
+        && (((cluster_rect.w >= (page_w as f32 * 0.30).max(220.0) as i32 && cluster_rect.h >= (ref_dim * 0.15).max(130.0) as i32) && char_count <= 3)
+            || ((cluster_rect.w >= (page_w as f32 * 0.40).max(300.0) as i32 && cluster_rect.h >= (ref_dim * 0.15).max(130.0) as i32) && char_count <= 4)
+            || (cluster_rect.h >= (ref_dim * 0.25).max(250.0) as i32 && cluster_rect.w >= 100 && char_count <= 2)
+            || (cluster_rect.h >= (ref_dim * 0.30).max(300.0) as i32 && char_count <= 3 && angle_deg.abs() >= 10.0));
     if is_sparse_giant_non_bubble {
         return true;
     }
