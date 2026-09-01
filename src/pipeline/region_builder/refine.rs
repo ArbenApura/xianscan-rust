@@ -62,17 +62,24 @@ pub fn try_refine_cluster_crop(
         && !crate::ml::detect::has_cjk_characters(combined_text)
         && combined_text.chars().any(|c| c.is_ascii_alphabetic());
     let is_clean_expressive_punct = is_combined_pure_punct && avg_score >= 0.70;
-    let can_refine_crop = (is_bubble || is_container_wider || is_container_taller || is_short_text_partial || is_standalone_alphanumeric_risk || is_corrupted_latin_in_bubble)
+    let single_char_count = combined_text.chars().filter(|c| !c.is_whitespace()).count();
+    let is_oversized_single = cluster_lines.len() == 1
+        && single_char_count <= 2
+        && (cluster_rect.w >= 80 || cluster_rect.h >= 100)
+        && avg_score < 0.75;
+    let can_refine_crop = (is_bubble || is_container_wider || is_container_taller || is_short_text_partial || is_standalone_alphanumeric_risk || is_corrupted_latin_in_bubble || is_oversized_single)
         && (cluster_rect.w >= 16 || box_rect.w >= 16)
         && (cluster_rect.h >= 16 || box_rect.h >= 16)
-        && (!full_page_is_complete || is_corrupted_latin_in_bubble)
+        && (!full_page_is_complete || is_corrupted_latin_in_bubble || is_oversized_single)
         && !is_clean_expressive_punct;
 
     if !can_refine_crop {
         return None;
     }
 
-    let target_rect = if is_bubble || (is_container_taller && cluster_lines.len() <= 2) || (is_container_wider && cluster_lines.len() <= 2) || (is_standalone_alphanumeric_risk && cluster_lines.len() <= 2) {
+    let target_rect = if is_oversized_single {
+        cluster_rect.clone()
+    } else if is_bubble || (is_container_taller && cluster_lines.len() <= 2) || (is_container_wider && cluster_lines.len() <= 2) || (is_standalone_alphanumeric_risk && cluster_lines.len() <= 2) {
         BoxRect {
             x: cluster_rect.x.min(box_rect.x),
             y: cluster_rect.y.min(box_rect.y),
@@ -83,8 +90,16 @@ pub fn try_refine_cluster_crop(
         cluster_rect.clone()
     };
 
-    let pad_x = if is_container_vert { 8 } else { 16 };
-    let pad_y = if is_container_vert { 16 } else { 8 };
+    let pad_x = if is_container_vert {
+        if is_oversized_single { 0 } else { 8 }
+    } else {
+        16
+    };
+    let pad_y = if is_container_vert {
+        if is_oversized_single { 0 } else { 16 }
+    } else {
+        8
+    };
     let crop_x = (target_rect.x - pad_x).max(0) as u32;
     let crop_y = (target_rect.y - pad_y).max(0) as u32;
     let crop_w = ((target_rect.w + pad_x * 2) as u32).min(page_w - crop_x);

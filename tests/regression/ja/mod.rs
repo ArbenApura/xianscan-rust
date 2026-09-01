@@ -11,4 +11,5 @@ mod page_winner_life_tokyo_univ;
 mod page_who_decides_how_it_starts;
 mod page_born_thank_you_for_being_born;
 mod page_faster_more_basilisk_dragon_copy;
+mod page_seven_year_old_summoner_talent;
 

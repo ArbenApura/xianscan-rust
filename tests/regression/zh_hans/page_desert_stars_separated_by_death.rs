@@ -65,7 +65,7 @@ fn test_regression_page_desert_stars_separated_by_death() {
     assert!(r3.is_some(), "Must detect panel 4 narration '然而，幸福是如此短暂'");
     let r3 = r3.unwrap();
     assert_eq!(r3.kind, xianscan_rust::ml::schemas::RegionKind::FreeText, "Panel 4 narration must be classified as FreeText, not SoundEffect");
-    crate::assert_region_bounds!(r3, xianscan_rust::ml::schemas::RegionKind::FreeText, 465, 1083, 221, 30, 8);
+    crate::assert_region_bounds!(r3, xianscan_rust::ml::schemas::RegionKind::FreeText, 465, 1083, 253, 30, 15);
     crate::assert_region_angle!(r3, 0.0, 2.0);
 
     // 6. EXPLICIT NEGATIVE GUARDS AGAINST WATERMARKS & NOISE

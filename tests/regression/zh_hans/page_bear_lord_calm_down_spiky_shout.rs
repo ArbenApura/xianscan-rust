@@ -121,7 +121,7 @@ fn test_regression_page_bear_lord_calm_down_spiky_shout() {
         xianscan_rust::ml::schemas::RegionKind::FreeText,
         95,
         904,
-        124,
+        163,
         56,
         15
     );

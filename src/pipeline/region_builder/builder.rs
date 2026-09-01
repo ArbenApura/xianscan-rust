@@ -582,7 +582,7 @@ pub fn build_regions(
                     // CONTAINER-BOUNDARY EXPANSION ONLY FOR SINGLE-UTTERANCE CONTAINERS:
                     // A SPLIT MULTI-UTTERANCE CONTAINER MUST KEEP PER-CLUSTER TIGHT BOUNDS
                     // SO SIBLING REGIONS DO NOT OVERLAP INTO CONTAINMENT-DROP AT DEDUP.
-                    let max_horiz_pad = if is_container_vert || is_detector_vert { 60 } else { 30 };
+                    let max_horiz_pad = if is_container_vert || is_detector_vert { (box_rect.w as f32 * 0.85).clamp(60.0, 160.0) as i32 } else { 45 };
                     if container_is_single_utterance && (box_rect.x + box_rect.w) > max_x && (box_rect.x + box_rect.w - max_x) <= max_horiz_pad && min_x >= box_rect.x - 25 {
                         max_x = max_x.max(box_rect.x + box_rect.w);
                     }
@@ -657,8 +657,15 @@ pub fn build_regions(
                     ]
                 };
 
-                let matched_bubble_final = if matched_bubble.is_some() {
-                    matched_bubble.cloned()
+                let matched_bubble_final = if let Some(mb) = matched_bubble {
+                    let f_area = (final_box_rect.w * final_box_rect.h).max(1);
+                    let ix = (final_box_rect.x + final_box_rect.w).min(mb.x + mb.w) - final_box_rect.x.max(mb.x);
+                    let iy = (final_box_rect.y + final_box_rect.h).min(mb.y + mb.h) - final_box_rect.y.max(mb.y);
+                    if ix > 0 && iy > 0 && ((ix * iy) as f32 / f_area as f32 >= 0.55) {
+                        Some(mb.clone())
+                    } else {
+                        None
+                    }
                 } else {
                     let f_area = (final_box_rect.w * final_box_rect.h).max(1);
                     bubbles.iter().find(|b| {
@@ -676,7 +683,7 @@ pub fn build_regions(
                 let final_kind = if matched_bubble_final.is_some() {
                     RegionKind::DialogueBubble
                 } else {
-                    kind
+                    RegionKind::FreeText
                 };
 
                 let bubble_box = matched_bubble_final;

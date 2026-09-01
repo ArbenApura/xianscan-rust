@@ -69,7 +69,7 @@ fn test_regression_page_pochita_double_lobe_lowres_parity() {
     assert!(un_ellipsis.is_some(), "Must detect town small 'うん……' bubble");
 
     // 5. TOWN TINY BUBBLE: 'そんで'
-    let sode_small = res.regions.iter().find(|r| r.text.contains("そんで") && r.box_.w < 80);
+    let sode_small = res.regions.iter().find(|r| r.text.contains("そんで") && !r.text.contains("この町") && r.box_.w < 80);
     assert!(sode_small.is_some(), "Must detect town small standalone bubble 'そんで'");
     let sode_small = sode_small.unwrap();
     crate::assert_region_bounds!(sode_small, xianscan_rust::ml::schemas::RegionKind::DialogueBubble, 247, 735, 48, 62, 8);
