@@ -57,7 +57,7 @@ fn test_regression_page_pochita_body_double_lobe_split() {
     assert!(pochita_if.is_some(), "Must detect double-lobe upper segment 'ポチタに それが できるん だったら'");
     let pochita_if = pochita_if.unwrap();
     assert!(!pochita_if.text.contains("俺の体"), "Upper segment must not absorb the left lobe");
-    crate::assert_region_bounds!(pochita_if, xianscan_rust::ml::schemas::RegionKind::DialogueBubble, 200, 471, 146, 114, 10);
+    crate::assert_region_bounds!(pochita_if, xianscan_rust::ml::schemas::RegionKind::DialogueBubble, 185, 471, 160, 114, 10);
     crate::assert_bubble_bounds!(pochita_if, 93, 429, 295, 332, 12);
 
     // 3. DOUBLE-LOBE LOWER SEGMENT (LEFT LOBE): '俺の体を ポチタに あげてー んだ…'

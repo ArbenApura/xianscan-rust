@@ -55,7 +55,8 @@ pub fn try_refine_cluster_crop(
     });
     let is_clean_single_line = cluster_lines.len() == 1 && avg_score >= 0.70 && !is_container_wider && !is_container_taller;
     let is_clean_dense_multiline = cluster_lines.len() >= 3 && avg_score >= 0.65 && (container_h as f32) <= (cluster_lines.len() as f32 * 32.0).max(cluster_rect.h as f32 * 1.35);
-    let full_page_is_complete = (is_clean_dense_multiline || is_clean_single_line) && !is_container_wider;
+    let is_lines_much_wider = (cluster_rect.w as f32) >= (container_w as f32 * 1.30);
+    let full_page_is_complete = (is_clean_dense_multiline || is_clean_single_line) && !is_container_wider && !is_lines_much_wider;
     let is_standalone_alphanumeric_risk = is_cjk && crate::ml::detect::is_standalone_alphanumeric_without_cjk(combined_text);
     let is_corrupted_latin_in_bubble = is_bubble
         && is_cjk

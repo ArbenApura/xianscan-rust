@@ -43,6 +43,9 @@ mod page_skeleton_ribs_cracking_sfx_zero_text;
 mod page_pirate_flag_east_wind_caption;
 mod page_pirate_flag_east_wind_lowres_parity;
 mod page_luffy_dagger_hmph_cheers;
+mod page_jiang_churan_car_relatives_lunch;
+mod page_chen_fan_ordinary_friend_split;
+mod page_cloud_mist_mountain_villa_split;
 
 
 

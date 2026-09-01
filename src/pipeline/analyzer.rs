@@ -100,6 +100,28 @@ pub fn analyze_image_with_fusion_timed(
                 return false;
             }
         }
+        if is_cjk && !line.text.contains('\n') && lw >= 180 {
+            let matched_bubbles: Vec<&crate::ml::schemas::BoxRect> = fusion_res.text_bubbles.iter().filter_map(|(tb, tb_score)| {
+                if *tb_score < 0.35 {
+                    return None;
+                }
+                let inter_x = (tb.x + tb.w).min(lx + lw) - tb.x.max(lx);
+                let inter_y = (tb.y + tb.h).min(ly + lh) - tb.y.max(ly);
+                if inter_x >= (tb.w as f32 * 0.50) as i32 && inter_y >= 10 {
+                    Some(tb)
+                } else {
+                    None
+                }
+            }).collect();
+            if matched_bubbles.len() >= 2 {
+                let tb1 = matched_bubbles[0];
+                let tb2 = matched_bubbles[1];
+                let horiz_dist = (tb1.x - tb2.x).abs();
+                if horiz_dist >= 80 && (lw as f32) >= (tb1.w + tb2.w) as f32 * 0.80 {
+                    return false;
+                }
+            }
+        }
         true
     }).collect();
 
@@ -267,11 +289,15 @@ pub fn analyze_image_with_fusion_timed(
                 // For horizontal text paragraphs (bw >= bh * 1.15), extend downwards or upwards to catch immediate row continuations
                 // (Only for multi-line paragraph continuation; do not merge single-line subtitles into large title headers where lh >= bh * 1.5, or across separate standalone single-line detector containers)
                 let is_subtitle_to_title = bh <= 35.0 && (lh as f32) >= bh * 1.50;
-                let is_separate_detector_box = bh <= 90.0 && fusion_res.text_bubbles.iter().chain(fusion_res.text_free.iter()).any(|(tb, _)| {
+                let is_separate_detector_box = fusion_res.text_bubbles.iter().chain(fusion_res.text_free.iter()).any(|(tb, _)| {
+                    let is_different_box = (tb.x - bx as i32).abs() > 15 || (tb.y - by as i32).abs() > 15;
+                    if !is_different_box {
+                        return false;
+                    }
                     let tb_iy = (tb.y + tb.h).min(ly + lh) - tb.y.max(ly);
                     let tb_ix = (tb.x + tb.w).min(lx + lw) - tb.x.max(lx);
                     tb_iy > 0 && tb_ix > 0 && (tb_ix * tb_iy) as f32 / (lw * lh).max(1) as f32 >= 0.40
-                        && (tb.y as f32 >= by + bh - 5.0 || by as f32 >= (tb.y + tb.h) as f32 - 5.0)
+                        && ((tb.y as f32 >= by + bh - 10.0 || by as f32 >= (tb.y + tb.h) as f32 - 10.0) || ((tb.x as f32 >= bx + bw - 10.0 || bx as f32 >= (tb.x + tb.w) as f32 - 10.0)))
                 });
                 let parent_bubble = fusion_res.bubbles.iter().find(|b| {
                     let ix = (bx + bw).min((b.x + b.w) as f32) - bx.max(b.x as f32);
@@ -314,10 +340,35 @@ pub fn analyze_image_with_fusion_timed(
                     let coverage_b = inter_area / b_area;
                     // Do not fuse an unassigned multi-line line if it is much wider than a vertical detector box and extends far outside
                     let is_cross_panel_sfx_bleed = (bh > bw * 1.5) && ((lw as f32) > bw * 2.0) && ((lx as f32) < bx - 30.0 || ((lx + lw) as f32) > bx + bw + 30.0);
+                    let overlaps_multiple_distinct_text_bubbles = {
+                        let matching_bubbles: Vec<&crate::ml::schemas::BoxRect> = fusion_res.text_bubbles.iter().filter_map(|(tb, tb_score)| {
+                            if *tb_score < 0.35 {
+                                return None;
+                            }
+                            let inter_x = (tb.x + tb.w).min(lx + lw) - tb.x.max(lx);
+                            let inter_y = (tb.y + tb.h).min(ly + lh) - tb.y.max(ly);
+                            if inter_x >= 20 && inter_y >= 10 {
+                                Some(tb)
+                            } else {
+                                None
+                            }
+                        }).collect();
+                        if matching_bubbles.len() >= 2 {
+                            let b1 = matching_bubbles[0];
+                            let b2 = matching_bubbles[1];
+                            (b1.x - b2.x).abs() >= 40 || (b1.y - b2.y).abs() >= 40
+                        } else {
+                            false
+                        }
+                    };
+
                     if !is_cross_panel_sfx_bleed && ((ix > 0.0 && iy > 0.0 && (coverage_l >= 0.25 || coverage_b >= 0.25)) || is_adjacent_trailing_row || is_adjacent_leading_row) {
                         overlaps_any = true;
+                        if overlaps_multiple_distinct_text_bubbles {
+                            continue;
+                        }
                         // IF DETECTOR BOX IS A PARTIAL SINGLE-LINE SLICE AND RAPID OCR DETECTED A LONGER SENTENCE ON THE SAME ROW
-                        let is_horiz_single_line = iy >= 0.40 * bh.min(lh as f32) && bh <= (lh as f32 * 1.6) && (lw as f32 >= bw * 1.05 || ix >= 0.25 * bw.min(lw as f32));
+                        let is_horiz_single_line = (bh <= 45.0 || (lh as f32) <= 45.0) && iy >= 0.40 * bh.min(lh as f32) && bh <= (lh as f32 * 1.6) && (lw as f32 >= bw * 1.05 || ix >= 0.25 * bw.min(lw as f32));
                         let is_vert_single_line = ix >= 0.40 * bw.min(lw as f32) && bw <= (lw as f32 * 1.6) && (lh as f32 >= bh * 1.05 || iy >= 0.25 * bh.min(lh as f32));
                         // IF DETECTOR BOX COVERS MULTI-LINE TEXT BUT MISSES THE BOTTOM-MOST LINE OR TOP-MOST EXTENSION
                         // GUARD: Do not expand into trailing pure-Latin OCR noise lines (e.g. clothing pattern HOSPITAL)

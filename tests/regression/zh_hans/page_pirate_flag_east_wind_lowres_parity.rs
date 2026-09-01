@@ -62,7 +62,7 @@ fn test_regression_page_pirate_flag_east_wind_lowres_parity() {
         xianscan_rust::ml::schemas::RegionKind::DialogueBubble,
         "Luffy speech must be classified as DialogueBubble"
     );
-    crate::assert_region_bounds!(luffy_what, xianscan_rust::ml::schemas::RegionKind::DialogueBubble, 359, 445, 108, 127, 12);
+    crate::assert_region_bounds!(luffy_what, xianscan_rust::ml::schemas::RegionKind::DialogueBubble, 359, 456, 108, 108, 12);
     crate::assert_bubble_bounds!(luffy_what, 338, 439, 140, 159, 12);
 
     // 5. FLAG-PANEL CAPTION: '吹的是东风。' (MUST BE DIALOGUEBUBBLE, ZERO TEXTURE NOISE)

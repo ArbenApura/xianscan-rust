@@ -332,16 +332,25 @@ pub fn deduplicate_and_unify_regions(
                                 continue;
                             }
                         } else {
-                            // Horizontal lines: left baseline difference must be small
+                            // Horizontal lines: left baseline difference and center difference must be small
+                            let r_line_count = r.text.lines().count().max(1) as f32;
+                            let e_line_count = existing.text.lines().count().max(1) as f32;
                             let left_delta = (rx - ex).abs();
                             let min_w = rw.min(ew);
-                            if left_delta > (min_w as f32 * 0.20).max(8.0) as i32 {
+                            if left_delta > (min_w as f32 * 0.12).max(10.0) as i32 {
                                 continue;
                             }
+                            if r_line_count >= 2.0 && e_line_count >= 2.0 {
+                                let center_delta = ((rx + rw / 2) - (ex + ew / 2)).abs();
+                                if center_delta > 18 {
+                                    continue;
+                                }
+                            }
 
-                            // Scale-proportional vertical gap check
+                            // Scale-proportional vertical gap check using per-line font height
+                            let font_line_h = (rh as f32 / r_line_count).min(eh as f32 / e_line_count);
                             let vert_gap = if ry >= ey + eh { ry - (ey + eh) } else if ey >= ry + rh { ey - (ry + rh) } else { 0 };
-                            let max_allowed_gap = (rh.min(eh) as f32 * 0.35).max(6.0) as i32;
+                            let max_allowed_gap = (font_line_h * 0.40).max(8.0) as i32;
                             if vert_gap > max_allowed_gap {
                                 continue;
                             }
