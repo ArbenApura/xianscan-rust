@@ -37,6 +37,28 @@ pub fn build_regions(
     let typeset_pct = typeset_padding_pct.unwrap_or(0.00);
     let mut regions: Vec<Region> = Vec::new();
 
+    // CLEAN TRAILING WATERMARK DEBRIS AND ADJUST LINE POLYGONS PROPORTIONALLY
+    let cleaned_split_lines: Vec<OcrLine> = split_lines
+        .iter()
+        .map(|l| {
+            let mut line = l.clone();
+            let (cleaned_text, keep_ratio) = crate::ml::detect::strip_trailing_watermark_debris(&line.text, source_lang);
+            if keep_ratio < 0.99 && keep_ratio > 0.10 {
+                line.text = cleaned_text;
+                if line.polygon.len() == 4 {
+                    let p0x = line.polygon[0][0] as f32;
+                    let p1x = line.polygon[1][0] as f32;
+                    let p2x = line.polygon[2][0] as f32;
+                    let p3x = line.polygon[3][0] as f32;
+                    line.polygon[1][0] = (p0x + (p1x - p0x) * keep_ratio).round() as i32;
+                    line.polygon[2][0] = (p3x + (p2x - p3x) * keep_ratio).round() as i32;
+                }
+            }
+            line
+        })
+        .collect();
+    let split_lines = &cleaned_split_lines;
+
     // ORPHAN OCR LINES: LINES WHOSE CENTER LIES INSIDE NO CANDIDATE BOX. IF SUCH A LINE
     // SITS INSIDE A DETECTED SPEECH BUBBLE IT IS STILL THAT BUBBLE'S DIALOGUE (THE DETECTOR
     // BOX MAY HUG ONLY ONE LOBE OF A STAGGERED BALLOON), SO THE FIRST BUBBLE-BACKED
@@ -574,7 +596,7 @@ pub fn build_regions(
                 let is_cluster_in_bubble = is_bubble_region || matched_bubble.is_some() || bubbles.iter().any(|b| {
                     let cx = cluster_rect.x + cluster_rect.w / 2;
                     let cy = cluster_rect.y + cluster_rect.h / 2;
-                    cx >= b.x && cx <= b.x + b.w && cy >= b.y && cy <= b.y + b.h
+                    cx > b.x + 8 && cx < b.x + b.w - 8 && cy > b.y + 8 && cy < b.y + b.h - 8
                 });
 
                 let cleaned = combined_text.trim().to_string();

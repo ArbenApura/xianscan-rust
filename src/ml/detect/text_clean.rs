@@ -493,6 +493,34 @@ pub fn is_standalone_table_cell(text: &str) -> bool {
     false
 }
 
+/// STRIP TRAILING NON-NATIVE SCANLATOR / SITE WATERMARK FRAGMENTS ATTACHED TO NATIVE LINES
+pub fn strip_trailing_watermark_debris(line_text: &str, source_lang: Option<&str>) -> (String, f32) {
+    let t = line_text.trim();
+    if t.is_empty() || !crate::ml::detect::is_non_latin_source(source_lang) {
+        return (line_text.to_string(), 1.0);
+    }
+    let native_count = t.chars().filter(|c| crate::ml::detect::has_native_script_for_lang(&c.to_string(), source_lang)).count();
+    if native_count == 0 {
+        return (line_text.to_string(), 1.0);
+    }
+
+    let chars: Vec<char> = t.chars().collect();
+    let total_chars = chars.len();
+    if let Some(idx) = chars.iter().rposition(|&c| crate::ml::detect::has_native_script_for_lang(&c.to_string(), source_lang) || matches!(c, '。' | '！' | '？' | '，' | '、' | '…' | '”' | '’' | '」' | '』' | '）' | ')')) {
+        let suffix: String = chars[idx + 1..].iter().collect();
+        let suffix_trimmed = suffix.trim_start_matches(|c| matches!(c, '·' | '.' | '_' | '-' | '|' | ' ' | '/' | '\\' | ':')).trim();
+        let is_latin_debris = !suffix_trimmed.is_empty()
+            && suffix_trimmed.chars().all(|c| c.is_ascii_alphanumeric() || c.is_ascii_punctuation())
+            && suffix_trimmed.chars().count() >= 2;
+        if is_latin_debris {
+            let clean_prefix: String = chars[..=idx].iter().collect();
+            let keep_ratio = (idx + 1) as f32 / total_chars as f32;
+            return (clean_prefix, keep_ratio);
+        }
+    }
+    (line_text.to_string(), 1.0)
+}
+
 
 
 

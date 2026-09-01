@@ -76,8 +76,28 @@ pub fn analyze_image_with_fusion_timed(
     let t_stage2_start = std::time::Instant::now();
     let mut candidate_boxes: Vec<Vec<[f32; 2]>> = Vec::new();
     let mut candidate_scores: Vec<f32> = Vec::new();
+    let cleaned_rapid_lines: Vec<crate::ml::ocr::OcrLine> = fusion_res
+        .rapid_lines
+        .iter()
+        .map(|l| {
+            let mut line = l.clone();
+            let (cleaned_text, keep_ratio) = crate::ml::detect::strip_trailing_watermark_debris(&line.text, source_lang);
+            if keep_ratio < 0.99 && keep_ratio > 0.10 {
+                line.text = cleaned_text;
+                if line.polygon.len() == 4 {
+                    let p0x = line.polygon[0][0] as f32;
+                    let p1x = line.polygon[1][0] as f32;
+                    let p2x = line.polygon[2][0] as f32;
+                    let p3x = line.polygon[3][0] as f32;
+                    line.polygon[1][0] = (p0x + (p1x - p0x) * keep_ratio).round() as i32;
+                    line.polygon[2][0] = (p3x + (p2x - p3x) * keep_ratio).round() as i32;
+                }
+            }
+            line
+        })
+        .collect();
     // Filter out wide composite multi-line OCR blocks when fine-grained column lines exist
-    let filtered_rapid_lines: Vec<&crate::ml::ocr::OcrLine> = fusion_res.rapid_lines.iter().filter(|line| {
+    let filtered_rapid_lines: Vec<&crate::ml::ocr::OcrLine> = cleaned_rapid_lines.iter().filter(|line| {
         if line.score < 0.50 {
             return false;
         }
@@ -493,6 +513,15 @@ pub fn analyze_image_with_fusion_timed(
                     is_vert_col && is_narrow && is_close_x && vert_coverage >= 0.70 && bh >= (lh as f32 * 1.5)
                 });
                 if is_furigana_satellite {
+                    continue;
+                }
+
+                // IN NON-LATIN / CJK COMICS, DO NOT RESCUE ISOLATED LATIN NOISE / CLOTHING CREASES / STRAY DIGITS OUTSIDE SPEECH BUBBLES
+                let is_non_latin = crate::ml::detect::is_non_latin_source(source_lang);
+                let lacks_native = !crate::ml::detect::has_native_script_for_lang(&line.text, source_lang);
+                let is_punct = line.text.chars().any(|c| matches!(c, '！' | '？' | '!' | '?' | '…' | '·' | '—' | '～' | '¿' | '¡'));
+                let is_isolated_latin_or_digit = is_non_latin && lacks_native && !is_punct && line.text.chars().count() <= 3 && !crate::ml::detect::is_onomatopoeia_or_shout(&line.text);
+                if is_isolated_latin_or_digit {
                     continue;
                 }
 

@@ -205,6 +205,11 @@ pub fn should_reject_candidate_region(
         return true;
     }
 
+    // 8b. SUPPRESS ISOLATED SINGLE-GLYPH NOISE OUTSIDE SPEECH BUBBLES
+    if !is_bubble && char_count == 1 && avg_score < 0.72 && !is_shout {
+        return true;
+    }
+
     // 10. SUPPRESS TRANSLUCENT AGGREGATOR WATERMARKS
     if is_cjk && !is_bubble && (cleaned == "数据" || cleaned == "集云" || cleaned == "集云数据") {
         return true;

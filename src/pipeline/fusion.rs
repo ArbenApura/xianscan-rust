@@ -159,6 +159,22 @@ pub fn fuse_detections(
     let (res_opt, detector_time_ms) = det_result?;
     let (mut rapid_lines, ocr_fullpage_time_ms) = ocr_result;
 
+    // STRIP TRAILING NON-NATIVE SCANLATOR / WATERMARK FRAGMENTS ATTACHED TO NATIVE OCR LINES
+    for line in &mut rapid_lines {
+        let (cleaned_text, keep_ratio) = crate::ml::detect::strip_trailing_watermark_debris(&line.text, source_lang);
+        if keep_ratio < 0.99 && keep_ratio > 0.10 {
+            line.text = cleaned_text;
+            if line.polygon.len() == 4 {
+                let p0x = line.polygon[0][0] as f32;
+                let p1x = line.polygon[1][0] as f32;
+                let p2x = line.polygon[2][0] as f32;
+                let p3x = line.polygon[3][0] as f32;
+                line.polygon[1][0] = (p0x + (p1x - p0x) * keep_ratio).round() as i32;
+                line.polygon[2][0] = (p3x + (p2x - p3x) * keep_ratio).round() as i32;
+            }
+        }
+    }
+
     let (comic_boxes, comic_scores, panels, bubbles, onomatopoeia, text_bubbles, text_free, backend) = match res_opt {
         Some(res) => (
             res.boxes,

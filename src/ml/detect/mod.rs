@@ -18,7 +18,7 @@ pub use lang::{
 };
 pub use text_clean::{
     clean_stray_ocr_artifacts, clean_ui_header_text, is_likely_watermark, is_mixed_script_debris, is_onomatopoeia_or_shout, is_pure_punctuation_only, is_pure_watermark_region, is_repetitive_tabular_text, is_standalone_noise_stroke, is_standalone_table_cell,
-    is_timestamp_or_date_line, is_watermark_line,
+    is_timestamp_or_date_line, is_watermark_line, strip_trailing_watermark_debris,
     ALL_ELLIPSIS, CHINESE_RE, ELLIPSIS_TAIL, EXCLAIM_TAIL, NOISE_STROKES_RE, PUNCT_ONLY, PUNCT_TAIL,
     QUESTION_TAIL, WATERMARK_RE,
 };
