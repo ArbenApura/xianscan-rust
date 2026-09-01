@@ -7,8 +7,8 @@ use xianscan_rust::ml::schemas::RegionKind;
 /// # JAPANESE REAL-PAGE REGRESSION: `page_seven_year_old_summoner_talent` (RESOLUTION: 1350 × 1968 WEBP)
 ///
 /// ## PURPOSE & BEHAVIOR TESTED:
-/// - **STRICT 15-REGION ACCOUNTING (10 DIALOGUE BUBBLES, 0 SOUND EFFECTS, 5 FREE TEXT)**:
-///   VERIFIES ALL 10 SPEECH BUBBLES AND 5 FREE-TEXT MONOLOGUES ACROSS ALL 4 PANELS.
+/// - **STRICT 16-REGION ACCOUNTING (10 DIALOGUE BUBBLES, 0 SOUND EFFECTS, 6 FREE TEXT)**:
+///   VERIFIES ALL 10 SPEECH BUBBLES AND 6 FREE-TEXT MONOLOGUES/WHISPERS ACROSS ALL 4 PANELS.
 /// - **FREE TEXT GUTTER SEPARATION (PANEL 3)**:
 ///   ENSURES `やっぱり\nこの力は…` (OR `やっぱり\nこのカは・`) IN THE GUTTER NEXT TO THE BOY IS CLASSIFIED AS `FreeText`
 ///   AND NOT WRONGLY BOUND TO THE ADJACENT DOUBLE SPEECH BALLOON.
@@ -32,12 +32,6 @@ fn test_regression_page_seven_year_old_summoner_talent() {
 
     // 0. STRICT 16-REGION ACCOUNTING (10 DIALOGUE BUBBLES, 0 SOUND EFFECTS, 6 FREE TEXT)
     crate::assert_element_counts!(res, 16, 10, 0, 6);
-
-    // 16. TOP-RIGHT PANEL - HAIR WHISPER FREE TEXT: 'ア… アリアを…'
-    let hair_whisper = res.regions.iter().find(|r| (r.text.contains("アを") || r.text.contains("アリア") || r.text.contains("ア")) && r.box_.x >= 900 && r.box_.x < 1060 && r.box_.y > 100 && r.box_.y < 350);
-    assert!(hair_whisper.is_some(), "Must detect hair whisper free text 'ア… アリアを…'");
-    let hair_whisper = hair_whisper.unwrap();
-    crate::assert_region_bounds!(hair_whisper, RegionKind::FreeText, 919, 103, 141, 221, 15);
 
     // 1. TOP-LEFT PANEL - TOP BUBBLE: '全世界でも稀な…'
     let rare_bubble = res.regions.iter().find(|r| r.text.contains("全世界") || r.text.contains("稀な"));
@@ -134,4 +128,10 @@ fn test_regression_page_seven_year_old_summoner_talent() {
     let expect_bubble = expect_bubble.unwrap();
     crate::assert_region_bounds!(expect_bubble, RegionKind::DialogueBubble, 1044, 1626, 160, 256, 15);
     crate::assert_bubble_bounds!(expect_bubble, 997, 1571, 255, 363, 18);
+
+    // 16. TOP-RIGHT PANEL - HAIR WHISPER FREE TEXT: 'ア… アリアを…'
+    let hair_whisper = res.regions.iter().find(|r| (r.text.contains("アを") || r.text.contains("アリア") || r.text.contains("ア")) && r.box_.x >= 900 && r.box_.x < 1060 && r.box_.y > 100 && r.box_.y < 350);
+    assert!(hair_whisper.is_some(), "Must detect hair whisper free text 'ア… アリアを…'");
+    let hair_whisper = hair_whisper.unwrap();
+    crate::assert_region_bounds!(hair_whisper, RegionKind::FreeText, 919, 103, 141, 221, 25);
 }

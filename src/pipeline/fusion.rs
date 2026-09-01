@@ -239,7 +239,30 @@ pub fn fuse_detections(
                 Some((min_y, max_y)) => Some((min_y.min(y1), max_y.max(y2))),
             }).map(|(min_y, max_y)| max_y - min_y).unwrap_or(0);
 
-            if is_cb_multiline && (internal_rapid_lines_count >= 3 || (internal_rapid_lines_count >= 2 && internal_rapid_span_h >= (cb_h * 3 / 4))) {
+            let mut internal_rapid_intervals = rapid_lines.iter().filter_map(|rl| {
+                let (rx, ry, rw, rh) = polygon_bounds(&rl.polygon);
+                let rc_x = rx + rw / 2;
+                let rc_y = ry + rh / 2;
+                let center_in = rc_x >= cb_x && rc_x <= cb_x + cb_w && rc_y >= cb_y && rc_y <= cb_y + cb_h;
+                let iou = box_iou_pts(cb, &rl.polygon);
+                if (center_in || iou >= 0.20) && rl.score >= 0.72 {
+                    Some((ry, ry + rh))
+                } else {
+                    None
+                }
+            }).collect::<Vec<_>>();
+            internal_rapid_intervals.sort_by_key(|k| k.0);
+            let mut has_internal_gap = false;
+            for pair in internal_rapid_intervals.windows(2) {
+                let gap = pair[1].0 - pair[0].1;
+                let min_h = (pair[0].1 - pair[0].0).min(pair[1].1 - pair[1].0);
+                if gap >= (min_h * 11 / 10).max(25) {
+                    has_internal_gap = true;
+                    break;
+                }
+            }
+
+            if is_cb_multiline && !has_internal_gap && (internal_rapid_lines_count >= 3 || (internal_rapid_lines_count >= 2 && internal_rapid_span_h >= (cb_h * 3 / 4))) {
                 ocr_det_matched[idx] = true;
                 continue;
             }

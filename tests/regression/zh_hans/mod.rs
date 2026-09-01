@@ -48,6 +48,7 @@ mod page_chen_fan_ordinary_friend_split;
 mod page_cloud_mist_mountain_villa_split;
 mod page_chuzhou_grandfather_granddaughter_intro;
 mod page_chuzhou_internal_energy_true_essence_watermark;
+mod page_rebirth_urban_cultivator_spiky_bubble;
 
 
 

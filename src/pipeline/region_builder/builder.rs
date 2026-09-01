@@ -512,7 +512,7 @@ pub fn build_regions(
                 };
 
                 angle_deg = if !cluster_lines.is_empty() && median_line_angle.abs() >= 1.5 {
-                    if median_line_angle.abs() < 3.5 && (box_angle == 0.0 || box_angle.abs() < 1.5) {
+                    if (median_line_angle.abs() < 4.0 && (box_angle == 0.0 || box_angle.abs() < 1.5)) || (matched_bubble.is_some() && median_line_angle.abs() < 4.5 && box_angle.abs() < 2.0) {
                         0.0
                     } else {
                         median_line_angle
@@ -548,7 +548,7 @@ pub fn build_regions(
                     c_max_x = c_max_x.max(lx + lw);
                     c_max_y = c_max_y.max(ly + lh);
                 }
-                let cluster_rect = BoxRect {
+                let mut cluster_rect = BoxRect {
                     x: c_min_x.max(0),
                     y: c_min_y.max(0),
                     w: (c_max_x - c_min_x).max(1),
@@ -590,6 +590,27 @@ pub fn build_regions(
                         active_line_polys = refined.active_line_polys;
                         is_container_vert = refined.is_container_vert;
                         angle_deg = refined.angle_deg;
+
+                        let mut r_min_x = i32::MAX;
+                        let mut r_min_y = i32::MAX;
+                        let mut r_max_x = i32::MIN;
+                        let mut r_max_y = i32::MIN;
+                        for poly in &active_line_polys {
+                            for p in poly {
+                                r_min_x = r_min_x.min(p[0]);
+                                r_min_y = r_min_y.min(p[1]);
+                                r_max_x = r_max_x.max(p[0]);
+                                r_max_y = r_max_y.max(p[1]);
+                            }
+                        }
+                        if r_min_x < r_max_x && r_min_y < r_max_y {
+                            cluster_rect = BoxRect {
+                                x: r_min_x.max(0),
+                                y: r_min_y.max(0),
+                                w: (r_max_x - r_min_x).max(1),
+                                h: (r_max_y - r_min_y).max(1),
+                            };
+                        }
                     }
                 }
 

@@ -420,11 +420,11 @@ pub fn is_repetitive_tabular_text(text: &str) -> bool {
     if lines.len() >= 3 {
         let delimiter_lines = lines.iter().filter(|l| {
             let s = l.trim();
-            if let Some(pos) = s.rfind(':').or_else(|| s.rfind('：')) {
-                let rest = s[pos + 1..].trim();
+            if let Some((idx, ch)) = s.char_indices().rev().find(|&(_, c)| c == ':' || c == '：') {
+                let rest = s[idx + ch.len_utf8()..].trim();
                 !rest.is_empty() && rest.chars().all(|c| c.is_ascii_digit() || c.is_whitespace() || c == 'T' || c == 't' || c == 'l' || c == 'I')
-            } else if let Some(pos) = s.rfind('|').or_else(|| s.rfind('│')) {
-                let rest = s[pos + 1..].trim();
+            } else if let Some((idx, ch)) = s.char_indices().rev().find(|&(_, c)| c == '|' || c == '│') {
+                let rest = s[idx + ch.len_utf8()..].trim();
                 !rest.is_empty() && rest.chars().any(|c| c.is_ascii_digit())
             } else {
                 false
@@ -477,8 +477,8 @@ pub fn is_standalone_table_cell(text: &str) -> bool {
     }
     if t.chars().count() <= 10 {
         // 1. Colon + counter (e.g. "댓글:1", "조회수:1", "것글:1", ":1", ":T")
-        if let Some(pos) = t.rfind(':').or_else(|| t.rfind('：')) {
-            let rest = t[pos + 1..].trim();
+        if let Some((idx, ch)) = t.char_indices().rev().find(|&(_, c)| c == ':' || c == '：') {
+            let rest = t[idx + ch.len_utf8()..].trim();
             if !rest.is_empty() && rest.chars().all(|c| c.is_ascii_digit() || c == 'T' || c == 't' || c == 'l' || c == 'I' || c == '1' || c == '조' || c == '회') {
                 return true;
             }

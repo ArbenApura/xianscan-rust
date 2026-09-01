@@ -66,7 +66,7 @@ pub fn try_refine_cluster_crop(
     let single_char_count = combined_text.chars().filter(|c| !c.is_whitespace()).count();
     let is_oversized_single = cluster_lines.len() == 1
         && single_char_count <= 2
-        && (cluster_rect.w >= 80 || cluster_rect.h >= 100)
+        && (cluster_rect.w >= 80 || cluster_rect.h >= 100 || (container_h >= 100 && container_h > container_w))
         && avg_score < 0.75;
     let can_refine_crop = (is_bubble || is_container_wider || is_container_taller || is_short_text_partial || is_standalone_alphanumeric_risk || is_corrupted_latin_in_bubble || is_oversized_single)
         && (cluster_rect.w >= 16 || box_rect.w >= 16)
@@ -79,7 +79,12 @@ pub fn try_refine_cluster_crop(
     }
 
     let target_rect = if is_oversized_single {
-        cluster_rect.clone()
+        BoxRect {
+            x: cluster_rect.x.min(box_rect.x),
+            y: cluster_rect.y.min(box_rect.y),
+            w: (cluster_rect.x + cluster_rect.w).max(box_rect.x + box_rect.w) - cluster_rect.x.min(box_rect.x),
+            h: (cluster_rect.y + cluster_rect.h).max(box_rect.y + box_rect.h) - cluster_rect.y.min(box_rect.y),
+        }
     } else if is_bubble || (is_container_taller && cluster_lines.len() <= 2) || (is_container_wider && cluster_lines.len() <= 2) || (is_standalone_alphanumeric_risk && cluster_lines.len() <= 2) {
         BoxRect {
             x: cluster_rect.x.min(box_rect.x),
