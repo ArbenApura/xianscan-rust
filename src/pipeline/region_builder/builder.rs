@@ -306,7 +306,8 @@ pub fn build_regions(
                         let nat = t.chars().filter(|c| crate::ml::detect::has_native_script_for_lang(&c.to_string(), source_lang)).count();
                         non_nat >= 3 && non_nat >= nat * 2
                     };
-                    (!is_pure_latin_word && !is_noise_or_digit && !is_garbled_latin_debris) || crate::ml::detect::is_onomatopoeia_or_shout(t)
+                    let is_single_letter_latin_debris = lacks_native && !is_punct && t.len() == 1 && t.chars().all(|c| c.is_ascii_alphabetic());
+                    (!is_pure_latin_word && !is_noise_or_digit && !is_garbled_latin_debris && !is_single_letter_latin_debris) || crate::ml::detect::is_onomatopoeia_or_shout(t)
                 });
             }
 
@@ -332,8 +333,9 @@ pub fn build_regions(
                 if clean_m.is_empty() {
                     continue;
                 }
+                let (stripped_text, _) = crate::ml::detect::strip_trailing_watermark_debris(clean_m, source_lang);
                 let mut clone_line = m.clone();
-                clone_line.text = clean_m.to_string();
+                clone_line.text = if stripped_text.trim().is_empty() { clean_m.to_string() } else { stripped_text };
                 sanitized_lines.push(clone_line);
             }
 

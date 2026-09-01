@@ -217,8 +217,9 @@ pub fn deduplicate_and_unify_regions(
                     let is_aligned_u = u_overlap_ratio >= 0.20 || u_gap <= (font_scale * 1.20).max(25.0) || is_left_aligned;
 
                     let is_multi_line_guard = (existing_lines_count >= 3 || r_lines_count >= 3) && v_gap >= (font_scale * 2.0).max(45.0);
+                    let is_distant_utterance_guard = v_gap >= (font_scale * 2.5).max(50.0) || (e_min_v - r_min_v).abs() >= 60.0 || (e_min_u - r_min_u).abs() >= 150.0;
 
-                    if is_adjacent_v && is_aligned_u && !is_multi_line_guard {
+                    if is_adjacent_v && is_aligned_u && !is_multi_line_guard && !is_distant_utterance_guard {
                         is_duplicate = true;
 
                         let mut min_u = e_min_u.min(r_min_u);

@@ -14,7 +14,7 @@ pub static CHINESE_RE: LazyLock<Regex> = LazyLock::new(|| {
 
 pub static WATERMARK_RE: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(
-        r"(?i)(\.com|\.net|\.org|\.cn|\.cc|\.xyz|\.top|\.me|\.tv|\.app|http|discord|scanlat|bilibili|速漫库|速漫|漫库|qumanku|quman|包子|baozimh|baozi|colamanga|colamanhua|colam|acloudmerge|acloud|loudmer|udmer|merd|oamanhua|merge|cloud|manga|manhua|comic|yumanhua|mangabox|comick|集云数据|集云|儿云数据|米古|咪咕|migu|米古动漫|腾讯[动漫慢机动初]*|腾[动漫慢机动初]{1,2}|阅文[集团]*|快[看刮](?:[漫慢]画|动漫|app|独家|首发)|微信|公众号|qq群|企鹅群|群号|严禁转载|独家(?:首发|连载|授权|发布|提供)|扫图|录入|修图|嵌字|翻译[:：]|翻译组|汉化组|免费漫画|最新免费|漫画网|看漫画网|首发|独家首发|漫客[栈拌祥]?|漫[客喜][栈拌祥]?|mkzhan|nga\.com|^[祥拌]$|澳[祥拌]?)"
+        r"(?i)(\.com|\.net|\.org|\.cn|\.cc|\.xyz|\.top|\.me|\.tv|\.app|http|discord|scanlat|bilibili|速漫库|速漫|漫库|qumanku|quman|包子|baozimh|baozi|colamanga|colamanhua|colam|acloudmerge|acloud|loudmer|udmer|merd|oamanhua|merge|cloud|manga|manhua|comic|yumanhua|mangabox|comick|集云数据|集云|儿云数据|米古|咪咕|migu|米古动漫|腾讯[动漫慢机动初]*|腾[动漫慢机动初]{1,2}|阅文[集团]*|快[看刮](?:[漫慢]画|动漫|app|独家|首发)|微信|公众号|qq群|企鹅群|群号|严禁转载|独家(?:首发|连载|授权|发布|提供)|扫图|录入|修图|嵌字|翻译[:：]|翻译组|汉化组|免费漫画|最新免费|漫画网|看漫画网|首发|独家首发|漫客[栈拌祥]?|漫[客喜][栈拌祥]?|mkzhan|nga\.com|^[祥拌]$|澳[祥拌]?|最快最稳|广告最少|观看，最快)"
     ).unwrap()
 });
 
@@ -196,7 +196,13 @@ pub fn is_onomatopoeia_or_shout(text: &str) -> bool {
         } else if chars.len() == 4 && chars[0] == chars[1] && chars[2] == chars[3] && chars.iter().all(|c| crate::ml::detect::has_cjk_characters(&c.to_string())) {
             true
         } else if chars.len() == 4 && chars[0] == chars[2] && chars[1] == chars[3] && chars[0] != chars[1] && chars.iter().all(|c| crate::ml::detect::has_cjk_characters(&c.to_string())) {
-            true
+            // Guard: Meaningful conversational action verbs/imperatives (e.g. "快走快走", "等等等等", "救命救命", "看看看看", "想想想想", "快点快点", "走吧走吧", "来吧来吧", "快跑快跑") are dialogue phrases, not sound effects
+            let s: String = chars.iter().collect();
+            if s.contains("快走") || s.contains("快跑") || s.contains("快点") || s.contains("救命") || s.contains("等等") || s.contains("看看") || s.contains("想想") || s.contains("走吧") || s.contains("来吧") {
+                false
+            } else {
+                true
+            }
         } else {
             false
         }
@@ -506,6 +512,14 @@ pub fn strip_trailing_watermark_debris(line_text: &str, source_lang: Option<&str
 
     let chars: Vec<char> = t.chars().collect();
     let total_chars = chars.len();
+    if t.contains('\n') {
+        let lines: Vec<&str> = t.lines().collect();
+        if lines.len() == 2 && crate::ml::detect::has_native_script_for_lang(lines[0], source_lang) && !crate::ml::detect::has_native_script_for_lang(lines[1], source_lang) {
+            let clean_prefix = lines[0].trim().to_string();
+            let keep_ratio = clean_prefix.chars().count() as f32 / total_chars as f32;
+            return (clean_prefix, keep_ratio);
+        }
+    }
     if let Some(idx) = chars.iter().rposition(|&c| crate::ml::detect::has_native_script_for_lang(&c.to_string(), source_lang) || matches!(c, '。' | '！' | '？' | '，' | '、' | '…' | '”' | '’' | '」' | '』' | '）' | ')')) {
         let suffix: String = chars[idx + 1..].iter().collect();
         let suffix_trimmed = suffix.trim_start_matches(|c| matches!(c, '·' | '.' | '_' | '-' | '|' | ' ' | '/' | '\\' | ':')).trim();

@@ -83,14 +83,24 @@ pub fn analyze_image_with_fusion_timed(
             let mut line = l.clone();
             let (cleaned_text, keep_ratio) = crate::ml::detect::strip_trailing_watermark_debris(&line.text, source_lang);
             if keep_ratio < 0.99 && keep_ratio > 0.10 {
+                let was_multiline = line.text.contains('\n');
                 line.text = cleaned_text;
                 if line.polygon.len() == 4 {
-                    let p0x = line.polygon[0][0] as f32;
-                    let p1x = line.polygon[1][0] as f32;
-                    let p2x = line.polygon[2][0] as f32;
-                    let p3x = line.polygon[3][0] as f32;
-                    line.polygon[1][0] = (p0x + (p1x - p0x) * keep_ratio).round() as i32;
-                    line.polygon[2][0] = (p3x + (p2x - p3x) * keep_ratio).round() as i32;
+                    if was_multiline {
+                        let p0y = line.polygon[0][1] as f32;
+                        let p1y = line.polygon[1][1] as f32;
+                        let p2y = line.polygon[2][1] as f32;
+                        let p3y = line.polygon[3][1] as f32;
+                        line.polygon[2][1] = (p1y + (p2y - p1y) * keep_ratio).round() as i32;
+                        line.polygon[3][1] = (p0y + (p3y - p0y) * keep_ratio).round() as i32;
+                    } else {
+                        let p0x = line.polygon[0][0] as f32;
+                        let p1x = line.polygon[1][0] as f32;
+                        let p2x = line.polygon[2][0] as f32;
+                        let p3x = line.polygon[3][0] as f32;
+                        line.polygon[1][0] = (p0x + (p1x - p0x) * keep_ratio).round() as i32;
+                        line.polygon[2][0] = (p3x + (p2x - p3x) * keep_ratio).round() as i32;
+                    }
                 }
             }
             line
@@ -105,8 +115,8 @@ pub fn analyze_image_with_fusion_timed(
         if (lw as f32) >= (page_w as f32 * 0.65) && lh >= 120 {
             return false;
         }
-        if is_cjk && line.text.contains('\n') && (lw as f32) >= lh as f32 * 0.85 {
-            let has_sub_lines = fusion_res.rapid_lines.iter().any(|other| {
+        if is_cjk && line.text.contains('\n') {
+            let has_sub_lines = cleaned_rapid_lines.iter().any(|other| {
                 if std::ptr::eq(other, *line) || other.text.contains('\n') {
                     return false;
                 }
@@ -154,7 +164,7 @@ pub fn analyze_image_with_fusion_timed(
                 let iy = (pb.y + pb.h).min(b.y + b.h) - pb.y.max(b.y);
                 ix > 0 && iy > 0 && (ix * iy) as f32 / (b.w * b.h).max(1) as f32 >= 0.50
             });
-            let is_giant_screen_prop = !inside_any_bubble && (b.h >= 300 && b.w >= 250) && *score < 0.35;
+            let is_giant_screen_prop = !inside_any_bubble && (b.h >= 300 && b.w >= 250) && *score <= 0.35;
             if is_giant_screen_prop {
                 continue;
             }
@@ -293,6 +303,28 @@ pub fn analyze_image_with_fusion_timed(
             if b.w as f32 >= (page_w as f32 * 0.65) && b.h >= 120 {
                 continue;
             }
+            let is_inside_bubble = fusion_res.bubbles.iter().any(|pb| {
+                let ix = (pb.x + pb.w).min(b.x + b.w) - pb.x.max(b.x);
+                let iy = (pb.y + pb.h).min(b.y + b.h) - pb.y.max(b.y);
+                ix > 0 && iy > 0 && (ix * iy) as f32 / (b.w * b.h).max(1) as f32 >= 0.50
+            });
+            let overlaps_sfx = !is_inside_bubble && fusion_res.onomatopoeia.iter().any(|(sfx_b, sfx_score)| {
+                if *sfx_score < 0.25 {
+                    return false;
+                }
+                let ix = (sfx_b.x + sfx_b.w).min(b.x + b.w) - sfx_b.x.max(b.x);
+                let iy = (sfx_b.y + sfx_b.h).min(b.y + b.h) - sfx_b.y.max(b.y);
+                if ix > 0 && iy > 0 {
+                    let inter_area = (ix * iy) as f32;
+                    let b_area = (b.w * b.h).max(1) as f32;
+                    inter_area / b_area >= 0.40 && *sfx_score >= *score - 0.10
+                } else {
+                    false
+                }
+            });
+            if overlaps_sfx {
+                continue;
+            }
             candidate_boxes.push(vec![
                 [b.x as f32, b.y as f32],
                 [(b.x + b.w) as f32, b.y as f32],
@@ -390,6 +422,15 @@ pub fn analyze_image_with_fusion_timed(
                     };
                     let char_count = line.text.chars().filter(|c| !c.is_whitespace()).count();
                     let is_giant_calligraphy_to_body = is_cjk && (lh as f32 >= 120.0 || (lw as f32 >= 350.0 && lh as f32 >= 80.0)) && char_count <= 4 && bh <= 200.0;
+                    let is_slanted_free_line = crate::ml::geometry::calculate_box_angle_i32(&line.polygon).abs() >= 8.0;
+                    let is_bubble_cb = fusion_res.bubbles.iter().any(|b| {
+                        let ix = (bx + bw).min((b.x + b.w) as f32) - bx.max(b.x as f32);
+                        let iy = (by + bh).min((b.y + b.h) as f32) - by.max(b.y as f32);
+                        ix > 0.0 && iy > 0.0 && (ix * iy) / (bw * bh).max(1.0) >= 0.50
+                    });
+                    if is_slanted_free_line && is_bubble_cb {
+                        continue;
+                    }
                     if !is_cross_panel_sfx_bleed && !is_giant_calligraphy_to_body && ((ix > 0.0 && iy > 0.0 && (coverage_l >= 0.25 || coverage_b >= 0.25)) || is_adjacent_trailing_row || is_adjacent_leading_row) {
                         overlaps_any = true;
                         if overlaps_multiple_distinct_text_bubbles {
@@ -417,16 +458,20 @@ pub fn analyze_image_with_fusion_timed(
                             && ((ly as f32) <= by + bh + 45.0);
 
                         if (is_horiz_single_line || is_vert_single_line || is_partial_vert_container || is_adjacent_trailing_row || is_adjacent_leading_row) && !is_trailing_latin_noise {
-                            let union_x = bx.min(lx as f32);
-                            let union_y = by.min(ly as f32);
-                            let union_w = (bx + bw).max((lx + lw) as f32) - union_x;
-                            let union_h = (by + bh).max((ly + lh) as f32) - union_y;
-                            *cb = vec![
-                                [union_x, union_y],
-                                [union_x + union_w, union_y],
-                                [union_x + union_w, union_y + union_h],
-                                [union_x, union_y + union_h],
-                            ];
+                            // GUARD: Do not expand a compact dialogue detector box if the line is slanted free-text or distant crowd reaction
+                            let is_slanted_line = crate::ml::geometry::calculate_box_angle_i32(&line.polygon).abs() >= 8.0;
+                            if !is_slanted_line {
+                                let union_x = bx.min(lx as f32);
+                                let union_y = by.min(ly as f32);
+                                let union_w = (bx + bw).max((lx + lw) as f32) - union_x;
+                                let union_h = (by + bh).max((ly + lh) as f32) - union_y;
+                                *cb = vec![
+                                    [union_x, union_y],
+                                    [union_x + union_w, union_y],
+                                    [union_x + union_w, union_y + union_h],
+                                    [union_x, union_y + union_h],
+                                ];
+                            }
                         }
                         break;
                     }
@@ -434,7 +479,10 @@ pub fn analyze_image_with_fusion_timed(
             }
             if !overlaps_any {
                 // DO NOT RESCUE LINE AS MISSED TEXT IF IT OVERLAPS DETECTED ONOMATOPOEIA (SFX)
-                let overlaps_sfx = fusion_res.onomatopoeia.iter().any(|(sfx_b, score)| {
+                let is_sentence_dialogue = crate::ml::detect::has_native_script_for_lang(&line.text, source_lang)
+                    && line.text.chars().filter(|c| !c.is_whitespace()).count() >= 3
+                    && !crate::ml::detect::is_onomatopoeia_or_shout(&line.text);
+                let overlaps_sfx = !is_sentence_dialogue && fusion_res.onomatopoeia.iter().any(|(sfx_b, score)| {
                     if *score < 0.20 {
                         return false;
                     }
@@ -471,7 +519,7 @@ pub fn analyze_image_with_fusion_timed(
                 }
 
                 // LAYOUT-ANCHORED RESCUE: CHECK IF THE OCR LINE IS ADJACENT TO ANY CONFIDENT DETECTED LAYOUT BOX (BUBBLE OR TEXT CANDIDATE)
-                let is_near_layout_anchor = fusion_res.bubbles.iter().chain(fusion_res.text_bubbles.iter().filter(|(_, s)| *s >= 0.40).map(|(b, _)| b)).chain(fusion_res.text_free.iter().filter(|(_, s)| *s >= 0.40).map(|(b, _)| b)).any(|b| {
+                let is_near_layout_anchor = fusion_res.bubbles.iter().chain(fusion_res.text_bubbles.iter().filter(|(_, s)| *s >= 0.25).map(|(b, _)| b)).chain(fusion_res.text_free.iter().filter(|(_, s)| *s >= 0.25).map(|(b, _)| b)).any(|b| {
                     let (bx, by, bw, bh) = (b.x as f32, b.y as f32, b.w as f32, b.h as f32);
                     let dx = (bx - (lx + lw) as f32).max((lx as f32) - (bx + bw)).max(0.0);
                     let dy = (by - (ly + lh) as f32).max((ly as f32) - (by + bh)).max(0.0);
@@ -494,8 +542,9 @@ pub fn analyze_image_with_fusion_timed(
                     }
                 });
                 if inside_bubble_panel && !is_near_layout_anchor {
-                    let is_native = crate::ml::detect::has_native_script_for_lang(&line.text, source_lang);
-                    if !is_native || line.text.chars().filter(|c| !c.is_whitespace()).count() < 2 || line.score < 0.70 {
+                    let is_dialogue_utterance = line.text.chars().count() >= 4
+                        && (line.text.contains('！') || line.text.contains('？') || line.text.contains('!') || line.text.contains('?'));
+                    if !is_dialogue_utterance {
                         continue;
                     }
                 }
@@ -521,12 +570,11 @@ pub fn analyze_image_with_fusion_timed(
                     continue;
                 }
 
-                // IN NON-LATIN / CJK COMICS, DO NOT RESCUE ISOLATED LATIN NOISE / CLOTHING CREASES / STRAY DIGITS OUTSIDE SPEECH BUBBLES
+                // IN NON-LATIN / CJK COMICS, DO NOT RESCUE ISOLATED LATIN NOISE / CLOTHING CREASES / STRAY DIGITS OR FOREIGN SFX SCRIPT OUTSIDE SPEECH BUBBLES
                 let is_non_latin = crate::ml::detect::is_non_latin_source(source_lang);
                 let lacks_native = !crate::ml::detect::has_native_script_for_lang(&line.text, source_lang);
                 let is_punct = line.text.chars().any(|c| matches!(c, '！' | '？' | '!' | '?' | '…' | '·' | '—' | '～' | '¿' | '¡'));
-                let is_isolated_latin_or_digit = is_non_latin && lacks_native && !is_punct && line.text.chars().count() <= 3 && !crate::ml::detect::is_onomatopoeia_or_shout(&line.text);
-                if is_isolated_latin_or_digit {
+                if is_non_latin && lacks_native && !is_punct {
                     continue;
                 }
 
@@ -540,7 +588,7 @@ pub fn analyze_image_with_fusion_timed(
                         }
                         _ => true,
                     };
-                    if !is_native || line.score < 0.75 || line.text.chars().filter(|c| !c.is_whitespace()).count() <= 4 {
+                    if !is_native || line.score < 0.70 || line.text.chars().filter(|c| !c.is_whitespace()).count() < 3 {
                         continue;
                     }
                 }

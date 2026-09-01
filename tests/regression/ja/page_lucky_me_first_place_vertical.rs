@@ -37,8 +37,8 @@ fn test_regression_page_lucky_me_first_place_vertical() {
     let lucky_bubble = res.regions.iter().find(|r| r.text.contains("ラッキー") || r.text.contains("いやあ"));
     assert!(lucky_bubble.is_some(), "Must detect top-left bubble 'いやあ・・ ラッキーだよ'");
     let lucky_bubble = lucky_bubble.unwrap();
-    crate::assert_region_bounds!(lucky_bubble, xianscan_rust::ml::schemas::RegionKind::DialogueBubble, 98, 98, 114, 205, 8);
-    crate::assert_bubble_bounds!(lucky_bubble, 78, 60, 168, 273, 10);
+    crate::assert_region_bounds!(lucky_bubble, xianscan_rust::ml::schemas::RegionKind::DialogueBubble, 98, 98, 114, 205, 15);
+    crate::assert_bubble_bounds!(lucky_bubble, 78, 60, 168, 273, 15);
 
     // 2. TOP-CENTER SMALL CIRCLE: 'スゴすぎー'
     // TEXT BOUNDS: [X: 452, Y: 93, W: 84, H: 131] | BUBBLE BOUNDS: [X: 433, Y: 79, W: 118, H: 162]

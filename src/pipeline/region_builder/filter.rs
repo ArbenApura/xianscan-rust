@@ -65,6 +65,22 @@ pub fn should_reject_candidate_region(
     if !is_bubble && crate::ml::detect::is_standalone_table_cell(cleaned) {
         return true;
     }
+    if !is_bubble {
+        let is_bracketed_title = (cleaned.starts_with('[') && cleaned.ends_with(']'))
+            || (cleaned.starts_with('【') && cleaned.ends_with('】'))
+            || (cleaned.starts_with('《') && cleaned.ends_with('》'));
+        if is_bracketed_title {
+            let is_tabular_prop_header = split_lines.iter().filter(|l| {
+                let (lx, ly, lw, lh) = polygon_bounds(&l.polygon);
+                let dy = (ly - (cluster_rect.y + cluster_rect.h)).max(cluster_rect.y - (ly + lh)).max(0);
+                let dx = (lx - (cluster_rect.x + cluster_rect.w)).max(cluster_rect.x - (lx + lw)).max(0);
+                dx <= 100 && dy <= 300 && crate::ml::detect::is_standalone_table_cell(&l.text)
+            }).count() >= 3;
+            if is_tabular_prop_header {
+                return true;
+            }
+        }
+    }
 
     // 3b. DROP STACKED DISPLAY CALLIGRAPHY COLUMNS (TECHNIQUE NAMES / TITLES LETTERED ONE GLYPH PER LINE)
     // STYLIZED BRUSH / OUTLINED LETTERING IS ALWAYS SEGMENTED AS ONE HUGE GLYPH PER OCR LINE,
@@ -116,8 +132,14 @@ pub fn should_reject_candidate_region(
     let lacks_native_script = !crate::ml::detect::has_native_script_for_lang(cleaned, source_lang);
     let is_expressive_punct = cleaned.chars().any(|c| matches!(c, '！' | '？' | '!' | '?' | '…' | '·' | '—' | '～' | '¿' | '¡'));
     let is_pure_latin = lacks_native_script && !is_expressive_punct && cleaned.chars().all(|c| c.is_ascii_alphabetic() || c.is_whitespace() || c.is_ascii_punctuation());
-    if is_non_latin && is_pure_latin && !crate::ml::detect::is_onomatopoeia_or_shout(cleaned) {
+    if is_non_latin && is_pure_latin && !is_bubble && !crate::ml::detect::is_onomatopoeia_or_shout(cleaned) {
         return true;
+    }
+    if is_non_latin && lacks_native_script {
+        let is_valid_sfx = crate::ml::detect::is_onomatopoeia_or_shout(cleaned);
+        if !is_bubble && (!is_valid_sfx || avg_score < 0.72 || is_expressive_punct) {
+            return true;
+        }
     }
     if is_non_latin && lacks_native_script && crate::ml::detect::has_alphanumeric_characters(cleaned) {
         let char_count = cleaned.chars().filter(|c| !c.is_whitespace()).count();
@@ -126,7 +148,7 @@ pub fn should_reject_candidate_region(
         let is_short_noise_code = !is_bubble && char_count <= 3 && !is_valid_sfx;
         let is_non_bubble_alphanumeric = !is_bubble && !is_valid_sfx;
         let is_pure_digits_in_bubble = is_bubble && cleaned.chars().all(|c| c.is_ascii_digit() || c.is_whitespace()) && char_count <= 3;
-        let is_low_conf_bubble_garbage = is_bubble && avg_score < 0.70 && !is_expressive_punct && (cleaned.lines().count() >= 2 || char_count <= 2);
+        let is_low_conf_bubble_garbage = is_bubble && avg_score < 0.70 && !is_expressive_punct && lacks_native_script && (cleaned.lines().count() >= 2 || char_count <= 2);
         let micro_h = (ref_dim * 0.015).clamp(10.0, 20.0) as i32;
         let micro_box = (ref_dim * 0.040).clamp(20.0, 45.0) as i32;
         if cluster_rect.h <= micro_h
@@ -189,7 +211,7 @@ pub fn should_reject_candidate_region(
     let is_shout = crate::ml::detect::is_onomatopoeia_or_shout(cleaned) && char_count <= 6;
     let is_pure_cjk = cleaned.chars().all(|c| crate::ml::detect::has_cjk_characters(&c.to_string()) || c.is_whitespace() || matches!(c, '…' | '·' | '—' | '～' | '！' | '？' | '。' | '，' | '、' | '–' | '¿' | '¡'));
     let is_vert_narration = is_pure_cjk && cluster_rect.h >= 60 && cluster_rect.h >= (cluster_rect.w as f32 * 1.5) as i32 && char_count >= 2 && avg_score >= 0.60;
-    let is_sign_or_narration_box = is_cjk && !is_oversized_single_char && ((char_count >= 2 && ((cluster_rect.w >= 60 && cluster_rect.h >= 24) || (cluster_rect.w >= 20 && cluster_rect.h >= 45 && char_count >= 3) || (cluster_rect.w >= 30 && cluster_rect.h >= 30 && char_count >= 3)) && avg_score >= 0.70) || is_vert_narration) && !is_shout;
+    let is_sign_or_narration_box = is_cjk && !is_oversized_single_char && ((char_count >= 2 && ((cluster_rect.w >= 60 && cluster_rect.h >= 20) || (cluster_rect.w >= 20 && cluster_rect.h >= 45 && char_count >= 3) || (cluster_rect.w >= 30 && cluster_rect.h >= 30 && char_count >= 3)) && avg_score >= 0.70) || is_vert_narration) && !is_shout;
     let is_margin_isolated_char = (cluster_rect.x <= 5 || cluster_rect.x + cluster_rect.w >= page_w as i32 - 5) && avg_score < 0.75;
     let is_valid_cjk_glyph = is_cjk && ((char_count >= 3 && avg_score >= 0.70) || is_vert_narration) && cleaned.chars().any(|c| crate::ml::detect::has_cjk_characters(&c.to_string())) && !is_margin_isolated_char;
     let is_compact_single_glyph_box = char_count <= 2 && cluster_rect.w <= (ref_dim * 0.05).clamp(20.0, 45.0) as i32 && cluster_rect.h <= (ref_dim * 0.05).clamp(20.0, 45.0) as i32;
@@ -242,12 +264,14 @@ pub fn should_reject_candidate_region(
 
     // 13. SUPPRESS FOLIAGE NOISE / CHROMATIC BACKGROUND TEXTURE ON TINY STROKE FRAGMENTS
     if !is_bubble && cluster_rect.w <= (ref_dim * 0.045).clamp(25.0, 48.0) as i32 && cluster_rect.h <= (ref_dim * 0.065).clamp(35.0, 65.0) as i32 && compute_chromatic_color_variance(img, cluster_rect) >= 15.0 {
+        if cleaned.contains("快走快走") { eprintln!("[PROBE-REJECT] rule 13"); }
         return true;
     }
 
     // 14. SUPPRESS ISOLATED SINGLE-PUNCTUATION / REACTION SYMBOL SLICES
     let is_narrow_symbol_slice = cluster_rect.w <= 12 && (cleaned == "i" || cleaned == "l" || cleaned == "!" || cleaned == "1" || cleaned == "|" || cleaned == "I");
     if is_narrow_symbol_slice {
+        if cleaned.contains("快走快走") { eprintln!("[PROBE-REJECT] rule 14"); }
         return true;
     }
 
@@ -255,22 +279,27 @@ pub fn should_reject_candidate_region(
     let is_clean_bg = compute_chromatic_color_variance(img, cluster_rect) < 15.0;
     let is_valid_cjk_glyph = is_cjk && cleaned.chars().any(|c| crate::ml::detect::has_cjk_characters(&c.to_string())) && avg_score >= 0.70 && is_clean_bg;
     if cluster_rect.w <= 15 && cluster_rect.h <= 15 && !is_valid_cjk_glyph {
+        if cleaned.contains("快走快走") { eprintln!("[PROBE-REJECT] rule 15a"); }
         return true;
     }
     if !is_bubble && cluster_rect.w <= 40 && cluster_rect.h <= 55 && !is_valid_cjk_glyph {
+        if cleaned.contains("快走快走") { eprintln!("[PROBE-REJECT] rule 15b"); }
         return true;
     }
 
     // 16. SUPPRESS OPTICAL BORDER SLIVERS & FLATTENED ARTIFACT SLICES
     if !is_bubble && cluster_rect.h <= 18 && cluster_rect.w >= 25 && cleaned.chars().count() <= 3 && !cleaned.contains('\n') {
+        if cleaned.contains("快走快走") { eprintln!("[PROBE-REJECT] rule 16a"); }
         return true;
     }
     if !is_bubble && cluster_rect.w <= 35 && cluster_rect.h >= 60 && avg_score < 0.60 {
+        if cleaned.contains("快走快走") { eprintln!("[PROBE-REJECT] rule 16b"); }
         return true;
     }
 
     // 17. SUPPRESS LOW-CONFIDENCE ISOLATED PSEUDO-WORD HALLUCINATIONS ON COMPLEX BACKGROUND ARTWORK
     if !is_bubble && !is_sign_or_narration_box && ((avg_score < 0.65 && cleaned.chars().count() <= 6 && compute_chromatic_color_variance(img, cluster_rect) >= 15.0) || (avg_score < 0.68 && cleaned.chars().count() <= 4 && !cleaned.contains('\n'))) {
+        if cleaned.contains("快走快走") { eprintln!("[PROBE-REJECT] rule 17"); }
         return true;
     }
 
@@ -310,8 +339,8 @@ pub fn should_reject_candidate_region(
                 let clean_chars = cleaned.chars().filter(|c| !c.is_whitespace()).count();
                 let overlap_x = (cluster_rect.x + cluster_rect.w).min(rx + rw) - cluster_rect.x.max(rx);
                 let overlap_y = (cluster_rect.y + cluster_rect.h).min(ry + rh) - cluster_rect.y.max(ry);
-                let is_spatially_close = (overlap_x > -15 && overlap_y > -15) || ((cluster_rect.x - rx).abs() <= 60 && (cluster_rect.y - ry).abs() <= 60);
-                common_chars >= 4 && (common_chars as f32 / clean_chars.max(1) as f32 >= 0.75) && is_spatially_close
+                let is_spatially_close = (overlap_x > -5 && overlap_y > -5) || ((cluster_rect.x - rx).abs() <= 30 && (cluster_rect.y - ry).abs() <= 30);
+                common_chars >= 5 && (common_chars as f32 / clean_chars.max(1) as f32 >= 0.85) && is_spatially_close
             } else {
                 false
             }

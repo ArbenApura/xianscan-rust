@@ -35,11 +35,11 @@ fn test_regression_page_jun_family_ancestral_cemetery_sfx_dong() {
         );
     }
 
-    // 1. EXACT ELEMENT COUNTS: EXACTLY 1 REGION (0 DIALOGUEBUBBLES, 0 SOUNDEFFECT, 1 FREETEXT)
-    crate::assert_element_counts!(res, 1, 0, 0, 1);
+    // 1. EXACT ELEMENT COUNTS: EXACTLY 2 REGIONS (0 DIALOGUEBUBBLES, 0 SOUNDEFFECT, 2 FREETEXT)
+    crate::assert_element_counts!(res, 2, 0, 0, 2);
 
     // 2. NARRATION CARD VERIFICATION: [X: 579, Y: 544, W: 170, H: 104]
-    let card = res.regions.iter().find(|r| r.text.contains("君家") || r.text.contains("祖地墓园"));
+    let card = res.regions.iter().find(|r| r.text.contains("君家") && (r.text.contains("祖地墓园") || r.text.contains("墓园")));
     assert!(card.is_some(), "Must detect rectangular narration card '君家\n祖地墓园'");
     let card = card.unwrap();
     assert!(card.text.contains("君家"));
@@ -55,9 +55,23 @@ fn test_regression_page_jun_family_ancestral_cemetery_sfx_dong() {
     );
     crate::assert_region_angle!(card, 0.0, 1.5);
 
-    // 3. SOUND EFFECT SUPPRESSION CHECK
+    // 3. GATE PLAQUE TEXT VERIFICATION: "君家祖墓"
+    let plaque = res.regions.iter().find(|r| r.text.contains("君家祖墓"));
+    assert!(plaque.is_some(), "Must detect gate plaque text '君家祖墓'");
+    let plaque = plaque.unwrap();
+    crate::assert_region_bounds!(
+        plaque,
+        xianscan_rust::ml::schemas::RegionKind::FreeText,
+        349,
+        976,
+        207,
+        57,
+        15
+    );
+
+    // 4. SOUND EFFECT SUPPRESSION CHECK
     assert!(
-        !res.regions.iter().any(|r| r.text.contains("冬") || r.text.contains("峰") || r.text.contains("咚") || r.text.contains("祖墓")),
-        "Sound effect '咚/冬/峰' and artwork gate text must be filtered out"
+        !res.regions.iter().any(|r| r.text.contains("冬") || r.text.contains("峰") || r.text.contains("咚")),
+        "Sound effect '咚/冬/峰' must be filtered out"
     );
 }

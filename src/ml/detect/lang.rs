@@ -38,12 +38,37 @@ pub fn is_standalone_alphanumeric_without_cjk(text: &str) -> bool {
     has_alphanumeric_characters(text) && !has_cjk_characters(text)
 }
 
+pub static CHINESE_CHAR_RE: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r"[\u4e00-\u9fff\u3400-\u4dbf]").unwrap()
+});
+
+pub static JAPANESE_KANA_RE: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r"[\u3040-\u309f\u30a0-\u30ff\u31f0-\u31ff]").unwrap()
+});
+
+pub static KOREAN_HANGUL_RE: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r"[\uac00-\ud7af\u1100-\u11ff\u3130-\u318f\ua960-\ua97f\ud7b0-\ud7ff]").unwrap()
+});
+
 /// Returns true if the text contains native script characters for the given non-Latin source language.
 pub fn has_native_script_for_lang(text: &str, source_lang: Option<&str>) -> bool {
     if is_cyrillic_source(source_lang) {
         CYRILLIC_CHAR_RE.is_match(text)
     } else if is_thai_source(source_lang) {
         THAI_CHAR_RE.is_match(text)
+    } else if let Some(lang) = source_lang {
+        let trimmed = lang.trim().to_ascii_lowercase();
+        if trimmed.starts_with("zh") {
+            CHINESE_CHAR_RE.is_match(text)
+        } else if trimmed.starts_with("ja") {
+            CHINESE_CHAR_RE.is_match(text) || JAPANESE_KANA_RE.is_match(text)
+        } else if trimmed.starts_with("ko") {
+            CHINESE_CHAR_RE.is_match(text) || KOREAN_HANGUL_RE.is_match(text)
+        } else if is_cjk_source(Some(&trimmed)) {
+            CJK_CHAR_RE.is_match(text)
+        } else {
+            true
+        }
     } else if is_cjk_source(source_lang) {
         CJK_CHAR_RE.is_match(text)
     } else {
