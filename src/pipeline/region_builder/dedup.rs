@@ -224,7 +224,11 @@ pub fn deduplicate_and_unify_regions(
                         let mut min_u = e_min_u.min(r_min_u);
                         let mut max_u = e_max_u.max(r_max_u);
                         let mut min_v = e_min_v.min(r_min_v);
-                        let mut max_v = e_max_v.max(r_max_v);
+                        let mut max_v = e_max_v.max(r_max_v) + (font_scale * 0.85).clamp(15.0, 32.0);
+
+                        let u_pad = (font_scale * 0.90).clamp(18.0, 35.0);
+                        min_u -= u_pad;
+                        max_u += u_pad;
 
                         if let Some((bu_min, bu_max, bv_min, bv_max)) =
                             super::geometry::extract_slanted_bubble_envelope(img, min_u, max_u, min_v, max_v, existing.angle)
@@ -414,7 +418,79 @@ pub fn deduplicate_and_unify_regions(
             bubble_merged.push(r);
         }
     }
-    let mut deduped_regions = bubble_merged;
+
+    // D. UNIFY MULTI-LINE PARAGRAPH SLICES IN FREE-TEXT (NARRATION / CAPTIONS)
+    let mut final_merged: Vec<Region> = Vec::new();
+    for r in bubble_merged {
+        let mut merged = false;
+        if r.bubble_box.is_none() && !r.vertical && r.angle.abs() < 5.0 {
+            for existing in &mut final_merged {
+                if existing.bubble_box.is_none() && !existing.vertical && existing.angle.abs() < 5.0 {
+                    let (rx, ry, rw, rh) = (r.box_.x, r.box_.y, r.box_.w, r.box_.h);
+                    let (ex, ey, ew, eh) = (existing.box_.x, existing.box_.y, existing.box_.w, existing.box_.h);
+
+                    let min_w = rw.min(ew);
+                    let overlap_x = (rx + rw).min(ex + ew) - rx.max(ex);
+                    let left_delta = (rx - ex).abs();
+                    let center_delta = ((rx + rw / 2) - (ex + ew / 2)).abs();
+
+                    let r_line_count = r.text.lines().count().max(1) as f32;
+                    let e_line_count = existing.text.lines().count().max(1) as f32;
+                    let font_line_h = (rh as f32 / r_line_count).min(eh as f32 / e_line_count).max(14.0);
+                    let vert_gap = if ry >= ey + eh { ry - (ey + eh) } else if ey >= ry + rh { ey - (ry + rh) } else { 0 };
+
+                    let is_aligned = (overlap_x.max(0) as f32 / min_w.max(1) as f32 >= 0.35)
+                        || (left_delta <= (min_w as f32 * 0.40).max(35.0) as i32 && center_delta <= 40);
+                    let is_close_v = vert_gap <= (font_line_h * 3.5).max(75.0) as i32;
+
+                    if is_aligned && is_close_v {
+                        let min_x = rx.min(ex);
+                        let min_y = ry.min(ey);
+                        let max_x = (rx + rw).max(ex + ew);
+                        let max_y = (ry + rh).max(ey + eh) + (font_line_h * 0.85).clamp(15.0, 32.0) as i32;
+
+                        existing.box_ = BoxRect {
+                            x: min_x,
+                            y: min_y,
+                            w: (max_x - min_x).min(page_w as i32 - min_x),
+                            h: (max_y - min_y).min(page_h as i32 - min_y),
+                        };
+                        existing.inpaint_box = Some(expand_box(&existing.box_, inpaint_pct, page_w, page_h));
+                        existing.typeset_box = Some(expand_box(&existing.box_, typeset_pct, page_w, page_h));
+                        existing.polygon = vec![
+                            [min_x, min_y],
+                            [max_x, min_y],
+                            [max_x, max_y],
+                            [min_x, max_y],
+                        ];
+
+                        let mut all_lines: Vec<(i32, String)> = Vec::new();
+                        for l in existing.text.lines() {
+                            let lt = l.trim();
+                            if !lt.is_empty() {
+                                all_lines.push((ey, lt.to_string()));
+                            }
+                        }
+                        for l in r.text.lines() {
+                            let lt = l.trim();
+                            if !lt.is_empty() && !all_lines.iter().any(|(_, s)| s == lt || s.contains(lt)) {
+                                all_lines.push((ry, lt.to_string()));
+                            }
+                        }
+                        all_lines.sort_by_key(|a| a.0);
+                        existing.text = all_lines.into_iter().map(|(_, s)| s).collect::<Vec<_>>().join("\n");
+                        existing.confidence = existing.confidence.max(r.confidence);
+                        merged = true;
+                        break;
+                    }
+                }
+            }
+        }
+        if !merged {
+            final_merged.push(r);
+        }
+    }
+    let mut deduped_regions = final_merged;
 
     // CLEAN UI HEADER NAVIGATION CHEVRONS & RE-INDEX REGION IDS
     for (i, r) in deduped_regions.iter_mut().enumerate() {

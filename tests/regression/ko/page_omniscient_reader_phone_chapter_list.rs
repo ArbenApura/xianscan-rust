@@ -33,24 +33,18 @@ fn test_regression_page_omniscient_reader_phone_chapter_list() {
         );
     }
 
-    // 1. EXACT ELEMENT COUNTS: EXACTLY 2 REGIONS (0 DIALOGUEBUBBLES, 0 SOUNDEFFECT, 2 FREETEXT)
-    crate::assert_element_counts!(res, 2, 0, 0, 2);
+    // 1. EXACT ELEMENT COUNTS: EXACTLY 1 REGION (0 DIALOGUEBUBBLES, 0 SOUNDEFFECT, 1 FREETEXT)
+    crate::assert_element_counts!(res, 1, 0, 0, 1);
 
-    // 2. PHONE TOP BOOK TITLE HEADER: [X: ~230, Y: ~244, W: ~340, H: ~71]
+    // 2. BOTTOM NARRATION: [X: ~239, Y: ~1390, W: ~206, H: ~126]
     let r0 = &res.regions[0];
     assert_eq!(r0.kind, xianscan_rust::ml::schemas::RegionKind::FreeText);
-    assert!(r0.text.contains("멸망한") && r0.text.contains("살아남는"), "Phone header must contain '[멸망한 세계에서 살아남는 세 가지 방법]'");
-    crate::assert_region_bounds!(r0, xianscan_rust::ml::schemas::RegionKind::FreeText, 230, 244, 340, 71, 10);
+    assert!(r0.text.contains("나는") && r0.text.contains("소설") && r0.text.contains("중학교"), "Bottom narration must contain '나는 이 소설을 중학교...'");
+    crate::assert_region_bounds!(r0, xianscan_rust::ml::schemas::RegionKind::FreeText, 239, 1390, 206, 126, 12);
 
-    // 3. BOTTOM NARRATION: [X: ~239, Y: ~1390, W: ~206, H: ~126]
-    let r1 = &res.regions[1];
-    assert_eq!(r1.kind, xianscan_rust::ml::schemas::RegionKind::FreeText);
-    assert!(r1.text.contains("나는") && r1.text.contains("소설") && r1.text.contains("중학교"), "Bottom narration must contain '나는 이 소설을 중학교...'");
-    crate::assert_region_bounds!(r1, xianscan_rust::ml::schemas::RegionKind::FreeText, 239, 1390, 206, 126, 12);
-
-    // 4. NEGATIVE GUARD: ZERO PHONE UI CHAPTER LIST HALLUCINATIONS / SPAM
+    // 3. NEGATIVE GUARD: ZERO PHONE UI CHAPTER LIST HALLUCINATIONS / SPAM / SCREEN HEADERS
     assert!(
-        !res.regions.iter().any(|r| r.text.contains("3125") || r.text.contains("조회수") || r.text.contains("댓글")),
-        "Phone repetitive UI chapter list / comment table text must be suppressed from dialogue translation"
+        !res.regions.iter().any(|r| r.text.contains("3125") || r.text.contains("조회수") || r.text.contains("댓글") || r.text.contains("멸망한")),
+        "Phone screen graphic (header, chapter list, comment counters) must be completely ignored as background illustration prop"
     );
 }

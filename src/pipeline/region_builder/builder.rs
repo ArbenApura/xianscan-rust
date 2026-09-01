@@ -490,7 +490,7 @@ pub fn build_regions(
                 };
 
                 angle_deg = if !cluster_lines.is_empty() && median_line_angle.abs() >= 1.5 {
-                    if median_line_angle.abs() < 3.5 && (box_angle == 0.0 || (box_angle.abs() < 1.5)) {
+                    if median_line_angle.abs() < 3.5 && (box_angle == 0.0 || box_angle.abs() < 1.5) {
                         0.0
                     } else {
                         median_line_angle
@@ -634,9 +634,10 @@ pub fn build_regions(
                         min_x = min_x.min(box_rect.x);
                     }
 
-                    if container_is_single_utterance && (box_rect.y < min_y) && (min_y - box_rect.y) <= 45 && (box_rect.x <= min_x + 15 && box_rect.x + box_rect.w >= max_x - 15) {
+                    let is_horizontal_single_line_free_text = !is_container_vert && !is_detector_vert && matched_bubble.is_none() && cluster_lines.len() == 1;
+                    if container_is_single_utterance && !is_horizontal_single_line_free_text && (box_rect.y < min_y) && (min_y - box_rect.y) <= 45 && (box_rect.x <= min_x + 15 && box_rect.x + box_rect.w >= max_x - 15) {
                         min_y = min_y.min(box_rect.y);
-                    } else if container_is_single_utterance && (is_container_vert || is_detector_vert || matched_bubble.is_some()) && box_rect.y < min_y && (min_y - box_rect.y) <= 400 {
+                    } else if container_is_single_utterance && !is_horizontal_single_line_free_text && (is_container_vert || is_detector_vert || matched_bubble.is_some()) && box_rect.y < min_y && (min_y - box_rect.y) <= 400 {
                         min_y = min_y.min(box_rect.y);
                     }
 
@@ -677,6 +678,12 @@ pub fn build_regions(
                             max_v = max_v.max(v);
                         }
                     }
+                    let font_scale = super::clustering::polygon_thickness(&active_line_polys[0]);
+                    let u_pad = (font_scale * 0.90).clamp(18.0, 35.0);
+                    let v_pad = (font_scale * 0.60).clamp(10.0, 25.0);
+                    min_u -= u_pad;
+                    max_u += u_pad;
+                    max_v += v_pad;
                     let u_v_corners = [
                         (min_u, min_v),
                         (max_u, min_v),

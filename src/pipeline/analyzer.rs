@@ -134,6 +134,9 @@ pub fn analyze_image_with_fusion_timed(
                 let iy = (pb.y + pb.h).min(b.y + b.h) - pb.y.max(b.y);
                 ix > 0 && iy > 0 && (ix * iy) as f32 / (b.w * b.h).max(1) as f32 >= 0.50
             });
+            if !inside_any_bubble && *score < 0.35 {
+                continue;
+            }
             let matching_subboxes_count = if inside_any_bubble {
                 fusion_res.text_bubbles.iter().filter(|(sub_b, sub_score)| {
                     let is_distinct_col = (sub_b.x >= b.x + b.w * 2 / 5) || (sub_b.x + sub_b.w <= b.x + b.w * 3 / 5);
