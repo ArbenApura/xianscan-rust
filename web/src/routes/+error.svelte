@@ -175,8 +175,8 @@
 				<span>Return to Library</span>
 			</Button>
 
-			<Button variant="secondary" size="md" loading={reloading} on:click={handleReload}>
-				<RefreshCw size={15} />
+			<Button variant="secondary" size="md" disabled={reloading} on:click={handleReload}>
+				<RefreshCw size={15} class={reloading ? 'animate-spin' : ''} />
 				<span>Try Again</span>
 			</Button>
 

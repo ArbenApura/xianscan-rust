@@ -334,7 +334,9 @@
 							disabled={isRerolling || !region.textSource}
 							on:click={handleRerunAi}
 						>
-							<Languages size={13} />
+							{#if !isRerolling}
+								<Languages size={13} />
+							{/if}
 							<span>{isRerolling ? 'Translating with AI...' : 'Re-roll with AI'}</span>
 						</Button>
 					</div>
@@ -395,7 +397,9 @@
 						disabled={isSaving}
 						on:click={() => handleSave('save')}
 					>
-						<Check size={14} class="mr-1" />
+						{#if !isSaving}
+							<Check size={14} class="mr-1" />
+						{/if}
 						<span>Save</span>
 					</Button>
 				</div>

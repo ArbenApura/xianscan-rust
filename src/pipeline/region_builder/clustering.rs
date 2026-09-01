@@ -114,7 +114,7 @@ pub fn cluster_lines_into_utterances<'a>(
             col_sorted.sort_by_key(|l| polygon_bounds(&l.polygon).1);
 
             let mut sub_cluster: Vec<&'a OcrLine> = Vec::new();
-            let mut prev_bot_y: Option<f32> = None;
+            let mut sub_cluster_max_bot: Option<f32> = None;
             let mut prev_text = String::new();
 
             for l in col_sorted {
@@ -122,8 +122,8 @@ pub fn cluster_lines_into_utterances<'a>(
                 let curr_top_y = ly as f32;
                 let curr_bot_y = (ly + lh) as f32;
 
-                if let Some(prev_bot) = prev_bot_y {
-                    let vert_gap = curr_top_y - prev_bot;
+                if let Some(max_bot) = sub_cluster_max_bot {
+                    let vert_gap = curr_top_y - max_bot;
                     let ends_with_term = prev_text.ends_with('！')
                         || prev_text.ends_with('!')
                         || prev_text.ends_with('？')
@@ -142,11 +142,12 @@ pub fn cluster_lines_into_utterances<'a>(
                     if is_vert_lobe_split && !sub_cluster.is_empty() {
                         final_vert_utterances.push(sub_cluster);
                         sub_cluster = Vec::new();
+                        sub_cluster_max_bot = None;
                     }
                 }
 
                 sub_cluster.push(l);
-                prev_bot_y = Some(curr_bot_y);
+                sub_cluster_max_bot = Some(sub_cluster_max_bot.map_or(curr_bot_y, |b| b.max(curr_bot_y)));
                 prev_text = l.text.trim().to_string();
             }
 

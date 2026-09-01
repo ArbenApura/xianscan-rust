@@ -13,4 +13,6 @@ mod page_faster_more_basilisk_dragon_copy;
 mod page_faster_more_basilisk_dragon_lowres_parity;
 mod page_seven_year_old_summoner_talent;
 mod page_novice_summoner_blank_scrolls_slanted_caption;
+mod page_sage_reincarnation_class_change;
+mod page_sage_reincarnation_novice_skill;
 

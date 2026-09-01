@@ -22,7 +22,7 @@ import {
 	type TextColor,
 } from './typeset/fonts';
 import { parseStatPanel, isSfxOrShout, type TypesetRegion } from './typeset/stat-panel';
-import { fitFontSize, fitFontSizeWithLines, fitSingleLineSize, isStructuredList, tryVerticalSingleWordLayout } from './typeset/layout';
+import { fitFontSize, fitFontSizeWithLines, fitSingleLineSize, isStructuredList } from './typeset/layout';
 import { pickTextColor, sampleBackground } from './typeset/color';
 import { decollideRegions } from './typeset/decollision';
 import { sanitizeForFont } from './typeset/sanitize';
@@ -149,16 +149,10 @@ export async function typesetPage(
 			cap = Math.min(cap, Math.max(18, Math.round(pageDialogueBaseline * 1.25)));
 		}
 
-		// SINGLE-WORD VERTICAL STACKING FOR NARROW TALL BUBBLES (ONLY IF REGION IS MARKED VERTICAL)
-		const vertWordLayout = tryVerticalSingleWordLayout(ctx, text, font, w, h, isSfx ? sizeCap : cap, Boolean(r.vertical), inset, fontCjk);
-
 		let size: number;
 		let lines: string[];
 
-		if (vertWordLayout) {
-			size = vertWordLayout.size;
-			lines = vertWordLayout.lines;
-		} else if (isSfx) {
+		if (isSfx) {
 			size = fitSingleLineSize(ctx, text, font, maxW, maxH, sizeCap, fontCjk);
 			lines = [text];
 		} else {

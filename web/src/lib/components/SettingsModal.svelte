@@ -2935,7 +2935,7 @@
 								<Button
 									variant="secondary"
 									size="sm"
-									loading={$versionCheck.checking}
+									disabled={$versionCheck.checking}
 									on:click={handleManualUpdateCheck}
 									title="Check GitHub Releases for newer builds"
 								>

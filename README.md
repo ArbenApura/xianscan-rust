@@ -150,9 +150,9 @@ Download the pre-compiled binary for your system from [Releases](https://github.
 
 <div align="center">
 
-| 1. Capture on Web Reader | 2. Live Translation Pipeline in Studio |
-| :---: | :---: |
-| <img src="docs/showcase/extension_importer_preview.png" width="370" alt="Browser Extension Capture" style="border-radius: 8px;" /> | <img src="docs/showcase/extension_pipeline_preview.png" width="490" alt="Auto-Translation in Studio" style="border-radius: 8px;" /> |
+| 1. Capture on Web Reader | 2. In-Place Live Replacement | 3. Live Translation Pipeline in Studio |
+| :---: | :---: | :---: |
+| <img src="docs/showcase/extension_importer_preview.png" width="275" alt="Browser Extension Capture" style="border-radius: 8px;" /> | <img src="docs/showcase/extension_inline_preview.png" width="275" alt="In-Place Live Translation" style="border-radius: 8px;" /> | <img src="docs/showcase/extension_pipeline_preview.png" width="275" alt="Auto-Translation in Studio" style="border-radius: 8px;" /> |
 
 </div>
 
@@ -184,9 +184,9 @@ The **1-Click Web Importer Extension** ([`extensions/xianscan-importer/`](extens
 
 <div align="center">
 
-| 1. Mihon Source Extension | 2. Synced Manga Library over LAN |
-| :---: | :---: |
-| <img src="docs/showcase/mihon_source_preview.jpg" width="280" alt="Mihon Sources View" style="border-radius: 12px;"/> | <img src="docs/showcase/mihon_library_preview.jpg" width="280" alt="Mihon Synced Library" style="border-radius: 12px;"/> |
+| 1. Mihon Source Extension | 2. Synced Manga Library | 3. Native Mobile Reading |
+| :---: | :---: | :---: |
+| <img src="docs/showcase/mihon_source_preview.jpg" width="260" alt="Mihon Sources View" style="border-radius: 12px;"/> | <img src="docs/showcase/mihon_library_preview.jpg" width="260" alt="Mihon Synced Library" style="border-radius: 12px;"/> | <img src="docs/showcase/mihon_reader_preview.jpg" width="260" alt="Mihon Reader View" style="border-radius: 12px;"/> |
 
 </div>
 

@@ -17,7 +17,6 @@ import {
 	getFontAvailability,
 	typesetPage,
 	wrapText,
-	tryVerticalSingleWordLayout,
 	fontSpec,
 } from '$lib/server/typeset';
 
@@ -932,62 +931,7 @@ Tattered Flesh-Cutting Knife`;
 		expect(resultBuf.length).toBeGreaterThan(0);
 	});
 
-	it('stacks single words vertically in tall speech bubbles to eliminate empty space (AWESOME!, TRANSFORM!, WAAAAAH!)', async () => {
-		const c = ctx();
-		const awesomeLayout = tryVerticalSingleWordLayout(c, 'AWESOME!', 'Arial', 56, 124, 40, true);
-		expect(awesomeLayout).not.toBeNull();
-		expect(awesomeLayout?.lines).toEqual(['A', 'W', 'E', 'S', 'O', 'M', 'E', '!']);
-		expect(awesomeLayout?.size).toBeGreaterThanOrEqual(11);
-
-		const waaaaahLayout = tryVerticalSingleWordLayout(c, 'WAAAAAH!', 'Arial', 40, 118, 40, true);
-		expect(waaaaahLayout).not.toBeNull();
-		expect(waaaaahLayout?.lines).toEqual(['W', 'A', 'A', 'A', 'A', 'A', 'H', '!']);
-		expect(waaaaahLayout?.size).toBeGreaterThanOrEqual(11);
-
-		// Overly long words like TRANSFORMATION! (14 letters) must NOT be stacked into tiny dots
-		expect(tryVerticalSingleWordLayout(c, 'TRANSFORMATION!', 'Arial', 66, 137, 40, true)).toBeNull();
-
-		// Must return null if isVertical is false
-		expect(tryVerticalSingleWordLayout(c, 'AWESOME!', 'Arial', 56, 124, 40, false)).toBeNull();
-
-		// UNFLAGGED tall-narrow box (aspect >= 2.5, height >= 120) stacks single words
-		// with leading and trailing punctuation split one per line
-		const understood = tryVerticalSingleWordLayout(c, '...UNDERSTOOD.', 'Arial', 95, 420, 40, false);
-		expect(understood).not.toBeNull();
-		expect(understood?.lines.slice(0, 3)).toEqual(['.', '.', '.']);
-		expect(understood?.lines[understood.lines.length - 1]).toBe('.');
-		expect(understood?.size).toBeGreaterThanOrEqual(11);
-
-		// WIDE box with a single word must NOT stack even when unflagged (aspect < 2.5)
-		expect(tryVerticalSingleWordLayout(c, 'UNDERSTOOD.', 'Arial', 200, 300, 40, false)).toBeNull();
-
-		// TALL but SHORT box (< 120px height) must NOT stack when unflagged
-		expect(tryVerticalSingleWordLayout(c, 'UNDERSTOOD.', 'Arial', 60, 110, 40, false)).toBeNull();
-
-		// A 10-letter word with a vertical flag stacks letter cells plus a "." run line
-		const understoodFlagged = tryVerticalSingleWordLayout(c, 'UNDERSTOOD.', 'Arial', 80, 400, 40, true);
-		expect(understoodFlagged).not.toBeNull();
-		expect(understoodFlagged?.lines.length).toBe(11);
-		expect(understoodFlagged?.lines[understoodFlagged.lines.length - 1]).toBe('.');
-
-		// PUNCTUATION AND SYMBOLS ARE SPLIT ONE PER LINE: "NOW!!" -> N / O / W / ! / !
-		const nowLayout = tryVerticalSingleWordLayout(c, 'NOW!!', 'Arial', 90, 300, 40, true);
-		expect(nowLayout).not.toBeNull();
-		expect(nowLayout?.lines).toEqual(['N', 'O', 'W', '!', '!']);
-
-		// DIFFER... -> D / I / F / F / E / R / . / . / .
-		const differLayout = tryVerticalSingleWordLayout(c, 'DIFFER...', 'Arial', 60, 200, 40, true);
-		expect(differLayout).not.toBeNull();
-		expect(differLayout?.lines).toEqual(['D', 'I', 'F', 'F', 'E', 'R', '.', '.', '.']);
-
-		// ROLAND...? -> R / O / L / A / N / D / . / . / . / ?
-		const rolandLayout = tryVerticalSingleWordLayout(c, 'ROLAND...?', 'Arial', 60, 220, 40, true);
-		expect(rolandLayout).not.toBeNull();
-		expect(rolandLayout?.lines).toEqual(['R', 'O', 'L', 'A', 'N', 'D', '.', '.', '.', '?']);
-
-		// Multi-word phrases should NOT be vertically stacked even if isVertical is true
-		expect(tryVerticalSingleWordLayout(c, "I'M NOT MIZUKI...", 'Arial', 78, 102, 40, true)).toBeNull();
-
+	it('renders tall speech bubbles with standard horizontal reflow layout (AWESOME!, TRANSFORM!, WAAAAAH!)', async () => {
 		const pageImage = createCanvas(623, 675).toBuffer('image/png');
 		const resultBuf = await typesetPage(
 			pageImage,
@@ -997,21 +941,18 @@ Tattered Flesh-Cutting Knife`;
 					box: { x: 325, y: 37, w: 56, h: 124 },
 					text: 'Awesome!',
 					kind: 'dialogue_bubble',
-					vertical: true,
 				},
 				{
 					id: '8998',
 					box: { x: 519, y: 33, w: 40, h: 118 },
 					text: 'Waaaaah!',
 					kind: 'dialogue_bubble',
-					vertical: true,
 				},
 				{
 					id: '9002',
 					box: { x: 167, y: 247, w: 66, h: 137 },
 					text: 'Transform!',
 					kind: 'dialogue_bubble',
-					vertical: true,
 				},
 			],
 		);
