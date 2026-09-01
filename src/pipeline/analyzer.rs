@@ -388,8 +388,9 @@ pub fn analyze_image_with_fusion_timed(
                             false
                         }
                     };
-
-                    if !is_cross_panel_sfx_bleed && ((ix > 0.0 && iy > 0.0 && (coverage_l >= 0.25 || coverage_b >= 0.25)) || is_adjacent_trailing_row || is_adjacent_leading_row) {
+                    let char_count = line.text.chars().filter(|c| !c.is_whitespace()).count();
+                    let is_giant_calligraphy_to_body = is_cjk && (lh as f32 >= 120.0 || (lw as f32 >= 350.0 && lh as f32 >= 80.0)) && char_count <= 4 && bh <= 200.0;
+                    if !is_cross_panel_sfx_bleed && !is_giant_calligraphy_to_body && ((ix > 0.0 && iy > 0.0 && (coverage_l >= 0.25 || coverage_b >= 0.25)) || is_adjacent_trailing_row || is_adjacent_leading_row) {
                         overlaps_any = true;
                         if overlaps_multiple_distinct_text_bubbles {
                             continue;

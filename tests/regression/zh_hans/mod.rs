@@ -49,6 +49,7 @@ mod page_cloud_mist_mountain_villa_split;
 mod page_chuzhou_grandfather_granddaughter_intro;
 mod page_chuzhou_internal_energy_true_essence_watermark;
 mod page_rebirth_urban_cultivator_spiky_bubble;
+mod page_rebirth_urban_cultivator_cover_credits;
 
 
 
