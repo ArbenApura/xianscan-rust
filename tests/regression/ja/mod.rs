@@ -12,4 +12,5 @@ mod page_who_decides_how_it_starts;
 mod page_faster_more_basilisk_dragon_copy;
 mod page_faster_more_basilisk_dragon_lowres_parity;
 mod page_seven_year_old_summoner_talent;
+mod page_novice_summoner_blank_scrolls_slanted_caption;
 

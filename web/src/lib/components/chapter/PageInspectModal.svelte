@@ -58,8 +58,8 @@
 	let showBubbles = true;
 	let showBubbleText = true;
 	let showFreeText = true;
-	let showBaseTier = true;
-	let showInpaintTier = true;
+	let showBaseTier = false;
+	let showInpaintTier = false;
 	let showTypesetTier = true;
 	let hoveredRegionId: number | null = null;
 	let hiddenRegionIds: Record<string, boolean> = {};
@@ -955,7 +955,18 @@
 										{@const bb = getBubbleBox(region)}
 										{@const bpoly = getBubblePolygon(region)}
 										{@const carrierB = getCarrierBox(region)}
-										{#if bpoly}
+										{#if carrierB}
+											<!-- VALIDATED TAIL-CUT CARRIER CHAMBER SQUIRLY CONTOUR -->
+											<path
+												d={getSquirlyBubblePath(carrierB)}
+												fill="rgba(6, 182, 212, 0.08)"
+												stroke="#06b6d4"
+												stroke-width="2.2"
+												stroke-linejoin="round"
+												opacity="0.9"
+											/>
+										{:else if bpoly}
+											<!-- DEFAULT BUBBLE POLYGON SQUIRLY CONTOUR -->
 											<path
 												d={getSquirlyPolygonPath(bpoly)}
 												fill="rgba(6, 182, 212, 0.08)"
@@ -965,27 +976,13 @@
 												opacity="0.9"
 											/>
 										{:else if bb}
+											<!-- DEFAULT BUBBLE BOUNDING BOX SQUIRLY CONTOUR -->
 											<path
 												d={getSquirlyBubblePath(bb)}
 												fill="rgba(6, 182, 212, 0.08)"
 												stroke="#06b6d4"
 												stroke-width="2.2"
 												stroke-linejoin="round"
-												opacity="0.9"
-											/>
-										{/if}
-										{#if carrierB}
-											<!-- VALIDATED TAIL-CUT CARRIER CHAMBER (TRUE TEXT BOUNDARY EXCLUDING THE TAIL) -->
-											<rect
-												x={carrierB.x}
-												y={carrierB.y}
-												width={carrierB.w}
-												height={carrierB.h}
-												fill="rgba(6, 182, 212, 0.05)"
-												stroke="#22d3ee"
-												stroke-width="1.6"
-												stroke-dasharray="6 3"
-												rx="6"
 												opacity="0.9"
 											/>
 										{/if}
@@ -1030,6 +1027,7 @@
 												stroke-width={active ? 2.8 : 2.0}
 												rx="5"
 												opacity={active ? 1 : 0.9}
+												transform={angle ? `rotate(${angle} ${typesetB.x + typesetB.w / 2} ${typesetB.y + typesetB.h / 2})` : undefined}
 											/>
 										{:else if (showTypesetTier || active) && !showBaseTier}
 											<!-- RETAIN TYPESET BOX WHEN BASE IS HIDDEN EVEN WITHOUT EXPANSION -->
@@ -1043,6 +1041,7 @@
 												stroke-width={active ? 2.8 : 2.0}
 												rx="5"
 												opacity={active ? 1 : 0.9}
+												transform={angle ? `rotate(${angle} ${bx + bw / 2} ${by + bh / 2})` : undefined}
 											/>
 										{/if}
 
