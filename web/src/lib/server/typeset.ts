@@ -38,12 +38,18 @@ const OUTLINE_FACTOR = 0.18;
 export interface TypesetOptions {
 	fontDialogue?: string;
 	fontCjk?: string;
+	fontSize?: number;
 	boxInset?: number;
+	lineHeight?: number;
 	outlineMode?: 'none' | 'thin' | 'standard' | 'heavy';
 	colorMode?: 'auto' | 'dark' | 'light';
 	casing?: 'uppercase' | 'original' | 'lowercase';
 	allCaps?: boolean;
 	enableRotation?: boolean;
+	align?: 'center' | 'left' | 'right';
+	textColor?: string;
+	strokeColor?: string;
+	strokeWidth?: number;
 }
 
 export async function typesetPage(
@@ -59,6 +65,8 @@ export async function typesetPage(
 	const colorMode = opts.colorMode ?? 'auto';
 	const casing = opts.casing ?? (opts.allCaps === false ? 'original' : 'uppercase');
 	const enableRotation = opts.enableRotation ?? true;
+	const align = opts.align === 'right' ? 'center' : (opts.align ?? 'center');
+	const effectiveLineHeight = opts.lineHeight ?? LINE_HEIGHT;
 
 	const img = await loadImage(cleanedPng);
 	const canvas = createCanvas(img.width, img.height);
@@ -76,7 +84,12 @@ export async function typesetPage(
 		if (!rawText) continue;
 
 		let color: TextColor;
-		if (colorMode === 'dark') {
+		if (opts.textColor) {
+			color = {
+				fill: opts.textColor,
+				stroke: opts.strokeColor || (opts.textColor === 'white' ? 'black' : 'white'),
+			};
+		} else if (colorMode === 'dark') {
 			color = { fill: 'black', stroke: 'white' };
 		} else if (colorMode === 'light') {
 			color = { fill: 'white', stroke: 'black' };
@@ -112,7 +125,7 @@ export async function typesetPage(
 		const sizeCap = Math.max(MAX_SFX_FONT_SIZE, Math.max(r.box.w, r.box.h));
 
 		if (!isSfx && r.kind === 'dialogue_bubble') {
-			const maxDialogueSize = Math.max(24, Math.round(img.width * 0.035));
+			const maxDialogueSize = opts.fontSize ? opts.fontSize : Math.max(24, Math.round(img.width * 0.035));
 			const cap = Math.min(sizeCap, maxDialogueSize);
 			const initialSize = fitFontSize(ctx, text, font, r.box.w, r.box.h, cap, cap, inset, fontCjk);
 			if (text.split(/\s+/).length >= 2) {
@@ -134,7 +147,7 @@ export async function typesetPage(
 	for (const prep of preparedRegions) {
 		const { r, text, statSegments, color, isSfx, font, maxW, maxH, sizeCap } = prep;
 		if (statSegments) {
-			typesetStatPanel(ctx, r, statSegments, color);
+			typesetStatPanel(ctx, r, statSegments, color, fontCjk);
 			continue;
 		}
 
@@ -142,10 +155,10 @@ export async function typesetPage(
 		const angleDeg = r.angle ?? 0;
 		const hasRotation = enableRotation && Math.abs(angleDeg) >= 2.0 && Math.abs(angleDeg) <= 45.0;
 
-		const maxDialogueSize = Math.max(24, Math.round(img.width * 0.035));
+		const maxDialogueSize = opts.fontSize ? opts.fontSize : Math.max(24, Math.round(img.width * 0.035));
 		let cap = r.kind === 'dialogue_bubble' ? Math.min(sizeCap, maxDialogueSize) : sizeCap;
 		const isShortNonShout = text.split(/\s+/).length <= 2 && !/[!！]/.test(text);
-		if (pageDialogueBaseline > 0 && isShortNonShout && r.kind === 'dialogue_bubble') {
+		if (pageDialogueBaseline > 0 && isShortNonShout && r.kind === 'dialogue_bubble' && !opts.fontSize) {
 			cap = Math.min(cap, Math.max(18, Math.round(pageDialogueBaseline * 1.25)));
 		}
 
@@ -163,18 +176,20 @@ export async function typesetPage(
 		}
 
 		ctx.font = fontSpec(size, font, text, fontCjk);
-		const lineH = size * LINE_HEIGHT;
+		const lineH = size * effectiveLineHeight;
 		const totalH = lines.length * lineH;
 
 		ctx.save();
-		ctx.textAlign = 'center';
+		ctx.textAlign = align === 'left' ? 'left' : 'center';
 		ctx.textBaseline = 'alphabetic';
 
 		const isBlackOnLight = color.fill === 'black' || color.fill === '#111111';
 		const isDarkStroke = color.stroke === 'black' || color.stroke === '#000000' || color.stroke === '#111111';
 
 		let strokeWidth: number;
-		if (outlineMode === 'none') {
+		if (opts.strokeWidth !== undefined) {
+			strokeWidth = opts.strokeWidth;
+		} else if (outlineMode === 'none') {
 			strokeWidth = 0;
 		} else if (outlineMode === 'thin') {
 			strokeWidth = isBlackOnLight ? Math.max(1.0, size * 0.06) : Math.max(1.5, size * 0.10);
@@ -203,21 +218,21 @@ export async function typesetPage(
 				drawTextLineWithRuns(
 					ctx,
 					line,
-					0,
+					align === 'left' ? -maxW / 2 : 0,
 					ty,
 					size,
-					fontDialogue,
+					font,
 					fontCjk,
 					color,
 					strokeWidth,
 					isDarkStroke,
 					fontCjk,
-					'center',
+					align === 'left' ? 'left' : 'center',
 				);
 				ty += lineH;
 			}
 		} else {
-			const tx = x + w / 2;
+			const tx = align === 'left' ? x + (w - maxW) / 2 : x + w / 2;
 			let ty = y + (h - visualH) / 2 + size * 0.75;
 			for (const line of lines) {
 				drawTextLineWithRuns(
@@ -226,13 +241,13 @@ export async function typesetPage(
 					tx,
 					ty,
 					size,
-					fontDialogue,
+					font,
 					fontCjk,
 					color,
 					strokeWidth,
 					isDarkStroke,
 					fontCjk,
-					'center',
+					align === 'left' ? 'left' : 'center',
 				);
 				ty += lineH;
 			}

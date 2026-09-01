@@ -8,6 +8,7 @@ import {
 	fitFontSizeWithLines,
 	isSfxOrShout,
 	pickTextColor,
+	parseStatPanel,
 	reflowText,
 	renderText,
 	sampleBackground,
@@ -114,6 +115,44 @@ describe('sanitizeForFont', () => {
 		expect(sanitizeForFont('Might as well use them all—who knows, I might get something good.')).toBe(
 			'Might as well use them all—who knows, I might get something good.',
 		);
+	});
+
+	it('preserves contractions with single letter words (Page 10844 regression)', () => {
+		expect(
+			sanitizeForFont("Ranran has a\nfriend's birthday\nparty to attend,\nand I'm a bit\nworried..."),
+		).toBe("Ranran has a\nfriend's birthday\nparty to attend,\nand I'm a bit\nworried...");
+
+		expect(sanitizeForFont("It's a party")).toBe("It's a party");
+		expect(sanitizeForFont("What's a man to do")).toBe("What's a man to do");
+		expect(sanitizeForFont("Don't I know it")).toBe("Don't I know it");
+		expect(sanitizeForFont("He'd a thought so")).toBe("He'd a thought so");
+	});
+
+	it('collapses isolated spaced OCR letters without breaking single-letter words', () => {
+		expect(sanitizeForFont('H E L L O')).toBe('HELLO');
+		expect(sanitizeForFont('Y\ne\na\nh')).toBe('Yeah');
+		expect(sanitizeForFont('W H A T')).toBe('WHAT');
+		expect(sanitizeForFont('O K')).toBe('OK');
+		expect(sanitizeForFont('I am a student')).toBe('I am a student');
+	});
+});
+
+describe('parseStatPanel', () => {
+	it('does not classify speaker tags or bracketed dialogue as stat panels', () => {
+		expect(parseStatPanel("[Climber 123]:\nThere's still someone challenging!")).toBeNull();
+		expect(parseStatPanel("[Whisper]\nDon't let them hear us!")).toBeNull();
+		expect(parseStatPanel("【Narrator】:\nLong ago...")).toBeNull();
+	});
+
+	it('correctly classifies RPG stat panels and bracketed titles', () => {
+		const single = parseStatPanel('[LORD OF LIANGZHOU]');
+		expect(single).toEqual([{ kind: 'title', text: '[LORD OF LIANGZHOU]' }]);
+
+		const multi = parseStatPanel('[TOP-TIER CHARACTERS: TEN.]\n(With a Top-tier Pet)');
+		expect(multi).toEqual([
+			{ kind: 'title', text: '[TOP-TIER CHARACTERS: TEN.]' },
+			{ kind: 'subtitle', text: '(With a Top-tier Pet)' },
+		]);
 	});
 });
 

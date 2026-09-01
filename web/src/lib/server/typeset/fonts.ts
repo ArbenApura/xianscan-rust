@@ -12,8 +12,8 @@ export const FONT_MONO = 'CC Wild Words';
 export const FONT_FALLBACK_NAME = 'Friendly Sans';
 export const FONT_DEFAULT_CJK = 'WenQuanYi Micro Hei';
 
-// MATCHES CJK, DEVANAGARI (HINDI), THAI, CYRILLIC, FULLWIDTH / CJK PUNCTUATION, AND OTHER NON-LATIN COMPLEX SCRIPTS
-export const NON_LATIN_SCRIPT_REGEX = /[\u3040-\u30ff\u31f0-\u31ff\u3400-\u4dbf\u4e00-\u9fff\uf900-\ufaff\uac00-\ud7af\u1100-\u11ff\u3130-\u318f\u0900-\u097f\u0e00-\u0e7f\u0400-\u04ff\uff01-\uffee\u3000-\u303f]/;
+// MATCHES CJK, DEVANAGARI (HINDI), THAI, CYRILLIC, FULLWIDTH / CJK PUNCTUATION, GUILLEMETS, AND OTHER NON-LATIN COMPLEX SCRIPTS
+export const NON_LATIN_SCRIPT_REGEX = /[\u3040-\u30ff\u31f0-\u31ff\u3400-\u4dbf\u4e00-\u9fff\uf900-\ufaff\uac00-\ud7af\u1100-\u11ff\u3130-\u318f\u0900-\u097f\u0e00-\u0e7f\u0400-\u04ff\uff01-\uffee\u3000-\u303f\u00ab\u00bb\u2018-\u201f\u2039\u203a]/;
 export const CJK_REGEX = NON_LATIN_SCRIPT_REGEX;
 
 export const CJK_FONT_STACK = '"Microsoft YaHei Bold", "Microsoft YaHei", "WenQuanYi Micro Hei", "Noto Sans CJK SC", "Noto Sans CJK JP", "Noto Sans CJK KR", "Yu Gothic Bold", "Yu Gothic", "Malgun Gothic Bold", "Malgun Gothic", "PingFang SC", "PingFang TC", "WenQuanYi Zen Hei", "Nirmala UI Bold", "Nirmala UI", "Leelawadee UI Bold", "Leelawadee UI", "Friendly Sans", Arial, "Segoe UI", sans-serif';
@@ -265,8 +265,8 @@ export function splitTextRuns(text: string, primaryFont?: string, fallbackFont?:
 
 	// MATCHES NON-LATIN SCRIPTS, CJK / FULLWIDTH PUNCTUATION, REMAPPED SYMBOLS ([ ], { }, |, \), AND EXTENDED LATIN (IF WILD WORDS)
 	const fallbackCharsRegex = isWildWords
-		? /([\u3040-\u30ff\u31f0-\u31ff\u3400-\u4dbf\u4e00-\u9fff\uf900-\ufaff\uac00-\ud7af\u1100-\u11ff\u3130-\u318f\u0900-\u097f\u0e00-\u0e7f\u0400-\u04ff\uff01-\uffee\u3000-\u303f]+|[\[\]{}|\\]+|[\u00C0-\u024F\u00A1\u00BF]+)/g
-		: /([\u3040-\u30ff\u31f0-\u31ff\u3400-\u4dbf\u4e00-\u9fff\uf900-\ufaff\uac00-\ud7af\u1100-\u11ff\u3130-\u318f\u0900-\u097f\u0e00-\u0e7f\u0400-\u04ff\uff01-\uffee\u3000-\u303f]+|[\[\]{}|\\]+)/g;
+		? /([\u3040-\u30ff\u31f0-\u31ff\u3400-\u4dbf\u4e00-\u9fff\uf900-\ufaff\uac00-\ud7af\u1100-\u11ff\u3130-\u318f\u0900-\u097f\u0e00-\u0e7f\u0400-\u04ff\uff01-\uffee\u3000-\u303f\u00ab\u00bb\u2018-\u201f\u2039\u203a]+|[\[\]{}|\\]+|[\u00C0-\u024F\u00A1\u00BF]+)/g
+		: /([\u3040-\u30ff\u31f0-\u31ff\u3400-\u4dbf\u4e00-\u9fff\uf900-\ufaff\uac00-\ud7af\u1100-\u11ff\u3130-\u318f\u0900-\u097f\u0e00-\u0e7f\u0400-\u04ff\uff01-\uffee\u3000-\u303f\u00ab\u00bb\u2018-\u201f\u2039\u203a]+|[\[\]{}|\\]+)/g;
 
 	if (!fallbackCharsRegex.test(text)) {
 		return [{ text, font: fontMain, isFallbackSymbol: false }];

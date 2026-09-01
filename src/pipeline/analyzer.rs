@@ -154,7 +154,8 @@ pub fn analyze_image_with_fusion_timed(
                 let iy = (pb.y + pb.h).min(b.y + b.h) - pb.y.max(b.y);
                 ix > 0 && iy > 0 && (ix * iy) as f32 / (b.w * b.h).max(1) as f32 >= 0.50
             });
-            if !inside_any_bubble && *score < 0.35 {
+            let is_giant_screen_prop = !inside_any_bubble && (b.h >= 300 && b.w >= 250) && *score < 0.35;
+            if is_giant_screen_prop {
                 continue;
             }
             let matching_subboxes_count = if inside_any_bubble {
@@ -492,7 +493,10 @@ pub fn analyze_image_with_fusion_timed(
                     }
                 });
                 if inside_bubble_panel && !is_near_layout_anchor {
-                    continue;
+                    let is_native = crate::ml::detect::has_native_script_for_lang(&line.text, source_lang);
+                    if !is_native || line.text.chars().filter(|c| !c.is_whitespace()).count() < 2 || line.score < 0.70 {
+                        continue;
+                    }
                 }
 
                 // DO NOT RESCUE VERTICAL FURIGANA / RUBY SATELLITE LINES (NARROW ADJACENT OCR SLICES ALONGSIDE PRIMARY CANDIDATE BOXES)
@@ -535,7 +539,7 @@ pub fn analyze_image_with_fusion_timed(
                         }
                         _ => true,
                     };
-                    if !is_native || line.score < 0.75 || line.text.chars().count() <= 4 {
+                    if !is_native || line.score < 0.75 || line.text.chars().filter(|c| !c.is_whitespace()).count() <= 4 {
                         continue;
                     }
                 }

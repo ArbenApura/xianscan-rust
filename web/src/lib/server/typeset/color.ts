@@ -26,13 +26,23 @@ export function sampleBackground(
 	const srcW = 'canvas' in source ? source.canvas.width : source.width;
 	const srcH = 'canvas' in source ? source.canvas.height : source.height;
 
-	const sx = Math.max(0, Math.floor(x + w * 0.2));
-	const sy = Math.max(0, Math.floor(y + h * 0.2));
-	const ex = Math.min(srcW, Math.ceil(x + w * 0.8));
-	const ey = Math.min(srcH, Math.ceil(y + h * 0.8));
-	const cw = ex - sx;
-	const ch = ey - sy;
-	if (cw < 4 || ch < 4) return { r: 255, g: 255, b: 255 };
+	let sx = Math.max(0, Math.floor(x + w * 0.2));
+	let sy = Math.max(0, Math.floor(y + h * 0.2));
+	let ex = Math.min(srcW, Math.ceil(x + w * 0.8));
+	let ey = Math.min(srcH, Math.ceil(y + h * 0.8));
+	let cw = ex - sx;
+	let ch = ey - sy;
+
+	// IF INSET SAMPLING REGION COLLAPSES, FALLBACK TO FULL BOUNDING BOX
+	if (cw < 1 || ch < 1) {
+		sx = Math.max(0, Math.floor(x));
+		sy = Math.max(0, Math.floor(y));
+		ex = Math.min(srcW, Math.ceil(x + w));
+		ey = Math.min(srcH, Math.ceil(y + h));
+		cw = ex - sx;
+		ch = ey - sy;
+		if (cw < 1 || ch < 1) return { r: 255, g: 255, b: 255 };
+	}
 
 	let data: Uint8ClampedArray;
 	if ('getImageData' in source) {

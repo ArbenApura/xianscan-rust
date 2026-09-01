@@ -15,6 +15,7 @@ export function typesetStatPanel(
 	r: TypesetRegion,
 	segments: TextSegment[],
 	bgColor: TextColor,
+	customCjk?: string,
 ): void {
 	const { x, y, w, h } = r.box;
 	const insetW = Math.max(10, w * (1 - 2 * BOX_INSET));
@@ -36,8 +37,8 @@ export function typesetStatPanel(
 		let h2 = gapTotal;
 		for (const seg of segments) {
 			const sz = Math.max(MIN_FONT_SIZE, Math.round(base * SEG_SCALE[seg.kind]));
-			const segFont = fontFor(seg.text);
-			ctx.font = fontSpec(sz, segFont);
+			const segFont = fontFor(seg.text, undefined, customCjk);
+			ctx.font = fontSpec(sz, segFont, seg.text, customCjk);
 			if (seg.kind === 'title') {
 				const maxTitleW = insetW - sz * BRACKET_GUTTER_RATIO;
 				const textFits = ctx.measureText(seg.text).width <= Math.max(10, maxTitleW);
@@ -67,8 +68,8 @@ export function typesetStatPanel(
 
 	for (const seg of segments) {
 		const size = Math.max(MIN_FONT_SIZE, Math.round(baseSize * SEG_SCALE[seg.kind]));
-		const segFont = fontFor(seg.text);
-		ctx.font = fontSpec(size, segFont);
+		const segFont = fontFor(seg.text, undefined, customCjk);
+		ctx.font = fontSpec(size, segFont, seg.text, customCjk);
 		const lines = seg.kind === 'title' ? [seg.text] : balancedWrapText(ctx, seg.text, insetW);
 		totalH += lines.length * size * LINE_HEIGHT;
 
@@ -105,11 +106,11 @@ export function typesetStatPanel(
 				drawY,
 				size,
 				segFont,
-				FONT_FALLBACK_NAME,
+				customCjk || FONT_FALLBACK_NAME,
 				{ fill: color, stroke },
 				strokeWidth,
 				isDarkStroke,
-				undefined,
+				customCjk,
 				'center',
 			);
 			ty += lineH;

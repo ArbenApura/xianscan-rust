@@ -50,6 +50,11 @@ export function parseStatPanel(text: string): TextSegment[] | null {
 	const rawLines = text.split('\n').map((l) => l.trim()).filter(Boolean);
 	if (rawLines.length === 0) return null;
 
+	// REJECT SPEAKER TAGS (E.G. "[CLIMBER 123]:", "[WHISPER]:")
+	if (/^(\[|【).+[:：]$/.test(rawLines[0])) {
+		return null;
+	}
+
 	const hasCjkBracket = /^【.+】$/.test(rawLines[0]);
 	const hasAsciiBracket = /^\[.+\]$/.test(rawLines[0]);
 	if (hasCjkBracket || hasAsciiBracket) {
@@ -59,6 +64,17 @@ export function parseStatPanel(text: string): TextSegment[] | null {
 		for (let i = 1; i < rawLines.length; i++) {
 			segments.push(..._classifyLine(rawLines[i]));
 		}
+
+		// FOR MULTI-LINE TEXT, REQUIRE AT LEAST ONE NON-BODY OR STRUCTURED ATTRIBUTE SEGMENT
+		if (rawLines.length > 1) {
+			const hasStructuredChild = segments.slice(1).some(
+				(s) => s.kind !== 'body' || /^[a-zA-Z\u4e00-\u9fa5\s]{1,25}[:：]/.test(s.text),
+			);
+			if (!hasStructuredChild) {
+				return null;
+			}
+		}
+
 		return segments;
 	}
 

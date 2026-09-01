@@ -479,13 +479,13 @@ pub fn is_standalone_table_cell(text: &str) -> bool {
         // 1. Colon + counter (e.g. "댓글:1", "조회수:1", "것글:1", ":1", ":T")
         if let Some(pos) = t.rfind(':').or_else(|| t.rfind('：')) {
             let rest = t[pos + 1..].trim();
-            if !rest.is_empty() && rest.chars().all(|c| c.is_ascii_digit() || c == 'T' || c == 't' || c == 'l' || c == 'I' || c == '조' || c == '회') {
+            if !rest.is_empty() && rest.chars().all(|c| c.is_ascii_digit() || c == 'T' || c == 't' || c == 'l' || c == 'I' || c == '1' || c == '조' || c == '회') {
                 return true;
             }
         }
-        // 2. Standalone chapter / view / metric index (e.g. "열람3125화", "열람11작쪽", "조회수1", "Ch.12", "Vol.3")
-        let is_metric_cell = (t.starts_with("열람") || t.starts_with("조회") || t.starts_with("댓글") || t.starts_with("Ch.") || t.starts_with("Vol."))
-            && t.chars().any(|c| c.is_ascii_digit());
+        // 2. Standalone chapter / view / metric index (e.g. "열람3125화", "연라3113하", "열람11작쪽", "조회수1", "조외수T", "조외수1", "Ch.12", "Vol.3")
+        let is_metric_cell = (t.starts_with("열람") || t.starts_with("연라") || t.starts_with("조회") || t.starts_with("조외") || t.starts_with("댓글") || t.starts_with("것글") || t.starts_with("Ch.") || t.starts_with("Vol."))
+            && t.chars().any(|c| c.is_ascii_digit() || c == 'T' || c == 't' || c == '1' || c == 'I' || c == 'l');
         if is_metric_cell {
             return true;
         }
