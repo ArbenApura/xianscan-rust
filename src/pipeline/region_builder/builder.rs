@@ -134,6 +134,33 @@ pub fn build_regions(
             }
         }
 
+        // ATTACH ORPHAN PUNCTUATION LINES IMMEDIATELY ADJACENT TO MATCHED TEXT LINES
+        // In vertical manga typography, exclamation marks / punctuation at the bottom of a vertical column
+        // (e.g. '!!', '!?') often sit slightly offset to the left/bottom of the main text stroke.
+        if !matched.is_empty() {
+            for (li, l) in split_lines.iter().enumerate() {
+                if !orphan_claims[li] {
+                    continue;
+                }
+                let t = l.text.trim();
+                let is_pure_punct = !t.is_empty() && t.chars().all(|c| matches!(c, '！' | '？' | '!' | '?' | '…' | 'ー' | '─' | '～' | '~' | '―'));
+                if is_pure_punct {
+                    let (lx, ly, lw, lh) = polygon_bounds(&l.polygon);
+                    let is_adjacent_to_matched = matched.iter().any(|m| {
+                        let (mx, my, mw, mh) = polygon_bounds(&m.polygon);
+                        let overlap_y = (ly + lh).min(my + mh) - ly.max(my);
+                        let vert_gap = if ly >= my + mh { ly - (my + mh) } else if my >= ly + lh { my - (ly + lh) } else { 0 };
+                        let horiz_gap = if lx >= mx + mw { lx - (mx + mw) } else if mx >= lx + lw { mx - (lx + lw) } else { 0 };
+                        (overlap_y > 0 && horiz_gap <= 45) || (vert_gap <= 35 && horiz_gap <= 45)
+                    });
+                    if is_adjacent_to_matched {
+                        matched.push(l);
+                        orphan_claims[li] = false;
+                    }
+                }
+            }
+        }
+
         // IN NON-LATIN SCRIPT SOURCES (E.G. KOREAN, CJK), DROP OVERLAPPING PURE LATIN NOISE LINES AND DIGIT NOISE
         if crate::ml::detect::is_non_latin_source(source_lang) && matched.iter().any(|l| {
             let t = l.text.trim();
@@ -306,6 +333,9 @@ pub fn build_regions(
                     let overlap_ratio_m = overlap_area as f32 / m_area as f32;
 
                     let min_h_mo = mh.min(oh);
+                    let min_col_w = mw.min(ow);
+                    let col_center_dist = ((mx + mw / 2) - (ox + ow / 2)).abs();
+                    let is_same_column = col_center_dist <= (min_col_w as f32 * 0.50).max(25.0) as i32;
                     let max_neg_col_x = -(min_h_mo as f32 * 0.60).max(15.0) as i32;
                     let vert_col_overlap = if is_container_vert && mh > 0 && oh > 0 {
                         overlap_y.max(0) as f32 / min_h_mo as f32 >= 0.50 && overlap_x >= max_neg_col_x
@@ -335,7 +365,8 @@ pub fn build_regions(
                         && (overlap_y.max(0) as f32 / mh.max(1) as f32 >= 0.70)
                         && (clean_m.chars().count() <= clean_o.chars().count());
 
-                    if ((iou >= 0.40 || overlap_ratio_m >= 0.60 || (vert_col_overlap && is_sub) || is_horizontal_suffix_noise || (overlap_ratio_m >= 0.30 && is_sub) || is_m_furigana_of_o) && (is_exact || is_sub || is_horizontal_suffix_noise || is_m_furigana_of_o))
+                    let vert_col_sub_overlap = vert_col_overlap && is_same_column;
+                    if ((iou >= 0.40 || overlap_ratio_m >= 0.60 || (vert_col_sub_overlap && is_sub) || (vert_col_overlap && is_exact) || is_horizontal_suffix_noise || (overlap_ratio_m >= 0.30 && is_sub) || is_m_furigana_of_o) && (is_exact || is_sub || is_horizontal_suffix_noise || is_m_furigana_of_o))
                         && !is_vert_col_text_and_punct
                     {
                         is_dup = true;
@@ -356,12 +387,18 @@ pub fn build_regions(
                         let o_area = (ow * oh).max(1);
                         let overlap_ratio_o = overlap_area as f32 / o_area as f32;
                         let min_h_mo = mh.min(oh);
+                        let min_col_w = mw.min(ow);
+                        let col_center_dist = ((mx + mw / 2) - (ox + ow / 2)).abs();
+                        let is_same_column = col_center_dist <= (min_col_w as f32 * 0.50).max(25.0) as i32;
                         let max_neg_col_x = -(min_h_mo as f32 * 0.60).max(15.0) as i32;
                         let vert_col_overlap = if is_container_vert && mh > 0 && oh > 0 {
                             overlap_y.max(0) as f32 / min_h_mo as f32 >= 0.50 && overlap_x >= max_neg_col_x
                         } else {
                             false
                         };
+                        let vert_col_sub_overlap = vert_col_overlap && is_same_column;
+                        let is_existing_exact = clean_m == clean_o;
+
                         let is_existing_suffix_noise = !is_container_vert
                             && clean_o.chars().count() == 1
                             && clean_o.chars().all(|c| c.is_ascii_digit())
@@ -381,7 +418,9 @@ pub fn build_regions(
                             && (overlap_y.max(0) as f32 / oh.max(1) as f32 >= 0.70)
                             && (clean_o.chars().count() <= clean_m.chars().count());
 
-                        (!(((iou >= 0.40 || vert_col_overlap || overlap_ratio_o >= 0.30 || is_o_furigana_of_m) && (is_existing_sub || is_o_furigana_of_m)) || is_existing_suffix_noise)) || is_vert_col_text_and_punct
+                        let is_existing_dup = ((iou >= 0.40 || overlap_ratio_o >= 0.60 || (vert_col_sub_overlap && is_existing_sub) || (vert_col_overlap && is_existing_exact) || is_existing_suffix_noise || (overlap_ratio_o >= 0.30 && is_existing_sub) || is_o_furigana_of_m) && (is_existing_exact || is_existing_sub || is_existing_suffix_noise || is_o_furigana_of_m))
+                            && !is_vert_col_text_and_punct;
+                        !is_existing_dup
                     });
                     filtered_matched.push(m);
                 }
@@ -412,7 +451,6 @@ pub fn build_regions(
 
             let rad_a = median_line_angle.to_radians();
             let (sin_a, cos_a) = (rad_a.sin(), rad_a.cos());
-
             let clusters = cluster_lines_into_utterances(&filtered_matched, is_cjk, is_container_vert, sin_a, cos_a);
 
             // CONTAINER-BOUNDARY EXPANSION IS ONLY VALID FOR A SINGLE-UTTERANCE CONTAINER:

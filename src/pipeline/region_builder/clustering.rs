@@ -333,12 +333,20 @@ pub fn format_lines_cluster(
             let (bx, by, _, _) = polygon_bounds(&b.polygon);
             bx.cmp(&ax).then_with(|| ay.cmp(&by))
         });
-        // DEDUPLICATE VERTICAL LINES WHERE ONE LINE IS A SUBSTRING FRAGMENT OR DUPLICATE PREFIX/SUFFIX
+        // DEDUPLICATE VERTICAL LINES WHERE ONE LINE IS A SUBSTRING FRAGMENT OR DUPLICATE PREFIX/SUFFIX ON THE SAME COLUMN
         let mut deduped_sorted: Vec<&OcrLine> = Vec::new();
         for l in sorted {
             let clean_l = l.text.trim();
+            let (lx, _, lw, _) = polygon_bounds(&l.polygon);
             let is_sub_or_fragment = deduped_sorted.iter().any(|existing| {
                 let clean_e = existing.text.trim();
+                let (ex, _, ew, _) = polygon_bounds(&existing.polygon);
+                let overlap_x = (lx + lw).min(ex + ew) - lx.max(ex);
+                let col_dist = ((lx + lw / 2) - (ex + ew / 2)).abs();
+                let is_same_column = overlap_x >= 0 || col_dist <= 20;
+                if !is_same_column {
+                    return false;
+                }
                 let is_sub = clean_e.contains(clean_l) && clean_e.chars().count() > clean_l.chars().count();
                 let is_l_punct = clean_l.chars().all(|c| c.is_ascii_punctuation() || matches!(c, '！' | '？' | '!' | '?' | '…'));
                 let has_overlap_chars = !is_l_punct && clean_l.chars().filter(|c| !c.is_alphanumeric() || !c.is_ascii_digit()).all(|c| clean_e.contains(c));
@@ -347,6 +355,13 @@ pub fn format_lines_cluster(
             if !is_sub_or_fragment {
                 deduped_sorted.retain(|existing| {
                     let clean_e = existing.text.trim();
+                    let (ex, _, ew, _) = polygon_bounds(&existing.polygon);
+                    let overlap_x = (lx + lw).min(ex + ew) - lx.max(ex);
+                    let col_dist = ((lx + lw / 2) - (ex + ew / 2)).abs();
+                    let is_same_column = overlap_x >= 0 || col_dist <= 20;
+                    if !is_same_column {
+                        return true;
+                    }
                     let is_sub = clean_l.contains(clean_e) && clean_l.chars().count() > clean_e.chars().count();
                     let is_e_punct = clean_e.chars().all(|c| c.is_ascii_punctuation() || matches!(c, '！' | '？' | '!' | '?' | '…'));
                     let has_overlap_chars = !is_e_punct && clean_e.chars().filter(|c| !c.is_alphanumeric() || !c.is_ascii_digit()).all(|c| clean_l.contains(c));
