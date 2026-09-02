@@ -258,7 +258,7 @@ You can find your LAN address printed directly in the XianScan startup terminal 
 
 ![Terminal LAN Address](/showcase/lan_terminal_preview.png)
 
-6. In **Browse** -> **Sources**, tap the filter icon and enable the **Multi language** tag (or **All** globe 🌐 icon).
+6. In **Browse** -> **Sources**, tap the filter icon and enable the **Multi** language tag.
 7. Open **XianScan** under Sources to browse and read your translated library!
 
 *(For Mihon REST protocol specifications and building from source, see [Extension & Client Architecture](/docs/advanced/extensions)).*
