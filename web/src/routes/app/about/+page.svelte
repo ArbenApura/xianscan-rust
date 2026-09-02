@@ -118,10 +118,10 @@
 </script>
 
 <svelte:head>
-	<title>About : XianScan Comic Translation Server</title>
+	<title>About : XianScan Translation Studio</title>
 	<meta
 		name="description"
-		content="About XianScan: Native comic translation server for Chinese Manhua, Korean Manhwa, and Japanese Manga built with Rust and ONNX Runtime by Arben Apura."
+		content="About XianScan: Local-first translation studio for manga, manhwa, and manhua built with Rust and ONNX Runtime by Arben Apura."
 	/>
 </svelte:head>
 
@@ -141,7 +141,7 @@
 						</span>
 					</div>
 					<p class="text-[11px] sm:text-xs text-neutral-500 dark:text-neutral-400 mt-0.5 leading-snug">
-						Self-contained, local-first comic translation engine for Chinese, Korean, and Japanese.
+						Local-first translation studio for manga, manhwa, and manhua.
 					</p>
 				</div>
 			</div>

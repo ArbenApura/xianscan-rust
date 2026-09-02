@@ -10,7 +10,7 @@
 	import { DOC_NAVIGATION } from '$lib/docs-nav';
 	import { DOCS_CONTENT } from '$lib/docs-content';
 	import { renderMarkdown } from '$lib/utils/markdown';
-	import { Button, Badge, Card, Callout, InkDivider, ComparisonSlider } from '$lib/components/ui';
+	import { Button, Badge, Card, Callout, InkDivider, ComparisonSlider, SegmentedControl } from '$lib/components/ui';
 
 	// -- CONSTANTS (STRICTLY THE 3 CORE FORMATS) -- //
 
@@ -151,7 +151,16 @@
 	$: nextDoc = currentIdx !== -1 && currentIdx < allDocs.length - 1 ? allDocs[currentIdx + 1] : undefined;
 	$: currentSection = DOC_NAVIGATION.find((s) => s.items.some((i) => normalizeSlug(i.href) === normalizedSlug || i.id === normalizedSlug || normalizeSlug(i.href).endsWith(normalizedSlug)));
 	$: benchmarkData = BENCHMARK_GALLERIES[normalizedSlug] || Object.entries(BENCHMARK_GALLERIES).find(([k]) => normalizeSlug(k) === normalizedSlug || normalizedSlug.endsWith(normalizeSlug(k)))?.[1];
-	$: chapterData = DOCS_CONTENT[normalizedSlug] || Object.entries(DOCS_CONTENT).find(([k]) => normalizeSlug(k) === normalizedSlug || normalizedSlug.endsWith(normalizeSlug(k)))?.[1];
+	$: chapterData = DOCS_CONTENT[normalizedSlug] || Object.entries(DOCS_CONTENT).find(([k]) => normalizeSlug(k) === normalizedSlug || normalizeSlug(k).endsWith(normalizedSlug) || normalizedSlug.endsWith(normalizeSlug(k)))?.[1];
+
+	// RESET TO 'translated' BY DEFAULT WHENEVER BENCHMARK DATA OR SLUG CHANGES
+	$: if (benchmarkData) {
+		const initialModes: Record<number, 'translated' | 'cleaned'> = {};
+		benchmarkData.samples.forEach((_, idx) => {
+			initialModes[idx] = sampleModes[idx] ?? 'translated';
+		});
+		sampleModes = initialModes;
+	}
 
 	$: pageTitle = (chapterData?.title ?? benchmarkData?.title ?? currentDoc?.title ?? 'Documentation') + ' - XianScan Docs';
 	$: pageDesc = chapterData?.description ?? benchmarkData?.desc ?? `Documentation guide for ${currentDoc?.title ?? 'XianScan'}.`;
@@ -227,25 +236,18 @@
 			{#each benchmarkData.samples as sample, idx}
 				{@const currentMode = sampleModes[idx] ?? 'translated'}
 				<div class="rounded-2xl border border-black/10 bg-black/[0.015] p-4 sm:p-6 dark:border-white/10 dark:bg-white/[0.015] shadow-xs">
-					<div class="mb-4 flex flex-wrap items-center justify-between gap-2 pb-3 border-b border-black/10 dark:border-white/10">
+					<div class="mb-4 space-y-3 pb-3 border-b border-black/10 dark:border-white/10 text-center">
 						<h3 class="font-display text-sm sm:text-base font-bold truncate max-w-full">
 							Sample {idx + 1}: {sample.name}
 						</h3>
-						<div class="inline-flex items-center rounded-lg border border-black/10 bg-black/5 p-0.5 text-xs dark:border-white/10 dark:bg-white/5">
-							<button
-								type="button"
-								on:click={() => (sampleModes[idx] = 'translated')}
-								class="rounded-md px-2.5 py-1 text-xs font-bold transition-all {currentMode === 'translated' ? 'bg-[#b23a2e] text-white shadow-xs' : 'opacity-70 hover:opacity-100'}"
-							>
-								Translated
-							</button>
-							<button
-								type="button"
-								on:click={() => (sampleModes[idx] = 'cleaned')}
-								class="rounded-md px-2.5 py-1 text-xs font-bold transition-all {currentMode === 'cleaned' ? 'bg-[#4f7a64] text-white shadow-xs' : 'opacity-70 hover:opacity-100'}"
-							>
-								Inpaint Only
-							</button>
+						<div class="flex justify-center">
+							<SegmentedControl
+								options={[
+									{ value: 'translated', label: 'Translated' },
+									{ value: 'cleaned', label: 'Inpaint' }
+								]}
+								bind:value={sampleModes[idx]}
+							/>
 						</div>
 					</div>
 
@@ -262,6 +264,13 @@
 			{/each}
 		</div>
 	{:else if chapterData}
+		<!-- PRE-CONTENT NOTICE -->
+		<div class="mb-8">
+			<Callout variant="note" title="Preview Content">
+				Please note that the details on this page are pre-content drafts. More detailed technical specifications, architectural breakdowns, and updated guides will be added soon.
+			</Callout>
+		</div>
+
 		<!-- AUTHORED CHAPTER CONTENT SECTIONS -->
 		<div class="space-y-10">
 			{#each chapterData.sections as section}

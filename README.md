@@ -4,7 +4,7 @@
 
 # XianScan
 
-**Native Comic Translation Server for Chinese Manhua, Korean Manhwa, & Japanese Manga**
+**Local-first translation studio for manga, manhwa, and manhua.**
 
 Speech bubble detection, multi-language OCR, LLM translation, neural inpainting, and typesetting built with Rust & ONNX Runtime.
 
@@ -43,7 +43,7 @@ Documentation & Showcase: [**xianscan.arbenger.com**](https://xianscan.arbenger.
 
 > [!TIP]
 > **Choosing the Right Tool for Your Workflow**
-> - **XianScan (Automated Reading Flow)**: Built specifically for readers and fast chapter catch-up. Delivers an automated 1-click pipeline (browser import -> OCR -> inpainting -> LLM translation -> typesetting -> Mihon streaming) packaged in a portable zero-install standalone binary.
+> - **XianScan (Automated Reading Flow)**: Built specifically for readers and fast chapter catch-up. Delivers an automated 1-click pipeline (browser import -> OCR -> inpainting -> LLM translation -> typesetting -> Mihon streaming) packaged in a self-contained zero-install standalone binary.
 > - **Koharu (Comprehensive Translation Studio)**: If you need an end-to-end desktop editor with multi-format project management, proofreading, a WebGPU-based canvas for manual cleanup, and layered PSD export, check out [Koharu](https://github.com/mayocream/koharu).
 
 ### Key Architectural Pillars

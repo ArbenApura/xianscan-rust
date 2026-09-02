@@ -11,10 +11,10 @@ export const THEME_CLASS: Record<Theme, string> = {
 };
 
 export const THEME_HEADER: Record<Theme, string> = {
-	auto: 'bg-[#fbfaf7]/90 dark:bg-[#13100c]/90 border-black/10 dark:border-white/10',
-	light: 'bg-[#fbfaf7]/90 border-black/10',
-	sepia: 'bg-[#f4ecd8]/90 border-[#5b4636]/20',
-	dark: 'bg-[#13100c]/90 border-white/10',
+	auto: 'bg-[#fbfaf7]/75 dark:bg-[#13100c]/75 border-black/10 dark:border-white/10',
+	light: 'bg-[#fbfaf7]/75 border-black/10',
+	sepia: 'bg-[#f4ecd8]/75 border-[#5b4636]/15',
+	dark: 'bg-[#13100c]/75 border-white/10',
 };
 
 export const THEME_PANEL: Record<Theme, string> = {
@@ -88,7 +88,7 @@ function createThemeStore() {
 		},
 		toggle: () => {
 			update((current) => {
-				const next: Theme = current === 'auto' ? 'dark' : current === 'dark' ? 'sepia' : current === 'sepia' ? 'light' : 'auto';
+				const next: Theme = current === 'auto' ? 'sepia' : current === 'sepia' ? 'light' : current === 'light' ? 'dark' : 'auto';
 				applyTheme(next);
 				return next;
 			});

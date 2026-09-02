@@ -34,10 +34,10 @@
 		{
 			id: 'manhua',
 			title: 'Chinese Manhua',
-			work: '《妖神记》 Tales of Demons and Gods',
-			raw: '/showcase/manhua_raw.jpg',
-			cleaned: '/showcase/manhua_cleaned.jpg',
-			translated: '/showcase/manhua_translated.jpg',
+			work: '《斗罗大陆3龙王传说》 Soul Land 3: Legend of the Dragon King',
+			raw: '/showcase/manhua_soulland3_raw.webp',
+			cleaned: '/showcase/manhua_soulland3_cleaned.webp',
+			translated: '/showcase/manhua_soulland3_translated.webp',
 			href: '/docs/benchmarks/manhua',
 		},
 		{
@@ -61,14 +61,14 @@
 	];
 
 	const FORMAT_OPTIONS: SegmentOption[] = [
-		{ value: 'manhua', label: 'Manhua', variant: 'cinnabar' },
-		{ value: 'manhwa', label: 'Manhwa', variant: 'jade' },
-		{ value: 'manga', label: 'Manga', variant: 'gold' },
+		{ value: 'manhua', label: 'Manhua' },
+		{ value: 'manhwa', label: 'Manhwa' },
+		{ value: 'manga', label: 'Manga' },
 	];
 
 	const MODE_OPTIONS: SegmentOption[] = [
-		{ value: 'translated', label: 'Translated', variant: 'cinnabar' },
-		{ value: 'cleaned', label: 'Inpaint', variant: 'gold' },
+		{ value: 'translated', label: 'Translated' },
+		{ value: 'cleaned', label: 'Inpaint' },
 	];
 
 	const PIPELINE_STEPS = [
@@ -137,22 +137,22 @@
 </script>
 
 <svelte:head>
-	<title>XianScan - Native Comic Translation & Typesetting Studio</title>
-	<meta name="description" content="The native comic translation and typesetting studio for Chinese Manhua, Korean Manhwa, and Japanese Manga. Speech bubble segmentation, multi-script OCR, context-aware translation, and LaMa neural inpainting." />
+	<title>XianScan - Local-First Translation Studio for Manga, Manhwa & Manhua</title>
+	<meta name="description" content="Local-first translation studio for manga, manhwa, and manhua. Speech bubble segmentation, multi-script OCR, context-aware translation, and LaMa neural inpainting." />
 	<link rel="canonical" href="https://xianscan.arbenger.com/" />
 	
 	<!-- OPEN GRAPH -->
 	<meta property="og:type" content="website" />
-	<meta property="og:title" content="XianScan - Native Comic Translation & Typesetting Studio" />
-	<meta property="og:description" content="Offline speech bubble detection, multi-script OCR, context-aware LLM translation, and LaMa neural inpainting for Chinese Manhua, Korean Manhwa, and Japanese Manga." />
+	<meta property="og:title" content="XianScan - Local-First Translation Studio for Manga, Manhwa & Manhua" />
+	<meta property="og:description" content="Local-first translation studio for manga, manhwa, and manhua. Offline speech bubble detection, multi-script OCR, context-aware LLM translation, and LaMa neural inpainting." />
 	<meta property="og:url" content="https://xianscan.arbenger.com/" />
 	<meta property="og:site_name" content="XianScan" />
 	<meta property="og:image" content="https://xianscan.arbenger.com/logo.svg" />
 	
 	<!-- TWITTER CARDS -->
 	<meta name="twitter:card" content="summary_large_image" />
-	<meta name="twitter:title" content="XianScan - Native Comic Translation & Typesetting Studio" />
-	<meta name="twitter:description" content="The native comic translation and typesetting studio for Chinese Manhua, Korean Manhwa, and Japanese Manga." />
+	<meta name="twitter:title" content="XianScan - Local-First Translation Studio for Manga, Manhwa & Manhua" />
+	<meta name="twitter:description" content="Local-first translation studio for manga, manhwa, and manhua." />
 	<meta name="twitter:image" content="https://xianscan.arbenger.com/logo.svg" />
 
 	<!-- STRUCTURED DATA (JSON-LD) -->
@@ -163,7 +163,7 @@
 		"name": "XianScan",
 		"applicationCategory": "MultimediaApplication",
 		"operatingSystem": "Windows, Linux, macOS",
-		"description": "Native comic translation and typesetting server for Chinese Manhua, Korean Manhwa, and Japanese Manga.",
+		"description": "Local-first translation studio for manga, manhwa, and manhua.",
 		"url": "https://xianscan.arbenger.com",
 		"author": {
 			"@type": "Person",
@@ -193,14 +193,14 @@
 			</div>
 
 			<div class="flex flex-col items-center gap-3">
-				<img src="/logo.svg" alt="XianScan" class="h-20 w-20 rounded-2xl shadow-sm ring-1 ring-black/10 dark:ring-white/10" />
+				<img src="/logo.svg" alt="XianScan" class="h-20 w-20 rounded-lg shadow-sm ring-1 ring-black/10 dark:ring-white/10" />
 				<h1 class="font-display text-3xl sm:text-5xl lg:text-6xl font-extrabold tracking-tight">
 					<span class="text-[#b23a2e] dark:text-[#e08a63]">Xian</span>Scan
 				</h1>
 			</div>
 
 			<p class="mt-4 max-w-2xl text-sm sm:text-lg leading-relaxed opacity-85">
-				The native comic translation and typesetting studio for Chinese Manhua, Korean Manhwa, and Japanese Manga. Offline speech bubble detection, multi-script OCR, context-aware LLM translation, and LaMa neural inpainting.
+				Local-first translation studio for manga, manhwa, and manhua. Offline speech bubble detection, multi-script OCR, context-aware LLM translation, and LaMa neural inpainting.
 			</p>
 
 			<!-- HERO ACTION BUTTONS -->

@@ -37,7 +37,7 @@
 </script>
 
 <svelte:head>
-	<title>XianScan : AI Comic & Manhua Translation</title>
+	<title>XianScan : Local-First Manga, Manhwa & Manhua Translation</title>
 </svelte:head>
 
 <div class="relative flex min-h-screen flex-col items-center justify-center px-4 py-12 text-center">
@@ -52,7 +52,7 @@
 		<Seal char="仙" size={36} class="shadow-md shadow-[#b23a2e]/20" />
 		<div class="inline-flex items-center gap-2 rounded-full border border-[#b23a2e]/20 bg-[#b23a2e]/10 px-3.5 py-1.5 text-xs font-semibold text-[#b23a2e] dark:text-[#e08a63]">
 			<Languages size={14} />
-			<span>Self-hosted Comic & Manhua Translation Pipeline</span>
+			<span>Self-Contained & Local-First Translation Studio</span>
 		</div>
 	</div>
 
@@ -63,7 +63,7 @@
 
 	<!-- SUBTITLE -->
 	<p class="relative z-10 mt-4 max-w-xl text-base opacity-70 sm:text-lg leading-relaxed">
-		End-to-end comic translation: text detection, OCR, AI translation with custom glossaries, LaMa text erasing, and Skia typesetting.
+		Local-first translation studio for manga, manhwa, and manhua.
 	</p>
 
 	<!-- INK DIVIDER -->

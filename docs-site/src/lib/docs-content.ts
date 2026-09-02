@@ -65,8 +65,8 @@ Upon launch, XianScan logs its startup sequence directly in the terminal / conso
 1. Open **[http://localhost:8124](http://localhost:8124)** in your web browser.
 2. In the Library, click **New Book** and set your series title, source language (e.g. Chinese, Korean, Japanese), and target language (e.g. English).
 3. Inside your book, create a chapter or drag-and-drop a raw comic folder / image files (JPG, PNG, WebP) directly onto the dropzone.
-4. Click **Translate All** on the top toolbar. Watch live real-time progress as Koharu RF-DETR detects speech bubbles, OCR extracts dialogue, and LaMa inpaints backgrounds.
-5. Switch to **Webtoon Reader View** to enjoy continuous reading with automated typesetting!
+4. Click **Translate All** on the top toolbar to queue translation tasks. Monitor your background jobs in real-time using the interactive **Queue Modal** HUD (which can be freely moved around the screen, minimized, or expanded to inspect all active and pending translations). Once the entire chapter finishes processing, clean inpainting and context-aware typeset outputs are displayed automatically.
+5. Switch to **Webtoon Reader View** to enjoy continuous reading with automated typesetting, or sync with **[Mihon](/docs/extensions/mihon)** and other Tachiyomi-compatible apps for a native Android mobile reading experience!
 `,
 			},
 		],

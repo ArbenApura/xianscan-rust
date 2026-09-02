@@ -192,12 +192,7 @@
 			</div>
 
 			<div
-				class={cn(
-					'pointer-events-none absolute top-2.5 right-2.5 z-10 rounded-md px-2 py-0.5 text-[11px] sm:text-xs font-mono font-bold uppercase tracking-wider text-white backdrop-blur-xs transition-opacity duration-150 shadow-xs border border-white/10',
-					afterLabel.includes('INPAINT')
-						? 'bg-[#a97f28]/90 text-white'
-						: 'bg-[#b23a2e]/90 text-white',
-				)}
+				class="pointer-events-none absolute top-2.5 right-2.5 z-10 rounded-md bg-[#b23a2e]/90 px-2 py-0.5 text-[11px] sm:text-xs font-mono font-bold uppercase tracking-wider text-white backdrop-blur-xs transition-opacity duration-150 shadow-xs border border-white/10"
 				style="opacity: {sliderPos > 80 ? Math.max(0, (100 - sliderPos) / 20) : 1};"
 			>
 				{afterLabel}
