@@ -88,6 +88,7 @@
 	import Switch from '$lib/components/ui/Switch.svelte';
 	import LanguagePicker from '$lib/components/ui/LanguagePicker.svelte';
 	import ProviderLogo from '$lib/components/ui/ProviderLogo.svelte';
+	import DiscordLogo from '$lib/components/ui/DiscordLogo.svelte';
 	import Badge from '$lib/components/ui/Badge.svelte';
 
 	// PROPS COMPATIBILITY: ACCEPTS BOTH LEGACY (ai | compute | general) AND NEW CATEGORIES
@@ -3060,7 +3061,7 @@
 						<div class="flex items-center justify-between rounded-2xl border border-black/10 bg-black/[0.02] p-4 dark:border-white/10 dark:bg-white/[0.02]">
 							<div class="space-y-0.5">
 								<div class="flex items-center gap-1.5 text-xs font-bold text-[#5865F2]">
-									<MessageSquare size={14} />
+									<DiscordLogo size={15} fill="#5865F2" />
 									<span>Discord Community</span>
 								</div>
 								<p class="text-[11px] opacity-60">Join our community server to ask questions, share feedback, report bugs, or hang out.</p>

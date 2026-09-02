@@ -1,4 +1,4 @@
-﻿<script lang="ts">
+<script lang="ts">
 	// IMPORTED DEP-MODULES
 	import { createEventDispatcher } from 'svelte';
 	import { fade, fly } from 'svelte/transition';
@@ -35,6 +35,8 @@
 	}>();
 
 	// -- CONSTANTS -- //
+	const IMPORTER_DOCS_URL = 'https://xianscan.arbenger.com/docs/extensions/importer/';
+	const MIHON_DOCS_URL = 'https://xianscan.arbenger.com/docs/extensions/mihon/';
 	const RELEASES_URL = 'https://github.com/ArbenApura/xianscan-rust/releases/latest';
 
 	// -- STEP STATE -- //
@@ -261,13 +263,13 @@
 						</p>
 
 						<div class="grid grid-cols-1 sm:grid-cols-2 gap-2 sm:gap-3 pt-0.5">
-							<!-- CLICKABLE WEB IMPORTER EXTENSION CARD (LATEST RELEASE) -->
+							<!-- CLICKABLE WEB IMPORTER EXTENSION CARD (DOCS GUIDE) -->
 							<a
-								href={RELEASES_URL}
+								href={IMPORTER_DOCS_URL}
 								target="_blank"
 								rel="noopener noreferrer"
 								class="group flex flex-col justify-between rounded-xl border border-black/10 bg-black/[0.02] hover:bg-black/[0.04] p-2.5 sm:p-4 dark:border-white/10 dark:bg-white/[0.02] dark:hover:bg-white/[0.05] hover:border-[#b23a2e]/40 dark:hover:border-[#e08a63]/40 transition-all duration-150 active:scale-[0.99] cursor-pointer"
-								title="Download latest Web Importer Extension release"
+								title="View 1-Click Web Importer documentation and setup guide"
 								use:ripple
 							>
 								<div class="space-y-1 sm:space-y-1.5">
@@ -284,13 +286,13 @@
 								</div>
 							</a>
 
-							<!-- CLICKABLE MIHON / TACHIYOMI EXTENSION CARD (LATEST RELEASE) -->
+							<!-- CLICKABLE MIHON / TACHIYOMI EXTENSION CARD (DOCS GUIDE) -->
 							<a
-								href={RELEASES_URL}
+								href={MIHON_DOCS_URL}
 								target="_blank"
 								rel="noopener noreferrer"
 								class="group flex flex-col justify-between rounded-xl border border-black/10 bg-black/[0.02] hover:bg-black/[0.04] p-2.5 sm:p-4 dark:border-white/10 dark:bg-white/[0.02] dark:hover:bg-white/[0.05] hover:border-emerald-500/40 dark:hover:border-emerald-400/40 transition-all duration-150 active:scale-[0.99] cursor-pointer"
-								title="Download latest Mihon Extension release"
+								title="View Mihon & Tachiyomi extension setup guide"
 								use:ripple
 							>
 								<div class="space-y-1 sm:space-y-1.5">

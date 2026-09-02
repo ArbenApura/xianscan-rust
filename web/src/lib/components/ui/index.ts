@@ -7,6 +7,7 @@ export { default as Button } from './Button.svelte';
 export { default as Card } from './Card.svelte';
 export { default as Checkbox } from './Checkbox.svelte';
 export { default as ConfirmDialog } from './ConfirmDialog.svelte';
+export { default as DiscordLogo } from './DiscordLogo.svelte';
 export { default as DropCap } from './DropCap.svelte';
 export { default as EmptyState } from './EmptyState.svelte';
 export { default as InkDivider } from './InkDivider.svelte';
