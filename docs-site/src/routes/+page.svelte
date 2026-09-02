@@ -263,8 +263,8 @@
 			</div>
 
 			<div class="rounded-2xl border border-black/10 bg-black/[0.015] p-3 sm:p-5 dark:border-white/10 dark:bg-white/[0.015] shadow-xs">
-				<!-- TOP TOOLBAR -->
-				<div class="flex flex-wrap items-center justify-between gap-2 pb-3 border-b border-black/10 dark:border-white/10">
+				<!-- TOP TOOLBAR (SINGLE LINE ALWAYS) -->
+				<div class="flex items-center justify-between gap-1.5 sm:gap-3 pb-3 border-b border-black/10 dark:border-white/10 overflow-x-auto no-scrollbar">
 					<!-- FORMAT SELECTOR -->
 					<SegmentedControl
 						options={FORMAT_OPTIONS}
@@ -276,7 +276,7 @@
 					<SegmentedControl
 						options={MODE_OPTIONS}
 						bind:value={comparisonMode}
-						activeVariant="jade"
+						activeVariant="cinnabar"
 					/>
 				</div>
 

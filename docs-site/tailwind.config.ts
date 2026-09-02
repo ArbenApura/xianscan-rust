@@ -5,6 +5,9 @@ export default {
 	darkMode: 'class',
 	theme: {
 		extend: {
+			screens: {
+				xs: '450px',
+			},
 			fontFamily: {
 				sans: ['Inter', 'Lexend', 'system-ui', 'sans-serif'],
 				serif: ['Lora', 'Georgia', 'serif'],

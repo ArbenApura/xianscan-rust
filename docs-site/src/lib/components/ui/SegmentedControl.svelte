@@ -75,7 +75,7 @@
 	bind:this={containerEl}
 	role="radiogroup"
 	class={cn(
-		'relative inline-flex items-center rounded-xl border border-black/10 bg-black/[0.03] p-1 text-[11px] sm:text-xs font-semibold dark:border-white/10 dark:bg-white/[0.04] shadow-2xs isolate select-none',
+		'relative inline-flex items-center rounded-lg xs:rounded-xl border border-black/10 bg-black/[0.03] p-0.5 sm:p-1 text-[9.5px] xs:text-[11px] sm:text-xs font-semibold dark:border-white/10 dark:bg-white/[0.04] shadow-2xs isolate select-none shrink-0',
 		block && 'flex w-full',
 		className,
 	)}
@@ -84,7 +84,7 @@
 	{#if indicatorStyle}
 		<div
 			class={cn(
-				'absolute top-0 left-0 rounded-lg -z-10 transition-all duration-250 ease-out',
+				'absolute top-0 left-0 rounded-md xs:rounded-lg -z-10 transition-all duration-250 ease-out',
 				VARIANT_GRADIENTS[currentVariant]
 			)}
 			style={indicatorStyle}
@@ -104,7 +104,7 @@
 				dispatch('change', opt.value);
 			}}
 			class={cn(
-				'relative z-10 rounded-lg px-3 py-1.5 font-bold transition-colors whitespace-nowrap text-center outline-none cursor-pointer',
+				'relative z-10 rounded-md xs:rounded-lg px-1.5 xs:px-2.5 sm:px-3 py-0.5 xs:py-1 sm:py-1.5 font-bold transition-colors whitespace-nowrap text-center outline-none cursor-pointer',
 				block && 'flex-1',
 				value === opt.value
 					? 'text-white'
