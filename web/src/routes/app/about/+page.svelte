@@ -678,30 +678,59 @@
 				XianScan is architected and built by <strong class="text-neutral-900 dark:text-neutral-100">Arben Apura</strong> as a showcase of end-to-end full-stack web engineering, intuitive UI/UX design, and intelligent application architecture.
 			</p>
 			<div class="flex flex-wrap items-center gap-2 sm:gap-3 pt-1 pl-6 sm:pl-7 text-[11px] sm:text-xs">
-				<a href="https://arbenger.com/contact/" target="_blank" rel="noopener noreferrer" class="inline-flex items-center gap-1 text-[#b23a2e] dark:text-[#e08a63] hover:underline">
+				<a href="https://xianscan.arbenger.com" target="_blank" rel="noopener noreferrer" class="inline-flex items-center gap-1 text-[#b23a2e] dark:text-[#e08a63] font-bold hover:underline">
+					<BookOpen size={13} />
+					<span>xianscan.arbenger.com</span>
+				</a>
+				<span class="opacity-30">·</span>
+				<a href="https://arbenger.com/contact/" target="_blank" rel="noopener noreferrer" class="inline-flex items-center gap-1 text-neutral-600 dark:text-neutral-300 hover:underline">
 					<Globe size={13} />
 					<span>arbenger.com/contact</span>
 				</a>
 				<span class="opacity-30">·</span>
-				<a href="mailto:arbenapura.official@gmail.com" class="inline-flex items-center gap-1 text-[#b23a2e] dark:text-[#e08a63] hover:underline">
+				<a href="mailto:arbenapura.official@gmail.com" class="inline-flex items-center gap-1 text-neutral-600 dark:text-neutral-300 hover:underline">
 					<Mail size={13} />
 					<span>arbenapura.official@gmail.com</span>
 				</a>
 				<span class="opacity-30">·</span>
-				<a href="https://github.com/ArbenApura" target="_blank" rel="noopener noreferrer" class="inline-flex items-center gap-1 text-[#b23a2e] dark:text-[#e08a63] hover:underline">
+				<a href="https://github.com/ArbenApura" target="_blank" rel="noopener noreferrer" class="inline-flex items-center gap-1 text-neutral-600 dark:text-neutral-300 hover:underline">
 					<Github size={13} />
 					<span>@ArbenApura</span>
 				</a>
 				<span class="opacity-30">·</span>
-				<a href="https://discord.gg/J5mjJX6c" target="_blank" rel="noopener noreferrer" class="inline-flex items-center gap-1 text-[#5865F2] hover:underline font-medium">
+				<a href="https://discord.gg/dRWaQftNnR" target="_blank" rel="noopener noreferrer" class="inline-flex items-center gap-1 text-[#5865F2] hover:underline font-medium">
 					<MessageSquare size={13} />
 					<span>Discord Community</span>
 				</a>
 			</div>
 		</div>
 
-		<!-- KO-FI CONTRIBUTION & DISCORD COMMUNITY CARDS -->
-		<div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+		<!-- DOCUMENTATION, KO-FI & DISCORD COMMUNITY CARDS -->
+		<div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
+			<div class="flex flex-col justify-between gap-3 rounded-xl border border-black/10 bg-black/[0.015] p-3.5 sm:p-4 dark:border-white/10 dark:bg-white/[0.015]">
+				<div class="space-y-1">
+					<h3 class="font-bold text-neutral-900 dark:text-neutral-100 flex items-center gap-1.5 text-xs sm:text-sm">
+						<BookOpen size={14} class="text-[#b23a2e] dark:text-[#e08a63]" />
+						<span>Documentation Portal</span>
+					</h3>
+					<p class="text-[11px] sm:text-xs text-neutral-500 dark:text-neutral-400 leading-relaxed">
+						Complete guides, hardware acceleration benchmarks, API endpoints, and extension setups.
+					</p>
+				</div>
+
+				<a
+					href="https://xianscan.arbenger.com"
+					target="_blank"
+					rel="noopener noreferrer"
+					use:ripple
+					class="w-full inline-flex items-center justify-center gap-1.5 rounded-lg bg-[#b23a2e] hover:bg-[#c0392b] text-white px-3.5 py-2 text-xs font-bold transition"
+				>
+					<BookOpen size={13} />
+					<span>Visit Docs</span>
+					<ExternalLink size={11} class="opacity-60" />
+				</a>
+			</div>
+
 			<div class="flex flex-col justify-between gap-3 rounded-xl border border-black/10 bg-black/[0.015] p-3.5 sm:p-4 dark:border-white/10 dark:bg-white/[0.015]">
 				<div class="space-y-1">
 					<h3 class="font-bold text-neutral-900 dark:text-neutral-100 flex items-center gap-1.5 text-xs sm:text-sm">
@@ -718,7 +747,7 @@
 					target="_blank"
 					rel="noopener noreferrer"
 					use:ripple
-					class="w-full inline-flex items-center justify-center gap-1.5 rounded-lg bg-[#b23a2e] hover:bg-[#c0392b] text-white px-3.5 py-2 text-xs font-bold transition"
+					class="w-full inline-flex items-center justify-center gap-1.5 rounded-lg bg-neutral-800 hover:bg-neutral-900 dark:bg-neutral-700 dark:hover:bg-neutral-600 text-white px-3.5 py-2 text-xs font-bold transition"
 				>
 					<Coffee size={14} />
 					<span>Support on Ko-fi</span>
@@ -738,14 +767,14 @@
 				</div>
 
 				<a
-					href="https://discord.gg/J5mjJX6c"
+					href="https://discord.gg/dRWaQftNnR"
 					target="_blank"
 					rel="noopener noreferrer"
 					use:ripple
 					class="w-full inline-flex items-center justify-center gap-1.5 rounded-lg bg-[#5865F2] hover:bg-[#4752c4] text-white px-3.5 py-2 text-xs font-bold transition"
 				>
 					<MessageSquare size={14} />
-					<span>Join Discord Server</span>
+					<span>Join Discord</span>
 					<ExternalLink size={11} class="opacity-60" />
 				</a>
 			</div>

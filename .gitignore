@@ -15,6 +15,13 @@ web/.svelte-kit/
 web/package/
 web/coverage/
 web/vite.config.ts.timestamp-*
+docs-site/node_modules/
+docs-site/build/
+docs-site/.svelte-kit/
+docs-site/package/
+docs-site/coverage/
+docs-site/vite.config.ts.timestamp-*
+docs-site/vite.config.js.timestamp-*
 extensions/**/node_modules/
 extensions/**/dist/
 extensions/**/dist-firefox/
@@ -77,6 +84,7 @@ grounding-lab/
 training-lab/
 docs/superpowers/
 superpowers/
+
 
 # ==============================================================================
 # PRIVATE TEST FIXTURES & LOCAL MANGA BENCHMARK DATASETS

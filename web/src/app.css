@@ -74,14 +74,16 @@
 		font-family: var(--app-font-family, inherit) !important;
 	}
 
-	/* THEMED SCROLLBARS — TRANSLUCENT THUMBS BLEND OVER WHATEVER THEME BACKGROUND IS ACTIVE
-	   (LIGHT/SEPIA → DARK THUMB, DARK → LIGHT THUMB), SO THEY MATCH EVERY THEME. */
+	/* THEMED SCROLLBARS - TRANSLUCENT THUMBS BLEND OVER WHATEVER THEME BACKGROUND IS ACTIVE
+	   (LIGHT/SEPIA -> DARK THUMB, DARK -> LIGHT THUMB), SO THEY MATCH EVERY THEME. */
 	:root {
 		--sb-thumb: rgba(0, 0, 0, 0.38);
 		--sb-thumb-hover: rgba(0, 0, 0, 0.55);
 		--sb-track: rgba(0, 0, 0, 0.07);
 	}
-	:root.dark {
+	:root.dark,
+	html.dark,
+	.dark {
 		--sb-thumb: rgba(255, 255, 255, 0.3);
 		--sb-thumb-hover: rgba(255, 255, 255, 0.48);
 		--sb-track: rgba(255, 255, 255, 0.07);

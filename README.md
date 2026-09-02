@@ -8,6 +8,8 @@
 
 Speech bubble detection, multi-language OCR, LLM translation, neural inpainting, and typesetting built with Rust & ONNX Runtime.
 
+Documentation & Showcase: [**xianscan.arbenger.com**](https://xianscan.arbenger.com)
+
 <br/>
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg?style=flat-square)](LICENSE)

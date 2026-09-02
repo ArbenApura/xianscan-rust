@@ -80,6 +80,7 @@
 	import HelpCircle from 'lucide-svelte/icons/help-circle';
 	import MessageSquare from 'lucide-svelte/icons/message-square';
 	import ArrowUpCircle from 'lucide-svelte/icons/arrow-up-circle';
+	import BookOpen from 'lucide-svelte/icons/book-open';
 
 	// IMPORTED UI COMPONENTS
 	import Modal from '$lib/components/ui/Modal.svelte';
@@ -3034,6 +3035,27 @@
 							</Button>
 						</div>
 
+						<!-- DOCUMENTATION PORTAL CARD -->
+						<div class="flex items-center justify-between rounded-2xl border border-black/10 bg-black/[0.02] p-4 dark:border-white/10 dark:bg-white/[0.02]">
+							<div class="space-y-0.5">
+								<div class="flex items-center gap-1.5 text-xs font-bold text-[#b23a2e] dark:text-[#e08a63]">
+									<BookOpen size={14} />
+									<span>Official Documentation & Knowledge Base</span>
+								</div>
+								<p class="text-[11px] opacity-60">Complete guides, hardware setup, browser extension import, and API reference.</p>
+							</div>
+							<a
+								href="https://xianscan.arbenger.com"
+								target="_blank"
+								rel="noopener noreferrer"
+								class="inline-flex items-center gap-1.5 rounded-lg bg-[#b23a2e] hover:bg-[#c0392b] text-white px-3 py-1.5 text-xs font-bold transition shrink-0"
+								use:ripple
+							>
+								<span>Visit Docs</span>
+								<ExternalLink size={11} class="opacity-60" />
+							</a>
+						</div>
+
 						<!-- DISCORD COMMUNITY CARD -->
 						<div class="flex items-center justify-between rounded-2xl border border-black/10 bg-black/[0.02] p-4 dark:border-white/10 dark:bg-white/[0.02]">
 							<div class="space-y-0.5">
@@ -3044,7 +3066,7 @@
 								<p class="text-[11px] opacity-60">Join our community server to ask questions, share feedback, report bugs, or hang out.</p>
 							</div>
 							<a
-								href="https://discord.gg/J5mjJX6c"
+								href="https://discord.gg/dRWaQftNnR"
 								target="_blank"
 								rel="noopener noreferrer"
 								class="inline-flex items-center gap-1.5 rounded-lg bg-[#5865F2] hover:bg-[#4752c4] text-white px-3 py-1.5 text-xs font-bold transition shrink-0"

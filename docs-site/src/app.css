@@ -1,0 +1,96 @@
+@import '@fontsource/inter/400.css';
+@import '@fontsource/inter/500.css';
+@import '@fontsource/inter/600.css';
+@import '@fontsource/inter/700.css';
+@import '@fontsource/lexend/500.css';
+@import '@fontsource/lexend/600.css';
+@import '@fontsource/lexend/700.css';
+@import '@fontsource/lora/500.css';
+@import '@fontsource/lora/600.css';
+@import '@fontsource/montserrat/600.css';
+@import '@fontsource/montserrat/700.css';
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+	html {
+		-webkit-text-size-adjust: 100%;
+		font-family: 'Inter', 'Lexend', system-ui, sans-serif;
+		font-weight: 500;
+		-webkit-font-smoothing: antialiased;
+		-moz-osx-font-smoothing: grayscale;
+	}
+
+	body {
+		font-family: 'Inter', 'Lexend', system-ui, sans-serif;
+		font-weight: 500;
+		transition: background-color 0.2s ease, color 0.2s ease;
+	}
+
+	/* ==============================================================================
+	   THEMED SCROLLBARS - TRANSLUCENT THUMBS SYNC WITH RESOLVED ACTIVE THEME
+	   ============================================================================== */
+	:root {
+		--sb-thumb: rgba(0, 0, 0, 0.38);
+		--sb-thumb-hover: rgba(0, 0, 0, 0.55);
+		--sb-track: rgba(0, 0, 0, 0.06);
+	}
+
+	:root.dark,
+	html.dark,
+	.dark {
+		--sb-thumb: rgba(255, 255, 255, 0.3);
+		--sb-thumb-hover: rgba(255, 255, 255, 0.48);
+		--sb-track: rgba(255, 255, 255, 0.07);
+	}
+
+	/* FIREFOX AND STANDARDS */
+	html {
+		scrollbar-color: var(--sb-thumb) var(--sb-track);
+	}
+
+	* {
+		scrollbar-width: thin;
+		scrollbar-color: var(--sb-thumb) var(--sb-track);
+	}
+
+	/* WEBKIT / CHROMIUM / EDGE */
+	::-webkit-scrollbar {
+		width: 10px;
+		height: 10px;
+	}
+
+	::-webkit-scrollbar-track,
+	::-webkit-scrollbar-corner {
+		background: var(--sb-track);
+	}
+
+	::-webkit-scrollbar-thumb {
+		background-color: var(--sb-thumb);
+		border: 2px solid transparent;
+		border-radius: 9999px;
+		background-clip: padding-box;
+	}
+
+	::-webkit-scrollbar-thumb:hover {
+		background-color: var(--sb-thumb-hover);
+	}
+
+	/* MOBILE TOUCH POLISH */
+	button,
+	a,
+	[role='button'],
+	input,
+	select,
+	textarea,
+	label {
+		-webkit-tap-highlight-color: transparent;
+	}
+	button,
+	a,
+	[role='button'] {
+		touch-action: manipulation;
+	}
+}
