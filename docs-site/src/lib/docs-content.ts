@@ -139,7 +139,7 @@ XianScan is built in pure Rust with lock-free \`mimalloc\` memory allocation and
 | **Processor** | 4-Core x86_64 with AVX2 or Apple M1+ | 6 to 8 Core CPU (AVX2 / AVX-512) | 8+ Core CPU / Modern Xeon / EPYC |
 | **System RAM** | 8 GB (Engine RSS ~1.2 GB + image buffers) | 16 GB | 32 GB+ |
 | **Graphics (VRAM)** | None (Integrated / CPU inference) | NVIDIA RTX 3060 / 4060 / 5060 (6 GB - 8 GB+) | NVIDIA RTX 4070+ / RTX 5080 / Tesla T4 / L4 / A10G (16 GB+) |
-| **Translation Engine** | Cloud API (DeepSeek V4 Flash / Gemini 3.7) | Local 7B - 14B LLM (Qwen3.5 / DeepSeek-R1) | Local 27B - 70B LLM (Qwen3.5:27B / Qwen3.8:27B / Llama 4) |
+| **Translation Engine** | Cloud API (DeepSeek V4 Flash / Gemini 3.7) | Local 7B - 14B LLM (Qwen3.5) | Local 27B - 70B LLM (Qwen3.5:27B / Qwen3.8:27B / Llama 4) |
 `,
 			},
 			{
@@ -282,7 +282,7 @@ XianScan features a universal OpenAI-compatible LLM client runtime with process-
 | **DeepSeek** (Default) | \`https://api.deepseek.com\` | \`deepseek-v4-flash\`, \`deepseek-v4-pro\`, \`deepseek-chat\` | Asian idioms, Xianxia / Murim terms, fast 1-2s response |
 | **Google AI Studio** | \`https://generativelanguage.googleapis.com/v1beta/openai/\` | \`gemini-3.7-flash\`, \`gemini-3.7-pro\` | Massive context windows, high batch throughput |
 | **Groq (Ultra-Fast)** | \`https://api.groq.com/openai/v1\` | \`qwen3.6-27b\`, \`gpt-oss-120b\`, \`llama-4-scout-17b\` | Sub-second real-time generation speed |
-| **Ollama (Local)** | \`http://localhost:11434/v1\` | \`qwen3.5:14b\`, \`qwen3.5:7b\`, \`qwen3.5:27b\`, \`deepseek-r1:14b\` | 100% Offline, private local GPU translation |
+| **Ollama (Local)** | \`http://localhost:11434/v1\` | \`qwen3.5:14b\`, \`qwen3.5:7b\`, \`qwen3.5:27b\` | 100% Offline, private local GPU translation |
 | **LM Studio (Local)** | \`http://localhost:1234/v1\` | \`local-model\`, \`qwen3.5-14b-instruct-gguf\` | Offline desktop LLM interface with GGUF quantization |
 | **OpenAI** | \`https://api.openai.com/v1\` | \`gpt-5.6-terra\`, \`gpt-5.6-luna\`, \`gpt-5.6-sol\`, \`o3-mini\` | Consistent syntax, advanced reasoning, and standardized prose |
 | **OpenRouter** | \`https://openrouter.ai/api/v1\` | \`anthropic/claude-3.7-sonnet\`, \`deepseek/deepseek-v4-flash\`, \`google/gemini-3.7-flash\` | Universal multi-model routing and fallback pools |
@@ -303,8 +303,8 @@ ollama pull qwen3.5:14b
 # 7B parameter model (recommended for 6GB - 8GB GPUs):
 ollama pull qwen3.5:7b
 
-# Reasoning-distilled model for complex narrative prose:
-ollama pull deepseek-r1:14b
+# 27B parameter model (recommended for 16GB+ GPUs / High-End):
+ollama pull qwen3.5:27b
 \`\`\`
 
 3. In XianScan, go to **Settings** -> **AI Translation Providers** -> **Ollama (Local)**.
