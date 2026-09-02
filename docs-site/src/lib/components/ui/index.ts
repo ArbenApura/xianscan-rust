@@ -9,3 +9,4 @@ export { default as ComparisonSlider } from './ComparisonSlider.svelte';
 export { default as SegmentedControl } from './SegmentedControl.svelte';
 export type { SegmentOption } from './SegmentedControl.svelte';
 export { default as DiscordIcon } from './DiscordIcon.svelte';
+export { default as ProviderLogo } from './ProviderLogo.svelte';

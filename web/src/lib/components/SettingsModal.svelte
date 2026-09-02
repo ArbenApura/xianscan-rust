@@ -1156,19 +1156,34 @@
 			badge: 'OpenAI Flagship',
 			desc: 'Top-tier multimodal model with nuanced conversational phrasing and slang preservation.',
 		},
-		'qwen3.5:14b': {
-			label: 'Qwen 3.5 14B',
+		'qwen3.5:9b': {
+			label: 'Qwen 3.5 9B',
 			badge: 'Recommended Local',
-			desc: 'Exceptional Chinese, Japanese, and Korean manhua localization quality on local GPUs.',
+			desc: 'Flagship 256K context local translation model for 8GB to 12GB GPUs.',
 		},
-		'qwen3.5:7b': {
-			label: 'Qwen 3.5 7B',
+		'qwen3.5:4b': {
+			label: 'Qwen 3.5 4B',
 			badge: 'Lightweight Local',
-			desc: 'Fast local model running smoothly on lower VRAM GPUs or CPU offload.',
+			desc: 'Compact 256K local model running smoothly on 4GB to 6GB GPUs or CPU.',
+		},
+		'qwen3.5:27b': {
+			label: 'Qwen 3.5 27B',
+			badge: 'High-End Local',
+			desc: 'High-precision 27B parameter model for complex localization on 16GB+ GPUs.',
+		},
+		'gemma4:cloud': {
+			label: 'Gemma 4 Cloud',
+			badge: 'Free Ollama Cloud',
+			desc: "Free cloud-accelerated inference via Ollama's server backend (requires 'ollama signin').",
+		},
+		'gemma4:12b': {
+			label: 'Gemma 4 12B',
+			badge: 'Local Vision-LLM',
+			desc: 'Google multilingual model with 256K context for rapid comic localization.',
 		},
 		'qwen2.5:14b': {
 			label: 'Qwen 2.5 14B',
-			badge: 'Local',
+			badge: 'Legacy Local',
 			desc: 'Legacy Chinese, Japanese, and Korean manhua localization model on local GPUs.',
 		},
 		'qwen2.5:7b': {

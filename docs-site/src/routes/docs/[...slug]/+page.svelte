@@ -11,6 +11,7 @@
 	import { DOCS_CONTENT } from '$lib/docs-content';
 	import { renderMarkdown } from '$lib/utils/markdown';
 	import { Button, Badge, Card, Callout, InkDivider, ComparisonSlider, SegmentedControl } from '$lib/components/ui';
+	import ProviderGrid from '$lib/components/ProviderGrid.svelte';
 
 	// -- CONSTANTS (STRICTLY THE 3 CORE FORMATS) -- //
 
@@ -281,6 +282,9 @@
 					<div class="leading-relaxed text-sm">
 						{@html renderMarkdown(section.content)}
 					</div>
+					{#if section.id === 'providers-overview'}
+						<ProviderGrid />
+					{/if}
 				</section>
 			{/each}
 		</div>

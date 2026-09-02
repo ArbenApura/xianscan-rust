@@ -176,7 +176,7 @@ export const APP_FONTS: { id: AppFont; label: string; sample: string; blurb: str
 
 export const DEFAULTS: AppSettings = {
 	version: 11,
-	model: 'qwen3.5:7b',
+	model: 'qwen3.5:9b',
 	inpaintMode: 'patch',
 	theme: 'sepia',
 	appFont: 'comic',

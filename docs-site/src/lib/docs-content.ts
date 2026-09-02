@@ -276,40 +276,56 @@ You can find your LAN address printed directly in the XianScan startup terminal 
 				title: '1. Configured AI Providers',
 				content: `
 XianScan features a universal OpenAI-compatible LLM client runtime with process-wide queue concurrency control, auto-retry, and reasoning tag suppression.
-
-| Provider | Default Base URL | Recommended Active Models | Best For |
-| :--- | :--- | :--- | :--- |
-| **DeepSeek** (Default) | \`https://api.deepseek.com\` | \`deepseek-v4-flash\`, \`deepseek-v4-pro\`, \`deepseek-chat\` | Asian idioms, Xianxia / Murim terms, fast 1-2s response |
-| **Google AI Studio** | \`https://generativelanguage.googleapis.com/v1beta/openai/\` | \`gemini-3.7-flash\`, \`gemini-3.7-pro\` | Massive context windows, high batch throughput |
-| **Groq (Ultra-Fast)** | \`https://api.groq.com/openai/v1\` | \`qwen3.6-27b\`, \`gpt-oss-120b\`, \`llama-4-scout-17b\` | Sub-second real-time generation speed |
-| **Ollama (Local)** | \`http://localhost:11434/v1\` | \`qwen3.5:14b\`, \`qwen3.5:7b\`, \`qwen3.5:27b\` | 100% Offline, private local GPU translation |
-| **LM Studio (Local)** | \`http://localhost:1234/v1\` | \`local-model\`, \`qwen3.5-14b-instruct-gguf\` | Offline desktop LLM interface with GGUF quantization |
-| **OpenAI** | \`https://api.openai.com/v1\` | \`gpt-5.6-terra\`, \`gpt-5.6-luna\`, \`gpt-5.6-sol\`, \`o3-mini\` | Consistent syntax, advanced reasoning, and standardized prose |
-| **OpenRouter** | \`https://openrouter.ai/api/v1\` | \`anthropic/claude-3.7-sonnet\`, \`deepseek/deepseek-v4-flash\`, \`google/gemini-3.7-flash\` | Universal multi-model routing and fallback pools |
-| **Custom** | \`http://localhost:8000/v1\` | User defined (e.g. vLLM / LocalAI / SGLang) | Self-hosted high-throughput GPU clusters |
 `,
 			},
 			{
 				id: 'ollama-setup',
-				title: '2. Setting Up Local Ollama',
+				title: '2. Setting Up Ollama (Local & Free Cloud)',
 				content: `
 1. Install [Ollama](https://ollama.com/) on your system.
-2. Pull a recommended multilingual comic translation model:
+
+#### Step 1: Start the Ollama Server
+Ensure the Ollama daemon is running on \`http://localhost:11434\` (on Windows/macOS desktop apps, it starts automatically in the system tray; on headless servers or command line, start it with):
 
 \`\`\`bash
-# 14B parameter model (recommended for 12GB+ GPUs):
-ollama pull qwen3.5:14b
+ollama serve
+\`\`\`
 
-# 7B parameter model (recommended for 6GB - 8GB GPUs):
-ollama pull qwen3.5:7b
+#### Step 2: Pull Your Model
+
+**Option A: Local GPU Translation (Qwen 3.5 & Gemma 4)**
+Pull your preferred multilingual comic localization model size:
+
+\`\`\`bash
+# 4B parameter model (recommended for 4GB - 6GB GPUs or CPU):
+ollama pull qwen3.5:4b
+
+# 9B parameter model (recommended for 8GB - 12GB GPUs / default):
+ollama pull qwen3.5:9b
 
 # 27B parameter model (recommended for 16GB+ GPUs / High-End):
 ollama pull qwen3.5:27b
+
+# Google Gemma 4 (12B parameter multimodal model):
+ollama pull gemma4:12b
 \`\`\`
 
-3. In XianScan, go to **Settings** -> **AI Translation Providers** -> **Ollama (Local)**.
-4. Set the active model name to your pulled model (e.g. \`qwen3.5:14b\`).
-5. Click **Test Connection**.
+**Option B: Free Cloud Acceleration via Ollama Account**
+If you do not have a dedicated discrete GPU or want zero-VRAM inference, authenticate your local Ollama daemon to stream datacenter-grade cloud models for free:
+
+\`\`\`bash
+# Sign in to your Ollama account in terminal:
+ollama signin
+
+# Pull the free cloud-accelerated model:
+ollama pull gemma4:cloud
+\`\`\`
+
+#### Step 3: Connect XianScan to Ollama
+1. In XianScan, open **Settings** -> **AI Translation Providers** -> **Ollama (Local)**.
+2. Confirm the Endpoint Base URL is set to \`http://localhost:11434/v1\`.
+3. Set the active model name to your chosen model (e.g. \`qwen3.5:9b\` or \`gemma4:cloud\`).
+4. Click **Test Connection** (XianScan will ping \`http://localhost:11434/v1/models\` to verify API connectivity).
 `,
 			},
 			{
