@@ -152,7 +152,54 @@
 	$: currentSection = DOC_NAVIGATION.find((s) => s.items.some((i) => normalizeSlug(i.href) === normalizedSlug || i.id === normalizedSlug || normalizeSlug(i.href).endsWith(normalizedSlug)));
 	$: benchmarkData = BENCHMARK_GALLERIES[normalizedSlug] || Object.entries(BENCHMARK_GALLERIES).find(([k]) => normalizeSlug(k) === normalizedSlug || normalizedSlug.endsWith(normalizeSlug(k)))?.[1];
 	$: chapterData = DOCS_CONTENT[normalizedSlug] || Object.entries(DOCS_CONTENT).find(([k]) => normalizeSlug(k) === normalizedSlug || normalizedSlug.endsWith(normalizeSlug(k)))?.[1];
+
+	$: pageTitle = (chapterData?.title ?? benchmarkData?.title ?? currentDoc?.title ?? 'Documentation') + ' - XianScan Docs';
+	$: pageDesc = chapterData?.description ?? benchmarkData?.desc ?? `Documentation guide for ${currentDoc?.title ?? 'XianScan'}.`;
+	$: canonicalUrl = `https://xianscan.arbenger.com/docs/${normalizedSlug}`;
 </script>
+
+<svelte:head>
+	<title>{pageTitle}</title>
+	<meta name="description" content={pageDesc} />
+	<link rel="canonical" href={canonicalUrl} />
+
+	<!-- OPEN GRAPH -->
+	<meta property="og:type" content="article" />
+	<meta property="og:title" content={pageTitle} />
+	<meta property="og:description" content={pageDesc} />
+	<meta property="og:url" content={canonicalUrl} />
+	<meta property="og:site_name" content="XianScan Documentation" />
+	<meta property="og:image" content="https://xianscan.arbenger.com/logo.svg" />
+
+	<!-- TWITTER CARDS -->
+	<meta name="twitter:card" content="summary" />
+	<meta name="twitter:title" content={pageTitle} />
+	<meta name="twitter:description" content={pageDesc} />
+	<meta name="twitter:image" content="https://xianscan.arbenger.com/logo.svg" />
+
+	<!-- STRUCTURED DATA (JSON-LD) -->
+	{@html `<script type="application/ld+json">
+	{
+		"@context": "https://schema.org",
+		"@type": "TechArticle",
+		"headline": ${JSON.stringify(pageTitle)},
+		"description": ${JSON.stringify(pageDesc)},
+		"url": ${JSON.stringify(canonicalUrl)},
+		"author": {
+			"@type": "Person",
+			"name": "Arben Apura"
+		},
+		"publisher": {
+			"@type": "Organization",
+			"name": "XianScan",
+			"logo": {
+				"@type": "ImageObject",
+				"url": "https://xianscan.arbenger.com/logo.svg"
+			}
+		}
+	}
+	</script>`}
+</svelte:head>
 
 <article class="prose max-w-3xl w-full min-w-0 dark:prose-invert">
 	<!-- BREADCRUMB -->

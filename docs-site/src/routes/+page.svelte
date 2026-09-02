@@ -136,6 +136,49 @@
 	}
 </script>
 
+<svelte:head>
+	<title>XianScan - Native Comic Translation & Typesetting Studio</title>
+	<meta name="description" content="The native comic translation and typesetting studio for Chinese Manhua, Korean Manhwa, and Japanese Manga. Speech bubble segmentation, multi-script OCR, context-aware translation, and LaMa neural inpainting." />
+	<link rel="canonical" href="https://xianscan.arbenger.com/" />
+	
+	<!-- OPEN GRAPH -->
+	<meta property="og:type" content="website" />
+	<meta property="og:title" content="XianScan - Native Comic Translation & Typesetting Studio" />
+	<meta property="og:description" content="Offline speech bubble detection, multi-script OCR, context-aware LLM translation, and LaMa neural inpainting for Chinese Manhua, Korean Manhwa, and Japanese Manga." />
+	<meta property="og:url" content="https://xianscan.arbenger.com/" />
+	<meta property="og:site_name" content="XianScan" />
+	<meta property="og:image" content="https://xianscan.arbenger.com/logo.svg" />
+	
+	<!-- TWITTER CARDS -->
+	<meta name="twitter:card" content="summary_large_image" />
+	<meta name="twitter:title" content="XianScan - Native Comic Translation & Typesetting Studio" />
+	<meta name="twitter:description" content="The native comic translation and typesetting studio for Chinese Manhua, Korean Manhwa, and Japanese Manga." />
+	<meta name="twitter:image" content="https://xianscan.arbenger.com/logo.svg" />
+
+	<!-- STRUCTURED DATA (JSON-LD) -->
+	{@html `<script type="application/ld+json">
+	{
+		"@context": "https://schema.org",
+		"@type": "SoftwareApplication",
+		"name": "XianScan",
+		"applicationCategory": "MultimediaApplication",
+		"operatingSystem": "Windows, Linux, macOS",
+		"description": "Native comic translation and typesetting server for Chinese Manhua, Korean Manhwa, and Japanese Manga.",
+		"url": "https://xianscan.arbenger.com",
+		"author": {
+			"@type": "Person",
+			"name": "Arben Apura",
+			"url": "https://arbenger.com"
+		},
+		"offers": {
+			"@type": "Offer",
+			"price": "0",
+			"priceCurrency": "USD"
+		}
+	}
+	</script>`}
+</svelte:head>
+
 <div class="relative overflow-hidden py-10 sm:py-16">
 	<div class="mx-auto max-w-5xl px-4 sm:px-6">
 		
