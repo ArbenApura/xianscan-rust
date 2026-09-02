@@ -1156,15 +1156,25 @@
 			badge: 'OpenAI Flagship',
 			desc: 'Top-tier multimodal model with nuanced conversational phrasing and slang preservation.',
 		},
-		'qwen2.5:14b': {
-			label: 'Qwen 2.5 14B',
+		'qwen3.5:14b': {
+			label: 'Qwen 3.5 14B',
 			badge: 'Recommended Local',
 			desc: 'Exceptional Chinese, Japanese, and Korean manhua localization quality on local GPUs.',
 		},
-		'qwen2.5:7b': {
-			label: 'Qwen 2.5 7B',
+		'qwen3.5:7b': {
+			label: 'Qwen 3.5 7B',
 			badge: 'Lightweight Local',
 			desc: 'Fast local model running smoothly on lower VRAM GPUs or CPU offload.',
+		},
+		'qwen2.5:14b': {
+			label: 'Qwen 2.5 14B',
+			badge: 'Local',
+			desc: 'Legacy Chinese, Japanese, and Korean manhua localization model on local GPUs.',
+		},
+		'qwen2.5:7b': {
+			label: 'Qwen 2.5 7B',
+			badge: 'Legacy Local',
+			desc: 'Legacy local model running smoothly on lower VRAM GPUs or CPU offload.',
 		},
 		'llama3.2': {
 			label: 'Llama 3.2',
