@@ -248,16 +248,18 @@ https://raw.githubusercontent.com/ArbenApura/xianscan-rust/repo/index.min.json
 				id: 'configure-connection',
 				title: '3. Connecting Over Local Wi-Fi',
 				content: `
-1. In Mihon, go to **Browse** -> **Sources**, and tap the settings icon **⚙** next to **XianScan**.
-2. Tap **Server address**.
-3. Enter your computer's local IP address and port 8124 (e.g. \`http://192.168.100.98:8124\`, no trailing slash).
+1. In Mihon, go to **Browse** -> **Extensions**.
+2. Tap the settings icon **⚙** next to **XianScan**.
+3. Tap the settings icon **⚙** again next to **"Multi"**.
+4. Tap **Server address**.
+5. Enter your computer's local IP address and port 8124 (e.g. \`http://192.168.100.98:8124\`, no trailing slash).
 
 You can find your LAN address printed directly in the XianScan startup terminal banner under **Network / LAN**:
 
 ![Terminal LAN Address](/showcase/lan_terminal_preview.png)
 
-4. In **Browse** -> **Sources**, tap the filter icon and enable the **Multi language** tag (or **All** globe 🌐 icon).
-5. Open **XianScan** under Sources to browse and read your translated library!
+6. In **Browse** -> **Sources**, tap the filter icon and enable the **Multi language** tag (or **All** globe 🌐 icon).
+7. Open **XianScan** under Sources to browse and read your translated library!
 
 *(For Mihon REST protocol specifications and building from source, see [Extension & Client Architecture](/docs/advanced/extensions)).*
 `,

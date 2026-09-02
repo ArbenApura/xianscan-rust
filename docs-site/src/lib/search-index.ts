@@ -7,11 +7,12 @@ import { DOCS_CONTENT } from '$lib/docs-content';
 export interface SearchResultItem {
 	id: string;
 	title: string;
-	sectionTitle: string;
+	sectionTitle?: string;
 	href: string;
 	snippet?: string;
+	desc?: string;
 	category: string;
-	score: number;
+	score?: number;
 }
 
 export interface SearchEntry {
@@ -145,6 +146,6 @@ export function searchDocs(query: string, maxResults = 12): SearchResultItem[] {
 		}
 	}
 
-	results.sort((a, b) => b.score - a.score);
+	results.sort((a, b) => (b.score ?? 0) - (a.score ?? 0));
 	return results.slice(0, maxResults);
 }

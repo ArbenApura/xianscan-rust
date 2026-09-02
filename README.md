@@ -211,7 +211,7 @@ Read your translated library on Android phones, tablets, or E-Ink devices using 
    ```
 3. Go to **Browse -> Extensions**, search for **XianScan**, and install it.
 4. Configure server address:
-   - Tap the settings icon next to **XianScan** -> tap **Server address**.
+   - In **Browse -> Extensions**, tap the settings icon ⚙ next to **XianScan** -> tap the settings icon ⚙ again next to **"Multi"** -> tap **Server address**.
    - Enter your computer's local IP address and port `8124` (e.g. `http://192.168.100.98:8124`, no trailing slash). You can find your LAN address printed directly in the XianScan startup terminal banner under **Network / LAN**:
 
    <p align="center">
