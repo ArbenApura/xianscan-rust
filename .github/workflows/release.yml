@@ -22,7 +22,7 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          # Windows x86_64
+          # Windows x86_64 (DirectML - Universal for AMD Radeon, Intel Arc, Qualcomm, NVIDIA)
           - os: windows-latest
             target: x86_64-pc-windows-msvc
             artifact_name: xianscan.exe
@@ -118,6 +118,9 @@ jobs:
         run: |
           New-Item -ItemType Directory -Path staging -Force
           Copy-Item target/${{ matrix.target }}/release/xianscan.exe staging/xianscan.exe
+          Get-ChildItem -Path target/${{ matrix.target }}/release -Filter "*.dll" | ForEach-Object {
+            Copy-Item $_.FullName staging/
+          }
           Copy-Item README.md staging/ -ErrorAction SilentlyContinue
           Copy-Item LICENSE staging/ -ErrorAction SilentlyContinue
           Compress-Archive -Path staging/* -DestinationPath ${{ matrix.release_asset }}
@@ -164,12 +167,12 @@ jobs:
             Self-hosted AI-powered manga, manhua, and comic localization engine with embedded OCR, neural text detection, LaMa inpainting, and typesetter.
 
             ### 📦 Multi-Platform Downloads
-
-            | Platform | Architecture | File |
-            | :--- | :--- | :--- |
-            | **Windows** | x86_64 | `xianscan-windows-x86_64.zip` |
-            | **Linux** | x86_64 | `xianscan-linux-x86_64.tar.gz` |
-            | **macOS** | Apple Silicon (M1–M4) | `xianscan-macos-arm64.tar.gz` |
+ 
+            | Platform | Architecture | File | Acceleration Engine |
+            | :--- | :--- | :--- | :--- |
+            | **Windows** | x86_64 | `xianscan-windows-x86_64.zip` | ⚡ DirectX 12 DirectML (AMD, Intel, NVIDIA) |
+            | **Linux** | x86_64 | `xianscan-linux-x86_64.tar.gz` | ⚡ NVIDIA CUDA + cuDNN |
+            | **macOS** | Apple Silicon (M1–M4) | `xianscan-macos-arm64.tar.gz` | ⚡ Apple Silicon CoreML + Metal |
 
             ### 🧩 Browser Importer Extensions
             - **Chrome / Edge / Brave / Opera**: Download `xianscan-importer-chrome.zip` and extract to load unpacked in `chrome://extensions`.

@@ -310,6 +310,9 @@ impl RapidOcr {
                 .unwrap_or(320)
                 .max(320);
 
+            #[cfg(feature = "directml")]
+            let target_w = max_scaled_w.div_ceil(128) * 128;
+            #[cfg(not(feature = "directml"))]
             let target_w = max_scaled_w;
             let mut tensor_vec = vec![0.0_f32; batch_len * 3 * target_h * target_w];
             let item_stride = 3 * target_h * target_w;
@@ -396,7 +399,10 @@ impl RapidOcr {
         let target_h = 48_u32;
         let r = target_h as f32 / h as f32;
         let max_w = ((w as f32 * r).round() as u32).max(16);
-        let target_w = max_w.max(320);
+        #[cfg(feature = "directml")]
+        let target_w = (max_w.max(320) as usize).div_ceil(128) * 128;
+        #[cfg(not(feature = "directml"))]
+        let target_w = max_w.max(320) as usize;
 
         let resized = image::imageops::resize(
             crop,
@@ -461,7 +467,10 @@ impl RapidOcr {
             let (iw, ih) = inv_dyn.dimensions();
             let inv_r = target_h as f32 / ih as f32;
             let inv_max_w = ((iw as f32 * inv_r).round() as u32).max(16);
-            let inv_target_w = inv_max_w.max(320);
+            #[cfg(feature = "directml")]
+            let inv_target_w = (inv_max_w.max(320) as usize).div_ceil(128) * 128;
+            #[cfg(not(feature = "directml"))]
+            let inv_target_w = inv_max_w.max(320) as usize;
             let inv_resized = image::imageops::resize(
                 &inv_dyn,
                 inv_max_w,
@@ -469,6 +478,7 @@ impl RapidOcr {
                 image::imageops::FilterType::Triangle,
             );
             let mut inv_tensor_vec = vec![0.0_f32; 3 * target_h as usize * inv_target_w as usize];
+            let inv_stride_c = target_h as usize * inv_target_w as usize;
             let inv_stride_y = inv_target_w as usize;
             for y in 0..target_h as usize {
                 for x in 0..inv_max_w as usize {
@@ -479,8 +489,8 @@ impl RapidOcr {
 
                     let base_idx = y * inv_stride_y + x;
                     inv_tensor_vec[base_idx] = b_norm;
-                    inv_tensor_vec[stride_c + base_idx] = g_norm;
-                    inv_tensor_vec[2 * stride_c + base_idx] = r_norm;
+                    inv_tensor_vec[inv_stride_c + base_idx] = g_norm;
+                    inv_tensor_vec[2 * inv_stride_c + base_idx] = r_norm;
                 }
             }
             if let Ok(input_tensor) = Tensor::from_array(([1, 3, target_h as usize, inv_target_w as usize], inv_tensor_vec)) {

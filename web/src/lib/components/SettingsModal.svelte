@@ -13,6 +13,7 @@
 	// IMPORTED DEP-MODULES
 	import { tick, onDestroy, createEventDispatcher } from 'svelte';
 	import { toast } from 'svelte-sonner';
+	import { invalidateAll } from '$app/navigation';
 	// IMPORTED MODULES
 	import { ripple } from '$lib/actions/ripple';
 	import { cn } from '$lib/utils/cn';
@@ -896,6 +897,7 @@
 
 			apiKeyDraft[providerId] = '';
 			await loadProviders();
+			void invalidateAll();
 		} catch (e: any) {
 			toast.error(e.message || 'Failed to save provider');
 		} finally {
@@ -915,6 +917,7 @@
 				apiKeyDraft[providerId] = '';
 				testResult = null;
 				await loadProviders();
+				void invalidateAll();
 			} else {
 				const err = await res.json();
 				throw new Error(err.message || 'Failed to remove API key');

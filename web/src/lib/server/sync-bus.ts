@@ -11,7 +11,8 @@ export type SyncEventType =
 	| 'pages-updated'
 	| 'chapter-resliced'
 	| 'page-translated'
-	| 'chapter-translated';
+	| 'chapter-translated'
+	| 'settings-updated';
 
 export interface SyncEvent {
 	type: SyncEventType;

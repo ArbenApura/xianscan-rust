@@ -23,6 +23,7 @@
 	import Archive from 'lucide-svelte/icons/archive';
 	import Play from 'lucide-svelte/icons/play';
 	import CheckCircle2 from 'lucide-svelte/icons/check-circle-2';
+	import AlertTriangle from 'lucide-svelte/icons/alert-triangle';
 	import LayoutGrid from 'lucide-svelte/icons/layout-grid';
 	import List from 'lucide-svelte/icons/list';
 	import AlignJustify from 'lucide-svelte/icons/align-justify';
@@ -34,7 +35,9 @@
 	import FolderTree from 'lucide-svelte/icons/folder-tree';
 	import FolderUp from 'lucide-svelte/icons/folder-up';
 	import Upload from 'lucide-svelte/icons/upload';
+	import Settings from 'lucide-svelte/icons/settings';
 	// IMPORTED COMPONENTS
+	import SettingsModal from '$lib/components/SettingsModal.svelte';
 	import BookMetadataFields from '$lib/components/book/BookMetadataFields.svelte';
 	import BookCoverPicker from '$lib/components/book/BookCoverPicker.svelte';
 	import BookDropImportModal from '$lib/components/book/BookDropImportModal.svelte';
@@ -646,6 +649,12 @@
 		if (!editingBook) return;
 		editingBook = { ...editingBook, coverPath: null, coverCleared: true };
 	}
+
+	// LLM PROVIDER WARNING BANNER STATE
+	let providerWarningDismissed = false;
+	let librarySettingsOpen = false;
+	$: isLlmConfigured = (data as any)?.llmStatus?.configured ?? true;
+	$: activeProviderName = (data as any)?.llmStatus?.activeProvider?.name ?? 'AI Provider';
 </script>
 
 <svelte:window on:keydown={handleGlobalKeydown} />
@@ -680,7 +689,60 @@
 		</div>
 	</div>
 
-	<!-- UNIFIED ADAPTIVE COMMAND BAR -->
+	<!-- LLM PROVIDER WARNING BANNER -->
+	{#if !isLlmConfigured && !providerWarningDismissed}
+		<div
+			class="flex flex-col sm:flex-row sm:items-center justify-between gap-3 rounded-2xl border border-amber-500/30 bg-amber-500/[0.08] p-4 text-amber-900 dark:border-amber-500/30 dark:bg-amber-500/[0.12] dark:text-amber-100 shadow-2xs backdrop-blur-sm"
+			role="alert"
+		>
+			<div class="flex items-start gap-3 min-w-0">
+				<div class="rounded-xl bg-amber-500/20 p-2 text-amber-700 dark:text-amber-300 shrink-0 mt-0.5 sm:mt-0">
+					<AlertTriangle size={18} />
+				</div>
+				<div class="space-y-1 min-w-0 text-xs sm:text-sm">
+					<p class="font-bold tracking-tight">
+						AI Translation Provider Not Configured ({activeProviderName})
+					</p>
+					<p class="opacity-80 text-xs leading-relaxed">
+						To start translating comic chapters, configure an API key for your cloud provider or switch to a local offline LLM (Ollama or LM Studio).
+					</p>
+					<div class="pt-0.5">
+						<a
+							href="https://xianscan.arbenger.com/docs/translation/models/"
+							target="_blank"
+							rel="noopener noreferrer"
+							class="inline-flex items-center gap-1 font-semibold text-xs text-[#b23a2e] hover:underline dark:text-[#e08a63]"
+						>
+							<span>Learn more in our docs</span>
+							<ExternalLink size={12} />
+						</a>
+					</div>
+				</div>
+			</div>
+
+			<div class="flex items-center gap-2 shrink-0 self-end sm:self-center">
+				<Button
+					variant="primary"
+					size="sm"
+					class="gap-1.5 text-xs shadow-xs"
+					on:click={() => (librarySettingsOpen = true)}
+				>
+					<Settings size={14} />
+					<span>Configure AI</span>
+				</Button>
+				<button
+					type="button"
+					on:click={() => (providerWarningDismissed = true)}
+					class="inline-flex h-8 w-8 items-center justify-center rounded-xl border border-black/10 bg-white/50 hover:bg-white/80 dark:border-white/10 dark:bg-black/20 dark:hover:bg-black/40 text-current opacity-70 hover:opacity-100 transition-colors cursor-pointer"
+					aria-label="Dismiss banner"
+					title="Dismiss warning"
+					use:ripple
+				>
+					<X size={14} />
+				</button>
+			</div>
+		</div>
+	{/if}
 	<div class="flex flex-col gap-2.5">
 		<!-- COMMAND BAR CONTAINER -->
 		<div class="flex flex-col md:flex-row md:items-center md:justify-between gap-2.5 min-w-0">
@@ -1509,6 +1571,12 @@
 <BookDropImportModal
 	bind:this={bookDropImportModal}
 	on:created={loadBooks}
+/>
+
+<!-- SETTINGS MODAL TRIGGERED FROM WARNING BANNER -->
+<SettingsModal
+	bind:open={librarySettingsOpen}
+	initialTab="providers"
 />
 
 <!-- DRAG OVERLAY -->

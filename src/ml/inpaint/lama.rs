@@ -179,11 +179,19 @@ impl LamaInpainter {
     pub fn inpaint_single_patch(&mut self, img: &DynamicImage, mask: &ImageBuffer<Luma<u8>, Vec<u8>>) -> Result<DynamicImage> {
         let (w, h) = img.dimensions();
 
-        // Modulo 8 padding
-        let pad_w = (8 - (w % 8)) % 8;
-        let pad_h = (8 - (h % 8)) % 8;
-        let padded_w = (w + pad_w) as usize;
-        let padded_h = (h + pad_h) as usize;
+        // Modulo 8 padding (snapped to 64px buckets on DirectML to avoid repeated DirectX 12 shader recompilations)
+        #[cfg(feature = "directml")]
+        let (padded_w, padded_h) = {
+            let bw = (w as usize).div_ceil(64) * 64;
+            let bh = (h as usize).div_ceil(64) * 64;
+            (bw.max(64), bh.max(64))
+        };
+        #[cfg(not(feature = "directml"))]
+        let (padded_w, padded_h) = {
+            let pad_w = (8 - (w % 8)) % 8;
+            let pad_h = (8 - (h % 8)) % 8;
+            ((w + pad_w) as usize, (h + pad_h) as usize)
+        };
 
         let mut img_tensor = vec![0.0_f32; 3 * padded_h * padded_w];
         let mut mask_tensor = vec![0.0_f32; padded_h * padded_w];

@@ -29,7 +29,7 @@
 	export let uploading: boolean = false;
 	export let exporting: boolean = false;
 	export let exportProgress: number = 0;
-	export let activeViewMode: 'reader' | 'grid' | 'compare' = 'reader';
+	export let activeViewMode: 'reader' | 'grid' | 'compare' = 'compare';
 	export let webtoonKind: 'output' | 'original' = 'output';
 	export let webtoonWidth: 'sm' | 'md' | 'lg' = 'md';
 	export let prevChapter: { id: number; seq: number; title: string | null; titleTarget?: string | null } | null = null;

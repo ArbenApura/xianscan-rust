@@ -920,6 +920,7 @@
 				</div>
 
 				<!-- INTERACTIVE PAN-ZOOM IMAGE VIEWPORT -->
+				<!-- svelte-ignore a11y-no-static-element-interactions -->
 				<div
 					bind:this={imageScrollContainer}
 					class="relative flex-1 min-h-[360px] sm:min-h-[440px] md:min-h-[480px] overflow-hidden rounded-xl border border-black/10 bg-neutral-950/[0.03] dark:border-white/10 dark:bg-neutral-950/40 select-none touch-none cursor-grab active:cursor-grabbing"

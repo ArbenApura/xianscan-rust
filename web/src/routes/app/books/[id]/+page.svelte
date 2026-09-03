@@ -112,7 +112,7 @@
 	}
 
 	// VIEW LAYOUT MODES: 'grid' (Comfortable Cards) | 'list' (Media List Rows) | 'compact' (Dense Table Rows)
-	let viewLayout: 'grid' | 'list' | 'compact' = (data as any)?.preferences?.chapterLayout || $settings.chapterLayout || 'grid';
+	let viewLayout: 'grid' | 'list' | 'compact' = (data as any)?.preferences?.chapterLayout || $settings.chapterLayout || 'list';
 
 	$: if ($settings.chapterSortAsc !== undefined && $settings.chapterSortAsc !== sortAscending) {
 		sortAscending = $settings.chapterSortAsc;

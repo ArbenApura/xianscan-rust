@@ -140,7 +140,6 @@ fn normalize_pci_bus_id(raw: &str) -> String {
 /// Runs a command to completion with a hard timeout, reading both stdout and stderr.
 /// Returns `None` if the command failed to spawn, errored, or exceeded the timeout
 /// (the child is killed). A hanging driver/command can therefore never block the caller.
-#[cfg(target_os = "linux")]
 fn run_with_timeout(cmd: &mut std::process::Command, timeout: Duration) -> Option<std::process::Output> {
     use std::io::Read;
     use std::process::Stdio;
@@ -677,8 +676,7 @@ pub fn get_cuda_gpu_memory_limit() -> usize {
     get_cuda_memory_limit_for_model("rfdetr")
 }
 
-#[cfg(target_os = "linux")]
-fn query_linux_gpu_telemetry() -> Option<(f64, f64, Option<f64>)> {
+fn query_nvidia_gpu_telemetry() -> Option<(f64, f64, Option<f64>)> {
     let out = run_with_timeout(
         std::process::Command::new("nvidia-smi")
             .args(["--query-gpu=memory.used,memory.total,utilization.gpu", "--format=csv,noheader,nounits"]),
@@ -697,6 +695,61 @@ fn query_linux_gpu_telemetry() -> Option<(f64, f64, Option<f64>)> {
         return Some((used, total, util));
     }
     None
+}
+
+#[cfg(target_os = "macos")]
+fn query_macos_host_and_gpu_memory() -> (HostMemoryTelemetry, Option<(f64, f64, Option<f64>)>) {
+    // ON APPLE SILICON, CPU AND GPU SHARE UNIFIED MEMORY (UMA).
+    // TOTAL HOST MEMORY IS QUERIED VIA sysctl hw.memsize.
+    let mut total_mb = 0.0;
+    if let Ok(out) = std::process::Command::new("sysctl").arg("-n").arg("hw.memsize").output() {
+        if let Ok(s) = String::from_utf8(out.stdout) {
+            if let Ok(bytes) = s.trim().parse::<f64>() {
+                total_mb = bytes / (1024.0 * 1024.0);
+            }
+        }
+    }
+    // USED MEMORY VIA vm_stat
+    let mut used_mb = 0.0;
+    if let Ok(out) = std::process::Command::new("vm_stat").output() {
+        if let Ok(s) = String::from_utf8(out.stdout) {
+            let mut page_size = 4096.0;
+            if let Some(first) = s.lines().next() {
+                if let Some(pos) = first.find("page size of ") {
+                    let rem = &first[pos + 13..];
+                    if let Some(end) = rem.find(' ') {
+                        if let Ok(ps) = rem[..end].parse::<f64>() {
+                            page_size = ps;
+                        }
+                    }
+                }
+            }
+            let mut active_pages = 0.0;
+            let mut wired_pages = 0.0;
+            let mut compressed_pages = 0.0;
+            for line in s.lines() {
+                if line.starts_with("Pages active:") {
+                    active_pages = line.split_whitespace().last().and_then(|v| v.trim_end_matches('.').parse::<f64>().ok()).unwrap_or(0.0);
+                } else if line.starts_with("Pages wired down:") {
+                    wired_pages = line.split_whitespace().last().and_then(|v| v.trim_end_matches('.').parse::<f64>().ok()).unwrap_or(0.0);
+                } else if line.starts_with("Pages occupied by compressor:") {
+                    compressed_pages = line.split_whitespace().last().and_then(|v| v.trim_end_matches('.').parse::<f64>().ok()).unwrap_or(0.0);
+                }
+            }
+            used_mb = ((active_pages + wired_pages + compressed_pages) * page_size) / (1024.0 * 1024.0);
+        }
+    }
+    let host = HostMemoryTelemetry {
+        used_mb: (used_mb * 10.0).round() / 10.0,
+        total_mb: (total_mb * 10.0).round() / 10.0,
+    };
+    // ON MAC METAL UNIFIED MEMORY, GPU SHARES HOST RAM
+    let gpu_stats = if total_mb > 0.0 {
+        Some((host.used_mb, host.total_mb, None))
+    } else {
+        None
+    };
+    (host, gpu_stats)
 }
 
 #[cfg(target_os = "linux")]
@@ -782,9 +835,21 @@ pub fn get_system_telemetry(active_jobs: usize, queued_jobs: usize) -> SystemTel
         #[allow(unused_mut)]
         let mut util_pct = None;
 
-        #[cfg(target_os = "linux")]
+        #[cfg(any(target_os = "linux", windows))]
         {
-            if let Some((u, t, util)) = query_linux_gpu_telemetry() {
+            if let Some((u, t, util)) = query_nvidia_gpu_telemetry() {
+                used_mb = u;
+                if t > 0.0 {
+                    total_mb = t;
+                }
+                util_pct = util;
+            }
+        }
+
+        #[cfg(target_os = "macos")]
+        {
+            let (_, mac_gpu) = query_macos_host_and_gpu_memory();
+            if let Some((u, t, util)) = mac_gpu {
                 used_mb = u;
                 if t > 0.0 {
                     total_mb = t;
@@ -808,7 +873,10 @@ pub fn get_system_telemetry(active_jobs: usize, queued_jobs: usize) -> SystemTel
     #[cfg(windows)]
     let host_memory = query_windows_host_memory();
 
-    #[cfg(not(any(target_os = "linux", windows)))]
+    #[cfg(target_os = "macos")]
+    let (host_memory, _) = query_macos_host_and_gpu_memory();
+
+    #[cfg(not(any(target_os = "linux", windows, target_os = "macos")))]
     let host_memory = HostMemoryTelemetry { used_mb: 0.0, total_mb: 0.0 };
 
     let timestamp_ms = std::time::SystemTime::now()
@@ -987,7 +1055,8 @@ pub fn create_session_from_memory(bytes: &[u8], model_tag: &str) -> Result<Sessi
         }
     }
 
-    if wants_dml {
+    let is_ocr = model_tag.contains("ocr") || model_tag.contains("rec") || model_tag == "rapid_ocr_det";
+    if wants_dml && !is_ocr {
         #[cfg(feature = "directml")]
         {
             let dml_res = (|| -> Result<Session> {
@@ -1000,6 +1069,8 @@ pub fn create_session_from_memory(bytes: &[u8], model_tag: &str) -> Result<Sessi
                     .with_memory_pattern(false)
                     .map_err(|e| anyhow::anyhow!("Memory pattern error: {}", e))?
                     .with_config_entry("session.enable_cpu_mem_arena", "0")
+                    .map_err(|e| anyhow::anyhow!("Config entry error: {}", e))?
+                    .with_config_entry("session.use_device_allocator_for_initializers", "1")
                     .map_err(|e| anyhow::anyhow!("Config entry error: {}", e))?
                     .with_execution_providers([ort::ep::DirectML::default().build()])
                     .map_err(|e| anyhow::anyhow!("DirectML provider error: {}", e))?

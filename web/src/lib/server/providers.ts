@@ -328,7 +328,7 @@ export function updateProvider(
 	};
 }
 
-function isLocalProvider(idOrBase?: string): boolean {
+export function isLocalProvider(idOrBase?: string): boolean {
 	if (!idOrBase) return false;
 	const lower = idOrBase.toLowerCase();
 	return (
@@ -338,6 +338,26 @@ function isLocalProvider(idOrBase?: string): boolean {
 		lower.includes('127.0.0.1') ||
 		lower.includes('0.0.0.0')
 	);
+}
+
+export function isLlmProviderConfigured(db = defaultDb): {
+	configured: boolean;
+	activeProvider: { id: string; name: string; isLocal: boolean; hasKey: boolean };
+} {
+	const active = getActiveProvider(db);
+	const isLocal = isLocalProvider(active.id) || isLocalProvider(active.baseUrl);
+	const hasKey = Boolean(active.apiKey && active.apiKey.trim().length > 0);
+	const configured = isLocal || hasKey;
+
+	return {
+		configured,
+		activeProvider: {
+			id: active.id,
+			name: active.name,
+			isLocal,
+			hasKey,
+		},
+	};
 }
 
 const NON_CHAT_MODEL_PATTERN =

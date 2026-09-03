@@ -89,7 +89,7 @@ export function sanitizeSettingValue(key: keyof AppSettings, value: unknown): un
 			return ['comic', 'clash', 'general', 'poppins', 'proxima', 'nunito', 'montserrat', 'lexend'].includes(value as string) ? value : 'comic';
 
 		case 'readerViewMode':
-			return ['reader', 'grid', 'compare'].includes(value as string) ? value : 'reader';
+			return ['reader', 'grid', 'compare'].includes(value as string) ? value : 'compare';
 
 		case 'webtoonKind':
 			return ['output', 'original'].includes(value as string) ? value : 'output';
@@ -104,7 +104,7 @@ export function sanitizeSettingValue(key: keyof AppSettings, value: unknown): un
 			return ['recent', 'title_asc', 'title_desc', 'chapters_desc', 'chapters_asc'].includes(value as string) ? value : 'recent';
 
 		case 'chapterLayout':
-			return ['grid', 'list', 'compact'].includes(value as string) ? value : 'grid';
+			return ['grid', 'list', 'compact'].includes(value as string) ? value : 'list';
 
 		case 'chapterSortAsc':
 			return Boolean(value);

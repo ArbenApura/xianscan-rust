@@ -2,6 +2,7 @@ import type { LayoutServerLoad } from './$types';
 import { db } from '$lib/server/db';
 import { readingHistory as readingHistoryTable } from '$lib/server/db/schema';
 import { getCanonicalSettings } from '$lib/server/settings-service';
+import { isLlmProviderConfigured } from '$lib/server/providers';
 import {
 	THEME_COOKIE,
 	FONT_COOKIE,
@@ -82,14 +83,14 @@ export const load: LayoutServerLoad = async ({ cookies }) => {
 	const libraryLayout = VALID_LAYOUTS.has(rawLib as any) ? (rawLib as 'grid' | 'list' | 'compact') : defaultLib;
 
 	const rawCh = cookies.get(CH_LAYOUT_COOKIE);
-	const defaultCh = canonicalSettings?.chapterLayout && VALID_LAYOUTS.has(canonicalSettings.chapterLayout) ? canonicalSettings.chapterLayout : 'grid';
+	const defaultCh = canonicalSettings?.chapterLayout && VALID_LAYOUTS.has(canonicalSettings.chapterLayout) ? canonicalSettings.chapterLayout : 'list';
 	const chapterLayout = VALID_LAYOUTS.has(rawCh as any) ? (rawCh as 'grid' | 'list' | 'compact') : defaultCh;
 
 	const librarySort = canonicalSettings?.librarySort || 'recent';
 	const chapterSortAsc = canonicalSettings?.chapterSortAsc !== undefined ? canonicalSettings.chapterSortAsc : true;
 
 	const rawReader = cookies.get(READER_VIEW_COOKIE);
-	const defaultReader = canonicalSettings?.readerViewMode && VALID_READER_MODES.has(canonicalSettings.readerViewMode) ? canonicalSettings.readerViewMode : 'reader';
+	const defaultReader = canonicalSettings?.readerViewMode && VALID_READER_MODES.has(canonicalSettings.readerViewMode) ? canonicalSettings.readerViewMode : 'compare';
 	const readerViewMode = VALID_READER_MODES.has(rawReader as any)
 		? (rawReader as 'reader' | 'grid' | 'compare')
 		: defaultReader;
@@ -136,9 +137,12 @@ export const load: LayoutServerLoad = async ({ cookies }) => {
 		resliceBeforeBatch,
 	};
 
+	const llmStatus = isLlmProviderConfigured();
+
 	return {
 		preferences,
 		canonicalSettings,
 		readingHistory: historyMap,
+		llmStatus,
 	};
 };

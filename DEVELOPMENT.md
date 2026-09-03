@@ -53,6 +53,8 @@ To enable platform-specific GPU acceleration backends, add the corresponding Car
 
 > [!NOTE]
 > All GPU acceleration features fall back to the multi-threaded SIMD CPU engine if the respective hardware or runtime driver is not present.
+>
+> **DirectML Dimension Bucketing**: On Windows, dynamic tensor shapes can trigger repeated DirectX 12 PSO (Pipeline State Object) shader recompilations. XianScan enforces 64px dimension bucketing for LaMa inpainting patches (`lama.rs`) and 128px width bucketing for OCR crops (`ocr/engine.rs`). This allows DirectX 12 compute shaders to be compiled once and cached, reducing inpainting latency from 7s to 0.11s.
 
 ---
 
