@@ -7,9 +7,9 @@ on:
   workflow_dispatch:
     inputs:
       tag_name:
-        description: 'Release Tag Name (e.g. v0.5.0-beta.1)'
+        description: 'Release Tag Name (e.g. v0.5.0-beta.2)'
         required: true
-        default: 'v0.5.0-beta.1'
+        default: 'v0.5.0-beta.2'
 
 permissions:
   contents: write
@@ -183,6 +183,8 @@ jobs:
             - **Direct APK**: Download `tachiyomi-all.xianscan-*.apk` below.
 
             ---
+          draft: true
+          prerelease: true
           generate_release_notes: true
 
   build-extension:
@@ -217,6 +219,8 @@ jobs:
           files: |
             extensions/xianscan-importer/store/*.zip
             extensions/xianscan-importer/store/*.xpi
+          draft: true
+          prerelease: true
 
   build-mihon-extension:
     name: Build Mihon Android Extension
@@ -285,6 +289,8 @@ jobs:
         with:
           tag_name: ${{ github.event.inputs.tag_name || github.ref_name }}
           files: extensions/xianscan-mihon/app/build/outputs/apk/release/*.apk
+          draft: true
+          prerelease: true
 
   virustotal-scan:
     name: VirusTotal Security Scan
