@@ -74,7 +74,7 @@ nvcc --version
 > **Why is cuDNN required?**  
 > ONNX Runtime's CUDA convolution kernels (used for the **RF-DETR** layout detector and **RapidOCR** text recognition) dynamically link against `libcudnn.so`. Without cuDNN, inference will fall back to CPU.
 
-The cleanest and fastest way to install official cuDNN on any Linux distribution is via the official NVIDIA wheel:
+The cleanest and fastest way to install official cuDNN on Linux is via the official NVIDIA wheel:
 
 ```bash
 # 1. Install pip (if not already installed)
@@ -83,8 +83,14 @@ sudo apt-get install -y python3-pip
 # 2. Install NVIDIA cuDNN 9
 pip install --break-system-packages nvidia-cudnn-cu12
 
-# 3. Symlink cuDNN shared objects to the system library path
-sudo ln -sf ~/.local/lib/python3.*/site-packages/nvidia/cudnn/lib/libcudnn*.so* /usr/lib/x86_64-linux-gnu/
+# 3. Add the cuDNN library directory directly to ld.so.conf and update dynamic linker cache
+# (This ensures ONNX Runtime finds all cuDNN modules: libcudnn_cnn, libcudnn_ops, libcudnn_graph, etc.)
+CUDNN_PATH=$(python3 -c "import nvidia.cudnn; import os; print(os.path.join(os.path.dirname(nvidia.cudnn.__file__), 'lib'))")
+echo "$CUDNN_PATH" | sudo tee /etc/ld.so.conf.d/nvidia-cudnn.conf
+sudo ldconfig
+
+# 4. Optional convenience symlinks in system library directory
+sudo ln -sf "$CUDNN_PATH"/libcudnn*.so* /usr/lib/x86_64-linux-gnu/
 sudo ldconfig
 ```
 
@@ -106,8 +112,9 @@ chmod +x xianscan
 
 ### 2. Launch XianScan with CUDA environment variables
 ```bash
-# Include the app folder and CUDA system libraries in LD_LIBRARY_PATH
-export LD_LIBRARY_PATH="$HOME/xianscan-app:/usr/lib/x86_64-linux-gnu:/usr/local/cuda/lib64:$LD_LIBRARY_PATH"
+# Include the app folder, cuDNN wheel path, and CUDA system libraries in LD_LIBRARY_PATH
+CUDNN_LIB=$(python3 -c "import nvidia.cudnn, os; print(os.path.join(os.path.dirname(nvidia.cudnn.__file__), 'lib'))" 2>/dev/null)
+export LD_LIBRARY_PATH="$HOME/xianscan-app:${CUDNN_LIB}:/usr/local/cuda/lib64:/usr/local/cuda/targets/x86_64-linux/lib:/usr/lib/x86_64-linux-gnu:$LD_LIBRARY_PATH"
 
 ./xianscan
 ```
@@ -119,7 +126,10 @@ export LD_LIBRARY_PATH="$HOME/xianscan-app:/usr/lib/x86_64-linux-gnu:/usr/local/
 If you are hosting XianScan on a dedicated server or cloud VM (e.g. AWS EC2, Hetzner), configure `systemd` to keep XianScan running 24/7 with automatic restart:
 
 ```bash
-sudo tee /etc/systemd/system/xianscan.service > /dev/null << 'UNIT'
+# Detect cuDNN wheel directory for systemd LD_LIBRARY_PATH
+CUDNN_DIR=$(python3 -c "import nvidia.cudnn, os; print(os.path.join(os.path.dirname(nvidia.cudnn.__file__), 'lib'))" 2>/dev/null || echo "/home/ubuntu/.local/lib/python3.12/site-packages/nvidia/cudnn/lib")
+
+sudo tee /etc/systemd/system/xianscan.service > /dev/null << UNIT
 [Unit]
 Description=XianScan Translation Server
 After=network.target
@@ -128,12 +138,12 @@ After=network.target
 Type=simple
 User=ubuntu
 WorkingDirectory=/home/ubuntu/xianscan-app
-ExecStart=/home/ubuntu/xianscan-app/xianscan
+ExecStart=/home/ubuntu/xianscan-app/xianscan --host 0.0.0.0 --port 8124
 Restart=always
 RestartSec=5
 Environment=PATH=/usr/local/cuda/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/home/ubuntu/.cargo/bin
-Environment=LD_LIBRARY_PATH=/home/ubuntu/xianscan-app:/usr/lib/x86_64-linux-gnu:/usr/local/cuda/lib64
-Environment=ORT_CUDA_MEM_LIMIT_MB=8192
+Environment=PORT=8124
+Environment=LD_LIBRARY_PATH=/home/ubuntu/xianscan-app:${CUDNN_DIR}:/usr/local/cuda/lib64:/usr/local/cuda/targets/x86_64-linux/lib:/usr/lib/x86_64-linux-gnu
 LimitNOFILE=65536
 
 [Install]
@@ -247,14 +257,14 @@ Expected output:
 
 ### 2. Common Errors and Solutions
 
-#### `cuDNN is unavailable or disabled for CUDA Execution Provider: dlopen failed for libcudnn.so`
-- **Cause**: `libcudnn.so` is missing from `/usr/lib/x86_64-linux-gnu` or `LD_LIBRARY_PATH`.
-- **Fix**: Re-run [Step 2](#step-2-install-nvidia-cudnn-libraries) and make sure `sudo ldconfig` was run.
+#### `cuDNN is unavailable or disabled for CUDA Execution Provider: dlopen failed for libcudnn.so` (or silent fallback to CPU)
+- **Cause**: `libcudnn.so` or its dependent modules (`libcudnn_cnn.so.9`, `libcudnn_ops.so.9`, `libcudnn_graph.so.9`) are missing from system dynamic linker search paths. When this happens, ONNX Runtime may initialize models but silently falls back to CPU during actual tensor inference, resulting in 200%+ CPU usage and 10s+ latency per page.
+- **Fix**: Re-run [Step 2](#step-2-install-nvidia-cudnn-libraries), ensure `/etc/ld.so.conf.d/nvidia-cudnn.conf` points to the Python cuDNN `lib` folder, run `sudo ldconfig`, and include `${CUDNN_DIR}` in `LD_LIBRARY_PATH`.
 
 #### `libcublasLt.so.13 or libcudart.so.13: cannot open shared object file`
 - **Cause**: The bundled ONNX runtime binary expects a newer or specific CUDA dynamic library path.
-- **Fix**: Ensure your `LD_LIBRARY_PATH` includes the directory holding `libcublasLt.so` and `libcudart.so` (e.g. `/usr/local/cuda/lib64` or `/usr/local/lib/ollama/cuda_v13`).
+- **Fix**: Ensure your `LD_LIBRARY_PATH` includes the directory holding `libcublasLt.so` and `libcudart.so` (e.g. `/usr/local/cuda/lib64`, `/usr/local/cuda/targets/x86_64-linux/lib`, or `/usr/local/lib/ollama/cuda_v13`).
 
 #### Out of Memory (OOM) when running Ollama + XianScan together
-- **Cause**: Both services trying to allocate all available GPU VRAM.
-- **Fix**: Open **Settings -> Hardware & Compute -> GPU VRAM Allocation Limit** and select `6 GB` or `8 GB` (Tesla T4 / 3070+), or set `Environment=ORT_CUDA_MEM_LIMIT_MB=6144` in your systemd service.
+- **Cause**: Both services competing for GPU VRAM.
+- **Fix**: Open **Settings -> Hardware & Compute -> GPU VRAM Allocation Limit** and select `6 GB` or `8 GB` (recommended for Tesla T4 with 15 GB total). Avoid setting hardcoded `ORT_CUDA_MEM_LIMIT_MB` in systemd unless necessary, as XianScan automatically scales per-model allocation dynamically.

@@ -433,21 +433,27 @@ sudo reboot
 \`\`\`
 
 #### Step 2: Install NVIDIA cuDNN 9 Libraries
-ONNX Runtime dynamically links against \`libcudnn.so\` for Koharu RF-DETR and RapidOCR convolution kernels:
+ONNX Runtime dynamically links against \`libcudnn.so\` and sub-modules (\`libcudnn_cnn.so.9\`, \`libcudnn_ops.so.9\`, \`libcudnn_graph.so.9\`) for Koharu RF-DETR and RapidOCR convolution kernels:
 
 \`\`\`bash
-# Install cuDNN 9 via official NVIDIA wheel
+# 1. Install cuDNN 9 via official NVIDIA wheel
 sudo apt-get install -y python3-pip
 pip install --break-system-packages nvidia-cudnn-cu12
 
-# Symlink cuDNN shared objects to system library path
-sudo ln -sf ~/.local/lib/python3.*/site-packages/nvidia/cudnn/lib/libcudnn*.so* /usr/lib/x86_64-linux-gnu/
+# 2. Add cuDNN wheel library directory to ld.so.conf and update cache
+CUDNN_PATH=$(python3 -c "import nvidia.cudnn, os; print(os.path.join(os.path.dirname(nvidia.cudnn.__file__), 'lib'))")
+echo "$CUDNN_PATH" | sudo tee /etc/ld.so.conf.d/nvidia-cudnn.conf
+sudo ldconfig
+
+# 3. Optional convenience symlinks in system library directory
+sudo ln -sf "$CUDNN_PATH"/libcudnn*.so* /usr/lib/x86_64-linux-gnu/
 sudo ldconfig
 \`\`\`
 
 #### Step 3: Launch with CUDA Library Path
 \`\`\`bash
-export LD_LIBRARY_PATH="$HOME/xianscan-app:/usr/lib/x86_64-linux-gnu:/usr/local/cuda/lib64:$LD_LIBRARY_PATH"
+CUDNN_LIB=$(python3 -c "import nvidia.cudnn, os; print(os.path.join(os.path.dirname(nvidia.cudnn.__file__), 'lib'))" 2>/dev/null)
+export LD_LIBRARY_PATH="$HOME/xianscan-app:\${CUDNN_LIB}:/usr/local/cuda/lib64:/usr/local/cuda/targets/x86_64-linux/lib:/usr/lib/x86_64-linux-gnu:\$LD_LIBRARY_PATH"
 ./xianscan
 \`\`\`
 `,
@@ -463,7 +469,7 @@ On macOS with Apple Silicon (M1, M2, M3, M4), XianScan routes neural tensor oper
 				id: 'systemd-gpu',
 				title: '4. Systemd Daemon with GPU Environment',
 				content: `
-For 24/7 background operation on Linux servers, configure a systemd service with \`LD_LIBRARY_PATH\` and \`ORT_CUDA_MEM_LIMIT_MB\`:
+For 24/7 background operation on Linux servers, configure a systemd service with \`LD_LIBRARY_PATH\` pointing to the application, cuDNN wheel, and CUDA library targets:
 
 \`\`\`ini
 [Unit]
@@ -473,13 +479,12 @@ After=network.target
 [Service]
 Type=simple
 User=ubuntu
-WorkingDirectory=/home/ubuntu/xianscan
-ExecStart=/home/ubuntu/xianscan/xianscan
+WorkingDirectory=/home/ubuntu/xianscan-app
+ExecStart=/home/ubuntu/xianscan-app/xianscan --host 0.0.0.0 --port 8124
 Restart=always
 RestartSec=5
 Environment=PORT=8124
-Environment=LD_LIBRARY_PATH=/home/ubuntu/xianscan:/usr/lib/x86_64-linux-gnu:/usr/local/cuda/lib64
-Environment=ORT_CUDA_MEM_LIMIT_MB=8192
+Environment=LD_LIBRARY_PATH=/home/ubuntu/xianscan-app:/home/ubuntu/.local/lib/python3.12/site-packages/nvidia/cudnn/lib:/usr/local/cuda/lib64:/usr/local/cuda/targets/x86_64-linux/lib:/usr/lib/x86_64-linux-gnu
 LimitNOFILE=65536
 
 [Install]

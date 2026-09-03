@@ -183,8 +183,8 @@ jobs:
             - **Direct APK**: Download `tachiyomi-all.xianscan-*.apk` below.
 
             ---
-          draft: true
-          prerelease: true
+          draft: false
+          prerelease: false
           generate_release_notes: true
 
   build-extension:
@@ -219,8 +219,8 @@ jobs:
           files: |
             extensions/xianscan-importer/store/*.zip
             extensions/xianscan-importer/store/*.xpi
-          draft: true
-          prerelease: true
+          draft: false
+          prerelease: false
 
   build-mihon-extension:
     name: Build Mihon Android Extension
@@ -289,8 +289,8 @@ jobs:
         with:
           tag_name: ${{ github.event.inputs.tag_name || github.ref_name }}
           files: extensions/xianscan-mihon/app/build/outputs/apk/release/*.apk
-          draft: true
-          prerelease: true
+          draft: false
+          prerelease: false
 
   virustotal-scan:
     name: VirusTotal Security Scan
