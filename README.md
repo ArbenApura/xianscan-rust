@@ -156,7 +156,7 @@ docker run -d --name xianscan \
   ghcr.io/arbenapura/xianscan:latest
 ```
 
-Then open `http://localhost:8124` (or `http://<host-ip>:8124` from another device on your LAN). Your library, settings, and caches persist in the `xianscan-config` volume — all models and the web UI are embedded in the image, so no extra setup is required.
+Then open `http://localhost:8124` (or `http://<host-ip>:8124` from another device on your LAN). Your library, settings, and caches persist in the `xianscan-config` volume (all models and the web UI are embedded in the image, so no extra setup is required).
 
 The server runs with multi-threaded CPU inference out of the box. NVIDIA GPU acceleration inside containers additionally requires the [NVIDIA Container Toolkit](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/) with CUDA/cuDNN runtime libraries; when they are unavailable, XianScan automatically falls back to the CPU engine.
 

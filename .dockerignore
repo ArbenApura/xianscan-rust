@@ -1,0 +1,14 @@
+# Version control
+**/.git
+
+# Build artifacts and caches (avoids piping 47+ GB to Docker daemon)
+**/target
+**/node_modules
+**/dist
+**/build
+.svelte-kit/
+.cargo/
+
+# Non-container release assets
+*.apk
+*.zip

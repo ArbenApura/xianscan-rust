@@ -1,4 +1,4 @@
-# XianScan — official container image
+# XianScan - official container image
 #
 # Packages the Linux x86_64 release archive (binary with embedded models, web UI,
 # Node.js runtime, and the ONNX Runtime CUDA provider libraries) into a minimal
@@ -34,6 +34,7 @@ RUN set -eux; \
         ca-certificates \
         fontconfig \
         fonts-dejavu-core; \
+    fc-cache -f; \
     rm -rf /var/lib/apt/lists/*; \
     groupadd -g 568 app; \
     useradd -u 568 -g 568 -d /config -M -s /usr/sbin/nologin app
@@ -52,10 +53,12 @@ RUN set -eux; \
 # Library, settings (SQLite), and caches are stored under /config.
 ENV XDG_DATA_HOME=/config \
     XDG_CACHE_HOME=/config/.cache \
-    HOME=/config
+    HOME=/config \
+    LD_LIBRARY_PATH=/app:${LD_LIBRARY_PATH:+:${LD_LIBRARY_PATH}}
 
 USER app:app
 VOLUME /config
 EXPOSE 8124
+STOPSIGNAL SIGINT
 
 ENTRYPOINT ["/app/xianscan"]
