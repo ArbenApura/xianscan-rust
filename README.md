@@ -101,7 +101,7 @@ XianScan is designed to be CPU-first, running on standard laptops without requir
 | **Integrated GPU (Intel/AMD)** | CPU only (stability fallback) | CPU only | N/A |
 | **Apple Silicon (M-Series)** | N/A | N/A | CoreML / Metal |
 
-> All GPU acceleration is optional. If an unsupported GPU is detected or dependencies are absent, XianScan automatically routes inference to the multi-threaded CPU engine. For Linux NVIDIA GPU configuration and driver/cuDNN prerequisites, see the [Linux CUDA Acceleration Guide](docs/linux-cuda-setup.md).
+> All GPU acceleration is optional. If an unsupported GPU is detected or dependencies are absent, XianScan automatically routes inference to the multi-threaded CPU engine. For Linux NVIDIA GPU configuration and driver/cuDNN prerequisites, see the [Linux CUDA Acceleration Guide](docs/linux-cuda-setup.md). For headless Windows Server and cloud VM setups (AWS EC2, Azure, Hetzner), see the [Windows Server Deployment Guide](docs/windows-server-deployment.md).
 
 </details>
 

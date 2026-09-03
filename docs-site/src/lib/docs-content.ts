@@ -391,11 +391,26 @@ All 7 preset theme packs are compiled across 20 languages:
 				title: '1. Windows: DirectML Acceleration (Zero-Setup)',
 				content: `
 On Windows, XianScan utilizes **DirectML** (\`ort/directml\`) by default. DirectML accelerates ONNX neural models across:
-- **NVIDIA GeForce / RTX** GPUs (GTX 1060+, RTX 20/30/40/50 series)
+- **NVIDIA GeForce / RTX / Tesla** GPUs (GTX 1060+, RTX 20/30/40/50 series, Tesla T4, A10G)
 - **AMD Radeon RX** GPUs (RX 5000/6000/7000 series)
 - **Intel Arc / Iris Xe** GPUs and dedicated NPUs
 
 XianScan uses Win32 DXGI adapter enumeration to detect all installed GPUs and automatically select your dedicated graphics card with dedicated VRAM. DirectML requires zero CUDA toolkit or SDK installations.
+
+#### Cloud Windows Server Caveat (AWS EC2, Azure, Hetzner)
+Fresh Windows Server instances default to the software-rendered \`Microsoft Basic Display Adapter\`, causing DirectML to fall back to CPU until a physical GPU display driver is installed. For NVIDIA instances (e.g. AWS G4dn), install the official display driver:
+
+\`\`\`powershell
+# Download and install the AWS-certified NVIDIA display driver silently:
+& "C:\\\\Program Files\\\\Amazon\\\\AWSCLIV2\\\\aws.exe" s3 cp --no-sign-request s3://ec2-windows-nvidia-drivers/latest/596.86__grid_win10_win11_server2022_server2025_dch_64bit_international_aws_swl.exe C:\\\\NVIDIA\\\\installer.exe
+Start-Process -FilePath "C:\\\\NVIDIA\\\\installer.exe" -ArgumentList "-s -clean -noreboot" -Wait
+\`\`\`
+
+#### Verify DirectML Hardware Recognition:
+\`\`\`powershell
+Invoke-RestMethod -Uri "http://127.0.0.1:8123/system/hardware" | ConvertTo-Json
+\`\`\`
+DirectML should report \`"active_provider": "DmlExecutionProvider"\` and identify your dedicated GPU.
 `,
 			},
 			{
@@ -740,8 +755,29 @@ sudo systemctl enable --now xianscan
 `,
 			},
 			{
+				id: 'windows-scheduled-task',
+				title: '2. Windows Server Background Task (24/7 Service)',
+				content: `
+On Windows Server (AWS EC2, Azure, Hetzner, or on-premise), run XianScan persistently across reboots and RDP/SSH disconnects by registering it under the \`SYSTEM\` account:
+
+\`\`\`powershell
+# 1. Allow ports through Windows Defender Firewall for all profiles
+New-NetFirewallRule -Name "XianScan-Web-8124" -DisplayName "XianScan Web Studio" -Protocol TCP -LocalPort 8124 -Action Allow -Profile Any
+New-NetFirewallRule -Name "XianScan-ML-8123" -DisplayName "XianScan ML API" -Protocol TCP -LocalPort 8123 -Action Allow -Profile Any
+
+# 2. Register persistent Scheduled Task at system startup
+$action = New-ScheduledTaskAction -Execute "C:\\\\xianscan\\\\xianscan.exe" -WorkingDirectory "C:\\\\xianscan"
+$trigger = New-ScheduledTaskTrigger -AtStartup
+$principal = New-ScheduledTaskPrincipal -UserId "SYSTEM" -LogonType ServiceAccount -RunLevel Highest
+
+Register-ScheduledTask -TaskName "XianScanService" -Action $action -Trigger $trigger -Principal $principal -Force
+Start-ScheduledTask -TaskName "XianScanService"
+\`\`\`
+`,
+			},
+			{
 				id: 'cloudflare-tunnels',
-				title: '2. Cloudflare Tunnel Remote Ingress',
+				title: '3. Cloudflare Tunnel Remote Ingress',
 				content: `
 Securely access your home server or remote GPU instance over HTTPS without port forwarding:
 
