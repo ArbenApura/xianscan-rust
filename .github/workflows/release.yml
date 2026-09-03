@@ -292,9 +292,97 @@ jobs:
           draft: false
           prerelease: false
 
+  build-docker:
+    name: Build & Publish Docker Image
+    needs: build-release
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      # Reuse the exact binary published by build-release (embedded models, web
+      # UI, Node.js runtime, and ORT CUDA provider libs) instead of rebuilding
+      # from source, so the image always matches the release archive.
+      - name: Download Linux Release Asset
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG_NAME: ${{ github.event.inputs.tag_name || github.ref_name }}
+        run: |
+          gh release download "$TAG_NAME" --repo "${{ github.repository }}" \
+            --pattern 'xianscan-linux-x86_64.tar.gz' --clobber
+          ls -lh xianscan-linux-x86_64.tar.gz
+
+      - name: Compute Image Name and Tags
+        id: image
+        run: |
+          TAG_NAME="${{ github.event.inputs.tag_name || github.ref_name }}"
+          VERSION="${TAG_NAME#v}"
+          IMAGE="ghcr.io/${{ github.repository_owner }}/xianscan"
+          IMAGE="${IMAGE,,}"  # GHCR repository names must be lowercase
+          {
+            echo "name=${IMAGE}"
+            echo "version=${VERSION}"
+            echo "tags=${IMAGE}:${VERSION},${IMAGE}:latest"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Login to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and Push Image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          platforms: linux/amd64
+          push: true
+          tags: ${{ steps.image.outputs.tags }}
+          build-args: |
+            XIANSCAN_VERSION=${{ steps.image.outputs.version }}
+
+      - name: Append Docker section to release notes
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG_NAME: ${{ github.event.inputs.tag_name || github.ref_name }}
+          IMAGE: ${{ steps.image.outputs.name }}
+          VERSION: ${{ steps.image.outputs.version }}
+        run: |
+          {
+            echo ''
+            echo '## 🐳 Docker Image'
+            echo ''
+            echo '```'
+            echo "docker pull ${IMAGE}:${VERSION}"
+            echo '```'
+            echo ''
+            echo "Run it: \`docker run -d -p 8124:8124 -v xianscan-config:/config ${IMAGE}:${VERSION}\`"
+            echo ''
+            echo "All published versions: https://github.com/${{ github.repository }}/pkgs/container/xianscan"
+          } > /tmp/docker-section.md
+
+          RELEASE=$(gh api "repos/${{ github.repository }}/releases/tags/$TAG_NAME")
+          BODY=$(echo "$RELEASE" | jq -r .body)
+
+          # IDEMPOTENT: DON'T DUPLICATE THE SECTION ON A RE-RUN
+          if [[ "$BODY" == *"🐳 Docker"* ]]; then
+            echo "Docker section already present; skipping."
+            exit 0
+          fi
+
+          printf '%s\n%s\n' "$BODY" "$(cat /tmp/docker-section.md)" > /tmp/new-body.md
+          gh release edit "$TAG_NAME" --notes-file /tmp/new-body.md
+
   virustotal-scan:
     name: VirusTotal Security Scan
-    needs: [build-release, build-extension, build-mihon-extension]
+    needs: [build-release, build-extension, build-mihon-extension, build-docker]
     runs-on: ubuntu-latest
     if: (startsWith(github.ref, 'refs/tags/') || github.event_name == 'workflow_dispatch')
     permissions:
