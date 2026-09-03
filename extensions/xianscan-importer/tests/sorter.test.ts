@@ -65,6 +65,22 @@ describe('deduplicateScannedImages', () => {
 		expect(deduped.length).toBe(1);
 		expect(deduped[0].url).toBe('https://site.com/img1.jpg');
 	});
+
+	it('preserves distinct carousel/slider slides sharing identical coordinates', () => {
+		const images: ScannedImage[] = [
+			{ url: 'https://site.com/chapter-1/page-01.jpg', width: 800, height: 1200, top: 500, left: 20 },
+			{ url: 'https://site.com/chapter-1/page-02.jpg', width: 800, height: 1200, top: 500, left: 20 },
+			{ url: 'https://site.com/chapter-1/page-03.jpg', width: 800, height: 1200, top: 500, left: 20 }
+		];
+
+		const deduped = deduplicateScannedImages(images);
+		expect(deduped.length).toBe(3);
+		expect(deduped.map(i => i.url)).toEqual([
+			'https://site.com/chapter-1/page-01.jpg',
+			'https://site.com/chapter-1/page-02.jpg',
+			'https://site.com/chapter-1/page-03.jpg'
+		]);
+	});
 });
 
 describe('sortImagesByCoordinates', () => {
@@ -87,6 +103,21 @@ describe('sortImagesByCoordinates', () => {
 
 		const sorted = sortImagesByCoordinates(images);
 		expect(sorted.map(i => i.url)).toEqual(['left.jpg', 'right.jpg']);
+	});
+
+	it('tie-breaks identical or close coordinates with natural alphanumeric URL sort', () => {
+		const images: ScannedImage[] = [
+			{ url: 'https://site.com/page_10.jpg', width: 800, height: 1200, top: 0, left: 0 },
+			{ url: 'https://site.com/page_2.jpg', width: 800, height: 1200, top: 0, left: 0 },
+			{ url: 'https://site.com/page_1.jpg', width: 800, height: 1200, top: 0, left: 0 }
+		];
+
+		const sorted = sortImagesByCoordinates(images);
+		expect(sorted.map(i => i.url)).toEqual([
+			'https://site.com/page_1.jpg',
+			'https://site.com/page_2.jpg',
+			'https://site.com/page_10.jpg'
+		]);
 	});
 
 	it('filters out images smaller than minimum dimension threshold and blurry placeholders', () => {

@@ -199,7 +199,7 @@ body {
 	height: 14px;
 }
 
-/* TRANSLATE BUTTON IN THE CREATE BOOK MODAL — MATCH THE CANCEL BUTTON'S BORDER/BACKGROUND */
+/* TRANSLATE BUTTON IN THE CREATE BOOK MODAL - MATCH THE CANCEL BUTTON'S BORDER/BACKGROUND */
 #translateBookTitleBtn {
 	border: 1px solid var(--border);
 	background: var(--surface);

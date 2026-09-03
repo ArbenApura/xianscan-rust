@@ -156,12 +156,12 @@ export interface PageTranslatedMessage {
 export interface ChapterSyncMessage {
 	type: 'CHAPTER_SYNC_UPDATE';
 	chapterId: number;
-	status: 'pending' | 'processing' | 'done' | 'error';
-	pages: Array<{
+	status: 'pending' | 'processing' | 'done' | 'error' | 'uploaded' | 'resliced';
+	pages: Array<ChapterReaderPage | {
 		id: number;
 		seq: number;
-		outputRev: number;
-		hasOutput: boolean;
+		outputRev?: number;
+		hasOutput?: boolean;
 	}>;
 }
 

@@ -422,4 +422,152 @@ describe('DomReplacerEngine', () => {
 		expect(dynamicImg2.getAttribute('data-xianscan-page-id')).toBe('802');
 		expect(dynamicImg2.src).toContain('/api/pages/802/file?kind=output&rev=1');
 	});
+
+	it('maps host images to server pages by canonical URL matching even when DOM elements are out-of-order', () => {
+		document.body.innerHTML = '';
+		const reader = document.createElement('div');
+		reader.className = 'reading-content';
+
+		// INSERT DOM IMAGES IN REVERSED ORDER COMPARED TO CHAPTER SEQUENCE
+		const revImg2 = document.createElement('img');
+		revImg2.src = 'https://cdn.example.com/chapter1/page_002.jpg';
+
+		const revImg1 = document.createElement('img');
+		revImg1.src = 'https://cdn.example.com/chapter1/page_001.jpg';
+
+		reader.appendChild(revImg2);
+		reader.appendChild(revImg1);
+		document.body.appendChild(reader);
+
+		engine = new DomReplacerEngine('http://127.0.0.1:8124');
+		const pages: ChapterReaderPage[] = [
+			{ id: 901, seq: 0, filePath: '1.jpg', cleanedPath: null, outputPath: 'out1.webp', cleanedRev: 0, outputRev: 1, originalRev: 1, status: 'done', error: null },
+			{ id: 902, seq: 1, filePath: '2.jpg', cleanedPath: null, outputPath: 'out2.webp', cleanedRev: 0, outputRev: 1, originalRev: 1, status: 'done', error: null }
+		];
+
+		const includedUrls = [
+			'https://cdn.example.com/chapter1/page_001.jpg',
+			'https://cdn.example.com/chapter1/page_002.jpg'
+		];
+
+		engine.mountTranslatedPages(pages, undefined, includedUrls);
+
+		// revImg1 MUST BE MATCHED TO PAGE 901 (seq 0) AND revImg2 MUST BE MATCHED TO PAGE 902 (seq 1)
+		expect(revImg1.getAttribute('data-xianscan-page-id')).toBe('901');
+		expect(revImg1.getAttribute('data-xianscan-page-seq')).toBe('0');
+		expect(revImg2.getAttribute('data-xianscan-page-id')).toBe('902');
+		expect(revImg2.getAttribute('data-xianscan-page-seq')).toBe('1');
+	});
+
+	it('prevents duplicate clone creation when updatePageSlice is called repeatedly', () => {
+		document.body.innerHTML = '';
+		const reader = document.createElement('div');
+		reader.className = 'reading-content';
+
+		const baseImg = document.createElement('img');
+		baseImg.src = 'https://cdn.example.com/chapter1/base.jpg';
+		reader.appendChild(baseImg);
+		document.body.appendChild(reader);
+
+		engine = new DomReplacerEngine('http://127.0.0.1:8124');
+
+		// SIMULATE MULTIPLE SSE / WATCHDOG EVENTS FOR A RESLICED SLICE
+		engine.updatePageSlice(999, 1, 1);
+		engine.updatePageSlice(999, 1, 1);
+		engine.updatePageSlice(999, 1, 2);
+
+		const matchedClones = document.querySelectorAll('img[data-xianscan-page-id="999"]');
+		expect(matchedClones.length).toBe(1);
+	});
+
+	it('replaces temporary injected clones when real host image mounts dynamically via virtual scroll', () => {
+		document.body.innerHTML = '';
+		const reader = document.createElement('div');
+		reader.className = 'reading-content';
+
+		const initialImg = document.createElement('img');
+		initialImg.src = 'https://cdn.example.com/chapter1/page_001.jpg';
+		reader.appendChild(initialImg);
+		document.body.appendChild(reader);
+
+		engine = new DomReplacerEngine('http://127.0.0.1:8124');
+		const pages: ChapterReaderPage[] = [
+			{ id: 1001, seq: 0, filePath: '1.jpg', cleanedPath: null, outputPath: 'out1.webp', cleanedRev: 0, outputRev: 1, originalRev: 1, status: 'done', error: null },
+			{ id: 1002, seq: 1, filePath: '2.jpg', cleanedPath: null, outputPath: 'out2.webp', cleanedRev: 0, outputRev: 1, originalRev: 1, status: 'done', error: null }
+		];
+
+		const includedUrls = [
+			'https://cdn.example.com/chapter1/page_001.jpg',
+			'https://cdn.example.com/chapter1/page_002.jpg'
+		];
+
+		// MOUNT WITH ONLY 1 INITIAL IMAGE PRESENT - CREATES INJECTED CLONE FOR PAGE 1002
+		engine.mountTranslatedPages(pages, undefined, includedUrls);
+		expect(document.querySelectorAll('img[data-xianscan-injected="true"]').length).toBe(1);
+
+		// NOW VIRTUAL SCROLLER MOUNTS REAL HOST IMAGE FOR PAGE 2
+		const dynamicHostImg2 = document.createElement('img');
+		dynamicHostImg2.src = 'https://cdn.example.com/chapter1/page_002.jpg';
+		reader.appendChild(dynamicHostImg2);
+
+		(engine as any).reconcileDynamicHostImages();
+
+		// REAL IMAGE MUST CLAIM PAGE 1002 AND TEMPORARY CLONE MUST BE REMOVED
+		expect(dynamicHostImg2.getAttribute('data-xianscan-page-id')).toBe('1002');
+		expect(dynamicHostImg2.getAttribute('data-xianscan-injected')).toBeNull();
+		expect(document.querySelectorAll('img[data-xianscan-injected="true"]').length).toBe(0);
+	});
+
+	it('hides all other host images and inserts consecutive slices when chapter is resliced', () => {
+		document.body.innerHTML = '';
+		const reader = document.createElement('div');
+		reader.className = 'reading-content';
+
+		const strip1 = document.createElement('img');
+		strip1.src = 'https://cdn.example.com/chapter1/strip_01.jpg';
+		const strip2 = document.createElement('img');
+		strip2.src = 'https://cdn.example.com/chapter1/strip_02.jpg';
+
+		reader.appendChild(strip1);
+		reader.appendChild(strip2);
+		document.body.appendChild(reader);
+
+		engine = new DomReplacerEngine('http://127.0.0.1:8124');
+		// 2 HOST STRIPS RESLICED INTO 4 SLICES
+		const pages: ChapterReaderPage[] = [
+			{ id: 2001, seq: 0, filePath: 's1.webp', cleanedPath: null, outputPath: 'out1.webp', cleanedRev: 0, outputRev: 1, originalRev: 1, status: 'done', error: null },
+			{ id: 2002, seq: 1, filePath: 's2.webp', cleanedPath: null, outputPath: 'out2.webp', cleanedRev: 0, outputRev: 1, originalRev: 1, status: 'done', error: null },
+			{ id: 2003, seq: 2, filePath: 's3.webp', cleanedPath: null, outputPath: 'out3.webp', cleanedRev: 0, outputRev: 1, originalRev: 1, status: 'done', error: null },
+			{ id: 2004, seq: 3, filePath: 's4.webp', cleanedPath: null, outputPath: 'out4.webp', cleanedRev: 0, outputRev: 1, originalRev: 1, status: 'done', error: null }
+		];
+
+		const includedUrls = [
+			'https://cdn.example.com/chapter1/strip_01.jpg',
+			'https://cdn.example.com/chapter1/strip_02.jpg'
+		];
+
+		engine.mountTranslatedPages(pages, undefined, includedUrls);
+
+		// STRIP 1 BECOMES SLICE 0, SLICES 1..3 ARE INJECTED CLONES
+		expect(strip1.getAttribute('data-xianscan-page-id')).toBe('2001');
+		expect(strip1.style.display).toBe('');
+
+		// STRIP 2 MUST BE HIDDEN SO IT NEVER DUPLICATES RAW STRIP CONTENT
+		expect(strip2.getAttribute('data-xianscan-hidden')).toBe('true');
+		expect(strip2.style.display).toBe('none');
+
+		// 3 INJECTED SLICES CREATED (TOTAL 4 SLICES RENDERED)
+		const injected = document.querySelectorAll('img[data-xianscan-injected="true"]');
+		expect(injected.length).toBe(3);
+
+		// IF VIRTUAL SCROLLER MOUNTS A 3RD RAW STRIP LATER, IT MUST ALSO BE HIDDEN
+		const strip3 = document.createElement('img');
+		strip3.src = 'https://cdn.example.com/chapter1/strip_03.jpg';
+		reader.appendChild(strip3);
+
+		(engine as any).reconcileDynamicHostImages();
+		expect(strip3.getAttribute('data-xianscan-hidden')).toBe('true');
+		expect(strip3.style.display).toBe('none');
+	});
 });
+

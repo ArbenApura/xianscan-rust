@@ -1,4 +1,9 @@
+// -- IMAGE SORTER, NOISE FILTER & SPATIAL DEDUPLICATION ENGINE -- //
+
+// IMPORTED TYPES
 import type { ScannedImage } from '../types';
+
+// -- CONSTANTS -- //
 
 // NOISE AND ADVERTISEMENT PATTERNS
 const NOISE_URL_PATTERN = /(?:data:image|placeholder|blurhash|lqip|blur|skeleton|shimmer|loading|loader|blank\.gif|spacer\.gif|pixel\.gif|avatar|favicon|emoji|discord|patreon|kofi|paypal|doubleclick|googleads|adservice|adserver|banner|iklan|advert|guanggao|promo|sponsor|\/ad\/|\/ads\/|[\/_-]ad\d*\.(?:gif|jpg|png|webp)|app-qr|qrcode|qr-code|watermark_logo)/i;
@@ -11,6 +16,8 @@ const VOLATILE_QUERY_PARAMS = new Set([
 	'cb', 'cache_bust', 'sid', 'session', 'session_id', 'utm_source',
 	'utm_medium', 'utm_campaign', 'utm_term', 'utm_content'
 ]);
+
+// -- FUNCTIONS & ALGORITHMS -- //
 
 // EXTRACT CANONICAL CLEAN IMAGE URL FOR DEDUPLICATION
 export function getCanonicalUrl(rawUrl: string): string {
@@ -88,7 +95,7 @@ export function computeDHashFromElement(img: HTMLImageElement): string | null {
 // DEDUPLICATE SCANNED IMAGES BY CANONICAL URL AND IDENTICAL SPATIAL COORDINATES
 export function deduplicateScannedImages(images: ScannedImage[]): ScannedImage[] {
 	const seenUrls = new Set<string>();
-	const seenCoords = new Set<string>();
+	const seenCoords = new Map<string, ScannedImage>();
 	const result: ScannedImage[] = [];
 
 	for (const img of images) {
@@ -100,12 +107,20 @@ export function deduplicateScannedImages(images: ScannedImage[]): ScannedImage[]
 		}
 
 		// 2. DEDUPLICATE BY IDENTICAL SPATIAL BOUNDING BOX (OVERLAPPING CLONES)
+		// ONLY DISCARD IF IDENTICAL URL, DHASH, OR EXPLICIT CLONE TO PREVENT DROPPING CAROUSEL SLIDES
 		if (img.top > 0 || img.left > 0) {
 			const coordKey = `${Math.round(img.top)}_${Math.round(img.left)}_${img.width}_${img.height}`;
-			if (seenCoords.has(coordKey)) {
-				continue;
+			const existing = seenCoords.get(coordKey);
+			if (existing) {
+				const sameUrl = existing.url === img.url || existing.canonicalUrl === canonical;
+				const sameHash = existing.dhash && img.dhash && existing.dhash === img.dhash;
+				const isExplicitClone = /clone|fallback|overlay/i.test(img.url) || /clone|fallback|overlay/i.test(existing.url);
+				if (sameUrl || sameHash || isExplicitClone) {
+					continue;
+				}
+			} else {
+				seenCoords.set(coordKey, img);
 			}
-			seenCoords.add(coordKey);
 		}
 
 		if (canonical) seenUrls.add(canonical);
@@ -184,13 +199,17 @@ export function sortImagesByCoordinates(
 	// 3b. MODERATE RESOLUTION-COHERENCE FILTER: DROP DIMENSION/ORIENTATION OUTLIERS (ADS)
 	const cleanImages = filterResolutionOutliers(outlierFiltered);
 
-	// 4. SPATIAL 2D SORTING: TOP-TO-BOTTOM PRIMARY, LEFT-TO-RIGHT SECONDARY (WITHIN 20PX BAND)
+	// 4. SPATIAL 2D SORTING: TOP-TO-BOTTOM PRIMARY, LEFT-TO-RIGHT SECONDARY, NATURAL ALPHANUMERIC TIEBREAKER
 	return cleanImages.sort((a, b) => {
 		const topDiff = a.top - b.top;
 		if (Math.abs(topDiff) > 20) {
 			return topDiff;
 		}
-		return a.left - b.left;
+		const leftDiff = a.left - b.left;
+		if (Math.abs(leftDiff) > 20) {
+			return leftDiff;
+		}
+		return naturalAlphanumericSort(a.url, b.url);
 	});
 }
 
