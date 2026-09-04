@@ -1,6 +1,6 @@
 {
 	"name": "xianscan-web",
-	"version": "0.5.0-beta.2",
+	"version": "0.5.0-beta.3",
 	"description": "Local-first translation studio for manga, manhwa, and manhua.",
 	"private": true,
 	"type": "module",

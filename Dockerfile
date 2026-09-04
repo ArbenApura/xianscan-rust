@@ -6,7 +6,7 @@
 #
 # The build context must contain the release archive:
 #
-#   gh release download v0.5.0-beta.2 --pattern 'xianscan-linux-x86_64.tar.gz' \
+#   gh release download v0.5.0-beta.3 --pattern 'xianscan-linux-x86_64.tar.gz' \
 #     --repo ArbenApura/xianscan-rust
 #   docker build -t xianscan .
 #
