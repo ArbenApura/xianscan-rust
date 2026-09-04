@@ -34,18 +34,19 @@ XianScan ships as a single, self-contained executable with the SvelteKit web int
 | **Windows 10 / 11** (x86_64) | \`xianscan-windows-x86_64.zip\` (contains \`xianscan.exe\`) | DirectML (NVIDIA, AMD, Intel) & CPU |
 | **Linux** (x86_64 / glibc 2.31+) | \`xianscan-linux-x86_64.tar.gz\` (contains \`xianscan\`) | CUDA 12 & CPU |
 | **macOS** (Apple Silicon M1-M4) | \`xianscan-macos-arm64.tar.gz\` (contains \`xianscan\`) | Apple Neural Engine (CoreML / Metal) & CPU |
+| **Docker (Linux x86_64)** | \`ghcr.io/arbenapura/xianscan:latest\` | CPU Multi-threaded (Zero-setup) |
 
-Download the latest release archive from the [GitHub Releases](https://github.com/ArbenApura/xianscan-rust/releases) page.
+Download the latest release archive from the [GitHub Releases](https://github.com/ArbenApura/xianscan-rust/releases) page or pull the container image from GitHub Container Registry.
 `,
 			},
 			{
 				id: 'launch-server',
 				title: '2. Launch the Server',
 				content: `
-#### Windows:
-Extract the ZIP archive and **double-click \`xianscan.exe\`** in File Explorer (a dedicated console window will open automatically) or run \`.\\xianscan.exe\` inside PowerShell / Command Prompt.
+#### Windows
+Extract the ZIP archive and **double-click \`xianscan.exe\`** in File Explorer (a dedicated console window will open automatically) or run \`.\\xianscan.exe\` inside PowerShell or Command Prompt.
 
-#### Linux / macOS:
+#### Linux and macOS
 Extract the archive, make the binary executable, and run it in your terminal:
 
 \`\`\`bash
@@ -53,7 +54,17 @@ chmod +x xianscan
 ./xianscan
 \`\`\`
 
-Upon launch, XianScan logs its startup sequence directly in the terminal / console (initializing hardware acceleration, loading AI model weights, extracting embedded assets, and starting the local server):
+#### Docker Container
+Run the official container with a persistent data volume:
+
+\`\`\`bash
+docker run -d --name xianscan \\
+  -p 8124:8124 \\
+  -v xianscan-config:/config \\
+  ghcr.io/arbenapura/xianscan:latest
+\`\`\`
+
+Upon launch, XianScan logs its startup sequence directly in the terminal (initializing hardware acceleration, loading AI model weights, extracting embedded assets, and starting the local server).
 
 ![XianScan Terminal Startup Console](/showcase/terminal_launch.png)
 `,
@@ -723,11 +734,54 @@ cd extensions/xianscan-mihon
 	'advanced/self-hosting': {
 		title: 'Remote Server & Cloudflare Tunnels',
 		description: 'Deploy headless GPU servers (AWS EC2 / Hetzner) and configure zero-trust Cloudflare Tunnels.',
-		lastUpdated: '2026-09-02',
+		lastUpdated: '2026-09-04',
 		sections: [
 			{
+				id: 'docker-deployment',
+				title: '1. Docker and Docker Compose Deployment',
+				content: `
+Deploy XianScan on Linux servers, NAS devices (Unraid, TrueNAS, Synology), or cloud instances using Docker.
+
+#### Docker Run
+Run the container with persistent storage for your library, settings, and caches:
+
+\`\`\`bash
+docker run -d --name xianscan \\
+  -p 8124:8124 \\
+  -v xianscan-config:/config \\
+  --restart unless-stopped \\
+  ghcr.io/arbenapura/xianscan:latest
+\`\`\`
+
+#### Docker Compose
+Create a \`docker-compose.yml\` file:
+
+\`\`\`yaml
+services:
+  xianscan:
+    image: ghcr.io/arbenapura/xianscan:latest
+    container_name: xianscan
+    restart: unless-stopped
+    ports:
+      - "8124:8124"
+    volumes:
+      - xianscan-data:/config
+
+volumes:
+  xianscan-data:
+\`\`\`
+
+Start the container stack with \`docker compose up -d\`. All SQLite database records, uploaded chapters, and caches persist in the \`xianscan-data\` volume under \`/config\`.
+
+#### Hardware Acceleration Notes
+The official container image uses a lightweight Ubuntu base (~800 MB) with multi-threaded CPU inference enabled out of the box, avoiding a multi-gigabyte CUDA SDK footprint in the image.
+
+For GPU acceleration on Linux servers (such as AWS EC2 or dedicated NVIDIA instances), running the native standalone Linux binary directly as a systemd service (described below) is recommended. The native executable links directly against the host's installed CUDA and cuDNN drivers without container isolation overhead.
+`,
+			},
+			{
 				id: 'systemd-daemon',
-				title: '1. Linux Systemd Service Setup',
+				title: '2. Linux Systemd Service Setup',
 				content: `
 Create a systemd unit file at \`/etc/systemd/system/xianscan.service\`:
 
@@ -761,7 +815,7 @@ sudo systemctl enable --now xianscan
 			},
 			{
 				id: 'windows-scheduled-task',
-				title: '2. Windows Server Background Task (24/7 Service)',
+				title: '3. Windows Server Background Task (24/7 Service)',
 				content: `
 On Windows Server (AWS EC2, Azure, Hetzner, or on-premise), run XianScan persistently across reboots and RDP/SSH disconnects by registering it under the \`SYSTEM\` account:
 
@@ -782,9 +836,9 @@ Start-ScheduledTask -TaskName "XianScanService"
 			},
 			{
 				id: 'cloudflare-tunnels',
-				title: '3. Cloudflare Tunnel Remote Ingress',
+				title: '4. Cloudflare Tunnel Remote Ingress',
 				content: `
-Securely access your home server or remote GPU instance over HTTPS without port forwarding:
+Securely access your home server or remote GPU instance over HTTPS without port forwarding.
 
 1. Install \`cloudflared\` on your server:
 
@@ -799,7 +853,7 @@ cloudflared tunnel login
 cloudflared tunnel create xianscan-server
 \`\`\`
 
-3. Route traffic to your local XianScan port (\`8124\`) in \`~/.cloudflared/config.yml\`:
+3. Route traffic to your local XianScan port (\`8124\`) in \`~/.cloudflared/config.yml\`.
 
 \`\`\`yaml
 tunnel: <TUNNEL_UUID>
