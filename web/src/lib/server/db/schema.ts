@@ -44,6 +44,8 @@ export const books = sqliteTable(
 		// TRUE AFTER THE USER EXPLICITLY REMOVED THE DEDICATED COVER — DISTINGUISHES "DELIBERATELY
 		// COVERLESS" (SHOW EMPTY, NO PAGE-PROXY FALLBACK) FROM "NEVER HAD A COVER" (FALL BACK TO PAGE).
 		coverCleared: integer('cover_cleared', { mode: 'boolean' }).notNull().default(false),
+		// CUSTOM LOCALIZATION DIRECTIVES INJECTED INTO TRANSLATION SYSTEM PROMPTS FOR THIS BOOK
+		customPrompt: text('custom_prompt'),
 		createdAt: epochMs('created_at')
 			.notNull()
 			.$defaultFn(() => Date.now()),

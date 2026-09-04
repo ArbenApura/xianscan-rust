@@ -8,7 +8,6 @@ export * from './typeset/layout';
 export * from './typeset/color';
 export * from './typeset/decollision';
 export * from './typeset/sanitize';
-export * from './typeset/stat-renderer';
 
 import {
 	registerFonts,
@@ -21,12 +20,11 @@ import {
 	CJK_REGEX,
 	type TextColor,
 } from './typeset/fonts';
-import { parseStatPanel, isSfxOrShout, type TypesetRegion } from './typeset/stat-panel';
+import { isSfxOrShout, type TypesetRegion } from './typeset/stat-panel';
 import { fitFontSize, fitFontSizeWithLines, fitSingleLineSize, isStructuredList } from './typeset/layout';
 import { pickTextColor, sampleBackground } from './typeset/color';
 import { decollideRegions } from './typeset/decollision';
 import { sanitizeForFont } from './typeset/sanitize';
-import { typesetStatPanel } from './typeset/stat-renderer';
 
 // -- CONSTANTS -- //
 
@@ -98,13 +96,6 @@ export async function typesetPage(
 			color = pickTextColor(bg);
 		}
 
-		// STAT-PANEL PATH — STRUCTURED MULTI-SEGMENT RENDERING
-		const statSegments = parseStatPanel(rawText);
-		if (statSegments) {
-			preparedRegions.push({ r, rawText, text: rawText, statSegments, color, isSfx: false, font: fontDialogue, maxW: r.box.w, maxH: r.box.h, sizeCap: 0 });
-			continue;
-		}
-
 		// STANDARD PATH — UNIFIED NATURAL MULTI-LINE WRAPPING WITH USER CASING
 		const isCjk = CJK_REGEX.test(rawText);
 		let text: string;
@@ -133,7 +124,7 @@ export async function typesetPage(
 			}
 		}
 
-		preparedRegions.push({ r, rawText, text, statSegments: null, color, isSfx, font, maxW, maxH, sizeCap });
+		preparedRegions.push({ r, rawText, text, color, isSfx, font, maxW, maxH, sizeCap });
 	}
 
 	// COMPUTE PAGE DIALOGUE MEDIAN BASELINE
@@ -145,11 +136,7 @@ export async function typesetPage(
 
 	// PASS 2: RENDER REGIONS WITH HARMONIZED SIZING
 	for (const prep of preparedRegions) {
-		const { r, text, statSegments, color, isSfx, font, maxW, maxH, sizeCap } = prep;
-		if (statSegments) {
-			typesetStatPanel(ctx, r, statSegments, color, fontCjk);
-			continue;
-		}
+		const { r, text, color, isSfx, font, maxW, maxH, sizeCap } = prep;
 
 		const { x, y, w, h } = r.box;
 		const angleDeg = r.angle ?? 0;

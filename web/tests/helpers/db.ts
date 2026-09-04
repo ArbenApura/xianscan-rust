@@ -105,6 +105,9 @@ export function resetDb(): void {
 	try {
 		state.raw.exec(`ALTER TABLE pages ADD COLUMN llm_response TEXT;`);
 	} catch {}
+	try {
+		state.raw.exec(`ALTER TABLE books ADD COLUMN custom_prompt TEXT;`);
+	} catch {}
 	state.raw.pragma('foreign_keys = ON');
 }
 

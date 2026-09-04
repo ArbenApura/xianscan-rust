@@ -151,7 +151,7 @@ describe('nextPageSeq & reorderPages', () => {
 		const os = await import('node:os');
 		const { stitchPageWithNext } = await import('$lib/server/chapters');
 
-		const dataRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'manua-test-'));
+		const dataRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'xianscan-test-'));
 		fs.mkdirSync(path.join(dataRoot, 'uploads', '1'), { recursive: true });
 		fs.writeFileSync(path.join(dataRoot, 'uploads/1/0.png'), Buffer.from('page0'));
 		fs.writeFileSync(path.join(dataRoot, 'uploads/1/1.png'), Buffer.from('page1'));
@@ -363,7 +363,7 @@ describe('nextPageSeq & reorderPages', () => {
 		const { resliceChapterPages } = await import('$lib/server/chapters');
 		const { DEFAULT_RESLICE_HEIGHTS } = await import('$lib/server/chapters/reslice');
 
-		const dataRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'manua-reslice-'));
+		const dataRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'xianscan-reslice-'));
 		fs.mkdirSync(path.join(dataRoot, 'uploads', '1'), { recursive: true });
 		fs.writeFileSync(path.join(dataRoot, 'uploads/1/s0.png'), Buffer.from('slice0'));
 		fs.writeFileSync(path.join(dataRoot, 'uploads/1/s1.png'), Buffer.from('slice1'));
@@ -440,7 +440,7 @@ describe('nextPageSeq & reorderPages', () => {
 		const os = await import('node:os');
 		const { resliceChapterPages } = await import('$lib/server/chapters');
 
-		const dataRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'manua-reslice-h-'));
+		const dataRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'xianscan-reslice-h-'));
 		fs.mkdirSync(path.join(dataRoot, 'uploads', '2'), { recursive: true });
 		fs.writeFileSync(path.join(dataRoot, 'uploads/2/h0.png'), Buffer.from('slice0'));
 

@@ -89,10 +89,10 @@ describe('PageInspectModal Component UI', () => {
 		await fireEvent.click(promptBtn);
 		await tick();
 
-		expect(screen.getByText(/LLM Translation Benchmark & History/)).toBeTruthy();
+		expect(screen.getByText(/LLM Translation Benchmark (and|&) History/)).toBeTruthy();
 		expect(screen.getByText('1.25 s')).toBeTruthy();
 		expect(screen.getByText('deepseek-v4-flash')).toBeTruthy();
-		expect(screen.getByText('System Instructions')).toBeTruthy();
+		expect(screen.getByText(/System Instructions/)).toBeTruthy();
 	});
 
 	it('renders OCR Pipeline button and opens OCR & Layout Diagnostics dialog with latency and step logs', async () => {
@@ -203,6 +203,73 @@ describe('PageInspectModal Component UI', () => {
 		const body = JSON.parse(typesetCall[1].body);
 		expect(body.typesetOptions).toBeDefined();
 		expect(body.typesetOptions.fontCjk).toBe('WenQuanYi Micro Hei');
+	});
+
+	it('renders Re-translate Page button and dispatches retranslate event on click', async () => {
+		const mockPage = {
+			id: 104,
+			seq: 3,
+			filePath: 'page_4.png',
+			outputPath: 'output/page_4.png',
+			width: 800,
+			height: 1200,
+			regions: [],
+		};
+
+		const { component } = render(PageInspectModal, {
+			props: {
+				open: true,
+				page: mockPage,
+			},
+		});
+
+		const retranslateHandler = vi.fn();
+		component.$on('retranslate', retranslateHandler);
+
+		const retranslateBtn = screen.getByText('Re-translate Page');
+		expect(retranslateBtn).toBeTruthy();
+
+		await fireEvent.click(retranslateBtn);
+		await tick();
+
+		expect(retranslateHandler).toHaveBeenCalledTimes(1);
+		expect(retranslateHandler.mock.calls[0][0].detail.page.id).toBe(104);
+	});
+
+	it('renders error alert banner with failure details and retry button when page has error', async () => {
+		const mockPage = {
+			id: 105,
+			seq: 4,
+			status: 'error',
+			error: 'Translation failed (TOKEN_BUDGET_EXHAUSTED)',
+			filePath: 'page_5.png',
+			outputPath: null,
+			width: 800,
+			height: 1200,
+			regions: [],
+		};
+
+		const { component } = render(PageInspectModal, {
+			props: {
+				open: true,
+				page: mockPage,
+			},
+		});
+
+		const retranslateHandler = vi.fn();
+		component.$on('retranslate', retranslateHandler);
+
+		expect(screen.getByText('Translation failed (TOKEN_BUDGET_EXHAUSTED)')).toBeTruthy();
+		expect(screen.getByText('Translation or Pipeline Failure')).toBeTruthy();
+
+		const retryBtn = screen.getByRole('button', { name: /Retry/i });
+		expect(retryBtn).toBeTruthy();
+
+		await fireEvent.click(retryBtn);
+		await tick();
+
+		expect(retranslateHandler).toHaveBeenCalledTimes(1);
+		expect(retranslateHandler.mock.calls[0][0].detail.page.id).toBe(105);
 	});
 });
 

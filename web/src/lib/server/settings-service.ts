@@ -1,7 +1,7 @@
 import { eq } from 'drizzle-orm';
 import { db as defaultDb } from './db';
 import { appSettings } from './db/schema';
-import { DEFAULTS, type AppSettings, type InpaintMode, type ExecutionDevice, type TypesetOutline, type TypesetContrast, type TypesetCasing } from '$lib/stores/settings';
+import { DEFAULTS, type AppSettings, type InpaintMode, type ExecutionDevice, type TypesetOutline, type TypesetContrast, type TypesetCasing, type ReasoningEffortOption } from '$lib/stores/settings';
 
 // IN-MEMORY SETTINGS CACHE
 let cachedSettings: AppSettings | null = null;
@@ -18,12 +18,51 @@ const VALID_EXEC_DEVICES: ExecutionDevice[] = ['auto', 'cuda', 'dml', 'coreml', 
 const VALID_OUTLINES: TypesetOutline[] = ['none', 'thin', 'standard', 'heavy'];
 const VALID_CONTRASTS: TypesetContrast[] = ['auto', 'dark', 'light'];
 const VALID_CASINGS: TypesetCasing[] = ['uppercase', 'original', 'lowercase'];
+const VALID_REASONING_EFFORTS: ReasoningEffortOption[] = ['auto', 'none', 'minimal', 'low', 'medium', 'high', 'max'];
 
 // SANITIZE AND CLAMP INPUT VALUES AGAINST SCHEMA INVARIANTS
 export function sanitizeSettingValue(key: keyof AppSettings, value: unknown): unknown {
 	if (value === undefined) return undefined;
 
 	switch (key) {
+		case 'translationMaxTokens': {
+			const n = Number(value);
+			return Math.max(1024, Math.min(65536, isNaN(n) ? 4096 : Math.round(n)));
+		}
+
+		case 'translationTemperature': {
+			const n = Number(value);
+			return Math.max(0.0, Math.min(1.0, isNaN(n) ? 0.2 : Number(n.toFixed(2))));
+		}
+
+		case 'translationTopP': {
+			const n = Number(value);
+			return Math.max(0.1, Math.min(1.0, isNaN(n) ? 1.0 : Number(n.toFixed(2))));
+		}
+
+		case 'translationReasoningEffort': {
+			if (typeof value === 'string') {
+				const trimmed = value.trim();
+				if (VALID_REASONING_EFFORTS.includes(trimmed as ReasoningEffortOption)) {
+					return trimmed;
+				}
+				if (trimmed.startsWith('custom:')) {
+					return trimmed.slice(0, 64);
+				}
+			}
+			return 'none';
+		}
+
+		case 'translationFrequencyPenalty': {
+			const n = Number(value);
+			return Math.max(0.0, Math.min(2.0, isNaN(n) ? 0.0 : Number(n.toFixed(2))));
+		}
+
+		case 'translationPresencePenalty': {
+			const n = Number(value);
+			return Math.max(0.0, Math.min(2.0, isNaN(n) ? 0.0 : Number(n.toFixed(2))));
+		}
+
 		case 'cudaVramLimitMb':
 			if (value === null) return null;
 			if (typeof value === 'number' && !isNaN(value)) {

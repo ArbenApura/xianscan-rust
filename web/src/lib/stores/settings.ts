@@ -32,6 +32,8 @@ export type LibrarySort = 'recent' | 'title_asc' | 'title_desc' | 'chapters_desc
 
 export type ChapterLayout = 'grid' | 'list' | 'compact';
 
+export type ReasoningEffortOption = 'auto' | 'none' | 'minimal' | 'low' | 'medium' | 'high' | 'max' | (string & {});
+
 export interface AppSettings {
 	version: number;
 	model: string;
@@ -52,6 +54,13 @@ export interface AppSettings {
 	resliceBeforeBatch: boolean;
 	sourceLang: string;
 	targetLang: string;
+	// CONVENTIONAL INFERENCE & SAMPLING CONFIGURATION
+	translationMaxTokens: number;
+	translationTemperature: number;
+	translationTopP: number;
+	translationReasoningEffort: ReasoningEffortOption;
+	translationFrequencyPenalty: number;
+	translationPresencePenalty: number;
 	// ADVANCED TYPESETTING & INPAINTING CONFIGURATION
 	typesetFont: string;
 	typesetCjkFont: string;
@@ -194,6 +203,12 @@ export const DEFAULTS: AppSettings = {
 	resliceBeforeBatch: true,
 	sourceLang: 'zh-Hans',
 	targetLang: 'en',
+	translationMaxTokens: 4096,
+	translationTemperature: 0.2,
+	translationTopP: 1.0,
+	translationReasoningEffort: 'none',
+	translationFrequencyPenalty: 0.0,
+	translationPresencePenalty: 0.0,
 	typesetFont: 'CC Wild Words',
 	typesetCjkFont: 'WenQuanYi Micro Hei',
 	typesetPadding: 0.05,
@@ -228,6 +243,12 @@ export const SERVER_CANONICAL_KEYS: (keyof AppSettings)[] = [
 	'resliceBeforeBatch',
 	'sourceLang',
 	'targetLang',
+	'translationMaxTokens',
+	'translationTemperature',
+	'translationTopP',
+	'translationReasoningEffort',
+	'translationFrequencyPenalty',
+	'translationPresencePenalty',
 	'typesetFont',
 	'typesetCjkFont',
 	'typesetPadding',
@@ -565,7 +586,7 @@ function mergeKnown(parsed: unknown): AppSettings {
 function load(): AppSettings {
 	if (!browser || typeof localStorage === 'undefined') return { ...DEFAULTS };
 	try {
-		const raw = localStorage.getItem(KEY) || localStorage.getItem('manua:settings');
+		const raw = localStorage.getItem(KEY);
 		if (raw) {
 			const parsed = JSON.parse(raw);
 			return mergeKnown(parsed);

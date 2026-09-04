@@ -28,6 +28,7 @@
 	import ZoomOut from 'lucide-svelte/icons/zoom-out';
 	import Maximize2 from 'lucide-svelte/icons/maximize-2';
 	import Scan from 'lucide-svelte/icons/scan';
+	import AlertTriangle from 'lucide-svelte/icons/alert-triangle';
 
 	// IMPORTED COMPONENTS
 	import { Modal, Button } from '$lib/components/ui';
@@ -49,6 +50,7 @@
 	const dispatch = createEventDispatcher<{
 		close: void;
 		update: { page: any; region?: any; reloadKey: number };
+		retranslate: { page: any };
 	}>();
 
 	// -- STATES -- //
@@ -735,6 +737,15 @@
 		}
 	}
 
+	let retranslating = false;
+
+	function handleRetranslatePage() {
+		if (!page?.id || retranslating) return;
+		const targetPage = page;
+		dispatch('retranslate', { page: targetPage });
+		dispatch('close');
+	}
+
 	function getRegionKind(region: any): 'dialogue_bubble' | 'free_text' | 'sound_effect' {
 		if (!region) return 'dialogue_bubble';
 		if (region.kind) return region.kind;
@@ -786,6 +797,40 @@
 	{#if page}
 		{@const pw = page.width}
 		{@const ph = page.height}
+
+		<!-- PAGE ERROR OR WARNING BANNER -->
+		{#if page.status === 'error' || page.error}
+			<div
+				class={cn(
+					'mb-2.5 flex items-start justify-between gap-3 rounded-xl p-3 text-xs leading-relaxed border shrink-0',
+					page.status === 'error'
+						? 'bg-red-500/10 border-red-500/30 text-red-800 dark:text-red-300'
+						: 'bg-amber-500/10 border-amber-500/30 text-amber-800 dark:text-amber-300'
+				)}
+			>
+				<div class="flex items-start gap-2.5 min-w-0">
+					<AlertTriangle size={16} class="shrink-0 mt-0.5 text-current" />
+					<div class="min-w-0">
+						<div class="font-bold">
+							{page.status === 'error' ? 'Translation or Pipeline Failure' : 'Pipeline Notice'}
+						</div>
+						<div class="opacity-90 mt-0.5 font-mono text-[11px] break-words">
+							{page.error || 'Failed to process page dialogue'}
+						</div>
+					</div>
+				</div>
+				<Button
+					variant="secondary"
+					size="sm"
+					class="shrink-0 text-xs font-semibold"
+					disabled={retranslating}
+					on:click={handleRetranslatePage}
+				>
+					<RotateCcw size={12} class="mr-1 shrink-0" />
+					<span>Retry</span>
+				</Button>
+			</div>
+		{/if}
 
 		<!-- MOBILE-ONLY SECTION SWITCHER (VISIBLE ON < LG SCREENS) -->
 		<div class="mb-2.5 flex lg:hidden items-center justify-center bg-black/5 dark:bg-white/5 p-1 rounded-xl shrink-0">
@@ -1595,6 +1640,22 @@
 						{:else}
 							<RotateCcw size={14} class="mr-1 sm:mr-1.5 shrink-0" />
 							<span class="truncate">Retypeset</span>
+						{/if}
+					</Button>
+					<Button
+						variant="primary"
+						size="md"
+						class="col-span-2 sm:col-span-1 sm:w-auto px-2.5 py-2 text-xs sm:px-3.5 sm:py-2 sm:text-sm bg-[#b23a2e] hover:bg-[#962f25] text-white"
+						disabled={retranslating}
+						title="Enqueue targeted retranslation for this page"
+						on:click={handleRetranslatePage}
+					>
+						{#if retranslating}
+							<Loader2 size={14} class="mr-1 sm:mr-1.5 animate-spin shrink-0" />
+							<span class="truncate">Translating...</span>
+						{:else}
+							<Languages size={14} class="mr-1 sm:mr-1.5 shrink-0" />
+							<span class="truncate">Re-translate Page</span>
 						{/if}
 					</Button>
 				</div>

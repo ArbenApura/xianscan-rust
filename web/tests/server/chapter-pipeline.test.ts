@@ -1,4 +1,4 @@
-// CHAPTER PIPELINE RUNNER TESTS — THE FULL PER-PAGE LOOP WITH FAKE SIDECAR + FAKE LLM + IN-MEMORY
+// CHAPTER PIPELINE RUNNER TESTS - THE FULL PER-PAGE LOOP WITH FAKE SIDECAR + FAKE LLM + IN-MEMORY
 // SQLITE + A TEMP DATA ROOT. NO NETWORK, NO MODELS, NO API KEY.
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -402,12 +402,32 @@ describe('runChapterPipeline', () => {
 		const usages: unknown[] = [];
 		const deps = { pipeline, dataRoot, llm, onUsage: (u: unknown) => usages.push(u) };
 		await chapterWork(chapter.id, deps)(new AbortController().signal, () => {});
-		// SEND THE PAGE BACK TO 'pending' SO THE SECOND RUN TRANSLATES FRESHLY
+		// SEND THE PAGE BACK TO 'pending' SO THE SECOND RUN TRANSLATES FRESHLY WITH FORCE TO BYPASS CACHE
 		db.update(pages).set({ status: 'pending' }).where(eq(pages.id, page.id)).run();
-		await chapterWork(chapter.id, deps)(new AbortController().signal, () => {});
+		await chapterWork(chapter.id, { ...deps, force: true })(new AbortController().signal, () => {});
 		// RUN 1: TRANSLATION (1). RUN 2: TRANSLATION (1) -> 2 USAGES. (THE SEPARATE CHAPTER-LEVEL
-		// EXTRACTION CALL IS GONE — TERMS ARE NOW RETURNED BY THE SAME SINGLE-CALL translatePage.)
+		// EXTRACTION CALL IS GONE, TERMS ARE NOW RETURNED BY THE SAME SINGLE-CALL translatePage.)
 		expect(usages.length).toBe(2);
+	});
+
+	it('serves translation from local SQLite cache on pending re-run without force, saving LLM calls', async () => {
+		const { chapter, page } = seedChapterWithPage('c1-p0.png');
+		const llm = fakeLlm();
+		const usages: unknown[] = [];
+		const events: any[] = [];
+		const deps = { pipeline, dataRoot, llm, onUsage: (u: unknown) => usages.push(u) };
+		await chapterWork(chapter.id, deps)(new AbortController().signal, (e) => events.push(e));
+		expect(usages.length).toBe(1);
+
+		// RESET PAGE TO PENDING WITHOUT FORCE (e.g. RETRY AFTER PARTIAL INTERRUPTION)
+		db.update(pages).set({ status: 'pending' }).where(eq(pages.id, page.id)).run();
+		events.length = 0;
+		await chapterWork(chapter.id, deps)(new AbortController().signal, (e) => events.push(e));
+
+		// RUN 2 HITS SQLITE TRANSLATION CACHE: NO NEW LLM USAGE RECORDED
+		expect(usages.length).toBe(1);
+		const transEnd = events.find((e) => e.type === 'page-step-end' && e.step === 'translate');
+		expect(transEnd?.stepDetails?.cacheHit).toBe(true);
 	});
 
 	it('skips pages entirely on re-run when everything is done (no translation call either)', async () => {
@@ -945,4 +965,45 @@ describe('runChapterPipeline', () => {
 		// 2. PAGE 0'S IN-FLIGHT INPAINTING RECEIVED ABORT SIGNAL WHEN TRANSLATION FAILED
 		expect(inpaint0Aborted).toBe(true);
 	});
+
+	it('marks page status as error and skips typesetting when translation yields zero successful regions', async () => {
+		seedBook(db, { id: 'b_error_handling' });
+		const chapter = seedChapter(db, { bookId: 'b_error_handling', seq: 0 });
+		const page = seedPage(db, { chapterId: chapter.id, seq: 0, filePath: 'uploads/err_0.png' });
+
+		// WRITE A REAL PNG SO CLEAN CAN READ IT
+		mkdirSync(join(dataRoot, 'uploads'), { recursive: true });
+		writeFileSync(join(dataRoot, 'uploads', 'err_0.png'), PAGE_PNG);
+
+		// LLM FAILS TRANSLATION WITH EXHAUSTED TOKEN BUDGET
+		const exhaustedLlm = {
+			chat: {
+				completions: {
+					create: async () => ({
+						choices: [{ message: { content: '' }, finish_reason: 'length' }],
+						usage: { prompt_tokens: 100, completion_tokens: 2048, total_tokens: 2148 },
+					}),
+				},
+			},
+		} as unknown as OpenAI;
+
+		const events: any[] = [];
+		await chapterWork(chapter.id, {
+			pipeline: new FakePipeline(),
+			dataRoot,
+			llm: exhaustedLlm,
+			pageConcurrency: 1,
+		})(new AbortController().signal, (ev) => events.push(ev));
+
+		const dbPage = db.select().from(pages).where(eq(pages.id, page.id)).get();
+		expect(dbPage).toBeDefined();
+		expect(dbPage?.status).toBe('error');
+		expect(dbPage?.error).toContain('TOKEN_BUDGET_EXHAUSTED');
+		expect(dbPage?.outputPath).toBeNull();
+
+		// ERROR EVENT DISPATCHED WITH PAGE INDEX AND FAILED STEP
+		const errEv = events.find((e) => e.type === 'error' && e.page === 0);
+		expect(errEv).toBeDefined();
+		expect(errEv.failedStep).toBe('translate');
+	}, 15000);
 });

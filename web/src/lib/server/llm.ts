@@ -2,52 +2,30 @@
 // OPENAI-COMPATIBLE SDK + QUEUE + AUTO-RETRY + REASONING SUPPRESSION.
 // SUPPORTS ALL CONFIGURED PROVIDERS: DEEPSEEK, GOOGLE AI STUDIO, GROQ, OPENROUTER, OPENAI, OLLAMA, LM STUDIO, CUSTOM.
 import type { TranslationUsage } from '$lib/types';
+import type { ReasoningEffortOption } from '$lib/stores/settings';
 import OpenAI from 'openai';
 import PQueue from './queue';
 import { getActiveProvider } from './providers';
-
-// -- CONSTANTS -- //
-
-export const MODEL_FLASH = 'deepseek-v4-flash';
-export const MODEL_PRO = 'deepseek-v4-pro';
-
-export const MODEL_CHOICES: { id: string; label: string; blurb: string }[] = [
-	// DeepSeek V4
-	{ id: 'deepseek-v4-flash', label: 'DeepSeek V4 Flash', blurb: 'Ultra-fast model for comic translation (1-2s)' },
-	{ id: 'deepseek-v4-pro', label: 'DeepSeek V4 Pro', blurb: 'Flagship model for highest literary accuracy' },
-	// Google Gemini
-	{ id: 'gemini-3.7-flash', label: 'Gemini 3.7 Flash', blurb: 'Google Frontier workhorse: maximum speed and translation intelligence' },
-	{ id: 'gemini-3.5-flash', label: 'Gemini 3.5 Flash', blurb: 'Google Next-gen multimodal translation engine' },
-];
 
 // PROCESS-WIDE CONCURRENCY CAP ON OUTBOUND LLM CALLS
 const CONCURRENCY = 64;
 const queue = new PQueue({ concurrency: CONCURRENCY });
 
-const ALLOWED_MODELS = new Set([
-	'deepseek-v4-flash',
-	'deepseek-v4-pro',
-	'gemini-3.7-flash',
-	'gemini-3.5-flash',
-	'gemini-3.5-flash-lite',
-	'gemini-3.1-pro-preview',
-	'gemini-3.1-pro',
-	'gemini-2.5-flash',
-	'gemini-2.0-flash',
-	'gemini-1.5-pro',
-	'gemini-1.5-flash',
-]);
-
 // -- FUNCTIONS -- //
 
 export function resolveModel(model?: string | null): string {
-	if (model && ALLOWED_MODELS.has(model.trim())) return model.trim();
+	if (model && model.trim().length > 0) {
+		return model.trim();
+	}
 	try {
 		const active = getActiveProvider();
-		return active.activeModel || 'deepseek-v4-flash';
+		if (active.activeModel && active.activeModel.trim().length > 0) {
+			return active.activeModel.trim();
+		}
 	} catch {
-		return 'deepseek-v4-flash';
+		// FALLBACK IF PROVIDER IS NOT YET CONFIGURED OR IN TEST HARNESS
 	}
+	return 'default';
 }
 
 export function createClient(key?: string, base?: string): OpenAI {
@@ -115,7 +93,11 @@ export function hasApiKey(): boolean {
 	}
 }
 
-export function thinkingParam(providerIdOrModel?: string, maybeModel?: string): Record<string, unknown> {
+export function thinkingParam(
+	providerIdOrModel?: string,
+	maybeModel?: string,
+	effort?: ReasoningEffortOption,
+): Record<string, unknown> {
 	let p = '';
 	let m = '';
 
@@ -135,27 +117,47 @@ export function thinkingParam(providerIdOrModel?: string, maybeModel?: string): 
 			val.includes('-')
 		) {
 			m = val;
+			if (val.startsWith('deepseek')) p = 'deepseek';
+			else if (val.startsWith('gemini')) p = 'google';
+			else if (val.startsWith('gpt')) p = 'openai';
+			else if (val.startsWith('llama')) p = 'groq';
+			else if (val.startsWith('qwen')) p = 'ollama';
 		} else {
 			p = val;
 		}
 	}
 
-	// 1. Ollama local reasoning suppression
+	if (!p && maybeModel !== undefined) {
+		try {
+			p = getActiveProvider().id.toLowerCase();
+		} catch {
+			// FALLBACK TO EMPTY IF PROVIDER NOT YET INITIALIZED
+		}
+	}
+
+	const normalizedEffort = effort?.startsWith('custom:') ? effort.slice(7).trim() : effort;
+
+	// 1. OLLAMA LOCAL REASONING
 	if (p === 'ollama') {
+		if (normalizedEffort === 'auto') return {};
+		if (normalizedEffort && normalizedEffort !== 'none') {
+			return { extra_body: { think: true } };
+		}
 		return {
 			extra_body: { think: false },
 		};
 	}
 
-	// 2. Google Gemini (1-2s response)
-	if (p === 'google' || m.startsWith('gemini')) {
-		return {
-			reasoning_effort: 'none',
-		};
-	}
-
-	// 3. OpenRouter unified reasoning suppression
+	// 2. OPENROUTER UNIFIED REASONING
 	if (p === 'openrouter') {
+		if (normalizedEffort === 'auto') return {};
+		if (normalizedEffort && normalizedEffort !== 'none') {
+			return {
+				extra_body: {
+					reasoning: { effort: normalizedEffort },
+				},
+			};
+		}
 		return {
 			extra_body: {
 				reasoning: {
@@ -166,30 +168,13 @@ export function thinkingParam(providerIdOrModel?: string, maybeModel?: string): 
 		};
 	}
 
-	// 4. Groq reasoning suppression
-	if (p === 'groq') {
-		return {
-			reasoning_effort: 'none',
-		};
+	// 3. EXPLICIT USER CONFIGURED EFFORT
+	if (normalizedEffort && normalizedEffort !== 'auto') {
+		return { reasoning_effort: normalizedEffort };
 	}
 
-	// 5. OpenAI o-series
-	if (p === 'openai' && (m.startsWith('o1') || m.startsWith('o3') || m.startsWith('o4'))) {
-		return {
-			reasoning_effort: 'low',
-		};
-	}
-
-	// 6. DeepSeek API (deepseek-v4-flash / deepseek-v4-pro)
-	if (p === 'deepseek' || m.startsWith('deepseek')) {
-		if (m === 'deepseek-v4-pro') {
-			return {};
-		}
-		return {
-			reasoning_effort: 'none',
-		};
-	}
-
+	// 4. DEFAULT ZERO REASONING FOR COMIC TRANSLATION
+	// ZERO REASONING (NONE) IS THE HARD INVARIANT DEFAULT ACROSS ALL PROVIDERS & MODELS
 	return {
 		reasoning_effort: 'none',
 	};

@@ -8,7 +8,6 @@ import {
 	fitFontSizeWithLines,
 	isSfxOrShout,
 	pickTextColor,
-	parseStatPanel,
 	reflowText,
 	renderText,
 	sampleBackground,
@@ -137,22 +136,11 @@ describe('sanitizeForFont', () => {
 	});
 });
 
-describe('parseStatPanel', () => {
-	it('does not classify speaker tags or bracketed dialogue as stat panels', () => {
-		expect(parseStatPanel("[Climber 123]:\nThere's still someone challenging!")).toBeNull();
-		expect(parseStatPanel("[Whisper]\nDon't let them hear us!")).toBeNull();
-		expect(parseStatPanel("【Narrator】:\nLong ago...")).toBeNull();
-	});
-
-	it('correctly classifies RPG stat panels and bracketed titles', () => {
-		const single = parseStatPanel('[LORD OF LIANGZHOU]');
-		expect(single).toEqual([{ kind: 'title', text: '[LORD OF LIANGZHOU]' }]);
-
-		const multi = parseStatPanel('[TOP-TIER CHARACTERS: TEN.]\n(With a Top-tier Pet)');
-		expect(multi).toEqual([
-			{ kind: 'title', text: '[TOP-TIER CHARACTERS: TEN.]' },
-			{ kind: 'subtitle', text: '(With a Top-tier Pet)' },
-		]);
+describe('bracketed and rarity text handling', () => {
+	it('treats bracketed dialogue and rarity keywords with standard reflow', () => {
+		const lines = reflowText(ctx(), '[LORD OF LIANGZHOU]\nCOMMON SOLDIER IN SERVICE', 300);
+		expect(lines.length).toBeGreaterThan(0);
+		expect(lines[0]).toContain('[LORD OF LIANGZHOU]');
 	});
 });
 
@@ -229,6 +217,12 @@ describe('wrapText', () => {
 	it('treats \\n as a hard line break (multi-line bubble paragraphs)', () => {
 		const lines = wrapText(ctx(), 'Hello there.\nSecond line here.', 1000);
 		expect(lines).toEqual(['Hello there.', 'Second line here.']);
+	});
+
+	it('preserves space after words ending with an apostrophe such as plural possessives', () => {
+		const lines = wrapText(ctx(), "AFTER THE INTERNATIONAL SORCERERS' EXCHANGE CONFERENCE...", 500);
+		expect(lines.join(' ')).toContain("SORCERERS' EXCHANGE");
+		expect(lines.join(' ')).not.toContain("SORCERERS'EXCHANGE");
 	});
 
 	it('never strands a lone trailing punctuation on its own line', () => {

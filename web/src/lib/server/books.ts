@@ -33,6 +33,7 @@ export interface BookSummary {
 	coverRev?: number;
 	coverHasDedicated?: boolean;
 	coverCleared?: boolean;
+	customPrompt?: string | null;
 	lastReadChapter?: {
 		id: number;
 		seq: number;
@@ -194,6 +195,7 @@ export async function getBooksWithTelemetry(
 			coverRev: b.coverRev,
 			coverHasDedicated: Boolean(b.coverPath),
 			coverCleared: Boolean(b.coverCleared),
+			customPrompt: b.customPrompt,
 			lastReadChapter: lastReadCh
 				? {
 						id: lastReadCh.id,

@@ -239,22 +239,6 @@ export function wrapText(ctx: { measureText(t: string): { width: number } }, tex
 						expandedWords.push(sub[i]);
 					}
 				}
-			} else if (w.includes("'") && !w.startsWith("'") && !w.endsWith("'")) {
-				const sub = w.split("'");
-				// ONLY SPLIT ON APOSTROPHE IF EVERY SUFFIX SEGMENT IS LONG ENOUGH TO BE A VALID BREAK POINT
-				// SHORT SUFFIXES LIKE 'T, 'S, 'D, 'LL, 'VE, 'RE MUST STAY ATTACHED TO THEIR PREFIX
-				const allSufficesLongEnough = sub.slice(1).every((s) => s.length >= 3);
-				if (allSufficesLongEnough) {
-					for (let i = 0; i < sub.length; i++) {
-						if (i < sub.length - 1) {
-							expandedWords.push(`${sub[i]}'`);
-						} else {
-							expandedWords.push(sub[i]);
-						}
-					}
-				} else {
-					expandedWords.push(w);
-				}
 			} else {
 				const m = w.match(/^(.*?)([.!?,:;~…"']{2,})$/);
 				if (m && m[1] && m[2]) {
@@ -281,7 +265,7 @@ export function wrapText(ctx: { measureText(t: string): { width: number } }, tex
 				}
 			} else {
 				const isPurePunct = LONE_PUNCT.test(word);
-				const candidate = current.endsWith('-') || current.endsWith("'") || isPurePunct ? `${current}${word}` : `${current} ${word}`;
+				const candidate = current.endsWith('-') || isPurePunct ? `${current}${word}` : `${current} ${word}`;
 				if (ctx.measureText(candidate).width <= (isPurePunct ? maxWidth * 1.15 : maxWidth)) {
 					current = candidate;
 				} else {
@@ -478,18 +462,6 @@ export function fitFontSizeWithLines(
 			const sub = w.split('-');
 			for (let i = 0; i < sub.length; i++) {
 				words.push(i < sub.length - 1 ? `${sub[i]}-` : sub[i]);
-			}
-		} else if (w.includes("'") && !w.startsWith("'") && !w.endsWith("'")) {
-			const sub = w.split("'");
-			// ONLY SPLIT ON APOSTROPHE IF EVERY SUFFIX SEGMENT IS LONG ENOUGH TO BE A VALID BREAK POINT
-			// SHORT SUFFIXES LIKE 'T, 'S, 'D, 'LL, 'VE, 'RE MUST STAY ATTACHED TO THEIR PREFIX
-			const allSufficesLongEnough = sub.slice(1).every((s) => s.length >= 3);
-			if (allSufficesLongEnough) {
-				for (let i = 0; i < sub.length; i++) {
-					words.push(i < sub.length - 1 ? `${sub[i]}'` : sub[i]);
-				}
-			} else {
-				words.push(w);
 			}
 		} else {
 			const m = w.match(/^(.*?)([.!?,:;~…"']{2,})$/);

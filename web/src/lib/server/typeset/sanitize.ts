@@ -1,6 +1,6 @@
 // SANITIZATION AND CASING FOR TYPESETTING
 import { CJK_REGEX } from './fonts';
-import { parseStatPanel, type TypesetRegion } from './stat-panel';
+import { type TypesetRegion } from './stat-panel';
 
 export function sanitizeForFont(text: string): string {
 	if (!text) return '';
@@ -49,10 +49,6 @@ export function renderText(r: TypesetRegion): string {
 	const sanitized = sanitizeForFont(r.text.trim());
 	if (CJK_REGEX.test(sanitized)) {
 		return sanitized;
-	}
-	const segs = parseStatPanel(sanitized);
-	if (segs) {
-		return segs.map((s) => s.text).join('\n');
 	}
 	return sanitized.toUpperCase();
 }

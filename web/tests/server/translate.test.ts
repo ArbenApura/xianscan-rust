@@ -1,5 +1,5 @@
-// TRANSLATE TESTS — PROMPT SHAPE, GLOSSARY ENFORCEMENT (THE BLOCK IS A SEPARATE SYSTEM MESSAGE),
-// JSON SALVAGE PARSING, DEGENERATE-DETECTION REFILL, USAGE ACCRUAL. THE LLM IS A FAKE CLIENT —
+// TRANSLATE TESTS - PROMPT SHAPE, GLOSSARY ENFORCEMENT (THE BLOCK IS A SEPARATE SYSTEM MESSAGE),
+// JSON SALVAGE PARSING, DEGENERATE-DETECTION REFILL, USAGE ACCRUAL. THE LLM IS A FAKE CLIENT -
 // TRANSLATE IS THE FIRST MODULE IN THIS APP WHOSE LLM PATHS ARE UNIT-TESTED (xianslate COULDN'T).
 import { describe, expect, it } from 'vitest';
 import type OpenAI from 'openai';
@@ -181,6 +181,25 @@ describe('systemPrompt', () => {
 		expect(pZh).toContain('师兄');
 		expect(pZh).toContain('师姐');
 	});
+
+	it('injects special user localization directives when customPrompt is provided', () => {
+		const directives = 'Maintain a gritty noir detective tone. Always transliterate Korean honorifics.';
+		const p = systemPrompt('ko', 'en', 'ignore', directives);
+		expect(p).toContain('SPECIAL USER LOCALIZATION DIRECTIVES');
+		expect(p).toContain(directives);
+		const directiveIdx = p.indexOf('SPECIAL USER LOCALIZATION DIRECTIVES');
+		const schemaIdx = p.indexOf('OUTPUT SCHEMA AND FORMAT REQUIREMENTS');
+		expect(directiveIdx).toBeGreaterThan(0);
+		expect(schemaIdx).toBeGreaterThan(directiveIdx);
+	});
+
+	it('omits special directives section when customPrompt is empty or whitespace', () => {
+		const pEmpty = systemPrompt('ko', 'en', 'ignore', '');
+		expect(pEmpty).not.toContain('SPECIAL USER LOCALIZATION DIRECTIVES');
+
+		const pWhitespace = systemPrompt('ko', 'en', 'ignore', '   \n  ');
+		expect(pWhitespace).not.toContain('SPECIAL USER LOCALIZATION DIRECTIVES');
+	});
 });
 
 describe('glossaryBlock', () => {
@@ -241,6 +260,48 @@ describe('glossaryBlock', () => {
 		expect(messages[2].role).toBe('user');
 		expect(String(messages[2].content)).toContain('r0');
 	});
+
+	it('injects pageTerms into user message instead of system glossary to maintain append-only prefix', () => {
+		const regions = [{ id: 'r0', text: '你好' }];
+		const chapterTerms = [term({ source: '系统', target: 'System' })];
+		const pageTerms = [term({ source: '叶凡', target: 'Ye Fan' })];
+		const messages = buildMessages(regions, chapterTerms, PAIR, null, true, pageTerms);
+
+		expect(messages).toHaveLength(3);
+		// Message 0: static invariant system prompt
+		expect(messages[0].role).toBe('system');
+		// Message 1: chapter glossary only
+		expect(messages[1].role).toBe('system');
+		expect(String(messages[1].content)).toContain('★系统 = System');
+		expect(String(messages[1].content)).not.toContain('叶凡');
+		// Message 2: user prompt contains pageTerms and regions
+		expect(messages[2].role).toBe('user');
+		expect(String(messages[2].content)).toContain('★叶凡 = Ye Fan');
+		expect(String(messages[2].content)).toContain('r0');
+	});
+
+	it('injects pageTerms into user message even when chapter terms are empty', () => {
+		const regions = [{ id: 'r0', text: '你好' }];
+		const pageTerms = [term({ source: '叶凡', target: 'Ye Fan' })];
+		const messages = buildMessages(regions, [], PAIR, null, true, pageTerms);
+
+		// Message 0: systemPrompt. (Glossary message 1 is omitted when chapter terms are empty)
+		expect(messages).toHaveLength(2);
+		expect(messages[0].role).toBe('system');
+		expect(String(messages[0].content)).not.toContain('叶凡');
+		expect(messages[1].role).toBe('user');
+		expect(String(messages[1].content)).toContain('★叶凡 = Ye Fan');
+	});
+
+	it('propagates customPrompt into systemPrompt message in buildMessages', () => {
+		const regions = [{ id: 'r0', text: '안녕' }];
+		const directives = 'Make the protagonist speech highly informal with modern slang.';
+		const messages = buildMessages(regions, [], { sourceLang: 'ko', targetLang: 'en' }, null, undefined, undefined, directives);
+
+		expect(messages[0].role).toBe('system');
+		expect(String(messages[0].content)).toContain('SPECIAL USER LOCALIZATION DIRECTIVES');
+		expect(String(messages[0].content)).toContain(directives);
+	});
 });
 
 describe('userPrompt', () => {
@@ -257,8 +318,10 @@ describe('userPrompt', () => {
 		expect(p).toContain('"vertical": true');
 		// Default 'dialogue_bubble' is omitted to save prompt tokens
 		expect(p).not.toContain('"kind": "dialogue_bubble"');
-		expect(p).toContain('"context"');
-		expect(p).toContain('"aliases"');
+		// Static output schema with context and aliases lives in systemPrompt to maximize prefix caching
+		const sys = systemPrompt('zh-Hans', 'en');
+		expect(sys).toContain('"context"');
+		expect(sys).toContain('"aliases"');
 	});
 });
 
@@ -466,6 +529,42 @@ describe('translatePage', () => {
 		expect(result.newTerms![0].aliases).toEqual(['九山']);
 	});
 
+	it('filters out pageTerms from discovered newTerms to prevent duplicate glossary additions', async () => {
+		const pageRegions = [
+			{ id: 'r0', text: '叶凡来到了紫山！' },
+			{ id: 'r1', text: '你好' },
+		];
+		const responseJson = JSON.stringify({
+			translations: {
+				r0: 'Ye Fan arrived at Purple Mountain!',
+				r1: 'Hello',
+			},
+			newTerms: [
+				{
+					source: '叶凡',
+					target: 'Ye Fan',
+					category: 'character',
+					gender: 'masculine',
+					context: 'Protagonist',
+				},
+				{
+					source: '紫山',
+					target: 'Purple Mountain',
+					category: 'location',
+					context: 'Ancient forbidden mountain range',
+					aliases: ['九山'],
+				},
+			],
+		});
+		const pageTerms: TermDraft[] = [
+			{ source: '叶凡', target: 'Ye Fan', category: 'character', gender: 'masculine', status: 'user' },
+		];
+		const { client } = fakeClient([responseJson]);
+		const result = await translatePage(pageRegions, [], PAIR, { client, pageTerms });
+		expect(result.newTerms).toHaveLength(1);
+		expect(result.newTerms![0].source).toBe('紫山');
+	});
+
 	it('replaces degenerate ellipsis on an SFX with canonical fallback', async () => {
 		const sfxRegions = [
 			{ id: 'r0', text: '正在建造伐木场' },
@@ -510,7 +609,7 @@ describe('translatePage', () => {
 		expect(callCount()).toBe(0);
 	});
 
-	it('the fake client receives the model allowlisted', async () => {
+	it('the client receives the requested model directly without preset restrictions', async () => {
 		let seenModel = '';
 		const client = {
 			chat: {
@@ -522,8 +621,8 @@ describe('translatePage', () => {
 				},
 			},
 		} as unknown as OpenAI;
-		await translatePage(regions, [], PAIR, { client, model: 'gpt-4' }); // NOT ALLOWLISTED
-		expect(seenModel).not.toBe('gpt-4'); // resolveModel FALLS BACK TO THE DEFAULT
+		await translatePage(regions, [], PAIR, { client, model: 'custom-model-123' });
+		expect(seenModel).toBe('custom-model-123');
 	});
 });
 
@@ -950,5 +1049,60 @@ describe('parseExtractedTerms & extractTerms', () => {
 		expect(res.byRegion.get('r0')).toBe('Hello!');
 		expect(callCount()).toBe(3);
 	});
+
+	it('escalates max_tokens budget on finish_reason = "length"', async () => {
+		const dialogueRegions = [{ id: 'r0', text: '你好！', kind: 'dialogue_bubble' }];
+		let call = 0;
+		const capturedArgs: any[] = [];
+		const client = {
+			chat: {
+				completions: {
+					create: async (args: any) => {
+						capturedArgs.push(args);
+						call++;
+						if (call === 1) {
+							return {
+								choices: [{ message: { content: '' }, finish_reason: 'length' }],
+								usage: { prompt_tokens: 100, completion_tokens: 2048, total_tokens: 2148 },
+							};
+						}
+						return {
+							choices: [{ message: { content: '{"r0": "Hello!"}' }, finish_reason: 'stop' }],
+							usage: { prompt_tokens: 100, completion_tokens: 20, total_tokens: 120 },
+						};
+					},
+				},
+			},
+		} as unknown as OpenAI;
+
+		const res = await translatePage(dialogueRegions, [], PAIR, { client, maxTokens: 4096 });
+		expect(res.byRegion.get('r0')).toBe('Hello!');
+		expect(call).toBe(2);
+		expect(capturedArgs[0].max_tokens).toBe(4096);
+		expect(capturedArgs[1].max_tokens).toBe(8192);
+	});
+
+	it('preserves rawPrompt as valid JSON and sets TOKEN_BUDGET_EXHAUSTED when length limit persists', async () => {
+		const dialogueRegions = [{ id: 'r0', text: '你好！', kind: 'dialogue_bubble' }];
+		const client = {
+			chat: {
+				completions: {
+					create: async () => ({
+						choices: [{ message: { content: '' }, finish_reason: 'length' }],
+						usage: { prompt_tokens: 100, completion_tokens: 2048, total_tokens: 2148 },
+					}),
+				},
+			},
+		} as unknown as OpenAI;
+
+		const res = await translatePage(dialogueRegions, [], PAIR, { client, maxTokens: 2048 });
+		expect(res.byRegion.size).toBe(0);
+		expect(res.error).toBe('TOKEN_BUDGET_EXHAUSTED');
+		expect(res.finishReason).toBe('length');
+		expect(res.rawPrompt).not.toBe('[]');
+		const parsed = JSON.parse(res.rawPrompt);
+		expect(Array.isArray(parsed)).toBe(true);
+		expect(parsed.length).toBeGreaterThan(0);
+	}, 15000);
 });
 

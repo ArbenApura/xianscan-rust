@@ -32,4 +32,29 @@ describe('ViewModeWebtoon rev URLs', () => {
 		expect(img.src).toContain('kind=original');
 		expect(img.src).toContain('&rev=0');
 	});
+
+	it('does not render floating action pill on successfully translated pages', () => {
+		const pages = [
+			{ id: 1, seq: 1, status: 'done', width: 100, height: 200, outputPath: 'output/1/1.png' },
+		];
+		render(ViewModeWebtoon, {
+			props: { pages, webtoonKind: 'output', webtoonWidth: 'md' },
+		});
+		expect(screen.queryByText('Re-translate')).toBeNull();
+		expect(screen.queryByText('Inspect')).toBeNull();
+		expect(screen.queryByText('Translated')).toBeNull();
+	});
+
+	it('renders floating action pill on failed pages', () => {
+		const pages = [
+			{ id: 2, seq: 1, status: 'error', error: 'LLM failed', width: 100, height: 200, outputPath: null },
+		];
+		render(ViewModeWebtoon, {
+			props: { pages, webtoonKind: 'output', webtoonWidth: 'md' },
+		});
+		expect(screen.getByText('Re-translate')).toBeTruthy();
+		expect(screen.getByText('Inspect')).toBeTruthy();
+		expect(screen.getByText('p. 2')).toBeTruthy();
+		expect(screen.getByText('LLM failed')).toBeTruthy();
+	});
 });

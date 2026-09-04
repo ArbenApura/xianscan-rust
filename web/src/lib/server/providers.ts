@@ -37,7 +37,7 @@ export const DEFAULT_PROVIDERS: Array<Omit<AiProvider, 'createdAt' | 'updatedAt'
 		activeModel: 'deepseek-v4-flash',
 		availableModels: JSON.stringify(['deepseek-v4-flash']),
 		enabled: true,
-		isDefault: true,
+		isDefault: false,
 	},
 	{
 		id: 'google',
@@ -87,7 +87,7 @@ export const DEFAULT_PROVIDERS: Array<Omit<AiProvider, 'createdAt' | 'updatedAt'
 		activeModel: 'qwen3.5:9b',
 		availableModels: JSON.stringify(['qwen3.5:9b', 'gemma4:cloud']),
 		enabled: true,
-		isDefault: false,
+		isDefault: true,
 	},
 	{
 		id: 'lmstudio',
@@ -158,6 +158,20 @@ export function seedDefaultProviders(db = defaultDb): void {
 						.run();
 				}
 			}
+		}
+
+		// IF DEEPSEEK WAS SEEDED AS DEFAULT WITHOUT AN API KEY, MIGRATE DEFAULT TO OLLAMA (LOCAL)
+		const deepseekRow = existingMap.get('deepseek');
+		const ollamaRow = existingMap.get('ollama');
+		if (
+			deepseekRow &&
+			Boolean(deepseekRow.isDefault) &&
+			(!deepseekRow.apiKey || deepseekRow.apiKey.trim().length === 0) &&
+			ollamaRow &&
+			!ollamaRow.isDefault
+		) {
+			db.update(aiProviders).set({ isDefault: false }).where(eq(aiProviders.id, 'deepseek')).run();
+			db.update(aiProviders).set({ isDefault: true }).where(eq(aiProviders.id, 'ollama')).run();
 		}
 	} catch {
 		// SILENT FALLBACK DURING IN-MEMORY MIGRATIONS OR PRE-INIT
@@ -248,12 +262,12 @@ export function getActiveProvider(db = defaultDb): AiProvider {
 	}
 
 	return {
-		id: 'deepseek',
-		name: 'DeepSeek',
+		id: 'ollama',
+		name: 'Ollama (Local)',
 		apiKey: '',
-		baseUrl: 'https://api.deepseek.com',
-		activeModel: 'deepseek-v4-flash',
-		availableModels: JSON.stringify(['deepseek-v4-flash', 'deepseek-v4-pro']),
+		baseUrl: 'http://localhost:11434/v1',
+		activeModel: 'qwen3.5:9b',
+		availableModels: JSON.stringify(['qwen3.5:9b', 'gemma4:cloud']),
 		enabled: true,
 		isDefault: true,
 		createdAt: Date.now(),

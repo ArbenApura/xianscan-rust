@@ -12,7 +12,7 @@ import { dirname } from 'node:path';
 
 // -- CONSTANTS -- //
 
-const DB_PATH = process.env.DATABASE_PATH ?? './data/manua.db';
+const DB_PATH = process.env.DATABASE_PATH ?? './data/xianscan.db';
 
 // -- LIFECYCLES -- //
 

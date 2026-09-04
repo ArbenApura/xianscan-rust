@@ -1,8 +1,10 @@
 // TRANSLATION ENGINE FOR COMIC PAGES AND SINGLE STRINGS
 import type { LangPair, TermDraft, TranslationUsage } from '$lib/types';
+import type { ReasoningEffortOption } from '$lib/stores/settings';
 import type OpenAI from 'openai';
 import { languageName } from '$lib/languages';
 import { computeUsage, createClient, queued, resolveModel, stripThinkingTags, thinkingParam, withRetry } from './llm';
+import { getCanonicalSettings } from './settings-service';
 
 // SUBMODULE RE-EXPORTS FOR BACKWARD COMPATIBILITY
 export * from './translate/prompts';
@@ -11,6 +13,7 @@ export * from './translate/parser';
 export * from './translate/extraction';
 export * from './translate/dialogue-tracker';
 export * from './translate/filter';
+export { resolveModel } from './llm';
 
 import { buildMessages, type RegionSource } from './translate/prompts';
 import { getKnownSfxTranslation } from './translate/sfx';
@@ -22,9 +25,19 @@ import type { DialogueContextWindow } from './translate/dialogue-tracker';
 export interface PageTranslationOptions {
 	client?: OpenAI;
 	model?: string;
+	providerId?: string;
 	signal?: AbortSignal;
 	dialogueContext?: DialogueContextWindow | null;
 	enableSfx?: boolean;
+	sfxMode?: 'translate' | 'ignore' | 'source';
+	pageTerms?: TermDraft[];
+	maxTokens?: number;
+	temperature?: number;
+	topP?: number;
+	reasoningEffort?: ReasoningEffortOption;
+	frequencyPenalty?: number;
+	presencePenalty?: number;
+	customPrompt?: string;
 }
 
 export interface PageTranslation {
@@ -34,9 +47,11 @@ export interface PageTranslation {
 	rawPrompt?: string;
 	rawResponse?: string;
 	durationMs?: number;
+	error?: string;
+	finishReason?: string;
 }
 
-export const PROMPT_VERSION = 'v21';
+export const PROMPT_VERSION = 'v22';
 
 function mergeUsage(acc: TranslationUsage, u: TranslationUsage): void {
 	acc.promptTokens += u.promptTokens;
@@ -49,43 +64,94 @@ async function callTranslate(
 	terms: TermDraft[],
 	pair: LangPair,
 	opts: PageTranslationOptions,
-): Promise<{ raw: string; usage: TranslationUsage; messages: OpenAI.Chat.ChatCompletionMessageParam[] }> {
+	messages: OpenAI.Chat.ChatCompletionMessageParam[],
+): Promise<{ raw: string; usage: TranslationUsage; finishReason?: string }> {
 	const client = opts.client ?? createClient();
 	const model = resolveModel(opts.model);
-	const messages = buildMessages(regions, terms, pair, opts.dialogueContext, opts.enableSfx ?? true);
 
+	const canonical = getCanonicalSettings();
 	const sourceChars = regions.reduce((n, r) => n + r.text.length, 0);
-	const maxTokens = Math.max(1024, Math.ceil(sourceChars * 4 + 1024));
+	const userConfigMaxTokens = opts.maxTokens ?? canonical.translationMaxTokens ?? 4096;
+	const baseMaxTokens = Math.max(userConfigMaxTokens, Math.ceil(sourceChars * 4 + 2048));
+	const temperature = opts.temperature ?? canonical.translationTemperature ?? 0.2;
+	const topP = opts.topP ?? canonical.translationTopP ?? 1.0;
+	const effort = opts.reasoningEffort ?? canonical.translationReasoningEffort ?? 'none';
+	const frequencyPenalty = opts.frequencyPenalty ?? canonical.translationFrequencyPenalty ?? 0.0;
+	const presencePenalty = opts.presencePenalty ?? canonical.translationPresencePenalty ?? 0.0;
+
+	let attempt = 0;
 	const resp = await queued(() =>
 		withRetry(
 			async () => {
-				const r = await client.chat.completions.create(
-					{
-						model,
-						messages,
-						temperature: 0.2,
-						max_tokens: maxTokens,
-						...thinkingParam(model),
-					},
-					{ signal: opts.signal },
-				);
-				const rawContent = r.choices[0]?.message?.content ?? '';
+				const currentAttempt = attempt++;
+				// DYNAMIC EXPONENTIAL ESCALATION UPON RETRY TO PREVENT REASONING BUDGET CUTOFFS
+				const currentMaxTokens = Math.min(65536, baseMaxTokens * 2 ** currentAttempt);
+				let thinkParams = thinkingParam(opts.providerId, model, effort);
+				let r;
+				try {
+					r = await client.chat.completions.create(
+						{
+							model,
+							messages,
+							temperature,
+							max_tokens: currentMaxTokens,
+							top_p: topP,
+							...(frequencyPenalty > 0 ? { frequency_penalty: frequencyPenalty } : {}),
+							...(presencePenalty > 0 ? { presence_penalty: presencePenalty } : {}),
+							...thinkParams,
+						},
+						{ signal: opts.signal },
+					);
+				} catch (err: any) {
+					if (
+						err?.status === 400 &&
+						typeof err?.message === 'string' &&
+						err.message.includes('reasoning_effort') &&
+						thinkParams.reasoning_effort === 'none'
+					) {
+						thinkParams = { reasoning_effort: 'low' };
+						r = await client.chat.completions.create(
+							{
+								model,
+								messages,
+								temperature,
+								max_tokens: currentMaxTokens,
+								top_p: topP,
+								...(frequencyPenalty > 0 ? { frequency_penalty: frequencyPenalty } : {}),
+								...(presencePenalty > 0 ? { presence_penalty: presencePenalty } : {}),
+								...thinkParams,
+							},
+							{ signal: opts.signal },
+						);
+					} else {
+						throw err;
+					}
+				}
+				const choice = r.choices[0];
+				const finishReason = choice?.finish_reason;
+				const rawContent = choice?.message?.content ?? '';
 				const stripped = stripThinkingTags(rawContent).trim();
 				if (!stripped) {
+					if (finishReason === 'length') {
+						throw new Error('TOKEN_BUDGET_EXHAUSTED');
+					}
 					throw new Error('EMPTY_LLM_RESPONSE');
 				}
 				const parsed = parseTranslations(stripped, new Set(regions.map((reg) => reg.id)), regions);
 				if (!parsed || parsed.size === 0) {
-					throw new Error('EMPTY_LLM_RESPONSE');
+					if (finishReason === 'length') {
+						throw new Error('TOKEN_BUDGET_EXHAUSTED');
+					}
+					throw new Error('UNPARSEABLE_LLM_OUTPUT');
 				}
-				return r;
+				return { response: r, finishReason };
 			},
 			3,
 		),
 	);
-	const raw = resp.choices[0]?.message?.content ?? '';
-	const usage = computeUsage(resp.usage, model);
-	return { raw, usage, messages };
+	const raw = resp.response.choices[0]?.message?.content ?? '';
+	const usage = computeUsage(resp.response.usage, model);
+	return { raw, usage, finishReason: resp.finishReason };
 }
 
 export async function translatePage(
@@ -124,19 +190,42 @@ export async function translatePage(
 		};
 	}
 
+	// CONSTRUCT PROMPT MESSAGES UPFRONT SO rawPrompt IS ALWAYS PRESERVED EVEN ON FAILURE
+	const customPrompt = opts.customPrompt ?? '';
+	const messages = buildMessages(
+		translatableRegions,
+		terms,
+		pair,
+		opts.dialogueContext,
+		opts.pageTerms,
+		undefined,
+		customPrompt,
+	);
+	const rawPrompt = JSON.stringify(messages, null, 2);
+
 	const t0 = performance.now();
 	let raw = '';
 	let u1 = { model, promptTokens: 0, cachedTokens: 0, completionTokens: 0 } as TranslationUsage;
-	let m1: OpenAI.Chat.ChatCompletionMessageParam[] = [];
+	let finishReason: string | undefined;
+	let translationError: string | undefined;
+
 	try {
-		const res = await callTranslate(translatableRegions, terms, pair, opts);
+		const res = await callTranslate(translatableRegions, terms, pair, opts, messages);
 		raw = res.raw;
 		u1 = res.usage;
-		m1 = res.messages;
-	} catch (err) {
-		if (err instanceof Error && err.message === 'EMPTY_LLM_RESPONSE') {
-			// RETRIED 3 TIMES AND STILL EMPTY: FALL BACK TO EMPTY TRANSLATION MAP
+		finishReason = res.finishReason;
+	} catch (err: any) {
+		translationError = err?.message || String(err);
+		if (
+			err instanceof Error &&
+			(err.message === 'EMPTY_LLM_RESPONSE' ||
+				err.message === 'TOKEN_BUDGET_EXHAUSTED' ||
+				err.message === 'UNPARSEABLE_LLM_OUTPUT')
+		) {
 			raw = '';
+			if (err.message === 'TOKEN_BUDGET_EXHAUSTED') {
+				finishReason = 'length';
+			}
 		} else {
 			throw err;
 		}
@@ -153,6 +242,10 @@ export async function translatePage(
 	const pageSourceText = translatableRegions.map((r) => r.text).join('\n');
 	const knownSources = new Set<string>();
 	for (const t of terms) {
+		if (t.source) knownSources.add(t.source.trim().toLowerCase());
+		for (const a of t.aliases ?? []) if (a) knownSources.add(a.trim().toLowerCase());
+	}
+	for (const t of opts.pageTerms ?? []) {
 		if (t.source) knownSources.add(t.source.trim().toLowerCase());
 		for (const a of t.aliases ?? []) if (a) knownSources.add(a.trim().toLowerCase());
 	}
@@ -185,9 +278,11 @@ export async function translatePage(
 		byRegion,
 		usage,
 		newTerms: discoveredTerms,
-		rawPrompt: JSON.stringify(m1, null, 2),
+		rawPrompt,
 		rawResponse: raw,
 		durationMs,
+		error: translationError,
+		finishReason,
 	};
 }
 
@@ -199,6 +294,7 @@ export async function translateSingleText(
 		instruction?: string;
 		client?: OpenAI;
 		model?: string;
+		providerId?: string;
 		signal?: AbortSignal;
 	} = {},
 ): Promise<{ text: string; usage: TranslationUsage }> {
@@ -248,18 +344,45 @@ Rules:
 		const res = await queued(async () =>
 			withRetry(
 				async () => {
-					const r = await client.chat.completions.create(
-						{
-							model,
-							messages: [
-								{ role: 'system', content: systemContent },
-								{ role: 'user', content: trimmed },
-							],
-							temperature: opts.instruction?.trim() ? 0.4 : 0.2,
-							...thinkingParam(model),
-						},
-						{ signal: opts.signal },
-					);
+					let thinkParams = thinkingParam(opts.providerId, model);
+					let r;
+					try {
+						r = await client.chat.completions.create(
+							{
+								model,
+								messages: [
+									{ role: 'system', content: systemContent },
+									{ role: 'user', content: trimmed },
+								],
+								temperature: opts.instruction?.trim() ? 0.4 : 0.2,
+								...thinkParams,
+							},
+							{ signal: opts.signal },
+						);
+					} catch (err: any) {
+						if (
+							err?.status === 400 &&
+							typeof err?.message === 'string' &&
+							err.message.includes('reasoning_effort') &&
+							thinkParams.reasoning_effort === 'none'
+						) {
+							thinkParams = { reasoning_effort: 'low' };
+							r = await client.chat.completions.create(
+								{
+									model,
+									messages: [
+										{ role: 'system', content: systemContent },
+										{ role: 'user', content: trimmed },
+									],
+									temperature: opts.instruction?.trim() ? 0.4 : 0.2,
+									...thinkParams,
+								},
+								{ signal: opts.signal },
+							);
+						} else {
+							throw err;
+						}
+					}
 					const rawContent = r.choices[0]?.message?.content ?? '';
 					const stripped = stripThinkingTags(rawContent).trim();
 					if (!stripped) {

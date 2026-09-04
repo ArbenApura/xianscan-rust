@@ -34,7 +34,7 @@ describe('providers.ts', () => {
 		const deepseek = providers.find((p) => p.id === 'deepseek');
 		expect(deepseek).toBeDefined();
 		expect(deepseek?.name).toBe('DeepSeek');
-		expect(deepseek?.isDefault).toBe(true);
+		expect(deepseek?.isDefault).toBe(false);
 		expect(deepseek?.activeModel).toBe('deepseek-v4-flash');
 
 		const google = providers.find((p) => p.id === 'google');
@@ -50,6 +50,7 @@ describe('providers.ts', () => {
 		const ollama = providers.find((p) => p.id === 'ollama');
 		expect(ollama).toBeDefined();
 		expect(ollama?.name).toContain('Ollama');
+		expect(ollama?.isDefault).toBe(true);
 	});
 
 	it('maskApiKey correctly masks long and short keys', () => {
@@ -64,7 +65,7 @@ describe('providers.ts', () => {
 	it('getActiveProvider returns the default provider', () => {
 		const db = getTestDb();
 		const active = getActiveProvider(db);
-		expect(active.id).toBe('deepseek');
+		expect(active.id).toBe('ollama');
 		expect(active.isDefault).toBe(true);
 	});
 

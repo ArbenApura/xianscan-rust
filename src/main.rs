@@ -206,12 +206,6 @@ async fn main() -> anyhow::Result<()> {
     let data_dir = web_assets::get_data_dir();
     let _ = std::fs::create_dir_all(&data_dir);
     let proper_db = data_dir.join("xianscan.db");
-    let legacy_db = data_dir.join("manua.db");
-    if !proper_db.exists() && legacy_db.exists() {
-        let _ = std::fs::rename(&legacy_db, &proper_db);
-        let _ = std::fs::rename(data_dir.join("manua.db-wal"), data_dir.join("xianscan.db-wal"));
-        let _ = std::fs::rename(data_dir.join("manua.db-shm"), data_dir.join("xianscan.db-shm"));
-    }
 
     if std::env::var("DATA_ROOT").is_err() {
         std::env::set_var("DATA_ROOT", data_dir.to_string_lossy().as_ref());

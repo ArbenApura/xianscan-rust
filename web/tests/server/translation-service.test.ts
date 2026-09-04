@@ -94,10 +94,19 @@ describe('pageCacheKey', () => {
 			pageCacheKey(regions, [], 'deepseek-v4-flash', PAIR),
 		);
 	});
+
+	it('changes when region IDs change even if text is identical', () => {
+		const base = pageCacheKey(regions, [], 'deepseek-v4-flash', PAIR);
+		const alteredIds = [
+			{ id: 'r10', text: '你好' },
+			{ id: 'r11', text: '轰' },
+		];
+		expect(pageCacheKey(alteredIds, [], 'deepseek-v4-flash', PAIR)).not.toBe(base);
+	});
 });
 
-describe('translation cache disabled', () => {
-	it('getCachedPageTranslation returns null and savePageTranslation is a no-op', () => {
+describe('translation cache round-trip', () => {
+	it('saves and retrieves page translations via getCachedPageTranslation', () => {
 		seedBook(db, { id: 'b1' });
 		const chapter = seedChapter(db, { bookId: 'b1', seq: 0 });
 		const page = seedPage(db, { chapterId: chapter.id, seq: 0 });
@@ -113,7 +122,10 @@ describe('translation cache disabled', () => {
 			{ model: 'deepseek-v4-flash', promptTokens: 10, cachedTokens: 0, completionTokens: 2 },
 		);
 
-		expect(getCachedPageTranslation(page.id, key)).toBeNull();
+		const cached = getCachedPageTranslation(page.id, key);
+		expect(cached).not.toBeNull();
+		expect(cached?.byRegion.get('r0')).toBe('Hello');
+		expect(cached?.usage?.promptTokens).toBe(10);
 	});
 });
 

@@ -31,6 +31,7 @@ function createTestDb() {
 			cover_path TEXT,
 			cover_rev INTEGER NOT NULL DEFAULT 0,
 			cover_cleared INTEGER NOT NULL DEFAULT 0,
+			custom_prompt TEXT,
 			created_at INTEGER NOT NULL,
 			updated_at INTEGER NOT NULL
 		);

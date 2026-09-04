@@ -230,6 +230,7 @@ export async function updateRegionTranslation(
 						id: String(r.id),
 						box: typesetBoxObj ?? boxObj,
 						text: r.textTarget!,
+						kind: boxObj?.kind,
 						vertical: (r as any).vertical ?? boxObj?.vertical,
 						angle: (r as any).angle ?? boxObj?.angle,
 					};

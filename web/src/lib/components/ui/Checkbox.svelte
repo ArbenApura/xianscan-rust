@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { createEventDispatcher } from 'svelte';
 	// IMPORTED DEP-COMPONENTS
 	import Check from 'lucide-svelte/icons/check';
 	// IMPORTED MODULES
@@ -12,6 +13,14 @@
 	export let disabled = false;
 	let className = '';
 	export { className as class };
+
+	const dispatch = createEventDispatcher<{ change: boolean }>();
+
+	function toggle() {
+		if (disabled) return;
+		checked = !checked;
+		dispatch('change', checked);
+	}
 </script>
 
 <!-- CHECKBOX - CUSTOM CINNABAR BOX WITH REAL role/aria-checked (REPLACES BARE accent-* INPUTS) -->
@@ -21,7 +30,7 @@
 	aria-checked={checked}
 	{disabled}
 	use:ripple={{ disabled }}
-	on:click={() => (checked = !checked)}
+	on:click={toggle}
 	class={cn('group inline-flex items-center gap-2 text-left text-sm disabled:opacity-40', className)}
 >
 	<span

@@ -25,6 +25,7 @@ export const createBookSchema = z.object({
 	artist: z.string().max(200, 'Artist cannot exceed 200 characters').optional(),
 	tags: bookTagsSchema.optional(),
 	status: bookStatusSchema.optional(),
+	customPrompt: z.string().max(4000, 'Custom directives cannot exceed 4000 characters').nullable().optional(),
 });
 
 export const updateBookSchema = z.object({
@@ -39,6 +40,7 @@ export const updateBookSchema = z.object({
 	artist: z.string().max(200, 'Artist cannot exceed 200 characters').nullable().optional(),
 	tags: bookTagsSchema.optional(),
 	status: bookStatusSchema.optional(),
+	customPrompt: z.string().max(4000, 'Custom directives cannot exceed 4000 characters').nullable().optional(),
 });
 
 export type CreateBookInput = z.infer<typeof createBookSchema>;

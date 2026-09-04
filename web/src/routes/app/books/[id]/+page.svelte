@@ -58,10 +58,12 @@
 	import FolderUp from 'lucide-svelte/icons/folder-up';
 	import Upload from 'lucide-svelte/icons/upload';
 	import GripVertical from 'lucide-svelte/icons/grip-vertical';
+	import ScrollText from 'lucide-svelte/icons/scroll-text';
 	import FolderUploadGuideModal from '$lib/components/book/FolderUploadGuideModal.svelte';
 	import FolderImportProgressModal from '$lib/components/book/FolderImportProgressModal.svelte';
 	import ChapterListItem from '$lib/components/chapter/ChapterListItem.svelte';
 	import ClearProgressModal from '$lib/components/book/ClearProgressModal.svelte';
+	import BookDirectivesModal from '$lib/components/book/BookDirectivesModal.svelte';
 	import BookMetadataFields from '$lib/components/book/BookMetadataFields.svelte';
 	import BookCoverPicker from '$lib/components/book/BookCoverPicker.svelte';
 	import type { PageData } from './$types';
@@ -87,6 +89,7 @@
 		artist?: string | null;
 		tags?: string[];
 		status?: string;
+		customPrompt?: string | null;
 	}
 
 	type BookStatus = (typeof BOOK_STATUSES)[number];
@@ -150,6 +153,18 @@
 	let editBookStatus: BookStatus = 'unknown';
 	let updatingBook = false;
 	let translatingBookTitle = false;
+
+	// LOCALIZATION DIRECTIVES MODAL STATES
+	let directivesModalOpen = false;
+
+	function handleDirectivesSaved(event: CustomEvent<{ customPrompt: string | null; book?: any }>) {
+		if (book) {
+			book = {
+				...book,
+				customPrompt: event.detail.customPrompt,
+			};
+		}
+	}
 
 	// EDIT CHAPTER STATES
 	let editChapterModalOpen = false;
@@ -1090,28 +1105,42 @@
 								{/if}
 							</div>
 
-							<!-- TOP RIGHT CARD ACTIONS: GLOSSARY & EDIT -->
-							<div class="flex shrink-0 items-center gap-1.5">
+							<!-- TOP RIGHT CARD ACTIONS: GLOSSARY, DIRECTIVES, & EDIT -->
+							<div class="flex shrink-0 items-center gap-1 sm:gap-1.5">
 								<Button
 									variant="secondary"
 									size="sm"
-									class="shadow-2xs h-6 shrink-0 gap-1 px-2 text-[10px] font-medium sm:h-7 sm:text-xs"
+									class="shadow-2xs h-6 shrink-0 gap-1 px-1.5 sm:px-2 text-[10px] font-medium sm:h-7 sm:text-xs"
 									on:click={() => goto(`/app/glossary/?scope=book&bookId=${book?.id}`)}
 									title="Open book glossary terms"
+									aria-label="Glossary"
 								>
 									<BookOpen size={12} />
-									<span>Glossary</span>
+									<span class="hidden sm:inline">Glossary</span>
 								</Button>
 
 								<Button
 									variant="secondary"
 									size="sm"
-									class="shadow-2xs h-6 shrink-0 gap-1 px-2 text-[10px] font-medium sm:h-7 sm:text-xs"
+									class="shadow-2xs h-6 shrink-0 gap-1 px-1.5 sm:px-2 text-[10px] font-medium sm:h-7 sm:text-xs"
+									on:click={() => (directivesModalOpen = true)}
+									title="Configure book localization directives"
+									aria-label="Directives"
+								>
+									<ScrollText size={12} />
+									<span class="hidden sm:inline">Directives</span>
+								</Button>
+
+								<Button
+									variant="secondary"
+									size="sm"
+									class="shadow-2xs h-6 shrink-0 gap-1 px-1.5 sm:px-2 text-[10px] font-medium sm:h-7 sm:text-xs"
 									on:click={openEditBookModal}
 									title="Edit book details and target language"
+									aria-label="Edit"
 								>
 									<Pencil size={11} />
-									<span>Edit</span>
+									<span class="hidden sm:inline">Edit</span>
 								</Button>
 							</div>
 						</div>
@@ -2139,3 +2168,14 @@
 	nextChapterNumber={chapters.length + 1}
 	on:done={reload}
 />
+
+<!-- BOOK LOCALIZATION DIRECTIVES MODAL -->
+{#if book}
+	<BookDirectivesModal
+		bind:open={directivesModalOpen}
+		{book}
+		on:saved={handleDirectivesSaved}
+		on:close={() => (directivesModalOpen = false)}
+	/>
+{/if}
+

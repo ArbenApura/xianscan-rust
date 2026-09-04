@@ -134,13 +134,20 @@ export function getTargetLanguageProfile(tgt: string): string {
 	return '';
 }
 
-export function systemPrompt(src: string, tgt: string, _enableSfx = false): string {
+export function systemPrompt(
+	src: string,
+	tgt: string,
+	sfxMode: 'translate' | 'ignore' | 'source' | boolean = 'ignore',
+	customPrompt?: string | null,
+): string {
 	const srcName = languageName(src);
 	const tgtName = languageName(tgt);
 	const srcLabel = srcName === src ? src : `${srcName} (${src})`;
 	const tgtLabel = tgtName === tgt ? tgt : `${tgtName} (${tgt})`;
 	const srcProfile = getSourceLanguageProfile(src, tgtName);
 	const tgtProfile = getTargetLanguageProfile(tgt);
+
+	const sfxDirective = `Focus translations strictly on speech dialogue bubbles, thought clouds, narration boxes, and UI panels. Omit or ignore ambient background sound effect regions.`;
 
 	const coreInvariants: string[] = [
 		`1. Target Language & Zero Leakage: ALL translations and context descriptions MUST be strictly in ${tgtName} (${tgt}). Never leave raw source characters (Hanzi/Hangul/Kanji/Cyrillic) in the output.`,
@@ -162,19 +169,50 @@ export function systemPrompt(src: string, tgt: string, _enableSfx = false): stri
 		`4. Spoken Comic Register & Bubble Geometry:`,
 		`   - Write punchy, natural spoken ${tgtName} dialogue suitable for comic voice acting in standard sentence case (never ALL-CAPS).`,
 		`   - Line Breaks: Do NOT blindly copy source OCR line breaks. Re-flow target text into visually balanced, centered lines (inverted pyramid / diamond layout) suited for comic speech bubbles. Preserve \\n only between distinct stanzas, separate thoughts, or UI lists.`,
-		`5. Split-Bubble Continuity:`,
+		`5. Sound Effects (SFX) Policy:`,
+		`   - ${sfxDirective}`,
+		`6. Split-Bubble Continuity:`,
 		`   - When a continuous sentence spans multiple consecutive speech bubbles:`,
 		`     * Place trailing ellipses (...) on the preceding bubble.`,
 		`     * Begin the succeeding bubble in lowercase continuation without repeating subjects or conjunctions.`,
 		`     * Subject & Person Lock: Succeeding continuation bubbles MUST maintain the exact same grammatical person, subject, and tone established in the preceding bubble.`,
-		`6. Mandatory Glossary Adherence (Zero Deviation):`,
+		`7. Mandatory Glossary Adherence (Zero Deviation):`,
 		`   - The project Glossary provided in the system messages contains authoritative terminology overrides. Whenever a source term (or its alias) appears in dialogue, you MUST use its EXACT specified target translation verbatim. Never substitute with dictionary synonyms, alternate spellings, or grammatical variations.`,
-		`7. Semantic Noise Rejection (OCR Typo & Scream Recovery):`,
+		`8. Semantic Noise Rejection (OCR Typo & Scream Recovery):`,
 		`   - When comic action screams, groans, or shouts have strokes degraded by OCR into artifact numbers, punctuation, or stray letters (e.g. "아\\n11\\n!"), reconstruct the natural vocalization (e.g. "Aaaargh!!", "Gwaaaah!!", "Uwaaaah!!").`,
 		`   - Strip rogue border artifacts, spurious intra-word spaces, stray border symbols (| / \\ ~ [ ] o] c]), and circular thought-bubble tails ("oo", "...").`,
 		`   - Do NOT turn legitimate alphanumeric UI elements, dates, or stat levels into screams.`,
-		`8. Output Schema: Reply with ONLY a valid JSON object matching the requested schema. No commentary, no markdown fences.`,
+		`9. Output Schema: Reply with ONLY a valid JSON object matching the requested schema. No commentary, no markdown fences.`,
 	];
+
+	const outputSchemaSection = `### IV. OUTPUT SCHEMA AND FORMAT REQUIREMENTS
+1. Return a valid JSON object containing two top-level keys: "translations" and "newTerms".
+2. Strict 1:1 Region Mapping in "translations": You MUST provide a translation for EVERY provided input region ID. Exactly one translation per ID: no more, no less. Do not skip or omit any region.
+3. Target Language: ALL translation values and context descriptions MUST be strictly in ${tgtName} (${tgt}). Never leave raw source characters.
+4. Mandatory Glossary Compliance (Zero Deviation): For every term listed in the project Glossary, you MUST use the EXACT target translation string verbatim whenever its source characters appear in any region. Do NOT re-translate, synonymize, or alter Glossary terms.
+5. Mandatory Glossary Extraction in "newTerms": Extract ALL new character names, proper nouns, locations, sects/organizations, martial arts, cultivation tiers, items, artifacts, and disciple/official ranks appearing on this page that are NOT already in the glossary.
+   - High-Recall & Exhaustive Hierarchy Directive: Be thorough and extract as many valid story terms, names, and techniques as possible. When a page introduces a hierarchy, ladder, or diagram of disciple ranks, cultivation stages/realms, or sect titles, extract EVERY individual rank/tier as a separate entry in "newTerms".
+   - Headword-Only Anti-Duplicate Rule: Only skip a term if its exact source characters or aliases are ALREADY an explicit headword (prefixed with ★) in the project Glossary. Mentioning a word in another term's description context does NOT count as an existing entry. If a term does not have its own ★ headword entry, it MUST be extracted.
+   - For every new term, provide its source, target translation, category, gender, aliases (e.g. ["小凡"] or []), and a 1-sentence context description.
+   - If there are no new terms appearing on this page, output an empty array: "newTerms": [].
+6. Output JSON Structure:
+{
+  "translations": {
+    "<id>": "<${tgtName} translation of <id>>"
+  },
+  "newTerms": [
+    {
+      "source": "<exact source characters from page>",
+      "target": "<natural ${tgtName} translation>",
+      "category": "character | location | organization | technique | item | realm | title | concept | other",
+      "gender": "masculine | feminine | neuter",
+      "aliases": ["<nickname or short form>"],
+      "context": "<brief 1-sentence description in ${tgtName}>"
+    }
+  ]
+}
+
+No markdown fences, no commentary. Output ONLY the JSON object.`;
 
 	const sections = [
 		`You are an expert comic, manga, and webtoon localizer translating ${srcLabel} dialogue, narration, and UI into natural, punchy, and immersive ${tgtLabel} tailored for comic voice acting and speech balloon typesetting.`,
@@ -183,6 +221,10 @@ export function systemPrompt(src: string, tgt: string, _enableSfx = false): stri
 
 	if (srcProfile) sections.push(`### II. ${srcName.toUpperCase()} SOURCE SPECIFICS\n${srcProfile}`);
 	if (tgtProfile) sections.push(`### III. ${tgtName.toUpperCase()} TARGET SPECIFICS\n${tgtProfile}`);
+	if (customPrompt && customPrompt.trim().length > 0) {
+		sections.push(`### SPECIAL USER LOCALIZATION DIRECTIVES\n${customPrompt.trim()}`);
+	}
+	sections.push(outputSchemaSection);
 
 	return sections.join('\n\n');
 }
@@ -225,50 +267,21 @@ export function userPrompt(
 	regions: RegionSource[],
 	tgtLang = 'en',
 	dialogueContextBlock?: string,
+	pageTermsBlock?: string | null,
 ): string {
 	const tgtName = languageName(tgtLang);
 	const count = regions.length;
 	const idList = regions.map((r) => `"${r.id}"`).join(', ');
-	const skeletonTranslations: Record<string, string> = {};
-	for (const r of regions) {
-		skeletonTranslations[r.id] = `[${tgtName} translation of ${r.id}]`;
-	}
-
-	const templateObj = {
-		translations: skeletonTranslations,
-		newTerms: [
-			{
-				source: '<exact source characters from page>',
-				target: `<natural ${tgtName} translation>`,
-				category: 'character | location | organization | technique | item | realm | title | concept | other',
-				gender: 'masculine | feminine | neuter',
-				aliases: ['<nickname or short form>'],
-				context: `<brief 1-sentence description in ${tgtName}>`,
-			},
-		],
-	};
-	const templateJson = JSON.stringify(templateObj, null, 2);
 	const contextHeader = dialogueContextBlock ? `${dialogueContextBlock.trim()}\n\n` : '';
+	const vocabHeader = pageTermsBlock ? `${pageTermsBlock.trim()}\n\n` : '';
 
-	return `${contextHeader}Translate the following comic page regions into ${tgtName} (${tgtLang}) and extract all new glossary terms:
+	return `${contextHeader}${vocabHeader}Translate the following comic page regions into ${tgtName} (${tgtLang}) and extract all new glossary terms:
 
 === REGIONS TO TRANSLATE (Count: ${count}) ===
+Region IDs: [${idList}]
 ${regionPayload(regions)}
 
-=== STRICT OUTPUT REQUIREMENTS ===
-1. Return a valid JSON object containing two top-level keys: "translations" and "newTerms".
-2. Strict 1:1 Region Mapping in "translations": You MUST provide a translation for ALL ${count} region IDs (${idList || 'none'}). Exactly one translation per ID: no more, no less. Do not skip or omit any region.
-3. Target Language: All translation values and context descriptions MUST be strictly in ${tgtName} (${tgtLang}).
-4. Mandatory Glossary Compliance (Zero Deviation): For every term listed in the project Glossary, you MUST use the EXACT target translation string verbatim whenever its source characters appear in any region. Do NOT re-translate, synonymize, or alter Glossary terms.
-5. Mandatory Glossary Extraction in "newTerms": Extract ALL new character names, proper nouns, locations, sects/organizations, martial arts, cultivation tiers, items, artifacts, and disciple/official ranks appearing on this page that are NOT already in the glossary.
-   - High-Recall & Exhaustive Hierarchy Directive: Be thorough and extract as many valid story terms, names, and techniques as possible. When a page introduces a hierarchy, ladder, or diagram of disciple ranks (e.g. 试炼弟子, 普通弟子, 座下弟子, 内门弟子, 外门弟子, 精英弟子, 核心弟子, 亲传弟子), cultivation stages/realms (e.g. 淬体, 练气, 筑基), or sect titles, extract EVERY individual rank/tier as a separate entry in "newTerms".
-   - Headword-Only Anti-Duplicate Rule: Only skip a term if its exact source characters or aliases are ALREADY an explicit headword (prefixed with ★) in the project Glossary. Mentioning a word in another term's description context does NOT count as an existing entry. If a term does not have its own ★ headword entry, it MUST be extracted.
-   - For every new term, provide its source, target translation, category, gender, aliases (e.g. ["小凡"] or []), and a 1-sentence context description.
-   - If there are no new terms appearing on this page, output an empty array: "newTerms": [].
-6. Output JSON Structure:
-${templateJson}
-
-No markdown fences, no commentary. Output ONLY the JSON object.`;
+Translate all ${count} region IDs into ${tgtName} and extract any new terms into "newTerms" following the system schema. Output ONLY the JSON object.`;
 }
 
 export function buildMessages(
@@ -276,15 +289,19 @@ export function buildMessages(
 	terms: TermDraft[],
 	pair: LangPair,
 	dialogueContext?: DialogueContextWindow | null,
-	enableSfx = true,
+	pageTermsOrSfxMode?: TermDraft[] | 'translate' | 'ignore' | 'source' | boolean,
+	pageTermsParam?: TermDraft[],
+	customPrompt?: string | null,
 ): OpenAI.Chat.ChatCompletionMessageParam[] {
+	const pageTerms = Array.isArray(pageTermsOrSfxMode) ? pageTermsOrSfxMode : pageTermsParam;
 	const messages: OpenAI.Chat.ChatCompletionMessageParam[] = [
-		{ role: 'system', content: systemPrompt(pair.sourceLang, pair.targetLang, enableSfx) },
+		{ role: 'system', content: systemPrompt(pair.sourceLang, pair.targetLang, 'ignore', customPrompt) },
 	];
 	const glossary = glossaryBlock(terms, pair.sourceLang, pair.targetLang);
 	if (glossary) messages.push({ role: 'system', content: glossary });
 
 	const contextBlock = formatDialogueContextBlock(dialogueContext);
-	messages.push({ role: 'user', content: userPrompt(regions, pair.targetLang, contextBlock) });
+	const pageTermsBlock = pageTerms && pageTerms.length > 0 ? glossaryBlock(pageTerms, pair.sourceLang, pair.targetLang) : null;
+	messages.push({ role: 'user', content: userPrompt(regions, pair.targetLang, contextBlock, pageTermsBlock) });
 	return messages;
 }

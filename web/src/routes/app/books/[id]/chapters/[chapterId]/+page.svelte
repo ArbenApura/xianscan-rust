@@ -668,6 +668,51 @@
 		}
 	}
 
+	async function translateSelectedPages(pageIds: number[]) {
+		if (!pageIds.length) return;
+		try {
+			// RESET TARGET PAGES IN DB AND LOCAL REACTIVE STATE
+			await Promise.all(
+				pageIds.map(async (id) => {
+					try {
+						await fetch(`/api/pages/${id}/reset`, { method: 'POST' });
+					} catch {}
+					const pg = pages.find((p) => p.id === id);
+					if (pg) {
+						pg.status = 'pending';
+						pg.cleanedPath = null;
+						pg.outputPath = null;
+						pg.error = null;
+					}
+				}),
+			);
+			pages = [...pages];
+
+			if (chapter && bookId) {
+				await batchTracker.startBatch(
+					bookId,
+					bookTitle || 'Book Translation',
+					[
+						{
+							id: chapter.id,
+							seq: chapter.seq,
+							title: chapter.title || '',
+							titleTarget: chapter.titleTarget,
+							pageCount: pages.length,
+						},
+					],
+					{ force: true, pageIds },
+				);
+			} else {
+				const shouldForce = !currentJobState.running;
+				await jobTracker.startTranslation(chapterId, { force: shouldForce, pageIds });
+			}
+			toast.success(`Queued ${pageIds.length} page${pageIds.length === 1 ? '' : 's'} for translation.`);
+		} catch (e: any) {
+			toast.error(e?.message || 'Failed to start batch translation.');
+		}
+	}
+
 	async function clearPageProgress(pg: ChapterPageItem) {
 		try {
 			const resp = await fetch(`/api/pages/${pg.id}/reset`, { method: 'POST' });
@@ -859,7 +904,7 @@
 		if (e.dataTransfer) {
 			e.dataTransfer.effectAllowed = 'move';
 			e.dataTransfer.setData('text/plain', String(idx));
-			e.dataTransfer.setData('application/x-manua-page-id', String(pages[idx].id));
+			e.dataTransfer.setData('application/x-xianscan-page-id', String(pages[idx].id));
 		}
 	}
 
@@ -1112,7 +1157,13 @@
 			</p>
 		</div>
 	{:else if activeViewMode === 'reader'}
-		<ViewModeWebtoon pages={displayPages} {webtoonKind} {webtoonWidth} />
+		<ViewModeWebtoon
+			pages={displayPages}
+			{webtoonKind}
+			{webtoonWidth}
+			on:inspect={(e) => openInspector(e.detail)}
+			on:translate={(e) => translateSinglePage(e.detail)}
+		/>
 	{:else if activeViewMode === 'grid'}
 		<ViewModeGrid
 			pages={displayPages}
@@ -1126,6 +1177,7 @@
 			on:dragOver={(e) => handleDragOver(e.detail.event, e.detail.index)}
 			on:drop={(e) => handleDrop(e.detail.event, e.detail.index)}
 			on:dragEnd={handleDragEnd}
+			on:batchTranslate={(e) => translateSelectedPages(e.detail.pageIds)}
 		/>
 	{:else if activeViewMode === 'compare'}
 		<ViewModeCompare
@@ -1160,6 +1212,13 @@
 	initialTab={inspectInitialTab}
 	{reloadKey}
 	on:close={() => (inspectModalOpen = false)}
+	on:retranslate={(e) => {
+		const targetPg = e.detail.page;
+		if (targetPg) {
+			const found = pages.find((p) => p.id === targetPg.id) || targetPg;
+			translateSinglePage(found);
+		}
+	}}
 	on:update={(e) => {
 		const updatedPg = e.detail.page;
 		if (updatedPg) {

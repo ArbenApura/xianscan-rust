@@ -12,48 +12,39 @@ import * as schema from './schema';
 
 // -- TYPES -- //
 
+export type DrizzleDb = ReturnType<typeof drizzle<typeof schema>>;
+
 declare global {
 	var __mtSqlite: Database.Database | undefined;
+	var __mtDb: DrizzleDb | undefined;
 }
 
-// CREATE A DRIZZLE INSTANCE OVER A FRESH better-sqlite3 CONNECTION. TESTS PASS ':memory:' — THE
-// FACTORY KEEPS THE APP AND THE TEST HARNESS ON THE EXACT SAME DRIVER/SETUP.
+// -- CONSTANTS -- //
+
+const DB_PATH = env.DATABASE_PATH ?? './data/xianscan.db';
+
+// WHERE THE GENERATED MIGRATION FILES LIVE (web/drizzle). DEV AND PROD RUN WITH cwd = web/, SO RESOLVE FROM cwd FIRST.
+const MIGRATIONS_DIR = existsSync(resolve('drizzle'))
+	? resolve('drizzle')
+	: fileURLToPath(new URL('../../../drizzle', import.meta.url));
+
+// -- FUNCTIONS -- //
+
+// CREATE A DRIZZLE INSTANCE OVER A FRESH better-sqlite3 CONNECTION. TESTS PASS ':memory:' (THE FACTORY KEEPS APP AND TEST HARNESS ON THE EXACT SAME DRIVER).
 export function createDb(path: string) {
-	// better-sqlite3 WILL NOT CREATE MISSING DIRECTORIES — ENSURE THE DATA DIR EXISTS FIRST.
+	// better-sqlite3 WILL NOT CREATE MISSING DIRECTORIES, ENSURE DATA DIR EXISTS FIRST
 	if (path !== ':memory:') mkdirSync(dirname(path), { recursive: true });
 	const sqlite = new Database(path, { timeout: 30000 });
-	// WAL ALLOWS CONCURRENT READERS (AND SURVIVES PROCESS KILLS); :memory: IGNORES IT GRACEFULLY.
+	// WAL ALLOWS CONCURRENT READERS (AND SURVIVES PROCESS KILLS)
 	sqlite.pragma('journal_mode = WAL');
-	// SQLITE DOES NOT ENFORCE FKs BY DEFAULT — CASCADE/SET-NULL BEHAVIOUR DEPENDS ON THIS.
 	sqlite.pragma('foreign_keys = ON');
 	sqlite.pragma('busy_timeout = 30000');
 	sqlite.pragma('synchronous = NORMAL');
 	return drizzle(sqlite, { schema });
 }
 
-// -- CONSTANTS -- //
-
-const DB_PATH = env.DATABASE_PATH ?? './data/manua.db';
-
-// WHERE THE GENERATED MIGRATION FILES LIVE (web/drizzle). DEV (VITE) AND PROD (`node build`) BOTH RUN WITH
-// cwd = web/, SO RESOLVE FROM cwd FIRST; THE import.meta.url FALLBACK COVERS A BUNDLED SERVER STARTED
-// ELSEWHERE (RELATIVE TO THE SOURCE TREE, WHICH ONLY EXISTS IN DEV).
-const MIGRATIONS_DIR = existsSync(resolve('drizzle'))
-	? resolve('drizzle')
-	: fileURLToPath(new URL('../../../drizzle', import.meta.url));
-
-// SINGLETON CONNECTION — REUSED ACROSS REQUESTS / HMR RELOADS. better-sqlite3 IS LAZY-FREE (NO POOL).
-// better-sqlite3 WILL NOT CREATE MISSING DIRECTORIES — ENSURE THE DATA DIR EXISTS BEFORE OPENING.
-if (!globalThis.__mtSqlite) {
-	if (DB_PATH !== ':memory:') mkdirSync(dirname(DB_PATH), { recursive: true });
-	const sqlite = new Database(DB_PATH, { timeout: 30000 });
-	globalThis.__mtSqlite = sqlite;
-	sqlite.pragma('journal_mode = WAL');
-	sqlite.pragma('foreign_keys = ON');
-	sqlite.pragma('busy_timeout = 30000');
-	sqlite.pragma('synchronous = NORMAL');
-	sqlite.pragma('cache_size = -32000');
-	// ALIGN DRIZZLE MIGRATION JOURNAL IF EXISTING DATABASE ALREADY CONTAINS THE RECENT TABLES / COLUMNS
+function runMigrationsAndSafeguards(sqlite: Database.Database) {
+	// ALIGN DRIZZLE MIGRATION JOURNAL IF EXISTING DATABASE ALREADY CONTAINS THE RECENT TABLES OR COLUMNS
 	try {
 		sqlite.exec(`
 			CREATE TABLE IF NOT EXISTS \`__drizzle_migrations\` (
@@ -84,13 +75,13 @@ if (!globalThis.__mtSqlite) {
 			ensureMigrationRecorded('0012_amused_joystick', 1787702303942);
 		}
 	} catch {
-		// Ignore check on uninitialized db
+		// IGNORE CHECK ON UNINITIALIZED DATABASE
 	}
 
 	try {
 		migrate(drizzle(sqlite, { schema }), { migrationsFolder: MIGRATIONS_DIR });
 	} catch (err) {
-		console.warn('[db] auto-migration warning:', err);
+		console.warn('[db] auto-migration warning', err);
 	}
 
 	// ENSURE RECENT TABLES EXIST ON ANY PRE-MIGRATION LEGACY DATABASES
@@ -103,8 +94,9 @@ if (!globalThis.__mtSqlite) {
 			);
 		`);
 	} catch {
-		// Table already exists
+		// TABLE ALREADY EXISTS
 	}
+
 	try {
 		sqlite.exec(`
 			CREATE TABLE IF NOT EXISTS reading_history (
@@ -120,44 +112,20 @@ if (!globalThis.__mtSqlite) {
 			CREATE INDEX IF NOT EXISTS reading_history_chapter_idx ON reading_history(chapter_id);
 		`);
 	} catch {
-		// Table already exists
+		// TABLE ALREADY EXISTS
 	}
 
 	// ENSURE RECENT COLUMNS EXIST ON ANY PRE-MIGRATION LEGACY DATABASES
-	try {
-		sqlite.exec(`ALTER TABLE pages ADD COLUMN panels TEXT;`);
-	} catch {
-		// Column already exists
-	}
-	try {
-		sqlite.exec(`ALTER TABLE pages ADD COLUMN onomatopoeia TEXT;`);
-	} catch {
-		// Column already exists
-	}
-	try {
-		sqlite.exec(`ALTER TABLE pages ADD COLUMN llm_prompt TEXT;`);
-	} catch {
-		// Column already exists
-	}
-	try {
-		sqlite.exec(`ALTER TABLE pages ADD COLUMN llm_response TEXT;`);
-	} catch {
-		// Column already exists
-	}
-	try {
-		sqlite.exec(`ALTER TABLE chapters ADD COLUMN resliced INTEGER NOT NULL DEFAULT 0;`);
-	} catch {
-		// Column already exists
-	}
-	try {
-		sqlite.exec(`ALTER TABLE chapters ADD COLUMN resliced_at INTEGER;`);
-	} catch {
-		// Column already exists
-	}
+	try { sqlite.exec(`ALTER TABLE pages ADD COLUMN panels TEXT;`); } catch {}
+	try { sqlite.exec(`ALTER TABLE pages ADD COLUMN onomatopoeia TEXT;`); } catch {}
+	try { sqlite.exec(`ALTER TABLE pages ADD COLUMN llm_prompt TEXT;`); } catch {}
+	try { sqlite.exec(`ALTER TABLE pages ADD COLUMN llm_response TEXT;`); } catch {}
+	try { sqlite.exec(`ALTER TABLE chapters ADD COLUMN resliced INTEGER NOT NULL DEFAULT 0;`); } catch {}
+	try { sqlite.exec(`ALTER TABLE chapters ADD COLUMN resliced_at INTEGER;`); } catch {}
+	try { sqlite.exec(`ALTER TABLE books ADD COLUMN custom_prompt TEXT;`); } catch {}
 
 	// AUTO-SYNC CHAPTER STATUSES FOR CHAPTERS WHOSE PAGES HAVE FINISHED TRANSLATING
 	try {
-		// Reset any orphan in-flight rows from prior server crashes/restarts
 		sqlite.exec(`
 			UPDATE pages SET status = 'pending', error = NULL WHERE status = 'processing';
 			UPDATE chapters SET status = 'pending' WHERE status = 'processing';
@@ -176,40 +144,59 @@ if (!globalThis.__mtSqlite) {
 			  );
 		`);
 	} catch {
-		// ignore
+		// IGNORE IF ERROR
 	}
+}
 
-	// CLEAN DB CHECKPOINT AND SHUTDOWN HOOK — REGISTERED ONLY FOR REAL EXIT SIGNALS.
-	// `beforeExit` IS DELIBERATELY OMITTED: IN DEV/VITE IT CAN FIRE WHEN THE EVENT LOOP
-	// BRIEFLY EMPTIES WITHOUT THE PROCESS EXITING, CLOSING THE SINGLETON CONNECTION AND
-	// CAUSING "The database connection is not open" ON SUBSEQUENT REQUESTS.
-	const closeHandler = () => {
+function initSqlite(): Database.Database {
+	if (DB_PATH !== ':memory:') mkdirSync(dirname(DB_PATH), { recursive: true });
+	const sqlite = new Database(DB_PATH, { timeout: 30000 });
+	sqlite.pragma('journal_mode = WAL');
+	sqlite.pragma('foreign_keys = ON');
+	sqlite.pragma('busy_timeout = 30000');
+	sqlite.pragma('synchronous = NORMAL');
+	sqlite.pragma('cache_size = -32000');
+
+	runMigrationsAndSafeguards(sqlite);
+	return sqlite;
+}
+
+// SAFE SHUTDOWN HOOK REGISTERED ONLY ON ACTUAL PROCESS TERMINATION ('exit')
+let hasRegisteredExitHook = false;
+function registerExitHook() {
+	if (hasRegisteredExitHook) return;
+	hasRegisteredExitHook = true;
+	process.once('exit', () => {
 		try {
 			if (globalThis.__mtSqlite && globalThis.__mtSqlite.open) {
 				globalThis.__mtSqlite.pragma('wal_checkpoint(TRUNCATE)');
 				globalThis.__mtSqlite.close();
 			}
 		} catch {
-			// ignore
+			// IGNORE
 		}
-	};
-	process.once('SIGINT', closeHandler);
-	process.once('SIGTERM', closeHandler);
-}
-const sqlite = globalThis.__mtSqlite!;
-
-try {
-	sqlite.exec(`ALTER TABLE chapters ADD COLUMN resliced INTEGER NOT NULL DEFAULT 0;`);
-} catch {
-	// Column already exists
-}
-try {
-	sqlite.exec(`ALTER TABLE chapters ADD COLUMN resliced_at INTEGER;`);
-} catch {
-	// Column already exists
+	});
 }
 
-export const db = drizzle(sqlite, { schema });
+// GET OR AUTO-RECONNECT SINGLETON DRIZZLE DATABASE
+export function getDb(): DrizzleDb {
+	if (!globalThis.__mtSqlite || !globalThis.__mtSqlite.open || !globalThis.__mtDb) {
+		const sqlite = initSqlite();
+		globalThis.__mtSqlite = sqlite;
+		globalThis.__mtDb = drizzle(sqlite, { schema });
+		registerExitHook();
+	}
+	return globalThis.__mtDb;
+}
+
+// SELF-HEALING DRIZZLE INSTANCE PROXY
+// AUTOMATICALLY RECONNECTS IF CONNECTION WAS CLOSED DUE TO HMR RELOADS OR SIGNALS
+export const db: DrizzleDb = new Proxy({} as DrizzleDb, {
+	get(_target, prop, receiver) {
+		const instance = getDb();
+		const value = Reflect.get(instance, prop, receiver);
+		return typeof value === 'function' ? value.bind(instance) : value;
+	},
+});
 
 export { schema };
-

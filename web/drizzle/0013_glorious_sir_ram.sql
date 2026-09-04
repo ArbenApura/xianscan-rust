@@ -1,0 +1,1 @@
+ALTER TABLE `books` ADD `custom_prompt` text;

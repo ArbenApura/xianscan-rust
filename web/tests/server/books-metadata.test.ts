@@ -107,6 +107,49 @@ describe('book metadata persistence', () => {
 		expect(JSON.parse(row!.tags!)).toEqual([]);
 	});
 
+	it('PATCH persists customPrompt directives and exposes it via getBooksWithTelemetry', async () => {
+		const db = getTestDb();
+		seedBook(db, { id: 'b1' });
+
+		const directive = 'Adopt poetic, classic wuxia phrasing. Keep cultivation realm titles grand and formal.';
+		const request = new Request('http://localhost/api/books/b1', {
+			method: 'PATCH',
+			headers: { 'content-type': 'application/json' },
+			body: JSON.stringify({ customPrompt: directive }),
+		});
+		const res = await PATCH({ request, params: { id: 'b1' } } as unknown as RequestEvent);
+		expect(res.status).toBe(200);
+
+		const body = await res.json();
+		expect(body.book.customPrompt).toBe(directive);
+
+		const row = db.select().from(books).where(eq(books.id, 'b1')).get();
+		expect(row?.customPrompt).toBe(directive);
+
+		const [summary] = await getBooksWithTelemetry();
+		expect(summary.customPrompt).toBe(directive);
+	});
+
+	it('PATCH clears customPrompt when set to null or empty string', async () => {
+		const db = getTestDb();
+		seedBook(db, { id: 'b1' });
+		db.update(books).set({ customPrompt: 'Existing rules' }).where(eq(books.id, 'b1')).run();
+
+		const request = new Request('http://localhost/api/books/b1', {
+			method: 'PATCH',
+			headers: { 'content-type': 'application/json' },
+			body: JSON.stringify({ customPrompt: null }),
+		});
+		const res = await PATCH({ request, params: { id: 'b1' } } as unknown as RequestEvent);
+		expect(res.status).toBe(200);
+
+		const body = await res.json();
+		expect(body.book.customPrompt).toBeNull();
+
+		const row = db.select().from(books).where(eq(books.id, 'b1')).get();
+		expect(row?.customPrompt).toBeNull();
+	});
+
 	it('POST persists metadata on create', async () => {
 		const db = getTestDb();
 		const request = new Request('http://localhost/api/books', {

@@ -482,11 +482,6 @@
 												<span class="inline-flex items-center gap-1 font-mono text-neutral-800 dark:text-neutral-200">
 													<CheckCircle2 size={11} class="text-[#4f7a64] dark:text-[#83b39a] shrink-0" />
 													<span>{formatDuration(transTiming.durationMs)}</span>
-													{#if transTiming.details?.cacheHit}
-														<span class="rounded bg-[#4f7a64]/15 px-1 py-0.2 text-[9px] font-bold text-[#4f7a64] dark:text-[#83b39a]">
-															HIT
-														</span>
-													{/if}
 												</span>
 											{:else if transTiming?.status === 'failed'}
 												<span class="inline-flex items-center gap-1 text-rose-600 dark:text-rose-400 font-semibold text-[11px]">

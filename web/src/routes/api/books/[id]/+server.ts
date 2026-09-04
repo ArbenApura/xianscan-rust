@@ -55,6 +55,9 @@ export const PATCH: RequestHandler = async ({ params, request }) => {
 	if (parsed.data.status !== undefined) {
 		updateData.status = parsed.data.status;
 	}
+	if (parsed.data.customPrompt !== undefined) {
+		updateData.customPrompt = parsed.data.customPrompt?.slice(0, 4000).trim() || null;
+	}
 	updateData.updatedAt = Date.now();
 
 	const updated = db

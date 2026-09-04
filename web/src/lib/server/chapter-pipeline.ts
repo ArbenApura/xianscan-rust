@@ -35,7 +35,8 @@ import type { JobEvent } from './translation-service';
 import type { AnalyzeResult, PipelineClient, PipelineRegion } from './pipeline-client';
 import { db } from './db';
 import { chapters, pages, regions, translations, books, type Page } from './db/schema';
-import { translatePage, classifyRegionForTranslation } from './translate';
+import { translatePage, classifyRegionForTranslation, resolveModel, type PageTranslation } from './translate';
+import { getCachedPageTranslation, pageCacheKey, savePageTranslation } from './cache';
 import { ChapterDialogueTracker, computePositionTag, parseKindFromBox, type PageDialogueRecord } from './translate/dialogue-tracker';
 import { typesetPage, type TypesetOptions } from './typeset';
 import { detectSourceLanguage } from '$lib/languages';
@@ -85,6 +86,8 @@ export interface ChapterPipelineDeps {
 	isPageCancelled?: (pageId: number) => boolean;
 	/** WHETHER TO FORCE RE-TRANSLATION OF ALL PAGES */
 	force?: boolean;
+	/** CUSTOM USER LOCALIZATION DIRECTIVES */
+	customPrompt?: string;
 }
 
 export type PipelineEmit = (e: JobEvent) => void;
@@ -217,6 +220,12 @@ export async function runChapterPipeline(
 	const chapter = db.select().from(chapters).where(eq(chapters.id, chapterId)).get();
 	if (!chapter) throw new Error(`chapter ${chapterId} not found`);
 
+	// FETCH PARENT BOOK'S LOCALIZATION DIRECTIVES IF BOUND
+	const parentBookRow = chapter.bookId
+		? db.select({ customPrompt: books.customPrompt }).from(books).where(eq(books.id, chapter.bookId)).get()
+		: null;
+	const bookCustomPrompt = parentBookRow?.customPrompt ?? '';
+
 	// CRASH-RESUME: A BACKEND RESTART CAN LEAVE PAGES STUCK IN 'processing' — RESET THEM SO A RE-RUN
 	// CAN PICK THEM UP (ONLY 'done' PAGES COUNT AS FINISHED).
 	db.update(pages)
@@ -307,7 +316,7 @@ export async function runChapterPipeline(
 			? detectSourceLanguage(book?.title || '', 'zh-Hans')
 			: book?.sourceLang || 'zh-Hans';
 	const pair: LangPair = { sourceLang: initialSource, targetLang: book?.targetLang || 'en' };
-	const model = deps.model;
+	const model = resolveModel(deps.model);
 
 	// DIALOGUE TRACKER: TRACKS OCR & TRANSLATED LINES ACROSS PAGES FOR SLIDING-WINDOW CONTEXT INJECTION
 	const dialogueTracker = new ChapterDialogueTracker();
@@ -680,6 +689,7 @@ export async function runChapterPipeline(
 		let activeStep: PipelineStep = 'match_glossary';
 		let activeTranslateSubStep: PipelineStep = 'match_glossary';
 		let activeInpaintSubStep: PipelineStep = 'clean';
+		let pageTranslationError: string | undefined;
 		const pageT0 = slot.startedAt ?? performance.now();
 
 		try {
@@ -779,10 +789,12 @@ export async function runChapterPipeline(
 							activeChapterTerms.set(t.source, t);
 						}
 					}
-					// MERGE ACTIVE CHAPTER GLOSSARY TERMS WITH CURRENT PAGE MATCHES
-					const effectiveTermsMap = new Map<string, TermDraft>(activeChapterTerms);
-					for (const t of pageMatchedTerms) effectiveTermsMap.set(t.source, t);
-					const effectiveTerms = Array.from(effectiveTermsMap.values());
+					// ACCUMULATED CHAPTER GLOSSARY IN STRICT APPEND-ONLY ORDER
+					const chapterTerms = Array.from(activeChapterTerms.values());
+					// TRANSIENT TERMS THAT ONLY APPEAR ON THIS SPECIFIC PAGE
+					const transientPageTerms = pageMatchedTerms.filter((t) => !activeChapterTerms.has(t.source));
+					// COMBINED TERMS FOR CACHE FINGERPRINT AND MATCH REPORT
+					const effectiveTerms = [...chapterTerms, ...transientPageTerms];
 
 					emit({
 						type: 'page-step-end',
@@ -809,12 +821,87 @@ export async function runChapterPipeline(
 					});
 					const tTrans0 = performance.now();
 
+					// 1. CHECK LOCAL SQLITE TRANSLATION CACHE FIRST
+					const customPrompt = deps.customPrompt ?? bookCustomPrompt;
+					const cacheKey = pageCacheKey(sources, effectiveTerms, model, pair, deps.cacheSalt ?? '', customPrompt);
+					const cached = getCachedPageTranslation(page.id, cacheKey);
+
+					if (cached) {
+						dialogueTracker.recordTranslation(page.seq, cached.byRegion);
+						for (const [id, text] of cached.byRegion) byRegion.set(id, text);
+						const tTrans = performance.now() - tTrans0;
+						const cachedResponseData = {
+							raw: '',
+							model: cached.usage?.model || model,
+							durationMs: Math.round(tTrans),
+							promptTokens: cached.usage?.promptTokens ?? 0,
+							cachedTokens: cached.usage?.cachedTokens ?? 0,
+							completionTokens: cached.usage?.completionTokens ?? 0,
+							timestamp: Date.now(),
+							cachedFromSqlite: true,
+						};
+						db.update(pages)
+							.set({
+								llmResponse: JSON.stringify(cachedResponseData),
+							})
+							.where(eq(pages.id, page.id))
+							.run();
+						emit({
+							type: 'page-step-end',
+							chapterId,
+							page: i,
+							pageId: page.id,
+							step: 'translate',
+							stepStatus: 'completed',
+							durationMs: tTrans,
+							stepDetails: {
+								cacheHit: true,
+								model: cached.usage?.model || model,
+								tokens: (cached.usage?.promptTokens ?? 0) + (cached.usage?.completionTokens ?? 0),
+							},
+						});
+						return byRegion;
+					}
+
+					// 2. UNCACHED: SERIALIZED PER-BOOK LLM CALL
+					// RE-FETCH LATEST DIALOGUE CONTEXT AND GLOSSARY INSIDE CHAIN TRANSLATE TO PREVENT STALE CLOSURE
+					let finalCacheKey = cacheKey;
 					const translated = await chainTranslate(async () => {
-						const result = await translatePage(sources, effectiveTerms, pair, {
+						const freshDialogueContext = dialogueTracker.getContextWindow(page.seq);
+						const freshContextSourceText = freshDialogueContext.previousPages
+							.flatMap((p) => p.lines.map((l) => l.sourceText))
+							.join('\n');
+						const freshFullScanningText = freshContextSourceText
+							? `${pageSourceText}\n${freshContextSourceText}`
+							: pageSourceText;
+						const freshMatchedTerms = await matchTerms(chapter.bookId, freshFullScanningText);
+						for (const t of freshMatchedTerms) {
+							if (t.category === 'character' || t.category === 'organization' || t.pinned) {
+								activeChapterTerms.set(t.source, t);
+							}
+						}
+						const freshChapterTerms = Array.from(activeChapterTerms.values());
+						const freshTransientPageTerms = freshMatchedTerms.filter((t) => !activeChapterTerms.has(t.source));
+						const freshEffectiveTerms = [...freshChapterTerms, ...freshTransientPageTerms];
+						finalCacheKey = pageCacheKey(sources, freshEffectiveTerms, model, pair, deps.cacheSalt ?? '', customPrompt);
+
+						const freshCached = getCachedPageTranslation(page.id, finalCacheKey);
+						if (freshCached) {
+							const cachedResult: PageTranslation & { fromCache?: boolean } = {
+								byRegion: freshCached.byRegion,
+								usage: freshCached.usage ?? { model, promptTokens: 0, cachedTokens: 0, completionTokens: 0 },
+								fromCache: true,
+							};
+							return cachedResult;
+						}
+
+						const result = await translatePage(sources, freshChapterTerms, pair, {
 							client: deps.llm,
 							model,
 							signal: pageAbortController.signal,
-							dialogueContext,
+							dialogueContext: freshDialogueContext,
+							pageTerms: freshTransientPageTerms,
+							customPrompt: customPrompt || undefined,
 						});
 						return result;
 					});
@@ -822,6 +909,15 @@ export async function runChapterPipeline(
 					if (deps.isPageCancelled?.(page.id)) return byRegion;
 					dialogueTracker.recordTranslation(page.seq, translated.byRegion);
 					for (const [id, text] of translated.byRegion) byRegion.set(id, text);
+
+					// PERSIST TRANSLATION TO SQLITE ONLY WHEN ALL TRANSLATABLE REGIONS SUCCEEDED AND NO ERROR OCCURRED
+					const allTranslatableSucceeded = !translated.error &&
+						sources.length > 0 &&
+						sources.every((s) => Boolean(translated.byRegion.get(s.id)?.trim()));
+					if (!(translated as any).fromCache && allTranslatableSucceeded) {
+						savePageTranslation(page.id, finalCacheKey, translated.byRegion, model, translated.usage);
+					}
+
 					if (translated.newTerms && translated.newTerms.length > 0) {
 						await addNewTerms(chapter.bookId, translated.newTerms, chapterId);
 						for (const t of translated.newTerms) {
@@ -830,7 +926,11 @@ export async function runChapterPipeline(
 							}
 						}
 					}
+					if (translated.error) {
+						pageTranslationError = translated.error;
+					}
 					const tTrans = performance.now() - tTrans0;
+					const isProviderCached = Boolean((translated as any).fromCache) || (translated.usage.cachedTokens ?? 0) > 0;
 					const llmResponseData = {
 						raw: translated.rawResponse ?? '',
 						model: translated.usage.model,
@@ -839,6 +939,9 @@ export async function runChapterPipeline(
 						cachedTokens: translated.usage.cachedTokens ?? 0,
 						completionTokens: translated.usage.completionTokens ?? 0,
 						timestamp: Date.now(),
+						cachedFromSqlite: Boolean((translated as any).fromCache),
+						finishReason: translated.finishReason ?? null,
+						error: translated.error ?? null,
 					};
 					db.update(pages)
 						.set({
@@ -856,12 +959,12 @@ export async function runChapterPipeline(
 						stepStatus: 'completed',
 						durationMs: tTrans,
 						stepDetails: {
-							cacheHit: false,
+							cacheHit: isProviderCached,
 							model: translated.usage.model,
 							tokens: (translated.usage.promptTokens ?? 0) + (translated.usage.completionTokens ?? 0),
 						},
 					});
-					if (translated.usage && deps.onUsage) deps.onUsage(translated.usage);
+					if (translated.usage && deps.onUsage && !(translated as any).fromCache) deps.onUsage(translated.usage);
 				} else {
 					activeTranslateSubStep = 'translate';
 					emit({
@@ -968,15 +1071,53 @@ export async function runChapterPipeline(
 				stepDetails: attempt > 0 ? { retryAttempt: attempt } : undefined,
 			});
 			const tType0 = performance.now();
+			const translatableSourcesCount = analyzed.regions.filter(
+				(r) =>
+					classifyRegionForTranslation(
+						{ id: r.id, text: r.text, kind: r.kind },
+						pair.sourceLang,
+						pair.targetLang,
+					).disposition === 'translate',
+			).length;
+
 			const typesetRegions = analyzed.regions
 				.filter((r) => Boolean(byRegion.get(r.id)?.trim()))
 				.map((r) => ({
 					id: r.id,
 					box: r.typeset_box ?? r.box,
 					text: byRegion.get(r.id)!,
+					kind: r.kind,
 					vertical: r.vertical,
 					angle: r.angle,
 				}));
+
+			// IF TRANSLATION COMPLETELY FAILED FOR ALL TRANSLATABLE REGIONS, DO NOT MARK DONE
+			if (translatableSourcesCount > 0 && typesetRegions.length === 0) {
+				const failureReason = pageTranslationError || 'Translation produced zero valid dialogue regions';
+				db.update(pages)
+					.set({
+						status: 'error',
+						error: failureReason,
+						cleanedPath: cleanPath,
+						outputPath: null,
+						cleanedRev: sql`${pages.cleanedRev} + 1`,
+						width: analyzed.width,
+						height: analyzed.height,
+					})
+					.where(eq(pages.id, page.id))
+					.run();
+				slot.outcome = 'error';
+				emit({
+					type: 'error',
+					chapterId,
+					page: i,
+					pageId: page.id,
+					failedStep: 'translate',
+					message: failureReason,
+				});
+				return;
+			}
+
 			const out = await typesetPage(cleaned, typesetRegions, deps.typesetOptions);
 			signal.throwIfAborted();
 			if (deps.isPageCancelled?.(page.id)) return;
@@ -997,7 +1138,12 @@ export async function runChapterPipeline(
 			signal.throwIfAborted();
 			if (deps.isPageCancelled?.(page.id)) return;
 
-			// 7) MARK DONE
+			// 7) MARK DONE OR WARNING (IF PARTIAL)
+			const pageWarning =
+				translatableSourcesCount > 0 && typesetRegions.length < translatableSourcesCount
+					? `Partial translation (${typesetRegions.length} of ${translatableSourcesCount} regions translated)`
+					: null;
+
 			activeStep = 'save_output';
 			emit({
 				type: 'page-step-start',
@@ -1011,6 +1157,7 @@ export async function runChapterPipeline(
 			db.update(pages)
 				.set({
 					status: 'done',
+					error: pageWarning,
 					cleanedPath: cleanPath,
 					outputPath,
 					cleanedRev: sql`${pages.cleanedRev} + 1`,
@@ -1166,9 +1313,9 @@ export async function runChapterPipeline(
 		.from(pages)
 		.where(eq(pages.chapterId, chapterId))
 		.all();
-	const allDone = finalPages.length > 0 && finalPages.every((p) => p.status === 'done' || Boolean(p.outputPath));
 	const anyError = finalPages.some((p) => p.status === 'error');
-	const finalStatus = allDone ? 'done' : anyError ? 'error' : 'pending';
+	const allDone = !anyError && finalPages.length > 0 && finalPages.every((p) => p.status === 'done');
+	const finalStatus = anyError ? 'error' : allDone ? 'done' : 'pending';
 
 	db.update(chapters)
 		.set({

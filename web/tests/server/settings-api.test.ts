@@ -74,6 +74,64 @@ describe('Settings & Reading History Server API Routes', () => {
 			expect(data.inpaintMode).toBe('full');
 			expect((data as any).unknownField123).toBeUndefined();
 		});
+
+		it('persists and sanitizes advanced inference settings, penalties, and sfx mode', async () => {
+			vi.resetModules();
+			const { PATCH, GET } = await import('../../src/routes/api/settings/+server');
+
+			const req = new Request('http://localhost/api/settings', {
+				method: 'PATCH',
+				headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify({
+					translationReasoningEffort: 'minimal',
+					translationFrequencyPenalty: 0.75,
+					translationPresencePenalty: 0.5,
+				}),
+			});
+
+			const patchRes = await PATCH({ request: req } as unknown as RequestEvent);
+			expect(patchRes.status).toBe(200);
+			const patchData = await patchRes.json();
+			expect(patchData.translationReasoningEffort).toBe('minimal');
+			expect(patchData.translationFrequencyPenalty).toBe(0.75);
+			expect(patchData.translationPresencePenalty).toBe(0.5);
+
+			// Test max reasoning effort
+			const maxReq = new Request('http://localhost/api/settings', {
+				method: 'PATCH',
+				headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify({
+					translationReasoningEffort: 'max',
+				}),
+			});
+			const maxRes = await PATCH({ request: maxReq } as unknown as RequestEvent);
+			const maxData = await maxRes.json();
+			expect(maxData.translationReasoningEffort).toBe('max');
+
+			// Test custom reasoning effort
+			const customReq = new Request('http://localhost/api/settings', {
+				method: 'PATCH',
+				headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify({
+					translationReasoningEffort: 'custom:2048',
+				}),
+			});
+			const customRes = await PATCH({ request: customReq } as unknown as RequestEvent);
+			const customData = await customRes.json();
+			expect(customData.translationReasoningEffort).toBe('custom:2048');
+
+			// Invalid values fallback to safe defaults
+			const invalidReq = new Request('http://localhost/api/settings', {
+				method: 'PATCH',
+				headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify({
+					translationReasoningEffort: 'invalid_effort_level',
+				}),
+			});
+			const invalidRes = await PATCH({ request: invalidReq } as unknown as RequestEvent);
+			const invalidData = await invalidRes.json();
+			expect(invalidData.translationReasoningEffort).toBe('none');
+		});
 	});
 
 	describe('POST /api/settings (Seed)', () => {

@@ -56,29 +56,59 @@ describe('computeUsage', () => {
 });
 
 describe('resolveModel', () => {
-	it('passes through requested models', () => {
+	it('passes through requested models directly without preset restrictions', () => {
 		expect(resolveModel('deepseek-v4-flash')).toBe('deepseek-v4-flash');
 		expect(resolveModel('gemini-3.7-flash')).toBe('gemini-3.7-flash');
+		expect(resolveModel('qwen3.8-flash')).toBe('qwen3.8-flash');
+		expect(resolveModel('gpt-4')).toBe('gpt-4');
+		expect(resolveModel('custom-model-xyz')).toBe('custom-model-xyz');
 	});
 
-	it('falls back to the default for unknown/empty/null models — never lets arbitrary strings through', () => {
+	it('falls back to the active provider default for empty or null models', () => {
 		const d = resolveModel(undefined);
-		expect(resolveModel('gpt-4')).toBe(d);
 		expect(resolveModel('')).toBe(d);
 		expect(resolveModel(null)).toBe(d);
 	});
 });
 
 describe('thinkingParam', () => {
-	it('disables reasoning/thinking mode for DeepSeek', () => {
+	it('disables reasoning/thinking mode by default for DeepSeek and all models', () => {
 		expect(thinkingParam('deepseek-v4-flash')).toEqual({ reasoning_effort: 'none' });
-		expect(thinkingParam('deepseek-v4-pro')).toEqual({});
+		expect(thinkingParam('deepseek-v4-pro')).toEqual({ reasoning_effort: 'none' });
+		expect(thinkingParam('deepseek-v4-flash-0731')).toEqual({ reasoning_effort: 'none' });
 		expect(thinkingParam()).toEqual({ reasoning_effort: 'none' });
+	});
+
+	it('handles custom providers with zero thinking default', () => {
+		expect(thinkingParam('custom', 'deepseek-v4-flash-0731')).toEqual({ reasoning_effort: 'none' });
+		expect(thinkingParam('custom', 'deepseek-v4-pro-0813')).toEqual({ reasoning_effort: 'none' });
+		expect(thinkingParam('custom', 'deepseek-v4-pro')).toEqual({ reasoning_effort: 'none' });
+		expect(thinkingParam('custom', 'qwen-3.8-flash')).toEqual({ reasoning_effort: 'none' });
+		expect(thinkingParam('custom', 'llama-3.3-70b')).toEqual({ reasoning_effort: 'none' });
 	});
 
 	it('disables reasoning/thinking mode for Google Gemini', () => {
 		expect(thinkingParam('gemini-3.7-flash')).toEqual({ reasoning_effort: 'none' });
 		expect(thinkingParam('gemini-3.5-flash')).toEqual({ reasoning_effort: 'none' });
+	});
+
+	it('disables thinking for Ollama and OpenRouter by default', () => {
+		expect(thinkingParam('ollama', 'deepseek-r1')).toEqual({ extra_body: { think: false } });
+		expect(thinkingParam('openrouter', 'anthropic/claude-3.7-sonnet')).toEqual({
+			extra_body: { reasoning: { effort: 'none', exclude: true } },
+		});
+	});
+
+	it('passes explicit user configured effort levels including minimal and max', () => {
+		expect(thinkingParam('custom', 'o3-mini', 'minimal')).toEqual({ reasoning_effort: 'minimal' });
+		expect(thinkingParam('custom', 'o3-mini', 'max')).toEqual({ reasoning_effort: 'max' });
+		expect(thinkingParam('custom', 'deepseek-v4-pro', 'low')).toEqual({ reasoning_effort: 'low' });
+		expect(thinkingParam('openrouter', 'deepseek-r1', 'high')).toEqual({
+			extra_body: { reasoning: { effort: 'high' } },
+		});
+		expect(thinkingParam('ollama', 'qwen2.5', 'high')).toEqual({
+			extra_body: { think: true },
+		});
 	});
 });
 

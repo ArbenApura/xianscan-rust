@@ -11,6 +11,7 @@ import Switch from '$lib/components/ui/Switch.svelte';
 import TextField from '$lib/components/ui/TextField.svelte';
 import Checkbox from '$lib/components/ui/Checkbox.svelte';
 import Button from '$lib/components/ui/Button.svelte';
+import RangeField from '$lib/components/ui/RangeField.svelte';
 
 describe('Core UI Primitive Components', () => {
 	beforeEach(() => {
@@ -118,5 +119,57 @@ describe('Core UI Primitive Components', () => {
 
 		const btn = screen.getByRole('button');
 		expect(btn.hasAttribute('disabled')).toBe(true);
+	});
+
+	it('renders RangeField with steppers, value badge, and dispatches change', async () => {
+		const { component } = render(RangeField, {
+			props: {
+				label: 'Temperature',
+				value: 0.2,
+				min: 0,
+				max: 1,
+				step: 0.05,
+				display: '0.20',
+				recommended: 0.2,
+			},
+		});
+
+		expect(screen.getByText('Temperature')).toBeTruthy();
+		expect(screen.getByText('0.20')).toBeTruthy();
+		expect(screen.getByText('Optimal: 0.2')).toBeTruthy();
+
+		let changedValue: number | undefined;
+		component.$on('change', (e: CustomEvent<number>) => {
+			changedValue = e.detail;
+		});
+
+		const plusBtn = screen.getByLabelText('Increase value');
+		await fireEvent.click(plusBtn);
+		await tick();
+
+		expect(changedValue).toBe(0.25);
+
+		const minusBtn = screen.getByLabelText('Decrease value');
+		await fireEvent.click(minusBtn);
+		await tick();
+
+		expect(changedValue).toBe(0.2);
+
+		// Direct dragging/input on the range input
+		let inputValue: number | undefined;
+		component.$on('input', (e: CustomEvent<number>) => {
+			inputValue = e.detail;
+		});
+
+		const rangeInput = screen.getByLabelText('Temperature');
+		await fireEvent.input(rangeInput, { target: { value: '0.45' } });
+		await tick();
+
+		expect(inputValue).toBe(0.45);
+
+		await fireEvent.change(rangeInput, { target: { value: '0.45' } });
+		await tick();
+
+		expect(changedValue).toBe(0.45);
 	});
 });

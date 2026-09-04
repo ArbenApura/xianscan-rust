@@ -1,7 +1,8 @@
 <script lang="ts">
-	export let providerId: string = 'deepseek';
+	export let providerId: string = 'ollama';
 	export let size: number = 16;
 	export let className: string = '';
+	export { className as class };
 </script>
 
 {#if providerId === 'deepseek'}

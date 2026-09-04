@@ -11,7 +11,9 @@
 
 <script lang="ts">
 	// IMPORTED DEP-MODULES
-	import { tick, onDestroy, createEventDispatcher } from 'svelte';
+	import { tick, onDestroy, onMount, createEventDispatcher } from 'svelte';
+	import { fly, fade, slide } from 'svelte/transition';
+	import { cubicOut } from 'svelte/easing';
 	import { toast } from 'svelte-sonner';
 	import { invalidateAll } from '$app/navigation';
 	// IMPORTED MODULES
@@ -28,6 +30,8 @@
 		AVAILABLE_CJK_FONTS,
 		fontAvailabilityStore,
 		refreshFontAvailability,
+		THEME_POPOVER,
+		THEME_PANEL_BORDER,
 		type Theme,
 		type AppFont,
 		type InpaintMode,
@@ -35,6 +39,7 @@
 		type TypesetOutline,
 		type TypesetContrast,
 		type TypesetCasing,
+		type ReasoningEffortOption,
 	} from '$lib/stores/settings';
 	import { mlStatus } from '$lib/stores/ml-status';
 	import { versionCheck } from '$lib/stores/version-check';
@@ -46,7 +51,6 @@
 	import Zap from 'lucide-svelte/icons/zap';
 	import ZapOff from 'lucide-svelte/icons/zap-off';
 	import Layers from 'lucide-svelte/icons/layers';
-	import Maximize2 from 'lucide-svelte/icons/maximize-2';
 	import Activity from 'lucide-svelte/icons/activity';
 	import Type from 'lucide-svelte/icons/type';
 	import Scissors from 'lucide-svelte/icons/scissors';
@@ -69,6 +73,10 @@
 	import Trash2 from 'lucide-svelte/icons/trash-2';
 	import Save from 'lucide-svelte/icons/save';
 	import Info from 'lucide-svelte/icons/info';
+	import Hash from 'lucide-svelte/icons/hash';
+	import Thermometer from 'lucide-svelte/icons/thermometer';
+	import Brain from 'lucide-svelte/icons/brain';
+	import Gauge from 'lucide-svelte/icons/gauge';
 	import RotateCcw from 'lucide-svelte/icons/rotate-ccw';
 	import Sun from 'lucide-svelte/icons/sun';
 	import Moon from 'lucide-svelte/icons/moon';
@@ -77,6 +85,7 @@
 	import Edit3 from 'lucide-svelte/icons/edit-3';
 	import ChevronLeft from 'lucide-svelte/icons/chevron-left';
 	import ChevronRight from 'lucide-svelte/icons/chevron-right';
+	import ChevronDown from 'lucide-svelte/icons/chevron-down';
 	import X from 'lucide-svelte/icons/x';
 	import HelpCircle from 'lucide-svelte/icons/help-circle';
 	import MessageSquare from 'lucide-svelte/icons/message-square';
@@ -91,6 +100,10 @@
 	import ProviderLogo from '$lib/components/ui/ProviderLogo.svelte';
 	import DiscordLogo from '$lib/components/ui/DiscordLogo.svelte';
 	import Badge from '$lib/components/ui/Badge.svelte';
+	import Card from '$lib/components/ui/Card.svelte';
+	import RangeField from '$lib/components/ui/RangeField.svelte';
+	import SegmentedControl from '$lib/components/ui/SegmentedControl.svelte';
+	import TextArea from '$lib/components/ui/TextArea.svelte';
 
 	// PROPS COMPATIBILITY: ACCEPTS BOTH LEGACY (ai | compute | general) AND NEW CATEGORIES
 	export let open = false;
@@ -185,13 +198,15 @@
 
 	// AI PROVIDERS STATE
 	let providers: ProviderInfo[] = [];
-	let selectedProviderId = '';
+	let selectedProviderId = 'ollama';
 	let providerCategoryFilter: 'all' | 'cloud' | 'local' | 'custom' = 'all';
 	let apiKeyDraft: Record<string, string> = {};
 	let baseUrlDraft: Record<string, string> = {};
 	let activeModelDraft: Record<string, string> = {};
 	let showApiKey: Record<string, boolean> = {};
+	let isReplacingKey: Record<string, boolean> = {};
 	let showAdvancedBaseUrl: Record<string, boolean> = {};
+	let showAddCustomModel: Record<string, boolean> = {};
 	let providersLoading = false;
 	let testingProvider = false;
 	let scanningModels = false;
@@ -199,6 +214,35 @@
 	let customModelInput = '';
 	let modelSearch = '';
 	let testResult: { ok: boolean; message: string; latencyMs: number } | null = null;
+	let showModelModal = false;
+	let showAddCustomModelModal = false;
+	let showCustomReasoningModal = false;
+	let showCustomTokensModal = false;
+	let customTokensInput = '';
+	let showProviderPopover = false;
+	const AI_GUIDE_STORAGE_KEY = 'xianscan:dismissed_ai_guide_note';
+	let isAiGuideDismissed = false;
+
+	onMount(() => {
+		try {
+			if (typeof localStorage !== 'undefined') {
+				isAiGuideDismissed = localStorage.getItem(AI_GUIDE_STORAGE_KEY) === 'true';
+			}
+		} catch {}
+	});
+
+	function dismissAiGuide() {
+		isAiGuideDismissed = true;
+		try {
+			if (typeof localStorage !== 'undefined') {
+				localStorage.setItem(AI_GUIDE_STORAGE_KEY, 'true');
+			}
+		} catch {}
+	}
+	$: selectedProvider = providers.find((p) => p.id === selectedProviderId);
+	$: activeProvider = providers.find((p) => p.isDefault) || providers.find((p) => p.id === 'ollama') || providers[0];
+	$: popover = THEME_POPOVER[$settings.theme];
+	$: popoverBorder = THEME_PANEL_BORDER[$settings.theme];
 
 	// TYPESETTING PREVIEW STATES
 	interface TextPreset {
@@ -457,7 +501,7 @@
 					apiKeyDraft[p.id] = '';
 				}
 				if (!selectedProviderId || !providers.some((p) => p.id === selectedProviderId)) {
-					const defaultP = providers.find((p) => p.isDefault) || providers[0];
+					const defaultP = providers.find((p) => p.isDefault) || providers.find((p) => p.id === 'ollama') || providers[0];
 					if (defaultP) {
 						selectedProviderId = defaultP.id;
 					}
@@ -470,24 +514,39 @@
 		}
 	}
 
-	$: if (open) {
-		activeCategory = normalizeCategory(initialTab);
-		mobileView = initialTab ? 'detail' : 'menu';
-		apiKeyDraft = {};
-		testResult = null;
-		customModelInput = '';
-		globalSearch = '';
-		loadHardwareStatus();
-		loadProviders();
-		loadTelemetry();
-		void refreshFontAvailability();
-		if (telemetryInterval) clearInterval(telemetryInterval);
-		telemetryInterval = setInterval(loadTelemetry, 2000);
-		void mlStatus.checkHealth();
-	} else {
-		if (telemetryInterval) {
-			clearInterval(telemetryInterval);
-			telemetryInterval = null;
+	let lastOpen: boolean | undefined = undefined;
+	$: if (open !== lastOpen) {
+		lastOpen = open;
+		if (open) {
+			activeCategory = normalizeCategory(initialTab);
+			mobileView = initialTab ? 'detail' : 'menu';
+			showProviderPopover = false;
+			showModelModal = false;
+			showAddCustomModelModal = false;
+			showCustomReasoningModal = false;
+			showCustomTokensModal = false;
+			try {
+				if (typeof localStorage !== 'undefined') {
+					isAiGuideDismissed = localStorage.getItem(AI_GUIDE_STORAGE_KEY) === 'true';
+				}
+			} catch {}
+			apiKeyDraft = {};
+			isReplacingKey = {};
+			testResult = null;
+			customModelInput = '';
+			globalSearch = '';
+			loadHardwareStatus();
+			loadProviders();
+			loadTelemetry();
+			void refreshFontAvailability();
+			if (telemetryInterval) clearInterval(telemetryInterval);
+			telemetryInterval = setInterval(loadTelemetry, 2000);
+			void mlStatus.checkHealth();
+		} else {
+			if (telemetryInterval) {
+				clearInterval(telemetryInterval);
+				telemetryInterval = null;
+			}
 		}
 	}
 
@@ -684,6 +743,120 @@
 			typesetExpansionPct: DEFAULTS.typesetExpansionPct,
 		}));
 		toast.success('Inpainting settings reset to defaults');
+	}
+
+	// CONVENTIONAL INFERENCE CONFIGURATION HELPERS
+	const REASONING_EFFORT_OPTIONS: { value: ReasoningEffortOption; label: string }[] = [
+		{ value: 'none', label: 'None' },
+		{ value: 'minimal', label: 'Minimal' },
+		{ value: 'low', label: 'Low' },
+		{ value: 'medium', label: 'Medium' },
+		{ value: 'high', label: 'High' },
+		{ value: 'max', label: 'Max' },
+		{ value: 'auto', label: 'Auto' },
+	];
+
+	const TOKEN_BUDGET_PRESETS = [2048, 4096, 8192, 16384, 32768];
+	$: isCustomTokensActive = !TOKEN_BUDGET_PRESETS.includes($settings.translationMaxTokens ?? 4096);
+
+	let customReasoningDraft = '';
+
+	$: currentReasoningEffort = $settings.translationReasoningEffort ?? 'none';
+	$: isCustomReasoningActive =
+		currentReasoningEffort.startsWith('custom:') ||
+		!REASONING_EFFORT_OPTIONS.some((o) => o.value === currentReasoningEffort);
+	$: currentCustomReasoningValue = currentReasoningEffort.startsWith('custom:')
+		? currentReasoningEffort.slice(7)
+		: (isCustomReasoningActive ? currentReasoningEffort : '');
+
+	$: isInferenceModified =
+		($settings.translationMaxTokens ?? 4096) !== DEFAULTS.translationMaxTokens ||
+		Math.abs(($settings.translationTemperature ?? 0.2) - DEFAULTS.translationTemperature) >= 0.01 ||
+		Math.abs(($settings.translationTopP ?? 1.0) - DEFAULTS.translationTopP) >= 0.01 ||
+		($settings.translationReasoningEffort ?? 'none') !== DEFAULTS.translationReasoningEffort ||
+		Math.abs(($settings.translationFrequencyPenalty ?? 0.0) - DEFAULTS.translationFrequencyPenalty) >= 0.01 ||
+		Math.abs(($settings.translationPresencePenalty ?? 0.0) - DEFAULTS.translationPresencePenalty) >= 0.01;
+
+	function setMaxTokens(val: number) {
+		const clamped = Math.max(1024, Math.min(65536, Math.round(val)));
+		settings.update((s) => ({ ...s, translationMaxTokens: clamped }));
+		toast.success(`Max completion tokens set to ${clamped.toLocaleString()}`);
+	}
+
+	function setTemperature(val: number) {
+		const clamped = Math.max(0.0, Math.min(1.0, Number(val.toFixed(2))));
+		settings.update((s) => ({ ...s, translationTemperature: clamped }));
+	}
+
+	function setTopP(val: number) {
+		const clamped = Math.max(0.1, Math.min(1.0, Number(val.toFixed(2))));
+		settings.update((s) => ({ ...s, translationTopP: clamped }));
+	}
+
+	function setReasoningEffort(effort: string) {
+		settings.update((s) => ({ ...s, translationReasoningEffort: effort as ReasoningEffortOption }));
+		const label = REASONING_EFFORT_OPTIONS.find((o) => o.value === effort)?.label || effort;
+		toast.success(`Reasoning effort set to ${label}`);
+	}
+
+	function applyCustomReasoning() {
+		const trimmed = customReasoningDraft.trim();
+		if (!trimmed) return;
+		const finalVal = trimmed.startsWith('custom:') ? trimmed : `custom:${trimmed}`;
+		settings.update((s) => ({ ...s, translationReasoningEffort: finalVal as ReasoningEffortOption }));
+		showCustomReasoningModal = false;
+		toast.success(`Reasoning effort set to custom "${trimmed.replace(/^custom:/, '')}"`);
+	}
+
+	function applyCustomTokens() {
+		const parsed = parseInt(customTokensInput, 10);
+		if (!isNaN(parsed)) {
+			setMaxTokens(parsed);
+			showCustomTokensModal = false;
+		}
+	}
+
+	function resetInferenceDefaults() {
+		showCustomReasoningModal = false;
+		showCustomTokensModal = false;
+		customReasoningDraft = '';
+		customTokensInput = '';
+		settings.update((s) => ({
+			...s,
+			translationMaxTokens: DEFAULTS.translationMaxTokens,
+			translationTemperature: DEFAULTS.translationTemperature,
+			translationTopP: DEFAULTS.translationTopP,
+			translationReasoningEffort: DEFAULTS.translationReasoningEffort,
+			translationFrequencyPenalty: DEFAULTS.translationFrequencyPenalty,
+			translationPresencePenalty: DEFAULTS.translationPresencePenalty,
+		}));
+		toast.success('Inference parameters reset to defaults');
+	}
+
+	function handleTemperatureChange(e: CustomEvent<number> | Event) {
+		const val = (e as CustomEvent).detail !== undefined ? (e as CustomEvent).detail : Number((e.target as HTMLInputElement)?.value);
+		if (!isNaN(val)) setTemperature(val);
+	}
+
+	function handleTopPChange(e: CustomEvent<number> | Event) {
+		const val = (e as CustomEvent).detail !== undefined ? (e as CustomEvent).detail : Number((e.target as HTMLInputElement)?.value);
+		if (!isNaN(val)) setTopP(val);
+	}
+
+	function handleFrequencyPenaltyChange(e: CustomEvent<number> | Event) {
+		const val = (e as CustomEvent).detail !== undefined ? (e as CustomEvent).detail : Number((e.target as HTMLInputElement)?.value);
+		if (!isNaN(val)) {
+			const clamped = Math.max(0.0, Math.min(2.0, Number(val.toFixed(2))));
+			settings.update((s) => ({ ...s, translationFrequencyPenalty: clamped }));
+		}
+	}
+
+	function handlePresencePenaltyChange(e: CustomEvent<number> | Event) {
+		const val = (e as CustomEvent).detail !== undefined ? (e as CustomEvent).detail : Number((e.target as HTMLInputElement)?.value);
+		if (!isNaN(val)) {
+			const clamped = Math.max(0.0, Math.min(2.0, Number(val.toFixed(2))));
+			settings.update((s) => ({ ...s, translationPresencePenalty: clamped }));
+		}
 	}
 
 	// HARDWARE ACCELERATION METHODS
@@ -896,6 +1069,7 @@
 			);
 
 			apiKeyDraft[providerId] = '';
+			isReplacingKey[providerId] = false;
 			await loadProviders();
 			void invalidateAll();
 		} catch (e: any) {
@@ -915,6 +1089,7 @@
 			if (res.ok) {
 				toast.success('API key removed');
 				apiKeyDraft[providerId] = '';
+				isReplacingKey[providerId] = false;
 				testResult = null;
 				await loadProviders();
 				void invalidateAll();
@@ -928,12 +1103,7 @@
 	}
 
 	function formatModelLabel(modelId: string): string {
-		if (MODEL_DESCRIPTIONS[modelId]?.label) return MODEL_DESCRIPTIONS[modelId].label;
-		const base = modelId.includes('/') ? modelId.split('/').pop()! : modelId;
-		return base
-			.replace(/[-_]/g, ' ')
-			.replace(/\b([a-z])/g, (_, c) => c.toUpperCase())
-			.replace(/(\d+b)/i, (_, s) => s.toUpperCase());
+		return modelId;
 	}
 
 	function formatModelBadge(modelId: string, isLocalProv: boolean): string {
@@ -948,18 +1118,7 @@
 	function getFilteredModels(models: string[], query: string): string[] {
 		if (!query || !query.trim()) return models;
 		const q = query.trim().toLowerCase();
-		return models.filter((m) => {
-			const info = MODEL_DESCRIPTIONS[m];
-			const label = info?.label || formatModelLabel(m);
-			const badge = info?.badge || '';
-			const desc = info?.desc || '';
-			return (
-				m.toLowerCase().includes(q) ||
-				label.toLowerCase().includes(q) ||
-				badge.toLowerCase().includes(q) ||
-				desc.toLowerCase().includes(q)
-			);
-		});
+		return models.filter((m) => m.toLowerCase().includes(q));
 	}
 
 	async function removeModel(providerId: string, modelId: string) {
@@ -1093,7 +1252,18 @@
 		}
 	}
 
+
 	const MODEL_DESCRIPTIONS: Record<string, { label: string; badge: string; desc: string }> = {
+		'deepseek-chat': {
+			label: 'DeepSeek Chat',
+			badge: 'Standard · Fast',
+			desc: 'General-purpose dialogue and narrative translation model with low latency.',
+		},
+		'deepseek-reasoner': {
+			label: 'DeepSeek Reasoner',
+			badge: 'Reasoning · High Accuracy',
+			desc: 'Chain-of-thought reasoning model for complex translation context.',
+		},
 		'deepseek-v4-flash': {
 			label: 'DeepSeek V4 Flash',
 			badge: 'Recommended · High Speed',
@@ -1262,7 +1432,7 @@
 		{
 			title: 'Engines & Compute',
 			items: [
-				{ id: 'providers', label: 'AI Translation Providers', icon: Zap, keywords: ['ai', 'provider', 'deepseek', 'gemini', 'groq', 'openrouter', 'openai', 'ollama', 'lmstudio', 'custom', 'model', 'api key'] },
+				{ id: 'providers', label: 'AI Translation Providers', icon: Zap, keywords: ['ai', 'provider', 'deepseek', 'gemini', 'groq', 'openrouter', 'openai', 'ollama', 'lmstudio', 'custom', 'model', 'api key', 'inference', 'sampling', 'temperature', 'top-p', 'tokens', 'reasoning', 'budget', 'penalty'] },
 				{ id: 'compute', label: 'Hardware & Compute', icon: Cpu, keywords: ['hardware', 'gpu', 'cuda', 'directml', 'coreml', 'cpu', 'workers', 'parallel', 'reslice', 'performance', 'onnx'] },
 			],
 		},
@@ -1304,11 +1474,16 @@
 		{ id: 'inpaint-geom', label: 'Three-Tier Region Geometry Expansion', category: 'inpainting', categoryLabel: 'Inpainting & Masking', categoryIcon: Eraser, keywords: ['geometry', 'expansion', 'tier', 'margin', 'bounds', 'inpaint mask', 'typeset box'] },
 
 		// AI PROVIDERS
+		{ id: 'ai-guide', label: 'AI Translation Getting Started Guide', category: 'providers', categoryLabel: 'AI Translation Providers', categoryIcon: Info, keywords: ['getting started', 'guide', 'instructions', 'help', 'tutorial', 'setup', 'onboarding'] },
 		{ id: 'providers-hub', label: 'AI Translation Provider Selection', category: 'providers', categoryLabel: 'AI Translation Providers', categoryIcon: Zap, keywords: ['provider', 'ai', 'cloud', 'local', 'custom', 'deepseek', 'gemini', 'groq', 'openrouter', 'openai', 'ollama', 'lmstudio'] },
 		{ id: 'api-key', label: 'API Key Configuration & Vault', category: 'providers', categoryLabel: 'AI Translation Providers', categoryIcon: Zap, keywords: ['api key', 'key', 'token', 'auth', 'secret', 'mask'] },
 		{ id: 'model-scan', label: 'Model Selection & Discovery Scanner', category: 'providers', categoryLabel: 'AI Translation Providers', categoryIcon: Zap, keywords: ['model', 'scan', 'discover', 'flash', 'pro', 'qwen', 'llama', 'gemini', 'deepseek'] },
 		{ id: 'test-connection', label: 'Connection & Latency Tester', category: 'providers', categoryLabel: 'AI Translation Providers', categoryIcon: Zap, keywords: ['test', 'connection', 'ping', 'latency', 'verify'] },
 		{ id: 'custom-endpoint', label: 'Custom Endpoint Base URL', category: 'providers', categoryLabel: 'AI Translation Providers', categoryIcon: Zap, keywords: ['endpoint', 'url', 'base', 'custom', 'proxy'] },
+		{ id: 'inference-sampling', label: 'Inference & Sampling Parameters', category: 'providers', categoryLabel: 'AI Translation Providers', categoryIcon: SlidersHorizontal, keywords: ['inference', 'sampling', 'parameters', 'tuning', 'generation', 'hyperparameters'] },
+		{ id: 'max-tokens', label: 'Max Output Tokens Budget', category: 'providers', categoryLabel: 'AI Translation Providers', categoryIcon: Hash, keywords: ['token', 'tokens', 'budget', 'max tokens', 'output', 'length', 'limit', 'custom tokens'] },
+		{ id: 'reasoning-effort', label: 'Reasoning Effort & Thinking Budget', category: 'providers', categoryLabel: 'AI Translation Providers', categoryIcon: Brain, keywords: ['reasoning', 'effort', 'thinking', 'think', 'budget', 'r1', 'chain of thought', 'cot'] },
+		{ id: 'sampling-diversity', label: 'Sampling Diversity (Temperature & Penalties)', category: 'providers', categoryLabel: 'AI Translation Providers', categoryIcon: SlidersHorizontal, keywords: ['temperature', 'top-p', 'frequency penalty', 'presence penalty', 'diversity', 'creativity', 'sampling'] },
 
 		// HARDWARE & COMPUTE
 		{ id: 'compute-device', label: 'Hardware Compute Accelerator (ONNX)', category: 'compute', categoryLabel: 'Hardware & Compute', categoryIcon: Cpu, keywords: ['hardware', 'accelerator', 'gpu', 'cuda', 'directml', 'coreml', 'cpu', 'nvidia', 'amd', 'intel'] },
@@ -1434,6 +1609,7 @@
 						type="text"
 						bind:value={globalSearch}
 						on:focus={() => (searchFocused = true)}
+						on:input={() => (searchFocused = true)}
 						placeholder="Search settings..."
 						class="h-[36px] w-full rounded-lg border border-black/10 bg-transparent pl-9 pr-8 text-xs text-neutral-900 placeholder:opacity-40 outline-none transition-colors focus:border-[#b23a2e] focus:ring-2 focus:ring-[#b23a2e]/30 dark:border-white/[0.08] dark:text-neutral-100"
 					/>
@@ -1454,6 +1630,7 @@
 				<!-- FLOATING SEARCH RESULTS POPOVER MENU -->
 				{#if globalSearch.trim() && searchFocused}
 					<div
+						transition:fly={{ y: -6, duration: 150, easing: cubicOut }}
 						class="absolute top-full left-2 right-2 mt-1.5 z-40 max-h-[290px] overflow-y-auto rounded-xl border border-black/15 bg-white/95 p-1.5 shadow-2xl backdrop-blur-md dark:border-white/15 dark:bg-[#1a1612]/95 space-y-2.5"
 					>
 						{#if matchingSettingsGroups.size === 0}
@@ -1536,7 +1713,12 @@
 		</div>
 
 		<!-- RIGHT CONTENT PANE (DETAIL VIEW ON MOBILE) -->
-		<div class={`flex-1 overflow-y-auto p-4 sm:p-6 flex-col justify-start space-y-4 ${mobileView === 'menu' ? 'hidden md:flex' : 'flex'}`}>
+		<div
+			class={cn(
+				'flex-1 overflow-y-auto p-4 sm:p-6 flex-col justify-start space-y-2',
+				mobileView === 'menu' ? 'hidden md:flex' : 'flex'
+			)}
+		>
 			<!-- MOBILE DRILL-DOWN BACK BUTTON -->
 			<button
 				type="button"
@@ -2145,452 +2327,632 @@
 
 				<!-- SECTION 4: AI TRANSLATION PROVIDERS -->
 				{:else if activeCategory === 'providers'}
-					<div class="space-y-5">
-						<div>
-							<h2 class="text-base font-bold">AI Translation Provider</h2>
-							<p class="text-xs opacity-60 mt-0.5">Configure cloud and local LLM localization engines, custom base URLs, API keys, and model parameters</p>
+					<div class="space-y-3.5">
+						<!-- HEADER WITH ACTIVE ENGINE STATUS -->
+						<div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 pb-2.5 border-b border-black/10 dark:border-white/10">
+							<div>
+								<h2 class="text-base font-bold">AI Translation Provider</h2>
+								<p class="text-xs opacity-60 mt-0.5">Model routing, credentials vault, and sampling configuration</p>
+							</div>
+
+							{#if activeProvider}
+								<div class="inline-flex items-center gap-2 rounded-lg border border-black/10 bg-black/[0.02] px-2.5 py-1 text-xs dark:border-white/10 dark:bg-white/[0.02] shrink-0 self-start sm:self-auto">
+									<ProviderLogo providerId={activeProvider.id} size={14} class="shrink-0" />
+									<span class="font-medium text-foreground/90 max-w-[150px] truncate">{activeProvider.name}</span>
+									<span class="rounded bg-black/5 dark:bg-white/10 px-1.5 py-0.5 font-mono text-[10.5px] text-foreground/75 max-w-[180px] truncate">
+										{formatModelLabel(activeProvider.activeModel || 'default')}
+									</span>
+								</div>
+							{/if}
 						</div>
 
-						<!-- CATEGORY FILTER PILLS -->
-						<div class="flex flex-wrap items-center gap-1.5 border-b border-black/10 pb-2.5 dark:border-white/10">
-							<button
-								type="button"
-								on:click={() => (providerCategoryFilter = 'all')}
+						<!-- PERSISTENT AI TRANSLATION GUIDE NOTE -->
+						{#if !isAiGuideDismissed}
+							<div
+								id="setting-ai-guide"
 								class={cn(
-									'rounded-lg px-2.5 py-1 text-[11px] font-bold transition-all cursor-pointer',
-									providerCategoryFilter === 'all'
-										? 'bg-[#b23a2e] text-white shadow-xs dark:bg-[#e08a63] dark:text-neutral-950'
-										: 'bg-black/5 hover:bg-black/10 dark:bg-white/5 dark:hover:bg-white/10 opacity-70'
+									'flex items-start justify-between gap-3 rounded-xl border border-blue-500/25 bg-blue-500/5 dark:border-blue-400/25 dark:bg-blue-500/10 p-3 text-xs transition-all duration-300',
+									highlightedSettingId === 'ai-guide' &&
+										'ring-2 ring-blue-500 dark:ring-blue-400 bg-blue-500/15 dark:bg-blue-500/25'
 								)}
-								use:ripple
 							>
-								All Providers ({providers.length})
-							</button>
-							<button
-								type="button"
-								on:click={() => (providerCategoryFilter = 'cloud')}
-								class={cn(
-									'inline-flex items-center gap-1 rounded-lg px-2.5 py-1 text-[11px] font-bold transition-all cursor-pointer',
-									providerCategoryFilter === 'cloud'
-										? 'bg-[#b23a2e] text-white shadow-xs dark:bg-[#e08a63] dark:text-neutral-950'
-										: 'bg-black/5 hover:bg-black/10 dark:bg-white/5 dark:hover:bg-white/10 opacity-70'
-								)}
-								use:ripple
-							>
-								<Zap size={11} />
-								<span>Cloud Fast</span>
-							</button>
-							<button
-								type="button"
-								on:click={() => (providerCategoryFilter = 'local')}
-								class={cn(
-									'inline-flex items-center gap-1 rounded-lg px-2.5 py-1 text-[11px] font-bold transition-all cursor-pointer',
-									providerCategoryFilter === 'local'
-										? 'bg-teal-600 text-white shadow-xs dark:bg-teal-500 dark:text-neutral-950'
-										: 'bg-black/5 hover:bg-black/10 dark:bg-white/5 dark:hover:bg-white/10 opacity-70'
-								)}
-								use:ripple
-							>
-								<Server size={11} />
-								<span>Local & Offline</span>
-							</button>
-							<button
-								type="button"
-								on:click={() => (providerCategoryFilter = 'custom')}
-								class={cn(
-									'inline-flex items-center gap-1 rounded-lg px-2.5 py-1 text-[11px] font-bold transition-all cursor-pointer',
-									providerCategoryFilter === 'custom'
-										? 'bg-[#b23a2e] text-white shadow-xs dark:bg-[#e08a63] dark:text-neutral-950'
-										: 'bg-black/5 hover:bg-black/10 dark:bg-white/5 dark:hover:bg-white/10 opacity-70'
-								)}
-								use:ripple
-							>
-								<SlidersHorizontal size={11} />
-								<span>Custom Endpoint</span>
-							</button>
-						</div>
-
-						<!-- PROVIDER CARDS GRID -->
-						<div
-							id="setting-providers-hub"
-							class={cn(
-								'grid grid-cols-1 sm:grid-cols-2 gap-2.5 transition-all duration-300',
-								highlightedSettingId === 'providers-hub' &&
-									'ring-2 ring-[#b23a2e] dark:ring-[#e08a63] bg-[#b23a2e]/[0.06] dark:bg-[#e08a63]/[0.08] rounded-2xl p-2.5 -m-1'
-							)}
-						>
-							{#each providers.filter((p) => providerCategoryFilter === 'all' || getProviderCategory(p.id) === providerCategoryFilter) as prov}
-								{@const isSelected = selectedProviderId === prov.id}
-								{@const isLoc = isLocal(prov.id)}
+								<div class="flex items-start gap-2.5 min-w-0">
+									<Info size={15} class="text-blue-500 dark:text-blue-400 shrink-0 mt-0.5" />
+									<div class="space-y-0.5 min-w-0">
+										<span class="font-semibold text-blue-950 dark:text-blue-100 block">Getting Started</span>
+										<p class="text-[11.5px] text-blue-900/85 dark:text-blue-200/85 leading-relaxed">
+											Switch translation providers, choose or add models, supply API credentials, and fine-tune sampling parameters such as temperature and token limits below.
+										</p>
+									</div>
+								</div>
 								<button
 									type="button"
-									on:click={() => { selectedProviderId = prov.id; testResult = null; }}
-									class={cn(
-										'flex flex-col justify-between rounded-xl border p-3 text-left transition-all cursor-pointer',
-										isSelected
-											? 'border-[#b23a2e] bg-[#b23a2e]/[0.08] ring-2 ring-[#b23a2e]/30 shadow-xs dark:border-[#e08a63] dark:bg-[#e08a63]/[0.1]'
-											: 'border-black/10 hover:border-black/20 hover:bg-black/[0.02] dark:border-white/10 dark:hover:border-white/20 dark:hover:bg-white/[0.02]'
-									)}
+									on:click={dismissAiGuide}
+									class="p-1 rounded-md text-blue-600/70 hover:text-blue-900 dark:text-blue-300/70 dark:hover:text-blue-100 hover:bg-blue-500/10 dark:hover:bg-blue-400/15 transition-colors cursor-pointer shrink-0"
+									aria-label="Dismiss guide"
+									title="Dismiss guide"
 									use:ripple
 								>
-									<div>
-										<div class="flex items-center justify-between gap-2">
-											<div class="flex items-center gap-2 font-bold text-xs min-w-0">
-												<ProviderLogo providerId={prov.id} size={15} />
-												<span class="truncate">{prov.name}</span>
-											</div>
-											<div class="flex items-center gap-1.5 shrink-0">
-												{#if prov.isDefault}
-													<span class="inline-flex items-center rounded-full bg-emerald-500/15 border border-emerald-500/30 px-2 py-0.5 text-[9px] font-bold text-emerald-700 dark:text-emerald-300">
-														ACTIVE
-													</span>
-												{/if}
-												{#if isSelected}<Check size={14} class="text-[#b23a2e] dark:text-[#e08a63] shrink-0" />{/if}
-											</div>
-										</div>
-
-										<div class="mt-2 flex items-center gap-1.5 text-[10px]">
-											{#if isLoc}
-												<span class="inline-flex items-center gap-1 rounded-full bg-teal-500/15 border border-teal-500/30 px-2 py-0.5 font-bold text-teal-700 dark:text-teal-300">
-													<Server size={10} /> Local Daemon
-												</span>
-											{:else if prov.hasKey}
-												<span class="inline-flex items-center gap-1 rounded-full bg-emerald-500/15 border border-emerald-500/30 px-2 py-0.5 font-bold text-emerald-700 dark:text-emerald-300">
-													<Check size={10} class="stroke-[3]" /> Key Saved ({prov.maskedKey})
-												</span>
-											{:else}
-												<span class="inline-flex items-center gap-1 rounded-full bg-amber-500/10 border border-amber-500/25 px-2 py-0.5 font-medium text-amber-700 dark:text-amber-300">
-													<Key size={10} /> Key Required
-												</span>
-											{/if}
-										</div>
-									</div>
-									<div class="mt-2 text-[10.5px] font-mono opacity-60 truncate">Active: {prov.activeModel || 'None selected'}</div>
+									<X size={13} />
 								</button>
-							{/each}
-						</div>
+							</div>
+						{/if}
 
-						<!-- ACTIVE PROVIDER CONFIGURATION PANEL -->
-						{#if selectedProviderId}
+						<!-- SELECTED PROVIDER CONFIGURATION (FLAT & MINIMAL) -->
+						{#if providersLoading && providers.length === 0}
+							<div class="flex items-center justify-center p-8 text-xs opacity-60">
+								<Loader2 size={16} class="animate-spin mr-2" />
+								<span>Loading providers...</span>
+							</div>
+						{:else if selectedProviderId}
 							{@const currentP = providers.find((p) => p.id === selectedProviderId)}
 							{#if currentP}
 								{@const currentIsLocal = isLocal(currentP.id)}
 								{@const filteredModels = getFilteredModels(currentP.availableModels, modelSearch)}
-								<div class="rounded-2xl border border-black/10 bg-black/[0.02] p-3.5 sm:p-5 dark:border-white/10 dark:bg-white/[0.02] space-y-4">
-									<!-- PANEL HEADER -->
-									<div class="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 border-b border-black/10 pb-3 dark:border-white/10">
-										<div class="flex items-center gap-2.5 min-w-0">
-											<ProviderLogo providerId={currentP.id} size={18} />
-											<div class="min-w-0">
-												<h3 class="text-sm font-bold truncate">{currentP.name}</h3>
-												<p class="text-[11px] opacity-60 font-mono truncate">{currentP.id}</p>
-											</div>
-										</div>
-										{#if currentP.isDefault}
-											<div class="inline-flex items-center self-start sm:self-auto gap-1.5 rounded-full bg-emerald-500/15 border border-emerald-500/30 px-2.5 py-0.5 text-[10.5px] font-bold text-emerald-700 dark:text-emerald-300 shadow-2xs whitespace-nowrap">
-												<Check size={12} class="stroke-[3] text-emerald-600 dark:text-emerald-400 shrink-0" />
-												<span>Primary Active Engine</span>
-											</div>
-										{:else}
-											<div class="inline-flex items-center self-start sm:self-auto gap-1.5 rounded-full bg-black/5 dark:bg-white/5 border border-black/10 dark:border-white/10 px-2.5 py-0.5 text-[10.5px] font-medium opacity-60 whitespace-nowrap">
-												<span>Standby Engine</span>
-											</div>
-										{/if}
-									</div>
+								{@const currentModelId = activeModelDraft[currentP.id] || currentP.activeModel}
+								<div class="rounded-xl border border-black/10 bg-black/[0.015] p-3 sm:p-3.5 dark:border-white/10 dark:bg-white/[0.015] space-y-3">
+									<!-- PROVIDER TITLE & ACTIVE MODEL ROW -->
+									<div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2.5 pb-2.5 border-b border-black/5 dark:border-white/5">
+										<!-- LEFT: PROVIDER SELECTOR POPOVER -->
+										<div
+											id="setting-providers-hub"
+											class={cn(
+												'relative transition-all duration-300 rounded-lg w-full sm:w-auto',
+												highlightedSettingId === 'providers-hub' &&
+													'ring-2 ring-[#b23a2e] dark:ring-[#e08a63] bg-[#b23a2e]/[0.06] dark:bg-[#e08a63]/[0.08] p-1 -m-1'
+											)}
+										>
+											<button
+												type="button"
+												id="setting-provider-brand-trigger"
+												on:click={() => (showProviderPopover = !showProviderPopover)}
+												aria-expanded={showProviderPopover}
+												class={cn(
+													'group w-full sm:w-auto inline-flex items-center justify-between sm:justify-start gap-2.5 rounded-lg border px-2.5 py-2 sm:py-1.5 text-left transition cursor-pointer',
+													showProviderPopover
+														? 'border-[#b23a2e] bg-[#b23a2e]/10 text-neutral-900 dark:border-[#e08a63] dark:bg-[#e08a63]/15 dark:text-neutral-100 shadow-2xs'
+														: 'border-black/10 bg-black/[0.03] hover:bg-black/5 hover:border-black/20 dark:border-white/10 dark:bg-white/[0.04] dark:hover:bg-white/10 text-neutral-900 dark:text-neutral-100'
+												)}
+												use:ripple
+											>
+												<div class="flex items-center gap-2 min-w-0">
+													<ProviderLogo providerId={currentP.id} size={18} class="shrink-0" />
+													<div class="flex items-baseline gap-1.5 min-w-0">
+														<span class="text-sm font-bold truncate max-w-[140px] sm:max-w-none">{currentP.name}</span>
+														<span class="text-[10px] font-mono opacity-50 shrink-0">({currentP.id})</span>
+													</div>
+												</div>
+												<ChevronDown
+													size={13}
+													class={cn(
+														'opacity-40 transition-transform duration-200 group-hover:opacity-80 shrink-0 ml-0.5',
+														showProviderPopover && 'rotate-180'
+													)}
+												/>
+											</button>
 
-									<!-- ENDPOINT BASE URL VIEWER & EDITOR -->
-									<div
-										id="setting-custom-endpoint"
-										class={cn(
-											'space-y-1.5 transition-all duration-300',
-											highlightedSettingId === 'custom-endpoint' &&
-												'ring-2 ring-[#b23a2e] dark:ring-[#e08a63] bg-[#b23a2e]/[0.06] dark:bg-[#e08a63]/[0.08] rounded-xl p-2'
-										)}
-									>
-										<div class="flex items-center justify-between gap-2">
-											<label for={`prov-url-${currentP.id}`} class="text-[11px] font-semibold opacity-80 flex items-center gap-1.5 min-w-0">
-												<Globe size={12} class="text-[#b23a2e] dark:text-[#e08a63] shrink-0" />
-												<span class="truncate">Endpoint Base URL</span>
-											</label>
-											{#if baseUrlDraft[currentP.id] && DEFAULT_PROVIDER_BASE_URLS[currentP.id] && baseUrlDraft[currentP.id] !== DEFAULT_PROVIDER_BASE_URLS[currentP.id]}
+											{#if showProviderPopover}
 												<button
 													type="button"
-													on:click={() => { baseUrlDraft[currentP.id] = DEFAULT_PROVIDER_BASE_URLS[currentP.id]; }}
-													class="inline-flex items-center gap-1 text-[10px] font-semibold text-[#b23a2e] dark:text-[#e08a63] hover:underline cursor-pointer shrink-0"
-													use:ripple
+													transition:fade={{ duration: 120 }}
+													class="fixed inset-0 z-40 bg-transparent cursor-default border-0 p-0"
+													on:click={() => (showProviderPopover = false)}
+													aria-label="Close provider selector"
+													tabindex="-1"
+												></button>
+
+												<div
+													transition:fly={{ y: -8, duration: 160, easing: cubicOut }}
+													class={cn(
+														'absolute left-0 top-full z-50 mt-1.5 w-full sm:w-[400px] max-w-[calc(100vw-2.5rem)] rounded-xl border p-2 shadow-2xl backdrop-blur-md',
+														popover,
+														popoverBorder
+													)}
 												>
-													<RotateCcw size={10} />
-													<span>Reset Default</span>
-												</button>
+													<div class="flex items-center justify-between px-2 py-1 text-[10px] font-bold uppercase tracking-wider opacity-50">
+														<span>Switch Provider</span>
+														<span>{providers.length} available</span>
+													</div>
+
+													<div class="grid grid-cols-1 sm:grid-cols-2 gap-1.5 mt-1 max-h-[300px] sm:max-h-[320px] overflow-y-auto p-0.5">
+														{#each providers as prov}
+															{@const isCurrent = prov.id === currentP.id}
+															<button
+																type="button"
+																on:click={() => {
+																	selectedProviderId = prov.id;
+																	testResult = null;
+																	showProviderPopover = false;
+																}}
+																class={cn(
+																	'flex items-center justify-between gap-2 rounded-lg p-2.5 sm:p-2 text-left transition-all border cursor-pointer min-h-[44px] sm:min-h-0',
+																	isCurrent
+																		? 'border-[#b23a2e] bg-[#b23a2e]/[0.08] text-foreground dark:border-[#e08a63] dark:bg-[#e08a63]/[0.12] shadow-2xs font-semibold'
+																		: 'border-black/5 bg-black/[0.02] hover:bg-black/5 hover:border-black/15 dark:border-white/5 dark:bg-white/[0.02] dark:hover:bg-white/5 opacity-85 hover:opacity-100'
+																)}
+																use:ripple
+															>
+																<div class="flex items-center gap-2 min-w-0">
+																	<ProviderLogo providerId={prov.id} size={16} class="shrink-0" />
+																	<div class="min-w-0">
+																		<div class="text-xs font-semibold truncate leading-tight">{prov.name}</div>
+																		<div class="text-[9.5px] font-mono opacity-50 truncate mt-0.5">{prov.id}</div>
+																	</div>
+																</div>
+																<div class="flex items-center gap-1.5 shrink-0">
+																	{#if prov.isDefault}
+																		<span class="rounded bg-[#4f7a64]/15 px-1 py-0.5 text-[9px] font-bold text-[#4f7a64] dark:bg-[#689d7d]/20 dark:text-[#689d7d] leading-none">
+																			Active
+																		</span>
+																	{:else if prov.hasKey}
+																		<Key size={10} class="opacity-40" />
+																	{/if}
+																	{#if isCurrent}
+																		<Check size={12} class="text-[#b23a2e] dark:text-[#e08a63] stroke-[2.5]" />
+																	{/if}
+																</div>
+															</button>
+														{/each}
+													</div>
+												</div>
 											{/if}
 										</div>
-										<div class="relative flex items-center">
+
+										<!-- RIGHT: ACTIVE MODEL SELECTOR -->
+										<div
+											id="setting-model-scan"
+											class={cn(
+												'relative transition-all duration-300 rounded-lg w-full sm:w-auto shrink-0',
+												highlightedSettingId === 'model-scan' &&
+													'ring-2 ring-[#b23a2e] dark:ring-[#e08a63] bg-[#b23a2e]/[0.06] dark:bg-[#e08a63]/[0.08] p-1 -m-1'
+											)}
+										>
+											<button
+												type="button"
+												id="setting-model-trigger"
+												on:click={() => { modelSearch = ''; showModelModal = true; }}
+												class="group w-full sm:w-auto inline-flex items-center justify-between sm:justify-start gap-2.5 rounded-lg border border-black/10 bg-black/[0.03] hover:bg-black/5 hover:border-black/20 dark:border-white/10 dark:bg-white/[0.04] dark:hover:bg-white/10 px-2.5 py-2 sm:py-1.5 text-left transition cursor-pointer shadow-2xs overflow-hidden"
+												use:ripple
+												title="Change active model"
+												aria-label="Change active model"
+											>
+												<div class="flex items-center gap-2 min-w-0">
+													<Cpu size={14} class="text-[#b23a2e] dark:text-[#e08a63] opacity-80 shrink-0" />
+													<div class="flex items-baseline gap-1.5 min-w-0">
+														<span class="text-[10px] font-bold uppercase tracking-wider opacity-50 shrink-0">Model</span>
+														{#if currentModelId}
+															<span class="font-mono text-xs font-bold text-[#b23a2e] dark:text-[#e08a63] truncate max-w-[140px] sm:max-w-[200px]">
+																{currentModelId}
+															</span>
+														{:else}
+															<span class="text-xs opacity-50 italic">None</span>
+														{/if}
+													</div>
+												</div>
+
+												<ChevronDown
+													size={13}
+													class="opacity-40 transition-transform duration-200 group-hover:opacity-80 shrink-0 ml-0.5"
+												/>
+											</button>
+										</div>
+									</div>
+
+									<!-- CREDENTIALS & ENDPOINT GRID -->
+									<div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+										{#if !currentIsLocal}
+											<div id="setting-api-key" class="space-y-1">
+												<div class="flex items-center justify-between text-xs font-semibold opacity-80">
+													<label for={`prov-key-${currentP.id}`}>API Key</label>
+													{#if currentP.hasKey && !isReplacingKey[currentP.id]}
+														<span class="text-[10.5px] font-semibold text-emerald-600 dark:text-emerald-400">
+															Configured
+														</span>
+													{:else if isReplacingKey[currentP.id]}
+														<button
+															type="button"
+															on:click={() => { isReplacingKey[currentP.id] = false; apiKeyDraft[currentP.id] = ''; }}
+															class="text-[10.5px] font-semibold text-[#b23a2e] dark:text-[#e08a63] hover:underline cursor-pointer"
+															use:ripple
+														>
+															Cancel
+														</button>
+													{/if}
+												</div>
+
+												{#if currentP.hasKey && !isReplacingKey[currentP.id]}
+													<!-- MASKED KEY PREVIEW (REPLACES INPUT FIELD) -->
+													<div class="flex items-center justify-between gap-2 h-[34px] px-2.5 rounded-lg border border-black/10 dark:border-white/10 bg-black/[0.02] dark:bg-white/[0.02]">
+														<div class="flex items-center gap-2 min-w-0">
+															<Key size={13} class="text-[#4f7a64] shrink-0" />
+															<span class="font-mono text-xs tracking-wider text-foreground/90 truncate">
+																{currentP.maskedKey || '••••••••••••'}
+															</span>
+														</div>
+														<div class="flex items-center gap-1 shrink-0">
+															<button
+																type="button"
+																on:click={() => { isReplacingKey[currentP.id] = true; apiKeyDraft[currentP.id] = ''; }}
+																class="inline-flex items-center gap-1 rounded px-2 py-0.5 text-xs font-medium text-foreground/70 hover:text-foreground hover:bg-black/5 dark:hover:bg-white/5 cursor-pointer transition-colors"
+																title="Replace API key"
+																use:ripple
+															>
+																<Edit3 size={11} />
+																<span>Change</span>
+															</button>
+															<button
+																type="button"
+																on:click={() => clearKey(currentP.id)}
+																class="inline-flex items-center gap-1 rounded px-2 py-0.5 text-xs font-medium text-red-600 dark:text-red-400 hover:bg-red-500/10 cursor-pointer transition-colors"
+																title="Clear API key"
+																use:ripple
+															>
+																<Trash2 size={11} />
+																<span>Clear</span>
+															</button>
+														</div>
+													</div>
+												{:else}
+													<!-- NORMAL INPUT FIELD -->
+													<div class="relative flex items-center">
+														{#if showApiKey[currentP.id]}
+															<input
+																id={`prov-key-${currentP.id}`}
+																type="text"
+																bind:value={apiKeyDraft[selectedProviderId]}
+																placeholder={currentP.hasKey ? 'Enter new API key...' : 'Enter API key...'}
+																class="h-[34px] w-full rounded-lg border border-black/10 bg-transparent px-2.5 pr-8 text-xs font-mono outline-none focus:border-[#b23a2e] focus:ring-1 focus:ring-[#b23a2e]/30 dark:border-white/10"
+															/>
+														{:else}
+															<input
+																id={`prov-key-${currentP.id}`}
+																type="password"
+																bind:value={apiKeyDraft[selectedProviderId]}
+																placeholder={currentP.hasKey ? 'Enter new API key...' : 'Enter API key...'}
+																class="h-[34px] w-full rounded-lg border border-black/10 bg-transparent px-2.5 pr-8 text-xs font-mono outline-none focus:border-[#b23a2e] focus:ring-1 focus:ring-[#b23a2e]/30 dark:border-white/10"
+															/>
+														{/if}
+														<button
+															type="button"
+															on:click={() => (showApiKey[currentP.id] = !showApiKey[currentP.id])}
+															class="absolute right-2 top-1/2 -translate-y-1/2 p-1 text-neutral-400 hover:text-neutral-200 cursor-pointer"
+															title={showApiKey[currentP.id] ? 'Hide API key' : 'Show API key'}
+															use:ripple
+														>
+															{#if showApiKey[currentP.id]}<EyeOff size={13} />{:else}<Eye size={13} />{/if}
+														</button>
+													</div>
+												{/if}
+											</div>
+										{/if}
+
+										<div id="setting-custom-endpoint" class={cn('space-y-1', currentIsLocal && 'sm:col-span-2')}>
+											<div class="flex items-center justify-between text-xs font-semibold opacity-80">
+												<label for={`prov-url-${currentP.id}`}>Endpoint Base URL</label>
+												{#if baseUrlDraft[currentP.id] && DEFAULT_PROVIDER_BASE_URLS[currentP.id] && baseUrlDraft[currentP.id] !== DEFAULT_PROVIDER_BASE_URLS[currentP.id]}
+													<button
+														type="button"
+														on:click={() => { baseUrlDraft[currentP.id] = DEFAULT_PROVIDER_BASE_URLS[currentP.id]; }}
+														class="text-[10px] font-semibold text-[#b23a2e] dark:text-[#e08a63] hover:underline cursor-pointer"
+														use:ripple
+													>
+														Reset Default
+													</button>
+												{/if}
+											</div>
 											<input
 												id={`prov-url-${currentP.id}`}
 												type="text"
 												bind:value={baseUrlDraft[selectedProviderId]}
-												placeholder={DEFAULT_PROVIDER_BASE_URLS[currentP.id] || 'https://api.fireworks.ai/inference/v1'}
-												class="h-[38px] w-full rounded-lg border border-black/10 bg-transparent px-3 text-xs font-mono outline-none transition-colors placeholder:opacity-40 focus:border-[#b23a2e] focus:ring-2 focus:ring-[#b23a2e]/30 dark:border-white/[0.08]"
+												placeholder={DEFAULT_PROVIDER_BASE_URLS[currentP.id] || 'https://api.openai.com/v1'}
+												class="h-[34px] w-full rounded-lg border border-black/10 bg-transparent px-2.5 text-xs font-mono outline-none focus:border-[#b23a2e] focus:ring-1 focus:ring-[#b23a2e]/30 dark:border-white/10"
 											/>
 										</div>
-										<p class="text-[10px] opacity-60">
-											OpenAI-compatible inference endpoint (e.g. Fireworks AI, OpenRouter, vLLM, or custom proxy).
-										</p>
 									</div>
 
-									<!-- API KEY FIELD (VAULT) -->
-									{#if !currentIsLocal}
-										<div
-											id="setting-api-key"
-											class={cn(
-											'space-y-1.5 transition-all duration-300',
-											highlightedSettingId === 'api-key' &&
-												'ring-2 ring-[#b23a2e] dark:ring-[#e08a63] bg-[#b23a2e]/[0.06] dark:bg-[#e08a63]/[0.08] rounded-xl p-2'
-										)}
-									>
-										<div class="flex flex-wrap items-center justify-between gap-1">
-											<label for={`prov-key-${currentP.id}`} class="text-[11px] font-semibold opacity-80 flex items-center gap-1.5">
-												<Key size={12} class="text-[#b23a2e] dark:text-[#e08a63]" />
-												<span>API Key Vault</span>
-											</label>
-											{#if currentP.hasKey}
-												<div class="flex items-center gap-2 text-[10px]">
-													<span class="text-emerald-600 dark:text-emerald-400 font-mono font-semibold truncate max-w-[140px] sm:max-w-none">Active: {currentP.maskedKey}</span>
-													<button
-														type="button"
-														on:click={() => clearKey(currentP.id)}
-														class="inline-flex items-center gap-1 font-semibold text-red-600 dark:text-red-400 hover:underline cursor-pointer shrink-0"
-														use:ripple
-													>
-														<Trash2 size={10} />
-														<span>Clear</span>
-													</button>
-												</div>
-											{/if}
-										</div>
-										<div class="relative flex items-center">
-											{#if showApiKey[currentP.id]}
-												<input
-													id={`prov-key-${currentP.id}`}
-													type="text"
-													bind:value={apiKeyDraft[selectedProviderId]}
-													placeholder={currentP.hasKey ? `Replace key (${currentP.maskedKey})...` : 'Enter API Key...'}
-													class="h-[38px] w-full rounded-lg border border-black/10 bg-transparent px-3 pr-10 text-xs font-mono outline-none transition-colors placeholder:opacity-40 focus:border-[#b23a2e] focus:ring-2 focus:ring-[#b23a2e]/30 dark:border-white/[0.08]"
-												/>
+									<!-- TEST RESULTS INLINE BANNER -->
+									{#if testResult}
+										<div id="setting-test-connection" class="flex items-center gap-2 rounded-lg p-2 text-xs border border-black/10 dark:border-white/10 bg-black/[0.02] dark:bg-white/[0.02]">
+											{#if testResult.ok}
+												<CheckCircle2 size={13} class="text-emerald-600 dark:text-emerald-400 shrink-0" />
 											{:else}
-												<input
-													id={`prov-key-${currentP.id}`}
-													type="password"
-													bind:value={apiKeyDraft[selectedProviderId]}
-													placeholder={currentP.hasKey ? `Replace key (${currentP.maskedKey})...` : 'Enter API Key...'}
-													class="h-[38px] w-full rounded-lg border border-black/10 bg-transparent px-3 pr-10 text-xs font-mono outline-none transition-colors placeholder:opacity-40 focus:border-[#b23a2e] focus:ring-2 focus:ring-[#b23a2e]/30 dark:border-white/[0.08]"
-												/>
+												<AlertCircle size={13} class="text-red-500 shrink-0" />
 											{/if}
-											<button
-												type="button"
-												on:click={() => (showApiKey[currentP.id] = !showApiKey[currentP.id])}
-												class="absolute right-2.5 top-1/2 -translate-y-1/2 p-1 text-neutral-400 hover:text-neutral-600 dark:hover:text-neutral-200 cursor-pointer"
-												use:ripple
-											>
-												{#if showApiKey[currentP.id]}<EyeOff size={14} />{:else}<Eye size={14} />{/if}
-											</button>
+											<span class="font-bold">{testResult.ok ? 'Verified' : 'Error'}</span>
+											{#if testResult.ok && testResult.latencyMs}
+												<span class="font-mono text-[10px] opacity-70">({testResult.latencyMs}ms)</span>
+											{/if}
+											<span class="text-[11px] opacity-80 truncate">{testResult.message}</span>
 										</div>
-									</div>
-								{/if}
+									{/if}
 
-								<!-- MODEL PICKER, SCANNER & MANAGEMENT -->
-								<div
-									id="setting-model-scan"
-									class={cn(
-										'space-y-2.5 transition-all duration-300',
-										highlightedSettingId === 'model-scan' &&
-											'ring-2 ring-[#b23a2e] dark:ring-[#e08a63] bg-[#b23a2e]/[0.06] dark:bg-[#e08a63]/[0.08] rounded-xl p-2'
-									)}
-								>
-									<div class="flex items-center justify-between gap-2">
-										<div class="flex items-center gap-1.5 min-w-0">
-											<Cpu size={12} class="text-[#b23a2e] dark:text-[#e08a63] shrink-0" />
-											<span class="text-[11px] font-semibold opacity-80 truncate">Available Models ({currentP.availableModels.length})</span>
-										</div>
+									<!-- ACTION BUTTONS -->
+									<div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 pt-1 border-t border-black/5 dark:border-white/5">
 										<button
+											id="setting-test-connection"
 											type="button"
-											on:click={() => scanModels(currentP.id)}
-											disabled={scanningModels}
-											class="inline-flex items-center gap-1 text-[11px] font-bold text-[#b23a2e] dark:text-[#e08a63] hover:underline cursor-pointer disabled:opacity-50 shrink-0"
+											on:click={() => testConnection(currentP.id)}
+											disabled={testingProvider}
+											class="w-full sm:w-auto justify-center inline-flex items-center gap-1.5 rounded-lg border border-black/15 px-3 py-2 sm:py-1.5 text-xs font-semibold hover:bg-black/5 dark:border-white/15 dark:hover:bg-white/5 cursor-pointer"
 											use:ripple
 										>
-											<RefreshCw size={11} class={scanningModels ? 'animate-spin' : ''} />
-											<span>{scanningModels ? 'Scanning Endpoint...' : 'Scan Models'}</span>
-										</button>
-									</div>
-
-									<!-- SEARCH & ADD CUSTOM MODEL ROW -->
-									<div class="flex flex-col sm:flex-row items-stretch sm:items-center gap-2">
-										{#if currentP.availableModels.length >= 4}
-											<div class="relative flex-1 w-full">
-												<Search size={12} class="absolute left-2.5 top-1/2 -translate-y-1/2 opacity-40" />
-												<input
-													type="text"
-													bind:value={modelSearch}
-													placeholder="Filter models..."
-													class="h-[32px] w-full rounded-lg border border-black/10 bg-transparent pl-7 pr-3 text-[11px] outline-none transition-colors placeholder:opacity-40 focus:border-[#b23a2e] dark:border-white/[0.08]"
-												/>
-											</div>
-										{/if}
-										<div class="flex items-center gap-1.5 w-full flex-1">
-											<input
-												type="text"
-												bind:value={customModelInput}
-												placeholder="Add model ID (e.g. qwen-2.5-72b)..."
-												class="h-[32px] min-w-0 flex-1 rounded-lg border border-black/10 bg-transparent px-2.5 text-[11px] font-mono outline-none transition-colors placeholder:opacity-40 focus:border-[#b23a2e] dark:border-white/[0.08]"
-												on:keydown={(e) => { if (e.key === 'Enter') addCustomModel(currentP.id); }}
-											/>
-											<button
-												type="button"
-												on:click={() => addCustomModel(currentP.id)}
-												disabled={!customModelInput.trim()}
-												class="inline-flex items-center justify-center gap-1 h-[32px] rounded-lg bg-black/5 dark:bg-white/5 hover:bg-black/10 dark:hover:bg-white/10 px-3 text-[11px] font-bold cursor-pointer disabled:opacity-40 shrink-0"
-												use:ripple
-											>
-												<Plus size={12} />
-												<span>Add</span>
-											</button>
-										</div>
-									</div>
-
-									<!-- MODEL TILES GRID -->
-									<div class="max-h-[240px] overflow-y-auto space-y-1.5 pr-1">
-										{#if filteredModels.length > 0}
-											<div class="grid grid-cols-1 sm:grid-cols-2 gap-2">
-												{#each filteredModels as modelId}
-													{@const isModelSelected = (activeModelDraft[currentP.id] || currentP.activeModel) === modelId}
-													<button
-														type="button"
-														on:click={() => (activeModelDraft[currentP.id] = modelId)}
-														class={cn(
-															'group relative flex flex-col justify-between rounded-xl border p-2.5 text-left transition-all cursor-pointer',
-															isModelSelected
-																? 'border-[#b23a2e] bg-[#b23a2e]/[0.08] ring-1 ring-[#b23a2e]/30 dark:border-[#e08a63] dark:bg-[#e08a63]/[0.08]'
-																: 'border-black/10 hover:border-black/20 dark:border-white/10'
-														)}
-														use:ripple
-													>
-														<div class="flex items-start justify-between w-full gap-2">
-															<div class="min-w-0 pr-6">
-																<span class="text-xs font-bold truncate block">{formatModelLabel(modelId)}</span>
-																<div class="mt-0.5 text-[9px] font-mono opacity-50 truncate break-all">{modelId}</div>
-															</div>
-															{#if isModelSelected}
-																<Check size={13} class="text-[#b23a2e] dark:text-[#e08a63] shrink-0 mt-0.5" />
-															{/if}
-														</div>
-
-														<!-- DELETE BUTTON -->
-														<button
-															type="button"
-															on:click|stopPropagation={() => removeModel(currentP.id, modelId)}
-															title={`Remove model "${modelId}"`}
-															class="absolute right-2 top-2 p-1 rounded-md text-neutral-400 hover:text-red-500 hover:bg-red-500/10 dark:hover:bg-red-500/20 transition-colors cursor-pointer"
-															use:ripple
-														>
-															<Trash2 size={12} />
-														</button>
-													</button>
-												{/each}
-											</div>
-										{:else}
-											<div class="rounded-xl border border-dashed border-black/15 dark:border-white/15 p-4 text-center">
-												<p class="text-xs opacity-60">No models in list.</p>
-												<p class="text-[11px] opacity-40 mt-1">Click <strong>Scan Models</strong> to query the endpoint or enter a model ID above.</p>
-											</div>
-										{/if}
-									</div>
-								</div>
-
-								<!-- TEST RESULTS BANNER -->
-								{#if testResult}
-									<div
-										id="setting-test-connection"
-										class={cn(
-											'flex items-start gap-2.5 rounded-xl p-3 text-xs leading-relaxed',
-											testResult.ok
-												? 'bg-emerald-500/10 border border-emerald-500/30 text-emerald-800 dark:text-emerald-300'
-												: 'bg-red-500/10 border border-red-500/30 text-red-800 dark:text-red-300'
-										)}
-									>
-										{#if testResult.ok}
-											<CheckCircle2 size={16} class="shrink-0 text-emerald-600 dark:text-emerald-400 mt-0.5" />
-										{:else}
-											<AlertCircle size={16} class="shrink-0 text-red-500 mt-0.5" />
-										{/if}
-										<div class="flex-1 min-w-0">
-											<div class="flex items-center gap-2">
-												<strong>{testResult.ok ? 'Connection Verified' : 'Connection Error'}</strong>
-												{#if testResult.ok && testResult.latencyMs}
-													<span class="rounded bg-emerald-500/20 px-1.5 py-0.2 text-[10px] font-mono font-bold">
-														{testResult.latencyMs}ms
-													</span>
-												{/if}
-											</div>
-											<p class="mt-0.5 text-[11px] opacity-90 break-words">{testResult.message}</p>
-										</div>
-									</div>
-								{/if}
-
-								<!-- ACTION BUTTONS -->
-								<div class="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-2.5 pt-3 border-t border-black/10 dark:border-white/10">
-									<!-- TEST CONNECTION BUTTON -->
-									<button
-										id="setting-test-connection"
-										type="button"
-										on:click={() => testConnection(currentP.id)}
-										disabled={testingProvider}
-										class={`inline-flex items-center justify-center gap-2 rounded-xl border border-black/15 bg-white px-3.5 py-2 text-xs font-semibold hover:bg-neutral-50 dark:border-white/15 dark:bg-white/5 dark:hover:bg-white/10 cursor-pointer w-full sm:w-auto transition-all duration-300 ${highlightedSettingId === 'test-connection' ? 'ring-2 ring-[#b23a2e] dark:ring-[#e08a63] bg-[#b23a2e]/[0.06] dark:bg-[#e08a63]/[0.08]' : ''}`}
-										use:ripple
-									>
-										<RefreshCw size={13} class={testingProvider ? 'animate-spin' : ''} />
-										<span>{testingProvider ? 'Testing Endpoint...' : 'Test Connection'}</span>
-									</button>
-
-									<!-- SAVE & ACTIVATION BUTTONS -->
-									<div class="flex flex-col sm:flex-row items-stretch sm:items-center gap-2 w-full sm:w-auto">
-										<!-- SAVE PROVIDER BUTTON -->
-										<button
-											type="button"
-											on:click={() => saveProvider(currentP.id, false)}
-											disabled={savingProvider || !hasProviderChanges}
-											class={cn(
-												'inline-flex items-center justify-center gap-1.5 rounded-xl px-3.5 py-2 text-xs font-semibold cursor-pointer w-full sm:w-auto transition-colors disabled:opacity-40 disabled:cursor-not-allowed',
-												currentP.isDefault
-													? 'bg-[#b23a2e] hover:bg-[#962f25] text-white font-bold shadow-xs'
-													: 'border border-black/15 bg-white hover:bg-neutral-50 dark:border-white/15 dark:bg-white/5 dark:hover:bg-white/10'
-											)}
-											title={hasProviderChanges ? 'Save endpoint and API credentials' : 'No changes to save'}
-											use:ripple={{ disabled: !hasProviderChanges || savingProvider }}
-										>
-											<Save size={13} />
-											<span>Save Provider</span>
+											<RefreshCw size={11} class={testingProvider ? 'animate-spin' : ''} />
+											<span>{testingProvider ? 'Testing...' : 'Test Connection'}</span>
 										</button>
 
-										{#if !currentP.isDefault}
-											<!-- SAVE & SET AS ACTIVE ENGINE -->
+										<div class="flex flex-col sm:flex-row items-stretch sm:items-center gap-2 w-full sm:w-auto">
 											<button
 												type="button"
-												on:click={() => saveProvider(currentP.id, true)}
-												disabled={savingProvider}
-												class="inline-flex items-center justify-center gap-1.5 rounded-xl bg-[#b23a2e] hover:bg-[#962f25] text-white px-4 py-2 text-xs font-bold cursor-pointer w-full sm:w-auto shadow-xs"
-												title="Save configuration and route all chapter translations through this engine"
-												use:ripple
+												on:click={() => saveProvider(currentP.id, false)}
+												disabled={savingProvider || !hasProviderChanges}
+												class={cn(
+													'w-full sm:w-auto justify-center inline-flex items-center gap-1.5 rounded-lg px-3 py-2 sm:py-1.5 text-xs font-semibold cursor-pointer transition-colors',
+													currentP.isDefault
+														? 'bg-[#b23a2e] hover:bg-[#962f25] text-white font-bold'
+														: 'border border-black/15 hover:bg-black/5 dark:border-white/15 dark:hover:bg-white/5',
+													!hasProviderChanges && 'opacity-40 cursor-not-allowed'
+												)}
+												use:ripple={{ disabled: !hasProviderChanges || savingProvider }}
 											>
-												<Check size={13} />
-												<span>Save & Set Active</span>
+												<Save size={11} />
+												<span>Save Provider</span>
 											</button>
-										{/if}
+
+											{#if !currentP.isDefault}
+												<button
+													type="button"
+													on:click={() => saveProvider(currentP.id, true)}
+													disabled={savingProvider}
+													class="w-full sm:w-auto justify-center inline-flex items-center gap-1.5 rounded-lg bg-[#b23a2e] hover:bg-[#962f25] text-white px-3 py-2 sm:py-1.5 text-xs font-bold cursor-pointer transition-colors shadow-2xs"
+													use:ripple
+												>
+													<Check size={11} />
+													<span>{hasProviderChanges ? 'Save & Set Active' : 'Set as Active Engine'}</span>
+												</button>
+											{/if}
+										</div>
 									</div>
-								</div>
 								</div>
 							{/if}
 						{/if}
+
+						<!-- INFERENCE & SAMPLING CARD -->
+						<div
+							id="setting-inference-sampling"
+							class={cn(
+								'rounded-xl border border-black/10 dark:border-white/10 bg-black/[0.015] dark:bg-white/[0.015] p-3.5 sm:p-4 space-y-4 transition-all duration-300',
+								highlightedSettingId === 'inference-sampling' &&
+									'ring-2 ring-[#b23a2e] dark:ring-[#e08a63] bg-[#b23a2e]/[0.06] dark:bg-[#e08a63]/[0.08]'
+							)}
+						>
+							<!-- CARD HEADER -->
+							<div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2.5 pb-2.5 border-b border-black/10 dark:border-white/10">
+								<div class="flex items-center gap-2.5">
+									<div class="flex h-7 w-7 items-center justify-center rounded-lg bg-[#b23a2e]/10 text-[#b23a2e] dark:bg-[#e08a63]/15 dark:text-[#e08a63] shrink-0">
+										<SlidersHorizontal size={14} />
+									</div>
+									<div>
+										<div class="flex items-center gap-2">
+											<span class="text-xs font-bold uppercase tracking-wider opacity-85">Inference & Sampling</span>
+											{#if isInferenceModified}
+												<span class="inline-flex items-center rounded-md bg-[#b23a2e]/10 dark:bg-[#e08a63]/20 px-1.5 py-0.5 text-[10px] font-semibold text-[#b23a2e] dark:text-[#e08a63]">
+													Customized
+												</span>
+											{/if}
+										</div>
+										<p class="text-[11px] opacity-50">Token budget, sampling diversity, and reasoning limits</p>
+									</div>
+								</div>
+								{#if isInferenceModified}
+									<button
+										type="button"
+										on:click={resetInferenceDefaults}
+										class="inline-flex items-center gap-1 text-[11px] font-semibold text-[#b23a2e] dark:text-[#e08a63] hover:underline cursor-pointer self-start sm:self-auto"
+										use:ripple
+									>
+										<RotateCcw size={11} />
+										<span>Reset to Defaults</span>
+									</button>
+								{/if}
+							</div>
+
+							<!-- PARAMETERS -->
+							<div class="space-y-4">
+								<!-- MAX OUTPUT TOKENS -->
+								<div
+									id="setting-max-tokens"
+									class={cn(
+										'space-y-2 transition-all duration-300 rounded-lg p-1 -m-1',
+										highlightedSettingId === 'max-tokens' &&
+											'ring-2 ring-[#b23a2e] dark:ring-[#e08a63] bg-[#b23a2e]/[0.06] dark:bg-[#e08a63]/[0.08]'
+									)}
+								>
+									<div class="flex items-center justify-between text-xs">
+										<div class="flex items-center gap-1.5 font-semibold">
+											<Hash size={13} class="text-[#b23a2e] dark:text-[#e08a63]" />
+											<span class="opacity-80">Max Output Tokens</span>
+										</div>
+										<div class="flex items-center gap-1.5 text-xs">
+											{#if isCustomTokensActive}
+												<span class="rounded bg-[#b23a2e]/10 dark:bg-[#e08a63]/20 px-1.5 py-0.5 text-[10px] font-mono font-bold text-[#b23a2e] dark:text-[#e08a63]">
+													Custom
+												</span>
+											{/if}
+											<span class="font-mono font-bold text-[#b23a2e] dark:text-[#e08a63] text-xs">
+												{($settings.translationMaxTokens ?? 4096).toLocaleString()} tokens
+											</span>
+										</div>
+									</div>
+
+									<div class="grid grid-cols-3 sm:grid-cols-6 gap-1.5">
+										{#each TOKEN_BUDGET_PRESETS as preset}
+											{@const isSelected = !isCustomTokensActive && ($settings.translationMaxTokens ?? 4096) === preset}
+											<button
+												type="button"
+												on:click={() => setMaxTokens(preset)}
+												class={cn(
+													'h-8 flex items-center justify-center rounded-lg border text-xs font-mono font-bold transition-colors cursor-pointer',
+													isSelected
+														? 'border-[#b23a2e] bg-[#b23a2e] text-white dark:border-[#e08a63] dark:bg-[#e08a63] dark:text-neutral-950 shadow-2xs'
+														: 'border-black/10 bg-white/60 hover:bg-black/5 dark:border-white/10 dark:bg-neutral-800/60 dark:hover:bg-white/5 opacity-80 hover:opacity-100'
+												)}
+												use:ripple
+											>
+												{preset >= 1024 ? `${preset / 1024}k` : preset}
+											</button>
+										{/each}
+										<button
+											type="button"
+											on:click={() => {
+												customTokensInput = String($settings.translationMaxTokens ?? 4096);
+												showCustomTokensModal = true;
+											}}
+											class={cn(
+												'h-8 flex items-center justify-center rounded-lg border text-xs font-semibold transition-colors cursor-pointer',
+												isCustomTokensActive
+													? 'border-[#b23a2e] bg-[#b23a2e] text-white dark:border-[#e08a63] dark:bg-[#e08a63] dark:text-neutral-950 shadow-2xs font-bold'
+													: 'border-black/10 bg-white/60 hover:bg-black/5 dark:border-white/10 dark:bg-neutral-800/60 dark:hover:bg-white/5 opacity-80 hover:opacity-100'
+											)}
+											use:ripple
+										>
+											Custom
+										</button>
+									</div>
+								</div>
+
+								<!-- REASONING EFFORT -->
+								<div
+									id="setting-reasoning-effort"
+									class={cn(
+										'space-y-2 pt-2.5 border-t border-black/10 dark:border-white/10 transition-all duration-300 rounded-lg p-1 -m-1',
+										highlightedSettingId === 'reasoning-effort' &&
+											'ring-2 ring-[#b23a2e] dark:ring-[#e08a63] bg-[#b23a2e]/[0.06] dark:bg-[#e08a63]/[0.08]'
+									)}
+								>
+									<div class="flex items-center justify-between text-xs">
+										<div class="flex items-center gap-1.5 font-semibold">
+											<Brain size={13} class="text-[#b23a2e] dark:text-[#e08a63]" />
+											<span class="opacity-80">Reasoning Effort</span>
+										</div>
+										<div class="flex items-center gap-1.5 text-xs min-w-0">
+											{#if isCustomReasoningActive}
+												<span class="rounded bg-[#b23a2e]/10 dark:bg-[#e08a63]/20 px-1.5 py-0.5 text-[10px] font-mono font-bold text-[#b23a2e] dark:text-[#e08a63]">
+													Custom
+												</span>
+												<span class="font-mono font-bold text-[#b23a2e] dark:text-[#e08a63] text-xs truncate max-w-[160px]">
+													{currentCustomReasoningValue || 'custom'}
+												</span>
+											{:else}
+												<span class="font-mono text-xs opacity-70 font-semibold capitalize">
+													{currentReasoningEffort}
+												</span>
+											{/if}
+										</div>
+									</div>
+
+									<div class="flex flex-wrap items-center gap-1.5">
+										{#each REASONING_EFFORT_OPTIONS as opt}
+											{@const isSelected = !isCustomReasoningActive && currentReasoningEffort === opt.value}
+											<button
+												type="button"
+												on:click={() => setReasoningEffort(opt.value)}
+												class={cn(
+													'rounded-lg border px-2.5 py-1 text-xs font-semibold transition-colors cursor-pointer',
+													isSelected
+														? 'border-[#b23a2e] bg-[#b23a2e] text-white dark:border-[#e08a63] dark:bg-[#e08a63] dark:text-neutral-950 font-bold shadow-2xs'
+														: 'border-black/10 bg-white/60 hover:bg-black/5 dark:border-white/10 dark:bg-neutral-800/60 dark:hover:bg-white/5 opacity-80 hover:opacity-100'
+												)}
+												use:ripple
+											>
+												{opt.label}
+											</button>
+										{/each}
+										<button
+											type="button"
+											on:click={() => {
+												customReasoningDraft = currentCustomReasoningValue || '';
+												showCustomReasoningModal = true;
+											}}
+											class={cn(
+												'rounded-lg border px-2.5 py-1 text-xs font-semibold transition-colors cursor-pointer inline-flex items-center gap-1',
+												isCustomReasoningActive
+													? 'border-[#b23a2e] bg-[#b23a2e] text-white dark:border-[#e08a63] dark:bg-[#e08a63] dark:text-neutral-950 font-bold shadow-2xs'
+													: 'border-black/10 bg-white/60 hover:bg-black/5 dark:border-white/10 dark:bg-neutral-800/60 dark:hover:bg-white/5 opacity-80 hover:opacity-100'
+											)}
+											use:ripple
+										>
+											<Edit3 size={11} />
+											<span>Custom</span>
+										</button>
+									</div>
+								</div>
+
+								<!-- SAMPLING & DIVERSITY SLIDERS -->
+								<div
+									id="setting-sampling-diversity"
+									class={cn(
+										'space-y-3 pt-2.5 border-t border-black/10 dark:border-white/10 transition-all duration-300 rounded-lg p-1 -m-1',
+										highlightedSettingId === 'sampling-diversity' &&
+											'ring-2 ring-[#b23a2e] dark:ring-[#e08a63] bg-[#b23a2e]/[0.06] dark:bg-[#e08a63]/[0.08]'
+									)}
+								>
+									<div class="flex items-center gap-1.5 text-xs font-bold uppercase tracking-wider opacity-75">
+										<SlidersHorizontal size={13} class="text-[#b23a2e] dark:text-[#e08a63]" />
+										<span>Sampling & Diversity</span>
+									</div>
+
+									<div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+										<RangeField
+											label="Temperature"
+											display={($settings.translationTemperature ?? 0.2).toFixed(2)}
+											min={0}
+											max={1}
+											step={0.05}
+											showFooter={false}
+											value={$settings.translationTemperature ?? 0.2}
+											on:input={handleTemperatureChange}
+											on:change={handleTemperatureChange}
+										/>
+
+										<RangeField
+											label="Top-P"
+											display={($settings.translationTopP ?? 1.0).toFixed(2)}
+											min={0.1}
+											max={1}
+											step={0.05}
+											showFooter={false}
+											value={$settings.translationTopP ?? 1.0}
+											on:input={handleTopPChange}
+											on:change={handleTopPChange}
+										/>
+
+										<RangeField
+											label="Frequency Penalty"
+											display={($settings.translationFrequencyPenalty ?? 0.0).toFixed(2)}
+											min={0}
+											max={2}
+											step={0.05}
+											showFooter={false}
+											value={$settings.translationFrequencyPenalty ?? 0.0}
+											on:input={handleFrequencyPenaltyChange}
+											on:change={handleFrequencyPenaltyChange}
+										/>
+
+										<RangeField
+											label="Presence Penalty"
+											display={($settings.translationPresencePenalty ?? 0.0).toFixed(2)}
+											min={0}
+											max={2}
+											step={0.05}
+											showFooter={false}
+											value={$settings.translationPresencePenalty ?? 0.0}
+											on:input={handlePresencePenaltyChange}
+											on:change={handlePresencePenaltyChange}
+										/>
+									</div>
+								</div>
+							</div>
+						</div>
 					</div>
 
 				<!-- SECTION 5: HARDWARE & COMPUTE -->
@@ -2941,7 +3303,7 @@
 						</div>
 					</div>
 
-				<!-- SECTION 6: ABOUT & SYSTEM DIAGNOSTICS -->
+				<!-- SECTION 7: ABOUT & SYSTEM DIAGNOSTICS -->
 				{:else if activeCategory === 'about'}
 					<div class="space-y-5">
 						<div>
@@ -3111,3 +3473,389 @@
 		</div>
 	</div>
 </Modal>
+
+
+
+<!-- MODEL SELECTION MODAL -->
+<Modal
+	bind:open={showModelModal}
+	title="Select Model"
+	size="md"
+	zIndex="z-[60]"
+	on:close={() => (showModelModal = false)}
+>
+	<div class="space-y-3.5">
+		{#if selectedProvider}
+			{@const currentP = selectedProvider}
+			{@const currentIsLocal = isLocal(currentP.id)}
+			{@const filteredModels = getFilteredModels(currentP.availableModels, modelSearch)}
+
+			<!-- HEADER INFO: ACTIVE PROVIDER & SCAN -->
+			<div class="flex items-center justify-between gap-2 pb-2 border-b border-black/10 dark:border-white/10">
+				<div class="flex items-center gap-2 min-w-0">
+					<ProviderLogo providerId={currentP.id} size={16} class="shrink-0" />
+					<span class="text-xs font-semibold truncate">{currentP.name} Models</span>
+					<span class="rounded bg-black/5 dark:bg-white/10 px-1.5 py-0.5 text-[10px] font-mono opacity-70">
+						{currentP.availableModels.length}
+					</span>
+				</div>
+				<button
+					type="button"
+					on:click={() => scanModels(currentP.id)}
+					disabled={scanningModels}
+					class="inline-flex items-center gap-1 px-2 py-1 rounded-md text-[11px] font-bold text-[#b23a2e] dark:text-[#e08a63] hover:bg-black/5 dark:hover:bg-white/5 cursor-pointer disabled:opacity-50 shrink-0 overflow-hidden transition-colors"
+					use:ripple
+				>
+					<RefreshCw size={11} class={scanningModels ? 'animate-spin' : ''} />
+					<span>{scanningModels ? 'Scanning...' : 'Scan Models'}</span>
+				</button>
+			</div>
+
+			<!-- SEARCH & ADD MODEL TOOLBAR -->
+			<div class="flex items-center gap-2">
+				<div class="relative flex-1 min-w-0">
+					<Search size={13} class="absolute left-3 top-1/2 -translate-y-1/2 opacity-40 pointer-events-none" />
+					<input
+						type="text"
+						bind:value={modelSearch}
+						placeholder="Search models..."
+						class="h-9 w-full rounded-lg border border-black/15 bg-transparent pl-9 pr-8 text-xs outline-none focus:border-[#b23a2e] focus:ring-1 focus:ring-[#b23a2e]/30 dark:border-white/15"
+					/>
+					{#if modelSearch}
+						<button
+							type="button"
+							on:click={() => (modelSearch = '')}
+							class="absolute right-2.5 top-1/2 -translate-y-1/2 opacity-40 hover:opacity-100 p-1 cursor-pointer rounded-full overflow-hidden transition-opacity"
+							use:ripple
+						>
+							<X size={12} />
+						</button>
+					{/if}
+				</div>
+
+				<button
+					type="button"
+					on:click={() => { customModelInput = ''; showAddCustomModelModal = true; }}
+					class="inline-flex items-center gap-1.5 h-9 px-3 rounded-lg border border-black/15 bg-white hover:bg-black/5 dark:border-white/15 dark:bg-neutral-800 dark:hover:bg-white/10 text-xs font-semibold cursor-pointer shadow-2xs transition-colors shrink-0 overflow-hidden"
+					use:ripple
+					title="Add custom model identifier"
+				>
+					<Plus size={13} />
+					<span>Add Model</span>
+				</button>
+			</div>
+
+			<!-- MODEL LIST -->
+			<div class="max-h-[300px] overflow-y-auto space-y-1.5 pr-1 rounded-xl border border-black/10 dark:border-white/10 p-1.5 bg-black/[0.01] dark:bg-white/[0.01]">
+				{#if filteredModels.length > 0}
+					{#each filteredModels as modelId}
+						{@const isModelSelected = (activeModelDraft[currentP.id] || currentP.activeModel) === modelId}
+						{@const canDelete = currentP.availableModels.length > 1 || currentP.id === 'custom'}
+						<div class="group relative">
+							<button
+								type="button"
+								on:click={() => (activeModelDraft[currentP.id] = modelId)}
+								class={cn(
+									'w-full flex items-center gap-2.5 min-w-0 px-3 py-2 text-left cursor-pointer rounded-lg border transition-all duration-150 overflow-hidden',
+									canDelete ? 'pr-10' : 'pr-3',
+									isModelSelected
+										? 'border-[#b23a2e]/40 bg-[#b23a2e]/[0.08] dark:border-[#e08a63]/40 dark:bg-[#e08a63]/[0.12] shadow-2xs'
+										: 'border-black/5 hover:border-black/15 bg-white/50 hover:bg-black/[0.02] dark:border-white/5 dark:hover:border-white/15 dark:bg-white/[0.02] dark:hover:bg-white/[0.04]'
+								)}
+								use:ripple
+							>
+								<!-- RADIO CHECKMARK INDICATOR -->
+								<div
+									class={cn(
+										'h-4 w-4 rounded-full flex items-center justify-center shrink-0 transition-colors',
+										isModelSelected
+											? 'bg-[#b23a2e] text-white dark:bg-[#e08a63] dark:text-neutral-950'
+											: 'border border-black/25 dark:border-white/25 group-hover:border-[#b23a2e]/60 dark:group-hover:border-[#e08a63]/60'
+									)}
+								>
+									{#if isModelSelected}
+										<Check size={10} class="stroke-[3]" />
+									{/if}
+								</div>
+
+								<!-- MODEL IDENTIFIER -->
+								<div class="min-w-0 flex-1">
+									<span
+										class={cn(
+											'font-mono text-xs truncate block',
+											isModelSelected
+												? 'font-bold text-[#b23a2e] dark:text-[#e08a63]'
+												: 'font-medium text-neutral-700 dark:text-neutral-300 group-hover:text-neutral-900 dark:group-hover:text-white'
+										)}
+									>
+										{modelId}
+									</span>
+								</div>
+
+								<!-- ACTIVE STATUS -->
+								{#if isModelSelected}
+									<div class="flex items-center gap-1.5 shrink-0">
+										<span class="inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-[10px] font-bold bg-[#b23a2e]/15 text-[#b23a2e] dark:bg-[#e08a63]/20 dark:text-[#e08a63]">
+											Active
+										</span>
+									</div>
+								{/if}
+							</button>
+
+							{#if canDelete}
+								<button
+									type="button"
+									on:click|stopPropagation={() => removeModel(currentP.id, modelId)}
+									title={`Remove model "${modelId}"`}
+									class="absolute right-2 top-1/2 -translate-y-1/2 p-1.5 rounded-md text-neutral-400 hover:text-red-500 hover:bg-red-500/10 dark:hover:text-red-400 dark:hover:bg-red-400/10 transition-colors cursor-pointer z-10 overflow-hidden"
+									use:ripple
+								>
+									<Trash2 size={12} />
+								</button>
+							{/if}
+						</div>
+					{/each}
+				{:else}
+					<div class="py-8 text-center text-xs opacity-60 space-y-2.5">
+						<div>No models found matching "{modelSearch}".</div>
+						{#if modelSearch.trim()}
+							<button
+								type="button"
+								on:click={() => {
+									customModelInput = modelSearch.trim();
+									showAddCustomModelModal = true;
+								}}
+								class="inline-flex items-center gap-1.5 rounded-lg border border-black/15 bg-white hover:bg-black/5 dark:border-white/15 dark:bg-neutral-800 dark:hover:bg-white/10 px-3 py-1.5 text-xs font-semibold text-[#b23a2e] dark:text-[#e08a63] cursor-pointer shadow-2xs transition-colors overflow-hidden"
+								use:ripple
+							>
+								<Plus size={12} />
+								<span>Add "{modelSearch.trim()}" as custom model</span>
+							</button>
+						{/if}
+					</div>
+				{/if}
+			</div>
+		{/if}
+	</div>
+
+	<!-- FOOTER -->
+	<div slot="footer" class="flex w-full items-center justify-between">
+		{#if selectedProvider}
+			{@const currentP = selectedProvider}
+			<div class="flex items-center gap-1.5 text-xs min-w-0">
+				<span class="opacity-50 text-[11px]">Selected</span>
+				<span class="font-mono font-bold text-[#b23a2e] dark:text-[#e08a63] truncate max-w-[240px]">
+					{activeModelDraft[currentP.id] || currentP.activeModel || 'None'}
+				</span>
+			</div>
+		{:else}
+			<span></span>
+		{/if}
+		<button
+			type="button"
+			on:click={() => (showModelModal = false)}
+			class="px-4 py-1.5 rounded-lg bg-[#b23a2e] hover:bg-[#962f25] text-white text-xs font-bold cursor-pointer transition-colors overflow-hidden"
+			use:ripple
+		>
+			Done
+		</button>
+	</div>
+</Modal>
+
+<!-- ADD CUSTOM MODEL MODAL -->
+<Modal
+	bind:open={showAddCustomModelModal}
+	title="Add Custom Model"
+	size="sm"
+	zIndex="z-[70]"
+	on:close={() => (showAddCustomModelModal = false)}
+>
+	{#if selectedProvider}
+		{@const currentP = selectedProvider}
+		<form
+			on:submit|preventDefault={() => {
+				if (customModelInput.trim()) {
+					addCustomModel(currentP.id);
+					showAddCustomModelModal = false;
+				}
+			}}
+			class="space-y-3.5"
+		>
+			<div class="space-y-1.5">
+				<label for="custom-model-id-input" class="text-xs font-semibold opacity-80">
+					Model Identifier
+				</label>
+				<input
+					id="custom-model-id-input"
+					type="text"
+					bind:value={customModelInput}
+					placeholder="e.g. gpt-4o-mini, claude-3-5-sonnet..."
+					class="h-9 w-full rounded-lg border border-black/15 bg-transparent px-3 text-xs font-mono outline-none focus:border-[#b23a2e] focus:ring-1 focus:ring-[#b23a2e]/30 dark:border-white/15"
+				/>
+				<p class="text-[11px] opacity-50">
+					Enter the exact technical model identifier supported by {currentP.name}.
+				</p>
+			</div>
+
+			<div class="flex flex-col-reverse sm:flex-row items-stretch sm:items-center justify-end gap-2 pt-2 border-t border-black/5 dark:border-white/5">
+				<button
+					type="button"
+					on:click={() => (showAddCustomModelModal = false)}
+					class="w-full sm:w-auto px-3 py-2 sm:py-1.5 rounded-lg border border-black/15 hover:bg-black/5 dark:border-white/15 dark:hover:bg-white/5 text-xs font-semibold cursor-pointer transition-colors"
+					use:ripple
+				>
+					Cancel
+				</button>
+				<button
+					type="submit"
+					disabled={!customModelInput.trim()}
+					class="w-full sm:w-auto justify-center inline-flex items-center gap-1.5 px-3.5 py-2 sm:py-1.5 rounded-lg bg-[#b23a2e] hover:bg-[#962f25] text-white text-xs font-bold disabled:opacity-40 cursor-pointer transition-colors shadow-2xs"
+					use:ripple
+				>
+					<Plus size={12} />
+					<span>Add Model</span>
+				</button>
+			</div>
+		</form>
+	{/if}
+</Modal>
+
+<!-- CUSTOM TOKEN BUDGET MODAL -->
+<Modal
+	bind:open={showCustomTokensModal}
+	title="Custom Token Budget"
+	size="sm"
+	zIndex="z-[70]"
+	on:close={() => (showCustomTokensModal = false)}
+>
+	<form
+		on:submit|preventDefault={applyCustomTokens}
+		class="space-y-3.5"
+	>
+		<div class="space-y-1.5">
+			<label for="custom-tokens-input" class="text-xs font-semibold opacity-80">
+				Max Completion Tokens
+			</label>
+			<input
+				id="custom-tokens-input"
+				type="number"
+				min="1024"
+				max="65536"
+				step="256"
+				bind:value={customTokensInput}
+				placeholder="e.g. 10000, 12000, 24000..."
+				class="h-9 w-full rounded-lg border border-black/15 bg-transparent px-3 text-xs font-mono outline-none focus:border-[#b23a2e] focus:ring-1 focus:ring-[#b23a2e]/30 dark:border-white/15"
+			/>
+			<p class="text-[11px] opacity-50">
+				Enter any custom completion token budget between 1,024 and 65,536 tokens.
+			</p>
+		</div>
+
+		<!-- QUICK SUGGESTIONS -->
+		<div class="space-y-1.5">
+			<span class="text-[10px] font-bold uppercase tracking-wider opacity-60">
+				Common Budgets
+			</span>
+			<div class="flex flex-wrap gap-1.5">
+				{#each [10240, 12288, 20480, 24576, 49152] as count}
+					<button
+						type="button"
+						on:click={() => (customTokensInput = String(count))}
+						class="rounded-md border border-black/10 bg-black/[0.03] hover:bg-black/10 dark:border-white/10 dark:bg-white/[0.03] dark:hover:bg-white/10 px-2 py-1 text-[11px] font-mono opacity-80 hover:opacity-100 cursor-pointer transition-colors"
+						use:ripple
+					>
+						{count.toLocaleString()}
+					</button>
+				{/each}
+			</div>
+		</div>
+
+		<div class="flex flex-col-reverse sm:flex-row items-stretch sm:items-center justify-end gap-2 pt-2 border-t border-black/5 dark:border-white/5">
+			<button
+				type="button"
+				on:click={() => (showCustomTokensModal = false)}
+				class="w-full sm:w-auto px-3 py-2 sm:py-1.5 rounded-lg border border-black/15 hover:bg-black/5 dark:border-white/15 dark:hover:bg-white/5 text-xs font-semibold cursor-pointer transition-colors"
+				use:ripple
+			>
+				Cancel
+			</button>
+			<button
+				type="submit"
+				disabled={!customTokensInput || isNaN(parseInt(customTokensInput, 10))}
+				class="w-full sm:w-auto inline-flex items-center justify-center gap-1.5 px-3.5 py-2 sm:py-1.5 rounded-lg bg-[#b23a2e] hover:bg-[#962f25] text-white text-xs font-bold disabled:opacity-40 cursor-pointer transition-colors shadow-2xs"
+				use:ripple
+			>
+				<Check size={12} class="stroke-[3]" />
+				<span>Set Tokens</span>
+			</button>
+		</div>
+	</form>
+</Modal>
+
+<!-- CUSTOM REASONING EFFORT MODAL -->
+<Modal
+	bind:open={showCustomReasoningModal}
+	title="Custom Reasoning Effort"
+	size="sm"
+	zIndex="z-[70]"
+	on:close={() => (showCustomReasoningModal = false)}
+>
+	<form
+		on:submit|preventDefault={applyCustomReasoning}
+		class="space-y-3.5"
+	>
+		<div class="space-y-1.5">
+			<label for="custom-reasoning-input" class="text-xs font-semibold opacity-80">
+				Reasoning Tier or Budget
+			</label>
+			<input
+				id="custom-reasoning-input"
+				type="text"
+				bind:value={customReasoningDraft}
+				placeholder="e.g. minimal, low, budget:4096..."
+				class="h-9 w-full rounded-lg border border-black/15 bg-transparent px-3 text-xs font-mono outline-none focus:border-[#b23a2e] focus:ring-1 focus:ring-[#b23a2e]/30 dark:border-white/15"
+			/>
+			<p class="text-[11px] opacity-50">
+				Enter a model-specific reasoning effort tier or token budget identifier.
+			</p>
+		</div>
+
+		<div class="flex flex-col-reverse sm:flex-row items-stretch sm:items-center justify-between gap-2 pt-2 border-t border-black/5 dark:border-white/5">
+			{#if isCustomReasoningActive}
+				<button
+					type="button"
+					on:click={() => {
+						setReasoningEffort('none');
+						showCustomReasoningModal = false;
+					}}
+					class="text-xs font-semibold text-neutral-500 hover:text-red-500 cursor-pointer transition-colors text-center sm:text-left py-1"
+					use:ripple
+				>
+					Reset to None
+				</button>
+			{:else}
+				<span></span>
+			{/if}
+			<div class="flex items-center gap-2">
+				<button
+					type="button"
+					on:click={() => (showCustomReasoningModal = false)}
+					class="w-full sm:w-auto px-3 py-2 sm:py-1.5 rounded-lg border border-black/15 hover:bg-black/5 dark:border-white/15 dark:hover:bg-white/5 text-xs font-semibold cursor-pointer transition-colors"
+					use:ripple
+				>
+					Cancel
+				</button>
+				<button
+					type="submit"
+					disabled={!customReasoningDraft.trim()}
+					class="w-full sm:w-auto inline-flex items-center justify-center gap-1.5 px-3.5 py-2 sm:py-1.5 rounded-lg bg-[#b23a2e] hover:bg-[#962f25] text-white text-xs font-bold disabled:opacity-40 cursor-pointer transition-colors shadow-2xs"
+					use:ripple
+				>
+					<Check size={12} class="stroke-[3]" />
+					<span>Set Effort</span>
+				</button>
+			</div>
+		</div>
+	</form>
+</Modal>
+

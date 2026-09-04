@@ -41,6 +41,8 @@
 	export let value = '';
 	export let placeholder = 'Select…';
 	export let disabled = false;
+	export let size: 'sm' | 'md' = 'md';
+	export let buttonClass = '';
 	let className = '';
 	export { className as class };
 
@@ -213,16 +215,18 @@
 		aria-controls={open ? listboxId : undefined}
 		aria-activedescendant={open && activeIndex >= 0 ? optionId(activeIndex) : undefined}
 		class={cn(
-			'flex w-full items-center gap-2 rounded-lg border border-black/10 bg-transparent px-3 py-2 text-left text-sm transition-colors hover:border-black/20 dark:border-white/[0.08] dark:hover:border-white/20',
+			'flex w-full items-center gap-2 rounded-lg border border-black/10 bg-transparent text-left transition-colors hover:border-black/20 dark:border-white/[0.08] dark:hover:border-white/20',
+			size === 'sm' ? 'h-[30px] px-2.5 py-1 text-xs' : 'px-3 py-2 text-sm',
 			open && 'border-[#c0392b] ring-1 ring-[#c0392b] dark:border-[#c0392b]',
 			disabled && 'pointer-events-none opacity-50',
+			buttonClass
 		)}
 	>
-		{#if selected?.icon}<svelte:component this={selected.icon} size={14} class="shrink-0 opacity-60" />{/if}
+		{#if selected?.icon}<svelte:component this={selected.icon} size={size === 'sm' ? 12 : 14} class="shrink-0 opacity-60" />{/if}
 		<span class={cn('flex-1 truncate', !selected && 'opacity-40')}>{selected?.label ?? placeholder}</span>
 		{#if selected?.hint}<span class="shrink-0 text-xs tabular-nums opacity-40">{selected.hint}</span>{/if}
 		<ChevronDown
-			size={14}
+			size={size === 'sm' ? 12 : 14}
 			class={cn('shrink-0 opacity-50 transition-transform duration-200', open && 'rotate-180')}
 		/>
 	</button>
@@ -252,17 +256,18 @@
 				on:click={() => select(opt)}
 				on:mousemove={() => (activeIndex = i)}
 				class={cn(
-					'flex w-full items-center gap-2 rounded-lg px-2.5 py-1.5 text-left text-sm transition-colors',
+					'flex w-full items-center gap-2 rounded-lg text-left transition-colors',
+					size === 'sm' ? 'px-2 py-1 text-xs' : 'px-2.5 py-1.5 text-sm',
 					opt.value === value
 						? 'bg-[#c0392b]/10 text-[#b23a2e] dark:text-[#e08a63]'
 						: 'hover:bg-black/5 dark:hover:bg-white/5',
 					i === activeIndex && 'bg-black/5 dark:bg-white/10',
 				)}
 			>
-				{#if opt.icon}<svelte:component this={opt.icon} size={14} class="shrink-0" />{/if}
+				{#if opt.icon}<svelte:component this={opt.icon} size={size === 'sm' ? 12 : 14} class="shrink-0" />{/if}
 				<span class="flex-1 truncate">{opt.label}</span>
 				{#if opt.hint}<span class="shrink-0 text-xs tabular-nums opacity-40">{opt.hint}</span>{/if}
-				{#if opt.value === value}<Check size={14} class="shrink-0" />{/if}
+				{#if opt.value === value}<Check size={size === 'sm' ? 12 : 14} class="shrink-0" />{/if}
 			</button>
 		{/each}
 	</div>

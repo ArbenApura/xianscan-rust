@@ -1031,13 +1031,6 @@
 						</div>
 
 						<div class="flex items-center gap-1 sm:gap-1.5 shrink-0">
-							{#if (currentSnapshot?.cacheHitCount || 0) > 0}
-								<div class="hidden xs:flex items-center gap-1 rounded-md border border-[#4f7a64]/30 bg-[#4f7a64]/10 px-1.5 sm:px-2 py-0.5 text-[9px] sm:text-[10px] font-bold text-[#4f7a64] dark:text-[#83b39a]">
-									<Zap size={11} class="shrink-0" />
-									<span>{currentSnapshot?.cacheHitCount} HIT</span>
-								</div>
-							{/if}
-
 							<!-- MINIMIZE TO ORB BUTTON (NO CLOSE, ONLY MINI) -->
 							<button
 								type="button"
@@ -1453,11 +1446,6 @@
 																	<span class="inline-flex items-center gap-1 font-mono text-neutral-800 dark:text-neutral-200">
 																		<CheckCircle2 size={11} class="text-[#4f7a64] dark:text-[#83b39a] shrink-0" />
 																		<span>{formatDuration(transTiming.durationMs)}</span>
-																		{#if transTiming.details?.cacheHit}
-																			<span class="rounded bg-[#4f7a64]/15 px-1 py-0.2 text-[9px] font-bold text-[#4f7a64] dark:text-[#83b39a]">
-																				HIT
-																			</span>
-																		{/if}
 																	</span>
 																{:else if transTiming?.status === 'failed'}
 																	<span

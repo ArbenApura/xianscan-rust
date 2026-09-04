@@ -24,6 +24,7 @@
 	export let size: 'sm' | 'md' | 'lg' | 'xl' | '2xl' | '3xl' | '4xl' | '5xl' | 'full' = 'md';
 	export let closable = true;
 	export let placement: 'top' | 'center' = 'center';
+	export let zIndex = 'z-50';
 	// PADDING OF THE SCROLLABLE BODY. OVERRIDE (E.G. DROP THE TOP PAD) WHEN THE SLOT HAS ITS OWN STICKY HEADER.
 	export let bodyClass = 'p-4 sm:p-5';
 
@@ -55,6 +56,7 @@
 
 	function close() {
 		if (!closable) return;
+		open = false;
 		dispatch('close');
 	}
 </script>
@@ -66,7 +68,8 @@
 	<div
 		use:scrollLock
 		class={cn(
-			'fixed inset-0 z-50 flex items-end justify-center p-0 sm:p-4 overflow-y-auto overflow-x-hidden',
+			'fixed inset-0 flex items-end justify-center p-0 sm:p-4 overflow-y-auto overflow-x-hidden',
+			zIndex,
 			placement === 'top' ? 'sm:items-start sm:pt-14 sm:pb-8' : 'sm:items-center'
 		)}
 		role="dialog"
