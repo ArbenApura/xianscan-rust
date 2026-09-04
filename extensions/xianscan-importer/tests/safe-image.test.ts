@@ -5,6 +5,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import {
 	createSafeBlobUrlFromData,
 	clearSafeImageUrlCache,
+	invalidateCachedSafeUrl,
 	resolveSafeImageUrl
 } from '../src/content/safe-image';
 
@@ -37,6 +38,31 @@ describe('safe-image utility', () => {
 		expect(URL.revokeObjectURL).toHaveBeenCalledWith(blobUrl);
 	});
 
+	it('invalidates specific cache entry and revokes object URL with invalidateCachedSafeUrl', async () => {
+		Object.defineProperty(window, 'location', {
+			value: { protocol: 'https:' },
+			writable: true
+		});
+
+		const sampleBase64 = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==';
+		(globalThis as any).chrome = {
+			runtime: {
+				sendMessage: vi.fn((msg, callback) => {
+					if (msg.type === 'FETCH_IMAGE_DATA') {
+						callback({ ok: true, dataUrl: sampleBase64, mime: 'image/png' });
+					}
+				})
+			}
+		};
+
+		const url = 'http://127.0.0.1:8124/api/pages/1/file?kind=output&rev=1';
+		const blob1 = await resolveSafeImageUrl(url);
+		expect(blob1).toMatch(/^blob:/);
+
+		invalidateCachedSafeUrl(url);
+		expect(URL.revokeObjectURL).toHaveBeenCalledWith(blob1);
+	});
+
 	it('resolves safe blob URL from background ArrayBuffer without base64 decoding loops', async () => {
 		Object.defineProperty(window, 'location', {
 			value: { protocol: 'https:' },
@@ -56,6 +82,33 @@ describe('safe-image utility', () => {
 
 		const safeUrl = await resolveSafeImageUrl('http://127.0.0.1:8124/api/pages/1/file?kind=output&rev=1');
 		expect(safeUrl).toMatch(/^blob:/);
+	});
+
+	it('resolves safe blob URL from background dataUrl when Chrome JSON-serializes buffer to empty object', async () => {
+		Object.defineProperty(window, 'location', {
+			value: { protocol: 'https:' },
+			writable: true
+		});
+
+		const sampleBase64 = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==';
+		// SIMULATE REAL CHROME MV3 MESSAGING WHERE ARRAYBUFFER SERIALIZES AS AN EMPTY OBJECT {}
+		(globalThis as any).chrome = {
+			runtime: {
+				sendMessage: vi.fn((msg, callback) => {
+					if (msg.type === 'FETCH_IMAGE_DATA') {
+						callback({ ok: true, buffer: {}, dataUrl: sampleBase64, mime: 'image/png' });
+					}
+				})
+			}
+		};
+
+		const safeUrl = await resolveSafeImageUrl('http://127.0.0.1:8124/api/pages/2/file?kind=output&rev=1');
+		expect(safeUrl).toMatch(/^blob:/);
+		// VERIFY BLOB WAS CREATED FROM REAL BYTES AND NOT TEXT "[object Object]"
+		const createCalls = (URL.createObjectURL as any).mock.calls;
+		const lastBlob = createCalls[createCalls.length - 1][0];
+		expect(lastBlob).toBeInstanceOf(Blob);
+		expect(lastBlob.type).toBe('image/png');
 	});
 
 	it('prioritizes high-priority requests in the fetch queue', async () => {

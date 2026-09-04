@@ -58,6 +58,26 @@ export function clearSafeImageUrlCache(): void {
 	activeFetches = 0;
 }
 
+// INVALIDATE A SINGLE CACHED URL AND REVOKE BLOB OBJECT URL
+export function invalidateCachedSafeUrl(rawUrl: string): void {
+	if (safeDataUrlCache.has(rawUrl)) {
+		const oldUrl = safeDataUrlCache.get(rawUrl);
+		if (oldUrl && oldUrl.startsWith('blob:')) {
+			try {
+				const revokeFn = (typeof URL !== 'undefined' && URL.revokeObjectURL) ||
+					(typeof window !== 'undefined' && window.URL && window.URL.revokeObjectURL);
+				if (revokeFn) {
+					revokeFn(oldUrl);
+				}
+				activeObjectUrls.delete(oldUrl);
+			} catch {
+				// IGNORE REVOCATION FAILURE
+			}
+		}
+		safeDataUrlCache.delete(rawUrl);
+	}
+}
+
 function processFetchQueue(): void {
 	while (activeFetches < MAX_CONCURRENT_IMAGE_FETCHES && fetchQueue.length > 0) {
 		const nextTask = fetchQueue.shift();
@@ -140,7 +160,8 @@ export async function resolveSafeImageUrl(rawUrl: string, priority = false): Pro
 					attempts++;
 					try {
 						chrome.runtime.sendMessage({ type: 'FETCH_IMAGE_DATA', url: rawUrl }, (res) => {
-							if (chrome.runtime.lastError || !res || !res.ok || (!res.buffer && !res.dataUrl)) {
+							const hasValidBuffer = res?.buffer && (res.buffer instanceof ArrayBuffer || ArrayBuffer.isView(res.buffer));
+							if (chrome.runtime.lastError || !res || !res.ok || (!hasValidBuffer && !res.dataUrl)) {
 								if (attempts < maxAttempts) {
 									setTimeout(doFetch, attempts * 250);
 								} else {
@@ -149,7 +170,7 @@ export async function resolveSafeImageUrl(rawUrl: string, priority = false): Pro
 								}
 							} else {
 								let safeBlobUrl = '';
-								if (res.buffer) {
+								if (hasValidBuffer) {
 									try {
 										const createFn = (typeof URL !== 'undefined' && URL.createObjectURL) ||
 											(typeof window !== 'undefined' && window.URL && window.URL.createObjectURL);

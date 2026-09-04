@@ -6,7 +6,7 @@ import type { ChapterReaderPage } from '../types';
 // IMPORTED MODULES
 import { NOISE_CONTAINER_SELECTORS, isFloatingOrSticky, isLikelyAdOrBannerImage } from '../core/heuristics/ad-detector';
 import { getCanonicalUrl } from '../core/heuristics/url-clustering';
-import { resolveSafeImageUrl, clearSafeImageUrlCache } from './safe-image';
+import { resolveSafeImageUrl, clearSafeImageUrlCache, invalidateCachedSafeUrl } from './safe-image';
 import { findPrimaryReaderContainer } from './scanner';
 
 // -- CONSTANTS -- //
@@ -189,6 +189,7 @@ export class DomReplacerEngine {
 			}
 
 			retries++;
+			invalidateCachedSafeUrl(targetUrl);
 			setTimeout(() => {
 				void resolveSafeImageUrl(targetUrl).then(freshSafeUrl => {
 					if (img.getAttribute('data-xianscan-page-id') !== String(pageId)) return;
@@ -476,6 +477,10 @@ export class DomReplacerEngine {
 						}
 						this.activePageUrls.set(page.id, safeUrl);
 						if (anchorImg.getAttribute('data-xianscan-page-id') === String(page.id)) {
+							// PREVENT OVERWRITING IF THE PAGE HAS ALREADY BEEN TRANSLATED TO READY STATUS
+							if (targetUrl.includes('kind=original') && anchorImg.getAttribute('data-xianscan-status') === 'ready') {
+								return;
+							}
 							this.runSelfMutation(() => {
 								anchorImg.src = safeUrl;
 								anchorImg.setAttribute('data-xianscan-applied-src', safeUrl);
@@ -513,6 +518,10 @@ export class DomReplacerEngine {
 						}
 						this.activePageUrls.set(page.id, safeUrl);
 						if (clone.getAttribute('data-xianscan-page-id') === String(page.id)) {
+							// PREVENT OVERWRITING IF THE PAGE HAS ALREADY BEEN TRANSLATED TO READY STATUS
+							if (targetUrl.includes('kind=original') && clone.getAttribute('data-xianscan-status') === 'ready') {
+								return;
+							}
 							this.runSelfMutation(() => {
 								clone.src = safeUrl;
 								clone.setAttribute('data-xianscan-applied-src', safeUrl);

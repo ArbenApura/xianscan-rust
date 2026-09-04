@@ -98,7 +98,8 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 			.then(async ({ blob, ext }) => {
 				const buffer = await blob.arrayBuffer();
 				const mime = blob.type || (ext === 'png' ? 'image/png' : ext === 'webp' ? 'image/webp' : 'image/jpeg');
-				sendResponse({ ok: true, buffer, mime });
+				const dataUrl = arrayBufferToBase64(buffer, mime);
+				sendResponse({ ok: true, dataUrl, mime });
 			})
 			.catch(err => {
 				sendResponse({ ok: false, error: err.message });
