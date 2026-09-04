@@ -82,4 +82,7 @@ fn test_regression_page_cloud_mist_mountain_villa_split() {
     assert!(p3_huh.is_some(), "Must detect panel 3 huh bubble");
     let p3_huh = p3_huh.unwrap();
     assert_eq!(p3_huh.kind, xianscan_rust::ml::schemas::RegionKind::DialogueBubble);
+
+    // 9. VERIFY BUBBLE CAVITY CLEANING & BOUNDARY PRESERVATION
+    crate::assert_bubble_cleaned!(&img, &res);
 }

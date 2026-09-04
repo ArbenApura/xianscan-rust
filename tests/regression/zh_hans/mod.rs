@@ -54,6 +54,7 @@ mod page_lightning_art_chen_fan_shock;
 mod page_classroom_evaluation_jiang_tanqiu;
 mod page_zhou_tianhao_silent_spell_escape;
 mod page_small_pei_yuan_pill_watermark_collision;
+mod page_chen_fan_gourd_box_colamanga_watermark;
 
 
 

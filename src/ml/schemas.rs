@@ -136,6 +136,8 @@ pub struct CleanRequestRegion {
     pub box_: Option<BoxRect>,
     #[serde(default)]
     pub polygon: Option<Vec<[i32; 2]>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub bubble_box: Option<BoxRect>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

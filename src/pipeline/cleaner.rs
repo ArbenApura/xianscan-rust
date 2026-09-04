@@ -3,12 +3,14 @@ use anyhow::Result;
 use image::{DynamicImage, GenericImageView};
 
 // -- INTERNAL IMPORTS -- //
-use crate::ml::inpaint::{build_mask, LamaInpainter};
-use crate::ml::schemas::CleanRequestRegion;
+use crate::ml::geometry::box_iou;
+use crate::ml::inpaint::{build_mask, clean_white_bubble_shrinkwrap, LamaInpainter};
+use crate::ml::schemas::{BoxRect, CleanRequestRegion};
 
 // -- FUNCTIONS & ALGORITHMS -- //
 
-/// CLEANS AN IMAGE BY INPAINTING SPECIFIED TEXT REGIONS USING TIGHT GLYPH POLYGONS
+/// CLEANS AN IMAGE BY INPAINTING SPECIFIED TEXT REGIONS USING TIGHT GLYPH POLYGONS,
+/// FOLLOWED BY OUTSIDE-IN SHRINKWRAP CAVITY CLEANING ON WHITE DIALOGUE BUBBLES.
 pub fn clean_image(
     inpainter: &mut Option<LamaInpainter>,
     img: &DynamicImage,
@@ -43,10 +45,63 @@ pub fn clean_image(
     }
 
     let mask = build_mask(h, w, &polygons, 3);
-    if let Some(ref mut inp) = inpainter {
-        inp.inpaint(img, &mask, mode)
+    let cleaned_img = if let Some(ref mut inp) = inpainter {
+        inp.inpaint(img, &mask, mode)?
     } else {
-        Ok(img.clone())
+        img.clone()
+    };
+
+    // AFTER INPAINTING: RUN OUTSIDE-IN SHRINKWRAP CAVITY CLEANING ON CONFIRMED WHITE BUBBLES
+    // TO ERASE RESIDUAL DUST, SMUDGES, AND INTERNAL WATERMARKS WHILE PRESERVING BORDER GRAPHICS
+    let mut rgb_buf = cleaned_img.to_rgb8();
+    let mut modified = false;
+
+    // COLLECT UNIQUE BUBBLE BOXES AND AGGREGATE ALL ASSOCIATED TEXT REGION SEEDS
+    let mut bubble_groups: Vec<(BoxRect, Vec<[i32; 2]>)> = Vec::new();
+    for r in regions {
+        if let Some(ref bb) = r.bubble_box {
+            let mut seed = None;
+            if let Some(ref poly) = r.polygon {
+                if !poly.is_empty() {
+                    let mut cx = 0i32;
+                    let mut cy = 0i32;
+                    for pt in poly {
+                        cx += pt[0];
+                        cy += pt[1];
+                    }
+                    seed = Some([cx / poly.len() as i32, cy / poly.len() as i32]);
+                }
+            }
+            if seed.is_none() {
+                if let Some(ref b) = r.box_ {
+                    seed = Some([b.x + b.w / 2, b.y + b.h / 2]);
+                }
+            }
+
+            if let Some(existing) = bubble_groups.iter_mut().find(|(b, _)| box_iou(b, bb) >= 0.70) {
+                if let Some(s) = seed {
+                    existing.1.push(s);
+                }
+            } else {
+                let mut seeds = Vec::new();
+                if let Some(s) = seed {
+                    seeds.push(s);
+                }
+                bubble_groups.push((bb.clone(), seeds));
+            }
+        }
+    }
+
+    for (bb, seeds) in &bubble_groups {
+        if clean_white_bubble_shrinkwrap(&mut rgb_buf, bb, seeds) {
+            modified = true;
+        }
+    }
+
+    if modified {
+        Ok(DynamicImage::ImageRgb8(rgb_buf))
+    } else {
+        Ok(cleaned_img)
     }
 }
 

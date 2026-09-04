@@ -54,4 +54,7 @@ fn test_regression_page_chuzhou_internal_energy_true_essence_watermark() {
         "Narration box width must be tightly bounded to text column (<= 150px), found: {}",
         narration.box_.w
     );
+
+    // 3. VERIFY BUBBLE CAVITY CLEANING & BOUNDARY PRESERVATION
+    crate::assert_bubble_cleaned!(&img, &res);
 }

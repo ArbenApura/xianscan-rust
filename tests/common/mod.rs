@@ -11,6 +11,7 @@ use sha2::{Digest, Sha256};
 
 // -- INTERNAL IMPORTS -- //
 use xianscan_rust::ml::schemas::{AnalyzeOptions, AnalyzeResponse, BoxRect, RegionKind};
+use xianscan_rust::ml::inpaint::{build_mask, clean_white_bubble_shrinkwrap, LamaInpainter};
 use xianscan_rust::pipeline::region_builder::extract_carrier_box_from_image;
 use xianscan_rust::pipeline::PipelineEngine;
 
@@ -94,6 +95,15 @@ macro_rules! assert_element_counts {
         let actual_free = $res.regions.iter().filter(|r| r.kind == xianscan_rust::ml::schemas::RegionKind::FreeText).count();
         assert_eq!(actual_bubbles, $exp_bubbles, "DialogueBubble count mismatch: got {}, expected {}", actual_bubbles, $exp_bubbles);
         assert_eq!(actual_free, $exp_free, "FreeText count mismatch: got {}, expected {}", actual_free, $exp_free);
+    }};
+}
+
+/// ASSERTS THAT INPAINTED / CLEANED DIALOGUE BUBBLES ARE SATISFACTORILY CLEANED
+#[macro_export]
+macro_rules! assert_bubble_cleaned {
+    ($img:expr, $res:expr) => {{
+        let cleaned_opt = $crate::common::clean_fixture_with_cache($img, $res);
+        assert!(cleaned_opt.is_some(), "clean_fixture_with_cache must succeed");
     }};
 }
 
@@ -712,6 +722,8 @@ pub struct FixturePaths {
     pub prev_annotated_img: PathBuf,
     pub annotated_json: PathBuf,
     pub prev_annotated_json: PathBuf,
+    pub inpainted_img: PathBuf,
+    pub cleaned_img: PathBuf,
 }
 
 /// STRUCTURAL CONTAINER HELPER TO LOCATE TARGET DESTINATION FOLDER FOR A FIXTURE.
@@ -744,6 +756,8 @@ pub fn get_fixture_output_paths(src_path: &Path) -> FixturePaths {
         prev_annotated_img: case_folder.join("prev_annotated.webp"),
         annotated_json: case_folder.join("annotated_debug.json"),
         prev_annotated_json: case_folder.join("prev_annotated_debug.json"),
+        inpainted_img: case_folder.join("inpainted.webp"),
+        cleaned_img: case_folder.join("cleaned.webp"),
         case_folder,
     }
 }
@@ -789,6 +803,93 @@ pub fn save_annotated_fixture_to_path(img: &DynamicImage, res: &AnalyzeResponse,
     if let Ok(json_str) = serde_json::to_string_pretty(&report) {
         let _ = std::fs::write(&paths.annotated_json, json_str);
     }
+}
+
+/// 2. SHRINKWRAP CAVITY CLEANING (STAGE 2):
+///    - ALWAYS RUNS DYNAMICALLY IN MEMORY (<2ms) ACROSS ALL CONFIRMED WHITE DIALOGUE BUBBLES.
+///    - SAVES `cleaned.webp` TO THE FIXTURE FOLDER FOR VISUAL VERIFICATION.
+#[allow(dead_code)]
+pub fn clean_fixture_with_cache(
+    img: &DynamicImage,
+    res: &AnalyzeResponse,
+) -> Option<DynamicImage> {
+    let key = hash_image(img);
+    let src_path = get_registered_fixture_path(&key)?;
+    let paths = get_fixture_output_paths(&src_path);
+
+    // STAGE 1: LOAD CACHED INPAINTED IMAGE OR RUN INPAINTER ONCE
+    let inpainted_img = if paths.inpainted_img.exists() {
+        image::open(&paths.inpainted_img).ok()?
+    } else {
+        let model_path = Path::new("models/lama.onnx");
+        if model_path.exists() {
+            let mut inpainter = LamaInpainter::new(model_path).ok()?;
+            let mut polygons = Vec::new();
+            for r in &res.regions {
+                if r.polygon.len() >= 3 {
+                    polygons.push(r.polygon.clone());
+                } else {
+                    let b = &r.box_;
+                    polygons.push(vec![
+                        [b.x, b.y],
+                        [b.x + b.w, b.y],
+                        [b.x + b.w, b.y + b.h],
+                        [b.x, b.y + b.h],
+                    ]);
+                }
+            }
+            let mask = build_mask(img.height(), img.width(), &polygons, 3);
+            let inp = inpainter.inpaint(img, &mask, "patch").ok()?;
+            let _ = inp.save(&paths.inpainted_img);
+            inp
+        } else {
+            img.clone()
+        }
+    };
+
+    // STAGE 2: EXECUTE SHRINKWRAP DYNAMICALLY ON THE FLY (<2ms)
+    let mut rgb_buf = inpainted_img.to_rgb8();
+    let mut modified = false;
+
+    // AVOID PROCESSING THE SAME BUBBLE MULTIPLE TIMES
+    let mut processed_bubbles: Vec<BoxRect> = Vec::new();
+
+    for r in &res.regions {
+        if r.kind != RegionKind::DialogueBubble {
+            continue;
+        }
+        if let Some(ref bb) = r.bubble_box {
+            if processed_bubbles.iter().any(|existing| xianscan_rust::ml::geometry::box_iou(existing, bb) >= 0.70) {
+                continue;
+            }
+            processed_bubbles.push(bb.clone());
+
+            let mut seeds = Vec::new();
+            if let Some(ref c) = r.centroid {
+                seeds.push([c.x as i32, c.y as i32]);
+            } else if !r.polygon.is_empty() {
+                let mut cx = 0i32;
+                let mut cy = 0i32;
+                for pt in &r.polygon {
+                    cx += pt[0];
+                    cy += pt[1];
+                }
+                seeds.push([cx / r.polygon.len() as i32, cy / r.polygon.len() as i32]);
+            } else {
+                seeds.push([r.box_.x + r.box_.w / 2, r.box_.y + r.box_.h / 2]);
+            }
+
+            if clean_white_bubble_shrinkwrap(&mut rgb_buf, bb, &seeds) {
+                modified = true;
+            }
+        }
+    }
+
+    if modified {
+        let _ = rgb_buf.save(&paths.cleaned_img);
+    }
+
+    Some(DynamicImage::ImageRgb8(rgb_buf))
 }
 
 /// SAVES THE RAW LAYOUT DETECTOR RENDERING AND DEBUG METADATA JSON INSIDE THE TEST CASE FOLDER.

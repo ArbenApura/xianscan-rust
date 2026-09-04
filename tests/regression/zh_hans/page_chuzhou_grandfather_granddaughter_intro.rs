@@ -41,4 +41,7 @@ fn test_regression_page_chuzhou_grandfather_granddaughter_intro() {
         !res.regions.iter().any(|r| r.text.trim() == "阿"),
         "Hallucinated single character '阿' on clothing collar/zipper must be suppressed"
     );
+
+    // 3. VERIFY BUBBLE CAVITY CLEANING & BOUNDARY PRESERVATION
+    crate::assert_bubble_cleaned!(&img, &res);
 }

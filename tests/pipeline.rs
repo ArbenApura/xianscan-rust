@@ -40,6 +40,7 @@ fn test_end_to_end_pipeline_on_zhang_yude_cemetery() {
             id: r.id.clone(),
             box_: Some(r.box_.clone()),
             polygon: Some(r.polygon.clone()),
+            bubble_box: r.bubble_box.clone(),
         })
         .collect();
 

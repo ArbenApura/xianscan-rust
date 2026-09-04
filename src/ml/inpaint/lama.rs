@@ -4,7 +4,7 @@ use image::{DynamicImage, GenericImageView, ImageBuffer, Luma, Rgb};
 use ort::{session::Session, value::Tensor};
 use rayon::prelude::*;
 
-use super::patch::{find_mask_components, is_solid_background_patch};
+use super::patch::find_mask_components;
 
 pub struct LamaInpainter {
     session: Session,
@@ -68,7 +68,6 @@ impl LamaInpainter {
             }
 
             let patch_img = img.crop_imm(x0, y0, patch_w, patch_h);
-            let patch_rgb = patch_img.to_rgb8();
             let mut patch_mask: ImageBuffer<Luma<u8>, Vec<u8>> = ImageBuffer::new(patch_w, patch_h);
             let mut patch_has_active = false;
 
@@ -83,18 +82,6 @@ impl LamaInpainter {
             }
 
             if !patch_has_active {
-                continue;
-            }
-
-            // Solid-color / white bubble inpaint bypass (~70% of dialogue bubbles)
-            if let Some(fill_color) = is_solid_background_patch(&patch_rgb, &patch_mask) {
-                for py in 0..patch_h {
-                    for px in 0..patch_w {
-                        if patch_mask.get_pixel(px, py)[0] > 0 {
-                            result.put_pixel(x0 + px, y0 + py, fill_color);
-                        }
-                    }
-                }
                 continue;
             }
 

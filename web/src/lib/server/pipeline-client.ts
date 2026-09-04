@@ -76,6 +76,7 @@ export interface CleanRegionInput {
 	id: string;
 	box: PipelineBox;
 	polygon: number[][];
+	bubble_box?: PipelineBox | null;
 }
 
 export interface HardwareStatus {

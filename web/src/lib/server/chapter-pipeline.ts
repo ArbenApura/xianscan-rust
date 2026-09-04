@@ -710,10 +710,9 @@ export async function runChapterPipeline(
 				);
 				return classification.disposition !== 'skip_empty';
 			};
-
 			const cleanRegions = analyzed.regions
 				.filter(isRegionInpaintable)
-				.map((r) => ({ id: r.id, box: r.inpaint_box ?? r.box, polygon: r.polygon }));
+				.map((r) => ({ id: r.id, box: r.inpaint_box ?? r.box, polygon: r.polygon, bubble_box: r.bubble_box }));
 
 			// TASK A: INPAINT (LOCAL ONNX COMPUTE)
 			const inpaintTask = (async () => {

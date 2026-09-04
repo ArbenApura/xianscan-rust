@@ -66,4 +66,7 @@ fn test_regression_page_chen_fan_ordinary_friend_split() {
     assert!(right_bubble.is_some(), "Must detect panel 3 right dialogue bubble");
     let right_bubble = right_bubble.unwrap();
     assert_eq!(right_bubble.kind, xianscan_rust::ml::schemas::RegionKind::DialogueBubble);
+
+    // 7. VERIFY BUBBLE CAVITY CLEANING & BOUNDARY PRESERVATION
+    crate::assert_bubble_cleaned!(&img, &res);
 }

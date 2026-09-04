@@ -80,4 +80,7 @@ fn test_regression_page_herb_shop_silence_ellipsis_dots() {
             || (r.text.contains('…') && r.text.trim().chars().all(|c| c == '…' || c == '.' || c == '·' || c == '(' || c == ')' || c == '6' || c == '9' || c.is_whitespace()))),
         "Must filter out silence reaction ellipsis dots bubble"
     );
+
+    // 8. VERIFY BUBBLE CAVITY CLEANING & BOUNDARY PRESERVATION
+    crate::assert_bubble_cleaned!(&img, &res);
 }
