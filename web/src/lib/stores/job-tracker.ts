@@ -229,6 +229,46 @@ function createJobTrackerStore() {
 				p.currentStep = 'error';
 				p.failedStep = event.failedStep as PipelineStep;
 				p.errorMessage = String(event.message || 'Error occurred');
+				// CLOSE ANY LINGERING RUNNING STEP TIMINGS ON THIS PAGE
+				for (const [step, t] of Object.entries(p.timings) as [PipelineStep, StepTiming | undefined][]) {
+					if (t && t.status === 'running') {
+						p.timings[step] = {
+							...t,
+							status: 'failed',
+							completedAt: now,
+							durationMs: t.startedAt ? Math.max(0, now - t.startedAt) : undefined,
+							details: {
+								...t.details,
+								error: step === event.failedStep ? String(event.message || 'Error occurred') : 'Aborted',
+							},
+						};
+					}
+				}
+				s.failedPages = s.pages.filter((p) => p.status === 'error').length;
+			} else {
+				// CHAPTER-LEVEL FATAL ERROR - CLOSE ANY REMAINING RUNNING STEP TIMINGS ACROSS ALL PAGES
+				for (const page of s.pages) {
+					if (page.status === 'processing') {
+						page.status = 'error';
+						page.currentStep = 'error';
+						page.failedStep = event.failedStep as PipelineStep;
+						page.errorMessage = String(event.message || 'Error occurred');
+					}
+					for (const [step, t] of Object.entries(page.timings) as [PipelineStep, StepTiming | undefined][]) {
+						if (t && t.status === 'running') {
+							page.timings[step] = {
+								...t,
+								status: 'failed',
+								completedAt: now,
+								durationMs: t.startedAt ? Math.max(0, now - t.startedAt) : undefined,
+								details: {
+									...t.details,
+									error: step === event.failedStep ? String(event.message || 'Error occurred') : 'Aborted',
+								},
+							};
+						}
+					}
+				}
 				s.failedPages = s.pages.filter((p) => p.status === 'error').length;
 			}
 		} else if (event.type === 'usage' && event.usage) {
@@ -253,6 +293,23 @@ function createJobTrackerStore() {
 				s.currentPhase = 'completed';
 			} else {
 				s.status = 'failed';
+			}
+			// CLOSE ANY DANGLING RUNNING STEP TIMINGS ACROSS ALL PAGES
+			for (const page of s.pages) {
+				for (const [step, t] of Object.entries(page.timings) as [PipelineStep, StepTiming | undefined][]) {
+					if (t && t.status === 'running') {
+						page.timings[step] = {
+							...t,
+							status: 'failed',
+							completedAt: now,
+							durationMs: t.startedAt ? Math.max(0, now - t.startedAt) : undefined,
+							details: {
+								...t.details,
+								error: 'Aborted',
+							},
+						};
+					}
+				}
 			}
 			s.completedAt = now;
 			s.totalDurationMs = s.startedAt ? now - s.startedAt : 0;

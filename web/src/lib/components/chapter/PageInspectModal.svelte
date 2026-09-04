@@ -798,40 +798,6 @@
 		{@const pw = page.width}
 		{@const ph = page.height}
 
-		<!-- PAGE ERROR OR WARNING BANNER -->
-		{#if page.status === 'error' || page.error}
-			<div
-				class={cn(
-					'mb-2.5 flex items-start justify-between gap-3 rounded-xl p-3 text-xs leading-relaxed border shrink-0',
-					page.status === 'error'
-						? 'bg-red-500/10 border-red-500/30 text-red-800 dark:text-red-300'
-						: 'bg-amber-500/10 border-amber-500/30 text-amber-800 dark:text-amber-300'
-				)}
-			>
-				<div class="flex items-start gap-2.5 min-w-0">
-					<AlertTriangle size={16} class="shrink-0 mt-0.5 text-current" />
-					<div class="min-w-0">
-						<div class="font-bold">
-							{page.status === 'error' ? 'Translation or Pipeline Failure' : 'Pipeline Notice'}
-						</div>
-						<div class="opacity-90 mt-0.5 font-mono text-[11px] break-words">
-							{page.error || 'Failed to process page dialogue'}
-						</div>
-					</div>
-				</div>
-				<Button
-					variant="secondary"
-					size="sm"
-					class="shrink-0 text-xs font-semibold"
-					disabled={retranslating}
-					on:click={handleRetranslatePage}
-				>
-					<RotateCcw size={12} class="mr-1 shrink-0" />
-					<span>Retry</span>
-				</Button>
-			</div>
-		{/if}
-
 		<!-- MOBILE-ONLY SECTION SWITCHER (VISIBLE ON < LG SCREENS) -->
 		<div class="mb-2.5 flex lg:hidden items-center justify-center bg-black/5 dark:bg-white/5 p-1 rounded-xl shrink-0">
 			<button
@@ -1356,6 +1322,40 @@
 
 			<!-- 2. DETECTED REGIONS LIST COLUMN -->
 			<div class={`flex flex-col gap-2.5 lg:col-span-5 h-full min-h-0 ${mobileSection === 'regions' ? 'flex' : 'hidden lg:flex'}`}>
+				<!-- PAGE ERROR OR WARNING BANNER -->
+				{#if page.status === 'error' || page.error}
+					<div
+						class={cn(
+							'flex items-start justify-between gap-3 rounded-xl p-3 text-xs leading-relaxed border shrink-0',
+							page.status === 'error'
+								? 'bg-red-500/10 border-red-500/30 text-red-800 dark:text-red-300'
+								: 'bg-amber-500/10 border-amber-500/30 text-amber-800 dark:text-amber-300'
+						)}
+					>
+						<div class="flex items-start gap-2.5 min-w-0">
+							<AlertTriangle size={16} class="shrink-0 mt-0.5 text-current" />
+							<div class="min-w-0">
+								<div class="font-bold">
+									{page.status === 'error' ? 'Translation or Pipeline Failure' : 'Pipeline Notice'}
+								</div>
+								<div class="opacity-90 mt-0.5 font-mono text-[11px] break-words">
+									{page.error || 'Failed to process page dialogue'}
+								</div>
+							</div>
+						</div>
+						<Button
+							variant="secondary"
+							size="sm"
+							class="shrink-0 text-xs font-semibold"
+							disabled={retranslating}
+							on:click={handleRetranslatePage}
+						>
+							<RotateCcw size={12} class="mr-1 shrink-0" />
+							<span>Retry</span>
+						</Button>
+					</div>
+				{/if}
+
 				<div class="flex items-center justify-between gap-2 shrink-0">
 					<h3 class="text-xs sm:text-sm font-bold flex items-center gap-1.5">
 						<List size={14} class="text-[#b23a2e] dark:text-[#e08a63]" />

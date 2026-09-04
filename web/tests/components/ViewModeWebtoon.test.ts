@@ -45,16 +45,53 @@ describe('ViewModeWebtoon rev URLs', () => {
 		expect(screen.queryByText('Translated')).toBeNull();
 	});
 
-	it('renders floating action pill on failed pages', () => {
+	it('renders inline error retry banner with Inspect and Retry on failed page', () => {
 		const pages = [
 			{ id: 2, seq: 1, status: 'error', error: 'LLM failed', width: 100, height: 200, outputPath: null },
 		];
 		render(ViewModeWebtoon, {
 			props: { pages, webtoonKind: 'output', webtoonWidth: 'md' },
 		});
-		expect(screen.getByText('Re-translate')).toBeTruthy();
+		expect(screen.getByText('Retry')).toBeTruthy();
 		expect(screen.getByText('Inspect')).toBeTruthy();
-		expect(screen.getByText('p. 2')).toBeTruthy();
 		expect(screen.getByText('LLM failed')).toBeTruthy();
+		expect(screen.queryByText('Re-translate')).toBeNull();
+	});
+
+	it('renders retry banner even if status is stuck in processing when error is present', () => {
+		const pages = [
+			{ id: 3, seq: 2, status: 'processing', error: 'LLM quota exceeded', width: 100, height: 200, outputPath: null },
+		];
+		render(ViewModeWebtoon, {
+			props: { pages, webtoonKind: 'output', webtoonWidth: 'md' },
+		});
+		expect(screen.getByText('LLM quota exceeded')).toBeTruthy();
+		expect(screen.getByText('Retry')).toBeTruthy();
+		expect(screen.getByText('Inspect')).toBeTruthy();
+	});
+
+	it('renders processing pill with step label when actively processing without error', () => {
+		const pages = [
+			{ id: 4, seq: 0, status: 'processing', currentStep: 'translate', width: 100, height: 200, outputPath: null },
+		];
+		render(ViewModeWebtoon, {
+			props: { pages, webtoonKind: 'output', webtoonWidth: 'md' },
+		});
+		expect(screen.getByText('p. 1')).toBeTruthy();
+		expect(screen.getByText('Translating...')).toBeTruthy();
+		expect(screen.queryByText('Retry')).toBeNull();
+		expect(screen.queryByText('Inspect')).toBeNull();
+	});
+
+	it('renders retry banner when AI provider authentication fails', () => {
+		const pages = [
+			{ id: 5, seq: 0, status: 'error', error: 'Translation failed (Invalid API key)', width: 100, height: 200, outputPath: null },
+		];
+		render(ViewModeWebtoon, {
+			props: { pages, webtoonKind: 'output', webtoonWidth: 'md' },
+		});
+		expect(screen.getByText('Translation failed (Invalid API key)')).toBeTruthy();
+		expect(screen.getByText('Retry')).toBeTruthy();
+		expect(screen.getByText('Inspect')).toBeTruthy();
 	});
 });

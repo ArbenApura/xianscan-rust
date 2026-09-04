@@ -36,6 +36,7 @@ import type { AnalyzeResult, PipelineClient, PipelineRegion } from './pipeline-c
 import { db } from './db';
 import { chapters, pages, regions, translations, books, type Page } from './db/schema';
 import { translatePage, classifyRegionForTranslation, resolveModel, type PageTranslation } from './translate';
+import { isRetryable } from './llm';
 import { getCachedPageTranslation, pageCacheKey, savePageTranslation } from './cache';
 import { ChapterDialogueTracker, computePositionTag, parseKindFromBox, type PageDialogueRecord } from './translate/dialogue-tracker';
 import { typesetPage, type TypesetOptions } from './typeset';
@@ -669,9 +670,13 @@ export async function runChapterPipeline(
 
 			// STREAM: PROCEED TO TRANSLATE THIS PAGE THE MOMENT ITS ANALYZE FINISHES (NO WAITING FOR OTHER
 			// PAGES' OCR). THE LLM CALL ITSELF IS SERIALIZED PER BOOK INSIDE translatePagePipeline.
+			activeStep = 'translate';
 			await translatePagePipeline(page, i, attempt);
 		} catch (e) {
 			slots[i].failedStep = activeStep;
+			if (slots[i].outcome !== 'done') {
+				slots[i].outcome = undefined;
+			}
 			if (signal.aborted) {
 				const abortErr = new Error('The operation was aborted');
 				abortErr.name = 'AbortError';
@@ -727,28 +732,46 @@ export async function runChapterPipeline(
 					stepDetails: attempt > 0 ? { retryAttempt: attempt } : undefined,
 				});
 				const tClean0 = performance.now();
-				const cleaned =
-					cleanRegions.length > 0
-						? await deps.pipeline.clean(image, cleanRegions, deps.inpaintMode ?? 'patch', pageAbortController.signal)
-						: image;
-				pageAbortController.signal.throwIfAborted();
-				if (deps.isPageCancelled?.(page.id)) return { cleaned: image, cleanPath: '' };
-				const cleanPath = `clean/${chapterId}/${page.seq}.webp`;
-				const cleanAbs = join(deps.dataRoot, cleanPath);
-				cleanDir(join(deps.dataRoot, 'clean', String(chapterId)));
-				writeFileSync(cleanAbs, cleaned);
-				const tClean = performance.now() - tClean0;
-				emit({
-					type: 'page-step-end',
-					chapterId,
-					page: i,
-					pageId: page.id,
-					step: 'clean',
-					stepStatus: 'completed',
-					durationMs: tClean,
-					stepDetails: attempt > 0 ? { retryAttempt: attempt } : undefined,
-				});
-				return { cleaned, cleanPath };
+				try {
+					const cleaned =
+						cleanRegions.length > 0
+							? await deps.pipeline.clean(image, cleanRegions, deps.inpaintMode ?? 'patch', pageAbortController.signal)
+							: image;
+					pageAbortController.signal.throwIfAborted();
+					if (deps.isPageCancelled?.(page.id)) return { cleaned: image, cleanPath: '' };
+					const cleanPath = `clean/${chapterId}/${page.seq}.webp`;
+					const cleanAbs = join(deps.dataRoot, cleanPath);
+					cleanDir(join(deps.dataRoot, 'clean', String(chapterId)));
+					writeFileSync(cleanAbs, cleaned);
+					const tClean = performance.now() - tClean0;
+					emit({
+						type: 'page-step-end',
+						chapterId,
+						page: i,
+						pageId: page.id,
+						step: 'clean',
+						stepStatus: 'completed',
+						durationMs: tClean,
+						stepDetails: attempt > 0 ? { retryAttempt: attempt } : undefined,
+					});
+					return { cleaned, cleanPath };
+				} catch (err: any) {
+					const isAborted = pageAbortController.signal.aborted || signal.aborted || err?.name === 'AbortError';
+					emit({
+						type: 'page-step-end',
+						chapterId,
+						page: i,
+						pageId: page.id,
+						step: 'clean',
+						stepStatus: 'failed',
+						durationMs: performance.now() - tClean0,
+						stepDetails: {
+							error: isAborted ? 'Aborted' : (err?.message || 'Inpainting failed'),
+							retryAttempt: attempt > 0 ? attempt : undefined,
+						},
+					});
+					throw err;
+				}
 			})();
 
 			// TASK B: TRANSLATE (GLOSSARY MATCH + LLM NETWORK I/O)
@@ -766,59 +789,61 @@ export async function runChapterPipeline(
 				const byRegion = new Map<string, string>();
 
 				if (sources.length > 0) {
-					activeTranslateSubStep = 'match_glossary';
-					emit({
-						type: 'page-step-start',
-						chapterId,
-						page: i,
-						pageId: page.id,
-						step: 'match_glossary',
-						retryAttempt: attempt > 0 ? attempt : undefined,
-						stepDetails: attempt > 0 ? { retryAttempt: attempt } : undefined,
-					});
-					const dialogueContext = dialogueTracker.getContextWindow(page.seq);
-					const contextSourceText = dialogueContext.previousPages
-						.flatMap((p) => p.lines.map((l) => l.sourceText))
-						.join('\n');
-					const pageSourceText = sources.map((s) => s.text).join('\n');
-					const fullScanningText = contextSourceText ? `${pageSourceText}\n${contextSourceText}` : pageSourceText;
-					const pageMatchedTerms = await matchTerms(chapter.bookId, fullScanningText);
-					for (const t of pageMatchedTerms) {
-						if (t.category === 'character' || t.category === 'organization' || t.pinned) {
-							activeChapterTerms.set(t.source, t);
+					let tTrans0 = performance.now();
+					try {
+						activeTranslateSubStep = 'match_glossary';
+						emit({
+							type: 'page-step-start',
+							chapterId,
+							page: i,
+							pageId: page.id,
+							step: 'match_glossary',
+							retryAttempt: attempt > 0 ? attempt : undefined,
+							stepDetails: attempt > 0 ? { retryAttempt: attempt } : undefined,
+						});
+						const dialogueContext = dialogueTracker.getContextWindow(page.seq);
+						const contextSourceText = dialogueContext.previousPages
+							.flatMap((p) => p.lines.map((l) => l.sourceText))
+							.join('\n');
+						const pageSourceText = sources.map((s) => s.text).join('\n');
+						const fullScanningText = contextSourceText ? `${pageSourceText}\n${contextSourceText}` : pageSourceText;
+						const pageMatchedTerms = await matchTerms(chapter.bookId, fullScanningText);
+						for (const t of pageMatchedTerms) {
+							if (t.category === 'character' || t.category === 'organization' || t.pinned) {
+								activeChapterTerms.set(t.source, t);
+							}
 						}
-					}
-					// ACCUMULATED CHAPTER GLOSSARY IN STRICT APPEND-ONLY ORDER
-					const chapterTerms = Array.from(activeChapterTerms.values());
-					// TRANSIENT TERMS THAT ONLY APPEAR ON THIS SPECIFIC PAGE
-					const transientPageTerms = pageMatchedTerms.filter((t) => !activeChapterTerms.has(t.source));
-					// COMBINED TERMS FOR CACHE FINGERPRINT AND MATCH REPORT
-					const effectiveTerms = [...chapterTerms, ...transientPageTerms];
+						// ACCUMULATED CHAPTER GLOSSARY IN STRICT APPEND-ONLY ORDER
+						const chapterTerms = Array.from(activeChapterTerms.values());
+						// TRANSIENT TERMS THAT ONLY APPEAR ON THIS SPECIFIC PAGE
+						const transientPageTerms = pageMatchedTerms.filter((t) => !activeChapterTerms.has(t.source));
+						// COMBINED TERMS FOR CACHE FINGERPRINT AND MATCH REPORT
+						const effectiveTerms = [...chapterTerms, ...transientPageTerms];
 
-					emit({
-						type: 'page-step-end',
-						chapterId,
-						page: i,
-						pageId: page.id,
-						step: 'match_glossary',
-						stepStatus: 'completed',
-						stepDetails: { matchedCount: effectiveTerms.length, retryAttempt: attempt > 0 ? attempt : undefined },
-					});
+						emit({
+							type: 'page-step-end',
+							chapterId,
+							page: i,
+							pageId: page.id,
+							step: 'match_glossary',
+							stepStatus: 'completed',
+							stepDetails: { matchedCount: effectiveTerms.length, retryAttempt: attempt > 0 ? attempt : undefined },
+						});
 
-					pageAbortController.signal.throwIfAborted();
-					if (deps.isPageCancelled?.(page.id)) return byRegion;
+						pageAbortController.signal.throwIfAborted();
+						if (deps.isPageCancelled?.(page.id)) return byRegion;
 
-					activeTranslateSubStep = 'translate';
-					emit({
-						type: 'page-step-start',
-						chapterId,
-						page: i,
-						pageId: page.id,
-						step: 'translate',
-						retryAttempt: attempt > 0 ? attempt : undefined,
-						stepDetails: attempt > 0 ? { retryAttempt: attempt } : undefined,
-					});
-					const tTrans0 = performance.now();
+						activeTranslateSubStep = 'translate';
+						emit({
+							type: 'page-step-start',
+							chapterId,
+							page: i,
+							pageId: page.id,
+							step: 'translate',
+							retryAttempt: attempt > 0 ? attempt : undefined,
+							stepDetails: attempt > 0 ? { retryAttempt: attempt } : undefined,
+						});
+						tTrans0 = performance.now();
 
 					// 1. CHECK LOCAL SQLITE TRANSLATION CACHE FIRST
 					const customPrompt = deps.customPrompt ?? bookCustomPrompt;
@@ -964,6 +989,23 @@ export async function runChapterPipeline(
 						},
 					});
 					if (translated.usage && deps.onUsage && !(translated as any).fromCache) deps.onUsage(translated.usage);
+				} catch (err: any) {
+					const isAborted = pageAbortController.signal.aborted || signal.aborted || err?.name === 'AbortError';
+					emit({
+						type: 'page-step-end',
+						chapterId,
+						page: i,
+						pageId: page.id,
+						step: activeTranslateSubStep,
+						stepStatus: 'failed',
+						durationMs: performance.now() - tTrans0,
+						stepDetails: {
+							error: isAborted ? 'Aborted' : (err?.message || 'Translation failed'),
+							retryAttempt: attempt > 0 ? attempt : undefined,
+						},
+					});
+					throw err;
+				}
 				} else {
 					activeTranslateSubStep = 'translate';
 					emit({
@@ -1114,6 +1156,11 @@ export async function runChapterPipeline(
 					failedStep: 'translate',
 					message: failureReason,
 				});
+				syncBus.broadcast({
+					type: 'pages-updated',
+					chapterId,
+					pageId: page.id,
+				});
 				return;
 			}
 
@@ -1207,6 +1254,9 @@ export async function runChapterPipeline(
 			});
 		} catch (e) {
 			slots[i].failedStep = activeStep;
+			if (slots[i].outcome !== 'done') {
+				slots[i].outcome = undefined;
+			}
 			if (signal.aborted) {
 				const abortErr = new Error('The operation was aborted');
 				abortErr.name = 'AbortError';
@@ -1232,7 +1282,8 @@ export async function runChapterPipeline(
 				}
 				return;
 			}
-			if (attempt < 3) {
+			const retryable = isRetryable(e);
+			if (retryable && attempt < 3) {
 				const nextAttempt = attempt + 1;
 				const delay = Math.round(1000 * Math.pow(1.5, attempt));
 				console.warn(
@@ -1273,6 +1324,11 @@ export async function runChapterPipeline(
 				pageId: page.id,
 				failedStep,
 				message,
+			});
+			syncBus.broadcast({
+				type: 'pages-updated',
+				chapterId,
+				pageId: page.id,
 			});
 		}
 	};

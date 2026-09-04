@@ -189,11 +189,26 @@ export function queued<T>(fn: () => Promise<T>): Promise<T> {
 	return queue.add(fn, { throwOnTimeout: true }) as Promise<T>;
 }
 
-function isRetryable(e: unknown): boolean {
+export function isRetryable(e: unknown): boolean {
 	const name = (e as { name?: string })?.name;
 	if (name === 'APIUserAbortError' || name === 'AbortError') return false;
 	const status = (e as { status?: number })?.status;
-	if (typeof status === 'number') return status === 408 || status === 409 || status === 429 || status >= 500;
+	if (typeof status === 'number') {
+		// 401 UNAUTHORIZED / 403 FORBIDDEN / 400 BAD REQUEST ARE FATAL
+		return status === 408 || status === 409 || status === 429 || status >= 500;
+	}
+	const msg = e instanceof Error ? e.message.toLowerCase() : String(e).toLowerCase();
+	if (
+		msg.includes('api key') ||
+		msg.includes('apikey') ||
+		msg.includes('unauthorized') ||
+		msg.includes('authentication') ||
+		msg.includes('forbidden') ||
+		msg.includes('401') ||
+		msg.includes('403')
+	) {
+		return false;
+	}
 	return true;
 }
 

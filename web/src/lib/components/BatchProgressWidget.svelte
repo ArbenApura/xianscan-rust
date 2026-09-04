@@ -1375,9 +1375,10 @@
 														{@const ocrTiming = p.timings?.analyze}
 														{@const transTiming = p.timings?.translate}
 														{@const cleanTiming = p.timings?.clean}
-														{@const isOcrRunning = ocrTiming?.status === 'running' || (p.status === 'processing' && p.currentStep === 'analyze')}
-														{@const isTransRunning = transTiming?.status === 'running' || (p.status === 'processing' && p.currentStep === 'translate')}
-														{@const isCleanRunning = cleanTiming?.status === 'running' || (p.status === 'processing' && p.currentStep === 'clean')}
+														{@const isPageProcessing = p.status === 'processing' && isRunning}
+														{@const isOcrRunning = isPageProcessing && (ocrTiming?.status === 'running' || p.currentStep === 'analyze')}
+														{@const isTransRunning = isPageProcessing && (transTiming?.status === 'running' || p.currentStep === 'translate')}
+														{@const isCleanRunning = isPageProcessing && (cleanTiming?.status === 'running' || p.currentStep === 'clean')}
 														{@const isRetrying = (p.retryAttempt ?? 0) > 0 || (p.isRetrying ?? false)}
 														{@const retryAttempt = p.retryAttempt ?? 1}
 														{@const totalDur = getPageTotalDuration(p)}
@@ -1417,13 +1418,14 @@
 																		<CheckCircle2 size={11} class="text-[#4f7a64] dark:text-[#83b39a] shrink-0" />
 																		<span>{formatDuration(ocrTiming.durationMs)}</span>
 																	</span>
-																{:else if ocrTiming?.status === 'failed'}
+																{:else if ocrTiming?.status === 'failed' || (!isOcrRunning && ocrTiming?.status === 'running')}
+																	{@const isOcrAborted = ocrTiming?.details?.error === 'Aborted' || (p.status === 'error' && p.failedStep !== 'analyze')}
 																	<span
 																		class="inline-flex items-center gap-1 text-rose-600 dark:text-rose-400 font-semibold text-[11px] cursor-help"
-																		title={ocrTiming.details?.error || p.errorMessage || 'OCR detection failed'}
+																		title={ocrTiming?.details?.error || p.errorMessage || 'OCR detection failed'}
 																	>
 																		<AlertCircle size={11} class="shrink-0" />
-																		<span>Failed</span>
+																		<span>{isOcrAborted ? 'Aborted' : 'Failed'}</span>
 																	</span>
 																{:else}
 																	<span class="opacity-25 font-mono text-[11px] select-none">-</span>
@@ -1447,13 +1449,14 @@
 																		<CheckCircle2 size={11} class="text-[#4f7a64] dark:text-[#83b39a] shrink-0" />
 																		<span>{formatDuration(transTiming.durationMs)}</span>
 																	</span>
-																{:else if transTiming?.status === 'failed'}
+																{:else if transTiming?.status === 'failed' || (!isTransRunning && transTiming?.status === 'running')}
+																	{@const isTransAborted = transTiming?.details?.error === 'Aborted' || (p.status === 'error' && p.failedStep !== 'translate' && p.failedStep !== 'match_glossary')}
 																	<span
 																		class="inline-flex items-center gap-1 text-rose-600 dark:text-rose-400 font-semibold text-[11px] cursor-help"
-																		title={transTiming.details?.error || p.errorMessage || 'Translation failed'}
+																		title={transTiming?.details?.error || p.errorMessage || 'Translation failed'}
 																	>
 																		<AlertCircle size={11} class="shrink-0" />
-																		<span>Failed</span>
+																		<span>{isTransAborted ? 'Aborted' : 'Failed'}</span>
 																	</span>
 																{:else}
 																	<span class="opacity-25 font-mono text-[11px] select-none">-</span>
@@ -1477,13 +1480,14 @@
 																		<CheckCircle2 size={11} class="text-[#4f7a64] dark:text-[#83b39a] shrink-0" />
 																		<span>{formatDuration(cleanTiming.durationMs)}</span>
 																	</span>
-																{:else if cleanTiming?.status === 'failed'}
+																{:else if cleanTiming?.status === 'failed' || (!isCleanRunning && cleanTiming?.status === 'running')}
+																	{@const isCleanAborted = cleanTiming?.details?.error === 'Aborted' || (p.status === 'error' && p.failedStep !== 'clean')}
 																	<span
 																		class="inline-flex items-center gap-1 text-rose-600 dark:text-rose-400 font-semibold text-[11px] cursor-help"
-																		title={cleanTiming.details?.error || p.errorMessage || 'Inpainting failed'}
+																		title={cleanTiming?.details?.error || (isCleanAborted ? 'Inpainting aborted due to translation failure' : (p.errorMessage || 'Inpainting failed'))}
 																	>
 																		<AlertCircle size={11} class="shrink-0" />
-																		<span>Failed</span>
+																		<span>{isCleanAborted ? 'Aborted' : 'Failed'}</span>
 																	</span>
 																{:else}
 																	<span class="opacity-25 font-mono text-[11px] select-none">-</span>

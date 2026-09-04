@@ -1006,4 +1006,48 @@ describe('runChapterPipeline', () => {
 		expect(errEv).toBeDefined();
 		expect(errEv.failedStep).toBe('translate');
 	}, 15000);
+
+	it('records auth failure immediately without retrying and persists 401 error message', async () => {
+		seedBook(db, { id: 'b_auth_failure' });
+		const chapter = seedChapter(db, { bookId: 'b_auth_failure', seq: 0 });
+		const page = seedPage(db, { chapterId: chapter.id, seq: 0, filePath: 'uploads/err_auth.png' });
+
+		mkdirSync(join(dataRoot, 'uploads'), { recursive: true });
+		writeFileSync(join(dataRoot, 'uploads', 'err_auth.png'), PAGE_PNG);
+
+		let createCallCount = 0;
+		const authFailLlm = {
+			chat: {
+				completions: {
+					create: async () => {
+						createCallCount++;
+						const err = new Error('401 Incorrect API key provided: invalid_key');
+						(err as any).status = 401;
+						throw err;
+					},
+				},
+			},
+		} as unknown as OpenAI;
+
+		const events: any[] = [];
+		await chapterWork(chapter.id, {
+			pipeline: new FakePipeline(),
+			dataRoot,
+			llm: authFailLlm,
+			pageConcurrency: 1,
+		})(new AbortController().signal, (ev) => events.push(ev));
+
+		const dbPage = db.select().from(pages).where(eq(pages.id, page.id)).get();
+		expect(dbPage).toBeDefined();
+		expect(dbPage?.status).toBe('error');
+		expect(dbPage?.error).toContain('401 Incorrect API key provided');
+
+		// SHOULD NOT HAVE RETRIED 3 TIMES ACROSS PIPELINE
+		expect(createCallCount).toBe(1);
+
+		const errEv = events.find((e) => e.type === 'error' && e.page === 0);
+		expect(errEv).toBeDefined();
+		expect(errEv.failedStep).toBe('translate');
+		expect(errEv.message).toContain('401 Incorrect API key provided');
+	});
 });

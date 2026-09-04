@@ -314,19 +314,51 @@
 		}
 
 		const nextMap = new Map<number, ChapterPageItem>();
+		const batchItem = $batchTracker.queue.find((q) => q.id === chapterId);
 		const result = pages.map((p) => {
 			const sp = snapshotPageMap.get(p.id);
+			const isBatchTarget = batchItem
+				? (!batchItem.pageIds?.length || batchItem.pageIds.includes(p.id))
+				: false;
+			const isBatchError = Boolean(
+				batchItem &&
+				batchItem.status === 'error' &&
+				isBatchTarget &&
+				p.status !== 'done'
+			);
+			const isBatchProcessing = Boolean(
+				batchItem &&
+				(batchItem.status === 'processing' || batchItem.status === 'reslicing') &&
+				isBatchTarget &&
+				p.status !== 'done'
+			);
+			const isBatchQueued = Boolean(
+				batchItem &&
+				batchItem.status === 'queued' &&
+				isBatchTarget &&
+				p.status !== 'done'
+			);
+
 			const isProcessing =
-				(sp?.status === 'processing' || (!sp && currentJobState.running && p.status === 'processing')) &&
-				currentJobState.running;
-			const isError = !isProcessing && (sp?.status === 'error' || (!sp && p.status === 'error'));
+				!isBatchError &&
+				((sp?.status === 'processing' || (!sp && currentJobState.running && p.status === 'processing') || isBatchProcessing) &&
+				(currentJobState.running || isBatchProcessing));
+			const isError =
+				!isProcessing &&
+				(isBatchError ||
+					sp?.status === 'error' ||
+					p.status === 'error' ||
+					Boolean(sp?.errorMessage) ||
+					Boolean(p.error));
 			const isDone = !isProcessing && !isError && (sp?.status === 'done' || (!sp && p.status === 'done'));
 			const isQueued =
 				!isProcessing &&
 				!isError &&
 				!isDone &&
-				(isWholeChapterQueued ||
+				(isBatchQueued ||
+					isWholeChapterQueued ||
 					(queuedPageIdSet ? queuedPageIdSet.has(p.id) : false));
+			const rawStatus = p.status || 'pending';
 			const status: 'pending' | 'queued' | 'processing' | 'done' | 'error' = isProcessing
 				? 'processing'
 				: isError
@@ -335,9 +367,11 @@
 						? 'done'
 						: isQueued
 							? 'queued'
-							: p.status || 'pending';
+							: rawStatus === 'processing'
+								? 'pending'
+								: rawStatus;
 
-			const currentStep = isProcessing ? sp?.currentStep : undefined;
+			const currentStep = isProcessing ? sp?.currentStep : isError ? sp?.failedStep || 'error' : undefined;
 			const outputPath = sp
 				? sp.status === 'done'
 					? sp.outputPath || p.outputPath
@@ -348,7 +382,9 @@
 			const cleanedRev = Math.max(sp?.cleanedRev ?? 0, p.cleanedRev ?? 0);
 			const outputRev = Math.max(sp?.outputRev ?? 0, p.outputRev ?? 0);
 			const originalRev = p.originalRev;
-			const error = isError ? sp?.errorMessage || p.error : null;
+			const error = isError
+				? sp?.errorMessage || p.error || (isBatchError ? batchItem?.error : null) || 'Translation failed on this page'
+				: null;
 
 			const prev = lastDisplayPagesMap.get(p.id);
 			if (
@@ -494,13 +530,25 @@
 		}
 	});
 
-	// RELOAD CHAPTER DATA WHEN PROGRESS COMPLETES
+	// RELOAD CHAPTER DATA WHEN PROGRESS COMPLETES OR BATCH STATUS CHANGES
 	let lastRunning = false;
+	let lastBatchChapterStatus: string | null = null;
 	$: {
 		if (browser && lastRunning && !currentJobState.running) {
 			void reload();
 		}
 		lastRunning = currentJobState.running;
+
+		if (browser) {
+			const batchItem = $batchTracker.queue.find((q) => q.id === chapterId);
+			const currentBatchStatus = batchItem?.status || null;
+			if (currentBatchStatus !== lastBatchChapterStatus) {
+				if (currentBatchStatus === 'error' || currentBatchStatus === 'done') {
+					void reload();
+				}
+				lastBatchChapterStatus = currentBatchStatus;
+			}
+		}
 	}
 
 	async function reload() {

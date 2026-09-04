@@ -28,12 +28,12 @@
 		dragEnd: DragEvent;
 	}>();
 
-	const statusVariant: Record<string, any> = {
+	const statusVariant: Record<string, 'neutral' | 'amber' | 'emerald' | 'rose'> = {
 		pending: 'neutral',
 		queued: 'neutral',
-		processing: 'warning',
-		done: 'success',
-		error: 'danger',
+		processing: 'amber',
+		done: 'emerald',
+		error: 'rose',
 	};
 
 	const statusLabel: Record<string, string> = {

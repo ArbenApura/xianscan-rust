@@ -338,5 +338,58 @@ describe('startChapterJob', () => {
 		expect(snapshot?.failedPages).toBe(1);
 		expect(snapshot?.completedPages).toBe(0);
 	});
+
+	it('closes in-flight running timings such as inpaint as failed Aborted when translation fails', async () => {
+		const { getChapterJobSnapshot } = await import('$lib/server/translation-service');
+
+		const handle = startChapterJob(9, async (_signal, emit) => {
+			emit({
+				type: 'start',
+				chapterId: 9,
+				totalPages: 1,
+				pages: [{ id: 501, seq: 0, status: 'pending' }],
+			});
+			// INPAINT STARTS CONCURRENTLY WITH TRANSLATE
+			emit({
+				type: 'page-step-start',
+				chapterId: 9,
+				page: 0,
+				pageId: 501,
+				step: 'clean',
+			});
+			emit({
+				type: 'page-step-start',
+				chapterId: 9,
+				page: 0,
+				pageId: 501,
+				step: 'translate',
+			});
+			// TRANSLATE FAILS FIRST
+			emit({
+				type: 'page-step-end',
+				chapterId: 9,
+				page: 0,
+				pageId: 501,
+				step: 'translate',
+				stepStatus: 'failed',
+				stepDetails: { error: 'Invalid API key' },
+			});
+			emit({
+				type: 'error',
+				chapterId: 9,
+				page: 0,
+				pageId: 501,
+				failedStep: 'translate',
+				message: 'Invalid API key',
+			});
+		});
+
+		await vi.waitFor(() => expect(handle.status).toBe('failed'));
+
+		const snapshot = getChapterJobSnapshot(9);
+		expect(snapshot).not.toBeNull();
+		expect(snapshot?.pages[0].timings.clean?.status).toBe('failed');
+		expect(snapshot?.pages[0].timings.clean?.details?.error).toBe('Aborted');
+	});
 });
 

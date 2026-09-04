@@ -7,6 +7,10 @@
 //   - EVENTS ARE BUFFERED AND REPLAYED TO (RE)CONNECTING SUBSCRIBERS — SSE RESUMPTION FOR FREE.
 //   - MAINTAINS A REAL-TIME AGGREGATED ChapterJobSnapshot + RECENT RETENTION BUFFER FOR REFRESHES.
 //   - ABORT SIGNALS FLOW TO THE WORK FUNCTION VIA AbortController.
+import { and, eq } from 'drizzle-orm';
+import { db } from '$lib/server/db';
+import { chapters, pages } from '$lib/server/db/schema';
+import { syncBus } from '$lib/server/sync-bus';
 import type {
 	ChapterJobSnapshot,
 	PageProgressState,
@@ -290,6 +294,46 @@ function updateSnapshot(snapshot: ChapterJobSnapshot, event: JobEvent): void {
 			p.currentStep = 'error';
 			p.failedStep = event.failedStep;
 			p.errorMessage = event.message;
+			// CLOSE ANY LINGERING RUNNING STEP TIMINGS ON THIS PAGE
+			for (const [step, t] of Object.entries(p.timings)) {
+				if (t && t.status === 'running') {
+					p.timings[step as PipelineStep] = {
+						...t,
+						status: 'failed',
+						completedAt: now,
+						durationMs: t.startedAt ? Math.max(0, now - t.startedAt) : undefined,
+						details: {
+							...t.details,
+							error: step === event.failedStep ? event.message : 'Aborted',
+						},
+					};
+				}
+			}
+			snapshot.failedPages = snapshot.pages.filter((p) => p.status === 'error').length;
+		} else {
+			// CHAPTER-LEVEL FATAL ERROR - CLOSE ANY REMAINING RUNNING STEP TIMINGS ACROSS ALL PAGES
+			for (const page of snapshot.pages) {
+				if (page.status === 'processing') {
+					page.status = 'error';
+					page.currentStep = 'error';
+					page.failedStep = event.failedStep;
+					page.errorMessage = event.message;
+				}
+				for (const [step, t] of Object.entries(page.timings)) {
+					if (t && t.status === 'running') {
+						page.timings[step as PipelineStep] = {
+							...t,
+							status: 'failed',
+							completedAt: now,
+							durationMs: t.startedAt ? Math.max(0, now - t.startedAt) : undefined,
+							details: {
+								...t.details,
+								error: step === event.failedStep ? event.message : 'Aborted',
+							},
+						};
+					}
+				}
+			}
 			snapshot.failedPages = snapshot.pages.filter((p) => p.status === 'error').length;
 		}
 	} else if (event.type === 'usage' && event.usage) {
@@ -301,6 +345,23 @@ function updateSnapshot(snapshot: ChapterJobSnapshot, event: JobEvent): void {
 			snapshot.currentPhase = 'completed';
 		} else {
 			snapshot.status = 'failed';
+		}
+		// CLOSE ANY DANGLING RUNNING STEP TIMINGS ACROSS ALL PAGES
+		for (const page of snapshot.pages) {
+			for (const [step, t] of Object.entries(page.timings)) {
+				if (t && t.status === 'running') {
+					page.timings[step as PipelineStep] = {
+						...t,
+						status: 'failed',
+						completedAt: now,
+						durationMs: t.startedAt ? Math.max(0, now - t.startedAt) : undefined,
+						details: {
+							...t.details,
+							error: 'Aborted',
+						},
+					};
+				}
+			}
 		}
 		snapshot.completedAt = now;
 		snapshot.totalDurationMs = snapshot.startedAt ? now - snapshot.startedAt : 0;
@@ -329,9 +390,38 @@ async function run(key: string, chapterId: number, work: ChapterJobWork, initial
 			const targetPages = targetSet
 				? job.snapshot.pages.filter((p) => targetSet.has(p.pageId))
 				: job.snapshot.pages;
-			const failedPages = targetPages.filter((p) => p.status === 'error').length;
-			const completedPages = targetPages.filter((p) => p.status === 'done').length;
+			let failedPages = targetPages.filter((p) => p.status === 'error').length;
+			let completedPages = targetPages.filter((p) => p.status === 'done').length;
 			const totalTarget = targetPages.length;
+
+			// RECONCILE WITH SQLITE IF SNAPSHOT SHOWS ZERO FAILURES BUT SQLITE HAS ERROR PAGES
+			if (failedPages === 0 && completedPages < totalTarget) {
+				try {
+					const dbPages = db
+						.select({ id: pages.id, status: pages.status, error: pages.error })
+						.from(pages)
+						.where(eq(pages.chapterId, chapterId))
+						.all();
+					for (const dp of dbPages) {
+						if (targetSet && !targetSet.has(dp.id)) continue;
+						const sp = targetPages.find((p) => p.pageId === dp.id);
+						if (sp) {
+							if (dp.status === 'error' || dp.error) {
+								sp.status = 'error';
+								sp.errorMessage = dp.error || sp.errorMessage;
+							} else if (dp.status === 'done') {
+								sp.status = 'done';
+							}
+						}
+					}
+					failedPages = targetPages.filter((p) => p.status === 'error').length;
+					completedPages = targetPages.filter((p) => p.status === 'done').length;
+					job.snapshot.failedPages = failedPages;
+					job.snapshot.completedPages = completedPages;
+				} catch {
+					// NON-BLOCKING SQLITE RECONCILIATION
+				}
+			}
 
 			if (failedPages > 0) {
 				job.status = 'failed';
@@ -341,6 +431,20 @@ async function run(key: string, chapterId: number, work: ChapterJobWork, initial
 					completedPages === 0
 						? (firstErr || 'Chapter translation failed')
 						: `${failedPages} of ${totalTarget} page(s) failed translation: ${firstErr || 'Error occurred'}`;
+				try {
+					db.update(chapters).set({ status: 'error' }).where(eq(chapters.id, chapterId)).run();
+					for (const tp of targetPages) {
+						if (tp.status === 'error') {
+							db.update(pages)
+								.set({ status: 'error', error: tp.errorMessage || errMsg })
+								.where(eq(pages.id, tp.pageId))
+								.run();
+						}
+					}
+					syncBus.broadcast({ type: 'pages-updated', chapterId });
+				} catch {
+					// NON-BLOCKING DB UPDATE
+				}
 				emit(job, {
 					type: 'error',
 					chapterId,
@@ -352,14 +456,43 @@ async function run(key: string, chapterId: number, work: ChapterJobWork, initial
 			} else {
 				job.status = 'failed';
 				job.snapshot.status = 'failed';
-				emit(job, { type: 'error', chapterId, message: 'No pages completed translation' });
+				let fallbackErr = 'No pages completed translation';
+				try {
+					const errPage = db
+						.select({ error: pages.error })
+						.from(pages)
+						.where(eq(pages.chapterId, chapterId))
+						.all()
+						.find((p) => Boolean(p.error));
+					if (errPage?.error) fallbackErr = errPage.error;
+				} catch {
+					// NON-BLOCKING DB INSPECTION
+				}
+				emit(job, { type: 'error', chapterId, message: fallbackErr });
 			}
 		}
 	} catch (e) {
 		if (job.status !== 'superseded') {
 			job.status = 'failed';
 			job.snapshot.status = 'failed';
-			emit(job, { type: 'error', chapterId, message: e instanceof Error ? e.message : String(e) });
+			const message = e instanceof Error ? e.message : String(e);
+			try {
+				db.update(chapters).set({ status: 'error' }).where(eq(chapters.id, chapterId)).run();
+				const targetSet = job.snapshot.targetPageIds && job.snapshot.targetPageIds.length > 0
+					? new Set(job.snapshot.targetPageIds)
+					: null;
+				const chapterPages = db.select({ id: pages.id, status: pages.status }).from(pages).where(eq(pages.chapterId, chapterId)).all();
+				for (const p of chapterPages) {
+					if (targetSet && !targetSet.has(p.id)) continue;
+					if (p.status !== 'done') {
+						db.update(pages).set({ status: 'error', error: message }).where(eq(pages.id, p.id)).run();
+					}
+				}
+				syncBus.broadcast({ type: 'pages-updated', chapterId });
+			} catch {
+				// NON-BLOCKING DB UPDATE
+			}
+			emit(job, { type: 'error', chapterId, message });
 		}
 	} finally {
 		// PRESERVE SNAPSHOT IN RETENTION BUFFER BEFORE REMOVING ACTIVE JOB
@@ -444,6 +577,17 @@ export function setChapterJobAddPage(chapterId: number, fn: (pageId: number) => 
 
 
 export function abortChapterJob(chapterId: number): boolean {
+	// CLEAN UP IN-FLIGHT PROCESSING PAGES IN SQLITE SO THEY DO NOT REMAIN STUCK
+	try {
+		db.update(pages)
+			.set({ status: 'pending' })
+			.where(and(eq(pages.chapterId, chapterId), eq(pages.status, 'processing')))
+			.run();
+		syncBus.broadcast({ type: 'pages-updated', chapterId });
+	} catch {
+		// NON-BLOCKING DB CLEANUP
+	}
+
 	const job = jobs.get(`chapter:${chapterId}`);
 	if (job) {
 		const now = Date.now();
@@ -476,6 +620,17 @@ export function abortChapterJob(chapterId: number): boolean {
  *  STATE: NO 'failed' TIMINGS AND NO CHAPTER-LEVEL 'error' EVENT, SO A RESUME RE-RUNS THEM CLEANLY
  *  WITHOUT THE UI EVER SHOWING THE IN-FLIGHT STEP AS FAILED. */
 export function pauseChapterJob(chapterId: number): boolean {
+	// CLEAN UP IN-FLIGHT PROCESSING PAGES IN SQLITE SO THEY DO NOT REMAIN STUCK
+	try {
+		db.update(pages)
+			.set({ status: 'pending' })
+			.where(and(eq(pages.chapterId, chapterId), eq(pages.status, 'processing')))
+			.run();
+		syncBus.broadcast({ type: 'pages-updated', chapterId });
+	} catch {
+		// NON-BLOCKING DB CLEANUP
+	}
+
 	const job = jobs.get(`chapter:${chapterId}`);
 	if (!job) return false;
 	const now = Date.now();

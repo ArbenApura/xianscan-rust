@@ -22,6 +22,8 @@ import { getActiveProvider } from '$lib/server/providers';
 import { DATA_ROOT } from '$lib/server/paths';
 import { aiUsage } from '$lib/server/db/schema';
 import { getCanonicalSettings, onSettingsUpdated } from '$lib/server/settings-service';
+import { isRetryable } from '$lib/server/llm';
+import { syncBus } from '$lib/server/sync-bus';
 import type {
 	BatchChapterItem,
 	BatchTranslationState,
@@ -322,11 +324,12 @@ async function executeChapterJob(chapter: BatchChapterItem, force: boolean) {
 				(snap?.failedPages || 0) === 0;
 
 			// ONLY FAIL THE ENTIRE CHAPTER IF IT IS A GENUINE CHAPTER-LEVEL FAILURE (NOT DELIBERATE PAUSE / CANCEL / SUPERSEDE)
+			const isJobRunning = getChapterJob(chapter.id)?.status === 'running';
 			const isFailed =
 				!isCancelledOrSuperseded &&
 				(snap?.status === 'failed' ||
-				(snap && (snap.failedPages || 0) > 0 && !isDone) ||
 				(e.type === 'error' && e.page === undefined) ||
+				(!isJobRunning && snap && (snap.failedPages || 0) > 0 && !isDone) ||
 				(!getChapterJob(chapter.id) && snap?.status !== 'done' && (snap?.completedPages || 0) === 0));
 
 			if (isDone && !completedChapterIds.has(chapter.id)) {
@@ -338,7 +341,12 @@ async function executeChapterJob(chapter: BatchChapterItem, force: boolean) {
 					return;
 				}
 				unsub();
-				onChapterFailed(chapter, e.message || snap?.pages?.find((p) => p.errorMessage)?.errorMessage || 'Translation failed');
+				const pageErr = snap?.pages?.find((p) => p.errorMessage)?.errorMessage;
+				const effectiveError =
+					e.message && e.message !== 'No pages completed translation'
+						? e.message
+						: pageErr || e.message || 'Translation failed';
+				onChapterFailed(chapter, effectiveError);
 			} else if (isCancelledOrSuperseded) {
 				unsub();
 			}
@@ -386,8 +394,9 @@ function onChapterFailed(chapter: BatchChapterItem, errorMsg: string) {
 		return;
 	}
 
+	const retryable = isRetryable(errorMsg);
 	const currentRetries = chapterRetryCount.get(chapter.id) || 0;
-	if (currentRetries < 3) {
+	if (retryable && currentRetries < 3) {
 		const nextRetry = currentRetries + 1;
 		chapterRetryCount.set(chapter.id, nextRetry);
 		const backoffMs = nextRetry * 1500;
@@ -421,10 +430,44 @@ function onChapterFailed(chapter: BatchChapterItem, errorMsg: string) {
 		return;
 	}
 
-	// 3 RETRIES EXHAUSTED: MARK AS PERMANENT ERROR FOR THIS BATCH
+	// 3 RETRIES EXHAUSTED OR NON-RETRYABLE ERROR: MARK AS PERMANENT ERROR FOR THIS BATCH
 	clearChapterRetryTimer(chapter.id);
 	chapterRetryCount.delete(chapter.id);
 	failedChapterIds.add(chapter.id);
+
+	// PERSIST FAILURE IN SQLITE FOR CHAPTER AND UNFINISHED TARGET PAGES
+	try {
+		const targetPageIdSet = chapter.pageIds && chapter.pageIds.length > 0 ? new Set(chapter.pageIds) : null;
+		const chapterPages = db
+			.select({ id: pages.id, status: pages.status, error: pages.error })
+			.from(pages)
+			.where(eq(pages.chapterId, chapter.id))
+			.all();
+
+		for (const p of chapterPages) {
+			if (targetPageIdSet && !targetPageIdSet.has(p.id)) continue;
+			if (p.status !== 'done') {
+				db.update(pages)
+					.set({
+						status: 'error',
+						error: p.error || errorMsg || 'Translation failed on this page',
+					})
+					.where(eq(pages.id, p.id))
+					.run();
+			}
+		}
+
+		db.update(chapters)
+			.set({ status: 'error' })
+			.where(eq(chapters.id, chapter.id))
+			.run();
+
+		syncBus.broadcast({ type: 'chapter-updated', bookId: chapter.bookId, chapterId: chapter.id });
+		syncBus.broadcast({ type: 'pages-updated', chapterId: chapter.id });
+	} catch (dbErr) {
+		console.error('[batchService] Failed to persist chapter failure in SQLite:', dbErr);
+	}
+
 	abortChapterJob(chapter.id);
 
 	activeBatchState = {

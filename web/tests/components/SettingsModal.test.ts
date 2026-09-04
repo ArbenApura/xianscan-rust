@@ -723,6 +723,54 @@ describe('SettingsModal Component UI', () => {
 		expect(screen.getByRole('button', { name: /Hardware & Compute/i })).toBeTruthy();
 		expect(screen.getByRole('button', { name: /About & Diagnostics/i })).toBeTruthy();
 	});
+
+	it('preselects the active default provider on load instead of falling back to ollama', async () => {
+		const fetchMock = vi.fn().mockImplementation(async (url: string) => {
+			if (url.includes('/api/system/providers')) {
+				return {
+					ok: true,
+					json: async () => ({
+						providers: [
+							{
+								id: 'ollama',
+								name: 'Ollama Local',
+								isDefault: false,
+								activeModel: 'qwen2.5:7b',
+								availableModels: ['qwen2.5:7b'],
+								baseUrl: 'http://localhost:11434/v1',
+								hasKey: false,
+							},
+							{
+								id: 'gemini',
+								name: 'Google Gemini',
+								isDefault: true,
+								activeModel: 'gemini-2.5-flash',
+								availableModels: ['gemini-2.5-flash'],
+								baseUrl: 'https://generativelanguage.googleapis.com/v1beta/openai/',
+								hasKey: true,
+							},
+						],
+					}),
+				};
+			}
+			return { ok: true, json: async () => ({}) };
+		});
+		global.fetch = fetchMock;
+
+		render(SettingsModal, {
+			props: {
+				open: true,
+				initialTab: 'providers',
+			},
+		});
+		await tick();
+
+		await vi.waitFor(() => {
+			const trigger = screen.getByRole('button', { name: /Google Gemini/i });
+			expect(trigger).toBeTruthy();
+			expect(trigger.textContent).toContain('gemini');
+		});
+	});
 });
 
 

@@ -198,7 +198,7 @@
 
 	// AI PROVIDERS STATE
 	let providers: ProviderInfo[] = [];
-	let selectedProviderId = 'ollama';
+	let selectedProviderId = '';
 	let providerCategoryFilter: 'all' | 'cloud' | 'local' | 'custom' = 'all';
 	let apiKeyDraft: Record<string, string> = {};
 	let baseUrlDraft: Record<string, string> = {};
@@ -535,6 +535,7 @@
 			testResult = null;
 			customModelInput = '';
 			globalSearch = '';
+			selectedProviderId = '';
 			loadHardwareStatus();
 			loadProviders();
 			loadTelemetry();
@@ -1549,7 +1550,7 @@
 		await tick();
 		setTimeout(() => {
 			const el = document.getElementById(`setting-${setting.id}`);
-			if (el) {
+			if (el && typeof el.scrollIntoView === 'function') {
 				el.scrollIntoView({ behavior: 'smooth', block: 'center' });
 			}
 		}, 80);
