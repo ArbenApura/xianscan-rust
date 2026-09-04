@@ -772,11 +772,11 @@
 
 	$: isInferenceModified =
 		($settings.translationMaxTokens ?? 4096) !== DEFAULTS.translationMaxTokens ||
-		Math.abs(($settings.translationTemperature ?? 0.2) - DEFAULTS.translationTemperature) >= 0.01 ||
-		Math.abs(($settings.translationTopP ?? 1.0) - DEFAULTS.translationTopP) >= 0.01 ||
+		$settings.translationTemperature !== DEFAULTS.translationTemperature ||
+		$settings.translationTopP !== DEFAULTS.translationTopP ||
 		($settings.translationReasoningEffort ?? 'none') !== DEFAULTS.translationReasoningEffort ||
-		Math.abs(($settings.translationFrequencyPenalty ?? 0.0) - DEFAULTS.translationFrequencyPenalty) >= 0.01 ||
-		Math.abs(($settings.translationPresencePenalty ?? 0.0) - DEFAULTS.translationPresencePenalty) >= 0.01;
+		$settings.translationFrequencyPenalty !== DEFAULTS.translationFrequencyPenalty ||
+		$settings.translationPresencePenalty !== DEFAULTS.translationPresencePenalty;
 
 	function setMaxTokens(val: number) {
 		const clamped = Math.max(1024, Math.min(65536, Math.round(val)));
@@ -784,14 +784,62 @@
 		toast.success(`Max completion tokens set to ${clamped.toLocaleString()}`);
 	}
 
-	function setTemperature(val: number) {
+	let lastActiveTemperature = 0.2;
+	let lastActiveTopP = 1.0;
+	let lastActiveFrequencyPenalty = 0.0;
+	let lastActivePresencePenalty = 0.0;
+
+	$: if ($settings.translationTemperature !== null) {
+		lastActiveTemperature = $settings.translationTemperature;
+	}
+	$: if ($settings.translationTopP !== null) {
+		lastActiveTopP = $settings.translationTopP;
+	}
+	$: if ($settings.translationFrequencyPenalty !== null) {
+		lastActiveFrequencyPenalty = $settings.translationFrequencyPenalty;
+	}
+	$: if ($settings.translationPresencePenalty !== null) {
+		lastActivePresencePenalty = $settings.translationPresencePenalty;
+	}
+
+	function setTemperature(val: number | null) {
+		if (val === null) {
+			settings.update((s) => ({ ...s, translationTemperature: null }));
+			return;
+		}
 		const clamped = Math.max(0.0, Math.min(1.0, Number(val.toFixed(2))));
+		lastActiveTemperature = clamped;
 		settings.update((s) => ({ ...s, translationTemperature: clamped }));
 	}
 
-	function setTopP(val: number) {
-		const clamped = Math.max(0.1, Math.min(1.0, Number(val.toFixed(2))));
+	function setTopP(val: number | null) {
+		if (val === null) {
+			settings.update((s) => ({ ...s, translationTopP: null }));
+			return;
+		}
+		const clamped = Math.max(0.0, Math.min(1.0, Number(val.toFixed(2))));
+		lastActiveTopP = clamped;
 		settings.update((s) => ({ ...s, translationTopP: clamped }));
+	}
+
+	function setFrequencyPenalty(val: number | null) {
+		if (val === null) {
+			settings.update((s) => ({ ...s, translationFrequencyPenalty: null }));
+			return;
+		}
+		const clamped = Math.max(0.0, Math.min(2.0, Number(val.toFixed(2))));
+		lastActiveFrequencyPenalty = clamped;
+		settings.update((s) => ({ ...s, translationFrequencyPenalty: clamped }));
+	}
+
+	function setPresencePenalty(val: number | null) {
+		if (val === null) {
+			settings.update((s) => ({ ...s, translationPresencePenalty: null }));
+			return;
+		}
+		const clamped = Math.max(0.0, Math.min(2.0, Number(val.toFixed(2))));
+		lastActivePresencePenalty = clamped;
+		settings.update((s) => ({ ...s, translationPresencePenalty: clamped }));
 	}
 
 	function setReasoningEffort(effort: string) {
@@ -846,18 +894,12 @@
 
 	function handleFrequencyPenaltyChange(e: CustomEvent<number> | Event) {
 		const val = (e as CustomEvent).detail !== undefined ? (e as CustomEvent).detail : Number((e.target as HTMLInputElement)?.value);
-		if (!isNaN(val)) {
-			const clamped = Math.max(0.0, Math.min(2.0, Number(val.toFixed(2))));
-			settings.update((s) => ({ ...s, translationFrequencyPenalty: clamped }));
-		}
+		if (!isNaN(val)) setFrequencyPenalty(val);
 	}
 
 	function handlePresencePenaltyChange(e: CustomEvent<number> | Event) {
 		const val = (e as CustomEvent).detail !== undefined ? (e as CustomEvent).detail : Number((e.target as HTMLInputElement)?.value);
-		if (!isNaN(val)) {
-			const clamped = Math.max(0.0, Math.min(2.0, Number(val.toFixed(2))));
-			settings.update((s) => ({ ...s, translationPresencePenalty: clamped }));
-		}
+		if (!isNaN(val)) setPresencePenalty(val);
 	}
 
 	// HARDWARE ACCELERATION METHODS
@@ -1230,6 +1272,11 @@
 					apiKey: key || undefined,
 					baseUrl: base || undefined,
 					model: model || undefined,
+					temperature: $settings.translationTemperature,
+					topP: $settings.translationTopP,
+					reasoningEffort: $settings.translationReasoningEffort,
+					frequencyPenalty: $settings.translationFrequencyPenalty,
+					presencePenalty: $settings.translationPresencePenalty,
 				}),
 			});
 
@@ -2362,7 +2409,7 @@
 									<div class="space-y-0.5 min-w-0">
 										<span class="font-semibold text-blue-950 dark:text-blue-100 block">Getting Started</span>
 										<p class="text-[11.5px] text-blue-900/85 dark:text-blue-200/85 leading-relaxed">
-											Switch translation providers, choose or add models, supply API credentials, and fine-tune sampling parameters such as temperature and token limits below.
+											Switch translation providers, choose or add models, and supply API credentials below. Sampling parameters like temperature and penalties are omitted by default for broad model compatibility, and you can un-omit any parameter to customize it.
 										</p>
 									</div>
 								</div>
@@ -2653,17 +2700,21 @@
 
 									<!-- TEST RESULTS INLINE BANNER -->
 									{#if testResult}
-										<div id="setting-test-connection" class="flex items-center gap-2 rounded-lg p-2 text-xs border border-black/10 dark:border-white/10 bg-black/[0.02] dark:bg-white/[0.02]">
+										<div id="setting-test-connection" class="flex items-start gap-2 rounded-lg p-2.5 text-xs border border-black/10 dark:border-white/10 bg-black/[0.02] dark:bg-white/[0.02]">
 											{#if testResult.ok}
-												<CheckCircle2 size={13} class="text-emerald-600 dark:text-emerald-400 shrink-0" />
+												<CheckCircle2 size={13} class="text-emerald-600 dark:text-emerald-400 shrink-0 mt-0.5" />
 											{:else}
-												<AlertCircle size={13} class="text-red-500 shrink-0" />
+												<AlertCircle size={13} class="text-red-500 shrink-0 mt-0.5" />
 											{/if}
-											<span class="font-bold">{testResult.ok ? 'Verified' : 'Error'}</span>
-											{#if testResult.ok && testResult.latencyMs}
-												<span class="font-mono text-[10px] opacity-70">({testResult.latencyMs}ms)</span>
-											{/if}
-											<span class="text-[11px] opacity-80 truncate">{testResult.message}</span>
+											<div class="min-w-0 flex-1 space-y-0.5">
+												<div class="flex items-center gap-1.5 font-bold">
+													<span>{testResult.ok ? 'Verified' : 'Error'}</span>
+													{#if testResult.ok && testResult.latencyMs}
+														<span class="font-mono text-[10px] font-normal opacity-70">({testResult.latencyMs}ms)</span>
+													{/if}
+												</div>
+												<p class="text-[11px] opacity-80 break-words leading-relaxed">{testResult.message}</p>
+											</div>
 										</div>
 									{/if}
 
@@ -2735,11 +2786,6 @@
 									<div>
 										<div class="flex items-center gap-2">
 											<span class="text-xs font-bold uppercase tracking-wider opacity-85">Inference & Sampling</span>
-											{#if isInferenceModified}
-												<span class="inline-flex items-center rounded-md bg-[#b23a2e]/10 dark:bg-[#e08a63]/20 px-1.5 py-0.5 text-[10px] font-semibold text-[#b23a2e] dark:text-[#e08a63]">
-													Customized
-												</span>
-											{/if}
 										</div>
 										<p class="text-[11px] opacity-50">Token budget, sampling diversity, and reasoning limits</p>
 									</div>
@@ -2763,9 +2809,9 @@
 								<div
 									id="setting-max-tokens"
 									class={cn(
-										'space-y-2 transition-all duration-300 rounded-lg p-1 -m-1',
+										'space-y-2 transition-all duration-300',
 										highlightedSettingId === 'max-tokens' &&
-											'ring-2 ring-[#b23a2e] dark:ring-[#e08a63] bg-[#b23a2e]/[0.06] dark:bg-[#e08a63]/[0.08]'
+											'ring-2 ring-[#b23a2e] dark:ring-[#e08a63] bg-[#b23a2e]/[0.06] dark:bg-[#e08a63]/[0.08] rounded-xl p-2 -m-2'
 									)}
 								>
 									<div class="flex items-center justify-between text-xs">
@@ -2821,13 +2867,15 @@
 									</div>
 								</div>
 
+								<div class="border-t border-black/10 dark:border-white/10" />
+
 								<!-- REASONING EFFORT -->
 								<div
 									id="setting-reasoning-effort"
 									class={cn(
-										'space-y-2 pt-2.5 border-t border-black/10 dark:border-white/10 transition-all duration-300 rounded-lg p-1 -m-1',
+										'space-y-2 transition-all duration-300',
 										highlightedSettingId === 'reasoning-effort' &&
-											'ring-2 ring-[#b23a2e] dark:ring-[#e08a63] bg-[#b23a2e]/[0.06] dark:bg-[#e08a63]/[0.08]'
+											'ring-2 ring-[#b23a2e] dark:ring-[#e08a63] bg-[#b23a2e]/[0.06] dark:bg-[#e08a63]/[0.08] rounded-xl p-2 -m-2'
 									)}
 								>
 									<div class="flex items-center justify-between text-xs">
@@ -2888,13 +2936,15 @@
 									</div>
 								</div>
 
+								<div class="border-t border-black/10 dark:border-white/10" />
+
 								<!-- SAMPLING & DIVERSITY SLIDERS -->
 								<div
 									id="setting-sampling-diversity"
 									class={cn(
-										'space-y-3 pt-2.5 border-t border-black/10 dark:border-white/10 transition-all duration-300 rounded-lg p-1 -m-1',
+										'space-y-3 transition-all duration-300',
 										highlightedSettingId === 'sampling-diversity' &&
-											'ring-2 ring-[#b23a2e] dark:ring-[#e08a63] bg-[#b23a2e]/[0.06] dark:bg-[#e08a63]/[0.08]'
+											'ring-2 ring-[#b23a2e] dark:ring-[#e08a63] bg-[#b23a2e]/[0.06] dark:bg-[#e08a63]/[0.08] rounded-xl p-2 -m-2'
 									)}
 								>
 									<div class="flex items-center gap-1.5 text-xs font-bold uppercase tracking-wider opacity-75">
@@ -2910,7 +2960,18 @@
 											max={1}
 											step={0.05}
 											showFooter={false}
+											omittable={true}
+											omitted={$settings.translationTemperature === null}
 											value={$settings.translationTemperature ?? 0.2}
+											on:toggleOmit={(e) => {
+												if (e.detail) {
+													setTemperature(null);
+													toast.success('Temperature omitted (provider default)');
+												} else {
+													setTemperature(lastActiveTemperature ?? 0.2);
+													toast.success(`Temperature enabled (${(lastActiveTemperature ?? 0.2).toFixed(2)})`);
+												}
+											}}
 											on:input={handleTemperatureChange}
 											on:change={handleTemperatureChange}
 										/>
@@ -2918,11 +2979,22 @@
 										<RangeField
 											label="Top-P"
 											display={($settings.translationTopP ?? 1.0).toFixed(2)}
-											min={0.1}
+											min={0}
 											max={1}
 											step={0.05}
 											showFooter={false}
+											omittable={true}
+											omitted={$settings.translationTopP === null}
 											value={$settings.translationTopP ?? 1.0}
+											on:toggleOmit={(e) => {
+												if (e.detail) {
+													setTopP(null);
+													toast.success('Top-P omitted (provider default)');
+												} else {
+													setTopP(lastActiveTopP ?? 1.0);
+													toast.success(`Top-P enabled (${(lastActiveTopP ?? 1.0).toFixed(2)})`);
+												}
+											}}
 											on:input={handleTopPChange}
 											on:change={handleTopPChange}
 										/>
@@ -2934,7 +3006,18 @@
 											max={2}
 											step={0.05}
 											showFooter={false}
+											omittable={true}
+											omitted={$settings.translationFrequencyPenalty === null}
 											value={$settings.translationFrequencyPenalty ?? 0.0}
+											on:toggleOmit={(e) => {
+												if (e.detail) {
+													setFrequencyPenalty(null);
+													toast.success('Frequency penalty omitted (provider default)');
+												} else {
+													setFrequencyPenalty(lastActiveFrequencyPenalty ?? 0.0);
+													toast.success(`Frequency penalty enabled (${(lastActiveFrequencyPenalty ?? 0.0).toFixed(2)})`);
+												}
+											}}
 											on:input={handleFrequencyPenaltyChange}
 											on:change={handleFrequencyPenaltyChange}
 										/>
@@ -2946,7 +3029,18 @@
 											max={2}
 											step={0.05}
 											showFooter={false}
+											omittable={true}
+											omitted={$settings.translationPresencePenalty === null}
 											value={$settings.translationPresencePenalty ?? 0.0}
+											on:toggleOmit={(e) => {
+												if (e.detail) {
+													setPresencePenalty(null);
+													toast.success('Presence penalty omitted (provider default)');
+												} else {
+													setPresencePenalty(lastActivePresencePenalty ?? 0.0);
+													toast.success(`Presence penalty enabled (${(lastActivePresencePenalty ?? 0.0).toFixed(2)})`);
+												}
+											}}
 											on:input={handlePresencePenaltyChange}
 											on:change={handlePresencePenaltyChange}
 										/>

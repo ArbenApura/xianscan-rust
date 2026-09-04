@@ -110,6 +110,13 @@ describe('thinkingParam', () => {
 			extra_body: { think: true },
 		});
 	});
+
+	it('omits reasoning parameters when effort is auto across all providers', () => {
+		expect(thinkingParam('custom', 'kimi-k3', 'auto')).toEqual({});
+		expect(thinkingParam('openai', 'o3-mini', 'auto')).toEqual({});
+		expect(thinkingParam('ollama', 'deepseek-r1', 'auto')).toEqual({});
+		expect(thinkingParam('openrouter', 'anthropic/claude-3.7-sonnet', 'auto')).toEqual({});
+	});
 });
 
 describe('withRetry', () => {

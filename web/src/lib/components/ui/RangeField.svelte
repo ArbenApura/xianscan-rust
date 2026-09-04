@@ -24,6 +24,8 @@
 	export let steppers = true;
 	export let showFooter = true;
 	export let disabled = false;
+	export let omittable = false;
+	export let omitted = false;
 	let className = '';
 	export { className as class };
 
@@ -32,6 +34,7 @@
 	const dispatch = createEventDispatcher<{
 		input: number;
 		change: number;
+		toggleOmit: boolean;
 	}>();
 
 	// -- REACTIVE DERIVED -- //
@@ -99,12 +102,31 @@
 		</div>
 
 		<div class="flex items-center gap-1">
+			{#if omittable}
+				<button
+					type="button"
+					aria-label={omitted ? `Include ${label || 'parameter'}` : `Omit ${label || 'parameter'}`}
+					use:ripple
+					disabled={disabled}
+					on:click={() => dispatch('toggleOmit', !omitted)}
+					class={cn(
+						'flex h-5 items-center justify-center rounded px-1.5 text-[10px] font-medium transition-colors cursor-pointer border select-none',
+						omitted
+							? 'border-[#b23a2e]/40 bg-[#b23a2e]/12 text-[#b23a2e] font-semibold dark:border-[#e08a63]/40 dark:bg-[#e08a63]/15 dark:text-[#e08a63]'
+							: 'border-black/[0.08] bg-black/[0.02] text-foreground/60 hover:border-[#b23a2e]/40 hover:bg-black/[0.04] hover:text-[#b23a2e] dark:border-white/[0.08] dark:bg-white/[0.03] dark:hover:bg-white/[0.06] dark:hover:text-[#f87171]'
+					)}
+					title={omitted ? 'Parameter omitted from API requests. Click to include.' : 'Click to omit this parameter from API requests.'}
+				>
+					{omitted ? 'Omitted' : 'Omit'}
+				</button>
+			{/if}
+
 			{#if steppers}
 				<button
 					type="button"
 					aria-label="Decrease value"
 					use:ripple
-					disabled={disabled || value <= safeMin}
+					disabled={disabled || omitted || value <= safeMin}
 					on:click={stepDown}
 					class="flex h-5 w-5 items-center justify-center rounded border border-black/[0.08] text-foreground/70 transition-colors hover:border-[#b23a2e]/40 hover:bg-black/[0.04] hover:text-[#b23a2e] disabled:opacity-30 dark:border-white/[0.08] dark:hover:bg-white/[0.06] dark:hover:text-[#f87171] cursor-pointer"
 				>
@@ -113,9 +135,14 @@
 			{/if}
 
 			<span
-				class="inline-flex min-w-[2.75rem] items-center justify-center rounded-md border border-black/[0.08] bg-black/[0.03] px-1.5 py-0.5 font-mono text-[11px] font-semibold tabular-nums text-[#b23a2e] shadow-xs dark:border-white/[0.08] dark:bg-white/[0.05] dark:text-[#f87171]"
+				class={cn(
+					'inline-flex min-w-[2.75rem] items-center justify-center rounded-md border px-1.5 py-0.5 font-mono text-[11px] font-semibold tabular-nums shadow-xs',
+					omitted
+						? 'border-black/[0.06] bg-black/[0.02] text-foreground/40 dark:border-white/[0.06] dark:bg-white/[0.03] dark:text-foreground/40'
+						: 'border-black/[0.08] bg-black/[0.03] text-[#b23a2e] dark:border-white/[0.08] dark:bg-white/[0.05] dark:text-[#f87171]'
+				)}
 			>
-				{displayValue}
+				{omitted ? 'Auto' : displayValue}
 			</span>
 
 			{#if steppers}
@@ -123,7 +150,7 @@
 					type="button"
 					aria-label="Increase value"
 					use:ripple
-					disabled={disabled || value >= safeMax}
+					disabled={disabled || omitted || value >= safeMax}
 					on:click={stepUp}
 					class="flex h-5 w-5 items-center justify-center rounded border border-black/[0.08] text-foreground/70 transition-colors hover:border-[#b23a2e]/40 hover:bg-black/[0.04] hover:text-[#b23a2e] disabled:opacity-30 dark:border-white/[0.08] dark:hover:bg-white/[0.06] dark:hover:text-[#f87171] cursor-pointer"
 				>
@@ -134,7 +161,7 @@
 	</div>
 
 	<!-- NATIVE RANGE INPUT (HARDWARE ACCELERATED, 100% DRAGGABLE) -->
-	<div class="relative py-1">
+	<div class={cn('relative py-1', omitted && 'opacity-40')}>
 		<!-- DYNAMIC ACTIVE PROGRESS TRACK FILL VIA LINEAR-GRADIENT -->
 		<input
 			type="range"
@@ -142,11 +169,13 @@
 			{max}
 			{step}
 			bind:value
-			{disabled}
+			disabled={disabled || omitted}
 			aria-label={label || 'Range slider'}
 			on:input={handleInput}
 			on:change={handleChange}
-			style="background: linear-gradient(to right, {activeTrackColor} 0%, {activeTrackColor} {fillPercent}%, {bgTrackColor} {fillPercent}%, {bgTrackColor} 100%);"
+			style={omitted
+				? `background: ${bgTrackColor};`
+				: `background: linear-gradient(to right, ${activeTrackColor} 0%, ${activeTrackColor} ${fillPercent}%, ${bgTrackColor} ${fillPercent}%, ${bgTrackColor} 100%);`}
 			class="h-2 w-full cursor-pointer appearance-none rounded-lg accent-[#b23a2e] dark:accent-[#e08a63] focus:outline-hidden disabled:cursor-not-allowed"
 		/>
 	</div>

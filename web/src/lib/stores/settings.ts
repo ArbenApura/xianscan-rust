@@ -56,11 +56,11 @@ export interface AppSettings {
 	targetLang: string;
 	// CONVENTIONAL INFERENCE & SAMPLING CONFIGURATION
 	translationMaxTokens: number;
-	translationTemperature: number;
-	translationTopP: number;
+	translationTemperature: number | null;
+	translationTopP: number | null;
 	translationReasoningEffort: ReasoningEffortOption;
-	translationFrequencyPenalty: number;
-	translationPresencePenalty: number;
+	translationFrequencyPenalty: number | null;
+	translationPresencePenalty: number | null;
 	// ADVANCED TYPESETTING & INPAINTING CONFIGURATION
 	typesetFont: string;
 	typesetCjkFont: string;
@@ -204,11 +204,11 @@ export const DEFAULTS: AppSettings = {
 	sourceLang: 'zh-Hans',
 	targetLang: 'en',
 	translationMaxTokens: 4096,
-	translationTemperature: 0.2,
-	translationTopP: 1.0,
+	translationTemperature: null,
+	translationTopP: null,
 	translationReasoningEffort: 'none',
-	translationFrequencyPenalty: 0.0,
-	translationPresencePenalty: 0.0,
+	translationFrequencyPenalty: null,
+	translationPresencePenalty: null,
 	typesetFont: 'CC Wild Words',
 	typesetCjkFont: 'WenQuanYi Micro Hei',
 	typesetPadding: 0.05,

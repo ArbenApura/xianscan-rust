@@ -73,11 +73,11 @@ async function callTranslate(
 	const sourceChars = regions.reduce((n, r) => n + r.text.length, 0);
 	const userConfigMaxTokens = opts.maxTokens ?? canonical.translationMaxTokens ?? 4096;
 	const baseMaxTokens = Math.max(userConfigMaxTokens, Math.ceil(sourceChars * 4 + 2048));
-	const temperature = opts.temperature ?? canonical.translationTemperature ?? 0.2;
-	const topP = opts.topP ?? canonical.translationTopP ?? 1.0;
+	const temperature = opts.temperature !== undefined ? opts.temperature : canonical.translationTemperature;
+	const topP = opts.topP !== undefined ? opts.topP : canonical.translationTopP;
 	const effort = opts.reasoningEffort ?? canonical.translationReasoningEffort ?? 'none';
-	const frequencyPenalty = opts.frequencyPenalty ?? canonical.translationFrequencyPenalty ?? 0.0;
-	const presencePenalty = opts.presencePenalty ?? canonical.translationPresencePenalty ?? 0.0;
+	const frequencyPenalty = opts.frequencyPenalty !== undefined ? opts.frequencyPenalty : canonical.translationFrequencyPenalty;
+	const presencePenalty = opts.presencePenalty !== undefined ? opts.presencePenalty : canonical.translationPresencePenalty;
 
 	let attempt = 0;
 	const resp = await queued(() =>
@@ -86,43 +86,39 @@ async function callTranslate(
 				const currentAttempt = attempt++;
 				// DYNAMIC EXPONENTIAL ESCALATION UPON RETRY TO PREVENT REASONING BUDGET CUTOFFS
 				const currentMaxTokens = Math.min(65536, baseMaxTokens * 2 ** currentAttempt);
-				let thinkParams = thinkingParam(opts.providerId, model, effort);
+				const thinkParams = thinkingParam(opts.providerId, model, effort);
+
+				const payload: any = {
+					model,
+					messages,
+					max_tokens: currentMaxTokens,
+					...thinkParams,
+				};
+				if (temperature !== null && temperature !== undefined) {
+					payload.temperature = temperature;
+				}
+				if (topP !== null && topP !== undefined) {
+					payload.top_p = topP;
+				}
+				if (frequencyPenalty !== null && frequencyPenalty !== undefined) {
+					payload.frequency_penalty = frequencyPenalty;
+				}
+				if (presencePenalty !== null && presencePenalty !== undefined) {
+					payload.presence_penalty = presencePenalty;
+				}
+
 				let r;
 				try {
-					r = await client.chat.completions.create(
-						{
-							model,
-							messages,
-							temperature,
-							max_tokens: currentMaxTokens,
-							top_p: topP,
-							...(frequencyPenalty > 0 ? { frequency_penalty: frequencyPenalty } : {}),
-							...(presencePenalty > 0 ? { presence_penalty: presencePenalty } : {}),
-							...thinkParams,
-						},
-						{ signal: opts.signal },
-					);
+					r = await client.chat.completions.create(payload, { signal: opts.signal });
 				} catch (err: any) {
 					if (
 						err?.status === 400 &&
 						typeof err?.message === 'string' &&
 						err.message.includes('reasoning_effort') &&
-						thinkParams.reasoning_effort === 'none'
+						payload.reasoning_effort === 'none'
 					) {
-						thinkParams = { reasoning_effort: 'low' };
-						r = await client.chat.completions.create(
-							{
-								model,
-								messages,
-								temperature,
-								max_tokens: currentMaxTokens,
-								top_p: topP,
-								...(frequencyPenalty > 0 ? { frequency_penalty: frequencyPenalty } : {}),
-								...(presencePenalty > 0 ? { presence_penalty: presencePenalty } : {}),
-								...thinkParams,
-							},
-							{ signal: opts.signal },
-						);
+						payload.reasoning_effort = 'low';
+						r = await client.chat.completions.create(payload, { signal: opts.signal });
 					} else {
 						throw err;
 					}
@@ -340,45 +336,54 @@ Rules:
 		systemContent += `\nSpecial user localization instruction: ${opts.instruction.trim()}`;
 	}
 
+	const canonical = getCanonicalSettings();
+	const effort = canonical.translationReasoningEffort ?? 'none';
+	const baseTemp = canonical.translationTemperature;
+	const temperature = opts.instruction?.trim()
+		? (baseTemp !== null ? Math.min(1.0, baseTemp + 0.2) : 0.4)
+		: baseTemp;
+	const topP = canonical.translationTopP;
+	const frequencyPenalty = canonical.translationFrequencyPenalty;
+	const presencePenalty = canonical.translationPresencePenalty;
+
 	try {
 		const res = await queued(async () =>
 			withRetry(
 				async () => {
-					let thinkParams = thinkingParam(opts.providerId, model);
+					const thinkParams = thinkingParam(opts.providerId, model, effort);
+					const payload: any = {
+						model,
+						messages: [
+							{ role: 'system', content: systemContent },
+							{ role: 'user', content: trimmed },
+						],
+						...thinkParams,
+					};
+					if (temperature !== null && temperature !== undefined) {
+						payload.temperature = temperature;
+					}
+					if (topP !== null && topP !== undefined) {
+						payload.top_p = topP;
+					}
+					if (frequencyPenalty !== null && frequencyPenalty !== undefined) {
+						payload.frequency_penalty = frequencyPenalty;
+					}
+					if (presencePenalty !== null && presencePenalty !== undefined) {
+						payload.presence_penalty = presencePenalty;
+					}
+
 					let r;
 					try {
-						r = await client.chat.completions.create(
-							{
-								model,
-								messages: [
-									{ role: 'system', content: systemContent },
-									{ role: 'user', content: trimmed },
-								],
-								temperature: opts.instruction?.trim() ? 0.4 : 0.2,
-								...thinkParams,
-							},
-							{ signal: opts.signal },
-						);
+						r = await client.chat.completions.create(payload, { signal: opts.signal });
 					} catch (err: any) {
 						if (
 							err?.status === 400 &&
 							typeof err?.message === 'string' &&
 							err.message.includes('reasoning_effort') &&
-							thinkParams.reasoning_effort === 'none'
+							payload.reasoning_effort === 'none'
 						) {
-							thinkParams = { reasoning_effort: 'low' };
-							r = await client.chat.completions.create(
-								{
-									model,
-									messages: [
-										{ role: 'system', content: systemContent },
-										{ role: 'user', content: trimmed },
-									],
-									temperature: opts.instruction?.trim() ? 0.4 : 0.2,
-									...thinkParams,
-								},
-								{ signal: opts.signal },
-							);
+							payload.reasoning_effort = 'low';
+							r = await client.chat.completions.create(payload, { signal: opts.signal });
 						} else {
 							throw err;
 						}

@@ -390,19 +390,22 @@ describe('SettingsModal Component UI', () => {
 		settings.subscribe((s) => (currentSettings = s))();
 		expect(currentSettings.translationReasoningEffort).toBe('high');
 
-		// Customized badge and Reset to Defaults button should now appear in the card
-		expect(screen.getByText('Customized')).toBeTruthy();
+		// RESET TO DEFAULTS BUTTON SHOULD NOW APPEAR IN THE CARD
 		const resetInferenceBtn = screen.getByText('Reset to Defaults').closest('button');
 		expect(resetInferenceBtn).toBeTruthy();
 
-		// Clicking Reset to Defaults resets parameters back to defaults
+		// CLICKING RESET TO DEFAULTS RESETS PARAMETERS BACK TO DEFAULTS
 		await fireEvent.click(resetInferenceBtn!);
 		await tick();
 
 		settings.subscribe((s) => (currentSettings = s))();
 		expect(currentSettings.translationMaxTokens).toBe(DEFAULTS.translationMaxTokens);
 		expect(currentSettings.translationReasoningEffort).toBe(DEFAULTS.translationReasoningEffort);
-		expect(screen.queryByText('Customized')).toBeNull();
+		expect(currentSettings.translationTemperature).toBeNull();
+		expect(currentSettings.translationTopP).toBeNull();
+		expect(currentSettings.translationFrequencyPenalty).toBeNull();
+		expect(currentSettings.translationPresencePenalty).toBeNull();
+		expect(screen.queryByText('Reset to Defaults')).toBeNull();
 	});
 
 	it('configures custom reasoning effort and custom token budget via dedicated modals', async () => {

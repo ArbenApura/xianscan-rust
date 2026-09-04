@@ -172,4 +172,39 @@ describe('Core UI Primitive Components', () => {
 
 		expect(changedValue).toBe(0.45);
 	});
+
+	it('renders RangeField with omittable button and dispatches toggleOmit', async () => {
+		const { component, rerender } = render(RangeField, {
+			props: {
+				label: 'Temperature',
+				value: 0.2,
+				omittable: true,
+				omitted: false,
+			},
+		});
+
+		const omitBtn = screen.getByText('Omit');
+		expect(omitBtn).toBeTruthy();
+
+		let toggledOmit: boolean | undefined;
+		component.$on('toggleOmit', (e: CustomEvent<boolean>) => {
+			toggledOmit = e.detail;
+		});
+
+		await fireEvent.click(omitBtn);
+		await tick();
+
+		expect(toggledOmit).toBe(true);
+
+		// When omitted is true, shows 'Omitted' and badge shows 'Auto'
+		await rerender({
+			label: 'Temperature',
+			value: 0.2,
+			omittable: true,
+			omitted: true,
+		});
+
+		expect(screen.getByText('Omitted')).toBeTruthy();
+		expect(screen.getByText('Auto')).toBeTruthy();
+	});
 });

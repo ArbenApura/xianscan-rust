@@ -11,13 +11,28 @@ export const POST: RequestHandler = async ({ request }) => {
 			throw error(400, 'Invalid provider test payload');
 		}
 
-		const { id, apiKey, baseUrl, model } = parsed.data;
+		const {
+			id,
+			apiKey,
+			baseUrl,
+			model,
+			temperature,
+			topP,
+			reasoningEffort,
+			frequencyPenalty,
+			presencePenalty,
+		} = parsed.data;
 
 		const result = await testProviderConnection({
 			id,
 			apiKey,
 			baseUrl,
 			model,
+			temperature,
+			topP,
+			reasoningEffort: reasoningEffort as any,
+			frequencyPenalty,
+			presencePenalty,
 		});
 
 		return json(result);

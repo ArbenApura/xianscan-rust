@@ -43,7 +43,7 @@ export function createDb(path: string) {
 	return drizzle(sqlite, { schema });
 }
 
-function runMigrationsAndSafeguards(sqlite: Database.Database) {
+export function runMigrationsAndSafeguards(sqlite: Database.Database) {
 	// ALIGN DRIZZLE MIGRATION JOURNAL IF EXISTING DATABASE ALREADY CONTAINS THE RECENT TABLES OR COLUMNS
 	try {
 		sqlite.exec(`
@@ -64,15 +64,22 @@ function runMigrationsAndSafeguards(sqlite: Database.Database) {
 		const pageCols = sqlite.pragma('table_info(pages)') as Array<{ name: string }>;
 		const regionCols = sqlite.pragma('table_info(regions)') as Array<{ name: string }>;
 		const appSettingsCols = sqlite.pragma('table_info(app_settings)') as Array<{ name: string }>;
+		const bookCols = sqlite.pragma('table_info(books)') as Array<{ name: string }>;
 
 		if (pageCols?.some((c) => c.name === 'panels')) {
 			ensureMigrationRecorded('0009_gorgeous_supreme_intelligence', 1787373660572);
+		}
+		if (pageCols?.some((c) => c.name === 'ocr_stats')) {
+			ensureMigrationRecorded('0010_ocr_stats', 1787400000000);
 		}
 		if (regionCols?.some((c) => c.name === 'inpaint_box')) {
 			ensureMigrationRecorded('0011_whole_james_howlett', 1787420901390);
 		}
 		if (appSettingsCols && appSettingsCols.length > 0) {
 			ensureMigrationRecorded('0012_amused_joystick', 1787702303942);
+		}
+		if (bookCols?.some((c) => c.name === 'custom_prompt')) {
+			ensureMigrationRecorded('0013_glorious_sir_ram', 1788510316624);
 		}
 	} catch {
 		// IGNORE CHECK ON UNINITIALIZED DATABASE

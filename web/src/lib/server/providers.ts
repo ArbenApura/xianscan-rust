@@ -3,6 +3,8 @@ import { db as defaultDb } from './db';
 import { aiProviders, type AiProvider } from './db/schema';
 import OpenAI from 'openai';
 import { thinkingParam } from './llm';
+import { getCanonicalSettings } from './settings-service';
+import type { ReasoningEffortOption } from '$lib/stores/settings';
 
 export interface ProviderPublicInfo {
 	id: string;
@@ -387,6 +389,11 @@ export async function testProviderConnection(params: {
 	apiKey?: string;
 	baseUrl?: string;
 	model?: string;
+	temperature?: number | null;
+	topP?: number | null;
+	reasoningEffort?: ReasoningEffortOption;
+	frequencyPenalty?: number | null;
+	presencePenalty?: number | null;
 	db?: typeof defaultDb;
 }): Promise<{ ok: boolean; message: string; latencyMs: number; modelUsed: string }> {
 	const start = Date.now();
@@ -428,6 +435,44 @@ export async function testProviderConnection(params: {
 		model = def?.activeModel || 'deepseek-v4-flash';
 	}
 
+	const canonical = getCanonicalSettings(params.db);
+	const temperature = params.temperature !== undefined ? params.temperature : canonical.translationTemperature;
+	const topP = params.topP !== undefined ? params.topP : canonical.translationTopP;
+	const effort = params.reasoningEffort !== undefined ? params.reasoningEffort : canonical.translationReasoningEffort;
+	const frequencyPenalty = params.frequencyPenalty !== undefined ? params.frequencyPenalty : canonical.translationFrequencyPenalty;
+	const presencePenalty = params.presencePenalty !== undefined ? params.presencePenalty : canonical.translationPresencePenalty;
+
+	const thinkParams = thinkingParam(params.id, model.trim(), effort);
+
+	const payload: any = {
+		model: model.trim(),
+		messages: [
+			{
+				role: 'system',
+				content: 'You are a test connection validator. Reply with JSON ONLY: {"status":"ok","greeting":"hello"}',
+			},
+			{
+				role: 'user',
+				content: 'ping',
+			},
+		],
+		max_tokens: 50,
+		...thinkParams,
+	};
+
+	if (temperature !== null && temperature !== undefined) {
+		payload.temperature = temperature;
+	}
+	if (topP !== null && topP !== undefined) {
+		payload.top_p = topP;
+	}
+	if (frequencyPenalty !== null && frequencyPenalty !== undefined) {
+		payload.frequency_penalty = frequencyPenalty;
+	}
+	if (presencePenalty !== null && presencePenalty !== undefined) {
+		payload.presence_penalty = presencePenalty;
+	}
+
 	try {
 		const client = new OpenAI({
 			apiKey: key.trim(),
@@ -435,22 +480,7 @@ export async function testProviderConnection(params: {
 			timeout: 15000,
 		});
 
-		const resp = await client.chat.completions.create({
-			model: model.trim(),
-			messages: [
-				{
-					role: 'system',
-					content: 'You are a test connection validator. Reply with JSON ONLY: {"status":"ok","greeting":"hello"}',
-				},
-				{
-					role: 'user',
-					content: 'ping',
-				},
-			],
-			temperature: 0.1,
-			max_tokens: 50,
-			...thinkingParam(model.trim()),
-		});
+		const resp = await client.chat.completions.create(payload);
 
 		const latencyMs = Date.now() - start;
 		const content = resp.choices[0]?.message?.content ?? '';

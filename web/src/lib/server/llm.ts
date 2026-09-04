@@ -169,7 +169,10 @@ export function thinkingParam(
 	}
 
 	// 3. EXPLICIT USER CONFIGURED EFFORT
-	if (normalizedEffort && normalizedEffort !== 'auto') {
+	if (normalizedEffort === 'auto') {
+		return {};
+	}
+	if (normalizedEffort && normalizedEffort !== 'none') {
 		return { reasoning_effort: normalizedEffort };
 	}
 

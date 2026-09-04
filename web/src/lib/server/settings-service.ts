@@ -31,13 +31,15 @@ export function sanitizeSettingValue(key: keyof AppSettings, value: unknown): un
 		}
 
 		case 'translationTemperature': {
+			if (value === null) return null;
 			const n = Number(value);
-			return Math.max(0.0, Math.min(1.0, isNaN(n) ? 0.2 : Number(n.toFixed(2))));
+			return isNaN(n) ? null : Math.max(0.0, Math.min(1.0, Number(n.toFixed(2))));
 		}
 
 		case 'translationTopP': {
+			if (value === null) return null;
 			const n = Number(value);
-			return Math.max(0.1, Math.min(1.0, isNaN(n) ? 1.0 : Number(n.toFixed(2))));
+			return isNaN(n) ? null : Math.max(0.0, Math.min(1.0, Number(n.toFixed(2))));
 		}
 
 		case 'translationReasoningEffort': {
@@ -54,13 +56,15 @@ export function sanitizeSettingValue(key: keyof AppSettings, value: unknown): un
 		}
 
 		case 'translationFrequencyPenalty': {
+			if (value === null) return null;
 			const n = Number(value);
-			return Math.max(0.0, Math.min(2.0, isNaN(n) ? 0.0 : Number(n.toFixed(2))));
+			return isNaN(n) ? null : Math.max(0.0, Math.min(2.0, Number(n.toFixed(2))));
 		}
 
 		case 'translationPresencePenalty': {
+			if (value === null) return null;
 			const n = Number(value);
-			return Math.max(0.0, Math.min(2.0, isNaN(n) ? 0.0 : Number(n.toFixed(2))));
+			return isNaN(n) ? null : Math.max(0.0, Math.min(2.0, Number(n.toFixed(2))));
 		}
 
 		case 'cudaVramLimitMb':
@@ -167,10 +171,18 @@ function parseSettingValue<T>(key: keyof AppSettings, raw: string, defaultValue:
 	try {
 		const parsed = JSON.parse(raw);
 
-		// Special case for nullable settings like cudaVramLimitMb
-		if (key === 'cudaVramLimitMb') {
+		// NULLABLE NUMERIC SETTINGS PRESERVE NULL EXPLICITLY
+		if (
+			key === 'cudaVramLimitMb' ||
+			key === 'translationTemperature' ||
+			key === 'translationTopP' ||
+			key === 'translationFrequencyPenalty' ||
+			key === 'translationPresencePenalty'
+		) {
 			if (parsed === null) return null as unknown as T;
-			if (typeof parsed === 'number' && !isNaN(parsed)) return parsed as unknown as T;
+			if (typeof parsed === 'number' && !isNaN(parsed)) {
+				return sanitizeSettingValue(key, parsed) as T;
+			}
 			return null as unknown as T;
 		}
 

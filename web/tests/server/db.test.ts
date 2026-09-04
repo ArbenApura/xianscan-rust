@@ -8,8 +8,9 @@ import { migrate } from 'drizzle-orm/better-sqlite3/migrator';
 // IMPORTED MODULES
 import { fileURLToPath } from 'node:url';
 import { beforeEach, describe, expect, it } from 'vitest';
-import { createDb } from '$lib/server/db';
+import { createDb, runMigrationsAndSafeguards } from '$lib/server/db';
 import { books, chapters, pages, regions } from '$lib/server/db/schema';
+import Database from 'better-sqlite3';
 import { getTestDb, resetDb, seedBook, seedChapter, seedGlossary, seedPage, seedRegion, type TestDb } from '../helpers/db';
 
 // -- CONSTANTS -- //
@@ -62,6 +63,24 @@ describe('db helper roundtrip', () => {
 		standalone.insert(books).values({ id: 'b2', sourceLang: 'zh-Hans', targetLang: 'en', title: 'Solo' }).run();
 		const got = standalone.select().from(books).where(eq(books.id, 'b2')).get();
 		expect(got?.title).toBe('Solo');
+	});
+
+	it('aligns migration journal when custom_prompt column already exists in legacy database', () => {
+		const sqlite = new Database(':memory:');
+		// SIMULATE LEGACY DATABASE WITH CUSTOM_PROMPT ALREADY PRESENT
+		sqlite.exec(`
+			CREATE TABLE books (
+				id text PRIMARY KEY NOT NULL,
+				title text NOT NULL,
+				source_lang text NOT NULL,
+				target_lang text NOT NULL,
+				custom_prompt text
+			);
+		`);
+		// RUNNING RUNMIGRATIONSANDSAFEGUARDS ALIGNS __DRIZZLE_MIGRATIONS WITHOUT ERROR
+		runMigrationsAndSafeguards(sqlite);
+		const rows = sqlite.prepare('SELECT created_at FROM `__drizzle_migrations` WHERE created_at = ?').all(1788510316624);
+		expect(rows.length).toBe(1);
 	});
 });
 

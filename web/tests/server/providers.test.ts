@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { getTestDb, resetDb } from '../helpers/db';
+import OpenAI from 'openai';
 import {
 	getProviders,
 	getActiveProvider,
@@ -7,6 +8,7 @@ import {
 	updateProvider,
 	seedDefaultProviders,
 	maskApiKey,
+	testProviderConnection,
 } from '$lib/server/providers';
 
 describe('providers.ts', () => {
@@ -190,5 +192,58 @@ describe('providers.ts', () => {
 		const list = getProviders(db);
 		const groq = list.find((p) => p.id === 'groq');
 		expect(groq?.availableModels).toEqual(['llama-3.3-70b-versatile', 'gemma2-9b-it']);
+	});
+
+	it('testProviderConnection surfaces error transparently when a model rejects unsupported parameters', async () => {
+		const createSpy = vi.spyOn(OpenAI.Chat.Completions.prototype, 'create');
+		createSpy.mockImplementation(async (payload: any) => {
+			if (payload.top_p !== undefined) {
+				const err: any = new Error("Parameter 'top_p'=0.9 is not supported for kimi-k3 model.");
+				err.status = 400;
+				throw err;
+			}
+			return {
+				choices: [{ message: { content: '{"status":"ok","greeting":"hello"}' } }],
+			} as any;
+		});
+
+		const res = await testProviderConnection({
+			id: 'custom',
+			apiKey: 'test-key',
+			baseUrl: 'https://api.moonshot.cn/v1',
+			model: 'kimi-k3',
+			temperature: 0.2,
+			topP: 0.9,
+		});
+
+		expect(res.ok).toBe(false);
+		expect(res.message).toContain("Parameter 'top_p'=0.9 is not supported for kimi-k3 model");
+		createSpy.mockRestore();
+	});
+
+	it('testProviderConnection succeeds when unsupported parameter is omitted', async () => {
+		const createSpy = vi.spyOn(OpenAI.Chat.Completions.prototype, 'create');
+		createSpy.mockImplementation(async (payload: any) => {
+			if (payload.top_p !== undefined) {
+				const err: any = new Error("Parameter 'top_p'=0.9 is not supported for kimi-k3 model.");
+				err.status = 400;
+				throw err;
+			}
+			return {
+				choices: [{ message: { content: '{"status":"ok","greeting":"hello"}' } }],
+			} as any;
+		});
+
+		const res = await testProviderConnection({
+			id: 'custom',
+			apiKey: 'test-key',
+			baseUrl: 'https://api.moonshot.cn/v1',
+			model: 'kimi-k3',
+			temperature: 0.2,
+			topP: null,
+		});
+
+		expect(res.ok).toBe(true);
+		createSpy.mockRestore();
 	});
 });

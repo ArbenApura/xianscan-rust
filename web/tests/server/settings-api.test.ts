@@ -131,6 +131,32 @@ describe('Settings & Reading History Server API Routes', () => {
 			const invalidRes = await PATCH({ request: invalidReq } as unknown as RequestEvent);
 			const invalidData = await invalidRes.json();
 			expect(invalidData.translationReasoningEffort).toBe('none');
+
+			// Nullable temperature, top_p, and penalties omission support
+			const nullSamplingReq = new Request('http://localhost/api/settings', {
+				method: 'PATCH',
+				headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify({
+					translationTemperature: null,
+					translationTopP: null,
+					translationFrequencyPenalty: null,
+					translationPresencePenalty: null,
+				}),
+			});
+			const nullSamplingRes = await PATCH({ request: nullSamplingReq } as unknown as RequestEvent);
+			const nullSamplingData = await nullSamplingRes.json();
+			expect(nullSamplingData.translationTemperature).toBeNull();
+			expect(nullSamplingData.translationTopP).toBeNull();
+			expect(nullSamplingData.translationFrequencyPenalty).toBeNull();
+			expect(nullSamplingData.translationPresencePenalty).toBeNull();
+
+			// Re-query with GET to confirm persistence of null in SQLite
+			const getNullRes = await GET({} as RequestEvent);
+			const getNullData = await getNullRes.json();
+			expect(getNullData.translationTemperature).toBeNull();
+			expect(getNullData.translationTopP).toBeNull();
+			expect(getNullData.translationFrequencyPenalty).toBeNull();
+			expect(getNullData.translationPresencePenalty).toBeNull();
 		});
 	});
 
