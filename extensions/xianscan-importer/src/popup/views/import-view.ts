@@ -631,8 +631,8 @@ export class ImportViewController {
 			card.dataset.index = String(idx);
 
 			const image = document.createElement('img');
-			image.src = img.url;
 			image.loading = 'lazy';
+			image.decoding = 'async';
 			image.alt = `Page ${idx + 1}`;
 
 			const indexBadge = document.createElement('span');
@@ -693,6 +693,8 @@ export class ImportViewController {
 					}
 				}
 			});
+
+			image.src = img.url;
 
 			card.appendChild(image);
 			card.appendChild(indexBadge);

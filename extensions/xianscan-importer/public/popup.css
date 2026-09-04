@@ -709,6 +709,9 @@ body {
 	display: flex;
 	flex-direction: column;
 	justify-content: flex-end;
+	contain: paint layout;
+	content-visibility: auto;
+	contain-intrinsic-size: 110px 147px;
 	transition: all 0.2s ease;
 }
 
@@ -1004,6 +1007,9 @@ body {
 	overflow: hidden;
 	aspect-ratio: 3 / 4;
 	cursor: pointer;
+	contain: paint layout;
+	content-visibility: auto;
+	contain-intrinsic-size: 110px 147px;
 	transition: all 0.15s;
 }
 

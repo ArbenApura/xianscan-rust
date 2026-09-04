@@ -9,6 +9,20 @@ import { resolveSafeImageUrl } from '../../content/safe-image';
 import { ToastComponent } from '../components/toast';
 import { StepperComponent } from '../components/stepper';
 
+// -- HELPER FUNCTIONS -- //
+
+// BUILD LIGHTWEIGHT SERVER THUMBNAIL URL FOR SLICE CARD
+export function buildSliceThumbnailUrl(
+	baseUrl: string,
+	pageId: number,
+	target: 'output' | 'original',
+	rev: number,
+	width = 240
+): string {
+	const sanitizedBase = (baseUrl || '').replace(/\/+$/, '');
+	return `${sanitizedBase}/api/pages/${pageId}/file?kind=thumb&target=${target}&w=${width}&rev=${rev}`;
+}
+
 // -- TRACKER VIEW CLASS -- //
 
 export class TrackerViewController {
@@ -421,14 +435,18 @@ export class TrackerViewController {
 			card.appendChild(statusBadge);
 
 			const img = document.createElement('img');
-			const targetUrl = isReady
-				? `${this.client.getBaseUrl()}/api/pages/${page.id}/file?kind=output&rev=${page.outputRev ?? 1}`
-				: `${this.client.getBaseUrl()}/api/pages/${page.id}/file?kind=original&rev=${page.originalRev ?? 1}`;
+			img.loading = 'lazy';
+			img.decoding = 'async';
+			img.alt = `Slice #${idx + 1}`;
+
+			const target = isReady ? 'output' : 'original';
+			const rev = isReady ? (page.outputRev ?? 1) : (page.originalRev ?? 1);
+			const targetUrl = buildSliceThumbnailUrl(this.client.getBaseUrl(), page.id, target, rev, 240);
 
 			img.src = targetUrl;
 			img.id = `slice-img-${page.id}`;
 			void resolveSafeImageUrl(targetUrl).then(safeUrl => {
-				img.src = safeUrl;
+				if (safeUrl) img.src = safeUrl;
 			});
 
 			card.appendChild(img);
@@ -442,6 +460,14 @@ export class TrackerViewController {
 	}
 
 	handlePageTranslated(pageId: number, pageSeq: number, outputRev: number): void {
+		// SYNCHRONIZE IN-MEMORY CONTROLLER STATE SO SUBSEQUENT RE-RENDERS PRESERVE READY STATUS
+		const targetPage = this.activeChapterPages.find(p => p.id === pageId) || this.activeChapterPages[pageSeq];
+		if (targetPage) {
+			targetPage.status = 'done';
+			targetPage.outputRev = outputRev;
+			if (!targetPage.outputPath) targetPage.outputPath = 'ready';
+		}
+
 		const card = document.getElementById(`slice-card-${pageId}`);
 		if (card) {
 			card.className = 'slice-card ready';
@@ -469,10 +495,10 @@ export class TrackerViewController {
 
 		const sliceImg = document.getElementById(`slice-img-${pageId}`) as HTMLImageElement;
 		if (sliceImg) {
-			const newUrl = `${this.client.getBaseUrl()}/api/pages/${pageId}/file?kind=output&rev=${outputRev}`;
+			const newUrl = buildSliceThumbnailUrl(this.client.getBaseUrl(), pageId, 'output', outputRev, 240);
 			sliceImg.src = newUrl;
 			void resolveSafeImageUrl(newUrl).then(safeUrl => {
-				sliceImg.src = safeUrl;
+				if (safeUrl) sliceImg.src = safeUrl;
 			});
 		}
 	}
