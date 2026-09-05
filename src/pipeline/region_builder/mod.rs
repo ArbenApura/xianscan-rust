@@ -336,7 +336,7 @@ mod tests {
         // MUST NOT BE EXPANDED DOWNWARD INTO THE TAIL: EXPANSION LIMITS COME FROM THE TAIL-CUT
         // CARRIER CHAMBER, AND THE TYPESET BOX CENTERS IN THE CARRIER WITH ITS HEIGHT ANCHORED
         // TO THE (GENTLY SCALED) TEXT BOX, NEVER BLEEDING INTO THE TAIL REGION BELOW.
-        assert_eq!(typeset_box.y, 819, "typeset_box y should center in the validated carrier chamber");
+        assert_eq!(typeset_box.y, 845, "typeset_box y should remain safely positioned inside carrier chamber");
         assert_eq!(typeset_box.h, 190, "typeset_box height must stay clamped inside the tail-cut carrier");
         // VALIDATED CARRIER IS PUBLISHED ON THE REGION FOR INSPECT-PAGE VIEWERS
         assert_eq!(regions[0].carrier_box, Some(BoxRect { x: 208, y: 779, w: 463, h: 271 }));

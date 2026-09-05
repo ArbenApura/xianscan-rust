@@ -60,11 +60,9 @@ mod page_tang_jianfeng_cloud_mist_spring_split_bubble;
 mod page_grandfather_saner_mooncake_split_bubble;
 mod page_su_family_key_lies_with_little_jiu_split_bubble;
 mod page_master_yuan_huan_ellipsis_double_bubble;
-
-
-
-
-
-
+mod page_grandfather_letter_urban_cultivator_credits;
+mod page_chen_fan_jade_gourd_urban_cultivator_credits;
+mod page_auction_magic_artifact_credits;
+mod page_tang_yuanqing_kneeling_credits;
 
 

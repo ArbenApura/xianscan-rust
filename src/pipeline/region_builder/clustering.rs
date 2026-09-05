@@ -287,6 +287,8 @@ pub fn cluster_lines_into_utterances<'a>(
             let vert_gap = curr_min_y - prev_max_y;
             let is_caption_to_title = prev_height > 0.0 && curr_height >= prev_height * 1.60 && vert_gap >= (prev_height * 0.20).max(4.0);
             let curr_row_text = row.iter().map(|l| l.text.trim()).collect::<Vec<_>>().join("");
+            let is_title_to_credits = !crate::ml::detect::is_credits_or_metadata_text(&prev_row_text)
+                && crate::ml::detect::is_credits_or_metadata_text(&curr_row_text);
             let is_repeated_bracketed_tag = (prev_row_text.starts_with('[') || prev_row_text.starts_with('【'))
                 && (curr_row_text.starts_with('[') || curr_row_text.starts_with('【'))
                 && vert_gap >= (prev_height * 0.35).max(6.0);
@@ -325,7 +327,8 @@ pub fn cluster_lines_into_utterances<'a>(
                 false
             };
 
-            let should_split = is_substantial_gap || is_ellipsis_split || is_multi_lobe_split || (ends_with_punct && vert_gap >= (min_line_h * 0.30).max(4.0)) || is_caption_to_title || is_repeated_bracketed_tag;
+            let should_split = is_substantial_gap || is_ellipsis_split || is_multi_lobe_split || (ends_with_punct && vert_gap >= (min_line_h * 0.30).max(4.0)) || is_caption_to_title || is_title_to_credits || is_repeated_bracketed_tag;
+
 
             if should_split && !current_cluster.is_empty() {
                 paragraph_clusters.push(current_cluster);

@@ -559,6 +559,21 @@ pub fn build_regions(
                     h: (c_max_y - c_min_y).max(1),
                 };
 
+                let is_cluster_in_bubble = is_bubble_region || matched_bubble.is_some() || bubbles.iter().any(|b| {
+                    let cx = cluster_rect.x + cluster_rect.w / 2;
+                    let cy = cluster_rect.y + cluster_rect.h / 2;
+                    cx > b.x + 8 && cx < b.x + b.w - 8 && cy > b.y + 8 && cy < b.y + b.h - 8
+                });
+
+                // SUPPRESS TITLE ARTWORK LOGO CALLIGRAPHY ON CHAPTER PUBLICATION CREDIT CARDS BEFORE RUNNING CROP REFINEMENT
+                let page_has_credits = split_lines.iter().any(|l| crate::ml::detect::is_credits_or_metadata_text(&l.text));
+                let cleaned_initial = combined_text.trim();
+                let char_count_initial = cleaned_initial.chars().filter(|c| !c.is_whitespace()).count();
+                let has_narrative_punctuation = cleaned_initial.chars().any(|c| matches!(c, '…' | '·' | '—' | '～' | '！' | '？' | '。' | '，' | '、' | '–' | '¿' | '¡' | '.' | '!' | '?' | ','));
+                if page_has_credits && !is_cluster_in_bubble && !crate::ml::detect::is_credits_or_metadata_text(cleaned_initial) && !has_narrative_punctuation && (cluster_rect.w >= 180 && cluster_rect.h >= 40 && char_count_initial <= 8) {
+                    continue;
+                }
+
                 // REFINEMENT VIA TARGETED CROP RECOGNITION. A BUBBLE-BACKED CONTAINER THAT THE
                 // UTTERANCE CLUSTERER SPLIT INTO MULTIPLE UTTERANCES (E.G. A TWO-LOBE CONNECTED
                 // BALLOON) MUST NOT RE-SCAN THE WHOLE-BALLOON CROP: THE CROP SPANS BOTH
@@ -567,11 +582,16 @@ pub fn build_regions(
                 // CONTAINERS HAVE NO SIBLING LOBES — EACH CLUSTER IS AN INDEPENDENT PARAGRAPH
                 // WHOSE CROP IS TIGHT TO ITS OWN LINES, SO REFINEMENT IS SAFE FOR ALL
                 // FREE-TEXT CONTAINERS REGARDLESS OF CLUSTER COUNT.
+                let effective_box_rect = if crate::ml::detect::is_credits_or_metadata_text(cleaned_initial) {
+                    &cluster_rect
+                } else {
+                    &box_rect
+                };
                 let refine_outcome = if container_is_single_utterance || matched_bubble.is_none() {
                     try_refine_cluster_crop(
                         ocr,
                         img,
-                        &box_rect,
+                        effective_box_rect,
                         &cluster_rect,
                         &cluster_lines,
                         &combined_text,
@@ -617,12 +637,6 @@ pub fn build_regions(
                         }
                     }
                 }
-
-                let is_cluster_in_bubble = is_bubble_region || matched_bubble.is_some() || bubbles.iter().any(|b| {
-                    let cx = cluster_rect.x + cluster_rect.w / 2;
-                    let cy = cluster_rect.y + cluster_rect.h / 2;
-                    cx > b.x + 8 && cx < b.x + b.w - 8 && cy > b.y + 8 && cy < b.y + b.h - 8
-                });
 
                 let cleaned = combined_text.trim().to_string();
                 if should_reject_candidate_region(

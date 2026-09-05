@@ -361,6 +361,17 @@ pub fn should_reject_candidate_region(
         return true;
     }
 
+    // 22. SUPPRESS TITLE ARTWORK LOGO CALLIGRAPHY ON CHAPTER PUBLICATION CREDIT CARDS
+    let page_has_credits = split_lines.iter().any(|l| crate::ml::detect::is_credits_or_metadata_text(&l.text));
+    if page_has_credits && !is_bubble && !crate::ml::detect::is_credits_or_metadata_text(cleaned) {
+        let has_narrative_punctuation = cleaned.chars().any(|c| matches!(c, '…' | '·' | '—' | '～' | '！' | '？' | '。' | '，' | '、' | '–' | '¿' | '¡' | '.' | '!' | '?' | ','));
+        let is_title_artwork_on_credits_page = !has_narrative_punctuation
+            && (cluster_rect.w >= 180 && cluster_rect.h >= 40 && char_count <= 8);
+        if is_title_artwork_on_credits_page {
+            return true;
+        }
+    }
+
     false
 }
 

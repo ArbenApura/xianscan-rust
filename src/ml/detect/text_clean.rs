@@ -535,6 +535,29 @@ pub fn strip_trailing_watermark_debris(line_text: &str, source_lang: Option<&str
     (line_text.to_string(), 1.0)
 }
 
+/// CHECK IF A TEXT STRING CONTAINS PUBLICATION CREDIT / METADATA MARKERS
+pub fn is_credits_or_metadata_text(t: &str) -> bool {
+    let credit_markers = [
+        "出品", "责编", "原著", "原作", "改编", "主笔", "助理", "监制", "作画", "画师",
+        "编辑", "汉化", "翻译", "嵌字", "修图", "图源", "扫图", "校对",
+        "출판", "글/그림", "글 :", "그림 :", "글:", "그림:",
+        "Original Story", "Art by", "Author", "Artist", "Editor", "Letterer",
+    ];
+    let has_role_colon = t.lines().any(|l| {
+        let lt = l.trim();
+        (lt.starts_with("责编")
+            || lt.starts_with("原著")
+            || lt.starts_with("改编")
+            || lt.starts_with("主笔")
+            || lt.starts_with("助理")
+            || lt.starts_with("原作")
+            || lt.starts_with("监制"))
+            && (lt.contains(':') || lt.contains('：') || lt.contains("-："))
+    });
+    has_role_colon || credit_markers.iter().any(|&m| t.contains(m))
+}
+
+
 
 
 
