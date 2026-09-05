@@ -98,4 +98,61 @@ describe('Book and Chapter Schema Form Validations', () => {
 		expect(res.data?.description).toBeNull();
 		expect(res.data?.status).toBe('completed');
 	});
+
+	it('detects when book fields are unchanged versus modified for save button enabling', () => {
+		const originalBook = {
+			title: 'A Will Eternal',
+			titleTarget: 'Yi Nian Yong Heng',
+			sourceLang: 'zh-Hans',
+			targetLang: 'en',
+			pinned: false,
+			archived: false,
+			description: 'Cultivation novel.',
+			author: 'Er Gen',
+			artist: null as string | null,
+			tags: ['Cultivation', 'Comedy'],
+			status: 'ongoing',
+		};
+
+		function hasChanges(current: typeof originalBook) {
+			return Boolean(
+				current.title.trim() !== (originalBook.title || '').trim() ||
+					(current.titleTarget.trim() || null) !== (originalBook.titleTarget?.trim() || null) ||
+					current.sourceLang !== originalBook.sourceLang ||
+					current.targetLang !== originalBook.targetLang ||
+					current.pinned !== !!originalBook.pinned ||
+					current.archived !== !!originalBook.archived ||
+					(current.description.trim() || null) !== (originalBook.description?.trim() || null) ||
+					(current.author.trim() || null) !== (originalBook.author?.trim() || null) ||
+					(current.artist?.trim() || null) !== (originalBook.artist?.trim() || null) ||
+					(current.status || 'unknown') !== (originalBook.status || 'unknown') ||
+					JSON.stringify(current.tags || []) !== JSON.stringify(originalBook.tags || [])
+			);
+		}
+
+		// IDENTICAL FIELDS
+		expect(hasChanges({ ...originalBook })).toBe(false);
+
+		// TITLE MODIFIED
+		expect(hasChanges({ ...originalBook, title: 'A Will Eternal 2' })).toBe(true);
+
+		// WHITESPACE-ONLY CHANGE IN TITLE
+		expect(hasChanges({ ...originalBook, title: '  A Will Eternal  ' })).toBe(false);
+
+		// WHITESPACE-ONLY CHANGE IN OPTIONAL FIELDS
+		expect(hasChanges({ ...originalBook, description: '  Cultivation novel.  ' })).toBe(false);
+		expect(hasChanges({ ...originalBook, author: '  Er Gen  ' })).toBe(false);
+
+		// PIN TOGGLED
+		expect(hasChanges({ ...originalBook, pinned: true })).toBe(true);
+
+		// ARCHIVE TOGGLED
+		expect(hasChanges({ ...originalBook, archived: true })).toBe(true);
+
+		// TAGS CHANGED
+		expect(hasChanges({ ...originalBook, tags: ['Cultivation'] })).toBe(true);
+
+		// LANGUAGE CHANGED
+		expect(hasChanges({ ...originalBook, targetLang: 'es' })).toBe(true);
+	});
 });

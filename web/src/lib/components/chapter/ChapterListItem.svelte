@@ -123,7 +123,7 @@
 			if (currentBatchItem.status === 'done') {
 				const total = chapter.pageCount || currentBatchItem.totalPages || 0;
 				const done = chapter.translatedPageCount !== undefined ? chapter.translatedPageCount : (currentBatchItem.translatedPages || total);
-				const isReallyDone = total > 0 && done === total;
+				const isReallyDone = (total > 0 && done >= total) || chapter.status === 'done';
 				return {
 					isLive: true,
 					running: false,
@@ -154,7 +154,7 @@
 			if (currentBatchItem.status === 'cancelled' || currentBatchItem.status === 'skipped') {
 				const done = chapter.translatedPageCount !== undefined ? chapter.translatedPageCount : (currentBatchItem.translatedPages || 0);
 				const total = chapter.pageCount || 0;
-				const isComplete = total > 0 && done === total;
+				const isComplete = (total > 0 && done >= total) || chapter.status === 'done';
 				return {
 					isLive: true,
 					running: false,
@@ -198,7 +198,7 @@
 		const total = chapter.pageCount || 0;
 		const done = chapter.translatedPageCount || 0;
 		const percent = total > 0 ? Math.min(100, Math.round((done / total) * 100)) : 0;
-		const isComplete = total > 0 && done === total;
+		const isComplete = (total > 0 && done >= total) || chapter.status === 'done';
 		const isProcessing = chapter.status === 'processing' && (isJobRunning || isBatchActive);
 		const effectiveStatus: Chapter['status'] = isComplete
 			? 'done'

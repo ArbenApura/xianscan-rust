@@ -87,6 +87,9 @@
 	}
 
 	async function openMenu() {
+		if (portalTarget && (!portalTarget.parentNode || !document.body.contains(portalTarget))) {
+			document.body.appendChild(portalTarget);
+		}
 		open = true;
 		updatePosition();
 		await tick();
@@ -127,7 +130,9 @@
 
 	onMount(() => {
 		if (!portalTarget) portalTarget = document.createElement('div');
-		if (!portalTarget.parentNode) document.body.appendChild(portalTarget);
+		if (!portalTarget.parentNode || !document.body.contains(portalTarget)) {
+			document.body.appendChild(portalTarget);
+		}
 		document.addEventListener('mousedown', onClickOutside);
 		document.addEventListener('keydown', onKeydown);
 		window.addEventListener('scroll', onScroll, true);

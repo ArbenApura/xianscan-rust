@@ -36,11 +36,13 @@
 	import FolderUp from 'lucide-svelte/icons/folder-up';
 	import Upload from 'lucide-svelte/icons/upload';
 	import Settings from 'lucide-svelte/icons/settings';
+	import ScrollText from 'lucide-svelte/icons/scroll-text';
 	// IMPORTED COMPONENTS
 	import SettingsModal from '$lib/components/SettingsModal.svelte';
 	import BookMetadataFields from '$lib/components/book/BookMetadataFields.svelte';
 	import BookCoverPicker from '$lib/components/book/BookCoverPicker.svelte';
 	import BookDropImportModal from '$lib/components/book/BookDropImportModal.svelte';
+	import BookDirectivesModal from '$lib/components/book/BookDirectivesModal.svelte';
 	import { apiJson } from '$lib/api';
 	import { validateForm } from '$lib/utils/form';
 	import { BOOK_STATUSES, createBookSchema, updateBookSchema } from '$lib/schemas';
@@ -81,6 +83,7 @@
 		artist?: string | null;
 		tags?: string[];
 		status?: string;
+		customPrompt?: string | null;
 		lastReadChapter?: LatestChapter | null;
 		firstChapter?: LatestChapter | null;
 		latestChapter?: LatestChapter | null;
@@ -296,13 +299,13 @@
 		editDescription = book.description || '';
 		editAuthor = book.author || '';
 		editArtist = book.artist || '';
-		editTags = book.tags || [];
+		editTags = book.tags ? [...book.tags] : [];
 		editStatus = (book.status as BookStatus) || 'unknown';
 		editModalOpen = true;
 	}
 
 	async function updateBook() {
-		if (!editingBook) return;
+		if (!editingBook || !hasEditBookChanges) return;
 		const payload = {
 			title: editTitle.trim(),
 			titleTarget: editTitleTarget.trim() || null,
@@ -492,6 +495,26 @@
 		}
 	}
 
+	// BOOK LOCALIZATION DIRECTIVES & GLOSSARY
+	let directivesBook: Book | null = null;
+	let directivesModalOpen = false;
+
+	function openDirectivesModal(book: Book) {
+		directivesBook = book;
+		directivesModalOpen = true;
+	}
+
+	function handleDirectivesSaved(event: CustomEvent<{ customPrompt: string | null; book?: any }>) {
+		if (directivesBook) {
+			directivesBook.customPrompt = event.detail.customPrompt;
+			books = books.map((b) => (b.id === directivesBook?.id ? { ...b, customPrompt: event.detail.customPrompt } : b));
+		}
+	}
+
+	function openBookGlossary(book: Book) {
+		goto(`/app/glossary/?scope=book&bookId=${book.id}`);
+	}
+
 	function timeAgo(epoch?: number): string {
 		if (!epoch) return 'Recently';
 		const diff = Date.now() - epoch;
@@ -649,6 +672,22 @@
 		if (!editingBook) return;
 		editingBook = { ...editingBook, coverPath: null, coverCleared: true };
 	}
+
+	// EDIT BOOK DIRTY STATE TRACKER
+	$: hasEditBookChanges = Boolean(
+		editingBook &&
+			(editTitle.trim() !== (editingBook.title || '').trim() ||
+				(editTitleTarget.trim() || null) !== (editingBook.titleTarget?.trim() || null) ||
+				editSourceLang !== editingBook.sourceLang ||
+				editTargetLang !== editingBook.targetLang ||
+				editPinned !== !!editingBook.pinned ||
+				editArchived !== !!editingBook.archived ||
+				(editDescription.trim() || null) !== (editingBook.description?.trim() || null) ||
+				(editAuthor.trim() || null) !== (editingBook.author?.trim() || null) ||
+				(editArtist.trim() || null) !== (editingBook.artist?.trim() || null) ||
+				(editStatus || 'unknown') !== ((editingBook.status as BookStatus) || 'unknown') ||
+				JSON.stringify(editTags || []) !== JSON.stringify(editingBook.tags || []))
+	);
 
 	// LLM PROVIDER WARNING BANNER STATE
 	let providerWarningDismissed = false;
@@ -1027,6 +1066,8 @@
 										<ActionMenu
 											items={[
 												{ value: 'open', label: 'Open Book', icon: ExternalLink },
+												{ value: 'glossary', label: 'Glossary', icon: BookOpen },
+												{ value: 'directives', label: 'Directives', icon: ScrollText },
 												{ value: 'edit', label: 'Edit Book Details', icon: Pencil },
 												{ value: 'pin', label: book.pinned ? 'Unpin from Top' : 'Pin to Top', icon: Pin },
 												{ value: 'archive', label: book.archived ? 'Unarchive Book' : 'Archive Book', icon: Archive },
@@ -1035,6 +1076,8 @@
 											]}
 											on:select={(e) => {
 												if (e.detail === 'open') goto(`/app/books/${book.id}/`);
+												else if (e.detail === 'glossary') openBookGlossary(book);
+												else if (e.detail === 'directives') openDirectivesModal(book);
 												else if (e.detail === 'edit') openEditBook(book);
 												else if (e.detail === 'pin') togglePin(book);
 												else if (e.detail === 'archive') toggleArchive(book);
@@ -1200,6 +1243,8 @@
 						<ActionMenu
 							items={[
 								{ value: 'open', label: 'Open Book', icon: ExternalLink },
+								{ value: 'glossary', label: 'Glossary', icon: BookOpen },
+								{ value: 'directives', label: 'Directives', icon: ScrollText },
 								{ value: 'edit', label: 'Edit Book Details', icon: Pencil },
 								{ value: 'pin', label: book.pinned ? 'Unpin from Top' : 'Pin to Top', icon: Pin },
 								{ value: 'archive', label: book.archived ? 'Unarchive Book' : 'Archive Book', icon: Archive },
@@ -1208,6 +1253,8 @@
 							]}
 							on:select={(e) => {
 								if (e.detail === 'open') goto(`/app/books/${book.id}/`);
+								else if (e.detail === 'glossary') openBookGlossary(book);
+								else if (e.detail === 'directives') openDirectivesModal(book);
 								else if (e.detail === 'edit') openEditBook(book);
 								else if (e.detail === 'pin') togglePin(book);
 								else if (e.detail === 'archive') toggleArchive(book);
@@ -1270,6 +1317,8 @@
 						<ActionMenu
 							items={[
 								{ value: 'open', label: 'Open Book', icon: ExternalLink },
+								{ value: 'glossary', label: 'Glossary', icon: BookOpen },
+								{ value: 'directives', label: 'Directives', icon: ScrollText },
 								{ value: 'edit', label: 'Edit Book Details', icon: Pencil },
 								{ value: 'pin', label: book.pinned ? 'Unpin from Top' : 'Pin to Top', icon: Pin },
 								{ value: 'archive', label: book.archived ? 'Unarchive Book' : 'Archive Book', icon: Archive },
@@ -1278,6 +1327,8 @@
 							]}
 							on:select={(e) => {
 								if (e.detail === 'open') goto(`/app/books/${book.id}/`);
+								else if (e.detail === 'glossary') openBookGlossary(book);
+								else if (e.detail === 'directives') openDirectivesModal(book);
 								else if (e.detail === 'edit') openEditBook(book);
 								else if (e.detail === 'pin') togglePin(book);
 								else if (e.detail === 'archive') toggleArchive(book);
@@ -1371,6 +1422,8 @@
 									<ActionMenu
 										items={[
 											{ value: 'open', label: 'Open Book', icon: ExternalLink },
+											{ value: 'glossary', label: 'Glossary', icon: BookOpen },
+											{ value: 'directives', label: 'Directives', icon: ScrollText },
 											{ value: 'edit', label: 'Edit Book Details', icon: Pencil },
 											{ value: 'pin', label: book.pinned ? 'Unpin from Top' : 'Pin to Top', icon: Pin },
 											{ value: 'archive', label: book.archived ? 'Unarchive Book' : 'Archive Book', icon: Archive },
@@ -1379,6 +1432,8 @@
 										]}
 										on:select={(e) => {
 											if (e.detail === 'open') goto(`/app/books/${book.id}/`);
+											else if (e.detail === 'glossary') openBookGlossary(book);
+											else if (e.detail === 'directives') openDirectivesModal(book);
 											else if (e.detail === 'edit') openEditBook(book);
 											else if (e.detail === 'pin') togglePin(book);
 											else if (e.detail === 'archive') toggleArchive(book);
@@ -1537,7 +1592,12 @@
 
 	<svelte:fragment slot="footer">
 		<Button on:click={() => (editModalOpen = false)}>Cancel</Button>
-		<Button variant="primary" disabled={updating || !editTitle.trim()} loading={updating} on:click={updateBook}>
+		<Button
+			variant="primary"
+			disabled={updating || !editTitle.trim() || !hasEditBookChanges}
+			loading={updating}
+			on:click={updateBook}
+		>
 			Save Changes
 		</Button>
 	</svelte:fragment>
@@ -1578,6 +1638,16 @@
 	bind:open={librarySettingsOpen}
 	initialTab="providers"
 />
+
+<!-- BOOK LOCALIZATION DIRECTIVES MODAL -->
+{#if directivesBook}
+	<BookDirectivesModal
+		bind:open={directivesModalOpen}
+		book={directivesBook}
+		on:saved={handleDirectivesSaved}
+		on:close={() => (directivesModalOpen = false)}
+	/>
+{/if}
 
 <!-- DRAG OVERLAY -->
 {#if isDraggingOverLibrary}

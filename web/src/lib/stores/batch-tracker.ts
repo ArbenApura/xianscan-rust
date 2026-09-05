@@ -385,6 +385,9 @@ function createBatchTrackerStore() {
 
 		// MANUALLY TRIGGER SYNC
 		sync,
+
+		// DIRECT STATE SETTER (FOR TESTING AND SYNCHRONOUS STORE INITIALIZATION)
+		set: handleServerState,
 	};
 }
 

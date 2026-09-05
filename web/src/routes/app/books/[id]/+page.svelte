@@ -301,13 +301,13 @@
 		editBookDescription = book.description || '';
 		editBookAuthor = book.author || '';
 		editBookArtist = book.artist || '';
-		editBookTags = book.tags || [];
+		editBookTags = book.tags ? [...book.tags] : [];
 		editBookStatus = (book.status as BookStatus) || 'unknown';
 		editBookModalOpen = true;
 	}
 
 	async function updateBook() {
-		if (!book) return;
+		if (!book || !hasEditBookChanges) return;
 		const payload = {
 			title: editBookTitle.trim(),
 			titleTarget: editBookTitleTarget.trim() || null,
@@ -336,7 +336,12 @@
 			});
 			if (!resp.ok) throw new Error('Update failed');
 			const data = await resp.json();
-			book = data.book;
+			book = {
+				...book,
+				...data.book,
+				coverHasDedicated: !!data.book.coverPath,
+				coverCleared: !!data.book.coverCleared,
+			};
 			toast.success('Book details updated.');
 			editBookModalOpen = false;
 		} catch {
@@ -800,9 +805,9 @@
 				};
 			}
 			if (currentBatchItem.status === 'done') {
-				const total = currentBatchItem.totalPages || ch.pageCount || 0;
+				const total = ch.pageCount || currentBatchItem.totalPages || 0;
 				const done = ch.translatedPageCount !== undefined ? ch.translatedPageCount : (currentBatchItem.translatedPages || total);
-				const isReallyDone = total > 0 && done === total;
+				const isReallyDone = (total > 0 && done >= total) || ch.status === 'done';
 				return {
 					isLive: true,
 					running: false,
@@ -835,7 +840,7 @@
 			if (currentBatchItem.status === 'cancelled' || currentBatchItem.status === 'skipped') {
 				const done = ch.translatedPageCount !== undefined ? ch.translatedPageCount : (currentBatchItem.translatedPages || 0);
 				const total = ch.pageCount || 0;
-				const isComplete = total > 0 && done === total;
+				const isComplete = (total > 0 && done >= total) || ch.status === 'done';
 				return {
 					isLive: true,
 					running: false,
@@ -885,7 +890,7 @@
 		const total = ch.pageCount || 0;
 		const done = ch.translatedPageCount || 0;
 		const percent = total > 0 ? Math.min(100, Math.round((done / total) * 100)) : 0;
-		const isComplete = total > 0 && done === total;
+		const isComplete = (total > 0 && done >= total) || ch.status === 'done';
 		const isBatchRunning = $batchTracker.active && ($batchTracker.status === 'running' || $batchTracker.status === 'paused');
 		const isProcessing = ch.status === 'processing' && (isJobRunning || isBatchRunning);
 		const effectiveStatus: Chapter['status'] = isComplete
@@ -996,6 +1001,22 @@
 		if (!book) return;
 		book = { ...book, coverPath: null, coverCleared: true };
 	}
+
+	// EDIT BOOK DIRTY STATE TRACKER
+	$: hasEditBookChanges = Boolean(
+		book &&
+			(editBookTitle.trim() !== (book.title || '').trim() ||
+				(editBookTitleTarget.trim() || null) !== (book.titleTarget?.trim() || null) ||
+				editBookSourceLang !== book.sourceLang ||
+				editBookTargetLang !== book.targetLang ||
+				editBookPinned !== !!book.pinned ||
+				editBookArchived !== !!book.archived ||
+				(editBookDescription.trim() || null) !== (book.description?.trim() || null) ||
+				(editBookAuthor.trim() || null) !== (book.author?.trim() || null) ||
+				(editBookArtist.trim() || null) !== (book.artist?.trim() || null) ||
+				(editBookStatus || 'unknown') !== ((book.status as BookStatus) || 'unknown') ||
+				JSON.stringify(editBookTags || []) !== JSON.stringify(book.tags || []))
+	);
 </script>
 
 <svelte:window on:keydown={handleGlobalKeydown} />
@@ -2044,7 +2065,7 @@
 		<Button on:click={() => (editBookModalOpen = false)}>Cancel</Button>
 		<Button
 			variant="primary"
-			disabled={updatingBook || !editBookTitle.trim()}
+			disabled={updatingBook || !editBookTitle.trim() || !hasEditBookChanges}
 			loading={updatingBook}
 			on:click={updateBook}
 		>
