@@ -298,23 +298,26 @@ pub fn cluster_lines_into_utterances<'a>(
                 && (prev_row_text.ends_with("弟子") || prev_row_text.ends_with("阶") || prev_row_text.ends_with("级") || prev_row_text.ends_with("层") || prev_row_text.ends_with("段") || prev_row_text.ends_with("境") || prev_row_text.ends_with("部"));
             let is_substantial_gap = vert_gap >= (min_line_h * 1.10).max(18.0) || is_standalone_line_rank_split;
             let is_ellipsis_split = (prev_row_text.ends_with('…') || prev_row_text.ends_with("..")) && vert_gap >= (min_line_h * 0.15).max(2.0);
-            let is_multi_lobe_split = if current_cluster.len() >= 3 {
-                let remaining_lines: Vec<&OcrLine> = rows[r_idx..].iter().flat_map(|r| r.iter().copied()).collect();
-                if remaining_lines.len() >= 3 {
+            let is_multi_lobe_split = if current_cluster.len() >= 2 {
+                let next_lobe_lines: Vec<&OcrLine> = rows[r_idx..r_idx.saturating_add(3).min(rows.len())]
+                    .iter()
+                    .flat_map(|r| r.iter().copied())
+                    .collect();
+                if next_lobe_lines.len() >= 2 {
                     let c_indents: Vec<i32> = current_cluster.iter().map(|l| polygon_bounds(&l.polygon).0).collect();
-                    let r_indents: Vec<i32> = remaining_lines.iter().map(|l| polygon_bounds(&l.polygon).0).collect();
+                    let r_indents: Vec<i32> = next_lobe_lines.iter().map(|l| polygon_bounds(&l.polygon).0).collect();
                     let c_min_indent = *c_indents.iter().min().unwrap_or(&0);
                     let c_max_indent = *c_indents.iter().max().unwrap_or(&0);
                     let r_min_indent = *r_indents.iter().min().unwrap_or(&0);
                     let r_max_indent = *r_indents.iter().max().unwrap_or(&0);
 
-                    // Within each lobe, lines are internally aligned (margin variance <= 14px)
-                    let c_internally_aligned = (c_max_indent - c_min_indent) <= 14;
-                    let r_internally_aligned = (r_max_indent - r_min_indent) <= 14;
-                    // Between lobes, there is a clear structural margin step (>= 24px)
+                    // WITHIN EACH LOBE, LINES ARE INTERNALLY ALIGNED (MARGIN VARIANCE <= 16PX)
+                    let c_internally_aligned = (c_max_indent - c_min_indent) <= 16;
+                    let r_internally_aligned = (r_max_indent - r_min_indent) <= 16;
+                    // BETWEEN LOBES, THERE IS A CLEAR STRUCTURAL MARGIN STEP (>= 20PX)
                     let margin_shift = (c_min_indent - r_min_indent).abs();
 
-                    c_internally_aligned && r_internally_aligned && margin_shift >= 24 && vert_gap >= -2.0
+                    c_internally_aligned && r_internally_aligned && margin_shift >= 20 && vert_gap >= -4.0
                 } else {
                     false
                 }
