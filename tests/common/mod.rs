@@ -851,22 +851,16 @@ pub fn clean_fixture_with_cache(
     let mut rgb_buf = inpainted_img.to_rgb8();
     let mut modified = false;
 
-    // AVOID PROCESSING THE SAME BUBBLE MULTIPLE TIMES
-    let mut processed_bubbles: Vec<BoxRect> = Vec::new();
+    // AVOID PROCESSING THE SAME BUBBLE MULTIPLE TIMES AND GROUP SEEDS/CBOXES
+    let mut bubble_groups: Vec<(BoxRect, Vec<[i32; 2]>, Vec<BoxRect>)> = Vec::new();
 
     for r in &res.regions {
         if r.kind != RegionKind::DialogueBubble {
             continue;
         }
         if let Some(ref bb) = r.bubble_box {
-            if processed_bubbles.iter().any(|existing| xianscan_rust::ml::geometry::box_iou(existing, bb) >= 0.70) {
-                continue;
-            }
-            processed_bubbles.push(bb.clone());
-
-            let mut seeds = Vec::new();
-            if let Some(ref c) = r.centroid {
-                seeds.push([c.x as i32, c.y as i32]);
+            let seed = if let Some(ref c) = r.centroid {
+                [c.x as i32, c.y as i32]
             } else if !r.polygon.is_empty() {
                 let mut cx = 0i32;
                 let mut cy = 0i32;
@@ -874,14 +868,24 @@ pub fn clean_fixture_with_cache(
                     cx += pt[0];
                     cy += pt[1];
                 }
-                seeds.push([cx / r.polygon.len() as i32, cy / r.polygon.len() as i32]);
+                [cx / r.polygon.len() as i32, cy / r.polygon.len() as i32]
             } else {
-                seeds.push([r.box_.x + r.box_.w / 2, r.box_.y + r.box_.h / 2]);
-            }
+                [r.box_.x + r.box_.w / 2, r.box_.y + r.box_.h / 2]
+            };
+            let cbox = r.inpaint_box.clone().unwrap_or_else(|| r.box_.clone());
 
-            if clean_white_bubble_shrinkwrap(&mut rgb_buf, bb, &seeds) {
-                modified = true;
+            if let Some(existing) = bubble_groups.iter_mut().find(|(b, _, _)| xianscan_rust::ml::geometry::box_iou(b, bb) >= 0.70) {
+                existing.1.push(seed);
+                existing.2.push(cbox);
+            } else {
+                bubble_groups.push((bb.clone(), vec![seed], vec![cbox]));
             }
+        }
+    }
+
+    for (bb, seeds, cboxes) in &bubble_groups {
+        if clean_white_bubble_shrinkwrap(&mut rgb_buf, bb, seeds, cboxes) {
+            modified = true;
         }
     }
 

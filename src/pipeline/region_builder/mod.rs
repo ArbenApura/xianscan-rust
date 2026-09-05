@@ -165,7 +165,7 @@ mod tests {
             carrier_box: None,
         }];
 
-        expand_bubble_text_boxes(&mut regions, None, 800, 1132, 0.05, 0.10);
+        expand_bubble_text_boxes(&mut regions, &[], None, 800, 1132, 0.05, 0.10);
 
         // BASE BOX MUST STAY STRICTLY INSIDE THE BUBBLE BOUNDARY
         assert!(regions[0].box_.x >= bubble.x);
@@ -205,7 +205,7 @@ mod tests {
             carrier_box: None,
         }];
 
-        expand_bubble_text_boxes(&mut regions, None, 1370, 1012, 0.05, 0.10);
+        expand_bubble_text_boxes(&mut regions, &[], None, 1370, 1012, 0.05, 0.10);
 
         // THE BASE BOX MUST EXPAND ITS WIDTH TO UTILIZE THE AVAILABLE BUBBLE ROOM
         assert!(regions[0].box_.w > 100);
@@ -243,7 +243,7 @@ mod tests {
             carrier_box: None,
         }];
 
-        expand_bubble_text_boxes(&mut regions, None, 690, 2095, 0.05, 0.10);
+        expand_bubble_text_boxes(&mut regions, &[], None, 690, 2095, 0.05, 0.10);
 
         let expanded = &regions[0].box_;
         let new_cx = expanded.x + expanded.w / 2;
@@ -291,7 +291,7 @@ mod tests {
             carrier_box: None,
         }];
 
-        expand_bubble_text_boxes(&mut regions, None, 690, 1771, 0.03, 0.00);
+        expand_bubble_text_boxes(&mut regions, &[], None, 690, 1771, 0.03, 0.00);
 
         let typeset_box = regions[0].typeset_box.as_ref().expect("typeset_box should exist");
 
@@ -329,7 +329,7 @@ mod tests {
             carrier_box: None,
         }];
 
-        expand_bubble_text_boxes(&mut regions, None, 690, 1771, 0.05, 0.10);
+        expand_bubble_text_boxes(&mut regions, &[], None, 690, 1771, 0.05, 0.10);
 
         let typeset_box = regions[0].typeset_box.as_ref().expect("typeset_box should exist");
 
@@ -415,7 +415,7 @@ mod tests {
             },
         ];
 
-        expand_bubble_text_boxes(&mut regions, None, 810, 737, 0.03, 0.00);
+        expand_bubble_text_boxes(&mut regions, &[], None, 810, 737, 0.03, 0.00);
 
         // BOTH REGIONS MUST PRESERVE INDIVIDUAL SIBLING ANCHORS (NOT COLLAPSED TO BUBBLE CENTER)
         assert!(regions[0].typeset_box.is_some());
@@ -475,7 +475,7 @@ mod tests {
             carrier_box: None,
         }];
 
-        expand_bubble_text_boxes(&mut regions, None, 690, 1771, 0.05, 0.10);
+        expand_bubble_text_boxes(&mut regions, &[], None, 690, 1771, 0.05, 0.10);
 
         let carrier = regions[0].carrier_box.clone().expect("validated carrier must be published");
         assert!(carrier.h < bubble.h, "downward tail must be cut from the published carrier");
@@ -522,7 +522,7 @@ mod tests {
             carrier_box: None,
         }];
 
-        expand_bubble_text_boxes(&mut regions, None, 690, 1771, 0.05, 0.10);
+        expand_bubble_text_boxes(&mut regions, &[], None, 690, 1771, 0.05, 0.10);
 
         assert!(regions[0].carrier_box.is_none(), "carrier must not be published without a genuine tail cut");
         // BEHAVIOR IS UNCHANGED: EXPANSION USES THE FULL BUBBLE SAFE CORE

@@ -74,6 +74,8 @@ pub fn build_regions(
         })
         .collect();
 
+    let mut candidate_obstacles: Vec<(BoxRect, BoxRect)> = Vec::new();
+
     for &idx in order {
         let box_pts = &dedup_boxes[idx];
         let (bx, by, bw, bh) = crate::ml::geometry::box_to_xywh_f32(box_pts);
@@ -637,6 +639,18 @@ pub fn build_regions(
                     split_lines,
                     bubbles,
                 ) {
+                    if is_cluster_in_bubble {
+                        let b = matched_bubble.cloned().or_else(|| {
+                            bubbles.iter().find(|b| {
+                                let cx = cluster_rect.x + cluster_rect.w / 2;
+                                let cy = cluster_rect.y + cluster_rect.h / 2;
+                                cx > b.x + 8 && cx < b.x + b.w - 8 && cy > b.y + 8 && cy < b.y + b.h - 8
+                            }).cloned()
+                        });
+                        if let Some(bubble_match) = b {
+                            candidate_obstacles.push((bubble_match, cluster_rect));
+                        }
+                    }
                     continue;
                 }
 
@@ -822,6 +836,7 @@ pub fn build_regions(
             }
         } else {
             // FALLBACK: TARGETED ISOLATED RECOGNITION CROP FOR MISSED CANDIDATE CONTAINER
+            let mut produced_region = false;
             if let Some(fallback) = run_fallback_crop_recognition(
                 ocr,
                 img,
@@ -847,79 +862,86 @@ pub fn build_regions(
                     split_lines,
                     bubbles,
                 ) {
-                    continue;
-                }
-
-                let final_box_rect = if !fallback.polys.is_empty() {
-                    let mut min_x = i32::MAX;
-                    let mut min_y = i32::MAX;
-                    let mut max_x = i32::MIN;
-                    let mut max_y = i32::MIN;
-                    for poly in &fallback.polys {
-                        for p in poly {
-                            min_x = min_x.min(p[0]);
-                            min_y = min_y.min(p[1]);
-                            max_x = max_x.max(p[0]);
-                            max_y = max_y.max(p[1]);
+                    // Rejected fallback
+                } else {
+                    produced_region = true;
+                    let final_box_rect = if !fallback.polys.is_empty() {
+                        let mut min_x = i32::MAX;
+                        let mut min_y = i32::MAX;
+                        let mut max_x = i32::MIN;
+                        let mut max_y = i32::MIN;
+                        for poly in &fallback.polys {
+                            for p in poly {
+                                min_x = min_x.min(p[0]);
+                                min_y = min_y.min(p[1]);
+                                max_x = max_x.max(p[0]);
+                                max_y = max_y.max(p[1]);
+                            }
                         }
-                    }
-                    let fx = min_x.max(0);
-                    let fy = min_y.max(0);
-                    let fw = (max_x - min_x).max(1).min(page_w as i32 - fx);
-                    let fh = (max_y - min_y).max(1).min(page_h as i32 - fy);
-                    BoxRect { x: fx, y: fy, w: fw, h: fh }
-                } else {
-                    box_rect
-                };
+                        let fx = min_x.max(0);
+                        let fy = min_y.max(0);
+                        let fw = (max_x - min_x).max(1).min(page_w as i32 - fx);
+                        let fh = (max_y - min_y).max(1).min(page_h as i32 - fy);
+                        BoxRect { x: fx, y: fy, w: fw, h: fh }
+                    } else {
+                        box_rect.clone()
+                    };
 
-                let inpaint_box = Some(expand_box(&final_box_rect, inpaint_pct, page_w, page_h));
-                let typeset_box = Some(expand_box(&final_box_rect, typeset_pct, page_w, page_h));
+                    let inpaint_box = Some(expand_box(&final_box_rect, inpaint_pct, page_w, page_h));
+                    let typeset_box = Some(expand_box(&final_box_rect, typeset_pct, page_w, page_h));
 
-                let text_polygon = vec![
-                    [final_box_rect.x, final_box_rect.y],
-                    [final_box_rect.x + final_box_rect.w, final_box_rect.y],
-                    [final_box_rect.x + final_box_rect.w, final_box_rect.y + final_box_rect.h],
-                    [final_box_rect.x, final_box_rect.y + final_box_rect.h],
-                ];
+                    let text_polygon = vec![
+                        [final_box_rect.x, final_box_rect.y],
+                        [final_box_rect.x + final_box_rect.w, final_box_rect.y],
+                        [final_box_rect.x + final_box_rect.w, final_box_rect.y + final_box_rect.h],
+                        [final_box_rect.x, final_box_rect.y + final_box_rect.h],
+                    ];
 
-                let bubble_box = matched_bubble.cloned();
-                let bubble_polygon = bubble_box.as_ref().map(|b| vec![
-                    [b.x, b.y],
-                    [b.x + b.w, b.y],
-                    [b.x + b.w, b.y + b.h],
-                    [b.x, b.y + b.h],
-                ]);
+                    let bubble_box = matched_bubble.cloned();
+                    let bubble_polygon = bubble_box.as_ref().map(|b| vec![
+                        [b.x, b.y],
+                        [b.x + b.w, b.y],
+                        [b.x + b.w, b.y + b.h],
+                        [b.x, b.y + b.h],
+                    ]);
 
-                let centroid = if let Some(ref bb) = bubble_box {
-                    Some(Point2D {
-                        x: bb.x as f32 + bb.w as f32 / 2.0,
-                        y: bb.y as f32 + bb.h as f32 / 2.0,
-                    })
-                } else {
-                    Some(Point2D {
-                        x: final_box_rect.x as f32 + final_box_rect.w as f32 / 2.0,
-                        y: final_box_rect.y as f32 + final_box_rect.h as f32 / 2.0,
-                    })
-                };
+                    let centroid = if let Some(ref bb) = bubble_box {
+                        Some(Point2D {
+                            x: bb.x as f32 + bb.w as f32 / 2.0,
+                            y: bb.y as f32 + bb.h as f32 / 2.0,
+                        })
+                    } else {
+                        Some(Point2D {
+                            x: final_box_rect.x as f32 + final_box_rect.w as f32 / 2.0,
+                            y: final_box_rect.y as f32 + final_box_rect.h as f32 / 2.0,
+                        })
+                    };
 
-                regions.push(Region {
-                    id: format!("r{}", regions.len()),
-                    box_: final_box_rect,
-                    polygon: text_polygon,
-                    inpaint_box,
-                    typeset_box,
-                    text: cleaned,
-                    confidence: fallback.score,
-                    vertical: is_container_vert,
-                    angle: angle_deg,
-                    bubble_box,
-                    bubble_polygon,
-                    centroid,
-                    kind,
-                    is_title: false,
-                    is_subtitle: false,
-                    carrier_box: None,
-                });
+                    regions.push(Region {
+                        id: format!("r{}", regions.len()),
+                        box_: final_box_rect,
+                        polygon: text_polygon,
+                        inpaint_box,
+                        typeset_box,
+                        text: cleaned,
+                        confidence: fallback.score,
+                        vertical: is_container_vert,
+                        angle: angle_deg,
+                        bubble_box,
+                        bubble_polygon,
+                        centroid,
+                        kind,
+                        is_title: false,
+                        is_subtitle: false,
+                        carrier_box: None,
+                    });
+                }
+            }
+
+            if !produced_region && is_bubble_region {
+                if let Some(b) = matched_bubble {
+                    candidate_obstacles.push((b.clone(), box_rect));
+                }
             }
         }
     }
@@ -933,8 +955,23 @@ pub fn build_regions(
         eprintln!("[PROBE-POSTDEDUP] {} regions: {:?}", deduped_regions.len(), deduped_regions.iter().map(|r| format!("{}@{:?}", r.text.replace('\n', "|"), r.box_)).collect::<Vec<_>>());
     }
 
+    // GATHER BUBBLE OBSTACLES: CANDIDATE DETECTOR BOXES OR REJECTED CLUSTERS INSIDE A BUBBLE
+    // THAT DID NOT PRODUCE AN ACCEPTED REGION. THESE SERVE AS GEOMETRIC SIBLING ANCHORS,
+    // PREVENTING A SINGLE SURVIVING UTTERANCE FROM FALSELY CENTERING OVER UNTRANSLATED TEXT/DOTS.
+    let mut bubble_obstacles: Vec<(BoxRect, BoxRect)> = Vec::new();
+    for (b, obs) in candidate_obstacles {
+        if obs.w >= 8 && obs.h >= 6 && !deduped_regions.iter().any(|r| {
+            let iou = box_iou(&obs, &r.box_);
+            iou >= 0.20 || (obs.x >= r.box_.x && obs.x + obs.w <= r.box_.x + r.box_.w && obs.y >= r.box_.y && obs.y + obs.h <= r.box_.y + r.box_.h)
+        }) {
+            if !bubble_obstacles.iter().any(|(_, existing)| box_iou(&obs, existing) >= 0.50) {
+                bubble_obstacles.push((b, obs));
+            }
+        }
+    }
+
     // EXPAND DIALOGUE-BUBBLE TEXT BASE BOUNDARY TO UTILIZE UNUSED BUBBLE AREA (BUBBLE TEXT ONLY)
-    expand_bubble_text_boxes(&mut deduped_regions, Some(img), page_w, page_h, inpaint_pct, typeset_pct);
+    expand_bubble_text_boxes(&mut deduped_regions, &bubble_obstacles, Some(img), page_w, page_h, inpaint_pct, typeset_pct);
 
     deduped_regions
 }

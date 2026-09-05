@@ -149,6 +149,7 @@ pub fn valid_tail_cut_carrier(carrier: &BoxRect, b: &BoxRect, page_h: u32) -> bo
 /// CARRIER IS PUBLISHED ON THE REGION (`carrier_box`) FOR INSPECT-PAGE BUBBLE VIEWERS.
 pub fn expand_bubble_text_boxes(
     regions: &mut Vec<Region>,
+    obstacles: &[(BoxRect, BoxRect)],
     img: Option<&DynamicImage>,
     page_w: u32,
     page_h: u32,
@@ -183,7 +184,8 @@ pub fn expand_bubble_text_boxes(
         };
 
         // SOLE-OCCUPANT CHECK FOR CARRIER RECONSTRUCTION
-        let is_sole_occupant = indexes.iter().all(|&j| {
+        let has_obstacle = obstacles.iter().any(|(obs_b, _)| box_iou(b, obs_b) >= 0.5);
+        let is_sole_occupant = !has_obstacle && indexes.iter().all(|&j| {
             if i == j {
                 return true;
             }
@@ -257,6 +259,31 @@ pub fn expand_bubble_text_boxes(
                 }
             }
             // VERTICAL INFLUENCE (HORIZONTAL SPANS OVERLAP)
+            let x_overlap = (bx + bw) > s.x && (s.x + s.w) > bx;
+            if x_overlap {
+                if (s.y + s.h) <= cy && (s.y + s.h) > top_limit - SIBLING_GAP {
+                    top_limit = (s.y + s.h + SIBLING_GAP).min(bottom);
+                }
+                if s.y >= cy && s.y < bottom_limit + SIBLING_GAP {
+                    bottom_limit = (s.y - SIBLING_GAP).max(top);
+                }
+            }
+        }
+
+        // OBSTACLES INSIDE THE SAME BUBBLE ALSO CONSTRAIN EXPANSION LIMITS
+        for (obs_b, s) in obstacles {
+            if box_iou(b, obs_b) < 0.5 {
+                continue;
+            }
+            let y_overlap = (by + bh) > s.y && (s.y + s.h) > by;
+            if y_overlap {
+                if (s.x + s.w) <= cx && (s.x + s.w) > left_limit - SIBLING_GAP {
+                    left_limit = (s.x + s.w + SIBLING_GAP).min(right);
+                }
+                if s.x >= cx && s.x < right_limit + SIBLING_GAP {
+                    right_limit = (s.x - SIBLING_GAP).max(left);
+                }
+            }
             let x_overlap = (bx + bw) > s.x && (s.x + s.w) > bx;
             if x_overlap {
                 if (s.y + s.h) <= cy && (s.y + s.h) > top_limit - SIBLING_GAP {
@@ -352,7 +379,8 @@ pub fn expand_bubble_text_boxes(
         clamp_box_to_core(&mut regions[i].box_, outer_l, outer_r, outer_t, outer_b);
 
         // SAFE-CORE CENTERING FOR SOLE-OCCUPANT BUBBLES WITHIN THEIR DERIVED CARRIER
-        let is_sole_occupant = indexes.iter().all(|&j| {
+        let has_obstacle = obstacles.iter().any(|(obs_b, _)| box_iou(&b, obs_b) >= 0.5);
+        let is_sole_occupant = !has_obstacle && indexes.iter().all(|&j| {
             if i == j {
                 return true;
             }
@@ -385,9 +413,26 @@ pub fn expand_bubble_text_boxes(
         let has_healthy_vertical_fill = vertical_fill_ratio >= 0.15 && vertical_fill_ratio <= 0.90;
         let is_vertical_edge_cut = b.y <= 12 || (b.y + b.h) as u32 >= page_h.saturating_sub(12);
 
+        // CENTERING ASYMMETRY GUARD: IF AN UTTERANCE SITS SKEWED TOWARD ONE END OF THE CARRIER
+        // (E.G. IN A MULTI-CHAMBER BALLOON WHERE THE COMPANION UTTERANCE WAS EXCLUDED/UNTRANSLATABLE),
+        // SNAPPING IT TO CARRIER CENTROID DISPLACES IT ACROSS THE BALLOON SEAM.
+        let top_m = (regions[i].box_.y - carrier.y).max(0);
+        let bot_m = ((carrier.y + carrier.h) - (regions[i].box_.y + regions[i].box_.h)).max(0);
+        let min_vm = top_m.min(bot_m) as f32;
+        let max_vm = top_m.max(bot_m) as f32;
+        let is_heavily_offset_vertically = min_vm > 0.0 && (max_vm / min_vm >= 2.2) && (max_vm - min_vm >= 25.0);
+
+        let left_m = (regions[i].box_.x - carrier.x).max(0);
+        let right_m = ((carrier.x + carrier.w) - (regions[i].box_.x + regions[i].box_.w)).max(0);
+        let min_hm = left_m.min(right_m) as f32;
+        let max_hm = left_m.max(right_m) as f32;
+        let is_heavily_offset_horizontally = min_hm > 0.0 && (max_hm / min_hm >= 2.5) && (max_hm - min_hm >= 35.0);
+
         if is_sole_occupant
             && !is_vertical_edge_cut
             && has_healthy_vertical_fill
+            && !is_heavily_offset_vertically
+            && !is_heavily_offset_horizontally
         {
             let mut typeset_box = expand_box(&regions[i].box_, typeset_pct, page_w, page_h);
             typeset_box.x = carrier_cx - typeset_box.w / 2;

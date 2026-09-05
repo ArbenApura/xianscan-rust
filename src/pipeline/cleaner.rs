@@ -56,8 +56,8 @@ pub fn clean_image(
     let mut rgb_buf = cleaned_img.to_rgb8();
     let mut modified = false;
 
-    // COLLECT UNIQUE BUBBLE BOXES AND AGGREGATE ALL ASSOCIATED TEXT REGION SEEDS
-    let mut bubble_groups: Vec<(BoxRect, Vec<[i32; 2]>)> = Vec::new();
+    // COLLECT UNIQUE BUBBLE BOXES AND AGGREGATE ALL ASSOCIATED TEXT REGION SEEDS AND CLEAN BOXES
+    let mut bubble_groups: Vec<(BoxRect, Vec<[i32; 2]>, Vec<BoxRect>)> = Vec::new();
     for r in regions {
         if let Some(ref bb) = r.bubble_box {
             let mut seed = None;
@@ -78,22 +78,40 @@ pub fn clean_image(
                 }
             }
 
-            if let Some(existing) = bubble_groups.iter_mut().find(|(b, _)| box_iou(b, bb) >= 0.70) {
+            let cbox = r.box_.clone().or_else(|| {
+                r.polygon.as_ref().and_then(|p| {
+                    if p.is_empty() { return None; }
+                    let (min_x, min_y, max_x, max_y) = p.iter().fold(
+                        (i32::MAX, i32::MAX, i32::MIN, i32::MIN),
+                        |acc, pt| (acc.0.min(pt[0]), acc.1.min(pt[1]), acc.2.max(pt[0]), acc.3.max(pt[1]))
+                    );
+                    Some(BoxRect { x: min_x, y: min_y, w: (max_x - min_x).max(1), h: (max_y - min_y).max(1) })
+                })
+            });
+
+            if let Some(existing) = bubble_groups.iter_mut().find(|(b, _, _)| box_iou(b, bb) >= 0.70) {
                 if let Some(s) = seed {
                     existing.1.push(s);
+                }
+                if let Some(cb) = cbox {
+                    existing.2.push(cb);
                 }
             } else {
                 let mut seeds = Vec::new();
                 if let Some(s) = seed {
                     seeds.push(s);
                 }
-                bubble_groups.push((bb.clone(), seeds));
+                let mut cboxes = Vec::new();
+                if let Some(cb) = cbox {
+                    cboxes.push(cb);
+                }
+                bubble_groups.push((bb.clone(), seeds, cboxes));
             }
         }
     }
 
-    for (bb, seeds) in &bubble_groups {
-        if clean_white_bubble_shrinkwrap(&mut rgb_buf, bb, seeds) {
+    for (bb, seeds, cboxes) in &bubble_groups {
+        if clean_white_bubble_shrinkwrap(&mut rgb_buf, bb, seeds, cboxes) {
             modified = true;
         }
     }

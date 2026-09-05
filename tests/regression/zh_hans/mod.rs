@@ -59,6 +59,7 @@ mod page_su_family_three_hundred_years_split_bubble;
 mod page_tang_jianfeng_cloud_mist_spring_split_bubble;
 mod page_grandfather_saner_mooncake_split_bubble;
 mod page_su_family_key_lies_with_little_jiu_split_bubble;
+mod page_master_yuan_huan_ellipsis_double_bubble;
 
 
 

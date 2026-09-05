@@ -102,6 +102,7 @@ pub fn clean_white_bubble_shrinkwrap(
     img: &mut ImageBuffer<Rgb<u8>, Vec<u8>>,
     bubble_box: &BoxRect,
     seeds: &[[i32; 2]],
+    clean_boxes: &[BoxRect],
 ) -> bool {
     let (page_w, page_h) = img.dimensions();
 
@@ -361,6 +362,39 @@ pub fn clean_white_bubble_shrinkwrap(
                     if touches_outside {
                         protected_stroke[idx] = true;
                         stroke_queue.push_back((cx as u32, cy as u32));
+                    }
+                }
+            }
+        }
+    }
+
+    // PROTECT UNCLEANED DARK STROKES (PRESERVED ARTWORK, UNTRANSLATED ELLIPSES, SYMBOLS)
+    // ANY DARK PIXEL (LUM < 195) THAT IS NOT WITHIN VICINITY OF THE REQUESTED CLEAN BOXES IS PRESERVED
+    if !clean_boxes.is_empty() {
+        let clean_pad = 12i32;
+        for cy in 0..ch {
+            for cx in 0..cw {
+                let idx = cy * cw + cx;
+                if !can_reach_edge[idx] && !protected_stroke[idx] {
+                    let gx = bx0 + cx as u32;
+                    let gy = by0 + cy as u32;
+                    let p = img.get_pixel(gx, gy);
+                    let (lum, _) = pixel_lum_and_sat(p);
+
+                    if lum < 195 {
+                        let is_near_clean_box = clean_boxes.iter().any(|cb| {
+                            let gx_i = gx as i32;
+                            let gy_i = gy as i32;
+                            gx_i >= cb.x - clean_pad
+                                && gx_i <= cb.x + cb.w + clean_pad
+                                && gy_i >= cb.y - clean_pad
+                                && gy_i <= cb.y + cb.h + clean_pad
+                        });
+
+                        if !is_near_clean_box {
+                            protected_stroke[idx] = true;
+                            stroke_queue.push_back((cx as u32, cy as u32));
+                        }
                     }
                 }
             }

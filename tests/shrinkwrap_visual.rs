@@ -104,7 +104,7 @@ fn run_two_stage_pipeline_on_fixture(fixture_dir: &Path, _inpainter_opt: &mut Op
             }
         }
 
-        let ok = clean_white_bubble_shrinkwrap(&mut rgb_buf, &bb, &seeds);
+        let ok = clean_white_bubble_shrinkwrap(&mut rgb_buf, &bb, &seeds, &[]);
         if ok {
             cleaned_count += 1;
         }
