@@ -35,11 +35,11 @@ fn test_regression_page_omniscient_reader_chapter_view_counts() {
         );
     }
 
-    // 1. EXACT ELEMENT COUNTS: NO BACKGROUND TABLE NOISE (EXPECTED 4 REGIONS)
+    // 1. EXACT ELEMENT COUNTS: NO BACKGROUND TABLE NOISE (EXPECTED 3 REGIONS)
     assert_eq!(
         res.regions.len(),
-        4,
-        "Expected exactly 4 valid regions (top bubble, 2 middle handwritten narration lines, bottom narration box), found {}",
+        3,
+        "Expected exactly 3 valid regions (top bubble, 1 unified middle handwritten narration, bottom narration box), found {}",
         res.regions.len()
     );
 
@@ -51,13 +51,17 @@ fn test_regression_page_omniscient_reader_chapter_view_counts() {
         .expect("Top thought bubble must be detected");
     assert!(top_bubble.box_.y < 400, "Top bubble must be in the upper section");
 
-    // 3. MIDDLE HANDWRITTEN MONOLOGUE
+    // 3. MIDDLE HANDWRITTEN MONOLOGUE (UNIFIED 1 REGION)
     let mid_narration = res
         .regions
         .iter()
         .find(|r| r.text.contains("그뒤로") || r.text.contains("누군가"))
         .expect("Middle handwritten narration must be detected");
     assert!(mid_narration.box_.y >= 400 && mid_narration.box_.y <= 700, "Middle narration must be in the middle section");
+    assert!(
+        mid_narration.text.contains("그뒤로") && mid_narration.text.contains("누군가"),
+        "Middle handwritten narration must be unified into a single region containing all lines"
+    );
 
     // 4. BOTTOM NARRATION BOX
     let bottom_narration = res

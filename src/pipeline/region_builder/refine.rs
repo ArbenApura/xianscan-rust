@@ -56,7 +56,21 @@ pub fn try_refine_cluster_crop(
     let is_clean_single_line = cluster_lines.len() == 1 && avg_score >= 0.70 && !is_container_wider && !is_container_taller;
     let is_clean_dense_multiline = cluster_lines.len() >= 3 && avg_score >= 0.65 && (container_h as f32) <= (cluster_lines.len() as f32 * 32.0).max(cluster_rect.h as f32 * 1.35);
     let is_lines_much_wider = (cluster_rect.w as f32) >= (container_w as f32 * 1.30);
-    let full_page_is_complete = (is_clean_dense_multiline || is_clean_single_line) && !is_container_wider && !is_lines_much_wider;
+
+    let trimmed_combined = combined_text.trim();
+    let has_terminal_punct = if let Some(last_char) = trimmed_combined.chars().last() {
+        matches!(last_char, '。' | '！' | '？' | '!' | '?' | '…' | '”' | '’' | '」' | '』' | '.' | '~' | '～')
+    } else {
+        false
+    };
+    let has_trailing_headroom = if is_container_vert {
+        (cluster_rect.x - box_rect.x) >= 16
+    } else {
+        (box_rect.y + box_rect.h) >= (cluster_rect.y + cluster_rect.h + 16)
+    };
+    let is_truncated_multiline = cluster_lines.len() >= 3 && is_cjk && !has_terminal_punct && has_trailing_headroom;
+
+    let full_page_is_complete = (is_clean_dense_multiline || is_clean_single_line) && !is_container_wider && !is_lines_much_wider && !is_truncated_multiline;
     let is_standalone_alphanumeric_risk = is_cjk && crate::ml::detect::is_standalone_alphanumeric_without_cjk(combined_text);
     let is_corrupted_latin_in_bubble = is_bubble
         && is_cjk
@@ -68,7 +82,7 @@ pub fn try_refine_cluster_crop(
         && single_char_count <= 2
         && (cluster_rect.w >= 80 || cluster_rect.h >= 100 || (container_h >= 100 && container_h > container_w))
         && avg_score < 0.75;
-    let can_refine_crop = (is_bubble || is_container_wider || is_container_taller || is_short_text_partial || is_standalone_alphanumeric_risk || is_corrupted_latin_in_bubble || is_oversized_single)
+    let can_refine_crop = (is_bubble || is_container_wider || is_container_taller || is_short_text_partial || is_standalone_alphanumeric_risk || is_corrupted_latin_in_bubble || is_oversized_single || is_truncated_multiline)
         && (cluster_rect.w >= 16 || box_rect.w >= 16)
         && (cluster_rect.h >= 16 || box_rect.h >= 16)
         && (!full_page_is_complete || is_corrupted_latin_in_bubble || is_oversized_single)
@@ -85,7 +99,7 @@ pub fn try_refine_cluster_crop(
             w: (cluster_rect.x + cluster_rect.w).max(box_rect.x + box_rect.w) - cluster_rect.x.min(box_rect.x),
             h: (cluster_rect.y + cluster_rect.h).max(box_rect.y + box_rect.h) - cluster_rect.y.min(box_rect.y),
         }
-    } else if is_bubble || (is_container_taller && cluster_lines.len() <= 2) || (is_container_wider && cluster_lines.len() <= 2) || (is_standalone_alphanumeric_risk && cluster_lines.len() <= 2) {
+    } else if is_bubble || is_truncated_multiline || (is_container_taller && cluster_lines.len() <= 2) || (is_container_wider && cluster_lines.len() <= 2) || (is_standalone_alphanumeric_risk && cluster_lines.len() <= 2) {
         BoxRect {
             x: cluster_rect.x.min(box_rect.x),
             y: cluster_rect.y.min(box_rect.y),
@@ -98,11 +112,15 @@ pub fn try_refine_cluster_crop(
 
     let pad_x = if is_container_vert {
         if is_oversized_single { 0 } else { 8 }
+    } else if !is_bubble {
+        2
     } else {
         16
     };
     let pad_y = if is_container_vert {
         if is_oversized_single { 0 } else { 16 }
+    } else if !is_bubble {
+        4
     } else {
         8
     };
@@ -125,18 +143,26 @@ pub fn try_refine_cluster_crop(
     let mut valid_crop_lines: Vec<_> = if is_cjk {
         res.lines
             .iter()
-            .filter(|(_, text, score)| {
+            .filter_map(|(poly, text, score)| {
                 let t = text.trim();
-                if t.is_empty() || crate::ml::detect::is_watermark_line(t) {
-                    return false;
+                if t.is_empty() || crate::ml::detect::is_watermark_line(t) || crate::ml::detect::is_standalone_table_cell(t) {
+                    return None;
                 }
                 let is_punct = t.chars().all(|c| c.is_ascii_punctuation() || matches!(c, '！' | '？' | '!' | '?' | '…'));
                 if !is_punct && crate::ml::detect::is_standalone_alphanumeric_without_cjk(t) && t.chars().count() <= 5 && *score < 0.85 {
-                    return false;
+                    return None;
                 }
-                true
+                let mut final_t = t.to_string();
+                if final_t.ends_with('0') || final_t.ends_with('o') || final_t.ends_with('O') {
+                    if let Some(prev) = final_t.chars().rev().nth(1) {
+                        if crate::ml::detect::has_native_script_for_lang(&prev.to_string(), source_lang) {
+                            final_t.pop();
+                            final_t = final_t.trim().to_string();
+                        }
+                    }
+                }
+                Some((poly.clone(), final_t, *score))
             })
-            .cloned()
             .collect()
     } else {
         res.lines
@@ -219,7 +245,7 @@ pub fn try_refine_cluster_crop(
 
     // IF THE CROP RESULT MERGED LINES ACROSS MULTIPLE SEPARATE DIALOGUE SENTENCES OR EXPANDED A CLEAN SINGLE LINE IN A COMPACT CONTAINER, DO NOT REPLACE
     let is_excessive_expansion = !is_bubble && (
-        (combined_cjk_count >= 3 && crop_cjk_count >= (combined_cjk_count * 5 / 2))
+        (combined_cjk_count >= 3 && crop_cjk_count >= (combined_cjk_count * 5 / 2) && target_rect.h <= 70)
             || (cluster_lines.len() == 1 && avg_score >= 0.70 && !combined_text.contains('\n') && clean_crop_text.contains('\n') && !is_container_vert && target_rect.h <= 45)
     );
 

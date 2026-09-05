@@ -298,7 +298,15 @@ pub fn cluster_lines_into_utterances<'a>(
                 && min_line_h >= 20.0
                 && vert_gap >= (min_line_h * 0.60).max(15.0)
                 && (prev_row_text.ends_with("弟子") || prev_row_text.ends_with("阶") || prev_row_text.ends_with("级") || prev_row_text.ends_with("层") || prev_row_text.ends_with("段") || prev_row_text.ends_with("境") || prev_row_text.ends_with("部"));
-            let is_substantial_gap = vert_gap >= (min_line_h * 1.10).max(18.0) || is_standalone_line_rank_split;
+            let is_slanted_monologue = sin_a.abs() >= 0.035;
+            let gap_threshold = if is_slanted_monologue {
+                120.0
+            } else if ends_with_punct {
+                (min_line_h * 0.30).max(4.0)
+            } else {
+                (min_line_h * 1.75).max(35.0)
+            };
+            let is_substantial_gap = (vert_gap >= gap_threshold && !is_slanted_monologue) || is_standalone_line_rank_split;
             let is_ellipsis_split = (prev_row_text.ends_with('…') || prev_row_text.ends_with("..")) && vert_gap >= (min_line_h * 0.15).max(2.0);
             let is_multi_lobe_split = if current_cluster.len() >= 2 {
                 let next_lobe_lines: Vec<&OcrLine> = rows[r_idx..r_idx.saturating_add(3).min(rows.len())]
