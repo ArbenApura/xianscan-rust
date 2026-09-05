@@ -44,6 +44,55 @@ pub fn analyze_image_with_options(
     analyze_image_with_fusion_timed(engine, img, &fusion_res, options, t_total_start)
 }
 
+fn check_composite_subboxes<'a>(
+    parent_b: &crate::ml::schemas::BoxRect,
+    candidates: impl Iterator<Item = (&'a crate::ml::schemas::BoxRect, f32)>,
+    is_bubble: bool,
+) -> bool {
+    let subboxes: Vec<&crate::ml::schemas::BoxRect> = candidates
+        .filter_map(|(sub_b, sub_score)| {
+            if sub_b == parent_b {
+                return None;
+            }
+            let is_distinct_col = (sub_b.x >= parent_b.x + parent_b.w * 2 / 5) || (sub_b.x + sub_b.w <= parent_b.x + parent_b.w * 3 / 5);
+            let is_distinct_row = (sub_b.y >= parent_b.y + parent_b.h / 3) || (sub_b.y + sub_b.h <= parent_b.y + parent_b.h * 2 / 3);
+            let min_score = if is_bubble { 0.35 } else { 0.40 };
+            if sub_score >= min_score
+                && (is_distinct_col || is_distinct_row)
+                && sub_b.x >= parent_b.x - 20
+                && sub_b.y >= parent_b.y - 20
+                && (sub_b.x + sub_b.w) <= (parent_b.x + parent_b.w + 20)
+                && (sub_b.y + sub_b.h) <= (parent_b.y + parent_b.h + 20)
+                && (sub_b.w * sub_b.h) < (parent_b.w * parent_b.h * 9 / 10)
+            {
+                Some(sub_b)
+            } else {
+                None
+            }
+        })
+        .collect();
+
+    if subboxes.len() < 2 {
+        return false;
+    }
+
+    // CHECK IF AT LEAST TWO SUBBOXES ARE GENUINELY SEPARATED (EITHER HORIZONTALLY SEPARATED COLUMNS OR VERTICALLY SEPARATED LOBES WITH GAP >= 25PX OR BOTH MULTI-LINE LOBES)
+    for i in 0..subboxes.len() {
+        for j in (i + 1)..subboxes.len() {
+            let s1 = subboxes[i];
+            let s2 = subboxes[j];
+            let horiz_sep = s1.x + s1.w <= s2.x + 10 || s2.x + s2.w <= s1.x + 10;
+            let center_stagger = ((s1.x + s1.w / 2) - (s2.x + s2.w / 2)).abs() >= 65;
+            let vert_gap_sep = s2.y >= s1.y + s1.h + 25 || s1.y >= s2.y + s2.h + 25;
+            let both_multiline_distinct_lobes = s1.h >= 50 && s2.h >= 50 && (s2.y >= s1.y + s1.h || s1.y >= s2.y + s2.h);
+            if horiz_sep || center_stagger || vert_gap_sep || both_multiline_distinct_lobes {
+                return true;
+            }
+        }
+    }
+    false
+}
+
 /// FAST-PATH POSTPROCESSING: EXECUTES STAGE 2 & 3 DIRECTLY GIVEN PRE-COMPUTED DETECTION FUSION RESULTS
 pub fn analyze_image_with_fusion(
     engine: &mut PipelineEngine,
@@ -81,25 +130,35 @@ pub fn analyze_image_with_fusion_timed(
         .iter()
         .map(|l| {
             let mut line = l.clone();
-            let (cleaned_text, keep_ratio) = crate::ml::detect::strip_trailing_watermark_debris(&line.text, source_lang);
-            if keep_ratio < 0.99 && keep_ratio > 0.10 {
-                let was_multiline = line.text.contains('\n');
-                line.text = cleaned_text;
+            let (lead_cleaned, start_ratio) = crate::ml::detect::strip_leading_watermark_debris(&line.text, source_lang);
+            let (trail_cleaned, keep_ratio) = crate::ml::detect::strip_trailing_watermark_debris(&lead_cleaned, source_lang);
+            let was_multiline = line.text.contains('\n');
+            let has_change = start_ratio > 0.01 || keep_ratio < 0.99;
+            if has_change && keep_ratio > 0.10 {
+                line.text = trail_cleaned;
                 if line.polygon.len() == 4 {
                     if was_multiline {
                         let p0y = line.polygon[0][1] as f32;
                         let p1y = line.polygon[1][1] as f32;
                         let p2y = line.polygon[2][1] as f32;
                         let p3y = line.polygon[3][1] as f32;
-                        line.polygon[2][1] = (p1y + (p2y - p1y) * keep_ratio).round() as i32;
-                        line.polygon[3][1] = (p0y + (p3y - p0y) * keep_ratio).round() as i32;
+                        let orig_h_left = p3y - p0y;
+                        let orig_h_right = p2y - p1y;
+                        line.polygon[0][1] = (p0y + orig_h_left * start_ratio).round() as i32;
+                        line.polygon[1][1] = (p1y + orig_h_right * start_ratio).round() as i32;
+                        line.polygon[2][1] = (p1y + orig_h_right * (start_ratio + (1.0 - start_ratio) * keep_ratio)).round() as i32;
+                        line.polygon[3][1] = (p0y + orig_h_left * (start_ratio + (1.0 - start_ratio) * keep_ratio)).round() as i32;
                     } else {
                         let p0x = line.polygon[0][0] as f32;
                         let p1x = line.polygon[1][0] as f32;
                         let p2x = line.polygon[2][0] as f32;
                         let p3x = line.polygon[3][0] as f32;
-                        line.polygon[1][0] = (p0x + (p1x - p0x) * keep_ratio).round() as i32;
-                        line.polygon[2][0] = (p3x + (p2x - p3x) * keep_ratio).round() as i32;
+                        let orig_w_top = p1x - p0x;
+                        let orig_w_bot = p2x - p3x;
+                        line.polygon[0][0] = (p0x + orig_w_top * start_ratio).round() as i32;
+                        line.polygon[1][0] = (p0x + orig_w_top * (start_ratio + (1.0 - start_ratio) * keep_ratio)).round() as i32;
+                        line.polygon[2][0] = (p3x + orig_w_bot * (start_ratio + (1.0 - start_ratio) * keep_ratio)).round() as i32;
+                        line.polygon[3][0] = (p3x + orig_w_bot * start_ratio).round() as i32;
                     }
                 }
             }
@@ -168,22 +227,9 @@ pub fn analyze_image_with_fusion_timed(
             if is_giant_screen_prop {
                 continue;
             }
-            let matching_subboxes_count = if inside_any_bubble {
-                fusion_res.text_bubbles.iter().filter(|(sub_b, sub_score)| {
-                    let is_distinct_col = (sub_b.x >= b.x + b.w * 2 / 5) || (sub_b.x + sub_b.w <= b.x + b.w * 3 / 5);
-                    let is_distinct_row = (sub_b.y >= b.y + b.h / 3) || (sub_b.y + sub_b.h <= b.y + b.h * 2 / 3);
-                    *sub_score >= 0.35
-                        && (is_distinct_col || is_distinct_row)
-                        && sub_b.x >= b.x - 20
-                        && sub_b.y >= b.y - 20
-                        && (sub_b.x + sub_b.w) <= (b.x + b.w + 20)
-                        && (sub_b.y + sub_b.h) <= (b.y + b.h + 20)
-                        && (sub_b.w * sub_b.h) < (b.w * b.h * 9 / 10)
-                }).count()
-            } else {
-                0
-            };
-            if matching_subboxes_count >= 2 {
+            let is_composite = inside_any_bubble
+                && check_composite_subboxes(b, fusion_res.text_bubbles.iter().map(|(sb, sc)| (sb, *sc)), true);
+            if is_composite {
                 continue;
             }
             // IF THIS IS A HORIZONTAL SINGLE-LINE SUB-BOX FRAGMENT COMPLETELY ENCLOSED INSIDE A LONGER SINGLE-LINE BOX ON THE SAME ROW, SKIP THE FRAGMENT
@@ -199,22 +245,11 @@ pub fn analyze_image_with_fusion_timed(
 
             // IF THIS IS A PARTIAL VERTICAL SUB-BOX INSIDE A TALLER MULTI-LINE CONTAINER ON THE SAME COLUMN (WITHOUT MULTI-COLUMN SPLITS), SKIP THE PARTIAL SUB-BOX
             let is_vertical_subbox_redundancy = fusion_res.text_bubbles.iter().any(|(parent_b, parent_score)| {
-                let parent_is_composite = fusion_res.text_bubbles.iter().filter(|(sub_b, sub_score)| {
-                    let is_distinct_col = (sub_b.x >= parent_b.x + parent_b.w * 2 / 5) || (sub_b.x + sub_b.w <= parent_b.x + parent_b.w * 3 / 5);
-                    let is_distinct_row = (sub_b.y >= parent_b.y + parent_b.h / 3) || (sub_b.y + sub_b.h <= parent_b.y + parent_b.h * 2 / 3);
-                    let is_parent_bubble = fusion_res.bubbles.iter().any(|pb| {
-                        let ix = (pb.x + pb.w).min(parent_b.x + parent_b.w) - pb.x.max(parent_b.x);
-                        let iy = (pb.y + pb.h).min(parent_b.y + parent_b.h) - pb.y.max(parent_b.y);
-                        ix > 0 && iy > 0 && (ix * iy) as f32 / (parent_b.w * parent_b.h).max(1) as f32 >= 0.50
-                    });
-                    let is_bubble_split = is_parent_bubble && *sub_score >= 0.35 && (is_distinct_col || is_distinct_row);
-                    (is_bubble_split || (*sub_score >= 0.40 && (is_distinct_col || is_distinct_row)))
-                        && sub_b.x >= parent_b.x - 20
-                        && sub_b.y >= parent_b.y - 20
-                        && (sub_b.x + sub_b.w) <= (parent_b.x + parent_b.w + 20)
-                        && (sub_b.y + sub_b.h) <= (parent_b.y + parent_b.h + 20)
-                        && (sub_b.w * sub_b.h) < (parent_b.w * parent_b.h * 9 / 10)
-                }).count() >= 2;
+                let parent_is_composite = check_composite_subboxes(
+                    parent_b,
+                    fusion_res.text_bubbles.iter().map(|(sb, sc)| (sb, *sc)),
+                    true,
+                );
 
                 let is_distinct_side_column = (parent_b.w as f32) >= b.w as f32 * 1.4 && ((b.x + b.w <= parent_b.x + parent_b.w * 3 / 5) || (b.x >= parent_b.x + parent_b.w * 2 / 5));
 
@@ -231,16 +266,11 @@ pub fn analyze_image_with_fusion_timed(
             // IF THIS IS A REDUNDANT PARTIAL ROW/SUB-CONTAINER (H <= 100) COVERED BY A TALLER NARRATION/BUBBLE CONTAINER
             let is_shorter_overlap_redundancy = (b.h <= 100)
                 && fusion_res.text_bubbles.iter().any(|(parent_b, parent_score)| {
-                    let parent_is_composite = fusion_res.text_bubbles.iter().filter(|(sub_b, sub_score)| {
-                        let is_distinct_col = (sub_b.x >= parent_b.x + parent_b.w / 2) || (sub_b.x + sub_b.w <= parent_b.x + parent_b.w / 2);
-                        let is_distinct_row = (sub_b.y >= parent_b.y + parent_b.h / 3) || (sub_b.y + sub_b.h <= parent_b.y + parent_b.h * 2 / 3);
-                        (*sub_score >= 0.25 || (*sub_score >= 0.45 && (is_distinct_col || is_distinct_row)))
-                            && sub_b.x >= parent_b.x - 20
-                            && sub_b.y >= parent_b.y - 20
-                            && (sub_b.x + sub_b.w) <= (parent_b.x + parent_b.w + 20)
-                            && (sub_b.y + sub_b.h) <= (parent_b.y + parent_b.h + 20)
-                            && (sub_b.w * sub_b.h) < (parent_b.w * parent_b.h * 9 / 10)
-                    }).count() >= 2;
+                    let parent_is_composite = check_composite_subboxes(
+                        parent_b,
+                        fusion_res.text_bubbles.iter().map(|(sb, sc)| (sb, *sc)),
+                        true,
+                    );
 
                     !parent_is_composite
                         && parent_b != b
@@ -361,7 +391,10 @@ pub fn analyze_image_with_fusion_timed(
                     ix > 0.0 && iy > 0.0 && (ix * iy) / (bw * bh).max(1.0) >= 0.50
                 });
                 let leaks_outside_bubble = if let Some(pb) = parent_bubble {
-                    (ly + lh) as f32 > (pb.y + pb.h + 15) as f32 || (ly as f32) < (pb.y - 15) as f32
+                    (ly + lh) as f32 > (pb.y + pb.h + 15) as f32
+                        || (ly as f32) < (pb.y - 15) as f32
+                        || (lx + lw) as f32 > (pb.x + pb.w + 15) as f32
+                        || (lx as f32) < (pb.x - 15) as f32
                 } else {
                     false
                 };
@@ -437,8 +470,15 @@ pub fn analyze_image_with_fusion_timed(
                             continue;
                         }
                         // IF DETECTOR BOX IS A PARTIAL SINGLE-LINE SLICE AND RAPID OCR DETECTED A LONGER SENTENCE ON THE SAME ROW
-                        let is_horiz_single_line = (bh <= 45.0 || (lh as f32) <= 45.0) && iy >= 0.40 * bh.min(lh as f32) && bh <= (lh as f32 * 1.6) && (lw as f32 >= bw * 1.05 || ix >= 0.25 * bw.min(lw as f32));
-                        let is_vert_single_line = ix >= 0.40 * bw.min(lw as f32) && bw <= (lw as f32 * 1.6) && (lh as f32 >= bh * 1.05 || iy >= 0.25 * bh.min(lh as f32));
+                        let is_horiz_single_line = !leaks_outside_bubble
+                            && (bh <= 45.0 || (lh as f32) <= 45.0)
+                            && iy >= 0.40 * bh.min(lh as f32)
+                            && bh <= (lh as f32 * 1.6)
+                            && (lw as f32 >= bw * 1.05 || ix >= 0.25 * bw.min(lw as f32));
+                        let is_vert_single_line = !leaks_outside_bubble
+                            && ix >= 0.40 * bw.min(lw as f32)
+                            && bw <= (lw as f32 * 1.6)
+                            && (lh as f32 >= bh * 1.05 || iy >= 0.25 * bh.min(lh as f32));
                         // IF DETECTOR BOX COVERS MULTI-LINE TEXT BUT MISSES THE BOTTOM-MOST LINE OR TOP-MOST EXTENSION
                         // GUARD: Do not expand into trailing pure-Latin OCR noise lines (e.g. clothing pattern HOSPITAL)
                         // when the source language is non-Latin (Korean/CJK) and the line has no native script.
@@ -461,10 +501,19 @@ pub fn analyze_image_with_fusion_timed(
                             // GUARD: Do not expand a compact dialogue detector box if the line is slanted free-text or distant crowd reaction
                             let is_slanted_line = crate::ml::geometry::calculate_box_angle_i32(&line.polygon).abs() >= 8.0;
                             if !is_slanted_line {
-                                let union_x = bx.min(lx as f32);
-                                let union_y = by.min(ly as f32);
-                                let union_w = (bx + bw).max((lx + lw) as f32) - union_x;
-                                let union_h = (by + bh).max((ly + lh) as f32) - union_y;
+                                let (union_x, union_y, union_w, union_h) = if let Some(pb) = parent_bubble {
+                                    let ux = bx.min(lx as f32).max((pb.x - 5) as f32);
+                                    let uy = by.min(ly as f32).max((pb.y - 5) as f32);
+                                    let mx = ((bx + bw).max((lx + lw) as f32)).min((pb.x + pb.w + 5) as f32);
+                                    let my = ((by + bh).max((ly + lh) as f32)).min((pb.y + pb.h + 5) as f32);
+                                    (ux, uy, (mx - ux).max(1.0), (my - uy).max(1.0))
+                                } else {
+                                    let ux = bx.min(lx as f32);
+                                    let uy = by.min(ly as f32);
+                                    let uw = (bx + bw).max((lx + lw) as f32) - ux;
+                                    let uh = (by + bh).max((ly + lh) as f32) - uy;
+                                    (ux, uy, uw, uh)
+                                };
                                 *cb = vec![
                                     [union_x, union_y],
                                     [union_x + union_w, union_y],

@@ -14,7 +14,7 @@ pub static CHINESE_RE: LazyLock<Regex> = LazyLock::new(|| {
 
 pub static WATERMARK_RE: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(
-        r"(?i)(\.com|\.net|\.org|\.cn|\.cc|\.xyz|\.top|\.me|\.tv|\.app|http|discord|scanlat|bilibili|速漫库|速漫|漫库|qumanku|quman|包子|baozimh|baozi|colamanga|colamanhua|colam|acloudmerge|acloud|loudmer|udmer|merd|oamanhua|merge|cloud|manga|manhua|comic|yumanhua|mangabox|comick|集云数据|集云|儿云数据|米古|咪咕|migu|米古动漫|腾讯[动漫慢机动初]*|腾[动漫慢机动初]{1,2}|阅文[集团]*|快[看刮](?:[漫慢]画|动漫|app|独家|首发)|微信|公众号|qq群|企鹅群|群号|严禁转载|独家(?:首发|连载|授权|发布|提供)|扫图|录入|修图|嵌字|翻译[:：]|翻译组|汉化组|免费漫画|最新免费|漫画网|看漫画网|首发|独家首发|漫客[栈拌祥]?|漫[客喜][栈拌祥]?|mkzhan|nga\.com|^[祥拌]$|澳[祥拌]?|最快最稳|广告最少|观看，最快)"
+        r"(?i)(\.com|\.net|\.org|\.cn|\.cc|\.xyz|\.top|\.me|\.tv|\.app|http|discord|scanlat|bilibili|速漫库|速漫|漫库|qumanku|quman|包子|baozimh|baozi|colamanga|colamanhua|colam|acloudmerge|acloud|loudmer|udmer|merd|oamanhua|merge|cloud|manga|manhua|comic|yumanhua|mangabox|comick|集云数据|集云|儿云数据|米古|咪咕|migu|米古动漫|[腾专博传]讯[动漫慢机动初]*|腾[动漫慢机动初]{1,2}|阅文[集团]*|快[看刮](?:[漫慢]画|动漫|app|独家|首发)|微信|公众号|qq群|企鹅群|群号|严禁转载|独家(?:首发|连载|授权|发布|提供)|扫图|录入|修图|嵌字|翻译[:：]|翻译组|汉化组|免费漫画|最新免费|漫画网|看漫画网|首发|独家首发|漫客[栈拌祥]?|漫[客喜][栈拌祥]?|mkzhan|nga\.com|^[祥拌]$|澳[祥拌]?|最快最稳|广告最少|观看[，, ]?最)"
     ).unwrap()
 });
 
@@ -533,6 +533,47 @@ pub fn strip_trailing_watermark_debris(line_text: &str, source_lang: Option<&str
         }
     }
     (line_text.to_string(), 1.0)
+}
+
+/// STRIP LEADING NON-NATIVE SCANLATOR / SITE WATERMARK FRAGMENTS ATTACHED TO NATIVE LINES
+pub fn strip_leading_watermark_debris(line_text: &str, source_lang: Option<&str>) -> (String, f32) {
+    let t = line_text.trim();
+    if t.is_empty() || !crate::ml::detect::is_non_latin_source(source_lang) {
+        return (line_text.to_string(), 0.0);
+    }
+    let native_count = t.chars().filter(|c| crate::ml::detect::has_native_script_for_lang(&c.to_string(), source_lang)).count();
+    if native_count == 0 {
+        return (line_text.to_string(), 0.0);
+    }
+
+    let chars: Vec<char> = t.chars().collect();
+    let total_chars = chars.len();
+    if let Some(idx) = chars.iter().position(|&c| crate::ml::detect::has_native_script_for_lang(&c.to_string(), source_lang) || matches!(c, '“' | '‘' | '「' | '『' | '（' | '(')) {
+        if idx > 0 {
+            let prefix: String = chars[..idx].iter().collect();
+            let prefix_trimmed = prefix.trim_end_matches(|c| matches!(c, '·' | '.' | '_' | '-' | '|' | ' ' | '/' | '\\' | ':')).trim();
+            let lower = prefix_trimmed.to_lowercase();
+            let is_domain_or_tag = lower.contains(".com")
+                || lower.contains(".net")
+                || lower.contains(".org")
+                || lower.contains(".cn")
+                || lower.contains(".xyz")
+                || lower.contains("manga")
+                || lower.contains("scan")
+                || lower.contains("http")
+                || lower.contains("www");
+            let is_all_latin = !prefix_trimmed.is_empty() && prefix_trimmed.chars().all(|c| c.is_ascii_alphanumeric() || c.is_ascii_punctuation());
+            let is_substantial_watermark = is_domain_or_tag
+                || (is_all_latin && prefix_trimmed.chars().count() >= 5)
+                || crate::ml::detect::is_watermark_line(prefix_trimmed);
+            if is_substantial_watermark {
+                let clean_suffix: String = chars[idx..].iter().collect();
+                let start_offset_ratio = idx as f32 / total_chars as f32;
+                return (clean_suffix, start_offset_ratio);
+            }
+        }
+    }
+    (line_text.to_string(), 0.0)
 }
 
 /// CHECK IF A TEXT STRING CONTAINS PUBLICATION CREDIT / METADATA MARKERS

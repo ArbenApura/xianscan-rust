@@ -302,7 +302,7 @@ pub fn cluster_lines_into_utterances<'a>(
             let gap_threshold = if is_slanted_monologue {
                 120.0
             } else if ends_with_punct {
-                (min_line_h * 0.30).max(4.0)
+                (min_line_h * 0.70).max(16.0)
             } else {
                 (min_line_h * 1.75).max(35.0)
             };
@@ -335,7 +335,7 @@ pub fn cluster_lines_into_utterances<'a>(
                 false
             };
 
-            let should_split = is_substantial_gap || is_ellipsis_split || is_multi_lobe_split || (ends_with_punct && vert_gap >= (min_line_h * 0.30).max(4.0)) || is_caption_to_title || is_title_to_credits || is_repeated_bracketed_tag;
+            let should_split = is_substantial_gap || is_ellipsis_split || is_multi_lobe_split || (ends_with_punct && vert_gap >= (min_line_h * 0.70).max(16.0)) || is_caption_to_title || is_title_to_credits || is_repeated_bracketed_tag;
 
 
             if should_split && !current_cluster.is_empty() {

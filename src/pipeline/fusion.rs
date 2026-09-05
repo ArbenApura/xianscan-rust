@@ -159,18 +159,24 @@ pub fn fuse_detections(
     let (res_opt, detector_time_ms) = det_result?;
     let (mut rapid_lines, ocr_fullpage_time_ms) = ocr_result;
 
-    // STRIP TRAILING NON-NATIVE SCANLATOR / WATERMARK FRAGMENTS ATTACHED TO NATIVE OCR LINES
+    // STRIP LEADING AND TRAILING NON-NATIVE SCANLATOR / WATERMARK FRAGMENTS ATTACHED TO NATIVE OCR LINES
     for line in &mut rapid_lines {
-        let (cleaned_text, keep_ratio) = crate::ml::detect::strip_trailing_watermark_debris(&line.text, source_lang);
-        if keep_ratio < 0.99 && keep_ratio > 0.10 {
-            line.text = cleaned_text;
+        let (lead_cleaned, start_ratio) = crate::ml::detect::strip_leading_watermark_debris(&line.text, source_lang);
+        let (trail_cleaned, keep_ratio) = crate::ml::detect::strip_trailing_watermark_debris(&lead_cleaned, source_lang);
+        let has_change = start_ratio > 0.01 || keep_ratio < 0.99;
+        if has_change && keep_ratio > 0.10 {
+            line.text = trail_cleaned;
             if line.polygon.len() == 4 {
                 let p0x = line.polygon[0][0] as f32;
                 let p1x = line.polygon[1][0] as f32;
                 let p2x = line.polygon[2][0] as f32;
                 let p3x = line.polygon[3][0] as f32;
-                line.polygon[1][0] = (p0x + (p1x - p0x) * keep_ratio).round() as i32;
-                line.polygon[2][0] = (p3x + (p2x - p3x) * keep_ratio).round() as i32;
+                let orig_w_top = p1x - p0x;
+                let orig_w_bot = p2x - p3x;
+                line.polygon[0][0] = (p0x + orig_w_top * start_ratio).round() as i32;
+                line.polygon[1][0] = (p0x + orig_w_top * (start_ratio + (1.0 - start_ratio) * keep_ratio)).round() as i32;
+                line.polygon[2][0] = (p3x + orig_w_bot * (start_ratio + (1.0 - start_ratio) * keep_ratio)).round() as i32;
+                line.polygon[3][0] = (p3x + orig_w_bot * start_ratio).round() as i32;
             }
         }
     }
@@ -239,30 +245,7 @@ pub fn fuse_detections(
                 Some((min_y, max_y)) => Some((min_y.min(y1), max_y.max(y2))),
             }).map(|(min_y, max_y)| max_y - min_y).unwrap_or(0);
 
-            let mut internal_rapid_intervals = rapid_lines.iter().filter_map(|rl| {
-                let (rx, ry, rw, rh) = polygon_bounds(&rl.polygon);
-                let rc_x = rx + rw / 2;
-                let rc_y = ry + rh / 2;
-                let center_in = rc_x >= cb_x && rc_x <= cb_x + cb_w && rc_y >= cb_y && rc_y <= cb_y + cb_h;
-                let iou = box_iou_pts(cb, &rl.polygon);
-                if (center_in || iou >= 0.20) && rl.score >= 0.72 {
-                    Some((ry, ry + rh))
-                } else {
-                    None
-                }
-            }).collect::<Vec<_>>();
-            internal_rapid_intervals.sort_by_key(|k| k.0);
-            let mut has_internal_gap = false;
-            for pair in internal_rapid_intervals.windows(2) {
-                let gap = pair[1].0 - pair[0].1;
-                let min_h = (pair[0].1 - pair[0].0).min(pair[1].1 - pair[1].0);
-                if gap >= (min_h * 11 / 10).max(25) {
-                    has_internal_gap = true;
-                    break;
-                }
-            }
-
-            if is_cb_multiline && !has_internal_gap && (internal_rapid_lines_count >= 3 || (internal_rapid_lines_count >= 2 && internal_rapid_span_h >= (cb_h * 3 / 4))) {
+            if is_cb_multiline && (internal_rapid_lines_count >= 3 || (internal_rapid_lines_count >= 2 && internal_rapid_span_h >= (cb_h * 3 / 4))) {
                 ocr_det_matched[idx] = true;
                 continue;
             }
@@ -321,7 +304,10 @@ pub fn fuse_detections(
                                 let rl_chars = rl.text.chars().filter(|c| !c.is_whitespace()).count();
                                 let clean_cjk = clean_c.chars().filter(|c| crate::ml::detect::has_cjk_characters(&c.to_string())).count();
                                 let rl_cjk = rl.text.chars().filter(|c| crate::ml::detect::has_cjk_characters(&c.to_string())).count();
-                                let is_excessive_multiline_bleed = !is_multiline_cb && !is_rl_vert && clean_c.contains('\n') && rl.score >= 0.70;
+                                let is_excessive_multiline_bleed = (!is_multiline_cb || internal_rapid_lines_count >= 2 || !rl.text.contains('\n'))
+                                    && !is_rl_vert
+                                    && clean_c.contains('\n')
+                                    && rl.score >= 0.70;
                                 // DISCONNECTED CROP ROW GUARD: WHEN A REFINEMENT CROP RECOGNIZES MULTIPLE ROWS
                                 // WHOSE INTERNAL GAPS ARE HUGE RELATIVE TO THE ROWS THEMSELVES, THE CROP SPANS
                                 // DISCONNECTED CONTENT ZONES (E.G. A GIANT BRUSH SFX GLYPH FUSED WITH AN ADJACENT
@@ -343,8 +329,8 @@ pub fn fuse_detections(
                                     let mut disconnected = false;
                                     for pair in row_bands.windows(2) {
                                         let gap = pair[1].0 - pair[0].1;
-                                        let max_row_h = (pair[0].1 - pair[0].0).max(pair[1].1 - pair[1].0);
-                                        if gap >= (max_row_h.max(1) * 6 / 5) {
+                                        let min_row_h = (pair[0].1 - pair[0].0).min(pair[1].1 - pair[1].0);
+                                        if gap >= (min_row_h.max(1) * 3 / 4).max(25) {
                                             disconnected = true;
                                             break;
                                         }
@@ -382,10 +368,12 @@ pub fn fuse_detections(
                                     disconnected
                                 };
                                 let is_better = !is_excessive_multiline_bleed && !is_disconnected_crop_rows && (
-                                    clean_chars > rl_chars
-                                        || clean_cjk > rl_cjk
-                                        || (clean_c.contains('…') && !rl.text.contains('…'))
-                                        || (clean_chars == rl_chars && line_res.score > rl.score + 0.05)
+                                    (!clean_c.contains('\n') || rl.text.contains('\n')) && (
+                                        clean_chars > rl_chars
+                                            || clean_cjk > rl_cjk
+                                            || (clean_c.contains('…') && !rl.text.contains('…'))
+                                            || (clean_chars == rl_chars && line_res.score > rl.score + 0.05)
+                                    )
                                 );
                                 if is_better {
                                     let rl_orig_score = rl.score;

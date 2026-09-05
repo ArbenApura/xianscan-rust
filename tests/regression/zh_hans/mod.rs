@@ -65,5 +65,11 @@ mod page_chen_fan_jade_gourd_urban_cultivator_credits;
 mod page_auction_magic_artifact_credits;
 mod page_tang_yuanqing_kneeling_credits;
 mod page_urban_cultivator_divine_soul_watermark;
+mod page_six_shrines_spiky_bubble_split;
+mod page_ise_grand_shrine_self_defense_split;
+mod page_sun_moon_wheel_duplicate_line;
+mod page_sword_saint_breakthrough_divine_realm_split;
+mod page_qi_wangsun_friend_stacked_bubble_merge;
+mod page_master_hu_shunshi_mid_sentence_split;
 
 

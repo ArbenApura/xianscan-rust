@@ -37,21 +37,27 @@ pub fn build_regions(
     let typeset_pct = typeset_padding_pct.unwrap_or(0.00);
     let mut regions: Vec<Region> = Vec::new();
 
-    // CLEAN TRAILING WATERMARK DEBRIS AND ADJUST LINE POLYGONS PROPORTIONALLY
+    // CLEAN LEADING AND TRAILING WATERMARK DEBRIS AND ADJUST LINE POLYGONS PROPORTIONALLY
     let cleaned_split_lines: Vec<OcrLine> = split_lines
         .iter()
         .map(|l| {
             let mut line = l.clone();
-            let (cleaned_text, keep_ratio) = crate::ml::detect::strip_trailing_watermark_debris(&line.text, source_lang);
-            if keep_ratio < 0.99 && keep_ratio > 0.10 {
-                line.text = cleaned_text;
+            let (lead_cleaned, start_ratio) = crate::ml::detect::strip_leading_watermark_debris(&line.text, source_lang);
+            let (trail_cleaned, keep_ratio) = crate::ml::detect::strip_trailing_watermark_debris(&lead_cleaned, source_lang);
+            let has_change = start_ratio > 0.01 || keep_ratio < 0.99;
+            if has_change && keep_ratio > 0.10 {
+                line.text = trail_cleaned;
                 if line.polygon.len() == 4 {
                     let p0x = line.polygon[0][0] as f32;
                     let p1x = line.polygon[1][0] as f32;
                     let p2x = line.polygon[2][0] as f32;
                     let p3x = line.polygon[3][0] as f32;
-                    line.polygon[1][0] = (p0x + (p1x - p0x) * keep_ratio).round() as i32;
-                    line.polygon[2][0] = (p3x + (p2x - p3x) * keep_ratio).round() as i32;
+                    let orig_w_top = p1x - p0x;
+                    let orig_w_bot = p2x - p3x;
+                    line.polygon[0][0] = (p0x + orig_w_top * start_ratio).round() as i32;
+                    line.polygon[1][0] = (p0x + orig_w_top * (start_ratio + (1.0 - start_ratio) * keep_ratio)).round() as i32;
+                    line.polygon[2][0] = (p3x + orig_w_bot * (start_ratio + (1.0 - start_ratio) * keep_ratio)).round() as i32;
+                    line.polygon[3][0] = (p3x + orig_w_bot * start_ratio).round() as i32;
                 }
             }
             line
@@ -353,10 +359,13 @@ pub fn build_regions(
                     let clean_o = existing.text.trim();
                     let (ox, oy, ow, oh) = polygon_bounds(&existing.polygon);
                     let iou = box_iou_pts(&m.polygon, &existing.polygon);
-                    let is_exact = clean_m == clean_o;
                     let norm_m: String = clean_m.chars().filter(|c| !c.is_whitespace()).collect();
                     let norm_o: String = clean_o.chars().filter(|c| !c.is_whitespace()).collect();
-                    let is_sub = norm_o.contains(&norm_m) && norm_o.chars().count() > norm_m.chars().count();
+                    let pure_m: String = norm_m.chars().filter(|c| !c.is_ascii_punctuation() && !matches!(*c, '…' | '·' | '—' | '～' | '。' | '，' | '、' | '！' | '？' | '!' | '?' | ':' | '：' | ';' | '；' | '"' | '\'' | '“' | '”' | '‘' | '’')).collect();
+                    let pure_o: String = norm_o.chars().filter(|c| !c.is_ascii_punctuation() && !matches!(*c, '…' | '·' | '—' | '～' | '。' | '，' | '、' | '！' | '？' | '!' | '?' | ':' | '：' | ';' | '；' | '"' | '\'' | '“' | '”' | '‘' | '’')).collect();
+                    let is_exact = clean_m == clean_o || (!pure_m.is_empty() && pure_m == pure_o);
+                    let is_sub = (norm_o.contains(&norm_m) && norm_o.chars().count() > norm_m.chars().count())
+                        || (!pure_m.is_empty() && pure_o.contains(&pure_m) && pure_o.chars().count() > pure_m.chars().count());
                     let overlap_x = (mx + mw).min(ox + ow) - mx.max(ox);
                     let overlap_y = (my + mh).min(oy + oh) - my.max(oy);
                     let overlap_area = overlap_x.max(0) * overlap_y.max(0);
@@ -411,7 +420,11 @@ pub fn build_regions(
                         let iou = box_iou_pts(&m.polygon, &existing.polygon);
                         let norm_m: String = clean_m.chars().filter(|c| !c.is_whitespace()).collect();
                         let norm_o: String = clean_o.chars().filter(|c| !c.is_whitespace()).collect();
-                        let is_existing_sub = norm_m.contains(&norm_o) && norm_m.chars().count() > norm_o.chars().count();
+                        let pure_m: String = norm_m.chars().filter(|c| !c.is_ascii_punctuation() && !matches!(*c, '…' | '·' | '—' | '～' | '。' | '，' | '、' | '！' | '？' | '!' | '?' | ':' | '：' | ';' | '；' | '"' | '\'' | '“' | '”' | '‘' | '’')).collect();
+                        let pure_o: String = norm_o.chars().filter(|c| !c.is_ascii_punctuation() && !matches!(*c, '…' | '·' | '—' | '～' | '。' | '，' | '、' | '！' | '？' | '!' | '?' | ':' | '：' | ';' | '；' | '"' | '\'' | '“' | '”' | '‘' | '’')).collect();
+                        let is_existing_exact = clean_m == clean_o || (!pure_m.is_empty() && pure_m == pure_o);
+                        let is_existing_sub = (norm_m.contains(&norm_o) && norm_m.chars().count() > norm_o.chars().count())
+                            || (!pure_o.is_empty() && pure_m.contains(&pure_o) && pure_m.chars().count() > pure_o.chars().count());
                         let overlap_x = (mx + mw).min(ox + ow) - mx.max(ox);
                         let overlap_y = (my + mh).min(oy + oh) - my.max(oy);
                         let overlap_area = overlap_x.max(0) * overlap_y.max(0);
@@ -428,7 +441,6 @@ pub fn build_regions(
                             false
                         };
                         let vert_col_sub_overlap = vert_col_overlap && is_same_column;
-                        let is_existing_exact = clean_m == clean_o;
 
                         let is_existing_suffix_noise = !is_container_vert
                             && clean_o.chars().count() == 1
