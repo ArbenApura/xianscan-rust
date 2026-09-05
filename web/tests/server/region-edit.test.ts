@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
-import { getTestDb, resetDb, seedBook, seedChapter, seedPage, seedRegion } from '../helpers/db';
+import { getTestDb, resetDb, seedBook, seedChapter, seedPage, seedRegion, seedGlossary } from '../helpers/db';
 import { pages, regions } from '$lib/server/db/schema';
 import { eq } from 'drizzle-orm';
 import { PATCH } from '../../src/routes/api/pages/[id]/regions/[regionId]/+server';
@@ -50,13 +50,13 @@ describe('Page Region Translation Edit & Retypeset API', () => {
 			textSource: '你好世界',
 		});
 
-		// Seed initial AI translation
+		// SEED INITIAL AI TRANSLATION
 		db.update(regions)
 			.set({ textTarget: 'Hello World', originalTarget: 'Hello World', status: 'translated' })
 			.where(eq(regions.id, region.id))
 			.run();
 
-		// Call PATCH endpoint with manual edit
+		// CALL PATCH ENDPOINT WITH MANUAL EDIT
 		const request = new Request('http://localhost/api/pages/1/regions/1', {
 			method: 'PATCH',
 			headers: { 'Content-Type': 'application/json' },
@@ -77,7 +77,7 @@ describe('Page Region Translation Edit & Retypeset API', () => {
 		expect(json.region.textTarget).toBe('Greetings, Planet Earth!');
 		expect(json.region.originalTarget).toBe('Hello World');
 
-		// Verify DB state
+		// VERIFY DB STATE
 		const [dbRegion] = db.select().from(regions).where(eq(regions.id, region.id)).all();
 		expect(dbRegion.textTarget).toBe('Greetings, Planet Earth!');
 		expect(dbRegion.originalTarget).toBe('Hello World');
@@ -94,13 +94,13 @@ describe('Page Region Translation Edit & Retypeset API', () => {
 			textSource: '你好世界',
 		});
 
-		// Seed with manual edit and originalTarget
+		// SEED WITH MANUAL EDIT AND originalTarget
 		db.update(regions)
 			.set({ textTarget: 'Manual Overridden Text', originalTarget: 'Hello World', status: 'translated' })
 			.where(eq(regions.id, region.id))
 			.run();
 
-		// Call PATCH endpoint with reset_ai
+		// CALL PATCH ENDPOINT WITH reset_ai
 		const request = new Request('http://localhost/api/pages/1/regions/1', {
 			method: 'PATCH',
 			headers: { 'Content-Type': 'application/json' },
@@ -119,7 +119,7 @@ describe('Page Region Translation Edit & Retypeset API', () => {
 		expect(json.region.textTarget).toBe('Hello World');
 		expect(json.region.originalTarget).toBe('Hello World');
 
-		// Verify in DB
+		// VERIFY IN DB
 		const [dbRegion] = db.select().from(regions).where(eq(regions.id, region.id)).all();
 		expect(dbRegion.textTarget).toBe('Hello World');
 	});
@@ -174,6 +174,109 @@ describe('Page Region Translation Edit & Retypeset API', () => {
 			expect.objectContaining({
 				instruction: 'Make it sound dramatic',
 				kind: 'general',
+			}),
+		);
+	});
+
+	it('supports AI re-roll with regionId, passing sliding dialogue context and glossary matching', async () => {
+		const db = getTestDb();
+		const book = seedBook(db, {
+			id: 'book-ctx',
+			sourceLang: 'zh',
+			targetLang: 'en',
+			customPrompt: 'Use martial arts terminology.',
+		});
+		const chapter = seedChapter(db, { bookId: book.id, seq: 0 });
+
+		// PAGE 0 (PREVIOUS PAGE IN CHAPTER FOR SLIDING CONTEXT)
+		const page0 = seedPage(db, { chapterId: chapter.id, seq: 0 });
+		seedRegion(db, {
+			pageId: page0.id,
+			seq: 0,
+			textSource: '阁下是谁？',
+			textTarget: 'Who are you?',
+		});
+
+		// PAGE 1 (CURRENT PAGE)
+		const page1 = seedPage(db, { chapterId: chapter.id, seq: 1 });
+		seedRegion(db, {
+			pageId: page1.id,
+			seq: 0,
+			textSource: '晚辈乃华山弟子。',
+			textTarget: 'This junior is a Mount Hua disciple.',
+		});
+		const r1 = seedRegion(db, {
+			pageId: page1.id,
+			seq: 1,
+			textSource: '拜见风掌门！',
+		});
+		seedRegion(db, {
+			pageId: page1.id,
+			seq: 2,
+			textSource: '免礼，请起。',
+			textTarget: 'No need for ceremony, please rise.',
+		});
+
+		// SEED GLOSSARY OVERRIDE FOR BOOK
+		seedGlossary(db, {
+			scope: 'book',
+			bookId: book.id,
+			sourceLang: 'zh',
+			targetLang: 'en',
+			source: '风掌门',
+			target: 'Sect Leader Feng',
+			category: 'character',
+		});
+
+		const request = new Request('http://localhost/api/translate-text', {
+			method: 'POST',
+			headers: { 'Content-Type': 'application/json' },
+			body: JSON.stringify({
+				text: '拜见风掌门！',
+				kind: 'general',
+				pageId: page1.id,
+				regionId: r1.id,
+				instruction: 'Sound respectful',
+			}),
+		});
+
+		const response = await translateTextPOST({ request } as any);
+		expect(response.status).toBe(200);
+		const json = await response.json();
+		expect(json.text).toContain('拜见风掌门！');
+
+		expect(mockTranslateSingleText).toHaveBeenCalledWith(
+			'拜见风掌门！',
+			{ sourceLang: 'zh', targetLang: 'en' },
+			expect.objectContaining({
+				instruction: 'Sound respectful',
+				kind: 'general',
+				customPrompt: 'Use martial arts terminology.',
+				dialogueContext: expect.objectContaining({
+					previousPages: expect.arrayContaining([
+						expect.objectContaining({
+							pageSeq: 0,
+						}),
+					]),
+				}),
+				currentPageContext: expect.objectContaining({
+					before: expect.arrayContaining([
+						expect.objectContaining({
+							textSource: '晚辈乃华山弟子。',
+						}),
+					]),
+					after: expect.arrayContaining([
+						expect.objectContaining({
+							textSource: '免礼，请起。',
+						}),
+					]),
+				}),
+				terms: expect.arrayContaining([
+					expect.objectContaining({
+						source: '风掌门',
+						target: 'Sect Leader Feng',
+					}),
+				]),
 			}),
 		);
 	});

@@ -115,7 +115,14 @@ export function resetDb(): void {
 
 export function seedBook(
 	db: TestDb,
-	input: { id: string; title?: string; sourceLang?: string; targetLang?: string; pinned?: boolean },
+	input: {
+		id: string;
+		title?: string;
+		sourceLang?: string;
+		targetLang?: string;
+		pinned?: boolean;
+		customPrompt?: string;
+	},
 ) {
 	return db
 		.insert(schema.books)
@@ -125,6 +132,7 @@ export function seedBook(
 			sourceLang: input.sourceLang ?? 'zh-Hans',
 			targetLang: input.targetLang ?? 'en',
 			pinned: input.pinned ?? false,
+			customPrompt: input.customPrompt ?? undefined,
 		})
 		.returning()
 		.get();
@@ -167,7 +175,10 @@ export function seedPage(
 		.get();
 }
 
-export function seedRegion(db: TestDb, input: { pageId: number; seq: number; box?: string; textSource?: string }) {
+export function seedRegion(
+	db: TestDb,
+	input: { pageId: number; seq: number; box?: string; textSource?: string; textTarget?: string },
+) {
 	return db
 		.insert(schema.regions)
 		.values({
@@ -175,6 +186,7 @@ export function seedRegion(db: TestDb, input: { pageId: number; seq: number; box
 			seq: input.seq,
 			box: input.box ?? JSON.stringify({ x: 10, y: 10, w: 100, h: 50 }),
 			textSource: input.textSource ?? '',
+			textTarget: input.textTarget ?? undefined,
 		})
 		.returning()
 		.get();

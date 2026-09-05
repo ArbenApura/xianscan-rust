@@ -1104,5 +1104,83 @@ describe('parseExtractedTerms & extractTerms', () => {
 		expect(Array.isArray(parsed)).toBe(true);
 		expect(parsed.length).toBeGreaterThan(0);
 	}, 15000);
+
+	it('incorporates dialogueContext, currentPageContext, terms, and profiles into translateSingleText payload', async () => {
+		let capturedPayload: any = null;
+		const client = {
+			chat: {
+				completions: {
+					create: async (payload: any) => {
+						capturedPayload = payload;
+						return {
+							choices: [{ message: { content: 'Sect Leader Ye!' } }],
+							usage: { prompt_tokens: 50, completion_tokens: 10, total_tokens: 60 },
+						};
+					},
+				},
+			},
+		} as unknown as OpenAI;
+
+		const dialogueContext = {
+			previousPages: [
+				{
+					pageSeq: 0,
+					lines: [
+						{ id: 'r0', sourceText: '师兄，请留步！', translatedText: 'Senior Brother, please wait!' },
+					],
+					isTranslated: true,
+				},
+			],
+		};
+
+		const currentPageContext = {
+			before: [
+				{ textSource: '来者何人？', textTarget: 'Who goes there?', kind: 'dialogue_bubble' },
+			],
+			after: [
+				{ textSource: '休得无礼！', kind: 'dialogue_bubble' },
+			],
+		};
+
+		const terms = [
+			{
+				source: '叶掌门',
+				target: 'Sect Leader Ye',
+				category: 'character' as const,
+				gender: 'masculine' as const,
+			},
+		];
+
+		const res = await translateSingleText('叶掌门，久仰大名！', PAIR, {
+			client,
+			kind: 'general',
+			dialogueContext,
+			currentPageContext,
+			terms,
+			customPrompt: 'Use formal archaic dialogue tone.',
+			instruction: 'Emphasize reverence',
+		});
+
+		expect(res.text).toBe('Sect Leader Ye!');
+		expect(capturedPayload).not.toBeNull();
+
+		const systemMsg = capturedPayload.messages.find((m: any) => m.role === 'system');
+		expect(systemMsg.content).toContain('Chinese Manhua, Wuxia & Xianxia Rules');
+		expect(systemMsg.content).toContain('Use formal archaic dialogue tone.');
+		expect(systemMsg.content).toContain('Special user localization instruction: Emphasize reverence');
+
+		const glossaryMsg = capturedPayload.messages.find(
+			(m: any) => m.role === 'system' && m.content.includes('★叶掌门 = Sect Leader Ye'),
+		);
+		expect(glossaryMsg).toBeTruthy();
+
+		const userMsg = capturedPayload.messages.find((m: any) => m.role === 'user');
+		expect(userMsg.content).toContain('=== DIALOGUE CONTEXT (Previous Pages) ===');
+		expect(userMsg.content).toContain('Senior Brother, please wait!');
+		expect(userMsg.content).toContain('=== CURRENT PAGE DIALOGUE CONTEXT ===');
+		expect(userMsg.content).toContain('Who goes there?');
+		expect(userMsg.content).toContain('休得无礼！');
+		expect(userMsg.content).toContain('叶掌门，久仰大名！');
+	});
 });
 

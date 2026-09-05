@@ -100,6 +100,7 @@
 			kind: 'general' as const,
 			instruction: customInstruction.trim() || undefined,
 			pageId,
+			regionId: region.id,
 		};
 		const validation = validateForm(translateTextSchema, payload);
 		if (!validation.success) {

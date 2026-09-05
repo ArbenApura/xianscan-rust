@@ -58,15 +58,15 @@ describe('EditRegionTranslationModal Component UI', () => {
 			},
 		});
 
-		// 1. Click preset pill "Dramatic"
+		// 1. CLICK PRESET PILL "DRAMATIC"
 		const dramaticBtn = screen.getByText('Dramatic');
 		await fireEvent.click(dramaticBtn);
 
-		// 2. Click "Re-roll with AI"
+		// 2. CLICK "RE-ROLL WITH AI"
 		const rerollBtn = screen.getByText('Re-roll with AI');
 		await fireEvent.click(rerollBtn);
 
-		// 3. Verify fetch called with correct payload conforming to translateTextSchema
+		// 3. VERIFY FETCH CALLED WITH CORRECT PAYLOAD CONFORMING TO translateTextSchema
 		expect(fetchMock).toHaveBeenCalledTimes(1);
 		expect(fetchMock.mock.calls[0][0]).toBe('/api/translate-text');
 		expect(fetchMock.mock.calls[0][1].method).toBe('POST');
@@ -75,9 +75,10 @@ describe('EditRegionTranslationModal Component UI', () => {
 			kind: 'general',
 			instruction: 'Make it sound dramatic and impactful for a comic climax',
 			pageId: 1,
+			regionId: 10,
 		});
 
-		// 4. Verify textarea updated with the re-rolled text
+		// 4. VERIFY TEXTAREA UPDATED WITH THE RE-ROLLED TEXT
 		await tick();
 		const textarea = screen.getByPlaceholderText('Enter translated dialogue to typeset onto the page...') as HTMLTextAreaElement;
 		expect(textarea.value).toBe('Dramatic: Hello World Climax!');
@@ -110,15 +111,15 @@ describe('EditRegionTranslationModal Component UI', () => {
 		const savedHandler = vi.fn();
 		component.$on('saved', savedHandler);
 
-		// 1. Change textarea value
+		// 1. CHANGE TEXTAREA VALUE
 		const textarea = screen.getByPlaceholderText('Enter translated dialogue to typeset onto the page...') as HTMLTextAreaElement;
 		await fireEvent.input(textarea, { target: { value: 'Custom Edited Text' } });
 
-		// 2. Click Save
+		// 2. CLICK SAVE
 		const saveBtn = screen.getByText('Save');
 		await fireEvent.click(saveBtn);
 
-		// 3. Verify PATCH fetch called
+		// 3. VERIFY PATCH FETCH CALLED
 		expect(fetchMock).toHaveBeenCalledTimes(1);
 		expect(fetchMock.mock.calls[0][0]).toBe('/api/pages/1/regions/10');
 		expect(fetchMock.mock.calls[0][1].method).toBe('PATCH');

@@ -6,6 +6,7 @@ export const translateTextSchema = z.object({
 	bookId: z.union([z.number(), z.string()]).optional(),
 	chapterId: z.union([z.number(), z.string()]).optional(),
 	pageId: z.union([z.number(), z.string()]).optional(),
+	regionId: z.union([z.number(), z.string()]).optional(),
 	sourceLang: z.string().optional(),
 	targetLang: z.string().optional(),
 	model: z.string().optional(),

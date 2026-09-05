@@ -15,12 +15,22 @@ export * from './translate/dialogue-tracker';
 export * from './translate/filter';
 export { resolveModel } from './llm';
 
-import { buildMessages, type RegionSource } from './translate/prompts';
+import {
+	buildMessages,
+	getSourceLanguageProfile,
+	getTargetLanguageProfile,
+	glossaryBlock,
+	type RegionSource,
+} from './translate/prompts';
 import { getKnownSfxTranslation } from './translate/sfx';
 import { looksDegenerate, parseTranslations } from './translate/parser';
 import { parseExtractedTerms } from './translate/extraction';
 import { classifyRegionForTranslation, sanitizeOcrSourceText } from './translate/filter';
-import type { DialogueContextWindow } from './translate/dialogue-tracker';
+import {
+	formatDialogueContextBlock,
+	getRegionKindLabel,
+	type DialogueContextWindow,
+} from './translate/dialogue-tracker';
 
 export interface PageTranslationOptions {
 	client?: OpenAI;
@@ -292,6 +302,13 @@ export async function translateSingleText(
 		model?: string;
 		providerId?: string;
 		signal?: AbortSignal;
+		dialogueContext?: DialogueContextWindow | null;
+		currentPageContext?: {
+			before?: Array<{ textSource: string; textTarget?: string | null; kind?: string }>;
+			after?: Array<{ textSource: string; textTarget?: string | null; kind?: string }>;
+		};
+		terms?: TermDraft[];
+		customPrompt?: string | null;
 	} = {},
 ): Promise<{ text: string; usage: TranslationUsage }> {
 	const trimmed = text.trim();
@@ -330,11 +347,94 @@ Rules:
 Rules:
 - Preserve speech nuance, comic tone, exclamations, sound effects, and character voice.
 - Output ONLY the translated text without commentary, quotes, or markdown fences.`;
+
+		const srcProfile = getSourceLanguageProfile(pair.sourceLang, tgtName);
+		if (srcProfile) {
+			systemContent += `\n\n${srcProfile}`;
+		}
+		const tgtProfile = getTargetLanguageProfile(pair.targetLang);
+		if (tgtProfile) {
+			systemContent += `\n\n${tgtProfile}`;
+		}
+		if (opts.customPrompt?.trim()) {
+			systemContent += `\n\n### SPECIAL USER LOCALIZATION DIRECTIVES\n${opts.customPrompt.trim()}`;
+		}
 	}
 
 	if (opts.instruction?.trim()) {
-		systemContent += `\nSpecial user localization instruction: ${opts.instruction.trim()}`;
+		systemContent += `\n\nSpecial user localization instruction: ${opts.instruction.trim()}`;
 	}
+
+	// CONSTRUCT LLM MESSAGES ARRAY
+	const messages: OpenAI.Chat.ChatCompletionMessageParam[] = [
+		{ role: 'system', content: systemContent },
+	];
+
+	// INJECT GLOSSARY RULES IF MATCHED TERMS ARE PROVIDED
+	if (opts.terms && opts.terms.length > 0) {
+		const glossary = glossaryBlock(opts.terms, pair.sourceLang, pair.targetLang);
+		if (glossary) {
+			messages.push({ role: 'system', content: glossary });
+		}
+	}
+
+	// CONSTRUCT USER PROMPT WITH SLIDING CONTEXT AND SIBLING FLOW IF AVAILABLE
+	let userContent = '';
+	const contextBlock = formatDialogueContextBlock(opts.dialogueContext);
+	if (contextBlock) {
+		userContent += `${contextBlock.trim()}\n\n`;
+	}
+
+	if (opts.currentPageContext) {
+		const currentLines: string[] = [];
+		if (opts.currentPageContext.before && opts.currentPageContext.before.length > 0) {
+			const validBefore = opts.currentPageContext.before.filter((r) => r.textSource?.trim());
+			if (validBefore.length > 0) {
+				currentLines.push('Preceding dialogue on this page:');
+				for (const r of validBefore.slice(-8)) {
+					const label = getRegionKindLabel(r.kind);
+					if (r.textTarget?.trim()) {
+						currentLines.push(`  - [${label}] "${r.textSource.trim()}" → "${r.textTarget.trim()}"`);
+					} else {
+						currentLines.push(`  - [${label}] "${r.textSource.trim()}"`);
+					}
+				}
+			}
+		}
+		if (opts.currentPageContext.after && opts.currentPageContext.after.length > 0) {
+			const validAfter = opts.currentPageContext.after.filter((r) => r.textSource?.trim());
+			if (validAfter.length > 0) {
+				currentLines.push('Following dialogue on this page:');
+				for (const r of validAfter.slice(0, 8)) {
+					const label = getRegionKindLabel(r.kind);
+					if (r.textTarget?.trim()) {
+						currentLines.push(`  - [${label}] "${r.textSource.trim()}" → "${r.textTarget.trim()}"`);
+					} else {
+						currentLines.push(`  - [${label}] "${r.textSource.trim()}"`);
+					}
+				}
+			}
+		}
+		if (currentLines.length > 0) {
+			userContent += `=== CURRENT PAGE DIALOGUE CONTEXT ===\n${currentLines.join('\n')}\n\n`;
+		}
+	}
+
+	if (contextBlock || opts.currentPageContext || opts.terms?.length) {
+		let itemLabel = 'speech/dialogue bubble';
+		if (opts.kind === 'chapter') {
+			itemLabel = 'chapter title';
+		} else if (opts.kind === 'title') {
+			itemLabel = 'book title';
+		} else if (opts.kind === 'term') {
+			itemLabel = 'proper noun/term';
+		}
+		userContent += `Translate the following ${itemLabel} into natural ${tgtName} (${pair.targetLang}):\n"${trimmed}"\n\nOutput ONLY the translated text string, no commentary, no markdown fences, no quotes.`;
+	} else {
+		userContent += trimmed;
+	}
+
+	messages.push({ role: 'user', content: userContent });
 
 	const canonical = getCanonicalSettings();
 	const effort = canonical.translationReasoningEffort ?? 'none';
@@ -353,10 +453,7 @@ Rules:
 					const thinkParams = thinkingParam(opts.providerId, model, effort);
 					const payload: any = {
 						model,
-						messages: [
-							{ role: 'system', content: systemContent },
-							{ role: 'user', content: trimmed },
-						],
+						messages,
 						...thinkParams,
 					};
 					if (temperature !== null && temperature !== undefined) {
