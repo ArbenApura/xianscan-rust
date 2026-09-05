@@ -405,35 +405,106 @@
 		}
 	}
 
-	function jumpToReader(chapterId?: number, itemBookId?: string) {
+	async function jumpToReader(chapterId?: number, itemBookId?: string) {
 		const targetId = chapterId || currentChapter?.id || singleJobState?.chapterId;
-		const bookId = itemBookId || currentChapter?.bookId || $batchTracker.bookId || $page.params.id;
+		let bookId =
+			itemBookId ||
+			(targetId ? $batchTracker.queue.find((q) => q.id === targetId)?.bookId : null) ||
+			currentChapter?.bookId ||
+			$batchTracker.bookId ||
+			$page.params.id;
+
+		if (targetId && !bookId) {
+			try {
+				const res = await fetch(`/api/chapters/${targetId}`);
+				if (res.ok) {
+					const data = await res.json();
+					if (data?.chapter?.bookId) {
+						bookId = data.chapter.bookId;
+					}
+				}
+			} catch {}
+		}
+
 		if (targetId && bookId) {
-			goto(`/app/books/${bookId}/chapters/${targetId}/`);
+			expanded = false;
+			await goto(`/app/books/${bookId}/chapters/${targetId}/`);
 		}
 	}
 
-	function navigateToTelemetryPage(targetChapterId: number | undefined | null, targetBookId: string | undefined | null, pageId: number, pageSeq: number) {
-		const chId = targetChapterId || effectiveTelemetryChapter?.id || currentChapter?.id || singleJobState?.chapterId;
-		const bId = targetBookId || effectiveTelemetryChapter?.bookId || currentChapter?.bookId || $batchTracker.bookId || $page.params.id;
+	async function navigateToTelemetryPage(
+		targetChapterId: number | undefined | null,
+		targetBookId: string | undefined | null,
+		pageId: number,
+		pageSeq: number
+	) {
+		const chId =
+			targetChapterId ||
+			telemetrySnapshot?.chapterId ||
+			effectiveTelemetryChapter?.id ||
+			currentChapter?.id ||
+			singleJobState?.chapterId;
 
-		if (!chId || !bId) return;
+		let bId =
+			targetBookId ||
+			effectiveTelemetryChapter?.bookId ||
+			(chId ? $batchTracker.queue.find((q) => q.id === chId)?.bookId : null) ||
+			currentChapter?.bookId ||
+			$batchTracker.bookId ||
+			$page.params.id;
+
+		if (chId && !bId) {
+			try {
+				const res = await fetch(`/api/chapters/${chId}`);
+				if (res.ok) {
+					const data = await res.json();
+					if (data?.chapter?.bookId) {
+						bId = data.chapter.bookId;
+					}
+				}
+			} catch {}
+		}
+
+		if (!chId || !bId) {
+			console.warn('[BatchProgressWidget] Unable to navigate to telemetry page, missing chapter or book ID', { chId, bId, pageId });
+			return;
+		}
+
+		// COLLAPSE HUD DRAWER SO TARGET PAGE IS VISIBLE TO USER
+		expanded = false;
 
 		const currentRouteChapterId = Number($page.params.chapterId);
+		const targetUrl = `/app/books/${bId}/chapters/${chId}/?pageId=${pageId}&seq=${pageSeq}#page-${pageId}`;
+
 		if (currentRouteChapterId === chId) {
-			// ALREADY ON THIS CHAPTER PAGE -> SMOOTH SCROLL DIRECTLY
-			const el = (document.querySelector(`[data-page-id="${pageId}"]`) as HTMLElement | null) ||
-				(document.querySelector(`[data-page-seq="${pageSeq}"]`) as HTMLElement | null);
-			if (el) {
-				el.scrollIntoView({ behavior: 'smooth', block: 'center' });
-				el.classList.add('ring-2', 'ring-[#b23a2e]', 'dark:ring-[#e08a63]');
+			// ALREADY ON THIS CHAPTER PAGE -> UPDATE URL AND SMOOTH SCROLL DIRECTLY
+			await goto(targetUrl, { replaceState: false, noScroll: true, keepFocus: true });
+
+			const tryScroll = () => {
+				const el =
+					(document.querySelector(`[data-page-id="${pageId}"]`) as HTMLElement | null) ||
+					(document.querySelector(`[data-page-seq="${pageSeq}"]`) as HTMLElement | null);
+				if (el) {
+					el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+					el.classList.add('ring-2', 'ring-[#b23a2e]', 'dark:ring-[#e08a63]');
+					setTimeout(() => {
+						el.classList.remove('ring-2', 'ring-[#b23a2e]', 'dark:ring-[#e08a63]');
+					}, 2000);
+					return true;
+				}
+				return false;
+			};
+
+			if (!tryScroll()) {
 				setTimeout(() => {
-					el.classList.remove('ring-2', 'ring-[#b23a2e]', 'dark:ring-[#e08a63]');
-				}, 2000);
+					if (!tryScroll()) {
+						setTimeout(tryScroll, 230);
+					}
+				}, 120);
 			}
 		} else {
 			// NAVIGATE TO THE CHAPTER READER AND SCROLL TO PAGE
-			goto(`/app/books/${bId}/chapters/${chId}/?pageId=${pageId}&seq=${pageSeq}#page-${pageId}`);
+			await goto(targetUrl);
 		}
 	}
 
@@ -1386,7 +1457,13 @@
 															<td class="py-2.5 px-3 font-bold whitespace-nowrap">
 																<button
 																	type="button"
-																	on:click={() => navigateToTelemetryPage(effectiveTelemetryChapter?.id || currentChapter?.id || singleJobState?.chapterId, effectiveTelemetryChapter?.bookId || currentChapter?.bookId || $batchTracker.bookId, p.pageId, p.seq)}
+																	on:click={() =>
+																		navigateToTelemetryPage(
+																			telemetrySnapshot?.chapterId,
+																			null,
+																			p.pageId,
+																			p.seq
+																		)}
 																	class={cn(
 																		'inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md border text-[11px] font-bold transition cursor-pointer select-none',
 																		isRetrying

@@ -473,7 +473,9 @@
 		const targetSeq = params.get('seq');
 
 		if (targetPageId || targetSeq !== null) {
-			setTimeout(() => {
+			let attempts = 0;
+			const tryScroll = () => {
+				attempts++;
 				const el =
 					(targetPageId ? document.querySelector(`[data-page-id="${targetPageId}"]`) : null) ||
 					(targetSeq !== null ? document.querySelector(`[data-page-seq="${targetSeq}"]`) : null);
@@ -483,8 +485,13 @@
 					setTimeout(() => {
 						el.classList.remove('ring-2', 'ring-[#b23a2e]', 'dark:ring-[#e08a63]');
 					}, 2000);
+					return;
 				}
-			}, 200);
+				if (attempts < 5) {
+					setTimeout(tryScroll, attempts * 150);
+				}
+			};
+			setTimeout(tryScroll, 100);
 		}
 	}
 

@@ -217,3 +217,32 @@ fn test_two_stage_pipeline_on_whose_god() {
     let mut inpainter_opt: Option<LamaInpainter> = None;
     run_two_stage_pipeline_on_fixture(fixture_dir, &mut inpainter_opt);
 }
+
+#[test]
+fn test_two_stage_pipeline_on_dating_competition() {
+    let fixture_dir = Path::new("tests/fixtures/private/zh_hans/page_dating_competition_white_inpaint");
+    if !fixture_dir.exists() {
+        return;
+    }
+    let mut inpainter_opt: Option<LamaInpainter> = None;
+    run_two_stage_pipeline_on_fixture(fixture_dir, &mut inpainter_opt);
+
+    // ASSERT CLEANED IMAGE HAS NO DARK PIXELS (LUM < 200) IN BUBBLE 0 LOWER TEXT AREA
+    let cleaned_path = fixture_dir.join("cleaned.webp");
+    assert!(cleaned_path.exists(), "cleaned.webp must exist");
+    let cleaned_img = image::open(&cleaned_path).expect("Failed to open cleaned.webp").to_rgb8();
+    let mut dark_count = 0;
+    for y in 670..710 {
+        for x in 480..700 {
+            let p = cleaned_img.get_pixel(x, y);
+            let lum = (p[0] as u16 + p[1] as u16 + p[2] as u16) / 3;
+            if lum < 200 {
+                dark_count += 1;
+            }
+        }
+    }
+    assert_eq!(dark_count, 0, "Bubble 0 lower text area must have 0 dark pixels after cleaning, but found {}", dark_count);
+}
+
+
+

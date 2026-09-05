@@ -145,21 +145,59 @@ pub fn clean_white_bubble_shrinkwrap(
         if sx >= bx0 as i32 && sx < bx1 as i32 && sy >= by0 as i32 && sy < by1 as i32 {
             let lx = (sx - bx0 as i32) as usize;
             let ly = (sy - by0 as i32) as usize;
-            let idx = ly * cw + lx;
-            if !white_floor[idx] {
-                white_floor[idx] = true;
-                queue.push_back((lx as u32, ly as u32));
+
+            // SEARCH 5x5 WINDOW AROUND SEED FOR THE BEST LIGHT FLOOR STARTING PIXEL
+            let mut best_pt = None;
+            let mut best_score = -1.0f32;
+            for dy in -2i32..=2 {
+                for dx in -2i32..=2 {
+                    let cx = lx as i32 + dx;
+                    let cy = ly as i32 + dy;
+                    if cx >= 0 && cx < cw as i32 && cy >= 0 && cy < ch as i32 {
+                        let gx = bx0 + cx as u32;
+                        let gy = by0 + cy as u32;
+                        let p = img.get_pixel(gx, gy);
+                        let (lum, sat) = pixel_lum_and_sat(p);
+                        if lum >= 210 && sat <= WHITE_BUBBLE_MAX_SAT {
+                            let score = lum as f32 - sat * 2.0;
+                            if score > best_score {
+                                best_score = score;
+                                best_pt = Some((cx as u32, cy as u32));
+                            }
+                        }
+                    }
+                }
+            }
+
+            if let Some((start_x, start_y)) = best_pt {
+                let idx = (start_y as usize) * cw + (start_x as usize);
+                if !white_floor[idx] {
+                    white_floor[idx] = true;
+                    queue.push_back((start_x, start_y));
+                }
+            } else {
+                let idx = ly * cw + lx;
+                if !white_floor[idx] {
+                    white_floor[idx] = true;
+                    queue.push_back((lx as u32, ly as u32));
+                }
             }
         }
     }
 
-    // EXPAND WHITE FLOOR ACROSS ALL LIGHT INTERIOR PIXELS (LUM >= 210)
-    // STOPS DEAD AT THE DARK INK OUTLINE (LUM < 160)
+    // BUBBLE BOX BOUNDS WITHIN THE CROPPED COORDINATE FRAME
+    let b_min_x = (bubble_box.x.clamp(0, page_w as i32) as u32).saturating_sub(bx0) as usize;
+    let b_min_y = (bubble_box.y.clamp(0, page_h as i32) as u32).saturating_sub(by0) as usize;
+    let b_max_x = ((bubble_box.x + bubble_box.w).clamp(0, page_w as i32) as u32).saturating_sub(bx0) as usize;
+    let b_max_y = ((bubble_box.y + bubble_box.h).clamp(0, page_h as i32) as u32).saturating_sub(by0) as usize;
+
+    // EXPAND WHITE FLOOR ACROSS ALL LIGHT INTERIOR PIXELS (LUM >= 210, SAT <= WHITE_BUBBLE_MAX_SAT)
+    // CLAMPED TO BUBBLE BOUNDS TO PREVENT LEAKING THROUGH DISCONTINUOUS BORDER GAPS INTO EXTERIOR GUTTERS
     while let Some((cx, cy)) = queue.pop_front() {
         for (dx, dy) in [(-1i32, 0i32), (1, 0), (0, -1), (0, 1)] {
             let nx = cx as i32 + dx;
             let ny = cy as i32 + dy;
-            if nx >= 0 && nx < cw as i32 && ny >= 0 && ny < ch as i32 {
+            if nx >= b_min_x as i32 && nx < b_max_x.min(cw) as i32 && ny >= b_min_y as i32 && ny < b_max_y.min(ch) as i32 {
                 let unx = nx as usize;
                 let uny = ny as usize;
                 let idx = uny * cw + unx;
@@ -169,9 +207,13 @@ pub fn clean_white_bubble_shrinkwrap(
                     let p = img.get_pixel(gx, gy);
                     let (lum, sat) = pixel_lum_and_sat(p);
 
-                    // INTERIOR FLOOR PIXEL: HIGH LUMINANCE WITH LOW CHROMATIC SATURATION
-                    // STOPS AT DARK STROKE BORDER OR SHADING TEXTURE
-                    if lum >= 210 && sat <= 30.0 {
+                    // INTERIOR FLOOR PIXEL: HIGH LUMINANCE AND MONOCHROME SATURATION MATCHING FILL_COLOR
+                    let dr = (p[0] as i32 - fill_color[0] as i32).abs();
+                    let dg = (p[1] as i32 - fill_color[1] as i32).abs();
+                    let db = (p[2] as i32 - fill_color[2] as i32).abs();
+                    let max_diff = dr.max(dg).max(db);
+
+                    if lum >= 210 && sat <= WHITE_BUBBLE_MAX_SAT && max_diff <= 35 {
                         white_floor[idx] = true;
                         queue.push_back((unx as u32, uny as u32));
                     }
@@ -373,57 +415,61 @@ pub fn clean_white_bubble_shrinkwrap(
     let b_max_y = ((bubble_box.y + bubble_box.h).clamp(0, page_h as i32) as u32).saturating_sub(by0) as usize;
 
     let mut cavity = vec![false; total];
-    let mut raw_cavity_count = 0usize;
+    let mut total_cavity_count = 0usize;
+    let mut white_floor_count = 0usize;
+    let mut white_lums = Vec::new();
+    let mut white_sats = Vec::new();
+    let mut white_lum_sum = 0.0f64;
+    let mut white_sat_sum = 0.0f32;
+
     for cy in b_min_y..b_max_y.min(ch) {
         for cx in b_min_x..b_max_x.min(cw) {
             let idx = cy * cw + cx;
             if !can_reach_edge[idx] && !protected_stroke[idx] {
                 cavity[idx] = true;
-                raw_cavity_count += 1;
-            }
-        }
-    }
+                total_cavity_count += 1;
 
-    if raw_cavity_count == 0 {
-        return false;
-    }
-
-    let mut cav_sat_sum = 0.0f32;
-    let mut cav_sats = Vec::new();
-    let mut cav_lums = Vec::new();
-    let mut cav_lum_sum = 0.0f64;
-
-    for cy in b_min_y..b_max_y.min(ch) {
-        for cx in b_min_x..b_max_x.min(cw) {
-            let idx = cy * cw + cx;
-            if cavity[idx] {
                 let gx = bx0 + cx as u32;
                 let gy = by0 + cy as u32;
                 let (lum, sat) = pixel_lum_and_sat(img.get_pixel(gx, gy));
-                cav_sat_sum += sat;
-                cav_sats.push(sat);
-                cav_lums.push(lum);
-                cav_lum_sum += lum as f64;
+                if lum >= 180 {
+                    white_floor_count += 1;
+                    white_lums.push(lum);
+                    white_sats.push(sat);
+                    white_lum_sum += lum as f64;
+                    white_sat_sum += sat;
+                }
             }
         }
     }
 
-    cav_sats.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
-    let cav_p90_sat = if !cav_sats.is_empty() { cav_sats[(cav_sats.len() * 9) / 10] } else { 0.0 };
-    let cav_mean_sat = cav_sat_sum / raw_cavity_count as f32;
+    if total_cavity_count == 0 || white_floor_count == 0 {
+        return false;
+    }
 
-    cav_lums.sort_unstable();
-    let cav_mean_lum = cav_lum_sum / raw_cavity_count as f64;
-    let cav_p10_lum = if !cav_lums.is_empty() { cav_lums[(cav_lums.len() * 1) / 10] } else { 0 };
-    let cav_p90_lum = if !cav_lums.is_empty() { cav_lums[(cav_lums.len() * 9) / 10] } else { 0 };
+    // THE CAVITY MUST BE DOMINATED BY SOLID WHITE FLOOR (>= 80% OF CAVITY PIXELS)
+    // RESIDUAL INK STROKES, TEXT REMNANTS, AND SMUDGES OCCUPY ONLY A MINORITY (<20%) OF THE CAVITY.
+    let white_ratio = white_floor_count as f32 / total_cavity_count as f32;
+    if white_ratio < 0.80 {
+        return false;
+    }
+
+    white_sats.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+    let cav_p90_sat = if !white_sats.is_empty() { white_sats[(white_sats.len() * 9) / 10] } else { 0.0 };
+    let cav_mean_sat = white_sat_sum / white_floor_count as f32;
+
+    white_lums.sort_unstable();
+    let cav_mean_lum = white_lum_sum / white_floor_count as f64;
+    let cav_p10_lum = if !white_lums.is_empty() { white_lums[(white_lums.len() * 1) / 10] } else { 0 };
+    let cav_p90_lum = if !white_lums.is_empty() { white_lums[(white_lums.len() * 9) / 10] } else { 0 };
     let lum_spread = cav_p90_lum.saturating_sub(cav_p10_lum);
 
     // REJECT SEMI-TRANSPARENT OR ARTISTIC BUBBLE CAVITIES
-    // SOLID WHITE DIALOGUE BUBBLES EXHIBIT HIGH UNIFORM LUMINANCE (SPREAD <= 10, MEAN LUM >= 248)
-    // AND NEGLIGIBLE COLOR SATURATION (MEAN SAT <= 4.0, P90 SAT <= 8.0).
+    // SOLID WHITE DIALOGUE BUBBLE FLOORS EXHIBIT HIGH UNIFORM LUMINANCE (SPREAD <= 12, MEAN LUM >= 246)
+    // AND NEGLIGIBLE COLOR SATURATION (MEAN SAT <= 4.5, P90 SAT <= 8.0).
     // BUBBLES WITH BACKGROUND ARTWORK BLEED-THROUGH HAVE HIGH LUMINANCE SPREAD OR SATURATION,
     // AND MUST BE PRESERVED AS NEURAL INPAINTED ARTWORK INSTEAD OF BEING OVERWRITTEN WITH SOLID WHITE.
-    if lum_spread > 10 || cav_mean_sat > 4.0 || cav_p90_sat > 8.0 || cav_mean_lum < 248.0 {
+    if lum_spread > 12 || cav_mean_sat > 4.5 || cav_p90_sat > 8.0 || cav_mean_lum < 246.0 {
         return false;
     }
 
