@@ -71,5 +71,6 @@ mod page_sun_moon_wheel_duplicate_line;
 mod page_sword_saint_breakthrough_divine_realm_split;
 mod page_qi_wangsun_friend_stacked_bubble_merge;
 mod page_master_hu_shunshi_mid_sentence_split;
+mod page_xing_chen_de_brother_arrived_spiky_bubble;
 
 
