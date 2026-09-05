@@ -1,5 +1,5 @@
-﻿// -- INTERNAL IMPORTS -- //
-use crate::common::get_or_analyze_fixture_with_lang;
+// -- INTERNAL IMPORTS -- //
+use crate::common::{clean_fixture_with_cache, get_or_analyze_fixture_with_lang};
 
 // -- TESTS -- //
 
@@ -13,6 +13,7 @@ use crate::common::get_or_analyze_fixture_with_lang;
 /// - **PANEL 4 FREE TEXT**: `"啪嗒，啪嗒！"` (FreeText)
 /// - **EXACT COUNTS**: Exactly 5 regions (4 dialogue bubbles, 0 sound effects, 1 free text).
 /// - **NO SPLIT**: The dialogue in the panel 1 spiky bubble must never be split across comma (`，`).
+/// - **SPIKY BUBBLE INPAINTING**: Panel 3 spiky burst bubble must detect boundary breach and skip shrinkwrap to avoid wiping spikes and exterior background.
 #[test]
 fn test_regression_page_xing_chen_de_brother_arrived_spiky_bubble() {
     let img = match crate::common::load_fixture_or_skip("zh_hans", "page_xing_chen_de_brother_arrived_spiky_bubble.webp") {
@@ -40,4 +41,28 @@ fn test_regression_page_xing_chen_de_brother_arrived_spiky_bubble() {
     assert!(p1_bubble.text.contains("姓陈的") && p1_bubble.text.contains("你等着吧"), "Must contain full dialogue in same region");
     assert!(!res.regions.iter().any(|r| r.text.trim() == "你等着吧！" || r.text.trim() == "你等着吧"), "Must NOT emit split fragment for second line");
     crate::assert_bubble_bounds!(p1_bubble, 485, 66, 297, 192, 15);
+
+    // 3. TWO-STAGE INPAINTING: SPIKY BUBBLE MUST NOT OVERFLOW OR WIPE SPIKES
+    if let Some(cleaned) = clean_fixture_with_cache(&img, &res) {
+        let rgb = cleaned.to_rgb8();
+        // VERIFY THAT BOTTOM SPIKES (AROUND Y=1040..1060, X=550..650) RETAIN DARK INK SPIKE STROKES
+        let mut min_lum = 255u8;
+        let mut dark_spike_pixels = 0;
+        for y in 1040..1065 {
+            for x in 550..650 {
+                let p = rgb.get_pixel(x, y);
+                let lum = ((p[0] as u32 * 299 + p[1] as u32 * 587 + p[2] as u32 * 114) / 1000) as u8;
+                min_lum = min_lum.min(lum);
+                if lum < 150 {
+                    dark_spike_pixels += 1;
+                }
+            }
+        }
+        assert!(
+            min_lum < 100 && dark_spike_pixels >= 50,
+            "Bottom spikes must be preserved (min_lum={}, dark_spike_pixels={}), must not be wiped by shrinkwrap overflow",
+            min_lum,
+            dark_spike_pixels
+        );
+    }
 }

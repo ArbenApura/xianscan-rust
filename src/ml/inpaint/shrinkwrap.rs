@@ -223,6 +223,84 @@ pub fn clean_white_bubble_shrinkwrap(
         }
     }
 
+    // REJECT IF WHITE FLOOR BREACHED DISCONTINUOUS BORDERS AND FLATTENED AGAINST THE BOUNDING BOX RECTANGLE
+    // (E.G. SPIKY BURST BUBBLES OR OPEN CONTOURS WITH LIGHT SURROUNDING CANVAS ARTWORK)
+    let box_w = b_max_x.saturating_sub(b_min_x);
+    let box_h = b_max_y.saturating_sub(b_min_y);
+    if box_w >= 12 && box_h >= 12 {
+        let mut top_contact = 0usize;
+        let mut bot_contact = 0usize;
+        let mut left_contact = 0usize;
+        let mut right_contact = 0usize;
+
+        let mut top_run = 0usize;
+        let mut max_top_run = 0usize;
+        for x in b_min_x..b_max_x {
+            if white_floor[b_min_y * cw + x] {
+                top_contact += 1;
+                top_run += 1;
+                max_top_run = max_top_run.max(top_run);
+            } else {
+                top_run = 0;
+            }
+        }
+
+        let bot_y = b_max_y.saturating_sub(1);
+        let mut bot_run = 0usize;
+        let mut max_bot_run = 0usize;
+        for x in b_min_x..b_max_x {
+            if white_floor[bot_y * cw + x] {
+                bot_contact += 1;
+                bot_run += 1;
+                max_bot_run = max_bot_run.max(bot_run);
+            } else {
+                bot_run = 0;
+            }
+        }
+
+        let mut left_run = 0usize;
+        let mut max_left_run = 0usize;
+        for y in b_min_y..b_max_y {
+            if white_floor[y * cw + b_min_x] {
+                left_contact += 1;
+                left_run += 1;
+                max_left_run = max_left_run.max(left_run);
+            } else {
+                left_run = 0;
+            }
+        }
+
+        let right_x = b_max_x.saturating_sub(1);
+        let mut right_run = 0usize;
+        let mut max_right_run = 0usize;
+        for y in b_min_y..b_max_y {
+            if white_floor[y * cw + right_x] {
+                right_contact += 1;
+                right_run += 1;
+                max_right_run = max_right_run.max(right_run);
+            } else {
+                right_run = 0;
+            }
+        }
+
+        let total_contact = top_contact + bot_contact + left_contact + right_contact;
+        let perimeter = 2 * (box_w + box_h).saturating_sub(4);
+        let contact_ratio = if perimeter > 0 { total_contact as f32 / perimeter as f32 } else { 0.0 };
+
+        let max_edge_run = max_top_run.max(max_bot_run).max(max_left_run).max(max_right_run);
+        let max_edge_ratio = (max_top_run as f32 / box_w as f32)
+            .max(max_bot_run as f32 / box_w as f32)
+            .max(max_left_run as f32 / box_h as f32)
+            .max(max_right_run as f32 / box_h as f32);
+
+        // ENCLOSED BUBBLES HAVE A DRAWN STROKE SEPARATING FLOOR FROM BOUNDING BOX (CONTACT RATIO < 3%).
+        // IF MORE THAN 8% OF THE PERIMETER TOUCHES THE CLAMP, OR ANY EDGE HAS A CONTINUOUS BREACH > 20%
+        // (AND AT LEAST 10PX), REJECT SHRINKWRAP AND PRESERVE NEURAL INPAINTING.
+        if contact_ratio > 0.08 || (max_edge_run >= 10 && max_edge_ratio > 0.20) {
+            return false;
+        }
+    }
+
 
 
     // MORPHOLOGICAL CLOSING ON WHITE_FLOOR (RADIUS 2PX)
@@ -443,11 +521,6 @@ pub fn clean_white_bubble_shrinkwrap(
     let protected_stroke = expanded_protection;
 
     // 6. ASSEMBLE CANDIDATE CAVITY FILL MASK WITHIN BUBBLE BOUNDS
-    let b_min_x = (bubble_box.x.clamp(0, page_w as i32) as u32).saturating_sub(bx0) as usize;
-    let b_min_y = (bubble_box.y.clamp(0, page_h as i32) as u32).saturating_sub(by0) as usize;
-    let b_max_x = ((bubble_box.x + bubble_box.w).clamp(0, page_w as i32) as u32).saturating_sub(bx0) as usize;
-    let b_max_y = ((bubble_box.y + bubble_box.h).clamp(0, page_h as i32) as u32).saturating_sub(by0) as usize;
-
     let mut cavity = vec![false; total];
     let mut total_cavity_count = 0usize;
     let mut white_floor_count = 0usize;
