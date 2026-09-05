@@ -536,15 +536,15 @@ export async function runChapterPipeline(
 			// CLEAR STALE DIALOGUE TRACKER RECORD FOR INJECTED RE-TRANSLATION
 			dialogueTracker.clearPage(injectRow.seq);
 
-			// If this page is already in the slots array (re-translate of a done/error page within the
-			// same running job), reuse its slot index so events route to the right snapshot entry.
-			// Otherwise push a new slot (genuinely new parallel injection).
+			// IF THIS PAGE IS ALREADY IN THE SLOTS ARRAY (RE-TRANSLATE OF A DONE/ERROR PAGE WITHIN THE
+			// SAME RUNNING JOB), REUSE ITS SLOT INDEX SO EVENTS ROUTE TO THE RIGHT SNAPSHOT ENTRY.
+			// OTHERWISE PUSH A NEW SLOT (GENUINELY NEW PARALLEL INJECTION).
 			const existingSlotIdx = slots.findIndex((s) => s.page.id === injectRow.id);
 			const injectIdx = existingSlotIdx >= 0 ? existingSlotIdx : slots.length;
 			if (existingSlotIdx < 0) {
 				slots.push({ page: injectRow });
 			} else {
-				// Reset the existing slot so it can be processed again
+				// RESET THE EXISTING SLOT SO IT CAN BE PROCESSED AGAIN
 				slots[existingSlotIdx] = { page: injectRow };
 			}
 			// ANNOUNCE THE NEW PAGE TO BOTH SERVER AND CLIENT SNAPSHOTS BEFORE ANY STEP EVENTS
@@ -1148,6 +1148,9 @@ export async function runChapterPipeline(
 					.where(eq(pages.id, page.id))
 					.run();
 				slot.outcome = 'error';
+				// EAGERLY DISCARD COMPLETED PAGE BUFFERS TO PREVENT NATIVE MEMORY RETENTION
+				slot.image = undefined;
+				slot.analyzed = undefined;
 				emit({
 					type: 'error',
 					chapterId,
@@ -1232,6 +1235,9 @@ export async function runChapterPipeline(
 			slot.page.outputPath = outputPath;
 			slot.totalDurationMs = performance.now() - pageT0;
 			slot.outcome = 'done';
+			// EAGERLY DISCARD COMPLETED PAGE BUFFERS TO PREVENT NATIVE MEMORY RETENTION
+			slot.image = undefined;
+			slot.analyzed = undefined;
 			const finalCleanedRev = freshRow?.cleanedRev ?? page.cleanedRev + 1;
 			const finalOutputRev = freshRow?.outputRev ?? page.outputRev + 1;
 			emit({

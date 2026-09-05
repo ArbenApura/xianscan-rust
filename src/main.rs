@@ -125,12 +125,12 @@ fn find_web_dir() -> Option<PathBuf> {
     None
 }
 
-/// Enable ANSI escape-sequence support on the Windows legacy console.
+/// ENABLE ANSI ESCAPE-SEQUENCE SUPPORT ON WINDOWS LEGACY CONSOLE.
 ///
-/// Unix terminals (Linux/macOS) and modern Windows Terminal handle ANSI natively;
-/// however the classic `conhost.exe` console needs `ENABLE_VIRTUAL_TERMINAL_PROCESSING`
-/// set on the output handle before it will render colors. This is a no-op on
-/// non-Windows platforms.
+/// UNIX TERMINALS (LINUX/MACOS) AND MODERN WINDOWS TERMINAL HANDLE ANSI NATIVELY;
+/// HOWEVER THE CLASSIC `conhost.exe` CONSOLE NEEDS `ENABLE_VIRTUAL_TERMINAL_PROCESSING`
+/// SET ON THE OUTPUT HANDLE BEFORE IT WILL RENDER COLORS. THIS IS A NO-OP ON
+/// NON-WINDOWS PLATFORMS.
 fn enable_ansi_support() {
     #[cfg(windows)]
     {
@@ -189,10 +189,10 @@ async fn main() -> anyhow::Result<()> {
     let models_dir = find_models_dir();
 
     // -----------------------------------------------------------------------
-    // Web asset extraction (embed-web feature)
-    // When the binary was compiled with --features embed-web, extract the
-    // SvelteKit build + native .node addons to the user's app-data directory.
-    // This runs in milliseconds on subsequent launches (VERSION stamp check).
+    // WEB ASSET EXTRACTION (EMBED-WEB FEATURE)
+    // WHEN THE BINARY WAS COMPILED WITH --FEATURES EMBED-WEB, EXTRACT THE
+    // SVELTEKIT BUILD + NATIVE .NODE ADDONS TO THE USER'S APP-DATA DIRECTORY.
+    // THIS RUNS IN MILLISECONDS ON SUBSEQUENT LAUNCHES (VERSION STAMP CHECK).
     // -----------------------------------------------------------------------
     let embedded_app_dir = match web_assets::extract_if_needed() {
         Ok(dir) => dir,
@@ -202,7 +202,7 @@ async fn main() -> anyhow::Result<()> {
         }
     };
 
-    // Always route data storage and SQLite to the system AppData data directory
+    // ALWAYS ROUTE DATA STORAGE AND SQLITE TO THE SYSTEM APPDATA DATA DIRECTORY
     let data_dir = web_assets::get_data_dir();
     let _ = std::fs::create_dir_all(&data_dir);
     let proper_db = data_dir.join("xianscan.db");
@@ -325,14 +325,14 @@ async fn main() -> anyhow::Result<()> {
         }
     };
 
-    // Spawn ML Engine in background task
+    // SPAWN ML ENGINE IN BACKGROUND TASK
     tokio::spawn(async move {
         let _ = axum::serve(listener, app).await;
     });
 
 
 
-    // Start Web Engine
+    // START WEB ENGINE
     let mut _ssr_guard = None;
     if ml_only {
         println!(
@@ -429,15 +429,19 @@ async fn main() -> anyhow::Result<()> {
     println!("        {} Press Ctrl+C in this terminal anytime to cleanly shut down", "─".dimmed());
     println!();
 
-    // Await Ctrl+C signal for graceful shutdown
+    // AWAIT CTRL+C SIGNAL FOR GRACEFUL SHUTDOWN
     tokio::signal::ctrl_c().await?;
     println!("\n  {} {}", "✓".bright_green(), "Shutting down XianScan cleanly...".dimmed());
+
+    if let Some(mut server) = _ssr_guard.take() {
+        server.stop();
+    }
 
     Ok(())
 }
 
-/// Resolve the primary local area network (LAN) IP address of the host machine.
-/// Uses a connectionless UDP routing probe to determine the primary outbound interface.
+/// RESOLVE THE PRIMARY LOCAL AREA NETWORK (LAN) IP ADDRESS OF THE HOST MACHINE.
+/// USES A CONNECTIONLESS UDP ROUTING PROBE TO DETERMINE THE PRIMARY OUTBOUND INTERFACE.
 fn get_local_network_ip() -> Option<std::net::IpAddr> {
     let socket = std::net::UdpSocket::bind("0.0.0.0:0").ok()?;
     socket.connect("8.8.8.8:80").ok()?;

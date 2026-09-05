@@ -92,7 +92,8 @@ export async function typesetPage(
 		} else if (colorMode === 'light') {
 			color = { fill: 'white', stroke: 'black' };
 		} else {
-			const bg = sampleBackground(img, r.box.x, r.box.y, r.box.w, r.box.h);
+			// SAMPLE BACKGROUND DIRECTLY FROM EXISTING CANVAS CONTEXT TO PREVENT TEMPORARY SKIA ALLOCATIONS
+			const bg = sampleBackground(ctx, r.box.x, r.box.y, r.box.w, r.box.h);
 			color = pickTextColor(bg);
 		}
 
