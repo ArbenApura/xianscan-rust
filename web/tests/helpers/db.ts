@@ -61,7 +61,18 @@ function createTestState(): TestState {
 export function resetDb(): void {
 	const state = globalThis.__mtTestDb ?? (globalThis.__mtTestDb = createTestState());
 	state.raw.pragma('foreign_keys = OFF');
-	const tables = ['reading_history', 'app_settings', 'ai_providers', 'ai_usage', 'translations', 'regions', 'pages', 'glossary', 'chapters', 'books'];
+	const tables = [
+		'reading_history',
+		'app_settings',
+		'ai_providers',
+		'ai_usage',
+		'translations',
+		'regions',
+		'pages',
+		'glossary',
+		'chapters',
+		'books',
+	];
 	state.raw.exec(
 		`DROP TABLE IF EXISTS __drizzle_migrations; ${tables.map((t) => `DROP TABLE IF EXISTS \`${t}\`;`).join(' ')}`,
 	);
@@ -121,6 +132,7 @@ export function seedBook(
 		sourceLang?: string;
 		targetLang?: string;
 		pinned?: boolean;
+		archived?: boolean;
 		customPrompt?: string;
 	},
 ) {
@@ -132,6 +144,7 @@ export function seedBook(
 			sourceLang: input.sourceLang ?? 'zh-Hans',
 			targetLang: input.targetLang ?? 'en',
 			pinned: input.pinned ?? false,
+			archived: input.archived ?? false,
 			customPrompt: input.customPrompt ?? undefined,
 		})
 		.returning()

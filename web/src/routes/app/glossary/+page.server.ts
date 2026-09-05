@@ -1,28 +1,61 @@
+// IMPORTED TYPES
+import type { PageServerLoad } from './$types';
+// IMPORTED CONSTANTS
+import { DEFAULT_SOURCE_LANG, DEFAULT_TARGET_LANG } from '$lib/languages';
+// IMPORTED DEP-MODULES
 import { desc, eq } from 'drizzle-orm';
+// IMPORTED MODULES
 import { db } from '$lib/server/db';
 import { appSettings, books } from '$lib/server/db/schema';
 import { getGlossaryPage } from '$lib/server/glossary';
 import { listAvailablePacks } from '$lib/server/glossary-packs';
-import { DEFAULT_SOURCE_LANG, DEFAULT_TARGET_LANG } from '$lib/languages';
-import type { PageServerLoad } from './$types';
+
+// -- FUNCTIONS -- //
 
 export const load: PageServerLoad = async ({ url }) => {
-	const allBooks = db
+	// QUERY ACTIVE BOOKS FOR GLOSSARY MANAGEMENT (FILTER OUT ARCHIVED BOOKS)
+	const activeBooks = db
 		.select({
 			id: books.id,
 			title: books.title,
 			titleTarget: books.titleTarget,
 			sourceLang: books.sourceLang,
 			targetLang: books.targetLang,
+			archived: books.archived,
 		})
 		.from(books)
+		.where(eq(books.archived, false))
 		.orderBy(desc(books.pinned), desc(books.updatedAt))
 		.all();
 
 	const scopeParam = url.searchParams.get('scope');
 	const bookIdParam = url.searchParams.get('bookId');
-	const scope: 'global' | 'book' = scopeParam === 'book' || (bookIdParam && scopeParam !== 'global') ? 'book' : 'global';
-	const selectedBookId = bookIdParam || (allBooks.length > 0 ? allBooks[0].id : null);
+	const scope: 'global' | 'book' =
+		scopeParam === 'book' || (bookIdParam && scopeParam !== 'global') ? 'book' : 'global';
+
+	// IF A SPECIFIC BOOK ID WAS REQUESTED BUT IS ARCHIVED, FETCH IT AS A DIRECT FALLBACK
+	let targetBook = activeBooks.find((b) => b.id === bookIdParam);
+	let fallbackBook: (typeof activeBooks)[number] | null = null;
+	if (bookIdParam && !targetBook) {
+		const found = db
+			.select({
+				id: books.id,
+				title: books.title,
+				titleTarget: books.titleTarget,
+				sourceLang: books.sourceLang,
+				targetLang: books.targetLang,
+				archived: books.archived,
+			})
+			.from(books)
+			.where(eq(books.id, bookIdParam))
+			.get();
+		if (found) {
+			fallbackBook = found;
+			targetBook = found;
+		}
+	}
+
+	const selectedBookId = targetBook?.id || (activeBooks.length > 0 ? activeBooks[0].id : null);
 	const sourceLang = url.searchParams.get('src') || DEFAULT_SOURCE_LANG;
 	const targetLang = url.searchParams.get('tgt') || DEFAULT_TARGET_LANG;
 	const q = url.searchParams.get('q') || '';
@@ -53,11 +86,11 @@ export const load: PageServerLoad = async ({ url }) => {
 
 	const packs = listAvailablePacks().map((p) => ({
 		...p,
-		enabled: enabledIds ? enabledIds.includes(p.id) : p.enabledByDefault ?? true,
+		enabled: enabledIds ? enabledIds.includes(p.id) : (p.enabledByDefault ?? true),
 	}));
 
 	return {
-		books: allBooks,
+		books: fallbackBook ? [fallbackBook, ...activeBooks] : activeBooks,
 		packs,
 		initialGlossary,
 		initialScope: scope,

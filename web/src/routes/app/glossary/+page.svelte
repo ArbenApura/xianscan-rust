@@ -1,24 +1,33 @@
 <script lang="ts">
+	// IMPORTED TYPES
+	import type { PageData } from './$types';
+	// IMPORTED DEP-MODULES
 	import { onMount } from 'svelte';
-	import { page } from '$app/stores';
+	import { toast } from 'svelte-sonner';
+	// IMPORTED MODULES
 	import { goto } from '$app/navigation';
+	import { page } from '$app/stores';
+	import { apiFetch } from '$lib/api';
 	import { ripple } from '$lib/actions/ripple';
+	// IMPORTED DEP-COMPONENTS
+	import ArrowLeft from 'lucide-svelte/icons/arrow-left';
+	import BookOpen from 'lucide-svelte/icons/book-open';
+	import ChevronRight from 'lucide-svelte/icons/chevron-right';
+	import Globe from 'lucide-svelte/icons/globe';
+	import Layers from 'lucide-svelte/icons/layers';
+	import Package from 'lucide-svelte/icons/package';
+	// IMPORTED COMPONENTS
+	import Button from '$lib/components/ui/Button.svelte';
 	import GlossaryPanel from '$lib/components/GlossaryPanel.svelte';
 	import LanguagePicker from '$lib/components/ui/LanguagePicker.svelte';
-	import Button from '$lib/components/ui/Button.svelte';
-	import Select from '$lib/components/ui/Select.svelte';
 	import PresetPacksModal from '$lib/components/glossary/PresetPacksModal.svelte';
-	import ArrowLeft from 'lucide-svelte/icons/arrow-left';
-	import ChevronRight from 'lucide-svelte/icons/chevron-right';
-	import BookOpen from 'lucide-svelte/icons/book-open';
-	import Globe from 'lucide-svelte/icons/globe';
-	import Package from 'lucide-svelte/icons/package';
-	import Layers from 'lucide-svelte/icons/layers';
-	import { toast } from 'svelte-sonner';
-	import { apiFetch } from '$lib/api';
-	import type { PageData } from './$types';
+	import Select from '$lib/components/ui/Select.svelte';
+
+	// -- REQUIRED PROPS -- //
 
 	export let data: PageData;
+
+	// -- STATES -- //
 
 	let books = data.books;
 	let sourceLang = data.initialSourceLang;
@@ -28,6 +37,41 @@
 	let mounted = false;
 	let packsHash = 0;
 	let presetModalOpen = false;
+
+	// -- REACTIVE STATES -- //
+
+	$: books = data.books;
+	$: selectedBook = books.find((b) => b.id === selectedBookId);
+	$: bookSelectItems = books
+		.filter((b) => !b.archived || b.id === selectedBookId)
+		.map((b) => ({
+			value: b.id,
+			label: (b.titleTarget?.trim() || b.title) + (b.archived ? ' (Archived)' : ''),
+		}));
+
+	// -- REACTIVE STATEMENTS -- //
+
+	$: {
+		const s = $page.url.searchParams.get('scope');
+		const b = $page.url.searchParams.get('bookId');
+		const src = $page.url.searchParams.get('src');
+		const tgt = $page.url.searchParams.get('tgt');
+
+		if (s === 'book' || s === 'global') {
+			if (scope !== s) scope = s;
+		}
+		if (b && b !== selectedBookId && books.some((x) => x.id === b)) {
+			selectedBookId = b;
+		}
+		if (src && src !== sourceLang) {
+			sourceLang = src;
+		}
+		if (tgt && tgt !== targetLang) {
+			targetLang = tgt;
+		}
+	}
+
+	// -- FUNCTIONS -- //
 
 	async function togglePack(packId: string, enabled: boolean) {
 		try {
@@ -49,8 +93,6 @@
 		}
 	}
 
-	$: books = data.books;
-
 	function syncUrl(newScope: 'global' | 'book', bId: string, src: string, tgt: string) {
 		if (!mounted) return;
 		const params = new URLSearchParams();
@@ -66,11 +108,6 @@
 			goto(`/app/glossary/${newSearch}`, { replaceState: true, keepFocus: true, noScroll: true });
 		}
 	}
-
-	onMount(() => {
-		mounted = true;
-		syncUrl(scope, selectedBookId, sourceLang, targetLang);
-	});
 
 	function setScope(newScope: 'global' | 'book') {
 		scope = newScope;
@@ -101,36 +138,20 @@
 		syncUrl(scope, selectedBookId, sourceLang, targetLang);
 	}
 
-	$: {
-		const s = $page.url.searchParams.get('scope');
-		const b = $page.url.searchParams.get('bookId');
-		const src = $page.url.searchParams.get('src');
-		const tgt = $page.url.searchParams.get('tgt');
+	// -- LIFECYCLES -- //
 
-		if (s === 'book' || s === 'global') {
-			if (scope !== s) scope = s;
-		}
-		if (b && b !== selectedBookId && books.some((x) => x.id === b)) {
-			selectedBookId = b;
-		}
-		if (src && src !== sourceLang) {
-			sourceLang = src;
-		}
-		if (tgt && tgt !== targetLang) {
-			targetLang = tgt;
-		}
-	}
-
-	$: selectedBook = books.find((b) => b.id === selectedBookId);
-	$: bookSelectItems = books.map((b) => ({
-		value: b.id,
-		label: b.titleTarget?.trim() || b.title,
-	}));
+	onMount(() => {
+		mounted = true;
+		syncUrl(scope, selectedBookId, sourceLang, targetLang);
+	});
 </script>
 
 <svelte:head>
 	<title>{scope === 'global' ? 'Global' : 'Book'} Glossary - XianScan</title>
-	<meta name="description" content="Manage translation glossary terms, aliases, and character names for comic translation." />
+	<meta
+		name="description"
+		content="Manage translation glossary terms, aliases, and character names for comic translation."
+	/>
 </svelte:head>
 
 <!-- GLOSSARY MANAGEMENT DASHBOARD -->
@@ -139,30 +160,35 @@
 	<nav aria-label="Breadcrumb" class="flex items-center gap-1.5 text-xs sm:text-sm">
 		<a
 			href="/app/"
-			class="inline-flex items-center gap-1.5 rounded-lg py-1 px-2 font-medium opacity-65 transition hover:opacity-100 hover:bg-black/5 dark:hover:bg-white/5"
+			class="inline-flex items-center gap-1.5 rounded-lg px-2 py-1 font-medium opacity-65 transition hover:bg-black/5 hover:opacity-100 dark:hover:bg-white/5"
 			use:ripple
 			title="Back to Library"
 		>
 			<ArrowLeft size={14} />
 			<span>Library</span>
 		</a>
-		
-		<ChevronRight size={14} class="opacity-30 shrink-0" />
 
-		<span class="font-semibold truncate opacity-90">
-			Glossary Terms
-		</span>
+		<ChevronRight size={14} class="shrink-0 opacity-30" />
+
+		<span class="truncate font-semibold opacity-90"> Glossary Terms </span>
 
 		{#if scope === 'book' && selectedBook}
-			<ChevronRight size={14} class="opacity-30 shrink-0" />
-			<span class="opacity-70 truncate max-w-[160px] sm:max-w-xs font-medium" title={selectedBook.titleTarget ? `${selectedBook.titleTarget} (${selectedBook.title})` : selectedBook.title}>
+			<ChevronRight size={14} class="shrink-0 opacity-30" />
+			<span
+				class="max-w-[160px] truncate font-medium opacity-70 sm:max-w-xs"
+				title={selectedBook.titleTarget
+					? `${selectedBook.titleTarget} (${selectedBook.title})`
+					: selectedBook.title}
+			>
 				{selectedBook.titleTarget || selectedBook.title}
 			</span>
 		{/if}
 	</nav>
 
 	<!-- HERO HEADER CARD -->
-	<div class="relative overflow-hidden rounded-2xl border border-black/[0.08] bg-white/50 p-6 backdrop-blur dark:border-white/[0.06] dark:bg-white/[0.02]">
+	<div
+		class="relative overflow-hidden rounded-2xl border border-black/[0.08] bg-white/50 p-6 backdrop-blur dark:border-white/[0.06] dark:bg-white/[0.02]"
+	>
 		<div class="flex flex-col gap-4 min-[750px]:flex-row min-[750px]:items-center min-[750px]:justify-between">
 			<div>
 				<h1 class="text-2xl font-bold tracking-tight sm:text-3xl">Glossary Terms</h1>
@@ -174,12 +200,14 @@
 			</div>
 
 			<!-- SCOPE SWITCHER TABS -->
-			<div class="flex items-center gap-1 self-start rounded-xl bg-black/[0.04] p-1 dark:bg-white/[0.04] min-[750px]:self-auto">
+			<div
+				class="flex items-center gap-1 self-start rounded-xl bg-black/[0.04] p-1 dark:bg-white/[0.04] min-[750px]:self-auto"
+			>
 				<button
 					type="button"
 					class={`flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-medium transition ${
 						scope === 'global'
-							? 'bg-white font-semibold text-black shadow-xs dark:bg-[#201c18] dark:text-white'
+							? 'shadow-xs bg-white font-semibold text-black dark:bg-[#201c18] dark:text-white'
 							: 'opacity-60 hover:opacity-100'
 					}`}
 					on:click={() => setScope('global')}
@@ -192,7 +220,7 @@
 					type="button"
 					class={`flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-medium transition ${
 						scope === 'book'
-							? 'bg-white font-semibold text-black shadow-xs dark:bg-[#201c18] dark:text-white'
+							? 'shadow-xs bg-white font-semibold text-black dark:bg-[#201c18] dark:text-white'
 							: 'opacity-60 hover:opacity-100'
 					}`}
 					on:click={() => setScope('book')}
@@ -207,26 +235,39 @@
 
 	<!-- SCOPE CONTROLS CARD -->
 	{#if scope === 'global'}
-		<div class="flex flex-col gap-3 rounded-2xl border border-black/[0.08] bg-white/40 p-4 dark:border-white/[0.06] dark:bg-white/[0.02]">
+		<div
+			class="flex flex-col gap-3 rounded-2xl border border-black/[0.08] bg-white/40 p-4 dark:border-white/[0.06] dark:bg-white/[0.02]"
+		>
 			<div class="grid grid-cols-1 gap-3 sm:grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] sm:items-end">
 				<div class="min-w-0">
 					<span class="mb-1 block text-xs font-semibold opacity-60">Source (original)</span>
-					<LanguagePicker mode="source" value={sourceLang} excludeCode={targetLang} on:change={(e) => onSourceLangChange(e.detail)} />
+					<LanguagePicker
+						mode="source"
+						value={sourceLang}
+						excludeCode={targetLang}
+						on:change={(e) => onSourceLangChange(e.detail)}
+					/>
 				</div>
 				<span class="hidden pb-2 text-center text-sm font-bold opacity-40 sm:block">→</span>
 				<div class="min-w-0">
 					<span class="mb-1 block text-xs font-semibold opacity-60">Target (translation)</span>
-					<LanguagePicker value={targetLang} excludeCode={sourceLang} on:change={(e) => onTargetLangChange(e.detail)} />
+					<LanguagePicker
+						value={targetLang}
+						excludeCode={sourceLang}
+						on:change={(e) => onTargetLangChange(e.detail)}
+					/>
 				</div>
 			</div>
 
 			<!-- MINIMAL UNIVERSAL THEMES BAR -->
-			<div class="mt-1 flex flex-wrap items-center justify-between gap-2 rounded-xl border border-black/[0.06] bg-black/[0.015] px-3 py-2 text-xs dark:border-white/[0.06] dark:bg-white/[0.015]">
-				<div class="flex flex-wrap items-center gap-1.5 min-w-0">
-					<div class="flex items-center gap-1.5 mr-1 font-semibold opacity-70">
-						<Package size={13} class="text-amber-600 dark:text-amber-400 shrink-0" />
+			<div
+				class="mt-1 flex flex-wrap items-center justify-between gap-2 rounded-xl border border-black/[0.06] bg-black/[0.015] px-3 py-2 text-xs dark:border-white/[0.06] dark:bg-white/[0.015]"
+			>
+				<div class="flex min-w-0 flex-wrap items-center gap-1.5">
+					<div class="mr-1 flex items-center gap-1.5 font-semibold opacity-70">
+						<Package size={13} class="shrink-0 text-amber-600 dark:text-amber-400" />
 						<span>Theme Presets</span>
-						<span class="rounded-md bg-black/5 px-1.5 py-0.2 text-[10px] font-mono dark:bg-white/5">
+						<span class="py-0.2 rounded-md bg-black/5 px-1.5 font-mono text-[10px] dark:bg-white/5">
 							{(data.packs || []).filter((p) => p.enabled).length}/{(data.packs || []).length}
 						</span>
 					</div>
@@ -235,14 +276,15 @@
 						<button
 							type="button"
 							on:click={() => togglePack(pack.id, !pack.enabled)}
-							class={`inline-flex items-center gap-1.5 rounded-lg border px-2 py-1 text-[11px] font-medium transition cursor-pointer ${
+							class={`inline-flex cursor-pointer items-center gap-1.5 rounded-lg border px-2 py-1 text-[11px] font-medium transition ${
 								pack.enabled
 									? 'border-amber-500/30 bg-amber-500/10 text-amber-900 dark:text-amber-200'
 									: 'border-transparent bg-black/[0.03] opacity-45 hover:opacity-75 dark:bg-white/[0.03]'
 							}`}
 							title={`${pack.name} (${pack.enabled ? 'Enabled' : 'Disabled'}) - Click to toggle`}
 						>
-							<span class={`h-1.5 w-1.5 rounded-full ${pack.enabled ? 'bg-amber-500' : 'bg-neutral-400'}`}></span>
+							<span class={`h-1.5 w-1.5 rounded-full ${pack.enabled ? 'bg-amber-500' : 'bg-neutral-400'}`}
+							></span>
 							<span>{pack.name.split(' ')[0].replace(/[,/&]/g, '')}</span>
 						</button>
 					{/each}
@@ -251,7 +293,7 @@
 				<Button
 					size="sm"
 					variant="ghost"
-					class="text-xs h-6 px-2 text-neutral-600 dark:text-neutral-300 hover:bg-black/5 dark:hover:bg-white/5 shrink-0"
+					class="h-6 shrink-0 px-2 text-xs text-neutral-600 hover:bg-black/5 dark:text-neutral-300 dark:hover:bg-white/5"
 					on:click={() => (presetModalOpen = true)}
 				>
 					<Layers size={12} class="mr-1 opacity-70" />
@@ -280,37 +322,51 @@
 				scope="global"
 				{sourceLang}
 				{targetLang}
-				initialRows={packsHash === 0 && data.initialScope === 'global' && data.initialSourceLang === sourceLang && data.initialTargetLang === targetLang ? data.initialGlossary.rows : null}
-				initialTotal={packsHash === 0 && data.initialScope === 'global' && data.initialSourceLang === sourceLang && data.initialTargetLang === targetLang ? data.initialGlossary.total : null}
+				initialRows={packsHash === 0 &&
+				data.initialScope === 'global' &&
+				data.initialSourceLang === sourceLang &&
+				data.initialTargetLang === targetLang
+					? data.initialGlossary.rows
+					: null}
+				initialTotal={packsHash === 0 &&
+				data.initialScope === 'global' &&
+				data.initialSourceLang === sourceLang &&
+				data.initialTargetLang === targetLang
+					? data.initialGlossary.total
+					: null}
 			/>
 		{/key}
-	{:else}
-		{#if selectedBookId && selectedBook}
-			{#key selectedBookId}
-				<GlossaryPanel
-					scope="book"
-					bookId={selectedBookId}
-					bookTitle={selectedBook.titleTarget || selectedBook.title}
-					initialRows={data.initialScope === 'book' && data.initialBookId === selectedBookId ? data.initialGlossary.rows : null}
-					initialTotal={data.initialScope === 'book' && data.initialBookId === selectedBookId ? data.initialGlossary.total : null}
-				>
-					<svelte:fragment slot="prefix">
-						{#if books.length > 0}
-							<div class="w-40 sm:w-48 min-[750px]:w-60">
-								<Select
-									items={bookSelectItems}
-									value={selectedBookId}
-									on:change={(e) => onSelectBook(String(e.detail))}
-								/>
-							</div>
-						{/if}
-					</svelte:fragment>
-				</GlossaryPanel>
-			{/key}
-		{:else if books.length === 0}
-			<div class="rounded-2xl border border-dashed border-black/15 p-12 text-center text-sm opacity-60 dark:border-white/15">
-				Create a book first to add book-specific glossary terms.
-			</div>
-		{/if}
+	{:else if selectedBookId && selectedBook}
+		{#key selectedBookId}
+			<GlossaryPanel
+				scope="book"
+				bookId={selectedBookId}
+				bookTitle={selectedBook.titleTarget || selectedBook.title}
+				initialRows={data.initialScope === 'book' && data.initialBookId === selectedBookId
+					? data.initialGlossary.rows
+					: null}
+				initialTotal={data.initialScope === 'book' && data.initialBookId === selectedBookId
+					? data.initialGlossary.total
+					: null}
+			>
+				<svelte:fragment slot="prefix">
+					{#if books.length > 0}
+						<div class="w-40 sm:w-48 min-[750px]:w-60">
+							<Select
+								items={bookSelectItems}
+								value={selectedBookId}
+								on:change={(e) => onSelectBook(String(e.detail))}
+							/>
+						</div>
+					{/if}
+				</svelte:fragment>
+			</GlossaryPanel>
+		{/key}
+	{:else if books.length === 0}
+		<div
+			class="rounded-2xl border border-dashed border-black/15 p-12 text-center text-sm opacity-60 dark:border-white/15"
+		>
+			Create a book first to add book-specific glossary terms.
+		</div>
 	{/if}
 </div>
