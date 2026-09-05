@@ -165,6 +165,7 @@ pub fn analyze_image_with_fusion_timed(
             line
         })
         .collect();
+
     // Filter out wide composite multi-line OCR blocks when fine-grained column lines exist
     let filtered_rapid_lines: Vec<&crate::ml::ocr::OcrLine> = cleaned_rapid_lines.iter().filter(|line| {
         if line.score < 0.50 {
@@ -206,7 +207,8 @@ pub fn analyze_image_with_fusion_timed(
                 let tb1 = matched_bubbles[0];
                 let tb2 = matched_bubbles[1];
                 let horiz_dist = (tb1.x - tb2.x).abs();
-                if horiz_dist >= 80 && (lw as f32) >= (tb1.w + tb2.w) as f32 * 0.80 {
+                let both_substantial = tb1.w >= 45 && tb1.h >= 35 && tb2.w >= 45 && tb2.h >= 35;
+                if both_substantial && horiz_dist >= 80 && (lw as f32) >= (tb1.w + tb2.w) as f32 * 0.80 {
                     return false;
                 }
             }
@@ -448,7 +450,8 @@ pub fn analyze_image_with_fusion_timed(
                         if matching_bubbles.len() >= 2 {
                             let b1 = matching_bubbles[0];
                             let b2 = matching_bubbles[1];
-                            (b1.x - b2.x).abs() >= 40 || (b1.y - b2.y).abs() >= 40
+                            let both_substantial = b1.w >= 45 && b1.h >= 35 && b2.w >= 45 && b2.h >= 35;
+                            both_substantial && ((b1.x - b2.x).abs() >= 40 || (b1.y - b2.y).abs() >= 40)
                         } else {
                             false
                         }
@@ -496,8 +499,14 @@ pub fn analyze_image_with_fusion_timed(
                             && (ly as f32 >= by - 15.0)
                             && ((ly + lh) as f32 > by + bh)
                             && ((ly as f32) <= by + bh + 45.0);
+                        let is_horiz_contained_line = !is_subtitle_to_title
+                            && !is_trailing_latin_noise
+                            && !leaks_outside_bubble
+                            && iy >= 0.35 * (lh as f32).min(bh)
+                            && ix >= 0.35 * (lw as f32).min(bw)
+                            && (bw <= (lw as f32 * 1.6) || (lw as f32) >= bw * 0.85);
 
-                        if !is_tabular_line && (is_horiz_single_line || is_vert_single_line || is_partial_vert_container || is_adjacent_trailing_row || is_adjacent_leading_row) && !is_trailing_latin_noise {
+                        if !is_tabular_line && (is_horiz_single_line || is_vert_single_line || is_partial_vert_container || is_horiz_contained_line || is_adjacent_trailing_row || is_adjacent_leading_row) && !is_trailing_latin_noise {
                             // GUARD: Do not expand a compact dialogue detector box if the line is slanted free-text or distant crowd reaction
                             let is_slanted_line = crate::ml::geometry::calculate_box_angle_i32(&line.polygon).abs() >= 8.0;
                             if !is_slanted_line {
