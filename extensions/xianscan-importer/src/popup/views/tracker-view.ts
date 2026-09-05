@@ -459,7 +459,7 @@ export class TrackerViewController {
 		this.retryBtn.classList.toggle('hidden', !hasRetryable);
 	}
 
-	handlePageTranslated(pageId: number, pageSeq: number, outputRev: number): void {
+	handlePageTranslated(pageId: number, pageSeq: number, outputRev: number, serverTotal?: number): void {
 		// SYNCHRONIZE IN-MEMORY CONTROLLER STATE SO SUBSEQUENT RE-RENDERS PRESERVE READY STATUS
 		const targetPage = this.activeChapterPages.find(p => p.id === pageId) || this.activeChapterPages[pageSeq];
 		if (targetPage) {
@@ -500,6 +500,28 @@ export class TrackerViewController {
 			void resolveSafeImageUrl(newUrl).then(safeUrl => {
 				if (safeUrl) sliceImg.src = safeUrl;
 			});
+		}
+
+		const hasPages = this.activeChapterPages.length > 0;
+		const total = hasPages ? this.activeChapterPages.length : (serverTotal || 0);
+		const doneCount = hasPages
+			? this.activeChapterPages.filter(p => p.outputPath || (p.outputRev ?? 0) > 0 || p.status === 'done').length
+			: Math.min(pageSeq + 1, total || (pageSeq + 1));
+
+		if (total > 0) {
+			if (doneCount >= total) {
+				this.statusBadgeEl.className = 'tracker-badge ready';
+				this.statusBadgeEl.textContent = 'Ready';
+				this.summaryTextEl.textContent = `All ${total} pages translated`;
+				this.progressWrap.classList.add('hidden');
+				this.stepper.update('done', total, total);
+				this.stopPolling();
+			} else {
+				this.statusBadgeEl.className = 'tracker-badge translating';
+				this.statusBadgeEl.textContent = `Translating ${doneCount}/${total}`;
+				this.summaryTextEl.textContent = `${doneCount} / ${total} pages ready`;
+				this.updateProgress(doneCount, total, 'translating');
+			}
 		}
 	}
 

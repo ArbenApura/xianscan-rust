@@ -9,6 +9,7 @@
 	import { settings } from '$lib/stores/settings';
 	import { jobTracker } from '$lib/stores/job-tracker';
 	import { batchTracker } from '$lib/stores/batch-tracker';
+	import { syncClient } from '$lib/stores/sync-client';
 	import { readingHistory } from '$lib/stores/reading-history';
 	import ChapterToolbar from '$lib/components/chapter/ChapterToolbar.svelte';
 	import ViewModeWebtoon from '$lib/components/chapter/ViewModeWebtoon.svelte';
@@ -302,6 +303,22 @@
 	$: isWholeChapterQueued = Boolean(
 		activeQueuedBatch && (!activeQueuedBatch.pageIds || activeQueuedBatch.pageIds.length === 0),
 	);
+
+	// AUTO-ATTACH JOB TRACKER WHEN BATCH STARTS RUNNING FOR THIS CHAPTER
+	$: if (browser && chapterId && activeQueuedBatch?.status === 'processing' && !currentJobState.running) {
+		void jobTracker.syncChapter(chapterId);
+	}
+
+	// WATCH GLOBAL SYNC BUS FOR EXTERNAL RUNS ON THIS CHAPTER
+	let lastHandledSyncTimestamp = 0;
+	$: if (browser && chapterId && $syncClient.lastEvent?.chapterId === chapterId) {
+		const ev = $syncClient.lastEvent;
+		const ts = ev.timestamp ?? 0;
+		if (ev.type === 'page-translated' && !currentJobState.running && ts > lastHandledSyncTimestamp) {
+			lastHandledSyncTimestamp = ts;
+			void jobTracker.syncChapter(chapterId);
+		}
+	}
 
 	// REAL-TIME SYNCHRONIZED PAGES MERGED WITH SNAPSHOT (MEMOIZED REFERENCES)
 	let lastDisplayPagesMap = new Map<number, ChapterPageItem>();

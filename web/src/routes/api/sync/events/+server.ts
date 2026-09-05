@@ -33,7 +33,7 @@ function createSseStream(): Response {
 			});
 
 			// SEND INITIAL CONNECTED EVENT
-			sendEvent('connected', { timestamp: Date.now() });
+			sendEvent('connected', { type: 'connected', timestamp: Date.now() });
 
 			// SEND PERIODIC HEARTBEAT TO PREVENT PROXY OR REVERSE PROXY TIMEOUTS
 			heartbeatTimer = setInterval(() => {

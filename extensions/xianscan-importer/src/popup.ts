@@ -258,10 +258,7 @@ class PopupController {
 					}
 				}
 			} else if (msg.type === 'PAGE_TRANSLATED') {
-				const current = msg.pageSeq + 1;
-				const total = msg.total || current;
-				this.trackerView.updateProgress(current, total, 'translating');
-				this.trackerView.handlePageTranslated(msg.pageId, msg.pageSeq, msg.outputRev);
+				this.trackerView.handlePageTranslated(msg.pageId, msg.pageSeq, msg.outputRev, msg.total);
 			} else if (msg.type === 'CHAPTER_SYNC_UPDATE') {
 				if (msg.status === 'resliced' && msg.pages) {
 					this.trackerView.setPages(msg.pages);

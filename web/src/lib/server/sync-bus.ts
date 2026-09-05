@@ -9,6 +9,7 @@ export type SyncEventType =
 	| 'chapter-updated'
 	| 'chapter-deleted'
 	| 'pages-updated'
+	| 'chapter-reslicing'
 	| 'chapter-resliced'
 	| 'page-translated'
 	| 'chapter-translated'
@@ -22,6 +23,10 @@ export interface SyncEvent {
 	pageSeq?: number;
 	outputRev?: number;
 	count?: number;
+	total?: number;
+	step?: string;
+	message?: string;
+	pct?: number;
 	timestamp?: number;
 }
 

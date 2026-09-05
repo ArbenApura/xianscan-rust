@@ -29,7 +29,7 @@ function createSseStream(): Response {
 
 			// SUBSCRIBE TO SERVER BATCH SERVICE
 			unsubscribe = batchService.subscribe((event) => {
-				sendEvent(event.type, event.state);
+				sendEvent(event.type, { type: event.type, state: event.state });
 			});
 
 			// SEND PERIODIC HEARTBEAT TO PREVENT PROXY TIMEOUTS

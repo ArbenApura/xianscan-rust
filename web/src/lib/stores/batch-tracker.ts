@@ -68,6 +68,19 @@ function createBatchTrackerStore() {
 	let sseAbortController: AbortController | null = null;
 	let isConnectingSse = false;
 	let pollTimer: ReturnType<typeof setInterval> | null = null;
+	let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+	let reconnectAttempts = 0;
+
+	function scheduleReconnect() {
+		if (!browser) return;
+		if (reconnectTimer) clearTimeout(reconnectTimer);
+		const delay = Math.min(1000 * Math.pow(1.5, reconnectAttempts), 10000);
+		reconnectAttempts++;
+		reconnectTimer = setTimeout(() => {
+			reconnectTimer = null;
+			connectSse();
+		}, delay);
+	}
 
 	function handleServerState(state: BatchTranslationState) {
 		set(state);
@@ -82,6 +95,10 @@ function createBatchTrackerStore() {
 	// CONNECT TO SERVER SSE FEED
 	function connectSse() {
 		if (!browser || isConnectingSse || sseAbortController) return;
+		if (reconnectTimer) {
+			clearTimeout(reconnectTimer);
+			reconnectTimer = null;
+		}
 		isConnectingSse = true;
 
 		const ctrl = new AbortController();
@@ -93,14 +110,22 @@ function createBatchTrackerStore() {
 					'/api/batch/events',
 					{ method: 'GET' },
 					(e) => {
+						reconnectAttempts = 0;
 						if ((e.type === 'batch-state' || e.type === 'batch-chapter-update' || e.type === 'batch-finished') && (e as any).state) {
 							handleServerState((e as any).state);
+						} else if (Array.isArray((e as any).queue) && typeof (e as any).active === 'boolean') {
+							handleServerState(e as unknown as BatchTranslationState);
 						}
 					},
 					ctrl.signal,
 				);
+				if (!ctrl.signal.aborted) {
+					scheduleReconnect();
+				}
 			} catch {
-				// SSE closed or reconnected
+				if (!ctrl.signal.aborted) {
+					scheduleReconnect();
+				}
 			} finally {
 				isConnectingSse = false;
 				sseAbortController = null;
@@ -109,6 +134,11 @@ function createBatchTrackerStore() {
 	}
 
 	function disconnectSse() {
+		if (reconnectTimer) {
+			clearTimeout(reconnectTimer);
+			reconnectTimer = null;
+		}
+		reconnectAttempts = 0;
 		if (sseAbortController) {
 			sseAbortController.abort();
 			sseAbortController = null;
@@ -385,6 +415,10 @@ function createBatchTrackerStore() {
 
 		// MANUALLY TRIGGER SYNC
 		sync,
+
+		// SSE CONTROLS
+		connectSse,
+		disconnectSse,
 
 		// DIRECT STATE SETTER (FOR TESTING AND SYNCHRONOUS STORE INITIALIZATION)
 		set: handleServerState,

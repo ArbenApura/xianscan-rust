@@ -51,16 +51,18 @@ export const POST: RequestHandler = async ({ params, request }) => {
 			(async () => {
 				try {
 					emit({ type: 'start', chapterId });
+					syncBus.broadcast({ type: 'chapter-reslicing', chapterId, step: 'start', message: 'Starting smart re-slice...', pct: 0 });
 					const result = await resliceChapterPages(
 						chapterId,
 						pipelineClient,
 						(step, message, pct) => {
 							emit({ type: 'progress', step, message, pct });
+							syncBus.broadcast({ type: 'chapter-reslicing', chapterId, step, message, pct });
 						},
-					request.signal,
-					DATA_ROOT,
-					heightOpts,
-				);
+						request.signal,
+						DATA_ROOT,
+						heightOpts,
+					);
 					emit({
 						type: 'done',
 						originalCount: result.originalCount,

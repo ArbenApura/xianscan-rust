@@ -1251,6 +1251,8 @@ export async function runChapterPipeline(
 				pageId: page.id,
 				pageSeq: i,
 				outputRev: finalOutputRev,
+				total: slots.length,
+				count: slots.length,
 			});
 		} catch (e) {
 			slots[i].failedStep = activeStep;

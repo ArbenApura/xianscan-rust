@@ -102,7 +102,7 @@ function createSyncClientStore() {
 							reconnectAttempts: 0,
 							lastSyncTime: Date.now(),
 						}));
-					} else if (event.type === 'sync' || (event as any).bookId || (event as any).chapterId) {
+					} else if (Boolean(event.type) || (event as any).bookId || (event as any).chapterId) {
 						handleEvent(event);
 					}
 				},

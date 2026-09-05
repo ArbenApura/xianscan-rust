@@ -58,7 +58,7 @@ export async function attachGlobalSyncListener(serverUrl: string): Promise<void>
 							pageId: data.pageId,
 							outputRev: data.outputRev || 1,
 							outputPath: data.outputPath || '',
-							total: data.count || data.total || 0
+							total: data.total || data.count || 0
 						};
 						broadcastToChapterTabs(Number(data.chapterId), pageMsg);
 						safeBroadcast(pageMsg);

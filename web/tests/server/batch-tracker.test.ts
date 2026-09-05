@@ -328,6 +328,63 @@ describe('batchTracker & batchProgress', () => {
 		expect(state.queue[1].id).toBe(503);
 		expect(state.queue[2].id).toBe(502);
 	});
+
+	it('handles both wrapped { type, state } and unwrapped BatchTranslationState SSE events', async () => {
+		const { streamSse } = await import('$lib/sse');
+		let eventCallback: ((e: any) => void) | null = null;
+		vi.mocked(streamSse).mockImplementation((_url, _opts, onEvent) => {
+			eventCallback = onEvent;
+			return Promise.resolve();
+		});
+
+		batchTracker.connectSse();
+		expect(eventCallback).not.toBeNull();
+
+		// 1. Wrapped event envelope
+		eventCallback!({
+			type: 'batch-state',
+			state: {
+				active: true,
+				status: 'running',
+				bookId: 'book_wrap',
+				bookTitle: 'Wrapped Book',
+				queue: [{ id: 601, seq: 0, title: 'Chapter 1', pageCount: 4, status: 'processing', translatedPages: 1 }],
+				currentIndex: 0,
+				force: false,
+				startedAt: Date.now(),
+				completedAt: null,
+				totalPromptTokens: 10,
+				totalCompletionTokens: 20,
+			},
+		});
+
+		let state = get(batchTracker);
+		expect(state.active).toBe(true);
+		expect(state.bookId).toBe('book_wrap');
+		expect(state.queue[0].id).toBe(601);
+
+		// 2. Direct raw payload
+		eventCallback!({
+			active: true,
+			status: 'running',
+			bookId: 'book_raw',
+			bookTitle: 'Raw Book',
+			queue: [{ id: 701, seq: 0, title: 'Chapter 1', pageCount: 6, status: 'processing', translatedPages: 2 }],
+			currentIndex: 0,
+			force: false,
+			startedAt: Date.now(),
+			completedAt: null,
+			totalPromptTokens: 30,
+			totalCompletionTokens: 40,
+		});
+
+		state = get(batchTracker);
+		expect(state.active).toBe(true);
+		expect(state.bookId).toBe('book_raw');
+		expect(state.queue[0].id).toBe(701);
+
+		batchTracker.disconnectSse();
+	});
 });
 
 import { batchService } from '$lib/server/batch-service';
