@@ -84,6 +84,7 @@ mod page_yanshan_ye_family_business_alliance_bubble;
 mod page_bullets_cannons_god_descends_bubble;
 mod page_chen_beixuan_slay_black_witch_god_box;
 mod page_beiqiong_sect_tongshan_axiu_name_labels;
+mod page_grandmasters_damon_name_label;
 mod page_uncle_take_him_down_trailing_dash;
 mod page_vampire_confrontation_spiky_shout_bubbles;
 mod page_beiqiong_europe_arbitration_tail_cut;
