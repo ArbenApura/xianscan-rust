@@ -30,8 +30,8 @@ fn test_regression_page_seven_year_old_summoner_talent() {
         println!("  Region r{}: kind={:?}, box={:?}, text='{}', conf={:.2}, vert={}", i, r.kind, r.box_, r.text.replace('\n', "\\n"), r.confidence, r.vertical);
     }
 
-    // 0. STRICT 15-REGION ACCOUNTING (10 DIALOGUE BUBBLES, 0 SOUND EFFECTS, 5 FREE TEXT)
-    crate::assert_element_counts!(res, 15, 10, 0, 5);
+    // 0. STRICT 16-REGION ACCOUNTING (10 DIALOGUE BUBBLES, 0 SOUND EFFECTS, 6 FREE TEXT)
+    crate::assert_element_counts!(res, 16, 10, 0, 6);
 
     // 1. TOP-LEFT PANEL - TOP BUBBLE: '全世界でも稀な…'
     let rare_bubble = res.regions.iter().find(|r| r.text.contains("全世界") || r.text.contains("稀な"));
@@ -128,4 +128,10 @@ fn test_regression_page_seven_year_old_summoner_talent() {
     let expect_bubble = expect_bubble.unwrap();
     crate::assert_region_bounds!(expect_bubble, RegionKind::DialogueBubble, 1044, 1626, 160, 256, 15);
     crate::assert_bubble_bounds!(expect_bubble, 997, 1571, 255, 363, 18);
+
+    // 16. TOP-RIGHT PANEL - HAIR WHISPER FREE TEXT: 'ア… アリアを…'
+    let hair_whisper = res.regions.iter().find(|r| (r.text.contains("アを") || r.text.contains("アリア") || r.text.contains("ア")) && r.box_.x >= 900 && r.box_.x < 1060 && r.box_.y > 100 && r.box_.y < 350);
+    assert!(hair_whisper.is_some(), "Must detect hair whisper free text 'ア… アリアを…'");
+    let hair_whisper = hair_whisper.unwrap();
+    crate::assert_region_bounds!(hair_whisper, RegionKind::FreeText, 919, 103, 141, 221, 25);
 }

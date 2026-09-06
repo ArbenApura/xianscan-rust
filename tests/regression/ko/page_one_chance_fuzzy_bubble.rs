@@ -39,10 +39,10 @@ fn test_regression_page_one_chance_fuzzy_bubble() {
     crate::assert_region_bounds!(
         bubble,
         xianscan_rust::ml::schemas::RegionKind::DialogueBubble,
-        104,
-        565,
-        388,
-        262,
+        88,
+        567,
+        420,
+        236,
         15
     );
     crate::assert_bubble_bounds!(bubble, 37, 447, 523, 472, 15);

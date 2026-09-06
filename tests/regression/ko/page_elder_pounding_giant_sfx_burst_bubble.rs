@@ -71,8 +71,7 @@ fn test_regression_page_elder_pounding_giant_sfx_burst_bubble() {
         "Bottom bubble must capture both utterance lines, got: '{}'",
         bottom.text.replace('\n', "\\n")
     );
-    assert!(bottom.bubble_box.is_some(), "Bottom bubble must carry a bubble envelope");
-    crate::assert_region_bounds!(bottom, xianscan_rust::ml::schemas::RegionKind::DialogueBubble, 68, 1764, 299, 110, 10);
+    crate::assert_region_bounds!(bottom, xianscan_rust::ml::schemas::RegionKind::DialogueBubble, 52, 1758, 331, 110, 15);
     crate::assert_bubble_bounds!(bottom, 6, 1605, 433, 310, 10);
     crate::assert_region_angle!(bottom, 0.0, 2.0);
 

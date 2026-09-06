@@ -12,7 +12,6 @@ use sha2::{Digest, Sha256};
 // -- INTERNAL IMPORTS -- //
 use xianscan_rust::ml::schemas::{AnalyzeOptions, AnalyzeResponse, BoxRect, RegionKind};
 use xianscan_rust::ml::inpaint::{build_mask, clean_white_bubble_shrinkwrap, LamaInpainter};
-use xianscan_rust::ml::ocr::RapidOcr;
 use xianscan_rust::pipeline::region_builder::extract_carrier_box_from_image;
 use xianscan_rust::pipeline::PipelineEngine;
 
@@ -1094,22 +1093,8 @@ pub fn get_or_analyze_fixture_with_opts(
 
     let res = if let Some(fusion) = fusion_opt {
         let models_dir = Path::new("models");
-        let dict_path = if models_dir.join("rapidocr_keys.json").exists() {
-            models_dir.join("rapidocr_keys.json")
-        } else {
-            models_dir.join("ppocr_keys_v1.txt")
-        };
-        let det_path = if models_dir.join("PP-OCRv6_det_small.onnx").exists() {
-            Some(models_dir.join("PP-OCRv6_det_small.onnx"))
-        } else {
-            None
-        };
-        let ocr = RapidOcr::new(det_path, models_dir.join("PP-OCRv6_rec_small.onnx"), dict_path).ok();
-        let mut engine = PipelineEngine {
-            detector: None,
-            ocr,
-            inpainter: None,
-        };
+        let mut engine = PipelineEngine::new(models_dir);
+        engine.detector = None;
         xianscan_rust::pipeline::analyzer::analyze_image_with_fusion(&mut engine, img, &fusion, Some(opts))
             .expect("Pipeline analyze_image_with_fusion failed")
     } else {

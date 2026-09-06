@@ -108,10 +108,10 @@ fn test_regression_page_eleven_years_red_smoke_narration() {
     crate::assert_region_bounds!(
         bot_bubble,
         xianscan_rust::ml::schemas::RegionKind::DialogueBubble,
-        352,
-        2027,
-        192,
-        114,
+        353,
+        2040,
+        190,
+        88,
         15
     );
     crate::assert_bubble_bounds!(bot_bubble, 309, 1967, 282, 223, 15);

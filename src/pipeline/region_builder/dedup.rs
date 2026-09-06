@@ -353,7 +353,10 @@ pub fn deduplicate_and_unify_regions(
                     }
                         } else {
                             // Horizontal lines
-                            let is_in_same_bubble = r.bubble_box.is_some() && existing.bubble_box.is_some();
+                            let is_in_same_bubble = match (&r.bubble_box, &existing.bubble_box) {
+                                (Some(b1), Some(b2)) => b1.x == b2.x && b1.y == b2.y && b1.w == b2.w && b1.h == b2.h,
+                                _ => false,
+                            };
                             let r_line_count = r.text.lines().count().max(1) as f32;
                             let e_line_count = existing.text.lines().count().max(1) as f32;
                             let left_delta = (rx - ex).abs();
@@ -361,15 +364,41 @@ pub fn deduplicate_and_unify_regions(
                             let center_delta = ((rx + rw / 2) - (ex + ew / 2)).abs();
 
                             if is_in_same_bubble {
+                                // Multi-line connected lobes (e.g. attached compound bubbles) must remain separate,
+                                // UNLESS it is a single tall continuous speech balloon with a tight paragraph gap.
+                                if r_line_count >= 2.0 && e_line_count >= 2.0 {
+                                    let b = r.bubble_box.as_ref().unwrap();
+                                    let font_line_h = (rh as f32 / r_line_count).min(eh as f32 / e_line_count);
+                                    let vert_gap = if ry >= ey + eh { ry - (ey + eh) } else if ey >= ry + rh { ey - (ry + rh) } else { 0 };
+                                    let overlap_x = (rx + rw).min(ex + ew) - rx.max(ex);
+                                    let overlap_ratio = overlap_x.max(0) as f32 / min_w.max(1) as f32;
+
+                                    let is_tall_continuous_balloon = b.h >= 350
+                                        && b.h >= (b.w as f32 * 1.35) as i32
+                                        && vert_gap <= (font_line_h * 0.40).max(12.0) as i32
+                                        && overlap_ratio >= 0.70
+                                        && center_delta <= 45;
+
+                                    if !is_tall_continuous_balloon {
+                                        continue;
+                                    }
+                                }
+                                let is_left_aligned = left_delta <= (min_w as f32 * 0.20).max(15.0) as i32;
+                                if !is_left_aligned && (center_delta > 40 || left_delta > 35) {
+                                    continue;
+                                }
+                                if center_delta > 80 && left_delta > 40 {
+                                    continue;
+                                }
                                 // Inside the same speech bubble, text lines can be centered or shaped to the balloon
                                 let font_line_h = (rh as f32 / r_line_count).min(eh as f32 / e_line_count);
                                 let vert_gap = if ry >= ey + eh { ry - (ey + eh) } else if ey >= ry + rh { ey - (ry + rh) } else { 0 };
-                                let max_allowed_gap = (font_line_h * 1.50).max(35.0) as i32;
+                                let max_allowed_gap = (font_line_h * 0.60).max(18.0) as i32;
                                 if vert_gap > max_allowed_gap {
                                     continue;
                                 }
                                 let overlap_x = (rx + rw).min(ex + ew) - rx.max(ex);
-                                if (overlap_x.max(0) as f32 / min_w.max(1) as f32) < 0.30 && center_delta > 50 {
+                                if (overlap_x.max(0) as f32 / min_w.max(1) as f32) < 0.40 && center_delta > 35 {
                                     continue;
                                 }
                             } else {
