@@ -416,8 +416,8 @@ pub fn extract_carrier_box_from_image(img: &DynamicImage, b: &BoxRect, t: &BoxRe
 
         let raw_w = raw_max_px - raw_min_px + 1;
         let raw_h = raw_max_py - raw_min_py + 1;
-        let min_row_w = (raw_w as f32 * 0.22).round() as usize;
-        let min_col_h = (raw_h as f32 * 0.22).round() as usize;
+        let min_row_w = 4.min(raw_w);
+        let min_col_h = 4.min(raw_h);
 
         let mut min_py = raw_min_py;
         while min_py <= raw_max_py {

@@ -79,6 +79,19 @@ fn test_regression_page_eleven_years_red_smoke_narration() {
     crate::assert_bubble_bounds!(mid_bubble, 295, 930, 318, 307, 15);
     crate::assert_region_angle!(mid_bubble, 0.0, 1.5);
 
+    // Carrier box must sever downward tail and typeset box must be centered inside carrier chamber
+    assert!(mid_bubble.carrier_box.is_some(), "Middle dialogue bubble must publish a carrier box");
+    let carrier = mid_bubble.carrier_box.as_ref().unwrap();
+    let tb = mid_bubble.typeset_box.as_ref().expect("typeset box must exist");
+    assert!(carrier.h <= 250, "Carrier height must cut off bottom tail, got {}", carrier.h);
+    let carrier_cy = carrier.y + carrier.h / 2;
+    let tb_cy = tb.y + tb.h / 2;
+    assert!(
+        (tb_cy - carrier_cy).abs() <= 3,
+        "Typeset box Y must be centered in carrier chamber (got tb_cy={}, carrier_cy={})",
+        tb_cy, carrier_cy
+    );
+
     // 4. BOTTOM DIALOGUE BUBBLE: [X: 352, Y: 2027, W: 192, H: 114]
     let bot_bubble = res
         .regions

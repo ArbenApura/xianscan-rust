@@ -129,17 +129,21 @@ pub fn valid_tail_cut_carrier(carrier: &BoxRect, b: &BoxRect, page_h: u32) -> bo
     }
 
     // DIRECTIONAL ASYMMETRY CHECK: A REAL TAIL CUT CUTS DEEPLY INTO ONE EDGE
-    // WHILE LEAVING THE OPPOSITE CHAMBER BOUNDARY VIRTUALLY UNTOUCHED (<= 6PX TRIM).
+    // WHILE LEAVING THE OPPOSITE CHAMBER BOUNDARY VIRTUALLY UNTOUCHED.
+    // ON LARGE BUBBLES (>200PX), DETECTOR PADDING AND OVAL CURVATURE NATURALLY YIELD 8-13PX PERIMETER SLACK.
     let trim_left = (carrier.x - b.x).max(0);
     let trim_right = ((b.x + b.w) - (carrier.x + carrier.w)).max(0);
     let trim_top = (carrier.y - b.y).max(0);
     let trim_bot = ((b.y + b.h) - (carrier.y + carrier.h)).max(0);
 
-    let is_h_cut = (trim_right >= 12 && trim_left <= 6 && trim_right >= trim_left * 2)
-        || (trim_left >= 12 && trim_right <= 6 && trim_left >= trim_right * 2);
+    let max_opp_v = 6.max((b.h as f32 * 0.04).round() as i32);
+    let max_opp_h = 6.max((b.w as f32 * 0.04).round() as i32);
 
-    let is_v_cut = (trim_bot >= 14 && trim_top <= 6 && trim_bot >= trim_top * 2)
-        || (trim_top >= 14 && trim_bot <= 6 && trim_top >= trim_bot * 2);
+    let is_h_cut = (trim_right >= 12 && trim_left <= max_opp_h && trim_right >= trim_left * 2)
+        || (trim_left >= 12 && trim_right <= max_opp_h && trim_left >= trim_right * 2);
+
+    let is_v_cut = (trim_bot >= 14 && trim_top <= max_opp_v && trim_bot >= trim_top * 2)
+        || (trim_top >= 14 && trim_bot <= max_opp_v && trim_top >= trim_bot * 2);
 
     if !is_h_cut && !is_v_cut {
         return false;
@@ -174,13 +178,23 @@ pub fn resolve_carrier_box(
     if let Some(image) = img {
         let img_carrier = super::geometry::extract_carrier_box_from_image(image, b, t);
         let img_is_cut = valid_tail_cut_carrier(&img_carrier, b, page_h);
-
         if img_is_cut && geom_is_cut {
-            // BOTH DETECTED CUTS: ONLY TRIM AN EDGE IF IMAGE MORPHOLOGY CONFIRMS A REAL PROTRUSION ON THAT EDGE.
-            // IF GEOMETRIC MARGINS AGREE ON THAT SAME EDGE, TAKE THE TIGHTER BOUNDARY;
-            // NEVER ALLOW GEOMETRIC MARGIN ASYMMETRY TO CUT AN EDGE THAT IMAGE MORPHOLOGY FOUND SOLID.
+            // BOTH ENGINES DETECTED A CUT:
+            // IMAGE MORPHOLOGY SEGMENTS THE PHYSICAL BUBBLE PIXELS. IF IMAGE MORPHOLOGY HAS ALREADY
+            // RESTORED A BALANCED BUBBLE CHAMBER ALONG THE CUT AXIS (REMAINING MARGIN IS WITHIN 1.35x
+            // OF OPPOSITE NON-TAIL MARGIN), TRUST THE EXACT PIXEL BOUNDARY FROM IMAGE MORPHOLOGY.
+            // ONLY IF IMAGE MORPHOLOGY UNDER-TRIMMED A WIDE BULBOUS LOBE (REMAINING MARGIN IS STILL SKEWED
+            // BY >= 1.35x AND >= 10PX OVER OPPOSITE MARGIN), ALLOW GEOMETRIC MARGIN RESCUE TO TIGHTEN.
+            let m_top_orig = (t.y - b.y).max(0);
+            let m_bot_orig = ((b.y + b.h) - (t.y + t.h)).max(0);
+            let m_left_orig = (t.x - b.x).max(0);
+            let m_right_orig = ((b.x + b.w) - (t.x + t.w)).max(0);
+
             let eff_x = if carrier_trim_x(&img_carrier, b) >= 8 {
-                if carrier_trim_x(&geom_carrier, b) >= 8 {
+                let m_rem_left = (t.x - img_carrier.x).max(0);
+                let left_still_skewed = m_rem_left as f32 >= m_right_orig as f32 * 1.35
+                    && (m_rem_left - m_right_orig) >= 10;
+                if left_still_skewed && carrier_trim_x(&geom_carrier, b) >= 8 {
                     img_carrier.x.max(geom_carrier.x)
                 } else {
                     img_carrier.x
@@ -188,8 +202,12 @@ pub fn resolve_carrier_box(
             } else {
                 b.x
             };
+
             let eff_y = if carrier_trim_y(&img_carrier, b) >= 8 {
-                if carrier_trim_y(&geom_carrier, b) >= 8 {
+                let m_rem_top = (t.y - img_carrier.y).max(0);
+                let top_still_skewed = m_rem_top as f32 >= m_bot_orig as f32 * 1.35
+                    && (m_rem_top - m_bot_orig) >= 10;
+                if top_still_skewed && carrier_trim_y(&geom_carrier, b) >= 8 {
                     img_carrier.y.max(geom_carrier.y)
                 } else {
                     img_carrier.y
@@ -197,24 +215,35 @@ pub fn resolve_carrier_box(
             } else {
                 b.y
             };
+
             let eff_right = if carrier_trim_r(&img_carrier, b) >= 8 {
-                if carrier_trim_r(&geom_carrier, b) >= 8 {
-                    (img_carrier.x + img_carrier.w).min(geom_carrier.x + geom_carrier.w)
+                let img_r = img_carrier.x + img_carrier.w;
+                let m_rem_right = (img_r - (t.x + t.w)).max(0);
+                let right_still_skewed = m_rem_right as f32 >= m_left_orig as f32 * 1.35
+                    && (m_rem_right - m_left_orig) >= 10;
+                if right_still_skewed && carrier_trim_r(&geom_carrier, b) >= 8 {
+                    img_r.min(geom_carrier.x + geom_carrier.w)
                 } else {
-                    img_carrier.x + img_carrier.w
+                    img_r
                 }
             } else {
                 b.x + b.w
             };
+
             let eff_bot = if carrier_trim_b(&img_carrier, b) >= 8 {
-                if carrier_trim_b(&geom_carrier, b) >= 8 {
-                    (img_carrier.y + img_carrier.h).min(geom_carrier.y + geom_carrier.h)
+                let img_b = img_carrier.y + img_carrier.h;
+                let m_rem_bot = (img_b - (t.y + t.h)).max(0);
+                let bot_still_skewed = m_rem_bot as f32 >= m_top_orig as f32 * 1.35
+                    && (m_rem_bot - m_top_orig) >= 10;
+                if bot_still_skewed && carrier_trim_b(&geom_carrier, b) >= 8 {
+                    img_b.min(geom_carrier.y + geom_carrier.h)
                 } else {
-                    img_carrier.y + img_carrier.h
+                    img_b
                 }
             } else {
                 b.y + b.h
             };
+
             let eff_w = (eff_right - eff_x).max(t.w);
             let eff_h = (eff_bot - eff_y).max(t.h);
             let fused = BoxRect {
