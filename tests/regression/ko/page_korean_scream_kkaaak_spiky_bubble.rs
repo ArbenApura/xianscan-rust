@@ -53,10 +53,10 @@ fn test_regression_page_korean_scream_kkaaak_spiky_bubble() {
     crate::assert_region_bounds!(
         upper,
         xianscan_rust::ml::schemas::RegionKind::DialogueBubble,
-        450,
-        230,
-        166,
-        438,
+        446,
+        207,
+        176,
+        482,
         15
     );
     crate::assert_bubble_bounds!(upper, 402, 124, 268, 632, 15);

@@ -79,17 +79,17 @@ pub fn derive_carrier_box(b: &BoxRect, t: &BoxRect, page_h: u32) -> BoxRect {
     let m_vert = m_top.min(m_bot);
 
     // VERTICAL TAILS:
-    // SKEWED BY >= 1.30x AND MIN 20PX DELTA BETWEEN TOP AND BOTTOM MARGINS.
+    // SKEWED BY >= 1.30x AND MIN 26PX DELTA BETWEEN TOP AND BOTTOM MARGINS.
     // IF THE BUBBLE EXTENDS NEAR THE TOP OR BOTTOM CANVAS EDGE (b.y <= 12 OR b.y + b.h >= page_h - 12),
     // IT IS CUT/SEVERED BY THE SLICE SEAM RATHER THAN HAVING A TRUE ASYMMETRIC TAIL, SO BYPASS VERTICAL TAIL TRIMMING.
     let is_top_or_bottom_edge = b.y <= 12 || (b.y + b.h) as u32 >= page_h.saturating_sub(12);
     if !is_top_or_bottom_edge {
-        if m_bot as f32 >= m_top as f32 * 1.30 && (m_bot - m_top) >= 20 {
+        if m_bot as f32 >= m_top as f32 * 1.30 && (m_bot - m_top) >= 26 {
             // DOWNWARD TAIL: TOP/LEFT/RIGHT ARE TRUE BUBBLE BOUNDARIES, TRIM BOTTOM EXCESS
             let safe_pad = (m_top as f32).min(m_side as f32 * 0.90).max(12.0).round() as i32;
             let eff_bottom = (t.y + t.h + safe_pad).min(b.y + b.h);
             carrier.h = (eff_bottom - b.y).max(t.h + 10);
-        } else if m_top as f32 >= m_bot as f32 * 1.30 && (m_top - m_bot) >= 20 {
+        } else if m_top as f32 >= m_bot as f32 * 1.30 && (m_top - m_bot) >= 26 {
             // UPWARD TAIL: BOTTOM/LEFT/RIGHT ARE TRUE BUBBLE BOUNDARIES, TRIM TOP EXCESS
             let safe_pad = (m_bot as f32).min(m_side as f32 * 0.90).max(12.0).round() as i32;
             let eff_top = (t.y - safe_pad).max(b.y);
@@ -117,30 +117,34 @@ pub fn derive_carrier_box(b: &BoxRect, t: &BoxRect, page_h: u32) -> BoxRect {
 }
 
 /// VALIDATES A DERIVED CARRIER AS A GENUINE TAIL-CUT BUBBLE BOUNDARY.
-/// VALIDATES A DERIVED CARRIER AS A GENUINE TAIL-CUT BUBBLE BOUNDARY.
 ///
-/// A CARRIER IS TRUSTWORTHY ONLY WHEN AN ACTUAL CUT OCCURRED (TRIMMING AT LEAST 14PX ON THE PRIMARY
-/// CUT AXIS OR 18PX TOTAL REDUCTION ACROSS BOTH DIMENSIONS), THE CHAMBER RETAINS SANE DIMENSIONS,
-/// AND THE BUBBLE IS NOT SEVERED BY A SLICE SEAM (EDGE-CUT BUBBLES MIMIC ASYMMETRIC TAILS, MAKING
-/// CARRIER DERIVATION UNRELIABLE). TRIVIAL 1-5PX EDGE PERIMETER VARIATIONS FROM ANTI-ALIASING DO
-/// NOT CONSTITUTE A REAL TAIL CUT.
+/// A CARRIER IS TRUSTWORTHY ONLY WHEN A GENUINE DIRECTIONAL TAIL WAS SEVERED
+/// (SIGNIFICANT REDUCTION ON ONE DOMINANT PROTRUDING EDGE WITH NEGLIGIBLE TRIM ON THE OPPOSITE WALL).
+/// UNIFORM MULTI-EDGE SHRINKAGE (SUCH AS EROSION OF RADIATING SPIKES ON A BURST/SHOUT BUBBLE,
+/// OR PERIMETER ANTI-ALIASING VARIATIONS) DOES NOT CONSTITUTE A REAL TAIL CUT.
 pub fn valid_tail_cut_carrier(carrier: &BoxRect, b: &BoxRect, page_h: u32) -> bool {
     // NO REAL CUT HAPPENED (SHARED BUBBLE, SYMMETRIC BODY, OR EXTRACTION FALLBACK TO B)
     if *carrier == *b {
         return false;
     }
-    // A GENUINE CUT MUST TRIM MEANINGFUL TAIL SLACK (AT LEAST 14PX ON THE PRIMARY CUT AXIS
-    // OR 18PX TOTAL REDUCTION ACROSS WIDTH AND HEIGHT). TRIVIAL 1-5PX EDGE PERIMETER VARIATIONS
-    // FROM MORPHOLOGICAL FILTERING OR ANTI-ALIASING DO NOT CONSTITUTE A TAIL CUT.
-    let dw = (b.w - carrier.w).max(0);
-    let dh = (b.h - carrier.h).max(0);
-    let dx = (carrier.x - b.x).max(0);
-    let dy = (carrier.y - b.y).max(0);
-    let max_edge_trim = dx.max(dw).max(dy).max(dh);
-    let total_trim = dw + dh;
-    if max_edge_trim < 14 && total_trim < 18 {
+
+    // DIRECTIONAL ASYMMETRY CHECK: A REAL TAIL CUT CUTS DEEPLY INTO ONE EDGE
+    // WHILE LEAVING THE OPPOSITE CHAMBER BOUNDARY VIRTUALLY UNTOUCHED (<= 6PX TRIM).
+    let trim_left = (carrier.x - b.x).max(0);
+    let trim_right = ((b.x + b.w) - (carrier.x + carrier.w)).max(0);
+    let trim_top = (carrier.y - b.y).max(0);
+    let trim_bot = ((b.y + b.h) - (carrier.y + carrier.h)).max(0);
+
+    let is_h_cut = (trim_right >= 14 && trim_left <= 6 && trim_right >= trim_left * 2)
+        || (trim_left >= 14 && trim_right <= 6 && trim_left >= trim_right * 2);
+
+    let is_v_cut = (trim_bot >= 18 && trim_top <= 6 && trim_bot >= trim_top * 2)
+        || (trim_top >= 18 && trim_bot <= 6 && trim_top >= trim_bot * 2);
+
+    if !is_h_cut && !is_v_cut {
         return false;
     }
+
     // DEGENERATE CHAMBER GUARD: EROSION/DILATION ARTIFACTS OR MICRO BODIES ARE UNTRUSTWORTHY
     if carrier.w < 20 || carrier.h < 20 {
         return false;
@@ -155,8 +159,9 @@ pub fn valid_tail_cut_carrier(carrier: &BoxRect, b: &BoxRect, page_h: u32) -> bo
 /// RESOLVE CARRIER (BODY) BOX BY COOPERATIVE CROSS-VALIDATION OF GEOMETRIC AND MORPHOLOGICAL ENGINES.
 ///
 /// WHEN BOTH GEOMETRIC AND IMAGE MORPHOLOGY EXTRACTORS AGREE ON A GENUINE CUT, COMBINES THEIR BOUNDARIES
-/// CONSERVATIVELY. WHEN IMAGE MORPHOLOGY MISSES AN ASYMMETRIC PROTRUSION (SUCH AS BULBOUS THOUGHT LOBES
-/// WHOSE RADIUS EXCEEDS DISK EROSION KERNELS), THE GEOMETRIC MARGIN DETECTOR RESCUES THE CUT CHAMBER.
+/// CONSERVATIVELY ALONG THE TRIMMED AXIS. WHEN IMAGE MORPHOLOGY MISSES AN ASYMMETRIC PROTRUSION (SUCH AS
+/// BULBOUS THOUGHT LOBES WHOSE RADIUS EXCEEDS DISK EROSION KERNELS), THE GEOMETRIC MARGIN DETECTOR RESCUES
+/// THE CUT CHAMBER.
 pub fn resolve_carrier_box(
     b: &BoxRect,
     t: &BoxRect,
@@ -171,11 +176,27 @@ pub fn resolve_carrier_box(
         let img_is_cut = valid_tail_cut_carrier(&img_carrier, b, page_h);
 
         if img_is_cut && geom_is_cut {
-            // BOTH DETECTED A GENUINE CUT: TAKE CONSERVATIVE TIGHTER BOUNDARIES ALONG TRIMMED AXES
-            let eff_x = img_carrier.x.max(geom_carrier.x);
-            let eff_y = img_carrier.y.max(geom_carrier.y);
-            let eff_right = (img_carrier.x + img_carrier.w).min(geom_carrier.x + geom_carrier.w);
-            let eff_bot = (img_carrier.y + img_carrier.h).min(geom_carrier.y + geom_carrier.h);
+            // BOTH DETECTED A GENUINE CUT: TAKE TIGHTER BOUNDARIES ON TRIMMED EDGES
+            let eff_x = if (carrier_trim_x(&img_carrier, b) >= 8) || (carrier_trim_x(&geom_carrier, b) >= 8) {
+                img_carrier.x.max(geom_carrier.x)
+            } else {
+                b.x
+            };
+            let eff_y = if (carrier_trim_y(&img_carrier, b) >= 8) || (carrier_trim_y(&geom_carrier, b) >= 8) {
+                img_carrier.y.max(geom_carrier.y)
+            } else {
+                b.y
+            };
+            let eff_right = if (carrier_trim_r(&img_carrier, b) >= 8) || (carrier_trim_r(&geom_carrier, b) >= 8) {
+                (img_carrier.x + img_carrier.w).min(geom_carrier.x + geom_carrier.w)
+            } else {
+                b.x + b.w
+            };
+            let eff_bot = if (carrier_trim_b(&img_carrier, b) >= 8) || (carrier_trim_b(&geom_carrier, b) >= 8) {
+                (img_carrier.y + img_carrier.h).min(geom_carrier.y + geom_carrier.h)
+            } else {
+                b.y + b.h
+            };
             let eff_w = (eff_right - eff_x).max(t.w);
             let eff_h = (eff_bot - eff_y).max(t.h);
             let fused = BoxRect {
@@ -199,6 +220,26 @@ pub fn resolve_carrier_box(
     } else {
         (b.clone(), false)
     }
+}
+
+#[inline]
+fn carrier_trim_x(c: &BoxRect, b: &BoxRect) -> i32 {
+    (c.x - b.x).max(0)
+}
+
+#[inline]
+fn carrier_trim_y(c: &BoxRect, b: &BoxRect) -> i32 {
+    (c.y - b.y).max(0)
+}
+
+#[inline]
+fn carrier_trim_r(c: &BoxRect, b: &BoxRect) -> i32 {
+    ((b.x + b.w) - (c.x + c.w)).max(0)
+}
+
+#[inline]
+fn carrier_trim_b(c: &BoxRect, b: &BoxRect) -> i32 {
+    ((b.y + b.h) - (c.y + c.h)).max(0)
 }
 
 /// EXPAND DIALOGUE-BUBBLE TEXT BASE BOUNDARY TO BETTER UTILIZE THE UNUSED AREA WITHIN ITS BUBBLE.
