@@ -82,6 +82,7 @@ mod page_warn_japanese_high_ups_bubble;
 mod page_an_yuqing_dont_talk_to_strangers_bubble;
 mod page_yanshan_ye_family_business_alliance_bubble;
 mod page_bullets_cannons_god_descends_bubble;
+mod page_chen_beixuan_slay_black_witch_god_box;
 mod page_uncle_take_him_down_trailing_dash;
 mod page_vampire_confrontation_spiky_shout_bubbles;
 mod page_beiqiong_europe_arbitration_tail_cut;
