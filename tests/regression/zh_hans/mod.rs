@@ -86,3 +86,4 @@ mod page_god_slaying_spear_radiating_spikes;
 mod page_beiqiong_spatial_formation_thought_bubble;
 mod page_shushan_treasury_pills_artifacts;
 mod page_xiao_xuan_north_shore_restaurant_bubble;
+mod page_slash_again_spiky_tail_shout;
