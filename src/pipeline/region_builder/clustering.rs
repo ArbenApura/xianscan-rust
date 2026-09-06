@@ -297,6 +297,14 @@ pub fn cluster_lines_into_utterances<'a>(
                 && row.len() == 1
                 && min_line_h >= 20.0
                 && vert_gap >= (min_line_h * 0.60).max(15.0)
+                && prev_row_text.chars().count() <= 6
+                && !prev_row_text.contains('，')
+                && !prev_row_text.contains(',')
+                && !prev_row_text.contains('。')
+                && !prev_row_text.contains('！')
+                && !prev_row_text.contains('？')
+                && !prev_row_text.contains('!')
+                && !prev_row_text.contains('?')
                 && (prev_row_text.ends_with("弟子") || prev_row_text.ends_with("阶") || prev_row_text.ends_with("级") || prev_row_text.ends_with("层") || prev_row_text.ends_with("段") || prev_row_text.ends_with("境") || prev_row_text.ends_with("部"));
             let is_slanted_monologue = sin_a.abs() >= 0.035;
             let gap_threshold = if is_slanted_monologue {
@@ -307,7 +315,11 @@ pub fn cluster_lines_into_utterances<'a>(
                 (min_line_h * 1.75).max(35.0)
             };
             let is_substantial_gap = (vert_gap >= gap_threshold && !is_slanted_monologue) || is_standalone_line_rank_split;
-            let is_ellipsis_split = (prev_row_text.ends_with('…') || prev_row_text.ends_with("..")) && vert_gap >= (min_line_h * 0.15).max(2.0);
+            let is_pure_silence_prev = !prev_row_text.is_empty()
+                && prev_row_text.chars().all(|c| matches!(c, '…' | '.' | '·' | '(' | ')' | '（' | '）' | ' ' | '6'));
+            let is_pure_silence_curr = !curr_row_text.is_empty()
+                && curr_row_text.chars().all(|c| matches!(c, '…' | '.' | '·' | '(' | ')' | '（' | '）' | ' ' | '6'));
+            let is_ellipsis_split = (is_pure_silence_prev || is_pure_silence_curr) && vert_gap >= (min_line_h * 0.15).max(2.0);
             let is_multi_lobe_split = if current_cluster.len() >= 2 {
                 let next_lobe_lines: Vec<&OcrLine> = rows[r_idx..r_idx.saturating_add(3).min(rows.len())]
                     .iter()
@@ -336,7 +348,6 @@ pub fn cluster_lines_into_utterances<'a>(
             };
 
             let should_split = is_substantial_gap || is_ellipsis_split || is_multi_lobe_split || (ends_with_punct && vert_gap >= (min_line_h * 0.70).max(16.0)) || is_caption_to_title || is_title_to_credits || is_repeated_bracketed_tag;
-
 
             if should_split && !current_cluster.is_empty() {
                 paragraph_clusters.push(current_cluster);

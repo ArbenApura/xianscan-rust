@@ -84,7 +84,8 @@ fn check_composite_subboxes<'a>(
             let horiz_sep = s1.x + s1.w <= s2.x + 10 || s2.x + s2.w <= s1.x + 10;
             let center_stagger = ((s1.x + s1.w / 2) - (s2.x + s2.w / 2)).abs() >= 65;
             let vert_gap_sep = s2.y >= s1.y + s1.h + 25 || s1.y >= s2.y + s2.h + 25;
-            let both_multiline_distinct_lobes = s1.h >= 50 && s2.h >= 50 && (s2.y >= s1.y + s1.h || s1.y >= s2.y + s2.h);
+            let lobe_offset = ((s1.x + s1.w / 2) - (s2.x + s2.w / 2)).abs() >= 25 || (s1.x - s2.x).abs() >= 20;
+            let both_multiline_distinct_lobes = s1.h >= 50 && s2.h >= 50 && lobe_offset && (s2.y >= s1.y + s1.h || s1.y >= s2.y + s2.h);
             if horiz_sep || center_stagger || vert_gap_sep || both_multiline_distinct_lobes {
                 return true;
             }
@@ -410,7 +411,8 @@ pub fn analyze_image_with_fusion_timed(
                     && !is_distinct_rank_line
                     && !is_tabular_line
                     && !leaks_outside_bubble
-                    && bw >= bh * 1.15
+                    && (bw >= bh * 0.70 || (lw as f32) >= lh as f32 * 1.20)
+                    && !(bh > bw * 1.60 && (lw as f32) < bw * 0.70)
                     && (lx as f32 >= bx - 35.0)
                     && ((lx + lw) as f32 <= bx + bw + 35.0)
                     && (ly as f32 >= by + bh - 25.0)

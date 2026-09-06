@@ -73,5 +73,9 @@ mod page_qi_wangsun_friend_stacked_bubble_merge;
 mod page_master_hu_shunshi_mid_sentence_split;
 mod page_xing_chen_de_brother_arrived_spiky_bubble;
 mod page_chen_beixuan_fist_split_bubble;
+mod page_chen_family_martial_dao_clan;
+mod page_chen_master_stutter_explain;
+mod page_guiyuan_sword_thought_bubble;
+mod page_warn_japanese_high_ups_bubble;
 
 
