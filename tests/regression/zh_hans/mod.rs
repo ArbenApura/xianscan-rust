@@ -79,3 +79,4 @@ mod page_guiyuan_sword_thought_bubble;
 mod page_chuzhou_wei_family_explanation_thought_bubble;
 mod page_chuzhou_high_school_classmates_returning_thought_bubble;
 mod page_warn_japanese_high_ups_bubble;
+mod page_uncle_take_him_down_trailing_dash;

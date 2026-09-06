@@ -371,9 +371,14 @@ pub fn clean_white_bubble_shrinkwrap(
     }
 
     // PROTECT UNCLEANED DARK STROKES (PRESERVED ARTWORK, UNTRANSLATED ELLIPSES, SYMBOLS)
-    // ANY DARK PIXEL (LUM < 195) THAT IS NOT WITHIN VICINITY OF THE REQUESTED CLEAN BOXES IS PRESERVED
+    // ONLY PROTECT CONNECTED DARK STROKE COMPONENTS THAT ARE ENTIRELY ISOLATED FROM THE REQUESTED CLEAN BOXES
+    // (E.G. UNTRANSLATED ELLIPSES IN A SEPARATE BUBBLE LOBE). IF A STROKE CONNECTS TO A CLEAN BOX,
+    // IT IS PART OF THE ACTIVE TEXT (E.G. TRAILING DASHES, EXTENDED GLYPH STROKES) AND MUST BE CLEANED.
     if !clean_boxes.is_empty() {
         let clean_pad = 12i32;
+        let mut visited_isolated = vec![false; total];
+        let mut candidate_seeds = Vec::new();
+
         for cy in 0..ch {
             for cx in 0..cw {
                 let idx = cy * cw + cx;
@@ -394,32 +399,63 @@ pub fn clean_white_bubble_shrinkwrap(
                         });
 
                         if !is_near_clean_box {
-                            protected_stroke[idx] = true;
-                            stroke_queue.push_back((cx as u32, cy as u32));
+                            candidate_seeds.push((cx as u32, cy as u32));
                         }
                     }
                 }
             }
         }
-    }
 
-    while let Some((cx, cy)) = stroke_queue.pop_front() {
-        for (dx, dy) in [(-1i32, 0i32), (1, 0), (0, -1), (0, 1), (-1, -1), (1, -1), (-1, 1), (1, 1)] {
-            let nx = cx as i32 + dx;
-            let ny = cy as i32 + dy;
-            if nx >= 0 && nx < cw as i32 && ny >= 0 && ny < ch as i32 {
-                let unx = nx as usize;
-                let uny = ny as usize;
-                let n_idx = uny * cw + unx;
-                if !protected_stroke[n_idx] && !can_reach_edge[n_idx] {
-                    let gx = bx0 + nx as u32;
-                    let gy = by0 + ny as u32;
-                    let p = img.get_pixel(gx, gy);
-                    let (lum, sat) = pixel_lum_and_sat(p);
-                    if lum < 205 && sat <= 30.0 {
-                        protected_stroke[n_idx] = true;
-                        stroke_queue.push_back((nx as u32, ny as u32));
+        for (sx, sy) in candidate_seeds {
+            let s_idx = (sy as usize) * cw + (sx as usize);
+            if visited_isolated[s_idx] || protected_stroke[s_idx] {
+                continue;
+            }
+
+            let mut comp = Vec::new();
+            let mut q = std::collections::VecDeque::new();
+            visited_isolated[s_idx] = true;
+            q.push_back((sx, sy));
+            let mut touches_clean_box = false;
+
+            while let Some((curr_x, curr_y)) = q.pop_front() {
+                comp.push((curr_x, curr_y));
+                let gx = (bx0 + curr_x) as i32;
+                let gy = (by0 + curr_y) as i32;
+                if clean_boxes.iter().any(|cb| {
+                    gx >= cb.x - clean_pad
+                        && gx <= cb.x + cb.w + clean_pad
+                        && gy >= cb.y - clean_pad
+                        && gy <= cb.y + cb.h + clean_pad
+                }) {
+                    touches_clean_box = true;
+                }
+
+                for (dx, dy) in [(-1i32, 0i32), (1, 0), (0, -1), (0, 1), (-1, -1), (1, -1), (-1, 1), (1, 1)] {
+                    let nx = curr_x as i32 + dx;
+                    let ny = curr_y as i32 + dy;
+                    if nx >= 0 && nx < cw as i32 && ny >= 0 && ny < ch as i32 {
+                        let unx = nx as usize;
+                        let uny = ny as usize;
+                        let n_idx = uny * cw + unx;
+                        if !visited_isolated[n_idx] && !protected_stroke[n_idx] && !can_reach_edge[n_idx] {
+                            let pgx = bx0 + unx as u32;
+                            let pgy = by0 + uny as u32;
+                            let p = img.get_pixel(pgx, pgy);
+                            let (lum, sat) = pixel_lum_and_sat(p);
+                            if lum < 205 && sat <= 30.0 {
+                                visited_isolated[n_idx] = true;
+                                q.push_back((unx as u32, uny as u32));
+                            }
+                        }
                     }
+                }
+            }
+
+            if !touches_clean_box {
+                for (px, py) in comp {
+                    let idx = (py as usize) * cw + (px as usize);
+                    protected_stroke[idx] = true;
                 }
             }
         }
