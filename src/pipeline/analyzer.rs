@@ -656,7 +656,7 @@ pub fn analyze_image_with_fusion_timed(
                         }
                         _ => true,
                     };
-                    if !is_native || line.score < 0.70 || line.text.chars().filter(|c| !c.is_whitespace()).count() < 3 {
+                    if !is_native || line.score < 0.70 || line.text.chars().filter(|c| !c.is_whitespace()).count() < 2 {
                         continue;
                     }
                 }
