@@ -251,9 +251,12 @@ fn spawn_ssr_process(web_dir: &Path, port: u16, ml_port: u16) -> anyhow::Result<
         })
         .unwrap_or_else(|_| node_modules.display().to_string());
 
-    // CONFIGURE 4GB HEAP CEILING TO PREVENT NATIVE SKIA / V8 OOM ON LONG RUNS
+    // CONFIGURE 4GB HEAP CEILING TO PREVENT NATIVE SKIA / V8 OOM ON LONG RUNS,
+    // EXPOSE GC FOR EXPLICIT FINALIZATION OF UNMANAGED NATIVE SKIA MEMORY BUFFERS,
     // AND SUPPRESS NODE ENGINE DEPRECATION WARNINGS (E.G. PUNYCODE DEP0040)
     cmd.arg("--max-old-space-size=4096")
+        .arg("--max-semi-space-size=64")
+        .arg("--expose-gc")
         .arg("--no-deprecation")
         .arg("build/index.js")
         .current_dir(&clean_web_dir)

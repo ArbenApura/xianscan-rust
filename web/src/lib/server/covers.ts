@@ -95,10 +95,15 @@ async function encodeCoverJpegViaCanvas(bytes: Uint8Array): Promise<Buffer> {
 	const width = Math.max(1, Math.round(img.width * scale));
 	const height = Math.max(1, Math.round(img.height * scale));
 	const canvas = createCanvas(width, height);
-	const ctx = canvas.getContext('2d');
-	ctx.imageSmoothingQuality = 'high';
-	ctx.drawImage(img, 0, 0, width, height);
-	return canvas.toBuffer('image/jpeg', 88);
+	try {
+		const ctx = canvas.getContext('2d');
+		ctx.imageSmoothingQuality = 'high';
+		ctx.drawImage(img, 0, 0, width, height);
+		return canvas.toBuffer('image/jpeg', 88);
+	} finally {
+		canvas.width = 1;
+		canvas.height = 1;
+	}
 }
 
 function encodeCoverJpegViaImage(bytes: Uint8Array): Buffer {

@@ -49,9 +49,14 @@ export function sampleBackground(
 		data = source.getImageData(sx, sy, cw, ch).data;
 	} else {
 		const probe = createCanvas(cw, ch);
-		const pctx = probe.getContext('2d');
-		pctx.drawImage(source, sx, sy, cw, ch, 0, 0, cw, ch);
-		data = pctx.getImageData(0, 0, cw, ch).data;
+		try {
+			const pctx = probe.getContext('2d');
+			pctx.drawImage(source, sx, sy, cw, ch, 0, 0, cw, ch);
+			data = pctx.getImageData(0, 0, cw, ch).data;
+		} finally {
+			probe.width = 1;
+			probe.height = 1;
+		}
 	}
 
 	let r = 0;

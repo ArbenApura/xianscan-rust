@@ -25,6 +25,7 @@ import type OpenAI from 'openai';
 // IMPORTED ENVS ($env/...)
 import { env } from '$env/dynamic/private';
 import PQueue from './queue';
+import { clearAllCache } from '@napi-rs/canvas';
 import { and, asc, desc, eq, inArray, lt, sql } from 'drizzle-orm';
 // IMPORTED TYPES
 import type { TranslationUsage, PipelineStep, LangPair, TermDraft } from '$lib/types';
@@ -198,10 +199,15 @@ async function ensureWebPBuffer(rawBuf: Buffer): Promise<Buffer> {
 		const { loadImage, createCanvas } = await import('@napi-rs/canvas');
 		const img = await loadImage(rawBuf);
 		const canvas = createCanvas(img.width, img.height);
-		const ctx = canvas.getContext('2d');
-		ctx.drawImage(img, 0, 0);
-		const webp = await canvas.encode('webp', 90);
-		if (detectImageFormat(webp) === 'webp') return webp;
+		try {
+			const ctx = canvas.getContext('2d');
+			ctx.drawImage(img, 0, 0);
+			const webp = await canvas.encode('webp', 90);
+			if (detectImageFormat(webp) === 'webp') return webp;
+		} finally {
+			canvas.width = 1;
+			canvas.height = 1;
+		}
 	} catch {
 		// FALL THROUGH TO THE CLEAR ERROR BELOW
 	}
@@ -1151,6 +1157,10 @@ export async function runChapterPipeline(
 				// EAGERLY DISCARD COMPLETED PAGE BUFFERS TO PREVENT NATIVE MEMORY RETENTION
 				slot.image = undefined;
 				slot.analyzed = undefined;
+				clearAllCache();
+				if (typeof global.gc === 'function') {
+					global.gc();
+				}
 				emit({
 					type: 'error',
 					chapterId,
@@ -1238,6 +1248,10 @@ export async function runChapterPipeline(
 			// EAGERLY DISCARD COMPLETED PAGE BUFFERS TO PREVENT NATIVE MEMORY RETENTION
 			slot.image = undefined;
 			slot.analyzed = undefined;
+			clearAllCache();
+			if (typeof global.gc === 'function') {
+				global.gc();
+			}
 			const finalCleanedRev = freshRow?.cleanedRev ?? page.cleanedRev + 1;
 			const finalOutputRev = freshRow?.outputRev ?? page.outputRev + 1;
 			emit({
@@ -1362,6 +1376,10 @@ export async function runChapterPipeline(
 		await pool.onIdle();
 		signal.removeEventListener('abort', onAbort);
 		activeChapterPools.delete(chapterId);
+		clearAllCache();
+		if (typeof global.gc === 'function') {
+			global.gc();
+		}
 	}
 
 	if (signal.aborted) {

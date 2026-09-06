@@ -4,6 +4,7 @@
 
 import { db } from '$lib/server/db';
 import { chapters, pages, books } from '$lib/server/db/schema';
+import { clearAllCache } from '@napi-rs/canvas';
 import { and, eq, inArray } from 'drizzle-orm';
 import {
 	startChapterJob,
@@ -385,6 +386,12 @@ function onChapterCompleted(chapter: BatchChapterItem, snapshot: ChapterJobSnaps
 	);
 	activeBatchState.currentIndex = firstUnfinished >= 0 ? firstUnfinished : activeBatchState.queue.length;
 
+	// PURGE SKIA CACHES AND RECLAIM NATIVE BUFFERS BETWEEN BATCH CHAPTERS
+	clearAllCache();
+	if (typeof global.gc === 'function') {
+		global.gc();
+	}
+
 	emitState();
 	dispatchNextItems();
 }
@@ -488,6 +495,12 @@ function onChapterFailed(chapter: BatchChapterItem, errorMsg: string) {
 	);
 	activeBatchState.currentIndex = firstUnfinished >= 0 ? firstUnfinished : activeBatchState.queue.length;
 
+	// PURGE SKIA CACHES AND RECLAIM NATIVE BUFFERS BETWEEN BATCH CHAPTERS
+	clearAllCache();
+	if (typeof global.gc === 'function') {
+		global.gc();
+	}
+
 	emitState();
 	dispatchNextItems();
 }
@@ -524,6 +537,11 @@ function dispatchNextItems() {
 function finishBatch() {
 	stopWatchdog();
 	clearAllChapterRetryTimers();
+	// PURGE SKIA CACHES AND RECLAIM NATIVE BUFFERS ON BATCH FINISH
+	clearAllCache();
+	if (typeof global.gc === 'function') {
+		global.gc();
+	}
 	activeBatchState = {
 		...activeBatchState,
 		status: 'completed',

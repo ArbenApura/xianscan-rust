@@ -112,12 +112,17 @@ export const GET: RequestHandler = async ({ params, url, request }) => {
 					const targetHeight = Math.round(img.height * scale);
 
 					const canvas = createCanvas(targetWidth, targetHeight);
-					const ctx = canvas.getContext('2d');
-					ctx.drawImage(img, 0, 0, targetWidth, targetHeight);
-					const jpegBuffer = canvas.toBuffer('image/jpeg', 80);
+					try {
+						const ctx = canvas.getContext('2d');
+						ctx.drawImage(img, 0, 0, targetWidth, targetHeight);
+						const jpegBuffer = canvas.toBuffer('image/jpeg', 80);
 
-					writeFileSync(cachePath, jpegBuffer);
-					return new Uint8Array(jpegBuffer);
+						writeFileSync(cachePath, jpegBuffer);
+						return new Uint8Array(jpegBuffer);
+					} finally {
+						canvas.width = 1;
+						canvas.height = 1;
+					}
 				} catch {
 					// FALLBACK TO FULL IMAGE IF THUMBNAIL RESIZING ENCOUNTERS AN UNEXPECTED IO ISSUE
 					const raw = await readFile(sourcePath);
