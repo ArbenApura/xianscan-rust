@@ -25,7 +25,7 @@ fn test_regression_page_chuzhou_high_school_classmates_returning_thought_bubble(
     let res = get_or_analyze_fixture_with_lang(&img, Some("zh_hans"));
     println!("ZH-Hans Classmates Returning Page detected {} regions:", res.regions.len());
     for (i, r) in res.regions.iter().enumerate() {
-        println!("  Region r{}: kind={:?}, angle={:.2}, box={:?}, carrier={:?}, typeset={:?}, text='{}'", i, r.kind, r.angle, r.box_, r.carrier_box, r.typeset_box, r.text);
+        println!("  Region r{}: kind={:?}, angle={:.2}, box={:?}, bubble={:?}, carrier={:?}, typeset={:?}, text='{}'", i, r.kind, r.angle, r.box_, r.bubble_box, r.carrier_box, r.typeset_box, r.text);
     }
 
     // 1. EXACT ELEMENT COUNTS

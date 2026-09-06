@@ -135,11 +135,11 @@ pub fn valid_tail_cut_carrier(carrier: &BoxRect, b: &BoxRect, page_h: u32) -> bo
     let trim_top = (carrier.y - b.y).max(0);
     let trim_bot = ((b.y + b.h) - (carrier.y + carrier.h)).max(0);
 
-    let is_h_cut = (trim_right >= 14 && trim_left <= 6 && trim_right >= trim_left * 2)
-        || (trim_left >= 14 && trim_right <= 6 && trim_left >= trim_right * 2);
+    let is_h_cut = (trim_right >= 12 && trim_left <= 6 && trim_right >= trim_left * 2)
+        || (trim_left >= 12 && trim_right <= 6 && trim_left >= trim_right * 2);
 
-    let is_v_cut = (trim_bot >= 18 && trim_top <= 6 && trim_bot >= trim_top * 2)
-        || (trim_top >= 18 && trim_bot <= 6 && trim_top >= trim_bot * 2);
+    let is_v_cut = (trim_bot >= 14 && trim_top <= 6 && trim_bot >= trim_top * 2)
+        || (trim_top >= 14 && trim_bot <= 6 && trim_top >= trim_bot * 2);
 
     if !is_h_cut && !is_v_cut {
         return false;
@@ -176,24 +176,42 @@ pub fn resolve_carrier_box(
         let img_is_cut = valid_tail_cut_carrier(&img_carrier, b, page_h);
 
         if img_is_cut && geom_is_cut {
-            // BOTH DETECTED A GENUINE CUT: TAKE TIGHTER BOUNDARIES ON TRIMMED EDGES
-            let eff_x = if (carrier_trim_x(&img_carrier, b) >= 8) || (carrier_trim_x(&geom_carrier, b) >= 8) {
-                img_carrier.x.max(geom_carrier.x)
+            // BOTH DETECTED CUTS: ONLY TRIM AN EDGE IF IMAGE MORPHOLOGY CONFIRMS A REAL PROTRUSION ON THAT EDGE.
+            // IF GEOMETRIC MARGINS AGREE ON THAT SAME EDGE, TAKE THE TIGHTER BOUNDARY;
+            // NEVER ALLOW GEOMETRIC MARGIN ASYMMETRY TO CUT AN EDGE THAT IMAGE MORPHOLOGY FOUND SOLID.
+            let eff_x = if carrier_trim_x(&img_carrier, b) >= 8 {
+                if carrier_trim_x(&geom_carrier, b) >= 8 {
+                    img_carrier.x.max(geom_carrier.x)
+                } else {
+                    img_carrier.x
+                }
             } else {
                 b.x
             };
-            let eff_y = if (carrier_trim_y(&img_carrier, b) >= 8) || (carrier_trim_y(&geom_carrier, b) >= 8) {
-                img_carrier.y.max(geom_carrier.y)
+            let eff_y = if carrier_trim_y(&img_carrier, b) >= 8 {
+                if carrier_trim_y(&geom_carrier, b) >= 8 {
+                    img_carrier.y.max(geom_carrier.y)
+                } else {
+                    img_carrier.y
+                }
             } else {
                 b.y
             };
-            let eff_right = if (carrier_trim_r(&img_carrier, b) >= 8) || (carrier_trim_r(&geom_carrier, b) >= 8) {
-                (img_carrier.x + img_carrier.w).min(geom_carrier.x + geom_carrier.w)
+            let eff_right = if carrier_trim_r(&img_carrier, b) >= 8 {
+                if carrier_trim_r(&geom_carrier, b) >= 8 {
+                    (img_carrier.x + img_carrier.w).min(geom_carrier.x + geom_carrier.w)
+                } else {
+                    img_carrier.x + img_carrier.w
+                }
             } else {
                 b.x + b.w
             };
-            let eff_bot = if (carrier_trim_b(&img_carrier, b) >= 8) || (carrier_trim_b(&geom_carrier, b) >= 8) {
-                (img_carrier.y + img_carrier.h).min(geom_carrier.y + geom_carrier.h)
+            let eff_bot = if carrier_trim_b(&img_carrier, b) >= 8 {
+                if carrier_trim_b(&geom_carrier, b) >= 8 {
+                    (img_carrier.y + img_carrier.h).min(geom_carrier.y + geom_carrier.h)
+                } else {
+                    img_carrier.y + img_carrier.h
+                }
             } else {
                 b.y + b.h
             };
@@ -448,7 +466,7 @@ pub fn expand_bubble_text_boxes(
     // PHASE 2: APPLY TARGETS AND GUARANTEE BASE BOX STAYS WITHIN BUBBLE BOUNDARY.
     for &i in &indexes {
         let b = regions[i].bubble_box.clone().unwrap();
-        let (outer_l, outer_r, outer_t, outer_b) = (b.x, b.x + b.w, b.y, b.y + b.h);
+        let (mut outer_l, mut outer_r, mut outer_t, mut outer_b) = (b.x, b.x + b.w, b.y, b.y + b.h);
 
         if let Some(new_box) = &targets[i] {
             // COLLISION ROLLBACK AGAINST NON-SIBLING REGIONS (FREE TEXT / SFX / OTHER BUBBLES)
@@ -471,8 +489,33 @@ pub fn expand_bubble_text_boxes(
             }
         }
 
-        // GUARANTEE: BASE BOX MUST NEVER EXCEED OUTER BUBBLE BOUNDARY
+        // GUARANTEE: BASE BOX MUST NEVER EXCEED OUTER BUBBLE BOUNDARY UNLESS NEEDED TO COVER ITS OWN TEXT
         clamp_box_to_core(&mut regions[i].box_, outer_l, outer_r, outer_t, outer_b);
+        if !regions[i].polygon.is_empty() {
+            let mut text_min_x = i32::MAX;
+            let mut text_min_y = i32::MAX;
+            let mut text_max_x = i32::MIN;
+            let mut text_max_y = i32::MIN;
+            for p in &regions[i].polygon {
+                text_min_x = text_min_x.min(p[0]);
+                text_min_y = text_min_y.min(p[1]);
+                text_max_x = text_max_x.max(p[0]);
+                text_max_y = text_max_y.max(p[1]);
+            }
+            if text_min_x < regions[i].box_.x || text_max_x > regions[i].box_.x + regions[i].box_.w
+                || text_min_y < regions[i].box_.y || text_max_y > regions[i].box_.y + regions[i].box_.h
+            {
+                let nx = regions[i].box_.x.min(text_min_x);
+                let ny = regions[i].box_.y.min(text_min_y);
+                let nw = (regions[i].box_.x + regions[i].box_.w).max(text_max_x) - nx;
+                let nh = (regions[i].box_.y + regions[i].box_.h).max(text_max_y) - ny;
+                regions[i].box_ = BoxRect { x: nx, y: ny, w: nw, h: nh };
+            }
+        }
+        outer_l = outer_l.min(regions[i].box_.x);
+        outer_r = outer_r.max(regions[i].box_.x + regions[i].box_.w);
+        outer_t = outer_t.min(regions[i].box_.y);
+        outer_b = outer_b.max(regions[i].box_.y + regions[i].box_.h);
 
         // SAFE-CORE CENTERING FOR SOLE-OCCUPANT BUBBLES WITHIN THEIR DERIVED CARRIER
         let has_obstacle = obstacles.iter().any(|(obs_b, _)| box_iou(&b, obs_b) >= 0.5);

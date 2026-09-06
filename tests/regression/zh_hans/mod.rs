@@ -83,3 +83,5 @@ mod page_uncle_take_him_down_trailing_dash;
 mod page_vampire_confrontation_spiky_shout_bubbles;
 mod page_beiqiong_europe_arbitration_tail_cut;
 mod page_god_slaying_spear_radiating_spikes;
+mod page_beiqiong_spatial_formation_thought_bubble;
+mod page_shushan_treasury_pills_artifacts;

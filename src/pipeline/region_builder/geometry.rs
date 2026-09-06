@@ -277,11 +277,12 @@ pub fn extract_carrier_box_from_image(img: &DynamicImage, b: &BoxRect, t: &BoxRe
 
     let min_dim = b.w.min(b.h);
     let r_target = ((min_dim as f32 * 0.10).round() as i32).clamp(14, 23);
-    let candidate_radii: Vec<i32> = if r_target > 14 {
-        vec![r_target, 18, 14]
+    let mut candidate_radii: Vec<i32> = if min_dim >= 60 {
+        vec![r_target.max(20), 18, 14]
     } else {
         vec![14]
     };
+    candidate_radii.dedup();
 
     let mut best_carrier: Option<BoxRect> = None;
 
@@ -392,20 +393,74 @@ pub fn extract_carrier_box_from_image(img: &DynamicImage, b: &BoxRect, t: &BoxRe
         }
 
         // 5. EXTRACT BOUNDING BOX OF RECONSTRUCTED CARRIER
-        let mut min_px = patch_w;
-        let mut max_px = 0;
-        let mut min_py = patch_h;
-        let mut max_py = 0;
+        // FILTER OUT NARROW PROTRUSION TIPS (< 22% OF CHAMBER SPAN) THAT EXPANDED DURING DILATION
+        let mut raw_min_px = patch_w;
+        let mut raw_max_px = 0;
+        let mut raw_min_py = patch_h;
+        let mut raw_max_py = 0;
 
         for py in 0..patch_h {
             for px in 0..patch_w {
                 if reconstructed[py * patch_w + px] {
-                    min_px = min_px.min(px);
-                    max_px = max_px.max(px);
-                    min_py = min_py.min(py);
-                    max_py = max_py.max(py);
+                    raw_min_px = raw_min_px.min(px);
+                    raw_max_px = raw_max_px.max(px);
+                    raw_min_py = raw_min_py.min(py);
+                    raw_max_py = raw_max_py.max(py);
                 }
             }
+        }
+
+        if raw_min_px > raw_max_px || raw_min_py > raw_max_py {
+            continue;
+        }
+
+        let raw_w = raw_max_px - raw_min_px + 1;
+        let raw_h = raw_max_py - raw_min_py + 1;
+        let min_row_w = (raw_w as f32 * 0.22).round() as usize;
+        let min_col_h = (raw_h as f32 * 0.22).round() as usize;
+
+        let mut min_py = raw_min_py;
+        while min_py <= raw_max_py {
+            let row_w = (raw_min_px..=raw_max_px)
+                .filter(|&px| reconstructed[min_py * patch_w + px])
+                .count();
+            if row_w >= min_row_w {
+                break;
+            }
+            min_py += 1;
+        }
+
+        let mut max_py = raw_max_py;
+        while max_py >= min_py {
+            let row_w = (raw_min_px..=raw_max_px)
+                .filter(|&px| reconstructed[max_py * patch_w + px])
+                .count();
+            if row_w >= min_row_w {
+                break;
+            }
+            max_py = max_py.saturating_sub(1);
+        }
+
+        let mut min_px = raw_min_px;
+        while min_px <= raw_max_px {
+            let col_h = (raw_min_py..=raw_max_py)
+                .filter(|&py| reconstructed[py * patch_w + min_px])
+                .count();
+            if col_h >= min_col_h {
+                break;
+            }
+            min_px += 1;
+        }
+
+        let mut max_px = raw_max_px;
+        while max_px >= min_px {
+            let col_h = (raw_min_py..=raw_max_py)
+                .filter(|&py| reconstructed[py * patch_w + max_px])
+                .count();
+            if col_h >= min_col_h {
+                break;
+            }
+            max_px = max_px.saturating_sub(1);
         }
 
         if min_px > max_px || min_py > max_py {
