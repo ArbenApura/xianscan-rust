@@ -35,6 +35,14 @@ fn test_regression_page_guiyuan_sword_thought_bubble() {
     let p1_left = p1_left.unwrap();
     assert_eq!(p1_left.kind, xianscan_rust::ml::schemas::RegionKind::DialogueBubble);
 
+    // Radiating spikes burst bubble must not have right side severed as a false tail
+    assert_eq!(p1_left.carrier_box, None, "Burst shout bubble must not publish false tail-cut carrier box");
+    let tb = p1_left.typeset_box.as_ref().expect("typeset box must exist");
+    let bb = p1_left.bubble_box.as_ref().expect("bubble box must exist");
+    let tb_cx = tb.x + tb.w / 2;
+    let bb_cx = bb.x + bb.w / 2;
+    assert!((tb_cx - bb_cx).abs() <= 2, "Typeset box X must be centered in shout bubble, got tb_cx={}, bb_cx={}", tb_cx, bb_cx);
+
     // 3. PANEL 1 TOP-RIGHT NARRATION BOX
     let p1_right = res.regions.iter().find(|r| r.text.contains("十六家") || r.text.contains("尸首分离"));
     assert!(p1_right.is_some(), "Must detect panel 1 top-right narration box");

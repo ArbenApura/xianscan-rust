@@ -139,11 +139,11 @@ pub fn valid_tail_cut_carrier(carrier: &BoxRect, b: &BoxRect, page_h: u32) -> bo
     let max_opp_v = 6.max((b.h as f32 * 0.04).round() as i32);
     let max_opp_h = 6.max((b.w as f32 * 0.04).round() as i32);
 
-    let is_h_cut = (trim_right >= 12 && trim_left <= max_opp_h && trim_right >= trim_left * 2)
-        || (trim_left >= 12 && trim_right <= max_opp_h && trim_left >= trim_right * 2);
+    let is_h_cut = (trim_right >= 14 && trim_left <= max_opp_h && trim_right >= trim_left * 2 && (trim_right - trim_left) >= 12)
+        || (trim_left >= 14 && trim_right <= max_opp_h && trim_left >= trim_right * 2 && (trim_left - trim_right) >= 12);
 
-    let is_v_cut = (trim_bot >= 14 && trim_top <= max_opp_v && trim_bot >= trim_top * 2)
-        || (trim_top >= 14 && trim_bot <= max_opp_v && trim_top >= trim_bot * 2);
+    let is_v_cut = (trim_bot >= 14 && trim_top <= max_opp_v && trim_bot >= trim_top * 2 && (trim_bot - trim_top) >= 12)
+        || (trim_top >= 14 && trim_bot <= max_opp_v && trim_top >= trim_bot * 2 && (trim_top - trim_bot) >= 12);
 
     if !is_h_cut && !is_v_cut {
         return false;
@@ -585,7 +585,7 @@ pub fn expand_bubble_text_boxes(
         let bot_m = ((carrier.y + carrier.h) - (regions[i].box_.y + regions[i].box_.h)).max(0);
         let min_vm = top_m.min(bot_m) as f32;
         let max_vm = top_m.max(bot_m) as f32;
-        let is_vertically_elongated = carrier.h as f32 >= carrier.w as f32 * 1.30;
+        let is_vertically_elongated = carrier.h as f32 >= carrier.w as f32 * 1.25 || (carrier.h >= 120 && max_vm >= 50.0);
         let is_heavily_offset_vertically = is_vertically_elongated && min_vm > 0.0 && (max_vm / min_vm >= 2.5) && (max_vm - min_vm >= 25.0);
 
         let left_m = (regions[i].box_.x - carrier.x).max(0);
