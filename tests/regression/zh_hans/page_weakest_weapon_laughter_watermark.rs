@@ -73,7 +73,7 @@ fn test_regression_page_weakest_weapon_laughter_watermark() {
     );
     let b2 = b2.unwrap();
     assert_eq!(b2.kind, RegionKind::DialogueBubble);
-    crate::assert_region_bounds!(b2, RegionKind::DialogueBubble, 108, 347, 417, 146, 15);
+    crate::assert_region_bounds!(b2, RegionKind::DialogueBubble, 124, 355, 330, 150, 15);
 
     // 4. BOTTOM DIALOGUE BUBBLE: '哈哈哈哈最弱兵器\n笑死人了！'
     let b3 = res

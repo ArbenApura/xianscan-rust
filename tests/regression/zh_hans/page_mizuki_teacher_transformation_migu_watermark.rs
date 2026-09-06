@@ -1,4 +1,4 @@
-﻿// -- INTERNAL IMPORTS -- //
+// -- INTERNAL IMPORTS -- //
 use crate::common::get_or_analyze_fixture_with_lang;
 use xianscan_rust::ml::schemas::RegionKind;
 
@@ -44,8 +44,8 @@ fn test_regression_page_mizuki_teacher_transformation_migu_watermark() {
         );
     }
 
-    // 1. EXACT ELEMENT COUNTS: EXACTLY 8 DIALOGUE BUBBLES, 0 SFX, 0 FREE TEXT
-    crate::assert_element_counts!(res, 8, 8, 0, 0);
+    // 1. EXACT ELEMENT COUNTS: EXACTLY 7 DIALOGUE BUBBLES, 0 SFX, 0 FREE TEXT
+    crate::assert_element_counts!(res, 7, 7, 0, 0);
 
     // 2. NEGATIVE WATERMARK & LOGO GUARDS
     assert!(

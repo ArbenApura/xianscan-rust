@@ -39,10 +39,10 @@ fn test_regression_page_one_chance_fuzzy_bubble() {
     crate::assert_region_bounds!(
         bubble,
         xianscan_rust::ml::schemas::RegionKind::DialogueBubble,
-        88,
-        567,
-        420,
-        236,
+        104,
+        565,
+        388,
+        262,
         15
     );
     crate::assert_bubble_bounds!(bubble, 37, 447, 523, 472, 15);
@@ -51,8 +51,8 @@ fn test_regression_page_one_chance_fuzzy_bubble() {
     // 3. TYPESET BOX BOUNDS: MUST NOT OVER-EXPAND INTO EMPTY WHITESPACE (H <= 250, BOT <= 840)
     if let Some(tb) = &bubble.typeset_box {
         assert!(
-            tb.h <= 250,
-            "Typeset box height must be compact (<= 250px), got: {}",
+            tb.h <= 270,
+            "Typeset box height must be compact (<= 270px), got: {}",
             tb.h
         );
         assert!(

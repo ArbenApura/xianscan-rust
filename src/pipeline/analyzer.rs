@@ -470,7 +470,10 @@ pub fn analyze_image_with_fusion_timed(
                         continue;
                     }
                     if !is_cross_panel_sfx_bleed && !is_giant_calligraphy_to_body && ((ix > 0.0 && iy > 0.0 && (coverage_l >= 0.25 || coverage_b >= 0.25)) || is_adjacent_trailing_row || is_adjacent_leading_row) {
-                        overlaps_any = true;
+                        let is_line_covered_by_cb = coverage_l >= 0.50 || crate::ml::geometry::line_center_inside_box(&line.polygon, &crate::ml::schemas::BoxRect { x: bx as i32, y: by as i32, w: bw as i32, h: bh as i32 });
+                        if is_line_covered_by_cb {
+                            overlaps_any = true;
+                        }
                         if overlaps_multiple_distinct_text_bubbles {
                             continue;
                         }
@@ -531,9 +534,13 @@ pub fn analyze_image_with_fusion_timed(
                                     [union_x + union_w, union_y + union_h],
                                     [union_x, union_y + union_h],
                                 ];
+                                overlaps_any = true;
+                                break;
                             }
                         }
-                        break;
+                        if is_line_covered_by_cb {
+                            break;
+                        }
                     }
                 }
             }
@@ -604,7 +611,8 @@ pub fn analyze_image_with_fusion_timed(
                 if inside_bubble_panel && !is_near_layout_anchor {
                     let is_dialogue_utterance = line.text.chars().count() >= 4
                         && (line.text.contains('！') || line.text.contains('？') || line.text.contains('!') || line.text.contains('?'));
-                    if !is_dialogue_utterance {
+                    let is_credits = crate::ml::detect::is_credits_or_metadata_text(&line.text);
+                    if !is_dialogue_utterance && !is_credits {
                         continue;
                     }
                 }

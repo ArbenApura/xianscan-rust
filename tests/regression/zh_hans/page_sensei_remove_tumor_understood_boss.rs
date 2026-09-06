@@ -48,8 +48,8 @@ fn test_regression_page_sensei_remove_tumor_understood_boss() {
         );
     }
 
-    // 1. EXACT ELEMENT COUNTS: EXACTLY 11 REGIONS (5 DIALOGUE BUBBLES, 0 SFX, 6 FREE TEXT)
-    crate::assert_element_counts!(res, 11, 5, 0, 6);
+    // 1. EXACT ELEMENT COUNTS: EXACTLY 11 REGIONS (6 DIALOGUE BUBBLES, 0 SFX, 5 FREE TEXT)
+    crate::assert_element_counts!(res, 11, 6, 0, 5);
 
     // 2. PANEL 1 TOP-LEFT FREE TEXT: '我一定要清除掉在我学生身边的毒瘤！'
     let ft1 = res.regions.iter().find(|r| r.text.contains("身边") || r.text.contains("毒瘤") || r.text.contains("清除掉"));
@@ -65,12 +65,12 @@ fn test_regression_page_sensei_remove_tumor_understood_boss() {
     assert_eq!(ft2.kind, RegionKind::FreeText);
     crate::assert_region_bounds!(ft2, RegionKind::FreeText, 213, 52, 83, 155, 15);
 
-    // 4. PANEL 1 TOP-MIDDLE FREE TEXT / DIALOGUE: '老大！明白！'
+    // 4. PANEL 1 TOP-MIDDLE DIALOGUE: '老大！明白！'
     let ft3 = res.regions.iter().find(|r| r.text.contains("老大") || r.text.contains("明白"));
-    assert!(ft3.is_some(), "Must detect top-middle free text '老大！明白！'");
+    assert!(ft3.is_some(), "Must detect top-middle dialogue '老大！明白！'");
     let ft3 = ft3.unwrap();
-    assert_eq!(ft3.kind, RegionKind::FreeText);
-    crate::assert_region_bounds!(ft3, RegionKind::FreeText, 319, 153, 66, 72, 20);
+    assert_eq!(ft3.kind, RegionKind::DialogueBubble);
+    crate::assert_region_bounds!(ft3, RegionKind::DialogueBubble, 319, 153, 66, 72, 20);
 
     // 5. PANEL 1 TOP-RIGHT SLANTED FREE TEXT: '不行！要更人漂壳更苗条一些！'
     let ft4 = res.regions.iter().find(|r| r.text.contains("苗条") || r.text.contains("漂") || r.text.contains("不行"));

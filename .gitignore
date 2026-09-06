@@ -87,6 +87,8 @@ grounding-lab/
 training-lab/
 docs/superpowers/
 superpowers/
+scratch/
+models/*.bak
 
 
 # ==============================================================================

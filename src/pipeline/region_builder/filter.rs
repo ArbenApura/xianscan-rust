@@ -98,10 +98,16 @@ pub fn should_reject_candidate_region(
             let inter_y = (cluster_rect.y + cluster_rect.h).min(ly + lh) - cluster_rect.y.max(ly);
             inter_x > 0 && inter_y > 0 && (inter_x * inter_y) as f32 / (lw * lh).max(1) as f32 >= 0.50 && l.text.trim().chars().count() <= 1
         }).count();
-        let is_stacked_calligraphy = (covered_single_glyph_lines >= 3 && cluster_rect.h >= 400)
-            || (glyph_rows.len() >= 3
-                && glyph_rows.iter().all(|&n| n <= 2)
-                && glyph_rows.iter().sum::<usize>() <= 12);
+        let avg_char_h = cluster_rect.h as f32 / char_count.max(1) as f32;
+        let has_narrative_punctuation = cleaned.chars().any(|c| matches!(c, '…' | '·' | '—' | '～' | '！' | '？' | '。' | '，' | '、' | '–' | '¿' | '¡' | '.' | '!' | '?' | ','));
+        let has_hiragana = cleaned.chars().any(|c| ('\u{3040}'..='\u{309F}').contains(&c));
+        let is_stacked_calligraphy = !has_hiragana && (
+            (covered_single_glyph_lines >= 3 && cluster_rect.h >= 400)
+                || (glyph_rows.len() >= 3
+                    && glyph_rows.iter().all(|&n| n <= 2)
+                    && glyph_rows.iter().sum::<usize>() <= 12)
+                || (cluster_rect.h >= 400 && avg_char_h >= 65.0 && char_count <= 8 && !has_narrative_punctuation)
+        );
         if is_stacked_calligraphy {
             return true;
         }
@@ -240,7 +246,7 @@ pub fn should_reject_candidate_region(
     }
 
     // 10. SUPPRESS TRANSLUCENT AGGREGATOR WATERMARKS
-    if is_cjk && !is_bubble && (cleaned == "数据" || cleaned == "集云" || cleaned == "集云数据") {
+    if is_cjk && !is_bubble && (cleaned == "数据" || cleaned == "集云" || cleaned == "集云数据" || cleaned == "云数据" || cleaned == "儿云数据") {
         return true;
     }
 

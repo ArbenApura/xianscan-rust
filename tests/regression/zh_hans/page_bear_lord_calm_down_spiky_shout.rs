@@ -40,8 +40,8 @@ fn test_regression_page_bear_lord_calm_down_spiky_shout() {
         );
     }
 
-    // 1. EXACT ELEMENT COUNTS: EXACTLY 8 REGIONS (4 DIALOGUEBUBBLES, 0 SOUNDEFFECT, 4 FREETEXT)
-    crate::assert_element_counts!(res, 8, 4, 0, 4);
+    // 1. EXACT ELEMENT COUNTS: EXACTLY 8 REGIONS (6 DIALOGUEBUBBLES, 0 SOUNDEFFECT, 2 FREETEXT)
+    crate::assert_element_counts!(res, 8, 6, 0, 2);
 
     // 2. TOP PANEL BUBBLES
     let top_left_1 = res.regions.iter().find(|r| r.text.contains("熊君") || r.text.contains("静点"));

@@ -87,3 +87,4 @@ mod page_beiqiong_spatial_formation_thought_bubble;
 mod page_shushan_treasury_pills_artifacts;
 mod page_xiao_xuan_north_shore_restaurant_bubble;
 mod page_slash_again_spiky_tail_shout;
+mod page_white_hair_sister_is_that_so_dots;

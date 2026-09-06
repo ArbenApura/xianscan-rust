@@ -34,8 +34,8 @@ fn test_regression_page_rebirth_urban_cultivator_spiky_bubble() {
         );
     }
 
-    // 1. EXACT ELEMENT COUNTS: EXACTLY 4 REGIONS (2 DIALOGUEBUBBLES, 0 SOUNDEFFECT, 2 FREETEXT)
-    crate::assert_element_counts!(res, 4, 2, 0, 2);
+    // 1. EXACT ELEMENT COUNTS: EXACTLY 4 REGIONS (3 DIALOGUEBUBBLES, 0 SOUNDEFFECT, 1 FREETEXT)
+    crate::assert_element_counts!(res, 4, 3, 0, 1);
 
     // 2. NEGATIVE GUARD: ZERO PARTIAL TITLE LOGO "重生"
     assert!(
@@ -43,9 +43,9 @@ fn test_regression_page_rebirth_urban_cultivator_spiky_bubble() {
         "Partial artwork title seal '重生' must be suppressed"
     );
 
-    // 3. TOP NARRATIVE: "我叫陈凡，\n你们也可以\n叫我陈北玄\n北玄是老师\n给我的道号。"
+    // 3. TOP DIALOGUE BUBBLE: "我叫陈凡，\n你们也可以\n叫我陈北玄\n北玄是老师\n给我的道号。"
     let r0 = res.regions.iter().find(|r| r.text.contains("我叫陈凡")).expect("Top narrative region must exist");
-    crate::assert_region_bounds!(r0, xianscan_rust::ml::schemas::RegionKind::FreeText, 568, 161, 151, 144, 8);
+    crate::assert_region_bounds!(r0, xianscan_rust::ml::schemas::RegionKind::DialogueBubble, 558, 148, 170, 170, 15);
 
     // 4. CREDITS BOX: "大行道动漫出品..."
     let r1 = res.regions.iter().find(|r| r.text.contains("大行道动漫出品")).expect("Credits box region must exist");

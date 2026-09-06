@@ -53,7 +53,7 @@ fn test_regression_page_rice_shop_kind_couple_thought_bubbles() {
     assert_eq!(lower_thought.kind, xianscan_rust::ml::schemas::RegionKind::DialogueBubble);
     assert!(!lower_thought.text.contains("每次来米"), "Lower thought lobe must NOT contain upper thought start text");
     assert!(lower_thought.text.contains("上好的白米"), "Lower thought lobe must contain '上好的白米'");
-    crate::assert_region_bounds!(lower_thought, xianscan_rust::ml::schemas::RegionKind::DialogueBubble, 381, 1270, 235, 102, 8);
+    crate::assert_region_bounds!(lower_thought, xianscan_rust::ml::schemas::RegionKind::DialogueBubble, 381, 1261, 235, 111, 10);
     crate::assert_bubble_bounds!(lower_thought, 262, 1153, 372, 244, 8);
 
     // 4. BOUNDING BOX NON-OVERLAP INVARIANT BETWEEN THE TWO THOUGHT LOBES

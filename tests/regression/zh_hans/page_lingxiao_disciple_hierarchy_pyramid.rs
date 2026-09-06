@@ -47,8 +47,8 @@ fn test_regression_page_lingxiao_disciple_hierarchy_pyramid() {
         );
     }
 
-    // 1. EXACT ELEMENT COUNTS: EXACTLY 12 REGIONS (3 DIALOGUEBUBBLES, 0 SOUNDEFFECT, 9 FREETEXT)
-    crate::assert_element_counts!(res, 12, 3, 0, 9);
+    // 1. EXACT ELEMENT COUNTS: EXACTLY 12 REGIONS (2 DIALOGUEBUBBLES, 0 SOUNDEFFECT, 10 FREETEXT)
+    crate::assert_element_counts!(res, 12, 2, 0, 10);
 
     // 2. PANEL 1 DIALOGUE BUBBLES
     assert!(res.regions.iter().any(|r| r.text.contains("杨开") && r.text.contains("淬体三层")));
@@ -73,5 +73,5 @@ fn test_regression_page_lingxiao_disciple_hierarchy_pyramid() {
     assert!(p3_narration.is_some(), "Must detect Panel 3 narration '精英弟子，出类拔萃...'");
 
     // 5. PANEL 4 NARRATION
-    assert!(res.regions.iter().any(|r| r.text.contains("周定军说自己是普") && r.text.contains("高手门下")));
+    assert!(res.regions.iter().any(|r| r.text.contains("周定军说自己是普") && r.text.contains("通弟子")));
 }

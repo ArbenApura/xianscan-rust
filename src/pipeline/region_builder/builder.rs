@@ -97,7 +97,7 @@ pub fn build_regions(
             h: sh,
         };
 
-        // CONTAINER & BUBBLE ASSOCIATION (REQUIRES >= 50% COVERAGE INSIDE BUBBLE)
+        // CONTAINER & BUBBLE ASSOCIATION (REQUIRES >= 65% COVERAGE INSIDE BUBBLE)
         let (bx, by, bw, bh) = (box_rect.x, box_rect.y, box_rect.w, box_rect.h);
         let box_area = (bw * bh).max(1);
 
@@ -107,7 +107,7 @@ pub fn build_regions(
             if inter_x > 0 && inter_y > 0 {
                 let inter_area = inter_x * inter_y;
                 let coverage = inter_area as f32 / box_area as f32;
-                coverage >= 0.50
+                coverage >= 0.65
             } else {
                 false
             }
@@ -601,8 +601,30 @@ pub fn build_regions(
                 // CONTAINERS HAVE NO SIBLING LOBES — EACH CLUSTER IS AN INDEPENDENT PARAGRAPH
                 // WHOSE CROP IS TIGHT TO ITS OWN LINES, SO REFINEMENT IS SAFE FOR ALL
                 // FREE-TEXT CONTAINERS REGARDLESS OF CLUSTER COUNT.
+                let clamped_free_box;
                 let effective_box_rect = if crate::ml::detect::is_credits_or_metadata_text(cleaned_initial) {
                     &cluster_rect
+                } else if matched_bubble.is_none() {
+                    let next_box_top = dedup_boxes.iter().filter_map(|other| {
+                        let (_ox, oy, _ow, _oh) = crate::ml::geometry::box_to_xywh_f32(other);
+                        let oy_i = oy as i32;
+                        if oy_i >= cluster_rect.y + cluster_rect.h - 5 && oy_i < box_rect.y + box_rect.h {
+                            Some(oy_i)
+                        } else {
+                            None
+                        }
+                    }).min();
+                    if let Some(top) = next_box_top {
+                        clamped_free_box = BoxRect {
+                            x: box_rect.x,
+                            y: box_rect.y,
+                            w: box_rect.w,
+                            h: (top - box_rect.y).max(cluster_rect.h),
+                        };
+                        &clamped_free_box
+                    } else {
+                        &box_rect
+                    }
                 } else {
                     &box_rect
                 };
@@ -803,7 +825,7 @@ pub fn build_regions(
                     let f_area = (final_box_rect.w * final_box_rect.h).max(1);
                     let ix = (final_box_rect.x + final_box_rect.w).min(mb.x + mb.w) - final_box_rect.x.max(mb.x);
                     let iy = (final_box_rect.y + final_box_rect.h).min(mb.y + mb.h) - final_box_rect.y.max(mb.y);
-                    if ix > 0 && iy > 0 && ((ix * iy) as f32 / f_area as f32 >= 0.55) {
+                    if ix > 0 && iy > 0 && ((ix * iy) as f32 / f_area as f32 >= 0.65) {
                         Some(mb.clone())
                     } else {
                         None
@@ -815,7 +837,7 @@ pub fn build_regions(
                         let iy = (final_box_rect.y + final_box_rect.h).min(b.y + b.h) - final_box_rect.y.max(b.y);
                         if ix > 0 && iy > 0 {
                             let inter = (ix * iy) as f32;
-                            inter / f_area as f32 >= 0.60
+                            inter / f_area as f32 >= 0.65
                         } else {
                             false
                         }

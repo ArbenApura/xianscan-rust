@@ -569,7 +569,7 @@ XianScan executes a modular, multi-threaded neural pipeline implemented directly
 				id: 'bubble-detection',
 				title: '2. Speech Bubble Detection & Spatial Region Building',
 				content: `
-- **Koharu RF-DETR Seg 2XL (\`src/ml/detect/rfdetr.rs\`)**: High-resolution transformer segmentation model that outputs exact polygon boundaries for oval speech bubbles, jagged scream bubbles, and rectangular narrative caption boxes.
+- **Koharu RF-DETR Seg 2XL (\`src/ml/detect/rfdetr.rs\`)**: 768px CPU-optimized transformer segmentation model that outputs exact polygon boundaries for oval speech bubbles, jagged scream bubbles, and rectangular narrative caption boxes.
 - **DBNet Polygon Extraction (\`src/ml/detect/dbnet.rs\`)**: Differentiable Binarization text detector capturing fine-grained character bounding coordinates and orientation angles.
 - **Spatial Clustering & Deduplication (\`src/pipeline/region_builder/\`)**:
   - \`clustering.rs\`: Aggregates overlapping or adjacent text lines into coherent dialogue blocks.

@@ -15,6 +15,11 @@ fn test_page_chen_fan_jade_gourd_urban_cultivator_credits() {
 
     let res = crate::common::get_or_analyze_fixture_with_lang(&img, Some("zh_hans"));
 
+    println!("Detected {} regions:", res.regions.len());
+    for (i, r) in res.regions.iter().enumerate() {
+        println!("  Region r{}: kind={:?}, box={:?}, text='{}'", i, r.kind, r.box_, r.text.replace('\n', "\\n"));
+    }
+
     // 1. STRUCTURAL ELEMENT COUNTS (3 DIALOGUE BUBBLES, 0 SFX, 1 CLEAN CREDITS REGION)
     crate::assert_element_counts!(res, 4, 3, 0, 1);
 

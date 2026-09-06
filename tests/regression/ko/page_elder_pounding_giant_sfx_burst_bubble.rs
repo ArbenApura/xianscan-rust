@@ -72,8 +72,8 @@ fn test_regression_page_elder_pounding_giant_sfx_burst_bubble() {
         bottom.text.replace('\n', "\\n")
     );
     assert!(bottom.bubble_box.is_some(), "Bottom bubble must carry a bubble envelope");
-    crate::assert_region_bounds!(bottom, xianscan_rust::ml::schemas::RegionKind::DialogueBubble, 60, 1763, 326, 112, 10);
-    crate::assert_bubble_bounds!(bottom, 4, 1608, 438, 308, 10);
+    crate::assert_region_bounds!(bottom, xianscan_rust::ml::schemas::RegionKind::DialogueBubble, 68, 1764, 299, 110, 10);
+    crate::assert_bubble_bounds!(bottom, 6, 1605, 433, 310, 10);
     crate::assert_region_angle!(bottom, 0.0, 2.0);
 
     // 4. NEGATIVE GUARDS: NO GIANT 떠 BRUSH SFX, NO ARTWORK-SMEARING GIANT ENVELOPE

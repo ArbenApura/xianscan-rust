@@ -26,15 +26,15 @@ fn test_regression_page_civil_war_nations_narration_box_sfx() {
         println!("  Region r{}: kind={:?}, angle={:.2}, box={:?}, text='{}', conf={:.2}", i, r.kind, r.angle, r.box_, r.text.replace('\n', "\\n"), r.confidence);
     }
 
-    // 0. EXACT ELEMENT COUNTS: EXACTLY 1 REGION (0 DIALOGUE BUBBLES, 0 SFX, 1 FREE TEXT / NARRATION)
-    crate::assert_element_counts!(res, 1, 0, 1);
+    // 0. EXACT ELEMENT COUNTS: EXACTLY 1 REGION (1 DIALOGUE BUBBLE NARRATION BOX, 0 SFX, 0 FREE TEXT)
+    crate::assert_element_counts!(res, 1, 1, 0);
 
     // 1. RECTANGULAR NARRATION BOX: '各国在内战的消耗中\n最终被凶兽潮逐一消灭…'
     let b1 = res.regions.iter().find(|r| r.text.contains("各国在内战") || r.text.contains("凶兽潮"));
     assert!(b1.is_some(), "Must detect narration box '各国在内战的消耗中...'");
     let b1 = b1.unwrap();
-    assert_eq!(b1.kind, xianscan_rust::ml::schemas::RegionKind::FreeText);
-    crate::assert_region_bounds!(b1, xianscan_rust::ml::schemas::RegionKind::FreeText, 499, 87, 303, 64, 25);
+    assert_eq!(b1.kind, xianscan_rust::ml::schemas::RegionKind::DialogueBubble);
+    crate::assert_region_bounds!(b1, xianscan_rust::ml::schemas::RegionKind::DialogueBubble, 500, 77, 303, 82, 25);
     crate::assert_region_angle!(b1, 0.0, 5.0);
 
     // 2. NEGATIVE GUARDS

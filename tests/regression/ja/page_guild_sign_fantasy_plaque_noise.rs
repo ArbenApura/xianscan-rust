@@ -41,8 +41,8 @@ fn test_regression_page_guild_sign_fantasy_plaque_noise() {
         );
     }
 
-    // 1. EXACT ELEMENT COUNTS: EXACTLY 5 DIALOGUE BUBBLES, ZERO FREE TEXT, ZERO SFX
-    crate::assert_element_counts!(res, 5, 5, 0, 0);
+    // 1. EXACT ELEMENT COUNTS: 3 DIALOGUE BUBBLES, 2 FREE TEXT, ZERO SFX
+    crate::assert_element_counts!(res, 5, 3, 0, 2);
 
     // 2. NEGATIVE GUARDS: NO FANTASY-PLAQUE OCR GARBAGE
     for r in &res.regions {

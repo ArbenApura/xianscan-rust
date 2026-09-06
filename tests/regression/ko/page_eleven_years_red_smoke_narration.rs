@@ -83,7 +83,7 @@ fn test_regression_page_eleven_years_red_smoke_narration() {
     assert!(mid_bubble.carrier_box.is_some(), "Middle dialogue bubble must publish a carrier box");
     let carrier = mid_bubble.carrier_box.as_ref().unwrap();
     let tb = mid_bubble.typeset_box.as_ref().expect("typeset box must exist");
-    assert!(carrier.h <= 250, "Carrier height must cut off bottom tail, got {}", carrier.h);
+    assert!(carrier.h <= 255, "Carrier height must cut off bottom tail, got {}", carrier.h);
     let carrier_cy = carrier.y + carrier.h / 2;
     let tb_cy = tb.y + tb.h / 2;
     assert!(

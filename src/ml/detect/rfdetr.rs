@@ -11,7 +11,7 @@ use super::rtdetr::RtDetrResult;
 use crate::ml::schemas::BoxRect;
 
 // -- CONSTANTS -- //
-pub const RFDETR_INPUT_SIZE: u32 = 1152;
+pub const RFDETR_INPUT_SIZE: u32 = 768;
 pub const RFDETR_TEXT_SCORE_THRESH: f32 = 0.25;
 pub const RFDETR_ONOMATOPOEIA_SCORE_THRESH: f32 = 0.25;
 pub const RFDETR_BUBBLE_SCORE_THRESH: f32 = 0.50;
@@ -103,7 +103,7 @@ impl RfDetrSegDetector {
             });
         }
 
-        // PREPROCESS IMAGE: RESIZE TO (1152, 1152) AND NORMALIZE WITH IMAGENET MEAN/STD (RGB)
+        // PREPROCESS IMAGE: RESIZE TO (768, 768) AND NORMALIZE WITH IMAGENET MEAN/STD (RGB)
         let rgb_img = img.to_rgb8();
         let resized = image::imageops::resize(
             &rgb_img,

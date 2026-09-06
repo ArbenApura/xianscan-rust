@@ -34,8 +34,8 @@ fn test_regression_page_marrow_cleansing_exhale_sfx() {
         );
     }
 
-    // 1. EXACT ELEMENT COUNTS: EXACTLY 2 REGIONS (2 FREETEXT / NARRATION REGIONS, 0 SFX)
-    crate::assert_element_counts!(res, 2, 0, 2);
+    // 1. EXACT ELEMENT COUNTS: EXACTLY 2 REGIONS (1 DIALOGUE BUBBLE NARRATION BOX, 1 FREETEXT NARRATION BOX, 0 SFX)
+    crate::assert_element_counts!(res, 2, 1, 1);
 
     // 2. NEGATIVE GUARD: NO BACKGROUND EXHALE SFX '후우' OR '후i' EXTRACTED AS REGIONS
     assert!(
@@ -43,12 +43,12 @@ fn test_regression_page_marrow_cleansing_exhale_sfx() {
         "Must NOT extract floating exhale SFX '후우' / '후i'"
     );
 
-    // 3. TOP NARRATION BOX: [X: 67, Y: 480, W: 108, H: 66]
+    // 3. TOP NARRATION BOX: [X: 52, Y: 472, W: 140, H: 80]
     let top_box = res.regions.iter().find(|r| r.text.contains("허나"));
     assert!(top_box.is_some(), "Must detect top narration box '허나,'");
     let top_box = top_box.unwrap();
-    assert_eq!(top_box.kind, RegionKind::FreeText);
-    crate::assert_region_bounds!(top_box, RegionKind::FreeText, 67, 480, 108, 66, 25);
+    assert_eq!(top_box.kind, RegionKind::DialogueBubble);
+    crate::assert_region_bounds!(top_box, RegionKind::DialogueBubble, 52, 472, 140, 80, 25);
 
     // 4. BOTTOM NARRATION BOX: [X: 122, Y: 1552, W: 459, H: 153]
     let bot_box = res.regions.iter().find(|r| r.text.contains("환골탈태") || r.text.contains("임독양맥") || r.text.contains("삼 갑자"));

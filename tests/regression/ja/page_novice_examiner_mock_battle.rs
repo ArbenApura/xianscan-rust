@@ -1,4 +1,4 @@
-﻿// -- INTERNAL IMPORTS -- //
+// -- INTERNAL IMPORTS -- //
 use crate::common::get_or_analyze_fixture_with_lang;
 
 // -- TESTS -- //
@@ -43,13 +43,13 @@ fn test_regression_page_novice_examiner_mock_battle() {
     let top_right = res.regions.iter().find(|r| r.text.contains("唯一") || r.text.contains("可能性") || r.text.contains("あるとすれば"));
     assert!(top_right.is_some(), "Must detect top-right narration '俺に唯一可能性があるとすれば'");
     let top_right = top_right.unwrap();
-    crate::assert_region_bounds!(top_right, xianscan_rust::ml::schemas::RegionKind::DialogueBubble, 608, 35, 79, 234, 15);
+    crate::assert_region_bounds!(top_right, xianscan_rust::ml::schemas::RegionKind::DialogueBubble, 597, 35, 102, 234, 15);
 
     // 2. TOP-LEFT SLANTED STAT CARD: '「試験官」(剣士)\nとの1対1での\n模擬戦に勝利する'
     let stat_card = res.regions.iter().find(|r| r.text.contains("試験官") || r.text.contains("模擬戦") || r.text.contains("1対1"));
     assert!(stat_card.is_some(), "Must detect top-left slanted stat card '「試験官」(剣士)との1対1での模擬戦に勝利する'");
     let stat_card = stat_card.unwrap();
-    crate::assert_region_bounds!(stat_card, xianscan_rust::ml::schemas::RegionKind::FreeText, 203, 104, 281, 203, 15);
+    crate::assert_region_bounds!(stat_card, xianscan_rust::ml::schemas::RegionKind::FreeText, 215, 140, 269, 167, 15);
     crate::assert_region_angle!(stat_card, -19.16, 3.0);
 
     // 3. TOP-LEFT LOWER STEP NARRATION: 'このひとつ\nのみだな'

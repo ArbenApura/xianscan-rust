@@ -49,15 +49,15 @@ fn test_regression_page_pochita_double_lobe_lowres_parity() {
     assert!(pochita_if.is_some(), "Must detect double-lobe upper segment 'ポチタに それが できるん だったら'");
     let pochita_if = pochita_if.unwrap();
     crate::assert_region_bounds!(pochita_if, xianscan_rust::ml::schemas::RegionKind::DialogueBubble, 136, 347, 118, 84, 10);
-    crate::assert_bubble_bounds!(pochita_if, 65, 323, 221, 236, 12);
+    crate::assert_bubble_bounds!(pochita_if, 82, 316, 203, 244, 12);
 
     // 3. DOUBLE-LOBE LOWER SEGMENT (LEFT COLUMN): '俺の体を ポチタに あげてー んだ…'
     let give_body = res.regions.iter().find(|r| r.text.contains("俺の体") || r.text.contains("あげて"));
     assert!(give_body.is_some(), "Must detect double-lobe lower segment '俺の体を ポチタに あげてー んだ…'");
     let give_body = give_body.unwrap();
     assert!(give_body.text.contains("んだ"), "Lower segment must retain the trailing 'んだ…' column");
-    crate::assert_region_bounds!(give_body, xianscan_rust::ml::schemas::RegionKind::DialogueBubble, 105, 457, 132, 83, 10);
-    crate::assert_bubble_bounds!(give_body, 65, 323, 221, 236, 12);
+    crate::assert_region_bounds!(give_body, xianscan_rust::ml::schemas::RegionKind::DialogueBubble, 112, 457, 116, 83, 12);
+    crate::assert_bubble_bounds!(give_body, 82, 316, 203, 244, 12);
 
     // NEGATIVE GUARD: THE TWO LOBES MUST NEVER RE-MERGE INTO ONE CROSS-LOBE MONOLITH.
     assert!(

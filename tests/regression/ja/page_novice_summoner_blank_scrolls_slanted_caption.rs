@@ -99,7 +99,7 @@ fn test_regression_page_novice_summoner_blank_scrolls_slanted_caption() {
     let r9 = res.regions.iter().find(|r| r.text.contains("スクロール") && r.box_.y >= 1600);
     assert!(r9.is_some(), "Must detect slanted caption box 'スクロール'");
     let r9 = r9.unwrap();
-    crate::assert_region_bounds!(r9, r9.kind, 738, 1742, 163, 78, 25);
+    crate::assert_region_bounds!(r9, r9.kind, 702, 1723, 238, 123, 25);
     assert!(r9.text.contains("スクロール"), "Must contain 'スクロール'");
     assert!(r9.angle.abs() >= 2.0, "Slanted caption 'スクロール' must have non-zero rotation angle (got {:.2}°)", r9.angle);
 }

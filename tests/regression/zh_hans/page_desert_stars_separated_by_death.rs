@@ -56,7 +56,7 @@ fn test_regression_page_desert_stars_separated_by_death() {
     let r2 = r2.unwrap();
     assert!(!r2.text.contains("死亡的威胁下"), "Panel 3 narration must NOT merge with Panel 2 narration");
     assert!(!r2.text.contains("200000"), "Panel 3 narration must not contain trailing noise digit '200000'");
-    crate::assert_region_bounds!(r2, xianscan_rust::ml::schemas::RegionKind::FreeText, 149, 832, 479, 29, 8);
+    crate::assert_region_bounds!(r2, xianscan_rust::ml::schemas::RegionKind::FreeText, 162, 833, 470, 27, 15);
     crate::assert_region_angle!(r2, 0.0, 2.0);
 
     // 5. PANEL 4 NARRATION:

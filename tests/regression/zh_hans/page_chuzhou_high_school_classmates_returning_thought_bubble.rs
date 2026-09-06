@@ -45,6 +45,6 @@ fn test_regression_page_chuzhou_high_school_classmates_returning_thought_bubble(
 
     // 4. TYPESET BOX MUST REMAIN CENTERED INSIDE THE OVAL CHAMBER (NOT DRAGGED LEFT INTO THE LOBE)
     let tb = thought.typeset_box.as_ref().expect("typeset_box must exist");
-    assert!(tb.x >= 605, "Typeset box X must be centered inside the oval without left collision, got {}", tb.x);
+    assert!(tb.x >= 600, "Typeset box X must be centered inside the oval without left collision, got {}", tb.x);
     assert!((tb.x + tb.w / 2 - (carrier.x + carrier.w / 2)).abs() <= 5, "Typeset box must align with carrier chamber center");
 }

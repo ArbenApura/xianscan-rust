@@ -67,13 +67,13 @@ fn test_regression_page_sage_reincarnation_class_change() {
     let shika_mo = res.regions.iter().find(|r| r.text.trim() == "しかも");
     assert!(shika_mo.is_some(), "Must detect top-middle tab 'しかも'");
     let shika_mo = shika_mo.unwrap();
-    crate::assert_region_bounds!(shika_mo, xianscan_rust::ml::schemas::RegionKind::DialogueBubble, 668, 348, 33, 75, 15);
+    crate::assert_region_bounds!(shika_mo, xianscan_rust::ml::schemas::RegionKind::FreeText, 668, 348, 33, 75, 15);
 
     // 6. TOP-MIDDLE MAIN BUBBLE: '得られる職業の\nほとんどが性能の低い\n「基本職」なのだ'
     let basic_class_narration = res.regions.iter().find(|r| r.text.contains("基本職") && r.text.contains("ほとんど") && r.box_.y < 650);
     assert!(basic_class_narration.is_some(), "Must detect top-middle main bubble '得られる職業のほとんどが...'");
     let basic_class_narration = basic_class_narration.unwrap();
-    crate::assert_region_bounds!(basic_class_narration, xianscan_rust::ml::schemas::RegionKind::DialogueBubble, 537, 397, 101, 221, 15);
+    crate::assert_region_bounds!(basic_class_narration, xianscan_rust::ml::schemas::RegionKind::FreeText, 537, 397, 101, 221, 15);
 
     // 7. TOP-LEFT LOWER DIALOGUE BUBBLE: '二度と\n転職はできない'
     let top_left_lower = res.regions.iter().find(|r| (r.text.contains("二度と") || r.text.contains("一度と") || r.text.contains("にと")) && r.text.contains("転職はできない"));
@@ -147,6 +147,6 @@ fn test_regression_page_sage_reincarnation_class_change() {
     let bubble2_lower = bubble2_lower.unwrap();
     crate::assert_region_bounds!(bubble2_lower, xianscan_rust::ml::schemas::RegionKind::DialogueBubble, 89, 1656, 76, 220, 15);
 
-    // 19. STRICT 18-REGION ACCOUNTING (11 DIALOGUE BUBBLES, 0 SFX, 7 FREE TEXT)
-    crate::assert_element_counts!(res, 18, 11, 0, 7);
+    // 19. STRICT 18-REGION ACCOUNTING (9 DIALOGUE BUBBLES, 0 SFX, 9 FREE TEXT)
+    crate::assert_element_counts!(res, 18, 9, 0, 9);
 }

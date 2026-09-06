@@ -36,8 +36,8 @@ fn test_regression_page_rice_shop_poison_bandit_split_bubble() {
         println!("  Region r{}: kind={:?}, angle={:.2}, box={:?}, text='{}', conf={:.2}", i, r.kind, r.angle, r.box_, r.text.replace('\n', "\\n"), r.confidence);
     }
 
-    // 1. EXACT ELEMENT COUNTS: 8 DIALOGUE BUBBLES
-    crate::assert_element_counts!(res, 8, 8, 0);
+    // 1. EXACT ELEMENT COUNTS: 7 DIALOGUE BUBBLES, 1 FREE TEXT
+    crate::assert_element_counts!(res, 8, 7, 1);
 
     // 2. PANEL 3 UPPER BANDIT LOBE (3 LINES)
     let upper_bandit = res.regions.iter().find(|r| r.text.contains("你这黑心老板"));

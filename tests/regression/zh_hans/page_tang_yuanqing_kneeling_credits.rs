@@ -25,7 +25,7 @@ fn test_page_tang_yuanqing_kneeling_credits() {
         .find(|r| r.text.contains("唐远清") || r.text.contains("陈大师"))
         .expect("Top-left speech bubble '唐远清，拜见陈大师！' must be detected");
     assert!(b0.text.contains("唐远清") || b0.text.contains("陈大师"));
-    crate::assert_region_bounds!(b0, RegionKind::DialogueBubble, 112, 75, 133, 72, 20);
+    crate::assert_region_bounds!(b0, RegionKind::DialogueBubble, 91, 81, 152, 76, 20);
 
     let b1 = res
         .regions

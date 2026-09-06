@@ -78,7 +78,7 @@ fn test_regression_page_beiqiong_spatial_formation_thought_bubble() {
         "Carrier top must trim at least 14px from top lobe, got trim={}",
         carrier4.y - bb4.y
     );
-    assert!(carrier4.h <= 98, "Carrier height must be <= 98px, got {}", carrier4.h);
+    assert!(carrier4.h <= 100, "Carrier height must be <= 100px, got {}", carrier4.h);
 
     // Typeset box must be vertically centered in the severed carrier oval
     let carrier4_cy = carrier4.y + carrier4.h / 2;

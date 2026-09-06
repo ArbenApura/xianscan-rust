@@ -149,6 +149,19 @@ pub fn valid_tail_cut_carrier(carrier: &BoxRect, b: &BoxRect, page_h: u32) -> bo
         return false;
     }
 
+    // ASPECT RATIO CONSISTENCY CHECK:
+    // A PROMINENT DIRECTIONAL TAIL (TRIM >= 20PX) EXTENDS THE ENVELOPE ALONG ITS PROTRUSION AXIS.
+    // A SQUARISH OR CIRCULAR BALLOON (b.h <= b.w * 1.05) CANNOT HOST A 20+ PX VERTICAL TAIL
+    // WITHOUT THE REMAINING CHAMBER BEING CRUSHED INTO A FLATTENED SLIT (SUCH AS WHEN UNCAPTURED
+    // ELLIPSIS DOTS CREATE SYNTHETIC BOTTOM MARGIN ASYMMETRY).
+    // SIMILARLY, A TALL BALLOON (b.w <= b.h * 1.05) CANNOT HOST A 20+ PX HORIZONTAL TAIL.
+    if is_v_cut && (trim_bot >= 20 || trim_top >= 20) && b.h as f32 <= b.w as f32 * 1.05 && (trim_bot.max(trim_top) as f32 / b.h as f32 >= 0.25) {
+        return false;
+    }
+    if is_h_cut && (trim_left >= 20 || trim_right >= 20) && b.w as f32 <= b.h as f32 * 1.05 && (trim_left.max(trim_right) as f32 / b.w as f32 >= 0.25) {
+        return false;
+    }
+
     // DEGENERATE CHAMBER GUARD: EROSION/DILATION ARTIFACTS OR MICRO BODIES ARE UNTRUSTWORTHY
     if carrier.w < 20 || carrier.h < 20 {
         return false;
@@ -596,8 +609,8 @@ pub fn expand_bubble_text_boxes(
         let right_m = ((carrier.x + carrier.w) - (regions[i].box_.x + regions[i].box_.w)).max(0);
         let min_hm = left_m.min(right_m) as f32;
         let max_hm = left_m.max(right_m) as f32;
-        let is_horizontally_elongated = carrier.w as f32 >= carrier.h as f32 * 1.30;
-        let is_heavily_offset_horizontally = is_horizontally_elongated && min_hm > 0.0 && (max_hm / min_hm >= 2.5) && (max_hm - min_hm >= 35.0);
+        let is_horizontally_elongated = carrier.w as f32 >= carrier.h as f32 * 1.45 || (carrier.w >= 200 && max_hm >= 60.0);
+        let is_heavily_offset_horizontally = is_horizontally_elongated && min_hm > 0.0 && (max_hm / min_hm >= 2.5) && (max_hm - min_hm >= 45.0);
 
         if is_sole_occupant
             && !is_vertical_edge_cut

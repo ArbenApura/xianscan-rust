@@ -304,43 +304,53 @@ pub fn deduplicate_and_unify_regions(
         }
     }
 
-    // C. UNIFY MULTI-COLUMN LINES INSIDE THE SAME SPEECH BUBBLE WITH MATCHING TOP-HEIGHT & SCALE-PROPORTIONAL GAP
+    // C. UNIFY MULTI-COLUMN LINES INSIDE THE SAME CONTAINER (SPEECH BUBBLE OR ADJACENT FREE-TEXT COLUMNS)
     let mut bubble_merged: Vec<Region> = Vec::new();
     for r in deduped_regions {
         let mut merged = false;
-        if let Some(ref r_bb) = r.bubble_box {
-            for existing in &mut bubble_merged {
-                if let Some(ref e_bb) = existing.bubble_box {
-                    let is_same_bubble = (r_bb.x - e_bb.x).abs() <= 10
+        for existing in &mut bubble_merged {
+            let container_matched = match (&r.bubble_box, &existing.bubble_box) {
+                (Some(r_bb), Some(e_bb)) => {
+                    (r_bb.x - e_bb.x).abs() <= 10
                         && (r_bb.y - e_bb.y).abs() <= 10
                         && (r_bb.w - e_bb.w).abs() <= 15
-                        && (r_bb.h - e_bb.h).abs() <= 15;
+                        && (r_bb.h - e_bb.h).abs() <= 15
+                }
+                (None, None) if r.vertical && existing.vertical && r.angle.abs() < 5.0 && existing.angle.abs() < 5.0 => {
+                    true
+                }
+                _ => false,
+            };
 
-                    if is_same_bubble {
-                        let (rx, ry, rw, rh) = (r.box_.x, r.box_.y, r.box_.w, r.box_.h);
-                        let (ex, ey, ew, eh) = (existing.box_.x, existing.box_.y, existing.box_.w, existing.box_.h);
+            if container_matched {
+                let (rx, ry, rw, rh) = (r.box_.x, r.box_.y, r.box_.w, r.box_.h);
+                let (ex, ey, ew, eh) = (existing.box_.x, existing.box_.y, existing.box_.w, existing.box_.h);
 
-                        if r.vertical || existing.vertical {
-                            // Top height anchor difference: if tops are not strictly aligned, do not merge
-                            let top_delta = (ry - ey).abs();
-                            let min_h = rh.min(eh);
-                            let max_allowed_top_delta = (min_h as f32 * 0.08).max(12.0) as i32;
-                            if top_delta > max_allowed_top_delta {
-                                continue;
-                            }
+                if r.vertical || existing.vertical {
+                    // Top height anchor difference: if tops are not strictly aligned, do not merge
+                    let top_delta = (ry - ey).abs();
+                    let min_h = rh.min(eh);
+                    let max_allowed_top_delta = (min_h as f32 * 0.08).max(14.0) as i32;
+                    if top_delta > max_allowed_top_delta {
+                        continue;
+                    }
 
-                            // Scale-proportional horizontal gap check
-                            let horiz_gap = if rx >= ex + ew { rx - (ex + ew) } else if ex >= rx + rw { ex - (rx + rw) } else { 0 };
-                            let max_allowed_gap = (rw.min(ew) as f32 * 0.15).max(4.0) as i32;
-                            if horiz_gap > max_allowed_gap {
-                                continue;
-                            }
+                    // Scale-proportional horizontal gap check
+                    let horiz_gap = if rx >= ex + ew { rx - (ex + ew) } else if ex >= rx + rw { ex - (rx + rw) } else { 0 };
+                    let max_allowed_gap = if r.bubble_box.is_some() {
+                        (rw.min(ew) as f32 * 0.15).max(4.0) as i32
+                    } else {
+                        (rw.min(ew) as f32 * 0.35).clamp(6.0, 30.0) as i32
+                    };
+                    if horiz_gap > max_allowed_gap {
+                        continue;
+                    }
 
-                            // Vertical overlap check
-                            let overlap_y = (ry + rh).min(ey + eh) - ry.max(ey);
-                            if (overlap_y.max(0) as f32 / min_h.max(1) as f32) < 0.75 {
-                                continue;
-                            }
+                    // Vertical overlap check
+                    let overlap_y = (ry + rh).min(ey + eh) - ry.max(ey);
+                    if (overlap_y.max(0) as f32 / min_h.max(1) as f32) < 0.75 {
+                        continue;
+                    }
                         } else {
                             // Horizontal lines: left baseline difference and center difference must be small
                             let r_line_count = r.text.lines().count().max(1) as f32;
@@ -416,8 +426,6 @@ pub fn deduplicate_and_unify_regions(
                         existing.confidence = existing.confidence.max(r.confidence);
                         merged = true;
                         break;
-                    }
-                }
             }
         }
         if !merged {
