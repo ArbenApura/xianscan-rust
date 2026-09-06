@@ -460,7 +460,7 @@ pub fn analyze_image_with_fusion_timed(
                     };
                     let char_count = line.text.chars().filter(|c| !c.is_whitespace()).count();
                     let is_giant_calligraphy_to_body = is_cjk && (lh as f32 >= 120.0 || (lw as f32 >= 350.0 && lh as f32 >= 80.0)) && char_count <= 4 && bh <= 200.0;
-                    let is_slanted_free_line = crate::ml::geometry::calculate_box_angle_i32(&line.polygon).abs() >= 8.0;
+                    let is_slanted_free_line = crate::ml::geometry::calculate_box_angle_i32(&line.polygon).abs() >= 12.0;
                     let is_bubble_cb = fusion_res.bubbles.iter().any(|b| {
                         let ix = (bx + bw).min((b.x + b.w) as f32) - bx.max(b.x as f32);
                         let iy = (by + bh).min((b.y + b.h) as f32) - by.max(b.y as f32);
@@ -510,7 +510,7 @@ pub fn analyze_image_with_fusion_timed(
 
                         if !is_tabular_line && (is_horiz_single_line || is_vert_single_line || is_partial_vert_container || is_horiz_contained_line || is_adjacent_trailing_row || is_adjacent_leading_row) && !is_trailing_latin_noise {
                             // GUARD: Do not expand a compact dialogue detector box if the line is slanted free-text or distant crowd reaction
-                            let is_slanted_line = crate::ml::geometry::calculate_box_angle_i32(&line.polygon).abs() >= 8.0;
+                            let is_slanted_line = crate::ml::geometry::calculate_box_angle_i32(&line.polygon).abs() >= 12.0;
                             if !is_slanted_line {
                                 let (union_x, union_y, union_w, union_h) = if let Some(pb) = parent_bubble {
                                     let ux = bx.min(lx as f32).max((pb.x - 5) as f32);

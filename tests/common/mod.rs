@@ -19,6 +19,7 @@ use xianscan_rust::pipeline::PipelineEngine;
 
 // GLOBAL REGISTRY TO MAP IMAGE HASHES TO SOURCE FIXTURE FILE PATHS
 static FIXTURE_PATH_MAP: Mutex<Option<HashMap<String, PathBuf>>> = Mutex::new(None);
+static INFERENCE_LOCK: Mutex<()> = Mutex::new(());
 
 /// ASSERTS EXACT BOUNDING BOX PROXIMITY AND REGION KIND WITH STRICT DRIFT TOLERANCES
 #[macro_export]
@@ -975,6 +976,16 @@ pub fn get_or_run_layout_detector_with_lang(
         }
     }
 
+    let _lock = INFERENCE_LOCK.lock().unwrap();
+
+    // DOUBLE-CHECK AFTER ACQUIRING LOCK IN CASE PREVIOUS THREAD COMPLETED IT
+    if let Some(src_path) = get_registered_fixture_path(&key) {
+        let paths = get_fixture_output_paths(&src_path);
+        if paths.layout_json.exists() && paths.ocr_json.exists() {
+            return;
+        }
+    }
+
     let models_dir = Path::new("models");
     let mut engine = PipelineEngine::new(models_dir);
     let fusion = xianscan_rust::pipeline::fusion::fuse_detections(
@@ -1117,6 +1128,7 @@ pub fn force_analyze_fixture_with_lang(
     img: &DynamicImage,
     source_lang: Option<&str>,
 ) -> AnalyzeResponse {
+    let _lock = INFERENCE_LOCK.lock().unwrap();
     let models_dir = Path::new("models");
     let mut engine = PipelineEngine::new(models_dir);
     let opts = AnalyzeOptions {

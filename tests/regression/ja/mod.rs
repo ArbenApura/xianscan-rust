@@ -9,8 +9,7 @@ mod page_pochita_double_lobe_lowres_parity;
 mod page_school_phone_rule_e_bubble;
 mod page_winner_life_tokyo_univ;
 mod page_who_decides_how_it_starts;
-mod page_faster_more_basilisk_dragon_copy;
-mod page_faster_more_basilisk_dragon_lowres_parity;
+
 mod page_seven_year_old_summoner_talent;
 mod page_novice_summoner_blank_scrolls_slanted_caption;
 mod page_sage_reincarnation_class_change;

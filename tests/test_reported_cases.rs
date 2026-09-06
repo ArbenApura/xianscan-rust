@@ -70,7 +70,7 @@ fn test_page_6857_manhwa_bubble_safe_core_and_tail_handling() {
         },
     ];
 
-    expand_bubble_text_boxes(&mut regions, None, page_w, page_h, 0.03, 0.00);
+    expand_bubble_text_boxes(&mut regions, &[], None, page_w, page_h, 0.03, 0.00);
 
     // VERIFY TOP REGION (9059): TAIL-CUT CARRIER LIMITS THE TYPESET BOX INSIDE THE UPPER CHAMBER
     let top_tb = regions[0].typeset_box.as_ref().expect("top typeset box should exist");

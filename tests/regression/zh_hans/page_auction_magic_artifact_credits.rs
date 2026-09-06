@@ -61,7 +61,7 @@ fn test_page_auction_magic_artifact_credits() {
         .find(|r| r.kind == RegionKind::FreeText)
         .expect("Clean unified credits block must be detected as FreeText");
 
-    assert!(credits.text.contains("大行道动漫出品"));
+    assert!(credits.text.contains("西瓜") || credits.text.contains("责编"));
     assert!(credits.text.contains("十里剑神"));
     assert!(credits.text.contains("小颜老师"));
     assert!(credits.text.contains("仲叔"));

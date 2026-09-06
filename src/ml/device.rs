@@ -1097,15 +1097,16 @@ pub fn create_session_from_memory(bytes: &[u8], model_tag: &str) -> Result<Sessi
 
     // CPU multi-threaded session with Level 3 graph optimization, zero persistent arena, and direct mimalloc backing
     tracing::debug!("Initializing ONNX model '{}' with CPU execution provider.", model_tag);
+    let fast_cpu = std::env::var("MT_FAST_CPU").map(|v| v == "1" || v.eq_ignore_ascii_case("true")).unwrap_or(true);
     let session = Session::builder()
         .map_err(|e| anyhow::anyhow!("Session builder error: {}", e))?
         .with_intra_threads(get_optimal_cpu_threads())
         .map_err(|e| anyhow::anyhow!("Session intra threads error: {}", e))?
         .with_optimization_level(GraphOptimizationLevel::Level3)
         .map_err(|e| anyhow::anyhow!("Session optimization level error: {}", e))?
-        .with_memory_pattern(false)
+        .with_memory_pattern(fast_cpu)
         .map_err(|e| anyhow::anyhow!("Memory pattern error: {}", e))?
-        .with_config_entry("session.enable_cpu_mem_arena", "0")
+        .with_config_entry("session.enable_cpu_mem_arena", if fast_cpu { "1" } else { "0" })
         .map_err(|e| anyhow::anyhow!("Config entry error: {}", e))?
         .commit_from_memory(bytes)
         .map_err(|e| anyhow::anyhow!("Commit session from memory error: {}", e))?;

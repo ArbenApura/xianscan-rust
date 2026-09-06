@@ -420,7 +420,7 @@ pub fn expand_bubble_text_boxes(
         let bot_m = ((carrier.y + carrier.h) - (regions[i].box_.y + regions[i].box_.h)).max(0);
         let min_vm = top_m.min(bot_m) as f32;
         let max_vm = top_m.max(bot_m) as f32;
-        let is_heavily_offset_vertically = min_vm > 0.0 && (max_vm / min_vm >= 2.2) && (max_vm - min_vm >= 25.0);
+        let is_heavily_offset_vertically = min_vm > 0.0 && (max_vm / min_vm >= 2.5) && (max_vm - min_vm >= 25.0);
 
         let left_m = (regions[i].box_.x - carrier.x).max(0);
         let right_m = ((carrier.x + carrier.w) - (regions[i].box_.x + regions[i].box_.w)).max(0);

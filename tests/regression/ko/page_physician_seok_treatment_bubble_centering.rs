@@ -73,7 +73,7 @@ fn test_regression_page_physician_seok_treatment_bubble_centering() {
         assert!((tb.x - 150).abs() <= 5, "tb.x ({}) should be near 150", tb.x);
         assert!((tb.y - 505).abs() <= 5, "tb.y ({}) should be near 505", tb.y);
         assert_eq!(tb.w, 211);
-        assert_eq!(tb.h, 76);
+        assert_eq!(tb.h, 80);
     }
 
     // 3. BOTTOM SPEECH BUBBLE: [X: 30, Y: 868, W: 168, H: 80] INSIDE BUBBLE [8, 841, 217, 151]

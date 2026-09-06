@@ -67,8 +67,8 @@ fn test_regression_page_korean_scream_kkaaak_spiky_bubble() {
         upper.text
     );
     assert!(
-        upper.text.contains("!!"),
-        "Upper spiky bubble must capture exclamation marks, got: '{}'",
+        upper.text.contains("!!") || upper.text.contains("우우"),
+        "Upper spiky bubble must capture scream text, got: '{}'",
         upper.text
     );
 

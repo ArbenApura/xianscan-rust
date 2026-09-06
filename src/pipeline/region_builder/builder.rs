@@ -527,8 +527,15 @@ pub fn build_regions(
                     0.0
                 };
 
+                let is_short_hangul = cluster_lines.iter().all(|l| {
+                    let t = l.text.trim();
+                    let hangul_count = t.chars().filter(|c| *c >= '\u{AC00}' && *c <= '\u{D7A3}').count();
+                    hangul_count > 0 && hangul_count <= 3
+                        && t.chars().all(|c| (c >= '\u{AC00}' && c <= '\u{D7A3}') || c.is_ascii_punctuation() || matches!(c, '…' | '·' | '—' | '～' | '。' | '，' | '、' | '！' | '？' | '!' | '?' | '.' | '~'))
+                });
+
                 angle_deg = if !cluster_lines.is_empty() && median_line_angle.abs() >= 1.5 {
-                    if (median_line_angle.abs() < 4.0 && (box_angle == 0.0 || box_angle.abs() < 1.5)) || (matched_bubble.is_some() && median_line_angle.abs() < 4.5 && box_angle.abs() < 2.0) {
+                    if (median_line_angle.abs() < 4.0 && (box_angle == 0.0 || box_angle.abs() < 1.5)) || (matched_bubble.is_some() && is_short_hangul && median_line_angle.abs() < 10.0 && box_angle.abs() < 2.0) {
                         0.0
                     } else {
                         median_line_angle

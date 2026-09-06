@@ -65,7 +65,7 @@ fn test_regression_page_sun_moon_wheel_duplicate_line() {
         "Bottom spiky bubble must contain '日月轮' exactly once, but found {} times in: '{}'",
         matches_count, spiky.text
     );
-    crate::assert_region_bounds!(spiky, xianscan_rust::ml::schemas::RegionKind::DialogueBubble, 101, 909, 168, 108, 15);
+    crate::assert_region_bounds!(spiky, xianscan_rust::ml::schemas::RegionKind::DialogueBubble, 111, 921, 143, 96, 15);
     crate::assert_bubble_bounds!(spiky, 50, 893, 232, 231, 15);
 }
 

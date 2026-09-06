@@ -31,6 +31,86 @@ pub struct DetectionFusionResult {
 
 // -- FUNCTIONS & ALGORITHMS -- //
 
+fn filter_fused_ocr_lines(rl: Vec<OcrLine>, page_w: u32, source_lang: Option<&str>) -> Vec<OcrLine> {
+    let mut filtered: Vec<OcrLine> = rl
+        .into_iter()
+        .filter(|line| {
+            let (_, _, lw, lh) = polygon_bounds(&line.polygon);
+            let t = line.text.trim();
+            if t.is_empty() {
+                return false;
+            }
+            // 1. DROP GIANT ARTWORK HALLUCINATIONS (W >= 60% PAGE_W, H >= 120PX, SCORE < 0.75)
+            if lw >= (page_w as f32 * 0.60) as i32 && lh >= 120 && line.score < 0.75 {
+                return false;
+            }
+            // 2. DROP STANDALONE REPEATED NOISE STROKES
+            if crate::ml::detect::is_standalone_noise_stroke(t) {
+                return false;
+            }
+            // 3. DROP HIGH-TILT NON-DIALOGUE WITH LOW RECOGNITION CONFIDENCE (THETA >= 12.0 DEG, SCORE < 0.60)
+            let angle = crate::ml::geometry::calculate_box_angle_i32(&line.polygon);
+            if angle.abs() >= 12.0 && line.score < 0.60 {
+                return false;
+            }
+            // In non-Latin script sources (CJK/Korean/Japanese), drop slanted/angled pure Latin lines (theta >= 10.0 deg) that lack native script
+            if crate::ml::detect::is_non_latin_source(source_lang) && angle.abs() >= 10.0 && !crate::ml::detect::has_native_script_for_lang(t, source_lang) {
+                return false;
+            }
+            // 4. DROP MARGIN ARCHITECTURAL / BUILDING GRID TEXTURE NOISE & SLICED EDGE FRAGMENTS (FLUSH TO MARGIN X <= 5 OR X + LW >= PAGE_W - 5, LOW CONFIDENCE SCORE < 0.75, NO BUBBLE)
+            let (px, _, _, _) = polygon_bounds(&line.polygon);
+            let is_margin_flush = px <= 5 || px + lw >= page_w as i32 - 5;
+            if is_margin_flush && line.score < 0.75 {
+                return false;
+            }
+            true
+        })
+        .collect();
+
+    // 4. DROP THIN CONTRAST-BORDER OPTICAL SLIVERS OR SUBSEGMENTS (LH <= 25PX) THAT OVERLAP NORMAL-HEIGHT LINES (LH >= 28PX)
+    let normal_lines: Vec<([i32; 4], String, f32)> = filtered
+        .iter()
+        .filter_map(|l| {
+            let (x, y, w, h) = polygon_bounds(&l.polygon);
+            if h >= 28 && l.score >= 0.65 {
+                Some(([x, y, w, h], l.text.trim().to_string(), l.score))
+            } else {
+                None
+            }
+        })
+        .collect();
+
+    filtered.retain(|l| {
+        let (lx, ly, lw, lh) = polygon_bounds(&l.polygon);
+        let lt = l.text.trim();
+        let is_l_vert = lh > (lw as f32 * 1.25) as i32;
+        if !is_l_vert && lh <= 25 {
+            let is_sliver = normal_lines.iter().any(|([nx, ny, nw, nh], nt, _)| {
+                let is_n_vert = *nh > (*nw as f32 * 1.25) as i32;
+                if is_n_vert {
+                    return false;
+                }
+                let ix = (lx + lw).min(nx + nw) - lx.max(*nx);
+                let iy = (ly + lh).min(ny + nh) - ly.max(*ny);
+                if ix > 0 && iy > 0 {
+                    let overlap_y = iy as f32 / lh as f32;
+                    let overlap_x = ix as f32 / lw.min(*nw) as f32;
+                    let is_sub = nt.contains(lt) && nt.chars().count() > lt.chars().count();
+                    (overlap_y >= 0.60 && overlap_x >= 0.50) || (overlap_y >= 0.50 && is_sub)
+                } else {
+                    false
+                }
+            });
+            if is_sliver {
+                return false;
+            }
+        }
+        true
+    });
+
+    filtered
+}
+
 pub fn fuse_detections(
     detector: &mut Option<ComicTextDetector>,
     ocr: &mut Option<RapidOcr>,
@@ -40,9 +120,13 @@ pub fn fuse_detections(
 ) -> Result<DetectionFusionResult> {
     let (page_w, _page_h) = img.dimensions();
 
-    // 1 & 2. PARALLEL EXECUTION: RUN COMIC LAYOUT DETECTOR AND RAPIDOCR CONCURRENTLY VIA SCOPED THREADS
-    let (det_result, ocr_result) = std::thread::scope(|s| {
-        let det_handle = s.spawn(|| -> Result<(Option<crate::ml::detect::DetectResult>, f64)> {
+    let (providers, _) = crate::ml::device::probe_hardware();
+    let is_cpu_active = providers.first().map(|p| p == "CPUExecutionProvider").unwrap_or(true);
+    let fast_cpu = std::env::var("MT_FAST_CPU").map(|v| v == "1" || v.eq_ignore_ascii_case("true")).unwrap_or(is_cpu_active);
+
+    // 1 & 2. EXECUTION: RUN SEQUENTIALLY ON CPU (AVOIDS 16-THREAD THRASHING ACROSS 8 CORES) OR PARALLEL ON DEDICATED GPU
+    let (det_result, ocr_result) = if fast_cpu {
+        let det_res = (|| -> Result<(Option<crate::ml::detect::DetectResult>, f64)> {
             if let Some(ref mut det) = detector {
                 let t0 = std::time::Instant::now();
                 match det.detect(img) {
@@ -61,100 +145,61 @@ pub fn fuse_detections(
                 return Err(anyhow::anyhow!("LAYOUT_DETECTOR_FAILED: Comic layout detector model is not loaded or missing."));
             }
             Ok((None, 0.0))
-        });
+        })();
 
-        let ocr_handle = s.spawn(|| {
+        let ocr_res = (|| {
             if let Some(ref mut o) = ocr {
                 let t0 = std::time::Instant::now();
                 if let Ok(rl) = o.detect_and_recognize_tiled_with_lang(img, true, source_lang) {
                     let dur = t0.elapsed().as_secs_f64() * 1000.0;
-                    // FILTER OUT GIANT ARTWORK HALLUCINATIONS, NOISE STROKES, HIGH-TILT NOISE, AND OPTICAL BORDER SLIVERS
-                    let mut filtered: Vec<OcrLine> = rl
-                        .into_iter()
-                        .filter(|line| {
-                            let (_, _, lw, lh) = polygon_bounds(&line.polygon);
-                            let t = line.text.trim();
-                            if t.is_empty() {
-                                return false;
-                            }
-                            // 1. DROP GIANT ARTWORK HALLUCINATIONS (W >= 60% PAGE_W, H >= 120PX, SCORE < 0.75)
-                            if lw >= (page_w as f32 * 0.60) as i32 && lh >= 120 && line.score < 0.75 {
-                                return false;
-                            }
-                            // 2. DROP STANDALONE REPEATED NOISE STROKES
-                            if crate::ml::detect::is_standalone_noise_stroke(t) {
-                                return false;
-                            }
-                            // 3. DROP HIGH-TILT NON-DIALOGUE WITH LOW RECOGNITION CONFIDENCE (THETA >= 12.0 DEG, SCORE < 0.60)
-                            let angle = crate::ml::geometry::calculate_box_angle_i32(&line.polygon);
-                            if angle.abs() >= 12.0 && line.score < 0.60 {
-                                return false;
-                            }
-                            // In non-Latin script sources (CJK/Korean/Japanese), drop slanted/angled pure Latin lines (theta >= 10.0 deg) that lack native script
-                            if crate::ml::detect::is_non_latin_source(source_lang) && angle.abs() >= 10.0 && !crate::ml::detect::has_native_script_for_lang(t, source_lang) {
-                                return false;
-                            }
-                            // 4. DROP MARGIN ARCHITECTURAL / BUILDING GRID TEXTURE NOISE & SLICED EDGE FRAGMENTS (FLUSH TO MARGIN X <= 5 OR X + LW >= PAGE_W - 5, LOW CONFIDENCE SCORE < 0.75, NO BUBBLE)
-                            let (px, _, _, _) = polygon_bounds(&line.polygon);
-                            let is_margin_flush = px <= 5 || px + lw >= page_w as i32 - 5;
-                            if is_margin_flush && line.score < 0.75 {
-                                return false;
-                            }
-                            true
-                        })
-                        .collect();
-
-                    // 4. DROP THIN CONTRAST-BORDER OPTICAL SLIVERS OR SUBSEGMENTS (LH <= 25PX) THAT OVERLAP NORMAL-HEIGHT LINES (LH >= 28PX)
-                    let normal_lines: Vec<([i32; 4], String, f32)> = filtered
-                        .iter()
-                        .filter_map(|l| {
-                            let (x, y, w, h) = polygon_bounds(&l.polygon);
-                            if h >= 28 && l.score >= 0.65 {
-                                Some(([x, y, w, h], l.text.trim().to_string(), l.score))
-                            } else {
-                                None
-                            }
-                        })
-                        .collect();
-
-                    filtered.retain(|l| {
-                        let (lx, ly, lw, lh) = polygon_bounds(&l.polygon);
-                        let lt = l.text.trim();
-                        let is_l_vert = lh > (lw as f32 * 1.25) as i32;
-                        if !is_l_vert && lh <= 25 {
-                            let is_sliver = normal_lines.iter().any(|([nx, ny, nw, nh], nt, _)| {
-                                let is_n_vert = *nh > (*nw as f32 * 1.25) as i32;
-                                if is_n_vert {
-                                    return false;
-                                }
-                                let ix = (lx + lw).min(nx + nw) - lx.max(*nx);
-                                let iy = (ly + lh).min(ny + nh) - ly.max(*ny);
-                                if ix > 0 && iy > 0 {
-                                    let overlap_y = iy as f32 / lh as f32;
-                                    let overlap_x = ix as f32 / lw.min(*nw) as f32;
-                                    let is_sub = nt.contains(lt) && nt.chars().count() > lt.chars().count();
-                                    (overlap_y >= 0.60 && overlap_x >= 0.50) || (overlap_y >= 0.50 && is_sub)
-                                } else {
-                                    false
-                                }
-                            });
-                            if is_sliver {
-                                return false;
-                            }
-                        }
-                        true
-                    });
-
+                    let filtered = filter_fused_ocr_lines(rl, page_w, source_lang);
                     return (filtered, dur);
                 }
             }
             (Vec::new(), 0.0)
-        });
+        })();
 
-        let det_res = det_handle.join().unwrap();
-        let ocr_res = ocr_handle.join().unwrap();
         (det_res, ocr_res)
-    });
+    } else {
+        std::thread::scope(|s| {
+            let det_handle = s.spawn(|| -> Result<(Option<crate::ml::detect::DetectResult>, f64)> {
+                if let Some(ref mut det) = detector {
+                    let t0 = std::time::Instant::now();
+                    match det.detect(img) {
+                        Ok(res) => {
+                            let dur = t0.elapsed().as_secs_f64() * 1000.0;
+                            return Ok((Some(res), dur));
+                        }
+                        Err(e) => {
+                            tracing::error!("Comic layout detector inference failed: {}", e);
+                            if !allow_degraded_fallback {
+                                return Err(anyhow::anyhow!("LAYOUT_DETECTOR_FAILED: Comic layout detector inference crashed: {}", e));
+                            }
+                        }
+                    }
+                } else if !allow_degraded_fallback {
+                    return Err(anyhow::anyhow!("LAYOUT_DETECTOR_FAILED: Comic layout detector model is not loaded or missing."));
+                }
+                Ok((None, 0.0))
+            });
+
+            let ocr_handle = s.spawn(|| {
+                if let Some(ref mut o) = ocr {
+                    let t0 = std::time::Instant::now();
+                    if let Ok(rl) = o.detect_and_recognize_tiled_with_lang(img, true, source_lang) {
+                        let dur = t0.elapsed().as_secs_f64() * 1000.0;
+                        let filtered = filter_fused_ocr_lines(rl, page_w, source_lang);
+                        return (filtered, dur);
+                    }
+                }
+                (Vec::new(), 0.0)
+            });
+
+            let det_res = det_handle.join().unwrap();
+            let ocr_res = ocr_handle.join().unwrap();
+            (det_res, ocr_res)
+        })
+    };
 
     let (res_opt, detector_time_ms) = det_result?;
     let (mut rapid_lines, ocr_fullpage_time_ms) = ocr_result;

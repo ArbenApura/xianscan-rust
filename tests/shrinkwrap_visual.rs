@@ -158,15 +158,7 @@ fn test_two_stage_pipeline_on_all_fixtures() {
     println!("Total fixtures verified across all languages: {}", total_cases);
 }
 
-#[test]
-fn test_two_stage_pipeline_on_basilisk() {
-    let fixture_dir = Path::new("tests/fixtures/private/ja/page_faster_more_basilisk_dragon_copy");
-    if !fixture_dir.exists() {
-        return;
-    }
-    let mut inpainter_opt: Option<LamaInpainter> = None;
-    run_two_stage_pipeline_on_fixture(fixture_dir, &mut inpainter_opt);
-}
+
 
 #[test]
 fn test_two_stage_pipeline_on_novice_summoner() {

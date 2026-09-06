@@ -21,7 +21,7 @@ const OCR_DET_LIMIT_SIDE: f32 = 2000.0;
 /// BEHAVIOUR IS ALREADY SCALE-STABLE, AND RE-TARGETING THEM TO THE FULL-PAGE LIMIT WOULD
 /// OVER-MAGNIFY SMALL PAGES AND HALLUCINATE FRAGMENT GLYPHS.
 fn ocr_sub_image_det_limit(max_side: u32) -> f32 {
-    if max_side < 960 {
+    if max_side <= 960 {
         960.0
     } else if max_side < 1500 {
         1500.0
@@ -1002,10 +1002,10 @@ impl RapidOcr {
             }
         }
 
-        // Tiled recognition passes on manhwa pages (h >= 600)
-        if tiled && h >= 600 {
-            let slice_h = 500_u32;
-            let step_y = 300_u32;
+        // Tiled recognition passes on manhwa pages (h >= 960)
+        if tiled && h >= 960 {
+            let slice_h = 960_u32;
+            let step_y = 760_u32;
             let mut y = 0_u32;
 
             while y < h {

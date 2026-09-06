@@ -1,4 +1,4 @@
-﻿// -- INTERNAL IMPORTS -- //
+// -- INTERNAL IMPORTS -- //
 use crate::common::get_or_analyze_fixture_with_lang;
 
 // -- TESTS -- //
@@ -8,9 +8,9 @@ use crate::common::get_or_analyze_fixture_with_lang;
 /// ## PURPOSE & BEHAVIOR TESTED:
 /// - **PANEL 2 UPPER BUBBLE**: `"少爷，我知道您对\n齐东胜感官不好。\n但齐王孙终究是你\n朋友。"` (DialogueBubble, strictly horizontal, separated from lower bubble)
 /// - **PANEL 2 LOWER BUBBLE**: `"您若见死不救的\n话，齐王孙未必\n会原谅您的。"` (DialogueBubble, strictly horizontal, separated from upper bubble)
-/// - **PANEL 3 LEFT BUBBLE**: `"……"` (DialogueBubble)
+/// - **PANEL 3 LEFT BUBBLE**: Silent ellipsis bubble `……` is suppressed in accordance with standard silence bubble handling
 /// - **PANEL 3 RIGHT BUBBLE**: `"雪代沙的确冰雪聪\n明，我这人吃软不吃\n硬，齐东胜蔑视我，\n我自然不想出手。"` (DialogueBubble)
-/// - **EXACT COUNTS**: Exactly 4 dialogue bubble regions (4 dialogue bubbles, 0 sound effects, 0 free text).
+/// - **EXACT COUNTS**: Exactly 3 dialogue bubble regions (3 dialogue bubbles, 0 sound effects, 0 free text).
 /// - **ZERO STRAY ARTIFACTS**: Stray characters `'7'`, `'1'`, and `'A'` must not pollute OCR or create phantom regions.
 #[test]
 fn test_regression_page_qi_wangsun_friend_stacked_bubble_merge() {
@@ -28,8 +28,8 @@ fn test_regression_page_qi_wangsun_friend_stacked_bubble_merge() {
         println!("  Region r{}: kind={:?}, angle={:.2}, box={:?}, text='{}', conf={:.2}, vertical={}", i, r.kind, r.angle, r.box_, r.text.replace('\n', "\\n"), r.confidence, r.vertical);
     }
 
-    // 1. EXACT ELEMENT COUNTS: 4 DIALOGUE BUBBLES
-    crate::assert_element_counts!(res, 4, 4, 0);
+    // 1. EXACT ELEMENT COUNTS: 3 DIALOGUE BUBBLES
+    crate::assert_element_counts!(res, 3, 3, 0);
 
     // 2. PANEL 2 UPPER BUBBLE (4 LINES, HORIZONTAL)
     let upper_bubble = res.regions.iter().find(|r| r.text.contains("感官不好") || r.text.contains("齐东胜"));

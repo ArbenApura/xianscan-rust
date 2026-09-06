@@ -35,6 +35,6 @@ fn test_regression_page_she_clearly_russian_bubble() {
     // OUTER SPEECH BUBBLE BOUNDS: [X: 190, Y: 194, W: 253, H: 265]
     let region = &res.regions[0];
     assert!(region.text.to_uppercase().contains("ОН ЖЕ ЯВНО"), "Region text must contain 'ОН ЖЕ ЯВНО', got '{}'", region.text);
-    crate::assert_region_bounds!(region, xianscan_rust::ml::schemas::RegionKind::DialogueBubble, 223, 306, 177, 46, 6);
+    crate::assert_region_bounds!(region, xianscan_rust::ml::schemas::RegionKind::DialogueBubble, 219, 298, 185, 60, 6);
     crate::assert_bubble_bounds!(region, 190, 194, 253, 265, 10);
 }

@@ -36,6 +36,6 @@ fn test_regression_page_chariot_easy_to_block_sfx() {
     let narration = res.regions.iter().find(|r| r.text.contains("明车易挡"));
     assert!(narration.is_some(), "Must detect narration '明车易挡……'");
     let narration = narration.unwrap();
-    crate::assert_region_bounds!(narration, xianscan_rust::ml::schemas::RegionKind::FreeText, 247, 723, 446, 136, 8);
+    crate::assert_region_bounds!(narration, xianscan_rust::ml::schemas::RegionKind::FreeText, 253, 733, 373, 121, 8);
     crate::assert_region_angle!(narration, 0.0, 1.0);
 }

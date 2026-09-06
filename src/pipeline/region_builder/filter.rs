@@ -92,16 +92,23 @@ pub fn should_reject_candidate_region(
             .map(|l| l.chars().filter(|c| !c.is_whitespace()).count())
             .filter(|&n| n > 0)
             .collect();
-        let is_stacked_calligraphy = glyph_rows.len() >= 3
-            && glyph_rows.iter().all(|&n| n <= 2)
-            && glyph_rows.iter().sum::<usize>() <= 12;
+        let covered_single_glyph_lines = split_lines.iter().filter(|l| {
+            let (lx, ly, lw, lh) = polygon_bounds(&l.polygon);
+            let inter_x = (cluster_rect.x + cluster_rect.w).min(lx + lw) - cluster_rect.x.max(lx);
+            let inter_y = (cluster_rect.y + cluster_rect.h).min(ly + lh) - cluster_rect.y.max(ly);
+            inter_x > 0 && inter_y > 0 && (inter_x * inter_y) as f32 / (lw * lh).max(1) as f32 >= 0.50 && l.text.trim().chars().count() <= 1
+        }).count();
+        let is_stacked_calligraphy = (covered_single_glyph_lines >= 3 && cluster_rect.h >= 400)
+            || (glyph_rows.len() >= 3
+                && glyph_rows.iter().all(|&n| n <= 2)
+                && glyph_rows.iter().sum::<usize>() <= 12);
         if is_stacked_calligraphy {
             return true;
         }
     }
 
     // 4. SUPPRESS TINY LOW-CONFIDENCE NOISE BUBBLES
-    let is_expressive_bubble_punct = cleaned.chars().any(|c| matches!(c, '！' | '？' | '!' | '?' | '…' | '·' | '—' | '～' | '¿' | '¡'));
+    let is_expressive_bubble_punct = !cleaned.trim().is_empty() && cleaned.chars().all(|c| c.is_whitespace() || matches!(c, '！' | '？' | '!' | '?' | '…' | '·' | '—' | '～' | '¿' | '¡' | '.' | '。' | '，' | ','));
     let tiny_bubble_w = ((ref_dim * 0.045).clamp(20.0, 45.0)) as i32;
     let tiny_bubble_h = ((ref_dim * 0.060).clamp(30.0, 65.0)) as i32;
     if is_bubble {
@@ -151,7 +158,7 @@ pub fn should_reject_candidate_region(
         let is_low_conf_bubble_garbage = is_bubble && avg_score < 0.70 && !is_expressive_punct && lacks_native_script && (cleaned.lines().count() >= 2 || char_count <= 2);
         let micro_h = (ref_dim * 0.015).clamp(10.0, 20.0) as i32;
         let micro_box = (ref_dim * 0.040).clamp(20.0, 45.0) as i32;
-        if cluster_rect.h <= micro_h
+        if (!is_bubble && cluster_rect.h <= micro_h)
             || is_sparse_giant_box
             || is_short_noise_code
             || is_non_bubble_alphanumeric

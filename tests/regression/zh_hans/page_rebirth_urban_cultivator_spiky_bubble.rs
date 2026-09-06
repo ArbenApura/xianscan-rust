@@ -1,4 +1,4 @@
-﻿// -- INTERNAL IMPORTS -- //
+// -- INTERNAL IMPORTS -- //
 use crate::common::get_or_analyze_fixture_with_lang;
 
 // -- TESTS -- //
@@ -53,7 +53,7 @@ fn test_regression_page_rebirth_urban_cultivator_spiky_bubble() {
 
     // 5. OVAL DIALOGUE BUBBLE: "那陈先\n生的师\n父呢?"
     let r2 = res.regions.iter().find(|r| r.text.contains("那陈先")).expect("Oval dialogue bubble must exist");
-    crate::assert_region_bounds!(r2, xianscan_rust::ml::schemas::RegionKind::DialogueBubble, 552, 1198, 110, 113, 8);
+    crate::assert_region_bounds!(r2, xianscan_rust::ml::schemas::RegionKind::DialogueBubble, 561, 1208, 89, 92, 8);
     crate::assert_bubble_bounds!(r2, 543, 1193, 122, 130, 8);
 
     // 6. SPIKY SHOCK BUBBLE: "泗水县，\n陈凡、陈\n北玄？没\n听过呀……"
@@ -63,6 +63,6 @@ fn test_regression_page_rebirth_urban_cultivator_spiky_bubble() {
         "Spiky shock bubble must unify all lines into one region, got: '{}'",
         spiky_bubble.text
     );
-    crate::assert_region_bounds!(spiky_bubble, xianscan_rust::ml::schemas::RegionKind::DialogueBubble, 148, 1270, 122, 124, 12);
+    crate::assert_region_bounds!(spiky_bubble, xianscan_rust::ml::schemas::RegionKind::DialogueBubble, 132, 1262, 154, 145, 12);
     crate::assert_bubble_bounds!(spiky_bubble, 111, 1238, 186, 201, 8);
 }

@@ -38,7 +38,7 @@ fn test_regression_page_saint_nether_grass_catch_present() {
     assert!(b1.is_some(), "Must detect panel 1 dialogue bubble '哼'");
     let b1 = b1.unwrap();
     assert_eq!(b1.kind, xianscan_rust::ml::schemas::RegionKind::DialogueBubble);
-    crate::assert_region_bounds!(b1, xianscan_rust::ml::schemas::RegionKind::DialogueBubble, 362, 68, 81, 94, 15);
+    crate::assert_region_bounds!(b1, xianscan_rust::ml::schemas::RegionKind::DialogueBubble, 374, 82, 66, 62, 15);
     crate::assert_region_angle!(b1, 0.0, 2.0);
 
     // 2. PANEL 2 LEFT BUBBLE: '接着。'
