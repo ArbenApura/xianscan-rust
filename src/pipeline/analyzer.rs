@@ -81,10 +81,15 @@ fn check_composite_subboxes<'a>(
         for j in (i + 1)..subboxes.len() {
             let s1 = subboxes[i];
             let s2 = subboxes[j];
-            let horiz_sep = s1.x + s1.w <= s2.x + 10 || s2.x + s2.w <= s1.x + 10;
-            let center_stagger = ((s1.x + s1.w / 2) - (s2.x + s2.w / 2)).abs() >= 65;
+            let horiz_sep = (s1.x + s1.w <= s2.x + 10 || s2.x + s2.w <= s1.x + 10)
+                && s1.w >= 60
+                && s2.w >= 60;
+            let center_stagger = ((s1.x + s1.w / 2) - (s2.x + s2.w / 2)).abs() >= 65 && s1.w >= 55 && s2.w >= 55;
             let vert_gap_sep = s2.y >= s1.y + s1.h + 25 || s1.y >= s2.y + s2.h + 25;
-            let lobe_offset = ((s1.x + s1.w / 2) - (s2.x + s2.w / 2)).abs() >= 25 || (s1.x - s2.x).abs() >= 20;
+            let overlap_x = (s1.x + s1.w).min(s2.x + s2.w) - s1.x.max(s2.x);
+            let min_w = s1.w.min(s2.w);
+            let horiz_overlap_ratio = overlap_x.max(0) as f32 / min_w.max(1) as f32;
+            let lobe_offset = (((s1.x + s1.w / 2) - (s2.x + s2.w / 2)).abs() >= 35 || (s1.x - s2.x).abs() >= 30) && horiz_overlap_ratio < 0.50;
             let both_multiline_distinct_lobes = s1.h >= 50 && s2.h >= 50 && lobe_offset && (s2.y >= s1.y + s1.h || s1.y >= s2.y + s2.h);
             if horiz_sep || center_stagger || vert_gap_sep || both_multiline_distinct_lobes {
                 return true;
@@ -207,10 +212,17 @@ pub fn analyze_image_with_fusion_timed(
             if matched_bubbles.len() >= 2 {
                 let tb1 = matched_bubbles[0];
                 let tb2 = matched_bubbles[1];
-                let horiz_dist = (tb1.x - tb2.x).abs();
-                let both_substantial = tb1.w >= 45 && tb1.h >= 35 && tb2.w >= 45 && tb2.h >= 35;
-                if both_substantial && horiz_dist >= 80 && (lw as f32) >= (tb1.w + tb2.w) as f32 * 0.80 {
-                    return false;
+                let both_in_same_bubble = fusion_res.bubbles.iter().any(|pb| {
+                    let in_b1 = tb1.x >= pb.x - 10 && tb1.y >= pb.y - 10 && (tb1.x + tb1.w) <= pb.x + pb.w + 10 && (tb1.y + tb1.h) <= pb.y + pb.h + 10;
+                    let in_b2 = tb2.x >= pb.x - 10 && tb2.y >= pb.y - 10 && (tb2.x + tb2.w) <= pb.x + pb.w + 10 && (tb2.y + tb2.h) <= pb.y + pb.h + 10;
+                    in_b1 && in_b2
+                });
+                if !both_in_same_bubble {
+                    let horiz_dist = (tb1.x - tb2.x).abs();
+                    let both_substantial = tb1.w >= 45 && tb1.h >= 35 && tb2.w >= 45 && tb2.h >= 35;
+                    if both_substantial && horiz_dist >= 80 && (lw as f32) >= (tb1.w + tb2.w) as f32 * 0.80 {
+                        return false;
+                    }
                 }
             }
         }
@@ -452,8 +464,13 @@ pub fn analyze_image_with_fusion_timed(
                         if matching_bubbles.len() >= 2 {
                             let b1 = matching_bubbles[0];
                             let b2 = matching_bubbles[1];
-                            let both_substantial = b1.w >= 45 && b1.h >= 35 && b2.w >= 45 && b2.h >= 35;
-                            both_substantial && ((b1.x - b2.x).abs() >= 40 || (b1.y - b2.y).abs() >= 40)
+                            let both_substantial = b1.w >= 50 && b1.h >= 35 && b2.w >= 50 && b2.h >= 35;
+                            let both_in_same_bubble = fusion_res.bubbles.iter().any(|pb| {
+                                let in_b1 = b1.x >= pb.x - 10 && b1.y >= pb.y - 10 && (b1.x + b1.w) <= pb.x + pb.w + 10 && (b1.y + b1.h) <= pb.y + pb.h + 10;
+                                let in_b2 = b2.x >= pb.x - 10 && b2.y >= pb.y - 10 && (b2.x + b2.w) <= pb.x + pb.w + 10 && (b2.y + b2.h) <= pb.y + pb.h + 10;
+                                in_b1 && in_b2
+                            });
+                            !both_in_same_bubble && both_substantial && ((b1.x - b2.x).abs() >= 40 || (b1.y - b2.y).abs() >= 40)
                         } else {
                             false
                         }
@@ -746,7 +763,6 @@ pub fn analyze_image_with_fusion_timed(
         });
     }
 
-    // Suppress spatial duplicate candidate boxes
     let (dedup_boxes, _) = deduplicate_boxes(&candidate_boxes, &candidate_scores, 0.40);
     let order = sort_regions_top_to_bottom(&dedup_boxes, page_h as usize, 0.5, source_lang);
     let stage2_duration_ms = t_stage2_start.elapsed().as_secs_f64() * 1000.0;
