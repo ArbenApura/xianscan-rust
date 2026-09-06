@@ -206,13 +206,11 @@ pub fn resolve_carrier_box(
                 h: eff_h,
             };
             (fused, true)
-        } else if geom_is_cut {
-            // GEOMETRIC MARGIN ANALYSIS CAUGHT AN ASYMMETRIC PROTRUSION (E.G. BULBOUS THOUGHT BUBBLE LOBES)
-            // THAT MORPHOLOGICAL EROSION MISSED DUE TO KERNEL THICKNESS CONSTRAINTS
-            (geom_carrier, true)
         } else if img_is_cut {
+            // IMAGE MORPHOLOGY CONFIRMED A GENUINE NARROW TAIL OR BULBOUS LOBE PROTRUSION
             (img_carrier, true)
         } else {
+            // IMAGE MORPHOLOGY FOUND NO TAIL PROTRUSION; DO NOT PERMIT BLIND MARGIN ASYMMETRY TO SLICE BALLOON
             (b.clone(), false)
         }
     } else if geom_is_cut {
@@ -515,13 +513,15 @@ pub fn expand_bubble_text_boxes(
         let bot_m = ((carrier.y + carrier.h) - (regions[i].box_.y + regions[i].box_.h)).max(0);
         let min_vm = top_m.min(bot_m) as f32;
         let max_vm = top_m.max(bot_m) as f32;
-        let is_heavily_offset_vertically = min_vm > 0.0 && (max_vm / min_vm >= 2.5) && (max_vm - min_vm >= 25.0);
+        let is_vertically_elongated = carrier.h as f32 >= carrier.w as f32 * 1.30;
+        let is_heavily_offset_vertically = is_vertically_elongated && min_vm > 0.0 && (max_vm / min_vm >= 2.5) && (max_vm - min_vm >= 25.0);
 
         let left_m = (regions[i].box_.x - carrier.x).max(0);
         let right_m = ((carrier.x + carrier.w) - (regions[i].box_.x + regions[i].box_.w)).max(0);
         let min_hm = left_m.min(right_m) as f32;
         let max_hm = left_m.max(right_m) as f32;
-        let is_heavily_offset_horizontally = min_hm > 0.0 && (max_hm / min_hm >= 2.5) && (max_hm - min_hm >= 35.0);
+        let is_horizontally_elongated = carrier.w as f32 >= carrier.h as f32 * 1.30;
+        let is_heavily_offset_horizontally = is_horizontally_elongated && min_hm > 0.0 && (max_hm / min_hm >= 2.5) && (max_hm - min_hm >= 35.0);
 
         if is_sole_occupant
             && !is_vertical_edge_cut

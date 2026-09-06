@@ -373,9 +373,49 @@ pub fn clean_white_bubble_shrinkwrap(
     // PROTECT UNCLEANED DARK STROKES (PRESERVED ARTWORK, UNTRANSLATED ELLIPSES, SYMBOLS)
     // ONLY PROTECT CONNECTED DARK STROKE COMPONENTS THAT ARE ENTIRELY ISOLATED FROM THE REQUESTED CLEAN BOXES
     // (E.G. UNTRANSLATED ELLIPSES IN A SEPARATE BUBBLE LOBE). IF A STROKE CONNECTS TO A CLEAN BOX,
-    // IT IS PART OF THE ACTIVE TEXT (E.G. TRAILING DASHES, EXTENDED GLYPH STROKES) AND MUST BE CLEANED.
+    // OR LIES WITHIN THE TEXT COLUMN / ROW SPACING (E.G. TRAILING DASHES, ELLIPSIS DOTS, EXTENDED GLYPH STROKES),
+    // IT IS PART OF THE ACTIVE TEXT AND MUST BE CLEANED.
     if !clean_boxes.is_empty() {
-        let clean_pad = 12i32;
+        let is_point_near_or_aligned_with_clean_box = |gx: i32, gy: i32| -> bool {
+            clean_boxes.iter().any(|cb| {
+                // DIRECT PROXIMITY CHECK (18PX IN ALL DIRECTIONS)
+                let direct_pad = 18i32;
+                if gx >= cb.x - direct_pad
+                    && gx <= cb.x + cb.w + direct_pad
+                    && gy >= cb.y - direct_pad
+                    && gy <= cb.y + cb.h + direct_pad
+                {
+                    return true;
+                }
+
+                // COLUMN ALIGNMENT: STROKE IS HORIZONTALLY ALIGNED WITH THE TEXT COLUMN,
+                // AND WITHIN STANDARD LINE-SPACING DISTANCE (UP TO 28PX ABOVE OR BELOW)
+                let col_pad_x = 8i32;
+                let col_pad_y = 28i32;
+                if gx >= cb.x - col_pad_x
+                    && gx <= cb.x + cb.w + col_pad_x
+                    && gy >= cb.y - col_pad_y
+                    && gy <= cb.y + cb.h + col_pad_y
+                {
+                    return true;
+                }
+
+                // ROW ALIGNMENT: STROKE IS VERTICALLY ALIGNED WITH THE TEXT LINE ROW,
+                // AND WITHIN TRAILING PUNCTUATION DISTANCE (UP TO 28PX LEFT OR RIGHT)
+                let row_pad_x = 28i32;
+                let row_pad_y = 8i32;
+                if gx >= cb.x - row_pad_x
+                    && gx <= cb.x + cb.w + row_pad_x
+                    && gy >= cb.y - row_pad_y
+                    && gy <= cb.y + cb.h + row_pad_y
+                {
+                    return true;
+                }
+
+                false
+            })
+        };
+
         let mut visited_isolated = vec![false; total];
         let mut candidate_seeds = Vec::new();
 
@@ -389,16 +429,8 @@ pub fn clean_white_bubble_shrinkwrap(
                     let (lum, _) = pixel_lum_and_sat(p);
 
                     if lum < 195 {
-                        let is_near_clean_box = clean_boxes.iter().any(|cb| {
-                            let gx_i = gx as i32;
-                            let gy_i = gy as i32;
-                            gx_i >= cb.x - clean_pad
-                                && gx_i <= cb.x + cb.w + clean_pad
-                                && gy_i >= cb.y - clean_pad
-                                && gy_i <= cb.y + cb.h + clean_pad
-                        });
-
-                        if !is_near_clean_box {
+                        let is_near = is_point_near_or_aligned_with_clean_box(gx as i32, gy as i32);
+                        if !is_near {
                             candidate_seeds.push((cx as u32, cy as u32));
                         }
                     }
@@ -422,12 +454,7 @@ pub fn clean_white_bubble_shrinkwrap(
                 comp.push((curr_x, curr_y));
                 let gx = (bx0 + curr_x) as i32;
                 let gy = (by0 + curr_y) as i32;
-                if clean_boxes.iter().any(|cb| {
-                    gx >= cb.x - clean_pad
-                        && gx <= cb.x + cb.w + clean_pad
-                        && gy >= cb.y - clean_pad
-                        && gy <= cb.y + cb.h + clean_pad
-                }) {
+                if is_point_near_or_aligned_with_clean_box(gx, gy) {
                     touches_clean_box = true;
                 }
 
@@ -448,6 +475,28 @@ pub fn clean_white_bubble_shrinkwrap(
                                 q.push_back((unx as u32, uny as u32));
                             }
                         }
+                    }
+                }
+            }
+
+            if !touches_clean_box && !comp.is_empty() {
+                let min_x = comp.iter().map(|&(x, _)| (bx0 + x) as i32).min().unwrap_or(0);
+                let max_x = comp.iter().map(|&(x, _)| (bx0 + x) as i32).max().unwrap_or(0);
+                let min_y = comp.iter().map(|&(_, y)| (by0 + y) as i32).min().unwrap_or(0);
+                let max_y = comp.iter().map(|&(_, y)| (by0 + y) as i32).max().unwrap_or(0);
+
+                for cb in clean_boxes {
+                    let in_col = min_x >= cb.x - 12
+                        && max_x <= cb.x + cb.w + 12
+                        && min_y <= cb.y + cb.h + 28
+                        && max_y >= cb.y - 28;
+                    let in_row = min_y >= cb.y - 12
+                        && max_y <= cb.y + cb.h + 12
+                        && min_x <= cb.x + cb.w + 28
+                        && max_x >= cb.x - 28;
+                    if in_col || in_row {
+                        touches_clean_box = true;
+                        break;
                     }
                 }
             }
