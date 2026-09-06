@@ -346,6 +346,7 @@ Rules:
 		systemContent = `You are a professional comic and manhua translator translating dialogue/speech bubbles from ${srcName} to natural ${tgtName}.
 Rules:
 - Preserve speech nuance, comic tone, exclamations, sound effects, and character voice.
+- Avoid overusing em dashes (—), semicolons (;), or colons (:). Dialogue should feel naturally spoken; use periods, commas, or ellipses instead, reserving colons strictly for UI or stat labels and em dashes for abrupt speech interruptions.
 - Output ONLY the translated text without commentary, quotes, or markdown fences.`;
 
 		const srcProfile = getSourceLanguageProfile(pair.sourceLang, tgtName);

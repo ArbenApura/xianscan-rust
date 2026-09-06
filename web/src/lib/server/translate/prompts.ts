@@ -109,7 +109,8 @@ export function getTargetLanguageProfile(tgt: string): string {
 		return `English Target Rules:
 - Reaction Punctuation: Convert reaction punctuation (……, ？！, !) to natural English (..., ?!, !).
 - Bracketed Usernames: Translate all bracketed livestream/game usernames [Username]: into English.
-- Bilingual Title Logos: When a title or cover contains both a native title and an accompanying decorative/official English subtitle (e.g. "星魂将传\\nLEGEND OF STAR GENERAL"), deduplicate them into a single clean English title ("Legend of Star General").`;
+- Bilingual Title Logos: When a title or cover contains both a native title and an accompanying decorative/official English subtitle (e.g. "星魂将传\\nLEGEND OF STAR GENERAL"), deduplicate them into a single clean English title ("Legend of Star General").
+- Punctuation Restraint: Minimize em dashes (—), semicolons (;), and colons (:). Spoken dialogue should avoid semicolons and colons; use commas, periods, or separate sentences instead. Reserve colons strictly for RPG stat screens, UI labels, or timestamps. Use ellipses (...) for trailing thoughts, and reserve em dashes strictly for hard cutoffs or sudden interruptions.`;
 	}
 
 	if (['es', 'fr', 'it', 'pt'].includes(primary)) {
@@ -169,6 +170,7 @@ export function systemPrompt(
 		`4. Spoken Comic Register & Bubble Geometry:`,
 		`   - Write punchy, natural spoken ${tgtName} dialogue suitable for comic voice acting in standard sentence case (never ALL-CAPS).`,
 		`   - Line Breaks: Do NOT blindly copy source OCR line breaks. Re-flow target text into visually balanced, centered lines (inverted pyramid / diamond layout) suited for comic speech bubbles. Preserve \\n only between distinct stanzas, separate thoughts, or UI lists.`,
+		`   - Punctuation Restraint (Dashes, Semicolons & Colons): Avoid overusing em dashes (—), semicolons (;), or colons (:). Spoken dialogue rarely uses semicolons or colons; use commas, periods, or natural sentence splits instead. Reserve colons strictly for RPG stat screens, UI labels, or timestamps. For trailing thoughts, pauses, or hesitations, use ellipses (...). For clauses and parentheticals, use commas or natural sentence splits. Reserve em dashes (or double hyphens) strictly for abrupt mid-word or mid-sentence cutoffs when a character is suddenly interrupted or cut off by action.`,
 		`5. Sound Effects (SFX) Policy:`,
 		`   - ${sfxDirective}`,
 		`6. Split-Bubble Continuity:`,

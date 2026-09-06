@@ -55,6 +55,9 @@ describe('systemPrompt', () => {
 		expect(p).toContain('Semantic Noise Rejection');
 		expect(p).toContain('Bilingual Title Logos');
 		expect(p).toContain('Positive Identity & Pronoun Disambiguation');
+		expect(p).toContain('Punctuation Restraint (Dashes, Semicolons & Colons)');
+		expect(p).toContain('semicolons (;), or colons (:)');
+		expect(p).toContain('Punctuation Restraint: Minimize em dashes');
 	});
 
 	it('produces specialized Russian/Cyrillic prompt without Chinese Wuxia rules', () => {
