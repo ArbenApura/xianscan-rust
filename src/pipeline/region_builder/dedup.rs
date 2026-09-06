@@ -352,33 +352,49 @@ pub fn deduplicate_and_unify_regions(
                         continue;
                     }
                         } else {
-                            // Horizontal lines: left baseline difference and center difference must be small
+                            // Horizontal lines
+                            let is_in_same_bubble = r.bubble_box.is_some() && existing.bubble_box.is_some();
                             let r_line_count = r.text.lines().count().max(1) as f32;
                             let e_line_count = existing.text.lines().count().max(1) as f32;
                             let left_delta = (rx - ex).abs();
                             let min_w = rw.min(ew);
-                            if left_delta > (min_w as f32 * 0.12).max(10.0) as i32 {
-                                continue;
-                            }
-                            if r_line_count >= 2.0 && e_line_count >= 2.0 {
-                                let center_delta = ((rx + rw / 2) - (ex + ew / 2)).abs();
-                                if center_delta > 18 {
+                            let center_delta = ((rx + rw / 2) - (ex + ew / 2)).abs();
+
+                            if is_in_same_bubble {
+                                // Inside the same speech bubble, text lines can be centered or shaped to the balloon
+                                let font_line_h = (rh as f32 / r_line_count).min(eh as f32 / e_line_count);
+                                let vert_gap = if ry >= ey + eh { ry - (ey + eh) } else if ey >= ry + rh { ey - (ry + rh) } else { 0 };
+                                let max_allowed_gap = (font_line_h * 1.50).max(35.0) as i32;
+                                if vert_gap > max_allowed_gap {
                                     continue;
                                 }
-                            }
+                                let overlap_x = (rx + rw).min(ex + ew) - rx.max(ex);
+                                if (overlap_x.max(0) as f32 / min_w.max(1) as f32) < 0.30 && center_delta > 50 {
+                                    continue;
+                                }
+                            } else {
+                                if left_delta > (min_w as f32 * 0.12).max(10.0) as i32 {
+                                    continue;
+                                }
+                                if r_line_count >= 2.0 && e_line_count >= 2.0 {
+                                    if center_delta > 18 {
+                                        continue;
+                                    }
+                                }
 
-                            // Scale-proportional vertical gap check using per-line font height
-                            let font_line_h = (rh as f32 / r_line_count).min(eh as f32 / e_line_count);
-                            let vert_gap = if ry >= ey + eh { ry - (ey + eh) } else if ey >= ry + rh { ey - (ry + rh) } else { 0 };
-                            let max_allowed_gap = (font_line_h * 0.40).max(8.0) as i32;
-                            if vert_gap > max_allowed_gap {
-                                continue;
-                            }
+                                // Scale-proportional vertical gap check using per-line font height
+                                let font_line_h = (rh as f32 / r_line_count).min(eh as f32 / e_line_count);
+                                let vert_gap = if ry >= ey + eh { ry - (ey + eh) } else if ey >= ry + rh { ey - (ry + rh) } else { 0 };
+                                let max_allowed_gap = (font_line_h * 0.40).max(8.0) as i32;
+                                if vert_gap > max_allowed_gap {
+                                    continue;
+                                }
 
-                            // Horizontal overlap check
-                            let overlap_x = (rx + rw).min(ex + ew) - rx.max(ex);
-                            if (overlap_x.max(0) as f32 / min_w.max(1) as f32) < 0.65 {
-                                continue;
+                                // Horizontal overlap check
+                                let overlap_x = (rx + rw).min(ex + ew) - rx.max(ex);
+                                if (overlap_x.max(0) as f32 / min_w.max(1) as f32) < 0.65 {
+                                    continue;
+                                }
                             }
                         }
 
@@ -402,21 +418,26 @@ pub fn deduplicate_and_unify_regions(
                             [min_x, max_y],
                         ];
 
+                        let is_vert = existing.vertical || r.vertical;
+                        let e_lines_total = existing.text.lines().count().max(1) as i32;
+                        let r_lines_total = r.text.lines().count().max(1) as i32;
                         let mut all_lines: Vec<(i32, String)> = Vec::new();
-                        for l in existing.text.lines() {
+                        for (idx, l) in existing.text.lines().enumerate() {
                             let lt = l.trim();
                             if !lt.is_empty() {
-                                all_lines.push((ex + ew / 2, lt.to_string()));
+                                let pos = if is_vert { ex + ew / 2 } else { ey + (idx as i32 * eh / e_lines_total) };
+                                all_lines.push((pos, lt.to_string()));
                             }
                         }
-                        for l in r.text.lines() {
+                        for (idx, l) in r.text.lines().enumerate() {
                             let lt = l.trim();
                             if !lt.is_empty() && !all_lines.iter().any(|(_, s)| s == lt || s.contains(lt)) {
-                                all_lines.push((rx + rw / 2, lt.to_string()));
+                                let pos = if is_vert { rx + rw / 2 } else { ry + (idx as i32 * rh / r_lines_total) };
+                                all_lines.push((pos, lt.to_string()));
                             }
                         }
 
-                        if existing.vertical || r.vertical {
+                        if is_vert {
                             all_lines.sort_by(|a, b| b.0.cmp(&a.0));
                         } else {
                             all_lines.sort_by(|a, b| a.0.cmp(&b.0));
