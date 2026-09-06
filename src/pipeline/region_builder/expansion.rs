@@ -117,14 +117,28 @@ pub fn derive_carrier_box(b: &BoxRect, t: &BoxRect, page_h: u32) -> BoxRect {
 }
 
 /// VALIDATES A DERIVED CARRIER AS A GENUINE TAIL-CUT BUBBLE BOUNDARY.
+/// VALIDATES A DERIVED CARRIER AS A GENUINE TAIL-CUT BUBBLE BOUNDARY.
 ///
-/// A CARRIER IS TRUSTWORTHY ONLY WHEN AN ACTUAL CUT OCCURRED (CARRIER != BUBBLE), THE CHAMBER
-/// RETAINS SANE DIMENSIONS, AND THE BUBBLE IS NOT SEVERED BY A SLICE SEAM (EDGE-CUT BUBBLES
-/// MIMIC ASYMMETRIC TAILS, MAKING CARRIER DERIVATION UNRELIABLE). DEGENERATE CASES (DARK/TINTED
-/// INTERIORS, SUB-EROSION BODIES) FALL BACK TO THE RAW BUBBLE BOX, WHICH FAILS THE CUT CHECK.
+/// A CARRIER IS TRUSTWORTHY ONLY WHEN AN ACTUAL CUT OCCURRED (TRIMMING AT LEAST 14PX ON THE PRIMARY
+/// CUT AXIS OR 18PX TOTAL REDUCTION ACROSS BOTH DIMENSIONS), THE CHAMBER RETAINS SANE DIMENSIONS,
+/// AND THE BUBBLE IS NOT SEVERED BY A SLICE SEAM (EDGE-CUT BUBBLES MIMIC ASYMMETRIC TAILS, MAKING
+/// CARRIER DERIVATION UNRELIABLE). TRIVIAL 1-5PX EDGE PERIMETER VARIATIONS FROM ANTI-ALIASING DO
+/// NOT CONSTITUTE A REAL TAIL CUT.
 pub fn valid_tail_cut_carrier(carrier: &BoxRect, b: &BoxRect, page_h: u32) -> bool {
     // NO REAL CUT HAPPENED (SHARED BUBBLE, SYMMETRIC BODY, OR EXTRACTION FALLBACK TO B)
     if *carrier == *b {
+        return false;
+    }
+    // A GENUINE CUT MUST TRIM MEANINGFUL TAIL SLACK (AT LEAST 14PX ON THE PRIMARY CUT AXIS
+    // OR 18PX TOTAL REDUCTION ACROSS WIDTH AND HEIGHT). TRIVIAL 1-5PX EDGE PERIMETER VARIATIONS
+    // FROM MORPHOLOGICAL FILTERING OR ANTI-ALIASING DO NOT CONSTITUTE A TAIL CUT.
+    let dw = (b.w - carrier.w).max(0);
+    let dh = (b.h - carrier.h).max(0);
+    let dx = (carrier.x - b.x).max(0);
+    let dy = (carrier.y - b.y).max(0);
+    let max_edge_trim = dx.max(dw).max(dy).max(dh);
+    let total_trim = dw + dh;
+    if max_edge_trim < 14 && total_trim < 18 {
         return false;
     }
     // DEGENERATE CHAMBER GUARD: EROSION/DILATION ARTIFACTS OR MICRO BODIES ARE UNTRUSTWORTHY
@@ -136,6 +150,55 @@ pub fn valid_tail_cut_carrier(carrier: &BoxRect, b: &BoxRect, page_h: u32) -> bo
         return false;
     }
     true
+}
+
+/// RESOLVE CARRIER (BODY) BOX BY COOPERATIVE CROSS-VALIDATION OF GEOMETRIC AND MORPHOLOGICAL ENGINES.
+///
+/// WHEN BOTH GEOMETRIC AND IMAGE MORPHOLOGY EXTRACTORS AGREE ON A GENUINE CUT, COMBINES THEIR BOUNDARIES
+/// CONSERVATIVELY. WHEN IMAGE MORPHOLOGY MISSES AN ASYMMETRIC PROTRUSION (SUCH AS BULBOUS THOUGHT LOBES
+/// WHOSE RADIUS EXCEEDS DISK EROSION KERNELS), THE GEOMETRIC MARGIN DETECTOR RESCUES THE CUT CHAMBER.
+pub fn resolve_carrier_box(
+    b: &BoxRect,
+    t: &BoxRect,
+    img: Option<&DynamicImage>,
+    page_h: u32,
+) -> (BoxRect, bool) {
+    let geom_carrier = derive_carrier_box(b, t, page_h);
+    let geom_is_cut = valid_tail_cut_carrier(&geom_carrier, b, page_h);
+
+    if let Some(image) = img {
+        let img_carrier = super::geometry::extract_carrier_box_from_image(image, b, t);
+        let img_is_cut = valid_tail_cut_carrier(&img_carrier, b, page_h);
+
+        if img_is_cut && geom_is_cut {
+            // BOTH DETECTED A GENUINE CUT: TAKE CONSERVATIVE TIGHTER BOUNDARIES ALONG TRIMMED AXES
+            let eff_x = img_carrier.x.max(geom_carrier.x);
+            let eff_y = img_carrier.y.max(geom_carrier.y);
+            let eff_right = (img_carrier.x + img_carrier.w).min(geom_carrier.x + geom_carrier.w);
+            let eff_bot = (img_carrier.y + img_carrier.h).min(geom_carrier.y + geom_carrier.h);
+            let eff_w = (eff_right - eff_x).max(t.w);
+            let eff_h = (eff_bot - eff_y).max(t.h);
+            let fused = BoxRect {
+                x: eff_x,
+                y: eff_y,
+                w: eff_w,
+                h: eff_h,
+            };
+            (fused, true)
+        } else if geom_is_cut {
+            // GEOMETRIC MARGIN ANALYSIS CAUGHT AN ASYMMETRIC PROTRUSION (E.G. BULBOUS THOUGHT BUBBLE LOBES)
+            // THAT MORPHOLOGICAL EROSION MISSED DUE TO KERNEL THICKNESS CONSTRAINTS
+            (geom_carrier, true)
+        } else if img_is_cut {
+            (img_carrier, true)
+        } else {
+            (b.clone(), false)
+        }
+    } else if geom_is_cut {
+        (geom_carrier, true)
+    } else {
+        (b.clone(), false)
+    }
 }
 
 /// EXPAND DIALOGUE-BUBBLE TEXT BASE BOUNDARY TO BETTER UTILIZE THE UNUSED AREA WITHIN ITS BUBBLE.
@@ -195,22 +258,16 @@ pub fn expand_bubble_text_boxes(
             }
         });
 
-        let carrier_box = if is_sole_occupant {
-            if let Some(image) = img {
-                super::geometry::extract_carrier_box_from_image(image, b, &r.box_)
-            } else {
-                derive_carrier_box(b, &r.box_, page_h)
-            }
+        let (carrier_box, valid_carrier) = if is_sole_occupant {
+            resolve_carrier_box(b, &r.box_, img, page_h)
         } else {
-            b.clone()
+            (b.clone(), false)
         };
         carrier_boxes[i] = Some(carrier_box.clone());
+        carrier_valid[i] = valid_carrier;
 
         // PHASE 1 LIMIT ENVELOPE: VALIDATED TAIL-CUT CARRIER FIRST (TRUE TEXT CHAMBER),
         // FALLING BACK TO THE FULL BUBBLE SAFE CORE WHEN NO RELIABLE CUT EXISTS.
-        let valid_carrier = valid_tail_cut_carrier(&carrier_box, b, page_h);
-        carrier_valid[i] = valid_carrier;
-
         let (left, right, top, bottom) = if valid_carrier {
             match bubble_core(&carrier_box) {
                 Some(c) => c,
@@ -396,11 +453,8 @@ pub fn expand_bubble_text_boxes(
 
         let carrier = carrier_boxes[i].clone().unwrap_or_else(|| {
             if is_sole_occupant {
-                if let Some(image) = img {
-                    super::geometry::extract_carrier_box_from_image(image, &b, &regions[i].box_)
-                } else {
-                    derive_carrier_box(&b, &regions[i].box_, page_h)
-                }
+                let (cb, _) = resolve_carrier_box(&b, &regions[i].box_, img, page_h);
+                cb
             } else {
                 b.clone()
             }

@@ -76,6 +76,6 @@ mod page_chen_beixuan_fist_split_bubble;
 mod page_chen_family_martial_dao_clan;
 mod page_chen_master_stutter_explain;
 mod page_guiyuan_sword_thought_bubble;
+mod page_chuzhou_wei_family_explanation_thought_bubble;
+mod page_chuzhou_high_school_classmates_returning_thought_bubble;
 mod page_warn_japanese_high_ups_bubble;
-
-

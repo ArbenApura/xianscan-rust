@@ -88,3 +88,100 @@ fn test_page_6857_manhwa_bubble_safe_core_and_tail_handling() {
     assert_eq!(bot_tb.y + bot_tb.h / 2, bot_carrier.y + bot_carrier.h / 2);
     assert!(bot_tb.y >= bot_bubble.y && bot_tb.y + bot_tb.h <= bot_bubble.y + bot_bubble.h);
 }
+
+#[test]
+fn test_page_113830_thought_bubble_right_lobe_tail_cutting() {
+    use xianscan_rust::ml::schemas::{BoxRect, Region, RegionKind};
+    use xianscan_rust::pipeline::region_builder::expansion::expand_bubble_text_boxes;
+
+    // PAGE 113830: 827x1785 CHEN FAN THOUGHT BUBBLE (REGION 0)
+    // HAS A BULBOUS CIRCULAR LOBE (~35PX) PROTRUDING ON THE RIGHT SIDE TOWARD THE THOUGHT CHAIN
+    let page_w = 827;
+    let page_h = 1785;
+
+    let bubble = BoxRect { x: 76, y: 290, w: 229, h: 243 };
+    let ocr_box = BoxRect { x: 109, y: 355, w: 127, h: 116 };
+
+    let mut regions = vec![Region {
+        id: "65471".to_string(),
+        box_: ocr_box,
+        polygon: vec![],
+        inpaint_box: None,
+        typeset_box: None,
+        text: "现在，魏家\n该给我一个\n交代了。".to_string(),
+        confidence: 0.731,
+        vertical: false,
+        angle: 0.0,
+        bubble_box: Some(bubble.clone()),
+        bubble_polygon: None,
+        centroid: None,
+        kind: RegionKind::DialogueBubble,
+        is_title: false,
+        is_subtitle: false,
+        carrier_box: None,
+    }];
+
+    expand_bubble_text_boxes(&mut regions, &[], None, page_w, page_h, 0.03, 0.00);
+
+    // 1. CARRIER BOX MUST PROPERLY SEVER THE RIGHT THOUGHT LOBE (WIDTH REDUCED FROM 229 TO 193)
+    let carrier = regions[0].carrier_box.as_ref().expect("carrier box must be published for right lobe thought bubble");
+    assert_eq!(carrier.x, 76, "left edge of carrier must match oval boundary");
+    assert_eq!(carrier.w, 193, "carrier width must be trimmed from 229 to 193, cutting off the right-side lobe");
+    assert_eq!(carrier.h, 243);
+
+    // 2. TYPESET BOX MUST REMAIN CENTERED INSIDE THE OVAL CHAMBER INSTEAD OF BEING DRAGGED RIGHT TO X:127
+    let tb = regions[0].typeset_box.as_ref().expect("typeset box must exist");
+    assert_eq!(tb.x, 104, "typeset box X must be centered inside the oval at 104, not pulled rightward to 127");
+    assert_eq!(tb.w, 136, "typeset box width expanded symmetrically inside carrier envelope");
+    assert_eq!(tb.h, 150, "typeset box height expanded symmetrically inside carrier envelope");
+    assert_eq!(tb.x + tb.w / 2, carrier.x + carrier.w / 2, "typeset box center must match carrier chamber center");
+}
+
+#[test]
+fn test_page_113831_thought_bubble_left_lobe_tail_cutting() {
+    use xianscan_rust::ml::schemas::{BoxRect, Region, RegionKind};
+    use xianscan_rust::pipeline::region_builder::expansion::expand_bubble_text_boxes;
+
+    // PAGE 113831: 827x1616 CHEN FAN THOUGHT BUBBLE (REGION 1)
+    // HAS A BULBOUS CIRCULAR LOBE PROTRUDING ON THE LOWER-LEFT SIDE TOWARD THE THOUGHT CHAIN
+    let page_w = 827;
+    let page_h = 1616;
+
+    let bubble = BoxRect { x: 557, y: 59, w: 217, h: 255 };
+    let ocr_box = BoxRect { x: 614, y: 102, w: 125, h: 156 };
+
+    let mut regions = vec![Region {
+        id: "65476".to_string(),
+        box_: ocr_box,
+        polygon: vec![],
+        inpaint_box: None,
+        typeset_box: None,
+        text: "这么巧，这\n么说，许多\n故人同学都\n会回来了？".to_string(),
+        confidence: 0.729,
+        vertical: false,
+        angle: 0.0,
+        bubble_box: Some(bubble.clone()),
+        bubble_polygon: None,
+        centroid: None,
+        kind: RegionKind::DialogueBubble,
+        is_title: false,
+        is_subtitle: false,
+        carrier_box: None,
+    }];
+
+    expand_bubble_text_boxes(&mut regions, &[], None, page_w, page_h, 0.03, 0.00);
+
+    // 1. CARRIER BOX MUST PROPERLY SEVER THE LEFT THOUGHT LOBE (X SHIFTED FROM 557 TO 579, WIDTH FROM 217 TO 195)
+    let carrier = regions[0].carrier_box.as_ref().expect("carrier box must be published for left lobe thought bubble");
+    assert_eq!(carrier.x, 579, "carrier X must be trimmed from 557 to 579, cutting off the left-side lobe");
+    assert_eq!(carrier.w, 195, "carrier width must be trimmed from 217 to 195");
+    assert_eq!(carrier.h, 255);
+
+    // 2. TYPESET BOX MUST REMAIN CENTERED INSIDE THE OVAL CHAMBER INSTEAD OF BEING PULLED LEFT TO X:598
+    let tb = regions[0].typeset_box.as_ref().expect("typeset box must exist");
+    assert_eq!(tb.x, 608, "typeset box X must be centered inside the oval at 608, not pulled leftward to 598");
+    assert_eq!(tb.w, 136, "typeset box width expanded symmetrically inside carrier envelope");
+    assert_eq!(tb.h, 168, "typeset box height expanded symmetrically inside carrier envelope");
+    assert_eq!(tb.x + tb.w / 2, carrier.x + carrier.w / 2, "typeset box center must match carrier chamber center");
+}
+

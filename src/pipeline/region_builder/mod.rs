@@ -13,7 +13,7 @@ pub mod refine;
 pub use builder::build_regions;
 pub use clustering::{cluster_lines_into_utterances, format_lines_cluster, polygon_thickness};
 pub use dedup::deduplicate_and_unify_regions;
-pub use expansion::{bubble_core, clamp_box_to_core, derive_carrier_box, expand_bubble_text_boxes, valid_tail_cut_carrier};
+pub use expansion::{bubble_core, clamp_box_to_core, derive_carrier_box, expand_bubble_text_boxes, resolve_carrier_box, valid_tail_cut_carrier};
 pub use filter::should_reject_candidate_region;
 pub use geometry::{compute_chromatic_color_variance, expand_box, extract_carrier_box_from_image};
 pub use refine::{run_fallback_crop_recognition, try_refine_cluster_crop, FallbackCropOutcome, RefinementOutcome};
@@ -336,7 +336,7 @@ mod tests {
         // MUST NOT BE EXPANDED DOWNWARD INTO THE TAIL: EXPANSION LIMITS COME FROM THE TAIL-CUT
         // CARRIER CHAMBER, AND THE TYPESET BOX CENTERS IN THE CARRIER WITH ITS HEIGHT ANCHORED
         // TO THE (GENTLY SCALED) TEXT BOX, NEVER BLEEDING INTO THE TAIL REGION BELOW.
-        assert_eq!(typeset_box.y, 845, "typeset_box y should remain safely positioned inside carrier chamber");
+        assert_eq!(typeset_box.y, 819, "typeset_box y should center in the validated carrier chamber");
         assert_eq!(typeset_box.h, 190, "typeset_box height must stay clamped inside the tail-cut carrier");
         // VALIDATED CARRIER IS PUBLISHED ON THE REGION FOR INSPECT-PAGE VIEWERS
         assert_eq!(regions[0].carrier_box, Some(BoxRect { x: 208, y: 779, w: 463, h: 271 }));

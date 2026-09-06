@@ -233,10 +233,14 @@ pub fn extract_carrier_box_from_image(img: &DynamicImage, b: &BoxRect, t: &BoxRe
 
     let rgb = img.to_rgb8();
     let pad = 6i32;
-    let min_x = (b.x - pad).max(0) as u32;
-    let min_y = (b.y - pad).max(0) as u32;
-    let max_x = (b.x + b.w + pad).min(pw as i32) as u32;
-    let max_y = (b.y + b.h + pad).min(ph as i32) as u32;
+    let min_x = (b.x - pad).clamp(0, pw as i32) as u32;
+    let min_y = (b.y - pad).clamp(0, ph as i32) as u32;
+    let max_x = (b.x + b.w + pad).clamp(0, pw as i32) as u32;
+    let max_y = (b.y + b.h + pad).clamp(0, ph as i32) as u32;
+
+    if max_x <= min_x || max_y <= min_y {
+        return b.clone();
+    }
 
     let patch_w = (max_x - min_x) as usize;
     let patch_h = (max_y - min_y) as usize;
@@ -265,142 +269,184 @@ pub fn extract_carrier_box_from_image(img: &DynamicImage, b: &BoxRect, t: &BoxRe
         }
     }
 
-    // 2. MORPHOLOGICAL EROSION WITH DISK RADIUS R = 14
-    let r_erode = 14i32;
-    let r_sq = r_erode * r_erode;
-    let mut eroded = vec![false; patch_w * patch_h];
-
-    for py in r_erode as usize..(patch_h.saturating_sub(r_erode as usize)) {
-        for px in r_erode as usize..(patch_w.saturating_sub(r_erode as usize)) {
-            if !mask[py * patch_w + px] {
-                continue;
-            }
-            let mut fits = true;
-            'check: for dy in -r_erode..=r_erode {
-                for dx in -r_erode..=r_erode {
-                    if dx * dx + dy * dy <= r_sq {
-                        let nx = px as i32 + dx;
-                        let ny = py as i32 + dy;
-                        if !mask[ny as usize * patch_w + nx as usize] {
-                            fits = false;
-                            break 'check;
-                        }
-                    }
-                }
-            }
-            if fits {
-                eroded[py * patch_w + px] = true;
-            }
-        }
-    }
-
-    // 3. FIND CONNECTED COMPONENT IN ERODED MASK CONTAINING TEXT CENTER
+    // 2. MULTI-SCALE MORPHOLOGICAL EROSION
+    // SPEECH BUBBLES USE R=14 FOR NARROW TAILS; WIDER THOUGHT BUBBLE LOBES AND LARGE BALLOONS
+    // BENEFIT FROM LARGER KERNELS (UP TO R=23) TO SEVER BULBOUS TAIL ATTACHMENTS.
     let text_cx = ((t.x + t.w / 2 - min_x as i32) as usize).clamp(0, patch_w - 1);
     let text_cy = ((t.y + t.h / 2 - min_y as i32) as usize).clamp(0, patch_h - 1);
 
-    let mut seed = None;
-    if eroded[text_cy * patch_w + text_cx] {
-        seed = Some((text_cx, text_cy));
+    let min_dim = b.w.min(b.h);
+    let r_target = ((min_dim as f32 * 0.10).round() as i32).clamp(14, 23);
+    let candidate_radii: Vec<i32> = if r_target > 14 {
+        vec![r_target, 18, 14]
     } else {
-        let mut min_dist = i32::MAX;
-        for py in 0..patch_h {
-            for px in 0..patch_w {
-                if eroded[py * patch_w + px] {
-                    let d = (px as i32 - text_cx as i32).pow(2) + (py as i32 - text_cy as i32).pow(2);
-                    if d < min_dist {
-                        min_dist = d;
-                        seed = Some((px, py));
+        vec![14]
+    };
+
+    let mut best_carrier: Option<BoxRect> = None;
+
+    for r_erode in candidate_radii {
+        let r_sq = r_erode * r_erode;
+        let mut eroded = vec![false; patch_w * patch_h];
+
+        for py in r_erode as usize..(patch_h.saturating_sub(r_erode as usize)) {
+            for px in r_erode as usize..(patch_w.saturating_sub(r_erode as usize)) {
+                if !mask[py * patch_w + px] {
+                    continue;
+                }
+                let mut fits = true;
+                'check: for dy in -r_erode..=r_erode {
+                    for dx in -r_erode..=r_erode {
+                        if dx * dx + dy * dy <= r_sq {
+                            let nx = px as i32 + dx;
+                            let ny = py as i32 + dy;
+                            if !mask[ny as usize * patch_w + nx as usize] {
+                                fits = false;
+                                break 'check;
+                            }
+                        }
+                    }
+                }
+                if fits {
+                    eroded[py * patch_w + px] = true;
+                }
+            }
+        }
+
+        // 3. FIND CONNECTED COMPONENT IN ERODED MASK CONTAINING OR NEAREST TO TEXT CENTER
+        let mut seed = None;
+        if eroded[text_cy * patch_w + text_cx] {
+            seed = Some((text_cx, text_cy));
+        } else {
+            let mut min_dist = i32::MAX;
+            let max_allowed_dist = (r_erode * 2).pow(2);
+            for py in 0..patch_h {
+                for px in 0..patch_w {
+                    if eroded[py * patch_w + px] {
+                        let d = (px as i32 - text_cx as i32).pow(2) + (py as i32 - text_cy as i32).pow(2);
+                        if d < min_dist {
+                            min_dist = d;
+                            seed = Some((px, py));
+                        }
+                    }
+                }
+            }
+            if min_dist > max_allowed_dist {
+                seed = None;
+            }
+        }
+
+        let (seed_x, seed_y) = match seed {
+            Some(s) => s,
+            None => continue,
+        };
+
+        // FLOOD FILL ON ERODED COMPONENT
+        let mut visited = vec![false; patch_w * patch_h];
+        let mut queue = std::collections::VecDeque::new();
+        let mut component = Vec::new();
+
+        queue.push_back((seed_x, seed_y));
+        visited[seed_y * patch_w + seed_x] = true;
+
+        while let Some((cx, cy)) = queue.pop_front() {
+            component.push((cx, cy));
+            for (dx, dy) in [(-1, 0), (1, 0), (0, -1), (0, 1)] {
+                let nx = cx as i32 + dx;
+                let ny = cy as i32 + dy;
+                if nx >= 0 && nx < patch_w as i32 && ny >= 0 && ny < patch_h as i32 {
+                    let ux = nx as usize;
+                    let uy = ny as usize;
+                    let idx = uy * patch_w + ux;
+                    if eroded[idx] && !visited[idx] {
+                        visited[idx] = true;
+                        queue.push_back((ux, uy));
                     }
                 }
             }
         }
-    }
 
-    let (seed_x, seed_y) = match seed {
-        Some(s) => s,
-        None => return b.clone(),
-    };
-
-    // FLOOD FILL ON ERODED COMPONENT
-    let mut visited = vec![false; patch_w * patch_h];
-    let mut queue = std::collections::VecDeque::new();
-    let mut component = Vec::new();
-
-    queue.push_back((seed_x, seed_y));
-    visited[seed_y * patch_w + seed_x] = true;
-
-    while let Some((cx, cy)) = queue.pop_front() {
-        component.push((cx, cy));
-        for (dx, dy) in [(-1, 0), (1, 0), (0, -1), (0, 1)] {
-            let nx = cx as i32 + dx;
-            let ny = cy as i32 + dy;
-            if nx >= 0 && nx < patch_w as i32 && ny >= 0 && ny < patch_h as i32 {
-                let ux = nx as usize;
-                let uy = ny as usize;
-                let idx = uy * patch_w + ux;
-                if eroded[idx] && !visited[idx] {
-                    visited[idx] = true;
-                    queue.push_back((ux, uy));
-                }
-            }
+        if component.is_empty() {
+            continue;
         }
-    }
 
-    if component.is_empty() {
-        return b.clone();
-    }
-
-    // 4. DILATE CONNECTED COMPONENT BY R = 14 TO RESTORE CARRIER CONTOUR (MASK BOUNDED)
-    let mut reconstructed = vec![false; patch_w * patch_h];
-    for &(cx, cy) in &component {
-        for dy in -r_erode..=r_erode {
-            for dx in -r_erode..=r_erode {
-                if dx * dx + dy * dy <= r_sq {
-                    let nx = cx as i32 + dx;
-                    let ny = cy as i32 + dy;
-                    if nx >= 0 && nx < patch_w as i32 && ny >= 0 && ny < patch_h as i32 {
-                        let ux = nx as usize;
-                        let uy = ny as usize;
-                        let idx = uy * patch_w + ux;
-                        if mask[idx] {
-                            reconstructed[idx] = true;
+        // 4. DILATE CONNECTED COMPONENT BY R_ERODE TO RESTORE CARRIER CONTOUR (MASK BOUNDED)
+        let mut reconstructed = vec![false; patch_w * patch_h];
+        for &(cx, cy) in &component {
+            for dy in -r_erode..=r_erode {
+                for dx in -r_erode..=r_erode {
+                    if dx * dx + dy * dy <= r_sq {
+                        let nx = cx as i32 + dx;
+                        let ny = cy as i32 + dy;
+                        if nx >= 0 && nx < patch_w as i32 && ny >= 0 && ny < patch_h as i32 {
+                            let ux = nx as usize;
+                            let uy = ny as usize;
+                            let idx = uy * patch_w + ux;
+                            if mask[idx] {
+                                reconstructed[idx] = true;
+                            }
                         }
                     }
                 }
             }
         }
-    }
 
-    // 5. EXTRACT BOUNDING BOX OF RECONSTRUCTED CARRIER
-    let mut min_px = patch_w;
-    let mut max_px = 0;
-    let mut min_py = patch_h;
-    let mut max_py = 0;
+        // 5. EXTRACT BOUNDING BOX OF RECONSTRUCTED CARRIER
+        let mut min_px = patch_w;
+        let mut max_px = 0;
+        let mut min_py = patch_h;
+        let mut max_py = 0;
 
-    for py in 0..patch_h {
-        for px in 0..patch_w {
-            if reconstructed[py * patch_w + px] {
-                min_px = min_px.min(px);
-                max_px = max_px.max(px);
-                min_py = min_py.min(py);
-                max_py = max_py.max(py);
+        for py in 0..patch_h {
+            for px in 0..patch_w {
+                if reconstructed[py * patch_w + px] {
+                    min_px = min_px.min(px);
+                    max_px = max_px.max(px);
+                    min_py = min_py.min(py);
+                    max_py = max_py.max(py);
+                }
+            }
+        }
+
+        if min_px > max_px || min_py > max_py {
+            continue;
+        }
+
+        let carrier_x = min_x as i32 + min_px as i32;
+        let carrier_y = min_y as i32 + min_py as i32;
+        let carrier_w = (max_px - min_px + 1) as i32;
+        let carrier_h = (max_py - min_py + 1) as i32;
+
+        let candidate = BoxRect {
+            x: carrier_x.max(b.x),
+            y: carrier_y.max(b.y),
+            w: carrier_w.min(b.w).max(t.w),
+            h: carrier_h.min(b.h).max(t.h),
+        };
+
+        // VALIDITY CHECK: CARRIER MUST COMFORTABLY ACCOMMODATE THE TEXT
+        let encloses_text = candidate.x <= t.x
+            && (candidate.x + candidate.w) >= (t.x + t.w)
+            && candidate.y <= t.y
+            && (candidate.y + candidate.h) >= (t.y + t.h);
+
+        if encloses_text {
+            let max_trim = (candidate.x - b.x).abs()
+                .max((candidate.y - b.y).abs())
+                .max(((b.x + b.w) - (candidate.x + candidate.w)).abs())
+                .max(((b.y + b.h) - (candidate.y + candidate.h)).abs());
+            let total_trim = (b.w - candidate.w).max(0) + (b.h - candidate.h).max(0);
+
+            // IF A GENUINE TAIL CUT WAS ACHIEVED AT THIS RADIUS, ADOPT IT IMMEDIATELY
+            if max_trim >= 14 || total_trim >= 18 {
+                return candidate;
+            }
+
+            if best_carrier.is_none() {
+                best_carrier = Some(candidate);
             }
         }
     }
 
-    if min_px > max_px || min_py > max_py {
-        return b.clone();
-    }
-
-    let carrier_x = min_x as i32 + min_px as i32;
-    let carrier_y = min_y as i32 + min_py as i32;
-    let carrier_w = (max_px - min_px + 1) as i32;
-    let carrier_h = (max_py - min_py + 1) as i32;
-
-    BoxRect {
-        x: carrier_x.max(b.x),
-        y: carrier_y.max(b.y),
-        w: carrier_w.min(b.w).max(t.w),
-        h: carrier_h.min(b.h).max(t.h),
-    }
+    best_carrier.unwrap_or_else(|| b.clone())
 }
