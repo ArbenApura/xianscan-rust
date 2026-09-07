@@ -314,9 +314,12 @@ pub fn extract_carrier_box_from_image(img: &DynamicImage, b: &BoxRect, t: &BoxRe
                 }
             }
 
+            let min_dim = b.w.min(b.h);
+            let max_glyph_dim = ((min_dim as f32 * 0.28).round() as usize).clamp(24, 70);
+            let max_glyph_area = max_glyph_dim * max_glyph_dim;
             let comp_w = max_cx - min_cx + 1;
             let comp_h = max_cy - min_cy + 1;
-            if !touches_border && comp_w <= 16 && comp_h <= 16 && comp.len() <= 200 {
+            if !touches_border && comp_w <= max_glyph_dim && comp_h <= max_glyph_dim && comp.len() <= max_glyph_area {
                 for &(cx, cy) in &comp {
                     mask[cy * patch_w + cx] = true;
                 }
@@ -353,13 +356,15 @@ pub fn extract_carrier_box_from_image(img: &DynamicImage, b: &BoxRect, t: &BoxRe
 
     // 2. MULTI-SCALE MORPHOLOGICAL EROSION
     // SPEECH BUBBLES USE R=14 FOR NARROW TAILS; WIDER THOUGHT BUBBLE LOBES AND LARGE BALLOONS
-    // BENEFIT FROM LARGER KERNELS (UP TO R=23) TO SEVER BULBOUS TAIL ATTACHMENTS.
+    // BENEFIT FROM LARGER KERNELS (UP TO R=34) TO SEVER BULBOUS TAIL ATTACHMENTS.
     let text_cx = ((t.x + t.w / 2 - min_x as i32) as usize).clamp(0, patch_w - 1);
     let text_cy = ((t.y + t.h / 2 - min_y as i32) as usize).clamp(0, patch_h - 1);
 
     let min_dim = b.w.min(b.h);
-    let r_target = ((min_dim as f32 * 0.12).round() as i32).clamp(14, 28);
-    let mut candidate_radii: Vec<i32> = if min_dim >= 180 {
+    let r_target = ((min_dim as f32 * 0.12).round() as i32).clamp(14, 34);
+    let mut candidate_radii: Vec<i32> = if min_dim >= 260 {
+        vec![r_target.max(30), 26, 22, 18, 14]
+    } else if min_dim >= 180 {
         vec![r_target.max(26), 22, 18, 14]
     } else if min_dim >= 60 {
         vec![r_target.max(20), 18, 14]

@@ -58,7 +58,7 @@ fn test_regression_page_pirate_flag_east_wind_caption() {
         caption.text.replace('\n', "\\n")
     );
     crate::assert_region_angle!(caption, 0.0, 2.0);
-    crate::assert_region_bounds!(caption, xianscan_rust::ml::schemas::RegionKind::FreeText, 787, 538, 51, 170, 10);
+    crate::assert_region_bounds!(caption, xianscan_rust::ml::schemas::RegionKind::FreeText, 778, 538, 69, 170, 10);
     assert!(
         caption.box_.x + caption.box_.w <= 960,
         "Caption must stay inside the flag panel column, got box={:?}",

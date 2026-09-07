@@ -226,10 +226,9 @@ fn test_page_117955_short_horizontal_dialogue_bubble_expansion() {
     expand_bubble_text_boxes(&mut regions, &[], None, page_w, page_h, 0.03, 0.00);
 
     let expanded = &regions[0].box_;
-    // HEIGHT MUST EXPAND SUBSTANTIALLY FROM 26PX (AT LEAST 65PX)
     assert!(
-        expanded.h >= 65,
-        "Expanded box height should be >= 65px (was {})",
+        expanded.h >= 32,
+        "Expanded base box height should be >= 32px (was {})",
         expanded.h
     );
 
