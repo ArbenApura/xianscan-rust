@@ -32,10 +32,9 @@ fn test_regression_page_lin_family_army_memorial_tablets() {
         );
     }
 
-    let bubbles: Vec<_> = res.regions.iter().filter(|r| r.kind == RegionKind::DialogueBubble).collect();
-    assert_eq!(bubbles.len(), 1, "Expected exactly 1 dialogue bubble on page_lin_family_army_memorial_tablets");
-
-    let b0 = bubbles[0];
+    assert_eq!(res.regions.len(), 1, "Expected exactly 1 region (dialogue bubble only, 0 background tablets) on page_lin_family_army_memorial_tablets");
+    let b0 = &res.regions[0];
+    assert_eq!(b0.kind, RegionKind::DialogueBubble, "The single region must be DialogueBubble");
     assert!(b0.text.contains("林家军"), "Bubble text must contain '林家军'");
     assert!(b0.text.contains("名字"), "Bubble text must contain '名字'");
     assert!(!b0.text.contains("3是"), "Dialogue bubble must not contain stutter duplication '3是'");

@@ -252,7 +252,11 @@ pub fn should_reject_candidate_region(
     let is_oversized_single_char = char_count <= 2 && (cluster_rect.w >= oversized_char_limit || cluster_rect.h >= oversized_char_limit);
     let is_shout = crate::ml::detect::is_onomatopoeia_or_shout(cleaned) && char_count <= 6;
     let is_pure_cjk = cleaned.chars().all(|c| crate::ml::detect::has_cjk_characters(&c.to_string()) || c.is_whitespace() || matches!(c, '…' | '·' | '—' | '～' | '！' | '？' | '。' | '，' | '、' | '–' | '¿' | '¡'));
-    let is_vert_narration = is_pure_cjk && cluster_rect.h >= 60 && cluster_rect.h >= (cluster_rect.w as f32 * 1.5) as i32 && char_count >= 2 && avg_score >= 0.60;
+    let is_vert_narration = is_pure_cjk
+        && cluster_rect.h >= 60
+        && cluster_rect.h >= (cluster_rect.w as f32 * 1.5) as i32
+        && char_count >= 2
+        && (has_narrative_punctuation || avg_score >= 0.75 || compute_chromatic_color_variance(img, cluster_rect) < 20.0);
     let is_sign_or_narration_box = is_cjk && !is_oversized_single_char && ((char_count >= 2 && ((cluster_rect.w >= 50 && cluster_rect.h >= 20) || (cluster_rect.w >= 20 && cluster_rect.h >= 45 && char_count >= 3) || (cluster_rect.w >= 30 && cluster_rect.h >= 30 && char_count >= 3)) && avg_score >= 0.70) || is_vert_narration) && !is_shout;
     let is_margin_isolated_char = (cluster_rect.x <= 5 || cluster_rect.x + cluster_rect.w >= page_w as i32 - 5) && avg_score < 0.75;
     let is_valid_cjk_glyph = is_cjk && ((char_count >= 3 && avg_score >= 0.70) || (char_count == 2 && cluster_rect.w >= 50 && avg_score >= 0.70) || is_vert_narration) && cleaned.chars().any(|c| crate::ml::detect::has_cjk_characters(&c.to_string())) && !is_margin_isolated_char;
@@ -416,7 +420,55 @@ pub fn should_reject_candidate_region(
         }
     }
 
+    // 23. SUPPRESS BACKGROUND MEMORIAL TABLETS, GRAVESTONE INSCRIPTIONS, AND SCENERY SIGNBOARDS
+    // ON COMPLEX TEXTURED ARTWORK OUTSIDE SPEECH BUBBLES
+    if !is_bubble && !has_narrative_punctuation {
+        let chromatic_var = compute_chromatic_color_variance(img, cluster_rect);
+        let mean_lum = compute_mean_luminance(img, cluster_rect);
+        let is_textured_dark_scenery = chromatic_var >= 25.0 && mean_lum < 195.0;
+        let area = (cluster_rect.w * cluster_rect.h).max(1);
+        let area_per_char = area as f32 / char_count.max(1) as f32;
+        let is_sparse_background_scatter = area_per_char >= 2500.0 && cluster_rect.w >= 100 && cluster_rect.h >= 100;
+        if is_textured_dark_scenery && is_sparse_background_scatter {
+            let is_unpunctuated_name_list = cleaned.lines().all(|l| {
+                let lt = l.trim();
+                let words: Vec<&str> = lt.split_whitespace().collect();
+                words.iter().all(|w| w.chars().count() <= 7)
+            });
+            let page_has_confident_dialogue = bubbles.iter().any(|b| b.w >= 60 && b.h >= 50);
+            if is_unpunctuated_name_list && page_has_confident_dialogue {
+                return true;
+            }
+        }
+    }
+
     false
+}
+
+fn compute_mean_luminance(img: &DynamicImage, rect: &BoxRect) -> f64 {
+    let rgb = img.to_rgb8();
+    let (pw, ph) = (rgb.width() as i32, rgb.height() as i32);
+    let x0 = rect.x.clamp(0, pw);
+    let y0 = rect.y.clamp(0, ph);
+    let x1 = (rect.x + rect.w).clamp(0, pw);
+    let y1 = (rect.y + rect.h).clamp(0, ph);
+    if x1 <= x0 || y1 <= y0 {
+        return 255.0;
+    }
+    let mut sum = 0u64;
+    let mut count = 0u64;
+    for y in y0..y1 {
+        for x in x0..x1 {
+            let p = rgb.get_pixel(x as u32, y as u32);
+            sum += (p[0] as u64 + p[1] as u64 + p[2] as u64) / 3;
+            count += 1;
+        }
+    }
+    if count > 0 {
+        sum as f64 / count as f64
+    } else {
+        255.0
+    }
 }
 
 

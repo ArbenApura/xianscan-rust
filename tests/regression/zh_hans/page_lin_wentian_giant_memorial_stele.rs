@@ -1,6 +1,5 @@
 // -- INTERNAL IMPORTS -- //
 use crate::common::get_or_analyze_fixture_with_lang;
-use xianscan_rust::ml::schemas::RegionKind;
 
 // -- TESTS -- //
 
@@ -33,11 +32,5 @@ fn test_regression_page_lin_wentian_giant_memorial_stele() {
         );
     }
 
-    // ZERO DIALOGUE BUBBLES MUST BE DETECTED
-    let bubbles: Vec<_> = res.regions.iter().filter(|r| r.kind == RegionKind::DialogueBubble).collect();
-    assert_eq!(bubbles.len(), 0, "Expected 0 dialogue bubbles on memorial stele page");
-
-    // SCENERY PSEUDO-TEXT NOISE MUST BE SUPPRESSED
-    assert!(!res.regions.iter().any(|r| r.text.contains("VIVy") || r.text.contains("ミ") || r.text.contains("う")),
-        "Scenery pseudo-text noise with foreign kana must be suppressed");
+    assert_eq!(res.regions.len(), 0, "Expected exactly 0 regions (scenery stele, no dialogue or narration) on page_lin_wentian_giant_memorial_stele");
 }

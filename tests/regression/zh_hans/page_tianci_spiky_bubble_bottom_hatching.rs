@@ -30,7 +30,6 @@ fn test_regression_page_tianci_spiky_bubble_bottom_hatching() {
             i, r.kind, r.box_, r.bubble_box, r.carrier_box, r.typeset_box, r.text.replace('\n', " ")
         );
     }
-
     assert_eq!(res.regions.len(), 4, "Expected exactly 4 dialogue bubbles on page_tianci_spiky_bubble_bottom_hatching");
 
     for r in &res.regions {
@@ -39,4 +38,10 @@ fn test_regression_page_tianci_spiky_bubble_bottom_hatching() {
 
     let r_tianci = res.regions.iter().find(|r| r.text.contains("天赐")).expect("Must find '……天赐。' bubble");
     assert!(r_tianci.bubble_box.is_some(), "Tianci bubble must have bubble_box");
+    // Bottom radiating spikes from y=795..845 must remain uncovered and preserved
+    // The text box and typeset box must safely stop before the bottom spikes (y <= 795)
+    assert!(r_tianci.box_.y + r_tianci.box_.h <= 795, "Tianci text box bottom (y={}) must not cover bottom spikes (<= 795)", r_tianci.box_.y + r_tianci.box_.h);
+    if let Some(ref tb) = r_tianci.typeset_box {
+        assert!(tb.y + tb.h <= 795, "Tianci typeset box bottom (y={}) must not cover bottom spikes (<= 795)", tb.y + tb.h);
+    }
 }

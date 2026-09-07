@@ -180,8 +180,12 @@ pub fn valid_tail_cut_carrier(carrier: &BoxRect, b: &BoxRect, page_h: u32) -> bo
     let is_h_cut = (trim_right >= 14 && trim_left <= max_opp_h && trim_right >= trim_left * 2 && (trim_right - trim_left) >= 12)
         || (trim_left >= 14 && trim_right <= max_opp_h && trim_left >= trim_right * 2 && (trim_left - trim_right) >= 12);
 
-    let is_v_cut = (trim_bot >= 14 && trim_top <= max_opp_v && trim_bot >= trim_top * 2 && (trim_bot - trim_top) >= 12)
-        || (trim_top >= 14 && trim_bot <= max_opp_v && trim_top >= trim_bot * 2 && (trim_top - trim_bot) >= 12);
+    let dominant_v = trim_bot.max(trim_top);
+    let is_substantial_v = (dominant_v as f32 / b.h.max(1) as f32 >= 0.11) || dominant_v >= 22;
+
+    let is_v_cut = is_substantial_v
+        && ((trim_bot >= 14 && trim_top <= max_opp_v && trim_bot >= trim_top * 2 && (trim_bot - trim_top) >= 12)
+            || (trim_top >= 14 && trim_bot <= max_opp_v && trim_top >= trim_bot * 2 && (trim_top - trim_bot) >= 12));
 
     if !is_h_cut && !is_v_cut {
         return false;

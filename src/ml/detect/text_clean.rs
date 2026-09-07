@@ -553,7 +553,9 @@ pub fn strip_trailing_watermark_debris(line_text: &str, source_lang: Option<&str
     if let Some(idx) = chars.iter().rposition(|&c| crate::ml::detect::has_native_script_for_lang(&c.to_string(), source_lang) || crate::ml::detect::has_cjk_characters(&c.to_string()) || matches!(c, '。' | '！' | '？' | '，' | '、' | '…' | '”' | '’' | '」' | '』' | '）' | ')')) {
         let suffix: String = chars[idx + 1..].iter().collect();
         let suffix_trimmed = suffix.trim_start_matches(|c| matches!(c, '·' | '.' | '_' | '-' | '|' | ' ' | '/' | '\\' | ':')).trim();
+        let has_letters = suffix_trimmed.chars().any(|c| c.is_ascii_alphabetic());
         let is_latin_debris = !suffix_trimmed.is_empty()
+            && has_letters
             && suffix_trimmed.chars().all(|c| c.is_ascii_alphanumeric() || c.is_ascii_punctuation())
             && suffix_trimmed.chars().count() >= 2;
         if is_latin_debris {
@@ -563,6 +565,20 @@ pub fn strip_trailing_watermark_debris(line_text: &str, source_lang: Option<&str
         }
     }
     (line_text.to_string(), 1.0)
+}
+
+fn char_visual_weight(c: char) -> f32 {
+    if crate::ml::detect::has_cjk_characters(&c.to_string())
+        || matches!(c, '，' | '。' | '！' | '？' | '：' | '；' | '“' | '”' | '‘' | '’' | '（' | '）' | '【' | '】' | '《' | '》' | '、')
+    {
+        1.0
+    } else if c == '…' || c == '—' || c == '–' {
+        0.8
+    } else if c.is_ascii_whitespace() {
+        0.3
+    } else {
+        0.55
+    }
 }
 
 /// STRIP LEADING NON-NATIVE SCANLATOR / SITE WATERMARK FRAGMENTS ATTACHED TO NATIVE LINES
@@ -578,7 +594,6 @@ pub fn strip_leading_watermark_debris(line_text: &str, source_lang: Option<&str>
     }
 
     let chars: Vec<char> = t.chars().collect();
-    let total_chars = chars.len();
     if let Some(idx) = chars.iter().position(|&c| crate::ml::detect::has_native_script_for_lang(&c.to_string(), source_lang) || crate::ml::detect::has_cjk_characters(&c.to_string()) || matches!(c, '“' | '‘' | '「' | '『' | '（' | '(')) {
         if idx > 0 {
             let prefix: String = chars[..idx].iter().collect();
@@ -599,7 +614,9 @@ pub fn strip_leading_watermark_debris(line_text: &str, source_lang: Option<&str>
                 || crate::ml::detect::is_watermark_line(prefix_trimmed);
             if is_substantial_watermark {
                 let clean_suffix: String = chars[idx..].iter().collect();
-                let start_offset_ratio = idx as f32 / total_chars as f32;
+                let prefix_weight: f32 = chars[..idx].iter().map(|&c| char_visual_weight(c)).sum();
+                let total_weight: f32 = chars.iter().map(|&c| char_visual_weight(c)).sum();
+                let start_offset_ratio = if total_weight > 0.0 { prefix_weight / total_weight } else { 0.0 };
                 return (clean_suffix, start_offset_ratio);
             }
         }

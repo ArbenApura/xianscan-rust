@@ -35,8 +35,13 @@ fn test_regression_page_datong_verse_men_roles_women_homes() {
     let r0 = &res.regions[0];
     assert_eq!(r0.kind, RegionKind::FreeText, "Region 0 must be FreeText");
     assert!(
-        r0.text.contains("男有分") || r0.text.contains("女有归"),
-        "Region 0 text '{}' must match '男有分，女有归。'",
+        r0.text.contains("男有分") && r0.text.contains("女有归"),
+        "Region 0 text '{}' must cover full verse '男有分，女有归。'",
         r0.text
+    );
+    assert!(
+        r0.box_.w >= 650,
+        "Region 0 width ({}) must cover both left and right sides of the banner (>= 650)",
+        r0.box_.w
     );
 }

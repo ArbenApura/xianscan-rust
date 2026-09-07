@@ -496,7 +496,6 @@ pub fn analyze_image_with_fusion_timed(
                     && ((ly + lh) as f32 >= by - 25.0)
                     && ((ly + lh) as f32 <= by + 20.0)
                     && (ix >= 0.50 * (lw as f32).min(bw));
-
                 if (ix > 0.0 && iy > 0.0) || is_adjacent_trailing_row || is_adjacent_leading_row {
                     let inter_area = ix.max(0.0) * iy.max(0.0);
                     let l_area = (lw * lh).max(1) as f32;
@@ -764,7 +763,8 @@ pub fn analyze_image_with_fusion_timed(
             }
         }
     } else {
-        // Fallback: Use RapidOCR line bounding boxes directly without distance clumping
+        // Fallback: Group adjacent RapidOCR lines into unified candidates (horizontal rows or vertical columns)
+        let mut valid_lines: Vec<&crate::ml::ocr::OcrLine> = Vec::new();
         for line in &fusion_res.rapid_lines {
             if line.score < 0.50 {
                 continue;
@@ -795,8 +795,65 @@ pub fn analyze_image_with_fusion_timed(
             if overlaps_sfx {
                 continue;
             }
-            candidate_boxes.push(line.polygon.iter().map(|p| [p[0] as f32, p[1] as f32]).collect());
-            candidate_scores.push(line.score);
+            valid_lines.push(line);
+        }
+
+        let n = valid_lines.len();
+        let mut visited = vec![false; n];
+        for i in 0..n {
+            if visited[i] {
+                continue;
+            }
+            let mut cluster = vec![i];
+            visited[i] = true;
+            let mut q = std::collections::VecDeque::new();
+            q.push_back(i);
+            while let Some(curr) = q.pop_front() {
+                let (cx, cy, cw, ch) = crate::ml::geometry::polygon_bounds(&valid_lines[curr].polygon);
+                for j in 0..n {
+                    if visited[j] {
+                        continue;
+                    }
+                    let (jx, jy, jw, jh) = crate::ml::geometry::polygon_bounds(&valid_lines[j].polygon);
+                    // Horizontal row continuation check: lines on the same row
+                    let iy = ((cy + ch).min(jy + jh) - cy.max(jy)).max(0);
+                    let vert_overlap = iy as f32 / (ch.min(jh) as f32).max(1.0);
+                    let horiz_gap = (jx - (cx + cw)).max(cx - (jx + jw));
+                    let is_horiz_row = vert_overlap >= 0.55
+                        && (ch.max(jh) as f32 <= ch.min(jh) as f32 * 1.6)
+                        && (horiz_gap <= 45 || (horiz_gap < 0 && horiz_gap >= -90));
+
+                    if is_horiz_row {
+                        visited[j] = true;
+                        cluster.push(j);
+                        q.push_back(j);
+                    }
+                }
+            }
+
+            let mut min_x = i32::MAX;
+            let mut min_y = i32::MAX;
+            let mut max_x = i32::MIN;
+            let mut max_y = i32::MIN;
+            let mut score_sum = 0.0f32;
+            for &idx in &cluster {
+                let l = valid_lines[idx];
+                for p in &l.polygon {
+                    min_x = min_x.min(p[0]);
+                    min_y = min_y.min(p[1]);
+                    max_x = max_x.max(p[0]);
+                    max_y = max_y.max(p[1]);
+                }
+                score_sum += l.score;
+            }
+            let avg_score = score_sum / cluster.len() as f32;
+            candidate_boxes.push(vec![
+                [min_x as f32, min_y as f32],
+                [max_x as f32, min_y as f32],
+                [max_x as f32, max_y as f32],
+                [min_x as f32, max_y as f32],
+            ]);
+            candidate_scores.push(avg_score);
         }
     }
 

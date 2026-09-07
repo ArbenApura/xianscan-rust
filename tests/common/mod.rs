@@ -12,7 +12,6 @@ use sha2::{Digest, Sha256};
 // -- INTERNAL IMPORTS -- //
 use xianscan_rust::ml::schemas::{AnalyzeOptions, AnalyzeResponse, BoxRect, RegionKind};
 use xianscan_rust::ml::inpaint::{build_mask, clean_white_bubble_shrinkwrap, LamaInpainter};
-use xianscan_rust::pipeline::region_builder::extract_carrier_box_from_image;
 use xianscan_rust::pipeline::PipelineEngine;
 
 // -- CONSTANTS -- //
@@ -419,8 +418,7 @@ pub fn render_annotated_image(img: &DynamicImage, res: &AnalyzeResponse) -> Dyna
             let w = (b.w.max(1) as u32).min(max_w);
             let h = (b.h.max(1) as u32).min(max_h);
 
-            blend_filled_rect(&mut canvas, x, y, w, h, Rgba([6, 182, 212, 45]));
-
+            // RENDER BUBBLE BOUNDING BOX AS HOLLOW CYAN RECTANGLE SO RADIATING SPIKES AND ARTWORK REMAIN VISIBLE
             let rect = Rect::at(x, y).of_size(w, h);
             draw_hollow_rect_mut(&mut canvas, rect, Rgba([6, 182, 212, 200]));
         }
@@ -431,8 +429,6 @@ pub fn render_annotated_image(img: &DynamicImage, res: &AnalyzeResponse) -> Dyna
         if r.kind == RegionKind::DialogueBubble {
             let carrier = if let Some(ref cb) = r.carrier_box {
                 cb.clone()
-            } else if let Some(ref b) = r.bubble_box {
-                extract_carrier_box_from_image(img, b, &r.box_)
             } else {
                 continue;
             };
