@@ -174,8 +174,8 @@ pub fn valid_tail_cut_carrier(carrier: &BoxRect, b: &BoxRect, page_h: u32) -> bo
     let trim_top = (carrier.y - b.y).max(0);
     let trim_bot = ((b.y + b.h) - (carrier.y + carrier.h)).max(0);
 
-    let max_opp_v = 10.max((b.h as f32 * 0.05).round() as i32);
-    let max_opp_h = 10.max((b.w as f32 * 0.05).round() as i32);
+    let max_opp_v = 14.max((b.h as f32 * 0.07).round() as i32);
+    let max_opp_h = 14.max((b.w as f32 * 0.07).round() as i32);
 
     let is_h_cut = (trim_right >= 14 && trim_left <= max_opp_h && trim_right >= trim_left * 2 && (trim_right - trim_left) >= 12)
         || (trim_left >= 14 && trim_right <= max_opp_h && trim_left >= trim_right * 2 && (trim_left - trim_right) >= 12);
@@ -551,7 +551,7 @@ pub fn expand_bubble_text_boxes(
         let right_m = ((carrier.x + carrier.w) - (regions[i].box_.x + regions[i].box_.w)).max(0);
         let min_hm = left_m.min(right_m) as f32;
         let max_hm = left_m.max(right_m) as f32;
-        let is_horizontally_elongated = !h_cut_happened && (carrier.w as f32 >= carrier.h as f32 * 1.70 || (carrier.w >= 220 && max_hm >= 60.0));
+        let is_horizontally_elongated = !h_cut_happened && (carrier.w as f32 >= carrier.h as f32 * 1.70 || (!v_cut_happened && carrier.w >= 220 && carrier.w as f32 >= carrier.h as f32 * 1.25 && max_hm >= 60.0));
         let is_heavily_offset_horizontally = is_horizontally_elongated && min_hm > 0.0 && (max_hm / min_hm >= 2.5) && (max_hm - min_hm >= 45.0);
 
         if is_sole_occupant

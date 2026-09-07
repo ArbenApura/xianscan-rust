@@ -110,3 +110,5 @@ mod page_zhang_jiuya_immortals_gods_hmph_bubble;
 mod page_dragon_neck_slash_scream_bubble;
 mod page_dragon_blast_roar_bubbles;
 mod page_dragon_surrender_plea_bubbles;
+mod page_blood_god_avatar_enough_talk_kill_him;
+mod page_blood_demon_array_gone_ill_be_right_back;
