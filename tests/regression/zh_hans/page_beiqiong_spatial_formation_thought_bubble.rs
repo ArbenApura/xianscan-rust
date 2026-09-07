@@ -45,9 +45,9 @@ fn test_regression_page_beiqiong_spatial_formation_thought_bubble() {
     let carrier = formation_bubble.carrier_box.as_ref().unwrap();
     let tb = formation_bubble.typeset_box.as_ref().expect("typeset box must exist");
 
-    // Carrier height must sever lower thought lobe and trailing circle
+    // Carrier height must sever lower thought lobe and trailing circle without over-cutting the balloon body
     assert!(carrier.h < bb.h, "Carrier height must be trimmed from raw bubble height");
-    assert!(carrier.h <= 140, "Carrier height must cut off bottom lobe, got {}", carrier.h);
+    assert_eq!(carrier.h, 146, "Carrier height must preserve bottom oval curvature (h=146) rather than over-cutting to 132");
 
     // Typeset box must be centered within the carrier chamber
     let carrier_cy = carrier.y + carrier.h / 2;

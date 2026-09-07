@@ -81,6 +81,7 @@ fn test_analyze_response_roundtrip() {
         onomatopoeia: vec![],
         regions: vec![r],
         stats: None,
+        crop_cache: vec![],
     };
 
     let json = serde_json::to_string(&resp).unwrap();

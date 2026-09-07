@@ -1,7 +1,7 @@
 // -- CRATE / EXTERNAL IMPORTS -- //
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
-use std::sync::Mutex;
+use std::sync::{LazyLock, Mutex};
 use ab_glyph::{FontArc, PxScale};
 use image::{DynamicImage, Rgba, RgbaImage};
 use imageproc::drawing::{draw_hollow_rect_mut, draw_line_segment_mut, draw_text_mut};
@@ -20,6 +20,15 @@ use xianscan_rust::pipeline::PipelineEngine;
 // GLOBAL REGISTRY TO MAP IMAGE HASHES TO SOURCE FIXTURE FILE PATHS
 static FIXTURE_PATH_MAP: Mutex<Option<HashMap<String, PathBuf>>> = Mutex::new(None);
 static INFERENCE_LOCK: Mutex<()> = Mutex::new(());
+
+static SHARED_TEST_ENGINE: LazyLock<Mutex<PipelineEngine>> = LazyLock::new(|| {
+    let models_dir = Path::new("models");
+    Mutex::new(PipelineEngine::new_ocr_only(models_dir))
+});
+
+fn get_shared_test_engine() -> std::sync::MutexGuard<'static, PipelineEngine> {
+    SHARED_TEST_ENGINE.lock().unwrap()
+}
 
 /// ASSERTS EXACT BOUNDING BOX PROXIMITY AND REGION KIND WITH STRICT DRIFT TOLERANCES
 #[macro_export]
@@ -273,10 +282,20 @@ pub fn generate_synthetic_bubble_image(
 
 #[allow(dead_code)]
 pub fn hash_image(img: &DynamicImage) -> String {
+    let bytes = img.as_bytes();
     let mut hasher = Sha256::new();
     hasher.update(&img.width().to_le_bytes());
     hasher.update(&img.height().to_le_bytes());
-    hasher.update(img.as_bytes());
+    hasher.update(&bytes.len().to_le_bytes());
+    if bytes.len() <= 65536 {
+        hasher.update(bytes);
+    } else {
+        for chunk_idx in 0..8 {
+            let start = (bytes.len().saturating_sub(8192) * chunk_idx) / 7;
+            let end = (start + 8192).min(bytes.len());
+            hasher.update(&bytes[start..end]);
+        }
+    }
     hex::encode(hasher.finalize())
 }
 
@@ -360,26 +379,29 @@ fn blend_filled_rect(canvas: &mut RgbaImage, x: i32, y: i32, w: u32, h: u32, fil
 
 /// LOADS A SUITABLE CJK-COMPATIBLE TTF/OTF FONT FOR DEBUG ANNOTATION OVERLAYS.
 fn load_annotation_font() -> Option<FontArc> {
-    let font_candidates = [
-        "C:\\Windows\\Fonts\\malgun.ttf",
-        "C:\\Windows\\Fonts\\msyh.ttc",
-        "C:\\Windows\\Fonts\\arial.ttf",
-        "C:\\Windows\\Fonts\\segoeui.ttf",
-        "/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc",
-        "/usr/share/fonts/truetype/noto/NotoSansCJK-Regular.ttc",
-        "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
-        "/System/Library/Fonts/PingFang.ttc",
-        "/System/Library/Fonts/AppleSDGothicNeo.ttc",
-        "web/static/fonts/GeneralSans-Bold.ttf",
-    ];
-    for path in &font_candidates {
-        if let Ok(bytes) = std::fs::read(path) {
-            if let Ok(font) = FontArc::try_from_vec(bytes) {
-                return Some(font);
+    static FONT: std::sync::OnceLock<Option<FontArc>> = std::sync::OnceLock::new();
+    FONT.get_or_init(|| {
+        let font_candidates = [
+            "C:\\Windows\\Fonts\\malgun.ttf",
+            "C:\\Windows\\Fonts\\msyh.ttc",
+            "C:\\Windows\\Fonts\\arial.ttf",
+            "C:\\Windows\\Fonts\\segoeui.ttf",
+            "/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc",
+            "/usr/share/fonts/truetype/noto/NotoSansCJK-Regular.ttc",
+            "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
+            "/System/Library/Fonts/PingFang.ttc",
+            "/System/Library/Fonts/AppleSDGothicNeo.ttc",
+            "web/static/fonts/GeneralSans-Bold.ttf",
+        ];
+        for path in &font_candidates {
+            if let Ok(bytes) = std::fs::read(path) {
+                if let Ok(font) = FontArc::try_from_vec(bytes) {
+                    return Some(font);
+                }
             }
         }
-    }
-    None
+        None
+    }).clone()
 }
 
 /// DRAWS ANNOTATED PIPELINE REGIONS WITH MATCHING THEME STYLES (MATCHES WEB UI INSPECT MODAL).
@@ -941,22 +963,35 @@ pub fn save_layout_fixture(img: &DynamicImage, fusion: &xianscan_rust::pipeline:
 
 /// SAVES THE RAW OCR DETECTOR RENDERING AND DEBUG METADATA JSON INSIDE THE TEST CASE FOLDER.
 pub fn save_ocr_fixture(img: &DynamicImage, lines: &[xianscan_rust::ml::ocr::OcrLine]) {
+    save_ocr_fixture_with_crops(img, lines, &[]);
+}
+
+pub fn save_ocr_fixture_with_crops(
+    img: &DynamicImage,
+    lines: &[xianscan_rust::ml::ocr::OcrLine],
+    crops: &[xianscan_rust::ml::ocr::CachedCropEntry],
+) {
     let key = hash_image(img);
     if let Some(src_path) = get_registered_fixture_path(&key) {
         let paths = get_fixture_output_paths(&src_path);
 
-        let ocr_img = render_ocr_detector_image(img, lines);
-        let _ = ocr_img.save_with_format(&paths.ocr_img, image::ImageFormat::WebP);
+        if !paths.ocr_img.exists() {
+            let ocr_img = render_ocr_detector_image(img, lines);
+            let _ = ocr_img.save_with_format(&paths.ocr_img, image::ImageFormat::WebP);
+        }
 
         #[derive(Serialize)]
         struct OcrDebugReport<'a> {
             image_dimensions: (u32, u32),
             lines: &'a [xianscan_rust::ml::ocr::OcrLine],
+            #[serde(skip_serializing_if = "<[_]>::is_empty")]
+            crops: &'a [xianscan_rust::ml::ocr::CachedCropEntry],
         }
 
         let report = OcrDebugReport {
             image_dimensions: (img.width(), img.height()),
             lines,
+            crops,
         };
 
         if let Ok(json_str) = serde_json::to_string_pretty(&report) {
@@ -1023,7 +1058,6 @@ pub fn get_or_analyze_fixture_with_opts(
     let key = hash_image(img);
 
     // FAST-PATH: LOAD RAW LAYOUT & OCR DIRECTLY FROM CASE FOLDER (<0.05s EXECUTION)
-    let mut fusion_opt: Option<xianscan_rust::pipeline::fusion::DetectionFusionResult> = None;
 
     if let Some(src_path) = get_registered_fixture_path(&key) {
         let paths = get_fixture_output_paths(&src_path);
@@ -1041,9 +1075,15 @@ pub fn get_or_analyze_fixture_with_opts(
             #[derive(serde::Deserialize)]
             struct FolderOcrReport {
                 lines: Vec<xianscan_rust::ml::ocr::OcrLine>,
+                #[serde(default)]
+                crops: Option<Vec<xianscan_rust::ml::ocr::CachedCropEntry>>,
             }
             if let (Ok(layout_str), Ok(ocr_str)) = (std::fs::read_to_string(&paths.layout_json), std::fs::read_to_string(&paths.ocr_json)) {
                 if let (Ok(l_rep), Ok(o_rep)) = (serde_json::from_str::<FolderLayoutReport>(&layout_str), serde_json::from_str::<FolderOcrReport>(&ocr_str)) {
+                    let has_crops_field = o_rep.crops.is_some();
+                    let crop_cache = o_rep.crops.unwrap_or_default();
+                    let initial_crops_len = crop_cache.len();
+                    let raw_lines_snapshot = o_rep.lines.clone();
                     let (page_w, page_h) = (img.width(), img.height());
                     let filtered_onomatopoeia: Vec<(BoxRect, f32)> = l_rep.onomatopoeia
                         .into_iter()
@@ -1070,7 +1110,7 @@ pub fn get_or_analyze_fixture_with_opts(
                         })
                         .collect();
 
-                    fusion_opt = Some(xianscan_rust::pipeline::fusion::DetectionFusionResult {
+                    let fusion = xianscan_rust::pipeline::fusion::DetectionFusionResult {
                         comic_boxes: l_rep.comic_boxes,
                         comic_scores: vec![],
                         panels: l_rep.panels,
@@ -1079,31 +1119,52 @@ pub fn get_or_analyze_fixture_with_opts(
                         text_bubbles: l_rep.text_bubbles,
                         text_free: l_rep.text_free,
                         rapid_lines: o_rep.lines,
+                        crop_cache,
                         backend: l_rep.backend,
                         detector_time_ms: 0.0,
                         ocr_fullpage_time_ms: 0.0,
                         rescue_time_ms: 0.0,
                         raw_ocr_lines_count: 0,
                         rescued_crops_count: 0,
-                    });
+                    };
+
+                    let mut empty_engine = PipelineEngine::empty();
+                    let mut engine_guard_opt = if !has_crops_field {
+                        Some(get_shared_test_engine())
+                    } else {
+                        None
+                    };
+                    let active_engine: &mut PipelineEngine = match engine_guard_opt.as_mut() {
+                        Some(guard) => &mut **guard,
+                        None => &mut empty_engine,
+                    };
+
+                    let res = xianscan_rust::pipeline::analyzer::analyze_image_with_fusion(
+                        active_engine,
+                        img,
+                        &fusion,
+                        Some(opts),
+                    ).expect("Pipeline analyze_image_with_fusion failed");
+
+                    if res.crop_cache.len() != initial_crops_len && !raw_lines_snapshot.is_empty() {
+                        save_ocr_fixture_with_crops(img, &raw_lines_snapshot, &res.crop_cache);
+                    }
+
+                    if let Some(src_path) = get_registered_fixture_path(&key) {
+                        save_annotated_fixture_to_path(img, &res, &src_path);
+                    } else {
+                        save_annotated_fixture(img, &res);
+                    }
+                    return res;
                 }
             }
         }
     }
 
-    let res = if let Some(fusion) = fusion_opt {
-        let models_dir = Path::new("models");
-        let mut engine = PipelineEngine::new(models_dir);
-        engine.detector = None;
-        xianscan_rust::pipeline::analyzer::analyze_image_with_fusion(&mut engine, img, &fusion, Some(opts))
-            .expect("Pipeline analyze_image_with_fusion failed")
-    } else {
-        let models_dir = Path::new("models");
-        let mut engine = PipelineEngine::new(models_dir);
-        engine
-            .analyze_image_with_options(img, Some(opts))
-            .expect("Pipeline analyze_image failed")
-    };
+    let mut engine = PipelineEngine::new(Path::new("models"));
+    let res = engine
+        .analyze_image_with_options(img, Some(opts))
+        .expect("Pipeline analyze_image failed");
 
     if let Some(src_path) = get_registered_fixture_path(&key) {
         save_annotated_fixture_to_path(img, &res, &src_path);
@@ -1160,6 +1221,10 @@ pub fn force_analyze_fixture_with_lang(
 
     let res = xianscan_rust::pipeline::analyzer::analyze_image_with_fusion(&mut engine, img, &fusion, Some(&opts))
         .expect("Pipeline analyze_image_with_fusion failed");
+
+    if !res.crop_cache.is_empty() {
+        save_ocr_fixture_with_crops(img, &fusion.rapid_lines, &res.crop_cache);
+    }
 
     save_annotated_fixture(img, &res);
     res

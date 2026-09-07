@@ -127,6 +127,8 @@ pub struct AnalyzeResponse {
     pub regions: Vec<Region>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub stats: Option<OcrStats>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub crop_cache: Vec<crate::ml::ocr::CachedCropEntry>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

@@ -3,7 +3,7 @@ use image::DynamicImage;
 
 // -- INTERNAL IMPORTS -- //
 use crate::ml::geometry::polygon_bounds;
-use crate::ml::ocr::{OcrLine, RapidOcr};
+use crate::ml::ocr::{CachedCropEntry, OcrLine, OcrResult, RapidOcr};
 use crate::ml::schemas::BoxRect;
 
 // -- TYPES & STRUCTS -- //
@@ -29,6 +29,7 @@ pub struct FallbackCropOutcome {
 /// ATTEMPT LOCALIZED CROP RECOGNITION REFINEMENT TO RECOVER MISSED CHARACTERS / ELLIPSES
 pub fn try_refine_cluster_crop(
     ocr: &mut Option<RapidOcr>,
+    mut crop_cache: Option<&mut Vec<CachedCropEntry>>,
     img: &DynamicImage,
     box_rect: &BoxRect,
     cluster_rect: &BoxRect,
@@ -133,11 +134,31 @@ pub fn try_refine_cluster_crop(
         return None;
     }
 
-    let o = ocr.as_mut()?;
-    let crop = img.crop_imm(crop_x, crop_y, crop_w, crop_h);
-    let res = match o.recognize_crop_with_lang(&crop, source_lang) {
-        Ok(Some(r)) => r,
-        _ => return None,
+    let target_crop_rect = [crop_x as i32, crop_y as i32, crop_w as i32, crop_h as i32];
+
+    let cached_hit = if let Some(ref cache) = crop_cache {
+        cache.iter().find(|e| e.crop_rect == target_crop_rect && e.source_lang.as_deref() == source_lang).map(|e| e.result.clone())
+    } else {
+        None
+    };
+
+    let res = if let Some(hit) = cached_hit {
+        hit
+    } else {
+        let o = ocr.as_mut()?;
+        let crop = img.crop_imm(crop_x, crop_y, crop_w, crop_h);
+        let recognized = match o.recognize_crop_with_lang(&crop, source_lang) {
+            Ok(Some(r)) => r,
+            _ => return None,
+        };
+        if let Some(ref mut cache) = crop_cache {
+            cache.push(CachedCropEntry {
+                crop_rect: target_crop_rect,
+                source_lang: source_lang.map(|s| s.to_string()),
+                result: recognized.clone(),
+            });
+        }
+        recognized
     };
 
     let mut valid_crop_lines: Vec<_> = if is_cjk {
@@ -333,6 +354,7 @@ pub fn try_refine_cluster_crop(
 /// RUN FALLBACK TARGETED CROP RECOGNITION WHEN FULL-PAGE OCR MISSED A DETECTOR CONTAINER
 pub fn run_fallback_crop_recognition(
     ocr: &mut Option<RapidOcr>,
+    mut crop_cache: Option<&mut Vec<CachedCropEntry>>,
     img: &DynamicImage,
     box_rect: &BoxRect,
     is_bubble: bool,
@@ -352,34 +374,70 @@ pub fn run_fallback_crop_recognition(
         return None;
     }
 
-    let o = ocr.as_mut()?;
-    let crop = img.crop_imm(crop_x, crop_y, crop_w, crop_h);
+    let target_crop_rect = [crop_x as i32, crop_y as i32, crop_w as i32, crop_h as i32];
 
-    let mut isolated_text = String::new();
-    let mut isolated_score = 0.80f32;
-    let mut fallback_polys = Vec::new();
+    let cached_hit = if let Some(ref cache) = crop_cache {
+        cache.iter().find(|e| e.crop_rect == target_crop_rect && e.source_lang.as_deref() == source_lang).map(|e| e.result.clone())
+    } else {
+        None
+    };
 
-    if let Ok(Some(res)) = o.recognize_crop_with_lang(&crop, source_lang) {
-        isolated_text = res.text.trim().to_string();
-        isolated_score = res.score;
+    let (isolated_text, isolated_score, fallback_polys) = if let Some(res) = cached_hit {
+        let text = res.text.trim().to_string();
+        let score = res.score;
+        let mut fallback_polys = Vec::new();
         if !res.lines.is_empty() {
             for (l_poly, _, _) in res.lines {
                 let offset_poly: Vec<[i32; 2]> = l_poly.iter().map(|p| [p[0] + crop_x as i32, p[1] + crop_y as i32]).collect();
                 fallback_polys.push(offset_poly);
             }
         }
-    }
+        (text, score, fallback_polys)
+    } else {
+        let o = ocr.as_mut()?;
+        let crop = img.crop_imm(crop_x, crop_y, crop_w, crop_h);
 
-    if isolated_text.is_empty() {
-        if let Ok(Some(res)) = o.recognize_line_with_lang(&crop, source_lang) {
+        let mut isolated_text = String::new();
+        let mut isolated_score = 0.80f32;
+        let mut fallback_polys = Vec::new();
+        let mut recorded_result: Option<OcrResult> = None;
+
+        if let Ok(Some(res)) = o.recognize_crop_with_lang(&crop, source_lang) {
             isolated_text = res.text.trim().to_string();
             isolated_score = res.score;
+            if !res.lines.is_empty() {
+                for (l_poly, _, _) in &res.lines {
+                    let offset_poly: Vec<[i32; 2]> = l_poly.iter().map(|p| [p[0] + crop_x as i32, p[1] + crop_y as i32]).collect();
+                    fallback_polys.push(offset_poly);
+                }
+            }
+            recorded_result = Some(res);
         }
-    }
 
-    if isolated_text.is_empty() {
-        return None;
-    }
+        if isolated_text.is_empty() {
+            if let Ok(Some(res)) = o.recognize_line_with_lang(&crop, source_lang) {
+                isolated_text = res.text.trim().to_string();
+                isolated_score = res.score;
+                recorded_result = Some(res);
+            }
+        }
+
+        if isolated_text.is_empty() {
+            return None;
+        }
+
+        if let Some(res) = recorded_result {
+            if let Some(ref mut cache) = crop_cache {
+                cache.push(CachedCropEntry {
+                    crop_rect: target_crop_rect,
+                    source_lang: source_lang.map(|s| s.to_string()),
+                    result: res,
+                });
+            }
+        }
+
+        (isolated_text, isolated_score, fallback_polys)
+    };
 
     Some(FallbackCropOutcome {
         text: isolated_text,

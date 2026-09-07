@@ -98,3 +98,5 @@ mod page_shushan_treasury_pills_artifacts;
 mod page_xiao_xuan_north_shore_restaurant_bubble;
 mod page_slash_again_spiky_tail_shout;
 mod page_white_hair_sister_is_that_so_dots;
+mod page_earth_secular_world_sigh_bubble;
+mod page_break_downward_tail_speech_bubble;

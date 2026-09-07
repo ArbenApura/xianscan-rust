@@ -20,6 +20,7 @@ use super::refine::{run_fallback_crop_recognition, try_refine_cluster_crop};
 /// BUILD FINAL REGIONS FROM DETECTED CONTAINERS AND OCR LINES (PURE 2-STAGE NEURAL PIPELINE)
 pub fn build_regions(
     ocr: &mut Option<RapidOcr>,
+    mut crop_cache: Option<&mut Vec<crate::ml::ocr::CachedCropEntry>>,
     img: &DynamicImage,
     dedup_boxes: &[Vec<[f32; 2]>],
     order: &[usize],
@@ -631,6 +632,7 @@ pub fn build_regions(
                 let refine_outcome = if container_is_single_utterance || matched_bubble.is_none() {
                     try_refine_cluster_crop(
                         ocr,
+                        crop_cache.as_deref_mut(),
                         img,
                         effective_box_rect,
                         &cluster_rect,
@@ -894,6 +896,7 @@ pub fn build_regions(
             let mut produced_region = false;
             if let Some(fallback) = run_fallback_crop_recognition(
                 ocr,
+                crop_cache.as_deref_mut(),
                 img,
                 &box_rect,
                 is_bubble_region,

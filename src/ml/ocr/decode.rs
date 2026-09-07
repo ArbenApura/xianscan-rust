@@ -14,6 +14,13 @@ pub struct OcrResult {
     pub lines: Vec<(Vec<[i32; 2]>, String, f32)>,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CachedCropEntry {
+    pub crop_rect: [i32; 4],
+    pub source_lang: Option<String>,
+    pub result: OcrResult,
+}
+
 /// Helper to decode CTC logits using greedy argmax with blank token suppression and probability estimation.
 pub fn decode_ctc_slice(
     out_slice: &[f32],

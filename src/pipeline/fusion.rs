@@ -27,6 +27,7 @@ pub struct DetectionFusionResult {
     pub rescue_time_ms: f64,
     pub rescued_crops_count: usize,
     pub raw_ocr_lines_count: usize,
+    pub crop_cache: Vec<crate::ml::ocr::CachedCropEntry>,
 }
 
 // -- FUNCTIONS & ALGORITHMS -- //
@@ -572,6 +573,7 @@ pub fn fuse_detections(
         rescue_time_ms,
         rescued_crops_count,
         raw_ocr_lines_count,
+        crop_cache: Vec::new(),
     })
 }
 

@@ -755,6 +755,7 @@ pub fn analyze_image_with_fusion_timed(
             onomatopoeia,
             regions: Vec::new(),
             stats: Some(stats),
+            crop_cache: Vec::new(),
         });
     }
 
@@ -767,8 +768,10 @@ pub fn analyze_image_with_fusion_timed(
     // =========================================================================
     let t_stage3_start = std::time::Instant::now();
     let split_clean_lines: Vec<crate::ml::ocr::OcrLine> = filtered_rapid_lines.into_iter().cloned().collect();
+    let mut active_crops = fusion_res.crop_cache.clone();
     let mut final_regions = build_regions(
         &mut engine.ocr,
+        Some(&mut active_crops),
         img,
         &dedup_boxes,
         &order,
@@ -885,5 +888,6 @@ pub fn analyze_image_with_fusion_timed(
         onomatopoeia,
         regions: final_regions,
         stats: Some(stats),
+        crop_cache: active_crops,
     })
 }

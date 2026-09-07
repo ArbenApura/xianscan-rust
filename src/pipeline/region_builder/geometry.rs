@@ -231,7 +231,6 @@ pub fn extract_carrier_box_from_image(img: &DynamicImage, b: &BoxRect, t: &BoxRe
         return b.clone();
     }
 
-    let rgb = img.to_rgb8();
     let pad = 6i32;
     let min_x = (b.x - pad).clamp(0, pw as i32) as u32;
     let min_y = (b.y - pad).clamp(0, ph as i32) as u32;
@@ -248,23 +247,106 @@ pub fn extract_carrier_box_from_image(img: &DynamicImage, b: &BoxRect, t: &BoxRe
         return b.clone();
     }
 
+    let patch_rgb = img.crop_imm(min_x, min_y, patch_w as u32, patch_h as u32).to_rgb8();
+
     // 1. BUILD BINARY MASK OF BUBBLE INTERIOR
     let mut mask = vec![false; patch_w * patch_h];
     for py in 0..patch_h {
-        let gy = min_y + py as u32;
+        let gy = min_y as i32 + py as i32;
         for px in 0..patch_w {
-            let gx = min_x + px as u32;
-            let p = rgb.get_pixel(gx, gy);
+            let gx = min_x as i32 + px as i32;
+            let p = patch_rgb.get_pixel(px as u32, py as u32);
 
             // Inside text box is always considered interior
-            let in_text = (gx as i32) >= t.x && (gx as i32) < (t.x + t.w)
-                && (gy as i32) >= t.y && (gy as i32) < (t.y + t.h);
+            let in_text = gx >= t.x && gx < (t.x + t.w) && gy >= t.y && gy < (t.y + t.h);
 
             // Light/white bubble interior
             let is_light = p[0] >= 200 && p[1] >= 200 && p[2] >= 200;
 
             if in_text || is_light {
                 mask[py * patch_w + px] = true;
+            }
+        }
+    }
+
+    // FILL SMALL ENCLOSED DARK HOLES (PUNCTUATION DOTS, UNCAPTURED STROKES, ELLIPSIS DOTS):
+    // ANY ISOLATED DARK COMPONENT COMPLETELY ENCLOSED BY WHITE INTERIOR THAT IS SMALL (W <= 16 && H <= 16)
+    // IS CAVITY INK AND MUST NOT BISECT THE BUBBLE MASK INTO DISCONNECTED HALVES.
+    // LARGER BACKGROUND NOTCHES (SUCH AS INDENTATIONS BETWEEN THOUGHT LOBES) MUST NOT BE FILLED.
+    let mut visited_dark = vec![false; patch_w * patch_h];
+    for py in 1..(patch_h.saturating_sub(1)) {
+        let row_offset = py * patch_w;
+        for px in 1..(patch_w.saturating_sub(1)) {
+            let offset = row_offset + px;
+            if mask[offset] || visited_dark[offset] {
+                continue;
+            }
+            let mut comp = Vec::new();
+            let mut q = std::collections::VecDeque::new();
+            let mut touches_border = false;
+            let mut min_cx = px;
+            let mut max_cx = px;
+            let mut min_cy = py;
+            let mut max_cy = py;
+
+            visited_dark[offset] = true;
+            q.push_back((px, py));
+            while let Some((cx, cy)) = q.pop_front() {
+                comp.push((cx, cy));
+                min_cx = min_cx.min(cx);
+                max_cx = max_cx.max(cx);
+                min_cy = min_cy.min(cy);
+                max_cy = max_cy.max(cy);
+                for (dx, dy) in [(-1, 0), (1, 0), (0, -1), (0, 1)] {
+                    let nx = cx as i32 + dx;
+                    let ny = cy as i32 + dy;
+                    if nx < 0 || nx >= patch_w as i32 || ny < 0 || ny >= patch_h as i32 {
+                        touches_border = true;
+                        continue;
+                    }
+                    let ux = nx as usize;
+                    let uy = ny as usize;
+                    let n_idx = uy * patch_w + ux;
+                    if !mask[n_idx] && !visited_dark[n_idx] {
+                        visited_dark[n_idx] = true;
+                        q.push_back((ux, uy));
+                    }
+                }
+            }
+
+            let comp_w = max_cx - min_cx + 1;
+            let comp_h = max_cy - min_cy + 1;
+            if !touches_border && comp_w <= 16 && comp_h <= 16 && comp.len() <= 200 {
+                for &(cx, cy) in &comp {
+                    mask[cy * patch_w + cx] = true;
+                }
+            }
+        }
+    }
+
+    // PRECOMPUTE HORIZONTAL RUN-LENGTH TO LEFT AND RIGHT TO AVOID O(R^2) INNER NESTED LOOPS
+    let mut left_true = vec![0i32; patch_w * patch_h];
+    let mut right_true = vec![0i32; patch_w * patch_h];
+    for py in 0..patch_h {
+        let row_offset = py * patch_w;
+        let mut cur = 0i32;
+        for px in 0..patch_w {
+            if mask[row_offset + px] {
+                left_true[row_offset + px] = cur;
+                cur += 1;
+            } else {
+                left_true[row_offset + px] = 0;
+                cur = 0;
+            }
+        }
+        cur = 0;
+        for px in (0..patch_w).rev() {
+            if mask[row_offset + px] {
+                right_true[row_offset + px] = cur;
+                cur += 1;
+            } else {
+                right_true[row_offset + px] = 0;
+                cur = 0;
             }
         }
     }
@@ -276,8 +358,10 @@ pub fn extract_carrier_box_from_image(img: &DynamicImage, b: &BoxRect, t: &BoxRe
     let text_cy = ((t.y + t.h / 2 - min_y as i32) as usize).clamp(0, patch_h - 1);
 
     let min_dim = b.w.min(b.h);
-    let r_target = ((min_dim as f32 * 0.10).round() as i32).clamp(14, 23);
-    let mut candidate_radii: Vec<i32> = if min_dim >= 60 {
+    let r_target = ((min_dim as f32 * 0.12).round() as i32).clamp(14, 28);
+    let mut candidate_radii: Vec<i32> = if min_dim >= 180 {
+        vec![r_target.max(26), 22, 18, 14]
+    } else if min_dim >= 60 {
         vec![r_target.max(20), 18, 14]
     } else {
         vec![14]
@@ -288,28 +372,34 @@ pub fn extract_carrier_box_from_image(img: &DynamicImage, b: &BoxRect, t: &BoxRe
 
     for r_erode in candidate_radii {
         let r_sq = r_erode * r_erode;
+        let mut dx_max_table = Vec::with_capacity((2 * r_erode + 1) as usize);
+        for dy in -r_erode..=r_erode {
+            let rem = r_sq - dy * dy;
+            let dx_max = (rem as f32).sqrt().floor() as i32;
+            dx_max_table.push(dx_max);
+        }
+
         let mut eroded = vec![false; patch_w * patch_h];
 
         for py in r_erode as usize..(patch_h.saturating_sub(r_erode as usize)) {
+            let row_offset = py * patch_w;
             for px in r_erode as usize..(patch_w.saturating_sub(r_erode as usize)) {
-                if !mask[py * patch_w + px] {
+                let offset = row_offset + px;
+                if !mask[offset] || left_true[offset] < r_erode || right_true[offset] < r_erode {
                     continue;
                 }
                 let mut fits = true;
-                'check: for dy in -r_erode..=r_erode {
-                    for dx in -r_erode..=r_erode {
-                        if dx * dx + dy * dy <= r_sq {
-                            let nx = px as i32 + dx;
-                            let ny = py as i32 + dy;
-                            if !mask[ny as usize * patch_w + nx as usize] {
-                                fits = false;
-                                break 'check;
-                            }
-                        }
+                for (idx, &dx_max) in dx_max_table.iter().enumerate() {
+                    let dy = idx as i32 - r_erode;
+                    let ny = (py as i32 + dy) as usize;
+                    let check_offset = ny * patch_w + px;
+                    if !mask[check_offset] || left_true[check_offset] < dx_max || right_true[check_offset] < dx_max {
+                        fits = false;
+                        break;
                     }
                 }
                 if fits {
-                    eroded[py * patch_w + px] = true;
+                    eroded[offset] = true;
                 }
             }
         }
@@ -374,18 +464,30 @@ pub fn extract_carrier_box_from_image(img: &DynamicImage, b: &BoxRect, t: &BoxRe
         // 4. DILATE CONNECTED COMPONENT BY R_ERODE TO RESTORE CARRIER CONTOUR (MASK BOUNDED)
         let mut reconstructed = vec![false; patch_w * patch_h];
         for &(cx, cy) in &component {
-            for dy in -r_erode..=r_erode {
-                for dx in -r_erode..=r_erode {
-                    if dx * dx + dy * dy <= r_sq {
-                        let nx = cx as i32 + dx;
-                        let ny = cy as i32 + dy;
-                        if nx >= 0 && nx < patch_w as i32 && ny >= 0 && ny < patch_h as i32 {
-                            let ux = nx as usize;
-                            let uy = ny as usize;
-                            let idx = uy * patch_w + ux;
-                            if mask[idx] {
-                                reconstructed[idx] = true;
-                            }
+            reconstructed[cy * patch_w + cx] = true;
+        }
+
+        for &(cx, cy) in &component {
+            let is_boundary = cx == 0 || cx + 1 >= patch_w || cy == 0 || cy + 1 >= patch_h
+                || !visited[cy * patch_w + (cx - 1)]
+                || !visited[cy * patch_w + (cx + 1)]
+                || !visited[(cy - 1) * patch_w + cx]
+                || !visited[(cy + 1) * patch_w + cx];
+
+            if !is_boundary {
+                continue;
+            }
+
+            for (idx, &dx_max) in dx_max_table.iter().enumerate() {
+                let dy = idx as i32 - r_erode;
+                let ny = cy as i32 + dy;
+                if ny >= 0 && ny < patch_h as i32 {
+                    let min_nx = (cx as i32 - dx_max).max(0) as usize;
+                    let max_nx = (cx as i32 + dx_max).min(patch_w as i32 - 1) as usize;
+                    let row_start = ny as usize * patch_w;
+                    for ux in min_nx..=max_nx {
+                        if mask[row_start + ux] {
+                            reconstructed[row_start + ux] = true;
                         }
                     }
                 }

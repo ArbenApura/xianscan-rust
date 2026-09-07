@@ -151,14 +151,12 @@ pub fn valid_tail_cut_carrier(carrier: &BoxRect, b: &BoxRect, page_h: u32) -> bo
 
     // ASPECT RATIO CONSISTENCY CHECK:
     // A PROMINENT DIRECTIONAL TAIL (TRIM >= 20PX) EXTENDS THE ENVELOPE ALONG ITS PROTRUSION AXIS.
-    // A SQUARISH OR CIRCULAR BALLOON (b.h <= b.w * 1.05) CANNOT HOST A 20+ PX VERTICAL TAIL
-    // WITHOUT THE REMAINING CHAMBER BEING CRUSHED INTO A FLATTENED SLIT (SUCH AS WHEN UNCAPTURED
-    // ELLIPSIS DOTS CREATE SYNTHETIC BOTTOM MARGIN ASYMMETRY).
-    // SIMILARLY, A TALL BALLOON (b.w <= b.h * 1.05) CANNOT HOST A 20+ PX HORIZONTAL TAIL.
-    if is_v_cut && (trim_bot >= 20 || trim_top >= 20) && b.h as f32 <= b.w as f32 * 1.05 && (trim_bot.max(trim_top) as f32 / b.h as f32 >= 0.25) {
+    // THE REMAINING CHAMBER MUST NOT BE CRUSHED INTO AN UNNATURALLY FLATTENED SLIT (CHAMBER RATIO >= 3.5
+    // OR DOMINANT TRIM >= 75% OF THE TOTAL ENVELOPE SPAN).
+    if is_v_cut && (trim_bot >= 20 || trim_top >= 20) && (carrier.w as f32 / carrier.h.max(1) as f32 >= 3.5 || (trim_bot.max(trim_top) as f32 / b.h as f32 >= 0.75)) {
         return false;
     }
-    if is_h_cut && (trim_left >= 20 || trim_right >= 20) && b.w as f32 <= b.h as f32 * 1.05 && (trim_left.max(trim_right) as f32 / b.w as f32 >= 0.25) {
+    if is_h_cut && (trim_left >= 20 || trim_right >= 20) && (carrier.h as f32 / carrier.w.max(1) as f32 >= 3.5 || (trim_left.max(trim_right) as f32 / b.w as f32 >= 0.75)) {
         return false;
     }
 
@@ -185,124 +183,26 @@ pub fn resolve_carrier_box(
     img: Option<&DynamicImage>,
     page_h: u32,
 ) -> (BoxRect, bool) {
-    let geom_carrier = derive_carrier_box(b, t, page_h);
-    let geom_is_cut = valid_tail_cut_carrier(&geom_carrier, b, page_h);
-
     if let Some(image) = img {
         let img_carrier = super::geometry::extract_carrier_box_from_image(image, b, t);
         let img_is_cut = valid_tail_cut_carrier(&img_carrier, b, page_h);
         if img_is_cut {
-            let trim_left = (img_carrier.x - b.x).max(0);
-            let trim_right = ((b.x + b.w) - (img_carrier.x + img_carrier.w)).max(0);
-            let trim_top = (img_carrier.y - b.y).max(0);
-            let trim_bot = ((b.y + b.h) - (img_carrier.y + img_carrier.h)).max(0);
-
-            let max_opp_v = 10.max((b.h as f32 * 0.05).round() as i32);
-            let max_opp_h = 10.max((b.w as f32 * 0.05).round() as i32);
-
-            let is_top_cut = trim_top >= 14 && trim_bot <= max_opp_v && trim_top >= trim_bot * 2 && (trim_top - trim_bot) >= 12;
-            let is_bot_cut = trim_bot >= 14 && trim_top <= max_opp_v && trim_bot >= trim_top * 2 && (trim_bot - trim_top) >= 12;
-            let is_left_cut = trim_left >= 14 && trim_right <= max_opp_h && trim_left >= trim_right * 2 && (trim_left - trim_right) >= 12;
-            let is_right_cut = trim_right >= 14 && trim_left <= max_opp_h && trim_right >= trim_left * 2 && (trim_right - trim_left) >= 12;
-
-            let m_top_orig = (t.y - b.y).max(0);
-            let m_bot_orig = ((b.y + b.h) - (t.y + t.h)).max(0);
-            let m_left_orig = (t.x - b.x).max(0);
-            let m_right_orig = ((b.x + b.w) - (t.x + t.w)).max(0);
-
-            let eff_x = if is_left_cut {
-                let m_rem_left = (t.x - img_carrier.x).max(0);
-                let left_still_skewed = m_rem_left as f32 >= m_right_orig as f32 * 1.35
-                    && (m_rem_left - m_right_orig) >= 10;
-                if left_still_skewed && geom_is_cut && carrier_trim_x(&geom_carrier, b) >= 8 {
-                    img_carrier.x.max(geom_carrier.x)
-                } else {
-                    img_carrier.x
-                }
-            } else {
-                b.x
-            };
-
-            let eff_y = if is_top_cut {
-                let m_rem_top = (t.y - img_carrier.y).max(0);
-                let top_still_skewed = m_rem_top as f32 >= m_bot_orig as f32 * 1.35
-                    && (m_rem_top - m_bot_orig) >= 10;
-                if top_still_skewed && geom_is_cut && carrier_trim_y(&geom_carrier, b) >= 8 {
-                    img_carrier.y.max(geom_carrier.y)
-                } else {
-                    img_carrier.y
-                }
-            } else {
-                b.y
-            };
-
-            let eff_right = if is_right_cut {
-                let img_r = img_carrier.x + img_carrier.w;
-                let m_rem_right = (img_r - (t.x + t.w)).max(0);
-                let right_still_skewed = m_rem_right as f32 >= m_left_orig as f32 * 1.35
-                    && (m_rem_right - m_left_orig) >= 10;
-                if right_still_skewed && geom_is_cut && carrier_trim_r(&geom_carrier, b) >= 8 {
-                    img_r.min(geom_carrier.x + geom_carrier.w)
-                } else {
-                    img_r
-                }
-            } else {
-                b.x + b.w
-            };
-
-            let eff_bot = if is_bot_cut {
-                let img_b = img_carrier.y + img_carrier.h;
-                let m_rem_bot = (img_b - (t.y + t.h)).max(0);
-                let bot_still_skewed = m_rem_bot as f32 >= m_top_orig as f32 * 1.35
-                    && (m_rem_bot - m_top_orig) >= 10;
-                if bot_still_skewed && geom_is_cut && carrier_trim_b(&geom_carrier, b) >= 8 {
-                    img_b.min(geom_carrier.y + geom_carrier.h)
-                } else {
-                    img_b
-                }
-            } else {
-                b.y + b.h
-            };
-
-            let eff_w = (eff_right - eff_x).max(t.w);
-            let eff_h = (eff_bot - eff_y).max(t.h);
-            let fused = BoxRect {
-                x: eff_x,
-                y: eff_y,
-                w: eff_w,
-                h: eff_h,
-            };
-            (fused, true)
+            (img_carrier, true)
         } else {
             // IMAGE MORPHOLOGY FOUND NO TAIL PROTRUSION; DO NOT PERMIT BLIND MARGIN ASYMMETRY TO SLICE BALLOON
             (b.clone(), false)
         }
-    } else if geom_is_cut {
-        (geom_carrier, true)
     } else {
-        (b.clone(), false)
+        let geom_carrier = derive_carrier_box(b, t, page_h);
+        let geom_is_cut = valid_tail_cut_carrier(&geom_carrier, b, page_h);
+        if geom_is_cut {
+            (geom_carrier, true)
+        } else {
+            (b.clone(), false)
+        }
     }
 }
 
-#[inline]
-fn carrier_trim_x(c: &BoxRect, b: &BoxRect) -> i32 {
-    (c.x - b.x).max(0)
-}
-
-#[inline]
-fn carrier_trim_y(c: &BoxRect, b: &BoxRect) -> i32 {
-    (c.y - b.y).max(0)
-}
-
-#[inline]
-fn carrier_trim_r(c: &BoxRect, b: &BoxRect) -> i32 {
-    ((b.x + b.w) - (c.x + c.w)).max(0)
-}
-
-#[inline]
-fn carrier_trim_b(c: &BoxRect, b: &BoxRect) -> i32 {
-    ((b.y + b.h) - (c.y + c.h)).max(0)
-}
 
 /// EXPAND DIALOGUE-BUBBLE TEXT BASE BOUNDARY TO BETTER UTILIZE THE UNUSED AREA WITHIN ITS BUBBLE.
 ///
@@ -602,8 +502,8 @@ pub fn expand_bubble_text_boxes(
         let bot_m = ((carrier.y + carrier.h) - (regions[i].box_.y + regions[i].box_.h)).max(0);
         let min_vm = top_m.min(bot_m) as f32;
         let max_vm = top_m.max(bot_m) as f32;
-        let is_vertically_elongated = carrier.h as f32 >= carrier.w as f32 * 1.25 || (carrier.h >= 120 && max_vm >= 50.0);
-        let is_heavily_offset_vertically = is_vertically_elongated && min_vm > 0.0 && (max_vm / min_vm >= 2.5) && (max_vm - min_vm >= 25.0);
+        let is_vertically_elongated = carrier.h as f32 >= carrier.w as f32 * 1.45 || (carrier.h >= 120 && max_vm >= 50.0);
+        let is_heavily_offset_vertically = is_vertically_elongated && min_vm > 0.0 && (max_vm / min_vm >= 2.5) && (max_vm - min_vm >= 35.0);
 
         let left_m = (regions[i].box_.x - carrier.x).max(0);
         let right_m = ((carrier.x + carrier.w) - (regions[i].box_.x + regions[i].box_.w)).max(0);
