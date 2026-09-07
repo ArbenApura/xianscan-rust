@@ -71,4 +71,31 @@ describe('Annotated OCR Preview Generator', () => {
 		expect(result).toBeInstanceOf(Buffer);
 		expect(result.length).toBeGreaterThan(100);
 	});
+
+	it('renders multi-text bubbles cleanly without 4-point guide lines', async () => {
+		const buf = createSampleImageBuffer(500, 700);
+		const sharedBubble = { x: 50, y: 50, w: 300, h: 200 };
+		const regions: any[] = [
+			{
+				id: 'reg-multi-1',
+				box: { x: 70, y: 70, w: 120, h: 40 },
+				typeset_box: { x: 70, y: 70, w: 120, h: 40 },
+				bubble_box: sharedBubble,
+				text: 'First text in bubble',
+				kind: 'dialogue_bubble'
+			},
+			{
+				id: 'reg-multi-2',
+				box: { x: 70, y: 130, w: 120, h: 40 },
+				typeset_box: { x: 70, y: 130, w: 120, h: 40 },
+				bubble_box: sharedBubble,
+				text: 'Second text in bubble',
+				kind: 'dialogue_bubble'
+			}
+		];
+
+		const result = await renderAnnotatedOcrImage(buf, regions);
+		expect(result).toBeInstanceOf(Buffer);
+		expect(result.length).toBeGreaterThan(100);
+	});
 });

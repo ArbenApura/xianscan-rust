@@ -18,6 +18,59 @@ const COLOR_FREE_TEXT_FILL = 'rgba(139, 92, 246, 0.16)';
 
 // -- HELPER FUNCTIONS -- //
 
+// COMPUTE INTERSECTION OVER UNION (IoU) OF TWO RECTANGLES
+function computeBoxIoU(a: PipelineBox, b: PipelineBox): number {
+	const x1 = Math.max(a.x, b.x);
+	const y1 = Math.max(a.y, b.y);
+	const x2 = Math.min(a.x + a.w, b.x + b.w);
+	const y2 = Math.min(a.y + a.h, b.y + b.h);
+	if (x2 <= x1 || y2 <= y1) return 0;
+	const intersection = (x2 - x1) * (y2 - y1);
+	const areaA = a.w * a.h;
+	const areaB = b.w * b.h;
+	const union = areaA + areaB - intersection;
+	return union > 0 ? intersection / union : 0;
+}
+
+// CHECK IF THE CENTER POINT OF ONE BOX RESIDES INSIDE A CONTAINER BOX
+function isCenterInsideBox(box: PipelineBox, container: PipelineBox): boolean {
+	const cx = box.x + box.w / 2;
+	const cy = box.y + box.h / 2;
+	return (
+		cx >= container.x - 2 &&
+		cx <= container.x + container.w + 2 &&
+		cy >= container.y - 2 &&
+		cy <= container.y + container.h + 2
+	);
+}
+
+// DETERMINE IF TWO REGIONS BELONG TO THE SAME DIALOGUE BUBBLE
+function shareSameBubble(a: PipelineRegion, b: PipelineRegion): boolean {
+	if (a === b) return true;
+
+	if (a.bubble_box && b.bubble_box) {
+		return computeBoxIoU(a.bubble_box, b.bubble_box) >= 0.5;
+	}
+
+	if (a.carrier_box && b.carrier_box) {
+		return computeBoxIoU(a.carrier_box, b.carrier_box) >= 0.5;
+	}
+
+	if (a.bubble_box && isCenterInsideBox(b.box, a.bubble_box)) return true;
+	if (b.bubble_box && isCenterInsideBox(a.box, b.bubble_box)) return true;
+
+	if (a.carrier_box && isCenterInsideBox(b.box, a.carrier_box)) return true;
+	if (b.carrier_box && isCenterInsideBox(a.box, b.carrier_box)) return true;
+
+	const boxA = a.carrier_box || a.bubble_box;
+	const boxB = b.carrier_box || b.bubble_box;
+	if (boxA && boxB) {
+		return computeBoxIoU(boxA, boxB) >= 0.5;
+	}
+
+	return false;
+}
+
 // DRAW 45-DEGREE DASHED DIAGONAL HATCH LINES FILLING A BOX
 function drawDiagonalHatch(ctx: SKRSContext2D, box: PipelineBox, strokeColor: string, spacing = 12): void {
 	ctx.save();
@@ -94,6 +147,11 @@ export async function renderAnnotatedOcrImage(
 	// 1. DRAW BASE SOURCE IMAGE
 	ctx.drawImage(img, 0, 0);
 
+	// FILTER ALL DIALOGUE BUBBLE REGIONS FOR OCCUPANCY DETERMINATION
+	const bubbleRegions = regions.filter(
+		r => r.kind === 'dialogue_bubble' || Boolean(r.bubble_box) || Boolean(r.carrier_box)
+	);
+
 	// 2. RENDER REGION ANNOTATIONS
 	for (const r of regions) {
 		const isBubble = r.kind === 'dialogue_bubble' || Boolean(r.bubble_box) || Boolean(r.carrier_box);
@@ -113,6 +171,8 @@ export async function renderAnnotatedOcrImage(
 		if (isBubble) {
 			// A. RESOLVE BUBBLE BOUNDARY (CARRIER CUT-TAIL PREFERRED OVER RAW BUBBLE, UNIFIED BLUE STYLE)
 			const bubbleBox: PipelineBox = r.carrier_box || r.bubble_box || r.box;
+			const bubbleTextsCount = bubbleRegions.filter(other => shareSameBubble(r, other)).length;
+			const isSoleOccupant = bubbleTextsCount <= 1;
 
 			// 1. RENDER BUBBLE CONTAINER (UNIFIED BLUE)
 			ctx.fillStyle = COLOR_BUBBLE_FILL;
@@ -146,47 +206,49 @@ export async function renderAnnotatedOcrImage(
 			ctx.strokeRect(typesetBox.x, typesetBox.y, typesetBox.w, typesetBox.h);
 
 			// 4. CORNER ALIGNMENT CONNECTING GUIDE LINES AND 4 CORNER POINTS
-			// CONNECTS TYPESET BOX FOUR RECTANGLE CORNERS TO BUBBLE CONTAINER CORNERS
-			ctx.save();
-			ctx.strokeStyle = COLOR_ALIGN_GUIDE;
-			ctx.lineWidth = 2.0;
-			ctx.setLineDash([5, 3]);
+			// ONLY RENDER 4-POINT GUIDE LINES IF THERE IS ONLY ONE BUBBLE TEXT ON THIS BUBBLE
+			if (isSoleOccupant) {
+				ctx.save();
+				ctx.strokeStyle = COLOR_ALIGN_GUIDE;
+				ctx.lineWidth = 2.0;
+				ctx.setLineDash([5, 3]);
 
-			// TOP-LEFT
-			ctx.beginPath();
-			ctx.moveTo(typesetBox.x, typesetBox.y);
-			ctx.lineTo(bubbleBox.x, bubbleBox.y);
-			ctx.stroke();
+				// TOP-LEFT
+				ctx.beginPath();
+				ctx.moveTo(typesetBox.x, typesetBox.y);
+				ctx.lineTo(bubbleBox.x, bubbleBox.y);
+				ctx.stroke();
 
-			// TOP-RIGHT
-			ctx.beginPath();
-			ctx.moveTo(typesetBox.x + typesetBox.w, typesetBox.y);
-			ctx.lineTo(bubbleBox.x + bubbleBox.w, bubbleBox.y);
-			ctx.stroke();
+				// TOP-RIGHT
+				ctx.beginPath();
+				ctx.moveTo(typesetBox.x + typesetBox.w, typesetBox.y);
+				ctx.lineTo(bubbleBox.x + bubbleBox.w, bubbleBox.y);
+				ctx.stroke();
 
-			// BOTTOM-RIGHT
-			ctx.beginPath();
-			ctx.moveTo(typesetBox.x + typesetBox.w, typesetBox.y + typesetBox.h);
-			ctx.lineTo(bubbleBox.x + bubbleBox.w, bubbleBox.y + bubbleBox.h);
-			ctx.stroke();
+				// BOTTOM-RIGHT
+				ctx.beginPath();
+				ctx.moveTo(typesetBox.x + typesetBox.w, typesetBox.y + typesetBox.h);
+				ctx.lineTo(bubbleBox.x + bubbleBox.w, bubbleBox.y + bubbleBox.h);
+				ctx.stroke();
 
-			// BOTTOM-LEFT
-			ctx.beginPath();
-			ctx.moveTo(typesetBox.x, typesetBox.y + typesetBox.h);
-			ctx.lineTo(bubbleBox.x, bubbleBox.y + bubbleBox.h);
-			ctx.stroke();
-			ctx.restore();
+				// BOTTOM-LEFT
+				ctx.beginPath();
+				ctx.moveTo(typesetBox.x, typesetBox.y + typesetBox.h);
+				ctx.lineTo(bubbleBox.x, bubbleBox.y + bubbleBox.h);
+				ctx.stroke();
+				ctx.restore();
 
-			// FOUR CORNER ANCHOR POINTS
-			drawCornerPoint(ctx, typesetBox.x, typesetBox.y, 3.5, COLOR_TYPESET_STROKE);
-			drawCornerPoint(ctx, typesetBox.x + typesetBox.w, typesetBox.y, 3.5, COLOR_TYPESET_STROKE);
-			drawCornerPoint(ctx, typesetBox.x + typesetBox.w, typesetBox.y + typesetBox.h, 3.5, COLOR_TYPESET_STROKE);
-			drawCornerPoint(ctx, typesetBox.x, typesetBox.y + typesetBox.h, 3.5, COLOR_TYPESET_STROKE);
+				// FOUR CORNER ANCHOR POINTS
+				drawCornerPoint(ctx, typesetBox.x, typesetBox.y, 3.5, COLOR_TYPESET_STROKE);
+				drawCornerPoint(ctx, typesetBox.x + typesetBox.w, typesetBox.y, 3.5, COLOR_TYPESET_STROKE);
+				drawCornerPoint(ctx, typesetBox.x + typesetBox.w, typesetBox.y + typesetBox.h, 3.5, COLOR_TYPESET_STROKE);
+				drawCornerPoint(ctx, typesetBox.x, typesetBox.y + typesetBox.h, 3.5, COLOR_TYPESET_STROKE);
 
-			drawCornerPoint(ctx, bubbleBox.x, bubbleBox.y, 3.0, COLOR_ALIGN_GUIDE);
-			drawCornerPoint(ctx, bubbleBox.x + bubbleBox.w, bubbleBox.y, 3.0, COLOR_ALIGN_GUIDE);
-			drawCornerPoint(ctx, bubbleBox.x + bubbleBox.w, bubbleBox.y + bubbleBox.h, 3.0, COLOR_ALIGN_GUIDE);
-			drawCornerPoint(ctx, bubbleBox.x, bubbleBox.y + bubbleBox.h, 3.0, COLOR_ALIGN_GUIDE);
+				drawCornerPoint(ctx, bubbleBox.x, bubbleBox.y, 3.0, COLOR_ALIGN_GUIDE);
+				drawCornerPoint(ctx, bubbleBox.x + bubbleBox.w, bubbleBox.y, 3.0, COLOR_ALIGN_GUIDE);
+				drawCornerPoint(ctx, bubbleBox.x + bubbleBox.w, bubbleBox.y + bubbleBox.h, 3.0, COLOR_ALIGN_GUIDE);
+				drawCornerPoint(ctx, bubbleBox.x, bubbleBox.y + bubbleBox.h, 3.0, COLOR_ALIGN_GUIDE);
+			}
 
 			// 5. TYPESET CENTER CROSSHAIR RETICLE
 			const typesetCx = typesetBox.x + typesetBox.w / 2;
