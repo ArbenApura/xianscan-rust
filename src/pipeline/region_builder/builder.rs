@@ -353,9 +353,12 @@ pub fn build_regions(
                 if clean_m.is_empty() {
                     continue;
                 }
-                let (stripped_text, _) = crate::ml::detect::strip_trailing_watermark_debris(clean_m, source_lang);
+                let (trailing_stripped, _) = crate::ml::detect::strip_trailing_watermark_debris(clean_m, source_lang);
+                let intermediate = if trailing_stripped.trim().is_empty() { clean_m } else { trailing_stripped.trim() };
+                let (leading_stripped, _) = crate::ml::detect::strip_leading_watermark_debris(intermediate, source_lang);
+                let final_text = if leading_stripped.trim().is_empty() { intermediate.to_string() } else { leading_stripped };
                 let mut clone_line = m.clone();
-                clone_line.text = if stripped_text.trim().is_empty() { clean_m.to_string() } else { stripped_text };
+                clone_line.text = final_text;
                 sanitized_lines.push(clone_line);
             }
 

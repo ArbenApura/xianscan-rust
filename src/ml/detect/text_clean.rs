@@ -70,7 +70,14 @@ pub fn is_pure_watermark_region(text: &str) -> bool {
     if t.is_empty() {
         return true;
     }
-    if is_watermark_line(t) {
+    let (stripped_trailing, _) = strip_trailing_watermark_debris(t, None);
+    let intermediate = if stripped_trailing.trim().is_empty() { t } else { stripped_trailing.trim() };
+    let (stripped_both, _) = strip_leading_watermark_debris(intermediate, None);
+    let candidate = if stripped_both.trim().is_empty() { intermediate } else { stripped_both.trim() };
+    if candidate.is_empty() {
+        return true;
+    }
+    if is_watermark_line(candidate) {
         return true;
     }
     // Cyrillic noise (e.g. "З..", "3..", "3...")
@@ -522,10 +529,11 @@ pub fn is_standalone_table_cell(text: &str) -> bool {
 /// STRIP TRAILING NON-NATIVE SCANLATOR / SITE WATERMARK FRAGMENTS ATTACHED TO NATIVE LINES
 pub fn strip_trailing_watermark_debris(line_text: &str, source_lang: Option<&str>) -> (String, f32) {
     let t = line_text.trim();
-    if t.is_empty() || !crate::ml::detect::is_non_latin_source(source_lang) {
+    let is_non_latin = crate::ml::detect::is_non_latin_source(source_lang) || crate::ml::detect::has_cjk_characters(t);
+    if t.is_empty() || !is_non_latin {
         return (line_text.to_string(), 1.0);
     }
-    let native_count = t.chars().filter(|c| crate::ml::detect::has_native_script_for_lang(&c.to_string(), source_lang)).count();
+    let native_count = t.chars().filter(|c| crate::ml::detect::has_native_script_for_lang(&c.to_string(), source_lang) || crate::ml::detect::has_cjk_characters(&c.to_string())).count();
     if native_count == 0 {
         return (line_text.to_string(), 1.0);
     }
@@ -534,13 +542,15 @@ pub fn strip_trailing_watermark_debris(line_text: &str, source_lang: Option<&str
     let total_chars = chars.len();
     if t.contains('\n') {
         let lines: Vec<&str> = t.lines().collect();
-        if lines.len() == 2 && crate::ml::detect::has_native_script_for_lang(lines[0], source_lang) && !crate::ml::detect::has_native_script_for_lang(lines[1], source_lang) {
+        let l0_native = crate::ml::detect::has_native_script_for_lang(lines[0], source_lang) || crate::ml::detect::has_cjk_characters(lines[0]);
+        let l1_native = crate::ml::detect::has_native_script_for_lang(lines[1], source_lang) || crate::ml::detect::has_cjk_characters(lines[1]);
+        if lines.len() == 2 && l0_native && !l1_native {
             let clean_prefix = lines[0].trim().to_string();
             let keep_ratio = clean_prefix.chars().count() as f32 / total_chars as f32;
             return (clean_prefix, keep_ratio);
         }
     }
-    if let Some(idx) = chars.iter().rposition(|&c| crate::ml::detect::has_native_script_for_lang(&c.to_string(), source_lang) || matches!(c, '。' | '！' | '？' | '，' | '、' | '…' | '”' | '’' | '」' | '』' | '）' | ')')) {
+    if let Some(idx) = chars.iter().rposition(|&c| crate::ml::detect::has_native_script_for_lang(&c.to_string(), source_lang) || crate::ml::detect::has_cjk_characters(&c.to_string()) || matches!(c, '。' | '！' | '？' | '，' | '、' | '…' | '”' | '’' | '」' | '』' | '）' | ')')) {
         let suffix: String = chars[idx + 1..].iter().collect();
         let suffix_trimmed = suffix.trim_start_matches(|c| matches!(c, '·' | '.' | '_' | '-' | '|' | ' ' | '/' | '\\' | ':')).trim();
         let is_latin_debris = !suffix_trimmed.is_empty()
@@ -558,17 +568,18 @@ pub fn strip_trailing_watermark_debris(line_text: &str, source_lang: Option<&str
 /// STRIP LEADING NON-NATIVE SCANLATOR / SITE WATERMARK FRAGMENTS ATTACHED TO NATIVE LINES
 pub fn strip_leading_watermark_debris(line_text: &str, source_lang: Option<&str>) -> (String, f32) {
     let t = line_text.trim();
-    if t.is_empty() || !crate::ml::detect::is_non_latin_source(source_lang) {
+    let is_non_latin = crate::ml::detect::is_non_latin_source(source_lang) || crate::ml::detect::has_cjk_characters(t);
+    if t.is_empty() || !is_non_latin {
         return (line_text.to_string(), 0.0);
     }
-    let native_count = t.chars().filter(|c| crate::ml::detect::has_native_script_for_lang(&c.to_string(), source_lang)).count();
+    let native_count = t.chars().filter(|c| crate::ml::detect::has_native_script_for_lang(&c.to_string(), source_lang) || crate::ml::detect::has_cjk_characters(&c.to_string())).count();
     if native_count == 0 {
         return (line_text.to_string(), 0.0);
     }
 
     let chars: Vec<char> = t.chars().collect();
     let total_chars = chars.len();
-    if let Some(idx) = chars.iter().position(|&c| crate::ml::detect::has_native_script_for_lang(&c.to_string(), source_lang) || matches!(c, '“' | '‘' | '「' | '『' | '（' | '(')) {
+    if let Some(idx) = chars.iter().position(|&c| crate::ml::detect::has_native_script_for_lang(&c.to_string(), source_lang) || crate::ml::detect::has_cjk_characters(&c.to_string()) || matches!(c, '“' | '‘' | '「' | '『' | '（' | '(')) {
         if idx > 0 {
             let prefix: String = chars[..idx].iter().collect();
             let prefix_trimmed = prefix.trim_end_matches(|c| matches!(c, '·' | '.' | '_' | '-' | '|' | ' ' | '/' | '\\' | ':')).trim();

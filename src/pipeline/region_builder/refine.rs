@@ -166,14 +166,18 @@ pub fn try_refine_cluster_crop(
             .iter()
             .filter_map(|(poly, text, score)| {
                 let t = text.trim();
-                if t.is_empty() || crate::ml::detect::is_watermark_line(t) || crate::ml::detect::is_standalone_table_cell(t) {
+                let (trailing_stripped, _) = crate::ml::detect::strip_trailing_watermark_debris(t, source_lang);
+                let intermediate = if trailing_stripped.trim().is_empty() { t } else { trailing_stripped.trim() };
+                let (leading_stripped, _) = crate::ml::detect::strip_leading_watermark_debris(intermediate, source_lang);
+                let clean_t = if leading_stripped.trim().is_empty() { intermediate } else { leading_stripped.trim() };
+                if clean_t.is_empty() || crate::ml::detect::is_watermark_line(clean_t) || crate::ml::detect::is_standalone_table_cell(clean_t) {
                     return None;
                 }
-                let is_punct = t.chars().all(|c| c.is_ascii_punctuation() || matches!(c, '！' | '？' | '!' | '?' | '…'));
-                if !is_punct && crate::ml::detect::is_standalone_alphanumeric_without_cjk(t) && t.chars().count() <= 5 && *score < 0.85 {
+                let is_punct = clean_t.chars().all(|c| c.is_ascii_punctuation() || matches!(c, '！' | '？' | '!' | '?' | '…'));
+                if !is_punct && crate::ml::detect::is_standalone_alphanumeric_without_cjk(clean_t) && clean_t.chars().count() <= 5 && *score < 0.85 {
                     return None;
                 }
-                let mut final_t = t.to_string();
+                let mut final_t = clean_t.to_string();
                 if final_t.ends_with('0') || final_t.ends_with('o') || final_t.ends_with('O') {
                     if let Some(prev) = final_t.chars().rev().nth(1) {
                         if crate::ml::detect::has_native_script_for_lang(&prev.to_string(), source_lang) {
@@ -188,8 +192,18 @@ pub fn try_refine_cluster_crop(
     } else {
         res.lines
             .iter()
-            .filter(|(_, text, _)| !crate::ml::detect::is_watermark_line(text.trim()))
-            .cloned()
+            .filter_map(|(poly, text, score)| {
+                let t = text.trim();
+                let (trailing_stripped, _) = crate::ml::detect::strip_trailing_watermark_debris(t, source_lang);
+                let intermediate = if trailing_stripped.trim().is_empty() { t } else { trailing_stripped.trim() };
+                let (leading_stripped, _) = crate::ml::detect::strip_leading_watermark_debris(intermediate, source_lang);
+                let clean_t = if leading_stripped.trim().is_empty() { intermediate } else { leading_stripped.trim() };
+                if clean_t.is_empty() || crate::ml::detect::is_watermark_line(clean_t) {
+                    None
+                } else {
+                    Some((poly.clone(), clean_t.to_string(), *score))
+                }
+            })
             .collect()
     };
 
