@@ -185,3 +185,59 @@ fn test_page_113831_thought_bubble_left_lobe_tail_cutting() {
     assert_eq!(tb.x + tb.w / 2, carrier.x + carrier.w / 2, "typeset box center must match carrier chamber center");
 }
 
+#[test]
+fn test_page_117955_short_horizontal_dialogue_bubble_expansion() {
+    use xianscan_rust::ml::schemas::{BoxRect, Region, RegionKind};
+    use xianscan_rust::pipeline::region_builder::expansion::expand_bubble_text_boxes;
+
+    // PAGE 117955 (REGION 73913): 900x1593 BUBBLE WITH 1-LINE CHINESE TEXT
+    // BUBBLE HEIGHT IS 154PX, OCR HEIGHT IS 26PX.
+    // MUST EXPAND HEIGHT SIGNIFICANTLY TO ACCOMMODATE TRANSLATED MULTI-LINE TEXT.
+    let page_w = 900;
+    let page_h = 1593;
+
+    let bubble = BoxRect { x: 25, y: 329, w: 244, h: 154 };
+    let ocr_box = BoxRect { x: 61, y: 384, w: 163, h: 26 };
+
+    let mut regions = vec![Region {
+        id: "73913".to_string(),
+        box_: ocr_box.clone(),
+        polygon: vec![
+            [61, 384],
+            [224, 384],
+            [224, 410],
+            [61, 410],
+        ],
+        inpaint_box: None,
+        typeset_box: None,
+        text: "玄·天·斩·剑·术！".to_string(),
+        confidence: 0.725,
+        vertical: false,
+        angle: 0.0,
+        bubble_box: Some(bubble.clone()),
+        bubble_polygon: None,
+        centroid: None,
+        kind: RegionKind::DialogueBubble,
+        is_title: false,
+        is_subtitle: false,
+        carrier_box: None,
+    }];
+
+    expand_bubble_text_boxes(&mut regions, &[], None, page_w, page_h, 0.03, 0.00);
+
+    let expanded = &regions[0].box_;
+    // HEIGHT MUST EXPAND SUBSTANTIALLY FROM 26PX (AT LEAST 65PX)
+    assert!(
+        expanded.h >= 65,
+        "Expanded box height should be >= 65px (was {})",
+        expanded.h
+    );
+
+    // TYPESET BOX MUST BE CENTERED AND EXPANDED
+    let tb = regions[0].typeset_box.as_ref().expect("typeset box must exist");
+    assert!(tb.h >= 65, "typeset_box height should be >= 65px");
+    assert!(tb.y >= bubble.y && tb.y + tb.h <= bubble.y + bubble.h);
+    assert!(tb.x >= bubble.x && tb.x + tb.w <= bubble.x + bubble.w);
+}
+
+

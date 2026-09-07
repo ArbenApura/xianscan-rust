@@ -19,8 +19,47 @@ const MIN_SCALE: f32 = 1.10;
 const EXPANSION_SLACK_DAMPING: f32 = 0.50;
 const MAX_EXPANSION_SCALE: f32 = 1.30;
 const MAX_EXPANSION_SCALE_VERTICAL: f32 = 2.00;
+const MAX_EXPANSION_SCALE_HORIZONTAL_SHORT: f32 = 2.80;
+// TALL NARROW FREE TEXT BASE EXPANSION CONSTANTS
+const NARROW_FREE_TEXT_MAX_W: i32 = 60;
+const NARROW_FREE_TEXT_MIN_ASPECT: f32 = 2.0;
+const NARROW_FREE_TEXT_SCALE: f32 = 1.35;
+const NARROW_FREE_TEXT_MAX_PAD: i32 = 24;
 
 // -- FUNCTIONS & ALGORITHMS -- //
+
+/// SCALES TALL, NARROW FREE TEXT BASE BOUNDARY BOX SYMMETRICALLY ABOUT ITS X CENTROID.
+///
+/// ONLY APPLIES TO FREE TEXT (NON-BUBBLE) REGIONS THAT ARE TALL AND NARROW (H >= W * 2.0 AND W <= 60PX).
+/// LEAVES Y AND H COMPLETELY UNCHANGED, SCALING ONLY THE WIDTH SO TYPESETTING CAN FIT READABLE TEXT.
+pub fn scale_tall_narrow_free_text_base_box(
+    b: &mut BoxRect,
+    is_free_text: bool,
+    page_w: u32,
+) -> bool {
+    if !is_free_text || b.w <= 2 || b.h <= 2 {
+        return false;
+    }
+    if b.w > NARROW_FREE_TEXT_MAX_W || (b.h as f32) < (b.w as f32 * NARROW_FREE_TEXT_MIN_ASPECT) {
+        return false;
+    }
+
+    let cx = b.x + b.w / 2;
+    let target_w = ((b.w as f32 * NARROW_FREE_TEXT_SCALE).round() as i32).max(b.w + 4);
+    let pad = (target_w - b.w).min(NARROW_FREE_TEXT_MAX_PAD);
+    if pad <= 0 {
+        return false;
+    }
+    let new_w = (b.w + pad).min(page_w as i32);
+    let mut new_x = (cx - new_w / 2).max(0);
+    if new_x + new_w > page_w as i32 {
+        new_x = (page_w as i32 - new_w).max(0);
+    }
+
+    b.x = new_x;
+    b.w = new_w;
+    true
+}
 
 /// INSCRIBED SAFE CORE OF A BUBBLE (THE STROKED OUTLINE IS AVOIDED). RETURNS (LEFT, RIGHT, TOP, BOTTOM).
 pub fn bubble_core(b: &BoxRect) -> Option<(i32, i32, i32, i32)> {
@@ -234,6 +273,7 @@ pub fn expand_bubble_text_boxes(
 
     // PHASE 1: COMPUTE TARGET BASE BOXES FROM ORIGINAL GEOMETRY ONLY.
     // SIBLING LIMITS READ ORIGINAL (UNSCALED) BOXES SO THEY NEVER DEPEND ON ALREADY-SCALED NEIGHBORS.
+    let orig_boxes: Vec<BoxRect> = regions.iter().map(|r| r.box_.clone()).collect();
     let mut targets: Vec<Option<BoxRect>> = vec![None; regions.len()];
     let mut carrier_boxes: Vec<Option<BoxRect>> = vec![None; regions.len()];
     let mut carrier_valid: Vec<bool> = vec![false; regions.len()];
@@ -391,8 +431,11 @@ pub fn expand_bubble_text_boxes(
                 let raw_scale = max_safe_half / half;
                 let usable = (bottom_limit as f32 - top_limit as f32) - bh as f32;
                 if usable >= bh as f32 * MIN_UNUSED_RATIO && raw_scale >= MIN_SCALE {
-                    let damped_scale = 1.0 + (raw_scale - 1.0) * EXPANSION_SLACK_DAMPING;
-                    let final_scale = damped_scale.min(MAX_EXPANSION_SCALE).min(raw_scale);
+                    let is_short_horizontal = !r.vertical && bh <= 50 && usable >= bh as f32 * 1.0;
+                    let damping = if is_short_horizontal { 0.85 } else { EXPANSION_SLACK_DAMPING };
+                    let cap = if is_short_horizontal { MAX_EXPANSION_SCALE_HORIZONTAL_SHORT } else { MAX_EXPANSION_SCALE };
+                    let damped_scale = 1.0 + (raw_scale - 1.0) * damping;
+                    let final_scale = damped_scale.min(cap).min(raw_scale);
                     let nh = (half * final_scale).round() as i32;
                     let ny = cy - nh;
                     let nb = cy + nh;
@@ -534,7 +577,8 @@ pub fn expand_bubble_text_boxes(
             regions[i].typeset_box = Some(typeset_box);
         }
 
-        let mut inpaint_box = expand_box(&regions[i].box_, inpaint_pct, page_w, page_h);
+        // INPAINT BOX REMAINS TIGHT TO ORIGINAL OCR TEXT TO PREVENT OVER-INPAINTING ARTWORK
+        let mut inpaint_box = expand_box(&orig_boxes[i], inpaint_pct, page_w, page_h);
         clamp_box_to_core(&mut inpaint_box, outer_l, outer_r, outer_t, outer_b);
         regions[i].inpaint_box = Some(inpaint_box);
     }

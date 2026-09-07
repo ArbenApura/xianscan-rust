@@ -1056,4 +1056,34 @@ Tattered Flesh-Cutting Knife`;
 			expect(x.measureText(line).width).toBeLessThanOrEqual(maxW + 0.5);
 		}
 	});
+
+	it('reflows single-word newline chains into balanced multi-word lines while preserving genuine headers (Page 117955)', () => {
+		const c = createCanvas(10, 10);
+		const x = c.getContext('2d');
+		// CASE 1: DIALOGUE SINGLE-WORD NEWLINE CHAIN FROM MIDDLE-DOT CHINESE "玄·天·斩·剑·术！"
+		const dialogue = 'Mystic\nHeaven\nSlaying\nSword\nArt!';
+		x.font = fontSpec(16, 'CC Wild Words', dialogue);
+		const dialogueLines = reflowText(x, dialogue, 160);
+		// MUST NOT REMAIN 5 INDIVIDUAL LINES, SHOULD WRAP INTO BALANCED LINES (E.G. 2 LINES)
+		expect(dialogueLines.length).toBeLessThanOrEqual(3);
+		expect(dialogueLines[0].split(/\s+/).length).toBeGreaterThanOrEqual(2);
+
+		// CASE 2: AMBIGUOUS DIALOGUE PHRASES ("NOTICE HOW...", "JUST 2 MINUTES") MUST REFLOW FREELY
+		const dialogueNotice = 'Notice\nhow he moves.';
+		const noticeLines = reflowText(x, dialogueNotice, 200);
+		expect(noticeLines.length).toBe(1);
+		expect(noticeLines[0]).toBe('Notice how he moves.');
+
+		const dialogueQuantity = 'Just 2\nminutes left!';
+		const qtyLines = reflowText(x, dialogueQuantity, 200);
+		expect(qtyLines.length).toBe(1);
+		expect(qtyLines[0]).toBe('Just 2 minutes left!');
+
+		// CASE 3: GENUINE SYSTEM HEADERS AND STAGE COUNTERS RETAIN HARD BREAKS
+		const headerText = '[QUEST ALERT]\nFloor 48\nDefeat the dungeon boss';
+		const headerLines = reflowText(x, headerText, 250);
+		expect(headerLines[0]).toContain('[QUEST ALERT]');
+		expect(headerLines[1]).toContain('Floor 48');
+	});
 });
+

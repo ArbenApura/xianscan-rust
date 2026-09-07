@@ -10,7 +10,7 @@ use crate::ml::ocr::{OcrLine, RapidOcr};
 use crate::ml::schemas::{BoxRect, Point2D, Region, RegionKind};
 use super::clustering::{cluster_lines_into_utterances, format_lines_cluster};
 use super::dedup::deduplicate_and_unify_regions;
-use super::expansion::expand_bubble_text_boxes;
+use super::expansion::{expand_bubble_text_boxes, scale_tall_narrow_free_text_base_box};
 use super::filter::should_reject_candidate_region;
 use super::geometry::expand_box;
 use super::refine::{run_fallback_crop_recognition, try_refine_cluster_crop};
@@ -735,7 +735,7 @@ pub fn build_regions(
                 let vertical = is_container_vert;
                 let angle = angle_deg;
 
-                let final_box_rect = if !active_line_polys.is_empty() {
+                let mut final_box_rect = if !active_line_polys.is_empty() {
                     let mut min_x = i32::MAX;
                     let mut min_y = i32::MAX;
                     let mut max_x = i32::MIN;
@@ -784,6 +784,9 @@ pub fn build_regions(
                 } else {
                     cluster_rect
                 };
+
+                // SCALE TALL, NARROW FREE TEXT BASE BOUNDARY BOX TO AID TYPESETTING READABILITY
+                scale_tall_narrow_free_text_base_box(&mut final_box_rect, matched_bubble.is_none(), page_w);
 
                 let inpaint_box = Some(expand_box(&final_box_rect, inpaint_pct, page_w, page_h));
                 let typeset_box = Some(expand_box(&final_box_rect, typeset_pct, page_w, page_h));
@@ -942,7 +945,7 @@ pub fn build_regions(
                     // Rejected fallback
                 } else {
                     produced_region = true;
-                    let final_box_rect = if !fallback.polys.is_empty() {
+                    let mut final_box_rect = if !fallback.polys.is_empty() {
                         let mut min_x = i32::MAX;
                         let mut min_y = i32::MAX;
                         let mut max_x = i32::MIN;
@@ -963,6 +966,9 @@ pub fn build_regions(
                     } else {
                         box_rect.clone()
                     };
+
+                    // SCALE TALL, NARROW FREE TEXT BASE BOUNDARY BOX TO AID TYPESETTING READABILITY
+                    scale_tall_narrow_free_text_base_box(&mut final_box_rect, matched_bubble.is_none(), page_w);
 
                     let inpaint_box = Some(expand_box(&final_box_rect, inpaint_pct, page_w, page_h));
                     let typeset_box = Some(expand_box(&final_box_rect, typeset_pct, page_w, page_h));

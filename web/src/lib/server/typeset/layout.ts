@@ -329,6 +329,15 @@ export function isStructuredList(text: string): boolean {
 	return false;
 }
 
+// RECOGNIZED STANDALONE HEADER AND SYSTEM NOTIFICATION PATTERNS
+// EXPLICIT COUNTERS (E.G. "FLOOR 48", "LEVEL 99", "STAGE 2", "CHAPTER 12", "ACT 1", "RANK 1", "#1") REQUIRE NUMERALS.
+// COMPOUND SYSTEM LABELS (E.G. "QUEST ALERT", "SYSTEM MESSAGE", "MISSION CLEAR") MATCH MULTI-WORD PHRASES.
+// AMBIGUOUS SINGLE WORDS (E.G. "ACT", "NOTICE", "TIP", "JUST 2") DO NOT TRIGGER HARD BREAKS IN ORDINARY DIALOGUE.
+const COMPOUND_HEADER_REGEX =
+	/^(quest\s+alert|system\s+message|mission\s+(clear|failed|start|update)|game\s+over|critical\s+hit|achievement\s+unlocked)\b/i;
+const COUNTER_HEADER_REGEX =
+	/^(floor|level|stage|round|chapter|ch|episode|ep|act|part|vol|volume|rank|target)\s*(#|no\.?)?\s*\d+/i;
+
 export function isHardLineBreak(prevLine: string, nextLine: string): boolean {
 	const prev = prevLine.trim();
 	const next = nextLine.trim();
@@ -344,10 +353,17 @@ export function isHardLineBreak(prevLine: string, nextLine: string): boolean {
 		return true;
 	}
 
-	// 3. PREVIOUS LINE IS A SHORT STANDALONE HEADER / LABEL (E.G. "FLOOR 48", "QUEST ALERT", "WARNING")
+	// 3. PREVIOUS LINE IS A STANDALONE HEADER / SYSTEM LABEL (E.G. "FLOOR 48", "QUEST ALERT")
+	// A TRUE STANDALONE HEADER MATCHES AN EXPLICIT STAGE/COUNTER DIGIT OR A COMPOUND SYSTEM NOTIFICATION.
+	// ORDINARY DIALOGUE WORDS (E.G. "MYSTIC", "HEAVEN", "SLAYING", "NOTICE HOW", "JUST 2") MUST NOT BE FORCED
+	// INTO HARD BREAKS, ALLOWING THEM TO REFLOW NATURALLY INTO BALANCED PARAGRAPHS.
 	const prevWords = prev.split(/\s+/);
 	if (prevWords.length <= 4 && prev.length <= 30 && !/[,，;；\-\/]$/.test(prev)) {
-		return true;
+		const isCounterHeader = COUNTER_HEADER_REGEX.test(prev) || /^#\d+$/.test(prev) || /^\d+f$/i.test(prev);
+		const isCompoundLabel = COMPOUND_HEADER_REGEX.test(prev);
+		if (isCounterHeader || isCompoundLabel) {
+			return true;
+		}
 	}
 
 	// 4. NEXT LINE STARTS WITH STRUCTURAL PREFIX (BRACKETS, BULLETS, LIST DIGITS, SPEAKER TAG)

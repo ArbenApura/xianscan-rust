@@ -13,7 +13,7 @@ pub mod refine;
 pub use builder::build_regions;
 pub use clustering::{cluster_lines_into_utterances, format_lines_cluster, polygon_thickness};
 pub use dedup::deduplicate_and_unify_regions;
-pub use expansion::{bubble_core, clamp_box_to_core, derive_carrier_box, expand_bubble_text_boxes, resolve_carrier_box, valid_tail_cut_carrier};
+pub use expansion::{bubble_core, clamp_box_to_core, derive_carrier_box, expand_bubble_text_boxes, resolve_carrier_box, scale_tall_narrow_free_text_base_box, valid_tail_cut_carrier};
 pub use filter::should_reject_candidate_region;
 pub use geometry::{compute_chromatic_color_variance, expand_box, extract_carrier_box_from_image, extract_dark_bubble_envelope};
 pub use refine::{run_fallback_crop_recognition, try_refine_cluster_crop, FallbackCropOutcome, RefinementOutcome};
@@ -529,5 +529,62 @@ mod tests {
         assert!(regions[0].box_.x + regions[0].box_.w <= bubble.x + bubble.w);
         assert!(regions[0].box_.y >= bubble.y);
         assert!(regions[0].box_.y + regions[0].box_.h <= bubble.y + bubble.h);
+    }
+
+    #[test]
+    fn test_scale_tall_narrow_free_text_base_box_symmetric() {
+        let mut b = BoxRect { x: 100, y: 200, w: 36, h: 120 };
+        let orig_cx = b.x + b.w / 2;
+        let orig_y = b.y;
+        let orig_h = b.h;
+
+        let modified = scale_tall_narrow_free_text_base_box(&mut b, true, 1000);
+        assert!(modified, "Tall narrow free text should be scaled");
+
+        // CENTROID ANCHOR INVARIANT: X CENTROID MUST NOT DRIFT
+        let new_cx = b.x + b.w / 2;
+        assert_eq!(new_cx, orig_cx, "Centroid X drifted during base box expansion");
+
+        // WIDTH MUST EXPAND
+        assert!(b.w > 36, "Width must expand beyond original 36px");
+        assert_eq!(b.w, 49, "Expected 36 * 1.35 = 49px width");
+        assert_eq!(b.x, 94, "Expected x to shift left by 6px");
+
+        // VERTICAL DIMENSIONS MUST REMAIN EXACTLY IDENTICAL
+        assert_eq!(b.y, orig_y, "Y coordinate must remain untouched");
+        assert_eq!(b.h, orig_h, "Height must remain untouched");
+    }
+
+    #[test]
+    fn test_scale_tall_narrow_free_text_base_box_skips_wide_or_bubble() {
+        // WIDE FREE TEXT: W > 60PX -> UNCHANGED
+        let mut b_wide = BoxRect { x: 100, y: 200, w: 80, h: 200 };
+        assert!(!scale_tall_narrow_free_text_base_box(&mut b_wide, true, 1000));
+        assert_eq!(b_wide.w, 80);
+
+        // MODEST ASPECT RATIO: H < W * 2.0 -> UNCHANGED
+        let mut b_square = BoxRect { x: 100, y: 200, w: 50, h: 80 };
+        assert!(!scale_tall_narrow_free_text_base_box(&mut b_square, true, 1000));
+        assert_eq!(b_square.w, 50);
+
+        // DIALOGUE BUBBLE: IS_FREE_TEXT = FALSE -> UNCHANGED
+        let mut b_bubble = BoxRect { x: 100, y: 200, w: 36, h: 120 };
+        assert!(!scale_tall_narrow_free_text_base_box(&mut b_bubble, false, 1000));
+        assert_eq!(b_bubble.w, 36);
+    }
+
+    #[test]
+    fn test_scale_tall_narrow_free_text_base_box_canvas_clamping() {
+        // LEFT CANVAS BOUNDARY: MUST NOT DROP BELOW X:0
+        let mut b_left = BoxRect { x: 2, y: 200, w: 36, h: 120 };
+        let modified_left = scale_tall_narrow_free_text_base_box(&mut b_left, true, 1000);
+        assert!(modified_left);
+        assert!(b_left.x >= 0, "Box left edge must not be negative");
+
+        // RIGHT CANVAS BOUNDARY: MUST NOT EXCEED PAGE_W
+        let mut b_right = BoxRect { x: 975, y: 200, w: 24, h: 80 };
+        let modified_right = scale_tall_narrow_free_text_base_box(&mut b_right, true, 1000);
+        assert!(modified_right);
+        assert!(b_right.x + b_right.w <= 1000, "Box right edge must not exceed page_w");
     }
 }
