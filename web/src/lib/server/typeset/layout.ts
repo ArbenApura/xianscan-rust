@@ -550,7 +550,10 @@ export function fitFontSizeWithLines(
 			const lines = reflowText(ctx, text, maxW);
 			const lineH = mid * LINE_HEIGHT;
 			const allLinesFitW = lines.every((l) => ctx.measureText(l).width <= maxW + 0.5);
-			const hasNoHyphenBreaks = lines.every((l) => !l.endsWith('-') || text.includes(l));
+			const hasNoHyphenBreaks = lines.every((l) => {
+				const lastWord = l.trim().split(/\s+/).pop() || '';
+				return !lastWord.endsWith('-') || text.includes(lastWord);
+			});
 			if (allLinesFitW && lines.length * lineH <= maxH && hasNoHyphenBreaks) {
 				cleanBest = mid;
 				foundClean = true;
@@ -645,8 +648,11 @@ export function fitFontSizeWithLines(
 		const lineH = mid * LINE_HEIGHT;
 		const allLinesFitW = lines.every((l) => ctx.measureText(l).width <= maxW + 0.5);
 		// SECOND PASS ALLOWS CHAR-LEVEL BREAKING (OVERFLOW > 1 LETTER) BUT STILL REJECTS
-		// MORPHOLOGICAL HYPHENATION (E.G. "EVERY-THING") — THOSE WERE ALREADY HANDLED IN PASS 1.
-		const hasNoHyphenBreaks = lines.every((l) => !l.endsWith('-') || text.includes(l));
+		// MORPHOLOGICAL HYPHENATION (E.G. "EVERY-THING") - THOSE WERE ALREADY HANDLED IN PASS 1.
+		const hasNoHyphenBreaks = lines.every((l) => {
+			const lastWord = l.trim().split(/\s+/).pop() || '';
+			return !lastWord.endsWith('-') || text.includes(lastWord);
+		});
 		if (allLinesFitW && lines.length * lineH <= maxH && hasNoHyphenBreaks) {
 			best = mid;
 			consider(mid, lines);

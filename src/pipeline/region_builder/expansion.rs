@@ -575,6 +575,21 @@ pub fn expand_bubble_text_boxes(
             }
             typeset_box.x = carrier_cx - typeset_box.w / 2;
             typeset_box.y = carrier_cy - typeset_box.h / 2;
+            // PRESERVE SYMMETRIC CENTERING WHILE GUARANTEEING NO TEXT CLIPPING AT TRAILING EDGES
+            // MINOR SHIFTS (<= 4PX) ARE NORMAL CENTERING SLACK; SIGNIFICANT DEFICITS (> 4PX) CLAMP/EXPAND
+            // SO MULTI-LINE TEXT (SUCH AS 4-LINE THOUGHT BALLOONS) NEVER HAS CHARACTERS CUT OFF.
+            if !regions[i].polygon.is_empty() {
+                if typeset_box.x + typeset_box.w + 4 < regions[i].box_.x + regions[i].box_.w {
+                    let clip_right = (regions[i].box_.x + regions[i].box_.w) - (typeset_box.x + typeset_box.w);
+                    typeset_box.x -= clip_right;
+                    typeset_box.w += clip_right * 2;
+                }
+                if typeset_box.y + typeset_box.h + 4 < regions[i].box_.y + regions[i].box_.h {
+                    let clip_bot = (regions[i].box_.y + regions[i].box_.h) - (typeset_box.y + typeset_box.h);
+                    typeset_box.y -= clip_bot;
+                    typeset_box.h += clip_bot * 2;
+                }
+            }
             if carrier_valid[i] {
                 // VALIDATED TAIL-CUT CARRIER: THE TYPESET BOX MUST NOT SPILL INTO THE SEVERED TAIL
                 clamp_box_to_core(&mut typeset_box, carrier.x, carrier.x + carrier.w, carrier.y, carrier.y + carrier.h);

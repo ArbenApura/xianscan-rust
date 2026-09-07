@@ -1085,5 +1085,19 @@ Tattered Flesh-Cutting Knife`;
 		expect(headerLines[0]).toContain('[QUEST ALERT]');
 		expect(headerLines[1]).toContain('Floor 48');
 	});
+
+	it('fits hyphenated compound words like God-grade and Heaven-Mending without collapsing to MIN_FONT_SIZE (Page 118129 Region 74281)', () => {
+		const c = createCanvas(10, 10);
+		const x = c.getContext('2d');
+		const rawText = 'I must reforged a\nGod-grade Golden Core.\nI can never\ngive up the\nHeaven-Mending Herb!';
+		const text = rawText.toUpperCase();
+		const w = 178;
+		const h = 122;
+		const inset = 0.05;
+		const fitted = fitFontSizeWithLines(x, text, 'CC Wild Words', w, h, 31, 31, inset);
+		expect(fitted.size).toBeGreaterThanOrEqual(14);
+		expect(fitted.lines.length).toBeGreaterThanOrEqual(5);
+		expect(fitted.lines).toContain('GOLDEN CORE.');
+	});
 });
 

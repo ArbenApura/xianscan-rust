@@ -47,4 +47,25 @@ fn test_regression_page_two_world_peaks_abyss_demon_realm_thought() {
     let tb_cy = tb0.y + tb0.h / 2;
     let cb_cy = cb0.y + cb0.h / 2;
     assert!((tb_cy - cb_cy).abs() <= 2, "Typeset center ({}) must align with carrier center ({})", tb_cy, cb_cy);
+
+    // 3. TYPESET ENCLOSURE GUARANTEES:
+    // TYPESET BOX MUST FULLY ENCLOSE ALL 4 LINES OF CHINESE TEXT (DOWN TO Y=1177) WITHOUT CLIPPING
+    assert!(tb0.y <= r0.box_.y, "tb0.y ({}) must cover text top ({})", tb0.y, r0.box_.y);
+    assert!(
+        tb0.y + tb0.h >= r0.box_.y + r0.box_.h,
+        "tb0 bottom ({}) must cover text bottom ({})",
+        tb0.y + tb0.h,
+        r0.box_.y + r0.box_.h
+    );
+    assert!(tb0.x <= r0.box_.x, "tb0.x ({}) must cover text left ({})", tb0.x, r0.box_.x);
+    assert!(
+        tb0.x + tb0.w >= r0.box_.x + r0.box_.w,
+        "tb0 right ({}) must cover text right ({})",
+        tb0.x + tb0.w,
+        r0.box_.x + r0.box_.w
+    );
+    assert_eq!(tb0.x, 279);
+    assert_eq!(tb0.y, 965);
+    assert_eq!(tb0.w, 232);
+    assert_eq!(tb0.h, 212);
 }
