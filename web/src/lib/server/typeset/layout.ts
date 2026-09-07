@@ -506,9 +506,11 @@ export function fitFontSizeWithLines(
 	let cleanBest = MIN_FONT_SIZE;
 	let foundClean = false;
 
-	while (lo <= hi) {
-		const mid = Math.floor((lo + hi) / 2);
-		if (mid === 0) break;
+	// LINEAR SCAN FROM THE CAP DOWNWARDS: DISCRETE TEXT REFLOW WRAPPING IS
+	// NOT MONOTONIC IN FONT SIZE (A PARAGRAPH MAY OVERFLOW A LINE AT SIZE N
+	// BUT WRAP INTO A SHORTER CLEAN LINE AT SIZE N+1). A BINARY SEARCH FALSELY
+	// PRUNES LARGER VALID SIZES WHEN A SINGLE INTERMEDIATE SIZE OVERFLOWS.
+	for (let mid = hi; mid >= lo; mid--) {
 		ctx.font = fontSpec(mid, fontFamily, text, customCjk);
 
 		// HYPHENATION-AWARE MAX WORD WIDTH: USE THE WIDEST SEGMENT AFTER APPLYING
@@ -516,7 +518,8 @@ export function fitFontSizeWithLines(
 		// WITHOUT THIS, WORDS LIKE "SOMETHING" OR "CEREMONY" BLOCK LARGER FONT SIZES
 		// EVEN THOUGH THEY CAN BE BROKEN ACROSS LINES, LEAVING VERTICAL SPACE WASTED.
 		// ONLY SWITCH TO THE HYPHENATED-SEGMENT WIDTH WHEN THE WHOLE WORD ALREADY
-		// OVERFLOWS THE BOX — SO BREAKABLE WORDS LIKE "EVERYTHING" STAY INTACT WHEN THEY FIT.
+		// OVERFLOWS THE BOX - SO BREAKABLE WORDS LIKE "EVERYTHING" STAY INTACT WHEN THEY FIT.
+		let totalWordWidth = 0;
 		const maxWordWidth = Math.max(
 			0,
 			...words.map((w) => {
@@ -525,7 +528,8 @@ export function fitFontSizeWithLines(
 				const trailingPunct = punctMatch?.[2] ?? '';
 				const fullW = ctx.measureText(w).width;
 				const stemW = ctx.measureText(stem).width;
-				// IF THE WHOLE WORD FITS STRICTLY WITHIN THE BOX, REPORT ITS ACTUAL WIDTH —
+				totalWordWidth += stemW;
+				// IF THE WHOLE WORD FITS STRICTLY WITHIN THE BOX, REPORT ITS ACTUAL WIDTH -
 				// DON'T PRETEND IT'S SHORTER JUST BECAUSE IT COULD HYPHENATE.
 				if (stemW <= maxW) {
 					return stemW;
@@ -546,10 +550,22 @@ export function fitFontSizeWithLines(
 				return fullW;
 			}),
 		);
+		// THEORETICAL MINIMUM LINES CHECK: PREVENTS EXPENSIVE REFLOW RUNS ON SIZES
+		// THAT CANNOT POSSIBLY FIT THE VERTICAL HEIGHT BUDGET.
+		const minTheoreticalLines = Math.ceil(totalWordWidth / maxW);
+		if (minTheoreticalLines * mid * LINE_HEIGHT > maxH) {
+			continue;
+		}
+
 		if (maxWordWidth <= maxW) {
 			const lines = reflowText(ctx, text, maxW);
 			const lineH = mid * LINE_HEIGHT;
-			const allLinesFitW = lines.every((l) => ctx.measureText(l).width <= maxW + 0.5);
+			const allLinesFitW = lines.every((l) => {
+				const lw = ctx.measureText(l).width;
+				if (lw <= maxW + 0.5) return true;
+				if (/[.!?~…]$/.test(l) && lw <= maxW * 1.05) return true;
+				return false;
+			});
 			const hasNoHyphenBreaks = lines.every((l) => {
 				const lastWord = l.trim().split(/\s+/).pop() || '';
 				return !lastWord.endsWith('-') || text.includes(lastWord);
@@ -558,11 +574,9 @@ export function fitFontSizeWithLines(
 				cleanBest = mid;
 				foundClean = true;
 				consider(mid, lines);
-				lo = mid + 1;
-				continue;
+				break;
 			}
 		}
-		hi = mid - 1;
 	}
 
 	// TALL-NARROW TYPESET FLOOR: WHEN THE TYPESET BOUNDARY IS MUCH TALLER THAN
@@ -584,15 +598,11 @@ export function fitFontSizeWithLines(
 			),
 		);
 		// CLAMP THE GEOMETRIC CANDIDATE TO THE LARGEST SIZE WHERE:
-		//   (A) ALL REFLOWED LINES FIT WITHIN maxW — NO HORIZONTAL OVERFLOW.
-		//   (B) TOTAL LINE STACK DOES NOT EXCEED maxH — NO VERTICAL OVERFLOW.
+		//   (A) ALL REFLOWED LINES FIT WITHIN maxW - NO HORIZONTAL OVERFLOW.
+		//   (B) TOTAL LINE STACK DOES NOT EXCEED maxH - NO VERTICAL OVERFLOW.
 		const TALL_NARROW_VERT_TOLERANCE = 1.0;
-		let floorLo = MIN_FONT_SIZE;
-		let floorHi = geometricCandidate;
 		let safeFloor = MIN_FONT_SIZE;
-		while (floorLo <= floorHi) {
-			const mid = Math.floor((floorLo + floorHi) / 2);
-			if (mid === 0) break;
+		for (let mid = geometricCandidate; mid >= MIN_FONT_SIZE; mid--) {
 			ctx.font = fontSpec(mid, fontFamily, text, customCjk);
 			const lines = reflowText(ctx, text, maxW);
 			const lineH = mid * LINE_HEIGHT;
@@ -601,9 +611,7 @@ export function fitFontSizeWithLines(
 			if (allFitW && totalH <= maxH * TALL_NARROW_VERT_TOLERANCE) {
 				safeFloor = mid;
 				consider(mid, lines);
-				floorLo = mid + 1;
-			} else {
-				floorHi = mid - 1;
+				break;
 			}
 		}
 		tallNarrowFloor = safeFloor;
@@ -611,7 +619,7 @@ export function fitFontSizeWithLines(
 
 	// PASS 3: VERTICAL-FILL HYPHENATION FOR TALL-NARROW BOXES (ASPECT RATIO >= 1.5).
 	// THE CLEAN PASSES VALIDATE AGAINST reflowText, WHOSE balancedWrapText MINIMAL-WIDTH
-	// SEARCH CAN DEGENERATE INTO OVERFLOWING INTACT-WORD LINES AT LARGER SIZES —
+	// SEARCH CAN DEGENERATE INTO OVERFLOWING INTACT-WORD LINES AT LARGER SIZES -
 	// BLOCKING EVERY SIZE IN THE HYPHENATION BAND AND LEAVING TALL BUBBLES ~80% EMPTY.
 	// THIS PASS VALIDATES AGAINST GREEDY wrapText INSTEAD, WHICH BREAKS LONG WORDS AT
 	// PROPER SYLLABLE / EXISTING-HYPHEN POINTS, LETTING HEIGHT BECOME THE ONLY LIMIT.
@@ -640,13 +648,25 @@ export function fitFontSizeWithLines(
 	hi = Math.max(lo, maxSize ?? startSize);
 	let best = cleanBest;
 
-	while (lo <= hi) {
-		const mid = Math.floor((lo + hi) / 2);
-		if (mid === 0) break;
+	for (let mid = hi; mid >= lo; mid--) {
 		ctx.font = fontSpec(mid, fontFamily, text, customCjk);
+		let totalWordWidth = 0;
+		for (const w of words) {
+			totalWordWidth += ctx.measureText(w).width;
+		}
+		const minTheoreticalLines = Math.ceil(totalWordWidth / maxW);
+		if (minTheoreticalLines * mid * LINE_HEIGHT > maxH) {
+			continue;
+		}
+
 		const lines = reflowText(ctx, text, maxW);
 		const lineH = mid * LINE_HEIGHT;
-		const allLinesFitW = lines.every((l) => ctx.measureText(l).width <= maxW + 0.5);
+		const allLinesFitW = lines.every((l) => {
+			const lw = ctx.measureText(l).width;
+			if (lw <= maxW + 0.5) return true;
+			if (/[.!?~…]$/.test(l) && lw <= maxW * 1.05) return true;
+			return false;
+		});
 		// SECOND PASS ALLOWS CHAR-LEVEL BREAKING (OVERFLOW > 1 LETTER) BUT STILL REJECTS
 		// MORPHOLOGICAL HYPHENATION (E.G. "EVERY-THING") - THOSE WERE ALREADY HANDLED IN PASS 1.
 		const hasNoHyphenBreaks = lines.every((l) => {
@@ -656,9 +676,7 @@ export function fitFontSizeWithLines(
 		if (allLinesFitW && lines.length * lineH <= maxH && hasNoHyphenBreaks) {
 			best = mid;
 			consider(mid, lines);
-			lo = mid + 1;
-		} else {
-			hi = mid - 1;
+			break;
 		}
 	}
 

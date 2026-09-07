@@ -1099,5 +1099,52 @@ Tattered Flesh-Cutting Knife`;
 		expect(fitted.lines.length).toBeGreaterThanOrEqual(5);
 		expect(fitted.lines).toContain('GOLDEN CORE.');
 	});
+
+	it('fits multi-line dialogue with trailing ellipsis cleanly at readable font size without binary search pruning trap (Page 118534 Region 75037)', async () => {
+		const regions = [
+			{
+				id: '75036',
+				kind: 'dialogue_bubble',
+				box: { x: 65, y: 163, w: 202, h: 184 },
+				text: 'Blood Puppets are living puppets\ncreated by the Blood Demon Path.\nThey possess immense strength\nand skin as hard as steel.',
+				vertical: false,
+				angle: 0
+			},
+			{
+				id: '75037',
+				kind: 'dialogue_bubble',
+				box: { x: 609, y: 531, w: 198, h: 166 },
+				text: 'These Blood Puppets were made from\npeople across the three surrounding provinces...\nMany of them were from the Hua Clan...',
+				vertical: false,
+				angle: 0
+			},
+			{
+				id: '75038',
+				kind: 'dialogue_bubble',
+				box: { x: 662, y: 948, w: 64, h: 50 },
+				text: 'Kill!',
+				vertical: false,
+				angle: 0
+			}
+		];
+		const c = createCanvas(900, 1384);
+		const x = c.getContext('2d');
+		x.fillStyle = 'white';
+		x.fillRect(0, 0, 900, 1384);
+		const out = await typesetPage(c.toBuffer('image/png'), regions);
+		expect(out.length).toBeGreaterThan(0);
+
+		const c2 = createCanvas(10, 10);
+		const ctx2 = c2.getContext('2d');
+		const rawText =
+			'These Blood Puppets were made from\npeople across the three surrounding provinces...\nMany of them were from the Hua Clan...';
+		const text = rawText.toUpperCase();
+		const w = 198,
+			h = 166,
+			inset = 0.05;
+		const fitted = fitFontSizeWithLines(ctx2, text, 'CC Wild Words', w, h, 32, 32, inset);
+		expect(fitted.size).toBeGreaterThanOrEqual(14);
+		expect(fitted.lines.length).toBeGreaterThanOrEqual(6);
+	});
 });
 
