@@ -420,8 +420,22 @@ pub fn build_regions(
                         && (overlap_y.max(0) as f32 / mh.max(1) as f32 >= 0.70)
                         && (clean_m.chars().count() <= clean_o.chars().count());
 
+                    // NEAR-DUPLICATE FUZZY OVERLAP STUTTER DEDUPLICATION (E.G. "那是林家军的" VS "3是林家军的")
+                    let is_near_duplicate_line = if !is_punct_m && !is_punct_o {
+                        let common_chars = pure_m.chars().filter(|c| pure_o.contains(*c)).count();
+                        let min_len = pure_m.chars().count().min(pure_o.chars().count());
+                        min_len >= 4 && (common_chars as f32 / min_len as f32 >= 0.70)
+                    } else {
+                        false
+                    };
+                    let m_has_digit_prefix = clean_m.chars().next().map_or(false, |c| c.is_ascii_digit());
+                    let o_has_digit_prefix = clean_o.chars().next().map_or(false, |c| c.is_ascii_digit());
+                    let is_m_worse_near_dup = is_near_duplicate_line
+                        && (overlap_ratio_m >= 0.50 || iou >= 0.35)
+                        && (m_has_digit_prefix && !o_has_digit_prefix || m.score <= existing.score);
+
                     let vert_col_sub_overlap = vert_col_overlap && is_same_column;
-                    if ((iou >= 0.40 || overlap_ratio_m >= 0.60 || (vert_col_sub_overlap && is_sub) || (vert_col_overlap && is_exact) || is_horizontal_suffix_noise || (overlap_ratio_m >= 0.30 && is_sub) || is_m_furigana_of_o) && (is_exact || is_sub || is_horizontal_suffix_noise || is_m_furigana_of_o))
+                    if ((iou >= 0.40 || overlap_ratio_m >= 0.60 || (vert_col_sub_overlap && is_sub) || (vert_col_overlap && is_exact) || is_horizontal_suffix_noise || (overlap_ratio_m >= 0.30 && is_sub) || is_m_furigana_of_o || is_m_worse_near_dup) && (is_exact || is_sub || is_horizontal_suffix_noise || is_m_furigana_of_o || is_m_worse_near_dup))
                         && !is_vert_col_text_and_punct
                     {
                         is_dup = true;
@@ -476,7 +490,21 @@ pub fn build_regions(
                             && (overlap_y.max(0) as f32 / oh.max(1) as f32 >= 0.70)
                             && (clean_o.chars().count() <= clean_m.chars().count());
 
-                        let is_existing_dup = ((iou >= 0.40 || overlap_ratio_o >= 0.60 || (vert_col_sub_overlap && is_existing_sub) || (vert_col_overlap && is_existing_exact) || is_existing_suffix_noise || (overlap_ratio_o >= 0.30 && is_existing_sub) || is_o_furigana_of_m) && (is_existing_exact || is_existing_sub || is_existing_suffix_noise || is_o_furigana_of_m))
+                        // NEAR-DUPLICATE FUZZY OVERLAP STUTTER DEDUPLICATION (E.G. "那是林家军的" VS "3是林家军的")
+                        let is_near_duplicate_line = if !is_punct_m && !is_punct_o {
+                            let common_chars = pure_m.chars().filter(|c| pure_o.contains(*c)).count();
+                            let min_len = pure_m.chars().count().min(pure_o.chars().count());
+                            min_len >= 4 && (common_chars as f32 / min_len as f32 >= 0.70)
+                        } else {
+                            false
+                        };
+                        let m_has_digit_prefix = clean_m.chars().next().map_or(false, |c| c.is_ascii_digit());
+                        let o_has_digit_prefix = clean_o.chars().next().map_or(false, |c| c.is_ascii_digit());
+                        let is_o_worse_near_dup = is_near_duplicate_line
+                            && (overlap_ratio_o >= 0.50 || iou >= 0.35)
+                            && (o_has_digit_prefix && !m_has_digit_prefix || m.score > existing.score);
+
+                        let is_existing_dup = ((iou >= 0.40 || overlap_ratio_o >= 0.60 || (vert_col_sub_overlap && is_existing_sub) || (vert_col_overlap && is_existing_exact) || is_existing_suffix_noise || (overlap_ratio_o >= 0.30 && is_existing_sub) || is_o_furigana_of_m || is_o_worse_near_dup) && (is_existing_exact || is_existing_sub || is_existing_suffix_noise || is_o_furigana_of_m || is_o_worse_near_dup))
                             && !is_vert_col_text_and_punct;
                         !is_existing_dup
                     });

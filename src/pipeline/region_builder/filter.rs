@@ -199,6 +199,20 @@ pub fn should_reject_candidate_region(
         return true;
     }
 
+    // 5c. DROP FOREIGN SCRIPT HALLUCINATION IN CHINESE PAGES:
+    // WHEN SOURCE LANGUAGE IS CHINESE, NON-BUBBLE TEXT CONTAINING JAPANESE KANA (HIRAGANA OR KATAKANA)
+    // IS OCR HALLUCINATION ON BACKGROUND HATCHING OR SCENERY TEXTURE (E.G. "义一年4 VIVy之之3ミう3").
+    let is_zh = matches!(
+        source_lang,
+        Some("zh") | Some("zh_hans") | Some("zh_hant") | Some("zh-Hans") | Some("zh-Hant")
+    );
+    if is_zh
+        && !is_bubble
+        && cleaned.chars().any(|c| ('\u{3040}'..='\u{309F}').contains(&c) || ('\u{30A0}'..='\u{30FF}').contains(&c))
+    {
+        return true;
+    }
+
     // 6. PURE WATERMARK OR PUNCTUATION-ONLY REGIONS
     if crate::ml::detect::is_pure_watermark_region(cleaned) {
         return true;
