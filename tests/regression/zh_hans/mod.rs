@@ -121,3 +121,4 @@ mod page_tianci_spiky_bubble_bottom_hatching;
 mod page_lin_family_army_memorial_tablets;
 mod page_lin_wentian_giant_memorial_stele;
 mod page_old_song_aware_stele_wide_shot;
+mod page_longevity_list_slanted_cards;

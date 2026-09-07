@@ -131,6 +131,12 @@ pub fn should_reject_candidate_region(
     let tiny_bubble_w = ((ref_dim * 0.045).clamp(20.0, 45.0)) as i32;
     let tiny_bubble_h = ((ref_dim * 0.060).clamp(30.0, 65.0)) as i32;
     if is_bubble {
+        let is_pure_digits_in_bubble = cleaned.chars().all(|c| c.is_ascii_digit() || c.is_whitespace())
+            && char_count <= 3
+            && (avg_score < 0.85 || cluster_rect.h >= 70 || char_count <= 2);
+        if is_pure_digits_in_bubble {
+            return true;
+        }
         let is_noise_or_digit = crate::ml::detect::is_standalone_digit_or_particle_noise(cleaned)
             || crate::ml::detect::is_standalone_noise_stroke(cleaned)
             || crate::ml::detect::is_standalone_table_cell(cleaned)
@@ -257,7 +263,7 @@ pub fn should_reject_candidate_region(
         && cluster_rect.h >= (cluster_rect.w as f32 * 1.5) as i32
         && char_count >= 2
         && (has_narrative_punctuation || avg_score >= 0.75 || compute_chromatic_color_variance(img, cluster_rect) < 20.0);
-    let is_sign_or_narration_box = is_cjk && !is_oversized_single_char && ((char_count >= 2 && ((cluster_rect.w >= 50 && cluster_rect.h >= 20) || (cluster_rect.w >= 20 && cluster_rect.h >= 45 && char_count >= 3) || (cluster_rect.w >= 30 && cluster_rect.h >= 30 && char_count >= 3)) && avg_score >= 0.70) || is_vert_narration) && !is_shout;
+    let is_sign_or_narration_box = is_cjk && !is_oversized_single_char && ((char_count >= 2 && ((cluster_rect.w >= 50 && cluster_rect.h >= 20) || (cluster_rect.w >= 20 && cluster_rect.h >= 45 && char_count >= 3) || (cluster_rect.w >= 30 && cluster_rect.h >= 30 && char_count >= 3)) && avg_score >= 0.70) || (char_count >= 4 && is_pure_cjk && cluster_rect.h >= 60 && avg_score >= 0.62) || is_vert_narration) && !is_shout;
     let is_margin_isolated_char = (cluster_rect.x <= 5 || cluster_rect.x + cluster_rect.w >= page_w as i32 - 5) && avg_score < 0.75;
     let is_valid_cjk_glyph = is_cjk && ((char_count >= 3 && avg_score >= 0.70) || (char_count == 2 && cluster_rect.w >= 50 && avg_score >= 0.70) || is_vert_narration) && cleaned.chars().any(|c| crate::ml::detect::has_cjk_characters(&c.to_string())) && !is_margin_isolated_char;
     let is_compact_single_glyph_box = char_count <= 2 && cluster_rect.w <= (ref_dim * 0.05).clamp(20.0, 45.0) as i32 && cluster_rect.h <= (ref_dim * 0.05).clamp(20.0, 45.0) as i32;

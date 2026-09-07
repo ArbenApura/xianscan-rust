@@ -160,70 +160,76 @@ pub fn calculate_box_angle(pts: &[[f32; 2]]) -> f32 {
     }
 
     let angle_deg = if pts.len() == 4 {
-        let mut sorted_x = pts.to_vec();
-        sorted_x.sort_by(|a, b| a[0].total_cmp(&b[0]).then(a[1].total_cmp(&b[1])));
+        let cx = (pts[0][0] + pts[1][0] + pts[2][0] + pts[3][0]) / 4.0;
+        let cy = (pts[0][1] + pts[1][1] + pts[2][1] + pts[3][1]) / 4.0;
+        let mut cyclic = pts.to_vec();
+        cyclic.sort_by(|a, b| {
+            let ang_a = (a[1] - cy).atan2(a[0] - cx);
+            let ang_b = (b[1] - cy).atan2(b[0] - cx);
+            ang_a.total_cmp(&ang_b)
+        });
 
-        let (tl, bl) = if sorted_x[0][1] < sorted_x[1][1] {
-            (sorted_x[0], sorted_x[1])
+        let e0 = [cyclic[1][0] - cyclic[0][0], cyclic[1][1] - cyclic[0][1]];
+        let e1 = [cyclic[2][0] - cyclic[1][0], cyclic[2][1] - cyclic[1][1]];
+        let e2 = [cyclic[3][0] - cyclic[2][0], cyclic[3][1] - cyclic[2][1]];
+        let e3 = [cyclic[0][0] - cyclic[3][0], cyclic[0][1] - cyclic[3][1]];
+
+        let d0 = (e0[0] * e0[0] + e0[1] * e0[1]).sqrt();
+        let d1 = (e1[0] * e1[0] + e1[1] * e1[1]).sqrt();
+        let d2 = (e2[0] * e2[0] + e2[1] * e2[1]).sqrt();
+        let d3 = (e3[0] * e3[0] + e3[1] * e3[1]).sqrt();
+
+        let len_a = (d0 + d2) / 2.0;
+        let len_b = (d1 + d3) / 2.0;
+
+        let va = [(e0[0] - e2[0]) / 2.0, (e0[1] - e2[1]) / 2.0];
+        let vb = [(e1[0] - e3[0]) / 2.0, (e1[1] - e3[1]) / 2.0];
+
+        let (v_long, is_long_a) = if len_a >= 1.15 * len_b {
+            (va, true)
+        } else if len_b >= 1.15 * len_a {
+            (vb, false)
+        } else if va[0].abs() >= vb[0].abs() {
+            (va, true)
         } else {
-            (sorted_x[1], sorted_x[0])
+            (vb, false)
         };
 
-        let (tr, br) = if sorted_x[2][1] < sorted_x[3][1] {
-            (sorted_x[2], sorted_x[3])
-        } else {
-            (sorted_x[3], sorted_x[2])
-        };
-
-        let w_top = ((tr[0] - tl[0]).powi(2) + (tr[1] - tl[1]).powi(2)).sqrt();
-        let w_bot = ((br[0] - bl[0]).powi(2) + (br[1] - bl[1]).powi(2)).sqrt();
-        let h_left = ((bl[0] - tl[0]).powi(2) + (bl[1] - tl[1]).powi(2)).sqrt();
-        let h_right = ((br[0] - tr[0]).powi(2) + (br[1] - tr[1]).powi(2)).sqrt();
-
-        let mean_w = (w_top + w_bot) / 2.0;
-        let mean_h = (h_left + h_right) / 2.0;
-
-        if mean_h >= 1.25 * mean_w {
-            // VERTICAL TEXT LINE: MEASURE TILT OF VERTICAL EDGES (TL -> BL, TR -> BR)
-            let dx_v = (bl[0] - tl[0] + br[0] - tr[0]) / 2.0;
-            let dy_v = (bl[1] - tl[1] + br[1] - tr[1]) / 2.0;
-            if dy_v.abs() < 1e-4 {
-                return 0.0;
-            }
-            // Deflection angle from pure vertical axis (dx / dy)
-            let v_deg = (-dx_v).atan2(dy_v).to_degrees();
-            if v_deg.abs() < 10.0 && mean_h <= 3.5 * mean_w {
-                // Minor baseline/column dilation jitter on moderately tall bubbles
+        let is_vert = v_long[1].abs() > v_long[0].abs();
+        if is_vert {
+            // DEFLECTION FROM PURE VERTICAL AXIS (DX / DY), ORIENTED DOWNWARDS (DY > 0)
+            let (dx, dy) = if v_long[1] < 0.0 {
+                (-v_long[0], -v_long[1])
+            } else {
+                (v_long[0], v_long[1])
+            };
+            let v_deg = (-dx).atan2(dy).to_degrees();
+            let (long_len, short_len) = if is_long_a { (len_a, len_b) } else { (len_b, len_a) };
+            if v_deg.abs() < 10.0 && long_len <= 3.5 * short_len {
                 0.0
             } else {
                 v_deg
             }
         } else {
-            // HORIZONTAL TEXT LINE: MEASURE TILT OF HORIZONTAL EDGES (TL -> TR, BL -> BR)
-            let dx = (tr[0] - tl[0] + br[0] - bl[0]) / 2.0;
-            let dy = (tr[1] - tl[1] + br[1] - bl[1]) / 2.0;
-
-            if dx == 0.0 && dy == 0.0 {
-                return 0.0;
-            }
-
-            let angle_rad = dy.atan2(dx);
-            let mut deg = angle_rad.to_degrees();
-
+            // DEFLECTION FROM PURE HORIZONTAL AXIS (DY / DX), ORIENTED RIGHTWARDS (DX > 0)
+            let (dx, dy) = if v_long[0] < 0.0 {
+                (-v_long[0], -v_long[1])
+            } else {
+                (v_long[0], v_long[1])
+            };
+            let mut deg = dy.atan2(dx).to_degrees();
             while deg > 90.0 {
                 deg -= 180.0;
             }
             while deg < -90.0 {
                 deg += 180.0;
             }
-
-            let box_w = (tr[0] - tl[0] + br[0] - bl[0]) / 2.0;
-            let box_h = (bl[1] - tl[1] + br[1] - tr[1]) / 2.0;
-            if box_w <= 2.2 * 1.0_f32.max(box_h) && deg.abs() < 8.0 {
-                return 0.0;
+            let (box_w, box_h) = if is_long_a { (len_a, len_b) } else { (len_b, len_a) };
+            if box_w <= 2.2 * box_h.max(1.0) && deg.abs() < 8.0 {
+                0.0
+            } else {
+                deg
             }
-
-            deg
         }
     } else {
         let (_box_pts, _sside) = get_mini_boxes(pts);
@@ -636,22 +642,99 @@ pub fn dilate_mask(mask: &[u8], width: usize, height: usize, radius: i32) -> Vec
 
 /// ORDERS 4 CORNER POINTS INTO [TOP-LEFT, TOP-RIGHT, BOTTOM-RIGHT, BOTTOM-LEFT]
 pub fn order_points_clockwise(pts: &[[f32; 2]]) -> [[f32; 2]; 4] {
-    let mut sorted_x = pts.to_vec();
-    sorted_x.sort_by(|a, b| a[0].total_cmp(&b[0]).then(a[1].total_cmp(&b[1])));
+    if pts.len() != 4 {
+        let default = [0.0, 0.0];
+        return [default, default, default, default];
+    }
 
-    let (tl, bl) = if sorted_x[0][1] < sorted_x[1][1] {
-        (sorted_x[0], sorted_x[1])
+    let cx = (pts[0][0] + pts[1][0] + pts[2][0] + pts[3][0]) / 4.0;
+    let cy = (pts[0][1] + pts[1][1] + pts[2][1] + pts[3][1]) / 4.0;
+
+    let mut cyclic = pts.to_vec();
+    cyclic.sort_by(|a, b| {
+        let ang_a = (a[1] - cy).atan2(a[0] - cx);
+        let ang_b = (b[1] - cy).atan2(b[0] - cx);
+        ang_a.total_cmp(&ang_b)
+    });
+
+    let e0 = [cyclic[1][0] - cyclic[0][0], cyclic[1][1] - cyclic[0][1]];
+    let e1 = [cyclic[2][0] - cyclic[1][0], cyclic[2][1] - cyclic[1][1]];
+    let d0 = (e0[0] * e0[0] + e0[1] * e0[1]).sqrt();
+    let d1 = (e1[0] * e1[0] + e1[1] * e1[1]).sqrt();
+
+    let is_e1_long = d1 > d0;
+    let v_long = if is_e1_long { e1 } else { e0 };
+    let is_vert = v_long[1].abs() > v_long[0].abs();
+
+    if is_vert {
+        // For vertical text, short edges are top edge and bottom edge.
+        // Identify top edge (smaller average y).
+        let (top_idx_a, top_idx_b, bot_idx_a, bot_idx_b) = if is_e1_long {
+            let y_01 = (cyclic[0][1] + cyclic[1][1]) / 2.0;
+            let y_23 = (cyclic[2][1] + cyclic[3][1]) / 2.0;
+            if y_01 < y_23 {
+                (0, 1, 2, 3)
+            } else {
+                (2, 3, 0, 1)
+            }
+        } else {
+            let y_12 = (cyclic[1][1] + cyclic[2][1]) / 2.0;
+            let y_30 = (cyclic[3][1] + cyclic[0][1]) / 2.0;
+            if y_12 < y_30 {
+                (1, 2, 3, 0)
+            } else {
+                (3, 0, 1, 2)
+            }
+        };
+
+        let (tl, tr) = if cyclic[top_idx_a][0] < cyclic[top_idx_b][0] {
+            (cyclic[top_idx_a], cyclic[top_idx_b])
+        } else {
+            (cyclic[top_idx_b], cyclic[top_idx_a])
+        };
+
+        let (bl, br) = if cyclic[bot_idx_a][0] < cyclic[bot_idx_b][0] {
+            (cyclic[bot_idx_a], cyclic[bot_idx_b])
+        } else {
+            (cyclic[bot_idx_b], cyclic[bot_idx_a])
+        };
+
+        [tl, tr, br, bl]
     } else {
-        (sorted_x[1], sorted_x[0])
-    };
+        // For horizontal text, short edges are left edge and right edge.
+        // Identify left edge (smaller average x).
+        let (left_idx_a, left_idx_b, right_idx_a, right_idx_b) = if is_e1_long {
+            let x_01 = (cyclic[0][0] + cyclic[1][0]) / 2.0;
+            let x_23 = (cyclic[2][0] + cyclic[3][0]) / 2.0;
+            if x_01 < x_23 {
+                (0, 1, 2, 3)
+            } else {
+                (2, 3, 0, 1)
+            }
+        } else {
+            let x_12 = (cyclic[1][0] + cyclic[2][0]) / 2.0;
+            let x_30 = (cyclic[3][0] + cyclic[0][0]) / 2.0;
+            if x_12 < x_30 {
+                (1, 2, 3, 0)
+            } else {
+                (3, 0, 1, 2)
+            }
+        };
 
-    let (tr, br) = if sorted_x[2][1] < sorted_x[3][1] {
-        (sorted_x[2], sorted_x[3])
-    } else {
-        (sorted_x[3], sorted_x[2])
-    };
+        let (tl, bl) = if cyclic[left_idx_a][1] < cyclic[left_idx_b][1] {
+            (cyclic[left_idx_a], cyclic[left_idx_b])
+        } else {
+            (cyclic[left_idx_b], cyclic[left_idx_a])
+        };
 
-    [tl, tr, br, bl]
+        let (tr, br) = if cyclic[right_idx_a][1] < cyclic[right_idx_b][1] {
+            (cyclic[right_idx_a], cyclic[right_idx_b])
+        } else {
+            (cyclic[right_idx_b], cyclic[right_idx_a])
+        };
+
+        [tl, tr, br, bl]
+    }
 }
 
 /// RECTIFIES A ROTATED 4-POINT BOUNDING QUAD INTO AN UPRIGHT HORIZONTAL CROP USING BILINEAR INTERPOLATION

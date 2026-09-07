@@ -83,10 +83,11 @@ pub fn try_refine_cluster_crop(
         && single_char_count <= 2
         && (cluster_rect.w >= 80 || cluster_rect.h >= 100 || (container_h >= 100 && container_h > container_w))
         && avg_score < 0.75;
-    let can_refine_crop = (is_bubble || is_container_wider || is_container_taller || is_short_text_partial || is_standalone_alphanumeric_risk || is_corrupted_latin_in_bubble || is_oversized_single || is_truncated_multiline)
+    let is_wide_vert_card = is_container_vert && cluster_lines.len() <= 2 && (container_w >= 55 || cluster_rect.w >= 55);
+    let can_refine_crop = (is_bubble || is_container_wider || is_container_taller || is_short_text_partial || is_standalone_alphanumeric_risk || is_corrupted_latin_in_bubble || is_oversized_single || is_truncated_multiline || is_wide_vert_card)
         && (cluster_rect.w >= 16 || box_rect.w >= 16)
         && (cluster_rect.h >= 16 || box_rect.h >= 16)
-        && (!full_page_is_complete || is_corrupted_latin_in_bubble || is_oversized_single)
+        && (!full_page_is_complete || is_corrupted_latin_in_bubble || is_oversized_single || is_wide_vert_card)
         && !is_clean_expressive_punct;
 
     if !can_refine_crop {
@@ -350,7 +351,7 @@ pub fn try_refine_cluster_crop(
         }
         if crop_v_count > 0 || crop_h_count > 0 {
             out_vert = crop_v_count > crop_h_count;
-            if out_vert {
+            if out_vert && angle_deg.abs() < 1.5 {
                 out_angle = 0.0;
             }
         }
