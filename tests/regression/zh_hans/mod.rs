@@ -100,3 +100,4 @@ mod page_slash_again_spiky_tail_shout;
 mod page_white_hair_sister_is_that_so_dots;
 mod page_earth_secular_world_sigh_bubble;
 mod page_break_downward_tail_speech_bubble;
+mod page_outer_realm_enemies_asura_battlefield;
