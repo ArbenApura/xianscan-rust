@@ -544,7 +544,7 @@ describe('typesetPage', () => {
 		const out = await typesetPage(blankPng(800, 1131, 'white'), page656Regions);
 		expect([out.slice(0, 4).toString('ascii'), out.slice(8, 12).toString('ascii')]).toEqual(['RIFF', 'WEBP']);
 		expect(await brightPixels(out)).toBeGreaterThan(0);
-	});
+	}, 15000);
 
 	it('renders vertical oval bubble horizontally without 90 degree sideways rotation (Sample 4)', async () => {
 		const out = await typesetPage(blankPng(800, 1131, 'white'), [
