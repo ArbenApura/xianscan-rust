@@ -15,6 +15,7 @@
 	import { mlStatus, type MLStatusState } from '$lib/stores/ml-status';
 	import { versionCheck } from '$lib/stores/version-check';
 	import { syncClient } from '$lib/stores/sync-client';
+	import { getGlossaryHref } from '$lib/utils/navigation';
 	// IMPORTED ICONS
 	import BookOpen from 'lucide-svelte/icons/book-open';
 	import Languages from 'lucide-svelte/icons/languages';
@@ -126,6 +127,8 @@
 	$: isGlossaryActive = activePath.startsWith('/app/glossary');
 	$: isAboutActive = activePath.startsWith('/app/about');
 	$: isLibraryActive = !isGlossaryActive && !isAboutActive && (activePath === '/app/' || activePath === '/app' || activePath.startsWith('/app/books'));
+	$: activeBookId = activePath.startsWith('/app/books/') ? ($page.params.id || null) : null;
+	$: glossaryHref = getGlossaryHref(activePath, $page.params.id);
 </script>
 
 <svelte:window on:scroll={handleScroll} />
@@ -163,6 +166,7 @@
 								: 'text-current opacity-70 hover:opacity-100 hover:bg-black/[0.03] dark:hover:bg-white/[0.04]'
 						}`}
 						aria-current={isLibraryActive ? 'page' : undefined}
+						use:ripple
 					>
 						<BookOpen size={16} class={isLibraryActive ? 'text-[#b23a2e] dark:text-[#e08a63]' : ''} />
 						<span class="hidden min-[750px]:inline">Library</span>
@@ -170,13 +174,15 @@
 
 					<!-- GLOSSARY LINK -->
 					<a
-						href="/app/glossary"
+						href={glossaryHref}
 						class={`flex items-center gap-1.5 rounded-lg px-2.5 sm:px-3 py-1.5 text-xs sm:text-sm font-semibold transition-all duration-150 active:scale-95 ${
 							isGlossaryActive
 								? 'bg-black/[0.06] text-[#b23a2e] dark:bg-white/[0.08] dark:text-[#e08a63] shadow-2xs'
 								: 'text-current opacity-70 hover:opacity-100 hover:bg-black/[0.03] dark:hover:bg-white/[0.04]'
 						}`}
 						aria-current={isGlossaryActive ? 'page' : undefined}
+						title={activeBookId ? 'Open book glossary' : 'Open glossary'}
+						use:ripple
 					>
 						<Languages size={16} class={isGlossaryActive ? 'text-[#b23a2e] dark:text-[#e08a63]' : ''} />
 						<span class="hidden min-[750px]:inline">Glossary</span>
@@ -191,6 +197,7 @@
 								: 'text-current opacity-70 hover:opacity-100 hover:bg-black/[0.03] dark:hover:bg-white/[0.04]'
 						}`}
 						aria-current={isAboutActive ? 'page' : undefined}
+						use:ripple
 					>
 						<Info size={16} class={isAboutActive ? 'text-[#b23a2e] dark:text-[#e08a63]' : ''} />
 						<span class="hidden min-[750px]:inline">About</span>

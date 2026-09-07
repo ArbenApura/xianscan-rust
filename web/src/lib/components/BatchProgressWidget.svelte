@@ -477,31 +477,8 @@
 		const targetUrl = `/app/books/${bId}/chapters/${chId}/?pageId=${pageId}&seq=${pageSeq}#page-${pageId}`;
 
 		if (currentRouteChapterId === chId) {
-			// ALREADY ON THIS CHAPTER PAGE -> UPDATE URL AND SMOOTH SCROLL DIRECTLY
-			await goto(targetUrl, { replaceState: false, noScroll: true, keepFocus: true });
-
-			const tryScroll = () => {
-				const el =
-					(document.querySelector(`[data-page-id="${pageId}"]`) as HTMLElement | null) ||
-					(document.querySelector(`[data-page-seq="${pageSeq}"]`) as HTMLElement | null);
-				if (el) {
-					el.scrollIntoView({ behavior: 'smooth', block: 'center' });
-					el.classList.add('ring-2', 'ring-[#b23a2e]', 'dark:ring-[#e08a63]');
-					setTimeout(() => {
-						el.classList.remove('ring-2', 'ring-[#b23a2e]', 'dark:ring-[#e08a63]');
-					}, 2000);
-					return true;
-				}
-				return false;
-			};
-
-			if (!tryScroll()) {
-				setTimeout(() => {
-					if (!tryScroll()) {
-						setTimeout(tryScroll, 230);
-					}
-				}, 120);
-			}
+			// ALREADY ON THIS CHAPTER PAGE, UPDATE URL IN-PLACE TO TRIGGER READER SMOOTH SCROLL
+			await goto(targetUrl, { replaceState: true, noScroll: true, keepFocus: true });
 		} else {
 			// NAVIGATE TO THE CHAPTER READER AND SCROLL TO PAGE
 			await goto(targetUrl);

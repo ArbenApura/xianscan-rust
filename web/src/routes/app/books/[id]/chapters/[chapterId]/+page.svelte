@@ -4,13 +4,14 @@
 	import { browser } from '$app/environment';
 	import { toast } from 'svelte-sonner';
 	import { page } from '$app/stores';
-	import { invalidateAll } from '$app/navigation';
+	import { goto, invalidateAll } from '$app/navigation';
 	import { ConfirmDialog, Modal, TextField, Button } from '$lib/components/ui';
 	import { settings } from '$lib/stores/settings';
 	import { jobTracker } from '$lib/stores/job-tracker';
 	import { batchTracker } from '$lib/stores/batch-tracker';
 	import { syncClient } from '$lib/stores/sync-client';
 	import { readingHistory } from '$lib/stores/reading-history';
+	import { stripTargetUrlParams } from '$lib/utils/navigation';
 	import ChapterToolbar from '$lib/components/chapter/ChapterToolbar.svelte';
 	import ViewModeWebtoon from '$lib/components/chapter/ViewModeWebtoon.svelte';
 	import ViewModeGrid from '$lib/components/chapter/ViewModeGrid.svelte';
@@ -482,6 +483,18 @@
 		});
 	}
 
+	let urlCleanupTimer: ReturnType<typeof setTimeout> | null = null;
+	let scrollRetryTimer: ReturnType<typeof setTimeout> | null = null;
+	let lastScrolledTargetKey: string | null = null;
+
+	function clearUrlTargetReference() {
+		if (!browser || typeof window === 'undefined') return;
+		const { cleanUrl, changed } = stripTargetUrlParams(window.location.href);
+		if (changed) {
+			void goto(cleanUrl, { replaceState: true, noScroll: true, keepFocus: true });
+		}
+	}
+
 	function scrollToTargetPageFromUrl() {
 		if (!browser || typeof window === 'undefined') return;
 		const hash = window.location.hash;
@@ -489,27 +502,52 @@
 		const targetPageId = params.get('pageId') || (hash.startsWith('#page-') ? hash.replace('#page-', '') : null);
 		const targetSeq = params.get('seq');
 
-		if (targetPageId || targetSeq !== null) {
-			let attempts = 0;
-			const tryScroll = () => {
-				attempts++;
-				const el =
-					(targetPageId ? document.querySelector(`[data-page-id="${targetPageId}"]`) : null) ||
-					(targetSeq !== null ? document.querySelector(`[data-page-seq="${targetSeq}"]`) : null);
-				if (el) {
-					el.scrollIntoView({ behavior: 'smooth', block: 'center' });
-					el.classList.add('ring-2', 'ring-[#b23a2e]', 'dark:ring-[#e08a63]');
-					setTimeout(() => {
-						el.classList.remove('ring-2', 'ring-[#b23a2e]', 'dark:ring-[#e08a63]');
-					}, 2000);
-					return;
-				}
-				if (attempts < 5) {
-					setTimeout(tryScroll, attempts * 150);
-				}
-			};
-			setTimeout(tryScroll, 100);
+		if (!targetPageId && targetSeq === null) {
+			lastScrolledTargetKey = null;
+			return;
 		}
+
+		const currentTargetKey = `${targetPageId ?? ''}:${targetSeq ?? ''}`;
+		if (lastScrolledTargetKey === currentTargetKey) {
+			return;
+		}
+
+		// ASSIGN TARGET KEY IMMEDIATELY BEFORE ASYNC ATTEMPTS TO PREVENT CONCURRENT DUPLICATE SCROLLS
+		lastScrolledTargetKey = currentTargetKey;
+
+		let attempts = 0;
+		const tryScroll = () => {
+			attempts++;
+			const el =
+				(targetPageId ? document.querySelector(`[data-page-id="${targetPageId}"]`) : null) ||
+				(targetSeq !== null ? document.querySelector(`[data-page-seq="${targetSeq}"]`) : null);
+			if (el) {
+				el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+				el.classList.add('ring-2', 'ring-[#b23a2e]', 'dark:ring-[#e08a63]');
+				setTimeout(() => {
+					el.classList.remove('ring-2', 'ring-[#b23a2e]', 'dark:ring-[#e08a63]');
+				}, 2000);
+
+				// CLEAR URL TARGET QUERY PARAMS AND HASH AFTER SCROLLING
+				if (urlCleanupTimer) clearTimeout(urlCleanupTimer);
+				urlCleanupTimer = setTimeout(() => {
+					clearUrlTargetReference();
+				}, 1500);
+				return;
+			}
+			if (attempts < 5) {
+				scrollRetryTimer = setTimeout(tryScroll, attempts * 150);
+			} else {
+				// TARGET NOT FOUND IN DOM AFTER RETRIES, CLEAN UP URL REFERENCE TO AVOID RESCROLL LOOPS
+				if (urlCleanupTimer) clearTimeout(urlCleanupTimer);
+				urlCleanupTimer = setTimeout(() => {
+					clearUrlTargetReference();
+				}, 1000);
+			}
+		};
+
+		if (scrollRetryTimer) clearTimeout(scrollRetryTimer);
+		scrollRetryTimer = setTimeout(tryScroll, 100);
 	}
 
 	$: if (browser && $page.url) {
@@ -530,12 +568,10 @@
 			});
 		}
 
-		scrollToTargetPageFromUrl();
-
 		window.addEventListener('dragend', handleDragEnd);
 		window.addEventListener('pointerup', handleDragEnd);
 
-		// BFCACHE RESTORE CAN SHOW STALE REVS FROM A FROZEN DOM — REVALIDATE THE DATA AND
+		// BFCACHE RESTORE CAN SHOW STALE REVS FROM A FROZEN DOM, REVALIDATE THE DATA AND
 		// LET THE REACTIVE RENDER SWAP IN FRESH URLS.
 		const onPageshow = (e: PageTransitionEvent) => {
 			if (e.persisted) {
@@ -547,6 +583,14 @@
 	});
 
 	onDestroy(() => {
+		if (urlCleanupTimer) {
+			clearTimeout(urlCleanupTimer);
+			urlCleanupTimer = null;
+		}
+		if (scrollRetryTimer) {
+			clearTimeout(scrollRetryTimer);
+			scrollRetryTimer = null;
+		}
 		if (typeof window !== 'undefined') {
 			window.removeEventListener('dragend', handleDragEnd);
 			window.removeEventListener('pointerup', handleDragEnd);
