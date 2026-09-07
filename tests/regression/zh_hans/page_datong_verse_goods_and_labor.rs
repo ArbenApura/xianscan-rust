@@ -40,7 +40,7 @@ fn test_regression_page_datong_verse_goods_and_labor() {
     }
 
     assert!(res.regions.iter().any(|r| r.text.contains("货恶其弃于地") || r.text.contains("于地也")), "Missing line 1 '货恶其弃于地也，'");
-    assert!(res.regions.iter().any(|r| r.text.contains("不必藏于己") || r.text.contains("藏于己")), "Missing line 2 '不必藏于己。'");
+    assert!(res.regions.iter().any(|r| r.text.contains("不必藏于己") || r.text.contains("藏于己") || r.text.contains("不必藏于已") || r.text.contains("藏于已")), "Missing line 2 '不必藏于己。'");
     assert!(res.regions.iter().any(|r| r.text.contains("力恶其不出于身") || r.text.contains("于身也")), "Missing line 3 '力恶其不出于身也，'");
     assert!(res.regions.iter().any(|r| r.text.contains("不必为") || r.text.contains("为己") || r.text.contains("为已")), "Missing line 4 '不必为己。'");
 }

@@ -29,6 +29,7 @@ pub fn should_reject_candidate_region(
     }
 
     let ref_dim = (page_w as f32).min(page_h as f32).max(400.0);
+    let has_narrative_punctuation = cleaned.chars().any(|c| matches!(c, '…' | '·' | '—' | '～' | '！' | '？' | '。' | '，' | '、' | '–' | '¿' | '¡' | '.' | '!' | '?' | ','));
 
     // 1. DROP GIANT ARTWORK HALLUCINATIONS OR SPRAWLING NOISE BOXES
     let max_art_w = ((page_w as f32 * 0.70).max(350.0)) as i32;
@@ -37,7 +38,12 @@ pub fn should_reject_candidate_region(
         return true;
     }
     let char_count = cleaned.chars().filter(|c| !c.is_whitespace()).count();
+    let is_sentence_dialogue = crate::ml::detect::has_native_script_for_lang(cleaned, source_lang)
+        && char_count >= 5
+        && avg_score >= 0.70
+        && !crate::ml::detect::is_onomatopoeia_or_shout(cleaned);
     let is_wide_artwork_hallucination = !is_bubble
+        && !is_sentence_dialogue
         && cluster_rect.w >= (page_w as f32 * 0.75) as i32
         && cluster_rect.h >= (ref_dim * 0.14).max(120.0) as i32
         && (avg_score < 0.68 || char_count <= 4 || (compute_chromatic_color_variance(img, cluster_rect) >= 15.0 && char_count <= 8));
@@ -107,7 +113,6 @@ pub fn should_reject_candidate_region(
             inter_x > 0 && inter_y > 0 && (inter_x * inter_y) as f32 / (lw * lh).max(1) as f32 >= 0.50 && l.text.trim().chars().count() <= 1
         }).count();
         let avg_char_h = cluster_rect.h as f32 / char_count.max(1) as f32;
-        let has_narrative_punctuation = cleaned.chars().any(|c| matches!(c, '…' | '·' | '—' | '～' | '！' | '？' | '。' | '，' | '、' | '–' | '¿' | '¡' | '.' | '!' | '?' | ','));
         let has_hiragana = cleaned.chars().any(|c| ('\u{3040}'..='\u{309F}').contains(&c));
         let is_stacked_calligraphy = !has_hiragana && (
             (covered_single_glyph_lines >= 3 && cluster_rect.h >= 400)
@@ -335,6 +340,7 @@ pub fn should_reject_candidate_region(
 
     // 19. SUPPRESS MASSIVE NON-BUBBLE BACKGROUND TEXT OCCLUDED ACROSS SCENE ARTWORK
     let is_massive_background_occlusion = !is_bubble
+        && !is_sentence_dialogue
         && (cluster_rect.w as f32 >= page_w as f32 * 0.75)
         && cluster_rect.h >= (ref_dim * 0.10).max(90.0) as i32
         && (avg_score < 0.68 || char_count <= 4 || (compute_chromatic_color_variance(img, cluster_rect) >= 15.0 && char_count <= 8));
@@ -376,9 +382,10 @@ pub fn should_reject_candidate_region(
 
     // 21. SUPPRESS SPARSE GIANT NON-BUBBLE DETECTIONS (E.G. STYLIZED COVER / CHAPTER TITLE CALLIGRAPHY)
     let is_sparse_giant_non_bubble = !is_bubble
+        && !has_narrative_punctuation
         && (((cluster_rect.w >= (page_w as f32 * 0.30).max(220.0) as i32 && cluster_rect.h >= (ref_dim * 0.15).max(130.0) as i32) && char_count <= 3)
-            || ((cluster_rect.w >= (page_w as f32 * 0.40).max(300.0) as i32 && cluster_rect.h >= (ref_dim * 0.15).max(130.0) as i32) && char_count <= 4)
-            || ((cluster_rect.w >= (page_w as f32 * 0.45).max(350.0) as i32 && cluster_rect.h >= 140) && char_count <= 4)
+            || ((cluster_rect.w >= (page_w as f32 * 0.40).max(300.0) as i32 && cluster_rect.h >= (ref_dim * 0.15).max(130.0) as i32) && char_count <= 3)
+            || ((cluster_rect.w >= (page_w as f32 * 0.45).max(350.0) as i32 && cluster_rect.h >= 140) && char_count <= 3)
             || (cluster_rect.h >= (ref_dim * 0.25).max(250.0) as i32 && cluster_rect.w >= 100 && char_count <= 2)
             || (cluster_rect.h >= (ref_dim * 0.30).max(300.0) as i32 && char_count <= 3 && angle_deg.abs() >= 10.0));
     if is_sparse_giant_non_bubble {
@@ -388,7 +395,6 @@ pub fn should_reject_candidate_region(
     // 22. SUPPRESS TITLE ARTWORK LOGO CALLIGRAPHY ON CHAPTER PUBLICATION CREDIT CARDS
     let page_has_credits = split_lines.iter().any(|l| crate::ml::detect::is_credits_or_metadata_text(&l.text));
     if page_has_credits && !is_bubble && !crate::ml::detect::is_credits_or_metadata_text(cleaned) {
-        let has_narrative_punctuation = cleaned.chars().any(|c| matches!(c, '…' | '·' | '—' | '～' | '！' | '？' | '。' | '，' | '、' | '–' | '¿' | '¡' | '.' | '!' | '?' | ','));
         let is_title_artwork_on_credits_page = !has_narrative_punctuation
             && (cluster_rect.w >= 180 && cluster_rect.h >= 40 && char_count <= 8);
         if is_title_artwork_on_credits_page {

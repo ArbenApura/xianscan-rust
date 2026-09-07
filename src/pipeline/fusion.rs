@@ -42,7 +42,12 @@ fn filter_fused_ocr_lines(rl: Vec<OcrLine>, page_w: u32, source_lang: Option<&st
                 return false;
             }
             // 1. DROP GIANT ARTWORK HALLUCINATIONS (W >= 60% PAGE_W, H >= 120PX, SCORE < 0.75)
-            if lw >= (page_w as f32 * 0.60) as i32 && lh >= 120 && line.score < 0.75 {
+            // GUARD: DO NOT DROP LEGITIMATE MULTI-CHARACTER SENTENCE DIALOGUE OR NARRATION WITH NATIVE SCRIPT
+            let char_count = t.chars().filter(|c| !c.is_whitespace()).count();
+            let is_sentence_dialogue = crate::ml::detect::has_native_script_for_lang(t, source_lang)
+                && char_count >= 4
+                && !crate::ml::detect::is_onomatopoeia_or_shout(t);
+            if !is_sentence_dialogue && lw >= (page_w as f32 * 0.60) as i32 && lh >= 120 && line.score < 0.75 {
                 return false;
             }
             // 2. DROP STANDALONE REPEATED NOISE STROKES

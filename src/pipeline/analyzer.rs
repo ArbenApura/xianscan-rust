@@ -173,7 +173,11 @@ pub fn analyze_image_with_fusion_timed(
             return false;
         }
         let (lx, ly, lw, lh) = crate::ml::geometry::polygon_bounds(&line.polygon);
-        if (lw as f32) >= (page_w as f32 * 0.65) && lh >= 120 {
+        let char_count = line.text.chars().filter(|c| !c.is_whitespace()).count();
+        let is_sentence_dialogue = crate::ml::detect::has_native_script_for_lang(&line.text, source_lang)
+            && char_count >= 4
+            && !crate::ml::detect::is_onomatopoeia_or_shout(&line.text);
+        if !is_sentence_dialogue && (lw as f32) >= (page_w as f32 * 0.65) && lh >= 120 {
             return false;
         }
         if is_cjk && line.text.contains('\n') {
@@ -641,7 +645,7 @@ pub fn analyze_image_with_fusion_timed(
                     continue;
                 }
 
-                if (lw as f32) >= (page_w as f32 * 0.55) && lh >= 70 {
+                if !is_sentence_dialogue && (lw as f32) >= (page_w as f32 * 0.55) && lh >= 70 {
                     continue;
                 }
 
@@ -766,7 +770,10 @@ pub fn analyze_image_with_fusion_timed(
                 continue;
             }
             let (lx, ly, lw, lh) = crate::ml::geometry::polygon_bounds(&line.polygon);
-            let overlaps_sfx = fusion_res.onomatopoeia.iter().any(|(sfx_b, score)| {
+            let is_sentence_dialogue = crate::ml::detect::has_native_script_for_lang(&line.text, source_lang)
+                && line.text.chars().filter(|c| !c.is_whitespace()).count() >= 3
+                && !crate::ml::detect::is_onomatopoeia_or_shout(&line.text);
+            let overlaps_sfx = !is_sentence_dialogue && fusion_res.onomatopoeia.iter().any(|(sfx_b, score)| {
                 if *score < 0.20 {
                     return false;
                 }
