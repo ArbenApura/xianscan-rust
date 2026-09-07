@@ -209,7 +209,18 @@ pub fn build_regions(
                 let is_punct = t.chars().any(|c| matches!(c, '！' | '？' | '!' | '?' | '…'));
                 let is_pure_latin_word = !is_punct && t.chars().all(|c| c.is_ascii_alphabetic() || c.is_whitespace() || c.is_ascii_punctuation());
                 let is_noise_or_digit = !is_punct && (crate::ml::detect::is_standalone_digit_or_particle_noise(t) || crate::ml::detect::is_standalone_noise_stroke(t));
-                (!is_pure_latin_word && !is_noise_or_digit) || crate::ml::detect::is_onomatopoeia_or_shout(t)
+                let is_stat_val = !is_pure_latin_word && t.chars().all(|c| c.is_ascii_digit() || c.is_ascii_punctuation()) && split_lines.iter().any(|other| {
+                    if std::ptr::eq(other, *l) { return false; }
+                    let ot = other.text.trim();
+                    let is_label = ot.ends_with('：') || ot.ends_with(':') || ot.ends_with("LV") || ot.ends_with("Lv") || ot.ends_with("等级");
+                    if !is_label { return false; }
+                    let (lx, ly, lw, lh) = polygon_bounds(&l.polygon);
+                    let (ox, oy, ow, oh) = polygon_bounds(&other.polygon);
+                    let dx = (lx - (ox + ow)).max(ox - (lx + lw)).max(0);
+                    let dy = (ly - (oy + oh)).max(oy - (ly + lh)).max(0);
+                    dx <= 50 && dy <= 30
+                });
+                ((!is_pure_latin_word && !is_noise_or_digit) || is_stat_val) || crate::ml::detect::is_onomatopoeia_or_shout(t)
             });
         }
 
@@ -795,8 +806,16 @@ pub fn build_regions(
                         }
                     }
                     let font_scale = super::clustering::polygon_thickness(&active_line_polys[0]);
-                    let u_pad = (font_scale * 0.90).clamp(18.0, 35.0);
-                    let v_pad = (font_scale * 0.60).clamp(10.0, 25.0);
+                    let u_pad = if matched_bubble.is_some() {
+                        (font_scale * 0.90).clamp(18.0, 35.0)
+                    } else {
+                        (font_scale * 0.35).clamp(6.0, 14.0)
+                    };
+                    let v_pad = if matched_bubble.is_some() {
+                        (font_scale * 0.60).clamp(10.0, 25.0)
+                    } else {
+                        (font_scale * 0.25).clamp(4.0, 10.0)
+                    };
                     min_u -= u_pad;
                     max_u += u_pad;
                     max_v += v_pad;

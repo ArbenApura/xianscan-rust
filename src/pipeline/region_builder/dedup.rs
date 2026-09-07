@@ -59,16 +59,23 @@ pub fn deduplicate_and_unify_regions(
 
             let text_contains = clean_r == clean_e || clean_e.contains(clean_r) || clean_r.contains(clean_e) || has_shared_major_line || is_contained_text || has_cjk_sub;
 
-            let is_bubble_subset = (existing.bubble_box.is_some() || r.bubble_box.is_some())
+            let has_unshared_r = lines_r.iter().any(|lr| !lines_e.iter().any(|le| le == lr || le.contains(lr) || lr.contains(le)));
+            let has_unshared_e = lines_e.iter().any(|le| !lines_r.iter().any(|lr| lr == le || lr.contains(le) || le.contains(lr)));
+            let is_partial_chain = has_unshared_r && has_unshared_e;
+
+            let is_bubble_subset = !is_partial_chain
+                && (existing.bubble_box.is_some() || r.bubble_box.is_some())
                 && text_contains
                 && inter_area > 0
                 && (overlap_r >= 0.40 || overlap_e >= 0.40 || iou >= 0.30);
 
-            let is_spatial_containment_subset = (text_contains || has_shared_major_line)
+            let is_spatial_containment_subset = !is_partial_chain
+                && (text_contains || has_shared_major_line)
                 && inter_area > 0
                 && (overlap_r >= 0.40 || overlap_e >= 0.40 || iou >= 0.30);
 
-            let is_deep_spatial_containment = inter_area > 0
+            let is_deep_spatial_containment = !is_partial_chain
+                && inter_area > 0
                 && (overlap_r >= 0.80 || overlap_e >= 0.80)
                 && (text_contains || has_shared_major_line || clean_r.is_empty() || clean_e.is_empty());
 
@@ -96,7 +103,7 @@ pub fn deduplicate_and_unify_regions(
                     || (r_meaningful == 0 && e_meaningful >= 3)
                     || (e_meaningful == 0 && r_meaningful >= 3));
 
-            let is_high_spatial_overlap = inter_area > 0 && (iou >= 0.50 || overlap_r >= 0.60 || overlap_e >= 0.60);
+            let is_high_spatial_overlap = !is_partial_chain && inter_area > 0 && (iou >= 0.50 || overlap_r >= 0.60 || overlap_e >= 0.60);
 
             // FURIGANA / RUBY SATELLITE DEDUPLICATION:
             // IF A SHORT MINOR CANDIDATE (<= 4 CHARACTERS) IS SPATIALLY CONTAINED (OVERLAP >= 65% OF ITS AREA)
@@ -197,17 +204,22 @@ pub fn deduplicate_and_unify_regions(
                     let u_gap = (e_min_u.max(r_min_u) - e_max_u.min(r_max_u)).max(0.0);
                     let u_overlap_ratio = u_overlap / e_w_u.min(r_w_u);
 
-                    let existing_lines_count = existing.text.lines().count();
-                    let r_lines_count = r.text.lines().count();
+                    let existing_lines_count = existing.text.lines().count().max(1);
+                    let r_lines_count = r.text.lines().count().max(1);
                     let is_short_label = (clean_e.chars().count() <= 5 && existing_lines_count == 1)
                         || (clean_r.chars().count() <= 5 && r_lines_count == 1);
 
-                    let e_th = super::clustering::polygon_thickness(&existing.polygon);
-                    let r_th = super::clustering::polygon_thickness(&r.polygon);
+                    let e_th = super::clustering::polygon_thickness(&existing.polygon) / existing_lines_count as f32;
+                    let r_th = super::clustering::polygon_thickness(&r.polygon) / r_lines_count as f32;
                     let font_scale = e_th.min(r_th).max(12.0);
 
+                    let has_shared_line = lines_r.iter().any(|rl| lines_e.iter().any(|el| el.trim() == rl.trim()));
+                    let is_consecutive_slice = has_shared_line
+                        && (e_min_v - r_min_v).abs() <= (font_scale * 3.5).max(85.0)
+                        && (e_min_u - r_min_u).abs() <= (font_scale * 3.0).max(75.0);
+
                     // GUARD AGAINST MERGING DISPARATE FONT SCALES (E.G. GIANT TITLE ARTWORK WITH SMALL CREDITS OR BODY TEXT)
-                    let is_disparate_font_scale = e_th.max(r_th) >= e_th.min(r_th) * 1.60 && e_th.max(r_th) >= 40.0;
+                    let is_disparate_font_scale = !is_consecutive_slice && e_th.max(r_th) >= e_th.min(r_th) * 1.60 && e_th.max(r_th) >= 40.0;
 
                     let is_left_aligned = (e_min_u - r_min_u).abs() <= (font_scale * 0.80).max(18.0);
                     let max_v_gap = if u_overlap_ratio >= 0.20 || (is_left_aligned && u_overlap > 0.0) || u_gap <= 25.0 {
@@ -221,35 +233,30 @@ pub fn deduplicate_and_unify_regions(
                     let is_adjacent_v = v_overlap > 0.0 || (v_gap <= max_v_gap);
                     let is_aligned_u = u_overlap_ratio >= 0.20 || u_gap <= (font_scale * 1.20).max(25.0) || is_left_aligned;
 
-                    let is_multi_line_guard = (existing_lines_count >= 3 || r_lines_count >= 3) && v_gap >= (font_scale * 2.0).max(45.0);
-                    let is_distant_utterance_guard = v_gap >= (font_scale * 2.5).max(50.0) || (v_gap > 15.0 && (e_min_v - r_min_v).abs() >= 60.0) || (e_min_u - r_min_u).abs() >= 150.0;
+                    let is_multi_line_guard = !is_consecutive_slice && (existing_lines_count >= 3 || r_lines_count >= 3) && v_gap >= (font_scale * 2.0).max(45.0);
+                    let is_distant_utterance_guard = !is_consecutive_slice && (v_gap >= (font_scale * 2.5).max(50.0) || (v_gap > 15.0 && (e_min_v - r_min_v).abs() >= 60.0) || (e_min_u - r_min_u).abs() >= 150.0);
 
                     if is_adjacent_v && is_aligned_u && !is_multi_line_guard && !is_distant_utterance_guard && !is_disparate_font_scale {
                         is_duplicate = true;
 
-                        let mut min_u = e_min_u.min(r_min_u);
-                        let mut max_u = e_max_u.max(r_max_u);
-                        let mut min_v = e_min_v.min(r_min_v);
-                        let mut max_v = e_max_v.max(r_max_v) + (font_scale * 0.85).clamp(15.0, 32.0);
+                        let min_u = e_min_u.min(r_min_u);
+                        let max_u = e_max_u.max(r_max_u);
+                        let min_v = e_min_v.min(r_min_v);
+                        let max_v = e_max_v.max(r_max_v);
 
-                        let u_pad = (font_scale * 0.90).clamp(18.0, 35.0);
-                        min_u -= u_pad;
-                        max_u += u_pad;
-
-                        if let Some((bu_min, bu_max, bv_min, bv_max)) =
+                        let (final_min_u, final_max_u, final_min_v, final_max_v) = if let Some((bu_min, bu_max, bv_min, bv_max)) =
                             super::geometry::extract_slanted_bubble_envelope(img, min_u, max_u, min_v, max_v, existing.angle)
                         {
-                            min_u = bu_min;
-                            max_u = bu_max;
-                            min_v = bv_min;
-                            max_v = bv_max;
-                        }
+                            (bu_min, bu_max, bv_min, bv_max)
+                        } else {
+                            (min_u, max_u, min_v, max_v)
+                        };
 
                         let u_v_corners = [
-                            (min_u, min_v),
-                            (max_u, min_v),
-                            (max_u, max_v),
-                            (min_u, max_v),
+                            (final_min_u, final_min_v),
+                            (final_max_u, final_min_v),
+                            (final_max_u, final_max_v),
+                            (final_min_u, final_max_v),
                         ];
                         existing.polygon = u_v_corners
                             .iter()
@@ -277,19 +284,53 @@ pub fn deduplicate_and_unify_regions(
                             h: (max_y - min_y).max(1).min(page_h as i32 - min_y.max(0)),
                         };
                         existing.inpaint_box = Some(expand_box(&existing.box_, inpaint_pct, page_w, page_h));
-                        existing.typeset_box = Some(expand_box(&existing.box_, typeset_pct, page_w, page_h));
+
+                        let center_u = (final_min_u + final_max_u) / 2.0;
+                        let center_v = (final_min_v + final_max_v) / 2.0;
+                        let cx = center_u * cos_m - center_v * sin_m;
+                        let cy = center_u * sin_m + center_v * cos_m;
+                        let local_w = (final_max_u - final_min_u).max(1.0);
+                        let local_h = (final_max_v - final_min_v).max(1.0);
+                        existing.typeset_box = Some(BoxRect {
+                            x: (cx - local_w / 2.0).round() as i32,
+                            y: (cy - local_h / 2.0).round() as i32,
+                            w: local_w.round() as i32,
+                            h: local_h.round() as i32,
+                        });
 
                         let mut combined_lines: Vec<(f32, String)> = Vec::new();
-                        for line in existing.text.lines() {
-                            let l_trim = line.trim();
-                            if !l_trim.is_empty() {
-                                combined_lines.push((e_min_v, l_trim.to_string()));
-                            }
+                        let e_lines: Vec<&str> = existing.text.lines().map(|s| s.trim()).filter(|s| !s.is_empty()).collect();
+                        let r_lines: Vec<&str> = r.text.lines().map(|s| s.trim()).filter(|s| !s.is_empty()).collect();
+                        let e_step = (e_max_v - e_min_v) / e_lines.len().max(1) as f32;
+                        let r_step = (r_max_v - r_min_v) / r_lines.len().max(1) as f32;
+
+                        for (i, &line) in e_lines.iter().enumerate() {
+                            combined_lines.push((e_min_v + i as f32 * e_step, line.to_string()));
                         }
-                        for line in r.text.lines() {
-                            let l_trim = line.trim();
-                            if !l_trim.is_empty() && !combined_lines.iter().any(|(_, cl)| cl == l_trim || cl.contains(l_trim)) {
-                                combined_lines.push((r_min_v, l_trim.to_string()));
+
+                        let line_h = font_scale.clamp(14.0, 35.0);
+                        for (j, &line) in r_lines.iter().enumerate() {
+                            let rv = r_min_v + j as f32 * r_step;
+                            let mut merged_into_row = false;
+                            for (ev, el) in combined_lines.iter_mut() {
+                                if el == line || el.contains(line) {
+                                    merged_into_row = true;
+                                    break;
+                                }
+                                if line.contains(el.as_str()) && line.chars().count() > el.chars().count() {
+                                    *el = line.to_string();
+                                    merged_into_row = true;
+                                    break;
+                                }
+                                let is_same_row = (*ev - rv).abs() <= (line_h * 0.35).clamp(5.0, 12.0);
+                                if is_same_row && (el.ends_with('：') || el.ends_with(':')) && !line.ends_with('：') && !line.ends_with(':') {
+                                    el.push_str(line);
+                                    merged_into_row = true;
+                                    break;
+                                }
+                            }
+                            if !merged_into_row {
+                                combined_lines.push((rv, line.to_string()));
                             }
                         }
                         combined_lines.sort_by(|a, b| a.0.total_cmp(&b.0));

@@ -386,12 +386,6 @@ function onChapterCompleted(chapter: BatchChapterItem, snapshot: ChapterJobSnaps
 	);
 	activeBatchState.currentIndex = firstUnfinished >= 0 ? firstUnfinished : activeBatchState.queue.length;
 
-	// PURGE SKIA CACHES AND RECLAIM NATIVE BUFFERS BETWEEN BATCH CHAPTERS
-	clearAllCache();
-	if (typeof global.gc === 'function') {
-		global.gc();
-	}
-
 	emitState();
 	dispatchNextItems();
 }
@@ -494,12 +488,6 @@ function onChapterFailed(chapter: BatchChapterItem, errorMsg: string) {
 		(c) => c.status === 'queued' || c.status === 'processing' || c.status === 'reslicing',
 	);
 	activeBatchState.currentIndex = firstUnfinished >= 0 ? firstUnfinished : activeBatchState.queue.length;
-
-	// PURGE SKIA CACHES AND RECLAIM NATIVE BUFFERS BETWEEN BATCH CHAPTERS
-	clearAllCache();
-	if (typeof global.gc === 'function') {
-		global.gc();
-	}
 
 	emitState();
 	dispatchNextItems();

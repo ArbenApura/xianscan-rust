@@ -1157,10 +1157,6 @@ export async function runChapterPipeline(
 				// EAGERLY DISCARD COMPLETED PAGE BUFFERS TO PREVENT NATIVE MEMORY RETENTION
 				slot.image = undefined;
 				slot.analyzed = undefined;
-				clearAllCache();
-				if (typeof global.gc === 'function') {
-					global.gc();
-				}
 				emit({
 					type: 'error',
 					chapterId,
@@ -1248,10 +1244,6 @@ export async function runChapterPipeline(
 			// EAGERLY DISCARD COMPLETED PAGE BUFFERS TO PREVENT NATIVE MEMORY RETENTION
 			slot.image = undefined;
 			slot.analyzed = undefined;
-			clearAllCache();
-			if (typeof global.gc === 'function') {
-				global.gc();
-			}
 			const finalCleanedRev = freshRow?.cleanedRev ?? page.cleanedRev + 1;
 			const finalOutputRev = freshRow?.outputRev ?? page.outputRev + 1;
 			emit({
@@ -1376,9 +1368,12 @@ export async function runChapterPipeline(
 		await pool.onIdle();
 		signal.removeEventListener('abort', onAbort);
 		activeChapterPools.delete(chapterId);
-		clearAllCache();
-		if (typeof global.gc === 'function') {
-			global.gc();
+		// ONLY FLUSH SKIA CACHES AND INVOKE GC WHEN ALL CHAPTER POOLS ARE COMPLETELY IDLE
+		if (activeChapterPools.size === 0) {
+			clearAllCache();
+			if (typeof global.gc === 'function') {
+				global.gc();
+			}
 		}
 	}
 

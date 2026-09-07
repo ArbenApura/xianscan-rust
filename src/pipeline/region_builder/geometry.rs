@@ -607,3 +607,183 @@ pub fn extract_carrier_box_from_image(img: &DynamicImage, b: &BoxRect, t: &BoxRe
 
     best_carrier.unwrap_or_else(|| b.clone())
 }
+
+/// EXTRACTS THE ENVELOPE OF A DARK OR INVERTED SPEECH BUBBLE (WHITE OR LIGHT TEXT ON DARK BACKGROUND).
+/// USES MULTI-RAY PROFILE SCANNING RADIATING OUTWARD FROM THE TEXT BOX BOUNDS.
+pub fn extract_dark_bubble_envelope(
+    img: &DynamicImage,
+    bx: i32,
+    by: i32,
+    bw: i32,
+    bh: i32,
+    page_w: u32,
+    page_h: u32,
+) -> Option<BoxRect> {
+    if bw < 8 || bh < 8 || bx < 0 || by < 0 || bx + bw > page_w as i32 || by + bh > page_h as i32 {
+        return None;
+    }
+
+    let rgb_img = img.to_rgb8();
+
+    // 1. SAMPLE INSIDE THE TEXT BOX TO VERIFY INVERTED CONTRAST
+    // A DARK BUBBLE INTERIOR IS PREDOMINANTLY DARK PIXELS (LUMINANCE < 75) WITH LIGHT TEXT STROKES (LUMINANCE > 135)
+    // AND LOW CHROMATIC SATURATION (MONOCHROME DARK).
+    let sample_step_x = (bw / 20).max(1);
+    let sample_step_y = (bh / 20).max(1);
+    let mut dark_pixels = 0usize;
+    let mut light_stroke_pixels = 0usize;
+    let mut total_sampled = 0usize;
+    let mut sat_sum = 0.0f32;
+
+    for y in (by..(by + bh)).step_by(sample_step_y as usize) {
+        for x in (bx..(bx + bw)).step_by(sample_step_x as usize) {
+            let p = rgb_img.get_pixel(x as u32, y as u32);
+            let lum = (0.299 * p[0] as f32 + 0.587 * p[1] as f32 + 0.114 * p[2] as f32) as u8;
+            if lum < 75 {
+                dark_pixels += 1;
+            } else if lum > 135 {
+                light_stroke_pixels += 1;
+            }
+            let max_c = p[0].max(p[1]).max(p[2]) as f32;
+            let min_c = p[0].min(p[1]).min(p[2]) as f32;
+            let sat = if max_c > 0.0 { (max_c - min_c) / max_c * 100.0 } else { 0.0 };
+            sat_sum += sat;
+            total_sampled += 1;
+        }
+    }
+
+    if total_sampled == 0 {
+        return None;
+    }
+
+    let dark_ratio = dark_pixels as f32 / total_sampled as f32;
+    let avg_sat = sat_sum / total_sampled as f32;
+
+    // MUST HAVE AT LEAST 50% DARK INTERIOR PIXELS, SOME LIGHT STROKE PIXELS, AND LOW SATURATION
+    if dark_ratio < 0.50 || light_stroke_pixels == 0 || avg_sat > 35.0 {
+        return None;
+    }
+
+    // 2. CHECK IMMEDIATE SURROUNDING MARGIN (8PX OUTSIDE TEXT BOX)
+    // AT LEAST 65% OF SURROUNDING MARGIN PIXELS MUST BE DARK
+    let mut margin_dark = 0usize;
+    let mut margin_total = 0usize;
+    for dy in [-8, -4, bh + 4, bh + 8] {
+        let gy = (by + dy).clamp(0, page_h as i32 - 1) as u32;
+        for dx in (0..bw).step_by(sample_step_x as usize) {
+            let gx = (bx + dx).clamp(0, page_w as i32 - 1) as u32;
+            let p = rgb_img.get_pixel(gx, gy);
+            let lum = (0.299 * p[0] as f32 + 0.587 * p[1] as f32 + 0.114 * p[2] as f32) as u8;
+            if lum < 80 { margin_dark += 1; }
+            margin_total += 1;
+        }
+    }
+    for dx in [-8, -4, bw + 4, bw + 8] {
+        let gx = (bx + dx).clamp(0, page_w as i32 - 1) as u32;
+        for dy in (0..bh).step_by(sample_step_y as usize) {
+            let gy = (by + dy).clamp(0, page_h as i32 - 1) as u32;
+            let p = rgb_img.get_pixel(gx, gy);
+            let lum = (0.299 * p[0] as f32 + 0.587 * p[1] as f32 + 0.114 * p[2] as f32) as u8;
+            if lum < 80 { margin_dark += 1; }
+            margin_total += 1;
+        }
+    }
+
+    if margin_total == 0 || (margin_dark as f32 / margin_total as f32) < 0.65 {
+        return None;
+    }
+
+    // 3. MULTI-RAY ENVELOPE SCANNING
+    let max_pad = (bw.max(bh) * 2).clamp(35, 120);
+    let is_dark_pixel = |x: i32, y: i32| -> bool {
+        if x < 0 || x >= page_w as i32 || y < 0 || y >= page_h as i32 { return false; }
+        let p = rgb_img.get_pixel(x as u32, y as u32);
+        let lum = (0.299 * p[0] as f32 + 0.587 * p[1] as f32 + 0.114 * p[2] as f32) as u8;
+        lum < 80
+    };
+
+    // UPWARD RAYS
+    let mut top_stops = Vec::new();
+    for frac in [0.20, 0.35, 0.50, 0.65, 0.80] {
+        let rx = bx + (bw as f32 * frac) as i32;
+        let mut stop_y = by;
+        for step in 1..=max_pad {
+            let ry = by - step;
+            if !is_dark_pixel(rx, ry) {
+                stop_y = ry;
+                break;
+            }
+            stop_y = ry;
+        }
+        top_stops.push(stop_y);
+    }
+    top_stops.sort();
+    let bubble_y = top_stops[2];
+
+    // DOWNWARD RAYS
+    let mut bot_stops = Vec::new();
+    for frac in [0.20, 0.35, 0.50, 0.65, 0.80] {
+        let rx = bx + (bw as f32 * frac) as i32;
+        let mut stop_y = by + bh;
+        for step in 1..=max_pad {
+            let ry = by + bh + step;
+            if !is_dark_pixel(rx, ry) {
+                stop_y = ry;
+                break;
+            }
+            stop_y = ry;
+        }
+        bot_stops.push(stop_y);
+    }
+    bot_stops.sort();
+    let bubble_max_y = bot_stops[2];
+
+    // LEFTWARD RAYS
+    let mut left_stops = Vec::new();
+    for frac in [0.20, 0.35, 0.50, 0.65, 0.80] {
+        let ry = by + (bh as f32 * frac) as i32;
+        let mut stop_x = bx;
+        for step in 1..=max_pad {
+            let rx = bx - step;
+            if !is_dark_pixel(rx, ry) {
+                stop_x = rx;
+                break;
+            }
+            stop_x = rx;
+        }
+        left_stops.push(stop_x);
+    }
+    left_stops.sort();
+    let bubble_x = left_stops[2];
+
+    // RIGHTWARD RAYS
+    let mut right_stops = Vec::new();
+    for frac in [0.20, 0.35, 0.50, 0.65, 0.80] {
+        let ry = by + (bh as f32 * frac) as i32;
+        let mut stop_x = bx + bw;
+        for step in 1..=max_pad {
+            let rx = bx + bw + step;
+            if !is_dark_pixel(rx, ry) {
+                stop_x = rx;
+                break;
+            }
+            stop_x = rx;
+        }
+        right_stops.push(stop_x);
+    }
+    right_stops.sort();
+    let bubble_max_x = right_stops[2];
+
+    let b_w = (bubble_max_x - bubble_x).max(bw + 10);
+    let b_h = (bubble_max_y - bubble_y).max(bh + 10);
+
+    let final_x = bubble_x.clamp(0, page_w as i32 - b_w);
+    let final_y = bubble_y.clamp(0, page_h as i32 - b_h);
+
+    Some(BoxRect {
+        x: final_x,
+        y: final_y,
+        w: b_w,
+        h: b_h,
+    })
+}

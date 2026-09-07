@@ -47,8 +47,16 @@ pub fn should_reject_candidate_region(
 
     // 2. DROP HIGH-TILT NON-DIALOGUE WITH LOW RECOGNITION CONFIDENCE OR SHORT ARTWORK SFX ON CHROMATIC BACKGROUND
     let char_count = cleaned.chars().filter(|c| !c.is_whitespace()).count();
+    let is_card_or_aligned_text = !is_bubble && angle_deg.abs() >= 4.5 && split_lines.iter().any(|l| {
+        let (lx, ly, lw, lh) = polygon_bounds(&l.polygon);
+        let l_angle = crate::ml::geometry::calculate_box_angle_i32(&l.polygon);
+        let angle_close = (l_angle - angle_deg).abs() <= 6.0;
+        let dx = (lx - (cluster_rect.x + cluster_rect.w)).max(cluster_rect.x - (lx + lw)).max(0);
+        let dy = (ly - (cluster_rect.y + cluster_rect.h)).max(cluster_rect.y - (ly + lh)).max(0);
+        angle_close && dx <= 80 && dy <= 80 && (lx != cluster_rect.x || ly != cluster_rect.y)
+    });
     if !is_bubble {
-        if angle_deg.abs() >= 12.0 && (avg_score < 0.65 || (char_count <= 2 && avg_score < 0.75 && compute_chromatic_color_variance(img, cluster_rect) >= 12.0)) {
+        if !is_card_or_aligned_text && angle_deg.abs() >= 12.0 && (avg_score < 0.65 || (char_count <= 2 && avg_score < 0.75 && compute_chromatic_color_variance(img, cluster_rect) >= 12.0)) {
             return true;
         }
     }
@@ -128,7 +136,9 @@ pub fn should_reject_candidate_region(
                     || crate::ml::detect::is_standalone_table_cell(lt)
             });
         let is_cjk_garbage = is_cjk && avg_score < 0.70 && !crate::ml::detect::has_cjk_characters(cleaned) && !is_expressive_bubble_punct;
-        if (cluster_rect.w <= tiny_bubble_w && cluster_rect.h <= tiny_bubble_h && (avg_score < 0.68 || is_noise_or_digit || is_cjk_garbage))
+        let lacks_native = !crate::ml::detect::has_native_script_for_lang(cleaned, source_lang);
+        let is_low_conf_noise = avg_score < 0.68 && (lacks_native || !crate::ml::detect::has_cjk_characters(cleaned)) && !is_expressive_bubble_punct;
+        if (cluster_rect.w <= tiny_bubble_w && cluster_rect.h <= tiny_bubble_h && (is_low_conf_noise || is_noise_or_digit || is_cjk_garbage))
             || is_cjk_garbage
         {
             return true;
@@ -231,7 +241,8 @@ pub fn should_reject_candidate_region(
     let is_low_conf_single_char = char_count <= 2 && (avg_score < 0.75 || is_oversized_single_char || is_compact_single_glyph_box);
     let is_isolated_sfx = char_count <= 6 && is_shout;
 
-    if char_count <= 6
+    if !is_card_or_aligned_text
+        && char_count <= 6
         && !is_bubble
         && !is_sign_or_narration_box
         && (!is_valid_cjk_glyph || is_low_conf_single_char || is_margin_isolated_char || is_isolated_sfx || is_oversized_single_char)
@@ -241,7 +252,7 @@ pub fn should_reject_candidate_region(
     }
 
     // 8b. SUPPRESS ISOLATED SINGLE-GLYPH NOISE OUTSIDE SPEECH BUBBLES
-    if !is_bubble && char_count == 1 && avg_score < 0.72 && !is_shout {
+    if !is_bubble && !is_card_or_aligned_text && char_count == 1 && avg_score < 0.72 && !is_shout {
         return true;
     }
 

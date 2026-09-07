@@ -1,5 +1,5 @@
-// TYPESETTING — RENDER TRANSLATED TEXT ONTO THE CLEANED PAGE WITH @napi-rs/canvas (SKIA).
-import { createCanvas, loadImage, clearAllCache } from '@napi-rs/canvas';
+// TYPESETTING - RENDER TRANSLATED TEXT ONTO THE CLEANED PAGE WITH @napi-rs/canvas (SKIA).
+import { createCanvas, loadImage } from '@napi-rs/canvas';
 
 // SUBMODULE RE-EXPORTS FOR BACKWARD COMPATIBILITY
 export * from './typeset/fonts';
@@ -68,9 +68,8 @@ export async function typesetPage(
 
 	const img = await loadImage(cleanedPng);
 	const canvas = createCanvas(img.width, img.height);
-	try {
-		const ctx = canvas.getContext('2d');
-		ctx.drawImage(img, 0, 0);
+	const ctx = canvas.getContext('2d');
+	ctx.drawImage(img, 0, 0);
 
 	const decollided = decollideRegions(regions);
 
@@ -245,15 +244,4 @@ export async function typesetPage(
 	}
 	// GLOBAL WEBP POLICY: TYPESET OUTPUT IS ALWAYS WEBP.
 	return await canvas.encode('webp', 90);
-	} finally {
-		// COLLAPSE CANVAS DIMENSIONS TO FORCE IMMEDIATE RELEASE OF THE UNDERLYING SKIA BITMAP SURFACE
-		canvas.width = 1;
-		canvas.height = 1;
-		// CLEAR SKIA GLYPH, FONT, AND TEXTBLOB CACHES TO PREVENT CONTINUOUS ACCUMULATION IN PROCESS RSS
-		clearAllCache();
-		// PROACTIVELY SWEEP V8 NATIVE FINALIZERS IF GC WAS EXPOSED
-		if (typeof global.gc === 'function') {
-			global.gc();
-		}
-	}
 }

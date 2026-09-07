@@ -11,7 +11,7 @@ use crate::ml::schemas::{
 };
 use super::engine::PipelineEngine;
 use super::fusion::fuse_detections;
-use super::region_builder::build_regions;
+use super::region_builder::{build_regions, extract_dark_bubble_envelope};
 
 // -- FUNCTIONS & ALGORITHMS -- //
 
@@ -225,11 +225,68 @@ pub fn analyze_image_with_fusion_timed(
         true
     }).collect();
 
+    // DETECT AND ADD MISSED DARK OR INVERTED SPEECH BUBBLE CONTAINERS (CHINESE COMICS)
+    let is_zh = matches!(source_lang, Some("zh_hans") | Some("zh_hant") | Some("zh-Hans") | Some("zh-Hant"));
+    let mut effective_bubbles: Vec<crate::ml::schemas::BoxRect> = fusion_res.bubbles.clone();
+    let mut effective_text_bubbles: Vec<(crate::ml::schemas::BoxRect, f32)> = fusion_res.text_bubbles.clone();
+
+    if is_zh {
+        // RECOVER DARK BUBBLE CONTAINERS AND CANDIDATES FOR INVERTED DIALOGUE OCR LINES
+
+        // 2. RECOVER DARK BUBBLE CONTAINERS AND CANDIDATES FOR UNASSIGNED INVERTED OCR LINES
+        for line in &filtered_rapid_lines {
+            let char_count = line.text.chars().filter(|c| !c.is_whitespace()).count();
+            if char_count < 2 {
+                continue;
+            }
+            let is_sfx = crate::ml::detect::is_onomatopoeia_or_shout(&line.text);
+            let has_exclaim = line.text.contains('！') || line.text.contains('!');
+            if is_sfx && !has_exclaim {
+                continue;
+            }
+
+            let (lx, ly, lw, lh) = crate::ml::geometry::polygon_bounds(&line.polygon);
+            let in_existing_bubble = effective_bubbles.iter().any(|pb| {
+                let ix = (pb.x + pb.w).min(lx + lw) - pb.x.max(lx);
+                let iy = (pb.y + pb.h).min(ly + lh) - pb.y.max(ly);
+                ix > 0 && iy > 0 && (ix * iy) as f32 / (lw * lh).max(1) as f32 >= 0.50
+            });
+            if !in_existing_bubble {
+                if let Some(dark_b) = extract_dark_bubble_envelope(img, lx, ly, lw, lh, page_w, page_h) {
+                    if let Some(pos) = effective_bubbles.iter().position(|eb| {
+                        let ix = (eb.x + eb.w).min(dark_b.x + dark_b.w) - eb.x.max(dark_b.x);
+                        let iy = (eb.y + eb.h).min(dark_b.y + dark_b.h) - eb.y.max(dark_b.y);
+                        ix > 0 && iy > 0 && (ix * iy) as f32 / ((eb.w * eb.h).min(dark_b.w * dark_b.h)).max(1) as f32 >= 0.35
+                    }) {
+                        let eb = &mut effective_bubbles[pos];
+                        let min_x = eb.x.min(dark_b.x);
+                        let min_y = eb.y.min(dark_b.y);
+                        let max_x = (eb.x + eb.w).max(dark_b.x + dark_b.w);
+                        let max_y = (eb.y + eb.h).max(dark_b.y + dark_b.h);
+                        eb.x = min_x;
+                        eb.y = min_y;
+                        eb.w = max_x - min_x;
+                        eb.h = max_y - min_y;
+                    } else {
+                        effective_bubbles.push(dark_b);
+                    }
+
+                    let already_in_tb = effective_text_bubbles.iter().any(|(tb, _)| {
+                        (tb.x - lx).abs() <= 15 && (tb.y - ly).abs() <= 15
+                    });
+                    if !already_in_tb {
+                        effective_text_bubbles.push((crate::ml::schemas::BoxRect { x: lx, y: ly, w: lw, h: lh }, line.score));
+                    }
+                }
+            }
+        }
+    }
+
     // A. Use Detector-First Text and Free-Text Boxes if available (Koharu / RT-DETR)
     let is_detector_first = fusion_res.backend == "rfdetr-seg-2xl" || fusion_res.backend == "rtdetr-v2";
-    if is_detector_first && (!fusion_res.text_bubbles.is_empty() || !fusion_res.text_free.is_empty()) {
-        for (b, score) in &fusion_res.text_bubbles {
-            let inside_any_bubble = fusion_res.bubbles.iter().any(|pb| {
+    if is_detector_first && (!effective_text_bubbles.is_empty() || !fusion_res.text_free.is_empty()) {
+        for (b, score) in &effective_text_bubbles {
+            let inside_any_bubble = effective_bubbles.iter().any(|pb| {
                 let ix = (pb.x + pb.w).min(b.x + b.w) - pb.x.max(b.x);
                 let iy = (pb.y + pb.h).min(b.y + b.h) - pb.y.max(b.y);
                 ix > 0 && iy > 0 && (ix * iy) as f32 / (b.w * b.h).max(1) as f32 >= 0.50
@@ -308,7 +365,7 @@ pub fn analyze_image_with_fusion_timed(
 
             // IF THIS CANDIDATE OVERLAPS DETECTED ONOMATOPOEIA (SFX) WITH HIGHER OR COMPARABLE SCORE, SKIP IT
             // GUARD: If this text_bubble sits securely inside an actual speech bubble container, do not drop it (spiky bubbles often trigger onomatopoeia detectors)
-            let is_inside_bubble = fusion_res.bubbles.iter().any(|pb| {
+            let is_inside_bubble = effective_bubbles.iter().any(|pb| {
                 let ix = (pb.x + pb.w).min(b.x + b.w) - pb.x.max(b.x);
                 let iy = (pb.y + pb.h).min(b.y + b.h) - pb.y.max(b.y);
                 ix > 0 && iy > 0 && (ix * iy) as f32 / (b.w * b.h).max(1) as f32 >= 0.50
@@ -344,7 +401,7 @@ pub fn analyze_image_with_fusion_timed(
             if b.w as f32 >= (page_w as f32 * 0.65) && b.h >= 120 {
                 continue;
             }
-            let is_inside_bubble = fusion_res.bubbles.iter().any(|pb| {
+            let is_inside_bubble = effective_bubbles.iter().any(|pb| {
                 let ix = (pb.x + pb.w).min(b.x + b.w) - pb.x.max(b.x);
                 let iy = (pb.y + pb.h).min(b.y + b.h) - pb.y.max(b.y);
                 ix > 0 && iy > 0 && (ix * iy) as f32 / (b.w * b.h).max(1) as f32 >= 0.50
@@ -386,7 +443,7 @@ pub fn analyze_image_with_fusion_timed(
                 // For horizontal text paragraphs (bw >= bh * 1.15), extend downwards or upwards to catch immediate row continuations
                 // (Only for multi-line paragraph continuation; do not merge single-line subtitles into large title headers where lh >= bh * 1.5, or across separate standalone single-line detector containers)
                 let is_subtitle_to_title = bh <= 35.0 && (lh as f32) >= bh * 1.50;
-                let is_separate_detector_box = fusion_res.text_bubbles.iter().chain(fusion_res.text_free.iter()).any(|(tb, _)| {
+                let is_separate_detector_box = effective_text_bubbles.iter().map(|(b, s)| (b, s)).chain(fusion_res.text_free.iter().map(|(b, s)| (b, s))).any(|(tb, _)| {
                     let is_different_box = (tb.x - bx as i32).abs() > 15 || (tb.y - by as i32).abs() > 15;
                     if !is_different_box {
                         return false;
@@ -396,7 +453,7 @@ pub fn analyze_image_with_fusion_timed(
                     tb_iy > 0 && tb_ix > 0 && (tb_ix * tb_iy) as f32 / (lw * lh).max(1) as f32 >= 0.40
                         && ((tb.y as f32 >= by + bh - 10.0 || by as f32 >= (tb.y + tb.h) as f32 - 10.0) || ((tb.x as f32 >= bx + bw - 10.0 || bx as f32 >= (tb.x + tb.w) as f32 - 10.0)))
                 });
-                let parent_bubble = fusion_res.bubbles.iter().find(|b| {
+                let parent_bubble = effective_bubbles.iter().find(|b| {
                     let ix = (bx + bw).min((b.x + b.w) as f32) - bx.max(b.x as f32);
                     let iy = (by + bh).min((b.y + b.h) as f32) - by.max(b.y as f32);
                     ix > 0.0 && iy > 0.0 && (ix * iy) / (bw * bh).max(1.0) >= 0.50
@@ -445,7 +502,7 @@ pub fn analyze_image_with_fusion_timed(
                     // Do not fuse an unassigned multi-line line if it is much wider than a vertical detector box and extends far outside
                     let is_cross_panel_sfx_bleed = (bh > bw * 1.5) && ((lw as f32) > bw * 2.0) && ((lx as f32) < bx - 30.0 || ((lx + lw) as f32) > bx + bw + 30.0);
                     let overlaps_multiple_distinct_text_bubbles = {
-                        let matching_bubbles: Vec<&crate::ml::schemas::BoxRect> = fusion_res.text_bubbles.iter().filter_map(|(tb, tb_score)| {
+                        let matching_bubbles: Vec<&crate::ml::schemas::BoxRect> = effective_text_bubbles.iter().filter_map(|(tb, tb_score)| {
                             if *tb_score < 0.35 {
                                 return None;
                             }
@@ -594,7 +651,7 @@ pub fn analyze_image_with_fusion_timed(
                 }
 
                 // LAYOUT-ANCHORED RESCUE: CHECK IF THE OCR LINE IS ADJACENT TO ANY CONFIDENT DETECTED LAYOUT BOX (BUBBLE OR TEXT CANDIDATE)
-                let is_near_layout_anchor = fusion_res.bubbles.iter().chain(fusion_res.text_bubbles.iter().filter(|(_, s)| *s >= 0.25).map(|(b, _)| b)).chain(fusion_res.text_free.iter().filter(|(_, s)| *s >= 0.25).map(|(b, _)| b)).any(|b| {
+                let is_near_layout_anchor = effective_bubbles.iter().chain(effective_text_bubbles.iter().filter(|(_, s)| *s >= 0.25).map(|(b, _)| b)).chain(fusion_res.text_free.iter().filter(|(_, s)| *s >= 0.25).map(|(b, _)| b)).any(|b| {
                     let (bx, by, bw, bh) = (b.x as f32, b.y as f32, b.w as f32, b.h as f32);
                     let dx = (bx - (lx + lw) as f32).max((lx as f32) - (bx + bw)).max(0.0);
                     let dy = (by - (ly + lh) as f32).max((ly as f32) - (by + bh)).max(0.0);
@@ -606,7 +663,7 @@ pub fn analyze_image_with_fusion_timed(
                     let (px, py, pw, ph) = (p.x as f32, p.y as f32, p.w as f32, p.h as f32);
                     let line_in_p = (lx as f32) >= px - 15.0 && ((lx + lw) as f32) <= (px + pw + 15.0) && (ly as f32) >= py - 15.0 && ((ly + lh) as f32) <= (py + ph + 15.0);
                     if line_in_p {
-                        fusion_res.bubbles.iter().any(|b| {
+                        effective_bubbles.iter().any(|b| {
                             let (bx, by, bw, bh) = (b.x as f32, b.y as f32, b.w as f32, b.h as f32);
                             let inter_x = (bx + bw).min(px + pw) - bx.max(px);
                             let inter_y = (by + bh).min(py + ph) - by.max(py);
@@ -655,7 +712,7 @@ pub fn analyze_image_with_fusion_timed(
                 }
 
                 // IF NOT NEAR ANY LAYOUT DETECTION, ONLY RESCUE HIGH-CONFIDENCE NATIVE SCRIPT ON CLEAN GUTTER OR TITLE NARRATION
-                let has_any_layout = !fusion_res.bubbles.is_empty() || !fusion_res.text_bubbles.is_empty() || !fusion_res.text_free.is_empty();
+                let has_any_layout = !effective_bubbles.is_empty() || !effective_text_bubbles.is_empty() || !fusion_res.text_free.is_empty();
                 if has_any_layout && !is_near_layout_anchor {
                     // Check if background is dark/artwork
                     let is_native = match source_lang {
@@ -664,18 +721,37 @@ pub fn analyze_image_with_fusion_timed(
                         }
                         _ => true,
                     };
+                    let is_adjacent_to_native = filtered_rapid_lines.iter().any(|other| {
+                        if std::ptr::eq(*other, *line) { return false; }
+                        let other_is_native = crate::ml::detect::has_native_script_for_lang(&other.text, source_lang);
+                        if !other_is_native { return false; }
+                        let (ox, oy, ow, oh) = crate::ml::geometry::polygon_bounds(&other.polygon);
+                        let dx = (ox - (lx + lw)).max(lx - (ox + ow)).max(0);
+                        let dy = (oy - (ly + lh)).max(ly - (oy + oh)).max(0);
+                        dx <= 45 && dy <= 35
+                    });
+                    let is_native_or_stat = is_native || (is_adjacent_to_native && line.text.chars().all(|c| c.is_ascii_digit() || c.is_ascii_punctuation()));
                     let min_chars = match source_lang {
                         Some("zh_hans") | Some("zh_hant") | Some("zh-Hans") | Some("zh-Hant") => 2,
                         _ => 3,
                     };
-                    if !is_native || line.score < 0.70 || line.text.chars().filter(|c| !c.is_whitespace()).count() < min_chars {
+                    if !is_native_or_stat || line.score < 0.70 || line.text.chars().filter(|c| !c.is_whitespace()).count() < min_chars {
                         continue;
                     }
                 }
 
+                let is_adjacent_stat_line = filtered_rapid_lines.iter().any(|other| {
+                    if std::ptr::eq(*other, *line) { return false; }
+                    let other_is_native = crate::ml::detect::has_native_script_for_lang(&other.text, source_lang);
+                    if !other_is_native { return false; }
+                    let (ox, oy, ow, oh) = crate::ml::geometry::polygon_bounds(&other.polygon);
+                    let dx = (ox - (lx + lw)).max(lx - (ox + ow)).max(0);
+                    let dy = (oy - (ly + lh)).max(ly - (oy + oh)).max(0);
+                    dx <= 45 && dy <= 35
+                });
                 if lw <= 40 && lh <= 55 {
                     let has_cjk = crate::ml::detect::has_cjk_characters(&line.text);
-                    if (!has_cjk && line.score < 0.85) || (has_cjk && line.score < 0.70) {
+                    if (!has_cjk && !is_adjacent_stat_line && line.score < 0.85) || (has_cjk && line.score < 0.70) {
                         continue;
                     }
                 }
@@ -776,7 +852,7 @@ pub fn analyze_image_with_fusion_timed(
         &dedup_boxes,
         &order,
         &split_clean_lines,
-        &fusion_res.bubbles,
+        &effective_bubbles,
         page_w,
         page_h,
         is_cjk,
