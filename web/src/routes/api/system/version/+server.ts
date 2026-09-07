@@ -17,7 +17,7 @@ interface ReleaseCache {
 let cachedRelease: ReleaseCache | null = null;
 const CACHE_TTL_MS = 60 * 60 * 1000; // 1 HOUR CACHE
 const GITHUB_REPO = 'ArbenApura/xianscan-rust';
-const FALLBACK_CURRENT_VERSION = '0.5.0-beta.1';
+const FALLBACK_CURRENT_VERSION = '0.5.0-beta.4';
 
 export const GET: RequestHandler = async ({ url }) => {
 	const force = url.searchParams.get('force') === 'true';
