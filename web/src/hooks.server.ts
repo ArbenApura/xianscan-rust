@@ -12,6 +12,7 @@ import {
 	type AppFont,
 } from '$lib/stores/settings';
 import { getCanonicalSettings } from '$lib/server/settings-service';
+import { batchService } from '$lib/server/batch-service';
 
 // -- TYPES -- //
 
@@ -32,6 +33,12 @@ if (!globalThis.__mtProcessGuards) {
 	globalThis.__mtProcessGuards = true;
 	process.on('unhandledRejection', (reason) => console.error('[server] unhandled rejection (kept alive):', reason));
 	process.on('uncaughtException', (err) => console.error('[server] uncaught exception (kept alive):', err));
+	// RESTORE CRASH-INTERRUPTED TRANSLATION BATCH QUEUE
+	try {
+		batchService.reconcileAndRecoverOnStartup();
+	} catch (err) {
+		console.warn('[server] failed to run batch recovery on startup:', err);
+	}
 }
 
 // -- HANDLES -- //
