@@ -134,3 +134,76 @@ export function extractPlaceholderDimensions(el?: Element | null): { width: numb
 	}
 	return { width: 800, height: 1200 };
 }
+
+/**
+ * ISOLATES COMIC CHAPTER IMAGES INTO A RELEVANT COHESIVE CLUSTER, FILTERING OUT
+ * OUTLIER HEADER COVERS, NOISE THUMBNAILS, AVATARS, AND ISOLATED ADS.
+ */
+export function filterToRelevantCluster(images: ScannedImage[]): ScannedImage[] {
+	if (images.length <= 2) return images;
+
+	// 1. GROUP IMAGES BY DIRECTORY BASE (CDN ORIGIN + PATHNAME PARENT)
+	const clusters = new Map<string, ScannedImage[]>();
+	for (const img of images) {
+		const base = urlBase(img.url);
+		const list = clusters.get(base) || [];
+		list.push(img);
+		clusters.set(base, list);
+	}
+
+	// IF ALL IMAGES ALREADY SHARE THE EXACT SAME URL BASE, RETURN INTACT
+	if (clusters.size <= 1) {
+		return images;
+	}
+
+	// 2. FIND DOMINANT BASE CLUSTER WITH THE LARGEST IMAGE COUNT
+	let dominantBase = '';
+	let maxCount = 0;
+	for (const [base, cluster] of clusters) {
+		if (cluster.length > maxCount) {
+			maxCount = cluster.length;
+			dominantBase = base;
+		}
+	}
+
+	// 3. IF A STRONG CLUSTER EXISTS (AT LEAST 3 IMAGES OR MAJORITY OF CANDIDATES)
+	if (maxCount >= 3) {
+		const kept = new Set<string>();
+
+		for (const [base, cluster] of clusters) {
+			// A. ALWAYS INCLUDE THE DOMINANT COMIC CLUSTER
+			if (base === dominantBase) {
+				for (const img of cluster) {
+					kept.add(img.url);
+				}
+				continue;
+			}
+
+			// B. MULTI-SERVER / MULTI-PART CHAPTERS:
+			// ONLY INCLUDE SECONDARY CLUSTERS IF THEY MEET COMIC PANEL CRITERIA:
+			// - CONTAINS MULTIPLE IMAGES THAT ARE SEQUENTIALLY NUMBERED
+			// - OR CONSTITUTES A SIGNIFICANT PORTION (>= 20%) OF THE TOTAL SET
+			const allSequential = cluster.length >= 2 && cluster.every(i => looksLikeSequentialPanel(i.url));
+			const isSubstantial = cluster.length >= Math.max(3, Math.floor(images.length * 0.2));
+
+			if (allSequential || isSubstantial) {
+				for (const img of cluster) {
+					kept.add(img.url);
+				}
+			}
+		}
+
+		if (kept.size > 0) {
+			return images.filter(img => kept.has(img.url));
+		}
+	}
+
+	// 4. SECONDARY FALLBACK: IF DOMINANT URL BASE WAS AMBIGUOUS BUT SEQUENTIAL NUMBERING IS CLEAR
+	const sequentialCount = images.filter(i => looksLikeSequentialPanel(i.url)).length;
+	if (sequentialCount >= 3 && sequentialCount >= images.length * 0.6) {
+		return images.filter(i => looksLikeSequentialPanel(i.url));
+	}
+
+	return images;
+}
+

@@ -130,6 +130,8 @@ export function runMigrationsAndSafeguards(sqlite: Database.Database) {
 	try { sqlite.exec(`ALTER TABLE chapters ADD COLUMN resliced INTEGER NOT NULL DEFAULT 0;`); } catch {}
 	try { sqlite.exec(`ALTER TABLE chapters ADD COLUMN resliced_at INTEGER;`); } catch {}
 	try { sqlite.exec(`ALTER TABLE books ADD COLUMN custom_prompt TEXT;`); } catch {}
+	try { sqlite.exec(`ALTER TABLE pages ADD COLUMN annotated_path TEXT;`); } catch {}
+	try { sqlite.exec(`ALTER TABLE pages ADD COLUMN annotated_rev INTEGER NOT NULL DEFAULT 0;`); } catch {}
 
 	// AUTO-SYNC CHAPTER STATUSES FOR CHAPTERS WHOSE PAGES HAVE FINISHED TRANSLATING
 	try {

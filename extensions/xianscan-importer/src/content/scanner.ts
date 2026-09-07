@@ -6,7 +6,7 @@ import type { ScannedImage } from '../types';
 // IMPORTED MODULES
 import { sortImagesByCoordinates, isPlaceholderImage, computeDHashFromElement } from '../utils/sorter';
 import { NOISE_CONTAINER_SELECTORS, isFloatingOrSticky, isLikelyAdOrBannerImage } from '../core/heuristics/ad-detector';
-import { getCanonicalUrl, extractPlaceholderDimensions } from '../core/heuristics/url-clustering';
+import { getCanonicalUrl, extractPlaceholderDimensions, filterToRelevantCluster } from '../core/heuristics/url-clustering';
 
 // -- CONSTANTS -- //
 
@@ -186,7 +186,7 @@ export function findPrimaryReaderContainer(): HTMLElement | null {
 	// 1. CHECK SPECIFIC HIGH-PRIORITY MANGA/WEBTOON READER CONTAINERS FIRST
 	const priorityCandidates = Array.from(
 		document.querySelectorAll<HTMLElement>(
-			'#readerarea, div[class*="reading-content"], div[class*="reader-area"], div[class*="readerarea"], div[class*="chapter-images"], div[class*="wt_viewer"], #comic_view_area, div[class*="viewer-cnt"], div[class*="v-reader"]'
+			'#readerarea, [data-image-data], [data-images], [data-pages], [data-reader], section[data-image-data], section[class*="reading"], section[class*="chapter"], div[class*="reading-content"], div[class*="reader-area"], div[class*="readerarea"], div[class*="chapter-images"], div[class*="chapter-image"], div[class*="reading-images"], div[class*="wt_viewer"], #comic_view_area, div[class*="viewer-cnt"], div[class*="v-reader"]'
 		)
 	);
 	for (const container of priorityCandidates) {
@@ -238,8 +238,23 @@ export function findPrimaryReaderContainer(): HTMLElement | null {
 		// SCORE = ITEM COUNT * 5 + HEIGHT SCORE
 		const score = totalItems * 5 + heightScore;
 		if (score > highestScore && totalItems >= 1) {
+			// IF CURRENT CANDIDATE IS AN ANCESTOR THAT ENCLOSES PREVIOUS BEST, BUT PREVIOUS BEST ALREADY CONTAINS >= 75% OF ITEMS,
+			// KEEP THE TIGHTER INNER CONTAINER TO AVOID SELECTING OUTER WRAPPERS WITH HEADERS AND COVERS
+			if (bestContainer && container.contains(bestContainer)) {
+				const innerCount = bestContainer.querySelectorAll('img').length;
+				if (innerCount >= totalItems * 0.75) {
+					continue;
+				}
+			}
 			highestScore = score;
 			bestContainer = container;
+		} else if (bestContainer && bestContainer.contains(container) && totalItems >= 3) {
+			// PREFER TIGHTER INNER CONTAINER IF IT CONTAINS >= 75% OF THE ANCESTOR'S COMIC PANELS
+			const outerCount = bestContainer.querySelectorAll('img').length;
+			if (totalItems >= outerCount * 0.75) {
+				highestScore = score;
+				bestContainer = container;
+			}
 		}
 	}
 
@@ -434,7 +449,8 @@ export function scanPageForImages(): ScannedImage[] {
 	}
 
 	const rawImages = Array.from(imagesMap.values());
-	return sortImagesByCoordinates(rawImages);
+	const clustered = filterToRelevantCluster(rawImages);
+	return sortImagesByCoordinates(clustered);
 }
 
 // PROMOTE KNOWN LAZY ATTRIBUTES DIRECTLY ON READER IMAGES (INSTANT PRELOAD)

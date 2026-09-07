@@ -4,7 +4,7 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 
 // IMPORTED MODULES
-import { normalizePageUrl } from '../src/core/heuristics/url-clustering';
+import { normalizePageUrl, filterToRelevantCluster } from '../src/core/heuristics/url-clustering';
 import {
 	saveSiteMapping,
 	findMappingForUrl,
@@ -156,5 +156,33 @@ describe('Chapter URL isolation and routing heuristics', () => {
 		expect(mappings['https://site.com/reader?ch=106']).toBeUndefined();
 		expect(mappings['https://site.com/reader?ch=107']).toBeDefined();
 		expect(mappings['https://site.com/reader?ch=107'].chapterId).toBe(107);
+	});
+
+	it('isolates the relevant comic cluster and filters out header book covers', () => {
+		const rawImages = [
+			{
+				url: 'https://rawkuma.net/wp-content/uploads/2025/10/kanzen-drop.jpg',
+				canonicalUrl: 'https://rawkuma.net/wp-content/uploads/2025/10/kanzen-drop.jpg',
+				width: 1350,
+				height: 1920,
+				top: 100,
+				left: 396,
+				selected: true
+			},
+			...Array.from({ length: 18 }, (_, i) => ({
+				url: `https://kuma.kyut.dev/wp-content/scr/s/saijaku-bouken-sha-ga-kanzen-drop-de-gendai-saikyou-jibun-dake-no-rare-skill-to-custom-abilities-o-kushi-shite-hoka-no-dare-yori-tsuyoku-naru/0/${i + 1}.jpg`,
+				canonicalUrl: `https://kuma.kyut.dev/wp-content/scr/s/saijaku-bouken-sha-ga-kanzen-drop-de-gendai-saikyou-jibun-dake-no-rare-skill-to-custom-abilities-o-kushi-shite-hoka-no-dare-yori-tsuyoku-naru/0/${i + 1}.jpg`,
+				width: 960,
+				height: 1365,
+				top: 400 + i * 1138,
+				left: 555,
+				selected: true
+			}))
+		];
+
+		const clustered = filterToRelevantCluster(rawImages);
+		expect(clustered.length).toBe(18);
+		expect(clustered.some(img => img.url.includes('kanzen-drop.jpg'))).toBe(false);
+		expect(clustered.every(img => img.url.includes('kuma.kyut.dev'))).toBe(true);
 	});
 });

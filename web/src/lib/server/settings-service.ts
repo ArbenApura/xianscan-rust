@@ -120,6 +120,9 @@ export function sanitizeSettingValue(key: keyof AppSettings, value: unknown): un
 		case 'hasCompletedOnboarding':
 			return Boolean(value);
 
+		case 'livePipelinePreview':
+			return typeof value === 'boolean' ? value : true;
+
 		case 'version': {
 			const n = Number(value);
 			return Math.max(1, isNaN(n) ? 1 : Math.round(n));

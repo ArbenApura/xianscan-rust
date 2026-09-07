@@ -2,6 +2,7 @@
 	import { createEventDispatcher } from 'svelte';
 	import { ripple } from '$lib/actions/ripple';
 	import { Badge, ActionMenu, type MenuAction } from '$lib/components/ui';
+	import { settings } from '$lib/stores/settings';
 	import GripVertical from 'lucide-svelte/icons/grip-vertical';
 	import Eye from 'lucide-svelte/icons/eye';
 	import Languages from 'lucide-svelte/icons/languages';
@@ -121,6 +122,7 @@
 	}
 
 	let clientRatios: Record<number, number> = {};
+	let previewLoadErrors: Record<string, boolean> = {};
 
 	function handleImgLoad(pageId: number, e: CustomEvent<{ naturalWidth?: number; naturalHeight?: number }>): void {
 		const nw = e.detail?.naturalWidth;
@@ -128,6 +130,11 @@
 		if (nw && nh && nh > 0) {
 			clientRatios[pageId] = nw / nh;
 		}
+	}
+
+	function handlePreviewError(key: string): void {
+		previewLoadErrors[key] = true;
+		previewLoadErrors = { ...previewLoadErrors };
 	}
 </script>
 
@@ -141,6 +148,14 @@
 			{@const ratioStyle = ratio
 				? `aspect-ratio: ${ratio};`
 				: 'aspect-ratio: 2 / 3;'}
+			{@const hasLivePreview = $settings.livePipelinePreview !== false}
+			{@const isOutput = Boolean(page.outputPath)}
+			{@const isCleaned = hasLivePreview && !page.outputPath && Boolean(page.cleanedPath)}
+			{@const isAnnotated = hasLivePreview && !page.outputPath && Boolean(page.annotatedPath)}
+			{@const candidateKind = isOutput ? 'output' : (isCleaned && page.annotatedPath) ? 'annotated' : isCleaned ? 'cleaned' : isAnnotated ? 'annotated' : null}
+			{@const previewRev = isOutput ? (page.outputRev ?? 0) : (isCleaned && page.annotatedPath) ? (page.annotatedRev ?? 0) : isCleaned ? (page.cleanedRev ?? 0) : isAnnotated ? (page.annotatedRev ?? 0) : 0}
+			{@const previewKey = `${page.id}_${candidateKind}_${previewRev}`}
+			{@const previewKind = (previewLoadErrors[previewKey] && page.status === 'processing') ? null : candidateKind}
 			<!-- svelte-ignore a11y-no-static-element-interactions -->
 			<div
 				on:dragover={(e) => dispatch('dragOver', { event: e, index: idx })}
@@ -224,9 +239,9 @@
 						</div>
 					</div>
 
-					<!-- TRANSLATED / CLEANED OUTPUT COLUMN -->
+					<!-- TRANSLATED / CLEANED / ANNOTATED OUTPUT COLUMN -->
 					<div class="flex flex-col">
-						{#if page.outputPath}
+						{#if previewKind}
 							<div
 								class="group/img relative overflow-hidden rounded-lg border border-black/10 bg-black/5 dark:border-white/10"
 								style={ratioStyle}
@@ -234,23 +249,77 @@
 								<!-- svelte-ignore a11y-click-events-have-key-events -->
 								<!-- svelte-ignore a11y-no-noninteractive-element-interactions -->
 								<PageImage
-									src={`/api/pages/${page.id}/file?kind=output&rev=${page.outputRev ?? 0}`}
-									alt={`Page ${page.seq + 1} Output`}
-									imgClass={`w-full h-full object-contain ${page.status === 'processing' ? 'opacity-80' : ''}`}
+									src={`/api/pages/${page.id}/file?kind=${previewKind}&rev=${previewRev}`}
+									alt={`Page ${page.seq + 1} ${isOutput ? 'Output' : isCleaned ? 'Cleaned' : 'OCR Preview'}`}
+									imgClass={`w-full h-full object-contain ${page.status === 'processing' ? 'opacity-90' : ''}`}
 									on:load={(e) => handleImgLoad(page.id, e)}
+									on:error={() => handlePreviewError(previewKey)}
 									on:click={(e) =>
 										page.status !== 'processing' &&
-										dispatch('inspect', { page, initialTab: 'output' })}
+										dispatch('inspect', { page, initialTab: isOutput ? 'output' : 'original' })}
 								/>
 								<div class="pointer-events-none absolute bottom-2 left-2 flex items-center gap-1.5">
-									<span
-										class="rounded bg-black/80 px-2 py-0.5 text-[10px] font-bold text-white"
-									>
-										Translated
+									{#if isOutput}
+										<span
+											class="rounded bg-black/80 px-2 py-0.5 text-[10px] font-bold text-white"
+										>
+											Translated
+										</span>
+									{:else if isCleaned}
+										<span
+											class="rounded bg-[#5b8a72]/90 px-2 py-0.5 text-[10px] font-bold text-white shadow-xs"
+										>
+											Inpainted (Preview)
+										</span>
+									{:else if isAnnotated}
+										<span
+											class="rounded bg-[#06b6d4]/90 px-2 py-0.5 text-[10px] font-bold text-white shadow-xs"
+										>
+											OCR Annotation (Preview)
+										</span>
+									{/if}
+								</div>
+							</div>
+						{:else if page.status === 'processing'}
+							<!-- ACTIVE PROCESSING PLACEHOLDER (BEFORE OCR ANNOTATION PREVIEW IS READY) -->
+							<div
+								class="relative flex flex-col items-center justify-center overflow-hidden rounded-lg border border-dashed border-[#b23a2e]/30 bg-[#b23a2e]/[0.03] p-6 text-center transition-all dark:border-[#b23a2e]/40 dark:bg-[#b23a2e]/[0.05]"
+								style={ratioStyle}
+							>
+								<!-- SUBTLE AMBIENT PULSING GLOW -->
+								<div class="pointer-events-none absolute inset-0 -z-10 animate-pulse bg-radial from-[#b23a2e]/10 via-transparent to-transparent opacity-60" />
+
+								<div class="flex flex-col items-center gap-3">
+									<div class="flex h-10 w-10 items-center justify-center rounded-full bg-[#b23a2e]/10 text-[#b23a2e] dark:bg-[#b23a2e]/20">
+										<Languages size={18} />
+									</div>
+
+									<div class="flex flex-col items-center gap-1">
+										<span class="text-xs font-semibold text-stone-800 dark:text-stone-200">
+											{page.currentStep ? stepBadgeLabels[page.currentStep] || page.currentStep : 'Analyzing Page...'}
+										</span>
+										<span class="text-[11px] text-stone-500 dark:text-stone-400">
+											Live preview will appear once OCR detection finishes
+										</span>
+									</div>
+								</div>
+
+								<div class="pointer-events-none absolute bottom-2 left-2 flex items-center gap-1.5">
+									<span class="rounded bg-black/60 px-2 py-0.5 text-[10px] font-medium text-white/90 backdrop-blur-xs dark:bg-white/10">
+										Pipeline Active
 									</span>
 								</div>
 							</div>
+						{:else if page.status === 'queued'}
+							<!-- QUEUED PLACEHOLDER -->
+							<div
+								class="flex flex-col items-center justify-center rounded-lg border border-dashed border-black/15 bg-black/[0.02] text-xs text-stone-500 dark:border-white/15 dark:bg-white/[0.02] dark:text-stone-400"
+								style={ratioStyle}
+							>
+								<span>Queued for translation...</span>
+							</div>
 						{:else}
+							<!-- PENDING PLACEHOLDER -->
 							<div
 								class="flex items-center justify-center rounded-lg border border-dashed border-black/20 text-xs opacity-50 dark:border-white/20"
 								style={ratioStyle}

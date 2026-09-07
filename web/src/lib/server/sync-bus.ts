@@ -12,6 +12,7 @@ export type SyncEventType =
 	| 'chapter-reslicing'
 	| 'chapter-resliced'
 	| 'page-translated'
+	| 'page-stage-updated'
 	| 'chapter-translated'
 	| 'settings-updated';
 
@@ -22,6 +23,9 @@ export interface SyncEvent {
 	pageId?: number;
 	pageSeq?: number;
 	outputRev?: number;
+	stage?: 'annotated' | 'cleaned' | 'output';
+	rev?: number;
+	path?: string;
 	count?: number;
 	total?: number;
 	step?: string;

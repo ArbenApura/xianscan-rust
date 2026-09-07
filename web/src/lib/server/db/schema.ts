@@ -102,15 +102,18 @@ export const pages = sqliteTable(
 		height: integer('height'),
 		// 'pending' | 'processing' | 'done' | 'error' — PER-PAGE PIPELINE STATE.
 		status: text('status', { enum: ['pending', 'processing', 'done', 'error'] }).notNull().default('pending'),
-		// CLEANED (TEXT-ERASED) IMAGE PATH — SET AFTER THE INPAINT STAGE.
+		// CLEANED (TEXT-ERASED) IMAGE PATH - SET AFTER THE INPAINT STAGE.
 		cleanedPath: text('cleaned_path'),
-		// FINAL TYPESET IMAGE PATH — THE PIPELINE OUTPUT.
+		// FINAL TYPESET IMAGE PATH - THE PIPELINE OUTPUT.
 		outputPath: text('output_path'),
-		// MONOTONIC CONTENT REVISIONS — BUMPED IN THE SAME TRANSACTION AS ANY FILE WRITE.
+		// LIVE OCR ANNOTATION PREVIEW IMAGE PATH - SET AFTER DETECT AND OCR STAGE.
+		annotatedPath: text('annotated_path'),
+		// MONOTONIC CONTENT REVISIONS - BUMPED IN THE SAME TRANSACTION AS ANY FILE WRITE.
 		// THE CLIENT EMBEDS THEM IN IMAGE URLS (&rev=N) SO BROWSERS CAN CACHE IMMUTABLY
 		// WHILE EDITS ALWAYS FETCH FRESH BYTES.
 		cleanedRev: integer('cleaned_rev').notNull().default(0),
 		outputRev: integer('output_rev').notNull().default(0),
+		annotatedRev: integer('annotated_rev').notNull().default(0),
 		// ORIGINAL SOURCE REV — BUMPED WHENEVER filePath BYTES CHANGE IN PLACE
 		// (E.G. PAGE STITCH), SO IMMUTABLE-CACHED kind=original URLS GET A FRESH
 		// VALUE INSTEAD OF SERVING PRE-MERGE PIXELS.

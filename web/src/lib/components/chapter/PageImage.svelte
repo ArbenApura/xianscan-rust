@@ -8,6 +8,7 @@
 
 	const dispatch = createEventDispatcher<{
 		load: { naturalWidth: number; naturalHeight: number };
+		error: void;
 		click: MouseEvent;
 	}>();
 
@@ -38,6 +39,7 @@
 
 	function onImgError(): void {
 		hasError = true;
+		dispatch('error');
 	}
 
 	function handleRootClick(e: MouseEvent): void {

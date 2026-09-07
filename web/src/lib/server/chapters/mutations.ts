@@ -214,7 +214,7 @@ export function deletePage(pageId: number, dataRoot: string = DATA_ROOT): { chap
 	db.delete(translations).where(eq(translations.pageId, pageId)).run();
 	db.delete(regions).where(eq(regions.pageId, pageId)).run();
 
-	const pathsToUnlink = [p.filePath, p.cleanedPath, p.outputPath].filter(Boolean) as string[];
+	const pathsToUnlink = [p.filePath, p.cleanedPath, p.outputPath, p.annotatedPath].filter(Boolean) as string[];
 	for (const rel of pathsToUnlink) {
 		try {
 			unlinkSync(join(dataRoot, rel));
@@ -255,13 +255,18 @@ export function prunePageThumbs(pageId: number, dataRoot: string = DATA_ROOT): v
 export function resetPageProgress(pageId: number, dataRoot: string = DATA_ROOT): void {
 	prunePageThumbs(pageId, dataRoot);
 	const pageRow = db
-		.select({ chapterId: pages.chapterId, cleanedPath: pages.cleanedPath, outputPath: pages.outputPath })
+		.select({
+			chapterId: pages.chapterId,
+			cleanedPath: pages.cleanedPath,
+			outputPath: pages.outputPath,
+			annotatedPath: pages.annotatedPath,
+		})
 		.from(pages)
 		.where(eq(pages.id, pageId))
 		.get();
 
 	if (pageRow) {
-		const filesToUnlink = [pageRow.cleanedPath, pageRow.outputPath].filter(Boolean) as string[];
+		const filesToUnlink = [pageRow.cleanedPath, pageRow.outputPath, pageRow.annotatedPath].filter(Boolean) as string[];
 		for (const rel of filesToUnlink) {
 			try {
 				unlinkSync(join(dataRoot, rel));
@@ -278,6 +283,7 @@ export function resetPageProgress(pageId: number, dataRoot: string = DATA_ROOT):
 			status: 'pending',
 			cleanedPath: null,
 			outputPath: null,
+			annotatedPath: null,
 			error: null,
 			width: null,
 			height: null,
@@ -310,7 +316,7 @@ export function resetChapterProgress(chapterId: number, dataRoot: string = DATA_
 	const rows = db.select({ id: pages.id }).from(pages).where(eq(pages.chapterId, chapterId)).all();
 	for (const row of rows) resetPageProgress(row.id, dataRoot);
 
-	for (const folder of ['clean', 'output']) {
+	for (const folder of ['clean', 'output', 'annotated']) {
 		const dir = join(dataRoot, folder, String(chapterId));
 		try {
 			rmSync(dir, { recursive: true, force: true });

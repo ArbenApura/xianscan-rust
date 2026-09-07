@@ -117,6 +117,12 @@ export function resetDb(): void {
 		state.raw.exec(`ALTER TABLE pages ADD COLUMN llm_response TEXT;`);
 	} catch {}
 	try {
+		state.raw.exec(`ALTER TABLE pages ADD COLUMN annotated_path TEXT;`);
+	} catch {}
+	try {
+		state.raw.exec(`ALTER TABLE pages ADD COLUMN annotated_rev INTEGER NOT NULL DEFAULT 0;`);
+	} catch {}
+	try {
 		state.raw.exec(`ALTER TABLE books ADD COLUMN custom_prompt TEXT;`);
 	} catch {}
 	state.raw.pragma('foreign_keys = ON');

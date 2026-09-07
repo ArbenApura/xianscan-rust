@@ -45,6 +45,8 @@ import { detectSourceLanguage } from '$lib/languages';
 import { detectImageFormat, isAnimatedWebP } from './chapters/dimensions';
 import { prunePageThumbs } from './chapters/mutations';
 import { syncBus } from './sync-bus';
+import { getCanonicalSettings } from './settings-service';
+import { renderAnnotatedOcrImage } from './annotated-preview';
 
 // -- ACTIVE POOL REGISTRY FOR DYNAMIC CONCURRENCY HOT-RESIZING -- //
 const activeChapterPools = new Map<number, PQueue>();
@@ -271,6 +273,13 @@ export async function runChapterPipeline(
 					// IGNORE IF FILE MISSING
 				}
 			}
+			if (page.annotatedPath) {
+				try {
+					unlinkSync(join(deps.dataRoot, page.annotatedPath));
+				} catch {
+					// IGNORE IF FILE MISSING
+				}
+			}
 			prunePageThumbs(page.id, deps.dataRoot);
 			db.delete(translations).where(eq(translations.pageId, page.id)).run();
 			db.delete(regions).where(eq(regions.pageId, page.id)).run();
@@ -279,6 +288,7 @@ export async function runChapterPipeline(
 					status: 'pending',
 					cleanedPath: null,
 					outputPath: null,
+					annotatedPath: null,
 					error: null,
 					onomatopoeia: null,
 					ocrStats: null,
@@ -518,6 +528,13 @@ export async function runChapterPipeline(
 					// IGNORE IF FILE MISSING
 				}
 			}
+			if (injectRow.annotatedPath) {
+				try {
+					unlinkSync(join(deps.dataRoot, injectRow.annotatedPath));
+				} catch {
+					// IGNORE IF FILE MISSING
+				}
+			}
 			prunePageThumbs(injectRow.id, deps.dataRoot);
 			db.delete(translations).where(eq(translations.pageId, injectRow.id)).run();
 			db.delete(regions).where(eq(regions.pageId, injectRow.id)).run();
@@ -526,6 +543,7 @@ export async function runChapterPipeline(
 					status: 'pending',
 					cleanedPath: null,
 					outputPath: null,
+					annotatedPath: null,
 					error: null,
 					onomatopoeia: null,
 					ocrStats: null,
@@ -537,6 +555,7 @@ export async function runChapterPipeline(
 			injectRow.status = 'pending';
 			injectRow.cleanedPath = null;
 			injectRow.outputPath = null;
+			injectRow.annotatedPath = null;
 			injectRow.error = null;
 
 			// CLEAR STALE DIALOGUE TRACKER RECORD FOR INJECTED RE-TRANSLATION
@@ -670,6 +689,59 @@ export async function runChapterPipeline(
 			});
 			dialogueTracker.recordOcr(page.seq, page.id, analyzed.regions);
 
+			// 2b) LIVE OCR ANNOTATION PREVIEW GENERATION
+			const liveSettings = getCanonicalSettings();
+			if (liveSettings.livePipelinePreview !== false) {
+				try {
+					const annotatedBuf = await renderAnnotatedOcrImage(image, analyzed.regions);
+					const annotatedPath = `annotated/${chapterId}/${page.seq}.webp`;
+					cleanDir(join(deps.dataRoot, 'annotated', String(chapterId)));
+					writeFileSync(join(deps.dataRoot, annotatedPath), annotatedBuf);
+
+					db.update(pages)
+						.set({
+							annotatedPath,
+							annotatedRev: sql`${pages.annotatedRev} + 1`,
+							width: analyzed.width,
+							height: analyzed.height,
+						})
+						.where(eq(pages.id, page.id))
+						.run();
+
+					const freshRow = db
+						.select({ annotatedRev: pages.annotatedRev })
+						.from(pages)
+						.where(eq(pages.id, page.id))
+						.get();
+
+					const nextAnnotatedRev = freshRow?.annotatedRev ?? page.annotatedRev + 1;
+
+					emit({
+						type: 'page-stage-update',
+						chapterId,
+						page: i,
+						pageSeq: page.seq,
+						seq: page.seq,
+						pageId: page.id,
+						stage: 'annotated',
+						annotatedPath,
+						annotatedRev: nextAnnotatedRev,
+					});
+
+					syncBus.broadcast({
+						type: 'page-stage-updated',
+						chapterId,
+						pageId: page.id,
+						pageSeq: page.seq,
+						stage: 'annotated',
+						rev: nextAnnotatedRev,
+						path: annotatedPath,
+					});
+				} catch (annotErr) {
+					console.warn('Failed to render live OCR annotation preview:', annotErr);
+				}
+			}
+
 			slot.analyzed = analyzed;
 			slot.image = image;
 			slot.outcome = 'analyzed';
@@ -750,6 +822,139 @@ export async function runChapterPipeline(
 					cleanDir(join(deps.dataRoot, 'clean', String(chapterId)));
 					writeFileSync(cleanAbs, cleaned);
 					const tClean = performance.now() - tClean0;
+
+					let nextAnnotatedRev = page.annotatedRev;
+					let currentAnnotatedPath: string | null = page.annotatedPath;
+					const liveSettings = getCanonicalSettings();
+					if (liveSettings.livePipelinePreview !== false) {
+						try {
+							const annotatedCleanedBuf = await renderAnnotatedOcrImage(cleaned, analyzed.regions);
+							currentAnnotatedPath = `annotated/${chapterId}/${page.seq}.webp`;
+							cleanDir(join(deps.dataRoot, 'annotated', String(chapterId)));
+							writeFileSync(join(deps.dataRoot, currentAnnotatedPath), annotatedCleanedBuf);
+
+							db.update(pages)
+								.set({
+									cleanedPath: cleanPath,
+									cleanedRev: sql`${pages.cleanedRev} + 1`,
+									annotatedPath: currentAnnotatedPath,
+									annotatedRev: sql`${pages.annotatedRev} + 1`,
+								})
+								.where(eq(pages.id, page.id))
+								.run();
+
+							const freshRow = db
+								.select({ cleanedRev: pages.cleanedRev, annotatedRev: pages.annotatedRev })
+								.from(pages)
+								.where(eq(pages.id, page.id))
+								.get();
+
+							const nextCleanedRev = freshRow?.cleanedRev ?? page.cleanedRev + 1;
+							nextAnnotatedRev = freshRow?.annotatedRev ?? page.annotatedRev + 1;
+
+							emit({
+								type: 'page-stage-update',
+								chapterId,
+								page: i,
+								pageSeq: page.seq,
+								seq: page.seq,
+								pageId: page.id,
+								stage: 'cleaned',
+								cleanedPath: cleanPath,
+								cleanedRev: nextCleanedRev,
+								annotatedPath: currentAnnotatedPath,
+								annotatedRev: nextAnnotatedRev,
+							});
+
+							syncBus.broadcast({
+								type: 'page-stage-updated',
+								chapterId,
+								pageId: page.id,
+								pageSeq: page.seq,
+								stage: 'cleaned',
+								rev: nextCleanedRev,
+								path: cleanPath,
+							});
+						} catch (annotErr) {
+							console.warn('Failed to render live inpainted annotation preview:', annotErr);
+							db.update(pages)
+								.set({
+									cleanedPath: cleanPath,
+									cleanedRev: sql`${pages.cleanedRev} + 1`,
+								})
+								.where(eq(pages.id, page.id))
+								.run();
+
+							const freshClean = db
+								.select({ cleanedRev: pages.cleanedRev })
+								.from(pages)
+								.where(eq(pages.id, page.id))
+								.get();
+
+							const nextCleanedRev = freshClean?.cleanedRev ?? page.cleanedRev + 1;
+
+							emit({
+								type: 'page-stage-update',
+								chapterId,
+								page: i,
+								pageSeq: page.seq,
+								seq: page.seq,
+								pageId: page.id,
+								stage: 'cleaned',
+								cleanedPath: cleanPath,
+								cleanedRev: nextCleanedRev,
+							});
+
+							syncBus.broadcast({
+								type: 'page-stage-updated',
+								chapterId,
+								pageId: page.id,
+								pageSeq: page.seq,
+								stage: 'cleaned',
+								rev: nextCleanedRev,
+								path: cleanPath,
+							});
+						}
+					} else {
+						db.update(pages)
+							.set({
+								cleanedPath: cleanPath,
+								cleanedRev: sql`${pages.cleanedRev} + 1`,
+							})
+							.where(eq(pages.id, page.id))
+							.run();
+
+						const freshClean = db
+							.select({ cleanedRev: pages.cleanedRev })
+							.from(pages)
+							.where(eq(pages.id, page.id))
+							.get();
+
+						const nextCleanedRev = freshClean?.cleanedRev ?? page.cleanedRev + 1;
+
+						emit({
+							type: 'page-stage-update',
+							chapterId,
+							page: i,
+							pageSeq: page.seq,
+							seq: page.seq,
+							pageId: page.id,
+							stage: 'cleaned',
+							cleanedPath: cleanPath,
+							cleanedRev: nextCleanedRev,
+						});
+
+						syncBus.broadcast({
+							type: 'page-stage-updated',
+							chapterId,
+							pageId: page.id,
+							pageSeq: page.seq,
+							stage: 'cleaned',
+							rev: nextCleanedRev,
+							path: cleanPath,
+						});
+					}
+
 					emit({
 						type: 'page-step-end',
 						chapterId,
@@ -1250,6 +1455,8 @@ export async function runChapterPipeline(
 				type: 'page-done',
 				chapterId,
 				page: i,
+				pageSeq: page.seq,
+				seq: page.seq,
 				pageId: page.id,
 				pageCount: slots.length,
 				outputPath,
@@ -1265,6 +1472,15 @@ export async function runChapterPipeline(
 				outputRev: finalOutputRev,
 				total: slots.length,
 				count: slots.length,
+			});
+			syncBus.broadcast({
+				type: 'page-stage-updated',
+				chapterId,
+				pageId: page.id,
+				pageSeq: page.seq,
+				stage: 'output',
+				rev: finalOutputRev,
+				path: outputPath,
 			});
 		} catch (e) {
 			slots[i].failedStep = activeStep;

@@ -48,8 +48,10 @@
 		filePath: string;
 		cleanedPath: string | null;
 		outputPath: string | null;
+		annotatedPath?: string | null;
 		cleanedRev: number;
 		outputRev: number;
+		annotatedRev?: number;
 		originalRev: number;
 		status: 'pending' | 'queued' | 'processing' | 'done' | 'error';
 		currentStep?: string;
@@ -397,7 +399,22 @@
 				: isProcessing || isQueued
 					? null
 					: p.outputPath;
-			const cleanedRev = Math.max(sp?.cleanedRev ?? 0, p.cleanedRev ?? 0);
+			const cleanedPath = isProcessing
+				? (sp?.cleanedPath ?? null)
+				: isQueued
+					? null
+					: (p.cleanedPath ?? null);
+			const annotatedPath = isProcessing
+				? ((sp as any)?.annotatedPath ?? null)
+				: isQueued
+					? null
+					: (p.annotatedPath ?? null);
+			const cleanedRev = isProcessing
+				? (sp?.cleanedRev ?? 0)
+				: Math.max(sp?.cleanedRev ?? 0, p.cleanedRev ?? 0);
+			const annotatedRev = isProcessing
+				? ((sp as any)?.annotatedRev ?? 0)
+				: Math.max((sp as any)?.annotatedRev ?? 0, p.annotatedRev ?? 0);
 			const outputRev = Math.max(sp?.outputRev ?? 0, p.outputRev ?? 0);
 			const originalRev = p.originalRev;
 			const error = isError
@@ -411,8 +428,10 @@
 				prev.status === status &&
 				(prev as any).currentStep === currentStep &&
 				prev.outputPath === outputPath &&
-				prev.cleanedPath === p.cleanedPath &&
+				prev.cleanedPath === cleanedPath &&
+				(prev as any).annotatedPath === annotatedPath &&
 				prev.cleanedRev === cleanedRev &&
+				(prev as any).annotatedRev === annotatedRev &&
 				prev.outputRev === outputRev &&
 				prev.originalRev === originalRev &&
 				prev.error === error &&
@@ -428,7 +447,10 @@
 				status,
 				currentStep,
 				outputPath,
+				cleanedPath,
+				annotatedPath,
 				cleanedRev,
+				annotatedRev,
 				outputRev,
 				originalRev,
 				error,
@@ -757,6 +779,8 @@
 			pg.status = 'pending';
 			pg.cleanedPath = null;
 			pg.outputPath = null;
+			(pg as any).annotatedPath = null;
+			(pg as any).previewStage = null;
 			pg.error = null;
 			pages = [...pages];
 
@@ -798,6 +822,8 @@
 						pg.status = 'pending';
 						pg.cleanedPath = null;
 						pg.outputPath = null;
+						(pg as any).annotatedPath = null;
+						(pg as any).previewStage = null;
 						pg.error = null;
 					}
 				}),
@@ -836,6 +862,8 @@
 			pg.status = 'pending';
 			pg.cleanedPath = null;
 			pg.outputPath = null;
+			(pg as any).annotatedPath = null;
+			(pg as any).previewStage = null;
 			pg.error = null;
 			pages = [...pages];
 			jobTracker.clearJob(chapterId);

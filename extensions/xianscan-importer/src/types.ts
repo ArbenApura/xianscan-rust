@@ -52,6 +52,8 @@ export interface ChapterReaderPage {
 	filePath: string;
 	cleanedPath: string | null;
 	outputPath: string | null;
+	annotatedPath?: string | null;
+	annotatedRev?: number;
 	cleanedRev: number;
 	outputRev: number;
 	originalRev: number;
@@ -151,6 +153,18 @@ export interface PageTranslatedMessage {
 	outputRev: number;
 	outputPath: string;
 	total: number;
+}
+
+export interface PageStageMessage {
+	type: 'PAGE_STAGE_UPDATED';
+	chapterId: number;
+	pageSeq: number;
+	pageId: number;
+	stage: 'annotated' | 'cleaned' | 'output';
+	rev: number;
+	path?: string;
+	annotatedPath?: string;
+	annotatedRev?: number;
 }
 
 export interface ChapterSyncMessage {

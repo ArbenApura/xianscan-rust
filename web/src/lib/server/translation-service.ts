@@ -33,6 +33,7 @@ export type JobEventType =
 	| 'page-step-end'
 	| 'term-extract-step'
 	| 'page-done'
+	| 'page-stage-update'
 	| 'usage'
 	| 'done'
 	| 'error'
@@ -44,6 +45,7 @@ export interface JobEvent {
 	/** 0-BASED PAGE INDEX (FOR progress DISPLAY) */
 	page?: number;
 	pageId?: number;
+	pageSeq?: number;
 	seq?: number;
 	pageCount?: number;
 	totalPages?: number;
@@ -55,6 +57,10 @@ export interface JobEvent {
 	durationMs?: number;
 	failedStep?: PipelineStep;
 	retryAttempt?: number;
+	stage?: 'annotated' | 'cleaned' | 'output';
+	annotatedPath?: string | null;
+	annotatedRev?: number;
+	cleanedPath?: string | null;
 	outputPath?: string | null;
 	cleanedRev?: number;
 	outputRev?: number;
@@ -62,7 +68,7 @@ export interface JobEvent {
 	message?: string;
 	timestamp?: number;
 	snapshot?: ChapterJobSnapshot;
-	pages?: Array<{ id: number; seq: number; status: string; cleanedRev?: number; outputRev?: number }>;
+	pages?: Array<{ id: number; seq: number; status: string; cleanedRev?: number; outputRev?: number; annotatedRev?: number }>;
 }
 
 export interface JobHandle {
@@ -187,9 +193,12 @@ function updateSnapshot(snapshot: ChapterJobSnapshot, event: JobEvent): void {
 				currentStep: undefined,
 				timings: {},
 				outputPath: undefined,
+				cleanedPath: undefined,
+				annotatedPath: undefined,
 				errorMessage: undefined,
 				failedStep: undefined,
 			};
+			delete (snapshot.pages[existingIdx] as any).previewStage;
 		} else {
 			// NEW INJECT CASE: push a fresh slot so the page index resolves
 			snapshot.pages.push({
@@ -240,6 +249,12 @@ function updateSnapshot(snapshot: ChapterJobSnapshot, event: JobEvent): void {
 		if (step && p) {
 			p.status = 'processing';
 			p.currentStep = step;
+			if (step === 'preprocess' || step === 'analyze') {
+				p.outputPath = undefined;
+				p.cleanedPath = undefined;
+				(p as any).annotatedPath = undefined;
+				delete (p as any).previewStage;
+			}
 			const attempt = event.retryAttempt ?? (event.stepDetails?.retryAttempt as number | undefined);
 			p.retryAttempt = attempt;
 			p.isRetrying = typeof attempt === 'number' && attempt > 0;
@@ -273,6 +288,21 @@ function updateSnapshot(snapshot: ChapterJobSnapshot, event: JobEvent): void {
 		if (event.durationMs !== undefined) snapshot.phase2Stats.durationMs = event.durationMs;
 		if (event.stepDetails?.tokens !== undefined || event.stepDetails?.regionsCount !== undefined) {
 			snapshot.phase2Stats.termCount = event.stepDetails?.regionsCount ?? snapshot.phase2Stats.termCount;
+		}
+	} else if (event.type === 'page-stage-update') {
+		const p = findTargetPage(snapshot.pages, event.page, event.pageId);
+		if (p) {
+			if (event.stage === 'annotated') {
+				(p as any).annotatedPath = event.annotatedPath;
+				(p as any).annotatedRev = event.annotatedRev;
+				(p as any).previewStage = 'annotated';
+			} else if (event.stage === 'cleaned') {
+				p.cleanedPath = event.cleanedPath ?? p.cleanedPath;
+				if (event.cleanedRev !== undefined) p.cleanedRev = event.cleanedRev;
+				if (event.annotatedPath) (p as any).annotatedPath = event.annotatedPath;
+				if (event.annotatedRev !== undefined) (p as any).annotatedRev = event.annotatedRev;
+				(p as any).previewStage = 'cleaned';
+			}
 		}
 	} else if (event.type === 'page-done') {
 		const p = findTargetPage(snapshot.pages, event.page, event.pageId);

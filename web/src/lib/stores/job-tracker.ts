@@ -114,16 +114,19 @@ function createJobTrackerStore() {
 			// reset it to pending so it shows as processing again. Otherwise push a new slot.
 			const existingSlotIdx = s.pages.findIndex((p) => p.pageId === (event.pageId as number));
 			if (existingSlotIdx >= 0) {
-				// Reset the existing slot — preserve the pageIndex so indexed events still resolve
+				// Reset the existing slot - preserve the pageIndex so indexed events still resolve
 				s.pages[existingSlotIdx] = {
 					...s.pages[existingSlotIdx],
 					status: 'pending',
 					currentStep: undefined,
 					timings: {},
 					outputPath: undefined,
+					cleanedPath: undefined,
+					annotatedPath: undefined,
 					errorMessage: undefined,
 					failedStep: undefined,
 				};
+				delete (s.pages[existingSlotIdx] as any).previewStage;
 			} else {
 				s.pages = [
 					...s.pages,
@@ -176,6 +179,12 @@ function createJobTrackerStore() {
 			if (step && p) {
 				p.status = 'processing';
 				p.currentStep = step;
+				if (step === 'preprocess' || step === 'analyze') {
+					p.outputPath = undefined;
+					p.cleanedPath = undefined;
+					p.annotatedPath = undefined;
+					delete (p as any).previewStage;
+				}
 				const attempt = (event.retryAttempt as number | undefined) ?? ((event.stepDetails as any)?.retryAttempt as number | undefined);
 				p.retryAttempt = attempt;
 				p.isRetrying = typeof attempt === 'number' && attempt > 0;
@@ -210,6 +219,21 @@ function createJobTrackerStore() {
 			if (typeof event.durationMs === 'number' && Number.isFinite(event.durationMs)) s.phase2Stats.durationMs = event.durationMs;
 			if (event.stepDetails && typeof (event.stepDetails as any).regionsCount === 'number') {
 				s.phase2Stats.termCount = (event.stepDetails as any).regionsCount;
+			}
+		} else if (event.type === 'page-stage-update') {
+			const p = findTargetPage(s.pages, event.page as number, event.pageId as number);
+			if (p) {
+				if (event.stage === 'annotated') {
+					if (typeof event.annotatedPath === 'string') p.annotatedPath = event.annotatedPath;
+					if (typeof event.annotatedRev === 'number') p.annotatedRev = event.annotatedRev;
+					(p as any).previewStage = 'annotated';
+				} else if (event.stage === 'cleaned') {
+					if (typeof event.cleanedPath === 'string') p.cleanedPath = event.cleanedPath;
+					if (typeof event.cleanedRev === 'number') p.cleanedRev = event.cleanedRev;
+					if (typeof event.annotatedPath === 'string') p.annotatedPath = event.annotatedPath;
+					if (typeof event.annotatedRev === 'number') p.annotatedRev = event.annotatedRev;
+					(p as any).previewStage = 'cleaned';
+				}
 			}
 		} else if (event.type === 'page-done') {
 			const p = findTargetPage(s.pages, event.page as number, event.pageId as number);

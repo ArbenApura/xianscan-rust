@@ -85,7 +85,7 @@ export function isLikelyAdOrBannerImage(img: HTMLImageElement): boolean {
 		if (curr.matches && curr.matches(NOISE_CONTAINER_SELECTORS)) {
 			return true;
 		}
-		// CHECK ANCHOR HREF FOR EXTERNAL ADS OR GAMBLING AFFILIATE LINKS
+		// CHECK ANCHOR HREF FOR EXTERNAL ADS, GAMBLING LINKS, OR COMIC OVERVIEW COVERS
 		if (curr.tagName === 'A') {
 			const href = (curr.getAttribute('href') || '').toLowerCase();
 			if (
@@ -103,12 +103,36 @@ export function isLikelyAdOrBannerImage(img: HTMLImageElement): boolean {
 			) {
 				return true;
 			}
+			// IF AN IMAGE IS WRAPPED IN A LINK TO A COMIC/SERIES OVERVIEW, IT IS A BOOK COVER
+			if (
+				(href.includes('/manga/') || href.includes('/series/') || href.includes('/comic/')) &&
+				!href.includes('chapter-') &&
+				!href.includes('/chapter/') &&
+				!href.includes('ch-') &&
+				!href.includes('/ch/')
+			) {
+				return true;
+			}
 		}
 		curr = curr.parentElement;
 		depth++;
 	}
 
-	// 2. SOURCE URL NOISE DETECTION
+	// 2. CHECK CLASS NAMES FOR BOOK COVERS AND POST THUMBNAILS
+	const className = (img.className || '').toLowerCase();
+	if (
+		className.includes('wp-post-image') ||
+		className.includes('wp-post-thumb') ||
+		className.includes('attachment-post-thumbnail') ||
+		className.includes('series-cover') ||
+		className.includes('book-cover') ||
+		className.includes('manga-cover') ||
+		className.includes('entry-thumb')
+	) {
+		return true;
+	}
+
+	// 3. SOURCE URL NOISE DETECTION
 	const src = (img.currentSrc || img.src || img.getAttribute('data-src') || img.getAttribute('data-original') || '').toLowerCase();
 	if (
 		src.includes('banner') ||

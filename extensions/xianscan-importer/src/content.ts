@@ -95,6 +95,12 @@ if (
 				return true;
 			}
 
+			if (message.type === 'PAGE_STAGE_UPDATED') {
+				activeCoordinator?.handlePageStageUpdated(message);
+				sendResponse({ received: true });
+				return true;
+			}
+
 			if (message.type === 'CHAPTER_SYNC_UPDATE') {
 				activeCoordinator?.syncWithServer(message.pages).then(() => {
 					sendResponse({ received: true });

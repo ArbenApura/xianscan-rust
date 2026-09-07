@@ -90,4 +90,31 @@ describe('nested reader container detection', () => {
 		const sorted = sorter.sortImagesByCoordinates(clean);
 		expect(sorted.length).toBe(3);
 	});
+
+	it('isolates section[data-image-data] and excludes wp-post-image book cover on rawkuma layout', () => {
+		document.documentElement.innerHTML = `
+			<div class="my-8 flex flex-col gap-y-3">
+				<div class="flex flex-col gap-x-3 h-auto md:h-24 justify-center items-center">
+					<a class="text-white" href="https://rawkuma.net/manga/saijaku-boukensha-ga-kanzen-drop/">
+						<div class="w-[100px] h-auto p-2">
+							<img width="1350" height="1920" src="https://rawkuma.net/wp-content/uploads/2025/10/kanzen-drop.jpg" class="rounded w-[100px] h-full object-fill text-transparent wp-post-image" alt="Cover" loading="lazy">
+						</div>
+					</a>
+				</div>
+				<div class="relative">
+					<section class="mx-auto w-full md:w-[800px]">
+						<section class="w-full flex flex-col justify-center items-center text-accent" data-image-data="1">
+							${Array.from({ length: 18 }, (_, i) => `<img src="https://kuma.kyut.dev/wp-content/scr/s/manga/0/${i + 1}.jpg" alt="">`).join('')}
+						</section>
+					</section>
+				</div>
+			</div>
+		`;
+		(window as any).location.href = 'https://rawkuma.net/manga/saijaku-boukensha-ga-kanzen-drop/chapter-0.379396/';
+
+		const scanned = capture.scanPageForImages();
+		expect(scanned.length).toBe(18);
+		expect(scanned.some(i => i.url.includes('kanzen-drop.jpg'))).toBe(false);
+		expect(scanned.every(i => i.url.includes('kuma.kyut.dev'))).toBe(true);
+	});
 });

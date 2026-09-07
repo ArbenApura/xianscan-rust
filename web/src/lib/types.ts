@@ -104,6 +104,7 @@ export type JobEventType =
 	| 'page-step-end'
 	| 'term-extract-step'
 	| 'page-done'
+	| 'page-stage-update'
 	| 'usage'
 	| 'done'
 	| 'error'
@@ -171,7 +172,10 @@ export interface PageProgressState {
 	failedStep?: PipelineStep;
 	errorMessage?: string;
 	outputPath?: string | null;
+	cleanedPath?: string | null;
+	annotatedPath?: string | null;
 	cleanedRev?: number;
+	annotatedRev?: number;
 	outputRev?: number;
 	retryAttempt?: number;
 	isRetrying?: boolean;

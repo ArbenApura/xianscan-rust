@@ -21,6 +21,29 @@ describe('Settings & Reading History Server API Routes', () => {
 			const data = await res.json();
 			expect(data.inpaintMode).toBe('patch');
 			expect(data.parallelProcesses).toBe(1);
+			expect(data.livePipelinePreview).toBe(true);
+		});
+
+		it('persists livePipelinePreview toggle when patched to false', async () => {
+			vi.resetModules();
+			const { PATCH, GET } = await import('../../src/routes/api/settings/+server');
+
+			const req = new Request('http://localhost/api/settings', {
+				method: 'PATCH',
+				headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify({
+					livePipelinePreview: false,
+				}),
+			});
+
+			const patchRes = await PATCH({ request: req } as unknown as RequestEvent);
+			expect(patchRes.status).toBe(200);
+			const patchData = await patchRes.json();
+			expect(patchData.livePipelinePreview).toBe(false);
+
+			const getRes = await GET({} as RequestEvent);
+			const getData = await getRes.json();
+			expect(getData.livePipelinePreview).toBe(false);
 		});
 	});
 

@@ -1,7 +1,7 @@
 // -- IN-PLACE REPLACEMENT COORDINATOR AND SYNC WATCHDOG -- //
 
 // IMPORTED TYPES
-import type { ChapterReaderPage, ChapterMappingEntry, PageTranslatedMessage } from '../types';
+import type { ChapterReaderPage, ChapterMappingEntry, PageTranslatedMessage, PageStageMessage } from '../types';
 
 // IMPORTED MODULES
 import { XianScanClient } from '../api';
@@ -179,6 +179,8 @@ export class InPlaceTranslationCoordinator {
 					if (!msg) return;
 					if (msg.type === 'PAGE_TRANSLATED') {
 						this.handlePageTranslated(msg);
+					} else if (msg.type === 'PAGE_STAGE_UPDATED') {
+						this.handlePageStageUpdated(msg);
 					} else if (msg.type === 'CHAPTER_SYNC_UPDATE') {
 						void this.syncWithServer(msg.pages);
 					}
@@ -306,7 +308,11 @@ export class InPlaceTranslationCoordinator {
 						this.replacer.updatePageSlice(p.id, p.seq, p.outputRev || 1);
 					} else {
 						allDone = false;
-						if (p.status === 'processing') {
+						if (p.annotatedPath && (p.annotatedRev ?? 0) > 0) {
+							this.replacer.updatePageStageSlice(p.id, p.seq, 'annotated', p.annotatedRev, p.annotatedPath, p.annotatedRev);
+						} else if (p.cleanedPath && (p.cleanedRev ?? 0) > 0) {
+							this.replacer.updatePageStageSlice(p.id, p.seq, 'cleaned', p.cleanedRev ?? 1);
+						} else if (p.status === 'processing') {
 							this.replacer.updatePageStatus(p.id, p.seq, 'processing');
 						}
 					}
@@ -393,6 +399,12 @@ export class InPlaceTranslationCoordinator {
 		if (!this.inPlaceEnabled) return;
 		if (!this.activeMapping || String(this.activeMapping.chapterId) !== String(msg.chapterId)) return;
 		this.replacer.updatePageSlice(msg.pageId, msg.pageSeq, msg.outputRev);
+	}
+
+	handlePageStageUpdated(msg: PageStageMessage): void {
+		if (!this.inPlaceEnabled) return;
+		if (!this.activeMapping || String(this.activeMapping.chapterId) !== String(msg.chapterId)) return;
+		this.replacer.updatePageStageSlice(msg.pageId, msg.pageSeq, msg.stage, msg.rev, msg.annotatedPath, msg.annotatedRev);
 	}
 
 	setMode(mode: 'translated' | 'raw'): void {

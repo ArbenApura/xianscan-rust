@@ -184,11 +184,22 @@ export class DomReplacerEngine {
 		const isHttpsPage = typeof window !== 'undefined' && window.location.protocol === 'https:';
 
 		img.onerror = () => {
-			if (retries >= 3) {
+			retries++;
+
+			if (targetUrl.includes('kind=annotated') && retries >= 1) {
+				// BACKWARD COMPATIBILITY: IF OLD SERVER FAILS ON ANNOTATED PREVIEW, SAFELY FALL BACK TO ORIGINAL
+				const fallbackUrl = targetUrl.replace('kind=annotated', 'kind=original');
+				this.runSelfMutation(() => {
+					img.src = fallbackUrl;
+					img.setAttribute('data-xianscan-applied-src', fallbackUrl);
+					img.srcset = '';
+				});
 				return;
 			}
 
-			retries++;
+			if (retries >= 3) {
+				return;
+			}
 			invalidateCachedSafeUrl(targetUrl);
 			setTimeout(() => {
 				void resolveSafeImageUrl(targetUrl).then(freshSafeUrl => {
@@ -443,12 +454,32 @@ export class DomReplacerEngine {
 			for (let i = 0; i < totalServerPages; i++) {
 				const page = pages[i];
 				const isOutputReady = !!page.outputPath && (page.outputRev ?? 0) > 0;
+				const isCleanedReady = !isOutputReady && !!page.cleanedPath && (page.cleanedRev ?? 0) > 0;
+				const isAnnotatedReady = !isOutputReady && !!page.annotatedPath && (page.annotatedRev ?? 0) > 0;
+				const effectiveKind = isOutputReady
+					? 'output'
+					: (isCleanedReady && isAnnotatedReady)
+						? 'annotated'
+						: isCleanedReady
+							? 'cleaned'
+							: isAnnotatedReady
+								? 'annotated'
+								: 'original';
+				const effectiveRev = isOutputReady
+					? page.outputRev
+					: (isCleanedReady && isAnnotatedReady)
+						? page.annotatedRev
+						: isCleanedReady
+							? page.cleanedRev
+							: isAnnotatedReady
+								? page.annotatedRev
+								: (page.originalRev ?? 1);
 				const pageStatus: 'ready' | 'processing' | 'pending' = isOutputReady
 					? 'ready'
-					: (page.status === 'processing' ? 'processing' : 'pending');
+					: (page.status === 'processing' || isCleanedReady || isAnnotatedReady ? 'processing' : 'pending');
 				this.pageStatuses.set(page.id, pageStatus);
-				const targetUrl = isOutputReady
-					? `${this.baseUrl}/api/pages/${page.id}/file?kind=output&rev=${page.outputRev}`
+				const targetUrl = (isOutputReady || isCleanedReady || isAnnotatedReady)
+					? `${this.baseUrl}/api/pages/${page.id}/file?kind=${effectiveKind}&rev=${effectiveRev}`
 					: `${this.baseUrl}/api/pages/${page.id}/file?kind=original&rev=${page.originalRev ?? 1}`;
 
 				const shouldProxy = isHttpsHost && targetUrl.startsWith('http://') && typeof chrome !== 'undefined' && !!chrome.runtime?.sendMessage;
@@ -600,13 +631,33 @@ export class DomReplacerEngine {
 			if (!page) continue;
 
 			const isOutputReady = !!page.outputPath && (page.outputRev ?? 0) > 0;
+			const isCleanedReady = !isOutputReady && !!page.cleanedPath && (page.cleanedRev ?? 0) > 0;
+			const isAnnotatedReady = !isOutputReady && !!page.annotatedPath && (page.annotatedRev ?? 0) > 0;
+			const effectiveKind = isOutputReady
+				? 'output'
+				: (isCleanedReady && isAnnotatedReady)
+					? 'annotated'
+					: isCleanedReady
+						? 'cleaned'
+						: isAnnotatedReady
+							? 'annotated'
+							: 'original';
+			const effectiveRev = isOutputReady
+				? page.outputRev
+				: (isCleanedReady && isAnnotatedReady)
+					? page.annotatedRev
+					: isCleanedReady
+						? page.cleanedRev
+						: isAnnotatedReady
+							? page.annotatedRev
+							: (page.originalRev ?? 1);
 			const pageStatus: 'ready' | 'processing' | 'pending' = isOutputReady
 				? 'ready'
-				: (page.status === 'processing' ? 'processing' : 'pending');
+				: (page.status === 'processing' || isCleanedReady || isAnnotatedReady ? 'processing' : 'pending');
 			this.pageStatuses.set(page.id, pageStatus);
 
-			if (isOutputReady) {
-				const targetUrl = `${this.baseUrl}/api/pages/${page.id}/file?kind=output&rev=${page.outputRev}`;
+			if (isOutputReady || isCleanedReady || isAnnotatedReady) {
+				const targetUrl = `${this.baseUrl}/api/pages/${page.id}/file?kind=${effectiveKind}&rev=${effectiveRev}`;
 				const shouldProxy = isHttpsHost && targetUrl.startsWith('http://') && typeof chrome !== 'undefined' && !!chrome.runtime?.sendMessage;
 
 				this.sanitizeLazyAttributes(img);
@@ -859,6 +910,102 @@ export class DomReplacerEngine {
 
 		this.isTranslatedActive = true;
 		this.startLazyLoadShield();
+	}
+
+	updatePageStageSlice(
+		pageId: number,
+		pageSeq: number,
+		stage: 'annotated' | 'cleaned' | 'output',
+		rev: number,
+		annotatedPath?: string,
+		annotatedRev?: number
+	): void {
+		if (stage === 'output') {
+			this.updatePageSlice(pageId, pageSeq, rev);
+			return;
+		}
+
+		// DO NOT DOWNGRADE A PAGE THAT HAS ALREADY REACHED OUTPUT STATUS
+		if (this.pageStatuses.get(pageId) === 'ready') return;
+
+		this.pageStatuses.set(pageId, 'processing');
+
+		const existingMeta = this.latestServerPages.find(p => p.id === pageId || p.seq === pageSeq);
+		if (existingMeta) {
+			if (stage === 'annotated') {
+				existingMeta.annotatedPath = annotatedPath || existingMeta.annotatedPath || `annot_${pageId}.webp`;
+				existingMeta.annotatedRev = annotatedRev || rev;
+			} else if (stage === 'cleaned') {
+				existingMeta.cleanedPath = existingMeta.cleanedPath || `clean_${pageId}.webp`;
+				existingMeta.cleanedRev = rev;
+				if (annotatedPath || existingMeta.annotatedPath) {
+					existingMeta.annotatedPath = annotatedPath || existingMeta.annotatedPath;
+					existingMeta.annotatedRev = annotatedRev || existingMeta.annotatedRev || rev;
+				}
+			}
+			existingMeta.status = 'processing';
+		}
+
+		let img = document.querySelector<HTMLImageElement>(`img[data-xianscan-page-id="${pageId}"]`);
+		if (!img) {
+			img = document.querySelector<HTMLImageElement>(`img[data-xianscan-page-seq="${pageSeq}"]`);
+		}
+
+		if (!img && this.activeIncludedUrls && this.activeIncludedUrls[pageSeq]) {
+			const targetUrl = this.activeIncludedUrls[pageSeq];
+			const canonicalTarget = getCanonicalUrl(targetUrl);
+			const hostImgs = getHostReaderImages(this.activeExcludedUrls, this.activeIncludedUrls);
+			for (const candidate of hostImgs) {
+				if (candidate.getAttribute('data-xianscan-page-id')) continue;
+ 				const cands = getImageCandidateUrls(candidate);
+				if (cands.includes(targetUrl) || cands.includes(canonicalTarget)) {
+					img = candidate;
+					break;
+				}
+			}
+		}
+
+		if (!img) return;
+
+		const hasAnnotated = Boolean(annotatedPath || existingMeta?.annotatedPath);
+		const effectiveStage = (stage === 'cleaned' && hasAnnotated) ? 'annotated' : stage;
+		const effectiveRev = effectiveStage === 'annotated' ? (annotatedRev || existingMeta?.annotatedRev || rev) : rev;
+		const newUrl = `${this.baseUrl}/api/pages/${pageId}/file?kind=${effectiveStage}&rev=${effectiveRev}`;
+		const isHttpsHost = typeof window !== 'undefined' && window.location.protocol === 'https:';
+		const shouldProxy = isHttpsHost && newUrl.startsWith('http://') && typeof chrome !== 'undefined' && !!chrome.runtime?.sendMessage;
+
+		this.sanitizeLazyAttributes(img);
+		this.runSelfMutation(() => {
+			img.setAttribute('data-xianscan-page-id', String(pageId));
+			img.setAttribute('data-xianscan-page-seq', String(pageSeq));
+			img.setAttribute('data-xianscan-status', 'processing');
+			img.setAttribute('data-xianscan-stage', stage);
+			if (!shouldProxy) {
+				img.src = newUrl;
+				img.setAttribute('data-xianscan-applied-src', newUrl);
+			}
+			img.srcset = '';
+			img.style.display = '';
+			img.style.filter = 'none';
+		});
+
+		this.attachImageErrorHandler(img, pageId, newUrl);
+
+		void resolveSafeImageUrl(newUrl, true).then(safeUrl => {
+			if (!safeUrl || (isHttpsHost && safeUrl.startsWith('http://'))) {
+				return;
+			}
+			if (this.pageStatuses.get(pageId) === 'ready') return;
+			this.activePageUrls.set(pageId, safeUrl);
+			if (img!.getAttribute('data-xianscan-page-id') === String(pageId) ||
+			    img!.getAttribute('data-xianscan-page-seq') === String(pageSeq)) {
+				this.runSelfMutation(() => {
+					img!.src = safeUrl;
+					img!.setAttribute('data-xianscan-applied-src', safeUrl);
+					img!.srcset = '';
+				});
+			}
+		});
 	}
 
 	updatePageStatus(pageId: number, pageSeq: number, status: 'pending' | 'processing'): void {

@@ -5,6 +5,7 @@
 	import { cn } from '$lib/utils/cn';
 	import { ripple } from '$lib/actions/ripple';
 	import { Badge, ActionMenu, Button, Checkbox, type MenuAction } from '$lib/components/ui';
+	import { settings } from '$lib/stores/settings';
 	import GripVertical from 'lucide-svelte/icons/grip-vertical';
 	import Eye from 'lucide-svelte/icons/eye';
 	import Languages from 'lucide-svelte/icons/languages';
@@ -171,6 +172,13 @@
 		selectedPageIds = new Set();
 		dispatch('batchTranslate', { pageIds });
 	}
+
+	let previewLoadErrors: Record<string, boolean> = {};
+
+	function handlePreviewError(key: string): void {
+		previewLoadErrors[key] = true;
+		previewLoadErrors = { ...previewLoadErrors };
+	}
 </script>
 
 <!-- GRID LAYOUT WRAPS VIRTUAL LIST - NATIVE CONTENT VISIBILITY PRESERVES MULTI-COLUMN SIZING -->
@@ -178,7 +186,17 @@
 	<VirtualPageList {pages}>
 		<svelte:fragment slot="default" let:page let:i>
 			{@const idx = i}
+			{@const isProcessing = page.status === 'processing'}
+			{@const hasLivePreview = $settings.livePipelinePreview !== false}
 			{@const isOutput = webtoonKind === 'output' && Boolean(page.outputPath)}
+			{@const isCleaned = webtoonKind === 'output' && hasLivePreview && !page.outputPath && Boolean(page.cleanedPath)}
+			{@const isAnnotated = webtoonKind === 'output' && hasLivePreview && !page.outputPath && Boolean(page.annotatedPath)}
+			{@const candidateKind = isOutput ? 'output' : (isCleaned && page.annotatedPath) ? 'annotated' : isCleaned ? 'cleaned' : isAnnotated ? 'annotated' : 'original'}
+			{@const candidateRev = isOutput ? (page.outputRev ?? 0) : (isCleaned && page.annotatedPath) ? (page.annotatedRev ?? 0) : isCleaned ? (page.cleanedRev ?? 0) : isAnnotated ? (page.annotatedRev ?? 0) : (page.originalRev ?? 0)}
+			{@const previewKey = `${page.id}_${candidateKind}_${candidateRev}`}
+			{@const isPreviewFailed = Boolean(previewLoadErrors[previewKey] && isProcessing)}
+			{@const effectiveKind = isPreviewFailed ? 'original' : candidateKind}
+			{@const effectiveRev = isPreviewFailed ? (page.originalRev ?? 0) : candidateRev}
 			{@const ratio = (page.width && page.height && page.height > 0)
 				? (page.width / page.height)
 				: (clientRatios[page.id] || null)}
@@ -227,6 +245,15 @@
 									{statusLabel[page.status]}
 								{/if}
 							</Badge>
+							{#if isCleaned && !isPreviewFailed}
+								<Badge variant="jade" class="text-[9px] py-0 px-1">
+									Inpainted
+								</Badge>
+							{:else if isAnnotated && !isPreviewFailed}
+								<Badge variant="sky" class="text-[9px] py-0 px-1">
+									OCR
+								</Badge>
+							{/if}
 						</div>
 						<div class="flex shrink-0 items-center gap-1">
 							<button
@@ -255,10 +282,11 @@
 						<!-- svelte-ignore a11y-click-events-have-key-events -->
 						<!-- svelte-ignore a11y-no-noninteractive-element-interactions -->
 						<PageImage
-							src={`/api/pages/${page.id}/file?kind=${isOutput ? 'output' : 'original'}&rev=${isOutput ? (page.outputRev ?? 0) : (page.originalRev ?? 0)}`}
+							src={`/api/pages/${page.id}/file?kind=${effectiveKind}&rev=${effectiveRev}`}
 							alt={`Page ${page.seq + 1}`}
-							imgClass={`w-full h-full object-contain ${page.status === 'processing' ? 'opacity-80' : ''}`}
+							imgClass={`w-full h-full object-contain ${page.status === 'processing' ? 'opacity-90' : ''}`}
 							on:load={(e) => handleImgLoad(page.id, e)}
+							on:error={() => handlePreviewError(previewKey)}
 							on:click={(e) => page.status !== 'processing' && dispatch('inspect', page)}
 						/>
 					</div>

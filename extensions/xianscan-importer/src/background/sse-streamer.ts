@@ -1,7 +1,7 @@
 // -- BACKGROUND SSE STREAMING AND LIVE PAGE BROADCASTING -- //
 
 // IMPORTED TYPES
-import type { PageTranslatedMessage, ChapterSyncMessage } from '../types';
+import type { PageTranslatedMessage, PageStageMessage, ChapterSyncMessage } from '../types';
 
 // IMPORTED MODULES
 import { safeFetch } from './downloader';
@@ -62,6 +62,18 @@ export async function attachGlobalSyncListener(serverUrl: string): Promise<void>
 						};
 						broadcastToChapterTabs(Number(data.chapterId), pageMsg);
 						safeBroadcast(pageMsg);
+					} else if (data.type === 'page-stage-updated' && data.chapterId) {
+						const stageMsg: PageStageMessage = {
+							type: 'PAGE_STAGE_UPDATED',
+							chapterId: Number(data.chapterId),
+							pageSeq: data.pageSeq !== undefined ? data.pageSeq : 0,
+							pageId: Number(data.pageId),
+							stage: data.stage,
+							rev: Number(data.rev || 1),
+							path: data.path || ''
+						};
+						broadcastToChapterTabs(Number(data.chapterId), stageMsg);
+						safeBroadcast(stageMsg);
 					} else if (data.type === 'chapter-translated' && data.chapterId) {
 						const syncMsg: ChapterSyncMessage = {
 							type: 'CHAPTER_SYNC_UPDATE',
@@ -150,6 +162,22 @@ export async function attachLiveTranslationListener(chapterId: number, serverUrl
 						};
 						broadcastToChapterTabs(chapterId, pageMsg);
 						safeBroadcast(pageMsg);
+					} else if (data.type === 'page-stage-update' && (data.page !== undefined || data.pageSeq !== undefined || data.seq !== undefined)) {
+						const pageSeq = data.pageSeq !== undefined ? data.pageSeq : (data.page !== undefined ? data.page : (data.seq !== undefined ? data.seq : 0));
+						const rev = data.stage === 'annotated' ? (data.annotatedRev || 1) : data.stage === 'cleaned' ? (data.annotatedRev || data.cleanedRev || 1) : (data.outputRev || 1);
+						const stageMsg: PageStageMessage = {
+							type: 'PAGE_STAGE_UPDATED',
+							chapterId,
+							pageSeq,
+							pageId: Number(data.pageId),
+							stage: data.stage,
+							rev,
+							path: data.stage === 'annotated' ? data.annotatedPath : data.stage === 'cleaned' ? (data.annotatedPath || data.cleanedPath) : data.outputPath,
+							annotatedPath: data.annotatedPath,
+							annotatedRev: data.annotatedRev,
+						};
+						broadcastToChapterTabs(chapterId, stageMsg);
+						safeBroadcast(stageMsg);
 					} else if (data.type === 'phase-change') {
 						safeBroadcast({
 							type: 'PIPELINE_PHASE',

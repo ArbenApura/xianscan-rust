@@ -6,6 +6,7 @@
 	import { cn } from '$lib/utils/cn';
 	import { ripple } from '$lib/actions/ripple';
 	import { Badge } from '$lib/components/ui';
+	import { settings } from '$lib/stores/settings';
 	// IMPORTED ICONS
 	import Eye from 'lucide-svelte/icons/eye';
 	import RotateCcw from 'lucide-svelte/icons/rotate-ccw';
@@ -46,6 +47,13 @@
 		typeset: 'Typesetting...',
 		save_output: 'Saving...',
 	};
+
+	let previewLoadErrors: Record<string, boolean> = {};
+
+	function handlePreviewError(key: string): void {
+		previewLoadErrors[key] = true;
+		previewLoadErrors = { ...previewLoadErrors };
+	}
 </script>
 
 <div class="-mx-4 flex w-[calc(100%+2rem)] flex-col items-center sm:mx-0 sm:w-full">
@@ -56,6 +64,16 @@
 			{@const hasRatio = Boolean(page.width && page.height && page.height > 0)}
 			{@const isError = page.status === 'error' || Boolean(page.error)}
 			{@const isProcessing = page.status === 'processing'}
+			{@const hasLivePreview = $settings.livePipelinePreview !== false}
+			{@const isOutput = webtoonKind === 'output' && Boolean(page.outputPath)}
+			{@const isCleaned = webtoonKind === 'output' && hasLivePreview && !page.outputPath && Boolean(page.cleanedPath)}
+			{@const isAnnotated = webtoonKind === 'output' && hasLivePreview && !page.outputPath && Boolean(page.annotatedPath)}
+			{@const candidateKind = isOutput ? 'output' : (isCleaned && page.annotatedPath) ? 'annotated' : isCleaned ? 'cleaned' : isAnnotated ? 'annotated' : 'original'}
+			{@const candidateRev = isOutput ? (page.outputRev ?? 0) : (isCleaned && page.annotatedPath) ? (page.annotatedRev ?? 0) : isCleaned ? (page.cleanedRev ?? 0) : isAnnotated ? (page.annotatedRev ?? 0) : (page.originalRev ?? 0)}
+			{@const previewKey = `${page.id}_${candidateKind}_${candidateRev}`}
+			{@const isPreviewFailed = Boolean(previewLoadErrors[previewKey] && isProcessing)}
+			{@const effectiveKind = isPreviewFailed ? 'original' : candidateKind}
+			{@const effectiveRev = isPreviewFailed ? (page.originalRev ?? 0) : candidateRev}
 			<!-- DYNAMIC RUNTIME ASPECT RATIO EXCEPTION -->
 			<div
 				class="group relative m-0 w-full border-0 bg-black p-0 leading-none"
@@ -71,6 +89,16 @@
 						<span class="font-bold font-mono text-[11px] opacity-80">
 							p. {page.seq + 1}
 						</span>
+
+						{#if isCleaned && !isPreviewFailed}
+							<Badge variant="jade" class="text-[10px] py-0 px-1.5">
+								Inpainted
+							</Badge>
+						{:else if isAnnotated && !isPreviewFailed}
+							<Badge variant="sky" class="text-[10px] py-0 px-1.5">
+								OCR Preview
+							</Badge>
+						{/if}
 
 						<Badge variant="amber" class="text-[10px] py-0 px-1.5">
 							{page.currentStep ? stepBadgeLabels[page.currentStep] || 'Processing...' : 'Processing...'}
@@ -112,9 +140,10 @@
 				{/if}
 
 				<PageImage
-					src={`/api/pages/${page.id}/file?kind=${webtoonKind === 'output' && page.outputPath ? 'output' : 'original'}&rev=${webtoonKind === 'output' && page.outputPath ? (page.outputRev ?? 0) : (page.originalRev ?? 0)}`}
+					src={`/api/pages/${page.id}/file?kind=${effectiveKind}&rev=${effectiveRev}`}
 					alt={`Page ${page.seq + 1}`}
 					imgClass="pointer-events-none object-contain w-full h-full"
+					on:error={() => handlePreviewError(previewKey)}
 				/>
 			</div>
 		{/each}

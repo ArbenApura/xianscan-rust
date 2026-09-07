@@ -12,9 +12,9 @@ import { chapters, pages } from '$lib/server/db/schema';
 import { DATA_ROOT } from '$lib/server/paths';
 import type { RequestHandler } from './$types';
 
-const KINDS = new Set(['original', 'cleaned', 'output', 'thumb']);
+const KINDS = new Set(['original', 'cleaned', 'output', 'thumb', 'annotated']);
 
-// CONTENT TYPE BY EXTENSION — ORIGINALS CAN BE PNG/JPEG/WEBP/AVIF, NOT ALWAYS PNG.
+// CONTENT TYPE BY EXTENSION - ORIGINALS CAN BE PNG/JPEG/WEBP/AVIF, NOT ALWAYS PNG.
 const MIME_BY_EXT: Record<string, string> = {
 	'.png': 'image/png',
 	'.jpg': 'image/jpeg',
@@ -30,7 +30,7 @@ const NO_CACHE_HEADERS = {
 	'expires': '0',
 };
 
-// IMMUTABLE CACHE — SAFE ONLY BECAUSE THE URL EMBEDS THE CONTENT REVISION: A NEW
+// IMMUTABLE CACHE - SAFE ONLY BECAUSE THE URL EMBEDS THE CONTENT REVISION: A NEW
 // REV MEANS A NEW URL, SO THE OLD CACHED COPY IS NEVER RE-REQUESTED.
 const IMMUTABLE_HEADERS = {
 	'cache-control': 'public, max-age=31536000, immutable',
@@ -43,7 +43,7 @@ export const GET: RequestHandler = async ({ params, url, request }) => {
 	const pageId = Number(params.id);
 	if (!Number.isInteger(pageId)) throw error(400, 'Invalid page id.');
 	const kind = url.searchParams.get('kind') ?? 'original';
-	if (!KINDS.has(kind)) throw error(400, 'kind must be original | cleaned | output | thumb.');
+	if (!KINDS.has(kind)) throw error(400, 'kind must be original | cleaned | output | thumb | annotated.');
 
 	const page = db.select().from(pages).where(eq(pages.id, pageId)).get();
 	if (!page) throw error(404, 'Page not found.');
@@ -55,7 +55,15 @@ export const GET: RequestHandler = async ({ params, url, request }) => {
 	const isImmutable = rev !== null && Number.isInteger(rev);
 	if (isImmutable) {
 		const stored =
-			kind === 'original' ? page.originalRev : kind === 'cleaned' ? page.cleanedRev : kind === 'output' ? page.outputRev : null;
+			kind === 'original'
+				? page.originalRev
+				: kind === 'cleaned'
+					? page.cleanedRev
+					: kind === 'output'
+						? page.outputRev
+						: kind === 'annotated'
+							? page.annotatedRev
+							: null;
 		// ORIGINALS CHANGE ONLY VIA STITCH (originalRev BUMP): VALIDATE LIKE ANY OTHER KIND.
 		if (stored !== null && rev! > stored) {
 			throw error(404, 'Stale image revision.');
@@ -66,15 +74,34 @@ export const GET: RequestHandler = async ({ params, url, request }) => {
 	if (kind === 'thumb') {
 		const targetWidth = Math.min(800, Math.max(80, parseInt(url.searchParams.get('w') || '280', 10)));
 		const target = url.searchParams.get('target') || (url.searchParams.get('output') === '0' ? 'original' : 'output');
-		const rel = (target === 'output' && page.outputPath) ? page.outputPath : page.filePath;
+
+		let rel = page.filePath;
+		let stage = 'orig';
+		let stageRev = page.originalRev;
+
+		if (target === 'output') {
+			if (page.outputPath) {
+				rel = page.outputPath;
+				stage = 'out';
+				stageRev = page.outputRev;
+			} else if (page.cleanedPath) {
+				rel = page.cleanedPath;
+				stage = 'clean';
+				stageRev = page.cleanedRev;
+			} else if (page.annotatedPath) {
+				rel = page.annotatedPath;
+				stage = 'annot';
+				stageRev = page.annotatedRev;
+			}
+		}
+
 		if (!rel) throw error(404, 'No image available for this page.');
 
 		const sourcePath = join(DATA_ROOT, rel);
 		if (!existsSync(sourcePath)) throw error(404, 'Source image file not found on disk.');
 
-		const isOutput = rel === page.outputPath;
 		const thumbDir = join(DATA_ROOT, 'cache', 'thumbs');
-		const cacheKey = `${page.id}_${isOutput ? 'out' : 'orig'}_${targetWidth}_${isOutput ? page.outputRev : page.originalRev}.jpg`;
+		const cacheKey = `${page.id}_${stage}_${targetWidth}_${stageRev}.jpg`;
 		const cachePath = join(thumbDir, cacheKey);
 
 		if (existsSync(cachePath)) {
@@ -149,7 +176,9 @@ export const GET: RequestHandler = async ({ params, url, request }) => {
 			? page.cleanedPath
 			: kind === 'output'
 				? page.outputPath
-				: page.filePath;
+				: kind === 'annotated'
+					? page.annotatedPath
+					: page.filePath;
 	if (!rel) throw error(404, `No ${kind} image for this page yet.`);
 
 	const fullPath = join(DATA_ROOT, rel);
@@ -182,7 +211,7 @@ export const GET: RequestHandler = async ({ params, url, request }) => {
 	const chNumber = (chapter?.seq ?? 0) + 1;
 	const padChapter = String(chNumber).padStart(2, '0');
 	const padPage = String(page.seq + 1).padStart(3, '0');
-	const kindLabel = kind === 'output' ? 'translated' : kind === 'cleaned' ? 'cleaned' : 'source';
+	const kindLabel = kind === 'output' ? 'translated' : kind === 'cleaned' ? 'cleaned' : kind === 'annotated' ? 'annotated' : 'source';
 	const safeDownloadName = `Ch_${padChapter}_P${padPage}_${kindLabel}${ext}`;
 
 	return new Response(bytes, {

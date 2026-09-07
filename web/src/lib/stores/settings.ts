@@ -75,6 +75,7 @@ export interface AppSettings {
 	inpaintExpansionPct: number;
 	typesetExpansionPct: number;
 	hasCompletedOnboarding: boolean;
+	livePipelinePreview: boolean;
 }
 
 // -- CONSTANTS -- //
@@ -222,6 +223,7 @@ export const DEFAULTS: AppSettings = {
 	inpaintExpansionPct: 0.03,
 	typesetExpansionPct: 0.0,
 	hasCompletedOnboarding: false,
+	livePipelinePreview: true,
 };
 
 export const SERVER_CANONICAL_KEYS: (keyof AppSettings)[] = [
@@ -262,6 +264,7 @@ export const SERVER_CANONICAL_KEYS: (keyof AppSettings)[] = [
 	'inpaintExpansionPct',
 	'typesetExpansionPct',
 	'hasCompletedOnboarding',
+	'livePipelinePreview',
 ];
 
 const KEY = 'xianscan:settings';

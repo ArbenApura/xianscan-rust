@@ -569,5 +569,73 @@ describe('DomReplacerEngine', () => {
 		expect(strip3.getAttribute('data-xianscan-hidden')).toBe('true');
 		expect(strip3.style.display).toBe('none');
 	});
+
+	it('maintains backwards compatibility with legacy server payloads lacking annotatedPath', () => {
+		engine = new DomReplacerEngine('http://127.0.0.1:8124');
+		// LEGACY SERVER PAYLOAD (NO annotatedPath OR annotatedRev)
+		const legacyPages: ChapterReaderPage[] = [
+			{ id: 101, seq: 0, filePath: 'page1.jpg', cleanedPath: null, outputPath: null, cleanedRev: 0, outputRev: 0, originalRev: 1, status: 'pending', error: null },
+			{ id: 102, seq: 1, filePath: 'page2.jpg', cleanedPath: null, outputPath: 'out2.webp', cleanedRev: 0, outputRev: 1, originalRev: 1, status: 'done', error: null }
+		];
+
+		engine.mountTranslatedPages(legacyPages);
+
+		// PAGE 1 IS PENDING: RAW IMAGE REMAINS VISIBLE WITHOUT BROKEN ANNOTATED SRC
+		expect(img1.getAttribute('data-xianscan-page-id')).toBe('101');
+		expect(img1.getAttribute('data-xianscan-status')).toBe('pending');
+		expect(img1.src).not.toContain('kind=annotated');
+
+		// PAGE 2 IS DONE: DIRECTLY USES KIND=OUTPUT
+		expect(img2.getAttribute('data-xianscan-page-id')).toBe('102');
+		expect(img2.getAttribute('data-xianscan-status')).toBe('ready');
+		expect(img2.src).toContain('kind=output');
+
+		// LEGACY UPDATE CALL updatePageSlice WORKS NATIVELY
+		engine.updatePageSlice(101, 0, 1);
+		expect(img1.getAttribute('data-xianscan-status')).toBe('ready');
+		expect(img1.src).toContain('kind=output');
+	});
+
+	it('gracefully falls back to kind=original if kind=annotated fails to load from an old server', () => {
+		engine = new DomReplacerEngine('http://127.0.0.1:8124');
+		const pages: ChapterReaderPage[] = [
+			{ id: 301, seq: 0, filePath: 'page1.jpg', cleanedPath: null, outputPath: null, annotatedPath: 'annot1.webp', annotatedRev: 1, cleanedRev: 0, outputRev: 0, originalRev: 1, status: 'processing', error: null }
+		];
+
+		engine.mountTranslatedPages(pages);
+		expect(img1.src).toContain('kind=annotated');
+
+		// SIMULATE ERROR FROM OLD SERVER
+		img1.dispatchEvent(new Event('error'));
+		img1.dispatchEvent(new Event('error'));
+
+		// SAFE RETRY WITH ANNOTATED FAILS AND REVERTS TO KIND=ORIGINAL
+		expect(img1.src).toContain('kind=original');
+	});
+
+	it('updates slice to kind=annotated when live inpaint completes with active annotations', () => {
+		engine = new DomReplacerEngine('http://127.0.0.1:8124');
+		const pages: ChapterReaderPage[] = [
+			{ id: 401, seq: 0, filePath: 'page1.jpg', cleanedPath: null, outputPath: null, annotatedPath: null, annotatedRev: 0, cleanedRev: 0, outputRev: 0, originalRev: 1, status: 'processing', error: null }
+		];
+
+		engine.mountTranslatedPages(pages);
+		expect(img1.getAttribute('data-xianscan-status')).toBe('processing');
+
+		// 1. LIVE OCR FINISHES -> ANNOTATED PREVIEW ARRIVES
+		engine.updatePageStageSlice(401, 0, 'annotated', 1, 'annotated/1/0.webp', 1);
+		expect(img1.src).toContain('kind=annotated');
+		expect(img1.src).toContain('rev=1');
+
+		// 2. LIVE INPAINTING FINISHES -> CLEANED STAGE WITH ACTIVE ANNOTATIONS
+		engine.updatePageStageSlice(401, 0, 'cleaned', 1, 'annotated/1/0.webp', 2);
+		expect(img1.src).toContain('kind=annotated');
+		expect(img1.src).toContain('rev=2');
+
+		// 3. FINAL TYPESETTING FINISHES -> OUTPUT
+		engine.updatePageSlice(401, 0, 1);
+		expect(img1.src).toContain('kind=output');
+		expect(img1.getAttribute('data-xianscan-status')).toBe('ready');
+	});
 });
 
