@@ -27,7 +27,7 @@
 							<li>
 								<a
 									href={item.href}
-									class="flex items-center justify-between rounded-lg px-2.5 py-1.5 text-xs font-medium transition-colors hover:bg-black/5 dark:hover:bg-white/5 {$page.url.pathname === item.href || ($page.url.pathname === item.href + '/' && item.href !== '/') ? 'bg-[#b23a2e]/10 text-[#b23a2e] font-bold dark:text-[#e08a63]' : 'opacity-80'}"
+									class="flex items-center justify-between rounded-lg px-2.5 py-1.5 text-xs font-medium transition-colors hover:bg-black/5 dark:hover:bg-white/5 {$page.url.pathname.replace(/\/$/, '') === item.href.replace(/\/$/, '') ? 'bg-[#b23a2e]/10 text-[#b23a2e] font-bold dark:text-[#e08a63]' : 'opacity-80'}"
 								>
 									<span>{item.title}</span>
 									{#if item.badge}

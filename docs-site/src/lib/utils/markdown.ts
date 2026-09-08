@@ -168,5 +168,13 @@ function renderInline(text: string): string {
 		// ITALIC
 		.replace(/\*([^*]+)\*/g, '<em class="italic">$1</em>')
 		// LINKS
-		.replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" class="font-semibold text-[#b23a2e] hover:underline dark:text-[#e08a63] transition-colors" target="_blank" rel="noreferrer">$1</a>');
+		.replace(/\[([^\]]+)\]\(([^)]+)\)/g, (_match, linkText, url) => {
+			const cleanUrl = url.trim();
+			const isExternal = cleanUrl.startsWith('http://') || cleanUrl.startsWith('https://') || cleanUrl.startsWith('//');
+			if (isExternal) {
+				return `<a href="${cleanUrl}" class="font-semibold text-[#b23a2e] hover:underline dark:text-[#e08a63] transition-colors" target="_blank" rel="noreferrer">${linkText}</a>`;
+			}
+			const normalizedUrl = cleanUrl.startsWith('/docs/') && !cleanUrl.endsWith('/') && !cleanUrl.includes('#') ? `${cleanUrl}/` : cleanUrl;
+			return `<a href="${normalizedUrl}" class="font-semibold text-[#b23a2e] hover:underline dark:text-[#e08a63] transition-colors">${linkText}</a>`;
+		});
 }

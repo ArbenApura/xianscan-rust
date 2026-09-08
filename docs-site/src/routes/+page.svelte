@@ -38,7 +38,7 @@
 			raw: '/showcase/manhua_soulland3_raw.webp',
 			cleaned: '/showcase/manhua_soulland3_cleaned.webp',
 			translated: '/showcase/manhua_soulland3_translated.webp',
-			href: '/docs/benchmarks/manhua',
+			href: '/docs/benchmarks/manhua/',
 		},
 		{
 			id: 'manhwa',
@@ -47,7 +47,7 @@
 			raw: '/showcase/manhwa_estatedeveloper_raw.webp',
 			cleaned: '/showcase/manhwa_estatedeveloper_cleaned.webp',
 			translated: '/showcase/manhwa_estatedeveloper_translated.webp',
-			href: '/docs/benchmarks/manhwa',
+			href: '/docs/benchmarks/manhwa/',
 		},
 		{
 			id: 'manga',
@@ -56,7 +56,7 @@
 			raw: '/showcase/manga_opm_raw.webp',
 			cleaned: '/showcase/manga_opm_cleaned.webp',
 			translated: '/showcase/manga_opm_translated.webp',
-			href: '/docs/benchmarks/manga',
+			href: '/docs/benchmarks/manga/',
 		},
 	];
 
@@ -139,6 +139,7 @@
 <svelte:head>
 	<title>XianScan - Local-First Translation Studio for Manga, Manhwa & Manhua</title>
 	<meta name="description" content="Local-first translation studio for manga, manhwa, and manhua. Speech bubble segmentation, multi-script OCR, context-aware translation, and LaMa neural inpainting." />
+	<meta name="robots" content="index, follow" />
 	<link rel="canonical" href="https://xianscan.arbenger.com/" />
 	
 	<!-- OPEN GRAPH -->
@@ -147,34 +148,80 @@
 	<meta property="og:description" content="Local-first translation studio for manga, manhwa, and manhua. Offline speech bubble detection, multi-script OCR, context-aware LLM translation, and LaMa neural inpainting." />
 	<meta property="og:url" content="https://xianscan.arbenger.com/" />
 	<meta property="og:site_name" content="XianScan" />
-	<meta property="og:image" content="https://xianscan.arbenger.com/logo.svg" />
+	<meta property="og:locale" content="en_US" />
+	<meta property="og:image" content="https://xianscan.arbenger.com/og-image.png" />
+	<meta property="og:image:type" content="image/png" />
+	<meta property="og:image:width" content="1200" />
+	<meta property="og:image:height" content="630" />
+	<meta property="og:image:alt" content="XianScan - Local-First Translation Studio" />
 	
 	<!-- TWITTER CARDS -->
 	<meta name="twitter:card" content="summary_large_image" />
 	<meta name="twitter:title" content="XianScan - Local-First Translation Studio for Manga, Manhwa & Manhua" />
 	<meta name="twitter:description" content="Local-first translation studio for manga, manhwa, and manhua." />
-	<meta name="twitter:image" content="https://xianscan.arbenger.com/logo.svg" />
+	<meta name="twitter:image" content="https://xianscan.arbenger.com/og-image.png" />
+	<meta name="twitter:image:alt" content="XianScan - Local-First Translation Studio" />
 
 	<!-- STRUCTURED DATA (JSON-LD) -->
 	{@html `<script type="application/ld+json">
 	{
 		"@context": "https://schema.org",
-		"@type": "SoftwareApplication",
-		"name": "XianScan",
-		"applicationCategory": "MultimediaApplication",
-		"operatingSystem": "Windows, Linux, macOS",
-		"description": "Local-first translation studio for manga, manhwa, and manhua.",
-		"url": "https://xianscan.arbenger.com",
-		"author": {
-			"@type": "Person",
-			"name": "Arben Apura",
-			"url": "https://arbenger.com"
-		},
-		"offers": {
-			"@type": "Offer",
-			"price": "0",
-			"priceCurrency": "USD"
-		}
+		"@graph": [
+			{
+				"@type": "WebSite",
+				"@id": "https://xianscan.arbenger.com/#website",
+				"url": "https://xianscan.arbenger.com/",
+				"name": "XianScan",
+				"alternateName": ["XianScan Docs", "XianScan Translation Studio"],
+				"description": "Local-first translation studio for manga, manhwa, and manhua.",
+				"publisher": {
+					"@id": "https://xianscan.arbenger.com/#organization"
+				}
+			},
+			{
+				"@type": "Organization",
+				"@id": "https://xianscan.arbenger.com/#organization",
+				"name": "XianScan",
+				"url": "https://xianscan.arbenger.com/",
+				"logo": {
+					"@type": "ImageObject",
+					"@id": "https://xianscan.arbenger.com/#logo",
+					"url": "https://xianscan.arbenger.com/icon-512.png",
+					"contentUrl": "https://xianscan.arbenger.com/icon-512.png",
+					"width": 512,
+					"height": 512,
+					"caption": "XianScan"
+				},
+				"image": {
+					"@id": "https://xianscan.arbenger.com/#logo"
+				},
+				"sameAs": [
+					"https://github.com/ArbenApura/xianscan-rust",
+					"https://discord.gg/dRWaQftNnR",
+					"https://arbenger.com"
+				]
+			},
+			{
+				"@type": "SoftwareApplication",
+				"@id": "https://xianscan.arbenger.com/#app",
+				"name": "XianScan",
+				"applicationCategory": "MultimediaApplication",
+				"operatingSystem": "Windows, Linux, macOS",
+				"description": "Local-first translation studio for manga, manhwa, and manhua.",
+				"url": "https://xianscan.arbenger.com/",
+				"image": "https://xianscan.arbenger.com/og-image.png",
+				"author": {
+					"@type": "Person",
+					"name": "Arben Apura",
+					"url": "https://arbenger.com"
+				},
+				"offers": {
+					"@type": "Offer",
+					"price": "0",
+					"priceCurrency": "USD"
+				}
+			}
+		]
 	}
 	</script>`}
 </svelte:head>
@@ -208,7 +255,7 @@
 				<Button
 					variant="primary"
 					size="md"
-					href="/docs/getting-started/quick-start"
+					href="/docs/getting-started/quick-start/"
 					class="w-full sm:w-auto"
 				>
 					<BookOpen size={16} />
@@ -418,7 +465,7 @@
 
 				<div class="mt-5 pt-4 border-t border-black/10 dark:border-white/10 flex items-center justify-between">
 					<a
-						href="/docs/extensions/importer"
+						href="/docs/extensions/importer/"
 						class="inline-flex items-center gap-1 text-xs sm:text-sm font-bold text-[#4f7a64] hover:underline dark:text-[#83b39a] transition-colors"
 					>
 						<span>Setup Guide & Installation</span>
@@ -446,7 +493,7 @@
 
 				<div class="mt-5 pt-4 border-t border-black/10 dark:border-white/10 flex items-center justify-between gap-2">
 					<a
-						href="/docs/extensions/mihon"
+						href="/docs/extensions/mihon/"
 						class="inline-flex items-center gap-1 text-xs sm:text-sm font-bold text-[#b23a2e] hover:underline dark:text-[#e08a63] transition-colors"
 					>
 						<span>Mihon Guide</span>
@@ -486,7 +533,7 @@
 				<Button
 					variant="primary"
 					size="md"
-					href="/docs/getting-started/quick-start"
+					href="/docs/getting-started/quick-start/"
 				>
 					<BookOpen size={16} />
 					<span>Get Started</span>

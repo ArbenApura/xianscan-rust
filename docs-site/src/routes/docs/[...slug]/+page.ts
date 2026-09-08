@@ -8,7 +8,7 @@ export const entries: EntryGenerator = () => {
 	for (const section of DOC_NAVIGATION) {
 		for (const item of section.items) {
 			if (item.href.startsWith('/docs/')) {
-				const slug = item.href.replace('/docs/', '');
+				const slug = item.href.replace(/^\/docs\//, '').replace(/\/$/, '');
 				entriesList.push({ slug });
 			}
 		}

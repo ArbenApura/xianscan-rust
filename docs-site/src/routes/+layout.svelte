@@ -133,7 +133,7 @@
 					<Button
 						variant="ghost"
 						size="sm"
-						href="/docs/getting-started/quick-start"
+						href="/docs/getting-started/quick-start/"
 					>
 						<BookOpen size={14} />
 						<span class="font-semibold text-xs">Docs</span>
@@ -268,7 +268,7 @@
 												href={item.href}
 												use:ripple
 												on:click={() => (mobileNavOpen = false)}
-												class="flex items-center justify-between rounded-lg px-2.5 py-1.5 text-xs font-medium transition-all {$page.url.pathname === item.href || ($page.url.pathname === item.href + '/' && item.href !== '/') ? 'bg-[#b23a2e]/10 text-[#b23a2e] font-bold dark:text-[#e08a63]' : 'opacity-75 hover:opacity-100 hover:bg-black/5 dark:hover:bg-white/5'}"
+												class="flex items-center justify-between rounded-lg px-2.5 py-1.5 text-xs font-medium transition-all {$page.url.pathname.replace(/\/$/, '') === item.href.replace(/\/$/, '') ? 'bg-[#b23a2e]/10 text-[#b23a2e] font-bold dark:text-[#e08a63]' : 'opacity-75 hover:opacity-100 hover:bg-black/5 dark:hover:bg-white/5'}"
 											>
 												<span class="truncate">{item.title}</span>
 												{#if item.badge}

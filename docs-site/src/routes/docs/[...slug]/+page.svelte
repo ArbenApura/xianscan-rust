@@ -144,7 +144,7 @@
 
 	$: rawSlug = $page.params.slug || $page.url.pathname;
 	$: normalizedSlug = normalizeSlug(rawSlug);
-	$: currentHref = '/docs/' + normalizedSlug;
+	$: currentHref = '/docs/' + normalizedSlug + '/';
 	$: allDocs = DOC_NAVIGATION.flatMap((s) => s.items);
 	$: currentIdx = allDocs.findIndex((i) => normalizeSlug(i.href) === normalizedSlug || i.id === normalizedSlug || normalizeSlug(i.href).endsWith(normalizedSlug));
 	$: currentDoc = currentIdx !== -1 ? allDocs[currentIdx] : undefined;
@@ -165,12 +165,13 @@
 
 	$: pageTitle = (chapterData?.title ?? benchmarkData?.title ?? currentDoc?.title ?? 'Documentation') + ' - XianScan Docs';
 	$: pageDesc = chapterData?.description ?? benchmarkData?.desc ?? `Documentation guide for ${currentDoc?.title ?? 'XianScan'}.`;
-	$: canonicalUrl = `https://xianscan.arbenger.com/docs/${normalizedSlug}`;
+	$: canonicalUrl = `https://xianscan.arbenger.com/docs/${normalizedSlug}/`;
 </script>
 
 <svelte:head>
 	<title>{pageTitle}</title>
 	<meta name="description" content={pageDesc} />
+	<meta name="robots" content="index, follow" />
 	<link rel="canonical" href={canonicalUrl} />
 
 	<!-- OPEN GRAPH -->
@@ -179,34 +180,77 @@
 	<meta property="og:description" content={pageDesc} />
 	<meta property="og:url" content={canonicalUrl} />
 	<meta property="og:site_name" content="XianScan Documentation" />
-	<meta property="og:image" content="https://xianscan.arbenger.com/logo.svg" />
+	<meta property="og:image" content="https://xianscan.arbenger.com/og-image.png" />
+	<meta property="og:image:type" content="image/png" />
+	<meta property="og:image:width" content="1200" />
+	<meta property="og:image:height" content="630" />
+	<meta property="og:image:alt" content={pageTitle} />
 
 	<!-- TWITTER CARDS -->
-	<meta name="twitter:card" content="summary" />
+	<meta name="twitter:card" content="summary_large_image" />
 	<meta name="twitter:title" content={pageTitle} />
 	<meta name="twitter:description" content={pageDesc} />
-	<meta name="twitter:image" content="https://xianscan.arbenger.com/logo.svg" />
+	<meta name="twitter:image" content="https://xianscan.arbenger.com/og-image.png" />
+	<meta name="twitter:image:alt" content={pageTitle} />
 
 	<!-- STRUCTURED DATA (JSON-LD) -->
 	{@html `<script type="application/ld+json">
 	{
 		"@context": "https://schema.org",
-		"@type": "TechArticle",
-		"headline": ${JSON.stringify(pageTitle)},
-		"description": ${JSON.stringify(pageDesc)},
-		"url": ${JSON.stringify(canonicalUrl)},
-		"author": {
-			"@type": "Person",
-			"name": "Arben Apura"
-		},
-		"publisher": {
-			"@type": "Organization",
-			"name": "XianScan",
-			"logo": {
-				"@type": "ImageObject",
-				"url": "https://xianscan.arbenger.com/logo.svg"
+		"@graph": [
+			{
+				"@type": "TechArticle",
+				"headline": ${JSON.stringify(pageTitle)},
+				"description": ${JSON.stringify(pageDesc)},
+				"url": ${JSON.stringify(canonicalUrl)},
+				"mainEntityOfPage": {
+					"@type": "WebPage",
+					"@id": ${JSON.stringify(canonicalUrl)}
+				},
+				"inLanguage": "en",
+				"datePublished": "2026-09-01T00:00:00+08:00",
+				"dateModified": ${JSON.stringify((chapterData?.lastUpdated ?? '2026-09-02') + 'T00:00:00+08:00')},
+				"image": "https://xianscan.arbenger.com/og-image.png",
+				"author": {
+					"@type": "Person",
+					"name": "Arben Apura"
+				},
+				"publisher": {
+					"@type": "Organization",
+					"name": "XianScan",
+					"url": "https://xianscan.arbenger.com/",
+					"logo": {
+						"@type": "ImageObject",
+						"url": "https://xianscan.arbenger.com/icon-512.png",
+						"width": 512,
+						"height": 512
+					}
+				}
+			},
+			{
+				"@type": "BreadcrumbList",
+				"itemListElement": [
+					{
+						"@type": "ListItem",
+						"position": 1,
+						"name": "Home",
+						"item": "https://xianscan.arbenger.com/"
+					},
+					{
+						"@type": "ListItem",
+						"position": 2,
+						"name": ${JSON.stringify(currentSection?.title ?? 'Documentation')},
+						"item": ${JSON.stringify(canonicalUrl)}
+					},
+					{
+						"@type": "ListItem",
+						"position": 3,
+						"name": ${JSON.stringify(chapterData?.title ?? benchmarkData?.title ?? currentDoc?.title ?? 'Guide')},
+						"item": ${JSON.stringify(canonicalUrl)}
+					}
+				]
 			}
-		}
+		]
 	}
 	</script>`}
 </svelte:head>
