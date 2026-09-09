@@ -185,4 +185,53 @@ describe('Chapter URL isolation and routing heuristics', () => {
 		expect(clustered.some(img => img.url.includes('kanzen-drop.jpg'))).toBe(false);
 		expect(clustered.every(img => img.url.includes('kuma.kyut.dev'))).toBe(true);
 	});
+
+	it('scopes active import job to matching URL and ignores job from another chapter page', async () => {
+		const jobForChapter1 = {
+			running: true,
+			current: 5,
+			total: 20,
+			chapterId: 101,
+			bookId: 'book-1',
+			url: 'https://example.com/read/manga/chapter-1?utm_source=nav'
+		};
+
+		await chrome.storage.local.set({ activeImportJob: jobForChapter1 });
+
+		const ch1PageUrl = 'https://example.com/read/manga/chapter-1';
+		const ch2PageUrl = 'https://example.com/read/manga/chapter-2';
+
+		const stored = await chrome.storage.local.get(['activeImportJob']);
+		const activeJob = stored.activeImportJob;
+
+		const isSamePageOnCh1 = activeJob?.url && normalizePageUrl(activeJob.url) === normalizePageUrl(ch1PageUrl);
+		const isSamePageOnCh2 = activeJob?.url && normalizePageUrl(activeJob.url) === normalizePageUrl(ch2PageUrl);
+
+		expect(isSamePageOnCh1).toBe(true);
+		expect(isSamePageOnCh2).toBe(false);
+	});
+
+	it('rejects cross-chapter runtime progress messages when tracking a different chapter', () => {
+		const activeTrackerChapterId = 102;
+
+		const messageFromChapter101 = {
+			type: 'PAGE_TRANSLATED',
+			chapterId: 101,
+			pageSeq: 3,
+			total: 20
+		};
+
+		const messageFromChapter102 = {
+			type: 'PAGE_TRANSLATED',
+			chapterId: 102,
+			pageSeq: 1,
+			total: 15
+		};
+
+		const shouldAcceptMsg101 = activeTrackerChapterId && (!messageFromChapter101.chapterId || Number(messageFromChapter101.chapterId) === Number(activeTrackerChapterId));
+		const shouldAcceptMsg102 = activeTrackerChapterId && (!messageFromChapter102.chapterId || Number(messageFromChapter102.chapterId) === Number(activeTrackerChapterId));
+
+		expect(shouldAcceptMsg101).toBe(false);
+		expect(shouldAcceptMsg102).toBe(true);
+	});
 });

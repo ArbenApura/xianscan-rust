@@ -206,6 +206,10 @@ export class TrackerViewController {
 		this.currentUrl = url;
 	}
 
+	getChapterId(): number | null {
+		return this.currentChapterId;
+	}
+
 	async loadAndRenderTracker(chapterId: number, bookId?: string | number): Promise<void> {
 		this.currentChapterId = chapterId;
 		if (bookId) this.currentBookId = bookId;

@@ -33,7 +33,8 @@ export async function runBatchImportJob(payload: ImportJobPayload, refererUrl?: 
 			current: 0,
 			total,
 			chapterId: payload.chapterId,
-			bookId: payload.bookId
+			bookId: payload.bookId,
+			url: refererUrl || ''
 		}
 	});
 
@@ -76,7 +77,8 @@ export async function runBatchImportJob(payload: ImportJobPayload, refererUrl?: 
 					current: processedCount,
 					total,
 					chapterId: payload.chapterId,
-					bookId: payload.bookId
+					bookId: payload.bookId,
+					url: refererUrl || ''
 				}
 			});
 			safeBroadcast({
@@ -125,7 +127,8 @@ export async function runBatchImportJob(payload: ImportJobPayload, refererUrl?: 
 				current: processedCount,
 				total,
 				chapterId: payload.chapterId,
-				bookId: payload.bookId
+				bookId: payload.bookId,
+				url: refererUrl || ''
 			}
 		});
 
@@ -223,7 +226,8 @@ export async function runBatchImportJob(payload: ImportJobPayload, refererUrl?: 
 			current: total,
 			total,
 			chapterId: payload.chapterId,
-			bookId: payload.bookId
+			bookId: payload.bookId,
+			url: refererUrl || ''
 		}
 	});
 

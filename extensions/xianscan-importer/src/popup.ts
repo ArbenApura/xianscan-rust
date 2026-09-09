@@ -12,6 +12,7 @@ import { BookModalController } from './popup/modals/book-modal';
 import { ChapterModalController } from './popup/modals/chapter-modal';
 import { ImportViewController } from './popup/views/import-view';
 import { TrackerViewController } from './popup/views/tracker-view';
+import { normalizePageUrl } from './core/heuristics/url-clustering';
 
 // -- POPUP CONTROLLER CLASS -- //
 
@@ -193,14 +194,17 @@ class PopupController {
 		this.importView.setCurrentUrl(this.currentUrl);
 		this.trackerView.setCurrentUrl(this.currentUrl);
 
-		// 1. CHECK RUNNING BACKGROUND IMPORT JOB FIRST
+		// 1. CHECK RUNNING BACKGROUND IMPORT JOB FIRST (ONLY IF SCOPED TO THIS PAGE)
 		const jobData = await chrome.storage.local.get(['activeImportJob']);
 		if (jobData.activeImportJob && jobData.activeImportJob.running) {
 			const job = jobData.activeImportJob;
-			this.switchView('tracker');
-			this.trackerView.updateProgress(job.current, job.total, 'uploading');
-			void this.trackerView.loadAndRenderTracker(job.chapterId, job.bookId);
-			return;
+			const isSamePage = job.url && this.currentUrl && normalizePageUrl(job.url) === normalizePageUrl(this.currentUrl);
+			if (isSamePage) {
+				this.switchView('tracker');
+				this.trackerView.updateProgress(job.current, job.total, 'uploading');
+				void this.trackerView.loadAndRenderTracker(job.chapterId, job.bookId);
+				return;
+			}
 		}
 
 		// 2. CHECK IF CURRENT TAB URL HAS AN EXISTING RECORDED MAPPING IN DATABASE
@@ -246,6 +250,18 @@ class PopupController {
 
 	private setupMessageListeners(): void {
 		chrome.runtime.onMessage.addListener(msg => {
+			if (this.currentView !== 'tracker') {
+				if (msg.type === 'IMPORT_COMPLETE' && msg.error) {
+					this.toast.show(`Import failed: ${msg.error}`, true);
+				}
+				return;
+			}
+
+			const activeTrackerChapterId = this.trackerView.getChapterId();
+			if (!activeTrackerChapterId || (msg.chapterId && Number(msg.chapterId) !== Number(activeTrackerChapterId))) {
+				return;
+			}
+
 			if (msg.type === 'IMPORT_PROGRESS') {
 				this.trackerView.updateProgress(msg.current, msg.total, 'uploading');
 			} else if (msg.type === 'PIPELINE_PHASE') {

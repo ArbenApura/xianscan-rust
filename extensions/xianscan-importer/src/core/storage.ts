@@ -16,6 +16,7 @@ export interface ActiveImportJobState {
 	total: number;
 	chapterId: number;
 	bookId: string | number;
+	url?: string;
 }
 
 // -- FUNCTIONS & REPOSITORY METHODS -- //
