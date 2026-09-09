@@ -48,6 +48,7 @@ export interface TypesetOptions {
 	textColor?: string;
 	strokeColor?: string;
 	strokeWidth?: number;
+	fontWeight?: 'normal' | 'bold';
 }
 
 export async function typesetPage(
@@ -58,6 +59,7 @@ export async function typesetPage(
 	registerFonts();
 	const fontDialogue = opts.fontDialogue || FONT_DIALOGUE;
 	const fontCjk = opts.fontCjk || FONT_DEFAULT_CJK;
+	const fontWeight = opts.fontWeight ?? 'normal';
 	const inset = opts.boxInset ?? BOX_INSET;
 	const outlineMode = opts.outlineMode ?? 'standard';
 	const colorMode = opts.colorMode ?? 'auto';
@@ -119,7 +121,7 @@ export async function typesetPage(
 		if (!isSfx && r.kind === 'dialogue_bubble') {
 			const maxDialogueSize = opts.fontSize ? opts.fontSize : Math.max(24, Math.round(img.width * 0.035));
 			const cap = Math.min(sizeCap, maxDialogueSize);
-			const initialSize = fitFontSize(ctx, text, font, r.box.w, r.box.h, cap, cap, inset, fontCjk);
+			const initialSize = fitFontSize(ctx, text, font, r.box.w, r.box.h, cap, cap, inset, fontCjk, fontWeight);
 			if (text.split(/\s+/).length >= 2) {
 				dialogueSizes.push(initialSize);
 			}
@@ -154,16 +156,16 @@ export async function typesetPage(
 		let lines: string[];
 
 		if (isSfx) {
-			size = fitSingleLineSize(ctx, text, font, maxW, maxH, sizeCap, fontCjk);
+			size = fitSingleLineSize(ctx, text, font, maxW, maxH, sizeCap, fontCjk, fontWeight);
 			lines = [text];
 		} else {
 			// USE THE FITTED LAYOUT DIRECTLY SO THE RENDER MATCHES THE VALIDATED FIT CHECKS
-			const fitted = fitFontSizeWithLines(ctx, text, font, w, h, cap, cap, inset, fontCjk);
+			const fitted = fitFontSizeWithLines(ctx, text, font, w, h, cap, cap, inset, fontCjk, fontWeight);
 			size = fitted.size;
 			lines = fitted.lines;
 		}
 
-		ctx.font = fontSpec(size, font, text, fontCjk);
+		ctx.font = fontSpec(size, font, text, fontCjk, fontWeight);
 		const lineH = size * effectiveLineHeight;
 		const totalH = lines.length * lineH;
 
@@ -216,6 +218,7 @@ export async function typesetPage(
 					isDarkStroke,
 					fontCjk,
 					align === 'left' ? 'left' : 'center',
+					fontWeight,
 				);
 				ty += lineH;
 			}
@@ -236,6 +239,7 @@ export async function typesetPage(
 					isDarkStroke,
 					fontCjk,
 					align === 'left' ? 'left' : 'center',
+					fontWeight,
 				);
 				ty += lineH;
 			}

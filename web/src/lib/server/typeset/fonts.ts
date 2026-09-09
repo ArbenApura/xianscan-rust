@@ -86,8 +86,9 @@ export function registerFonts(): void {
 	const fontDir = resolveFontDir();
 	tryRegisterFont(join(fontDir, 'CCWildWords-Roman.ttf'), FONT_DIALOGUE);
 	tryRegisterFont(join(fontDir, 'FriendlySans-Regular.ttf'), FONT_FALLBACK_NAME);
-	tryRegisterFont(join(fontDir, 'GeneralSans-Bold.ttf'), 'General Sans Bold');
 	tryRegisterFont(join(fontDir, 'GeneralSans-Regular.ttf'), 'General Sans');
+	tryRegisterFont(join(fontDir, 'GeneralSans-Bold.ttf'), 'General Sans');
+	tryRegisterFont(join(fontDir, 'GeneralSans-Bold.ttf'), 'General Sans Bold');
 	tryRegisterFont(join(fontDir, 'Poppins-Bold.ttf'), 'Poppins Bold');
 	tryRegisterFont(join(fontDir, 'Poppins-Bold.ttf'), 'Poppins');
 	tryRegisterFont(join(fontDir, 'Montserrat-Bold.ttf'), 'Montserrat Bold');
@@ -165,21 +166,65 @@ export interface FontAvailabilityItem {
 	available: boolean;
 	bundled: boolean;
 	note: string;
+	supportedWeights: ('normal' | 'bold')[];
 }
 
 /**
- * DETECTS AND RETURNS AVAILABILITY STATUS FOR ALL SUPPORTED DIALOGUE & CJK FONTS
+ * RESOLVES THE EFFECTIVE FONT WEIGHT FOR A FAMILY WITH SAFE FALLBACK IF UNSUPPORTED
+ */
+export function resolveEffectiveFontWeight(
+	fontFamily: string,
+	requestedWeight?: 'normal' | 'bold' | string | number,
+): 'normal' | 'bold' {
+	const w: 'normal' | 'bold' =
+		requestedWeight === 'bold' || requestedWeight === 700 || requestedWeight === '700' ? 'bold' : 'normal';
+	const fam = (fontFamily || '').trim();
+
+	// CC WILD WORDS AND FRIENDLY SANS ONLY BUNDLE REGULAR (400)
+	if (fam === 'CC Wild Words' || fam === 'Friendly Sans') {
+		return 'normal';
+	}
+	// MONTSERRAT, POPPINS, AND LEXEND ONLY BUNDLE BOLD (700)
+	if (fam === 'Montserrat' || fam === 'Poppins' || fam === 'Lexend' || fam === 'General Sans Bold') {
+		return 'bold';
+	}
+	// GENERAL SANS SUPPORTS BOTH NORMAL AND BOLD
+	if (fam === 'General Sans') {
+		return w;
+	}
+
+	// QUERY SKIA FAMILIES CACHE FOR SYSTEM AND NON-BUNDLED FONTS
+	try {
+		const parsed = GlobalFonts.families;
+		if (parsed && Array.isArray(parsed) && parsed.length > 0) {
+			const match = parsed.find((f) => f.family.toLowerCase() === fam.toLowerCase());
+			if (match && Array.isArray(match.styles) && match.styles.length > 0) {
+				const hasBold = match.styles.some((s) => s.weight >= 600);
+				const hasNormal = match.styles.some((s) => s.weight < 600);
+				if (w === 'bold' && !hasBold && hasNormal) return 'normal';
+				if (w === 'normal' && !hasNormal && hasBold) return 'bold';
+			}
+		}
+	} catch {
+		// FALLBACK TO REQUESTED WEIGHT ON ERROR
+	}
+
+	return w;
+}
+
+/**
+ * DETECTS AND RETURNS AVAILABILITY STATUS AND SUPPORTED WEIGHTS FOR ALL DIALOGUE & CJK FONTS
  */
 export function getFontAvailability(): Record<string, FontAvailabilityItem> {
 	registerFonts();
-	const fontMeta: Record<string, { bundled: boolean; note: string }> = {
-		'CC Wild Words': { bundled: true, note: 'Bundled comic dialogue font' },
-		'Friendly Sans': { bundled: true, note: 'Bundled clean Latin / symbol fallback' },
-		'General Sans': { bundled: true, note: 'Bundled clean modern sans' },
-		'Poppins': { bundled: true, note: 'Bundled geometric rounded' },
-		'Montserrat': { bundled: true, note: 'Bundled bold contemporary' },
-		'Lexend': { bundled: true, note: 'Bundled high legibility' },
-		'WenQuanYi Micro Hei': { bundled: true, note: 'Bundled universal CJK engine' },
+	const fontMeta: Record<string, { bundled: boolean; note: string; defaultWeights?: ('normal' | 'bold')[] }> = {
+		'CC Wild Words': { bundled: true, note: 'Bundled comic dialogue font', defaultWeights: ['normal'] },
+		'Friendly Sans': { bundled: true, note: 'Bundled clean Latin / symbol fallback', defaultWeights: ['normal'] },
+		'General Sans': { bundled: true, note: 'Bundled clean modern sans', defaultWeights: ['normal', 'bold'] },
+		'Poppins': { bundled: true, note: 'Bundled geometric rounded', defaultWeights: ['bold'] },
+		'Montserrat': { bundled: true, note: 'Bundled bold contemporary', defaultWeights: ['bold'] },
+		'Lexend': { bundled: true, note: 'Bundled high legibility', defaultWeights: ['bold'] },
+		'WenQuanYi Micro Hei': { bundled: true, note: 'Bundled universal CJK engine', defaultWeights: ['normal', 'bold'] },
 		'Microsoft YaHei': { bundled: false, note: 'Windows Chinese font' },
 		'Yu Gothic': { bundled: false, note: 'Windows Japanese font' },
 		'Malgun Gothic': { bundled: false, note: 'Windows Korean font' },
@@ -188,13 +233,38 @@ export function getFontAvailability(): Record<string, FontAvailabilityItem> {
 		'Proxima Nova': { bundled: false, note: 'Proprietary font (requires local install)' },
 	};
 
+	let skiaFamilies: Array<{ family: string; styles: Array<{ weight: number }> }> = [];
+	try {
+		skiaFamilies = (GlobalFonts.families || []) as Array<{ family: string; styles: Array<{ weight: number }> }>;
+	} catch {
+		// IGNORE ERROR
+	}
+
 	const result: Record<string, FontAvailabilityItem> = {};
 	for (const [name, meta] of Object.entries(fontMeta)) {
 		const isAvail = meta.bundled || GlobalFonts.has(name);
+		let supportedWeights: ('normal' | 'bold')[] = meta.defaultWeights ? [...meta.defaultWeights] : ['normal'];
+
+		if (!meta.defaultWeights) {
+			const entry = skiaFamilies.find((f) => f.family.toLowerCase() === name.toLowerCase());
+			if (entry && Array.isArray(entry.styles) && entry.styles.length > 0) {
+				const hasBold = entry.styles.some((s) => s.weight >= 600);
+				const hasNormal = entry.styles.some((s) => s.weight < 600);
+				if (hasBold && hasNormal) {
+					supportedWeights = ['normal', 'bold'];
+				} else if (hasBold) {
+					supportedWeights = ['bold'];
+				} else {
+					supportedWeights = ['normal'];
+				}
+			}
+		}
+
 		result[name] = {
 			available: isAvail,
 			bundled: meta.bundled,
 			note: meta.note,
+			supportedWeights,
 		};
 	}
 
@@ -334,19 +404,38 @@ export function fontFor(text?: string, customDialogue?: string, customCjk?: stri
 	return fontDialogue;
 }
 
-export function fontSpec(size: number, fontNameOrText?: string, text?: string, customCjk?: string): string {
+export const LATIN_DIALOGUE_FONTS = new Set([
+	'CC Wild Words',
+	'Friendly Sans',
+	'General Sans',
+	'General Sans Bold',
+	'Poppins',
+	'Poppins Bold',
+	'Montserrat',
+	'Montserrat Bold',
+	'Lexend',
+	'Lexend Bold',
+]);
+
+export function fontSpec(
+	size: number,
+	fontNameOrText?: string,
+	text?: string,
+	customCjk?: string,
+	fontWeight?: 'normal' | 'bold' | string | number,
+): string {
 	const isPureNonLatin = Boolean(text && NON_LATIN_SCRIPT_REGEX.test(text) && !/[a-zA-Z]/.test(text));
-	const isNonLatinFont = fontNameOrText && fontNameOrText !== FONT_DIALOGUE && fontNameOrText !== FONT_FALLBACK_NAME;
+	const isNonLatinFont = Boolean(fontNameOrText && !LATIN_DIALOGUE_FONTS.has(fontNameOrText));
 
 	if (isPureNonLatin || isNonLatinFont) {
-		const cjkPrimary = fontNameOrText && fontNameOrText !== FONT_DIALOGUE && fontNameOrText !== FONT_FALLBACK_NAME
-			? fontNameOrText
-			: resolveScriptFont(text, customCjk);
+		const cjkPrimary = isNonLatinFont ? fontNameOrText! : resolveScriptFont(text, customCjk);
 		return `bold ${size}px "${cjkPrimary}", ${CJK_FONT_STACK}`;
 	}
 
 	const fontName = fontNameOrText ?? FONT_DIALOGUE;
-	return `${size}px "${fontName}"${FONT_FALLBACK}`;
+	const effectiveWeight = resolveEffectiveFontWeight(fontName, fontWeight);
+	const weightPrefix = effectiveWeight === 'bold' ? 'bold ' : '';
+	return `${weightPrefix}${size}px "${fontName}"${FONT_FALLBACK}`;
 }
 
 export function measureTextWithRuns(
@@ -356,15 +445,16 @@ export function measureTextWithRuns(
 	primaryFont?: string,
 	fallbackFont?: string,
 	customCjk?: string,
+	fontWeight?: 'normal' | 'bold',
 ): number {
 	const runs = splitTextRuns(text, primaryFont, fallbackFont);
 	if (runs.length === 1 && !runs[0].isFallbackSymbol) {
-		ctx.font = fontSpec(size, runs[0].font, text, customCjk);
+		ctx.font = fontSpec(size, runs[0].font, text, customCjk, fontWeight);
 		return ctx.measureText(text).width;
 	}
 	let totalW = 0;
 	for (const run of runs) {
-		ctx.font = fontSpec(size, run.font, run.isFallbackSymbol ? run.text : undefined, customCjk);
+		ctx.font = fontSpec(size, run.font, run.isFallbackSymbol ? run.text : undefined, customCjk, fontWeight);
 		totalW += ctx.measureText(run.text).width;
 	}
 	return totalW;
@@ -383,11 +473,12 @@ export function drawTextLineWithRuns(
 	isDarkStroke: boolean,
 	customCjk?: string,
 	align: 'center' | 'left' = 'center',
+	fontWeight?: 'normal' | 'bold',
 ): void {
 	const runs = splitTextRuns(line, primaryFont, fallbackFont);
 	let totalW = 0;
 	for (const run of runs) {
-		ctx.font = fontSpec(size, run.font, run.isFallbackSymbol ? run.text : undefined, customCjk);
+		ctx.font = fontSpec(size, run.font, run.isFallbackSymbol ? run.text : undefined, customCjk, fontWeight);
 		totalW += ctx.measureText(run.text).width;
 	}
 
@@ -396,7 +487,7 @@ export function drawTextLineWithRuns(
 	ctx.textBaseline = 'alphabetic';
 
 	for (const run of runs) {
-		ctx.font = fontSpec(size, run.font, run.isFallbackSymbol ? run.text : undefined, customCjk);
+		ctx.font = fontSpec(size, run.font, run.isFallbackSymbol ? run.text : undefined, customCjk, fontWeight);
 		if (strokeWidth > 0) {
 			ctx.lineWidth = strokeWidth;
 			ctx.lineJoin = 'round';

@@ -15,6 +15,7 @@ import {
 	splitTextRuns,
 	resolveScriptFont,
 	getFontAvailability,
+	resolveEffectiveFontWeight,
 	typesetPage,
 	wrapText,
 	fontSpec,
@@ -1145,6 +1146,37 @@ Tattered Flesh-Cutting Knife`;
 		const fitted = fitFontSizeWithLines(ctx2, text, 'CC Wild Words', w, h, 32, 32, inset);
 		expect(fitted.size).toBeGreaterThanOrEqual(14);
 		expect(fitted.lines.length).toBeGreaterThanOrEqual(6);
+	});
+
+	it('resolves font weights correctly and falls back when unsupported', () => {
+		// CC Wild Words only has regular 400
+		expect(resolveEffectiveFontWeight('CC Wild Words', 'bold')).toBe('normal');
+		expect(resolveEffectiveFontWeight('CC Wild Words', 'normal')).toBe('normal');
+
+		// Friendly Sans only has regular 400
+		expect(resolveEffectiveFontWeight('Friendly Sans', 'bold')).toBe('normal');
+		expect(resolveEffectiveFontWeight('Friendly Sans', 'normal')).toBe('normal');
+
+		// Montserrat only has bold 700
+		expect(resolveEffectiveFontWeight('Montserrat', 'normal')).toBe('bold');
+		expect(resolveEffectiveFontWeight('Montserrat', 'bold')).toBe('bold');
+
+		// General Sans has both regular and bold
+		expect(resolveEffectiveFontWeight('General Sans', 'normal')).toBe('normal');
+		expect(resolveEffectiveFontWeight('General Sans', 'bold')).toBe('bold');
+
+		// fontSpec prefixes bold only when effective weight is bold
+		expect(fontSpec(20, 'General Sans', 'Hello', undefined, 'normal')).not.toContain('bold 20px');
+		expect(fontSpec(20, 'General Sans', 'Hello', undefined, 'bold')).toContain('bold 20px');
+
+		// fontSpec with CC Wild Words ignores bold request
+		expect(fontSpec(20, 'CC Wild Words', 'Hello', undefined, 'bold')).not.toContain('bold 20px');
+
+		// getFontAvailability returns supportedWeights
+		const avail = getFontAvailability();
+		expect(avail['General Sans'].supportedWeights).toEqual(['normal', 'bold']);
+		expect(avail['CC Wild Words'].supportedWeights).toEqual(['normal']);
+		expect(avail['Montserrat'].supportedWeights).toEqual(['bold']);
 	});
 });
 

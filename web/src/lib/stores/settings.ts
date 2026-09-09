@@ -26,6 +26,8 @@ export type TypesetContrast = 'auto' | 'dark' | 'light';
 
 export type TypesetCasing = 'uppercase' | 'original' | 'lowercase';
 
+export type TypesetFontWeight = 'normal' | 'bold';
+
 export type LibraryLayout = 'grid' | 'list' | 'compact';
 
 export type LibrarySort = 'recent' | 'title_asc' | 'title_desc' | 'chapters_desc' | 'chapters_asc';
@@ -63,6 +65,7 @@ export interface AppSettings {
 	translationPresencePenalty: number | null;
 	// ADVANCED TYPESETTING & INPAINTING CONFIGURATION
 	typesetFont: string;
+	typesetFontWeight: TypesetFontWeight;
 	typesetCjkFont: string;
 	typesetPadding: number;
 	typesetOutline: TypesetOutline;
@@ -211,6 +214,7 @@ export const DEFAULTS: AppSettings = {
 	translationFrequencyPenalty: null,
 	translationPresencePenalty: null,
 	typesetFont: 'CC Wild Words',
+	typesetFontWeight: 'normal',
 	typesetCjkFont: 'WenQuanYi Micro Hei',
 	typesetPadding: 0.05,
 	typesetOutline: 'standard',
@@ -252,6 +256,7 @@ export const SERVER_CANONICAL_KEYS: (keyof AppSettings)[] = [
 	'translationFrequencyPenalty',
 	'translationPresencePenalty',
 	'typesetFont',
+	'typesetFontWeight',
 	'typesetCjkFont',
 	'typesetPadding',
 	'typesetOutline',
@@ -284,6 +289,7 @@ export const PARALLEL_PROCESSES_COOKIE = 'mt_parallel_processes';
 export const PARALLEL_CHAPTERS_COOKIE = 'mt_parallel_chapters';
 export const RESLICE_BEFORE_BATCH_COOKIE = 'mt_reslice_batch';
 export const TYPESET_FONT_COOKIE = 'mt_ts_font';
+export const TYPESET_FONT_WEIGHT_COOKIE = 'mt_ts_font_weight';
 export const TYPESET_CJK_FONT_COOKIE = 'mt_ts_cjk_font';
 export const TYPESET_PADDING_COOKIE = 'mt_ts_padding';
 export const TYPESET_OUTLINE_COOKIE = 'mt_ts_outline';
@@ -348,40 +354,42 @@ export interface TypesetFontOption {
 	stack?: string;
 	allCapsOnly?: boolean;
 	bundled?: boolean;
+	supportedWeights?: ('normal' | 'bold')[];
 }
 
 export const AVAILABLE_TYPESET_FONTS: TypesetFontOption[] = [
-	{ id: 'CC Wild Words', label: 'CC Wild Words', sub: 'Classic Comic All-Caps', stack: "'CC Wild Words', 'WildWorld', sans-serif", allCapsOnly: true, bundled: true },
-	{ id: 'Friendly Sans', label: 'Friendly Sans', sub: 'Clean Comic Sans-Serif', stack: "'Friendly Sans', sans-serif", bundled: true },
-	{ id: 'General Sans', label: 'General Sans', sub: 'Clean Modern Sans', stack: "'General Sans', sans-serif", bundled: true },
-	{ id: 'Poppins', label: 'Poppins', sub: 'Geometric Rounded', stack: "'Poppins', sans-serif", bundled: true },
-	{ id: 'Montserrat', label: 'Montserrat', sub: 'Bold Contemporary', stack: "'Montserrat', sans-serif", bundled: true },
-	{ id: 'Lexend', label: 'Lexend', sub: 'High Legibility', stack: "'Lexend', sans-serif", bundled: true },
+	{ id: 'CC Wild Words', label: 'CC Wild Words', sub: 'Classic Comic All-Caps', stack: "'CC Wild Words', 'WildWorld', sans-serif", allCapsOnly: true, bundled: true, supportedWeights: ['normal'] },
+	{ id: 'Friendly Sans', label: 'Friendly Sans', sub: 'Clean Comic Sans-Serif', stack: "'Friendly Sans', sans-serif", bundled: true, supportedWeights: ['normal'] },
+	{ id: 'General Sans', label: 'General Sans', sub: 'Clean Modern Sans', stack: "'General Sans', sans-serif", bundled: true, supportedWeights: ['normal', 'bold'] },
+	{ id: 'Poppins', label: 'Poppins', sub: 'Geometric Rounded', stack: "'Poppins', sans-serif", bundled: true, supportedWeights: ['bold'] },
+	{ id: 'Montserrat', label: 'Montserrat', sub: 'Bold Contemporary', stack: "'Montserrat', sans-serif", bundled: true, supportedWeights: ['bold'] },
+	{ id: 'Lexend', label: 'Lexend', sub: 'High Legibility', stack: "'Lexend', sans-serif", bundled: true, supportedWeights: ['bold'] },
 ];
 
 export const AVAILABLE_CJK_FONTS: TypesetFontOption[] = [
-	{ id: 'WenQuanYi Micro Hei', label: 'WenQuanYi Micro Hei', sub: 'Bundled Universal CJK Engine', bundled: true },
-	{ id: 'Microsoft YaHei', label: 'Microsoft YaHei', sub: 'Chinese Simplified & Traditional' },
-	{ id: 'Yu Gothic', label: 'Yu Gothic', sub: 'Japanese Manga Standard' },
-	{ id: 'Malgun Gothic', label: 'Malgun Gothic', sub: 'Korean Hangul Manhwa' },
-	{ id: 'Noto Sans CJK SC', label: 'Noto Sans CJK', sub: 'Universal CJK (Linux / Noto)' },
-	{ id: 'Friendly Sans', label: 'Friendly Sans', sub: 'Clean Latin / Symbol Fallback', bundled: true },
+	{ id: 'WenQuanYi Micro Hei', label: 'WenQuanYi Micro Hei', sub: 'Bundled Universal CJK Engine', bundled: true, supportedWeights: ['normal', 'bold'] },
+	{ id: 'Microsoft YaHei', label: 'Microsoft YaHei', sub: 'Chinese Simplified & Traditional', supportedWeights: ['normal', 'bold'] },
+	{ id: 'Yu Gothic', label: 'Yu Gothic', sub: 'Japanese Manga Standard', supportedWeights: ['normal', 'bold'] },
+	{ id: 'Malgun Gothic', label: 'Malgun Gothic', sub: 'Korean Hangul Manhwa', supportedWeights: ['normal', 'bold'] },
+	{ id: 'Noto Sans CJK SC', label: 'Noto Sans CJK', sub: 'Universal CJK (Linux / Noto)', supportedWeights: ['normal', 'bold'] },
+	{ id: 'Friendly Sans', label: 'Friendly Sans', sub: 'Clean Latin / Symbol Fallback', bundled: true, supportedWeights: ['normal'] },
 ];
 
 export interface FontAvailabilityStatus {
 	available: boolean;
 	bundled: boolean;
 	note: string;
+	supportedWeights?: ('normal' | 'bold')[];
 }
 
 export const fontAvailabilityStore = writable<Record<string, FontAvailabilityStatus>>({
-	'CC Wild Words': { available: true, bundled: true, note: 'Bundled comic dialogue font' },
-	'Friendly Sans': { available: true, bundled: true, note: 'Bundled clean Latin / symbol fallback' },
-	'General Sans': { available: true, bundled: true, note: 'Bundled clean modern sans' },
-	'Poppins': { available: true, bundled: true, note: 'Bundled geometric rounded' },
-	'Montserrat': { available: true, bundled: true, note: 'Bundled bold contemporary' },
-	'Lexend': { available: true, bundled: true, note: 'Bundled high legibility' },
-	'WenQuanYi Micro Hei': { available: true, bundled: true, note: 'Bundled universal CJK engine' },
+	'CC Wild Words': { available: true, bundled: true, note: 'Bundled comic dialogue font', supportedWeights: ['normal'] },
+	'Friendly Sans': { available: true, bundled: true, note: 'Bundled clean Latin / symbol fallback', supportedWeights: ['normal'] },
+	'General Sans': { available: true, bundled: true, note: 'Bundled clean modern sans', supportedWeights: ['normal', 'bold'] },
+	'Poppins': { available: true, bundled: true, note: 'Bundled geometric rounded', supportedWeights: ['bold'] },
+	'Montserrat': { available: true, bundled: true, note: 'Bundled bold contemporary', supportedWeights: ['bold'] },
+	'Lexend': { available: true, bundled: true, note: 'Bundled high legibility', supportedWeights: ['bold'] },
+	'WenQuanYi Micro Hei': { available: true, bundled: true, note: 'Bundled universal CJK engine', supportedWeights: ['normal', 'bold'] },
 });
 
 export async function refreshFontAvailability(): Promise<Record<string, FontAvailabilityStatus>> {

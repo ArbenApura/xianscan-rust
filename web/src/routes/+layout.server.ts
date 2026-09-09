@@ -1,6 +1,7 @@
 import type { LayoutServerLoad } from './$types';
+import { eq } from 'drizzle-orm';
 import { db } from '$lib/server/db';
-import { readingHistory as readingHistoryTable } from '$lib/server/db/schema';
+import { readingHistory as readingHistoryTable, chapters } from '$lib/server/db/schema';
 import { getCanonicalSettings } from '$lib/server/settings-service';
 import { isLlmProviderConfigured } from '$lib/server/providers';
 import {
@@ -51,11 +52,25 @@ const VALID_EXEC_DEVICES = new Set<ExecutionDevice>(['auto', 'cuda', 'dml', 'cor
 
 export const load: LayoutServerLoad = async ({ cookies }) => {
 	let canonicalSettings: AppSettings | null = null;
-	const historyMap: Record<string, { chapterId: number; seq: number; pageSeq: number; totalPages: number; completed: boolean; updatedAt: number }> = {};
+	const historyMap: Record<string, { chapterId: number; seq: number; pageSeq: number; totalPages: number; completed: boolean; updatedAt: number; title?: string | null; titleTarget?: string | null }> = {};
 
 	try {
 		canonicalSettings = getCanonicalSettings();
-		const rows = db.select().from(readingHistoryTable).all();
+		const rows = db
+			.select({
+				bookId: readingHistoryTable.bookId,
+				chapterId: readingHistoryTable.chapterId,
+				chapterSeq: readingHistoryTable.chapterSeq,
+				pageSeq: readingHistoryTable.pageSeq,
+				totalPages: readingHistoryTable.totalPages,
+				completed: readingHistoryTable.completed,
+				updatedAt: readingHistoryTable.updatedAt,
+				title: chapters.title,
+				titleTarget: chapters.titleTarget,
+			})
+			.from(readingHistoryTable)
+			.leftJoin(chapters, eq(readingHistoryTable.chapterId, chapters.id))
+			.all();
 		for (const r of rows) {
 			historyMap[r.bookId] = {
 				chapterId: r.chapterId,
@@ -64,6 +79,8 @@ export const load: LayoutServerLoad = async ({ cookies }) => {
 				totalPages: r.totalPages,
 				completed: Boolean(r.completed),
 				updatedAt: r.updatedAt,
+				title: r.title ?? null,
+				titleTarget: r.titleTarget ?? null,
 			};
 		}
 	} catch {

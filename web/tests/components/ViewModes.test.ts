@@ -88,10 +88,25 @@ describe('Chapter View Modes UI Components', () => {
 			},
 		});
 
-		expect(screen.getByText('End of Chapter 1')).toBeTruthy();
+		expect(screen.getByText((content) => content.includes('End of') && content.includes('Chapter 1'))).toBeTruthy();
 		expect(screen.getByText('Chapter List')).toBeTruthy();
-		expect(screen.getByText('Previous (Ch. 1)')).toBeTruthy();
-		expect(screen.getByText('Next Chapter (Ch. 3)')).toBeTruthy();
+		expect(screen.getByText((content) => content.includes('Previous') && content.includes('Chapter 1'))).toBeTruthy();
+		expect(screen.getByText((content) => content.includes('Next') && content.includes('Chapter 3'))).toBeTruthy();
+	});
+
+	it('falls back to sequence number in EndOfChapterCard when chapter title is not provided', async () => {
+		render(EndOfChapterCard, {
+			props: {
+				bookId: 'book-1',
+				chapterSeq: 0,
+				totalPages: 24,
+				prevChapter: { id: 1, seq: 0 },
+				nextChapter: { id: 3, seq: 2 },
+			},
+		});
+
+		expect(screen.getByText((content) => content.includes('Previous') && content.includes('Ch. 1'))).toBeTruthy();
+		expect(screen.getByText((content) => content.includes('Next') && content.includes('Ch. 3'))).toBeTruthy();
 	});
 
 	it('renders ViewModeGrid with queued, processing, and pending pages', async () => {

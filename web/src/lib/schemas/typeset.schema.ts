@@ -22,6 +22,7 @@ export const typesetOptionsSchema = z.object({
 	enableRotation: z.boolean().optional(),
 	align: typesetAlignSchema.optional(),
 	autoFit: z.boolean().optional(),
+	fontWeight: z.enum(['normal', 'bold']).optional(),
 	textColor: z.string().optional(),
 	strokeColor: z.string().optional(),
 	strokeWidth: z.number().min(0).max(20).optional(),

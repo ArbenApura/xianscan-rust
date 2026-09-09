@@ -1342,6 +1342,8 @@
 		<EndOfChapterCard
 			bookId={bookId ?? ''}
 			chapterSeq={chapter?.seq ?? 0}
+			chapterTitle={chapter?.title}
+			chapterTitleTarget={chapter?.titleTarget}
 			totalPages={pages.length}
 			{prevChapter}
 			{nextChapter}

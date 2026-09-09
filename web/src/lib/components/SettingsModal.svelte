@@ -39,6 +39,7 @@
 		type TypesetOutline,
 		type TypesetContrast,
 		type TypesetCasing,
+		type TypesetFontWeight,
 		type ReasoningEffortOption,
 	} from '$lib/stores/settings';
 	import { mlStatus } from '$lib/stores/ml-status';
@@ -614,8 +615,27 @@
 	}
 
 	function setTypesetFont(font: string) {
-		settings.update((s) => ({ ...s, typesetFont: font }));
+		const targetStatus = $fontAvailabilityStore[font];
+		const targetOption = AVAILABLE_TYPESET_FONTS.find((f) => f.id === font);
+		const supported = targetStatus?.supportedWeights || targetOption?.supportedWeights || ['normal'];
+		const hasBold = supported.includes('bold');
+		const hasNormal = supported.includes('normal');
+
+		settings.update((s) => {
+			let nextWeight = s.typesetFontWeight || 'normal';
+			if (nextWeight === 'bold' && !hasBold && hasNormal) {
+				nextWeight = 'normal';
+			} else if (nextWeight === 'normal' && !hasNormal && hasBold) {
+				nextWeight = 'bold';
+			}
+			return { ...s, typesetFont: font, typesetFontWeight: nextWeight };
+		});
 		toast.success(`Dialogue font set to ${font}`);
+	}
+
+	function setTypesetFontWeight(weight: TypesetFontWeight) {
+		settings.update((s) => ({ ...s, typesetFontWeight: weight }));
+		toast.success(`Font weight set to ${weight === 'bold' ? 'Bold (700)' : 'Regular (400)'}`);
 	}
 
 	function setTypesetCjkFont(font: string) {
@@ -1444,6 +1464,25 @@
 
 	// COMPUTED PREVIEW STYLES
 	$: selectedFont = AVAILABLE_TYPESET_FONTS.find((f) => f.id === $settings.typesetFont);
+	$: fontStatus = $fontAvailabilityStore[$settings.typesetFont];
+	$: supportedWeights = fontStatus?.supportedWeights || selectedFont?.supportedWeights || ['normal'];
+	$: isNormalSupported = supportedWeights.includes('normal');
+	$: isBoldSupported = supportedWeights.includes('bold');
+	$: effectiveWeight = !isBoldSupported && $settings.typesetFontWeight === 'bold'
+		? 'normal'
+		: !isNormalSupported && $settings.typesetFontWeight === 'normal'
+			? 'bold'
+			: ($settings.typesetFontWeight || 'normal');
+
+	// Auto-fallback if current weight is unsupported by selected font
+	$: if ($settings.typesetFontWeight && supportedWeights.length > 0) {
+		if ($settings.typesetFontWeight === 'bold' && !isBoldSupported && isNormalSupported) {
+			settings.update((s) => ({ ...s, typesetFontWeight: 'normal' }));
+		} else if ($settings.typesetFontWeight === 'normal' && !isNormalSupported && isBoldSupported) {
+			settings.update((s) => ({ ...s, typesetFontWeight: 'bold' }));
+		}
+	}
+
 	$: isTextCjk = CJK_REGEX.test(previewSampleText);
 	$: isCasingApplicable = !isTextCjk && !selectedFont?.allCapsOnly && $settings.typesetFont !== 'CC Wild Words';
 	$: previewFontFamily = isTextCjk
@@ -2002,9 +2041,10 @@
 									"
 								>
 									<div
-										class="font-bold leading-snug select-none transition-all duration-150 break-words px-1.5"
+										class="leading-snug select-none transition-all duration-150 break-words px-1.5"
 										style="
 											font-family: {previewFontFamily};
+											font-weight: {effectiveWeight === 'bold' ? 'bold' : 'normal'};
 											font-size: {previewFontSizePx};
 											color: {previewTextColor};
 											paint-order: stroke fill;
@@ -2062,6 +2102,65 @@
 										</div>
 									</button>
 								{/each}
+							</div>
+						</div>
+
+						<!-- DIALOGUE FONT WEIGHT SELECTOR -->
+						<div class="space-y-2 pt-1">
+							<div class="flex items-center justify-between">
+								<div class="text-xs font-bold uppercase tracking-wider opacity-80">Dialogue Font Weight</div>
+								{#if !isBoldSupported || !isNormalSupported}
+									<span class="text-[10px] text-amber-600 dark:text-amber-400 font-medium">
+										{selectedFont?.label || 'Selected font'} only supports {isBoldSupported ? 'Bold' : 'Regular'}
+									</span>
+								{/if}
+							</div>
+							<div class="grid grid-cols-2 gap-2">
+								<button
+									type="button"
+									disabled={!isNormalSupported}
+									on:click={() => isNormalSupported && setTypesetFontWeight('normal')}
+									title={!isNormalSupported ? `${selectedFont?.label || 'Selected font'} does not include regular weight` : 'Regular (400)'}
+									class={`flex items-center justify-between rounded-xl border p-2.5 text-left transition-all ${
+										!isNormalSupported
+											? 'opacity-40 cursor-not-allowed border-black/5 bg-black/[0.01] dark:border-white/5 dark:bg-white/[0.01]'
+											: effectiveWeight === 'normal'
+												? 'border-[#b23a2e] bg-[#b23a2e]/[0.08] text-[#b23a2e] dark:text-[#e08a63] ring-2 ring-[#b23a2e]/30 shadow-xs cursor-pointer'
+												: 'border-black/10 hover:border-black/20 hover:bg-black/[0.02] dark:border-white/10 dark:hover:border-white/20 dark:hover:bg-white/[0.02] cursor-pointer'
+									}`}
+									use:ripple
+								>
+									<div class="flex flex-col">
+										<span class="text-xs font-normal pl-1.5" style="font-family: {previewFontFamily};">Regular</span>
+										<span class="text-[10px] opacity-60 pl-1.5">Weight 400</span>
+									</div>
+									{#if effectiveWeight === 'normal'}
+										<Check size={13} class="text-[#b23a2e] dark:text-[#e08a63] shrink-0" />
+									{/if}
+								</button>
+
+								<button
+									type="button"
+									disabled={!isBoldSupported}
+									on:click={() => isBoldSupported && setTypesetFontWeight('bold')}
+									title={!isBoldSupported ? `${selectedFont?.label || 'Selected font'} does not include bold weight` : 'Bold (700)'}
+									class={`flex items-center justify-between rounded-xl border p-2.5 text-left transition-all ${
+										!isBoldSupported
+											? 'opacity-40 cursor-not-allowed border-black/5 bg-black/[0.01] dark:border-white/5 dark:bg-white/[0.01]'
+											: effectiveWeight === 'bold'
+												? 'border-[#b23a2e] bg-[#b23a2e]/[0.08] text-[#b23a2e] dark:text-[#e08a63] ring-2 ring-[#b23a2e]/30 shadow-xs cursor-pointer'
+												: 'border-black/10 hover:border-black/20 hover:bg-black/[0.02] dark:border-white/10 dark:hover:border-white/20 dark:hover:bg-white/[0.02] cursor-pointer'
+									}`}
+									use:ripple
+								>
+									<div class="flex flex-col">
+										<span class="text-xs font-bold pl-1.5" style="font-family: {previewFontFamily};">Bold</span>
+										<span class="text-[10px] opacity-60 pl-1.5">Weight 700</span>
+									</div>
+									{#if effectiveWeight === 'bold'}
+										<Check size={13} class="text-[#b23a2e] dark:text-[#e08a63] shrink-0" />
+									{/if}
+								</button>
 							</div>
 						</div>
 

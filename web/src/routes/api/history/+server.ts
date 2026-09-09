@@ -1,7 +1,7 @@
 import { json, type RequestHandler } from '@sveltejs/kit';
 import { eq, desc } from 'drizzle-orm';
 import { db } from '$lib/server/db';
-import { readingHistory } from '$lib/server/db/schema';
+import { readingHistory, chapters } from '$lib/server/db/schema';
 
 // GET /api/history - Return reading history map or list
 export const GET: RequestHandler = async ({ url }) => {
@@ -11,16 +11,38 @@ export const GET: RequestHandler = async ({ url }) => {
 
 		if (bookId) {
 			const entry = db
-				.select()
+				.select({
+					bookId: readingHistory.bookId,
+					chapterId: readingHistory.chapterId,
+					chapterSeq: readingHistory.chapterSeq,
+					pageSeq: readingHistory.pageSeq,
+					totalPages: readingHistory.totalPages,
+					completed: readingHistory.completed,
+					updatedAt: readingHistory.updatedAt,
+					title: chapters.title,
+					titleTarget: chapters.titleTarget,
+				})
 				.from(readingHistory)
+				.leftJoin(chapters, eq(readingHistory.chapterId, chapters.id))
 				.where(eq(readingHistory.bookId, bookId))
 				.get();
 			return json(entry || null);
 		}
 
 		const entries = db
-			.select()
+			.select({
+				bookId: readingHistory.bookId,
+				chapterId: readingHistory.chapterId,
+				chapterSeq: readingHistory.chapterSeq,
+				pageSeq: readingHistory.pageSeq,
+				totalPages: readingHistory.totalPages,
+				completed: readingHistory.completed,
+				updatedAt: readingHistory.updatedAt,
+				title: chapters.title,
+				titleTarget: chapters.titleTarget,
+			})
 			.from(readingHistory)
+			.leftJoin(chapters, eq(readingHistory.chapterId, chapters.id))
 			.orderBy(desc(readingHistory.updatedAt))
 			.limit(limit)
 			.all();
@@ -167,8 +189,19 @@ export const POST: RequestHandler = async ({ request }) => {
 		});
 
 		const saved = db
-			.select()
+			.select({
+				bookId: readingHistory.bookId,
+				chapterId: readingHistory.chapterId,
+				chapterSeq: readingHistory.chapterSeq,
+				pageSeq: readingHistory.pageSeq,
+				totalPages: readingHistory.totalPages,
+				completed: readingHistory.completed,
+				updatedAt: readingHistory.updatedAt,
+				title: chapters.title,
+				titleTarget: chapters.titleTarget,
+			})
 			.from(readingHistory)
+			.leftJoin(chapters, eq(readingHistory.chapterId, chapters.id))
 			.where(eq(readingHistory.bookId, body.bookId))
 			.get();
 
