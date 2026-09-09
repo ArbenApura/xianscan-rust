@@ -239,4 +239,31 @@ fn test_page_117955_short_horizontal_dialogue_bubble_expansion() {
     assert!(tb.x >= bubble.x && tb.x + tb.w <= bubble.x + bubble.w);
 }
 
+#[test]
+fn test_failed_chapters_pages_analysis_succeeds() {
+    let base = std::path::PathBuf::from(r"C:\Users\Admin\AppData\Roaming\XianScan\data");
+    let test_rel_paths = [
+        "uploads/3419/6ee0437b-d3ac-456c-a32a-056549607e99.webp", // Chapter 3419 Page 18 (crash site)
+        "uploads/3419/2b7865b9-6d11-4f9d-9bce-60f5015c51ef.webp", // Chapter 3419 Page 19
+        "uploads/3420/882ad1f2-3e3c-40fa-9ac5-4fc45e59bc70.webp", // Chapter 3420 Page 0
+        "uploads/3421/bf1aad50-286f-4a9e-a7c5-196970ce3174.webp", // Chapter 3421 Page 0
+        "uploads/3422/0f8bbd26-e0a4-4039-873b-e4137a93b477.webp", // Chapter 3422 Page 0
+        "uploads/3423/95941023-9f74-4509-b0b5-fec38d9d694e.webp", // Chapter 3423 Page 0
+        "uploads/3424/1d416b52-0f91-44a3-b3c8-52b3632e45e6.webp", // Chapter 3424 Page 0
+    ];
+
+    let mut engine = xianscan_rust::pipeline::PipelineEngine::new(std::path::Path::new("models"));
+    for rel in test_rel_paths {
+        let p = base.join(rel);
+        if !p.exists() {
+            continue;
+        }
+        let img = image::open(&p).unwrap_or_else(|e| panic!("Failed to open {}: {}", rel, e));
+        let res = engine.analyze_image(&img);
+        assert!(res.is_ok(), "Analysis on {} failed: {:?}", rel, res.err());
+    }
+}
+
+
+
 

@@ -673,10 +673,12 @@ pub fn extract_dark_bubble_envelope(
     // AT LEAST 65% OF SURROUNDING MARGIN PIXELS MUST BE DARK
     let mut margin_dark = 0usize;
     let mut margin_total = 0usize;
+    let max_gy = (page_h as i32 - 1).max(0);
+    let max_gx = (page_w as i32 - 1).max(0);
     for dy in [-8, -4, bh + 4, bh + 8] {
-        let gy = (by + dy).clamp(0, page_h as i32 - 1) as u32;
+        let gy = (by + dy).clamp(0, max_gy) as u32;
         for dx in (0..bw).step_by(sample_step_x as usize) {
-            let gx = (bx + dx).clamp(0, page_w as i32 - 1) as u32;
+            let gx = (bx + dx).clamp(0, max_gx) as u32;
             let p = rgb_img.get_pixel(gx, gy);
             let lum = (0.299 * p[0] as f32 + 0.587 * p[1] as f32 + 0.114 * p[2] as f32) as u8;
             if lum < 80 { margin_dark += 1; }
@@ -684,9 +686,9 @@ pub fn extract_dark_bubble_envelope(
         }
     }
     for dx in [-8, -4, bw + 4, bw + 8] {
-        let gx = (bx + dx).clamp(0, page_w as i32 - 1) as u32;
+        let gx = (bx + dx).clamp(0, max_gx) as u32;
         for dy in (0..bh).step_by(sample_step_y as usize) {
-            let gy = (by + dy).clamp(0, page_h as i32 - 1) as u32;
+            let gy = (by + dy).clamp(0, max_gy) as u32;
             let p = rgb_img.get_pixel(gx, gy);
             let lum = (0.299 * p[0] as f32 + 0.587 * p[1] as f32 + 0.114 * p[2] as f32) as u8;
             if lum < 80 { margin_dark += 1; }
@@ -715,15 +717,15 @@ pub fn extract_dark_bubble_envelope(
         for step in 1..=max_pad {
             let ry = by - step;
             if !is_dark_pixel(rx, ry) {
-                stop_y = ry;
+                stop_y = ry.max(0);
                 break;
             }
-            stop_y = ry;
+            stop_y = ry.max(0);
         }
         top_stops.push(stop_y);
     }
     top_stops.sort();
-    let bubble_y = top_stops[2];
+    let bubble_y = top_stops[2].clamp(0, page_h as i32);
 
     // DOWNWARD RAYS
     let mut bot_stops = Vec::new();
@@ -733,15 +735,15 @@ pub fn extract_dark_bubble_envelope(
         for step in 1..=max_pad {
             let ry = by + bh + step;
             if !is_dark_pixel(rx, ry) {
-                stop_y = ry;
+                stop_y = ry.min(page_h as i32);
                 break;
             }
-            stop_y = ry;
+            stop_y = ry.min(page_h as i32);
         }
         bot_stops.push(stop_y);
     }
     bot_stops.sort();
-    let bubble_max_y = bot_stops[2];
+    let bubble_max_y = bot_stops[2].clamp(0, page_h as i32);
 
     // LEFTWARD RAYS
     let mut left_stops = Vec::new();
@@ -751,15 +753,15 @@ pub fn extract_dark_bubble_envelope(
         for step in 1..=max_pad {
             let rx = bx - step;
             if !is_dark_pixel(rx, ry) {
-                stop_x = rx;
+                stop_x = rx.max(0);
                 break;
             }
-            stop_x = rx;
+            stop_x = rx.max(0);
         }
         left_stops.push(stop_x);
     }
     left_stops.sort();
-    let bubble_x = left_stops[2];
+    let bubble_x = left_stops[2].clamp(0, page_w as i32);
 
     // RIGHTWARD RAYS
     let mut right_stops = Vec::new();
@@ -769,26 +771,35 @@ pub fn extract_dark_bubble_envelope(
         for step in 1..=max_pad {
             let rx = bx + bw + step;
             if !is_dark_pixel(rx, ry) {
-                stop_x = rx;
+                stop_x = rx.min(page_w as i32);
                 break;
             }
-            stop_x = rx;
+            stop_x = rx.min(page_w as i32);
         }
         right_stops.push(stop_x);
     }
     right_stops.sort();
-    let bubble_max_x = right_stops[2];
+    let bubble_max_x = right_stops[2].clamp(0, page_w as i32);
 
-    let b_w = (bubble_max_x - bubble_x).max(bw + 10);
-    let b_h = (bubble_max_y - bubble_y).max(bh + 10);
+    let raw_w = (bubble_max_x - bubble_x).max(bw + 10);
+    let raw_h = (bubble_max_y - bubble_y).max(bh + 10);
 
-    let final_x = bubble_x.clamp(0, page_w as i32 - b_w);
-    let final_y = bubble_y.clamp(0, page_h as i32 - b_h);
+    let b_w = raw_w.min(page_w as i32);
+    let b_h = raw_h.min(page_h as i32);
+
+    let max_x = (page_w as i32 - b_w).max(0);
+    let max_y = (page_h as i32 - b_h).max(0);
+
+    let final_x = bubble_x.clamp(0, max_x);
+    let final_y = bubble_y.clamp(0, max_y);
+
+    let final_w = b_w.min(page_w as i32 - final_x);
+    let final_h = b_h.min(page_h as i32 - final_y);
 
     Some(BoxRect {
         x: final_x,
         y: final_y,
-        w: b_w,
-        h: b_h,
+        w: final_w,
+        h: final_h,
     })
 }

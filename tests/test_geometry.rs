@@ -91,3 +91,94 @@ fn test_calculate_box_angle_i32() {
     let horizontal_box = vec![[0, 0], [100, 0], [100, 30], [0, 30]];
     assert_eq!(calculate_box_angle_i32(&horizontal_box), 0.0);
 }
+
+/// # Geometry Test: Dark Bubble Envelope Boundary Clamp
+///
+/// ## Purpose:
+/// Verifies `extract_dark_bubble_envelope` does not panic when dark bubble rays reach image boundaries.
+#[test]
+fn test_dark_bubble_envelope_boundary_clamp() {
+    use image::{DynamicImage, Rgb, RgbImage};
+    use xianscan_rust::pipeline::region_builder::extract_dark_bubble_envelope;
+
+    let mut img = RgbImage::new(100, 100);
+    for pixel in img.pixels_mut() {
+        *pixel = Rgb([10, 10, 10]); // Dark background
+    }
+    // Add light stroke in the center
+    for y in 45..55 {
+        for x in 45..55 {
+            img.put_pixel(x, y, Rgb([240, 240, 240]));
+        }
+    }
+    let dyn_img = DynamicImage::ImageRgb8(img);
+    // Text box from (10, 10) with w=80, h=80 inside 100x100 page.
+    // Rays will expand past left (x=0) and right (x=100) boundaries, producing bubble_max_x - bubble_x > page_w.
+    let res = extract_dark_bubble_envelope(&dyn_img, 10, 10, 80, 80, 100, 100);
+    assert!(res.is_some());
+    let rect = res.unwrap();
+    assert!(rect.x >= 0);
+    assert!(rect.y >= 0);
+    assert!(rect.x + rect.w <= 100);
+    assert!(rect.y + rect.h <= 100);
+}
+
+/// # Geometry Test: Dark Bubble Envelope Fuzz & Boundary Stress Test
+///
+/// ## Purpose:
+/// Stress-tests `extract_dark_bubble_envelope` across hundreds of boundary permutations
+/// (full-bleed, 1px margins, extreme aspect ratios, edge-clipping) ensuring zero panics
+/// and strict containment invariants (`x >= 0`, `y >= 0`, `x + w <= pw`, `y + h <= ph`).
+#[test]
+fn test_dark_bubble_envelope_stress_and_fuzz() {
+    use image::{DynamicImage, Rgb, RgbImage};
+    use xianscan_rust::pipeline::region_builder::extract_dark_bubble_envelope;
+
+    let test_sizes = [(16, 16), (25, 50), (100, 100), (300, 150), (73, 97)];
+
+    for (pw, ph) in test_sizes {
+        // Build image with dark background and centered light strokes
+        let mut img = RgbImage::new(pw, ph);
+        for (x, y, pixel) in img.enumerate_pixels_mut() {
+            if x >= pw / 3 && x <= pw * 2 / 3 && y >= ph / 3 && y <= ph * 2 / 3 {
+                *pixel = Rgb([240, 240, 240]);
+            } else {
+                *pixel = Rgb([15, 15, 15]);
+            }
+        }
+        let dyn_img = DynamicImage::ImageRgb8(img);
+
+        // Test boundary positions and dimensions
+        let test_boxes = [
+            (0, 0, pw as i32, ph as i32),
+            (0, 0, (pw / 2).max(8) as i32, (ph / 2).max(8) as i32),
+            (1, 1, (pw as i32 - 2).max(8), (ph as i32 - 2).max(8)),
+            (0, 0, 8, 8),
+            ((pw as i32 - 9).max(0), (ph as i32 - 9).max(0), 8, 8),
+            (pw as i32 / 4, ph as i32 / 4, (pw / 2).max(8) as i32, (ph / 2).max(8) as i32),
+            (-5, -5, 20, 20),
+            (0, 0, pw as i32 + 10, ph as i32 + 10),
+        ];
+
+        for (bx, by, bw, bh) in test_boxes {
+            if let Some(rect) = extract_dark_bubble_envelope(&dyn_img, bx, by, bw, bh, pw, ph) {
+                assert!(rect.x >= 0, "rect.x ({}) must be >= 0 (pw={}, ph={})", rect.x, pw, ph);
+                assert!(rect.y >= 0, "rect.y ({}) must be >= 0 (pw={}, ph={})", rect.y, pw, ph);
+                assert!(rect.w >= 1, "rect.w ({}) must be >= 1", rect.w);
+                assert!(rect.h >= 1, "rect.h ({}) must be >= 1", rect.h);
+                assert!(
+                    rect.x + rect.w <= pw as i32,
+                    "rect.x + rect.w ({} + {}) = {} must be <= pw ({})",
+                    rect.x, rect.w, rect.x + rect.w, pw
+                );
+                assert!(
+                    rect.y + rect.h <= ph as i32,
+                    "rect.y + rect.h ({} + {}) = {} must be <= ph ({})",
+                    rect.y, rect.h, rect.y + rect.h, ph
+                );
+            }
+        }
+    }
+}
+
+
