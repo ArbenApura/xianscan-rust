@@ -1,6 +1,6 @@
 // DEDICATED BOOK COVER STORAGE + PAGE-PROXY FALLBACK RESOLUTION.
 // IMPORTED DEP-MODULES
-import { mkdirSync, existsSync, unlinkSync, writeFileSync } from 'node:fs';
+import { mkdirSync, existsSync, unlinkSync, writeFileSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { createCanvas, loadImage } from '@napi-rs/canvas';
 import { Transformer, type Orientation } from '@napi-rs/image';
@@ -124,21 +124,53 @@ function encodeCoverJpegViaImage(bytes: Uint8Array): Buffer {
 	return t.jpegSync(88);
 }
 
+// DELETE EVERY CACHED THUMBNAIL FOR A BOOK COVER (CACHED AS <bookId>_<kind>_<rev>_<width>.jpg)
+// TO PREVENT ORPHAN THUMBNAIL ARTIFACTS ON DISK AFTER A COVER OR BOOK IS DELETED.
+export function pruneCoverThumbs(bookId: string, dataRoot: string = DATA_ROOT): void {
+	const coverCacheDir = join(dataRoot, 'cache', 'covers');
+	let entries: string[];
+	try {
+		entries = readdirSync(coverCacheDir);
+	} catch {
+		return;
+	}
+	const prefix = `${bookId}_`;
+	for (const f of entries) {
+		if (f.startsWith(prefix)) {
+			try {
+				unlinkSync(join(coverCacheDir, f));
+			} catch {
+				// IGNORE IF MISSING
+			}
+		}
+	}
+}
+
 // REMOVE THE COVER. MARKS THE BOOK coverCleared SO RESOLUTION STOPS FALLING BACK TO A CHAPTER PAGE —
 // THE USER EXPLICITLY WANTS NO COVER, AND MIHON/TACHIYOMI SHOW NOTHING. THE CLEARED FLAG IS SET EVEN
 // WHEN THE BOOK ONLY HAD A PAGE-PROXY COVER (coverPath NULL), SO "REMOVE" SUPPRESSES THAT FALLBACK TOO.
 export function deleteCover(bookId: string, dataRoot: string = DATA_ROOT): void {
 	const b = db.select().from(books).where(eq(books.id, bookId)).get();
-	if (!b) return;
-	if (b.coverPath) {
+	if (b?.coverPath) {
 		const abs = join(dataRoot, b.coverPath);
 		if (existsSync(abs)) {
 			try {
 				unlinkSync(abs);
 			} catch {
-				// IGNORE — BEST-EFFORT FILE CLEANUP
+				// IGNORE - BEST-EFFORT FILE CLEANUP
 			}
 		}
 	}
-	db.update(books).set({ coverPath: null, coverCleared: true, updatedAt: Date.now() }).where(eq(books.id, bookId)).run();
+	const defaultCover = join(dataRoot, 'covers', `${bookId}.jpg`);
+	if (existsSync(defaultCover)) {
+		try {
+			unlinkSync(defaultCover);
+		} catch {
+			// IGNORE IF MISSING
+		}
+	}
+	pruneCoverThumbs(bookId, dataRoot);
+	if (b) {
+		db.update(books).set({ coverPath: null, coverCleared: true, updatedAt: Date.now() }).where(eq(books.id, bookId)).run();
+	}
 }

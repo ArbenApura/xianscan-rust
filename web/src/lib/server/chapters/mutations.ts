@@ -1,6 +1,6 @@
 // CHAPTER MUTATIONS: CREATION, UPLOADS, DELETIONS, REORDERING, AND PAGE SEQUENCING
 import { randomUUID } from 'node:crypto';
-import { mkdirSync, writeFileSync, unlinkSync, rmSync, readdirSync } from 'node:fs';
+import { mkdirSync, writeFileSync, unlinkSync, rmSync, readdirSync, existsSync } from 'node:fs';
 import { join, extname } from 'node:path';
 import { error } from '@sveltejs/kit';
 import { asc, desc, eq } from 'drizzle-orm';
@@ -9,6 +9,7 @@ import { books, chapters, pages, regions, translations } from '../db/schema';
 import { clearChapterJob } from '../translation-service';
 import { batchService } from '../batch-service';
 import { DATA_ROOT } from '../paths';
+import { deleteCover, pruneCoverThumbs } from '../covers';
 import { convertBufferToWebP } from './dimensions';
 
 // GLOBAL WEBP POLICY: EVERY UPLOAD IS CONVERTED TO WEBP ON IMPORT (ONLY A STATIC
@@ -230,26 +231,36 @@ export function deletePage(pageId: number, dataRoot: string = DATA_ROOT): { chap
 	return { chapterId, seq: deletedSeq };
 }
 
-// DELETE EVERY CACHED THUMBNAIL FOR A PAGE (THUMBS ARE KEYED BY PAGE ID + REV)
-// SO A RESET, DELETE, OR STITCH CANNOT LEAVE STALE ORPHAN FILES BEHIND.
-export function prunePageThumbs(pageId: number, dataRoot: string = DATA_ROOT): void {
+// BATCH PRUNE CACHED THUMBNAILS FOR MULTIPLE PAGES IN A SINGLE DIRECTORY SCAN
+export function pruneMultiplePageThumbs(pageIds: number[], dataRoot: string = DATA_ROOT): void {
+	if (pageIds.length === 0) return;
 	const thumbDir = join(dataRoot, 'cache', 'thumbs');
 	let entries: string[];
 	try {
 		entries = readdirSync(thumbDir);
 	} catch {
-		return; // NO CACHE DIR — NOTHING TO PRUNE
+		return;
 	}
-	const prefix = `${pageId}_`;
+	const idSet = new Set(pageIds);
 	for (const f of entries) {
-		if (f.startsWith(prefix)) {
-			try {
-				unlinkSync(join(thumbDir, f));
-			} catch {
-				// IGNORE IF ALREADY GONE
+		const underscoreIdx = f.indexOf('_');
+		if (underscoreIdx > 0) {
+			const id = Number(f.slice(0, underscoreIdx));
+			if (idSet.has(id)) {
+				try {
+					unlinkSync(join(thumbDir, f));
+				} catch {
+					// IGNORE IF ALREADY GONE
+				}
 			}
 		}
 	}
+}
+
+// DELETE EVERY CACHED THUMBNAIL FOR A PAGE (THUMBS ARE KEYED BY PAGE ID + REV)
+// SO A RESET, DELETE, OR STITCH CANNOT LEAVE STALE ORPHAN FILES BEHIND.
+export function prunePageThumbs(pageId: number, dataRoot: string = DATA_ROOT): void {
+	pruneMultiplePageThumbs([pageId], dataRoot);
 }
 
 export function resetPageProgress(pageId: number, dataRoot: string = DATA_ROOT): void {
@@ -356,12 +367,17 @@ export async function deleteAllChapterPages(
 	chapterId: number,
 	dataRoot: string = DATA_ROOT,
 ): Promise<{ deletedCount: number }> {
+	// HALT ANY RUNNING BACKGROUND IN-FLIGHT JOBS BEFORE MODIFYING DATABASE OR DISK
+	clearChapterJob(chapterId);
+	batchService.resetChapter(chapterId);
+
 	const pageRows = db
 		.select({ id: pages.id, filePath: pages.filePath })
 		.from(pages)
 		.where(eq(pages.chapterId, chapterId))
 		.all();
 
+	const pageIds = pageRows.map((p) => p.id);
 	const oldFilePaths = pageRows.map((p) => join(dataRoot, p.filePath));
 
 	db.transaction(() => {
@@ -376,30 +392,83 @@ export async function deleteAllChapterPages(
 			.run();
 	});
 
-	for (const p of pageRows) {
-		prunePageThumbs(p.id, dataRoot);
-	}
-
-	clearChapterJob(chapterId);
-	batchService.resetChapter(chapterId);
+	pruneMultiplePageThumbs(pageIds, dataRoot);
 
 	for (const oldPath of oldFilePaths) {
 		try {
 			unlinkSync(oldPath);
 		} catch {
-			// ignore missing files
+			// IGNORE MISSING FILES
 		}
 	}
-	for (const folder of ['uploads', 'clean', 'output']) {
+	for (const folder of ['uploads', 'clean', 'output', 'annotated']) {
 		const dir = join(dataRoot, folder, String(chapterId));
 		try {
 			rmSync(dir, { recursive: true, force: true });
 		} catch {
-			// ignore
+			// IGNORE
 		}
 	}
 
 	return { deletedCount: pageRows.length };
+}
+
+// COMPACT CHAPTER SEQUENCE NUMBERS FOR A BOOK TO BE 0-INDEXED AND CONTIGUOUS
+export function compactBookChapterSeqs(bookId: string): void {
+	const currentRows = db
+		.select({ id: chapters.id, seq: chapters.seq })
+		.from(chapters)
+		.where(eq(chapters.bookId, bookId))
+		.orderBy(asc(chapters.seq), asc(chapters.id))
+		.all();
+
+	let needsReindex = false;
+	for (let i = 0; i < currentRows.length; i++) {
+		if (currentRows[i].seq !== i) {
+			needsReindex = true;
+			break;
+		}
+	}
+
+	if (needsReindex) {
+		const chapterIds = currentRows.map((r) => r.id);
+		db.transaction(() => {
+			for (let i = 0; i < chapterIds.length; i++) {
+				db.update(chapters)
+					.set({ seq: -(i + 1000) })
+					.where(eq(chapters.id, chapterIds[i]))
+					.run();
+			}
+			for (let i = 0; i < chapterIds.length; i++) {
+				db.update(chapters)
+					.set({ seq: i })
+					.where(eq(chapters.id, chapterIds[i]))
+					.run();
+			}
+		});
+	}
+}
+
+// PERMANENTLY DELETE A CHAPTER AND ALL CONNECTED ARTIFACTS ON DISK
+export async function deleteChapter(
+	chapterId: number,
+	dataRoot: string = DATA_ROOT,
+): Promise<{ id: number; bookId: string; title: string }> {
+	const chapter = await assertChapterExists(chapterId);
+
+	// PURGE ALL PAGES, TRANSLATIONS, REGIONS, AND ASSETS ON DISK
+	await deleteAllChapterPages(chapterId, dataRoot);
+
+	db.delete(chapters).where(eq(chapters.id, chapterId)).run();
+	compactBookChapterSeqs(chapter.bookId);
+
+	// CLEAR STALE PAGE-PROXY COVER THUMBNAILS IN CASE THIS CHAPTER SUPPLIED THE COVER
+	pruneCoverThumbs(chapter.bookId, dataRoot);
+
+	// BUMP PARENT BOOK TIMESTAMP
+	db.update(books).set({ updatedAt: Date.now() }).where(eq(books.id, chapter.bookId)).run();
+
+	return chapter;
 }
 
 export async function deleteAllBookChapters(
@@ -415,11 +484,61 @@ export async function deleteAllBookChapters(
 
 	for (const ch of chapterRows) {
 		await deleteAllChapterPages(ch.id, dataRoot);
-		clearChapterJob(ch.id);
 		db.delete(chapters).where(eq(chapters.id, ch.id)).run();
 	}
 
 	return { deletedCount: chapterRows.length };
+}
+
+// PERMANENTLY DELETE A BOOK, ITS CHAPTERS, PAGES, COVERS, AND ALL DISK ARTIFACTS
+export async function deleteBook(
+	bookId: string,
+	dataRoot: string = DATA_ROOT,
+): Promise<{ id: string; chaptersDeleted: number }> {
+	const book = db.select().from(books).where(eq(books.id, bookId)).get();
+	if (!book) throw error(404, 'Book not found.');
+
+	// 1. HALT ANY RUNNING BATCH TRANSLATION ON THIS BOOK
+	batchService.clearBook(bookId);
+
+	// 2. QUERY ALL CHAPTERS BEFORE CASCADING DELETES
+	const chapterRows = db
+		.select({ id: chapters.id })
+		.from(chapters)
+		.where(eq(chapters.bookId, bookId))
+		.all();
+
+	// 3. PURGE ALL CHAPTERS AND THEIR PHYSICAL ASSETS
+	for (const ch of chapterRows) {
+		await deleteAllChapterPages(ch.id, dataRoot);
+		db.delete(chapters).where(eq(chapters.id, ch.id)).run();
+	}
+
+	// 4. PURGE DEDICATED COVER AND CACHED COVER THUMBNAILS ON DISK
+	if (book.coverPath) {
+		const abs = join(dataRoot, book.coverPath);
+		if (existsSync(abs)) {
+			try {
+				unlinkSync(abs);
+			} catch {
+				// IGNORE MISSING FILES
+			}
+		}
+	}
+	const defaultCover = join(dataRoot, 'covers', `${bookId}.jpg`);
+	if (existsSync(defaultCover)) {
+		try {
+			unlinkSync(defaultCover);
+		} catch {
+			// IGNORE MISSING FILES
+		}
+	}
+	pruneCoverThumbs(bookId, dataRoot);
+
+	// 5. DELETE BOOK (SQLITE CASCADES ANY REMAINING RECORD ROWS)
+	db.delete(books).where(eq(books.id, bookId)).run();
+
+	return { id: bookId, chaptersDeleted: chapterRows.length };
 }
 
 export function updateChapterDetails(

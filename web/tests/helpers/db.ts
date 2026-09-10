@@ -173,9 +173,11 @@ export function seedPage(
 		filePath?: string;
 		cleanedPath?: string;
 		outputPath?: string;
+		annotatedPath?: string;
 		cleanedRev?: number;
 		outputRev?: number;
 		originalRev?: number;
+		annotatedRev?: number;
 	},
 ) {
 	return db
@@ -186,9 +188,11 @@ export function seedPage(
 			filePath: input.filePath ?? `uploads/c${input.chapterId}/p${input.seq}.png`,
 			cleanedPath: input.cleanedPath ?? undefined,
 			outputPath: input.outputPath ?? undefined,
+			annotatedPath: input.annotatedPath ?? undefined,
 			cleanedRev: input.cleanedRev ?? 0,
 			outputRev: input.outputRev ?? 0,
 			originalRev: input.originalRev ?? 0,
+			annotatedRev: input.annotatedRev ?? 0,
 		})
 		.returning()
 		.get();

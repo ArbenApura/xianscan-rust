@@ -93,10 +93,28 @@ export async function stitchPageWithNext(
 	// PRUNE BOTH PAGES' THUMBS SO THE NEXT REQUEST REGENERATES THEM.
 	prunePageThumbs(topPage.id, dataRoot);
 	prunePageThumbs(botPage.id, dataRoot);
+
+	const staleArtifacts = [
+		topPage.cleanedPath,
+		topPage.outputPath,
+		topPage.annotatedPath,
+		botPage.cleanedPath,
+		botPage.outputPath,
+		botPage.annotatedPath,
+	].filter(Boolean) as string[];
+
+	for (const rel of staleArtifacts) {
+		try {
+			unlinkSync(join(dataRoot, rel));
+		} catch {
+			// IGNORE IF MISSING
+		}
+	}
+
 	try {
 		unlinkSync(botAbs);
 	} catch {
-		// ignore if file missing
+		// IGNORE IF FILE MISSING
 	}
 
 	const remainingIds = db
@@ -301,16 +319,16 @@ async function runReslicePipeline(
 		try {
 			unlinkSync(oldPath);
 		} catch {
-			// ignore missing files
+			// IGNORE MISSING FILES
 		}
 	}
 
-	for (const folder of ['clean', 'output']) {
+	for (const folder of ['clean', 'output', 'annotated']) {
 		const dir = join(dataRoot, folder, String(chapterId));
 		try {
 			rmSync(dir, { recursive: true, force: true });
 		} catch {
-			// ignore
+			// IGNORE
 		}
 	}
 

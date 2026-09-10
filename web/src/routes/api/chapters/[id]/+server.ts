@@ -1,15 +1,16 @@
-// CHAPTER DETAIL — PAGES (WITH THEIR REGIONS) FOR THE RESULTS VIEW & EDIT / DELETE.
+// CHAPTER DETAIL - PAGES (WITH THEIR REGIONS) FOR THE RESULTS VIEW & EDIT / DELETE.
+// IMPORTED TYPES
+import type { RequestHandler } from './$types';
 // IMPORTED DEP-MODULES
 import { error, json } from '@sveltejs/kit';
-import { eq, inArray } from 'drizzle-orm';
+import { eq } from 'drizzle-orm';
 // IMPORTED MODULES
-import { assertChapterExists, getChapterReaderData, updateChapterDetails } from '$lib/server/chapters';
+import { assertChapterExists, getChapterReaderData, updateChapterDetails, deleteChapter } from '$lib/server/chapters';
 import { db } from '$lib/server/db';
 import { chapters } from '$lib/server/db/schema';
 import { updateChapterSchema } from '$lib/schemas';
 import { getChapterJob } from '$lib/server/translation-service';
 import { syncBus } from '$lib/server/sync-bus';
-import type { RequestHandler } from './$types';
 
 export const GET: RequestHandler = async ({ params }) => {
 	const chapterId = Number(params.id);
@@ -47,12 +48,8 @@ export const PATCH: RequestHandler = async ({ params, request }) => {
 export const DELETE: RequestHandler = async ({ params }) => {
 	const chapterId = Number(params.id);
 	if (!Number.isInteger(chapterId)) throw error(400, 'Invalid chapter id.');
-	await assertChapterExists(chapterId);
-	const target = db.select().from(chapters).where(eq(chapters.id, chapterId)).get();
-	db.delete(chapters).where(eq(chapters.id, chapterId)).run();
-	if (target) {
-		syncBus.broadcast({ type: 'chapter-deleted', bookId: target.bookId, chapterId });
-	}
+	const deleted = await deleteChapter(chapterId);
+	syncBus.broadcast({ type: 'chapter-deleted', bookId: deleted.bookId, chapterId });
 	return json({ ok: true });
 };
 

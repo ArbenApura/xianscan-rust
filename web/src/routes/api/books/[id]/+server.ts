@@ -1,14 +1,16 @@
-// BOOK DETAIL — THE BOOK + ITS CHAPTERS (WITH PAGE COUNTS, THUMBNAILS, & TELEMETRY) & EDIT / DELETE.
+// BOOK DETAIL - THE BOOK + ITS CHAPTERS (WITH PAGE COUNTS, THUMBNAILS, & TELEMETRY) & EDIT / DELETE.
+// IMPORTED TYPES
+import type { RequestHandler } from './$types';
 // IMPORTED DEP-MODULES
 import { error, json } from '@sveltejs/kit';
-import { eq, inArray } from 'drizzle-orm';
-import { assertBookExists, getBookDetails } from '$lib/server/books';
+import { eq } from 'drizzle-orm';
+// IMPORTED MODULES
+import { assertBookExists, getBookDetails, deleteBook } from '$lib/server/books';
 import { db } from '$lib/server/db';
 import { books } from '$lib/server/db/schema';
 import { updateBookSchema } from '$lib/schemas';
 import { parseTags, serializeTags } from '$lib/utils/tags';
 import { syncBus } from '$lib/server/sync-bus';
-import type { RequestHandler } from './$types';
 
 export const GET: RequestHandler = async ({ params }) => {
 	const detail = await getBookDetails(params.id);
@@ -74,7 +76,7 @@ export const PATCH: RequestHandler = async ({ params, request }) => {
 
 export const DELETE: RequestHandler = async ({ params }) => {
 	await assertBookExists(params.id);
-	db.delete(books).where(eq(books.id, params.id)).run();
+	await deleteBook(params.id);
 	syncBus.broadcast({ type: 'book-deleted', bookId: params.id });
 	return json({ ok: true });
 };
