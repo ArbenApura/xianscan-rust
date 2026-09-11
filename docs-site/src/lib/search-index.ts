@@ -1,6 +1,7 @@
 // -- IMPORTED MODULES -- //
 import { DOC_NAVIGATION } from '$lib/docs-nav';
 import { DOCS_CONTENT } from '$lib/docs-content';
+import { BENCHMARK_GALLERIES } from '$lib/benchmarks';
 
 // -- TYPES -- //
 
@@ -37,15 +38,17 @@ export function getSearchIndex(): SearchEntry[] {
 		for (const item of section.items) {
 			const slug = item.href.replace(/^\/docs\//, '').replace(/\/$/, '');
 			const chapter = DOCS_CONTENT[slug];
+			const benchmark = BENCHMARK_GALLERIES[slug];
 
 			// ADD CHAPTER ROOT ENTRY
+			const rootDesc = chapter?.description || benchmark?.desc || '';
 			entries.push({
 				id: `${item.id}-root`,
 				title: item.title,
 				sectionTitle: item.title,
 				href: item.href,
 				category: section.title,
-				content: chapter?.description ? `${item.title} ${chapter.description}` : item.title,
+				content: rootDesc ? `${item.title} ${rootDesc}` : item.title,
 			});
 
 			// ADD INDIVIDUAL SECTIONS IF AVAILABLE
@@ -58,6 +61,21 @@ export function getSearchIndex(): SearchEntry[] {
 						href: `${item.href}#${sec.id}`,
 						category: section.title,
 						content: `${sec.title} ${sec.content.replace(/[`#*|_~[\]()]/g, ' ')}`,
+					});
+				}
+			}
+
+			// ADD BENCHMARK SAMPLES IF AVAILABLE
+			if (benchmark?.samples) {
+				for (let i = 0; i < benchmark.samples.length; i++) {
+					const sample = benchmark.samples[i];
+					entries.push({
+						id: `${item.id}-sample-${i}`,
+						title: sample.name,
+						sectionTitle: benchmark.title,
+						href: item.href,
+						category: section.title,
+						content: `${sample.name} ${benchmark.title} ${benchmark.desc}`,
 					});
 				}
 			}

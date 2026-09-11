@@ -341,9 +341,22 @@ ollama pull gemma4:cloud
 			},
 			{
 				id: 'dialogue-tracker',
-				title: '3. Context-Aware Dialogue Memory & Tracking',
+				title: '3. Context-Aware Dialogue Memory and Tracking',
 				content: `
-XianScan employs a sliding-window cross-page dialogue context tracker (\`DialogueContextWindow\`) during translation. The tracker preserves up to 5 previous pages of speaker identity, pronouns, and topic context to maintain character voice consistency across page breaks.
+XianScan includes a sliding-window cross-page dialogue context tracker (\`DialogueContextWindow\`) during translation. The tracker preserves preceding pages of speaker identity, pronouns, and topic continuity across page breaks.
+
+You can configure the history depth from 0 to 30 pages in **Settings** -> **AI Translation Providers** -> **Inference & Sampling**, with preset options for 0, 2, 4, 8, 12, 16, 20, 24, and 30 pages (default 4). Setting this to 0 runs purely independent per-page translation.
+`,
+			},
+			{
+				id: 'inference-parameters',
+				title: '4. Reasoning Effort, Token Budgets, and Sampling Parameters',
+				content: `
+Fine-tune model generation behavior to match your workflow:
+
+- **Reasoning Effort and Thinking Budget** - For reasoning models like DeepSeek-R1 or OpenAI o-series, configure thinking effort (\`none\`, \`low\`, \`medium\`, \`high\`) or set custom numeric reasoning token budgets. XianScan automatically suppresses raw internal reasoning traces from leaking into speech bubbles.
+- **Max Output Tokens** - Set custom token limits per page request (default 4,096 tokens) with automatic escalation if a dense page reaches the length budget.
+- **Sampling Diversity** - Adjust temperature, Top-P, frequency penalty, and presence penalty to balance literal precision and natural dialogue rhythm.
 `,
 			},
 		],

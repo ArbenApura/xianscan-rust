@@ -18,6 +18,7 @@
 	import { searchDocs, type SearchResultItem } from '$lib/search-index';
 	import { themeStore, THEME_PANEL } from '$lib/stores/theme';
 	import { ripple } from '$lib/actions/ripple';
+	import { scrollLock } from '$lib/actions/scrollLock';
 	import { cn } from '$lib/utils/cn';
 
 	// -- PROPS -- //
@@ -128,6 +129,7 @@
 {#if open}
 	<!-- BACKDROP OVERLAY -->
 	<div
+		use:scrollLock
 		class="fixed inset-0 z-50 flex items-start justify-center p-3 pt-12 sm:p-6 sm:pt-20 bg-black/50 backdrop-blur-md"
 		role="dialog"
 		aria-modal="true"
