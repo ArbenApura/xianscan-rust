@@ -71,7 +71,7 @@ fn test_regression_page_friend_request_didi_rotation_angle() {
 
     // 2. PANEL 1 DIALOGUE BUBBLE: '你看我的名\n字！'
     let bubble = res.regions.iter().find(|r| {
-        r.kind == RegionKind::DialogueBubble && r.text.contains("你看我的名字")
+        r.kind == RegionKind::DialogueBubble && r.text.replace('\n', "").contains("你看我的名字")
     });
     assert!(bubble.is_some(), "Must detect panel 1 dialogue bubble '你看我的名字！'");
     let bubble = bubble.unwrap();

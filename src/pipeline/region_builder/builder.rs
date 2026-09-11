@@ -565,7 +565,7 @@ pub fn build_regions(
                     .collect();
 
                 let median_line_angle = if !line_angles.is_empty() {
-                    let mut sorted = line_angles;
+                    let mut sorted = line_angles.clone();
                     sorted.sort_by(|a, b| a.total_cmp(b));
                     sorted[sorted.len() / 2]
                 } else {

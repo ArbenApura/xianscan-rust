@@ -225,7 +225,8 @@ pub fn calculate_box_angle(pts: &[[f32; 2]]) -> f32 {
                 deg += 180.0;
             }
             let (box_w, box_h) = if is_long_a { (len_a, len_b) } else { (len_b, len_a) };
-            if box_w <= 2.2 * box_h.max(1.0) && deg.abs() < 8.0 {
+            // ONLY SUPPRESS MINOR JITTER ON NEAR-SQUARE BOXES WITH SLIGHT DEFLECTION
+            if box_w <= 1.6 * box_h.max(1.0) && deg.abs() < 4.0 {
                 0.0
             } else {
                 deg
