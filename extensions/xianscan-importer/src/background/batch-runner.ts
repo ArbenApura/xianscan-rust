@@ -140,6 +140,7 @@ export async function runBatchImportJob(payload: ImportJobPayload, refererUrl?: 
 		await chrome.storage.local.set({
 			activeImportJob: {
 				running: true,
+				phase: 'uploading',
 				current: processedCount,
 				total,
 				chapterId: payload.chapterId,
@@ -185,6 +186,19 @@ export async function runBatchImportJob(payload: ImportJobPayload, refererUrl?: 
 	if (payload.autoReslice && uploadedSuccessCount > 0 && !isJobCancelled()) {
 		try {
 			console.log(`Triggering auto-reslice for chapter #${payload.chapterId}...`);
+			await chrome.storage.local.set({
+				activeImportJob: {
+					running: true,
+					phase: 'reslicing',
+					current: uploadedSuccessCount,
+					total: uploadedSuccessCount || total,
+					chapterId: payload.chapterId,
+					bookId: payload.bookId,
+					url: refererUrl || '',
+					autoReslice: !!payload.autoReslice,
+					autoTranslate: !!payload.autoTranslate
+				}
+			});
 			safeBroadcast({
 				type: 'PIPELINE_PHASE',
 				phase: 'reslicing',

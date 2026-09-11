@@ -286,4 +286,29 @@ describe('TrackerViewController handleImportComplete', () => {
 		const resliceMeta = document.getElementById('stepResliceMeta')!;
 		expect(resliceMeta.textContent).toBe('Completed');
 	});
+
+	it('always displays dedicated loading screen during uploading and reslicing even when pages exist', () => {
+		const grid = document.getElementById('trackerGrid')!;
+		const samplePages = [
+			{ id: 1, seq: 0, status: 'pending', outputPath: null, outputRev: 0 } as any,
+			{ id: 2, seq: 1, status: 'pending', outputPath: null, outputRev: 0 } as any
+		];
+
+		// UPLOADING PHASE WITH PAGES
+		controller.updateProgress(1, 2, 'uploading');
+		controller.setPages(samplePages);
+		expect(grid.querySelector('.tracker-loading-state.uploading')).not.toBeNull();
+		expect(grid.querySelector('.loading-title')?.textContent).toBe('Uploading Chapter Assets');
+
+		// RESLICING PHASE WITH PAGES
+		controller.updateProgress(2, 2, 'reslicing');
+		controller.setPages(samplePages);
+		expect(grid.querySelector('.tracker-loading-state.reslicing')).not.toBeNull();
+		expect(grid.querySelector('.loading-title')?.textContent).toBe('Detecting Seams & Reslicing');
+
+		// TRANSLATING PHASE TRANSITION OPENS REAL GRID
+		controller.updateProgress(0, 2, 'translating');
+		expect(grid.querySelector('.tracker-loading-state')).toBeNull();
+		expect(grid.querySelectorAll('.slice-card').length).toBe(2);
+	});
 });

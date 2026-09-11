@@ -321,6 +321,7 @@ export class TrackerViewController {
 	}
 
 	updateProgress(current: number, total: number, phase: string): void {
+		const prevPhase = this.activePhase;
 		this.activePhase = phase;
 		if (phase === 'reslicing') {
 			this.isResliced = true;
@@ -353,56 +354,60 @@ export class TrackerViewController {
 			this.statusBadgeEl.textContent = safeTotal > 0 ? `Translating ${current}/${safeTotal}` : 'Translating';
 		}
 
-		if (this.activeChapterPages.length === 0) {
+		if (phase === 'uploading' || phase === 'reslicing') {
+			if (!this.gridEl.querySelector(`.tracker-loading-state.${phase}`)) {
+				this.renderGrid();
+			}
+		} else if (prevPhase === 'uploading' || prevPhase === 'reslicing' || this.activeChapterPages.length === 0) {
 			this.renderGrid();
 		}
 	}
 
 	renderGrid(): void {
 		this.gridEl.innerHTML = '';
+		if (this.activePhase === 'uploading') {
+			this.retryBtn.classList.add('hidden');
+			this.gridEl.innerHTML = `
+				<div class="tracker-loading-state uploading" style="grid-column: 1 / -1;">
+					<div class="loading-scanner-ring">
+						<svg class="loading-icon spin" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+							<circle cx="12" cy="12" r="10" stroke-opacity="0.25"/>
+							<path d="M12 2a10 10 0 0 1 10 10"/>
+						</svg>
+					</div>
+					<div class="loading-title mono">Uploading Chapter Assets</div>
+					<div class="loading-subtitle mono">Transferring pages to server chapter...</div>
+					<div class="skeleton-grid">
+						<div class="skeleton-card"></div>
+						<div class="skeleton-card"></div>
+						<div class="skeleton-card"></div>
+					</div>
+				</div>
+			`;
+			return;
+		}
+		if (this.activePhase === 'reslicing') {
+			this.retryBtn.classList.add('hidden');
+			this.gridEl.innerHTML = `
+				<div class="tracker-loading-state reslicing" style="grid-column: 1 / -1;">
+					<div class="loading-scanner-ring">
+						<svg class="loading-icon spin" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+							<circle cx="12" cy="12" r="10" stroke-opacity="0.25"/>
+							<path d="M12 2a10 10 0 0 1 10 10"/>
+						</svg>
+					</div>
+					<div class="loading-title mono">Detecting Seams & Reslicing</div>
+					<div class="loading-subtitle mono">Dividing continuous strip into reader pages...</div>
+					<div class="skeleton-grid">
+						<div class="skeleton-card"></div>
+						<div class="skeleton-card"></div>
+						<div class="skeleton-card"></div>
+					</div>
+				</div>
+			`;
+			return;
+		}
 		if (this.activeChapterPages.length === 0) {
-			if (this.activePhase === 'uploading') {
-				this.retryBtn.classList.add('hidden');
-				this.gridEl.innerHTML = `
-					<div class="tracker-loading-state uploading" style="grid-column: 1 / -1;">
-						<div class="loading-scanner-ring">
-							<svg class="loading-icon spin" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-								<circle cx="12" cy="12" r="10" stroke-opacity="0.25"/>
-								<path d="M12 2a10 10 0 0 1 10 10"/>
-							</svg>
-						</div>
-						<div class="loading-title mono">Uploading Chapter Assets</div>
-						<div class="loading-subtitle mono">Transferring pages to server chapter...</div>
-						<div class="skeleton-grid">
-							<div class="skeleton-card"></div>
-							<div class="skeleton-card"></div>
-							<div class="skeleton-card"></div>
-						</div>
-					</div>
-				`;
-				return;
-			}
-			if (this.activePhase === 'reslicing') {
-				this.retryBtn.classList.add('hidden');
-				this.gridEl.innerHTML = `
-					<div class="tracker-loading-state reslicing" style="grid-column: 1 / -1;">
-						<div class="loading-scanner-ring">
-							<svg class="loading-icon spin" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-								<circle cx="12" cy="12" r="10" stroke-opacity="0.25"/>
-								<path d="M12 2a10 10 0 0 1 10 10"/>
-							</svg>
-						</div>
-						<div class="loading-title mono">Detecting Seams & Reslicing</div>
-						<div class="loading-subtitle mono">Dividing continuous strip into reader pages...</div>
-						<div class="skeleton-grid">
-							<div class="skeleton-card"></div>
-							<div class="skeleton-card"></div>
-							<div class="skeleton-card"></div>
-						</div>
-					</div>
-				`;
-				return;
-			}
 			if (this.activePhase === 'translating') {
 				this.retryBtn.classList.add('hidden');
 				this.gridEl.innerHTML = `
@@ -577,7 +582,9 @@ export class TrackerViewController {
 		if (this.activePhase === 'idle' || this.activePhase === 'done') {
 			this.summaryTextEl.textContent = doneCount > 0 ? `${doneCount} of ${total} pages ready` : `${total} pages in chapter`;
 		}
-		this.renderGrid();
+		if (this.activePhase !== 'uploading' && this.activePhase !== 'reslicing') {
+			this.renderGrid();
+		}
 	}
 
 	handleImportComplete(options: { autoTranslate: boolean; autoReslice: boolean; total: number; current: number }): void {

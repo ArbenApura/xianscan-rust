@@ -12,6 +12,7 @@ export const DEFAULT_SERVER_URL = 'http://127.0.0.1:8124';
 
 export interface ActiveImportJobState {
 	running: boolean;
+	phase?: string;
 	current: number;
 	total: number;
 	chapterId: number;

@@ -222,7 +222,8 @@ class PopupController {
 					autoReslice: job.autoReslice !== undefined ? !!job.autoReslice : true,
 					autoTranslate: job.autoTranslate !== undefined ? !!job.autoTranslate : true
 				});
-				this.trackerView.updateProgress(job.current, job.total, 'uploading');
+				const jobPhase = job.phase || 'uploading';
+				this.trackerView.updateProgress(job.current, job.total, jobPhase);
 				void this.trackerView.loadAndRenderTracker(job.chapterId, job.bookId);
 				return;
 			}
