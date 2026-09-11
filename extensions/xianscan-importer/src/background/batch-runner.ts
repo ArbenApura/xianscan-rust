@@ -6,7 +6,7 @@ import type { ImportJobPayload, ChapterSyncMessage } from '../types';
 // IMPORTED MODULES
 import { XianScanClient } from '../api';
 import { sanitizeFileName } from '../utils/sanitize';
-import { getServerUrl, saveSiteMapping } from '../core/storage';
+import { getServerUrl, saveSiteMapping, findMappingForUrl } from '../core/storage';
 import { safeBroadcast, broadcastToChapterTabs } from '../core/messaging';
 import { safeFetch, fetchImageBlobWithTabFallback } from './downloader';
 import { isJobCancelled, setJobCancelled } from './job-state';
@@ -34,7 +34,9 @@ export async function runBatchImportJob(payload: ImportJobPayload, refererUrl?: 
 			total,
 			chapterId: payload.chapterId,
 			bookId: payload.bookId,
-			url: refererUrl || ''
+			url: refererUrl || '',
+			autoReslice: !!payload.autoReslice,
+			autoTranslate: !!payload.autoTranslate
 		}
 	});
 
@@ -48,7 +50,9 @@ export async function runBatchImportJob(payload: ImportJobPayload, refererUrl?: 
 			pageCount: total,
 			excludedImageUrls: payload.excludedImageUrls,
 			includedImageUrls: payload.includedImageUrls,
-			enabled: true,
+			enabled: payload.inPlaceReplacement !== false,
+			autoReslice: !!payload.autoReslice,
+			autoTranslate: !!payload.autoTranslate,
 			lastSyncedAt: Date.now()
 		};
 		await saveSiteMapping(mappingEntry);
@@ -56,6 +60,18 @@ export async function runBatchImportJob(payload: ImportJobPayload, refererUrl?: 
 			type: 'SET_ACTIVE_MAPPING',
 			entry: mappingEntry
 		});
+	}
+
+	// IF CHAPTER ALREADY HAS EXISTING PAGES (E.G. RE-IMPORT OR PREVIOUS PARTIAL RUN),
+	// CLEAR STALE PAGES BEFORE UPLOADING FRESH SEQUENCE TO PREVENT DUPLICATION OR JUMBLED RESLICING
+	try {
+		const existingDetails = await client.getChapterDetails(payload.chapterId);
+		if (existingDetails?.pages && existingDetails.pages.length > 0) {
+			console.log(`Clearing ${existingDetails.pages.length} existing pages from chapter #${payload.chapterId} before import...`);
+			await client.clearChapterPages(payload.chapterId);
+		}
+	} catch (e) {
+		console.warn('Failed checking or clearing existing chapter pages:', e);
 	}
 
 	// CONCURRENCY LIMIT = 8 FOR HIGH-SPEED PIPELINE
@@ -128,7 +144,9 @@ export async function runBatchImportJob(payload: ImportJobPayload, refererUrl?: 
 				total,
 				chapterId: payload.chapterId,
 				bookId: payload.bookId,
-				url: refererUrl || ''
+				url: refererUrl || '',
+				autoReslice: !!payload.autoReslice,
+				autoTranslate: !!payload.autoTranslate
 			}
 		});
 
@@ -138,7 +156,9 @@ export async function runBatchImportJob(payload: ImportJobPayload, refererUrl?: 
 			current: processedCount,
 			total,
 			chapterId: payload.chapterId,
-			bookId: payload.bookId
+			bookId: payload.bookId,
+			autoReslice: !!payload.autoReslice,
+			autoTranslate: !!payload.autoTranslate
 		});
 	}
 
@@ -185,6 +205,28 @@ export async function runBatchImportJob(payload: ImportJobPayload, refererUrl?: 
 				};
 				broadcastToChapterTabs(payload.chapterId, syncMsg);
 				safeBroadcast(syncMsg);
+
+				// UPDATE SITE MAPPING WITH NEW RESLICED PAGE COUNT (PRESERVING DYNAMIC IN-PLACE TOGGLE STATE)
+				if (refererUrl && !refererUrl.startsWith('chrome://') && !refererUrl.startsWith('about:')) {
+					const existingMapping = await findMappingForUrl(refererUrl);
+					const storedState = await chrome.storage.local.get(['inPlaceReplacement']);
+					const currentEnabled = typeof storedState.inPlaceReplacement === 'boolean'
+						? storedState.inPlaceReplacement
+						: (existingMapping ? existingMapping.enabled : payload.inPlaceReplacement !== false);
+
+					const updatedMapping = {
+						url: refererUrl,
+						bookId: payload.bookId,
+						chapterId: payload.chapterId,
+						isResliced: true,
+						pageCount: reslicedDetails.pages.length,
+						excludedImageUrls: payload.excludedImageUrls,
+						includedImageUrls: payload.includedImageUrls,
+						enabled: currentEnabled,
+						lastSyncedAt: Date.now()
+					};
+					await saveSiteMapping(updatedMapping);
+				}
 			}
 		} catch (e) {
 			console.warn('Auto-reslice trigger failed:', e);
@@ -227,7 +269,9 @@ export async function runBatchImportJob(payload: ImportJobPayload, refererUrl?: 
 			total,
 			chapterId: payload.chapterId,
 			bookId: payload.bookId,
-			url: refererUrl || ''
+			url: refererUrl || '',
+			autoReslice: !!payload.autoReslice,
+			autoTranslate: !!payload.autoTranslate
 		}
 	});
 
@@ -237,6 +281,9 @@ export async function runBatchImportJob(payload: ImportJobPayload, refererUrl?: 
 		total,
 		chapterId: payload.chapterId,
 		bookId: payload.bookId,
+		autoReslice: !!payload.autoReslice,
+		autoTranslate: !!payload.autoTranslate,
+		inPlaceReplacement: payload.inPlaceReplacement !== false,
 		error: uploadedSuccessCount === 0 && total > 0 ? (lastUploadError || 'Host CDN hotlink protection blocked image downloads') : undefined
 	});
 

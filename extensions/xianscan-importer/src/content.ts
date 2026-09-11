@@ -102,7 +102,7 @@ if (
 			}
 
 			if (message.type === 'CHAPTER_SYNC_UPDATE') {
-				activeCoordinator?.syncWithServer(message.pages).then(() => {
+				activeCoordinator?.syncWithServer(message.pages, message.status === 'resliced').then(() => {
 					sendResponse({ received: true });
 				});
 				return true;

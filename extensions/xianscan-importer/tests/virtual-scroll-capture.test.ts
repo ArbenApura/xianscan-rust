@@ -175,4 +175,45 @@ describe('virtual-scroll image URL capture', () => {
 			: scanned.filter(i => !sorter.isPlaceholderImage(i.url, i.width, i.height));
 		expect(sortedAndFiltered.length).toBeGreaterThanOrEqual(2);
 	});
+
+	it('maintains strict top-to-bottom page order when only lower panels remain in the DOM', async () => {
+		// SIMULATE SCENARIO: PAGES 1-4 WERE UNMOUNTED BY VIRTUAL SCROLLER, ONLY 5-6 ARE IN DOM
+		document.documentElement.innerHTML = `
+			<main class="reader-viewport">
+				<div class="page-container" data-page="1"></div>
+				<div class="page-container" data-page="2"></div>
+				<div class="page-container" data-page="3"></div>
+				<div class="page-container" data-page="4"></div>
+				<div class="page-container" data-page="5">
+					<img class="panel-img" src="https://cdn.example.org/comics/1001/panel-5.png" width="720" height="1200">
+				</div>
+				<div class="page-container" data-page="6">
+					<img class="panel-img" src="https://cdn.example.org/comics/1001/panel-6.png" width="720" height="1200">
+				</div>
+			</main>
+		`;
+		(window as any).location.href = 'https://reader.example.com/comics/read/1001';
+
+		// REGISTER CAPTURED URLS AS IF THEY WERE OBSERVED SEQUENTIALLY DURING TOP-TO-BOTTOM SCROLL
+		capture.registerCapturedImageUrl('https://cdn.example.org/comics/1001/panel-1.png');
+		capture.registerCapturedImageUrl('https://cdn.example.org/comics/1001/panel-2.png');
+		capture.registerCapturedImageUrl('https://cdn.example.org/comics/1001/panel-3.png');
+		capture.registerCapturedImageUrl('https://cdn.example.org/comics/1001/panel-4.png');
+		capture.registerCapturedImageUrl('https://cdn.example.org/comics/1001/panel-5.png');
+		capture.registerCapturedImageUrl('https://cdn.example.org/comics/1001/panel-6.png');
+
+		const scanned = capture.scanPageForImages();
+		expect(scanned.length).toBe(6);
+
+		const filenames = scanned.map(img => sorter.extractLeafFilename(img.url));
+		expect(filenames).toEqual([
+			'panel-1.png',
+			'panel-2.png',
+			'panel-3.png',
+			'panel-4.png',
+			'panel-5.png',
+			'panel-6.png'
+		]);
+	});
 });
+

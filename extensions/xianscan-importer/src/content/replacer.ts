@@ -1093,6 +1093,10 @@ export class DomReplacerEngine {
 		return this.isTranslatedActive;
 	}
 
+	hasMountedPages(): boolean {
+		return this.latestServerPages.length > 0 && typeof document !== 'undefined' && !!document.querySelector('img[data-xianscan-page-id]');
+	}
+
 	destroy(): void {
 		if (this.observer) {
 			this.observer.disconnect();

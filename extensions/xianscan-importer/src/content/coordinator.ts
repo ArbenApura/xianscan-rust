@@ -30,6 +30,8 @@ export class InPlaceTranslationCoordinator {
 	private pollingTimer: ReturnType<typeof setInterval> | null = null;
 	private keepAlivePort: chrome.runtime.Port | null = null;
 	private keepAliveInterval: ReturnType<typeof setInterval> | null = null;
+	private syncRetryTimer: ReturnType<typeof setTimeout> | null = null;
+	private syncRetryAttempts = 0;
 
 	constructor() {
 		this.client = new XianScanClient(this.serverUrl);
@@ -120,11 +122,7 @@ export class InPlaceTranslationCoordinator {
 			chrome.storage.onChanged.addListener((changes, area) => {
 				if (area === 'local' && changes.inPlaceReplacement) {
 					const enabled = changes.inPlaceReplacement.newValue === true;
-					this.inPlaceEnabled = enabled;
-					this.replacer.setMode(enabled ? 'translated' : 'raw');
-					if (enabled) {
-						void this.recheckUrlMapping();
-					}
+					this.setMode(enabled ? 'translated' : 'raw');
 				}
 			});
 		}
@@ -142,8 +140,24 @@ export class InPlaceTranslationCoordinator {
 			if (chrome.runtime.lastError || !res) return;
 			if (res.mapping) {
 				this.activeMapping = res.mapping;
-				this.inPlaceEnabled = res.mapping.enabled !== false;
-				await this.syncWithServer();
+				const stored = await chrome.storage.local.get(['inPlaceReplacement']).catch(() => ({}));
+				let shouldEnable = false;
+				if (stored && typeof stored.inPlaceReplacement === 'boolean') {
+					shouldEnable = stored.inPlaceReplacement;
+				} else {
+					shouldEnable = res.mapping.enabled !== false;
+				}
+				this.inPlaceEnabled = shouldEnable;
+				this.activeMapping.enabled = shouldEnable;
+
+				if (this.inPlaceEnabled) {
+					this.replacer.setMode('translated');
+					await this.syncWithServer();
+				} else {
+					this.replacer.setMode('raw');
+					this.stopPolling();
+					this.stopKeepAlive();
+				}
 			} else if (this.activeMapping) {
 				// USER NAVIGATED TO AN UNMAPPED CHAPTER: TEAR DOWN PREVIOUS CHAPTER REPLACER
 				this.activeMapping = null;
@@ -182,7 +196,10 @@ export class InPlaceTranslationCoordinator {
 					} else if (msg.type === 'PAGE_STAGE_UPDATED') {
 						this.handlePageStageUpdated(msg);
 					} else if (msg.type === 'CHAPTER_SYNC_UPDATE') {
-						void this.syncWithServer(msg.pages);
+						if (this.activeMapping && msg.status === 'resliced') {
+							this.activeMapping.isResliced = true;
+						}
+						void this.syncWithServer(msg.pages, msg.status === 'resliced');
 					}
 				});
 
@@ -291,8 +308,9 @@ export class InPlaceTranslationCoordinator {
 				const details = await this.client.getChapterDetails(this.activeMapping.chapterId);
 				if (!details?.pages || details.pages.length === 0) return;
 
-				// IF REPLACER NOT YET MOUNTED (E.G. LAUNCHED BEFORE UPLOAD FINISHED), MOUNT NOW
-				if (!this.replacer.getIsTranslatedActive() && details.pages.length > 0) {
+				// IF REPLACER NOT YET MOUNTED (E.G. LAUNCHED BEFORE UPLOAD FINISHED OR MID-FLIGHT TOGGLE), MOUNT NOW
+				const hasMountedDom = typeof document !== 'undefined' && !!document.querySelector('img[data-xianscan-page-id]');
+				if ((!this.replacer.hasMountedPages() || !hasMountedDom) && details.pages.length > 0) {
 					this.replacer.mountTranslatedPages(
 						details.pages,
 						this.activeMapping.excludedImageUrls,
@@ -338,7 +356,27 @@ export class InPlaceTranslationCoordinator {
 		}
 	}
 
-	async syncWithServer(passedPages?: ChapterReaderPage[]): Promise<void> {
+	private scheduleSyncRetry(): void {
+		if (this.syncRetryTimer || !this.inPlaceEnabled || !this.activeMapping?.chapterId) return;
+		this.syncRetryAttempts++;
+		const delayMs = Math.min(8000, 1500 * Math.pow(1.4, Math.min(this.syncRetryAttempts, 5)));
+		this.syncRetryTimer = setTimeout(() => {
+			this.syncRetryTimer = null;
+			if (isExtensionValid() && this.inPlaceEnabled && this.activeMapping) {
+				void this.syncWithServer();
+			}
+		}, delayMs);
+	}
+
+	private clearSyncRetry(): void {
+		if (this.syncRetryTimer) {
+			clearTimeout(this.syncRetryTimer);
+			this.syncRetryTimer = null;
+		}
+		this.syncRetryAttempts = 0;
+	}
+
+	async syncWithServer(passedPages?: ChapterReaderPage[], isResliced?: boolean): Promise<void> {
 		if (!isExtensionValid()) {
 			this.destroy();
 			return;
@@ -356,12 +394,25 @@ export class InPlaceTranslationCoordinator {
 				pages = chapterResult.pages || [];
 			}
 
+			if (isResliced !== undefined) {
+				this.activeMapping.isResliced = isResliced;
+			}
+
+			const effectiveIsResliced = this.activeMapping.isResliced || (
+				!!this.activeMapping.includedImageUrls &&
+				this.activeMapping.includedImageUrls.length > 0 &&
+				pages.length !== this.activeMapping.includedImageUrls.length
+			);
+
+			// SUCCESSFUL SERVER RESPONSE: RESET RETRY COUNTER
+			this.clearSyncRetry();
+
 			if (pages.length > 0) {
 				this.replacer.mountTranslatedPages(
 					pages,
 					this.activeMapping.excludedImageUrls,
 					this.activeMapping.includedImageUrls,
-					this.activeMapping.isResliced
+					effectiveIsResliced
 				);
 				this.startPollingIfNeeded(pages);
 			} else {
@@ -379,6 +430,7 @@ export class InPlaceTranslationCoordinator {
 				console.info('[XianScan] Mapped chapter was removed from server. Auto-clearing local mapping.');
 				this.stopPolling();
 				this.stopKeepAlive();
+				this.clearSyncRetry();
 				if (isExtensionValid()) {
 					chrome.runtime.sendMessage({
 						type: 'DELETE_SITE_MAPPING',
@@ -390,7 +442,12 @@ export class InPlaceTranslationCoordinator {
 				this.activeMapping = null;
 				this.replacer.destroy();
 			} else {
-				console.warn('[XianScan] Could not sync in-place translation with server:', err);
+				// TRANSIENT CONNECTION ISSUE (SERVER BOOTING UP, OFFLINE OR PROXY TIMEOUT)
+				// SCHEDULE WATCHDOG RECONNECT SO TRANSLATION ENGAGES AS SOON AS SERVER IS READY
+				if (this.syncRetryAttempts === 0) {
+					console.info('[XianScan] Backend connection pending, scheduling auto-reconnect...', errMsg);
+				}
+				this.scheduleSyncRetry();
 			}
 		}
 	}
@@ -398,26 +455,53 @@ export class InPlaceTranslationCoordinator {
 	handlePageTranslated(msg: PageTranslatedMessage): void {
 		if (!this.inPlaceEnabled) return;
 		if (!this.activeMapping || String(this.activeMapping.chapterId) !== String(msg.chapterId)) return;
+		if (!this.replacer.hasMountedPages()) {
+			void this.syncWithServer();
+			return;
+		}
 		this.replacer.updatePageSlice(msg.pageId, msg.pageSeq, msg.outputRev);
 	}
 
 	handlePageStageUpdated(msg: PageStageMessage): void {
 		if (!this.inPlaceEnabled) return;
 		if (!this.activeMapping || String(this.activeMapping.chapterId) !== String(msg.chapterId)) return;
+		if (!this.replacer.hasMountedPages()) {
+			void this.syncWithServer();
+			return;
+		}
 		this.replacer.updatePageStageSlice(msg.pageId, msg.pageSeq, msg.stage, msg.rev, msg.annotatedPath, msg.annotatedRev);
 	}
 
 	setMode(mode: 'translated' | 'raw'): void {
 		this.inPlaceEnabled = mode === 'translated';
+		if (this.activeMapping) {
+			this.activeMapping.enabled = this.inPlaceEnabled;
+			chrome.runtime.sendMessage({
+				type: 'UPDATE_SITE_MAPPING_ENABLED',
+				url: window.location.href,
+				enabled: this.inPlaceEnabled
+			}, () => {
+				void chrome.runtime.lastError;
+			});
+		}
 		this.replacer.setMode(mode);
 		if (this.inPlaceEnabled) {
-			void this.recheckUrlMapping();
+			if (!this.activeMapping) {
+				void this.recheckUrlMapping();
+			} else {
+				void this.syncWithServer();
+			}
+		} else {
+			this.stopPolling();
+			this.stopKeepAlive();
+			this.clearSyncRetry();
 		}
 	}
 
 	destroy(): void {
 		this.stopPolling();
 		this.stopKeepAlive();
+		this.clearSyncRetry();
 		this.replacer.destroy();
 	}
 }

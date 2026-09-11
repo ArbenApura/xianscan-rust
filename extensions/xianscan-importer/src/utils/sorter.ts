@@ -176,6 +176,103 @@ export function filterResolutionOutliers(images: ScannedImage[]): ScannedImage[]
 	});
 }
 
+// EXTRACT CLEAN LEAF FILENAME STRIPPING PATHS AND QUERY PARAMETERS
+export function extractLeafFilename(rawUrl: string): string {
+	if (!rawUrl) return '';
+	try {
+		const parsed = new URL(rawUrl, 'https://localhost');
+		const segments = parsed.pathname.split('/').filter(Boolean);
+		return segments.pop() || '';
+	} catch {
+		const withoutQuery = rawUrl.split('?')[0].split('#')[0];
+		const segments = withoutQuery.split('/').filter(Boolean);
+		return segments.pop() || '';
+	}
+}
+
+// EXTRACT NUMERIC PAGE INDEX FROM URL (QUERY PARAMS OR LEAF FILENAME)
+export function extractPageNumberFromUrl(rawUrl: string): number | undefined {
+	if (!rawUrl) return undefined;
+	try {
+		const parsed = new URL(rawUrl, 'https://localhost');
+		// 1. QUERY PARAMS FIRST (e.g. ?page=3, &p=3, &page_no=3)
+		for (const param of ['page', 'p', 'page_no', 'page_num', 'index', 'idx', 'seq']) {
+			const val = parsed.searchParams.get(param);
+			if (val && /^\d+$/.test(val)) {
+				const num = parseInt(val, 10);
+				if (num >= 0 && num <= 9999) return num;
+			}
+		}
+
+		// 2. LEAF FILENAME
+		const leaf = extractLeafFilename(rawUrl);
+		if (!leaf) return undefined;
+
+		// STRIP RESPONSIVE SIZING ARTIFACTS LIKE "@2x", "800w", "1200x800"
+		const cleanLeaf = leaf.replace(/@\d+x|\d+w|\d+h|\d+x\d+/gi, '');
+
+		// MATCH TRAILING DIGITS BEFORE EXTENSION (e.g. "page_001.webp", "p-01.jpg", "comic_015.png")
+		const trailingMatch = cleanLeaf.match(/(?:^|[-_a-zA-Z])0*(\d{1,4})\.[a-zA-Z0-9]+$/);
+		if (trailingMatch && trailingMatch[1]) {
+			const num = parseInt(trailingMatch[1], 10);
+			if (num >= 0 && num <= 9999) return num;
+		}
+
+		// MATCH BARE NUMBER FILENAMES (e.g. "1.webp", "02.jpg")
+		const bareMatch = cleanLeaf.match(/^0*(\d{1,4})\.[a-zA-Z0-9]+$/);
+		if (bareMatch && bareMatch[1]) {
+			const num = parseInt(bareMatch[1], 10);
+			if (num >= 0 && num <= 9999) return num;
+		}
+	} catch {
+		// REGEX FALLBACK IF URL PARSER FAILS
+		const match = rawUrl.match(/(?:page|p|seq|index)[-_=]?0*(\d{1,4})/i);
+		if (match && match[1]) {
+			const num = parseInt(match[1], 10);
+			if (num >= 0 && num <= 9999) return num;
+		}
+	}
+	return undefined;
+}
+
+// EXTRACT NUMERIC PAGE INDEX FROM DOM ELEMENT ATTRIBUTES OR IDS
+export function extractPageNumberFromElement(el: Element): number | undefined {
+	if (!el) return undefined;
+
+	// 1. DIRECT DATA ATTRIBUTES
+	const targetAttrs = ['data-page', 'data-page-no', 'data-page-num', 'data-index', 'data-seq', 'data-img-index'];
+	for (const attr of targetAttrs) {
+		const val = el.getAttribute(attr);
+		if (val && /^\d+$/.test(val.trim())) {
+			const num = parseInt(val.trim(), 10);
+			if (num >= 0 && num <= 9999) return num;
+		}
+	}
+
+	// 2. ID ATTRIBUTE MATCHING PAGE PATTERNS
+	const id = el.getAttribute('id') || '';
+	const idMatch = id.match(/(?:page|image|img)[-_]?0*(\d{1,4})/i);
+	if (idMatch && idMatch[1]) {
+		return parseInt(idMatch[1], 10);
+	}
+
+	// 3. ANCESTOR CONTAINER WITH PAGE ATTRIBUTE
+	if (typeof el.closest === 'function') {
+		const parent = el.closest('[data-page], [data-page-no], [data-page-num], [data-index], [data-seq]');
+		if (parent && parent !== el) {
+			for (const attr of targetAttrs) {
+				const val = parent.getAttribute(attr);
+				if (val && /^\d+$/.test(val.trim())) {
+					const num = parseInt(val.trim(), 10);
+					if (num >= 0 && num <= 9999) return num;
+				}
+			}
+		}
+	}
+
+	return undefined;
+}
+
 export function sortImagesByCoordinates(
 	images: ScannedImage[],
 	minWidth = 100,
@@ -199,8 +296,27 @@ export function sortImagesByCoordinates(
 	// 3b. MODERATE RESOLUTION-COHERENCE FILTER: DROP DIMENSION/ORIENTATION OUTLIERS (ADS)
 	const cleanImages = filterResolutionOutliers(outlierFiltered);
 
-	// 4. SPATIAL 2D SORTING: TOP-TO-BOTTOM PRIMARY, LEFT-TO-RIGHT SECONDARY, NATURAL ALPHANUMERIC TIEBREAKER
+	// 4. MULTI-TIER COHERENT COMIC SEQUENCE SORTING
 	return cleanImages.sort((a, b) => {
+		// TIER 1: EXPLICIT EXTRACTED PAGE NUMBERS (CANONICAL AUTHOR READING ORDER)
+		if (
+			typeof a.pageNumber === 'number' &&
+			typeof b.pageNumber === 'number' &&
+			a.pageNumber !== b.pageNumber
+		) {
+			return a.pageNumber - b.pageNumber;
+		}
+
+		// TIER 2: TEMPORAL DISCOVERY ORDER (COLLECTED IN SEQUENTIAL TOP-TO-BOTTOM SCROLL)
+		if (
+			typeof a.captureIndex === 'number' &&
+			typeof b.captureIndex === 'number' &&
+			a.captureIndex !== b.captureIndex
+		) {
+			return a.captureIndex - b.captureIndex;
+		}
+
+		// TIER 3: SPATIAL 2D SORTING (TOP-TO-BOTTOM PRIMARY, LEFT-TO-RIGHT SECONDARY)
 		const topDiff = a.top - b.top;
 		if (Math.abs(topDiff) > 20) {
 			return topDiff;
@@ -209,6 +325,24 @@ export function sortImagesByCoordinates(
 		if (Math.abs(leftDiff) > 20) {
 			return leftDiff;
 		}
+
+		// TIER 4: DOCUMENT TREE ORDER IF DOM NODES SHARED NEARBY COORDINATES
+		if (
+			typeof a.domIndex === 'number' &&
+			typeof b.domIndex === 'number' &&
+			a.domIndex !== b.domIndex
+		) {
+			return a.domIndex - b.domIndex;
+		}
+
+		// TIER 5: CLEAN LEAF FILENAME NATURAL ALPHANUMERIC SORT (STRIPPING QUERY PARAMS AND TOKENS)
+		const leafA = extractLeafFilename(a.url);
+		const leafB = extractLeafFilename(b.url);
+		if (leafA && leafB && leafA !== leafB) {
+			return naturalAlphanumericSort(leafA, leafB);
+		}
+
+		// TIER 6: FULL URL FALLBACK
 		return naturalAlphanumericSort(a.url, b.url);
 	});
 }

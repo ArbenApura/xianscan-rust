@@ -55,7 +55,7 @@ export class XianScanClient {
 
 			let proxyResult: { ok: boolean; status: number; data?: any; error?: string } | null = null;
 			let attempts = 0;
-			const maxAttempts = 3;
+			const maxAttempts = 4;
 
 			while (attempts < maxAttempts) {
 				attempts++;
@@ -105,7 +105,7 @@ export class XianScanClient {
 
 					// IF STATUS === 0 (SERVICE WORKER WAKING UP / IPC BLIP), RETRY WITH SHORT BACKOFF
 					if (attempts < maxAttempts) {
-						await new Promise(r => setTimeout(r, attempts * 250));
+						await new Promise(r => setTimeout(r, Math.min(1500, attempts * 300)));
 					}
 				} catch (err) {
 					if (err instanceof Error) {
@@ -122,7 +122,10 @@ export class XianScanClient {
 			// IF PROXY SUCCEEDED OR FAILED WITH EXPLICIT HTTP STATUS, WE ALREADY RETURNED OR THREW.
 			// IF ON HTTPS PAGE AND TARGET IS HTTP, DO NOT ATTEMPT DIRECT FETCH AS IT IS GUARANTEED TO FAIL DUE TO MIXED CONTENT / PNA.
 			if (isHttpsPage && targetUrl.startsWith('http://')) {
-				throw new Error(proxyResult?.error || 'Could not connect to XianScan backend via extension background proxy.');
+				const baseErr = proxyResult?.error || 'Could not connect to XianScan backend via extension background proxy.';
+				throw new Error(baseErr.includes('Failed to fetch')
+					? `Could not connect to XianScan backend (${targetUrl}). Please ensure the XianScan studio server is running.`
+					: baseErr);
 			}
 		}
 
@@ -260,6 +263,12 @@ export class XianScanClient {
 		return this.request<{ added: number }>(`/api/chapters/${chapterId}/pages`, {
 			method: 'POST',
 			body: formData
+		});
+	}
+
+	async clearChapterPages(chapterId: number): Promise<{ success: boolean; deletedCount: number }> {
+		return this.request<{ success: boolean; deletedCount: number }>(`/api/chapters/${chapterId}/pages`, {
+			method: 'DELETE'
 		});
 	}
 

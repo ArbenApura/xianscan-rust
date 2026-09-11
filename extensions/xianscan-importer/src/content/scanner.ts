@@ -4,7 +4,13 @@
 import type { ScannedImage } from '../types';
 
 // IMPORTED MODULES
-import { sortImagesByCoordinates, isPlaceholderImage, computeDHashFromElement } from '../utils/sorter';
+import {
+	sortImagesByCoordinates,
+	isPlaceholderImage,
+	computeDHashFromElement,
+	extractPageNumberFromUrl,
+	extractPageNumberFromElement
+} from '../utils/sorter';
 import { NOISE_CONTAINER_SELECTORS, isFloatingOrSticky, isLikelyAdOrBannerImage } from '../core/heuristics/ad-detector';
 import { getCanonicalUrl, extractPlaceholderDimensions, filterToRelevantCluster } from '../core/heuristics/url-clustering';
 
@@ -269,6 +275,7 @@ export function scanPageForImages(): ScannedImage[] {
 	// DISCOVER HIGH-CONFIDENCE PRIMARY READER CONTAINER DYNAMICALLY
 	const dynamicContainer = findPrimaryReaderContainer();
 	const rootScope: Document | Element = dynamicContainer || document;
+	let domIndexCounter = 0;
 
 	// 1. SCAN STANDARD IMG AND PICTURE ELEMENTS WITHIN ROOTSCOPE
 	const imgElements = rootScope.querySelectorAll<HTMLImageElement>('img, picture img');
@@ -344,6 +351,8 @@ export function scanPageForImages(): ScannedImage[] {
 		}
 
 		seenCanonicalUrls.add(canonicalUrl);
+		const pageNumber = extractPageNumberFromElement(img) ?? extractPageNumberFromUrl(absoluteUrl);
+		const domIndex = domIndexCounter++;
 
 		imagesMap.set(absoluteUrl, {
 			url: absoluteUrl,
@@ -354,7 +363,9 @@ export function scanPageForImages(): ScannedImage[] {
 			top,
 			left,
 			alt: img.alt || '',
-			selected: true
+			selected: true,
+			pageNumber,
+			domIndex
 		});
 	}
 
@@ -374,6 +385,8 @@ export function scanPageForImages(): ScannedImage[] {
 
 				const rect = el.getBoundingClientRect();
 				seenCanonicalUrls.add(canonicalUrl);
+				const pageNumber = extractPageNumberFromElement(el) ?? extractPageNumberFromUrl(absoluteUrl);
+				const domIndex = domIndexCounter++;
 
 				imagesMap.set(absoluteUrl, {
 					url: absoluteUrl,
@@ -382,7 +395,9 @@ export function scanPageForImages(): ScannedImage[] {
 					height: rect.height || 1200,
 					top: rect.top + window.scrollY,
 					left: rect.left + window.scrollX,
-					selected: true
+					selected: true,
+					pageNumber,
+					domIndex
 				});
 			} catch {
 				// IGNORE INVALID URL
@@ -398,6 +413,8 @@ export function scanPageForImages(): ScannedImage[] {
 			const canonicalUrl = getCanonicalUrl(url);
 			if (!imagesMap.has(url) && !seenCanonicalUrls.has(canonicalUrl)) {
 				seenCanonicalUrls.add(canonicalUrl);
+				const pageNumber = extractPageNumberFromUrl(url);
+				const domIndex = domIndexCounter++;
 				imagesMap.set(url, {
 					url,
 					canonicalUrl,
@@ -405,7 +422,9 @@ export function scanPageForImages(): ScannedImage[] {
 					height: 1200,
 					top: fallbackTop,
 					left: 0,
-					selected: true
+					selected: true,
+					pageNumber,
+					domIndex
 				});
 				fallbackTop += 1200;
 			}
@@ -413,39 +432,78 @@ export function scanPageForImages(): ScannedImage[] {
 	}
 
 	// 4. SUPPLEMENT WITH CAPTURED VIRTUAL-SCROLL OR LAZY URLS NOT PRESENT IN DOM SNAPSHOT
-	let virtualFallbackTop = 0;
-	for (const imgData of imagesMap.values()) {
-		const bottom = imgData.top + imgData.height;
-		if (bottom > virtualFallbackTop) {
-			virtualFallbackTop = bottom;
-		}
-	}
-
 	const capturedUrls = getCapturedImageUrls();
-	const unmountedPlaceholders = Array.from(rootScope.querySelectorAll<HTMLElement>('[data-page], [class*="page"], [id*="page"]')).filter(
-		el => el.querySelectorAll('img').length === 0
-	);
+	const unmountedPlaceholders = Array.from(
+		rootScope.querySelectorAll<HTMLElement>('[data-page], [class*="page"], [id*="page"]')
+	).filter(el => el.querySelectorAll('img').length === 0);
 	let placeholderIdx = 0;
 
-	for (const url of capturedUrls) {
-		const canonicalUrl = getCanonicalUrl(url);
-		if (!imagesMap.has(url) && !seenCanonicalUrls.has(canonicalUrl)) {
-			seenCanonicalUrls.add(canonicalUrl);
-			const placeholderEl = unmountedPlaceholders[placeholderIdx] || null;
-			const dims = extractPlaceholderDimensions(placeholderEl);
-			placeholderIdx++;
+	// ESTIMATE STANDARD PANEL HEIGHT FROM MOUNTED SAMPLES
+	let estimatedPanelHeight = 1200;
+	const validMountedHeights = Array.from(imagesMap.values())
+		.map(img => img.height)
+		.filter(h => h >= 400 && h <= 25000);
+	if (validMountedHeights.length > 0) {
+		estimatedPanelHeight = Math.round(
+			validMountedHeights.reduce((sum, h) => sum + h, 0) / validMountedHeights.length
+		);
+	}
 
-			imagesMap.set(url, {
-				url,
-				canonicalUrl,
-				width: dims.width,
-				height: dims.height,
-				top: virtualFallbackTop,
-				left: 0,
-				selected: true
-			});
-			virtualFallbackTop += dims.height;
+	for (let capIdx = 0; capIdx < capturedUrls.length; capIdx++) {
+		const url = capturedUrls[capIdx];
+		const canonicalUrl = getCanonicalUrl(url);
+
+		// IF ALREADY RECORDED FROM DOM, POPULATE CAPTURE INDEX AND ENSURE PAGE NUMBER
+		const existing = imagesMap.get(url);
+		if (existing) {
+			if (existing.captureIndex === undefined) {
+				existing.captureIndex = capIdx;
+			}
+			if (existing.pageNumber === undefined) {
+				existing.pageNumber = extractPageNumberFromUrl(url);
+			}
+			continue;
 		}
+
+		// CHECK CANONICAL DUPLICATE
+		if (seenCanonicalUrls.has(canonicalUrl)) {
+			for (const img of imagesMap.values()) {
+				if (img.canonicalUrl === canonicalUrl) {
+					if (img.captureIndex === undefined) {
+						img.captureIndex = capIdx;
+					}
+					break;
+				}
+			}
+			continue;
+		}
+
+		seenCanonicalUrls.add(canonicalUrl);
+
+		const placeholderEl = unmountedPlaceholders[placeholderIdx] || null;
+		const dims = extractPlaceholderDimensions(placeholderEl);
+		placeholderIdx++;
+
+		const pageNumber =
+			(placeholderEl ? extractPageNumberFromElement(placeholderEl) : undefined) ??
+			extractPageNumberFromUrl(url);
+		const height = dims.height > 100 ? dims.height : estimatedPanelHeight;
+
+		// ASSIGN TOP COORDINATE BASED ON CAPTURED SEQUENTIAL POSITION
+		// SO UNMOUNTED TOP PANELS PRECEDE LOWER PANELS INSTEAD OF BEING DUMPED AT THE BOTTOM
+		const top = capIdx * height;
+
+		imagesMap.set(url, {
+			url,
+			canonicalUrl,
+			width: dims.width,
+			height,
+			top,
+			left: 0,
+			selected: true,
+			pageNumber,
+			captureIndex: capIdx
+		});
 	}
 
 	const rawImages = Array.from(imagesMap.values());
@@ -461,32 +519,35 @@ export function forcePromoteLazyAttributes(): number {
 
 	for (const img of imgs) {
 		if (img.getAttribute('data-xianscan-injected') === 'true') continue;
+		if (isLikelyAdOrBannerImage(img)) continue;
 
 		for (const attr of IMG_LAZY_ATTRIBUTES) {
 			const lazyVal = img.getAttribute(attr);
-			if (lazyVal && !lazyVal.startsWith('data:') && !lazyVal.includes('placeholder') && !lazyVal.includes('blur')) {
-				if (!img.src || img.src.startsWith('data:') || img.src.includes('placeholder') || img.src.includes('blank.gif')) {
-					try {
-						img.src = new URL(lazyVal.trim(), window.location.href).href;
-						promoted++;
-					} catch {
-						// IGNORE URL RESOLUTION FAILURE
-					}
+			if (lazyVal && !lazyVal.startsWith('data:') && !lazyVal.includes('placeholder')) {
+				const currentSrc = img.getAttribute('src');
+				if (currentSrc !== lazyVal) {
+					img.setAttribute('src', lazyVal);
+					img.src = lazyVal;
+					promoted++;
 				}
-				// ENSURE OBSERVER RECORDS IT
-				registerCapturedImageUrl(lazyVal);
 				break;
 			}
 		}
+
+		if (img.hasAttribute('loading') && img.getAttribute('loading') !== 'eager') {
+			img.setAttribute('loading', 'eager');
+		}
 	}
+
 	return promoted;
 }
 
-// AUTO-SCROLL THROUGH THE ENTIRE READER (WINDOW AND/OR INNER VIRTUAL-SCROLL CONTAINER)
-// TO TRIGGER LAZY-LOADS AND LET THE MUTATIONOBSERVER CAPTURE EVERY MOUNTED PANEL.
+// FAST SCROLL PRELOADER FOR VIRTUAL-SCROLL COMIC VIEWERS
 export async function fastScrollPreload(): Promise<void> {
-	// 1. FIRST ATTACH CAPTURE OBSERVER SO ALL SCROLL AND DOM MUTATIONS ARE RECORDED
-	attachImageCaptureObserver();
+	if (typeof window === 'undefined') return;
+
+	// 1. CLEAR PREVIOUS CAPTURES BEFORE PRELOAD
+	resetCapturedImageUrls();
 
 	// 2. PROMOTE EXISTING LAZY ATTRIBUTES IMMEDIATELY WITHOUT WAITING FOR INTERSECTIONOBSERVER
 	forcePromoteLazyAttributes();
@@ -526,6 +587,11 @@ export async function fastScrollPreload(): Promise<void> {
 	}
 
 	for (const t of targets) {
+		// 1. SCROLL TO TOP AND SETTLE BEFORE RECORDING SEQUENTIAL STREAM
+		t.set(0);
+		await new Promise(r => setTimeout(r, 60));
+		forcePromoteLazyAttributes();
+
 		let currentY = 0;
 		let maxCycles = 150;
 		while (currentY < t.getMax() && maxCycles > 0) {
@@ -537,10 +603,14 @@ export async function fastScrollPreload(): Promise<void> {
 			await new Promise(r => setTimeout(r, delay));
 		}
 
+		// 2. SCROLL BACK TO TOP AND ALLOW VIRTUAL SCROLLER TO RE-RENDER TOP ELEMENTS
+		t.set(0);
 		window.dispatchEvent(new Event('resize'));
 		window.dispatchEvent(new Event('scroll'));
-		await new Promise(r => setTimeout(r, 60));
-
-		t.set(t.init);
+		if ('dispatchEvent' in t.el && t.el !== window) {
+			t.el.dispatchEvent(new Event('scroll', { bubbles: true }));
+		}
+		await new Promise(r => setTimeout(r, 150));
+		forcePromoteLazyAttributes();
 	}
 }

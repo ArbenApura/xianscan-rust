@@ -637,5 +637,67 @@ describe('DomReplacerEngine', () => {
 		expect(img1.src).toContain('kind=output');
 		expect(img1.getAttribute('data-xianscan-status')).toBe('ready');
 	});
+
+	it('mounts translated pages mid-flight when in-place translation is toggled on after upload', () => {
+		engine = new DomReplacerEngine('http://127.0.0.1:8124');
+		// INITIAL STATE: USER UPLOADED WITH IN-PLACE DISABLED
+		expect(engine.getIsTranslatedActive()).toBe(false);
+		expect(img1.getAttribute('data-xianscan-applied-src')).toBeNull();
+
+		// MID-FLIGHT TRANSLATION: USER TOGGLES IN-PLACE ON
+		const inFlightPages: ChapterReaderPage[] = [
+			{ id: 501, seq: 0, filePath: 'orig1.jpg', cleanedPath: null, outputPath: 'out1.webp', cleanedRev: 0, outputRev: 1, originalRev: 1, status: 'done', error: null },
+			{ id: 502, seq: 1, filePath: 'orig2.jpg', cleanedPath: null, outputPath: null, cleanedRev: 0, outputRev: 0, originalRev: 1, status: 'processing', error: null }
+		];
+
+		const mounted = engine.mountTranslatedPages(inFlightPages);
+		expect(mounted).toBe(true);
+		expect(engine.getIsTranslatedActive()).toBe(true);
+
+		// FIRST PAGE IS ALREADY TRANSLATED
+		expect(img1.src).toContain('/api/pages/501/file?kind=output&rev=1');
+		// SECOND PAGE IS IN-FLIGHT
+		expect(img2.getAttribute('data-xianscan-status')).toBe('processing');
+
+		// SUBSEQUENT MID-FLIGHT PAGE COMPLETION EVENT ARRIVES
+		engine.updatePageSlice(502, 1, 1);
+		expect(img2.src).toContain('/api/pages/502/file?kind=output&rev=1');
+		expect(img2.getAttribute('data-xianscan-status')).toBe('ready');
+	});
+
+	it('mounts resliced continuous strip slices mid-flight and hides duplicate raw host images', () => {
+		engine = new DomReplacerEngine('http://127.0.0.1:8124');
+		const reslicedPages: ChapterReaderPage[] = [
+			{ id: 601, seq: 0, filePath: 'orig1.jpg', cleanedPath: null, outputPath: 'out1.webp', cleanedRev: 0, outputRev: 1, originalRev: 1, status: 'done', error: null },
+			{ id: 602, seq: 1, filePath: 'orig2.jpg', cleanedPath: null, outputPath: 'out2.webp', cleanedRev: 0, outputRev: 1, originalRev: 1, status: 'done', error: null },
+			{ id: 603, seq: 2, filePath: 'orig3.jpg', cleanedPath: null, outputPath: 'out3.webp', cleanedRev: 0, outputRev: 1, originalRev: 1, status: 'done', error: null }
+		];
+
+		const mounted = engine.mountTranslatedPages(reslicedPages, undefined, ['https://site.com/raw1.jpg', 'https://site.com/raw2.jpg'], true);
+		expect(mounted).toBe(true);
+
+		// SLICE 0 OVERWRITES ANCHOR
+		expect(img1.getAttribute('data-xianscan-page-id')).toBe('601');
+		// SLICES 1 AND 2 ARE INJECTED
+		const injected = container.querySelectorAll('img[data-xianscan-injected="true"]');
+		expect(injected.length).toBe(2);
+		// HOST IMAGE 2 IS HIDDEN TO PREVENT DUPLICATION
+		expect(img2.getAttribute('data-xianscan-hidden')).toBe('true');
+		expect(img2.style.display).toBe('none');
+	});
+
+	it('accurately reports hasMountedPages based on mounted elements in DOM', () => {
+		engine = new DomReplacerEngine('http://127.0.0.1:8124');
+		expect(engine.hasMountedPages()).toBe(false);
+
+		const samplePages: ChapterReaderPage[] = [
+			{ id: 701, seq: 0, filePath: 'orig1.jpg', cleanedPath: null, outputPath: 'out1.webp', cleanedRev: 0, outputRev: 1, originalRev: 1, status: 'done', error: null }
+		];
+		engine.mountTranslatedPages(samplePages);
+		expect(engine.hasMountedPages()).toBe(true);
+
+		engine.destroy();
+		expect(engine.hasMountedPages()).toBe(false);
+	});
 });
 

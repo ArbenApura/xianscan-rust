@@ -62,6 +62,10 @@ class PopupController {
 		this.importView = new ImportViewController(this.client, this.toast, {
 			onStartImport: async (params) => {
 				this.switchView('tracker');
+				this.trackerView.configurePipelineSteps({
+					autoReslice: !!params.autoReslice,
+					autoTranslate: !!params.autoTranslate
+				});
 				this.trackerView.updateProgress(0, params.imageUrls.length, 'uploading');
 				const bTitle = document.getElementById('trackerBookTitle');
 				const cTitle = document.getElementById('trackerChapterTitle');
@@ -83,6 +87,8 @@ class PopupController {
 					excludedImageUrls: params.excludedUrls,
 					includedImageUrls: params.imageUrls,
 					enabled: params.inPlaceReplacement !== false,
+					autoReslice: !!params.autoReslice,
+					autoTranslate: !!params.autoTranslate,
 					lastSyncedAt: Date.now()
 				};
 
@@ -105,7 +111,8 @@ class PopupController {
 						excludedImageUrls: params.excludedUrls,
 						includedImageUrls: params.imageUrls,
 						autoReslice: params.autoReslice,
-						autoTranslate: params.autoTranslate
+						autoTranslate: params.autoTranslate,
+						inPlaceReplacement: params.inPlaceReplacement
 					},
 					refererUrl: this.currentUrl
 				}, () => {
@@ -163,6 +170,16 @@ class PopupController {
 		this.trackerView.setInPlaceChecked(checked);
 		chrome.storage.local.set({ inPlaceReplacement: checked });
 
+		if (this.currentUrl) {
+			chrome.runtime.sendMessage({
+				type: 'UPDATE_SITE_MAPPING_ENABLED',
+				url: this.currentUrl,
+				enabled: checked
+			}, () => {
+				void chrome.runtime.lastError;
+			});
+		}
+
 		chrome.tabs.query({ active: true, currentWindow: true }).then(([tab]) => {
 			if (tab?.id) {
 				chrome.tabs.sendMessage(tab.id, {
@@ -201,6 +218,10 @@ class PopupController {
 			const isSamePage = job.url && this.currentUrl && normalizePageUrl(job.url) === normalizePageUrl(this.currentUrl);
 			if (isSamePage) {
 				this.switchView('tracker');
+				this.trackerView.configurePipelineSteps({
+					autoReslice: job.autoReslice !== undefined ? !!job.autoReslice : true,
+					autoTranslate: job.autoTranslate !== undefined ? !!job.autoTranslate : true
+				});
 				this.trackerView.updateProgress(job.current, job.total, 'uploading');
 				void this.trackerView.loadAndRenderTracker(job.chapterId, job.bookId);
 				return;
@@ -218,6 +239,12 @@ class PopupController {
 			if (mappingRes.mapping && mappingRes.mapping.chapterId) {
 				const mapping = mappingRes.mapping;
 				this.switchView('tracker');
+				if (mapping.autoReslice !== undefined || mapping.autoTranslate !== undefined) {
+					this.trackerView.configurePipelineSteps({
+						autoReslice: mapping.autoReslice,
+						autoTranslate: mapping.autoTranslate
+					});
+				}
 				void this.trackerView.loadAndRenderTracker(mapping.chapterId, mapping.bookId);
 				return;
 			}
@@ -263,8 +290,15 @@ class PopupController {
 			}
 
 			if (msg.type === 'IMPORT_PROGRESS') {
+				if (msg.autoReslice !== undefined || msg.autoTranslate !== undefined) {
+					this.trackerView.configurePipelineSteps({
+						autoReslice: msg.autoReslice,
+						autoTranslate: msg.autoTranslate
+					});
+				}
 				this.trackerView.updateProgress(msg.current, msg.total, 'uploading');
-			} else if (msg.type === 'PIPELINE_PHASE') {
+			}
+ else if (msg.type === 'PIPELINE_PHASE') {
 				if (msg.phase === 'reslicing') {
 					this.trackerView.updateProgress(0, msg.total || 0, 'reslicing');
 				} else if (msg.phase === 'translating') {
@@ -276,23 +310,14 @@ class PopupController {
 			} else if (msg.type === 'PAGE_TRANSLATED') {
 				this.trackerView.handlePageTranslated(msg.pageId, msg.pageSeq, msg.outputRev, msg.total);
 			} else if (msg.type === 'CHAPTER_SYNC_UPDATE') {
-				if (msg.status === 'resliced' && msg.pages) {
+				if (msg.status === 'uploaded' && msg.pages) {
+					this.trackerView.setPages(msg.pages);
+				} else if (msg.status === 'resliced' && msg.pages) {
+					this.trackerView.setResliced(true);
 					this.trackerView.setPages(msg.pages);
 				} else if (msg.status === 'done') {
-					this.stepper.update('done', 1, 1);
-					const statusBadge = document.getElementById('trackerStatusBadge');
-					const summaryText = document.getElementById('trackerSummaryText');
-					const progressWrap = document.getElementById('trackerProgressWrap');
-					if (statusBadge) {
-						statusBadge.className = 'tracker-badge ready';
-						statusBadge.textContent = 'Ready';
-					}
-					if (summaryText) {
-						summaryText.textContent = 'All pages translated & in-place synced';
-					}
-					progressWrap?.classList.add('hidden');
+					this.trackerView.handleSyncDone();
 					this.toast.show('Chapter Translation Complete!');
-					this.trackerView.stopPolling();
 				}
 			} else if (msg.type === 'IMPORT_COMPLETE') {
 				if (msg.error) {
@@ -300,6 +325,12 @@ class PopupController {
 					this.switchView('import');
 				} else {
 					this.toast.show(`Imported ${msg.current} pages successfully`);
+					this.trackerView.handleImportComplete({
+						autoTranslate: !!msg.autoTranslate,
+						autoReslice: !!msg.autoReslice,
+						total: msg.total,
+						current: msg.current
+					});
 				}
 			}
 		});

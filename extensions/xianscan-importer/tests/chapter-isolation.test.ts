@@ -9,7 +9,8 @@ import {
 	saveSiteMapping,
 	findMappingForUrl,
 	deleteSiteMapping,
-	getSiteMappings
+	getSiteMappings,
+	updateSiteMappingEnabled
 } from '../src/core/storage';
 import type { ChapterMappingEntry } from '../src/types';
 
@@ -233,5 +234,36 @@ describe('Chapter URL isolation and routing heuristics', () => {
 
 		expect(shouldAcceptMsg101).toBe(false);
 		expect(shouldAcceptMsg102).toBe(true);
+	});
+
+	it('updates site mapping enabled flag flexibly when toggled on mid-flight', async () => {
+		const targetUrl = 'https://example.com/read/chapter-10';
+		const initialMapping: ChapterMappingEntry = {
+			url: targetUrl,
+			bookId: 'book-1',
+			chapterId: 10,
+			isResliced: true,
+			pageCount: 16,
+			enabled: false,
+			lastSyncedAt: Date.now()
+		};
+
+		await saveSiteMapping(initialMapping);
+
+		const beforeToggle = await findMappingForUrl(targetUrl);
+		expect(beforeToggle?.enabled).toBe(false);
+
+		// TOGGLE IN-PLACE REPLACEMENT ON MID-FLIGHT
+		const updated = await updateSiteMappingEnabled(targetUrl, true);
+		expect(updated).not.toBeNull();
+		expect(updated?.enabled).toBe(true);
+
+		const afterToggle = await findMappingForUrl(targetUrl);
+		expect(afterToggle?.enabled).toBe(true);
+
+		// TOGGLE IN-PLACE REPLACEMENT OFF
+		await updateSiteMappingEnabled(targetUrl, false);
+		const afterToggleOff = await findMappingForUrl(targetUrl);
+		expect(afterToggleOff?.enabled).toBe(false);
 	});
 });

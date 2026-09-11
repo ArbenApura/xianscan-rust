@@ -10,6 +10,9 @@ export interface ScannedImage {
 	left: number;
 	alt?: string;
 	selected?: boolean;
+	pageNumber?: number;
+	domIndex?: number;
+	captureIndex?: number;
 }
 
 export interface ChapterMetadata {
@@ -89,6 +92,7 @@ export interface ImportJobPayload {
 	includedImageUrls?: string[];
 	autoReslice?: boolean;
 	autoTranslate?: boolean;
+	inPlaceReplacement?: boolean;
 }
 
 export interface ImportProgressEvent {
@@ -112,6 +116,8 @@ export interface ChapterMappingEntry {
 	excludedImageUrls?: string[];
 	includedImageUrls?: string[];
 	enabled: boolean;
+	autoReslice?: boolean;
+	autoTranslate?: boolean;
 	lastSyncedAt: number;
 }
 

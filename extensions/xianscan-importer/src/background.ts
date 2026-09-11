@@ -2,7 +2,7 @@
 
 // IMPORTED MODULES
 import { XianScanClient } from './api';
-import { getServerUrl, saveSiteMapping, findMappingForUrl, deleteSiteMapping } from './core/storage';
+import { getServerUrl, saveSiteMapping, findMappingForUrl, deleteSiteMapping, updateSiteMappingEnabled } from './core/storage';
 import { initKeepAliveService } from './background/keep-alive';
 import { initContextMenus } from './background/context-menus';
 import { safeFetch, fetchImageBlob, arrayBufferToBase64 } from './background/downloader';
@@ -64,6 +64,14 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 		return true;
 	}
 
+	if (message.type === 'UPDATE_SITE_MAPPING_ENABLED') {
+		const targetUrl = message.url || sender.tab?.url || '';
+		updateSiteMappingEnabled(targetUrl, !!message.enabled).then(mapping => {
+			sendResponse({ success: true, mapping });
+		});
+		return true;
+	}
+
 	if (message.type === 'DELETE_SITE_MAPPING') {
 		const targetUrl = message.url || sender.tab?.url || '';
 		deleteSiteMapping(targetUrl).then(() => {
@@ -80,9 +88,43 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 		return true;
 	}
 
+// PROXY FETCH HELPER WITH LOCALHOST AND 127.0.0.1 FALLBACK PLUS TIMEOUT
+async function proxyFetchWithFallback(rawUrl: string, options: RequestInit = {}): Promise<Response> {
+	const controller = new AbortController();
+	const timeoutId = setTimeout(() => controller.abort(), 12000);
+	const fetchOptions: RequestInit = {
+		...options,
+		signal: controller.signal
+	};
+
+	let cleanUrl = rawUrl;
+	try {
+		const u = new URL(rawUrl);
+		u.pathname = u.pathname.replace(/\/+/g, '/');
+		cleanUrl = u.href;
+	} catch {
+		cleanUrl = rawUrl;
+	}
+
+	try {
+		return await safeFetch(cleanUrl, fetchOptions);
+	} catch (err: any) {
+		const isConnIssue = err?.message?.includes('Failed to fetch') || err?.name === 'AbortError';
+		if (isConnIssue && (cleanUrl.includes('localhost') || cleanUrl.includes('127.0.0.1'))) {
+			const fallbackUrl = cleanUrl.includes('localhost')
+				? cleanUrl.replace('localhost', '127.0.0.1')
+				: cleanUrl.replace('127.0.0.1', 'localhost');
+			return await safeFetch(fallbackUrl, fetchOptions);
+		}
+		throw err;
+	} finally {
+		clearTimeout(timeoutId);
+	}
+}
+
 	if (message.type === 'PROXY_REQUEST') {
 		const { url, options } = message;
-		safeFetch(url, options)
+		proxyFetchWithFallback(url, options)
 			.then(async res => {
 				const data = await res.json().catch(() => ({}));
 				sendResponse({ ok: res.ok, status: res.status, data });

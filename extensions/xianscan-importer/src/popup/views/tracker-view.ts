@@ -8,6 +8,7 @@ import { XianScanClient } from '../../api';
 import { resolveSafeImageUrl } from '../../content/safe-image';
 import { ToastComponent } from '../components/toast';
 import { StepperComponent } from '../components/stepper';
+import { findMappingForUrl } from '../../core/storage';
 
 // -- HELPER FUNCTIONS -- //
 
@@ -52,6 +53,7 @@ export class TrackerViewController {
 	private pollingTimer: ReturnType<typeof setInterval> | null = null;
 	private activePhase = 'idle';
 	private isTranslating = false;
+	private isResliced = false;
 	private currentChapterId: number | null = null;
 	private currentBookId: string | number | null = null;
 	private currentUrl = '';
@@ -198,8 +200,19 @@ export class TrackerViewController {
 		});
 	}
 
+	configurePipelineSteps(options: { autoReslice?: boolean; autoTranslate?: boolean }): void {
+		this.stepper.configureSteps({
+			hasReslice: options.autoReslice,
+			hasTranslate: options.autoTranslate
+		});
+	}
+
 	setInPlaceChecked(checked: boolean): void {
 		this.inPlaceCheckbox.checked = checked;
+	}
+
+	setResliced(resliced: boolean): void {
+		this.isResliced = resliced;
 	}
 
 	setCurrentUrl(url: string): void {
@@ -215,6 +228,14 @@ export class TrackerViewController {
 		if (bookId) this.currentBookId = bookId;
 
 		try {
+			let mapping: ChapterMappingEntry | null = null;
+			if (this.currentUrl) {
+				mapping = await findMappingForUrl(this.currentUrl).catch(() => null);
+				if (mapping?.isResliced) {
+					this.isResliced = true;
+				}
+			}
+
 			const details = await this.client.getChapterDetails(chapterId);
 			if (!details || !details.chapter) {
 				// CHAPTER REMOVED FROM SERVER: PURGE MAPPING
@@ -235,6 +256,15 @@ export class TrackerViewController {
 			const isTranslating = details.isTranslating === true || details.jobStatus === 'running';
 			this.isTranslating = isTranslating;
 
+			if (this.activePhase !== 'uploading' && this.activePhase !== 'reslicing') {
+				const hasTranslations = doneCount > 0 || isTranslating || isComplete;
+				const hasReslice = this.isResliced || (mapping?.isResliced ?? false);
+				this.configurePipelineSteps({
+					autoReslice: mapping?.autoReslice !== undefined ? mapping.autoReslice : hasReslice,
+					autoTranslate: mapping?.autoTranslate !== undefined ? mapping.autoTranslate : hasTranslations
+				});
+			}
+
 			this.chapterTitleEl.textContent = details.chapter.title || `Chapter #${chapterId}`;
 
 			if (bookId) {
@@ -246,6 +276,7 @@ export class TrackerViewController {
 			}
 
 			if (isTranslating) {
+				this.activePhase = 'translating';
 				this.statusBadgeEl.className = 'tracker-badge translating';
 				this.statusBadgeEl.textContent = `Translating ${doneCount}/${total}`;
 				this.summaryTextEl.textContent = `${doneCount} / ${total} pages ready`;
@@ -253,24 +284,27 @@ export class TrackerViewController {
 				this.updateProgress(doneCount, total, 'translating');
 				this.startPolling(chapterId);
 			} else if (isComplete) {
+				this.activePhase = 'done';
 				this.statusBadgeEl.className = 'tracker-badge ready';
 				this.statusBadgeEl.textContent = 'Ready';
 				this.summaryTextEl.textContent = `All ${total} pages translated`;
 				this.progressWrap.classList.add('hidden');
-				this.stepper.update('done', total, total);
+				this.stepper.update('done', total, total, this.isResliced);
 				this.stopPolling();
+			} else if (this.activePhase === 'uploading' || this.activePhase === 'reslicing') {
+				// AN UPLOAD OR RESLICE JOB IS ACTIVELY RUNNING IN POPUP
+				// DO NOT HIDE PROGRESS WRAP OR OVERWRITE ACTIVE PIPELINE STATUS
+				if (total > 0) {
+					this.summaryTextEl.textContent = `${total} pages in chapter`;
+				}
 			} else {
+				this.activePhase = 'idle';
 				this.statusBadgeEl.className = 'tracker-badge';
 				this.statusBadgeEl.textContent = doneCount > 0 ? `Stopped (${doneCount}/${total})` : 'Idle';
 				this.summaryTextEl.textContent = doneCount > 0 ? `${doneCount} of ${total} pages ready (Stopped)` : `${total} pages in chapter`;
 				this.progressWrap.classList.add('hidden');
-				if (doneCount < total && total > 0) {
-					this.stepper.update('translating', doneCount, total);
-					this.startPolling(chapterId);
-				} else {
-					this.stepper.update(isComplete ? 'done' : 'idle', doneCount, total);
-					this.stopPolling();
-				}
+				this.stepper.update('idle', doneCount, total, this.isResliced);
+				this.stopPolling();
 			}
 
 			this.renderGrid();
@@ -288,12 +322,18 @@ export class TrackerViewController {
 
 	updateProgress(current: number, total: number, phase: string): void {
 		this.activePhase = phase;
+		if (phase === 'reslicing') {
+			this.isResliced = true;
+			this.stepper.configureSteps({ hasReslice: true });
+		} else if (phase === 'translating') {
+			this.stepper.configureSteps({ hasTranslate: true });
+		}
 		this.progressWrap.classList.remove('hidden');
 		const safeTotal = total > 0 ? total : this.activeChapterPages.length;
 		const pct = safeTotal > 0 ? Math.min(100, Math.round((current / safeTotal) * 100)) : 0;
 		this.progressBarFill.style.width = `${pct}%`;
 
-		this.stepper.update(phase, current, safeTotal);
+		this.stepper.update(phase, current, safeTotal, this.isResliced);
 
 		if (phase === 'uploading') {
 			this.progressCount.textContent = safeTotal > 0 ? `${current} / ${safeTotal}` : `${current}`;
@@ -514,11 +554,12 @@ export class TrackerViewController {
 
 		if (total > 0) {
 			if (doneCount >= total) {
+				this.activePhase = 'done';
 				this.statusBadgeEl.className = 'tracker-badge ready';
 				this.statusBadgeEl.textContent = 'Ready';
 				this.summaryTextEl.textContent = `All ${total} pages translated`;
 				this.progressWrap.classList.add('hidden');
-				this.stepper.update('done', total, total);
+				this.stepper.update('done', total, total, this.isResliced);
 				this.stopPolling();
 			} else {
 				this.statusBadgeEl.className = 'tracker-badge translating';
@@ -531,7 +572,60 @@ export class TrackerViewController {
 
 	setPages(pages: ChapterReaderPage[]): void {
 		this.activeChapterPages = pages;
+		const total = pages.length;
+		const doneCount = pages.filter(p => p.outputPath || (p.outputRev ?? 0) > 0).length;
+		if (this.activePhase === 'idle' || this.activePhase === 'done') {
+			this.summaryTextEl.textContent = doneCount > 0 ? `${doneCount} of ${total} pages ready` : `${total} pages in chapter`;
+		}
 		this.renderGrid();
+	}
+
+	handleImportComplete(options: { autoTranslate: boolean; autoReslice: boolean; total: number; current: number }): void {
+		if (options.autoReslice) {
+			this.isResliced = true;
+		}
+		this.configurePipelineSteps({
+			autoReslice: options.autoReslice,
+			autoTranslate: options.autoTranslate
+		});
+
+		if (!options.autoTranslate) {
+			this.activePhase = 'idle';
+			this.progressWrap.classList.add('hidden');
+			this.stopPolling();
+
+			const total = this.activeChapterPages.length || options.total;
+			const doneCount = this.activeChapterPages.filter(p => p.outputPath || (p.outputRev ?? 0) > 0).length;
+
+			if (doneCount === total && total > 0) {
+				this.statusBadgeEl.className = 'tracker-badge ready';
+				this.statusBadgeEl.textContent = 'Ready';
+				this.summaryTextEl.textContent = `All ${total} pages translated`;
+				this.stepper.update('done', total, total, this.isResliced);
+			} else {
+				this.statusBadgeEl.className = 'tracker-badge';
+				this.statusBadgeEl.textContent = doneCount > 0 ? `Stopped (${doneCount}/${total})` : 'Idle';
+				this.summaryTextEl.textContent = doneCount > 0 ? `${doneCount} of ${total} pages ready (Stopped)` : `${total} pages in chapter`;
+				this.stepper.update('idle', doneCount, total, this.isResliced);
+			}
+
+			if (this.currentChapterId) {
+				void this.loadAndRenderTracker(this.currentChapterId, this.currentBookId ?? undefined);
+			} else {
+				this.renderGrid();
+			}
+		}
+	}
+
+	handleSyncDone(): void {
+		this.activePhase = 'done';
+		const total = this.activeChapterPages.length;
+		this.stepper.update('done', total, total, this.isResliced);
+		this.statusBadgeEl.className = 'tracker-badge ready';
+		this.statusBadgeEl.textContent = 'Ready';
+		this.summaryTextEl.textContent = 'All pages translated & in-place synced';
+		this.progressWrap.classList.add('hidden');
+		this.stopPolling();
 	}
 
 	startPolling(chapterId: number): void {
@@ -567,19 +661,21 @@ export class TrackerViewController {
 					this.summaryTextEl.textContent = `${doneCount} / ${total} pages ready`;
 					this.updateProgress(doneCount, total, 'translating');
 				} else if (isComplete) {
+					this.activePhase = 'done';
 					this.statusBadgeEl.className = 'tracker-badge ready';
 					this.statusBadgeEl.textContent = 'Ready';
 					this.summaryTextEl.textContent = `All ${total} pages translated`;
 					this.progressWrap.classList.add('hidden');
+					this.stepper.update('done', total, total, this.isResliced);
 					this.stopPolling();
 				} else {
+					this.activePhase = 'idle';
 					this.statusBadgeEl.className = 'tracker-badge';
 					this.statusBadgeEl.textContent = doneCount > 0 ? `Stopped (${doneCount}/${total})` : 'Idle';
 					this.summaryTextEl.textContent = doneCount > 0 ? `${doneCount} of ${total} pages ready (Stopped)` : `${total} pages in chapter`;
 					this.progressWrap.classList.add('hidden');
-					if (!isTranslating && doneCount > 0) {
-						this.stopPolling();
-					}
+					this.stepper.update('idle', doneCount, total, this.isResliced);
+					this.stopPolling();
 				}
 
 				this.renderGrid();

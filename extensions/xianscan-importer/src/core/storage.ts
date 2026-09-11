@@ -17,6 +17,8 @@ export interface ActiveImportJobState {
 	chapterId: number;
 	bookId: string | number;
 	url?: string;
+	autoReslice?: boolean;
+	autoTranslate?: boolean;
 }
 
 // -- FUNCTIONS & REPOSITORY METHODS -- //
@@ -97,6 +99,18 @@ export async function deleteSiteMapping(rawUrl: string): Promise<void> {
 		delete mappings[matchedKey];
 		await chrome.storage.local.set({ siteMappings: mappings });
 	}
+}
+
+// UPDATE THE ENABLED FLAG ON AN EXISTING SITE MAPPING BY RAW PAGE URL
+export async function updateSiteMappingEnabled(rawUrl: string, enabled: boolean): Promise<ChapterMappingEntry | null> {
+	if (typeof chrome === 'undefined' || !chrome.storage?.local || !rawUrl) return null;
+	const mapping = await findMappingForUrl(rawUrl);
+	if (mapping) {
+		mapping.enabled = enabled;
+		await saveSiteMapping(mapping);
+		return mapping;
+	}
+	return null;
 }
 
 // GET ACTIVE IMPORT JOB STATE FROM STORAGE
