@@ -27,6 +27,7 @@
 		INPAINT_MODES,
 		EXECUTION_DEVICES,
 		CUDA_VRAM_LIMIT_PRESETS,
+		DIALOGUE_CONTEXT_PAGES_PRESETS,
 		APP_FONTS,
 		AVAILABLE_TYPESET_FONTS,
 		AVAILABLE_CJK_FONTS,
@@ -237,6 +238,8 @@
 	let showCustomReasoningModal = false;
 	let showCustomTokensModal = false;
 	let customTokensInput = '';
+	let showCustomDialoguePagesModal = false;
+	let customDialoguePagesInput = '';
 	let showProviderPopover = false;
 	const AI_GUIDE_STORAGE_KEY = 'xianscan:dismissed_ai_guide_note';
 	let isAiGuideDismissed = false;
@@ -670,6 +673,7 @@
 			showAddCustomModelModal = false;
 			showCustomReasoningModal = false;
 			showCustomTokensModal = false;
+			showCustomDialoguePagesModal = false;
 			try {
 				if (typeof localStorage !== 'undefined') {
 					isAiGuideDismissed = localStorage.getItem(AI_GUIDE_STORAGE_KEY) === 'true';
@@ -995,6 +999,7 @@
 
 	const TOKEN_BUDGET_PRESETS = [2048, 4096, 8192, 16384, 32768];
 	$: isCustomTokensActive = !TOKEN_BUDGET_PRESETS.includes($settings.translationMaxTokens ?? 4096);
+	$: isCustomDialoguePagesActive = !DIALOGUE_CONTEXT_PAGES_PRESETS.includes($settings.translationDialogueContextPages as any);
 
 	let customReasoningDraft = '';
 
@@ -1012,12 +1017,23 @@
 		$settings.translationTopP !== DEFAULTS.translationTopP ||
 		($settings.translationReasoningEffort ?? 'none') !== DEFAULTS.translationReasoningEffort ||
 		$settings.translationFrequencyPenalty !== DEFAULTS.translationFrequencyPenalty ||
-		$settings.translationPresencePenalty !== DEFAULTS.translationPresencePenalty;
+		$settings.translationPresencePenalty !== DEFAULTS.translationPresencePenalty ||
+		($settings.translationDialogueContextPages ?? 4) !== DEFAULTS.translationDialogueContextPages;
 
 	function setMaxTokens(val: number) {
 		const clamped = Math.max(1024, Math.min(65536, Math.round(val)));
 		settings.update((s) => ({ ...s, translationMaxTokens: clamped }));
 		toast.success(`Max completion tokens set to ${clamped.toLocaleString()}`);
+	}
+
+	function setDialogueContextPages(val: number) {
+		const clamped = Math.max(0, Math.min(10, Math.round(val)));
+		settings.update((s) => ({ ...s, translationDialogueContextPages: clamped }));
+		if (clamped === 0) {
+			toast.success('Dialogue context disabled (0 pages)');
+		} else {
+			toast.success(`Dialogue context set to ${clamped} valid ${clamped === 1 ? 'page' : 'pages'}`);
+		}
 	}
 
 	let lastActiveTemperature = 0.2;
@@ -1101,11 +1117,21 @@
 		}
 	}
 
+	function applyCustomDialoguePages() {
+		const parsed = parseInt(customDialoguePagesInput, 10);
+		if (!isNaN(parsed)) {
+			setDialogueContextPages(parsed);
+			showCustomDialoguePagesModal = false;
+		}
+	}
+
 	function resetInferenceDefaults() {
 		showCustomReasoningModal = false;
 		showCustomTokensModal = false;
+		showCustomDialoguePagesModal = false;
 		customReasoningDraft = '';
 		customTokensInput = '';
+		customDialoguePagesInput = '';
 		settings.update((s) => ({
 			...s,
 			translationMaxTokens: DEFAULTS.translationMaxTokens,
@@ -1114,6 +1140,7 @@
 			translationReasoningEffort: DEFAULTS.translationReasoningEffort,
 			translationFrequencyPenalty: DEFAULTS.translationFrequencyPenalty,
 			translationPresencePenalty: DEFAULTS.translationPresencePenalty,
+			translationDialogueContextPages: DEFAULTS.translationDialogueContextPages,
 		}));
 		toast.success('Inference parameters reset to defaults');
 	}
@@ -1791,6 +1818,7 @@
 		{ id: 'inference-sampling', label: 'Inference & Sampling Parameters', category: 'providers', categoryLabel: 'AI Translation Providers', categoryIcon: SlidersHorizontal, keywords: ['inference', 'sampling', 'parameters', 'tuning', 'generation', 'hyperparameters'] },
 		{ id: 'max-tokens', label: 'Max Output Tokens Budget', category: 'providers', categoryLabel: 'AI Translation Providers', categoryIcon: Hash, keywords: ['token', 'tokens', 'budget', 'max tokens', 'output', 'length', 'limit', 'custom tokens'] },
 		{ id: 'reasoning-effort', label: 'Reasoning Effort & Thinking Budget', category: 'providers', categoryLabel: 'AI Translation Providers', categoryIcon: Brain, keywords: ['reasoning', 'effort', 'thinking', 'think', 'budget', 'r1', 'chain of thought', 'cot'] },
+		{ id: 'dialogue-context', label: 'Sliding Dialogue Context Window', category: 'providers', categoryLabel: 'AI Translation Providers', categoryIcon: MessageSquare, keywords: ['context', 'dialogue', 'sliding', 'window', 'pages', 'valid pages', 'continuity', 'history'] },
 		{ id: 'sampling-diversity', label: 'Sampling Diversity (Temperature & Penalties)', category: 'providers', categoryLabel: 'AI Translation Providers', categoryIcon: SlidersHorizontal, keywords: ['temperature', 'top-p', 'frequency penalty', 'presence penalty', 'diversity', 'creativity', 'sampling'] },
 
 		// HARDWARE & COMPUTE
@@ -3281,18 +3309,18 @@
 											'ring-2 ring-[#b23a2e] dark:ring-[#e08a63] bg-[#b23a2e]/[0.06] dark:bg-[#e08a63]/[0.08] rounded-xl p-2 -m-2'
 									)}
 								>
-									<div class="flex items-center justify-between text-xs">
-										<div class="flex items-center gap-1.5 font-semibold">
-											<Hash size={13} class="text-[#b23a2e] dark:text-[#e08a63]" />
+									<div class="flex items-center justify-between gap-2 text-xs">
+										<div class="flex items-center gap-1.5 font-semibold min-w-0">
+											<Hash size={13} class="text-[#b23a2e] dark:text-[#e08a63] shrink-0" />
 											<span class="opacity-80">Max Output Tokens</span>
 										</div>
-										<div class="flex items-center gap-1.5 text-xs">
+										<div class="flex items-center gap-1.5 text-xs shrink-0 whitespace-nowrap">
 											{#if isCustomTokensActive}
 												<span class="rounded bg-[#b23a2e]/10 dark:bg-[#e08a63]/20 px-1.5 py-0.5 text-[10px] font-mono font-bold text-[#b23a2e] dark:text-[#e08a63]">
 													Custom
 												</span>
 											{/if}
-											<span class="font-mono font-bold text-[#b23a2e] dark:text-[#e08a63] text-xs">
+											<span class="font-mono font-bold text-[#b23a2e] dark:text-[#e08a63] text-xs whitespace-nowrap">
 												{($settings.translationMaxTokens ?? 4096).toLocaleString()} tokens
 											</span>
 										</div>
@@ -3345,21 +3373,21 @@
 											'ring-2 ring-[#b23a2e] dark:ring-[#e08a63] bg-[#b23a2e]/[0.06] dark:bg-[#e08a63]/[0.08] rounded-xl p-2 -m-2'
 									)}
 								>
-									<div class="flex items-center justify-between text-xs">
-										<div class="flex items-center gap-1.5 font-semibold">
-											<Brain size={13} class="text-[#b23a2e] dark:text-[#e08a63]" />
+									<div class="flex items-center justify-between gap-2 text-xs">
+										<div class="flex items-center gap-1.5 font-semibold min-w-0">
+											<Brain size={13} class="text-[#b23a2e] dark:text-[#e08a63] shrink-0" />
 											<span class="opacity-80">Reasoning Effort</span>
 										</div>
-										<div class="flex items-center gap-1.5 text-xs min-w-0">
+										<div class="flex items-center gap-1.5 text-xs shrink-0 min-w-0">
 											{#if isCustomReasoningActive}
-												<span class="rounded bg-[#b23a2e]/10 dark:bg-[#e08a63]/20 px-1.5 py-0.5 text-[10px] font-mono font-bold text-[#b23a2e] dark:text-[#e08a63]">
+												<span class="rounded bg-[#b23a2e]/10 dark:bg-[#e08a63]/20 px-1.5 py-0.5 text-[10px] font-mono font-bold text-[#b23a2e] dark:text-[#e08a63] shrink-0">
 													Custom
 												</span>
-												<span class="font-mono font-bold text-[#b23a2e] dark:text-[#e08a63] text-xs truncate max-w-[160px]">
+												<span class="font-mono font-bold text-[#b23a2e] dark:text-[#e08a63] text-xs truncate max-w-[120px] sm:max-w-[160px]">
 													{currentCustomReasoningValue || 'custom'}
 												</span>
 											{:else}
-												<span class="font-mono text-xs opacity-70 font-semibold capitalize">
+												<span class="font-mono text-xs opacity-70 font-semibold capitalize whitespace-nowrap">
 													{currentReasoningEffort}
 												</span>
 											{/if}
@@ -3390,15 +3418,85 @@
 												showCustomReasoningModal = true;
 											}}
 											class={cn(
-												'rounded-lg border px-2.5 py-1 text-xs font-semibold transition-colors cursor-pointer inline-flex items-center gap-1',
+												'rounded-lg border px-2.5 py-1 text-xs font-semibold transition-colors cursor-pointer',
 												isCustomReasoningActive
 													? 'border-[#b23a2e] bg-[#b23a2e] text-white dark:border-[#e08a63] dark:bg-[#e08a63] dark:text-neutral-950 font-bold shadow-2xs'
 													: 'border-black/10 bg-white/60 hover:bg-black/5 dark:border-white/10 dark:bg-neutral-800/60 dark:hover:bg-white/5 opacity-80 hover:opacity-100'
 											)}
 											use:ripple
 										>
-											<Edit3 size={11} />
-											<span>Custom</span>
+											Custom
+										</button>
+									</div>
+								</div>
+
+								<div class="border-t border-black/10 dark:border-white/10" />
+
+								<!-- SLIDING DIALOGUE CONTEXT WINDOW -->
+								<div
+									id="setting-dialogue-context"
+									class={cn(
+										'space-y-2 transition-all duration-300',
+										highlightedSettingId === 'dialogue-context' &&
+											'ring-2 ring-[#b23a2e] dark:ring-[#e08a63] bg-[#b23a2e]/[0.06] dark:bg-[#e08a63]/[0.08] rounded-xl p-2 -m-2'
+									)}
+								>
+									<div class="flex items-center justify-between gap-2 text-xs">
+										<div class="flex items-center gap-1.5 font-semibold min-w-0">
+											<MessageSquare size={13} class="text-[#b23a2e] dark:text-[#e08a63] shrink-0" />
+											<span class="opacity-80">Sliding Dialogue Context</span>
+										</div>
+										<div class="flex items-center gap-1.5 text-xs shrink-0 whitespace-nowrap">
+											{#if isCustomDialoguePagesActive}
+												<span class="rounded bg-[#b23a2e]/10 dark:bg-[#e08a63]/20 px-1.5 py-0.5 text-[10px] font-mono font-bold text-[#b23a2e] dark:text-[#e08a63]">
+													Custom
+												</span>
+											{/if}
+											<span class="font-mono font-bold text-[#b23a2e] dark:text-[#e08a63] text-xs whitespace-nowrap">
+												{#if ($settings.translationDialogueContextPages ?? 4) === 0}
+													Off
+												{:else}
+													{$settings.translationDialogueContextPages ?? 4} <span class="hidden sm:inline">valid </span>{($settings.translationDialogueContextPages ?? 4) === 1 ? 'page' : 'pages'}
+												{/if}
+											</span>
+										</div>
+									</div>
+									<p class="text-[11px] opacity-50">
+										Number of preceding pages with dialogue to include for consistent speaker flow and pronouns. Silent pages are skipped automatically.
+									</p>
+
+									<div class="grid grid-cols-4 sm:grid-cols-8 gap-1.5">
+										{#each DIALOGUE_CONTEXT_PAGES_PRESETS as pagesCount}
+											{@const isSelected = !isCustomDialoguePagesActive && ($settings.translationDialogueContextPages ?? 4) === pagesCount}
+											<button
+												type="button"
+												on:click={() => setDialogueContextPages(pagesCount)}
+												class={cn(
+													'h-8 flex items-center justify-center rounded-lg border text-xs font-mono font-bold transition-colors cursor-pointer px-1',
+													isSelected
+														? 'border-[#b23a2e] bg-[#b23a2e] text-white dark:border-[#e08a63] dark:bg-[#e08a63] dark:text-neutral-950 shadow-2xs'
+														: 'border-black/10 bg-white/60 hover:bg-black/5 dark:border-white/10 dark:bg-neutral-800/60 dark:hover:bg-white/5 opacity-80 hover:opacity-100'
+												)}
+												use:ripple
+											>
+												{pagesCount === 0 ? 'Off' : pagesCount}
+											</button>
+										{/each}
+										<button
+											type="button"
+											on:click={() => {
+												customDialoguePagesInput = String($settings.translationDialogueContextPages ?? 4);
+												showCustomDialoguePagesModal = true;
+											}}
+											class={cn(
+												'h-8 flex items-center justify-center rounded-lg border text-xs font-semibold transition-colors cursor-pointer px-1',
+												isCustomDialoguePagesActive
+													? 'border-[#b23a2e] bg-[#b23a2e] text-white dark:border-[#e08a63] dark:bg-[#e08a63] dark:text-neutral-950 shadow-2xs font-bold'
+													: 'border-black/10 bg-white/60 hover:bg-black/5 dark:border-white/10 dark:bg-neutral-800/60 dark:hover:bg-white/5 opacity-80 hover:opacity-100'
+											)}
+											use:ripple
+										>
+											Custom
 										</button>
 									</div>
 								</div>
@@ -4704,6 +4802,78 @@
 			>
 				<Check size={12} class="stroke-[3]" />
 				<span>Set Tokens</span>
+			</button>
+		</div>
+	</form>
+</Modal>
+
+<!-- CUSTOM DIALOGUE CONTEXT PAGES MODAL -->
+<Modal
+	bind:open={showCustomDialoguePagesModal}
+	title="Custom Dialogue Context Window"
+	size="sm"
+	zIndex="z-[70]"
+	on:close={() => (showCustomDialoguePagesModal = false)}
+>
+	<form
+		on:submit|preventDefault={applyCustomDialoguePages}
+		class="space-y-3.5"
+	>
+		<div class="space-y-1.5">
+			<label for="custom-dialogue-pages-input" class="text-xs font-semibold opacity-80">
+				Preceding Valid Dialogue Pages
+			</label>
+			<input
+				id="custom-dialogue-pages-input"
+				type="number"
+				min="0"
+				max="30"
+				step="1"
+				bind:value={customDialoguePagesInput}
+				placeholder="e.g. 7, 8, 10, 12..."
+				class="h-9 w-full rounded-lg border border-black/15 bg-transparent px-3 text-xs font-mono outline-none focus:border-[#b23a2e] focus:ring-1 focus:ring-[#b23a2e]/30 dark:border-white/15"
+			/>
+			<p class="text-[11px] opacity-50">
+				Enter any custom number of preceding pages with dialogue to include (between 0 and 30).
+			</p>
+		</div>
+
+		<!-- QUICK SUGGESTIONS -->
+		<div class="space-y-1.5">
+			<span class="text-[10px] font-bold uppercase tracking-wider opacity-60">
+				Common Presets
+			</span>
+			<div class="flex flex-wrap gap-1.5">
+				{#each [7, 8, 10, 12, 15] as count}
+					<button
+						type="button"
+						on:click={() => (customDialoguePagesInput = String(count))}
+						class="rounded-md border border-black/10 bg-black/[0.03] hover:bg-black/10 dark:border-white/10 dark:bg-white/[0.03] dark:hover:bg-white/10 px-2 py-1 text-[11px] font-mono opacity-80 hover:opacity-100 cursor-pointer transition-colors"
+						use:ripple
+					>
+						{count} pages
+					</button>
+				{/each}
+			</div>
+		</div>
+
+		<div class="flex flex-col-reverse sm:flex-row items-stretch sm:items-center justify-end gap-2 pt-2 border-t border-black/5 dark:border-white/5">
+			<button
+				type="button"
+				on:click={() => (showCustomDialoguePagesModal = false)}
+				class="w-full sm:w-auto px-3 py-2 sm:py-1.5 rounded-lg border border-black/15 hover:bg-black/5 dark:border-white/15 dark:hover:bg-white/5 text-xs font-semibold cursor-pointer transition-colors"
+				use:ripple
+			>
+				Cancel
+			</button>
+			<button
+				type="submit"
+				disabled={!customDialoguePagesInput || isNaN(parseInt(customDialoguePagesInput, 10))}
+				class="w-full sm:w-auto inline-flex items-center justify-center gap-1.5 px-3.5 py-2 sm:py-1.5 rounded-lg bg-[#b23a2e] hover:bg-[#962f25] text-white text-xs font-bold disabled:opacity-40 cursor-pointer transition-colors shadow-2xs"
+				use:ripple
+			>
+				<Check size={12} class="stroke-[3]" />
+				<span>Set Pages</span>
 			</button>
 		</div>
 	</form>

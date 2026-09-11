@@ -1068,7 +1068,8 @@ export async function runChapterPipeline(
 					// RE-FETCH LATEST DIALOGUE CONTEXT AND GLOSSARY INSIDE CHAIN TRANSLATE TO PREVENT STALE CLOSURE
 					let finalCacheKey = cacheKey;
 					const translated = await chainTranslate(async () => {
-						const freshDialogueContext = dialogueTracker.getContextWindow(page.seq);
+						const maxContextPages = getCanonicalSettings().translationDialogueContextPages ?? 4;
+						const freshDialogueContext = dialogueTracker.getContextWindow(page.seq, maxContextPages);
 						const freshContextSourceText = freshDialogueContext.previousPages
 							.flatMap((p) => p.lines.map((l) => l.sourceText))
 							.join('\n');
@@ -1380,20 +1381,6 @@ export async function runChapterPipeline(
 				retryAttempt: attempt > 0 ? attempt : undefined,
 				stepDetails: attempt > 0 ? { retryAttempt: attempt } : undefined,
 			});
-			// CLEAN UP TRANSIENT ANNOTATED OCR PREVIEW IMAGE SINCE OUTPUT IS READY
-			const annotatedRel = `annotated/${chapterId}/${page.seq}.webp`;
-			const annotatedAbs = join(deps.dataRoot, annotatedRel);
-			if (existsSync(annotatedAbs)) {
-				try {
-					unlinkSync(annotatedAbs);
-				} catch {
-					// NON-FATAL IF ALREADY REMOVED
-				}
-			}
-
-			// PRUNE STALE PAGE THUMBNAILS TO PREVENT ACCUMULATION
-			prunePageThumbs(page.id, deps.dataRoot);
-
 			db.update(pages)
 				.set({
 					status: 'done',
@@ -1409,6 +1396,20 @@ export async function runChapterPipeline(
 				})
 				.where(eq(pages.id, page.id))
 				.run();
+
+			// CLEAN UP TRANSIENT ANNOTATED OCR PREVIEW IMAGE SINCE OUTPUT IS READY
+			const annotatedRel = `annotated/${chapterId}/${page.seq}.webp`;
+			const annotatedAbs = join(deps.dataRoot, annotatedRel);
+			if (existsSync(annotatedAbs)) {
+				try {
+					unlinkSync(annotatedAbs);
+				} catch {
+					// NON-FATAL IF ALREADY REMOVED
+				}
+			}
+
+			// PRUNE STALE PAGE THUMBNAILS TO PREVENT ACCUMULATION
+			prunePageThumbs(page.id, deps.dataRoot);
 			emit({
 				type: 'page-step-end',
 				chapterId,

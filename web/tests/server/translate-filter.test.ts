@@ -4,6 +4,7 @@ import type OpenAI from 'openai';
 import {
 	classifyRegionForTranslation,
 	resolveDialoguePunctuation,
+	sanitizeOcrSourceText,
 	translatePage,
 	type RegionSource,
 } from '$lib/server/translate';
@@ -42,6 +43,28 @@ describe('resolveDialoguePunctuation', () => {
 		expect(resolveDialoguePunctuation('你好...')).toBeNull();
 		expect(resolveDialoguePunctuation('E2...')).toBeNull();
 		expect(resolveDialoguePunctuation('Hello!')).toBeNull();
+	});
+});
+
+describe('sanitizeOcrSourceText', () => {
+	it('recovers systematic manhwa action font OCR corruptions of 뭣들 -> 윗들 / 못들', () => {
+		expect(sanitizeOcrSourceText('윗들 하고 있어!\n빨리 떨어뜨려!')).toBe(
+			'뭣들 하고 있어!\n빨리 떨어뜨려!',
+		);
+		expect(sanitizeOcrSourceText('윗들하고 있어!')).toBe('뭣들하고 있어!');
+		expect(sanitizeOcrSourceText('못들 하고 있어!')).toBe('뭣들 하고 있어!');
+		expect(sanitizeOcrSourceText('윗들 해!')).toBe('뭣들 해!');
+		expect(sanitizeOcrSourceText('윗들 하냐!')).toBe('뭣들 하냐!');
+	});
+
+	it('strips stray border artifacts while recovering Hangul OCR text', () => {
+		expect(sanitizeOcrSourceText('| 윗들 하고 있어! |')).toBe('뭣들 하고 있어!');
+		expect(sanitizeOcrSourceText('/ 뭣들 하고 있어! /')).toBe('뭣들 하고 있어!');
+	});
+
+	it('preserves legitimate Hangul prefixes and vocabulary', () => {
+		expect(sanitizeOcrSourceText('윗사람에게 공손해야 한다')).toBe('윗사람에게 공손해야 한다');
+		expect(sanitizeOcrSourceText('못 들어오게 막아라!')).toBe('못 들어오게 막아라!');
 	});
 });
 

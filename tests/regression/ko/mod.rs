@@ -31,4 +31,5 @@ mod page_suddenly_reality_check_bottom_narration;
 mod page_talk_like_that_bottom_narration;
 mod page_tied_pillar_iron_shackles_bottom_bubble;
 mod page_yu_family_spear_technique_slash;
+mod page_foot_stomp_keok_spiky_bubble;
 

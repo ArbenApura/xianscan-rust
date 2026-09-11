@@ -272,6 +272,18 @@ pub fn try_refine_cluster_crop(
         return None;
     }
 
+    // IN NON-LATIN SCRIPT SOURCES (E.G. KOREAN, CJK), SUPPRESS STANDALONE DIGIT / NOISE STROKES
+    // PRODUCED BY CROP RECOGNITION MATCHING DOWNSTREAM BUILDER PRUNING BEHAVIOR
+    if is_cjk {
+        dedup_crop_lines.retain(|(_, text, _)| {
+            let t = text.trim();
+            let has_native = crate::ml::detect::has_cjk_characters(t);
+            let is_punct = !t.is_empty() && t.chars().all(|c| c.is_ascii_punctuation() || matches!(c, '…' | '·' | '—' | '～' | '！' | '？' | '。' | '，'));
+            let is_noise = !has_native && !is_punct && (crate::ml::detect::is_standalone_digit_or_particle_noise(t) || crate::ml::detect::is_standalone_noise_stroke(t));
+            !is_noise
+        });
+    }
+
     // SORT CROP LINES IN READING ORDER
     if is_container_vert {
         dedup_crop_lines.sort_by(|a, b| {
@@ -298,6 +310,27 @@ pub fn try_refine_cluster_crop(
     let combined_cjk_count = combined_text.chars().filter(|c| !c.is_whitespace()).count();
     let has_more_ellipsis = (clean_crop_text.contains('…') && !combined_text.contains('…')) || (clean_crop_text.contains("..") && !combined_text.contains(".."));
 
+    // ENVELOPE SPAN CHECK: ENSURE CROP DOES NOT SEVERELY SHRINK PHYSICAL GLYPH HEIGHT/WIDTH WHEN CHARACTER COUNT IS UNCHANGED
+    let (crop_span_w, crop_span_h) = if !valid_crop_lines.is_empty() {
+        let mut min_x = i32::MAX;
+        let mut min_y = i32::MAX;
+        let mut max_x = i32::MIN;
+        let mut max_y = i32::MIN;
+        for (poly, _, _) in &valid_crop_lines {
+            for p in poly {
+                min_x = min_x.min(p[0]);
+                min_y = min_y.min(p[1]);
+                max_x = max_x.max(p[0]);
+                max_y = max_y.max(p[1]);
+            }
+        }
+        ((max_x - min_x).max(1), (max_y - min_y).max(1))
+    } else {
+        (0, 0)
+    };
+    let is_severely_shrunk = (cluster_rect.h >= 45 && crop_span_h < (cluster_rect.h as f32 * 0.70) as i32)
+        || (!is_container_vert && cluster_rect.w >= 60 && crop_span_w < (cluster_rect.w as f32 * 0.70) as i32);
+
     // IF THE CROP RESULT MERGED LINES ACROSS MULTIPLE SEPARATE DIALOGUE SENTENCES OR EXPANDED A CLEAN SINGLE LINE IN A COMPACT CONTAINER, DO NOT REPLACE
     let is_excessive_expansion = !is_bubble && (
         (combined_cjk_count >= 3 && crop_cjk_count >= (combined_cjk_count * 5 / 2) && target_rect.h <= 70)
@@ -323,8 +356,8 @@ pub fn try_refine_cluster_crop(
                 || (is_corrupted_latin_in_bubble && crop_cjk_count >= 1)
                 || has_more_ellipsis
                 || (is_combined_pure_punct && clean_crop_text.chars().any(|c| matches!(c, '！' | '？' | '!' | '?')))
-                || (crop_cjk_count == combined_cjk_count && res.score > avg_score + 0.02)
-                || (res.score >= 0.70 && avg_score < 0.60)
+                || (crop_cjk_count == combined_cjk_count && !is_severely_shrunk && res.score > avg_score + 0.02)
+                || (res.score >= 0.70 && avg_score < 0.60 && !is_severely_shrunk)
         )
     } else {
         let crop_alphanumeric = clean_crop_text.chars().filter(|c| c.is_alphanumeric()).count();

@@ -63,6 +63,7 @@ export interface AppSettings {
 	translationReasoningEffort: ReasoningEffortOption;
 	translationFrequencyPenalty: number | null;
 	translationPresencePenalty: number | null;
+	translationDialogueContextPages: number;
 	// ADVANCED TYPESETTING & INPAINTING CONFIGURATION
 	typesetFont: string;
 	typesetFontWeight: TypesetFontWeight;
@@ -214,6 +215,7 @@ export const DEFAULTS: AppSettings = {
 	translationReasoningEffort: 'none',
 	translationFrequencyPenalty: null,
 	translationPresencePenalty: null,
+	translationDialogueContextPages: 4,
 	typesetFont: 'CC Wild Words',
 	typesetFontWeight: 'normal',
 	typesetCjkFont: 'WenQuanYi Micro Hei',
@@ -231,6 +233,8 @@ export const DEFAULTS: AppSettings = {
 	livePipelinePreview: true,
 	enabledSystemFonts: [],
 };
+
+export const DIALOGUE_CONTEXT_PAGES_PRESETS = [0, 1, 2, 3, 4, 5, 6] as const;
 
 export const SERVER_CANONICAL_KEYS: (keyof AppSettings)[] = [
 	'theme',
@@ -257,6 +261,7 @@ export const SERVER_CANONICAL_KEYS: (keyof AppSettings)[] = [
 	'translationReasoningEffort',
 	'translationFrequencyPenalty',
 	'translationPresencePenalty',
+	'translationDialogueContextPages',
 	'typesetFont',
 	'typesetFontWeight',
 	'typesetCjkFont',

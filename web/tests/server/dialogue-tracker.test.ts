@@ -31,11 +31,11 @@ describe('getRegionKindLabel', () => {
 	});
 });
 
-describe('ChapterDialogueTracker - Elastic Backward Window', () => {
-	it('collects standard 3 previous pages when dialogue is normal', () => {
+describe('ChapterDialogueTracker - Valid Page Backward Window', () => {
+	it('collects standard 4 previous valid pages when dialogue is normal', () => {
 		const tracker = new ChapterDialogueTracker();
 
-		for (let s = 0; s < 5; s++) {
+		for (let s = 0; s < 6; s++) {
 			tracker.recordOcr(s, 100 + s, [
 				{ id: 'r0', text: `Page ${s} L1`, kind: 'dialogue_bubble' },
 				{ id: 'r1', text: `Page ${s} L2`, kind: 'dialogue_bubble' },
@@ -49,45 +49,44 @@ describe('ChapterDialogueTracker - Elastic Backward Window', () => {
 			);
 		}
 
-		// FOR PAGE 4: SHOULD COLLECT PAGES 1, 2, 3 (3 NON-EMPTY PAGES, TOTAL 6 LINES)
-		const ctx = tracker.getContextWindow(4);
-		expect(ctx.previousPages).toHaveLength(3);
-		expect(ctx.previousPages.map((p) => p.pageSeq)).toEqual([1, 2, 3]);
-		expect(ctx.previousPages[2].lines[0].translatedText).toBe('Page 3 Trans 1');
+		// FOR PAGE 5: SHOULD COLLECT 4 VALID PAGES (PAGES 1, 2, 3, 4) BY DEFAULT
+		const ctx = tracker.getContextWindow(5);
+		expect(ctx.previousPages).toHaveLength(4);
+		expect(ctx.previousPages.map((p) => p.pageSeq)).toEqual([1, 2, 3, 4]);
+		expect(ctx.previousPages[3].lines[0].translatedText).toBe('Page 4 Trans 1');
 	});
 
-	it('stops at 2 pages if previous pages are dense with dialogues', () => {
+	it('stops strictly at maxPages valid dialogue pages without density heuristics', () => {
 		const tracker = new ChapterDialogueTracker();
 
 		// PAGE 0: 6 LINES
 		tracker.recordOcr(0, 100, Array.from({ length: 6 }, (_, i) => ({ id: `r${i}`, text: `P0 L${i}` })));
 		tracker.recordTranslation(0, new Map(Array.from({ length: 6 }, (_, i) => [`r${i}`, `P0 T${i}`])));
 
-		// PAGE 1: 7 LINES (TOTAL WITH PAGE 0 = 13 LINES >= 12)
+		// PAGE 1: 7 LINES
 		tracker.recordOcr(1, 101, Array.from({ length: 7 }, (_, i) => ({ id: `r${i}`, text: `P1 L${i}` })));
 		tracker.recordTranslation(1, new Map(Array.from({ length: 7 }, (_, i) => [`r${i}`, `P1 T${i}`])));
 
-		// PAGE 2: TARGET PAGE
-		tracker.recordOcr(2, 102, [{ id: 'r0', text: 'P2 L0' }]);
+		// PAGE 2: 8 LINES
+		tracker.recordOcr(2, 102, Array.from({ length: 8 }, (_, i) => ({ id: `r${i}`, text: `P2 L${i}` })));
+		tracker.recordTranslation(2, new Map(Array.from({ length: 8 }, (_, i) => [`r${i}`, `P2 T${i}`])));
 
-		// QUERY FOR PAGE 2: SHOULD STOP AT 2 PAGES DUE TO DENSITY
-		const ctx = tracker.getContextWindow(2);
+		// PAGE 3: TARGET PAGE
+		tracker.recordOcr(3, 103, [{ id: 'r0', text: 'P3 L0' }]);
+
+		// QUERY FOR PAGE 3 WITH maxPages = 2: SHOULD STOP EXACTLY AT 2 VALID PAGES
+		const ctx = tracker.getContextWindow(3, 2);
 		expect(ctx.previousPages).toHaveLength(2);
-		expect(ctx.previousPages.map((p) => p.pageSeq)).toEqual([0, 1]);
+		expect(ctx.previousPages.map((p) => p.pageSeq)).toEqual([1, 2]);
 	});
 
-	it('expands up to 5 pages if dialogues are sparse (1 line each)', () => {
+	it('returns empty context when maxPages is 0 (Off)', () => {
 		const tracker = new ChapterDialogueTracker();
+		tracker.recordOcr(0, 100, [{ id: 'r0', text: 'P0 Dialogue' }]);
+		tracker.recordTranslation(0, new Map([['r0', 'P0 Translated']]));
 
-		for (let s = 0; s < 6; s++) {
-			tracker.recordOcr(s, 100 + s, [{ id: 'r0', text: `Page ${s} Sparse` }]);
-			tracker.recordTranslation(s, new Map([['r0', `Page ${s} Translated`]]));
-		}
-
-		// FOR PAGE 5: 1 LINE PER PAGE -> SHOULD EXPAND UP TO 5 PAGES (PAGES 0, 1, 2, 3, 4)
-		const ctx = tracker.getContextWindow(5);
-		expect(ctx.previousPages).toHaveLength(5);
-		expect(ctx.previousPages.map((p) => p.pageSeq)).toEqual([0, 1, 2, 3, 4]);
+		const ctx = tracker.getContextWindow(1, 0);
+		expect(ctx.previousPages).toHaveLength(0);
 	});
 
 	it('skips silent/empty pages without counting them toward the budget', () => {
@@ -111,7 +110,7 @@ describe('ChapterDialogueTracker - Elastic Backward Window', () => {
 		tracker.recordOcr(4, 104, [{ id: 'r0', text: 'P4 Target' }]);
 
 		// FOR PAGE 4: SHOULD SKIP PAGES 1 AND 3 AND RETURN [PAGE 0, PAGE 2]
-		const ctx = tracker.getContextWindow(4);
+		const ctx = tracker.getContextWindow(4, 2);
 		expect(ctx.previousPages).toHaveLength(2);
 		expect(ctx.previousPages.map((p) => p.pageSeq)).toEqual([0, 2]);
 	});
@@ -140,7 +139,7 @@ describe('ChapterDialogueTracker - Elastic Backward Window', () => {
 		tracker.recordTranslation(0, new Map([['r0', 'Ch2 P0 target']]));
 
 		// QUERY FOR PAGE 1 (PAGE 0 IN CURRENT CHAPTER + P18, P19 FROM PREV CHAPTER)
-		const ctx = tracker.getContextWindow(1);
+		const ctx = tracker.getContextWindow(1, 3);
 		expect(ctx.previousPages).toHaveLength(3);
 		expect(ctx.previousPages[0].isPriorChapter).toBe(true);
 		expect(ctx.previousPages[0].pageSeq).toBe(18);

@@ -38,14 +38,18 @@ export const GET: RequestHandler = async ({ params, url, request }) => {
 	const sourceExt = extname(target.rel).toLowerCase() || '.jpg';
 
 	if (isFull) {
-		const bytes = await readFile(sourcePath);
-		return new Response(bytes, {
-			headers: {
-				'content-type': MIME_BY_EXT[sourceExt] ?? 'image/jpeg',
-				'content-length': String(bytes.byteLength),
-				...NO_CACHE_HEADERS,
-			},
-		});
+		try {
+			const bytes = await readFile(sourcePath);
+			return new Response(bytes, {
+				headers: {
+					'content-type': MIME_BY_EXT[sourceExt] ?? 'image/jpeg',
+					'content-length': String(bytes.byteLength),
+					...NO_CACHE_HEADERS,
+				},
+			});
+		} catch {
+			throw error(404, 'Cover file not found on disk.');
+		}
 	}
 
 	// RESIZED JPEG THUMB, MEMOIZED ON DISK — THE URL CARRIES THE CONTENT REVISION IN THE KEY.
@@ -54,20 +58,24 @@ export const GET: RequestHandler = async ({ params, url, request }) => {
 	const cachePath = join(DATA_ROOT, 'cache', 'covers', cacheKey);
 
 	if (existsSync(cachePath)) {
-		const fileStat = await stat(cachePath);
-		const etag = `W/"${fileStat.size.toString(16)}-${Math.floor(fileStat.mtimeMs).toString(16)}"`;
-		if (request.headers.get('if-none-match') === etag) {
-			return new Response(null, { status: 304, headers: { etag, ...NO_CACHE_HEADERS } });
+		try {
+			const fileStat = await stat(cachePath);
+			const etag = `W/"${fileStat.size.toString(16)}-${Math.floor(fileStat.mtimeMs).toString(16)}"`;
+			if (request.headers.get('if-none-match') === etag) {
+				return new Response(null, { status: 304, headers: { etag, ...NO_CACHE_HEADERS } });
+			}
+			const cached = await readFile(cachePath);
+			return new Response(cached, {
+				headers: {
+					'content-type': 'image/jpeg',
+					'content-length': String(cached.byteLength),
+					etag,
+					...NO_CACHE_HEADERS,
+				},
+			});
+		} catch {
+			// CACHE FILE CONCURRENTLY UNLINKED; PROCEED TO REGENERATE
 		}
-		const cached = await readFile(cachePath);
-		return new Response(cached, {
-			headers: {
-				'content-type': 'image/jpeg',
-				'content-length': String(cached.byteLength),
-				etag,
-				...NO_CACHE_HEADERS,
-			},
-		});
 	}
 
 	try {
@@ -89,13 +97,17 @@ export const GET: RequestHandler = async ({ params, url, request }) => {
 		});
 	} catch {
 		// FALLBACK TO THE FULL IMAGE IF THUMBNAILING FAILS
-		const bytes = await readFile(sourcePath);
-		return new Response(bytes, {
-			headers: {
-				'content-type': MIME_BY_EXT[sourceExt] ?? 'image/jpeg',
-				'content-length': String(bytes.byteLength),
-				...NO_CACHE_HEADERS,
-			},
-		});
+		try {
+			const bytes = await readFile(sourcePath);
+			return new Response(bytes, {
+				headers: {
+					'content-type': MIME_BY_EXT[sourceExt] ?? 'image/jpeg',
+					'content-length': String(bytes.byteLength),
+					...NO_CACHE_HEADERS,
+				},
+			});
+		} catch {
+			throw error(404, 'Cover file not found on disk.');
+		}
 	}
 };

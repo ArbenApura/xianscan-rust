@@ -67,6 +67,11 @@ export function sanitizeSettingValue(key: keyof AppSettings, value: unknown): un
 			return isNaN(n) ? null : Math.max(0.0, Math.min(2.0, Number(n.toFixed(2))));
 		}
 
+		case 'translationDialogueContextPages': {
+			const n = Number(value);
+			return Math.max(0, Math.min(30, isNaN(n) ? 4 : Math.round(n)));
+		}
+
 		case 'cudaVramLimitMb':
 			if (value === null) return null;
 			if (typeof value === 'number' && !isNaN(value)) {

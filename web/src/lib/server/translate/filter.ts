@@ -25,6 +25,9 @@ const COMMON_LATIN_SFX_REGEX =
 const PURE_PUNCTUATION_REGEX =
 	/^[.!?,:;~～·…\s\-_—–·・‥●○•'""`()（）[\]【】《》「」『』!！?？。，、：；]+$/;
 
+// RECOVERS SYSTEMATIC MANHWA HANGUL OCR CONFUSIONS (E.G. "윗들 하고" / "못들 하고" -> "뭣들 하고")
+const KOREAN_OCR_CONFUSION_REGEX = /(?:윗들|못들)(\s*(?:하고|하[는며시냐고]|해))/gu;
+
 // -- HELPER FUNCTIONS -- //
 
 function isCjkSourceLanguage(lang: string): boolean {
@@ -69,13 +72,15 @@ export function resolveDialoguePunctuation(text: string): string | null {
 }
 
 /**
- * PRE-CLEANS STRAY BORDER OCR NOISE (LEADING/TRAILING VERTICAL LINES, STRAY SLASHES)
+ * PRE-CLEANS STRAY BORDER OCR NOISE AND RECOVERS SYSTEMATIC MANHWA HANGUL OCR CONFUSIONS
  */
 export function sanitizeOcrSourceText(text: string): string {
 	if (!text) return '';
 	let cleaned = text.normalize('NFKC');
 	// STRIP STRAY LEADING / TRAILING BORDER ARTIFACTS (| \ / _ -)
 	cleaned = cleaned.replace(/^[\s|/\\_—–~`-]+/u, '').replace(/[\s|/\\_—–~`-]+$/u, '').trim();
+	// RECOVER SYSTEMATIC MANHWA HANGUL OCR CONFUSIONS
+	cleaned = cleaned.replace(KOREAN_OCR_CONFUSION_REGEX, '뭣들$1');
 	return cleaned;
 }
 

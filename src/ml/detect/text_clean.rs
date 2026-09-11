@@ -42,6 +42,10 @@ pub static QUESTION_TAIL: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(r"[?？]$").unwrap()
 });
 
+pub static KOREAN_OCR_CONFUSIONS_RE: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r"(?i)(?:윗들|못들)(\s*(?:하고|하[는며시냐고]|해))").unwrap()
+});
+
 pub static NOISE_STROKES_RE: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(r"^(?:[0oO·•●○\s]{1,6}|[\s一1丨Il|二ニ]{1,2}|(?:しし|いい|ここ|くく|し|い|っ|ッ)|[1IlL|!/\\~][しいっッ]|[しいっッ][1IlL|!/\\~]|[※＊†‡米])$").unwrap()
 });
@@ -304,8 +308,17 @@ pub fn clean_stray_ocr_artifacts(text: &str) -> String {
         if cleaned.ends_with('/') || cleaned.ends_with('\\') {
             cleaned.pop();
         }
+        let cleaned = normalize_korean_ocr_confusions(&cleaned);
         cleaned.trim().to_string()
     }
+}
+
+/// RECOVERS KNOWN SYSTEMATIC HANGUL OCR CONFUSIONS FROM MANHWA BRUSH/ACTION FONTS
+pub fn normalize_korean_ocr_confusions(text: &str) -> String {
+    if !text.contains("윗들") && !text.contains("못들") {
+        return text.to_string();
+    }
+    KOREAN_OCR_CONFUSIONS_RE.replace_all(text, "뭣들$1").to_string()
 }
 
 /// CHECK IF A GIVEN TEXT STRING CONSISTS SOLELY OF PUNCTUATION MARKS, BRACKETS, OR SYMBOLS WITH ZERO ALPHANUMERIC CHARACTERS
@@ -646,7 +659,38 @@ pub fn is_credits_or_metadata_text(t: &str) -> bool {
     has_role_colon || credit_markers.iter().any(|&m| t.contains(m))
 }
 
+#[cfg(test)]
+mod tests {
+    use super::*;
 
-
-
+    #[test]
+    fn test_normalize_korean_ocr_confusions() {
+        // RECOVERS TYPICAL MANHWA ACTION FONT OCR CORRUPTIONS OF 뭣들 -> 윗들 / 못들
+        assert_eq!(
+            normalize_korean_ocr_confusions("윗들 하고 있어!\n빨리 떨어뜨려!"),
+            "뭣들 하고 있어!\n빨리 떨어뜨려!"
+        );
+        assert_eq!(
+            normalize_korean_ocr_confusions("윗들하고 있어!"),
+            "뭣들하고 있어!"
+        );
+        assert_eq!(
+            normalize_korean_ocr_confusions("못들 하고 있어!"),
+            "뭣들 하고 있어!"
+        );
+        assert_eq!(
+            normalize_korean_ocr_confusions("윗들 해!"),
+            "뭣들 해!"
+        );
+        assert_eq!(
+            clean_stray_ocr_artifacts("윗들 하고 있어!\n빨리 떨어뜨려!"),
+            "뭣들 하고 있어!\n빨리 떨어뜨려!"
+        );
+        // PRESERVES LEGITIMATE HANGUL
+        assert_eq!(
+            normalize_korean_ocr_confusions("윗사람에게 공손해야 한다"),
+            "윗사람에게 공손해야 한다"
+        );
+    }
+}
 

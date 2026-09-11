@@ -7,6 +7,7 @@ import { and, asc, desc, eq, inArray, lt } from 'drizzle-orm';
 // IMPORTED MODULES
 import { db } from '../db';
 import { chapters, pages, regions } from '../db/schema';
+import { getCanonicalSettings } from '../settings-service';
 
 // -- TYPES -- //
 
@@ -214,50 +215,32 @@ export class ChapterDialogueTracker {
 		existing.isTranslated = true;
 	}
 
-	// RETRIEVES AN ELASTIC BACKWARD CONTEXT WINDOW (2 TO 5 PAGES DEPENDING ON DENSITY)
-	public getContextWindow(targetSeq: number): DialogueContextWindow {
+	// RETRIEVES A STRICT VALID-PAGE BACKWARD CONTEXT WINDOW (SKIPPING EMPTY / NON-DIALOGUE PAGES)
+	public getContextWindow(targetSeq: number, maxPages = 4): DialogueContextWindow {
+		if (maxPages <= 0) {
+			return { previousPages: [] };
+		}
 		const collectedRev: PageDialogueRecord[] = [];
-		let accumulatedLines = 0;
 
 		// 1. WALK BACKWARDS THROUGH THE CURRENT CHAPTER (targetSeq - 1 down to 0)
 		for (let s = targetSeq - 1; s >= 0; s--) {
 			const p = this.pages.get(s);
-			if (!p || p.lines.length === 0) continue; // SKIP EMPTY / SILENT PAGES
+			if (!p || p.lines.length === 0) continue; // SKIP EMPTY / SILENT PAGES WITHOUT COUNTING
 
 			collectedRev.push(p);
-			accumulatedLines += p.lines.length;
-
-			// DENSE DIALOGUE STOP: IF FIRST PAGE >= 8 LINES OR FIRST 2 PAGES >= 12 LINES -> STOP AT 2
-			if (collectedRev.length === 1 && p.lines.length >= 8) {
-				// Single very dense previous page is enough
-			} else if (collectedRev.length === 2 && accumulatedLines >= 12) {
-				break;
-			} else if (collectedRev.length >= 3 && accumulatedLines >= 6) {
-				// STANDARD TARGET: 3 PAGES REACHED WITH SUFFICIENT DIALOGUE
-				break;
-			} else if (collectedRev.length >= 5) {
-				// MAX HARD CEILING: 5 PAGES
+			if (collectedRev.length >= maxPages) {
 				break;
 			}
 		}
 
-		// 2. IF WE HAVE FEW PAGES AND HAVE PRIOR CHAPTER CONTEXT, STEP BACK INTO PRIOR CHAPTER
-		if (
-			collectedRev.length < 3 ||
-			(collectedRev.length < 5 && accumulatedLines < 6)
-		) {
-			// WALK BACKWARDS THROUGH PRIOR CHAPTER TRAILING PAGES (NEWEST TO OLDEST)
+		// 2. IF TARGET VALID PAGES NOT YET REACHED AND PRIOR CHAPTER CONTEXT EXISTS, STEP BACK INTO PRIOR CHAPTER
+		if (collectedRev.length < maxPages) {
 			for (let i = this.priorChapterPages.length - 1; i >= 0; i--) {
 				const p = this.priorChapterPages[i];
-				if (!p || p.lines.length === 0) continue;
+				if (!p || p.lines.length === 0) continue; // SKIP EMPTY / SILENT PAGES WITHOUT COUNTING
 
 				collectedRev.push(p);
-				accumulatedLines += p.lines.length;
-
-				if (collectedRev.length >= 3 && accumulatedLines >= 6) {
-					break;
-				}
-				if (collectedRev.length >= 5) {
+				if (collectedRev.length >= maxPages) {
 					break;
 				}
 			}
@@ -275,7 +258,11 @@ export class ChapterDialogueTracker {
 export function getDbDialogueContext(
 	chapterId: number,
 	targetSeq: number,
+	maxPages?: number,
 ): DialogueContextWindow {
+	const limit = maxPages !== undefined ? maxPages : (getCanonicalSettings().translationDialogueContextPages ?? 4);
+	if (limit <= 0) return { previousPages: [] };
+
 	const currentChap = db
 		.select({ id: chapters.id, bookId: chapters.bookId, seq: chapters.seq })
 		.from(chapters)
@@ -290,7 +277,7 @@ export function getDbDialogueContext(
 		.from(pages)
 		.where(and(eq(pages.chapterId, chapterId), lt(pages.seq, targetSeq)))
 		.orderBy(desc(pages.seq))
-		.limit(10)
+		.limit(20)
 		.all();
 
 	const pageIds = currentPages.map((p) => p.id);
@@ -318,7 +305,6 @@ export function getDbDialogueContext(
 	}
 
 	const collectedRev: PageDialogueRecord[] = [];
-	let accumulatedLines = 0;
 
 	for (const p of currentPages) {
 		const rList = regionsByPageId.get(p.id) ?? [];
@@ -332,7 +318,7 @@ export function getDbDialogueContext(
 				pos: parsePosFromBox(r.box),
 			}));
 
-		if (lines.length === 0) continue; // SKIP SILENT / EMPTY PAGES
+		if (lines.length === 0) continue; // SKIP SILENT / EMPTY PAGES WITHOUT COUNTING
 
 		collectedRev.push({
 			pageSeq: p.seq,
@@ -340,18 +326,12 @@ export function getDbDialogueContext(
 			lines,
 			isTranslated: lines.some((l) => Boolean(l.translatedText)),
 		});
-		accumulatedLines += lines.length;
 
-		if (collectedRev.length === 2 && accumulatedLines >= 12) break;
-		if (collectedRev.length >= 3 && accumulatedLines >= 6) break;
-		if (collectedRev.length >= 5) break;
+		if (collectedRev.length >= limit) break;
 	}
 
-	// 2. CHECK PREVIOUS CHAPTER IF CONTEXT IS STILL SPARSE OR AT CHAPTER START
-	if (
-		collectedRev.length < 3 ||
-		(collectedRev.length < 5 && accumulatedLines < 6)
-	) {
+	// 2. CHECK PREVIOUS CHAPTER IF TARGET VALID PAGES NOT YET REACHED
+	if (collectedRev.length < limit) {
 		const prevChap = db
 			.select({ id: chapters.id, seq: chapters.seq, title: chapters.title })
 			.from(chapters)
@@ -366,7 +346,7 @@ export function getDbDialogueContext(
 				.from(pages)
 				.where(eq(pages.chapterId, prevChap.id))
 				.orderBy(desc(pages.seq))
-				.limit(10)
+				.limit(20)
 				.all();
 
 			const prevPageIds = prevPages.map((p) => p.id);
@@ -405,7 +385,7 @@ export function getDbDialogueContext(
 						pos: parsePosFromBox(r.box),
 					}));
 
-				if (lines.length === 0) continue;
+				if (lines.length === 0) continue; // SKIP SILENT / EMPTY PAGES WITHOUT COUNTING
 
 				collectedRev.push({
 					pageSeq: p.seq,
@@ -415,10 +395,8 @@ export function getDbDialogueContext(
 					lines,
 					isTranslated: lines.some((l) => Boolean(l.translatedText)),
 				});
-				accumulatedLines += lines.length;
 
-				if (collectedRev.length >= 3 && accumulatedLines >= 6) break;
-				if (collectedRev.length >= 5) break;
+				if (collectedRev.length >= limit) break;
 			}
 		}
 	}

@@ -105,27 +105,31 @@ export const GET: RequestHandler = async ({ params, url, request }) => {
 		const cachePath = join(thumbDir, cacheKey);
 
 		if (existsSync(cachePath)) {
-			const fileStat = await stat(cachePath);
-			const etag = `W/"${fileStat.size.toString(16)}-${Math.floor(fileStat.mtimeMs).toString(16)}"`;
-			if (request.headers.get('if-none-match') === etag) {
-				return new Response(null, {
-					status: 304,
+			try {
+				const fileStat = await stat(cachePath);
+				const etag = `W/"${fileStat.size.toString(16)}-${Math.floor(fileStat.mtimeMs).toString(16)}"`;
+				if (request.headers.get('if-none-match') === etag) {
+					return new Response(null, {
+						status: 304,
+						headers: {
+							etag,
+							...NO_CACHE_HEADERS,
+						},
+					});
+				}
+
+				const cachedBytes = await readFile(cachePath);
+				return new Response(new Uint8Array(cachedBytes), {
 					headers: {
+						'content-type': 'image/jpeg',
+						'content-length': String(cachedBytes.byteLength),
 						etag,
 						...NO_CACHE_HEADERS,
 					},
 				});
+			} catch {
+				// CACHE HIT UNLINKED CONCURRENTLY; FALLTHROUGH TO REGENERATE
 			}
-
-			const cachedBytes = await readFile(cachePath);
-			return new Response(new Uint8Array(cachedBytes), {
-				headers: {
-					'content-type': 'image/jpeg',
-					'content-length': String(cachedBytes.byteLength),
-					etag,
-					...NO_CACHE_HEADERS,
-				},
-			});
 		}
 
 		// DEDUPLICATE CONCURRENT GENERATION REQUESTS FOR THE SAME CACHE KEY
@@ -152,8 +156,12 @@ export const GET: RequestHandler = async ({ params, url, request }) => {
 					}
 				} catch {
 					// FALLBACK TO FULL IMAGE IF THUMBNAIL RESIZING ENCOUNTERS AN UNEXPECTED IO ISSUE
-					const raw = await readFile(sourcePath);
-					return new Uint8Array(raw);
+					try {
+						const raw = await readFile(sourcePath);
+						return new Uint8Array(raw);
+					} catch {
+						throw error(404, 'Source image file not found on disk.');
+					}
 				} finally {
 					inFlightThumbs.delete(cacheKey);
 				}
@@ -186,7 +194,12 @@ export const GET: RequestHandler = async ({ params, url, request }) => {
 		throw error(404, `Image file not found on disk.`);
 	}
 
-	const fileStat = await stat(fullPath);
+	let fileStat;
+	try {
+		fileStat = await stat(fullPath);
+	} catch {
+		throw error(404, `Image file not found on disk.`);
+	}
 	const etag = `W/"${fileStat.size.toString(16)}-${Math.floor(fileStat.mtimeMs).toString(16)}"`;
 	if (request.headers.get('if-none-match') === etag) {
 		return new Response(null, {
@@ -198,7 +211,12 @@ export const GET: RequestHandler = async ({ params, url, request }) => {
 		});
 	}
 
-	const bytes = await readFile(fullPath);
+	let bytes: Buffer;
+	try {
+		bytes = await readFile(fullPath);
+	} catch {
+		throw error(404, `Image file not found on disk.`);
+	}
 	const ext = extname(rel).toLowerCase() || '.webp';
 	const mime = MIME_BY_EXT[ext] ?? 'application/octet-stream';
 
