@@ -378,8 +378,8 @@ pub fn build_regions(
                     let iou = box_iou_pts(&m.polygon, &existing.polygon);
                     let norm_m: String = clean_m.chars().filter(|c| !c.is_whitespace()).collect();
                     let norm_o: String = clean_o.chars().filter(|c| !c.is_whitespace()).collect();
-                    let pure_m: String = norm_m.chars().filter(|c| !c.is_ascii_punctuation() && !matches!(*c, '…' | '·' | '—' | '～' | '。' | '，' | '、' | '！' | '？' | '!' | '?' | ':' | '：' | ';' | '；' | '"' | '\'' | '“' | '”' | '‘' | '’')).collect();
-                    let pure_o: String = norm_o.chars().filter(|c| !c.is_ascii_punctuation() && !matches!(*c, '…' | '·' | '—' | '～' | '。' | '，' | '、' | '！' | '？' | '!' | '?' | ':' | '：' | ';' | '；' | '"' | '\'' | '“' | '”' | '‘' | '’')).collect();
+                    let pure_m: String = norm_m.chars().filter(|c| !c.is_ascii_punctuation() && !matches!(*c, '…' | '·' | '—' | '～' | '。' | '，' | '、' | '！' | '？' | '!' | '?' | ':' | '：' | ';' | '；' | '"' | '\'' | '“' | '”' | '‘' | '’' | '–' | '一')).collect();
+                    let pure_o: String = norm_o.chars().filter(|c| !c.is_ascii_punctuation() && !matches!(*c, '…' | '·' | '—' | '～' | '。' | '，' | '、' | '！' | '？' | '!' | '?' | ':' | '：' | ';' | '；' | '"' | '\'' | '“' | '”' | '‘' | '’' | '–' | '一')).collect();
                     let is_exact = clean_m == clean_o || (!pure_m.is_empty() && pure_m == pure_o);
                     let is_sub = (norm_o.contains(&norm_m) && norm_o.chars().count() > norm_m.chars().count())
                         || (!pure_m.is_empty() && pure_o.contains(&pure_m) && pure_o.chars().count() > pure_m.chars().count());
@@ -451,8 +451,8 @@ pub fn build_regions(
                         let iou = box_iou_pts(&m.polygon, &existing.polygon);
                         let norm_m: String = clean_m.chars().filter(|c| !c.is_whitespace()).collect();
                         let norm_o: String = clean_o.chars().filter(|c| !c.is_whitespace()).collect();
-                        let pure_m: String = norm_m.chars().filter(|c| !c.is_ascii_punctuation() && !matches!(*c, '…' | '·' | '—' | '～' | '。' | '，' | '、' | '！' | '？' | '!' | '?' | ':' | '：' | ';' | '；' | '"' | '\'' | '“' | '”' | '‘' | '’')).collect();
-                        let pure_o: String = norm_o.chars().filter(|c| !c.is_ascii_punctuation() && !matches!(*c, '…' | '·' | '—' | '～' | '。' | '，' | '、' | '！' | '？' | '!' | '?' | ':' | '：' | ';' | '；' | '"' | '\'' | '“' | '”' | '‘' | '’')).collect();
+                        let pure_m: String = norm_m.chars().filter(|c| !c.is_ascii_punctuation() && !matches!(*c, '…' | '·' | '—' | '～' | '。' | '，' | '、' | '！' | '？' | '!' | '?' | ':' | '：' | ';' | '；' | '"' | '\'' | '“' | '”' | '‘' | '’' | '–' | '一')).collect();
+                        let pure_o: String = norm_o.chars().filter(|c| !c.is_ascii_punctuation() && !matches!(*c, '…' | '·' | '—' | '～' | '。' | '，' | '、' | '！' | '？' | '!' | '?' | ':' | '：' | ';' | '；' | '"' | '\'' | '“' | '”' | '‘' | '’' | '–' | '一')).collect();
                         let is_existing_exact = clean_m == clean_o || (!pure_m.is_empty() && pure_m == pure_o);
                         let is_existing_sub = (norm_m.contains(&norm_o) && norm_m.chars().count() > norm_o.chars().count())
                             || (!pure_o.is_empty() && pure_m.contains(&pure_o) && pure_m.chars().count() > pure_o.chars().count());

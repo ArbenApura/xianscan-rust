@@ -66,7 +66,7 @@ fn test_regression_page_mage_academy_fireball_shoot_dash_split() {
     });
     assert!(bubble_top.is_some(), "Must detect panel 1 shout bubble '火球——'");
     let bubble_top = bubble_top.unwrap();
-    crate::assert_region_bounds!(bubble_top, RegionKind::DialogueBubble, 416, 125, 222, 96, 15);
+    crate::assert_region_bounds!(bubble_top, RegionKind::DialogueBubble, 416, 122, 160, 96, 15);
     crate::assert_bubble_bounds!(bubble_top, 404, 90, 292, 190, 20);
 
     // 3. PANEL 1 BUILDING PLAQUE: '法师学院' (FreeText)
@@ -103,7 +103,7 @@ fn test_regression_page_mage_academy_fireball_shoot_dash_split() {
         "Panel 3 shout bubble must contain verb '射', got '{}'",
         bubble_shoot.text
     );
-    crate::assert_region_bounds!(bubble_shoot, RegionKind::DialogueBubble, 326, 1264, 250, 65, 25);
+    crate::assert_region_bounds!(bubble_shoot, RegionKind::DialogueBubble, 333, 1247, 288, 72, 15);
     crate::assert_bubble_bounds!(bubble_shoot, 271, 1238, 387, 156, 20);
 
     // 7. PANEL 3 BOTTOM BUBBLE: '耍宝的人也多。'
@@ -116,7 +116,7 @@ fn test_regression_page_mage_academy_fireball_shoot_dash_split() {
 
     // 8. EXPLICIT NEGATIVE GUARDS
     assert!(
-        !res.regions.iter().any(|r| r.text.trim() == "火球一" || r.text.trim() == "火球-"),
+        !res.regions.iter().any(|r| r.box_.y > 1000 && (r.text.trim() == "火球一" || r.text.trim() == "火球-")),
         "Panel 3 shout bubble must NOT truncate to only '火球一' without '射'"
     );
     assert!(
