@@ -24,7 +24,7 @@ const STORAGE_KEY_PREFIX = 'xianscan_dismissed_update_';
 const initialState: VersionCheckState = {
 	checking: false,
 	hasUpdate: false,
-	currentVersion: '0.5.0-beta.5',
+	currentVersion: '0.5.0-beta.6',
 	webBuildHash: 'dev',
 	latestVersion: null,
 	releaseUrl: null,

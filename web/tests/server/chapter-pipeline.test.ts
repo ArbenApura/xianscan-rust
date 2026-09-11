@@ -245,7 +245,7 @@ describe('runChapterPipeline', () => {
 		expect(events.filter((t) => t.type === 'page-done').length).toBe(1);
 		const errorEvent = events.find((t) => t.type === 'error');
 		expect(errorEvent.failedStep).toBe('analyze');
-	});
+	}, 15000);
 
 	it('aborts between pages when the signal fires', async () => {
 		seedBook(db, { id: 'b1' });

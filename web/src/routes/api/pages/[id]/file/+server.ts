@@ -232,7 +232,7 @@ export const GET: RequestHandler = async ({ params, url, request }) => {
 	const kindLabel = kind === 'output' ? 'translated' : kind === 'cleaned' ? 'cleaned' : kind === 'annotated' ? 'annotated' : 'source';
 	const safeDownloadName = `Ch_${padChapter}_P${padPage}_${kindLabel}${ext}`;
 
-	return new Response(bytes, {
+	return new Response(new Uint8Array(bytes), {
 		headers: {
 			'content-type': mime,
 			'content-length': String(bytes.byteLength),

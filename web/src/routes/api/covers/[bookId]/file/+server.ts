@@ -40,7 +40,7 @@ export const GET: RequestHandler = async ({ params, url, request }) => {
 	if (isFull) {
 		try {
 			const bytes = await readFile(sourcePath);
-			return new Response(bytes, {
+			return new Response(new Uint8Array(bytes), {
 				headers: {
 					'content-type': MIME_BY_EXT[sourceExt] ?? 'image/jpeg',
 					'content-length': String(bytes.byteLength),
@@ -99,7 +99,7 @@ export const GET: RequestHandler = async ({ params, url, request }) => {
 		// FALLBACK TO THE FULL IMAGE IF THUMBNAILING FAILS
 		try {
 			const bytes = await readFile(sourcePath);
-			return new Response(bytes, {
+			return new Response(new Uint8Array(bytes), {
 				headers: {
 					'content-type': MIME_BY_EXT[sourceExt] ?? 'image/jpeg',
 					'content-length': String(bytes.byteLength),
