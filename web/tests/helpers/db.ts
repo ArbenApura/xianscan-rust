@@ -62,6 +62,8 @@ export function resetDb(): void {
 	const state = globalThis.__mtTestDb ?? (globalThis.__mtTestDb = createTestState());
 	state.raw.pragma('foreign_keys = OFF');
 	const tables = [
+		'custom_font_files',
+		'custom_fonts',
 		'reading_history',
 		'app_settings',
 		'ai_providers',
@@ -78,10 +80,34 @@ export function resetDb(): void {
 	);
 	try {
 		migrate(state.db, { migrationsFolder: MIGRATIONS_DIR });
-	} catch (e) {
-		console.error('[test-db] Migration error:', e);
+	} catch (err) {
+		console.warn('[test-db] auto-migration warning', err);
 	}
+	// IN-MEMORY COMPATIBILITY TABLES
 	state.raw.exec(`
+		CREATE TABLE IF NOT EXISTS custom_fonts (
+			id TEXT PRIMARY KEY,
+			name TEXT NOT NULL,
+			file_name TEXT NOT NULL,
+			format TEXT NOT NULL,
+			script_type TEXT NOT NULL DEFAULT 'dialogue',
+			file_size INTEGER NOT NULL,
+			supported_weights TEXT NOT NULL DEFAULT '["normal"]',
+			is_variable INTEGER NOT NULL DEFAULT 0,
+			created_at INTEGER NOT NULL
+		);
+		CREATE TABLE IF NOT EXISTS custom_font_files (
+			id TEXT PRIMARY KEY,
+			font_id TEXT NOT NULL REFERENCES custom_fonts(id) ON DELETE CASCADE,
+			file_name TEXT NOT NULL,
+			format TEXT NOT NULL,
+			weight TEXT NOT NULL DEFAULT 'regular',
+			weight_numeric INTEGER NOT NULL DEFAULT 400,
+			style TEXT NOT NULL DEFAULT 'normal',
+			file_size INTEGER NOT NULL,
+			created_at INTEGER NOT NULL
+		);
+		CREATE INDEX IF NOT EXISTS custom_font_files_font_idx ON custom_font_files(font_id);
 		CREATE TABLE IF NOT EXISTS app_settings (
 			key TEXT PRIMARY KEY,
 			value TEXT NOT NULL,

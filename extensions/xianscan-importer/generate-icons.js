@@ -16,11 +16,7 @@ for (const variant of variants) {
 	for (const size of SIZES) {
 		const resvg = new Resvg(svg, {
 			fitTo: { mode: 'width', value: size },
-			background: 'rgba(0,0,0,0)',
-			font: {
-				loadSystemFonts: true,
-				defaultFontFamily: 'SimSun'
-			}
+			background: 'rgba(0,0,0,0)'
 		});
 		const png = resvg.render().asPng();
 		const filename = variant.name === '' ? `icon-${size}.png` : `icon${variant.name}-${size}.png`;

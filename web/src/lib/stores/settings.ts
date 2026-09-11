@@ -79,6 +79,7 @@ export interface AppSettings {
 	typesetExpansionPct: number;
 	hasCompletedOnboarding: boolean;
 	livePipelinePreview: boolean;
+	enabledSystemFonts: string[];
 }
 
 // -- CONSTANTS -- //
@@ -228,6 +229,7 @@ export const DEFAULTS: AppSettings = {
 	typesetExpansionPct: 0.0,
 	hasCompletedOnboarding: false,
 	livePipelinePreview: true,
+	enabledSystemFonts: [],
 };
 
 export const SERVER_CANONICAL_KEYS: (keyof AppSettings)[] = [
@@ -270,6 +272,7 @@ export const SERVER_CANONICAL_KEYS: (keyof AppSettings)[] = [
 	'typesetExpansionPct',
 	'hasCompletedOnboarding',
 	'livePipelinePreview',
+	'enabledSystemFonts',
 ];
 
 const KEY = 'xianscan:settings';
@@ -354,7 +357,13 @@ export interface TypesetFontOption {
 	stack?: string;
 	allCapsOnly?: boolean;
 	bundled?: boolean;
+	custom?: boolean;
+	system?: boolean;
+	customId?: string;
+	scriptType?: 'dialogue' | 'cjk';
 	supportedWeights?: ('normal' | 'bold')[];
+	isVariable?: boolean;
+	variants?: CustomFontVariantItem[];
 }
 
 export const AVAILABLE_TYPESET_FONTS: TypesetFontOption[] = [
@@ -378,8 +387,243 @@ export const AVAILABLE_CJK_FONTS: TypesetFontOption[] = [
 export interface FontAvailabilityStatus {
 	available: boolean;
 	bundled: boolean;
+	custom?: boolean;
+	system?: boolean;
+	id?: string;
+	scriptType?: 'dialogue' | 'cjk';
 	note: string;
 	supportedWeights?: ('normal' | 'bold')[];
+	isVariable?: boolean;
+	variantsCount?: number;
+}
+
+export interface CustomFontVariantItem {
+	id: string;
+	weight: 'normal' | 'bold';
+	weightNumeric: number;
+	weightLabel: string;
+	style: 'normal' | 'italic';
+	fileName: string;
+	fileSize: number;
+}
+
+export interface CustomFontItem {
+	id: string;
+	name: string;
+	fileName: string;
+	format: 'truetype' | 'opentype';
+	scriptType: 'dialogue' | 'cjk';
+	fileSize: number;
+	supportedWeights: ('normal' | 'bold')[];
+	isVariable?: boolean;
+	variants?: CustomFontVariantItem[];
+}
+
+export interface SystemFontInfo {
+	family: string;
+	scriptType: 'dialogue' | 'cjk';
+	supportedWeights: ('normal' | 'bold')[];
+	isVariable?: boolean;
+}
+
+export const customFontsStore = writable<CustomFontItem[]>([]);
+export const systemFontsStore = writable<SystemFontInfo[]>([]);
+export const systemFontsLoadingStore = writable<boolean>(false);
+
+export async function fetchInstalledSystemFonts(script?: 'dialogue' | 'cjk'): Promise<SystemFontInfo[]> {
+	systemFontsLoadingStore.set(true);
+	try {
+		const url = script ? `/api/system/fonts/system?script=${script}` : '/api/system/fonts/system';
+		const res = await fetch(url);
+		if (res.ok) {
+			const data = await res.json();
+			if (Array.isArray(data.fonts)) {
+				systemFontsStore.set(data.fonts);
+				return data.fonts;
+			}
+		}
+	} catch {
+		// PRESERVE CURRENT SYSTEM FONTS LIST UPON NETWORK ERROR
+	} finally {
+		systemFontsLoadingStore.set(false);
+	}
+	return get(systemFontsStore);
+}
+
+const loadedBrowserFonts = new Set<string>();
+
+// DYNAMICALLY REGISTERS CUSTOM FONT IN THE BROWSER DOM FOR LIVE PREVIEW
+export async function loadBrowserFontFace(font: {
+	id: string;
+	name: string;
+	supportedWeights?: ('normal' | 'bold')[];
+	isVariable?: boolean;
+	variants?: CustomFontVariantItem[];
+}): Promise<boolean> {
+	if (typeof window === 'undefined' || typeof document === 'undefined' || !('fonts' in document)) {
+		return false;
+	}
+	if (loadedBrowserFonts.has(font.id)) {
+		return true;
+	}
+	try {
+		if (font.variants && font.variants.length > 0) {
+			// LOAD EACH VARIANT FILE DISCRIMINATED BY WEIGHT AND STYLE
+			for (const v of font.variants) {
+				const fontFace = new FontFace(font.name, `url(/api/system/fonts/${font.id}/variants/${v.id})`, {
+					weight: `${v.weightNumeric}`,
+					style: v.style,
+				});
+				await fontFace.load();
+				document.fonts.add(fontFace);
+			}
+		} else if (font.isVariable) {
+			// VARIABLE FONT SPANNING WEIGHT RANGE
+			const fontFace = new FontFace(font.name, `url(/api/system/fonts/${font.id})`, {
+				weight: '100 900',
+				style: 'normal',
+			});
+			await fontFace.load();
+			document.fonts.add(fontFace);
+		} else {
+			const isBoldOnly = font.supportedWeights?.includes('bold') && !font.supportedWeights?.includes('normal');
+			const weightDescriptor = isBoldOnly ? '700' : '400 700';
+			const fontFace = new FontFace(font.name, `url(/api/system/fonts/${font.id})`, {
+				weight: weightDescriptor,
+			});
+			await fontFace.load();
+			document.fonts.add(fontFace);
+		}
+		loadedBrowserFonts.add(font.id);
+		return true;
+	} catch {
+		return false;
+	}
+}
+
+// DYNAMICALLY REGISTERS SYSTEM INSTALLED FONT IN THE BROWSER DOM FOR LIVE PREVIEW
+export async function loadSystemBrowserFontFace(familyName: string): Promise<boolean> {
+	if (typeof window === 'undefined' || typeof document === 'undefined' || !('fonts' in document)) {
+		return false;
+	}
+	const cacheKey = `system:${familyName}`;
+	if (loadedBrowserFonts.has(cacheKey)) {
+		return true;
+	}
+	try {
+		const fontFace = new FontFace(familyName, `url(/api/system/fonts/system/${encodeURIComponent(familyName)})`, {
+			weight: '100 900',
+			style: 'normal',
+		});
+		await fontFace.load();
+		document.fonts.add(fontFace);
+		loadedBrowserFonts.add(cacheKey);
+		return true;
+	} catch {
+		return false;
+	}
+}
+
+export function unloadBrowserFontFace(fontId: string): void {
+	loadedBrowserFonts.delete(fontId);
+	loadedBrowserFonts.delete(`system:${fontId}`);
+}
+
+const CJK_SYSTEM_FAMILY_REGEX =
+	/(ms|yu|malgun|hiragino|biz)\s*gothic|yahei|mincho|simsun|simhei|kaiti|fangsong|jhenghei|pingfang|malgun|gulim|batang|dotum|gungsuh|noto sans cjk|noto serif cjk|source han|wenquanyi/i;
+
+function isSystemFontCjk(familyName: string, systemFonts: SystemFontInfo[] = []): boolean {
+	const found = systemFonts.find((f) => f.family.toLowerCase() === familyName.toLowerCase());
+	if (found) {
+		return found.scriptType === 'cjk';
+	}
+	return CJK_SYSTEM_FAMILY_REGEX.test(familyName);
+}
+
+export function getMergedDialogueFonts(
+	customFonts: CustomFontItem[],
+	enabledSystemFonts: string[] = [],
+	systemFonts: SystemFontInfo[] = []
+): TypesetFontOption[] {
+	const customDialogueOptions: TypesetFontOption[] = customFonts
+		.filter((f) => f.scriptType === 'dialogue')
+		.map((f) => {
+			let sub = 'Imported Dialogue Font';
+			if (f.isVariable) {
+				sub = 'Variable Custom Font';
+			} else if (f.variants && f.variants.length > 0) {
+				sub = `Multi-weight (${f.variants.length + 1} files)`;
+			}
+			return {
+				id: f.name,
+				label: f.name,
+				sub,
+				stack: `"${f.name}", sans-serif`,
+				custom: true,
+				customId: f.id,
+				scriptType: 'dialogue',
+				supportedWeights: f.supportedWeights,
+				isVariable: f.isVariable,
+				variants: f.variants,
+			};
+		});
+
+	const systemDialogueOptions: TypesetFontOption[] = enabledSystemFonts
+		.filter((name) => !isSystemFontCjk(name, systemFonts))
+		.map((familyName) => ({
+			id: familyName,
+			label: familyName,
+			sub: 'System Installed Font',
+			stack: `"${familyName}", sans-serif`,
+			system: true,
+			scriptType: 'dialogue',
+			supportedWeights: ['normal', 'bold'],
+		}));
+
+	return [...AVAILABLE_TYPESET_FONTS, ...customDialogueOptions, ...systemDialogueOptions];
+}
+
+export function getMergedCjkFonts(
+	customFonts: CustomFontItem[],
+	enabledSystemFonts: string[] = [],
+	systemFonts: SystemFontInfo[] = []
+): TypesetFontOption[] {
+	const customCjkOptions: TypesetFontOption[] = customFonts
+		.filter((f) => f.scriptType === 'cjk')
+		.map((f) => {
+			let sub = 'Imported CJK Fallback Font';
+			if (f.isVariable) {
+				sub = 'Variable CJK Custom Font';
+			} else if (f.variants && f.variants.length > 0) {
+				sub = `Multi-weight (${f.variants.length + 1} files)`;
+			}
+			return {
+				id: f.name,
+				label: f.name,
+				sub,
+				stack: `"${f.name}", sans-serif`,
+				custom: true,
+				customId: f.id,
+				scriptType: 'cjk',
+				supportedWeights: f.supportedWeights,
+				isVariable: f.isVariable,
+				variants: f.variants,
+			};
+		});
+
+	const systemCjkOptions: TypesetFontOption[] = enabledSystemFonts
+		.filter((name) => isSystemFontCjk(name, systemFonts))
+		.map((familyName) => ({
+			id: familyName,
+			label: familyName,
+			sub: 'System Installed CJK Font',
+			stack: `"${familyName}", sans-serif`,
+			system: true,
+			scriptType: 'cjk',
+			supportedWeights: ['normal', 'bold'],
+		}));
+
+	return [...AVAILABLE_CJK_FONTS, ...customCjkOptions, ...systemCjkOptions];
 }
 
 export const fontAvailabilityStore = writable<Record<string, FontAvailabilityStatus>>({
@@ -399,6 +643,31 @@ export async function refreshFontAvailability(): Promise<Record<string, FontAvai
 			const data = await res.json();
 			if (data.fonts) {
 				fontAvailabilityStore.set(data.fonts);
+			}
+			if (data.customFonts && Array.isArray(data.customFonts)) {
+				const items: CustomFontItem[] = data.customFonts.map((row: any) => {
+					let supportedWeights: ('normal' | 'bold')[] = ['normal'];
+					try {
+						supportedWeights = typeof row.supportedWeights === 'string' ? JSON.parse(row.supportedWeights) : row.supportedWeights;
+					} catch {}
+					return {
+						id: row.id,
+						name: row.name,
+						fileName: row.fileName,
+						format: row.format,
+						scriptType: row.scriptType,
+						fileSize: row.fileSize,
+						supportedWeights,
+						isVariable: Boolean(row.isVariable),
+						variants: Array.isArray(row.variants) ? row.variants : [],
+					};
+				});
+				customFontsStore.set(items);
+				for (const item of items) {
+					loadBrowserFontFace(item);
+				}
+			}
+			if (data.fonts) {
 				return data.fonts;
 			}
 		}
@@ -748,6 +1017,13 @@ function createSettings() {
 			if (s.appFont !== prevFont) {
 				prevFont = s.appFont;
 				applyFontFamily(s.appFont);
+			}
+
+			// AUTOMATICALLY PRELOAD ENABLED SYSTEM FONTS IN BROWSER DOM FOR TYPESET PREVIEW
+			if (Array.isArray(s.enabledSystemFonts)) {
+				for (const fam of s.enabledSystemFonts) {
+					loadSystemBrowserFontFace(fam);
+				}
 			}
 
 			// SYNC CANONICAL SERVER SETTINGS (WITH LOOP PROTECTION & ACCUMULATING DEBOUNCE)

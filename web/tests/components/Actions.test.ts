@@ -43,9 +43,12 @@ describe('Svelte Custom Actions (focusTrap, scrollLock, ripple)', () => {
 	it('scrollLock locks and unlocks document body position and class', () => {
 		const lock = scrollLock(container);
 		expect(document.documentElement.classList.contains('scroll-locked')).toBe(true);
+		expect(document.documentElement.classList.contains('no-scrollbar')).toBe(false);
+		expect(document.documentElement.style.overflow).toBe('hidden');
 
 		lock.destroy();
 		expect(document.documentElement.classList.contains('scroll-locked')).toBe(false);
+		expect(document.documentElement.style.overflow).toBe('');
 	});
 
 	it('ripple attaches pointerdown listener and injects ripple container', () => {

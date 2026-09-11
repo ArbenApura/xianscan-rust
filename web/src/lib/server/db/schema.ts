@@ -339,6 +339,44 @@ export const readingHistory = sqliteTable(
 	}),
 );
 
+// USER-IMPORTED CUSTOM TYPESETTING FONTS (FAMILY CONTAINER)
+export const customFonts = sqliteTable('custom_fonts', {
+	id: text('id').primaryKey(),
+	name: text('name').notNull(),
+	fileName: text('file_name').notNull(),
+	format: text('format').notNull(),
+	scriptType: text('script_type').notNull().default('dialogue'),
+	fileSize: integer('file_size').notNull(),
+	supportedWeights: text('supported_weights').notNull().default('["normal"]'),
+	isVariable: integer('is_variable', { mode: 'boolean' }).notNull().default(false),
+	createdAt: epochMs('created_at')
+		.notNull()
+		.$defaultFn(() => Date.now()),
+});
+
+// MULTI-WEIGHT VARIANT FILES FOR CUSTOM FONT FAMILIES
+export const customFontFiles = sqliteTable(
+	'custom_font_files',
+	{
+		id: text('id').primaryKey(),
+		fontId: text('font_id')
+			.notNull()
+			.references(() => customFonts.id, { onDelete: 'cascade' }),
+		fileName: text('file_name').notNull(),
+		format: text('format').notNull(),
+		weight: text('weight').notNull().default('regular'),
+		weightNumeric: integer('weight_numeric').notNull().default(400),
+		style: text('style').notNull().default('normal'),
+		fileSize: integer('file_size').notNull(),
+		createdAt: epochMs('created_at')
+			.notNull()
+			.$defaultFn(() => Date.now()),
+	},
+	(t) => ({
+		customFontFilesFontIdx: index('custom_font_files_font_idx').on(t.fontId),
+	}),
+);
+
 // -- TYPES -- //
 
 export type Book = typeof books.$inferSelect;
@@ -376,4 +414,12 @@ export type NewAppSetting = typeof appSettings.$inferInsert;
 export type ReadingHistoryEntry = typeof readingHistory.$inferSelect;
 
 export type NewReadingHistoryEntry = typeof readingHistory.$inferInsert;
+
+export type CustomFontRecord = typeof customFonts.$inferSelect;
+
+export type NewCustomFontRecord = typeof customFonts.$inferInsert;
+
+export type CustomFontFileRecord = typeof customFontFiles.$inferSelect;
+
+export type NewCustomFontFileRecord = typeof customFontFiles.$inferInsert;
 

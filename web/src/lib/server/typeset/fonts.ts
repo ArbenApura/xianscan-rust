@@ -1,8 +1,16 @@
 // TYPESET FONT REGISTRATION, CJK DETECTION, AND RUN SPLITTING
-import { GlobalFonts, type Image, type SKRSContext2D } from '@napi-rs/canvas';
-import { existsSync } from 'node:fs';
+// IMPORTED DEP-TYPES
+import type { Image, SKRSContext2D } from '@napi-rs/canvas';
+// IMPORTED DEP-MODULES
+import { GlobalFonts } from '@napi-rs/canvas';
+import { existsSync, mkdirSync, readdirSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { join, resolve } from 'node:path';
+import { eq } from 'drizzle-orm';
+// IMPORTED MODULES
+import { db as defaultDb } from '../db';
+import { customFonts, customFontFiles } from '../db/schema';
+import { DATA_ROOT } from '../paths';
 
 // -- CONSTANTS -- //
 
@@ -81,7 +89,8 @@ function tryRegisterFont(fontPath: string, fontName?: string): boolean {
 	}
 }
 
-export function registerFonts(): void {
+export function registerFonts(db: any = defaultDb): void {
+	registerCustomFonts(db);
 	if (fontsRegistered) return;
 	const fontDir = resolveFontDir();
 	tryRegisterFont(join(fontDir, 'CCWildWords-Roman.ttf'), FONT_DIALOGUE);
@@ -160,13 +169,165 @@ export function registerFonts(): void {
 		throw new Error(`typeset fonts not found in ${fontDir} : run the font download step`);
 	}
 	fontsRegistered = true;
+
+	// REGISTER USER-IMPORTED CUSTOM FONTS
+	registerCustomFonts(db);
+}
+
+export function getUserFontsDir(): string {
+	const envDataRoot = process.env.DATA_ROOT;
+	const candidates = [
+		envDataRoot ? join(envDataRoot, 'fonts') : null,
+		join(DATA_ROOT, 'fonts'),
+		resolve(process.cwd(), 'data/fonts'),
+		resolve(process.cwd(), 'web/data/fonts'),
+		process.env.APPDATA ? join(process.env.APPDATA, 'XianScan', 'data', 'fonts') : null,
+		process.env.APPDATA ? join(process.env.APPDATA, 'XianScan', 'app', 'data', 'fonts') : null,
+	].filter((d): d is string => Boolean(d));
+
+	for (const candidate of candidates) {
+		if (existsSync(candidate)) {
+			return candidate;
+		}
+	}
+
+	const primary = candidates[0] || resolve(process.cwd(), 'data/fonts');
+	if (!existsSync(primary)) {
+		try {
+			mkdirSync(primary, { recursive: true });
+		} catch {
+			// DIRECTORY MAY ALREADY EXIST
+		}
+	}
+	return primary;
+}
+
+export function resolveUserFontFilePath(fileName: string): string | null {
+	const envDataRoot = process.env.DATA_ROOT;
+	const candidates = [
+		envDataRoot ? join(envDataRoot, 'fonts') : null,
+		join(DATA_ROOT, 'fonts'),
+		resolve(process.cwd(), 'data/fonts'),
+		resolve(process.cwd(), 'web/data/fonts'),
+		process.env.APPDATA ? join(process.env.APPDATA, 'XianScan', 'data', 'fonts') : null,
+		process.env.APPDATA ? join(process.env.APPDATA, 'XianScan', 'app', 'data', 'fonts') : null,
+	].filter((d): d is string => Boolean(d));
+
+	for (const dir of candidates) {
+		const p = join(dir, fileName);
+		if (existsSync(p)) {
+			return p;
+		}
+	}
+	return null;
+}
+
+export function registerCustomFonts(db: any = defaultDb): void {
+	try {
+		const userFontsDir = getUserFontsDir();
+		const rows = db.select().from(customFonts).all();
+		for (const row of rows) {
+			// REGISTER PRIMARY FONT FILE
+			const fontPath = resolveUserFontFilePath(row.fileName) || join(userFontsDir, row.fileName);
+			if (existsSync(fontPath)) {
+				tryRegisterFont(fontPath, row.name);
+			}
+
+			// REGISTER ALL ADDITIONAL MULTI-WEIGHT VARIANT FILES
+			try {
+				const variantRows = db.select().from(customFontFiles).where(eq(customFontFiles.fontId, row.id)).all();
+				for (const variant of variantRows) {
+					const variantPath = resolveUserFontFilePath(variant.fileName) || join(userFontsDir, variant.fileName);
+					if (existsSync(variantPath)) {
+						tryRegisterFont(variantPath, row.name);
+					}
+				}
+			} catch {
+				// custom_font_files TABLE MAY NOT BE INITIALIZED YET IN UNIT TESTS
+			}
+
+			if (row.scriptType === 'dialogue') {
+				LATIN_DIALOGUE_FONTS.add(row.name);
+			}
+		}
+	} catch {
+		// DATABASE MAY NOT BE INITIALIZED YET IN CERTAIN UNIT TESTS
+	}
+}
+
+/**
+ * ENSURES A FONT (BUNDLED, CUSTOM UPLOADED, OR INSTALLED OS SYSTEM FONT)
+ * IS FULLY REGISTERED IN SKIA CANVAS ENGINE BEFORE TYPESETTING RUNS.
+ */
+export function ensureFontRegistered(fontName?: string, db: any = defaultDb): boolean {
+	if (!fontName) return false;
+	const trimmed = fontName.trim();
+	if (!trimmed) return false;
+
+	// ALREADY REGISTERED IN SKIA
+	if (GlobalFonts.has(trimmed)) {
+		if (!CJK_FAMILY_REGEX.test(trimmed)) {
+			LATIN_DIALOGUE_FONTS.add(trimmed);
+		}
+		return true;
+	}
+
+	// CHECK IF IT IS IN CUSTOM FONTS TABLE (USER IMPORTED)
+	try {
+		const row = db.select().from(customFonts).where(eq(customFonts.name, trimmed)).get();
+		if (row) {
+			const userFontsDir = getUserFontsDir();
+			const fontPath = resolveUserFontFilePath(row.fileName) || join(userFontsDir, row.fileName);
+			if (existsSync(fontPath)) {
+				tryRegisterFont(fontPath, trimmed);
+			}
+
+			// REGISTER ALL ADDITIONAL MULTI-WEIGHT VARIANTS
+			try {
+				const variants = db.select().from(customFontFiles).where(eq(customFontFiles.fontId, row.id)).all();
+				for (const variant of variants) {
+					const variantPath = resolveUserFontFilePath(variant.fileName) || join(userFontsDir, variant.fileName);
+					if (existsSync(variantPath)) {
+						tryRegisterFont(variantPath, trimmed);
+					}
+				}
+			} catch {
+				// VARIANT TABLE LOOKUP SAFEGUARD
+			}
+
+			if (row.scriptType === 'dialogue') {
+				LATIN_DIALOGUE_FONTS.add(trimmed);
+			}
+			return GlobalFonts.has(trimmed);
+		}
+	} catch {
+		// DB MAY BE INACCESSIBLE IN CERTAIN TEST HARNESS RUNS
+	}
+
+	// CHECK IF IT IS AN INSTALLED OS SYSTEM FONT
+	const sysPath = resolveSystemFontFilePath(trimmed);
+	if (sysPath && existsSync(sysPath)) {
+		tryRegisterFont(sysPath, trimmed);
+		if (!CJK_FAMILY_REGEX.test(trimmed)) {
+			LATIN_DIALOGUE_FONTS.add(trimmed);
+		}
+		return GlobalFonts.has(trimmed);
+	}
+
+	return false;
 }
 
 export interface FontAvailabilityItem {
 	available: boolean;
 	bundled: boolean;
+	custom?: boolean;
+	system?: boolean;
+	id?: string;
+	scriptType?: 'dialogue' | 'cjk';
 	note: string;
 	supportedWeights: ('normal' | 'bold')[];
+	isVariable?: boolean;
+	variantsCount?: number;
 }
 
 /**
@@ -215,8 +376,8 @@ export function resolveEffectiveFontWeight(
 /**
  * DETECTS AND RETURNS AVAILABILITY STATUS AND SUPPORTED WEIGHTS FOR ALL DIALOGUE & CJK FONTS
  */
-export function getFontAvailability(): Record<string, FontAvailabilityItem> {
-	registerFonts();
+export function getFontAvailability(db: any = defaultDb): Record<string, FontAvailabilityItem> {
+	registerFonts(db);
 	const fontMeta: Record<string, { bundled: boolean; note: string; defaultWeights?: ('normal' | 'bold')[] }> = {
 		'CC Wild Words': { bundled: true, note: 'Bundled comic dialogue font', defaultWeights: ['normal'] },
 		'Friendly Sans': { bundled: true, note: 'Bundled clean Latin / symbol fallback', defaultWeights: ['normal'] },
@@ -263,12 +424,167 @@ export function getFontAvailability(): Record<string, FontAvailabilityItem> {
 		result[name] = {
 			available: isAvail,
 			bundled: meta.bundled,
+			custom: false,
 			note: meta.note,
 			supportedWeights,
 		};
 	}
 
+	// INCLUDE USER-IMPORTED CUSTOM FONTS FROM DATABASE
+	try {
+		const customRows = db.select().from(customFonts).all();
+		for (const row of customRows) {
+			let supportedWeights: ('normal' | 'bold')[] = ['normal'];
+			try {
+				supportedWeights = JSON.parse(row.supportedWeights);
+			} catch {
+				// FALLBACK TO NORMAL
+			}
+
+			let variantsCount = 1;
+			try {
+				const variants = db.select().from(customFontFiles).where(eq(customFontFiles.fontId, row.id)).all();
+				if (variants && variants.length > 0) {
+					variantsCount = variants.length;
+					for (const v of variants) {
+						const mapped: 'normal' | 'bold' = v.weightNumeric >= 600 ? 'bold' : 'normal';
+						if (!supportedWeights.includes(mapped)) {
+							supportedWeights.push(mapped);
+						}
+					}
+				}
+			} catch {
+				// TABLE MAY NOT BE AVAILABLE IN RAW UNIT TESTS
+			}
+
+			result[row.name] = {
+				available: GlobalFonts.has(row.name),
+				bundled: false,
+				custom: true,
+				id: row.id,
+				scriptType: row.scriptType as 'dialogue' | 'cjk',
+				note: row.scriptType === 'dialogue' ? 'User-imported dialogue font' : 'User-imported CJK font',
+				supportedWeights,
+				isVariable: !!row.isVariable,
+				variantsCount,
+			};
+		}
+	} catch {
+		// DATABASE MAY BE ABSENT OR UNINITIALIZED IN CERTAIN TEST HARNESS RUNS
+	}
+
 	return result;
+}
+
+export interface SystemFontItem {
+	family: string;
+	supportedWeights: ('normal' | 'bold')[];
+	hasItalic: boolean;
+	scriptType: 'dialogue' | 'cjk';
+	stylesCount: number;
+}
+
+const IGNORED_SYSTEM_FONTS = new Set([
+	'marlett',
+	'webdings',
+	'wingdings',
+	'wingdings 2',
+	'wingdings 3',
+	'symbol',
+	'segoe mdl2 assets',
+	'segoe fluent icons',
+	'hololens mdl2 assets',
+]);
+
+const CJK_FAMILY_REGEX =
+	/(ms|yu|malgun|hiragino|biz)\s*gothic|yahei|mincho|simsun|simhei|kaiti|fangsong|jhenghei|pingfang|malgun|gulim|batang|dotum|gungsuh|noto sans cjk|noto serif cjk|source han|wenquanyi/i;
+
+let cachedSystemFonts: SystemFontItem[] | null = null;
+
+/**
+ * SCANS ALL OPERATING SYSTEM FONTS DISCOVERED BY SKIA ENGINE
+ */
+export function getAvailableSystemFonts(): SystemFontItem[] {
+	if (cachedSystemFonts) return cachedSystemFonts;
+
+	const families = (GlobalFonts.families || []) as Array<{
+		family: string;
+		styles: Array<{ weight: number; style: string }>;
+	}>;
+
+	const result: SystemFontItem[] = [];
+	const seen = new Set<string>();
+
+	for (const f of families) {
+		const name = (f.family || '').trim();
+		if (!name || name.startsWith('@')) continue;
+		const lower = name.toLowerCase();
+		if (IGNORED_SYSTEM_FONTS.has(lower) || seen.has(lower)) continue;
+		seen.add(lower);
+
+		const styles = f.styles || [];
+		const hasBold = styles.some((s) => s.weight >= 600);
+		const hasNormal = styles.some((s) => s.weight < 600);
+
+		const supportedWeights: ('normal' | 'bold')[] = [];
+		if (hasNormal || (!hasNormal && !hasBold)) supportedWeights.push('normal');
+		if (hasBold) supportedWeights.push('bold');
+
+		const hasItalic = styles.some((s) => s.style === 'italic');
+		const scriptType: 'dialogue' | 'cjk' = CJK_FAMILY_REGEX.test(name) ? 'cjk' : 'dialogue';
+
+		result.push({
+			family: name,
+			supportedWeights,
+			hasItalic,
+			scriptType,
+			stylesCount: styles.length,
+		});
+	}
+
+	result.sort((a, b) => a.family.localeCompare(b.family));
+	cachedSystemFonts = result;
+	return result;
+}
+
+/**
+ * ATTEMPTS TO LOCATE PHYSICAL FONT BINARY FOR AN OS SYSTEM FONT ON DISK
+ */
+export function resolveSystemFontFilePath(familyName: string): string | null {
+	const famLower = familyName.toLowerCase().replace(/[^a-z0-9]/g, '');
+	const dirs: string[] = [];
+
+	if (process.platform === 'win32') {
+		dirs.push('C:\\Windows\\Fonts');
+		if (process.env.LOCALAPPDATA) {
+			dirs.push(join(process.env.LOCALAPPDATA, 'Microsoft\\Windows\\Fonts'));
+		}
+	} else if (process.platform === 'linux') {
+		dirs.push('/usr/share/fonts', '/usr/local/share/fonts');
+	} else if (process.platform === 'darwin') {
+		dirs.push('/System/Library/Fonts', '/Library/Fonts');
+	}
+
+	for (const dir of dirs) {
+		if (!existsSync(dir)) continue;
+		try {
+			const files = readdirSync(dir);
+			for (const file of files) {
+				const fLower = file.toLowerCase();
+				if (!fLower.endsWith('.ttf') && !fLower.endsWith('.otf') && !fLower.endsWith('.ttc')) {
+					continue;
+				}
+				const fClean = fLower.replace(/\.[^/.]+$/, '').replace(/[^a-z0-9]/g, '');
+				if (fClean.startsWith(famLower) || famLower.startsWith(fClean)) {
+					return join(dir, file);
+				}
+			}
+		} catch {
+			// DIRECTORY ACCESS ERROR
+		}
+	}
+
+	return null;
 }
 
 /**
@@ -425,11 +741,15 @@ export function fontSpec(
 	fontWeight?: 'normal' | 'bold' | string | number,
 ): string {
 	const isPureNonLatin = Boolean(text && NON_LATIN_SCRIPT_REGEX.test(text) && !/[a-zA-Z]/.test(text));
-	const isNonLatinFont = Boolean(fontNameOrText && !LATIN_DIALOGUE_FONTS.has(fontNameOrText));
 
-	if (isPureNonLatin || isNonLatinFont) {
-		const cjkPrimary = isNonLatinFont ? fontNameOrText! : resolveScriptFont(text, customCjk);
-		return `bold ${size}px "${cjkPrimary}", ${CJK_FONT_STACK}`;
+	if (isPureNonLatin) {
+		const cjkPrimary =
+			customCjk && customCjk !== FONT_FALLBACK_NAME && customCjk !== FONT_DIALOGUE
+				? customCjk
+				: resolveScriptFont(text, customCjk);
+		const effectiveWeight = resolveEffectiveFontWeight(cjkPrimary, fontWeight ?? 'bold');
+		const weightPrefix = effectiveWeight === 'bold' ? 'bold ' : '';
+		return `${weightPrefix}${size}px "${cjkPrimary}", ${CJK_FONT_STACK}`;
 	}
 
 	const fontName = fontNameOrText ?? FONT_DIALOGUE;

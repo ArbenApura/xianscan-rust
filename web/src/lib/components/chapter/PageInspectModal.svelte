@@ -64,6 +64,7 @@
 	let showInpaintTier = false;
 	let showTypesetTier = true;
 	let hoveredRegionId: number | null = null;
+	let selectedRegionId: number | null = null;
 	let hiddenRegionIds: Record<string, boolean> = {};
 	// PAN-ZOOM VIEWPORT STATE
 	let imageScrollContainer: HTMLDivElement | null = null;
@@ -147,6 +148,8 @@
 			}
 			lastOpenedState = true;
 			lastInspectedPageId = page.id;
+			selectedRegionId = null;
+			hoveredRegionId = null;
 			if (initialTab) {
 				inspectTab = initialTab;
 			} else if (page.outputPath) {
@@ -160,6 +163,8 @@
 	} else if (!open) {
 		lastOpenedState = false;
 		lastInspectedPageId = null;
+		selectedRegionId = null;
+		hoveredRegionId = null;
 	}
 
 	async function fetchFreshPageData(pageId: number, silent = false) {
@@ -568,7 +573,40 @@
 	function handlePointerUp(e: PointerEvent) {
 		activePointers.delete(e.pointerId);
 		if (activePointers.size === 0) {
+			const wasPanning = isPanning;
 			isPanning = false;
+
+			// CHECK IF THIS WAS A SINGLE CLEAN TAP/CLICK WITHOUT DRAGGING
+			const dist = Math.hypot(e.clientX - startPointerX, e.clientY - startPointerY);
+			if (dist < 6 && imageScrollContainer && page?.regions) {
+				const rect = imageScrollContainer.getBoundingClientRect();
+				const clientXRel = e.clientX - rect.left;
+				const clientYRel = e.clientY - rect.top;
+				const imgX = (clientXRel - panX) / zoom;
+				const imgY = (clientYRel - panY) / zoom;
+
+				// FIND DETECTED REGION HIT BY CLICK POINT
+				const hitRegion = (page.regions as any[]).find((r: any) => {
+					if (hiddenRegionIds[r.id]) return false;
+					const b = getBox(r.box);
+					if (!b) return false;
+					const tb = getTypesetBox(r) || b;
+					const inb = getInpaintBox(r) || b;
+					return (
+						(imgX >= b.x && imgX <= b.x + b.w && imgY >= b.y && imgY <= b.y + b.h) ||
+						(imgX >= tb.x && imgX <= tb.x + tb.w && imgY >= tb.y && imgY <= tb.y + tb.h) ||
+						(imgX >= inb.x && imgX <= inb.x + inb.w && imgY >= inb.y && imgY <= inb.y + inb.h)
+					);
+				});
+
+				if (hitRegion) {
+					selectedRegionId = hitRegion.id;
+					hoveredRegionId = hitRegion.id;
+					focusRegion(hitRegion);
+					const cardEl = document.getElementById(`inspect-region-${hitRegion.id}`);
+					cardEl?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+				}
+			}
 		}
 	}
 
@@ -620,6 +658,7 @@
 	}
 
 	function selectRegionOnMobile(region: any) {
+		selectedRegionId = region.id;
 		hoveredRegionId = region.id;
 		mobileSection = 'image';
 		setTimeout(() => {
@@ -1003,12 +1042,13 @@
 
 								<!-- 2. DETECTED TEXT REGIONS OVERLAYS (THREE-TIER REGION GEOMETRY) -->
 								{#each page.regions || [] as region (region.id)}
-									{@const active = hoveredRegionId === region.id || editingRegion?.id === region.id}
+									{@const active = hoveredRegionId === region.id || selectedRegionId === region.id || editingRegion?.id === region.id}
 									{@const isHidden = !!hiddenRegionIds[region.id]}
 									{@const b = getBox(region.box)}
 									{@const inpaintB = getInpaintBox(region)}
 									{@const typesetB = getTypesetBox(region)}
 									{@const kind = getRegionKind(region)}
+									{@const allTiersDisabled = !showBaseTier && !showInpaintTier && !showTypesetTier}
 									{@const isVisible =
 										!isHidden &&
 										(active ||
@@ -1028,7 +1068,7 @@
 										{@const typesetFill = kind === 'free_text' ? 'rgba(91, 33, 182, 0.22)' : 'rgba(127, 29, 29, 0.22)'}
 
 										<!-- TIER 3: TYPESETTING LAYOUT BOX (SOLID BOLD OUTLINE + OPAQUE RICH FILL) -->
-										{#if (showTypesetTier || active) && typesetB}
+										{#if (showTypesetTier || (allTiersDisabled && active)) && typesetB}
 											<rect
 												x={typesetB.x}
 												y={typesetB.y}
@@ -1041,7 +1081,7 @@
 												opacity={active ? 1 : 0.9}
 												transform={angle ? `rotate(${angle} ${typesetB.x + typesetB.w / 2} ${typesetB.y + typesetB.h / 2})` : undefined}
 											/>
-										{:else if (showTypesetTier || active) && !showBaseTier}
+										{:else if (showTypesetTier || (allTiersDisabled && active)) && (!showBaseTier || allTiersDisabled)}
 											<!-- RETAIN TYPESET BOX WHEN BASE IS HIDDEN EVEN WITHOUT EXPANSION -->
 											<rect
 												x={bx}
@@ -1058,7 +1098,7 @@
 										{/if}
 
 										<!-- TIER 2: INPAINT MASK BOUNDARY (BLACK DASHED OUTLINE + LIGHT TINT) -->
-										{#if (showInpaintTier || active) && inpaintB && (inpaintB.w !== bw || inpaintB.h !== bh)}
+										{#if showInpaintTier && inpaintB && (inpaintB.w !== bw || inpaintB.h !== bh)}
 											<rect
 												x={inpaintB.x}
 												y={inpaintB.y}
@@ -1075,7 +1115,7 @@
 										{/if}
 
 										<!-- TIER 1: BASE TEXT ANCHOR (0% PADDING, WHITE DOTTED OUTLINE + TRANSPARENT FILL) -->
-										{#if showBaseTier || active}
+										{#if showBaseTier}
 											<rect
 												x={bx}
 												y={by}
@@ -1395,22 +1435,20 @@
 							<!-- svelte-ignore a11y-no-static-element-interactions -->
 							<!-- svelte-ignore a11y-click-events-have-key-events -->
 							<div
+								id={`inspect-region-${region.id}`}
 								class={`rounded-xl border p-3 text-xs transition-all cursor-pointer ${
 									isHidden ? 'opacity-60 bg-black/[0.01] dark:bg-white/[0.01]' : ''
 								} ${
-									hoveredRegionId === region.id || editingRegion?.id === region.id
+									hoveredRegionId === region.id || selectedRegionId === region.id || editingRegion?.id === region.id
 										? 'border-[#b23a2e]/50 bg-[#b23a2e]/5 dark:border-[#e08a63]/40 dark:bg-[#e08a63]/5 shadow-sm'
 										: 'border-black/10 bg-black/[0.02] dark:border-white/10 dark:bg-white/[0.02] hover:border-black/20 dark:hover:border-white/20'
 								}`}
 								on:mouseenter={() => (hoveredRegionId = region.id)}
 								on:mouseleave={() => (hoveredRegionId = null)}
 								on:click={() => {
-									if (hoveredRegionId === region.id) {
-										hoveredRegionId = null;
-									} else {
-										hoveredRegionId = region.id;
-										scrollToRegion(region);
-									}
+									selectedRegionId = region.id;
+									hoveredRegionId = region.id;
+									scrollToRegion(region);
 								}}
 							>
 								<!-- HEADER ROW: sequence badge + kind tag + confidence + rotation angle + box size + annotation eye toggle -->

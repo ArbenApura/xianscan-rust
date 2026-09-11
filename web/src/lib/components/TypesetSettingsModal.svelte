@@ -9,6 +9,12 @@
 		DEFAULTS,
 		AVAILABLE_TYPESET_FONTS,
 		AVAILABLE_CJK_FONTS,
+		customFontsStore,
+		systemFontsStore,
+		fetchInstalledSystemFonts,
+		unloadBrowserFontFace,
+		getMergedDialogueFonts,
+		getMergedCjkFonts,
 		fontAvailabilityStore,
 		refreshFontAvailability,
 		type TypesetOutline,
@@ -30,14 +36,28 @@
 	import Edit3 from 'lucide-svelte/icons/edit-3';
 	import Info from 'lucide-svelte/icons/info';
 	import AlertTriangle from 'lucide-svelte/icons/alert-triangle';
+	import Plus from 'lucide-svelte/icons/plus';
+	import Trash2 from 'lucide-svelte/icons/trash-2';
+	import Monitor from 'lucide-svelte/icons/monitor';
 
 	// IMPORTED UI COMPONENTS
 	import Modal from '$lib/components/ui/Modal.svelte';
 	import Button from '$lib/components/ui/Button.svelte';
 	import Switch from '$lib/components/ui/Switch.svelte';
+	import ConfirmDialog from '$lib/components/ui/ConfirmDialog.svelte';
+	import ImportFontModal from '$lib/components/typeset/ImportFontModal.svelte';
+	import SystemFontBrowserModal from '$lib/components/typeset/SystemFontBrowserModal.svelte';
 
 	// -- PROPS & EVENTS -- //
 	export let open = false;
+
+	let importDialogueModalOpen = false;
+	let importCjkModalOpen = false;
+	let systemDialogueModalOpen = false;
+	let systemCjkModalOpen = false;
+	let confirmDeleteOpen = false;
+	let fontToDelete: { id: string; name: string } | null = null;
+	let isDeletingFont = false;
 
 	$: if (open) {
 		void refreshFontAvailability();
@@ -61,7 +81,7 @@
 
 	// -- STATES FOR LIVE PREVIEW CARD -- //
 	let previewDarkBackground = false;
-	let previewSimulatedAngle = 8; // degrees
+	let previewSimulatedAngle = 8; // DEGREES
 	let selectedPresetId = $settings.typesetPreviewPreset || 'en';
 	let isCustomTextMode = ($settings.typesetPreviewPreset || 'en') === 'custom';
 	let previewSampleText = $settings.typesetPreviewText || SAMPLE_TEXT_PRESETS[0].text;
@@ -259,8 +279,71 @@
 		toast.success('Typesetting settings reset to defaults');
 	}
 
-	// Computed preview styles
-	$: selectedFont = AVAILABLE_TYPESET_FONTS.find((f) => f.id === $settings.typesetFont);
+	function promptDeleteFont(id: string, name: string): void {
+		fontToDelete = { id, name };
+		confirmDeleteOpen = true;
+	}
+
+	async function handleDeleteFont(): Promise<void> {
+		if (!fontToDelete) return;
+		isDeletingFont = true;
+		try {
+			const res = await fetch(`/api/system/fonts/${fontToDelete.id}`, { method: 'DELETE' });
+			const data = await res.json();
+			if (res.ok && data.success) {
+				toast.success(`Font "${fontToDelete.name}" deleted`);
+				await refreshFontAvailability();
+				if ($settings.typesetFont === fontToDelete.name) {
+					settings.update((s) => ({ ...s, typesetFont: DEFAULTS.typesetFont }));
+				}
+				if ($settings.typesetCjkFont === fontToDelete.name) {
+					settings.update((s) => ({ ...s, typesetCjkFont: DEFAULTS.typesetCjkFont }));
+				}
+			} else {
+				toast.error(data.error || 'Failed to delete font');
+			}
+		} catch (err: any) {
+			toast.error(err.message || 'Failed to delete font');
+		} finally {
+			isDeletingFont = false;
+			confirmDeleteOpen = false;
+			fontToDelete = null;
+		}
+	}
+
+	function disableSystemFont(familyName: string, fontLabel?: string): void {
+		settings.update((s) => {
+			const nextEnabled = (s.enabledSystemFonts || []).filter((f) => f !== familyName);
+			let nextTypesetFont = s.typesetFont;
+			let nextTypesetCjkFont = s.typesetCjkFont;
+
+			if (s.typesetFont === familyName) {
+				nextTypesetFont = 'CC Wild Words';
+			}
+			if (s.typesetCjkFont === familyName) {
+				nextTypesetCjkFont = 'WenQuanYi Micro Hei';
+			}
+
+			return {
+				...s,
+				enabledSystemFonts: nextEnabled,
+				typesetFont: nextTypesetFont,
+				typesetCjkFont: nextTypesetCjkFont,
+			};
+		});
+		unloadBrowserFontFace(familyName);
+		toast.info(`Disabled "${fontLabel || familyName}" from typesetting choices`);
+	}
+
+	$: if (open && $systemFontsStore.length === 0) {
+		fetchInstalledSystemFonts();
+	}
+
+	// COMPUTED PREVIEW STYLES
+	$: dialogueFonts = getMergedDialogueFonts($customFontsStore, $settings.enabledSystemFonts, $systemFontsStore);
+	$: cjkFonts = getMergedCjkFonts($customFontsStore, $settings.enabledSystemFonts, $systemFontsStore);
+	$: selectedFont = dialogueFonts.find((f) => f.id === $settings.typesetFont) || AVAILABLE_TYPESET_FONTS[0];
+	$: selectedCjkFont = cjkFonts.find((f) => f.id === $settings.typesetCjkFont) || AVAILABLE_CJK_FONTS[0];
 	$: fontStatus = $fontAvailabilityStore[$settings.typesetFont];
 	$: supportedWeights = fontStatus?.supportedWeights || selectedFont?.supportedWeights || ['normal'];
 	$: isNormalSupported = supportedWeights.includes('normal');
@@ -284,7 +367,7 @@
 	$: isCasingApplicable = !isTextCjk && !selectedFont?.allCapsOnly && $settings.typesetFont !== 'CC Wild Words';
 	$: previewFontFamily = isTextCjk
 		? `"${$settings.typesetCjkFont || 'Microsoft YaHei'}", "Yu Gothic", "Malgun Gothic", "Noto Sans CJK SC", sans-serif`
-		: (selectedFont?.stack || "'CC Wild Words', sans-serif");
+		: (selectedFont?.stack || `"${$settings.typesetFont || 'CC Wild Words'}", sans-serif`);
 	$: previewIsDarkBubble = $settings.typesetContrast === 'light' ? true : $settings.typesetContrast === 'dark' ? false : previewDarkBackground;
 	$: previewTextColor = previewIsDarkBubble ? '#ffffff' : '#111111';
 	$: previewStrokeColor = previewIsDarkBubble ? '#000000' : '#ffffff';
@@ -435,9 +518,35 @@
 
 			<!-- LATIN DIALOGUE FONTS -->
 			<div class="space-y-1.5">
-				<div class="text-[11px] font-semibold opacity-75 pl-0.5">Latin / English Dialogue Font</div>
+				<div class="flex items-center justify-between gap-2 pl-0.5">
+					<div class="text-[11px] font-semibold opacity-75 truncate min-w-0">
+						<span class="hidden sm:inline">Latin / English Dialogue Font</span>
+						<span class="sm:hidden">Dialogue Font</span>
+					</div>
+					<div class="flex items-center gap-1 shrink-0">
+						<button
+							type="button"
+							on:click={() => (systemDialogueModalOpen = true)}
+							class="inline-flex items-center gap-1 rounded-lg px-2 py-0.5 text-[11px] font-semibold text-neutral-700 hover:bg-black/5 dark:text-neutral-300 dark:hover:bg-white/5 transition cursor-pointer whitespace-nowrap shrink-0"
+							use:ripple
+							title="Browse and enable dialogue fonts installed on your operating system"
+						>
+							<Monitor size={12} />
+							<span>System Fonts</span>
+						</button>
+						<button
+							type="button"
+							on:click={() => (importDialogueModalOpen = true)}
+							class="inline-flex items-center gap-1 rounded-lg px-2 py-0.5 text-[11px] font-semibold text-[#b23a2e] hover:bg-[#b23a2e]/10 dark:text-[#e08a63] dark:hover:bg-[#e08a63]/10 transition cursor-pointer whitespace-nowrap shrink-0"
+							use:ripple
+						>
+							<Plus size={13} />
+							<span>Import</span>
+						</button>
+					</div>
+				</div>
 				<div class="grid grid-cols-2 sm:grid-cols-4 gap-2">
-					{#each AVAILABLE_TYPESET_FONTS as font}
+					{#each dialogueFonts as font}
 						{@const isSelected = ($settings.typesetFont || 'CC Wild Words') === font.id}
 						{@const status = $fontAvailabilityStore[font.id]}
 						{@const isAvailable = status ? status.available : (font.bundled ?? true)}
@@ -446,24 +555,52 @@
 							disabled={!isAvailable}
 							on:click={() => isAvailable && setTypesetFont(font.id)}
 							title={!isAvailable ? `${font.label} is not installed on this system / server` : font.label}
-							class={`flex flex-col justify-between rounded-xl border p-2.5 text-left transition-all ${
+							class={cn(
+								'flex flex-col justify-between rounded-xl border p-2.5 text-left transition-all',
 								!isAvailable
 									? 'opacity-40 cursor-not-allowed border-black/5 bg-black/[0.01] dark:border-white/5 dark:bg-white/[0.01]'
 									: isSelected
 										? 'border-[#b23a2e] bg-[#b23a2e]/[0.08] text-[#b23a2e] dark:text-[#e08a63] ring-2 ring-[#b23a2e]/30 shadow-xs cursor-pointer'
-										: 'border-black/10 hover:border-black/20 hover:bg-black/[0.02] dark:border-white/10 dark:hover:border-white/20 dark:hover:bg-white/[0.02] cursor-pointer'
-							}`}
+										: 'border-black/10 hover:border-black/20 hover:bg-black/[0.02] dark:border-white/10 dark:hover:border-white/20 dark:hover:bg-white/[0.02] cursor-pointer',
+							)}
 							use:ripple
 						>
-							<div class="flex items-center justify-between">
-								<span class="text-xs font-bold pl-1.5" style="font-family: {font.stack};">{font.label}</span>
-								{#if isSelected}
-									<Check size={13} class="text-[#b23a2e] dark:text-[#e08a63] shrink-0" />
-								{:else if !isAvailable}
-									<span class="text-[8.5px] font-mono font-semibold px-1 py-0.2 rounded bg-neutral-200/70 text-neutral-600 dark:bg-neutral-800 dark:text-neutral-400">Missing</span>
-								{:else if font.bundled}
-									<span class="text-[8.5px] font-mono font-semibold px-1 py-0.2 rounded bg-[#4f7a64]/15 text-[#4f7a64] dark:bg-[#4f7a64]/25 dark:text-[#83b39a]">Bundled</span>
-								{/if}
+							<div class="flex items-center justify-between gap-1">
+								<span class="text-xs font-bold pl-1.5 truncate" style="font-family: {font.stack};">{font.label}</span>
+								<div class="flex items-center gap-1 shrink-0">
+									{#if font.custom}
+										<span class="text-[8.5px] font-mono font-semibold px-1 py-0.2 rounded bg-[#a97f28]/15 text-[#a97f28] dark:bg-[#c9a24b]/20 dark:text-[#d8b15a]">
+											{font.isVariable ? 'Variable' : (font.variants && font.variants.length > 0 ? `${font.variants.length + 1}w` : 'Imported')}
+										</span>
+										<button
+											type="button"
+											on:click={(e) => { e.stopPropagation(); promptDeleteFont(font.customId || font.id, font.label); }}
+											class="p-0.5 rounded text-neutral-400 hover:text-red-600 hover:bg-red-500/10 dark:hover:text-red-400 dark:hover:bg-red-500/20 transition cursor-pointer"
+											title="Delete imported font"
+											use:ripple
+										>
+											<Trash2 size={12} />
+										</button>
+									{:else if font.system}
+										<span class="text-[8.5px] font-mono font-semibold px-1 py-0.2 rounded bg-sky-500/15 text-sky-700 dark:bg-sky-400/20 dark:text-sky-300">System</span>
+										<button
+											type="button"
+											on:click={(e) => { e.stopPropagation(); disableSystemFont(font.id, font.label); }}
+											class="p-0.5 rounded text-neutral-400 hover:text-red-600 hover:bg-red-500/10 dark:hover:text-red-400 dark:hover:bg-red-500/20 transition cursor-pointer"
+											title="Disable system font"
+											use:ripple
+										>
+											<Trash2 size={12} />
+										</button>
+									{:else if !isAvailable}
+										<span class="text-[8.5px] font-mono font-semibold px-1 py-0.2 rounded bg-neutral-200/70 text-neutral-600 dark:bg-neutral-800 dark:text-neutral-400">Missing</span>
+									{:else if font.bundled}
+										<span class="text-[8.5px] font-mono font-semibold px-1 py-0.2 rounded bg-[#4f7a64]/15 text-[#4f7a64] dark:bg-[#4f7a64]/25 dark:text-[#83b39a]">Bundled</span>
+									{/if}
+									{#if isSelected}
+										<Check size={13} class="text-[#b23a2e] dark:text-[#e08a63] shrink-0" />
+									{/if}
+								</div>
 							</div>
 							<div class="mt-1 flex items-center justify-between gap-1">
 								<span class="text-[10px] opacity-60 leading-tight truncate pl-1.5">{!isAvailable ? 'Not Installed on Server' : font.sub}</span>
@@ -478,11 +615,15 @@
 
 			<!-- DIALOGUE FONT WEIGHT SELECTOR -->
 			<div class="space-y-1.5 pt-1">
-				<div class="flex items-center justify-between pl-0.5">
-					<div class="text-[11px] font-semibold opacity-75">Dialogue Font Weight</div>
+				<div class="flex items-center justify-between gap-2 pl-0.5">
+					<div class="text-[11px] font-semibold opacity-75 shrink-0">
+						<span class="hidden sm:inline">Dialogue Font Weight</span>
+						<span class="sm:hidden">Font Weight</span>
+					</div>
 					{#if !isBoldSupported || !isNormalSupported}
-						<span class="text-[10px] text-amber-600 dark:text-amber-400 font-medium">
-							{selectedFont?.label || 'Selected font'} only supports {isBoldSupported ? 'Bold' : 'Regular'}
+						<span class="text-[10px] text-amber-600 dark:text-amber-400 font-medium truncate text-right">
+							<span class="hidden sm:inline">{selectedFont?.label || 'Selected font'} only supports {isBoldSupported ? 'Bold' : 'Regular'}</span>
+							<span class="sm:hidden">{isBoldSupported ? 'Bold only' : 'Regular only'}</span>
 						</span>
 					{/if}
 				</div>
@@ -492,13 +633,14 @@
 						disabled={!isNormalSupported}
 						on:click={() => isNormalSupported && setTypesetFontWeight('normal')}
 						title={!isNormalSupported ? `${selectedFont?.label || 'Selected font'} does not include regular weight` : 'Regular (400)'}
-						class={`flex items-center justify-between rounded-xl border p-2.5 text-left transition-all ${
+						class={cn(
+							'flex items-center justify-between rounded-xl border p-2.5 text-left transition-all',
 							!isNormalSupported
 								? 'opacity-40 cursor-not-allowed border-black/5 bg-black/[0.01] dark:border-white/5 dark:bg-white/[0.01]'
 								: effectiveWeight === 'normal'
 									? 'border-[#b23a2e] bg-[#b23a2e]/[0.08] text-[#b23a2e] dark:text-[#e08a63] ring-2 ring-[#b23a2e]/30 shadow-xs cursor-pointer'
-									: 'border-black/10 hover:border-black/20 hover:bg-black/[0.02] dark:border-white/10 dark:hover:border-white/20 dark:hover:bg-white/[0.02] cursor-pointer'
-						}`}
+									: 'border-black/10 hover:border-black/20 hover:bg-black/[0.02] dark:border-white/10 dark:hover:border-white/20 dark:hover:bg-white/[0.02] cursor-pointer',
+						)}
 						use:ripple
 					>
 						<div class="flex flex-col">
@@ -515,13 +657,14 @@
 						disabled={!isBoldSupported}
 						on:click={() => isBoldSupported && setTypesetFontWeight('bold')}
 						title={!isBoldSupported ? `${selectedFont?.label || 'Selected font'} does not include bold weight` : 'Bold (700)'}
-						class={`flex items-center justify-between rounded-xl border p-2.5 text-left transition-all ${
+						class={cn(
+							'flex items-center justify-between rounded-xl border p-2.5 text-left transition-all',
 							!isBoldSupported
 								? 'opacity-40 cursor-not-allowed border-black/5 bg-black/[0.01] dark:border-white/5 dark:bg-white/[0.01]'
 								: effectiveWeight === 'bold'
 									? 'border-[#b23a2e] bg-[#b23a2e]/[0.08] text-[#b23a2e] dark:text-[#e08a63] ring-2 ring-[#b23a2e]/30 shadow-xs cursor-pointer'
-									: 'border-black/10 hover:border-black/20 hover:bg-black/[0.02] dark:border-white/10 dark:hover:border-white/20 dark:hover:bg-white/[0.02] cursor-pointer'
-						}`}
+									: 'border-black/10 hover:border-black/20 hover:bg-black/[0.02] dark:border-white/10 dark:hover:border-white/20 dark:hover:bg-white/[0.02] cursor-pointer',
+						)}
 						use:ripple
 					>
 						<div class="flex flex-col">
@@ -537,9 +680,35 @@
 
 			<!-- CJK FALLBACK STACK -->
 			<div class="space-y-1.5 pt-1">
-				<div class="text-[11px] font-semibold opacity-75 pl-0.5">CJK / East Asian Fallback Engine</div>
+				<div class="flex items-center justify-between gap-2 pl-0.5">
+					<div class="text-[11px] font-semibold opacity-75 truncate min-w-0">
+						<span class="hidden sm:inline">CJK / East Asian Fallback Engine</span>
+						<span class="sm:hidden">CJK Fallback Engine</span>
+					</div>
+					<div class="flex items-center gap-1 shrink-0">
+						<button
+							type="button"
+							on:click={() => (systemCjkModalOpen = true)}
+							class="inline-flex items-center gap-1 rounded-lg px-2 py-0.5 text-[11px] font-semibold text-neutral-700 hover:bg-black/5 dark:text-neutral-300 dark:hover:bg-white/5 transition cursor-pointer whitespace-nowrap shrink-0"
+							use:ripple
+							title="Browse and enable CJK fonts installed on your operating system"
+						>
+							<Monitor size={12} />
+							<span>System Fonts</span>
+						</button>
+						<button
+							type="button"
+							on:click={() => (importCjkModalOpen = true)}
+							class="inline-flex items-center gap-1 rounded-lg px-2 py-0.5 text-[11px] font-semibold text-[#b23a2e] hover:bg-[#b23a2e]/10 dark:text-[#e08a63] dark:hover:bg-[#e08a63]/10 transition cursor-pointer whitespace-nowrap shrink-0"
+							use:ripple
+						>
+							<Plus size={13} />
+							<span>Import</span>
+						</button>
+					</div>
+				</div>
 				<div class="grid grid-cols-2 sm:grid-cols-3 gap-2">
-					{#each AVAILABLE_CJK_FONTS as cjk}
+					{#each cjkFonts as cjk}
 						{@const isSelected = ($settings.typesetCjkFont || 'Microsoft YaHei') === cjk.id}
 						{@const status = $fontAvailabilityStore[cjk.id]}
 						{@const isAvailable = status ? status.available : (cjk.bundled ?? true)}
@@ -548,24 +717,52 @@
 							disabled={!isAvailable}
 							on:click={() => isAvailable && setTypesetCjkFont(cjk.id)}
 							title={!isAvailable ? `${cjk.label} is not installed on this system / server` : cjk.label}
-							class={`flex flex-col justify-between rounded-xl border p-2.5 text-left transition-all ${
+							class={cn(
+								'flex flex-col justify-between rounded-xl border p-2.5 text-left transition-all',
 								!isAvailable
 									? 'opacity-40 cursor-not-allowed border-black/5 bg-black/[0.01] dark:border-white/5 dark:bg-white/[0.01]'
 									: isSelected
 										? 'border-[#b23a2e] bg-[#b23a2e]/[0.08] text-[#b23a2e] dark:text-[#e08a63] ring-2 ring-[#b23a2e]/30 shadow-xs cursor-pointer'
-										: 'border-black/10 hover:border-black/20 hover:bg-black/[0.02] dark:border-white/10 dark:hover:border-white/20 dark:hover:bg-white/[0.02] cursor-pointer'
-							}`}
+										: 'border-black/10 hover:border-black/20 hover:bg-black/[0.02] dark:border-white/10 dark:hover:border-white/20 dark:hover:bg-white/[0.02] cursor-pointer',
+							)}
 							use:ripple
 						>
-							<div class="flex items-center justify-between">
+							<div class="flex items-center justify-between gap-1">
 								<span class="text-xs font-bold truncate pl-1.5">{cjk.label}</span>
-								{#if isSelected}
-									<Check size={12} class="text-[#b23a2e] dark:text-[#e08a63] shrink-0" />
-								{:else if !isAvailable}
-									<span class="text-[8.5px] font-mono font-semibold px-1 py-0.2 rounded bg-neutral-200/70 text-neutral-600 dark:bg-neutral-800 dark:text-neutral-400">Missing</span>
-								{:else if cjk.bundled}
-									<span class="text-[8.5px] font-mono font-semibold px-1 py-0.2 rounded bg-[#4f7a64]/15 text-[#4f7a64] dark:bg-[#4f7a64]/25 dark:text-[#83b39a]">Bundled</span>
-								{/if}
+								<div class="flex items-center gap-1 shrink-0">
+									{#if cjk.custom}
+										<span class="text-[8.5px] font-mono font-semibold px-1 py-0.2 rounded bg-[#a97f28]/15 text-[#a97f28] dark:bg-[#c9a24b]/20 dark:text-[#d8b15a]">
+											{cjk.isVariable ? 'Variable' : (cjk.variants && cjk.variants.length > 0 ? `${cjk.variants.length + 1}w` : 'Imported')}
+										</span>
+										<button
+											type="button"
+											on:click={(e) => { e.stopPropagation(); promptDeleteFont(cjk.customId || cjk.id, cjk.label); }}
+											class="p-0.5 rounded text-neutral-400 hover:text-red-600 hover:bg-red-500/10 dark:hover:text-red-400 dark:hover:bg-red-500/20 transition cursor-pointer"
+											title="Delete imported font"
+											use:ripple
+										>
+											<Trash2 size={12} />
+										</button>
+									{:else if cjk.system}
+										<span class="text-[8.5px] font-mono font-semibold px-1 py-0.2 rounded bg-sky-500/15 text-sky-700 dark:bg-sky-400/20 dark:text-sky-300">System</span>
+										<button
+											type="button"
+											on:click={(e) => { e.stopPropagation(); disableSystemFont(cjk.id, cjk.label); }}
+											class="p-0.5 rounded text-neutral-400 hover:text-red-600 hover:bg-red-500/10 dark:hover:text-red-400 dark:hover:bg-red-500/20 transition cursor-pointer"
+											title="Disable system font"
+											use:ripple
+										>
+											<Trash2 size={12} />
+										</button>
+									{:else if !isAvailable}
+										<span class="text-[8.5px] font-mono font-semibold px-1 py-0.2 rounded bg-neutral-200/70 text-neutral-600 dark:bg-neutral-800 dark:text-neutral-400">Missing</span>
+									{:else if cjk.bundled}
+										<span class="text-[8.5px] font-mono font-semibold px-1 py-0.2 rounded bg-[#4f7a64]/15 text-[#4f7a64] dark:bg-[#4f7a64]/25 dark:text-[#83b39a]">Bundled</span>
+									{/if}
+									{#if isSelected}
+										<Check size={12} class="text-[#b23a2e] dark:text-[#e08a63] shrink-0" />
+									{/if}
+								</div>
 							</div>
 							<div class="mt-1 text-[9px] opacity-60 truncate pl-1.5">{!isAvailable ? 'Not Installed on Server' : cjk.sub}</div>
 						</button>
@@ -865,3 +1062,54 @@
 		</div>
 	</div>
 </Modal>
+
+<!-- IMPORT DIALOGUE FONT MODAL -->
+<ImportFontModal
+	bind:open={importDialogueModalOpen}
+	targetScriptType="dialogue"
+	on:imported={(e) => {
+		$settings.typesetFont = e.detail.font.name;
+	}}
+/>
+
+<!-- IMPORT CJK FALLBACK FONT MODAL -->
+<ImportFontModal
+	bind:open={importCjkModalOpen}
+	targetScriptType="cjk"
+	on:imported={(e) => {
+		$settings.typesetCjkFont = e.detail.font.name;
+	}}
+/>
+
+<!-- SYSTEM DIALOGUE FONT BROWSER MODAL -->
+<SystemFontBrowserModal
+	bind:open={systemDialogueModalOpen}
+	targetScriptType="dialogue"
+	lockScriptType={true}
+	on:enabled={(e) => {
+		$settings.typesetFont = e.detail.family;
+	}}
+/>
+
+<!-- SYSTEM CJK FONT BROWSER MODAL -->
+<SystemFontBrowserModal
+	bind:open={systemCjkModalOpen}
+	targetScriptType="cjk"
+	lockScriptType={true}
+	on:enabled={(e) => {
+		$settings.typesetCjkFont = e.detail.family;
+	}}
+/>
+
+<!-- CONFIRM FONT DELETION DIALOG -->
+<ConfirmDialog
+	bind:open={confirmDeleteOpen}
+	title="Delete Custom Font"
+	message={`Are you sure you want to delete the font "${fontToDelete?.name}"? This action cannot be undone.`}
+	confirmLabel="Delete Font"
+	variant="danger"
+	loading={isDeletingFont}
+	on:confirm={handleDeleteFont}
+	on:cancel={() => (fontToDelete = null)}
+/>
+

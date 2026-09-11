@@ -271,5 +271,102 @@ describe('PageInspectModal Component UI', () => {
 		expect(retranslateHandler).toHaveBeenCalledTimes(1);
 		expect(retranslateHandler.mock.calls[0][0].detail.page.id).toBe(105);
 	});
+
+	it('selects and activates region on a single click without requiring double click', async () => {
+		const mockPage = {
+			id: 106,
+			seq: 0,
+			filePath: 'page_6.png',
+			width: 800,
+			height: 1200,
+			regions: [
+				{
+					id: 601,
+					seq: 0,
+					textSource: '点击区域',
+					textTarget: 'Click region',
+					box: { x: 40, y: 80, w: 160, h: 60 },
+				},
+			],
+		};
+
+		render(PageInspectModal, {
+			props: {
+				open: true,
+				page: mockPage,
+			},
+		});
+
+		// OPEN REGIONS LIST ON MOBILE VIEW IF NEEDED
+		const regionsTab = screen.getByText('Regions (1)');
+		await fireEvent.click(regionsTab);
+		await tick();
+
+		const regionCard = document.getElementById('inspect-region-601');
+		expect(regionCard).toBeTruthy();
+
+		// SIMULATE MOUSE ENTER AND SINGLE CLICK
+		await fireEvent.mouseEnter(regionCard!);
+		await tick();
+		await fireEvent.click(regionCard!);
+		await tick();
+
+		// VERIFY REGION HAS ACTIVE ACCENT BORDER AFTER SINGLE CLICK
+		expect(regionCard?.className).toContain('border-[#b23a2e]/50');
+
+		// SIMULATE MOUSE LEAVE - PERSISTENT SELECTION MUST REMAIN ACTIVE
+		await fireEvent.mouseLeave(regionCard!);
+		await tick();
+		expect(regionCard?.className).toContain('border-[#b23a2e]/50');
+	});
+
+	it('shows only typeset as hard minimum when all tiers are disabled and region is hovered', async () => {
+		const mockPage = {
+			id: 107,
+			seq: 0,
+			filePath: 'page_7.png',
+			width: 800,
+			height: 1200,
+			regions: [
+				{
+					id: 701,
+					seq: 0,
+					textSource: '全部禁用',
+					textTarget: 'All disabled',
+					box: { x: 50, y: 100, w: 200, h: 80 },
+					inpaintBox: { x: 45, y: 95, w: 210, h: 90 },
+					typesetBox: { x: 52, y: 102, w: 196, h: 76 },
+				},
+			],
+		};
+
+		render(PageInspectModal, {
+			props: {
+				open: true,
+				page: mockPage,
+			},
+		});
+
+		// DISABLE TYPESET TIER (BASE AND INPAINT ARE DISABLED BY DEFAULT)
+		const typesetToggleBtn = screen.getByTitle('Click to hide Typeset layout boundary layer');
+		await fireEvent.click(typesetToggleBtn);
+		await tick();
+
+		// HOVER OVER REGION
+		const regionCard = document.getElementById('inspect-region-701');
+		expect(regionCard).toBeTruthy();
+		await fireEvent.mouseEnter(regionCard!);
+		await tick();
+
+		// SVG SHOULD RENDER TYPESET RECT AS HARD MINIMUM
+		const typesetRect = document.querySelector('rect[width="196"][height="76"]');
+		expect(typesetRect).toBeTruthy();
+
+		// INPAINT RECT (WIDTH 210) AND BASE RECT (WIDTH 200) MUST NOT BE RENDERED
+		const inpaintRect = document.querySelector('rect[width="210"][height="90"]');
+		expect(inpaintRect).toBeNull();
+		const baseRect = document.querySelector('rect[stroke="#ffffff"]');
+		expect(baseRect).toBeNull();
+	});
 });
 

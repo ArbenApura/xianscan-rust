@@ -1,19 +1,16 @@
-// SCROLL-LOCK ACTION — FREEZES THE PAGE BEHIND AN OVERLAY (DIALOG / DRAWER) WHILE IT IS MOUNTED, WITHOUT
-// LOSING THE READER'S SCROLL POSITION. REFERENCE-COUNTED SO STACKED OVERLAYS ONLY UNLOCK ON THE LAST CLOSE.
+// SCROLL-LOCK ACTION: FREEZES THE PAGE BEHIND AN OVERLAY (DIALOG / DRAWER) WHILE MOUNTED, WITHOUT
+// LOSING THE READER'S SCROLL POSITION OR INTRODUCING LAYOUT SHIFTS. REFERENCE-COUNTED SO STACKED
+// OVERLAYS ONLY UNLOCK ON THE LAST CLOSE.
 //
-// WHY position:fixed AND NOT JUST overflow:hidden: on DESKTOP, overflow:hidden on the scroll container keeps
-// its scrollTop, so the page stays put. On iOS SAFARI (AND SOME MOBILE WEBVIEWS) overflow:hidden CLAMPS the
-// container's scrollTop to 0 — the page visibly jumps to the very top the moment a drawer opens, and the
-// reader then persists that bogus "top" as your place. PINNING THE BODY AT `top:-scrollY` HOLDS THE VISUAL
-// POSITION EVERYWHERE, AND WE scrollTo(scrollY) ON RELEASE TO RESTORE IT EXACTLY.
+// DESKTOP VIEWPORTS:
+// WE REMOVE THE SCROLLBAR VIA html overflow: hidden SO THE MODAL BACKDROP COVERS THE FULL VIEWPORT
+// EDGE-TO-EDGE WITHOUT LEAVING AN UN-DIMMED STRIPE. TO MAINTAIN THE MAIN CONTAINER WIDTH AND PREVENT
+// THE LAYOUT BEHIND FROM JUMPING OR EXPANDING, WE COMPENSATE BY ADDING padding-right TO body EQUAL
+// TO THE REMOVED SCROLLBAR WIDTH WHILE LEAVING body IN THE NORMAL DOCUMENT FLOW.
 //
-// THE REMOVED SCROLLBAR WIDTH IS ADDED BACK AS padding-right ON <html> (NOT <body>) SO THE LAYOUT BEHIND
-// DOESN'T SHIFT AND NO WHITE STRIP FLASHES UNDER THE TRANSLUCENT BACKDROP (html CARRIES THE THEME COLOUR).
-// THE .scroll-locked CLASS ON <html> LETS SCROLL-DRIVEN UI (E.G. THE READER'S PROGRESS PERSISTENCE) IGNORE
-// THE SYNTHETIC scrollTop:0 THAT PINNING THE BODY BRIEFLY REPORTS.
-//
-// PASS maxWidth TO LOCK ONLY AT-OR-BELOW A VIEWPORT WIDTH (E.G. A lg:hidden DRAWER THAT IS INVISIBLE ON
-// DESKTOP MUST NOT LOCK DESKTOP SCROLL): use:scrollLock={{ maxWidth: 1023 }}.
+// MOBILE / TOUCH VIEWPORTS:
+// ON SMALL TOUCH SCREENS WITH OVERLAY SCROLLBARS (scrollbarWidth === 0), WE PIN body AT top: -scrollY
+// TO PREVENT iOS SAFARI RUBBER-BANDING AND PRESERVE EXACT SCROLL COORDINATES ON RELEASE.
 
 // -- TYPES -- //
 
@@ -22,10 +19,10 @@ type ScrollLockOptions = { maxWidth?: number };
 // -- STATES -- //
 
 let lockCount = 0;
-// SAVED INLINE STYLES + SCROLL OFFSET FROM THE MOMENT OF THE FIRST LOCK, RESTORED ON THE LAST RELEASE.
+let isPinned = false;
 let savedScrollY = 0;
 let savedHtmlOverflow = '';
-let savedHtmlPaddingRight = '';
+let savedBodyPaddingRight = '';
 let savedBodyPosition = '';
 let savedBodyTop = '';
 let savedBodyLeft = '';
@@ -41,56 +38,72 @@ function acquire() {
 		const html = document.documentElement;
 		const body = document.body;
 		const scrollbarWidth = window.innerWidth - html.clientWidth;
+
 		savedScrollY = window.scrollY || html.scrollTop || 0;
-
 		savedHtmlOverflow = html.style.overflow;
-		savedHtmlPaddingRight = html.style.paddingRight;
-		savedBodyPosition = body.style.position;
-		savedBodyTop = body.style.top;
-		savedBodyLeft = body.style.left;
-		savedBodyRight = body.style.right;
-		savedBodyWidth = body.style.width;
-		savedBodyHeight = body.style.height;
+		savedBodyPaddingRight = body.style.paddingRight;
 
-		// PIN THE BODY AT ITS CURRENT SCROLL OFFSET — HOLDS THE VISUAL POSITION ON EVERY PLATFORM. html
-		// overflow:hidden STOPS THE PAGE SCROLLING; THE BODY KEEPS ITS NATURAL (CONTENT) HEIGHT SO THE PAGE
-		// BEHIND STAYS FULLY VISIBLE THROUGH THE TRANSLUCENT BACKDROP. CRUCIALLY WE OVERRIDE THE GLOBAL
-		// body{height:100%} TO `auto`: UNDER position:fixed A 100% HEIGHT COLLAPSES TO THE VIEWPORT AND WOULD
-		// CLIP EVERYTHING BELOW THE FOLD OFF-SCREEN (THE "CONTENT DISAPPEARS BEHIND THE DRAWER" BUG).
 		html.style.overflow = 'hidden';
-		body.style.position = 'fixed';
-		body.style.top = `-${savedScrollY}px`;
-		body.style.left = '0';
-		body.style.right = '0';
-		body.style.width = '100%';
-		body.style.height = 'auto';
-		html.classList.add('no-scrollbar', 'scroll-locked');
-		// ONLY DESKTOP HAS A SCROLLBAR WIDTH TO COMPENSATE; MOBILE OVERLAY SCROLLBARS ARE 0.
-		if (scrollbarWidth > 0) {
-			const pad = parseFloat(getComputedStyle(html).paddingRight) || 0;
-			html.style.paddingRight = `${pad + scrollbarWidth}px`;
+		html.classList.add('scroll-locked');
+
+		// DETECT SMALL TOUCH VIEWPORTS WHERE iOS TOUCH RUBBER-BANDING REQUIRES FIXED PINNING
+		const isMobileTouch =
+			scrollbarWidth === 0 &&
+			('ontouchstart' in window || navigator.maxTouchPoints > 0) &&
+			window.innerWidth < 1024;
+
+		if (isMobileTouch) {
+			savedBodyPosition = body.style.position;
+			savedBodyTop = body.style.top;
+			savedBodyLeft = body.style.left;
+			savedBodyRight = body.style.right;
+			savedBodyWidth = body.style.width;
+			savedBodyHeight = body.style.height;
+
+			body.style.position = 'fixed';
+			body.style.top = `-${savedScrollY}px`;
+			body.style.left = '0';
+			body.style.right = '0';
+			body.style.width = '100%';
+			body.style.height = 'auto';
+			isPinned = true;
+		} else {
+			isPinned = false;
+			// ON DESKTOP, COMPENSATE ON body TO PREVENT THE MAIN CONTAINER FROM EXPANDING OR JUMPING
+			if (scrollbarWidth > 0) {
+				const currentPad = parseFloat(getComputedStyle(body).paddingRight) || 0;
+				body.style.paddingRight = `${currentPad + scrollbarWidth}px`;
+			}
 		}
 	}
 	lockCount += 1;
 }
 
-// RESTORE THE ROOT/BODY AND THE EXACT SCROLL POSITION ONLY WHEN THE LAST OVERLAY RELEASES.
+// RESTORE ROOT AND BODY STYLES ONLY WHEN THE LAST OVERLAY RELEASES.
 function release() {
 	lockCount -= 1;
 	if (lockCount === 0 && typeof document !== 'undefined') {
 		const html = document.documentElement;
 		const body = document.body;
+
 		html.style.overflow = savedHtmlOverflow;
-		html.style.paddingRight = savedHtmlPaddingRight;
-		html.classList.remove('no-scrollbar', 'scroll-locked');
-		body.style.position = savedBodyPosition;
-		body.style.top = savedBodyTop;
-		body.style.left = savedBodyLeft;
-		body.style.right = savedBodyRight;
-		body.style.width = savedBodyWidth;
-		body.style.height = savedBodyHeight;
-		// JUMP BACK TO WHERE THE READER WAS (THE PINNED BODY REPORTED scrollY:0 WHILE LOCKED).
-		window.scrollTo(0, savedScrollY);
+		html.classList.remove('scroll-locked');
+
+		if (isPinned) {
+			body.style.position = savedBodyPosition;
+			body.style.top = savedBodyTop;
+			body.style.left = savedBodyLeft;
+			body.style.right = savedBodyRight;
+			body.style.width = savedBodyWidth;
+			body.style.height = savedBodyHeight;
+			isPinned = false;
+			window.scrollTo(0, savedScrollY);
+		} else {
+			body.style.paddingRight = savedBodyPaddingRight;
+			if (savedScrollY > 0 && Math.abs((window.scrollY || html.scrollTop || 0) - savedScrollY) > 1) {
+				window.scrollTo(0, savedScrollY);
+			}
+		}
 	}
 }
 
@@ -101,7 +114,7 @@ export function scrollLock(_node: HTMLElement, options: ScrollLockOptions = {}) 
 	const shouldLock = () =>
 		typeof window !== 'undefined' && (options.maxWidth == null || window.innerWidth <= options.maxWidth);
 
-	// ACQUIRE / RELEASE TO MATCH shouldLock(), RE-EVALUATED ON RESIZE (E.G. ROTATING PAST THE BREAKPOINT).
+	// ACQUIRE / RELEASE TO MATCH shouldLock(), RE-EVALUATED ON RESIZE (E.G. ROTATING PAST BREAKPOINT).
 	function sync() {
 		const want = shouldLock();
 		if (want && !held) {

@@ -123,6 +123,13 @@ export function sanitizeSettingValue(key: keyof AppSettings, value: unknown): un
 		case 'livePipelinePreview':
 			return typeof value === 'boolean' ? value : true;
 
+		case 'enabledSystemFonts': {
+			if (Array.isArray(value)) {
+				return value.filter((v): v is string => typeof v === 'string').slice(0, 100);
+			}
+			return [];
+		}
+
 		case 'version': {
 			const n = Number(value);
 			return Math.max(1, isNaN(n) ? 1 : Math.round(n));

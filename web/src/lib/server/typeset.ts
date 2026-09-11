@@ -11,6 +11,7 @@ export * from './typeset/sanitize';
 
 import {
 	registerFonts,
+	ensureFontRegistered,
 	fontFor,
 	fontSpec,
 	drawTextLineWithRuns,
@@ -59,6 +60,8 @@ export async function typesetPage(
 	registerFonts();
 	const fontDialogue = opts.fontDialogue || FONT_DIALOGUE;
 	const fontCjk = opts.fontCjk || FONT_DEFAULT_CJK;
+	ensureFontRegistered(fontDialogue);
+	ensureFontRegistered(fontCjk);
 	const fontWeight = opts.fontWeight ?? 'normal';
 	const inset = opts.boxInset ?? BOX_INSET;
 	const outlineMode = opts.outlineMode ?? 'standard';
