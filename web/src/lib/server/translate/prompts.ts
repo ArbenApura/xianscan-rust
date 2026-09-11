@@ -26,8 +26,10 @@ export function getSourceLanguageProfile(src: string, tgtName: string): string {
 - Pro-Drop, Passive & Transitivity: Strictly distinguish intransitive/passive states from causative actions (죽다 "to die/perish" vs 죽이다 "to kill" -> "많이 죽긴 했어" = "Too many died", not "I killed many"; 인정받다 "to be recognized/acknowledged", 기대받다 "to have high hopes placed on one").
 - Direct Address & Addressee Continuity: When addressing someone with kinship/honorific titles (형/오빠/누나/언니/도련님/아가씨/당신/너), maintain consistent 2nd-person address ("you") across linked dialogue clauses.
 - Gender Clues & Lexical Anchors:
-  * Masculine: 형 (hyung), 오빠 (oppa), 도련님, 사형 (senior martial brother), 사제 (junior martial brother), 아저씨, 놈/자식 -> male (he/him).
+  * Masculine: 형 (hyung), 오빠 (oppa), 도련님, 사형 (senior martial brother), 사제 (junior martial brother), 아저씨 -> male (he/him).
   * Feminine: 누나 (noona), 언니 (unnie), 아가씨, 사저 (senior martial sister), 사매 (junior martial sister), 성녀 (Holy Maiden), 그녀 -> female (she/her).
+  * Suffixes 놈 / 자식 / 새끼: Anchor to male (he/him) ONLY when referring to human characters. When paired with or referring to beasts, monsters, or animals (e.g. 괴물놈, 늑대 놈, 저 놈 / 이 놈 in monster combat), resolve strictly to "it / the beast / the creature", never human "he/him".
+- Beasts, Monsters & Demonic Entities: Opponents described with creature terms (괴물, 마수, 요수, 영수, 짐승, 늑대, 마물) are non-human entities and must resolve to "it / its" or descriptive nouns (e.g. "It didn't feel a thing", "That monster"), not "he / him".
 - Conversational Invitations: Common social phrases like "밥이나 먹으러 ... 와" (come over for a meal/hang out) are casual invitations, not commercial restaurant references.
 - Murim & Organization Hierarchy:
   * Clans & Families: ~세가 (~世家, e.g. 남궁세가 -> Namgung Clan), ~가 (家, Clan), ~가장 (家莊, Clan Manor/Estate e.g. 유가장 -> Yu Clan Manor).
@@ -36,7 +38,7 @@ export function getSourceLanguageProfile(src: string, tgtName: string): string {
   * Disciples & Ranks: 가주 (Clan Head), 장문인 (Sect Leader), 장로 (Elder), 사부 (Master/Teacher), 대사형 (Eldest Martial Brother), 사제 (Junior Martial Brother), 사매 (Junior Martial Sister).
 - Martial Art Techniques & Calligraphy OCR: Stylized vertical martial arts technique names and stance callouts (e.g. ~창법 [Spear Art], ~검법 [Sword Art], ~신공 [Divine Art]) often have calligraphy strokes misrecognized as stray ASCII brackets/letters. Infer the correct martial technique name from constituent Hangul syllables and action context.
 - Hangul OCR Confusion Recovery: Action and manhwa brush fonts frequently cause stroke confusions between visually similar jamo and syllables. For instance, initial 'ㅁ' vs 'ㅇ'/'ㅂ' (e.g. 뭣들 하고 있어 misread as 윗들 하고 있어 or 못들 하고 있어 -> reconstruct as 뭣들 하고 있어 "What are you doing / What are you all doing?!"), and similar vowel/coda stroke fusions. Always infer the intended idiomatic Korean dialogue from context rather than translating nonsensical OCR literal misreads.
-- Combat & Action Command Target Resolution: In combat orders with omitted transitive objects (e.g. 떨어뜨려! "Shoot him down / Knock him down!", 잡아라! "Seize him!", 죽여라! "Kill him!", 쏴라! "Shoot him!"), resolve the target object to the opposing combatant, intruder, or elder tracked in preceding Dialogue Context (e.g. the single opponent / old man -> "him", not "them"). Commanders order subordinates to attack the enemy intruder, never their own allied forces.
+- Combat & Action Command Target Resolution: In combat orders with omitted transitive objects (e.g. 떨어뜨려! "Shoot it down / Knock him down!", 잡아라! "Seize it / him!", 죽여라! "Kill it / him!", 쏴라! "Shoot!"), resolve the target object to the opposing combatant or beast tracked in preceding Dialogue Context (use "it" for beasts/monsters, "him/her" for human combatants, not "them"). Commanders order subordinates to attack the enemy intruder, never their own allied forces.
 - Speech Levels: Maintain consistent conversational tone across sentence clauses (honorific/formal 존댓말 vs casual/intimate 반말).`;
 	}
 
@@ -49,6 +51,8 @@ export function getSourceLanguageProfile(src: string, tgtName: string): string {
 - Gender Clues & Lexical Anchors:
   * Masculine: 彼 (kare), 兄貴 (aniki), 坊主, ガキ, 爺さん, 旦那, おじさん, 野郎 -> male (he/him).
   * Feminine: 彼女 (kanojo), 姉貴 (aneki), お嬢様, 娘, 婆さん, おばさん, 小娘 -> female (she/her).
+  * Demonstratives & Slang (やつ / あいつ / こいつ / 奴): Anchor to male (he/him) ONLY when referring to human characters. When referring to monsters, magical beasts, summons, or animals (e.g. 化け物, 魔獣, 怪物, 獣, 魔物), resolve strictly to "it / the beast / the monster", never human "he/him".
+- Beasts, Monsters & Summons: Opponents described as non-human creatures (化け物, 魔獣, 妖獣, 怪物, 魔物, 獣) must resolve to "it / its" or descriptive nouns ("the beast", "the creature"), not "he / him", unless explicitly anthropomorphized.
 - Clan, School & Organization Terminology:
   * Clans & Lineage: ~一族 (~Ichizoku, Clan/Tribe), ~家 (~Family/Clan), 本家 (Honke, Main Family/Branch), 分家 (Bunke, Branch Family).
   * Martial Schools & Sects: ~流 (~Ryū, School/Style e.g. 神道流 -> Shintō-ryū), ~宗派 (~Shūha, Sect), ~道場 (Dōjō, Training Hall/Dojo), ~組 (~Gumi, Clan/Syndicate).
@@ -64,6 +68,8 @@ export function getSourceLanguageProfile(src: string, tgtName: string): string {
 - Gender Clues & Lexical Anchors:
   * Masculine: 他 (ta), 师兄, 师弟, 少爷, 臭小子, 老夫, 壮士, 兄弟, 岳父, 伯父, 殿下 (prince/lord) -> male (he/him).
   * Feminine: 她 (ta), 师姐, 师妹, 小姐, 丫头, 姑娘, 圣女, 仙子, 娘亲, 夫人, 嫂子 -> female (she/her).
+  * Creature & Derogatory Pronouns (这家伙 / 那家伙 / 畜生 / 孽畜): Resolve to "it / the beast / the creature" when referring to beasts, monsters, or demonic creatures (妖兽, 魔兽, 凶兽, 灵兽, 异兽), never human "he/him".
+- Beasts, Monsters & Demonic Creatures: Non-human cultivators, demonic beasts, and monsters (妖兽, 魔兽, 凶兽, 异兽, 孽畜) resolve to "it / its" (e.g. "It didn't flinch", "Kill the beast!"), not human "he / him", unless transformed into human form or speaking with human personality.
 - Hanzi OCR Stroke Recovery: Correct common visually similar character stroke confusions (e.g. 拔↔拨, 己↔已↔巳, 崇↔祟, 治↔冶, 呜↔鸣, 未↔末, 刺↔剌) by inferring intended terms from story and martial context.
 - Names & Listings:
   * Separate 2-character names in multi-name sequences (e.g. "子龙童菲，张肥关鱼" -> "Zilong, Tong Fei, Zhang Fei, Guan Yu").
@@ -73,7 +79,7 @@ export function getSourceLanguageProfile(src: string, tgtName: string): string {
   * Clans & Estates: ~世家 (Great Clan/Family e.g. 南宫世家 -> Namgung Clan), ~家庄 (Clan Manor e.g. 刘家庄 -> Liu Clan Manor), ~山庄 (Mountain Villa/Estate), ~堡 (Fortress/Manor).
   * Sects & Lineages: ~门派 / ~派 (Sect e.g. 华山派 -> Mount Hua Sect, 武当派 -> Wudang Sect, 少林寺 -> Shaolin Temple), ~宗 (Sect/Clan e.g. 天宗 -> Heaven Sect), ~门 (Sect/Gate e.g. 唐门 -> Tang Sect), ~帮 (Sect/Gang e.g. 丐帮 -> Beggars' Sect), ~教 (Cult e.g. 魔教 -> Demonic Cult).
   * Divisions & Roles: ~堂 (Hall e.g. 执法堂 -> Law Enforcement Hall), ~阁 (Pavilion e.g. 藏经阁 -> Scripture Pavilion). 掌门 (Sect Leader), 家主 (Clan Head), 长老 (Elder), 师尊/师父 (Master), 师兄 (Senior Martial Brother), 师弟 (Junior Martial Brother), 师姐 (Senior Martial Sister), 师妹 (Junior Martial Sister), 徒儿 (Disciple).
-  * Martial World: 江湖 (Jianghu / Martial World), 武林 (Wulin). Localize archaic martial pronouns (本座, 老夫, 晚辈, 在下, 贫道) naturally into ${tgtName}.
+  * Martial World: 江湖 (Jianghu / Martial World), 武林 (Wulin). Localize archaic martial pronouns (本座, 老夫, 晚辈, 在下, 贫道, 本王, 本宫, 妾身) naturally into ${tgtName}.
 - Stat Panels & RPG UI:
   * Only use [brackets] if source explicitly has 【】 brackets.
   * Translate rarity tiers (LEGENDARY, EPIC, RARE, COMMON, MYTHIC) fused with item type.
@@ -117,14 +123,14 @@ export function getTargetLanguageProfile(tgt: string): string {
 
 	if (['es', 'fr', 'it', 'pt'].includes(primary)) {
 		return `Romance Target Rules (${primary.toUpperCase()}):
-- Grammatical Gender Agreement: Ensure adjectives, past participles, and pronouns agree strictly with the speaker/addressee gender established in the Glossary or Dialogue Context.
+- Grammatical Gender Agreement: Ensure adjectives, past participles, and pronouns agree strictly with the speaker/addressee gender established in the Glossary or Dialogue Context. For beasts and monsters, grammatical agreement follows the creature noun (e.g. Spanish el monstruo / la bestia, French le monstre / la bête).
 - T-V Register: Map formal/honorific source speech to polite address (usted / vous / Lei / o senhor) and casual speech to informal (tú / tu / tu / você). Maintain consistent address within each dialogue scene.
 - Elisions & Contractions: Apply natural grammatical contractions (French: l', d', qu'; Spanish: al, del).`;
 	}
 
 	if (['ru', 'uk', 'pl'].includes(primary)) {
 		return `Slavic Target Rules (${primary.toUpperCase()}):
-- Past Tense Verb & Participle Gender: Past tense verbs inflect for gender (e.g. -л vs -ла in Russian). Match the gender of the speaker/subject strictly.
+- Past Tense Verb & Participle Gender: Past tense verbs inflect for gender (e.g. -л vs -ла in Russian). Match the gender of the speaker/subject strictly. For beasts and monsters, verbs and participles agree with the grammatical gender of the creature noun (e.g. чудовище -> neuter -ло, зверь/волк -> masculine -л).
 - T-V Register: Map formal/honorific source speech to Вы / Pan/Pani, and informal to ты / ty.`;
 	}
 
@@ -158,6 +164,7 @@ export function systemPrompt(
 		`3. Positive Identity & Pronoun Disambiguation:`,
 		`   - Ban on Ambiguous Singular "They/Them": NEVER use singular "they/them/their" as a hedge for an individual character. Reserve "they/them" strictly for plural groups, mobs, or multiple individuals.`,
 		`   - Gender & Pronoun Locking: Once a character or speaker's gender is established (via Glossary [masculine]/[feminine], honorifics, or preceding dialogue context), strictly maintain matching pronouns (he/him/his vs. she/her/hers) across all subsequent bubbles and pages. Never switch gender mid-scene.`,
+		`   - Beasts, Monsters, Animals & Non-Human Entities: When referring to non-human adversaries, beasts, magical/spirit beasts, summons, monsters, or wild animals (e.g. wolves, dragons, 괴물, 魔物, 妖兽, 化け物), resolve pronouns strictly to "it / its" or descriptive nouns ("the beast", "the creature", "the monster"), NEVER human "he / him" or "she / her", unless the creature is explicitly anthropomorphized, speaks human dialogue, or possesses a confirmed human gender in the Glossary.`,
 		`   - Scene Monologue & Direct Address Scope: When a character (Speaker A) addresses or marvels at another character (Speaker B) in a 1-on-1 scene (e.g. "あなた/君", "あなたは違います", "あなたなら..."), ALL subsequent praises, assessments, and predictions in that speech turn MUST remain in the second person ("you / your"), NOT third person ("he / she"). Never flip to "he/she" simply because downstream bubbles lack an explicit "you" or are separated by other visual panels.`,
 		`   - Interleaved Speech vs. Inner Monologue Streams: When a scene alternates between an external speaker's monologue (formal/narrative speech evaluating abilities or status) and a listener's inner thoughts (informal reactions, panic, or realizations):`,
 		`     * The external speaker's stream MUST remain strictly in 2nd person ("you / your"), praising or evaluating the listener directly ("Summoning such an entity at age seven...", "If you continue to grow..."). Do NOT let the listener's interspersed 1st-person thoughts cause the speaker's surrounding dialogue to flip into 3rd person ("he / she").`,
@@ -165,8 +172,8 @@ export function systemPrompt(
 		`   - Floating Dialogue vs. Reaction Attribution: In close-up reaction panels, floating text without bubble borders continues the ongoing speaker's spoken monologue, whereas internal panic/SFX text belongs to the listener's internal thought (e.g. "This is bad...!!"). Never merge or attribute the speaker's dialogue to the listener, and never invert passive statements into active first-person wishes.`,
 		`   - Pro-Drop & Subject/Object Resolution: In dialogue where the subject or transitive object is omitted:`,
 		`     * Internal Thoughts ([Thought] regions) -> resolve zero-subject as first-person ("I / me / my") or direct self-talk ("you"), never generic third-person.`,
-		`     * Direct Face-to-Face Dialogue -> resolve zero-subject imperative, questions, or address as second-person ("you").`,
-		`     * Combat Orders & Target Directives -> resolve omitted target objects in attack orders (e.g. "Take him down!", "Shoot him down!", "Get him!") to the opposing intruder or adversary tracked in Dialogue Context ("him" / "her"), rather than defaulting to generic "them" or confusing the speaker's own group.`,
+		`     * Direct Face-to-Face Dialogue -> resolve zero-subject imperative, questions, or address to the listener as second-person ("you"), and declarative self-actions/states as first-person ("I / me").`,
+		`     * Combat Orders & Target Directives -> resolve omitted target objects in attack orders (e.g. "Take him down!", "Shoot it down!", "Kill it!") to the opposing adversary or beast tracked in Dialogue Context (use "it" for monsters/beasts/creatures, "him/her" for human combatants), rather than defaulting to generic "them" or confusing the speaker's own group.`,
 		`     * 1-on-1 Passive Observations (e.g. "期待されてる", "見られてる") -> resolve the active party directly to their established gender ("She expects so much of me!", "He's watching me!"), not generic "They".`,
 		`     * If describing an ongoing scene -> resolve the subject from the active scene context rather than defaulting to generic pronouns.`,
 		`   - Baby & Child References: When characters refer to or scold an infant/child, use natural direct address ("you little rascal", "look at you") or familial phrasing ("the baby", "the little one", "she/he"). Never use stilted singular "they/them" for affectionate family interactions.`,

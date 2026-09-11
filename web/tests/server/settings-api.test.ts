@@ -45,6 +45,28 @@ describe('Settings & Reading History Server API Routes', () => {
 			const getData = await getRes.json();
 			expect(getData.livePipelinePreview).toBe(false);
 		});
+
+		it('persists typesetFontWeight when patched to bold', async () => {
+			vi.resetModules();
+			const { PATCH, GET } = await import('../../src/routes/api/settings/+server');
+
+			const req = new Request('http://localhost/api/settings', {
+				method: 'PATCH',
+				headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify({
+					typesetFontWeight: 'bold',
+				}),
+			});
+
+			const patchRes = await PATCH({ request: req } as unknown as RequestEvent);
+			expect(patchRes.status).toBe(200);
+			const patchData = await patchRes.json();
+			expect(patchData.typesetFontWeight).toBe('bold');
+
+			const getRes = await GET({} as RequestEvent);
+			const getData = await getRes.json();
+			expect(getData.typesetFontWeight).toBe('bold');
+		});
 	});
 
 	describe('PATCH /api/settings', () => {

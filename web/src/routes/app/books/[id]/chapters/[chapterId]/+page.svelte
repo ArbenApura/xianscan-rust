@@ -5,7 +5,7 @@
 	import { toast } from 'svelte-sonner';
 	import { page } from '$app/stores';
 	import { goto, invalidateAll } from '$app/navigation';
-	import { ConfirmDialog, Modal, TextField, Button } from '$lib/components/ui';
+	import { ConfirmDialog, Modal, TextField, Button, Select } from '$lib/components/ui';
 	import { settings } from '$lib/stores/settings';
 	import { jobTracker } from '$lib/stores/job-tracker';
 	import { batchTracker } from '$lib/stores/batch-tracker';
@@ -76,6 +76,7 @@
 		data.prevChapter;
 	let nextChapter: { id: number; seq: number; title: string | null; titleTarget?: string | null } | null =
 		data.nextChapter;
+	let allChapters = data.allChapters || [];
 	let pages: ChapterPageItem[] = data.pages;
 	let loading = false;
 	let uploading = false;
@@ -89,6 +90,7 @@
 		chapter = data.chapter;
 		prevChapter = data.prevChapter;
 		nextChapter = data.nextChapter;
+		allChapters = data.allChapters || [];
 		pages = data.pages;
 		loading = false;
 	}
@@ -241,10 +243,24 @@
 		}
 	}
 
+	function clampEditChapterSeq(e: Event) {
+		const input = e.currentTarget as HTMLInputElement;
+		const maxSeq = Math.max(1, allChapters.length || 1);
+		const val = parseInt(input.value, 10);
+		if (Number.isInteger(val)) {
+			if (val > maxSeq) editChapterSeq = maxSeq;
+			else if (val < 1) editChapterSeq = 1;
+		}
+	}
+
 	async function updateChapter() {
 		if (!chapter) return;
 		const parsedSeq = parseInt(String(editChapterSeq), 10);
-		const seq = Number.isInteger(parsedSeq) && parsedSeq > 0 ? parsedSeq - 1 : 0;
+		const maxSeq = Math.max(1, allChapters.length || 1);
+		const validSeq = Number.isInteger(parsedSeq)
+			? Math.max(1, Math.min(maxSeq, parsedSeq))
+			: 1;
+		const seq = validSeq - 1;
 		updatingChapter = true;
 		try {
 			const resp = await fetch(`/api/chapters/${chapterId}`, {
@@ -265,6 +281,9 @@
 				...chapter,
 				...data.chapter,
 			};
+			if (data.chapters) {
+				allChapters = data.chapters;
+			}
 			toast.success('Chapter updated.');
 			editChapterModalOpen = false;
 		} catch (err: any) {
@@ -1464,13 +1483,32 @@
 			</div>
 
 			<div>
-				<span class="mb-1 block text-xs font-semibold opacity-60">Chapter Sequence # (1-indexed)</span>
-				<input
-					type="number"
-					min="1"
-					bind:value={editChapterSeq}
-					class="w-full rounded-xl border border-black/10 bg-transparent px-3 py-2 text-sm outline-none transition placeholder:opacity-40 focus:border-[#b23a2e] dark:border-white/10"
-				/>
+				<div class="mb-1 flex items-center justify-between">
+					<span class="text-xs font-semibold opacity-60">Reading Order Position</span>
+					<span class="text-[11px] opacity-40">1 to {allChapters.length || 1}</span>
+				</div>
+				{#if (allChapters.length || 1) <= 50}
+					<Select
+						items={Array.from({ length: allChapters.length || 1 }, (_, i) => ({
+							value: String(i + 1),
+							label: `Position ${i + 1} of ${allChapters.length || 1}${i === 0 ? ' (First)' : i === (allChapters.length || 1) - 1 ? ' (Last)' : ''}`,
+						}))}
+						value={String(editChapterSeq)}
+						on:change={(e) => (editChapterSeq = parseInt(e.detail, 10))}
+					/>
+				{:else}
+					<input
+						type="number"
+						min="1"
+						max={allChapters.length || 1}
+						bind:value={editChapterSeq}
+						on:input={clampEditChapterSeq}
+						class="w-full rounded-xl border border-black/10 bg-transparent px-3 py-2 text-sm outline-none transition placeholder:opacity-40 focus:border-[#b23a2e] dark:border-white/10"
+					/>
+				{/if}
+				<p class="mt-1 text-[11px] opacity-40">
+					Controls reading order position among the {allChapters.length || 1} chapter(s) on your shelf. Chapter numbers (such as Chapter 4 or 5) belong in the title field above.
+				</p>
 			</div>
 		</form>
 	{/if}

@@ -302,6 +302,20 @@ describe('SettingsModal Component UI', () => {
 		expect(screen.getByRole('heading', { name: /Typesetting & Lettering Studio/i })).toBeTruthy();
 		expect(screen.queryByText('Reset Defaults')).toBeNull();
 
+		// Toggle Live Pipeline Step Previews off
+		const livePreviewSwitch = screen.getByRole('switch', { name: /Live Pipeline Step Previews/i });
+		await fireEvent.click(livePreviewSwitch);
+		await tick();
+
+		// Reset Defaults should appear
+		const typesetResetBtn = screen.getByText('Reset Defaults');
+		expect(typesetResetBtn).toBeTruthy();
+
+		// Reset typesetting defaults
+		await fireEvent.click(typesetResetBtn);
+		await tick();
+		expect(screen.queryByText('Reset Defaults')).toBeNull();
+
 		// 3. INPAINTING TAB
 		const inpaintTab = screen.getByRole('button', { name: /Inpainting/i });
 		await fireEvent.click(inpaintTab);

@@ -15,6 +15,7 @@
 		Switch,
 		LazyImage,
 		Checkbox,
+		Select,
 	} from '$lib/components/ui';
 	import { ripple } from '$lib/actions/ripple';
 	import { apiJson } from '$lib/api';
@@ -427,11 +428,27 @@
 		draggedChapterIndex = null;
 		dragOverChapterIndex = null;
 
-		const currentList = [...displayedChapters];
-		const [moved] = currentList.splice(fromIndex, 1);
-		currentList.splice(dropIndex, 0, moved);
+		// 1. REORDER WITHIN THE FULL CHAPTER LIST ACCORDING TO CURRENT VISUAL SORT ORDER
+		const fullVisualList = [...chapters].sort((a, b) =>
+			sortAscending ? a.seq - b.seq : b.seq - a.seq,
+		);
 
-		const updatedList = currentList.map((ch, idx) => ({ ...ch, seq: idx }));
+		const fromChapter = displayedChapters[fromIndex];
+		const toChapter = displayedChapters[dropIndex];
+		if (!fromChapter || !toChapter) return;
+
+		const fullFromIndex = fullVisualList.findIndex((c) => c.id === fromChapter.id);
+		const fullToIndex = fullVisualList.findIndex((c) => c.id === toChapter.id);
+		if (fullFromIndex === -1 || fullToIndex === -1) return;
+
+		const [moved] = fullVisualList.splice(fullFromIndex, 1);
+		fullVisualList.splice(fullToIndex, 0, moved);
+
+		// 2. CONVERT VISUAL ORDER TO CHRONOLOGICAL ORDER (SEQ 0 .. N-1)
+		// When sortAscending is true (1 -> N): top of screen is seq 0 (oldest).
+		// When sortAscending is false (N -> 1): top of screen is seq N-1 (newest).
+		const chronological = sortAscending ? fullVisualList : [...fullVisualList].reverse();
+		const updatedList = chronological.map((ch, idx) => ({ ...ch, seq: idx }));
 		chapters = updatedList;
 
 		try {
@@ -465,10 +482,23 @@
 		editChapterModalOpen = true;
 	}
 
+	function clampEditChapterSeq(e: Event) {
+		const input = e.currentTarget as HTMLInputElement;
+		const val = parseInt(input.value, 10);
+		if (Number.isInteger(val)) {
+			if (val > chapters.length) editChapterSeq = chapters.length;
+			else if (val < 1) editChapterSeq = 1;
+		}
+	}
+
 	async function updateChapter() {
 		if (!editingChapter) return;
 		const parsedSeq = parseInt(String(editChapterSeq), 10);
-		const seq = Number.isInteger(parsedSeq) && parsedSeq > 0 ? parsedSeq - 1 : 0;
+		const maxSeq = Math.max(1, chapters.length);
+		const validSeq = Number.isInteger(parsedSeq)
+			? Math.max(1, Math.min(maxSeq, parsedSeq))
+			: 1;
+		const seq = validSeq - 1;
 		const payload = {
 			title: editChapterTitle.trim(),
 			titleTarget: editChapterTitleTarget.trim() || null,
@@ -492,8 +522,12 @@
 				throw new Error(err?.message || 'Update failed');
 			}
 			const data = await resp.json();
-			const updated = data.chapter;
-			chapters = chapters.map((c) => (c.id === updated.id ? { ...c, ...updated } : c));
+			if (data.chapters) {
+				chapters = data.chapters;
+			} else {
+				const updated = data.chapter;
+				chapters = chapters.map((c) => (c.id === updated.id ? { ...c, ...updated } : c));
+			}
 			toast.success('Chapter updated.');
 			editChapterModalOpen = false;
 			editingChapter = null;
@@ -2111,13 +2145,32 @@
 			</div>
 
 			<div>
-				<span class="mb-1 block text-xs font-semibold opacity-60">Chapter Sequence # (1-indexed)</span>
-				<input
-					type="number"
-					min="1"
-					bind:value={editChapterSeq}
-					class="w-full rounded-xl border border-black/10 bg-transparent px-3 py-2 text-sm outline-none transition placeholder:opacity-40 focus:border-[#b23a2e] dark:border-white/10"
-				/>
+				<div class="mb-1 flex items-center justify-between">
+					<span class="text-xs font-semibold opacity-60">Reading Order Position</span>
+					<span class="text-[11px] opacity-40">1 to {chapters.length}</span>
+				</div>
+				{#if chapters.length <= 50}
+					<Select
+						items={Array.from({ length: chapters.length }, (_, i) => ({
+							value: String(i + 1),
+							label: `Position ${i + 1} of ${chapters.length}${i === 0 ? ' (First)' : i === chapters.length - 1 ? ' (Last)' : ''}`,
+						}))}
+						value={String(editChapterSeq)}
+						on:change={(e) => (editChapterSeq = parseInt(e.detail, 10))}
+					/>
+				{:else}
+					<input
+						type="number"
+						min="1"
+						max={chapters.length}
+						bind:value={editChapterSeq}
+						on:input={clampEditChapterSeq}
+						class="w-full rounded-xl border border-black/10 bg-transparent px-3 py-2 text-sm outline-none transition placeholder:opacity-40 focus:border-[#b23a2e] dark:border-white/10"
+					/>
+				{/if}
+				<p class="mt-1 text-[11px] opacity-40">
+					Controls reading order position among the {chapters.length} chapter(s) on your shelf. Chapter numbers (such as Chapter 4 or 5) belong in the title field above.
+				</p>
 			</div>
 		</form>
 	{/if}

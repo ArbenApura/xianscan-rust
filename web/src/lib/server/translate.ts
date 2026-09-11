@@ -347,6 +347,11 @@ Rules:
 Rules:
 - Preserve speech nuance, comic tone, exclamations, sound effects, and character voice.
 - Avoid overusing em dashes (—), semicolons (;), or colons (:). Dialogue should feel naturally spoken; use periods, commas, or ellipses instead, reserving colons strictly for UI or stat labels and em dashes for abrupt speech interruptions.
+- Positive Identity & Pronoun Disambiguation:
+  * Ban on Ambiguous Singular "They/Them": NEVER use singular "they/them/their" as a hedge for an individual character. Reserve "they/them" strictly for plural groups or mobs.
+  * Gender & Pronoun Locking: Maintain established character gender across surrounding dialogue context.
+  * Beasts, Monsters & Non-Human Entities: Resolve pronouns for beasts, monsters, summons, or animals to "it / its" or descriptive nouns ("the beast", "the creature"), never human "he / him" or "she / her", unless explicitly personified or anthropomorphized.
+  * Pro-Drop: Resolve zero-subject imperative or direct questions to the listener as second-person ("you"), declarative self-actions as first-person ("I / me"), and thoughts as first-person ("I / me").
 - Output ONLY the translated text without commentary, quotes, or markdown fences.`;
 
 		const srcProfile = getSourceLanguageProfile(pair.sourceLang, tgtName);

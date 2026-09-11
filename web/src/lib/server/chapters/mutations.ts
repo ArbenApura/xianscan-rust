@@ -111,7 +111,11 @@ export async function uploadPages(chapterId: number, files: File[]): Promise<num
 	let seq = nextPageSeq(chapterId);
 	const uploadDir = join(DATA_ROOT, 'uploads', String(chapterId));
 	mkdirSync(uploadDir, { recursive: true });
-	for (const file of files) {
+	// SORT INCOMING FILES IN NATURAL NUMERIC ORDER TO PRESERVE INTENDED STRIP SEQUENCE
+	const sortedFiles = [...files].sort((a, b) =>
+		a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: 'base' })
+	);
+	for (const file of sortedFiles) {
 		const ext = extname(file.name).toLowerCase();
 		if (!ALLOWED_EXT.has(ext)) throw error(400, `Unsupported image type "${ext}" — use PNG/JPEG/WebP/AVIF/HEIC.`);
 		const rawBuf = Buffer.from(await file.arrayBuffer());

@@ -6,10 +6,12 @@ import { error, json } from '@sveltejs/kit';
 import { eq } from 'drizzle-orm';
 // IMPORTED MODULES
 import { assertChapterExists, getChapterReaderData, updateChapterDetails, deleteChapter } from '$lib/server/chapters';
+import { getBookDetails } from '$lib/server/books';
 import { db } from '$lib/server/db';
 import { chapters } from '$lib/server/db/schema';
 import { updateChapterSchema } from '$lib/schemas';
 import { getChapterJob } from '$lib/server/translation-service';
+import { batchService } from '$lib/server/batch-service';
 import { syncBus } from '$lib/server/sync-bus';
 
 export const GET: RequestHandler = async ({ params }) => {
@@ -17,11 +19,22 @@ export const GET: RequestHandler = async ({ params }) => {
 	if (!Number.isInteger(chapterId)) throw error(400, 'Invalid chapter id.');
 	const data = await getChapterReaderData(chapterId);
 	const activeJob = getChapterJob(chapterId);
-	const isTranslating = activeJob ? activeJob.status === 'running' : false;
+	const batchState = batchService.getState();
+	const batchItem = batchState.active ? batchState.queue.find((q) => q.id === chapterId) : null;
+	const isTranslating = activeJob
+		? activeJob.status === 'running'
+		: batchItem
+			? (batchItem.status === 'processing' || batchItem.status === 'reslicing' || batchItem.status === 'queued')
+			: false;
+	const jobStatus = activeJob
+		? activeJob.status
+		: batchItem
+			? batchItem.status
+			: 'idle';
 	return json({
 		...data,
 		isTranslating,
-		jobStatus: activeJob ? activeJob.status : 'idle'
+		jobStatus
 	});
 };
 
@@ -42,7 +55,8 @@ export const PATCH: RequestHandler = async ({ params, request }) => {
 	if (updated) {
 		syncBus.broadcast({ type: 'chapter-updated', bookId: updated.bookId, chapterId });
 	}
-	return json({ chapter: updated });
+	const detail = await getBookDetails(updated.bookId);
+	return json({ chapter: updated, chapters: detail.chapters });
 };
 
 export const DELETE: RequestHandler = async ({ params }) => {

@@ -119,6 +119,9 @@ export function sanitizeSettingValue(key: keyof AppSettings, value: unknown): un
 		case 'typesetCasing':
 			return VALID_CASINGS.includes(value as TypesetCasing) ? value : 'uppercase';
 
+		case 'typesetFontWeight':
+			return value === 'bold' ? 'bold' : 'normal';
+
 		case 'enableTextRotation':
 		case 'resliceBeforeBatch':
 		case 'typesetAllCaps':

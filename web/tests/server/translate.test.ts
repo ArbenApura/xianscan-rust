@@ -157,6 +157,7 @@ describe('systemPrompt', () => {
 		const p = systemPrompt('ja', 'en');
 		expect(p).toContain('Ban on Ambiguous Singular "They/Them"');
 		expect(p).toContain('Gender & Pronoun Locking');
+		expect(p).toContain('Beasts, Monsters, Animals & Non-Human Entities');
 		expect(p).toContain('Scene Monologue & Direct Address Scope');
 		expect(p).toContain('Interleaved Speech vs. Inner Monologue Streams');
 		expect(p).toContain('Floating Dialogue vs. Reaction Attribution');
@@ -183,6 +184,30 @@ describe('systemPrompt', () => {
 		expect(pZh).toContain('Direct Address & Addressee Continuity');
 		expect(pZh).toContain('师兄');
 		expect(pZh).toContain('师姐');
+	});
+
+	it('enforces beast and monster pronoun resolution across Korean, Japanese, Chinese, Romance, and Slavic profiles', () => {
+		const pKo = systemPrompt('ko', 'en');
+		expect(pKo).toContain('Beasts, Monsters & Demonic Entities');
+		expect(pKo).toContain('괴물놈');
+		expect(pKo).toContain('마수');
+		expect(pKo).toContain('Shoot it down');
+
+		const pJa = systemPrompt('ja', 'en');
+		expect(pJa).toContain('Beasts, Monsters & Summons');
+		expect(pJa).toContain('化け物');
+		expect(pJa).toContain('魔獣');
+
+		const pZh = systemPrompt('zh-Hans', 'en');
+		expect(pZh).toContain('Beasts, Monsters & Demonic Creatures');
+		expect(pZh).toContain('妖兽');
+		expect(pZh).toContain('畜生');
+
+		const pEs = systemPrompt('ko', 'es');
+		expect(pEs).toContain('For beasts and monsters, grammatical agreement follows the creature noun');
+
+		const pRu = systemPrompt('zh-Hans', 'ru');
+		expect(pRu).toContain('For beasts and monsters, verbs and participles agree with the grammatical gender of the creature noun');
 	});
 
 	it('injects special user localization directives when customPrompt is provided', () => {

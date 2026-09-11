@@ -931,12 +931,14 @@
 
 	$: isTypesettingModified =
 		($settings.typesetFont || 'CC Wild Words') !== DEFAULTS.typesetFont ||
+		($settings.typesetFontWeight || 'normal') !== DEFAULTS.typesetFontWeight ||
 		($settings.typesetCjkFont || 'Microsoft YaHei') !== DEFAULTS.typesetCjkFont ||
 		Math.abs(($settings.typesetPadding || 0.05) - DEFAULTS.typesetPadding) >= 0.005 ||
 		($settings.typesetOutline || 'standard') !== DEFAULTS.typesetOutline ||
 		($settings.typesetContrast || 'auto') !== DEFAULTS.typesetContrast ||
 		($settings.typesetCasing || 'uppercase') !== DEFAULTS.typesetCasing ||
 		Boolean($settings.enableTextRotation) !== Boolean(DEFAULTS.enableTextRotation) ||
+		Boolean($settings.livePipelinePreview !== false) !== Boolean(DEFAULTS.livePipelinePreview !== false) ||
 		($settings.typesetPreviewPreset || 'en') !== (DEFAULTS.typesetPreviewPreset || 'en') ||
 		($settings.typesetPreviewText || '') !== (DEFAULTS.typesetPreviewText || '');
 
@@ -960,6 +962,7 @@
 		settings.update((s) => ({
 			...s,
 			typesetFont: DEFAULTS.typesetFont,
+			typesetFontWeight: DEFAULTS.typesetFontWeight,
 			typesetCjkFont: DEFAULTS.typesetCjkFont,
 			typesetPadding: DEFAULTS.typesetPadding,
 			typesetOutline: DEFAULTS.typesetOutline,
@@ -967,6 +970,7 @@
 			typesetCasing: DEFAULTS.typesetCasing,
 			typesetAllCaps: DEFAULTS.typesetAllCaps,
 			enableTextRotation: DEFAULTS.enableTextRotation,
+			livePipelinePreview: DEFAULTS.livePipelinePreview,
 			typesetPreviewPreset: DEFAULTS.typesetPreviewPreset,
 			typesetPreviewText: DEFAULTS.typesetPreviewText,
 		}));
@@ -1011,13 +1015,20 @@
 		? currentReasoningEffort.slice(7)
 		: (isCustomReasoningActive ? currentReasoningEffort : '');
 
+	function isFloatModified(actual: number | null | undefined, def: number | null | undefined): boolean {
+		if (actual === null || actual === undefined || def === null || def === undefined) {
+			return actual !== def;
+		}
+		return Math.abs(actual - def) >= 0.005;
+	}
+
 	$: isInferenceModified =
 		($settings.translationMaxTokens ?? 4096) !== DEFAULTS.translationMaxTokens ||
-		$settings.translationTemperature !== DEFAULTS.translationTemperature ||
-		$settings.translationTopP !== DEFAULTS.translationTopP ||
+		isFloatModified($settings.translationTemperature, DEFAULTS.translationTemperature) ||
+		isFloatModified($settings.translationTopP, DEFAULTS.translationTopP) ||
 		($settings.translationReasoningEffort ?? 'none') !== DEFAULTS.translationReasoningEffort ||
-		$settings.translationFrequencyPenalty !== DEFAULTS.translationFrequencyPenalty ||
-		$settings.translationPresencePenalty !== DEFAULTS.translationPresencePenalty ||
+		isFloatModified($settings.translationFrequencyPenalty, DEFAULTS.translationFrequencyPenalty) ||
+		isFloatModified($settings.translationPresencePenalty, DEFAULTS.translationPresencePenalty) ||
 		($settings.translationDialogueContextPages ?? 4) !== DEFAULTS.translationDialogueContextPages;
 
 	function setMaxTokens(val: number) {
@@ -1795,7 +1806,8 @@
 
 		// TYPESETTING
 		{ id: 'preview', label: 'Live Speech Bubble Preview', category: 'typesetting', categoryLabel: 'Typesetting & Lettering', categoryIcon: Type, keywords: ['preview', 'bubble', 'dialogue', 'sample', 'live', 'manga'] },
-		{ id: 'typeset-font', label: 'Latin Dialogue Font', category: 'typesetting', categoryLabel: 'Typesetting & Lettering', categoryIcon: Type, keywords: ['font', 'latin', 'english', 'wild words', 'montserrat', 'general sans', 'poppins'] },
+		{ id: 'typeset-font', label: 'Latin Dialogue Font', category: 'typesetting', categoryLabel: 'Typesetting & Lettering', categoryIcon: Type, keywords: ['font', 'latin', 'english', 'wild words', 'montserrat', 'general sans', 'poppins', 'system fonts', 'import font', 'custom font', 'ttf', 'otf', 'woff2', 'variable'] },
+		{ id: 'typeset-weight', label: 'Dialogue Font Weight (Regular & Bold)', category: 'typesetting', categoryLabel: 'Typesetting & Lettering', categoryIcon: Type, keywords: ['weight', 'bold', 'regular', 'thickness', '400', '700', 'font weight', 'variants'] },
 		{ id: 'typeset-cjk', label: 'CJK East Asian Fallback Engine', category: 'typesetting', categoryLabel: 'Typesetting & Lettering', categoryIcon: Type, keywords: ['cjk', 'chinese', 'japanese', 'korean', 'fallback', 'font', 'yahei', 'gothic', 'hangul'] },
 		{ id: 'typeset-padding', label: 'Bubble Inset Padding', category: 'typesetting', categoryLabel: 'Typesetting & Lettering', categoryIcon: Type, keywords: ['padding', 'margin', 'inset', 'tight', 'balanced', 'spacious', 'airy', 'fit'] },
 		{ id: 'typeset-outline', label: 'Text Stroke Outline', category: 'typesetting', categoryLabel: 'Typesetting & Lettering', categoryIcon: Type, keywords: ['stroke', 'outline', 'border', 'thin', 'standard', 'heavy', 'thickness'] },
@@ -1843,6 +1855,8 @@
 	];
 
 	let searchFocused = false;
+	let searchSelectedIndex = 0;
+	let searchPopoverEl: HTMLDivElement | null = null;
 	let highlightedSettingId: string | null = null;
 
 	function getMatchingSettings(query: string): Map<string, { category: SettingsCategory; categoryIcon: any; items: SearchableSetting[] }> {
@@ -1886,6 +1900,7 @@
 		mobileView = 'detail';
 		searchFocused = false;
 		globalSearch = '';
+		searchSelectedIndex = 0;
 		highlightedSettingId = setting.id;
 
 		await tick();
@@ -1901,6 +1916,41 @@
 				highlightedSettingId = null;
 			}
 		}, 2200);
+	}
+
+	function handleSearchKeyDown(event: KeyboardEvent) {
+		if (event.key === 'Escape') {
+			event.preventDefault();
+			searchFocused = false;
+			return;
+		}
+
+		if (flatMatchingSettings.length === 0) return;
+
+		if (event.key === 'ArrowDown') {
+			event.preventDefault();
+			searchSelectedIndex = (searchSelectedIndex + 1) % flatMatchingSettings.length;
+			scrollActiveSettingIntoView();
+		} else if (event.key === 'ArrowUp') {
+			event.preventDefault();
+			searchSelectedIndex = (searchSelectedIndex - 1 + flatMatchingSettings.length) % flatMatchingSettings.length;
+			scrollActiveSettingIntoView();
+		} else if (event.key === 'Enter') {
+			event.preventDefault();
+			const target = flatMatchingSettings[searchSelectedIndex];
+			if (target) {
+				jumpToSetting(target);
+			}
+		}
+	}
+
+	function scrollActiveSettingIntoView() {
+		tick().then(() => {
+			const activeEl = searchPopoverEl?.querySelector(`[data-index="${searchSelectedIndex}"]`);
+			if (activeEl && typeof (activeEl as HTMLElement).scrollIntoView === 'function') {
+				(activeEl as HTMLElement).scrollIntoView({ block: 'nearest' });
+			}
+		});
 	}
 
 	function getMatchingCategories(query: string): Set<SettingsCategory> {
@@ -1936,6 +1986,7 @@
 
 	$: matchingCategories = getMatchingCategories(globalSearch);
 	$: matchingSettingsGroups = getMatchingSettings(globalSearch);
+	$: flatMatchingSettings = Array.from(matchingSettingsGroups.values()).flatMap((g) => g.items);
 </script>
 
 <!-- GLOBAL MASTER-DETAIL PREFERENCES & CONFIGURATION MODAL -->
@@ -1951,7 +2002,11 @@
 						type="text"
 						bind:value={globalSearch}
 						on:focus={() => (searchFocused = true)}
-						on:input={() => (searchFocused = true)}
+						on:input={() => {
+							searchFocused = true;
+							searchSelectedIndex = 0;
+						}}
+						on:keydown={handleSearchKeyDown}
 						placeholder="Search settings..."
 						class="h-[36px] w-full rounded-lg border border-black/10 bg-transparent pl-9 pr-8 text-xs text-neutral-900 placeholder:opacity-40 outline-none transition-colors focus:border-[#b23a2e] focus:ring-2 focus:ring-[#b23a2e]/30 dark:border-white/[0.08] dark:text-neutral-100"
 					/>
@@ -1961,6 +2016,7 @@
 							on:click={() => {
 								globalSearch = '';
 								searchFocused = false;
+								searchSelectedIndex = 0;
 							}}
 							class="absolute right-2 top-1/2 -translate-y-1/2 p-1 text-neutral-400 hover:text-neutral-600 dark:hover:text-neutral-200 cursor-pointer"
 						>
@@ -1971,7 +2027,17 @@
 
 				<!-- FLOATING SEARCH RESULTS POPOVER MENU -->
 				{#if globalSearch.trim() && searchFocused}
+					<!-- BACKDROP DISMISS FOR SEARCH POPOVER -->
+					<button
+						type="button"
+						class="fixed inset-0 z-30 bg-transparent cursor-default outline-none"
+						on:click={() => (searchFocused = false)}
+						tabindex="-1"
+						aria-label="Dismiss search results"
+					></button>
+
 					<div
+						bind:this={searchPopoverEl}
 						transition:fly={{ y: -6, duration: 150, easing: cubicOut }}
 						class="absolute top-full left-2 right-2 mt-1.5 z-40 max-h-[290px] overflow-y-auto rounded-xl border border-black/15 bg-white/95 p-1.5 shadow-2xl backdrop-blur-md dark:border-white/15 dark:bg-[#1a1612]/95 space-y-2.5"
 					>
@@ -1990,10 +2056,18 @@
 									<div class="space-y-0.5">
 										{#each groupData.items as setting}
 											{@const hp = highlightParts(setting.label, globalSearch)}
+											{@const flatIdx = flatMatchingSettings.indexOf(setting)}
 											<button
 												type="button"
+												data-index={flatIdx}
 												on:click={() => jumpToSetting(setting)}
-												class="w-full flex items-center justify-between rounded-lg px-2.5 py-1.5 text-left text-xs transition-colors hover:bg-black/5 dark:hover:bg-white/5 cursor-pointer group"
+												on:mouseenter={() => (searchSelectedIndex = flatIdx)}
+												class={cn(
+													'w-full flex items-center justify-between rounded-lg px-2.5 py-1.5 text-left text-xs transition-colors cursor-pointer group',
+													searchSelectedIndex === flatIdx
+														? 'bg-[#b23a2e]/[0.08] dark:bg-[#e08a63]/[0.12] ring-1 ring-[#b23a2e]/25 dark:ring-[#e08a63]/30 font-medium'
+														: 'hover:bg-black/5 dark:hover:bg-white/5',
+												)}
 												use:ripple
 											>
 												<span class="truncate pl-1.5">
@@ -2003,7 +2077,10 @@
 														{setting.label}
 													{/if}
 												</span>
-												<span class="text-[9px] font-semibold opacity-0 group-hover:opacity-60 transition text-[#b23a2e] dark:text-[#e08a63] pl-2 shrink-0">
+												<span class={cn(
+													'text-[9px] font-semibold transition text-[#b23a2e] dark:text-[#e08a63] pl-2 shrink-0',
+													searchSelectedIndex === flatIdx ? 'opacity-100' : 'opacity-0 group-hover:opacity-60',
+												)}>
 													Jump ↵
 												</span>
 											</button>
@@ -2011,6 +2088,23 @@
 									</div>
 								</div>
 							{/each}
+
+							<!-- KEYBOARD HINTS FOOTER -->
+							<div class="border-t border-black/10 dark:border-white/10 pt-1.5 px-2 flex items-center justify-between text-[10px] opacity-60">
+								<span class="flex items-center gap-1">
+									<kbd class="rounded border border-black/10 dark:border-white/15 bg-black/[0.03] dark:bg-white/[0.05] px-1 py-0.2 font-mono text-[9px]">↑</kbd>
+									<kbd class="rounded border border-black/10 dark:border-white/15 bg-black/[0.03] dark:bg-white/[0.05] px-1 py-0.2 font-mono text-[9px]">↓</kbd>
+									<span>Navigate</span>
+								</span>
+								<span class="flex items-center gap-1">
+									<kbd class="rounded border border-black/10 dark:border-white/15 bg-black/[0.03] dark:bg-white/[0.05] px-1 py-0.2 font-mono text-[9px]">↵</kbd>
+									<span>Jump</span>
+								</span>
+								<span class="flex items-center gap-1">
+									<kbd class="rounded border border-black/10 dark:border-white/15 bg-black/[0.03] dark:bg-white/[0.05] px-1.5 py-0.2 font-mono text-[9px]">ESC</kbd>
+									<span>Dismiss</span>
+								</span>
+							</div>
 						{/if}
 					</div>
 				{/if}
@@ -2409,7 +2503,13 @@
 						</div>
 
 						<!-- DIALOGUE FONT WEIGHT SELECTOR -->
-						<div class="space-y-2 pt-1">
+						<div
+							id="setting-typeset-weight"
+							class={cn(
+								'space-y-2 pt-1 transition-all duration-300',
+								highlightedSettingId === 'typeset-weight' && 'ring-2 ring-[#b23a2e] dark:ring-[#e08a63] bg-[#b23a2e]/[0.06] dark:bg-[#e08a63]/[0.08] rounded-2xl p-2.5 -m-1',
+							)}
+						>
 							<div class="flex items-center justify-between gap-2">
 								<div class="text-xs font-bold uppercase tracking-wider opacity-80 shrink-0">
 									<span class="hidden sm:inline">Dialogue Font Weight</span>
