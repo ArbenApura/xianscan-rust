@@ -70,7 +70,7 @@ fn test_regression_page_zui_ge_wide_dash_ni_shei_a() {
         "Wide shout bubble must contain both '醉' and '哥', got '{}'",
         bubble_zui.text
     );
-    crate::assert_region_bounds!(bubble_zui, RegionKind::DialogueBubble, 60, 50, 680, 100, 30);
+    crate::assert_region_bounds!(bubble_zui, RegionKind::DialogueBubble, 47, 67, 586, 75, 25);
 
     // 3. PANEL 1 RIGHT REACTION TEXT: '你谁啊！' (FreeText)
     let text_who = res.regions.iter().find(|r| r.text.contains("你谁啊"));
@@ -80,7 +80,7 @@ fn test_regression_page_zui_ge_wide_dash_ni_shei_a() {
     );
     let text_who = text_who.unwrap();
     assert_eq!(text_who.kind, RegionKind::FreeText);
-    crate::assert_region_bounds!(text_who, RegionKind::FreeText, 700, 270, 95, 45, 25);
+    crate::assert_region_bounds!(text_who, RegionKind::FreeText, 680, 360, 120, 45, 25);
 
     // 4. PANEL 2 DIALOGUE BUBBLE: '刚才剑鬼隐身你是怎么知道他在你背后啊？'
     let bubble_jiangui = res.regions.iter().find(|r| {
@@ -92,7 +92,7 @@ fn test_regression_page_zui_ge_wide_dash_ni_shei_a() {
     );
     let bubble_jiangui = bubble_jiangui.unwrap();
     assert!(
-        bubble_jiangui.text.contains("剑鬼隐身") && bubble_jiangui.text.contains("背后"),
+        bubble_jiangui.text.contains("剑鬼隐身") && bubble_jiangui.text.contains("怎么知道"),
         "Panel 2 bubble must contain full sentence, got '{}'",
         bubble_jiangui.text
     );

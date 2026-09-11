@@ -195,18 +195,28 @@ pub fn cluster_lines_into_utterances<'a>(
     }
 
     // 2. CHECK FOR SIDE-BY-SIDE ADJACENT BUBBLE COLUMNS IN CJK DIALOGUE
+    let has_vert_column_line = rows.iter().any(|r| r.iter().any(|l| {
+        let (_, _, lw, lh) = polygon_bounds(&l.polygon);
+        lh >= (lw as f32 * 1.2) as i32
+    }));
+    let is_prolonged_dash_shout = rows.len() == 1 && rows[0].iter().any(|l| {
+        let t = l.text.trim();
+        t.contains('\u{2014}') || t.contains('-') || t.contains('–')
+    });
     let mut has_side_by_side = false;
-    for r in &rows {
-        if r.len() >= 2 {
-            let mut sorted_r = r.clone();
-            sorted_r.sort_by_key(|s| polygon_bounds(&s.polygon).0);
-            for i in 0..sorted_r.len() - 1 {
-                let (ax, _, aw, _) = polygon_bounds(&sorted_r[i].polygon);
-                let (bx, _, _, _) = polygon_bounds(&sorted_r[i + 1].polygon);
-                let col_gap = (aw as f32 * 0.70).max(6.0) as i32;
-                if bx - (ax + aw) >= col_gap {
-                    has_side_by_side = true;
-                    break;
+    if (rows.len() >= 2 || has_vert_column_line) && !is_prolonged_dash_shout {
+        for r in &rows {
+            if r.len() >= 2 {
+                let mut sorted_r = r.clone();
+                sorted_r.sort_by_key(|s| polygon_bounds(&s.polygon).0);
+                for i in 0..sorted_r.len() - 1 {
+                    let (ax, _, aw, _) = polygon_bounds(&sorted_r[i].polygon);
+                    let (bx, _, _, _) = polygon_bounds(&sorted_r[i + 1].polygon);
+                    let col_gap = (aw as f32 * 0.70).max(6.0) as i32;
+                    if bx - (ax + aw) >= col_gap {
+                        has_side_by_side = true;
+                        break;
+                    }
                 }
             }
         }
@@ -471,7 +481,23 @@ pub fn format_lines_cluster(
                 a_mx.total_cmp(&b_mx)
             });
             if is_cjk {
-                let s = row.iter().map(|s| s.text.trim()).collect::<Vec<_>>().join("");
+                let s = if row.len() >= 2 && row.iter().any(|l| l.text.contains('\u{2014}') || l.text.contains('-') || l.text.contains('–')) {
+                    let mut joined = String::new();
+                    for (idx, item) in row.iter().enumerate() {
+                        if idx > 0 {
+                            let (prev_x, _, prev_w, _) = polygon_bounds(&row[idx - 1].polygon);
+                            let (curr_x, _, _, _) = polygon_bounds(&item.polygon);
+                            let gap = curr_x - (prev_x + prev_w);
+                            if gap >= 80 {
+                                joined.push_str(&"\u{2014}".repeat(10));
+                            }
+                        }
+                        joined.push_str(item.text.trim().trim_matches('-').trim_matches('\u{2014}'));
+                    }
+                    joined
+                } else {
+                    row.iter().map(|s| s.text.trim()).collect::<Vec<_>>().join("")
+                };
                 if !s.is_empty() {
                     row_strings.push(s);
                 }

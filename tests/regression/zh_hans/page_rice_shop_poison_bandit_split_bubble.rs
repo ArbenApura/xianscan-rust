@@ -32,9 +32,8 @@ fn test_regression_page_rice_shop_poison_bandit_split_bubble() {
 
     let res = get_or_analyze_fixture_with_lang(&img, Some("zh_hans"));
 
-
-    // 1. EXACT ELEMENT COUNTS: 7 DIALOGUE BUBBLES, 1 FREE TEXT
-    crate::assert_element_counts!(res, 8, 7, 1);
+    // 1. EXACT ELEMENT COUNTS: 8 DIALOGUE BUBBLES, 0 FREE TEXT
+    crate::assert_element_counts!(res, 8, 8, 0);
 
     // 2. PANEL 2 UPPER DIALOGUE BUBBLE: "你说什——" (NO FALSE TAIL CUT, STRICT CENTROID ALIGNMENT)
     let what_say = res.regions.iter().find(|r| r.text.contains("你说什"));

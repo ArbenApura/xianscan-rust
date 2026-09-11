@@ -57,7 +57,7 @@ fn test_regression_page_whose_god_will_i_be_slanted_free_text() {
     assert!(b1.is_some(), "Must detect panel 2 upper bubble '一万年了，'");
     let b1 = b1.unwrap();
     assert_eq!(b1.kind, RegionKind::DialogueBubble);
-    crate::assert_region_bounds!(b1, RegionKind::DialogueBubble, 60, 1019, 109, 33, 20);
+    crate::assert_region_bounds!(b1, RegionKind::DialogueBubble, 37, 1003, 150, 62, 20);
 
     // 4. PANEL 2 LEFT MAIN BUBBLE: '从当初霍雨浩创建传灵塔组织到现在已经过去一万年了。'
     let b2 = res.regions.iter().find(|r| r.text.contains("霍雨浩") || r.text.contains("从当初"));

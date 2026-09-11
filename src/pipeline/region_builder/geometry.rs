@@ -947,12 +947,41 @@ pub fn extract_white_bubble_envelope(
         right_stops.push(stop_x);
     }
 
-    // MUST HIT A NON-WHITE BORDER IN AT LEAST 3 DIRECTIONS (ENCLOSED BALLOON)
-    let directions_hit = (top_hits >= 3) as usize
-        + (bot_hits >= 3) as usize
-        + (left_hits >= 3) as usize
-        + (right_hits >= 3) as usize;
-    if directions_hit < 3 {
+    // MUST HIT A NON-WHITE BORDER IN ALL 4 DIRECTIONS (FULLY ENCLOSED SPEECH BALLOON)
+    if top_hits < 4 || bot_hits < 4 || left_hits < 4 || right_hits < 4 {
+        return None;
+    }
+
+    let top_span = top_stops.iter().max().unwrap() - top_stops.iter().min().unwrap();
+    let bot_span = bot_stops.iter().max().unwrap() - bot_stops.iter().min().unwrap();
+    let left_span = left_stops.iter().max().unwrap() - left_stops.iter().min().unwrap();
+    let right_span = right_stops.iter().max().unwrap() - right_stops.iter().min().unwrap();
+    let total_curvature = top_span + bot_span + left_span + right_span;
+    let flat_sides = (top_span <= 3) as usize
+        + (bot_span <= 3) as usize
+        + (left_span <= 3) as usize
+        + (right_span <= 3) as usize;
+
+    // RECTANGULAR BOXES OR CORNERS OF BOXES HAVE AT LEAST TWO FLAT SIDES
+    if flat_sides >= 2 {
+        return None;
+    }
+
+    // A REAL SPEECH BALLOON FLUSH AGAINST ONE PANEL BORDER MUST EXHIBIT STRONG DOME CURVATURE ACROSS THE REMAINING SIDES
+    if flat_sides == 1 {
+        let is_curved = if bot_span <= 3 {
+            top_span >= 5 && left_span >= 10 && right_span >= 10
+        } else if top_span <= 3 {
+            bot_span >= 5 && left_span >= 10 && right_span >= 10
+        } else if left_span <= 3 {
+            right_span >= 10 && top_span >= 5 && bot_span >= 5
+        } else {
+            left_span >= 10 && top_span >= 5 && bot_span >= 5
+        };
+        if !is_curved || total_curvature < 35 {
+            return None;
+        }
+    } else if total_curvature < 20 {
         return None;
     }
 
@@ -965,6 +994,10 @@ pub fn extract_white_bubble_envelope(
     let bubble_max_y = bot_stops[2].clamp(0, page_h as i32);
     let bubble_x = left_stops[2].clamp(0, page_w as i32);
     let bubble_max_x = right_stops[2].clamp(0, page_w as i32);
+
+    if bubble_x <= 5 || bubble_y <= 5 || bubble_max_x >= page_w as i32 - 5 || bubble_max_y >= page_h as i32 - 5 {
+        return None;
+    }
 
     let raw_w = (bubble_max_x - bubble_x).max(bw + 6);
     let raw_h = (bubble_max_y - bubble_y).max(bh + 6);

@@ -260,6 +260,172 @@ pub fn analyze_image_with_fusion_timed(
     let mut effective_bubbles: Vec<crate::ml::schemas::BoxRect> = fusion_res.bubbles.clone();
     let mut effective_text_bubbles: Vec<(crate::ml::schemas::BoxRect, f32)> = fusion_res.text_bubbles.clone();
 
+    // MERGE HORIZONTAL PROLONGED DASH SHOUT CANDIDATE BOXES (E.G. '醉——————————哥！')
+    // WHEN A WIDE SPEECH BALLOON CONTAINS A HORIZONTAL PROLONGED DASH, DETECTORS OFTEN PREDICT
+    // DISJOINT BOXES ON THE LEFT PREFIX WORD AND RIGHT SUFFIX WORD WITH AN INTERVENING STROKE GAP.
+    if is_zh && effective_text_bubbles.len() >= 2 {
+        let mut merged_indices = std::collections::HashSet::new();
+        let mut new_merged_boxes = Vec::new();
+        let rgb_img = img.to_rgb8();
+
+        for i in 0..effective_text_bubbles.len() {
+            if merged_indices.contains(&i) {
+                continue;
+            }
+            let (tb1, s1) = &effective_text_bubbles[i];
+            for j in (i + 1)..effective_text_bubbles.len() {
+                if merged_indices.contains(&j) {
+                    continue;
+                }
+                let (tb2, s2) = &effective_text_bubbles[j];
+
+                // MUST BE ON THE SAME HORIZONTAL ROW
+                let vert_overlap = (tb1.y + tb1.h).min(tb2.y + tb2.h) - tb1.y.max(tb2.y);
+                let min_h = tb1.h.min(tb2.h);
+                if vert_overlap <= 0 || (vert_overlap as f32 / min_h as f32) < 0.50 {
+                    continue;
+                }
+                if tb1.h > 80 || tb2.h > 80 {
+                    continue;
+                }
+
+                let (left_tb, right_tb) = if tb1.x < tb2.x { (tb1, tb2) } else { (tb2, tb1) };
+                let gap = right_tb.x - (left_tb.x + left_tb.w);
+                if gap < 40 || gap > 700 {
+                    continue;
+                }
+
+                // CHECK IF THERE ARE ANY OTHER TEXT BUBBLES IN BETWEEN
+                let has_intermediate = effective_text_bubbles.iter().enumerate().any(|(k, (mid_tb, _))| {
+                    k != i && k != j
+                        && mid_tb.x >= left_tb.x + left_tb.w - 10
+                        && (mid_tb.x + mid_tb.w) <= right_tb.x + 10
+                        && ((mid_tb.y + mid_tb.h).min(left_tb.y + left_tb.h) - mid_tb.y.max(left_tb.y)) > 0
+                });
+                if has_intermediate {
+                    continue;
+                }
+
+                // AT LEAST ONE CANDIDATE MUST BE DIRECTLY CONNECTED TO A PROLONGED HORIZONTAL DASH
+                let left_ends_with_dash = filtered_rapid_lines.iter().any(|l| {
+                    let (lx, ly, lw, lh) = crate::ml::geometry::polygon_bounds(&l.polygon);
+                    let ix = (left_tb.x + left_tb.w).min(lx + lw) - left_tb.x.max(lx);
+                    let iy = (left_tb.y + left_tb.h).min(ly + lh) - left_tb.y.max(ly);
+                    if ix > 0 && iy > 0 {
+                        let t = l.text.trim();
+                        t.ends_with('-') || t.ends_with('\u{2014}') || t.ends_with('–') || t.contains('\u{2014}')
+                    } else {
+                        false
+                    }
+                }) || fusion_res.crop_cache.iter().any(|c| {
+                    let cx = c.crop_rect[0];
+                    let cy = c.crop_rect[1];
+                    let in_left = (left_tb.x - cx).abs() <= 35 && (left_tb.y - cy).abs() <= 35;
+                    in_left && {
+                        let t = c.result.text.trim();
+                        t.ends_with('-') || t.ends_with('\u{2014}') || t.ends_with('–') || t.contains('\u{2014}')
+                    }
+                });
+                let right_starts_with_dash = filtered_rapid_lines.iter().any(|l| {
+                    let (lx, ly, lw, lh) = crate::ml::geometry::polygon_bounds(&l.polygon);
+                    let ix = (right_tb.x + right_tb.w).min(lx + lw) - right_tb.x.max(lx);
+                    let iy = (right_tb.y + right_tb.h).min(ly + lh) - right_tb.y.max(ly);
+                    if ix > 0 && iy > 0 {
+                        let t = l.text.trim();
+                        t.starts_with('-') || t.starts_with('\u{2014}') || t.starts_with('–') || t.contains('\u{2014}')
+                    } else {
+                        false
+                    }
+                }) || fusion_res.crop_cache.iter().any(|c| {
+                    let cx = c.crop_rect[0];
+                    let cy = c.crop_rect[1];
+                    let in_right = (right_tb.x - cx).abs() <= 35 && (right_tb.y - cy).abs() <= 35;
+                    in_right && {
+                        let t = c.result.text.trim();
+                        t.starts_with('-') || t.starts_with('\u{2014}') || t.starts_with('–') || t.contains('\u{2014}')
+                    }
+                });
+                if !left_ends_with_dash && !right_starts_with_dash {
+                    continue;
+                }
+
+                // CHECK FOR CONTINUOUS OR REPEATED HORIZONTAL DASH STROKE IN THE GAP
+                let y_mid = (left_tb.y + left_tb.h / 2 + right_tb.y + right_tb.h / 2) / 2;
+                let sample_start = left_tb.x + left_tb.w + 15;
+                let sample_end = right_tb.x - 15;
+                if sample_end <= sample_start {
+                    continue;
+                }
+
+                let mut dash_hits = 0usize;
+                let mut total_samples = 0usize;
+                for sx in (sample_start..sample_end).step_by(8) {
+                    if sx < 0 || sx >= page_w as i32 {
+                        continue;
+                    }
+                    total_samples += 1;
+                    let is_stroke = (-3..=3).any(|dy| {
+                        let sy = y_mid + dy;
+                        if sy >= 0 && sy < page_h as i32 {
+                            let p = rgb_img.get_pixel(sx as u32, sy as u32);
+                            let lum = (0.299 * p[0] as f32 + 0.587 * p[1] as f32 + 0.114 * p[2] as f32) as u8;
+                            lum < 140
+                        } else {
+                            false
+                        }
+                    });
+                    if is_stroke {
+                        dash_hits += 1;
+                    }
+                }
+
+                let has_dash_stroke = total_samples >= 3 && (dash_hits as f32 / total_samples as f32) >= 0.30;
+                if has_dash_stroke {
+                    let min_x = left_tb.x.min(right_tb.x);
+                    let min_y = left_tb.y.min(right_tb.y);
+                    let max_x = (left_tb.x + left_tb.w).max(right_tb.x + right_tb.w);
+                    let max_y = (left_tb.y + left_tb.h).max(right_tb.y + right_tb.h);
+
+                    merged_indices.insert(i);
+                    merged_indices.insert(j);
+                    new_merged_boxes.push((
+                        crate::ml::schemas::BoxRect {
+                            x: min_x,
+                            y: min_y,
+                            w: max_x - min_x,
+                            h: max_y - min_y,
+                        },
+                        s1.max(*s2),
+                    ));
+                    break;
+                }
+            }
+        }
+
+        if !merged_indices.is_empty() {
+            let mut retained = Vec::new();
+            for (idx, item) in effective_text_bubbles.into_iter().enumerate() {
+                if !merged_indices.contains(&idx) {
+                    retained.push(item);
+                }
+            }
+            for (mb, _) in &new_merged_boxes {
+                let env_x = (mb.x - 20).max(0);
+                let env_y = (mb.y - 18).max(0);
+                let env_w = (mb.w + 40).min(page_w as i32 - env_x);
+                let env_h = (mb.h + 36).min(page_h as i32 - env_y);
+                effective_bubbles.push(crate::ml::schemas::BoxRect {
+                    x: env_x,
+                    y: env_y,
+                    w: env_w,
+                    h: env_h,
+                });
+            }
+            retained.extend(new_merged_boxes);
+            effective_text_bubbles = retained;
+        }
+    }
+
     if is_zh {
         // 1. RECOVER WHITE SPEECH BUBBLE CONTAINERS FOR DETECTOR TEXT BUBBLES OUTSIDE ANY DETECTED BUBBLE
         for (tb, tb_score) in &effective_text_bubbles {
@@ -286,6 +452,7 @@ pub fn analyze_image_with_fusion_timed(
                     false
                 }
             });
+
             if !has_dialogue_marker {
                 continue;
             }
@@ -1000,6 +1167,7 @@ pub fn analyze_image_with_fusion_timed(
             crop_cache: Vec::new(),
         });
     }
+
 
     let (dedup_boxes, _) = deduplicate_boxes(&candidate_boxes, &candidate_scores, 0.40);
     let order = sort_regions_top_to_bottom(&dedup_boxes, page_h as usize, 0.5, source_lang);

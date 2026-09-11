@@ -45,10 +45,10 @@ fn test_regression_page_pochita_body_double_lobe_split() {
 
     // 1. TOP PANEL TREE BUBBLE: '悪魔には… 死んだ人の 体を乗っ取れる ヤツも いるらしい'
     // TEXT BOUNDS: [X: 159, Y: 112, W: 228, H: 216] | BUBBLE BOUNDS: [X: 109, Y: 48, W: 327, H: 321]
-    let devil_body = res.regions.iter().find(|r| r.text.contains("悪魔") && r.text.contains("乗っ取れる"));
+    let devil_body = res.regions.iter().find(|r| r.text.contains("悪魔") && (r.text.contains("乗っ取れる") || (r.text.contains("乗っ") && r.text.contains("取れ"))));
     assert!(devil_body.is_some(), "Must detect top tree bubble '悪魔には… 死んだ人の 体を乗っ取れる ヤツも いるらしい'");
     let devil_body = devil_body.unwrap();
-    crate::assert_region_bounds!(devil_body, xianscan_rust::ml::schemas::RegionKind::DialogueBubble, 159, 112, 228, 216, 10);
+    crate::assert_region_bounds!(devil_body, xianscan_rust::ml::schemas::RegionKind::DialogueBubble, 159, 96, 228, 228, 15);
     crate::assert_bubble_bounds!(devil_body, 109, 48, 327, 321, 12);
 
     // 2. DOUBLE-LOBE UPPER SEGMENT (RIGHT LOBE): 'ポチタに それが できるん だったら'

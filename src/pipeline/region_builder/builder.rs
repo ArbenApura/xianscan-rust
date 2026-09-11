@@ -64,7 +64,76 @@ pub fn build_regions(
             line
         })
         .collect();
-    let split_lines = &cleaned_split_lines;
+    // SPLIT OCR LINES BRIDGING TWO HORIZONTALLY ADJACENT CANDIDATE BOXES
+    let mut partitioned_lines: Vec<OcrLine> = Vec::with_capacity(cleaned_split_lines.len());
+    for l in cleaned_split_lines {
+        let (lx, ly, lw, lh) = polygon_bounds(&l.polygon);
+        let chars: Vec<char> = l.text.chars().collect();
+        let char_count = chars.len();
+
+        let mut split_applied = false;
+        if char_count >= 4 && lw >= 60 {
+            for i in 0..dedup_boxes.len() {
+                let (bx1, by1, bw1, bh1) = crate::ml::geometry::box_to_xywh_f32(&dedup_boxes[i]);
+                let (bx1, by1, bw1, bh1) = (bx1 as i32, by1 as i32, bw1 as i32, bh1 as i32);
+                for j in (i + 1)..dedup_boxes.len() {
+                    let (bx2, by2, bw2, bh2) = crate::ml::geometry::box_to_xywh_f32(&dedup_boxes[j]);
+                    let (bx2, by2, bw2, bh2) = (bx2 as i32, by2 as i32, bw2 as i32, bh2 as i32);
+
+                    let (left_b, right_b) = if bx1 < bx2 { ((bx1, by1, bw1, bh1), (bx2, by2, bw2, bh2)) } else { ((bx2, by2, bw2, bh2), (bx1, by1, bw1, bh1)) };
+
+                    let vert_overlap = (left_b.1 + left_b.3).min(right_b.1 + right_b.3) - left_b.1.max(right_b.1);
+                    let min_h = left_b.3.min(right_b.3);
+                    let on_same_vert_band = vert_overlap > 0 && (vert_overlap as f32 / min_h.max(1) as f32 >= 0.35);
+
+                    let horiz_gap = right_b.0 - (left_b.0 + left_b.2);
+                    let are_adjacent = horiz_gap >= -25 && horiz_gap <= 40;
+
+                    let line_in_vert_band = (ly + lh).min(left_b.1 + left_b.3) > ly.max(left_b.1)
+                        && (ly + lh).min(right_b.1 + right_b.3) > ly.max(right_b.1);
+
+                    let starts_in_left = lx <= left_b.0 + (left_b.2 as f32 * 0.75) as i32;
+                    let ends_in_right = lx + lw >= right_b.0 + (right_b.2 as f32 * 0.25) as i32;
+                    let bridges_width = lw >= (left_b.2.max(right_b.2) as f32 * 1.25) as i32;
+
+                    if on_same_vert_band && are_adjacent && line_in_vert_band && starts_in_left && ends_in_right && bridges_width {
+                        let split_x = ((left_b.0 + left_b.2) + right_b.0) / 2;
+                        let ratio = ((split_x - lx) as f32 / lw.max(1) as f32).clamp(0.20, 0.80);
+                        let n_left = ((char_count as f32 * ratio).round() as usize).clamp(1, char_count - 1);
+
+                        let left_text: String = chars[..n_left].iter().collect();
+                        let right_text: String = chars[n_left..].iter().collect();
+
+                        let mut left_line = l.clone();
+                        left_line.text = left_text;
+                        if left_line.polygon.len() == 4 {
+                            left_line.polygon[1][0] = split_x;
+                            left_line.polygon[2][0] = split_x;
+                        }
+
+                        let mut right_line = l.clone();
+                        right_line.text = right_text;
+                        if right_line.polygon.len() == 4 {
+                            right_line.polygon[0][0] = split_x;
+                            right_line.polygon[3][0] = split_x;
+                        }
+
+                        partitioned_lines.push(left_line);
+                        partitioned_lines.push(right_line);
+                        split_applied = true;
+                        break;
+                    }
+                }
+                if split_applied {
+                    break;
+                }
+            }
+        }
+        if !split_applied {
+            partitioned_lines.push(l);
+        }
+    }
+    let split_lines = &partitioned_lines;
 
     // ORPHAN OCR LINES: LINES WHOSE CENTER LIES INSIDE NO CANDIDATE BOX. IF SUCH A LINE
     // SITS INSIDE A DETECTED SPEECH BUBBLE IT IS STILL THAT BUBBLE'S DIALOGUE (THE DETECTOR
@@ -139,10 +208,10 @@ pub fn build_regions(
                 let inter_area = inter_x.max(0) * inter_y.max(0);
                 let l_area = (lw * lh).max(1);
                 let coverage = inter_area as f32 / l_area as f32;
-
                 iou >= 0.25 || coverage >= 0.40
             })
             .collect();
+
 
         // BUBBLE-ENVELOPE LINE COMPLETION: A BUBBLE-BACKED CANDIDATE BOX CAN BE A PARTIAL
         // SLICE OF THE BALLOON (E.G. A STAGGERED DOUBLE-LOBE BALLOON WHERE THE DETECTOR BOX
@@ -629,6 +698,7 @@ pub fn build_regions(
                     cx > b.x + 8 && cx < b.x + b.w - 8 && cy > b.y + 8 && cy < b.y + b.h - 8
                 })) && (!is_container_vert || angle_deg.abs() < 4.0 || box_angle.abs() >= 2.0);
 
+
                 // SUPPRESS TITLE ARTWORK LOGO CALLIGRAPHY ON CHAPTER PUBLICATION CREDIT CARDS BEFORE RUNNING CROP REFINEMENT
                 let page_has_credits = split_lines.iter().any(|l| crate::ml::detect::is_credits_or_metadata_text(&l.text));
                 let cleaned_initial = combined_text.trim();
@@ -828,7 +898,7 @@ pub fn build_regions(
                     let f_area = (final_box_rect.w * final_box_rect.h).max(1);
                     let ix = (final_box_rect.x + final_box_rect.w).min(mb.x + mb.w) - final_box_rect.x.max(mb.x);
                     let iy = (final_box_rect.y + final_box_rect.h).min(mb.y + mb.h) - final_box_rect.y.max(mb.y);
-                    if ix > 0 && iy > 0 && ((ix * iy) as f32 / f_area as f32 >= 0.65) {
+                    if ix > 0 && iy > 0 && ((ix * iy) as f32 / f_area as f32 >= 0.50) {
                         Some(mb.clone())
                     } else {
                         None
@@ -840,7 +910,7 @@ pub fn build_regions(
                         let iy = (final_box_rect.y + final_box_rect.h).min(b.y + b.h) - final_box_rect.y.max(b.y);
                         if ix > 0 && iy > 0 {
                             let inter = (ix * iy) as f32;
-                            inter / f_area as f32 >= 0.65
+                            inter / f_area as f32 >= 0.60
                         } else {
                             false
                         }

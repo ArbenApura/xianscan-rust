@@ -57,7 +57,7 @@ fn test_regression_page_ye_ziyun_noble_status_grow_up_vow() {
     assert!(r2.is_some(), "Must detect panel 2 bottom bubble");
     let r2 = r2.unwrap();
     assert_eq!(r2.kind, xianscan_rust::ml::schemas::RegionKind::DialogueBubble);
-    crate::assert_region_bounds!(r2, xianscan_rust::ml::schemas::RegionKind::DialogueBubble, 19, 730, 270, 86, 10);
+    crate::assert_region_bounds!(r2, xianscan_rust::ml::schemas::RegionKind::DialogueBubble, 3, 722, 303, 105, 10);
     crate::assert_bubble_bounds!(r2, 1, 718, 309, 111, 12);
     crate::assert_region_angle!(r2, 0.0, 1.5);
 

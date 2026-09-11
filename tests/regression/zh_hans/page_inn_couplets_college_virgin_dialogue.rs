@@ -66,7 +66,7 @@ fn test_regression_page_inn_couplets_college_virgin_dialogue() {
     let r2 = &res.regions[2];
     assert_eq!(r2.kind, RegionKind::DialogueBubble);
     assert!(r2.text.contains("怎么的"), "Panel 2 right bubble must contain dialogue");
-    crate::assert_region_bounds!(r2, RegionKind::DialogueBubble, 569, 419, 172, 46, 10);
+    crate::assert_region_bounds!(r2, RegionKind::DialogueBubble, 543, 401, 224, 84, 10);
 
     // r3: Panel 3 left bubble [X: 55, Y: 703, W: 185, H: 65]
     let r3 = &res.regions[3];

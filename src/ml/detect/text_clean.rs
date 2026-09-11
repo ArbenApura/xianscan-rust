@@ -14,7 +14,7 @@ pub static CHINESE_RE: LazyLock<Regex> = LazyLock::new(|| {
 
 pub static WATERMARK_RE: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(
-        r"(?i)(\.com|\.net|\.org|\.cn|\.cc|\.xyz|\.top|\.me|\.tv|\.app|http|discord|scanlat|bilibili|速漫库|速漫|漫库|qumanku|quman|包子|baozimh|baozi|colamanga|colamanhua|colam|acloudmerge|acloud|loudmer|udmer|merd|oamanhua|merge|cloud|manga|manhua|comic|yumanhua|mangabox|comick|集云数据|集云|儿云数据|云数据|米古|咪咕|migu|米古动漫|[腾专博传]讯[动漫慢机动初]*|腾[动漫慢机动初]{1,2}|阅文[集团]*|快[看刮](?:[漫慢]画|动漫|app|APP|独家|首发)|^(?:快[看刮]|快[看刮][!！])$|微信|公众号|qq群|企鹅群|群号|严禁转载|独家(?:首发|连载|授权|发布|提供)|扫图|录入|修图|嵌字|翻译[:：]|翻译组|汉化组|免费漫画|最新免费|漫画网|看漫画网|首发|独家首发|漫客[栈拌祥]?|漫[客喜][栈拌祥]?|客[祥拌]|mkzhan|nga\.com|^[祥拌]$|澳[祥拌]?|最快最稳|广告最少|观看[，, ]?[最量])"
+        r"(?i)(\.com|\.net|\.org|\.cn|\.cc|\.xyz|\.top|\.me|\.tv|\.app|http|discord|scanlat|bilibili|速漫库|速漫|漫库|qumanku|quman|包子|baozimh|baozi|colamanga|colamanhua|colam|acloudmerge|acloud|loudmer|udmer|merd|oamanhua|merge|cloud|manga|manhua|comic|yumanhua|mangabox|comick|集云数据|集云|儿云数据|云数据|米古|咪咕|migu|米古动漫|[腾专博传]讯[动漫慢机动初]*|腾[动漫慢机动初]{1,2}|阅文[集团]*|快[看刮](?:[漫慢]画|动漫|app|APP|独家|首发)|^(?:快[看刮]|快[看刮][!！])$|微信|公众号|qq群|企鹅群|群号|严禁转载|独家(?:首发|连载|授权|发布|提供)|扫图|录入|修图|嵌字|翻译[:：]|翻译组|汉化组|免费漫画|最新免费|漫画网|看漫画网|首发|独家首发|漫客[栈拌祥]?|漫[客喜][栈拌祥]?|客[祥拌]|[福]?\s*喜祥|mkzhan|nga\.com|^[祥拌]$|澳[祥拌]?|最快最稳|广告最少|观看[，, ]?[最量])"
     ).unwrap()
 });
 
@@ -178,14 +178,14 @@ pub fn is_onomatopoeia_or_shout(text: &str) -> bool {
         })
         .collect();
 
-    // Single-character action onomatopoeia or shouts (e.g. "哒", "嗒", "接", "啪", "轰", "噗", "砰", "咚", "嘶", "嗖", "刷", "咔", "呼", "嗤", "铛", "啐", "哈", "啧", "哼", "呃", "呀", "切", "嘟", "滋", "嗡", "哔", "滴", "嘭", "哐", "唰", "吼", "碌", "骨", "咕", "簌", "沙", "哗")
+    // Single-character action onomatopoeia or shouts (e.g. "哒", "嗒", "啪", "轰", "噗", "砰", "咚", "嘶", "嗖", "刷", "咔", "呼", "嗤", "铛", "啐", "哈", "啧", "哼", "呃", "呀", "切", "嘟", "滋", "嗡", "哔", "滴", "嘭", "哐", "唰", "吼", "咕", "簌", "沙", "哗")
     let is_action_sfx_char = matches!(
         clean_chars.first(),
         Some(
-            '哒' | '嗒' | '接' | '啪' | '轰' | '噗' | '砰' | '咚' | '嘶' | '嗖' | '刷' | '咔'
+            '哒' | '嗒' | '啪' | '轰' | '噗' | '砰' | '咚' | '嘶' | '嗖' | '刷' | '咔'
                 | '呼' | '嗤' | '铛' | '啐' | '哈' | '啧' | '哼' | '呃' | '呀' | '切'
-                | '嘟' | '滋' | '嗡' | '哔' | '滴' | '嘭' | '哐' | '唰' | '吼'
-                | '碌' | '骨' | '咕' | '簌' | '沙' | '哗'
+                | '嘟' | '滋' | '嗡' | '哔' | '滴' | '嘀' | '嘭' | '哐' | '唰' | '吼'
+                | '咕' | '簌' | '沙' | '哗'
         )
     ) && clean_chars.len() <= 3
         && (t.contains('！') || t.contains('!') || t.contains('~') || t.contains('～') || t.contains('：') || t.contains(':') || clean_chars.len() <= 2);
@@ -450,6 +450,11 @@ pub fn is_repetitive_tabular_text(text: &str) -> bool {
     }
     let lines: Vec<&str> = t.lines().map(|l| l.trim()).filter(|l| !l.is_empty()).collect();
     if lines.is_empty() {
+        return false;
+    }
+
+    // EXEMPT SOUND EFFECTS AND DIALOGUE SHOUTS (E.G. "嘀！\n嘀！", "咚！\n咚！") FROM TABULAR PRUNING
+    if is_onomatopoeia_or_shout(t) || lines.iter().all(|l| is_onomatopoeia_or_shout(l)) {
         return false;
     }
 

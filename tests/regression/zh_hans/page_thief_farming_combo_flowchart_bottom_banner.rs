@@ -86,7 +86,7 @@ fn test_regression_page_thief_farming_combo_flowchart_bottom_banner() {
         "Bottom banner must contain the full combo steps, got '{}'",
         bottom_banner.text
     );
-    crate::assert_region_bounds!(bottom_banner, RegionKind::FreeText, 5, 1170, 785, 45, 25);
+    crate::assert_region_bounds!(bottom_banner, RegionKind::FreeText, 5, 1081, 793, 37, 25);
 
     // 4. EXPLICIT NEGATIVE GUARDS
     assert!(

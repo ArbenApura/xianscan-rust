@@ -53,14 +53,18 @@ pub fn should_reject_candidate_region(
 
     // 2. DROP HIGH-TILT NON-DIALOGUE WITH LOW RECOGNITION CONFIDENCE OR SHORT ARTWORK SFX ON CHROMATIC BACKGROUND
     let char_count = cleaned.chars().filter(|c| !c.is_whitespace()).count();
-    let is_card_or_aligned_text = !is_bubble && angle_deg.abs() >= 4.5 && split_lines.iter().any(|l| {
-        let (lx, ly, lw, lh) = polygon_bounds(&l.polygon);
-        let l_angle = crate::ml::geometry::calculate_box_angle_i32(&l.polygon);
-        let angle_close = (l_angle - angle_deg).abs() <= 6.0;
-        let dx = (lx - (cluster_rect.x + cluster_rect.w)).max(cluster_rect.x - (lx + lw)).max(0);
-        let dy = (ly - (cluster_rect.y + cluster_rect.h)).max(cluster_rect.y - (ly + lh)).max(0);
-        angle_close && dx <= 80 && dy <= 80 && (lx != cluster_rect.x || ly != cluster_rect.y)
-    });
+    let is_card_or_aligned_text = !is_bubble
+        && !crate::ml::detect::is_onomatopoeia_or_shout(cleaned)
+        && angle_deg.abs() >= 4.5
+        && char_count >= 2
+        && split_lines.iter().any(|l| {
+            let (lx, ly, lw, lh) = polygon_bounds(&l.polygon);
+            let l_angle = crate::ml::geometry::calculate_box_angle_i32(&l.polygon);
+            let angle_close = (l_angle - angle_deg).abs() <= 6.0;
+            let dx = (lx - (cluster_rect.x + cluster_rect.w)).max(cluster_rect.x - (lx + lw)).max(0);
+            let dy = (ly - (cluster_rect.y + cluster_rect.h)).max(cluster_rect.y - (ly + lh)).max(0);
+            angle_close && dx <= 80 && dy <= 80 && (lx != cluster_rect.x || ly != cluster_rect.y)
+        });
     if !is_bubble {
         if !is_card_or_aligned_text && angle_deg.abs() >= 12.0 && (avg_score < 0.65 || (char_count <= 2 && avg_score < 0.75 && compute_chromatic_color_variance(img, cluster_rect) >= 12.0)) {
             return true;
@@ -69,6 +73,9 @@ pub fn should_reject_candidate_region(
 
     // 3. DROP STANDALONE REPEATED NOISE STROKES
     if crate::ml::detect::is_standalone_noise_stroke(cleaned) {
+        return true;
+    }
+    if !is_bubble && (cleaned.contains("___") || cleaned.starts_with("__")) {
         return true;
     }
 
@@ -274,8 +281,9 @@ pub fn should_reject_candidate_region(
         && !is_margin_isolated_char;
     let is_compact_single_glyph_box = char_count <= 2 && cluster_rect.w <= (ref_dim * 0.05).clamp(20.0, 45.0) as i32 && cluster_rect.h <= (ref_dim * 0.05).clamp(20.0, 45.0) as i32;
     let is_low_conf_single_char = char_count <= 2 && (avg_score < 0.70 || is_oversized_single_char || (is_compact_single_glyph_box && compute_chromatic_color_variance(img, cluster_rect) >= 15.0 && avg_score < 0.72));
+    let glyph_count = cleaned.chars().filter(|c| c.is_alphanumeric() || crate::ml::detect::has_cjk_characters(&c.to_string())).count();
     // ONLY SUPPRESS LOW-CONFIDENCE ONOMATOPOEIA NOISE (PRESERVE HIGH-CONFIDENCE MULTI-GLYPH SFX)
-    let is_isolated_sfx = is_shout && (avg_score < 0.65 || (char_count <= 1 && avg_score < 0.72));
+    let is_isolated_sfx = is_shout && (avg_score < 0.65 || (glyph_count <= 1 && avg_score < 0.73));
 
     if !is_card_or_aligned_text
         && char_count <= 6
@@ -287,8 +295,14 @@ pub fn should_reject_candidate_region(
         return true;
     }
 
+
     // 8b. SUPPRESS ISOLATED SINGLE-GLYPH NOISE OUTSIDE SPEECH BUBBLES
-    if !is_bubble && !is_card_or_aligned_text && char_count == 1 && avg_score < 0.72 && !is_shout {
+    if !is_bubble && !is_card_or_aligned_text && glyph_count <= 1 && char_count <= 2 && (avg_score < 0.73 || (!is_shout && !has_narrative_punctuation && compute_chromatic_color_variance(img, cluster_rect) >= 15.0)) {
+        return true;
+    }
+
+    // 8c. SUPPRESS UNPUNCTUATED FLOATING ONOMATOPOEIA OUTSIDE SPEECH BUBBLES ON ARTWORK
+    if source_lang == Some("ko") && !is_bubble && !is_card_or_aligned_text && is_shout && !has_narrative_punctuation {
         return true;
     }
 
@@ -365,7 +379,9 @@ pub fn should_reject_candidate_region(
 
     // 18. SUPPRESS TRUNCATED MARGIN NOISE FRAGMENTS SLICED AT THE VERY EDGE OF THE IMAGE CANVAS
     let is_margin_flush = cluster_rect.x <= 5 || cluster_rect.x + cluster_rect.w >= page_w as i32 - 5;
-    if !is_bubble && is_margin_flush && (cluster_rect.w <= 75 || cluster_rect.h <= 65) && avg_score < 0.75 {
+    let is_expressive_margin_text = has_narrative_punctuation && char_count >= 3;
+    let is_margin_noise_slice = (cluster_rect.w <= 75 && cluster_rect.h <= 65) || (cluster_rect.w <= 35 && char_count <= 2);
+    if !is_bubble && is_margin_flush && !is_expressive_margin_text && is_margin_noise_slice && avg_score < 0.75 {
         return true;
     }
 
@@ -435,7 +451,7 @@ pub fn should_reject_candidate_region(
 
     // 23. SUPPRESS BACKGROUND MEMORIAL TABLETS, GRAVESTONE INSCRIPTIONS, AND SCENERY SIGNBOARDS
     // ON COMPLEX TEXTURED ARTWORK OUTSIDE SPEECH BUBBLES
-    if !is_bubble && !has_narrative_punctuation {
+    if !is_bubble && !is_card_or_aligned_text && !has_narrative_punctuation {
         let chromatic_var = compute_chromatic_color_variance(img, cluster_rect);
         let mean_lum = compute_mean_luminance(img, cluster_rect);
         let is_textured_dark_scenery = chromatic_var >= 25.0 && mean_lum < 195.0;

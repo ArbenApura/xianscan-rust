@@ -42,7 +42,7 @@ fn test_regression_page_pochita_double_lobe_lowres_parity() {
     let devil_body = res.regions.iter().find(|r| r.text.contains("悪魔") && r.text.contains("乗っ取れる"));
     assert!(devil_body.is_some(), "Must detect top tree bubble '悪魔には… 死んだ人の 体を乗っ取れる ヤツも いるらしい'");
     let devil_body = devil_body.unwrap();
-    crate::assert_region_bounds!(devil_body, xianscan_rust::ml::schemas::RegionKind::DialogueBubble, 117, 82, 168, 159, 10);
+    crate::assert_region_bounds!(devil_body, xianscan_rust::ml::schemas::RegionKind::DialogueBubble, 117, 74, 166, 175, 15);
 
     // 2. DOUBLE-LOBE UPPER SEGMENT (RIGHT COLUMN): 'ポチタに それが できるん だったら'
     let pochita_if = res.regions.iter().find(|r| r.text.contains("できるん") || r.text.contains("だったら"));

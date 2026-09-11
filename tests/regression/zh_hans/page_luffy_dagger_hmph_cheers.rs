@@ -108,7 +108,7 @@ fn test_regression_page_luffy_dagger_hmph_cheers() {
         "'弟兄们，干杯！' / '和我们伟大的旅程干杯！！' bubbles must exist"
     );
     assert!(
-        res.regions.iter().any(|r| r.text.contains("当海盗")),
+        res.regions.iter().any(|r| r.text.replace('\n', "").contains("当海盗")),
         "'我超级想当海盗！！！' bubble must exist"
     );
 }

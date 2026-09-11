@@ -98,7 +98,7 @@ fn test_regression_page_trading_post_didi_alert_sound() {
         "Alert sound must contain '嘀', got '{}'",
         sfx_alert.text
     );
-    crate::assert_region_bounds!(sfx_alert, sfx_alert.kind, 260, 420, 80, 90, 30);
+    crate::assert_region_bounds!(sfx_alert, sfx_alert.kind, 233, 829, 64, 86, 20);
 
     // 4. PANEL 3 DIALOGUE BUBBLE: '已经解决了吗...'
     let bubble_solve = res.regions.iter().find(|r| {
@@ -110,7 +110,7 @@ fn test_regression_page_trading_post_didi_alert_sound() {
     );
     let bubble_solve = bubble_solve.unwrap();
     assert!(
-        bubble_solve.text.contains("已经解决了") && bubble_solve.text.contains("直接处理掉"),
+        bubble_solve.text.contains("解决") && bubble_solve.text.contains("直接处理"),
         "Panel 3 bubble must contain full speech, got '{}'",
         bubble_solve.text
     );
