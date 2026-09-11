@@ -60,10 +60,24 @@ export async function saveCover(
 	const raw = bytes instanceof Uint8Array ? bytes : new Uint8Array(await bytes.arrayBuffer());
 	const jpeg = await encodeCoverJpeg(raw);
 
+	const b = db.select().from(books).where(eq(books.id, bookId)).get();
+	if (b?.coverPath && b.coverPath !== `covers/${bookId}.jpg`) {
+		const abs = join(dataRoot, b.coverPath);
+		if (existsSync(abs)) {
+			try {
+				unlinkSync(abs);
+			} catch {
+				// IGNORE
+			}
+		}
+	}
+
 	const coverDir = join(dataRoot, 'covers');
 	mkdirSync(coverDir, { recursive: true });
 	const coverPath = `covers/${bookId}.jpg`;
 	writeFileSync(join(dataRoot, coverPath), jpeg);
+
+	pruneCoverThumbs(bookId, dataRoot);
 
 	const updated = db
 		.update(books)
@@ -134,9 +148,8 @@ export function pruneCoverThumbs(bookId: string, dataRoot: string = DATA_ROOT): 
 	} catch {
 		return;
 	}
-	const prefix = `${bookId}_`;
 	for (const f of entries) {
-		if (f.startsWith(prefix)) {
+		if (f.startsWith(`${bookId}_dedicated_`) || f.startsWith(`${bookId}_page_`)) {
 			try {
 				unlinkSync(join(coverCacheDir, f));
 			} catch {

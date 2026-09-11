@@ -241,6 +241,8 @@ function createJobTrackerStore() {
 				p.status = 'done';
 				p.currentStep = 'done';
 				if (typeof event.outputPath === 'string') p.outputPath = event.outputPath;
+				p.annotatedPath = undefined;
+				delete (p as any).previewStage;
 				if (typeof event.cleanedRev === 'number') p.cleanedRev = event.cleanedRev;
 				if (typeof event.outputRev === 'number') p.outputRev = event.outputRev;
 				if (typeof event.durationMs === 'number' && Number.isFinite(event.durationMs)) p.totalDurationMs = event.durationMs;

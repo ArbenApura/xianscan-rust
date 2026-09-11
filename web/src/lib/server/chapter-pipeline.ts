@@ -19,7 +19,7 @@
 //   - PER-PAGE ERROR ISOLATION: ONE BAD PAGE MARKS ITSELF 'error' AND THE JOB CONTINUES.
 //   - THE WORK FUNCTION FITS startChapterJob() (translation-service) — signal + emit.
 //   - ALL FILE PATHS ARE RELATIVE TO dataRoot (web/data/); THE API LAYER PASSES IT.
-import { mkdirSync, readFileSync, writeFileSync, unlinkSync } from 'node:fs';
+import { mkdirSync, readFileSync, writeFileSync, unlinkSync, existsSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import type OpenAI from 'openai';
 // IMPORTED ENVS ($env/...)
@@ -30,6 +30,7 @@ import { and, asc, desc, eq, inArray, lt, sql } from 'drizzle-orm';
 // IMPORTED TYPES
 import type { TranslationUsage, PipelineStep, LangPair, TermDraft } from '$lib/types';
 // IMPORTED MODULES
+import { detectSourceLanguage } from '$lib/languages';
 import { addNewTerms } from './glossary';
 import { matchTerms } from './glossary-match';
 import type { JobEvent } from './translation-service';
@@ -41,9 +42,9 @@ import { isRetryable } from './llm';
 import { getCachedPageTranslation, pageCacheKey, savePageTranslation } from './cache';
 import { ChapterDialogueTracker, computePositionTag, parseKindFromBox, type PageDialogueRecord } from './translate/dialogue-tracker';
 import { typesetPage, type TypesetOptions } from './typeset';
-import { detectSourceLanguage } from '$lib/languages';
 import { detectImageFormat, isAnimatedWebP } from './chapters/dimensions';
-import { prunePageThumbs } from './chapters/mutations';
+import { prunePageThumbs, pruneMultiplePageThumbs } from './chapters/mutations';
+import { pruneCoverThumbs } from './covers';
 import { syncBus } from './sync-bus';
 import { getCanonicalSettings } from './settings-service';
 import { renderAnnotatedOcrImage } from './annotated-preview';
@@ -256,9 +257,12 @@ export async function runChapterPipeline(
 		.orderBy(asc(pages.seq))
 		.all();
 
-	for (const page of initialPageRows) {
-		const isExplicitTarget = targetIdSet ? targetIdSet.has(page.id) : Boolean(deps.force);
-		if (isExplicitTarget) {
+	const pagesToClean = initialPageRows.filter((page) =>
+		targetIdSet ? targetIdSet.has(page.id) : Boolean(deps.force),
+	);
+
+	if (pagesToClean.length > 0) {
+		for (const page of pagesToClean) {
 			if (page.cleanedPath) {
 				try {
 					unlinkSync(join(deps.dataRoot, page.cleanedPath));
@@ -280,7 +284,6 @@ export async function runChapterPipeline(
 					// IGNORE IF FILE MISSING
 				}
 			}
-			prunePageThumbs(page.id, deps.dataRoot);
 			db.delete(translations).where(eq(translations.pageId, page.id)).run();
 			db.delete(regions).where(eq(regions.pageId, page.id)).run();
 			db.update(pages)
@@ -297,6 +300,15 @@ export async function runChapterPipeline(
 				})
 				.where(eq(pages.id, page.id))
 				.run();
+		}
+
+		pruneMultiplePageThumbs(
+			pagesToClean.map((p) => p.id),
+			deps.dataRoot,
+		);
+
+		if (chapter.bookId) {
+			pruneCoverThumbs(chapter.bookId, deps.dataRoot);
 		}
 	}
 
@@ -1414,14 +1426,30 @@ export async function runChapterPipeline(
 				retryAttempt: attempt > 0 ? attempt : undefined,
 				stepDetails: attempt > 0 ? { retryAttempt: attempt } : undefined,
 			});
+			// CLEAN UP TRANSIENT ANNOTATED OCR PREVIEW IMAGE SINCE OUTPUT IS READY
+			const annotatedRel = `annotated/${chapterId}/${page.seq}.webp`;
+			const annotatedAbs = join(deps.dataRoot, annotatedRel);
+			if (existsSync(annotatedAbs)) {
+				try {
+					unlinkSync(annotatedAbs);
+				} catch {
+					// NON-FATAL IF ALREADY REMOVED
+				}
+			}
+
+			// PRUNE STALE PAGE THUMBNAILS TO PREVENT ACCUMULATION
+			prunePageThumbs(page.id, deps.dataRoot);
+
 			db.update(pages)
 				.set({
 					status: 'done',
 					error: pageWarning,
 					cleanedPath: cleanPath,
 					outputPath,
+					annotatedPath: null,
 					cleanedRev: sql`${pages.cleanedRev} + 1`,
 					outputRev: sql`${pages.outputRev} + 1`,
+					annotatedRev: sql`${pages.annotatedRev} + 1`,
 					width: analyzed.width,
 					height: analyzed.height,
 				})
@@ -1444,6 +1472,7 @@ export async function runChapterPipeline(
 				.where(eq(pages.id, page.id))
 				.get();
 			slot.page.outputPath = outputPath;
+			slot.page.annotatedPath = null;
 			slot.totalDurationMs = performance.now() - pageT0;
 			slot.outcome = 'done';
 			// EAGERLY DISCARD COMPLETED PAGE BUFFERS TO PREVENT NATIVE MEMORY RETENTION
@@ -1543,7 +1572,24 @@ export async function runChapterPipeline(
 				stepStatus: 'failed',
 				stepDetails: { error: message },
 			});
-			db.update(pages).set({ status: 'error', error: message }).where(eq(pages.id, page.id)).run();
+			// CLEAN UP TRANSIENT PREVIEW FILE IF THIS PAGE HAD ONE
+			const pageAnnotatedFile = join(deps.dataRoot, 'annotated', String(chapterId), `${page.seq}.webp`);
+			if (existsSync(pageAnnotatedFile)) {
+				try {
+					unlinkSync(pageAnnotatedFile);
+				} catch {
+					// NON-FATAL
+				}
+			}
+
+			db.update(pages)
+				.set({
+					status: 'error',
+					error: message,
+					annotatedPath: null,
+				})
+				.where(eq(pages.id, page.id))
+				.run();
 			slots[i].outcome = 'error';
 			slots[i].failedStep = failedStep;
 			slots[i].message = message;
@@ -1594,6 +1640,26 @@ export async function runChapterPipeline(
 	}
 
 	if (signal.aborted) {
+		// CLEAN UP ANY PARTIAL ANNOTATED PREVIEWS DIRECTORY IF ABORTED
+		const chapterAnnotatedDir = join(deps.dataRoot, 'annotated', String(chapterId));
+		if (existsSync(chapterAnnotatedDir)) {
+			try {
+				rmSync(chapterAnnotatedDir, { recursive: true, force: true });
+			} catch {
+				// NON-FATAL
+			}
+		}
+
+		// NULLIFY ANNOTATED PATHS IN DATABASE FOR THIS CHAPTER IF ABORTED
+		try {
+			db.update(pages)
+				.set({ annotatedPath: null })
+				.where(eq(pages.chapterId, chapterId))
+				.run();
+		} catch {
+			// NON-FATAL
+		}
+
 		const abortErr = new Error('The operation was aborted');
 		abortErr.name = 'AbortError';
 		throw abortErr;
@@ -1601,13 +1667,23 @@ export async function runChapterPipeline(
 
 	// UPDATE CHAPTER FINAL STATUS & TRANSLATED TIMESTAMP
 	const finalPages = db
-		.select({ status: pages.status, outputPath: pages.outputPath })
+		.select({ id: pages.id, status: pages.status, outputPath: pages.outputPath })
 		.from(pages)
 		.where(eq(pages.chapterId, chapterId))
 		.all();
 	const anyError = finalPages.some((p) => p.status === 'error');
 	const allDone = !anyError && finalPages.length > 0 && finalPages.every((p) => p.status === 'done');
 	const finalStatus = anyError ? 'error' : allDone ? 'done' : 'pending';
+
+	// NULLIFY ANNOTATED PATH IN DATABASE FOR PAGES THAT COMPLETED OR FAILED
+	const nonProcessingPages = finalPages.filter((p) => p.status === 'done' || p.status === 'error');
+	if (nonProcessingPages.length > 0) {
+		const targetIds = nonProcessingPages.map((p) => p.id);
+		db.update(pages)
+			.set({ annotatedPath: null })
+			.where(inArray(pages.id, targetIds))
+			.run();
+	}
 
 	db.update(chapters)
 		.set({
@@ -1616,6 +1692,16 @@ export async function runChapterPipeline(
 		})
 		.where(eq(chapters.id, chapterId))
 		.run();
+
+	// REMOVE ANY REMAINING ANNOTATED PREVIEWS DIRECTORY FOR THIS CHAPTER
+	const chapterAnnotatedDir = join(deps.dataRoot, 'annotated', String(chapterId));
+	if (existsSync(chapterAnnotatedDir)) {
+		try {
+			rmSync(chapterAnnotatedDir, { recursive: true, force: true });
+		} catch {
+			// NON-FATAL
+		}
+	}
 
 	syncBus.broadcast({
 		type: 'chapter-translated',

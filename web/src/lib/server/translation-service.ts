@@ -142,7 +142,7 @@ function findTargetPage(pages: PageProgressState[], pageIdx?: number, pageId?: n
 	return undefined;
 }
 
-function updateSnapshot(snapshot: ChapterJobSnapshot, event: JobEvent): void {
+export function updateSnapshot(snapshot: ChapterJobSnapshot, event: JobEvent): void {
 	const now = event.timestamp ?? Date.now();
 
 	if (event.type === 'start') {
@@ -310,6 +310,8 @@ function updateSnapshot(snapshot: ChapterJobSnapshot, event: JobEvent): void {
 			p.status = 'done';
 			p.currentStep = 'done';
 			p.outputPath = event.outputPath ?? p.outputPath;
+			(p as any).annotatedPath = undefined;
+			delete (p as any).previewStage;
 			if (event.cleanedRev !== undefined) p.cleanedRev = event.cleanedRev;
 			if (event.outputRev !== undefined) p.outputRev = event.outputRev;
 			if (typeof event.durationMs === 'number' && Number.isFinite(event.durationMs)) {
@@ -691,6 +693,15 @@ export function clearChapterJob(chapterId: number): void {
 		jobs.delete(key);
 	}
 	retainedSnapshots.delete(key);
+}
+
+export function clearAllChapterJobs(): void {
+	for (const [, active] of jobs) {
+		active.controller.abort();
+		active.listeners.clear();
+	}
+	jobs.clear();
+	retainedSnapshots.clear();
 }
 
 export function getChapterJobSnapshot(chapterId: number): ChapterJobSnapshot | null {

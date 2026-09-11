@@ -228,6 +228,11 @@ export function deletePage(pageId: number, dataRoot: string = DATA_ROOT): { chap
 	compactChapterPageSeqs(chapterId);
 	markChapterResliceDirty(chapterId);
 
+	const ch = db.select({ bookId: chapters.bookId }).from(chapters).where(eq(chapters.id, chapterId)).get();
+	if (ch) {
+		pruneCoverThumbs(ch.bookId, dataRoot);
+	}
+
 	return { chapterId, seq: deletedSeq };
 }
 
@@ -318,6 +323,11 @@ export function resetPageProgress(pageId: number, dataRoot: string = DATA_ROOT):
 				.where(eq(chapters.id, pageRow.chapterId))
 				.run();
 		}
+
+		const ch = db.select({ bookId: chapters.bookId }).from(chapters).where(eq(chapters.id, pageRow.chapterId)).get();
+		if (ch) {
+			pruneCoverThumbs(ch.bookId, dataRoot);
+		}
 	}
 }
 
@@ -332,7 +342,7 @@ export function resetChapterProgress(chapterId: number, dataRoot: string = DATA_
 		try {
 			rmSync(dir, { recursive: true, force: true });
 		} catch {
-			// ignore
+			// IGNORE
 		}
 	}
 
@@ -345,6 +355,12 @@ export function resetChapterProgress(chapterId: number, dataRoot: string = DATA_
 		})
 		.where(eq(chapters.id, chapterId))
 		.run();
+
+	const ch = db.select({ bookId: chapters.bookId }).from(chapters).where(eq(chapters.id, chapterId)).get();
+	if (ch) {
+		pruneCoverThumbs(ch.bookId, dataRoot);
+	}
+
 	return rows.length;
 }
 
@@ -360,6 +376,9 @@ export function resetAllBookProgress(bookId: string, dataRoot: string = DATA_ROO
 	for (const ch of chapterRows) {
 		pagesReset += resetChapterProgress(ch.id, dataRoot);
 	}
+
+	pruneCoverThumbs(bookId, dataRoot);
+
 	return { chaptersReset: chapterRows.length, pagesReset };
 }
 
@@ -408,6 +427,11 @@ export async function deleteAllChapterPages(
 		} catch {
 			// IGNORE
 		}
+	}
+
+	const ch = db.select({ bookId: chapters.bookId }).from(chapters).where(eq(chapters.id, chapterId)).get();
+	if (ch) {
+		pruneCoverThumbs(ch.bookId, dataRoot);
 	}
 
 	return { deletedCount: pageRows.length };

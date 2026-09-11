@@ -1,6 +1,6 @@
 // IMPORTED DEP-MODULES
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import { mkdtempSync, rmSync, existsSync, readFileSync } from 'node:fs';
+import { mkdtempSync, rmSync, existsSync, readFileSync, mkdirSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createCanvas, loadImage } from '@napi-rs/canvas';
@@ -135,4 +135,28 @@ describe('book cover storage', () => {
 		seedBook(getTestDb(), { id: 'b1' });
 		await expect(saveCover('b1', new Uint8Array([1, 2, 3, 4]), dir)).rejects.toThrow(/Unsupported or corrupt image/);
 	});
+
+	it('prunes stale cached cover thumbnails when uploading or replacing a cover', async () => {
+		const db = getTestDb();
+		seedBook(db, { id: 'b1' });
+
+		const cacheDir = join(dir, 'cache', 'covers');
+		mkdirSync(cacheDir, { recursive: true });
+
+		const oldThumb1 = join(cacheDir, 'b1_page_0_320.jpg');
+		const oldThumb2 = join(cacheDir, 'b1_dedicated_1_140.jpg');
+		writeFileSync(oldThumb1, 'old_page_thumb');
+		writeFileSync(oldThumb2, 'old_dedicated_thumb');
+
+		expect(existsSync(oldThumb1)).toBe(true);
+		expect(existsSync(oldThumb2)).toBe(true);
+
+		await saveCover('b1', jpegBytes(), dir);
+
+		// OLD THUMBNAILS MUST BE PRUNED TO PREVENT ORPHAN ARTIFACTS
+		expect(existsSync(oldThumb1)).toBe(false);
+		expect(existsSync(oldThumb2)).toBe(false);
+		expect(existsSync(join(dir, 'covers', 'b1.jpg'))).toBe(true);
+	});
 });
+

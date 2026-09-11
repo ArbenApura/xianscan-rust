@@ -7,7 +7,15 @@ import { eq } from 'drizzle-orm';
 // IMPORTED MODULES
 import { getTestDb, resetDb, seedBook, seedChapter, seedPage } from '../helpers/db';
 import { books, chapters, pages } from '$lib/server/db/schema';
-import { deleteBook, deleteChapter, deleteAllChapterPages } from '$lib/server/chapters';
+import {
+	deleteBook,
+	deleteChapter,
+	deletePage,
+	deleteAllChapterPages,
+	resetPageProgress,
+	resetChapterProgress,
+	resetAllBookProgress,
+} from '$lib/server/chapters';
 import { deleteCover, pruneCoverThumbs } from '$lib/server/covers';
 
 vi.mock('$lib/server/db', async () => ({ db: (await import('../helpers/db')).getTestDb() }));
@@ -95,6 +103,145 @@ describe('chapter deletion disk cleanup', () => {
 		await deleteAllChapterPages(chapter.id, dir);
 
 		expect(existsSync(join(dir, 'annotated', String(chapter.id)))).toBe(false);
+	});
+});
+
+describe('individual page deletion disk cleanup', () => {
+	it('permanently unlinks page files, thumbnail cache, and invalidates cover cache on deletePage', () => {
+		const db = getTestDb();
+		const book = seedBook(db, { id: 'b_page_del' });
+		const chapter = seedChapter(db, { bookId: book.id, seq: 0 });
+		const page = seedPage(db, {
+			chapterId: chapter.id,
+			seq: 0,
+			filePath: `uploads/${chapter.id}/p0.webp`,
+			cleanedPath: `clean/${chapter.id}/p0_clean.png`,
+			outputPath: `output/${chapter.id}/p0_out.png`,
+			annotatedPath: `annotated/${chapter.id}/p0_ann.png`,
+		});
+
+		for (const folder of ['uploads', 'clean', 'output', 'annotated']) {
+			mkdirSync(join(dir, folder, String(chapter.id)), { recursive: true });
+		}
+		mkdirSync(join(dir, 'cache', 'thumbs'), { recursive: true });
+		mkdirSync(join(dir, 'cache', 'covers'), { recursive: true });
+
+		writeFileSync(join(dir, page.filePath), 'upload');
+		writeFileSync(join(dir, page.cleanedPath!), 'clean');
+		writeFileSync(join(dir, page.outputPath!), 'output');
+		writeFileSync(join(dir, page.annotatedPath!), 'annotated');
+		const pageThumb = join(dir, 'cache', 'thumbs', `${page.id}_0_200.jpg`);
+		const coverThumb = join(dir, 'cache', 'covers', `${book.id}_page_1_300.jpg`);
+		writeFileSync(pageThumb, 'page_thumb');
+		writeFileSync(coverThumb, 'cover_thumb');
+
+		deletePage(page.id, dir);
+
+		expect(existsSync(join(dir, page.filePath))).toBe(false);
+		expect(existsSync(join(dir, page.cleanedPath!))).toBe(false);
+		expect(existsSync(join(dir, page.outputPath!))).toBe(false);
+		expect(existsSync(join(dir, page.annotatedPath!))).toBe(false);
+		expect(existsSync(pageThumb)).toBe(false);
+		expect(existsSync(coverThumb)).toBe(false);
+		expect(db.select().from(pages).where(eq(pages.id, page.id)).get()).toBeUndefined();
+	});
+});
+
+describe('clear progress disk cleanup', () => {
+	it('cleans up clean, output, annotated, and thumbs on resetPageProgress while preserving original upload', () => {
+		const db = getTestDb();
+		const book = seedBook(db, { id: 'b_reset_page' });
+		const chapter = seedChapter(db, { bookId: book.id, seq: 0 });
+		const page = seedPage(db, {
+			chapterId: chapter.id,
+			seq: 0,
+			filePath: `uploads/${chapter.id}/p0.webp`,
+			cleanedPath: `clean/${chapter.id}/p0_clean.png`,
+			outputPath: `output/${chapter.id}/p0_out.png`,
+			annotatedPath: `annotated/${chapter.id}/p0_ann.png`,
+		});
+
+		for (const folder of ['uploads', 'clean', 'output', 'annotated']) {
+			mkdirSync(join(dir, folder, String(chapter.id)), { recursive: true });
+		}
+		mkdirSync(join(dir, 'cache', 'thumbs'), { recursive: true });
+
+		writeFileSync(join(dir, page.filePath), 'original');
+		writeFileSync(join(dir, page.cleanedPath!), 'clean');
+		writeFileSync(join(dir, page.outputPath!), 'output');
+		writeFileSync(join(dir, page.annotatedPath!), 'annotated');
+		const pageThumb = join(dir, 'cache', 'thumbs', `${page.id}_0_200.jpg`);
+		writeFileSync(pageThumb, 'thumb');
+
+		resetPageProgress(page.id, dir);
+
+		// ORIGINAL PRESERVED
+		expect(existsSync(join(dir, page.filePath))).toBe(true);
+		// DERIVED ARTIFACTS PURGED
+		expect(existsSync(join(dir, page.cleanedPath!))).toBe(false);
+		expect(existsSync(join(dir, page.outputPath!))).toBe(false);
+		expect(existsSync(join(dir, page.annotatedPath!))).toBe(false);
+		expect(existsSync(pageThumb)).toBe(false);
+	});
+
+	it('purges chapter clean, output, annotated folders, and thumbs on resetChapterProgress', () => {
+		const db = getTestDb();
+		const book = seedBook(db, { id: 'b_reset_chap' });
+		const chapter = seedChapter(db, { bookId: book.id, seq: 0 });
+		const page = seedPage(db, {
+			chapterId: chapter.id,
+			seq: 0,
+			filePath: `uploads/${chapter.id}/p0.webp`,
+			outputPath: `output/${chapter.id}/p0_out.png`,
+		});
+
+		for (const folder of ['uploads', 'clean', 'output', 'annotated']) {
+			mkdirSync(join(dir, folder, String(chapter.id)), { recursive: true });
+		}
+		mkdirSync(join(dir, 'cache', 'thumbs'), { recursive: true });
+		mkdirSync(join(dir, 'cache', 'covers'), { recursive: true });
+
+		writeFileSync(join(dir, page.filePath), 'original');
+		writeFileSync(join(dir, page.outputPath!), 'out');
+		const pageThumb = join(dir, 'cache', 'thumbs', `${page.id}_0_200.jpg`);
+		const coverThumb = join(dir, 'cache', 'covers', `${book.id}_page_1_300.jpg`);
+		writeFileSync(pageThumb, 'thumb');
+		writeFileSync(coverThumb, 'cover_thumb');
+
+		resetChapterProgress(chapter.id, dir);
+
+		expect(existsSync(join(dir, page.filePath))).toBe(true);
+		expect(existsSync(join(dir, 'clean', String(chapter.id)))).toBe(false);
+		expect(existsSync(join(dir, 'output', String(chapter.id)))).toBe(false);
+		expect(existsSync(join(dir, 'annotated', String(chapter.id)))).toBe(false);
+		expect(existsSync(pageThumb)).toBe(false);
+		expect(existsSync(coverThumb)).toBe(false);
+	});
+
+	it('purges all chapters clean, output, annotated folders on resetAllBookProgress', () => {
+		const db = getTestDb();
+		const book = seedBook(db, { id: 'b_reset_all' });
+		const ch1 = seedChapter(db, { bookId: book.id, seq: 0 });
+		const ch2 = seedChapter(db, { bookId: book.id, seq: 1 });
+
+		for (const cid of [ch1.id, ch2.id]) {
+			for (const folder of ['uploads', 'clean', 'output', 'annotated']) {
+				mkdirSync(join(dir, folder, String(cid)), { recursive: true });
+			}
+		}
+		mkdirSync(join(dir, 'cache', 'covers'), { recursive: true });
+		const coverThumb = join(dir, 'cache', 'covers', `${book.id}_page_1_300.jpg`);
+		writeFileSync(coverThumb, 'cover_thumb');
+
+		const res = resetAllBookProgress(book.id, dir);
+		expect(res.chaptersReset).toBe(2);
+
+		for (const cid of [ch1.id, ch2.id]) {
+			expect(existsSync(join(dir, 'clean', String(cid)))).toBe(false);
+			expect(existsSync(join(dir, 'output', String(cid)))).toBe(false);
+			expect(existsSync(join(dir, 'annotated', String(cid)))).toBe(false);
+		}
+		expect(existsSync(coverThumb)).toBe(false);
 	});
 });
 
@@ -253,3 +400,45 @@ describe('API routes deletion endpoints', () => {
 	});
 });
 
+describe('retranslate disk cleanup', () => {
+	it('purges derived files and caches when retranslating', async () => {
+		const db = getTestDb();
+		const book = seedBook(db, { id: 'b_retranslate' });
+		const chapter = seedChapter(db, { bookId: book.id, seq: 0 });
+		const page = seedPage(db, {
+			chapterId: chapter.id,
+			seq: 0,
+			filePath: `uploads/${chapter.id}/p0.webp`,
+			cleanedPath: `clean/${chapter.id}/p0_clean.png`,
+			outputPath: `output/${chapter.id}/p0_out.png`,
+			annotatedPath: `annotated/${chapter.id}/p0_ann.png`,
+		});
+
+		for (const folder of ['uploads', 'clean', 'output', 'annotated']) {
+			mkdirSync(join(dir, folder, String(chapter.id)), { recursive: true });
+		}
+		mkdirSync(join(dir, 'cache', 'thumbs'), { recursive: true });
+		mkdirSync(join(dir, 'cache', 'covers'), { recursive: true });
+
+		writeFileSync(join(dir, page.filePath), 'upload');
+		writeFileSync(join(dir, page.cleanedPath!), 'clean');
+		writeFileSync(join(dir, page.outputPath!), 'output');
+		writeFileSync(join(dir, page.annotatedPath!), 'annotated');
+
+		const pageThumb = join(dir, 'cache', 'thumbs', `${page.id}_0_200.jpg`);
+		const coverThumb = join(dir, 'cache', 'covers', `${book.id}_page_1_300.jpg`);
+		writeFileSync(pageThumb, 'page_thumb');
+		writeFileSync(coverThumb, 'cover_thumb');
+
+		// CALL SINGLE-PAGE TRANSLATE PRE-CLEANUP WHICH CALLS resetPageProgress
+		resetPageProgress(page.id, dir);
+
+		// VERIFY ORIGINAL IS PRESERVED BUT DERIVED ARTIFACTS ARE PERMANENTLY UNLINKED
+		expect(existsSync(join(dir, page.filePath))).toBe(true);
+		expect(existsSync(join(dir, page.cleanedPath!))).toBe(false);
+		expect(existsSync(join(dir, page.outputPath!))).toBe(false);
+		expect(existsSync(join(dir, page.annotatedPath!))).toBe(false);
+		expect(existsSync(pageThumb)).toBe(false);
+		expect(existsSync(coverThumb)).toBe(false);
+	});
+});

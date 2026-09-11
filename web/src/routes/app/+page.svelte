@@ -37,12 +37,14 @@
 	import Upload from 'lucide-svelte/icons/upload';
 	import Settings from 'lucide-svelte/icons/settings';
 	import ScrollText from 'lucide-svelte/icons/scroll-text';
+	import HardDrive from 'lucide-svelte/icons/hard-drive';
 	// IMPORTED COMPONENTS
 	import SettingsModal from '$lib/components/SettingsModal.svelte';
 	import BookMetadataFields from '$lib/components/book/BookMetadataFields.svelte';
 	import BookCoverPicker from '$lib/components/book/BookCoverPicker.svelte';
 	import BookDropImportModal from '$lib/components/book/BookDropImportModal.svelte';
 	import BookDirectivesModal from '$lib/components/book/BookDirectivesModal.svelte';
+	import BookStorageModal from '$lib/components/book/BookStorageModal.svelte';
 	import { apiJson } from '$lib/api';
 	import { validateForm } from '$lib/utils/form';
 	import { BOOK_STATUSES, createBookSchema, updateBookSchema } from '$lib/schemas';
@@ -498,6 +500,15 @@
 	// BOOK LOCALIZATION DIRECTIVES & GLOSSARY
 	let directivesBook: Book | null = null;
 	let directivesModalOpen = false;
+
+	// BOOK STORAGE BREAKDOWN & MAINTENANCE
+	let storageBook: Book | null = null;
+	let storageModalOpen = false;
+
+	function openBookStorage(book: Book) {
+		storageBook = book;
+		storageModalOpen = true;
+	}
 
 	function openDirectivesModal(book: Book) {
 		directivesBook = book;
@@ -1068,6 +1079,7 @@
 												{ value: 'open', label: 'Open Book', icon: ExternalLink },
 												{ value: 'glossary', label: 'Glossary', icon: BookOpen },
 												{ value: 'directives', label: 'Directives', icon: ScrollText },
+												{ value: 'storage', label: 'Storage & Files', icon: HardDrive },
 												{ value: 'edit', label: 'Edit Book Details', icon: Pencil },
 												{ value: 'pin', label: book.pinned ? 'Unpin from Top' : 'Pin to Top', icon: Pin },
 												{ value: 'archive', label: book.archived ? 'Unarchive Book' : 'Archive Book', icon: Archive },
@@ -1078,6 +1090,7 @@
 												if (e.detail === 'open') goto(`/app/books/${book.id}/`);
 												else if (e.detail === 'glossary') openBookGlossary(book);
 												else if (e.detail === 'directives') openDirectivesModal(book);
+												else if (e.detail === 'storage') openBookStorage(book);
 												else if (e.detail === 'edit') openEditBook(book);
 												else if (e.detail === 'pin') togglePin(book);
 												else if (e.detail === 'archive') toggleArchive(book);
@@ -1245,6 +1258,7 @@
 								{ value: 'open', label: 'Open Book', icon: ExternalLink },
 								{ value: 'glossary', label: 'Glossary', icon: BookOpen },
 								{ value: 'directives', label: 'Directives', icon: ScrollText },
+								{ value: 'storage', label: 'Storage & Files', icon: HardDrive },
 								{ value: 'edit', label: 'Edit Book Details', icon: Pencil },
 								{ value: 'pin', label: book.pinned ? 'Unpin from Top' : 'Pin to Top', icon: Pin },
 								{ value: 'archive', label: book.archived ? 'Unarchive Book' : 'Archive Book', icon: Archive },
@@ -1255,6 +1269,7 @@
 								if (e.detail === 'open') goto(`/app/books/${book.id}/`);
 								else if (e.detail === 'glossary') openBookGlossary(book);
 								else if (e.detail === 'directives') openDirectivesModal(book);
+								else if (e.detail === 'storage') openBookStorage(book);
 								else if (e.detail === 'edit') openEditBook(book);
 								else if (e.detail === 'pin') togglePin(book);
 								else if (e.detail === 'archive') toggleArchive(book);
@@ -1319,6 +1334,7 @@
 								{ value: 'open', label: 'Open Book', icon: ExternalLink },
 								{ value: 'glossary', label: 'Glossary', icon: BookOpen },
 								{ value: 'directives', label: 'Directives', icon: ScrollText },
+								{ value: 'storage', label: 'Storage & Files', icon: HardDrive },
 								{ value: 'edit', label: 'Edit Book Details', icon: Pencil },
 								{ value: 'pin', label: book.pinned ? 'Unpin from Top' : 'Pin to Top', icon: Pin },
 								{ value: 'archive', label: book.archived ? 'Unarchive Book' : 'Archive Book', icon: Archive },
@@ -1329,6 +1345,7 @@
 								if (e.detail === 'open') goto(`/app/books/${book.id}/`);
 								else if (e.detail === 'glossary') openBookGlossary(book);
 								else if (e.detail === 'directives') openDirectivesModal(book);
+								else if (e.detail === 'storage') openBookStorage(book);
 								else if (e.detail === 'edit') openEditBook(book);
 								else if (e.detail === 'pin') togglePin(book);
 								else if (e.detail === 'archive') toggleArchive(book);
@@ -1424,6 +1441,7 @@
 											{ value: 'open', label: 'Open Book', icon: ExternalLink },
 											{ value: 'glossary', label: 'Glossary', icon: BookOpen },
 											{ value: 'directives', label: 'Directives', icon: ScrollText },
+											{ value: 'storage', label: 'Storage & Files', icon: HardDrive },
 											{ value: 'edit', label: 'Edit Book Details', icon: Pencil },
 											{ value: 'pin', label: book.pinned ? 'Unpin from Top' : 'Pin to Top', icon: Pin },
 											{ value: 'archive', label: book.archived ? 'Unarchive Book' : 'Archive Book', icon: Archive },
@@ -1434,6 +1452,7 @@
 											if (e.detail === 'open') goto(`/app/books/${book.id}/`);
 											else if (e.detail === 'glossary') openBookGlossary(book);
 											else if (e.detail === 'directives') openDirectivesModal(book);
+											else if (e.detail === 'storage') openBookStorage(book);
 											else if (e.detail === 'edit') openEditBook(book);
 											else if (e.detail === 'pin') togglePin(book);
 											else if (e.detail === 'archive') toggleArchive(book);
@@ -1646,6 +1665,15 @@
 		book={directivesBook}
 		on:saved={handleDirectivesSaved}
 		on:close={() => (directivesModalOpen = false)}
+	/>
+{/if}
+
+<!-- BOOK STORAGE BREAKDOWN & MAINTENANCE MODAL -->
+{#if storageBook}
+	<BookStorageModal
+		bind:open={storageModalOpen}
+		bookId={storageBook.id}
+		bookTitle={storageBook.titleTarget || storageBook.title}
 	/>
 {/if}
 
