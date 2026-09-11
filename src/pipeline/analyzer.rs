@@ -11,7 +11,7 @@ use crate::ml::schemas::{
 };
 use super::engine::PipelineEngine;
 use super::fusion::fuse_detections;
-use super::region_builder::{build_regions, extract_dark_bubble_envelope};
+use super::region_builder::{build_regions, extract_dark_bubble_envelope, extract_white_bubble_envelope};
 
 // -- FUNCTIONS & ALGORITHMS -- //
 
@@ -257,7 +257,55 @@ pub fn analyze_image_with_fusion_timed(
     let mut effective_text_bubbles: Vec<(crate::ml::schemas::BoxRect, f32)> = fusion_res.text_bubbles.clone();
 
     if is_zh {
-        // RECOVER DARK BUBBLE CONTAINERS AND CANDIDATES FOR INVERTED DIALOGUE OCR LINES
+        // 1. RECOVER WHITE SPEECH BUBBLE CONTAINERS FOR DETECTOR TEXT BUBBLES OUTSIDE ANY DETECTED BUBBLE
+        for (tb, tb_score) in &effective_text_bubbles {
+            if *tb_score < 0.65 {
+                continue;
+            }
+            let in_existing_bubble = effective_bubbles.iter().any(|pb| {
+                let ix = (pb.x + pb.w).min(tb.x + tb.w) - pb.x.max(tb.x);
+                let iy = (pb.y + pb.h).min(tb.y + tb.h) - pb.y.max(tb.y);
+                ix > 0 && iy > 0 && (ix * iy) as f32 / (tb.w * tb.h).max(1) as f32 >= 0.50
+            });
+            if in_existing_bubble {
+                continue;
+            }
+
+            let has_dialogue_marker = filtered_rapid_lines.iter().any(|l| {
+                let (lx, ly, lw, lh) = crate::ml::geometry::polygon_bounds(&l.polygon);
+                let ix = (tb.x + tb.w).min(lx + lw) - tb.x.max(lx);
+                let iy = (tb.y + tb.h).min(ly + lh) - tb.y.max(ly);
+                if ix > 0 && iy > 0 && (ix * iy) as f32 / (lw * lh).max(1) as f32 >= 0.40 {
+                    l.text.chars().any(|c| matches!(c, '！' | '!' | '？' | '?' | '“' | '”' | '「' | '」' | '…'))
+                        || crate::ml::detect::is_onomatopoeia_or_shout(&l.text)
+                } else {
+                    false
+                }
+            });
+            if !has_dialogue_marker {
+                continue;
+            }
+
+            if let Some(white_b) = extract_white_bubble_envelope(img, tb.x, tb.y, tb.w, tb.h, page_w, page_h) {
+                if let Some(pos) = effective_bubbles.iter().position(|eb| {
+                    let ix = (eb.x + eb.w).min(white_b.x + white_b.w) - eb.x.max(white_b.x);
+                    let iy = (eb.y + eb.h).min(white_b.y + white_b.h) - eb.y.max(white_b.y);
+                    ix > 0 && iy > 0 && (ix * iy) as f32 / ((eb.w * eb.h).min(white_b.w * white_b.h)).max(1) as f32 >= 0.35
+                }) {
+                    let eb = &mut effective_bubbles[pos];
+                    let min_x = eb.x.min(white_b.x);
+                    let min_y = eb.y.min(white_b.y);
+                    let max_x = (eb.x + eb.w).max(white_b.x + white_b.w);
+                    let max_y = (eb.y + eb.h).max(white_b.y + white_b.h);
+                    eb.x = min_x;
+                    eb.y = min_y;
+                    eb.w = max_x - min_x;
+                    eb.h = max_y - min_y;
+                } else {
+                    effective_bubbles.push(white_b);
+                }
+            }
+        }
 
         // 2. RECOVER DARK BUBBLE CONTAINERS AND CANDIDATES FOR UNASSIGNED INVERTED OCR LINES
         for line in &filtered_rapid_lines {

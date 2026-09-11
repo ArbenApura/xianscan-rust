@@ -809,3 +809,182 @@ pub fn extract_dark_bubble_envelope(
         h: final_h,
     })
 }
+
+/// EXTRACTS THE ENVELOPE OF A WHITE SPEECH BUBBLE (DARK TEXT ON WHITE OR LIGHT BACKGROUND).
+/// USES MULTI-RAY PROFILE SCANNING RADIATING OUTWARD FROM THE TEXT BOX BOUNDS.
+pub fn extract_white_bubble_envelope(
+    img: &DynamicImage,
+    bx: i32,
+    by: i32,
+    bw: i32,
+    bh: i32,
+    page_w: u32,
+    page_h: u32,
+) -> Option<BoxRect> {
+    if bw < 8 || bh < 8 || bx < 0 || by < 0 || bx + bw > page_w as i32 || by + bh > page_h as i32 {
+        return None;
+    }
+
+    let rgb_img = img.to_rgb8();
+
+    // 1. SAMPLE INSIDE THE TEXT BOX TO VERIFY WHITE INTERIOR
+    let sample_step_x = (bw / 20).max(1);
+    let sample_step_y = (bh / 20).max(1);
+    let mut white_pixels = 0usize;
+    let mut dark_stroke_pixels = 0usize;
+    let mut total_sampled = 0usize;
+    let mut sat_sum = 0.0f32;
+
+    for y in (by..(by + bh)).step_by(sample_step_y as usize) {
+        for x in (bx..(bx + bw)).step_by(sample_step_x as usize) {
+            let p = rgb_img.get_pixel(x as u32, y as u32);
+            let lum = (0.299 * p[0] as f32 + 0.587 * p[1] as f32 + 0.114 * p[2] as f32) as u8;
+            if lum > 200 {
+                white_pixels += 1;
+            } else if lum < 100 {
+                dark_stroke_pixels += 1;
+            }
+            let max_c = p[0].max(p[1]).max(p[2]) as f32;
+            let min_c = p[0].min(p[1]).min(p[2]) as f32;
+            let sat = if max_c > 0.0 { (max_c - min_c) / max_c * 100.0 } else { 0.0 };
+            sat_sum += sat;
+            total_sampled += 1;
+        }
+    }
+
+    if total_sampled == 0 {
+        return None;
+    }
+
+    let white_ratio = white_pixels as f32 / total_sampled as f32;
+    let avg_sat = sat_sum / total_sampled as f32;
+
+    if white_ratio < 0.50 || dark_stroke_pixels == 0 || avg_sat > 25.0 {
+        return None;
+    }
+
+    // 2. MULTI-RAY ENVELOPE SCANNING
+    let max_pad = ((bw.max(bh) as f32 * 1.5).round() as i32).clamp(25, 100);
+    let is_white_pixel = |x: i32, y: i32| -> bool {
+        if x < 0 || x >= page_w as i32 || y < 0 || y >= page_h as i32 { return false; }
+        let p = rgb_img.get_pixel(x as u32, y as u32);
+        let lum = (0.299 * p[0] as f32 + 0.587 * p[1] as f32 + 0.114 * p[2] as f32) as u8;
+        let max_c = p[0].max(p[1]).max(p[2]) as f32;
+        let min_c = p[0].min(p[1]).min(p[2]) as f32;
+        let sat = if max_c > 0.0 { (max_c - min_c) / max_c * 100.0 } else { 0.0 };
+        lum > 190 && sat < 25.0
+    };
+
+    // UPWARD RAYS
+    let mut top_stops = Vec::new();
+    let mut top_hits = 0usize;
+    for frac in [0.20, 0.35, 0.50, 0.65, 0.80] {
+        let rx = bx + (bw as f32 * frac) as i32;
+        let mut stop_y = by;
+        for step in 1..=max_pad {
+            let ry = by - step;
+            if !is_white_pixel(rx, ry) {
+                stop_y = ry.max(0);
+                top_hits += 1;
+                break;
+            }
+            stop_y = ry.max(0);
+        }
+        top_stops.push(stop_y);
+    }
+
+    // DOWNWARD RAYS
+    let mut bot_stops = Vec::new();
+    let mut bot_hits = 0usize;
+    for frac in [0.20, 0.35, 0.50, 0.65, 0.80] {
+        let rx = bx + (bw as f32 * frac) as i32;
+        let mut stop_y = by + bh;
+        for step in 1..=max_pad {
+            let ry = by + bh + step;
+            if !is_white_pixel(rx, ry) {
+                stop_y = ry.min(page_h as i32);
+                bot_hits += 1;
+                break;
+            }
+            stop_y = ry.min(page_h as i32);
+        }
+        bot_stops.push(stop_y);
+    }
+
+    // LEFTWARD RAYS
+    let mut left_stops = Vec::new();
+    let mut left_hits = 0usize;
+    for frac in [0.20, 0.35, 0.50, 0.65, 0.80] {
+        let ry = by + (bh as f32 * frac) as i32;
+        let mut stop_x = bx;
+        for step in 1..=max_pad {
+            let rx = bx - step;
+            if !is_white_pixel(rx, ry) {
+                stop_x = rx.max(0);
+                left_hits += 1;
+                break;
+            }
+            stop_x = rx.max(0);
+        }
+        left_stops.push(stop_x);
+    }
+
+    // RIGHTWARD RAYS
+    let mut right_stops = Vec::new();
+    let mut right_hits = 0usize;
+    for frac in [0.20, 0.35, 0.50, 0.65, 0.80] {
+        let ry = by + (bh as f32 * frac) as i32;
+        let mut stop_x = bx + bw;
+        for step in 1..=max_pad {
+            let rx = bx + bw + step;
+            if !is_white_pixel(rx, ry) {
+                stop_x = rx.min(page_w as i32);
+                right_hits += 1;
+                break;
+            }
+            stop_x = rx.min(page_w as i32);
+        }
+        right_stops.push(stop_x);
+    }
+
+    // MUST HIT A NON-WHITE BORDER IN AT LEAST 3 DIRECTIONS (ENCLOSED BALLOON)
+    let directions_hit = (top_hits >= 3) as usize
+        + (bot_hits >= 3) as usize
+        + (left_hits >= 3) as usize
+        + (right_hits >= 3) as usize;
+    if directions_hit < 3 {
+        return None;
+    }
+
+    top_stops.sort();
+    bot_stops.sort();
+    left_stops.sort();
+    right_stops.sort();
+
+    let bubble_y = top_stops[2].clamp(0, page_h as i32);
+    let bubble_max_y = bot_stops[2].clamp(0, page_h as i32);
+    let bubble_x = left_stops[2].clamp(0, page_w as i32);
+    let bubble_max_x = right_stops[2].clamp(0, page_w as i32);
+
+    let raw_w = (bubble_max_x - bubble_x).max(bw + 6);
+    let raw_h = (bubble_max_y - bubble_y).max(bh + 6);
+
+    let b_w = raw_w.min(page_w as i32);
+    let b_h = raw_h.min(page_h as i32);
+
+    let max_x = (page_w as i32 - b_w).max(0);
+    let max_y = (page_h as i32 - b_h).max(0);
+
+    let final_x = bubble_x.clamp(0, max_x);
+    let final_y = bubble_y.clamp(0, max_y);
+
+    let final_w = b_w.min(page_w as i32 - final_x);
+    let final_h = b_h.min(page_h as i32 - final_y);
+
+    Some(BoxRect {
+        x: final_x,
+        y: final_y,
+        w: final_w,
+        h: final_h,
+    })
+}

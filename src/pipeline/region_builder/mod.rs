@@ -15,7 +15,7 @@ pub use clustering::{cluster_lines_into_utterances, format_lines_cluster, polygo
 pub use dedup::deduplicate_and_unify_regions;
 pub use expansion::{bubble_core, clamp_box_to_core, derive_carrier_box, expand_bubble_text_boxes, resolve_carrier_box, scale_tall_narrow_free_text_base_box, valid_tail_cut_carrier};
 pub use filter::should_reject_candidate_region;
-pub use geometry::{compute_chromatic_color_variance, expand_box, extract_carrier_box_from_image, extract_dark_bubble_envelope};
+pub use geometry::{compute_chromatic_color_variance, expand_box, extract_carrier_box_from_image, extract_dark_bubble_envelope, extract_white_bubble_envelope};
 pub use refine::{run_fallback_crop_recognition, try_refine_cluster_crop, FallbackCropOutcome, RefinementOutcome};
 
 // -- TESTS -- //
