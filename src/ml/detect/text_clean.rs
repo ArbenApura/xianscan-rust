@@ -539,6 +539,51 @@ pub fn is_standalone_table_cell(text: &str) -> bool {
     false
 }
 
+/// CHECKS WHETHER A LATIN SUFFIX ATTACHED TO CJK SCRIPT IS A LEGITIMATE LOANWORD, GAMING TERM, OR SPOKEN DIALOGUE
+pub fn is_legitimate_cjk_latin_loanword_or_dialogue(suffix: &str) -> bool {
+    let trimmed = suffix.trim();
+    if trimmed.is_empty() {
+        return false;
+    }
+
+    // 1. DIALOGUE PUNCTUATION AT END (EXCLAMATIONS, QUESTIONS, ELLIPSES, TILDES)
+    // WATERMARK DEBRIS DOES NOT TERMINATE WITH DIALOGUE PUNCTUATION
+    let ends_with_dialogue_punct = trimmed.ends_with('！')
+        || trimmed.ends_with('!')
+        || trimmed.ends_with('？')
+        || trimmed.ends_with('?')
+        || trimmed.ends_with('…')
+        || trimmed.ends_with('~')
+        || trimmed.ends_with('～');
+    if ends_with_dialogue_punct {
+        return true;
+    }
+
+    // 2. COMMON CJK GAMING, TECH, SLANG, AND DIALOGUE ACRONYMS OR LOANWORDS
+    let word = trimmed.trim_matches(|c: char| c.is_ascii_punctuation() || matches!(c, '！' | '？' | '…' | '～' | '。' | '，')).to_uppercase();
+    const CJK_LATIN_TERMS: &[&str] = &[
+        "NPC", "BOSS", "PK", "EXP", "HP", "MP", "GM", "ID", "VIP", "CD", "DPS", "AOE", "BUG",
+        "APP", "VS", "OK", "NO", "KO", "GG", "WP", "MAX", "LV", "LEVEL", "UP", "DOWN",
+        "SKILL", "ITEM", "QUEST", "PARTY", "GUILD", "SERVER", "GAME", "OVER", "START",
+        "AI", "VR", "AR", "CPU", "PC", "PS", "UI", "CEO", "OMG", "WTF", "LOL", "BYE",
+        "HI", "HELLO", "YES", "COOL", "PASS", "MISS", "CRIT", "BUFF", "DEBUFF", "TANK",
+        "HEAL", "HEALER", "AGGRO", "SOLO", "CARRY", "PRO", "NOOB", "EZ", "AFK", "SP", "AP",
+    ];
+
+    if CJK_LATIN_TERMS.contains(&word.as_str()) {
+        return true;
+    }
+
+    // 3. SHORT ALL-CAPS ACRONYMS (2 TO 4 CHARACTERS, E.G. 'VR', 'PVP', 'PVE')
+    if word.len() >= 2 && word.len() <= 4 && word.chars().all(|c| c.is_ascii_uppercase()) {
+        if word != "TL" && word != "RAW" {
+            return true;
+        }
+    }
+
+    false
+}
+
 /// STRIP TRAILING NON-NATIVE SCANLATOR / SITE WATERMARK FRAGMENTS ATTACHED TO NATIVE LINES
 pub fn strip_trailing_watermark_debris(line_text: &str, source_lang: Option<&str>) -> (String, f32) {
     let t = line_text.trim();
@@ -571,7 +616,7 @@ pub fn strip_trailing_watermark_debris(line_text: &str, source_lang: Option<&str
             && has_letters
             && suffix_trimmed.chars().all(|c| c.is_ascii_alphanumeric() || c.is_ascii_punctuation())
             && suffix_trimmed.chars().count() >= 2;
-        if is_latin_debris {
+        if is_latin_debris && !is_legitimate_cjk_latin_loanword_or_dialogue(suffix_trimmed) {
             let clean_prefix: String = chars[..=idx].iter().collect();
             let keep_ratio = (idx + 1) as f32 / total_chars as f32;
             return (clean_prefix, keep_ratio);
