@@ -274,7 +274,8 @@ pub fn should_reject_candidate_region(
         && !is_margin_isolated_char;
     let is_compact_single_glyph_box = char_count <= 2 && cluster_rect.w <= (ref_dim * 0.05).clamp(20.0, 45.0) as i32 && cluster_rect.h <= (ref_dim * 0.05).clamp(20.0, 45.0) as i32;
     let is_low_conf_single_char = char_count <= 2 && (avg_score < 0.70 || is_oversized_single_char || (is_compact_single_glyph_box && compute_chromatic_color_variance(img, cluster_rect) >= 15.0 && avg_score < 0.72));
-    let is_isolated_sfx = char_count <= 6 && is_shout;
+    // ONLY SUPPRESS LOW-CONFIDENCE ONOMATOPOEIA NOISE (PRESERVE HIGH-CONFIDENCE MULTI-GLYPH SFX)
+    let is_isolated_sfx = is_shout && (avg_score < 0.65 || (char_count <= 1 && avg_score < 0.72));
 
     if !is_card_or_aligned_text
         && char_count <= 6
@@ -297,7 +298,7 @@ pub fn should_reject_candidate_region(
     }
 
     // 11. SUPPRESS LOW-CONFIDENCE REPEATED SFX GLYPHS GENERATED ON HIGH-VARIANCE BACKGROUND
-    if is_cjk && !is_bubble && (avg_score < 0.75 || is_shout) && compute_chromatic_color_variance(img, cluster_rect) >= 15.0 && crate::ml::detect::is_onomatopoeia_or_shout(cleaned) {
+    if is_cjk && !is_bubble && avg_score < 0.65 && compute_chromatic_color_variance(img, cluster_rect) >= 15.0 && crate::ml::detect::is_onomatopoeia_or_shout(cleaned) {
         return true;
     }
 

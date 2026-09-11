@@ -53,11 +53,11 @@ fn test_regression_page_server_open_vr_helmet_watermark_collision() {
         );
     }
 
-    // 1. EXACT ELEMENT COUNTS: 4 REGIONS TOTAL WITH EXACTLY 2 DIALOGUE BUBBLES
+    // 1. EXACT ELEMENT COUNTS: 5 REGIONS TOTAL WITH EXACTLY 2 DIALOGUE BUBBLES
     assert_eq!(
         res.regions.len(),
-        4,
-        "Expected exactly 4 regions total, got {}",
+        5,
+        "Expected exactly 5 regions total, got {}",
         res.regions.len()
     );
     let bubble_count = res
@@ -102,6 +102,17 @@ fn test_regression_page_server_open_vr_helmet_watermark_collision() {
         bubble_right.text
     );
     crate::assert_region_bounds!(bubble_right, RegionKind::DialogueBubble, 390, 297, 330, 132, 15);
+
+    // 3b. PANEL 2 KEYBOARD CLACKING SOUND EFFECT: '咔啦咔啦'
+    let sfx_kala = res.regions.iter().find(|r| r.text.contains("咔啦"));
+    assert!(
+        sfx_kala.is_some(),
+        "Must detect panel 2 keyboard typing sound effect '咔啦咔啦'"
+    );
+    let sfx_kala = sfx_kala.unwrap();
+    assert_eq!(sfx_kala.kind, RegionKind::FreeText);
+    crate::assert_region_bounds!(sfx_kala, RegionKind::FreeText, 105, 640, 143, 92, 20);
+    crate::assert_region_angle!(sfx_kala, -23.12, 4.0);
 
     // 4. PANEL 2 SLANTED SHOUT NARRATION: '赶紧上游戏\n看看！'
     let shout = res.regions.iter().find(|r| r.text.contains("赶紧上游戏"));

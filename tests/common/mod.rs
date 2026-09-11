@@ -1090,7 +1090,7 @@ pub fn get_or_analyze_fixture_with_opts(
             }
             if let (Ok(layout_str), Ok(ocr_str)) = (std::fs::read_to_string(&paths.layout_json), std::fs::read_to_string(&paths.ocr_json)) {
                 if let (Ok(l_rep), Ok(o_rep)) = (serde_json::from_str::<FolderLayoutReport>(&layout_str), serde_json::from_str::<FolderOcrReport>(&ocr_str)) {
-                    let has_crops_field = o_rep.crops.is_some();
+                    let _has_crops_field = o_rep.crops.is_some();
                     let crop_cache = o_rep.crops.unwrap_or_default();
                     let initial_crops_len = crop_cache.len();
                     let raw_lines_snapshot = o_rep.lines.clone();
@@ -1138,16 +1138,8 @@ pub fn get_or_analyze_fixture_with_opts(
                         rescued_crops_count: 0,
                     };
 
-                    let mut empty_engine = PipelineEngine::empty();
-                    let mut engine_guard_opt = if !has_crops_field {
-                        Some(get_shared_test_engine())
-                    } else {
-                        None
-                    };
-                    let active_engine: &mut PipelineEngine = match engine_guard_opt.as_mut() {
-                        Some(guard) => &mut **guard,
-                        None => &mut empty_engine,
-                    };
+                    let mut engine_guard = get_shared_test_engine();
+                    let active_engine: &mut PipelineEngine = &mut *engine_guard;
 
                     let res = xianscan_rust::pipeline::analyzer::analyze_image_with_fusion(
                         active_engine,

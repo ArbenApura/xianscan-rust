@@ -54,8 +54,8 @@ pub fn try_refine_cluster_crop(
             || c.is_whitespace()
             || matches!(c, '…' | '·' | '—' | '～' | '！' | '？' | '。' | '，' | '、' | '–' | '¿' | '¡')
     });
-    let is_clean_single_line = cluster_lines.len() == 1 && avg_score >= 0.70 && !is_container_wider && !is_container_taller;
-    let is_clean_dense_multiline = cluster_lines.len() >= 3 && avg_score >= 0.65 && (container_h as f32) <= (cluster_lines.len() as f32 * 32.0).max(cluster_rect.h as f32 * 1.35);
+    let is_clean_single_line = !is_bubble && cluster_lines.len() == 1 && avg_score >= 0.70 && !is_container_wider && !is_container_taller;
+    let is_clean_dense_multiline = !is_bubble && cluster_lines.len() >= 3 && avg_score >= 0.65 && (container_h as f32) <= (cluster_lines.len() as f32 * 32.0).max(cluster_rect.h as f32 * 1.35);
     let is_lines_much_wider = (cluster_rect.w as f32) >= (container_w as f32 * 1.30);
 
     let trimmed_combined = combined_text.trim();
