@@ -205,7 +205,7 @@ pub fn calculate_box_angle(pts: &[[f32; 2]]) -> f32 {
             };
             let v_deg = (-dx).atan2(dy).to_degrees();
             let (long_len, short_len) = if is_long_a { (len_a, len_b) } else { (len_b, len_a) };
-            if v_deg.abs() < 10.0 && long_len <= 3.5 * short_len {
+            if v_deg.abs() < 4.0 && long_len <= 3.5 * short_len {
                 0.0
             } else {
                 v_deg

@@ -555,7 +555,7 @@ pub fn expand_bubble_text_boxes(
         let right_m = ((carrier.x + carrier.w) - (regions[i].box_.x + regions[i].box_.w)).max(0);
         let min_hm = left_m.min(right_m) as f32;
         let max_hm = left_m.max(right_m) as f32;
-        let is_horizontally_elongated = !h_cut_happened && (carrier.w as f32 >= carrier.h as f32 * 1.70 || (!v_cut_happened && carrier.w >= 220 && carrier.w as f32 >= carrier.h as f32 * 1.25 && max_hm >= 60.0));
+        let is_horizontally_elongated = !h_cut_happened && carrier.w >= 200 && ((carrier.w as f32 >= carrier.h as f32 * 1.70 && max_hm >= 60.0) || (!v_cut_happened && carrier.w >= 220 && carrier.w as f32 >= carrier.h as f32 * 1.25 && max_hm >= 60.0));
         let is_heavily_offset_horizontally = is_horizontally_elongated && min_hm > 0.0 && (max_hm / min_hm >= 2.5) && (max_hm - min_hm >= 45.0);
 
         if is_sole_occupant
@@ -579,10 +579,15 @@ pub fn expand_bubble_text_boxes(
             }
             typeset_box.x = carrier_cx - typeset_box.w / 2;
             typeset_box.y = carrier_cy - typeset_box.h / 2;
-            // PRESERVE SYMMETRIC CENTERING WHILE GUARANTEEING NO TEXT CLIPPING AT TRAILING EDGES
+            // PRESERVE SYMMETRIC CENTERING WHILE GUARANTEEING NO TEXT CLIPPING AT TRAILING OR LEAD EDGES
             // MINOR SHIFTS (<= 4PX) ARE NORMAL CENTERING SLACK; SIGNIFICANT DEFICITS (> 4PX) CLAMP/EXPAND
             // SO MULTI-LINE TEXT (SUCH AS 4-LINE THOUGHT BALLOONS) NEVER HAS CHARACTERS CUT OFF.
             if !regions[i].polygon.is_empty() {
+                if typeset_box.x > regions[i].box_.x + 4 {
+                    let clip_left = typeset_box.x - regions[i].box_.x;
+                    typeset_box.x -= clip_left;
+                    typeset_box.w += clip_left * 2;
+                }
                 if typeset_box.x + typeset_box.w + 4 < regions[i].box_.x + regions[i].box_.w {
                     let clip_right = (regions[i].box_.x + regions[i].box_.w) - (typeset_box.x + typeset_box.w);
                     typeset_box.x -= clip_right;

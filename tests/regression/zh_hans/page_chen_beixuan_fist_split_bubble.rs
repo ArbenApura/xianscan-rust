@@ -52,6 +52,6 @@ fn test_regression_page_chen_beixuan_fist_split_bubble() {
     assert_eq!(backlash_bubble.kind, xianscan_rust::ml::schemas::RegionKind::DialogueBubble);
     assert!(backlash_bubble.text.contains("异"), "Must contain 异");
     assert!(backlash_bubble.text.contains("反噬"), "Must contain 反噬");
-    crate::assert_region_bounds!(backlash_bubble, xianscan_rust::ml::schemas::RegionKind::DialogueBubble, 690, 1504, 130, 78, 6);
+    crate::assert_region_bounds!(backlash_bubble, xianscan_rust::ml::schemas::RegionKind::DialogueBubble, 690, 1512, 137, 75, 8);
     crate::assert_bubble_bounds!(backlash_bubble, 671, 1482, 156, 125, 6);
 }

@@ -408,9 +408,15 @@ pub fn render_annotated_image(img: &DynamicImage, res: &AnalyzeResponse) -> Dyna
     let mut canvas = img.to_rgba8();
     let (width, height) = canvas.dimensions();
 
-    // 1. RENDER DETECTED SPEECH BUBBLE CONTAINERS (CYAN SCANLINE-RASTERIZED POLYGON)
+    // 1. RENDER DETECTED SPEECH BUBBLE CONTAINERS (CYAN 2PX SOLID OUTLINE WITH OPAQUE FILL)
+    let mut rendered_bubbles: Vec<BoxRect> = Vec::new();
     for r in &res.regions {
         if let Some(b) = &r.bubble_box {
+            if rendered_bubbles.iter().any(|prev| prev == b) {
+                continue;
+            }
+            rendered_bubbles.push(b.clone());
+
             let x = b.x.clamp(0, width.saturating_sub(1) as i32);
             let y = b.y.clamp(0, height.saturating_sub(1) as i32);
             let max_w = (width as i32 - x).max(1) as u32;
@@ -418,9 +424,17 @@ pub fn render_annotated_image(img: &DynamicImage, res: &AnalyzeResponse) -> Dyna
             let w = (b.w.max(1) as u32).min(max_w);
             let h = (b.h.max(1) as u32).min(max_h);
 
-            // RENDER BUBBLE BOUNDING BOX AS HOLLOW CYAN RECTANGLE SO RADIATING SPIKES AND ARTWORK REMAIN VISIBLE
+            let fill_color = Rgba([6, 182, 212, 45]);
+            let stroke_color = Rgba([6, 182, 212, 240]);
+
+            blend_filled_rect(&mut canvas, x, y, w, h, fill_color);
+
             let rect = Rect::at(x, y).of_size(w, h);
-            draw_hollow_rect_mut(&mut canvas, rect, Rgba([6, 182, 212, 200]));
+            draw_hollow_rect_mut(&mut canvas, rect, stroke_color);
+            if w > 2 && h > 2 {
+                let inner_rect = Rect::at(x + 1, y + 1).of_size(w - 2, h - 2);
+                draw_hollow_rect_mut(&mut canvas, inner_rect, stroke_color);
+            }
         }
     }
 

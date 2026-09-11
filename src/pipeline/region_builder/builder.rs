@@ -621,11 +621,11 @@ pub fn build_regions(
                     h: (c_max_y - c_min_y).max(1),
                 };
 
-                let is_cluster_in_bubble = is_bubble_region || matched_bubble.is_some() || bubbles.iter().any(|b| {
+                let is_cluster_in_bubble = (is_bubble_region || matched_bubble.is_some() || bubbles.iter().any(|b| {
                     let cx = cluster_rect.x + cluster_rect.w / 2;
                     let cy = cluster_rect.y + cluster_rect.h / 2;
                     cx > b.x + 8 && cx < b.x + b.w - 8 && cy > b.y + 8 && cy < b.y + b.h - 8
-                });
+                })) && (!is_container_vert || angle_deg.abs() < 4.0 || box_angle.abs() >= 2.0);
 
                 // SUPPRESS TITLE ARTWORK LOGO CALLIGRAPHY ON CHAPTER PUBLICATION CREDIT CARDS BEFORE RUNNING CROP REFINEMENT
                 let page_has_credits = split_lines.iter().any(|l| crate::ml::detect::is_credits_or_metadata_text(&l.text));
@@ -816,8 +816,43 @@ pub fn build_regions(
                     cluster_rect
                 };
 
+                let is_slanted_vert_free = is_container_vert
+                    && angle.abs() >= 4.0
+                    && (box_angle == 0.0 || box_angle.abs() < 2.0);
+
+                let matched_bubble_final = if is_slanted_vert_free {
+                    None
+                } else if let Some(mb) = matched_bubble {
+                    let f_area = (final_box_rect.w * final_box_rect.h).max(1);
+                    let ix = (final_box_rect.x + final_box_rect.w).min(mb.x + mb.w) - final_box_rect.x.max(mb.x);
+                    let iy = (final_box_rect.y + final_box_rect.h).min(mb.y + mb.h) - final_box_rect.y.max(mb.y);
+                    if ix > 0 && iy > 0 && ((ix * iy) as f32 / f_area as f32 >= 0.65) {
+                        Some(mb.clone())
+                    } else {
+                        None
+                    }
+                } else {
+                    let f_area = (final_box_rect.w * final_box_rect.h).max(1);
+                    bubbles.iter().find(|b| {
+                        let ix = (final_box_rect.x + final_box_rect.w).min(b.x + b.w) - final_box_rect.x.max(b.x);
+                        let iy = (final_box_rect.y + final_box_rect.h).min(b.y + b.h) - final_box_rect.y.max(b.y);
+                        if ix > 0 && iy > 0 {
+                            let inter = (ix * iy) as f32;
+                            inter / f_area as f32 >= 0.65
+                        } else {
+                            false
+                        }
+                    }).cloned()
+                };
+
+                let final_kind = if matched_bubble_final.is_some() {
+                    RegionKind::DialogueBubble
+                } else {
+                    RegionKind::FreeText
+                };
+
                 // SCALE TALL, NARROW FREE TEXT BASE BOUNDARY BOX TO AID TYPESETTING READABILITY
-                scale_tall_narrow_free_text_base_box(&mut final_box_rect, matched_bubble.is_none(), page_w);
+                scale_tall_narrow_free_text_base_box(&mut final_box_rect, matched_bubble_final.is_none(), page_w);
 
                 let inpaint_box = Some(expand_box(&final_box_rect, inpaint_pct, page_w, page_h));
                 let typeset_box = Some(expand_box(&final_box_rect, typeset_pct, page_w, page_h));
@@ -840,12 +875,12 @@ pub fn build_regions(
                         }
                     }
                     let font_scale = super::clustering::polygon_thickness(&active_line_polys[0]);
-                    let u_pad = if matched_bubble.is_some() {
+                    let u_pad = if matched_bubble_final.is_some() {
                         (font_scale * 0.90).clamp(18.0, 35.0)
                     } else {
                         (font_scale * 0.35).clamp(6.0, 14.0)
                     };
-                    let v_pad = if matched_bubble.is_some() {
+                    let v_pad = if matched_bubble_final.is_some() {
                         (font_scale * 0.60).clamp(10.0, 25.0)
                     } else {
                         (font_scale * 0.25).clamp(4.0, 10.0)
@@ -874,35 +909,6 @@ pub fn build_regions(
                         [final_box_rect.x + final_box_rect.w, final_box_rect.y + final_box_rect.h],
                         [final_box_rect.x, final_box_rect.y + final_box_rect.h],
                     ]
-                };
-
-                let matched_bubble_final = if let Some(mb) = matched_bubble {
-                    let f_area = (final_box_rect.w * final_box_rect.h).max(1);
-                    let ix = (final_box_rect.x + final_box_rect.w).min(mb.x + mb.w) - final_box_rect.x.max(mb.x);
-                    let iy = (final_box_rect.y + final_box_rect.h).min(mb.y + mb.h) - final_box_rect.y.max(mb.y);
-                    if ix > 0 && iy > 0 && ((ix * iy) as f32 / f_area as f32 >= 0.65) {
-                        Some(mb.clone())
-                    } else {
-                        None
-                    }
-                } else {
-                    let f_area = (final_box_rect.w * final_box_rect.h).max(1);
-                    bubbles.iter().find(|b| {
-                        let ix = (final_box_rect.x + final_box_rect.w).min(b.x + b.w) - final_box_rect.x.max(b.x);
-                        let iy = (final_box_rect.y + final_box_rect.h).min(b.y + b.h) - final_box_rect.y.max(b.y);
-                        if ix > 0 && iy > 0 {
-                            let inter = (ix * iy) as f32;
-                            inter / f_area as f32 >= 0.65
-                        } else {
-                            false
-                        }
-                    }).cloned()
-                };
-
-                let final_kind = if matched_bubble_final.is_some() {
-                    RegionKind::DialogueBubble
-                } else {
-                    RegionKind::FreeText
                 };
 
                 let bubble_box = matched_bubble_final;

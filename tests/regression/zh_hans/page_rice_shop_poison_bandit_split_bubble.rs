@@ -31,15 +31,36 @@ fn test_regression_page_rice_shop_poison_bandit_split_bubble() {
     };
 
     let res = get_or_analyze_fixture_with_lang(&img, Some("zh_hans"));
-    println!("ZH-Hans Rice Shop Page detected {} regions:", res.regions.len());
-    for (i, r) in res.regions.iter().enumerate() {
-        println!("  Region r{}: kind={:?}, angle={:.2}, box={:?}, text='{}', conf={:.2}", i, r.kind, r.angle, r.box_, r.text.replace('\n', "\\n"), r.confidence);
-    }
+
 
     // 1. EXACT ELEMENT COUNTS: 7 DIALOGUE BUBBLES, 1 FREE TEXT
     crate::assert_element_counts!(res, 8, 7, 1);
 
-    // 2. PANEL 3 UPPER BANDIT LOBE (3 LINES)
+    // 2. PANEL 2 UPPER DIALOGUE BUBBLE: "你说什——" (NO FALSE TAIL CUT, STRICT CENTROID ALIGNMENT)
+    let what_say = res.regions.iter().find(|r| r.text.contains("你说什"));
+    assert!(what_say.is_some(), "Must detect panel 2 upper dialogue bubble '你说什——'");
+    let what_say = what_say.unwrap();
+    assert_eq!(what_say.carrier_box, None, "Panel 2 dialogue bubble must not have a false carrier box cut");
+
+    // TYPESET BOX MUST CENTER IN THE SPEECH BUBBLE AND SPAN ACROSS THE TRAILING DASH
+    let tb = what_say.typeset_box.as_ref().expect("Panel 2 dialogue bubble must have a valid typeset_box");
+    let bb = what_say.bubble_box.as_ref().expect("Panel 2 dialogue bubble must have a valid bubble_box");
+    let bubble_cx = bb.x + bb.w / 2;
+    let typeset_cx = tb.x + tb.w / 2;
+    assert!(
+        (typeset_cx - bubble_cx).abs() <= 1,
+        "Typeset box X centroid ({}) must align with bubble X centroid ({})",
+        typeset_cx,
+        bubble_cx
+    );
+    assert!(
+        tb.w >= 110,
+        "Typeset box width must expand across trailing dash (w={})",
+        tb.w
+    );
+    assert!(tb.x <= 267 && tb.x + tb.w >= 380, "Typeset box must cover both text and trailing dash");
+
+    // 3. PANEL 3 UPPER BANDIT LOBE (3 LINES)
     let upper_bandit = res.regions.iter().find(|r| r.text.contains("你这黑心老板"));
     assert!(upper_bandit.is_some(), "Must detect panel 3 upper bandit lobe");
     let upper_bandit = upper_bandit.unwrap();

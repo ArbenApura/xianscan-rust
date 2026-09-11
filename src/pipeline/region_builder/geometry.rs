@@ -319,7 +319,13 @@ pub fn extract_carrier_box_from_image(img: &DynamicImage, b: &BoxRect, t: &BoxRe
             let max_glyph_area = max_glyph_dim * max_glyph_dim;
             let comp_w = max_cx - min_cx + 1;
             let comp_h = max_cy - min_cy + 1;
-            if !touches_border && comp_w <= max_glyph_dim && comp_h <= max_glyph_dim && comp.len() <= max_glyph_area {
+
+            // ENCLOSED DARK GLYPHS: STANDARD CHARACTERS (SQUARE/CJK) OR ELONGATED PUNCTUATION (DASHES, HYPHENS, TILDE)
+            let is_elongated_glyph = (comp_h <= 6 && comp_w <= ((min_dim as f32 * 0.65).round() as usize).max(50))
+                || (comp_w <= 6 && comp_h <= ((min_dim as f32 * 0.65).round() as usize).max(50));
+            let is_standard_glyph = comp_w <= max_glyph_dim && comp_h <= max_glyph_dim;
+
+            if !touches_border && (is_standard_glyph || is_elongated_glyph) && comp.len() <= max_glyph_area {
                 for &(cx, cy) in &comp {
                     mask[cy * patch_w + cx] = true;
                 }

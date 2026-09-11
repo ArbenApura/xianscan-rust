@@ -1,4 +1,4 @@
-﻿// -- INTERNAL IMPORTS -- //
+// -- INTERNAL IMPORTS -- //
 use crate::common::get_or_analyze_fixture_with_lang;
 
 // -- TESTS -- //
@@ -57,7 +57,7 @@ fn test_regression_page_sage_reincarnation_novice_skill() {
     crate::assert_region_bounds!(mid_right, xianscan_rust::ml::schemas::RegionKind::DialogueBubble, 804, 511, 102, 213, 15);
 
     // 4. MIDDLE-CENTER FREE TEXT: '試してみるか'
-    let mid_center_free = res.regions.iter().find(|r| r.text.contains("試してみるか") || r.text.contains("試して"));
+    let mid_center_free = res.regions.iter().find(|r| r.text.replace('\n', "").contains("試してみるか") || r.text.contains("試して"));
     assert!(mid_center_free.is_some(), "Must detect middle-center free text '試してみるか'");
     let mid_center_free = mid_center_free.unwrap();
     crate::assert_region_bounds!(mid_center_free, xianscan_rust::ml::schemas::RegionKind::FreeText, 429, 453, 58, 201, 15);
