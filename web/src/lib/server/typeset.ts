@@ -121,16 +121,17 @@ export async function typesetPage(
 		const maxH = Math.max(10, r.box.h * (1 - 2 * inset));
 		const sizeCap = Math.max(MAX_SFX_FONT_SIZE, Math.max(r.box.w, r.box.h));
 
+		let initialFitted: { size: number; lines: string[] } | undefined;
 		if (!isSfx && r.kind === 'dialogue_bubble') {
 			const maxDialogueSize = opts.fontSize ? opts.fontSize : Math.max(24, Math.round(img.width * 0.035));
 			const cap = Math.min(sizeCap, maxDialogueSize);
-			const initialSize = fitFontSize(ctx, text, font, r.box.w, r.box.h, cap, cap, inset, fontCjk, fontWeight);
+			initialFitted = fitFontSizeWithLines(ctx, text, font, r.box.w, r.box.h, cap, cap, inset, fontCjk, fontWeight);
 			if (text.split(/\s+/).length >= 2) {
-				dialogueSizes.push(initialSize);
+				dialogueSizes.push(initialFitted.size);
 			}
 		}
 
-		preparedRegions.push({ r, rawText, text, color, isSfx, font, maxW, maxH, sizeCap });
+		preparedRegions.push({ r, rawText, text, color, isSfx, font, maxW, maxH, sizeCap, initialFitted });
 	}
 
 	// COMPUTE PAGE DIALOGUE MEDIAN BASELINE
@@ -142,7 +143,7 @@ export async function typesetPage(
 
 	// PASS 2: RENDER REGIONS WITH HARMONIZED SIZING
 	for (const prep of preparedRegions) {
-		const { r, text, color, isSfx, font, maxW, maxH, sizeCap } = prep;
+		const { r, text, color, isSfx, font, maxW, maxH, sizeCap, initialFitted } = prep;
 
 		const { x, y, w, h } = r.box;
 		const angleDeg = r.angle ?? 0;
@@ -161,6 +162,10 @@ export async function typesetPage(
 		if (isSfx) {
 			size = fitSingleLineSize(ctx, text, font, maxW, maxH, sizeCap, fontCjk, fontWeight);
 			lines = [text];
+		} else if (initialFitted && initialFitted.size <= cap) {
+			// REUSE PASS 1 FITTED RESULT DIRECTLY IF CAP WAS NOT REDUCED BELOW INITIAL FIT
+			size = initialFitted.size;
+			lines = initialFitted.lines;
 		} else {
 			// USE THE FITTED LAYOUT DIRECTLY SO THE RENDER MATCHES THE VALIDATED FIT CHECKS
 			const fitted = fitFontSizeWithLines(ctx, text, font, w, h, cap, cap, inset, fontCjk, fontWeight);

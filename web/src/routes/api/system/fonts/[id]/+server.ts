@@ -9,7 +9,7 @@ import { join } from 'node:path';
 // IMPORTED MODULES
 import { db } from '$lib/server/db';
 import { customFonts, customFontFiles } from '$lib/server/db/schema';
-import { getUserFontsDir, resolveUserFontFilePath, LATIN_DIALOGUE_FONTS } from '$lib/server/typeset/fonts';
+import { getUserFontsDir, resolveUserFontFilePath, LATIN_DIALOGUE_FONTS, invalidateCustomFontsCache } from '$lib/server/typeset/fonts';
 import { getCanonicalSettings, updateCanonicalSettings } from '$lib/server/settings-service';
 
 // -- HANDLERS -- //
@@ -86,6 +86,7 @@ export const DELETE: RequestHandler = async ({ params }) => {
 
 	// DELETE FROM DATABASE
 	db.delete(customFonts).where(eq(customFonts.id, fontId)).run();
+	invalidateCustomFontsCache();
 
 	// FALLBACK CANONICAL SETTINGS IF DELETED FONT WAS ACTIVELY CONFIGURED
 	const canonical = getCanonicalSettings();

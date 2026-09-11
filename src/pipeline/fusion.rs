@@ -32,6 +32,35 @@ pub struct DetectionFusionResult {
 
 // -- FUNCTIONS & ALGORITHMS -- //
 
+// FAST VARIANCE CHECK TO DETECT FLAT OR BLANK BACKGROUND CROPS
+fn is_blank_or_uniform_patch(crop: &DynamicImage) -> bool {
+    let rgb = crop.to_rgb8();
+    let (cw, ch) = rgb.dimensions();
+    if cw < 4 || ch < 4 {
+        return true;
+    }
+    let step_x = (cw / 8).max(1);
+    let step_y = (ch / 8).max(1);
+    let mut sum = 0.0_f64;
+    let mut sum_sq = 0.0_f64;
+    let mut count = 0_usize;
+    for y in (0..ch).step_by(step_y as usize) {
+        for x in (0..cw).step_by(step_x as usize) {
+            let p = rgb.get_pixel(x, y);
+            let luma = 0.299 * p[0] as f64 + 0.587 * p[1] as f64 + 0.114 * p[2] as f64;
+            sum += luma;
+            sum_sq += luma * luma;
+            count += 1;
+        }
+    }
+    if count == 0 {
+        return true;
+    }
+    let mean = sum / count as f64;
+    let variance = (sum_sq / count as f64) - (mean * mean);
+    variance < 3.0
+}
+
 fn filter_fused_ocr_lines(rl: Vec<OcrLine>, page_w: u32, source_lang: Option<&str>) -> Vec<OcrLine> {
     let mut filtered: Vec<OcrLine> = rl
         .into_iter()
@@ -260,6 +289,7 @@ pub fn fuse_detections(
 
     // 3. Fallback: RapidOCR isolated recognition for ComicTextDetector boxes
     let t_rescue0 = std::time::Instant::now();
+    let mut crop_cache: Vec<crate::ml::ocr::CachedCropEntry> = Vec::new();
     if let Some(ref mut o) = ocr {
         if !comic_boxes.is_empty() {
             let (w, h) = img.dimensions();
@@ -320,13 +350,24 @@ pub fn fuse_detections(
                 if is_aspect_compatible && (iou >= 0.20 || rl_contained || cb_covered || crate::ml::geometry::line_center_inside_box(&rl.polygon, &cb_rect)) {
                     ocr_det_matched[idx] = true;
 
-                    let is_wider = !is_rl_vert && (cb_w >= rw + 8 || (cb_w as f32) >= (rw as f32 * 1.10));
-                    let is_taller = is_rl_vert && (cb_h >= rh + 10 || (cb_h as f32) >= (rh as f32 * 1.10));
-                    let is_missing_lines = (cb_h as f32) >= (rh as f32 * 1.40) && (cb_h >= 45 && cb_w >= 45);
                     let is_non_latin_corrupted_latin = crate::ml::detect::is_non_latin_source(source_lang)
                         && !crate::ml::detect::has_native_script_for_lang(&rl.text, source_lang)
                         && rl.text.chars().any(|c| c.is_ascii_alphabetic());
-                    let is_low_conf_or_degenerate = rl.score < 0.65 || (rl.text.trim().chars().count() <= 1 && (rh >= 35 || rw >= 35)) || is_non_latin_corrupted_latin;
+                    let is_high_quality_fullpage = rl.score >= 0.78
+                        && rl.text.trim().chars().count() >= 3
+                        && !is_non_latin_corrupted_latin;
+                    let is_wider = !is_rl_vert && if is_high_quality_fullpage {
+                        cb_w >= rw + 22 && (cb_w as f32) >= (rw as f32 * 1.25)
+                    } else {
+                        cb_w >= rw + 8 || (cb_w as f32) >= (rw as f32 * 1.10)
+                    };
+                    let is_taller = is_rl_vert && if is_high_quality_fullpage {
+                        cb_h >= rh + 22 && (cb_h as f32) >= (rh as f32 * 1.25)
+                    } else {
+                        cb_h >= rh + 10 || (cb_h as f32) >= (rh as f32 * 1.10)
+                    };
+                    let is_missing_lines = (cb_h as f32) >= (rh as f32 * 1.45) && (cb_h >= 45 && cb_w >= 45);
+                    let is_low_conf_or_degenerate = rl.score < 0.68 || (rl.text.trim().chars().count() <= 1 && (rh >= 35 || rw >= 35)) || is_non_latin_corrupted_latin;
                     if is_wider || is_taller || is_missing_lines || is_low_conf_or_degenerate {
                         let pad_x = if is_rl_vert { 16 } else { 15 };
                         let pad_y = if is_rl_vert { 12 } else { 15 };
@@ -336,6 +377,9 @@ pub fn fuse_detections(
                         let ch = ((cb_h + pad_y * 2) as u32).min(h - cy);
                         if cw >= 8 && ch >= 8 {
                             let crop = img.crop_imm(cx, cy, cw, ch);
+                            if is_blank_or_uniform_patch(&crop) {
+                                break;
+                            }
                             let rec_opt = o.recognize_crop_with_lang(&crop, source_lang).ok().flatten().and_then(|c_res| {
                                 if !c_res.text.trim().is_empty() {
                                     Some(crate::ml::ocr::OcrResult {
@@ -350,6 +394,11 @@ pub fn fuse_detections(
                             .or_else(|| o.recognize_crop_with_lang(&crop, None).ok().flatten());
 
                             if let Some(line_res) = rec_opt {
+                                crop_cache.push(crate::ml::ocr::CachedCropEntry {
+                                    crop_rect: [cx as i32, cy as i32, cw as i32, ch as i32],
+                                    source_lang: source_lang.map(|s| s.to_string()),
+                                    result: line_res.clone(),
+                                });
                                 let clean_c = clean_stray_ocr_artifacts(&line_res.text);
                                 let clean_chars = clean_c.chars().filter(|c| !c.is_whitespace()).count();
                                 let rl_chars = rl.text.chars().filter(|c| !c.is_whitespace()).count();
@@ -489,9 +538,17 @@ pub fn fuse_detections(
 
                     if crop_w >= 4 && crop_h >= 4 {
                         let crop = img.crop_imm(crop_x, crop_y, crop_w, crop_h);
+                        if is_blank_or_uniform_patch(&crop) {
+                            continue;
+                        }
                         let mut recognized_from_crop = false;
                         if crop_w >= 16 && crop_h >= 16 {
                             if let Ok(Some(crop_res)) = o.recognize_crop_with_lang(&crop, source_lang) {
+                                crop_cache.push(crate::ml::ocr::CachedCropEntry {
+                                    crop_rect: [crop_x as i32, crop_y as i32, crop_w as i32, crop_h as i32],
+                                    source_lang: source_lang.map(|s| s.to_string()),
+                                    result: crop_res.clone(),
+                                });
                                 if !crop_res.lines.is_empty() {
                                     for (sub_poly, sub_text, sub_score) in crop_res.lines {
                                         if sub_score >= 0.60 {
@@ -578,7 +635,7 @@ pub fn fuse_detections(
         rescue_time_ms,
         rescued_crops_count,
         raw_ocr_lines_count,
-        crop_cache: Vec::new(),
+        crop_cache,
     })
 }
 

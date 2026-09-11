@@ -71,7 +71,6 @@ pub fn try_refine_cluster_crop(
     };
     let is_truncated_multiline = cluster_lines.len() >= 3 && is_cjk && !has_terminal_punct && has_trailing_headroom;
 
-    let full_page_is_complete = (is_clean_dense_multiline || is_clean_single_line) && !is_container_wider && !is_lines_much_wider && !is_truncated_multiline;
     let is_standalone_alphanumeric_risk = is_cjk && crate::ml::detect::is_standalone_alphanumeric_without_cjk(combined_text);
     let is_corrupted_latin_in_bubble = is_bubble
         && is_cjk
@@ -84,6 +83,20 @@ pub fn try_refine_cluster_crop(
         && (cluster_rect.w >= 80 || cluster_rect.h >= 100 || (container_h >= 100 && container_h > container_w))
         && avg_score < 0.75;
     let is_wide_vert_card = is_container_vert && cluster_lines.len() <= 2 && (container_w >= 55 || cluster_rect.w >= 55);
+
+    // HIGH-QUALITY COMPLETE BUBBLE CHECK: IF CLUSTER ALREADY HAS SOLID CONFIDENCE,
+    // VALID CHARACTERS, AND PROPER OCCUPANCY, DO NOT EXECUTE REDUNDANT CROP OCR.
+    let is_bubble_complete = is_bubble
+        && avg_score >= 0.75
+        && single_char_count >= 2
+        && !is_corrupted_latin_in_bubble
+        && !is_standalone_alphanumeric_risk
+        && !is_oversized_single
+        && !is_truncated_multiline
+        && !is_wide_vert_card
+        && (has_terminal_punct || !has_trailing_headroom || (container_h as f32) <= (cluster_rect.h as f32 * 1.45 + 15.0));
+
+    let full_page_is_complete = is_bubble_complete || ((is_clean_dense_multiline || is_clean_single_line) && !is_container_wider && !is_lines_much_wider && !is_truncated_multiline);
     let can_refine_crop = (is_bubble || is_container_wider || is_container_taller || is_short_text_partial || is_standalone_alphanumeric_risk || is_corrupted_latin_in_bubble || is_oversized_single || is_truncated_multiline || is_wide_vert_card)
         && (cluster_rect.w >= 16 || box_rect.w >= 16)
         && (cluster_rect.h >= 16 || box_rect.h >= 16)
@@ -138,7 +151,13 @@ pub fn try_refine_cluster_crop(
     let target_crop_rect = [crop_x as i32, crop_y as i32, crop_w as i32, crop_h as i32];
 
     let cached_hit = if let Some(ref cache) = crop_cache {
-        cache.iter().find(|e| e.crop_rect == target_crop_rect && e.source_lang.as_deref() == source_lang).map(|e| e.result.clone())
+        cache.iter().find(|e| {
+            let dx = (e.crop_rect[0] - crop_x as i32).abs();
+            let dy = (e.crop_rect[1] - crop_y as i32).abs();
+            let dw = (e.crop_rect[2] - crop_w as i32).abs();
+            let dh = (e.crop_rect[3] - crop_h as i32).abs();
+            (dx <= 8 && dy <= 8 && dw <= 16 && dh <= 16) && e.source_lang.as_deref() == source_lang
+        }).map(|e| e.result.clone())
     } else {
         None
     };

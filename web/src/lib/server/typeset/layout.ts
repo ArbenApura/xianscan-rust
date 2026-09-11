@@ -503,6 +503,26 @@ export function fitFontSizeWithLines(
 		}
 	};
 
+	// PRE-COMPUTE STRUCTURED WORD TOKENS ONCE BEFORE THE FONT SIZE LOOP
+	const wordTokens = words.map((w) => {
+		const punctMatch = w.match(/^(.*?)([.!?,:;~…"']+)?$/);
+		const stem = punctMatch && punctMatch[1] ? punctMatch[1] : w;
+		const trailingPunct = punctMatch?.[2] ?? '';
+		const points = findHyphenationPoints(stem);
+		let segments: string[] | null = null;
+		if (points.length > 0) {
+			segments = [];
+			let prev = 0;
+			for (const p of points) {
+				const seg = stem[p - 1] === '-' ? stem.slice(prev, p) : `${stem.slice(prev, p)}-`;
+				segments.push(seg);
+				prev = p;
+			}
+			segments.push(stem.slice(prev) + trailingPunct);
+		}
+		return { w, stem, trailingPunct, segments };
+	});
+
 	let lo = MIN_FONT_SIZE;
 	let hi = Math.max(lo, maxSize ?? startSize);
 	let cleanBest = MIN_FONT_SIZE;
@@ -522,36 +542,27 @@ export function fitFontSizeWithLines(
 		// ONLY SWITCH TO THE HYPHENATED-SEGMENT WIDTH WHEN THE WHOLE WORD ALREADY
 		// OVERFLOWS THE BOX - SO BREAKABLE WORDS LIKE "EVERYTHING" STAY INTACT WHEN THEY FIT.
 		let totalWordWidth = 0;
-		const maxWordWidth = Math.max(
-			0,
-			...words.map((w) => {
-				const punctMatch = w.match(/^(.*?)([.!?,:;~…"']+)?$/);
-				const stem = punctMatch && punctMatch[1] ? punctMatch[1] : w;
-				const trailingPunct = punctMatch?.[2] ?? '';
-				const fullW = ctx.measureText(w).width;
-				const stemW = ctx.measureText(stem).width;
-				totalWordWidth += stemW;
-				// IF THE WHOLE WORD FITS STRICTLY WITHIN THE BOX, REPORT ITS ACTUAL WIDTH -
-				// DON'T PRETEND IT'S SHORTER JUST BECAUSE IT COULD HYPHENATE.
-				if (stemW <= maxW) {
-					return stemW;
+		let maxWordWidth = 0;
+		for (const token of wordTokens) {
+			const fullW = ctx.measureText(token.w).width;
+			const stemW = ctx.measureText(token.stem).width;
+			totalWordWidth += stemW;
+			if (stemW <= maxW) {
+				if (stemW > maxWordWidth) maxWordWidth = stemW;
+				continue;
+			}
+			if (token.segments) {
+				let segMax = 0;
+				for (const seg of token.segments) {
+					const sw = ctx.measureText(seg).width;
+					if (sw > segMax) segMax = sw;
 				}
-				// WORD OVERFLOWS: CHECK WHETHER HYPHENATION GIVES A SHORTER SEGMENT THAT FITS.
-				const points = findHyphenationPoints(stem);
-				if (points.length > 0) {
-					let segMax = 0;
-					let prev = 0;
-					for (const p of points) {
-						const seg = stem[p - 1] === '-' ? stem.slice(prev, p) : `${stem.slice(prev, p)}-`;
-						segMax = Math.max(segMax, ctx.measureText(seg).width);
-						prev = p;
-					}
-					segMax = Math.max(segMax, ctx.measureText(stem.slice(prev) + trailingPunct).width);
-					return segMax;
-				}
-				return fullW;
-			}),
-		);
+				if (segMax > maxWordWidth) maxWordWidth = segMax;
+			} else {
+				if (fullW > maxWordWidth) maxWordWidth = fullW;
+			}
+		}
+
 		// THEORETICAL MINIMUM LINES CHECK: PREVENTS EXPENSIVE REFLOW RUNS ON SIZES
 		// THAT CANNOT POSSIBLY FIT THE VERTICAL HEIGHT BUDGET.
 		const minTheoreticalLines = Math.ceil(totalWordWidth / maxW);

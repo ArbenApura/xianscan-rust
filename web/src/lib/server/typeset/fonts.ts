@@ -43,6 +43,11 @@ export interface TextColor {
 }
 
 let fontsRegistered = false;
+let customFontsRegistered = false;
+
+export function invalidateCustomFontsCache(): void {
+	customFontsRegistered = false;
+}
 
 // -- FUNCTIONS & RESOLUTION -- //
 
@@ -223,6 +228,7 @@ export function resolveUserFontFilePath(fileName: string): string | null {
 }
 
 export function registerCustomFonts(db: any = defaultDb): void {
+	if (customFontsRegistered) return;
 	try {
 		const userFontsDir = getUserFontsDir();
 		const rows = db.select().from(customFonts).all();
@@ -250,6 +256,7 @@ export function registerCustomFonts(db: any = defaultDb): void {
 				LATIN_DIALOGUE_FONTS.add(row.name);
 			}
 		}
+		customFontsRegistered = true;
 	} catch {
 		// DATABASE MAY NOT BE INITIALIZED YET IN CERTAIN UNIT TESTS
 	}

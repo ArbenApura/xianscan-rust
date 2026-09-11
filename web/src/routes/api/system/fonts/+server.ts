@@ -11,7 +11,7 @@ import { GlobalFonts } from '@napi-rs/canvas';
 // IMPORTED MODULES
 import { db } from '$lib/server/db';
 import { customFonts, customFontFiles } from '$lib/server/db/schema';
-import { getFontAvailability, getUserFontsDir, LATIN_DIALOGUE_FONTS, registerCustomFonts } from '$lib/server/typeset/fonts';
+import { getFontAvailability, getUserFontsDir, LATIN_DIALOGUE_FONTS, registerCustomFonts, invalidateCustomFontsCache } from '$lib/server/typeset/fonts';
 import { parseFontBuffer, groupFontFilesByFamily } from '$lib/server/typeset/font-parser';
 
 // -- CONSTANTS -- //
@@ -251,6 +251,7 @@ export const POST: RequestHandler = async ({ request }) => {
 		}
 
 		// RE-REGISTER CUSTOM FONTS TO ENSURE ALL RUNTIMES SEE FRESH METRICS IMMEDIATELY
+		invalidateCustomFontsCache();
 		registerCustomFonts(db);
 
 		return json({

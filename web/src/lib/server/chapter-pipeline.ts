@@ -835,136 +835,90 @@ export async function runChapterPipeline(
 					writeFileSync(cleanAbs, cleaned);
 					const tClean = performance.now() - tClean0;
 
-					let nextAnnotatedRev = page.annotatedRev;
-					let currentAnnotatedPath: string | null = page.annotatedPath;
+					db.update(pages)
+						.set({
+							cleanedPath: cleanPath,
+							cleanedRev: sql`${pages.cleanedRev} + 1`,
+						})
+						.where(eq(pages.id, page.id))
+						.run();
+
+					const freshClean = db
+						.select({ cleanedRev: pages.cleanedRev })
+						.from(pages)
+						.where(eq(pages.id, page.id))
+						.get();
+
+					const nextCleanedRev = freshClean?.cleanedRev ?? page.cleanedRev + 1;
+
+					emit({
+						type: 'page-stage-update',
+						chapterId,
+						page: i,
+						pageSeq: page.seq,
+						seq: page.seq,
+						pageId: page.id,
+						stage: 'cleaned',
+						cleanedPath: cleanPath,
+						cleanedRev: nextCleanedRev,
+					});
+
+					syncBus.broadcast({
+						type: 'page-stage-updated',
+						chapterId,
+						pageId: page.id,
+						pageSeq: page.seq,
+						stage: 'cleaned',
+						rev: nextCleanedRev,
+						path: cleanPath,
+					});
+
 					const liveSettings = getCanonicalSettings();
 					if (liveSettings.livePipelinePreview !== false) {
-						try {
-							const annotatedCleanedBuf = await renderAnnotatedOcrImage(cleaned, analyzed.regions);
-							currentAnnotatedPath = `annotated/${chapterId}/${page.seq}.webp`;
-							cleanDir(join(deps.dataRoot, 'annotated', String(chapterId)));
-							writeFileSync(join(deps.dataRoot, currentAnnotatedPath), annotatedCleanedBuf);
+						(async () => {
+							try {
+								if (pageAbortController.signal.aborted || signal.aborted) return;
+								const annotatedCleanedBuf = await renderAnnotatedOcrImage(cleaned, analyzed.regions);
+								if (pageAbortController.signal.aborted || signal.aborted) return;
 
-							db.update(pages)
-								.set({
+								const freshStatus = db.select({ status: pages.status }).from(pages).where(eq(pages.id, page.id)).get();
+								if (freshStatus?.status === 'done') return;
+
+								const currentAnnotatedPath = `annotated/${chapterId}/${page.seq}.webp`;
+								cleanDir(join(deps.dataRoot, 'annotated', String(chapterId)));
+								writeFileSync(join(deps.dataRoot, currentAnnotatedPath), annotatedCleanedBuf);
+
+								db.update(pages)
+									.set({
+										annotatedPath: currentAnnotatedPath,
+										annotatedRev: sql`${pages.annotatedRev} + 1`,
+									})
+									.where(eq(pages.id, page.id))
+									.run();
+
+								const freshRow = db
+									.select({ cleanedRev: pages.cleanedRev, annotatedRev: pages.annotatedRev })
+									.from(pages)
+									.where(eq(pages.id, page.id))
+									.get();
+
+								emit({
+									type: 'page-stage-update',
+									chapterId,
+									page: i,
+									pageSeq: page.seq,
+									seq: page.seq,
+									pageId: page.id,
+									stage: 'cleaned',
 									cleanedPath: cleanPath,
-									cleanedRev: sql`${pages.cleanedRev} + 1`,
+									cleanedRev: freshRow?.cleanedRev ?? nextCleanedRev,
 									annotatedPath: currentAnnotatedPath,
-									annotatedRev: sql`${pages.annotatedRev} + 1`,
-								})
-								.where(eq(pages.id, page.id))
-								.run();
-
-							const freshRow = db
-								.select({ cleanedRev: pages.cleanedRev, annotatedRev: pages.annotatedRev })
-								.from(pages)
-								.where(eq(pages.id, page.id))
-								.get();
-
-							const nextCleanedRev = freshRow?.cleanedRev ?? page.cleanedRev + 1;
-							nextAnnotatedRev = freshRow?.annotatedRev ?? page.annotatedRev + 1;
-
-							emit({
-								type: 'page-stage-update',
-								chapterId,
-								page: i,
-								pageSeq: page.seq,
-								seq: page.seq,
-								pageId: page.id,
-								stage: 'cleaned',
-								cleanedPath: cleanPath,
-								cleanedRev: nextCleanedRev,
-								annotatedPath: currentAnnotatedPath,
-								annotatedRev: nextAnnotatedRev,
-							});
-
-							syncBus.broadcast({
-								type: 'page-stage-updated',
-								chapterId,
-								pageId: page.id,
-								pageSeq: page.seq,
-								stage: 'cleaned',
-								rev: nextCleanedRev,
-								path: cleanPath,
-							});
-						} catch (annotErr) {
-							console.warn('Failed to render live inpainted annotation preview:', annotErr);
-							db.update(pages)
-								.set({
-									cleanedPath: cleanPath,
-									cleanedRev: sql`${pages.cleanedRev} + 1`,
-								})
-								.where(eq(pages.id, page.id))
-								.run();
-
-							const freshClean = db
-								.select({ cleanedRev: pages.cleanedRev })
-								.from(pages)
-								.where(eq(pages.id, page.id))
-								.get();
-
-							const nextCleanedRev = freshClean?.cleanedRev ?? page.cleanedRev + 1;
-
-							emit({
-								type: 'page-stage-update',
-								chapterId,
-								page: i,
-								pageSeq: page.seq,
-								seq: page.seq,
-								pageId: page.id,
-								stage: 'cleaned',
-								cleanedPath: cleanPath,
-								cleanedRev: nextCleanedRev,
-							});
-
-							syncBus.broadcast({
-								type: 'page-stage-updated',
-								chapterId,
-								pageId: page.id,
-								pageSeq: page.seq,
-								stage: 'cleaned',
-								rev: nextCleanedRev,
-								path: cleanPath,
-							});
-						}
-					} else {
-						db.update(pages)
-							.set({
-								cleanedPath: cleanPath,
-								cleanedRev: sql`${pages.cleanedRev} + 1`,
-							})
-							.where(eq(pages.id, page.id))
-							.run();
-
-						const freshClean = db
-							.select({ cleanedRev: pages.cleanedRev })
-							.from(pages)
-							.where(eq(pages.id, page.id))
-							.get();
-
-						const nextCleanedRev = freshClean?.cleanedRev ?? page.cleanedRev + 1;
-
-						emit({
-							type: 'page-stage-update',
-							chapterId,
-							page: i,
-							pageSeq: page.seq,
-							seq: page.seq,
-							pageId: page.id,
-							stage: 'cleaned',
-							cleanedPath: cleanPath,
-							cleanedRev: nextCleanedRev,
-						});
-
-						syncBus.broadcast({
-							type: 'page-stage-updated',
-							chapterId,
-							pageId: page.id,
-							pageSeq: page.seq,
-							stage: 'cleaned',
-							rev: nextCleanedRev,
-							path: cleanPath,
-						});
+									annotatedRev: freshRow?.annotatedRev ?? page.annotatedRev + 1,
+								});
+							} catch {
+								// NON-FATAL LIVE PREVIEW ENCODING FAILURE
+							}
+						})();
 					}
 
 					emit({
