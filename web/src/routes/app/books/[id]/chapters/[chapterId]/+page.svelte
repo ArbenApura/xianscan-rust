@@ -339,6 +339,9 @@
 		if (ev.type === 'page-translated' && !currentJobState.running && ts > lastHandledSyncTimestamp) {
 			lastHandledSyncTimestamp = ts;
 			void jobTracker.syncChapter(chapterId);
+		} else if (ev.type === 'chapter-resliced' && ts > lastHandledSyncTimestamp) {
+			lastHandledSyncTimestamp = ts;
+			void reload();
 		}
 	}
 
@@ -652,7 +655,11 @@
 			const batchItem = $batchTracker.queue.find((q) => q.id === chapterId);
 			const currentBatchStatus = batchItem?.status || null;
 			if (currentBatchStatus !== lastBatchChapterStatus) {
-				if (currentBatchStatus === 'error' || currentBatchStatus === 'done') {
+				if (
+					currentBatchStatus === 'error' ||
+					currentBatchStatus === 'done' ||
+					(lastBatchChapterStatus === 'reslicing' && currentBatchStatus === 'processing')
+				) {
 					void reload();
 				}
 				lastBatchChapterStatus = currentBatchStatus;
@@ -660,8 +667,10 @@
 		}
 	}
 
+	let reloading = false;
 	async function reload() {
-		if (!browser) return;
+		if (!browser || reloading) return;
+		reloading = true;
 		try {
 			const resp = await fetch(`/api/chapters/${chapterId}`);
 			if (!resp.ok) throw new Error('Load failed');
@@ -675,6 +684,7 @@
 			toast.error('Could not load chapter pages.');
 		} finally {
 			loading = false;
+			reloading = false;
 		}
 	}
 

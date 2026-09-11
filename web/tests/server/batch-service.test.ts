@@ -97,4 +97,66 @@ describe('batchService state management and retries', () => {
 		expect(order).toEqual([1, 2]);
 		expect(queue.pending).toBe(0);
 	});
+
+	it('preserves whole-chapter run when queuing individual page into active batch', async () => {
+		const { batchService } = await import('$lib/server/batch-service');
+		batchService.clearBatch();
+
+		const book = seedBook(db, { id: 'book-test-1', title: 'Test Book' });
+		const ch = seedChapter(db, { bookId: book.id, seq: 0, title: 'Chapter 1' });
+		const p1 = seedPage(db, { chapterId: ch.id, seq: 0 });
+		const p2 = seedPage(db, { chapterId: ch.id, seq: 1 });
+		const p3 = seedPage(db, { chapterId: ch.id, seq: 2 });
+
+		// START BATCH TRANSLATION FOR ENTIRE CHAPTER
+		await batchService.startBatch(book.id, book.title, [ch.id], { force: false });
+
+		const state1 = batchService.getState();
+		expect(state1.active).toBe(true);
+		expect(state1.queue).toHaveLength(1);
+		expect(state1.queue[0].id).toBe(ch.id);
+		expect(state1.queue[0].pageIds).toBeUndefined();
+		expect(state1.queue[0].totalPages).toBe(3);
+
+		// RETRANSLATE AN INDIVIDUAL PAGE WHILE THE CHAPTER IS IN-FLIGHT
+		await batchService.startBatch(book.id, book.title, [ch.id], {
+			force: true,
+			pageIds: [p1.id],
+		});
+
+		const state2 = batchService.getState();
+		expect(state2.active).toBe(true);
+		expect(state2.queue).toHaveLength(1);
+		// MUST REMAIN WHOLE-CHAPTER RUN WITH ALL PAGES PRESERVED
+		expect(state2.queue[0].pageIds).toBeUndefined();
+		expect(state2.queue[0].totalPages).toBe(3);
+
+		batchService.clearBatch();
+	});
+
+	it('narrows to pageIds when queuing a specific page for a finished chapter', async () => {
+		const { batchService } = await import('$lib/server/batch-service');
+		batchService.clearBatch();
+
+		const book = seedBook(db, { id: 'book-test-2', title: 'Test Book 2' });
+		const ch = seedChapter(db, { bookId: book.id, seq: 0, title: 'Chapter 1' });
+		const p1 = seedPage(db, { chapterId: ch.id, seq: 0 });
+		const p2 = seedPage(db, { chapterId: ch.id, seq: 1 });
+
+		// START BATCH TRANSLATION AND MARK FINISHED VIA SKIPCHAPTER
+		await batchService.startBatch(book.id, book.title, [ch.id], { force: false });
+		await batchService.skipChapter(ch.id);
+
+		// RETRANSLATE ONLY PAGE 1 AFTER CHAPTER IS FINISHED
+		await batchService.startBatch(book.id, book.title, [ch.id], {
+			force: true,
+			pageIds: [p1.id],
+		});
+
+		const state = batchService.getState();
+		expect(state.queue[0].pageIds).toEqual([p1.id]);
+		expect(state.queue[0].totalPages).toBe(1);
+
+		batchService.clearBatch();
+	});
 });

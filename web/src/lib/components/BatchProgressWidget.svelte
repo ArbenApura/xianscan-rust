@@ -300,7 +300,13 @@
 
 	// TARGET PAGE IDS FILTER (FOR INDIVIDUAL PAGE RUNS)
 	$: targetPageIdSet = (() => {
-		const qItem = currentChapter || $batchTracker.queue[0];
+		if (isSingleMode) {
+			if (singleSnapshot?.targetPageIds && singleSnapshot.targetPageIds.length > 0) {
+				return new Set(singleSnapshot.targetPageIds);
+			}
+			return null;
+		}
+		const qItem = effectiveTelemetryChapter || currentChapter || (isBatchActive ? $batchTracker.queue[0] : null);
 		if (qItem?.pageIds && qItem.pageIds.length > 0) {
 			return new Set(qItem.pageIds);
 		}

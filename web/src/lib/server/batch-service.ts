@@ -261,7 +261,7 @@ async function executeChapterJob(chapter: BatchChapterItem, force: boolean) {
 			const ctrl = new AbortController();
 			activeResliceControllers.set(chapter.id, ctrl);
 
-			await resliceChapterPages(
+			const resliceResult = await resliceChapterPages(
 				chapter.id,
 				client,
 				(step, message, pct) => {
@@ -284,6 +284,31 @@ async function executeChapterJob(chapter: BatchChapterItem, force: boolean) {
 			);
 			activeResliceControllers.delete(chapter.id);
 			preReslicedChapterIds.add(chapter.id);
+
+			// UPDATE CHAPTER TOTAL PAGES IN BATCH QUEUE WITH NEW SLICED COUNT
+			if (resliceResult?.newCount) {
+				activeBatchState = {
+					...activeBatchState,
+					queue: activeBatchState.queue.map((item) =>
+						item.id === chapter.id
+							? {
+									...item,
+									pageCount: resliceResult.newCount,
+									totalPages: resliceResult.newCount,
+									resliceMessage: null,
+								}
+							: item,
+					),
+				};
+				persistBatchState();
+				emitState();
+			}
+
+			syncBus.broadcast({
+				type: 'chapter-resliced',
+				chapterId: chapter.id,
+				count: resliceResult?.newCount,
+			});
 		} catch (err: any) {
 			activeResliceControllers.delete(chapter.id);
 			if (activeBatchState.status === 'cancelled' || activeBatchState.status === 'paused') {
@@ -746,23 +771,42 @@ export const batchService = {
 
 			// DUPLICATE QUEUE DETECTION
 			if (existingItem) {
-				// INDIVIDUAL-PAGE QUEUEING: MERGE THE NEW PAGES INTO THE EXISTING QUEUE ITEM
-				// INSTEAD OF REPLACING pageIds — SO PAGES ALREADY QUEUED FOR THIS CHAPTER (EVEN WHILE
+				// INDIVIDUAL-PAGE QUEUEING - MERGE THE NEW PAGES INTO THE EXISTING QUEUE ITEM
+				// INSTEAD OF REPLACING pageIds SO PAGES ALREADY QUEUED FOR THIS CHAPTER (EVEN WHILE
 				// IT IS 'queued' BEHIND ANOTHER CHAPTER IN A DIFFERENT BOOK) ARE NOT LOST. IF THE
 				// CHAPTER JOB IS STILL RUNNING, INJECT THE NEW PAGES INTO THE LIVE PIPELINE.
 				if (targetPageIds && targetPageIds.length > 0) {
 					const isRunningJob =
 						existingItem.status === 'processing' || existingItem.status === 'reslicing';
+					const isQueuedJob = existingItem.status === 'queued';
 					const job = getChapterJob(id);
 					if (isRunningJob && job?.addPages) {
 						job.addPages(targetPageIds);
 					}
-					const mergedPageIds = Array.from(new Set([...(existingItem.pageIds || []), ...targetPageIds]));
+
 					const finished =
 						existingItem.status === 'done' ||
 						existingItem.status === 'error' ||
 						existingItem.status === 'cancelled' ||
 						existingItem.status === 'skipped';
+
+					// IF THE EXISTING ITEM WAS ALREADY RUNNING OR QUEUED FOR THE WHOLE CHAPTER
+					// (existingItem.pageIds IS NOT SET), DO NOT CONVERT IT INTO A SINGLE-PAGE ITEM.
+					// IT REMAINS A WHOLE-CHAPTER RUN (pageIds: undefined) WITH ITS FULL TOTAL PAGES.
+					const isWholeChapterRun =
+						(isRunningJob || isQueuedJob) &&
+						(!existingItem.pageIds || existingItem.pageIds.length === 0);
+
+					const mergedPageIds = isWholeChapterRun
+						? undefined
+						: existingItem.pageIds && existingItem.pageIds.length > 0
+							? Array.from(new Set([...existingItem.pageIds, ...targetPageIds]))
+							: targetPageIds;
+
+					const mergedTotalPages = isWholeChapterRun
+						? (existingItem.totalPages || existingItem.pageCount || pCount)
+						: (mergedPageIds?.length ?? targetTotalPages);
+
 					activeBatchState = {
 						...activeBatchState,
 						queue: activeBatchState.queue.map((item) =>
@@ -771,7 +815,7 @@ export const batchService = {
 										...item,
 										status: finished ? ('queued' as const) : item.status,
 										pageIds: mergedPageIds,
-										totalPages: mergedPageIds.length,
+										totalPages: mergedTotalPages,
 										translatedPages: isRunningJob ? item.translatedPages : 0,
 										error: null,
 									}

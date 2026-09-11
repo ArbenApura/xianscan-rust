@@ -6,7 +6,6 @@ import { and, eq, sql } from 'drizzle-orm';
 import { db } from '../db';
 import { chapters, pages, regions, translations } from '../db/schema';
 import { clearChapterJob } from '../translation-service';
-import { batchService } from '../batch-service';
 import { DATA_ROOT } from '../paths';
 import type { PipelineClient } from '../pipeline-client';
 import { pruneCoverThumbs } from '../covers';
@@ -314,7 +313,6 @@ async function runReslicePipeline(
 	pruneMultiplePageThumbs(pageRows.map((p) => p.id), dataRoot);
 
 	clearChapterJob(chapterId);
-	batchService.resetChapter(chapterId);
 
 	for (const oldPath of oldFilePaths) {
 		try {
