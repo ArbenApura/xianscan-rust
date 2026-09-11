@@ -79,11 +79,15 @@ fn filter_fused_ocr_lines(rl: Vec<OcrLine>, page_w: u32, source_lang: Option<&st
             if !is_sentence_dialogue && lw >= (page_w as f32 * 0.60) as i32 && lh >= 120 && line.score < 0.75 {
                 return false;
             }
-            // 2. DROP STANDALONE REPEATED NOISE STROKES
+            // 2. DROP WATERMARK RESIDUE AND SCANLATOR WATERMARK LINES
+            if crate::ml::detect::is_watermark_line(t) || crate::ml::detect::is_pure_watermark_region(t) {
+                return false;
+            }
+            // 3. DROP STANDALONE REPEATED NOISE STROKES
             if crate::ml::detect::is_standalone_noise_stroke(t) {
                 return false;
             }
-            // 3. DROP HIGH-TILT NON-DIALOGUE WITH LOW RECOGNITION CONFIDENCE (THETA >= 12.0 DEG, SCORE < 0.60)
+            // 4. DROP HIGH-TILT NON-DIALOGUE WITH LOW RECOGNITION CONFIDENCE (THETA >= 12.0 DEG, SCORE < 0.60)
             let angle = crate::ml::geometry::calculate_box_angle_i32(&line.polygon);
             if angle.abs() >= 12.0 && line.score < 0.60 {
                 return false;
@@ -92,7 +96,7 @@ fn filter_fused_ocr_lines(rl: Vec<OcrLine>, page_w: u32, source_lang: Option<&st
             if crate::ml::detect::is_non_latin_source(source_lang) && angle.abs() >= 10.0 && !crate::ml::detect::has_native_script_for_lang(t, source_lang) {
                 return false;
             }
-            // 4. DROP MARGIN ARCHITECTURAL / BUILDING GRID TEXTURE NOISE & SLICED EDGE FRAGMENTS (FLUSH TO MARGIN X <= 5 OR X + LW >= PAGE_W - 5, LOW CONFIDENCE SCORE < 0.75, NO BUBBLE)
+            // 5. DROP MARGIN ARCHITECTURAL / BUILDING GRID TEXTURE NOISE & SLICED EDGE FRAGMENTS (FLUSH TO MARGIN X <= 5 OR X + LW >= PAGE_W - 5, LOW CONFIDENCE SCORE < 0.75, NO BUBBLE)
             let (px, _, _, _) = polygon_bounds(&line.polygon);
             let is_margin_flush = px <= 5 || px + lw >= page_w as i32 - 5;
             let has_native = crate::ml::detect::has_native_script_for_lang(t, source_lang);
@@ -107,7 +111,7 @@ fn filter_fused_ocr_lines(rl: Vec<OcrLine>, page_w: u32, source_lang: Option<&st
         })
         .collect();
 
-    // 4. DROP THIN CONTRAST-BORDER OPTICAL SLIVERS OR SUBSEGMENTS (LH <= 25PX) THAT OVERLAP NORMAL-HEIGHT LINES (LH >= 28PX)
+    // 6. DROP THIN CONTRAST-BORDER OPTICAL SLIVERS OR SUBSEGMENTS (LH <= 25PX) THAT OVERLAP NORMAL-HEIGHT LINES (LH >= 28PX)
     let normal_lines: Vec<([i32; 4], String, f32)> = filtered
         .iter()
         .filter_map(|l| {

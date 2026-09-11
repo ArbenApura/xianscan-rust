@@ -85,7 +85,7 @@ fn test_regression_page_server_open_vr_helmet_watermark_collision() {
         "Must NOT append bubble tail caret artifact 'Λ', got '{}'",
         bubble_left.text
     );
-    crate::assert_region_bounds!(bubble_left, RegionKind::DialogueBubble, 95, 294, 256, 106, 15);
+    crate::assert_region_bounds!(bubble_left, RegionKind::DialogueBubble, 111, 295, 224, 94, 15);
 
     // 3. PANEL 1 RIGHT DIALOGUE BUBBLE: '真不知道游戏公司改...'
     let bubble_right = res.regions.iter().find(|r| {

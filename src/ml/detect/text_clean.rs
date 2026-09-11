@@ -14,7 +14,7 @@ pub static CHINESE_RE: LazyLock<Regex> = LazyLock::new(|| {
 
 pub static WATERMARK_RE: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(
-        r"(?i)(\.com|\.net|\.org|\.cn|\.cc|\.xyz|\.top|\.me|\.tv|\.app|http|discord|scanlat|bilibili|速漫库|速漫|漫库|qumanku|quman|包子|baozimh|baozi|colamanga|colamanhua|colam|acloudmerge|acloud|loudmer|udmer|merd|oamanhua|merge|cloud|manga|manhua|comic|yumanhua|mangabox|comick|集云数据|集云|儿云数据|云数据|米古|咪咕|migu|米古动漫|[腾专博传]讯[动漫慢机动初]*|腾[动漫慢机动初]{1,2}|阅文[集团]*|快[看刮](?:[漫慢]画|动漫|app|APP|独家|首发)|^(?:快[看刮]|快[看刮][!！])$|微信|公众号|qq群|企鹅群|群号|严禁转载|独家(?:首发|连载|授权|发布|提供)|扫图|录入|修图|嵌字|翻译[:：]|翻译组|汉化组|免费漫画|最新免费|漫画网|看漫画网|首发|独家首发|漫客[栈拌祥]?|漫[客喜][栈拌祥]?|mkzhan|nga\.com|^[祥拌]$|澳[祥拌]?|最快最稳|广告最少|观看[，, ]?[最量])"
+        r"(?i)(\.com|\.net|\.org|\.cn|\.cc|\.xyz|\.top|\.me|\.tv|\.app|http|discord|scanlat|bilibili|速漫库|速漫|漫库|qumanku|quman|包子|baozimh|baozi|colamanga|colamanhua|colam|acloudmerge|acloud|loudmer|udmer|merd|oamanhua|merge|cloud|manga|manhua|comic|yumanhua|mangabox|comick|集云数据|集云|儿云数据|云数据|米古|咪咕|migu|米古动漫|[腾专博传]讯[动漫慢机动初]*|腾[动漫慢机动初]{1,2}|阅文[集团]*|快[看刮](?:[漫慢]画|动漫|app|APP|独家|首发)|^(?:快[看刮]|快[看刮][!！])$|微信|公众号|qq群|企鹅群|群号|严禁转载|独家(?:首发|连载|授权|发布|提供)|扫图|录入|修图|嵌字|翻译[:：]|翻译组|汉化组|免费漫画|最新免费|漫画网|看漫画网|首发|独家首发|漫客[栈拌祥]?|漫[客喜][栈拌祥]?|客[祥拌]|mkzhan|nga\.com|^[祥拌]$|澳[祥拌]?|最快最稳|广告最少|观看[，, ]?[最量])"
     ).unwrap()
 });
 
@@ -54,6 +54,10 @@ pub static NOISE_STROKES_RE: LazyLock<Regex> = LazyLock::new(|| {
 pub fn is_standalone_noise_stroke(text: &str) -> bool {
     let t = text.trim();
     if t.is_empty() {
+        return true;
+    }
+    // BUBBLE TAIL POINTER SYMBOLS AND STRAY CARET GLYPHS READ FROM SPEECH BUBBLE TAILS
+    if t.chars().count() <= 2 && t.chars().all(|c| matches!(c, 'Λ' | '^' | '▲' | '▼' | '△' | '▽' | '∧' | '∨' | '∠')) {
         return true;
     }
     NOISE_STROKES_RE.is_match(t)
@@ -276,7 +280,11 @@ pub fn clean_stray_ocr_artifacts(text: &str) -> String {
         let is_tail_noise = !t.is_empty()
             && t.chars().all(|c| c == '0' || c == 'o' || c == 'O' || c == '2' || c == '3' || c == '5' || c == '8' || c == '9')
             && t.chars().count() <= 8;
-        if !is_tail_noise {
+        // DROP STANDALONE SPEECH BUBBLE TAIL POINTER SYMBOLS (E.G. "Λ", "^", "▲")
+        let is_pointer_tail_noise = !t.is_empty()
+            && t.chars().count() <= 2
+            && t.chars().all(|c| matches!(c, 'Λ' | '^' | '▲' | '▼' | '△' | '▽' | '∧' | '∨' | '∠'));
+        if !is_tail_noise && !is_pointer_tail_noise {
             // STRIP INLINE TRAILING THOUGHT BUBBLE TAIL DIGITS (E.G. "...…200000", "……0000", "…000")
             let mut line_str = line.to_string();
             let trimmed = line_str.trim_end();
@@ -307,6 +315,10 @@ pub fn clean_stray_ocr_artifacts(text: &str) -> String {
         let mut cleaned = t.to_string();
         if cleaned.ends_with('/') || cleaned.ends_with('\\') {
             cleaned.pop();
+        }
+        while cleaned.ends_with(|c| matches!(c, 'Λ' | '^' | '▲' | '▼' | '△' | '▽' | '∧' | '∨' | '∠')) {
+            cleaned.pop();
+            cleaned = cleaned.trim_end().to_string();
         }
         let cleaned = normalize_korean_ocr_confusions(&cleaned);
         cleaned.trim().to_string()

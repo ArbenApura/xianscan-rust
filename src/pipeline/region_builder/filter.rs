@@ -265,9 +265,15 @@ pub fn should_reject_candidate_region(
         && (has_narrative_punctuation || avg_score >= 0.75 || compute_chromatic_color_variance(img, cluster_rect) < 20.0);
     let is_sign_or_narration_box = is_cjk && !is_oversized_single_char && ((char_count >= 2 && ((cluster_rect.w >= 50 && cluster_rect.h >= 20) || (cluster_rect.w >= 20 && cluster_rect.h >= 45 && char_count >= 3) || (cluster_rect.w >= 30 && cluster_rect.h >= 30 && char_count >= 3)) && avg_score >= 0.70) || (char_count >= 4 && is_pure_cjk && cluster_rect.h >= 60 && avg_score >= 0.62) || is_vert_narration) && !is_shout;
     let is_margin_isolated_char = (cluster_rect.x <= 5 || cluster_rect.x + cluster_rect.w >= page_w as i32 - 5) && avg_score < 0.75;
-    let is_valid_cjk_glyph = is_cjk && ((char_count >= 3 && avg_score >= 0.70) || (char_count == 2 && cluster_rect.w >= 50 && avg_score >= 0.70) || is_vert_narration) && cleaned.chars().any(|c| crate::ml::detect::has_cjk_characters(&c.to_string())) && !is_margin_isolated_char;
+    let is_valid_cjk_glyph = is_cjk
+        && ((char_count >= 3 && avg_score >= 0.70)
+            || (char_count == 2 && cluster_rect.w >= 50 && avg_score >= 0.70)
+            || (char_count <= 2 && avg_score >= 0.72 && (!is_oversized_single_char || compute_chromatic_color_variance(img, cluster_rect) < 15.0))
+            || is_vert_narration)
+        && cleaned.chars().any(|c| crate::ml::detect::has_cjk_characters(&c.to_string()))
+        && !is_margin_isolated_char;
     let is_compact_single_glyph_box = char_count <= 2 && cluster_rect.w <= (ref_dim * 0.05).clamp(20.0, 45.0) as i32 && cluster_rect.h <= (ref_dim * 0.05).clamp(20.0, 45.0) as i32;
-    let is_low_conf_single_char = char_count <= 2 && (avg_score < 0.75 || is_oversized_single_char || is_compact_single_glyph_box);
+    let is_low_conf_single_char = char_count <= 2 && (avg_score < 0.70 || is_oversized_single_char || (is_compact_single_glyph_box && compute_chromatic_color_variance(img, cluster_rect) >= 15.0 && avg_score < 0.72));
     let is_isolated_sfx = char_count <= 6 && is_shout;
 
     if !is_card_or_aligned_text

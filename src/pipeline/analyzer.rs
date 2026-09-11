@@ -178,9 +178,13 @@ pub fn analyze_image_with_fusion_timed(
         })
         .collect();
 
-    // Filter out wide composite multi-line OCR blocks when fine-grained column lines exist
     let filtered_rapid_lines: Vec<&crate::ml::ocr::OcrLine> = cleaned_rapid_lines.iter().filter(|line| {
         if line.score < 0.50 {
+            return false;
+        }
+        let t = line.text.trim();
+        // DROP WATERMARK RESIDUE AND SCANLATOR WATERMARK LINES
+        if crate::ml::detect::is_watermark_line(t) || crate::ml::detect::is_pure_watermark_region(t) {
             return false;
         }
         let (lx, ly, lw, lh) = crate::ml::geometry::polygon_bounds(&line.polygon);
@@ -449,7 +453,18 @@ pub fn analyze_image_with_fusion_timed(
                 let iy = (pb.y + pb.h).min(b.y + b.h) - pb.y.max(b.y);
                 ix > 0 && iy > 0 && (ix * iy) as f32 / (b.w * b.h).max(1) as f32 >= 0.50
             });
-            let overlaps_sfx = !is_inside_bubble && fusion_res.onomatopoeia.iter().any(|(sfx_b, sfx_score)| {
+            let has_matching_ocr = filtered_rapid_lines.iter().any(|l| {
+                let (lx, ly, lw, lh) = crate::ml::geometry::polygon_bounds(&l.polygon);
+                let ix = (b.x + b.w).min(lx + lw) - b.x.max(lx);
+                let iy = (b.y + b.h).min(ly + lh) - b.y.max(ly);
+                if ix > 0 && iy > 0 {
+                    let inter = (ix * iy) as f32;
+                    inter / (b.w * b.h).max(1) as f32 >= 0.35 || inter / (lw * lh).max(1) as f32 >= 0.35
+                } else {
+                    false
+                }
+            });
+            let overlaps_sfx = !is_inside_bubble && !has_matching_ocr && fusion_res.onomatopoeia.iter().any(|(sfx_b, sfx_score)| {
                 if *sfx_score < 0.25 {
                     return false;
                 }
@@ -649,6 +664,7 @@ pub fn analyze_image_with_fusion_timed(
                                 && lt.chars().all(|c| c.is_ascii_alphabetic() || c.is_whitespace() || c.is_ascii_punctuation())
                         };
                         let is_partial_vert_container = !is_subtitle_to_title
+                            && !is_separate_detector_box
                             && !is_trailing_latin_noise
                             && !leaks_outside_bubble
                             && (bw >= bh * 1.15)
@@ -658,6 +674,7 @@ pub fn analyze_image_with_fusion_timed(
                             && ((ly + lh) as f32 > by + bh)
                             && ((ly as f32) <= by + bh + 45.0);
                         let is_horiz_contained_line = !is_subtitle_to_title
+                            && !is_separate_detector_box
                             && !is_trailing_latin_noise
                             && !leaks_outside_bubble
                             && iy >= 0.35 * (lh as f32).min(bh)
