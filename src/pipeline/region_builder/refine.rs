@@ -275,11 +275,13 @@ pub fn try_refine_cluster_crop(
     // IN NON-LATIN SCRIPT SOURCES (E.G. KOREAN, CJK), SUPPRESS STANDALONE DIGIT / NOISE STROKES
     // PRODUCED BY CROP RECOGNITION MATCHING DOWNSTREAM BUILDER PRUNING BEHAVIOR
     if is_cjk {
+        let has_multi_char = dedup_crop_lines.iter().any(|(_, ot, _)| ot.trim().chars().count() >= 2);
         dedup_crop_lines.retain(|(_, text, _)| {
             let t = text.trim();
             let has_native = crate::ml::detect::has_cjk_characters(t);
             let is_punct = !t.is_empty() && t.chars().all(|c| c.is_ascii_punctuation() || matches!(c, '…' | '·' | '—' | '～' | '！' | '？' | '。' | '，'));
-            let is_noise = !has_native && !is_punct && (crate::ml::detect::is_standalone_digit_or_particle_noise(t) || crate::ml::detect::is_standalone_noise_stroke(t));
+            let is_stroke_noise = crate::ml::detect::is_standalone_noise_stroke(t) && has_multi_char;
+            let is_noise = ((!has_native && !is_punct) || is_stroke_noise) && (crate::ml::detect::is_standalone_digit_or_particle_noise(t) || crate::ml::detect::is_standalone_noise_stroke(t));
             !is_noise
         });
     }

@@ -72,7 +72,8 @@ fn test_regression_page_town_chou_yatou_split_rangkai_freetext() {
         "Top-left bubble must contain full speech unified into one region, got '{}'",
         bubble_chou.text
     );
-    crate::assert_region_bounds!(bubble_chou, RegionKind::DialogueBubble, 24, 111, 368, 163, 20);
+    crate::assert_region_bounds!(bubble_chou, RegionKind::DialogueBubble, 41, 122, 331, 88, 20);
+    crate::assert_bubble_bounds!(bubble_chou, 24, 111, 368, 163, 20);
 
     // 3. PANEL 1 BACKGROUND CROWD SHOUT: '让开让开！' (FreeText)
     let shout_rangkai = res.regions.iter().find(|r| r.text.contains("让开"));
@@ -87,7 +88,7 @@ fn test_regression_page_town_chou_yatou_split_rangkai_freetext() {
         "Crowd shout must contain '让开让开', got '{}'",
         shout_rangkai.text
     );
-    crate::assert_region_bounds!(shout_rangkai, RegionKind::FreeText, 380, 160, 120, 50, 25);
+    crate::assert_region_bounds!(shout_rangkai, RegionKind::FreeText, 302, 265, 129, 35, 20);
 
     // 4. PANEL 1 QUESTION MARK BUBBLE: '?'
     let bubble_q = res.regions.iter().find(|r| {
@@ -95,7 +96,8 @@ fn test_regression_page_town_chou_yatou_split_rangkai_freetext() {
     });
     assert!(bubble_q.is_some(), "Must detect question mark bubble '?'");
     let bubble_q = bubble_q.unwrap();
-    crate::assert_region_bounds!(bubble_q, RegionKind::DialogueBubble, 720, 204, 72, 44, 15);
+    crate::assert_region_bounds!(bubble_q, RegionKind::DialogueBubble, 741, 206, 32, 31, 15);
+    crate::assert_bubble_bounds!(bubble_q, 720, 204, 72, 44, 15);
 
     // 5. PANEL 2 DIALOGUE BUBBLE: '这些人那么凶找你干嘛？'
     let bubble_凶 = res.regions.iter().find(|r| {

@@ -81,8 +81,19 @@ fn check_composite_subboxes<'a>(
         for j in (i + 1)..subboxes.len() {
             let s1 = subboxes[i];
             let s2 = subboxes[j];
-            let horiz_sep = s1.x + s1.w <= s2.x + 10 || s2.x + s2.w <= s1.x + 10;
-            let center_stagger = ((s1.x + s1.w / 2) - (s2.x + s2.w / 2)).abs() >= 65;
+            let both_substantial = s1.w >= 35 && s1.h >= 30 && s2.w >= 35 && s2.h >= 30;
+            if !both_substantial {
+                continue;
+            }
+            let vert_overlap = (s1.y + s1.h).min(s2.y + s2.h) - s1.y.max(s2.y);
+            let min_h = s1.h.min(s2.h);
+            let on_same_horizontal_row = vert_overlap > 0 && (vert_overlap as f32 / min_h as f32 >= 0.50);
+
+            let is_vert_tbrl_column = s1.h >= (s1.w as f32 * 1.15) as i32 && s2.h >= (s2.w as f32 * 1.15) as i32;
+            let horiz_gap = if s2.x >= s1.x + s1.w { s2.x - (s1.x + s1.w) } else if s1.x >= s2.x + s2.w { s1.x - (s2.x + s2.w) } else { 0 };
+            let horiz_sep = (is_vert_tbrl_column && (s1.x + s1.w <= s2.x + 10 || s2.x + s2.w <= s1.x + 10))
+                || (!on_same_horizontal_row && horiz_gap >= 35);
+            let center_stagger = !on_same_horizontal_row && ((s1.x + s1.w / 2) - (s2.x + s2.w / 2)).abs() >= 65;
             let vert_gap_sep = s2.y >= s1.y + s1.h + 25 || s1.y >= s2.y + s2.h + 25;
             let lobe_offset = ((s1.x + s1.w / 2) - (s2.x + s2.w / 2)).abs() >= 25 || (s1.x - s2.x).abs() >= 20;
             let both_multiline_distinct_lobes = s1.h >= 50 && s2.h >= 50 && lobe_offset && (s2.y >= s1.y + s1.h || s1.y >= s2.y + s2.h);
@@ -209,19 +220,30 @@ pub fn analyze_image_with_fusion_timed(
                 }
             }).collect();
             if matched_bubbles.len() >= 2 {
-                let tb1 = matched_bubbles[0];
-                let tb2 = matched_bubbles[1];
-                let both_in_same_bubble = fusion_res.bubbles.iter().any(|pb| {
-                    let in_b1 = tb1.x >= pb.x - 10 && tb1.y >= pb.y - 10 && (tb1.x + tb1.w) <= pb.x + pb.w + 10 && (tb1.y + tb1.h) <= pb.y + pb.h + 10;
-                    let in_b2 = tb2.x >= pb.x - 10 && tb2.y >= pb.y - 10 && (tb2.x + tb2.w) <= pb.x + pb.w + 10 && (tb2.y + tb2.h) <= pb.y + pb.h + 10;
-                    in_b1 && in_b2
+                let has_enclosing_box = matched_bubbles.iter().any(|b| {
+                    (b.w as f32) >= (lw as f32 * 0.75) && (b.x - lx).abs() <= 35
                 });
-                let are_horiz_disjoint = tb1.x + tb1.w <= tb2.x + 15 || tb2.x + tb2.w <= tb1.x + 15;
-                if !both_in_same_bubble || are_horiz_disjoint {
-                    let horiz_dist = (tb1.x - tb2.x).abs();
-                    let both_substantial = tb1.w >= 45 && tb1.h >= 35 && tb2.w >= 45 && tb2.h >= 35;
-                    if both_substantial && horiz_dist >= 80 && (lw as f32) >= (tb1.w + tb2.w) as f32 * 0.80 {
-                        return false;
+                if !has_enclosing_box {
+                    let tb1 = matched_bubbles[0];
+                    let tb2 = matched_bubbles[1];
+                    let vert_overlap = (tb1.y + tb1.h).min(tb2.y + tb2.h) - tb1.y.max(tb2.y);
+                    let min_h = tb1.h.min(tb2.h);
+                    let on_same_horizontal_row = vert_overlap > 0 && (vert_overlap as f32 / min_h as f32 >= 0.50);
+
+                    let both_in_same_bubble = fusion_res.bubbles.iter().any(|pb| {
+                        let in_b1 = tb1.x >= pb.x - 10 && tb1.y >= pb.y - 10 && (tb1.x + tb1.w) <= pb.x + pb.w + 10 && (tb1.y + tb1.h) <= pb.y + pb.h + 10;
+                        let in_b2 = tb2.x >= pb.x - 10 && tb2.y >= pb.y - 10 && (tb2.x + tb2.w) <= pb.x + pb.w + 10 && (tb2.y + tb2.h) <= pb.y + pb.h + 10;
+                        in_b1 && in_b2
+                    });
+                    let is_vert_tbrl_column = tb1.h >= (tb1.w as f32 * 1.15) as i32 && tb2.h >= (tb2.w as f32 * 1.15) as i32;
+                    let are_horiz_disjoint = (is_vert_tbrl_column && (tb1.x + tb1.w <= tb2.x + 15 || tb2.x + tb2.w <= tb1.x + 15))
+                        || (!on_same_horizontal_row && (tb1.x + tb1.w <= tb2.x + 15 || tb2.x + tb2.w <= tb1.x + 15));
+                    if !both_in_same_bubble || are_horiz_disjoint {
+                        let horiz_dist = (tb1.x - tb2.x).abs();
+                        let both_substantial = tb1.w >= 45 && tb1.h >= 35 && tb2.w >= 45 && tb2.h >= 35;
+                        if both_substantial && horiz_dist >= 80 && (lw as f32) >= (tb1.w + tb2.w) as f32 * 0.80 {
+                            return false;
+                        }
                     }
                 }
             }
@@ -246,6 +268,11 @@ pub fn analyze_image_with_fusion_timed(
             let is_sfx = crate::ml::detect::is_onomatopoeia_or_shout(&line.text);
             let has_exclaim = line.text.contains('！') || line.text.contains('!');
             if is_sfx && !has_exclaim {
+                continue;
+            }
+            let has_dialogue_marker = line.text.chars().any(|c| matches!(c, '！' | '!' | '？' | '?' | '“' | '”' | '「' | '」' | '…'))
+                || crate::ml::detect::is_onomatopoeia_or_shout(&line.text);
+            if !has_dialogue_marker {
                 continue;
             }
 
@@ -518,10 +545,20 @@ pub fn analyze_image_with_fusion_timed(
                             }
                         }).collect();
                         if matching_bubbles.len() >= 2 {
-                            let b1 = matching_bubbles[0];
-                            let b2 = matching_bubbles[1];
-                            let both_substantial = b1.w >= 45 && b1.h >= 35 && b2.w >= 45 && b2.h >= 35;
-                            both_substantial && ((b1.x - b2.x).abs() >= 40 || (b1.y - b2.y).abs() >= 40)
+                            let has_enclosing_box = matching_bubbles.iter().any(|b| {
+                                (b.w as f32) >= (lw as f32 * 0.75) && (b.x - lx).abs() <= 35
+                            });
+                            if has_enclosing_box {
+                                false
+                            } else {
+                                let b1 = matching_bubbles[0];
+                                let b2 = matching_bubbles[1];
+                                let both_substantial = b1.w >= 45 && b1.h >= 35 && b2.w >= 45 && b2.h >= 35;
+                                let vert_overlap = (b1.y + b1.h).min(b2.y + b2.h) - b1.y.max(b2.y);
+                                let min_h = b1.h.min(b2.h);
+                                let on_same_row = vert_overlap > 0 && (vert_overlap as f32 / min_h as f32 >= 0.50);
+                                both_substantial && ((!on_same_row && (b1.x - b2.x).abs() >= 40) || (b1.y - b2.y).abs() >= 40)
+                            }
                         } else {
                             false
                         }

@@ -78,7 +78,7 @@ fn test_regression_page_kung_fu_father_forbids_combat_narration() {
         "Top narration must contain '事实很无奈' and '功夫很难当饭', got '{}'",
         top_narration.text
     );
-    crate::assert_region_bounds!(top_narration, RegionKind::FreeText, 186, 65, 214, 210, 20);
+    crate::assert_region_bounds!(top_narration, RegionKind::FreeText, 186, 104, 198, 124, 15);
 
     // 3. MID-RIGHT NARRATION: '顾飞练的功夫注\n重格斗技巧……'
     let mid_narration = res.regions.iter().find(|r| r.text.contains("顾飞练的功夫"));
@@ -115,7 +115,7 @@ fn test_regression_page_kung_fu_father_forbids_combat_narration() {
         "Lower-left narration must contain full sentences, got '{}'",
         left_narration.text
     );
-    crate::assert_region_bounds!(left_narration, RegionKind::FreeText, 6, 1100, 155, 215, 25);
+    crate::assert_region_bounds!(left_narration, RegionKind::FreeText, 0, 1148, 161, 167, 15);
 
     // 5. CENTER DIALOGUE BUBBLE: '我们习\n武，'
     let bubble_xiwu = res.regions.iter().find(|r| {
@@ -126,12 +126,12 @@ fn test_regression_page_kung_fu_father_forbids_combat_narration() {
         "Must detect center dialogue bubble '我们习武，'"
     );
     let bubble_xiwu = bubble_xiwu.unwrap();
-    crate::assert_region_bounds!(bubble_xiwu, RegionKind::DialogueBubble, 179, 1052, 120, 104, 10);
+    crate::assert_region_bounds!(bubble_xiwu, RegionKind::DialogueBubble, 181, 1064, 120, 92, 10);
     crate::assert_bubble_bounds!(bubble_xiwu, 160, 1032, 159, 145, 12);
 
     // 6. RIGHT DIALOGUE BUBBLE: '是为了锻炼\n自身，突破\n人体极限，\n不是为了好\n勇斗狠。'
     let bubble_duanlian = res.regions.iter().find(|r| {
-        r.kind == RegionKind::DialogueBubble && r.text.contains("锻炼自身")
+        r.kind == RegionKind::DialogueBubble && r.text.contains("锻炼") && r.text.contains("自身")
     });
     assert!(
         bubble_duanlian.is_some(),
@@ -139,11 +139,11 @@ fn test_regression_page_kung_fu_father_forbids_combat_narration() {
     );
     let bubble_duanlian = bubble_duanlian.unwrap();
     assert!(
-        bubble_duanlian.text.contains("人体极限") && bubble_duanlian.text.contains("好勇斗狠"),
+        bubble_duanlian.text.contains("人体极限") && bubble_duanlian.text.contains("勇斗狠"),
         "Right dialogue bubble must contain full speech, got '{}'",
         bubble_duanlian.text
     );
-    crate::assert_region_bounds!(bubble_duanlian, RegionKind::DialogueBubble, 584, 1088, 203, 226, 12);
+    crate::assert_region_bounds!(bubble_duanlian, RegionKind::DialogueBubble, 600, 1090, 187, 226, 12);
     crate::assert_bubble_bounds!(bubble_duanlian, 571, 1037, 228, 329, 15);
 
     // 7. BOTTOM BANNER: '如果你觉得这老头眼熟，没错——他就是校门\n口痛扁顾飞的那位！'

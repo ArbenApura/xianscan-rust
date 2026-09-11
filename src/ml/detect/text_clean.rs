@@ -222,7 +222,7 @@ pub fn is_onomatopoeia_or_shout(text: &str) -> bool {
         } else if chars.len() == 4 && chars[0] == chars[2] && chars[1] == chars[3] && chars[0] != chars[1] && chars.iter().all(|c| crate::ml::detect::has_cjk_characters(&c.to_string())) {
             // Guard: Meaningful conversational action verbs/imperatives (e.g. "快走快走", "等等等等", "救命救命", "看看看看", "想想想想", "快点快点", "走吧走吧", "来吧来吧", "快跑快跑") are dialogue phrases, not sound effects
             let s: String = chars.iter().collect();
-            if s.contains("快走") || s.contains("快跑") || s.contains("快点") || s.contains("救命") || s.contains("等等") || s.contains("看看") || s.contains("想想") || s.contains("走吧") || s.contains("来吧") {
+            if s.contains("快走") || s.contains("快跑") || s.contains("快点") || s.contains("救命") || s.contains("等等") || s.contains("看看") || s.contains("想想") || s.contains("走吧") || s.contains("来吧") || s.contains("让开") || s.contains("闪开") || s.contains("让让") || s.contains("滚开") || s.contains("让路") {
                 false
             } else {
                 true

@@ -95,7 +95,12 @@ fn filter_fused_ocr_lines(rl: Vec<OcrLine>, page_w: u32, source_lang: Option<&st
             // 4. DROP MARGIN ARCHITECTURAL / BUILDING GRID TEXTURE NOISE & SLICED EDGE FRAGMENTS (FLUSH TO MARGIN X <= 5 OR X + LW >= PAGE_W - 5, LOW CONFIDENCE SCORE < 0.75, NO BUBBLE)
             let (px, _, _, _) = polygon_bounds(&line.polygon);
             let is_margin_flush = px <= 5 || px + lw >= page_w as i32 - 5;
-            if is_margin_flush && line.score < 0.75 {
+            let has_native = crate::ml::detect::has_native_script_for_lang(t, source_lang);
+            let is_multi_native = has_native && char_count >= 2;
+            if is_margin_flush && !is_multi_native && line.score < 0.75 {
+                return false;
+            }
+            if is_margin_flush && line.score < 0.65 {
                 return false;
             }
             true
@@ -468,7 +473,7 @@ pub fn fuse_detections(
                                     disconnected
                                 };
                                 let is_better = !is_excessive_multiline_bleed && !is_disconnected_crop_rows && (
-                                    (!clean_c.contains('\n') || rl.text.contains('\n')) && (
+                                    (!clean_c.contains('\n') || rl.text.contains('\n') || is_multiline_cb || clean_cjk > rl_cjk) && (
                                         clean_chars > rl_chars
                                             || clean_cjk > rl_cjk
                                             || (clean_c.contains('…') && !rl.text.contains('…'))

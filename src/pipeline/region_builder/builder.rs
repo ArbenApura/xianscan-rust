@@ -315,12 +315,14 @@ pub fn build_regions(
                 l.score >= 0.65 && (crate::ml::detect::has_native_script_for_lang(t, source_lang) || t.chars().any(|c| matches!(c, '！' | '？' | '!' | '?' | '…')))
             });
             if has_native_or_punct_line && crate::ml::detect::is_non_latin_source(source_lang) {
+                let has_multi_char = orientation_filtered.iter().any(|other| other.text.trim().chars().count() >= 2);
                 orientation_filtered.retain(|l| {
                     let t = l.text.trim();
                     let lacks_native = !crate::ml::detect::has_native_script_for_lang(t, source_lang);
                     let is_punct = t.chars().any(|c| matches!(c, '！' | '？' | '!' | '?' | '…'));
                     let is_pure_latin_word = lacks_native && !is_punct && t.chars().all(|c| c.is_ascii_alphabetic() || c.is_whitespace() || c.is_ascii_punctuation());
-                    let is_noise_or_digit = lacks_native && !is_punct && (crate::ml::detect::is_standalone_digit_or_particle_noise(t) || crate::ml::detect::is_standalone_noise_stroke(t));
+                    let is_stroke_noise = crate::ml::detect::is_standalone_noise_stroke(t) && has_multi_char;
+                    let is_noise_or_digit = (!is_punct && is_stroke_noise) || (lacks_native && !is_punct && (crate::ml::detect::is_standalone_digit_or_particle_noise(t) || crate::ml::detect::is_standalone_noise_stroke(t)));
                     let is_garbled_latin_debris = {
                         let non_nat = t.chars().filter(|c| c.is_ascii_alphabetic()).count();
                         let nat = t.chars().filter(|c| crate::ml::detect::has_native_script_for_lang(&c.to_string(), source_lang)).count();

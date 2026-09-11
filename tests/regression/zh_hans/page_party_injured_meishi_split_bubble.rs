@@ -1,4 +1,3 @@
-// -- INTERNAL IMPORTS -- //
 use crate::common::get_or_analyze_fixture_with_lang;
 use xianscan_rust::ml::schemas::RegionKind;
 
@@ -92,7 +91,7 @@ fn test_regression_page_party_injured_meishi_split_bubble() {
         "Bottom bubble must unify both lines '没事，我' and '没事！', got '{}'",
         bottom_bubble.text
     );
-    crate::assert_region_bounds!(bottom_bubble, RegionKind::DialogueBubble, 275, 1050, 160, 120, 20);
+    crate::assert_region_bounds!(bottom_bubble, RegionKind::DialogueBubble, 285, 1069, 158, 76, 15);
     crate::assert_bubble_bounds!(bottom_bubble, 265, 1053, 180, 116, 15);
 
     // 5. EXPLICIT NEGATIVE GUARDS
