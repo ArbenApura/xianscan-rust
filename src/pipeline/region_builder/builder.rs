@@ -610,7 +610,7 @@ pub fn build_regions(
 
             let rad_a = median_line_angle.to_radians();
             let (sin_a, cos_a) = (rad_a.sin(), rad_a.cos());
-            let clusters = cluster_lines_into_utterances(&filtered_matched, is_cjk, is_container_vert, sin_a, cos_a);
+            let clusters = cluster_lines_into_utterances(&filtered_matched, is_cjk, is_container_vert, is_bubble_region, sin_a, cos_a);
 
             // CONTAINER-BOUNDARY EXPANSION IS ONLY VALID FOR A SINGLE-UTTERANCE CONTAINER:
             let container_is_single_utterance = clusters.len() <= 1;

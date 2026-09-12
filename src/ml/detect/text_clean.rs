@@ -120,7 +120,7 @@ pub fn is_pure_watermark_region(text: &str) -> bool {
     }
 
     // Silence ellipsis with OCR tail noise (e.g. "(………)\n6", "……6", "…9", "…...UIn")
-    let dot_count = t.chars().filter(|&c| c == '…' || c == '.' || c == '·' || c == '。' || c == '‥' || c == '．').count();
+    let dot_count = t.chars().filter(|&c| c == '…' || c == '.' || c == '·' || c == '。' || c == '‥' || c == '．' || c == '•' || c == '●').count();
     let is_digit_or_noise_residue = t.chars().all(|c| {
         c == '…'
             || c == '.'
@@ -185,7 +185,7 @@ pub fn is_onomatopoeia_or_shout(text: &str) -> bool {
             '哒' | '嗒' | '啪' | '轰' | '噗' | '砰' | '咚' | '嘶' | '嗖' | '刷' | '咔'
                 | '呼' | '嗤' | '铛' | '啐' | '哈' | '啧' | '哼' | '呃' | '呀' | '切'
                 | '嘟' | '滋' | '嗡' | '哔' | '滴' | '嘀' | '嘭' | '哐' | '唰' | '吼'
-                | '咕' | '簌' | '沙' | '哗'
+                | '咕' | '簌' | '沙' | '哗' | '静' | '靜'
         )
     ) && clean_chars.len() <= 3
         && (t.contains('！') || t.contains('!') || t.contains('~') || t.contains('～') || t.contains('：') || t.contains(':') || clean_chars.len() <= 2);
@@ -342,6 +342,35 @@ pub fn is_pure_punctuation_only(text: &str) -> bool {
     !t.chars().any(|c| c.is_alphanumeric())
 }
 
+/// CHECK IF A NARROW VERTICAL STRING INSIDE A SPEECH BUBBLE REPRESENTS VERTICAL ELLIPSIS DOT HALLUCINATIONS
+/// (E.G. "e\ne\n8\ne\ne\ne\nF" OR "7\n•\n.\nD\n中\n●\n•\n2\nP" GENERATED FROM 6 VERTICAL ELLIPSIS DOTS)
+pub fn is_vertical_ellipsis_dot_noise(text: &str, is_bubble: bool, w: i32, h: i32) -> bool {
+    if !is_bubble {
+        return false;
+    }
+    if w > 35 || h < 24 || (h as f32) < w as f32 * 1.5 {
+        return false;
+    }
+    let lines: Vec<&str> = text.lines().map(|l| l.trim()).filter(|l| !l.is_empty()).collect();
+    if lines.len() < 3 || lines.len() > 14 {
+        return false;
+    }
+    if !lines.iter().all(|l| l.chars().count() <= 2) {
+        return false;
+    }
+    let chars: Vec<char> = text.chars().filter(|c| !c.is_whitespace()).collect();
+    let dot_confusion_count = chars.iter().filter(|&&c| {
+        matches!(
+            c,
+            '•' | '●' | '·' | '.' | '‥' | '．' | '。'
+                | 'e' | 'E' | '8' | 'F' | 'f' | '7' | 'D' | 'd' | 'P' | 'p'
+                | 'o' | 'O' | '0' | '1' | 'I' | 'l' | '|' | '!' | 'c' | 'C'
+                | 'u' | 'U' | 'n' | 'N' | '2' | '3' | '5' | '中'
+        )
+    }).count();
+    dot_confusion_count >= (chars.len() * 3 / 4).max(3)
+}
+
 /// DETECTS DECORATIVE-SCRIPT OCR GARBAGE: NATIVE CHARACTERS INTERLEAVED WITH 3+ SEPARATE
 /// ASCII ALPHANUMERIC FRAGMENTS (E.G. "中1ェc70に4Φ17814" READ FROM IN-WORLD FANTASY LETTERING).
 /// REAL TEXT NEVER INTERLEAVES THREE OR MORE SEPARATE ASCII RUNS INSIDE NATIVE SCRIPT —
@@ -354,15 +383,17 @@ pub fn is_mixed_script_debris(text: &str, source_lang: Option<&str>) -> bool {
     if chars.len() < 7 {
         return false;
     }
+    let is_zh = matches!(source_lang, Some("zh") | Some("zh_hans") | Some("zh_hant") | Some("zh-Hans") | Some("zh-Hant"));
     let mut non_native_runs = 0usize;
     let mut in_non_native = false;
     let mut has_greek_symbol = false;
     for c in &chars {
-        let is_sym = matches!(*c, 'Φ' | 'Ψ' | 'Ω' | 'α' | 'β' | 'γ' | 'δ' | 'ε' | 'θ' | 'λ' | 'π' | 'σ' | 'φ' | 'ω');
+        let is_sym = matches!(*c, 'Φ' | 'Ψ' | 'Ω' | 'α' | 'β' | 'γ' | 'δ' | 'ε' | 'θ' | 'λ' | 'π' | 'σ' | 'φ' | 'ω' | '×' | '÷' | '≠' | '±');
         if is_sym {
             has_greek_symbol = true;
         }
-        let is_non_nat = c.is_ascii_alphanumeric() || is_sym || matches!(*c, 'ェ' | 'ィ' | 'ゥ' | 'ォ' | 'ャ' | 'ュ' | 'ョ');
+        let is_kana = is_zh && (('\u{3040}'..='\u{309F}').contains(c) || ('\u{30A0}'..='\u{30FF}').contains(c));
+        let is_non_nat = c.is_ascii_alphanumeric() || is_sym || is_kana || matches!(*c, 'ェ' | 'ィ' | 'ゥ' | 'ォ' | 'ャ' | 'ュ' | 'ョ');
         if is_non_nat {
             if !in_non_native {
                 non_native_runs += 1;
@@ -374,7 +405,12 @@ pub fn is_mixed_script_debris(text: &str, source_lang: Option<&str>) -> bool {
     }
     let native = chars
         .iter()
-        .filter(|c| crate::ml::detect::has_native_script_for_lang(&c.to_string(), source_lang))
+        .filter(|c| {
+            if is_zh && (('\u{3040}'..='\u{309F}').contains(c) || ('\u{30A0}'..='\u{30FF}').contains(c)) {
+                return false;
+            }
+            crate::ml::detect::has_native_script_for_lang(&c.to_string(), source_lang)
+        })
         .count();
     if has_greek_symbol && non_native_runs >= 2 {
         return true;

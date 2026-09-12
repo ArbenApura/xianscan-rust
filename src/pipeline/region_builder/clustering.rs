@@ -28,6 +28,7 @@ pub fn cluster_lines_into_utterances<'a>(
     lines: &[&'a OcrLine],
     is_cjk: bool,
     is_vertical: bool,
+    is_bubble: bool,
     sin_a: f32,
     cos_a: f32,
 ) -> Vec<Vec<&'a OcrLine>> {
@@ -83,7 +84,34 @@ pub fn cluster_lines_into_utterances<'a>(
                     let max_horiz_gap = (median_th * 1.80).max(24.0) as i32;
                     let max_vert_gap = (median_th * 0.80).max(12.0) as i32;
 
-                    (overlap_y > 0 && horiz_gap <= max_horiz_gap) || (vert_gap <= max_vert_gap && horiz_gap <= max_horiz_gap)
+                    let is_spatially_close = (overlap_y > 0 && horiz_gap <= max_horiz_gap) || (vert_gap <= max_vert_gap && horiz_gap <= max_horiz_gap);
+                    if !is_spatially_close {
+                        return false;
+                    }
+
+                    // SFX AND DIALOGUE / NARRATION DISPARITY GUARD:
+                    // NEVER CLUSTER AN ISOLATED SOUND EFFECT / ONOMATOPOEIA WITH REGULAR SENTENCE DIALOGUE OR NARRATION OUTSIDE BUBBLES.
+                    if !is_bubble {
+                        let l_text = m.line.text.trim();
+                        let c_text = c_line.text.trim();
+                        let l_is_sfx = crate::ml::detect::is_onomatopoeia_or_shout(l_text);
+                        let c_is_sfx = crate::ml::detect::is_onomatopoeia_or_shout(c_text);
+                        if l_is_sfx != c_is_sfx {
+                            return false;
+                        }
+
+                        // FONT SCALE DISPARITY GUARD:
+                        // TWO LINES IN THE SAME UTTERANCE CANNOT HAVE SEVERELY DISPARATE CHARACTER SIZES.
+                        let l_chars = l_text.chars().filter(|c| !c.is_whitespace()).count().max(1) as f32;
+                        let c_chars = c_text.chars().filter(|c| !c.is_whitespace()).count().max(1) as f32;
+                        let l_dim = (lw as f32).max(lh as f32 / l_chars);
+                        let c_dim = (cw as f32).max(ch as f32 / c_chars);
+                        if l_dim >= c_dim * 2.2 || c_dim >= l_dim * 2.2 {
+                            return false;
+                        }
+                    }
+
+                    true
                 });
                 if connects {
                     merged_indices.push(c_idx);
@@ -136,8 +164,17 @@ pub fn cluster_lines_into_utterances<'a>(
                         || prev_text.ends_with('）')
                         || prev_text.ends_with("んだ…");
 
+                    let is_sfx_split = if !is_bubble {
+                        let prev_is_sfx = crate::ml::detect::is_onomatopoeia_or_shout(&prev_text);
+                        let curr_is_sfx = crate::ml::detect::is_onomatopoeia_or_shout(l.text.trim());
+                        prev_is_sfx != curr_is_sfx
+                    } else {
+                        false
+                    };
+
                     let is_vert_lobe_split = vert_gap >= (median_th * 1.35).max(22.0)
-                        || (ends_with_term && vert_gap >= (median_th * 0.45).max(6.0));
+                        || (ends_with_term && vert_gap >= (median_th * 0.45).max(6.0))
+                        || is_sfx_split;
 
                     if is_vert_lobe_split && !sub_cluster.is_empty() {
                         final_vert_utterances.push(sub_cluster);

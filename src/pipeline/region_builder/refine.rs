@@ -336,8 +336,20 @@ pub fn try_refine_cluster_crop(
     // IF THE CROP RESULT MERGED LINES ACROSS MULTIPLE SEPARATE DIALOGUE SENTENCES OR EXPANDED A CLEAN SINGLE LINE IN A COMPACT CONTAINER, DO NOT REPLACE
     let is_excessive_expansion = !is_bubble && (
         (combined_cjk_count >= 3 && crop_cjk_count >= (combined_cjk_count * 5 / 2) && target_rect.h <= 70)
-            || (cluster_lines.len() == 1 && avg_score >= 0.70 && !combined_text.contains('\n') && clean_crop_text.contains('\n') && !is_container_vert && target_rect.h <= 45)
+            || (cluster_lines.len() == 1 && avg_score >= 0.70 && !combined_text.contains('\n') && clean_crop_text.contains('\n') && (
+                (!is_container_vert && target_rect.h <= 45)
+                    || (is_container_vert && target_rect.w <= 50)
+            ))
     );
+
+    let has_disparate_sfx_merge = !is_bubble && cluster_lines.len() == 1 && valid_crop_lines.len() >= 2 && {
+        let original_text = combined_text.trim();
+        !crate::ml::detect::is_onomatopoeia_or_shout(original_text)
+            && valid_crop_lines.iter().any(|(_, t, _)| {
+                let t_trim = t.trim();
+                t_trim != original_text && crate::ml::detect::is_onomatopoeia_or_shout(t_trim)
+            })
+    };
 
     // PREVENT CORRUPTING VALID PUNCTUATION CLUSTERS (?!, !?, ...) INTO SPLIT DIGIT/BULLET/LETTER ARTIFACTS (21, ●, 12, N)
     let is_crop_digits_bullets_or_noise = clean_crop_text.chars().all(|c| {
@@ -353,7 +365,7 @@ pub fn try_refine_cluster_crop(
     };
 
     let is_improved = if is_cjk {
-        !is_excessive_expansion && !is_corrupted_punct_to_digits && !is_crop_corrupted_latin && (
+        !is_excessive_expansion && !has_disparate_sfx_merge && !is_corrupted_punct_to_digits && !is_crop_corrupted_latin && (
             crop_cjk_count > combined_cjk_count
                 || (is_corrupted_latin_in_bubble && crop_cjk_count >= 1)
                 || has_more_ellipsis
@@ -451,7 +463,7 @@ pub fn run_fallback_crop_recognition(
         None
     };
 
-    let (isolated_text, isolated_score, fallback_polys) = if let Some(res) = cached_hit {
+    let (mut isolated_text, isolated_score, fallback_polys) = if let Some(res) = cached_hit {
         let text = res.text.trim().to_string();
         let score = res.score;
         let mut fallback_polys = Vec::new();
@@ -507,6 +519,10 @@ pub fn run_fallback_crop_recognition(
 
         (isolated_text, isolated_score, fallback_polys)
     };
+
+    if crate::ml::detect::is_vertical_ellipsis_dot_noise(&isolated_text, is_bubble, box_rect.w, box_rect.h) {
+        isolated_text = "……".to_string();
+    }
 
     Some(FallbackCropOutcome {
         text: isolated_text,

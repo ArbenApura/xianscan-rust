@@ -207,22 +207,35 @@ pub fn should_reject_candidate_region(
     }
 
     // 5b. DROP MIXED-SCRIPT DECORATIVE GARBAGE: NATIVE CHARACTERS INTERLEAVED WITH 3+ SEPARATE
-    // ASCII FRAGMENTS (SIGNATURE OF UNREADABLE IN-WORLD FANTASY LETTERING, E.G. SIGN PLAQUES).
-    if !is_bubble && avg_score < 0.70 && crate::ml::detect::is_mixed_script_debris(cleaned, source_lang) {
+    // ASCII FRAGMENTS (SIGNATURE OF UNREADABLE IN-WORLD FANTASY LETTERING, CHANT SCRAWL, OR SIGN PLAQUES).
+    if avg_score < 0.70 && crate::ml::detect::is_mixed_script_debris(cleaned, source_lang) {
         return true;
     }
 
     // 5c. DROP FOREIGN SCRIPT HALLUCINATION IN CHINESE PAGES:
     // WHEN SOURCE LANGUAGE IS CHINESE, NON-BUBBLE TEXT CONTAINING JAPANESE KANA (HIRAGANA OR KATAKANA)
     // IS OCR HALLUCINATION ON BACKGROUND HATCHING OR SCENERY TEXTURE (E.G. "义一年4 VIVy之之3ミう3").
+    // INSIDE BUBBLES, REJECT IF MIXED WITH ALIEN DIGITS / SYMBOLS OR LOW CONFIDENCE (DECORATIVE CHANT SCRAWL).
     let is_zh = matches!(
         source_lang,
         Some("zh") | Some("zh_hans") | Some("zh_hant") | Some("zh-Hans") | Some("zh-Hant")
     );
-    if is_zh
-        && !is_bubble
-        && cleaned.chars().any(|c| ('\u{3040}'..='\u{309F}').contains(&c) || ('\u{30A0}'..='\u{30FF}').contains(&c))
-    {
+    if is_zh {
+        let has_kana = cleaned.chars().any(|c| ('\u{3040}'..='\u{309F}').contains(&c) || ('\u{30A0}'..='\u{30FF}').contains(&c));
+        if has_kana {
+            if !is_bubble {
+                return true;
+            }
+            let has_alien_mix = cleaned.chars().any(|c| c.is_ascii_digit() || matches!(c, '×' | '÷' | '≠' | '±' | 'C' | 'c' | 'x' | 'X'));
+            if avg_score < 0.72 || has_alien_mix {
+                return true;
+            }
+        }
+    }
+
+    // 5d. DROP VERTICAL ELLIPSIS DOT NOISE INSIDE SPEECH BUBBLES:
+    // NARROW VERTICAL BOXES WITH MULTIPLE 1-CHAR LINES OF DOT CONFUSION TOKENS (E.G. "e\ne\n8\ne\ne\ne\nF" OR "7\n•\n.\nD\n中\n●\n•\n2\nP")
+    if crate::ml::detect::is_vertical_ellipsis_dot_noise(cleaned, is_bubble, cluster_rect.w, cluster_rect.h) {
         return true;
     }
 

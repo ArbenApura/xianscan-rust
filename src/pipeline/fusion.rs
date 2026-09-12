@@ -309,6 +309,17 @@ pub fn fuse_detections(
             let cb_rect = BoxRect { x: cb_x, y: cb_y, w: cb_w, h: cb_h };
             let cb_area = (cb_w * cb_h).max(1);
 
+            let is_cb_in_bubble = bubbles.iter().any(|b| {
+                let inter_x = (cb_x + cb_w).min(b.x + b.w) - cb_x.max(b.x);
+                let inter_y = (cb_y + cb_h).min(b.y + b.h) - cb_y.max(b.y);
+                if inter_x > 0 && inter_y > 0 {
+                    let inter_area = inter_x * inter_y;
+                    (inter_area as f32 / cb_area as f32) >= 0.50
+                } else {
+                    false
+                }
+            });
+
             let is_cb_multiline = cb_h >= 45 && cb_w >= 45;
             let internal_rapid_lines_count = rapid_lines.iter().filter(|rl| {
                 let (rx, ry, rw, rh) = polygon_bounds(&rl.polygon);
@@ -470,7 +481,39 @@ pub fn fuse_detections(
                                             let box_frac = (lw.max(1) as f32 * lh.max(1) as f32) / ((cw.max(1) * ch.max(1)) as f32);
                                             glyphs <= 2 && box_frac >= 0.30
                                         });
-                                        if giant_glyph_subline || union_area >= 3 * sum_area.max(1) {
+
+                                        // DISPARATE SFX AND DIALOGUE / NARRATION SUB-LINE CHECK:
+                                        // IF ONE SUB-LINE IS AN ONOMATOPOEIA / SFX AND ANOTHER IS A MULTI-CHARACTER
+                                        // SENTENCE OUTSIDE SPEECH BUBBLES, THE CROP HAS FUSED DISCONNECTED SCENERY ARTWORK AND DIALOGUE.
+                                        let has_sfx_and_sentence = !is_cb_in_bubble && line_res.lines.iter().any(|(_, t, _)| {
+                                            crate::ml::detect::is_onomatopoeia_or_shout(t.trim())
+                                        }) && line_res.lines.iter().any(|(_, t, _)| {
+                                            let clean = t.trim();
+                                            clean.chars().filter(|c| !c.is_whitespace()).count() >= 3
+                                                && !crate::ml::detect::is_onomatopoeia_or_shout(clean)
+                                        });
+
+                                        let has_disparate_scale = if !is_cb_in_bubble && line_res.lines.len() >= 2 {
+                                            let char_sizes: Vec<(f32, f32)> = line_res.lines.iter().map(|(lp, t, _)| {
+                                                let (_, _, lw, lh) = crate::ml::geometry::polygon_bounds(lp);
+                                                let n_chars = t.chars().filter(|c| !c.is_whitespace()).count().max(1) as f32;
+                                                let (char_dim, char_area) = if is_rl_vert {
+                                                    (lw as f32, (lw as f32 * lh as f32) / n_chars)
+                                                } else {
+                                                    (lh as f32, (lw as f32 * lh as f32) / n_chars)
+                                                };
+                                                (char_dim, char_area)
+                                            }).collect();
+                                            let max_dim = char_sizes.iter().map(|s| s.0).fold(0.0f32, f32::max);
+                                            let min_dim = char_sizes.iter().map(|s| s.0).fold(f32::INFINITY, f32::min);
+                                            let max_area = char_sizes.iter().map(|s| s.1).fold(0.0f32, f32::max);
+                                            let min_area = char_sizes.iter().map(|s| s.1).fold(f32::INFINITY, f32::min);
+                                            (max_dim >= min_dim * 2.5 && min_dim > 0.0) || (max_area >= min_area * 4.0 && min_area > 0.0)
+                                        } else {
+                                            false
+                                        };
+
+                                        if giant_glyph_subline || union_area >= 3 * sum_area.max(1) || has_sfx_and_sentence || has_disparate_scale {
                                             disconnected = true;
                                         }
                                     }

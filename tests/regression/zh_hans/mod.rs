@@ -135,3 +135,6 @@ mod page_thief_farming_combo_flowchart_bottom_banner;
 mod page_town_chou_yatou_split_rangkai_freetext;
 mod page_trading_post_didi_alert_sound;
 mod page_gu_fei_teacher_gossip_haha_laughter_merge;
+mod page_sacred_family_worship_vertical_ellipsis;
+mod page_wyvern_art_mystic_chant_scribble;
+mod page_tree_quiet_sfx_vertical_ellipsis;
