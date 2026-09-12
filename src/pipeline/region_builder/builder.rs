@@ -813,6 +813,7 @@ pub fn build_regions(
                 }
 
                 let cleaned = combined_text.trim().to_string();
+                let cleaned = crate::ml::detect::normalize_vertical_exclamation(&cleaned, is_cluster_in_bubble, cluster_rect.w, cluster_rect.h);
                 if should_reject_candidate_region(
                     &cleaned,
                     &cluster_rect,
@@ -1023,6 +1024,7 @@ pub fn build_regions(
                 page_h,
             ) {
                 let cleaned = fallback.text.trim().to_string();
+                let cleaned = crate::ml::detect::normalize_vertical_exclamation(&cleaned, is_bubble_region, box_rect.w, box_rect.h);
                 if should_reject_candidate_region(
                     &cleaned,
                     &box_rect,

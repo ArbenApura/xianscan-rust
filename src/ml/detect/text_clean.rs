@@ -322,8 +322,31 @@ pub fn clean_stray_ocr_artifacts(text: &str) -> String {
         }
         let cleaned = normalize_korean_ocr_confusions(&cleaned);
         let cleaned = strip_hallucinated_border_parentheses(&cleaned);
+        let cleaned = if cleaned == "一." || cleaned == "1." || cleaned == "|." || cleaned == "l." || cleaned == "I." || cleaned == "!." || cleaned == "！." {
+            "！".to_string()
+        } else {
+            cleaned
+        };
         cleaned.trim().to_string()
     }
+}
+
+/// NORMALIZES VERTICAL EXCLAMATION MARK OCR CONFUSIONS IN SPEECH BUBBLES
+/// IN VERTICAL CJK MANGA TYPOGRAPHY, AN EXCLAMATION MARK `！` CONSISTS OF A VERTICAL WEDGE AND A BOTTOM DOT.
+/// OCR MODELS FREQUENTLY MISRECOGNIZE THIS GLYPH AS KANJI `一` PLUS PERIOD (`一.`), `1.`, `|.`, OR KANJI `一`.
+/// WHEN A SINGLE VERTICAL GLYPH (H >= W * 1.25) INSIDE A SPEECH BUBBLE IS RECOGNIZED AS SUCH,
+/// NORMALIZE IT TO `！`.
+pub fn normalize_vertical_exclamation(text: &str, is_bubble: bool, w: i32, h: i32) -> String {
+    let t = text.trim();
+    if t == "一." || t == "1." || t == "|." || t == "l." || t == "I." || t == "!." || t == "！." {
+        return "！".to_string();
+    }
+    if is_bubble && (h as f32) >= (w as f32 * 1.25) {
+        if t == "一" || t == "1" || t == "|" || t == "l" || t == "I" {
+            return "！".to_string();
+        }
+    }
+    text.to_string()
 }
 
 /// STRIPS HALLUCINATED SPEECH BUBBLE BORDER ARCS RECOGNIZED AS PARENTHESES
