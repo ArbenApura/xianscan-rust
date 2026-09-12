@@ -736,7 +736,7 @@ pub fn analyze_image_with_fusion_timed(
                 let is_distinct_rank_line = (bh <= 35.0 || (lh as f32) <= 35.0)
                     && (line.text.trim().ends_with("弟子") || line.text.trim().ends_with("阶") || line.text.trim().ends_with("级") || line.text.trim().ends_with("层") || line.text.trim().ends_with("段") || line.text.trim().ends_with("境") || line.text.trim().ends_with("部"))
                     && (ly as f32 >= by + bh + 10.0);
-                let is_tabular_line = crate::ml::detect::is_repetitive_tabular_text(&line.text) || crate::ml::detect::is_standalone_table_cell(&line.text);
+                let is_tabular_line = parent_bubble.is_none() && (crate::ml::detect::is_repetitive_tabular_text(&line.text) || crate::ml::detect::is_standalone_table_cell(&line.text));
                 let is_adjacent_trailing_row = !is_subtitle_to_title
                     && !is_separate_detector_box
                     && !is_distinct_rank_line
@@ -923,7 +923,10 @@ pub fn analyze_image_with_fusion_timed(
                 }
 
                 // DO NOT RESCUE REPETITIVE TABULAR DATA, CHAPTER METRICS, OR STANDALONE TABLE CELL COUNTERS
-                if crate::ml::detect::is_repetitive_tabular_text(&line.text) || crate::ml::detect::is_standalone_table_cell(&line.text) {
+                let line_inside_any_bubble = effective_bubbles.iter().any(|b| {
+                    crate::ml::geometry::line_center_inside_box(&line.polygon, b)
+                });
+                if !line_inside_any_bubble && (crate::ml::detect::is_repetitive_tabular_text(&line.text) || crate::ml::detect::is_standalone_table_cell(&line.text)) {
                     continue;
                 }
 

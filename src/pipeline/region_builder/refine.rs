@@ -190,7 +190,7 @@ pub fn try_refine_cluster_crop(
                 let intermediate = if trailing_stripped.trim().is_empty() { t } else { trailing_stripped.trim() };
                 let (leading_stripped, _) = crate::ml::detect::strip_leading_watermark_debris(intermediate, source_lang);
                 let clean_t = if leading_stripped.trim().is_empty() { intermediate } else { leading_stripped.trim() };
-                if clean_t.is_empty() || crate::ml::detect::is_watermark_line(clean_t) || crate::ml::detect::is_standalone_table_cell(clean_t) {
+                if clean_t.is_empty() || crate::ml::detect::is_watermark_line(clean_t) || (!is_bubble && crate::ml::detect::is_standalone_table_cell(clean_t)) {
                     return None;
                 }
                 let is_punct = clean_t.chars().all(|c| c.is_ascii_punctuation() || matches!(c, '！' | '？' | '!' | '?' | '…'));

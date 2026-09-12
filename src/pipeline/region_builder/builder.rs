@@ -226,7 +226,7 @@ pub fn build_regions(
                     if !orphan_claims[li] {
                         continue;
                     }
-                    if crate::ml::detect::is_repetitive_tabular_text(&l.text) || crate::ml::detect::is_standalone_table_cell(&l.text) {
+                    if crate::ml::detect::is_repetitive_tabular_text(&l.text) {
                         continue;
                     }
                     if line_center_inside_box(&l.polygon, mb) {
@@ -375,7 +375,7 @@ pub fn build_regions(
                 let t = l.text.trim();
                 !crate::ml::detect::is_pure_watermark_region(t)
                     && !crate::ml::detect::is_repetitive_tabular_text(t)
-                    && !crate::ml::detect::is_standalone_table_cell(t)
+                    && (!crate::ml::detect::is_standalone_table_cell(t) || is_bubble_region)
             });
 
             // IN NON-LATIN CONTAINERS, SUPPRESS PURE LATIN NOISE / CLOTHING PATTERN / DIGIT NOISE LINES

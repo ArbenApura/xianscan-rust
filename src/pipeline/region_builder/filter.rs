@@ -146,12 +146,10 @@ pub fn should_reject_candidate_region(
         }
         let is_noise_or_digit = crate::ml::detect::is_standalone_digit_or_particle_noise(cleaned)
             || crate::ml::detect::is_standalone_noise_stroke(cleaned)
-            || crate::ml::detect::is_standalone_table_cell(cleaned)
             || cleaned.lines().all(|l| {
                 let lt = l.trim();
                 crate::ml::detect::is_standalone_noise_stroke(lt)
                     || crate::ml::detect::is_standalone_digit_or_particle_noise(lt)
-                    || crate::ml::detect::is_standalone_table_cell(lt)
             });
         let is_cjk_garbage = is_cjk && avg_score < 0.70 && !crate::ml::detect::has_cjk_characters(cleaned) && !is_expressive_bubble_punct;
         let lacks_native = !crate::ml::detect::has_native_script_for_lang(cleaned, source_lang);

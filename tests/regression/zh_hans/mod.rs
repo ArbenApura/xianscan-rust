@@ -139,3 +139,4 @@ mod page_sacred_family_worship_vertical_ellipsis;
 mod page_wyvern_art_mystic_chant_scribble;
 mod page_tree_quiet_sfx_vertical_ellipsis;
 mod page_glowing_relic_narration_false_bubble;
+mod page_douluo_awakening_soul_power_zero;
