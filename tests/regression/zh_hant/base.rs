@@ -30,9 +30,7 @@ fn test_regression_traditional_chinese_script_handling() {
 /// # TRADITIONAL CHINESE REAL-PAGE REGRESSION: FIXTURE LOAD WITH `zh-Hant` ROUTING
 #[test]
 fn test_regression_page_with_zh_hant_source_routing() {
-    let img = match crate::common::load_fixture_or_skip("zh_hant", "sample.webp")
-        .or_else(|| crate::common::load_fixture_or_skip("zh_hans", "page_zhang_yude_chengdu_cemetery.webp"))
-    {
+    let img = match crate::common::load_fixture_or_skip("zh_hant", "sample.webp") {
         Some(i) => i,
         None => {
             eprintln!("[INFO] Skipping test_regression_page_with_zh_hant_source_routing: fixture not found");

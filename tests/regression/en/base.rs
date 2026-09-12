@@ -27,9 +27,7 @@ fn test_regression_english_script_handling() {
 /// # ENGLISH REAL-PAGE REGRESSION: FIXTURE LOAD WITH `en` SOURCE ROUTING
 #[test]
 fn test_regression_page_with_english_source_routing() {
-    let img = match crate::common::load_fixture_or_skip("en", "sample.webp")
-        .or_else(|| crate::common::load_fixture_or_skip("zh_hans", "page_zhang_yude_chengdu_cemetery.webp"))
-    {
+    let img = match crate::common::load_fixture_or_skip("en", "sample.webp") {
         Some(i) => i,
         None => {
             eprintln!("[INFO] Skipping test_regression_page_with_english_source_routing: fixture not found");
