@@ -142,3 +142,7 @@ mod page_glowing_relic_narration_false_bubble;
 mod page_douluo_awakening_soul_power_zero;
 mod page_tang_hao_twin_martial_souls_exclamation_shard;
 mod page_tang_san_hammer_forging_timing_force;
+mod page_qianli_counterattack_bug_mage;
+mod page_gu_fei_curtain_waving_jiudengle_bubble;
+mod page_gu_fei_student_lecture_haiyou_bubble;
+mod page_gu_fei_gym_class_teacher_bubble;

@@ -450,7 +450,7 @@ pub fn analyze_image_with_fusion_timed(
     if is_zh {
         // 1. RECOVER WHITE SPEECH BUBBLE CONTAINERS FOR DETECTOR TEXT BUBBLES OUTSIDE ANY DETECTED BUBBLE
         for (tb, tb_score) in &effective_text_bubbles {
-            if *tb_score < 0.65 {
+            if *tb_score < 0.60 {
                 continue;
             }
             let in_existing_bubble = effective_bubbles.iter().any(|pb| {
@@ -467,8 +467,21 @@ pub fn analyze_image_with_fusion_timed(
                 let ix = (tb.x + tb.w).min(lx + lw) - tb.x.max(lx);
                 let iy = (tb.y + tb.h).min(ly + lh) - tb.y.max(ly);
                 if ix > 0 && iy > 0 && (ix * iy) as f32 / (lw * lh).max(1) as f32 >= 0.40 {
-                    l.text.chars().any(|c| matches!(c, '！' | '!' | '？' | '?' | '“' | '”' | '「' | '」' | '…'))
-                        || crate::ml::detect::is_onomatopoeia_or_shout(&l.text)
+                    let t = l.text.trim();
+                    t.chars().any(|c| matches!(c, '！' | '!' | '？' | '?' | '“' | '”' | '「' | '」' | '…'))
+                        || crate::ml::detect::is_onomatopoeia_or_shout(t)
+                } else {
+                    false
+                }
+            }) || fusion_res.crop_cache.iter().any(|c| {
+                let cx = c.crop_rect[0];
+                let cy = c.crop_rect[1];
+                let cw = c.crop_rect[2];
+                let ch = c.crop_rect[3];
+                let ix = (tb.x + tb.w).min(cx + cw) - tb.x.max(cx);
+                let iy = (tb.y + tb.h).min(cy + ch) - tb.y.max(cy);
+                if ix > 0 && iy > 0 && (ix * iy) as f32 / (tb.w * tb.h).max(1) as f32 >= 0.50 {
+                    c.result.text.chars().any(|c| matches!(c, '！' | '!' | '？' | '?' | '“' | '”' | '「' | '」' | '…'))
                 } else {
                     false
                 }

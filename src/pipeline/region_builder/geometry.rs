@@ -841,26 +841,30 @@ pub fn extract_white_bubble_envelope(
 
     let rgb_img = img.to_rgb8();
 
-    // 1. SAMPLE INSIDE THE TEXT BOX TO VERIFY WHITE INTERIOR
+    // 1. SAMPLE INSIDE THE TEXT BOX TO VERIFY WHITE OR LIGHT TONED INTERIOR
     let sample_step_x = (bw / 20).max(1);
     let sample_step_y = (bh / 20).max(1);
-    let mut white_pixels = 0usize;
+    let mut light_pixels = 0usize;
     let mut dark_stroke_pixels = 0usize;
     let mut total_sampled = 0usize;
     let mut sat_sum = 0.0f32;
+    let mut non_dark_lums = Vec::new();
 
     for y in (by..(by + bh)).step_by(sample_step_y as usize) {
         for x in (bx..(bx + bw)).step_by(sample_step_x as usize) {
             let p = rgb_img.get_pixel(x as u32, y as u32);
             let lum = (0.299 * p[0] as f32 + 0.587 * p[1] as f32 + 0.114 * p[2] as f32) as u8;
-            if lum > 200 {
-                white_pixels += 1;
-            } else if lum < 100 {
-                dark_stroke_pixels += 1;
-            }
             let max_c = p[0].max(p[1]).max(p[2]) as f32;
             let min_c = p[0].min(p[1]).min(p[2]) as f32;
             let sat = if max_c > 0.0 { (max_c - min_c) / max_c * 100.0 } else { 0.0 };
+            if lum > 140 && sat < 25.0 {
+                light_pixels += 1;
+            }
+            if lum < 100 {
+                dark_stroke_pixels += 1;
+            } else {
+                non_dark_lums.push(lum);
+            }
             sat_sum += sat;
             total_sampled += 1;
         }
@@ -870,12 +874,20 @@ pub fn extract_white_bubble_envelope(
         return None;
     }
 
-    let white_ratio = white_pixels as f32 / total_sampled as f32;
+    let light_ratio = light_pixels as f32 / total_sampled as f32;
     let avg_sat = sat_sum / total_sampled as f32;
 
-    if white_ratio < 0.50 || dark_stroke_pixels == 0 || avg_sat > 25.0 {
+    if light_ratio < 0.50 || dark_stroke_pixels == 0 || avg_sat > 25.0 {
         return None;
     }
+
+    non_dark_lums.sort_unstable();
+    let median_lum = if !non_dark_lums.is_empty() {
+        non_dark_lums[non_dark_lums.len() / 2]
+    } else {
+        220
+    };
+    let ray_lum_threshold = (median_lum.saturating_sub(35)).max(130);
 
     // 2. MULTI-RAY ENVELOPE SCANNING
     let max_pad = ((bw.max(bh) as f32 * 1.5).round() as i32).clamp(25, 100);
@@ -886,7 +898,7 @@ pub fn extract_white_bubble_envelope(
         let max_c = p[0].max(p[1]).max(p[2]) as f32;
         let min_c = p[0].min(p[1]).min(p[2]) as f32;
         let sat = if max_c > 0.0 { (max_c - min_c) / max_c * 100.0 } else { 0.0 };
-        lum > 190 && sat < 25.0
+        lum >= ray_lum_threshold && sat < 25.0
     };
 
     // UPWARD RAYS

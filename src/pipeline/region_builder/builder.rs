@@ -391,7 +391,7 @@ pub fn build_regions(
                     let is_pure_latin_word = lacks_native && !is_punct && t.chars().all(|c| c.is_ascii_alphabetic() || c.is_whitespace() || c.is_ascii_punctuation());
                     let is_stroke_noise = crate::ml::detect::is_standalone_noise_stroke(t) && has_multi_char;
                     let is_noise_or_digit = (!is_punct && is_stroke_noise) || (lacks_native && !is_punct && (crate::ml::detect::is_standalone_digit_or_particle_noise(t) || crate::ml::detect::is_standalone_noise_stroke(t)));
-                    let is_garbled_latin_debris = {
+                    let is_garbled_latin_debris = !is_punct && {
                         let non_nat = t.chars().filter(|c| c.is_ascii_alphabetic()).count();
                         let nat = t.chars().filter(|c| crate::ml::detect::has_native_script_for_lang(&c.to_string(), source_lang)).count();
                         non_nat >= 3 && non_nat >= nat * 2

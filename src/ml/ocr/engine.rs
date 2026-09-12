@@ -717,7 +717,11 @@ impl RapidOcr {
 
         // Substring & duplicate deduplication
         let mut dedup_lines: Vec<OcrLine> = Vec::new();
-        for line in raw_lines {
+        for mut line in raw_lines {
+            line.text = crate::ml::detect::clean_stray_ocr_artifacts(&line.text);
+            if line.text.trim().is_empty() {
+                continue;
+            }
             let mut duplicate = false;
             for existing in &dedup_lines {
                 let same_text = line.text == existing.text || line.text.contains(&existing.text) || existing.text.contains(&line.text);
@@ -744,7 +748,11 @@ impl RapidOcr {
                 let shifted_poly: Vec<[i32; 2]> = l
                     .polygon
                     .into_iter()
-                    .map(|p| [p[0] - pad_left as i32, p[1] - pad_top as i32])
+                    .map(|p| {
+                        let x = (p[0] - pad_left as i32).clamp(0, w as i32);
+                        let y = (p[1] - pad_top as i32).clamp(0, h as i32);
+                        [x, y]
+                    })
                     .collect();
                 (shifted_poly, l.text, l.score)
             })

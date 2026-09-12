@@ -321,8 +321,137 @@ pub fn clean_stray_ocr_artifacts(text: &str) -> String {
             cleaned = cleaned.trim_end().to_string();
         }
         let cleaned = normalize_korean_ocr_confusions(&cleaned);
+        let cleaned = strip_hallucinated_border_parentheses(&cleaned);
         cleaned.trim().to_string()
     }
+}
+
+/// STRIPS HALLUCINATED SPEECH BUBBLE BORDER ARCS RECOGNIZED AS PARENTHESES
+pub fn strip_hallucinated_border_parentheses(text: &str) -> String {
+    let t = text.trim();
+    if t.is_empty() {
+        return String::new();
+    }
+
+    let is_open_paren = |c: char| c == '(' || c == '（';
+    let is_close_paren = |c: char| c == ')' || c == '）';
+    let is_any_paren = |c: char| is_open_paren(c) || is_close_paren(c);
+
+    if !t.chars().any(is_any_paren) {
+        return text.to_string();
+    }
+
+    // PROCESS LINE BY LINE
+    let mut cleaned_lines: Vec<String> = Vec::new();
+    for line in text.lines() {
+        let mut l_str = line.trim().to_string();
+        if l_str.is_empty() {
+            cleaned_lines.push(String::new());
+            continue;
+        }
+
+        let open_count = l_str.chars().filter(|&c| is_open_paren(c)).count();
+        let close_count = l_str.chars().filter(|&c| is_close_paren(c)).count();
+
+        // 1. UNMATCHED LEADING OPENING PARENTHESIS ON THIS LINE (NO CLOSING PARENTHESIS ON LINE)
+        if open_count > 0 && close_count == 0 && l_str.starts_with(is_open_paren) {
+            let first_char = l_str.chars().next().unwrap();
+            l_str = l_str[first_char.len_utf8()..].trim_start().to_string();
+        }
+
+        // 2. UNMATCHED TRAILING CLOSING PARENTHESIS ON THIS LINE (NO OPENING PARENTHESIS ON LINE)
+        if close_count > 0 && open_count == 0 {
+            let trimmed_end = l_str.trim_end();
+            if trimmed_end.ends_with(is_close_paren) {
+                let last_char = trimmed_end.chars().last().unwrap();
+                l_str = trimmed_end[..trimmed_end.len() - last_char.len_utf8()].trim_end().to_string();
+            } else if let Some(pos) = trimmed_end.rfind(is_close_paren) {
+                let after_paren = &trimmed_end[pos + 1..];
+                if after_paren.chars().all(|c| c.is_ascii_punctuation() || matches!(c, '！' | '？' | '。' | '…' | '～' | '，' | '、')) {
+                    let mut reconstructed = trimmed_end[..pos].to_string();
+                    let paren_char = trimmed_end[pos..].chars().next().unwrap();
+                    reconstructed.push_str(&trimmed_end[pos + paren_char.len_utf8()..]);
+                    l_str = reconstructed.trim_end().to_string();
+                }
+            }
+        }
+
+        // 3. ENCLOSING PARENTHESES WRAPPING THIS ENTIRE LINE
+        // E.G. "(久等了!)", "(还有!)", "(顾飞老师。)", "（久等了）", "(久等了)!"
+        if l_str.starts_with(is_open_paren) {
+            let cur_open = l_str.chars().filter(|&c| is_open_paren(c)).count();
+            let cur_close = l_str.chars().filter(|&c| is_close_paren(c)).count();
+            if cur_open == 1 && cur_close == 1 {
+                let trimmed_end = l_str.trim_end();
+                if trimmed_end.ends_with(is_close_paren) {
+                    let first_char = l_str.chars().next().unwrap();
+                    let last_char = trimmed_end.chars().last().unwrap();
+                    let inner = &trimmed_end[first_char.len_utf8()..trimmed_end.len() - last_char.len_utf8()];
+                    l_str = inner.trim().to_string();
+                } else if let Some(pos) = trimmed_end.rfind(is_close_paren) {
+                    let after_paren = &trimmed_end[pos + 1..];
+                    if after_paren.chars().all(|c| c.is_ascii_punctuation() || matches!(c, '！' | '？' | '。' | '…' | '～' | '，' | '、')) {
+                        let first_char = l_str.chars().next().unwrap();
+                        let paren_char = trimmed_end[pos..].chars().next().unwrap();
+                        let inner_part = &trimmed_end[first_char.len_utf8()..pos];
+                        let tail_part = &trimmed_end[pos + paren_char.len_utf8()..];
+                        l_str = format!("{}{}", inner_part.trim(), tail_part.trim());
+                    }
+                }
+            }
+        }
+
+        cleaned_lines.push(l_str);
+    }
+
+    // 4. MULTI-LINE ENCLOSING PARENTHESES WRAPPER CHECK
+    if cleaned_lines.len() >= 2 {
+        let first_starts = cleaned_lines.first().map(|l| l.trim().starts_with(is_open_paren)).unwrap_or(false);
+        let last_ends = cleaned_lines.last().map(|l| {
+            let tr = l.trim_end();
+            tr.ends_with(is_close_paren) || (tr.rfind(is_close_paren).map(|p| {
+                tr[p + 1..].chars().all(|c| c.is_ascii_punctuation() || matches!(c, '！' | '？' | '。' | '…' | '～' | '，' | '、'))
+            }).unwrap_or(false))
+        }).unwrap_or(false);
+
+        let total_open: usize = cleaned_lines.iter().map(|l| l.chars().filter(|&c| is_open_paren(c)).count()).sum();
+        let total_close: usize = cleaned_lines.iter().map(|l| l.chars().filter(|&c| is_close_paren(c)).count()).sum();
+
+        if first_starts && last_ends && total_open == 1 && total_close == 1 {
+            if let Some(first_line) = cleaned_lines.first_mut() {
+                let tr = first_line.trim();
+                let first_char = tr.chars().next().unwrap();
+                *first_line = tr[first_char.len_utf8()..].trim_start().to_string();
+            }
+            if let Some(last_line) = cleaned_lines.last_mut() {
+                let tr = last_line.trim_end();
+                if tr.ends_with(is_close_paren) {
+                    let last_char = tr.chars().last().unwrap();
+                    *last_line = tr[..tr.len() - last_char.len_utf8()].trim_end().to_string();
+                } else if let Some(pos) = tr.rfind(is_close_paren) {
+                    let paren_char = tr[pos..].chars().next().unwrap();
+                    let inner_part = &tr[..pos];
+                    let tail_part = &tr[pos + paren_char.len_utf8()..];
+                    *last_line = format!("{}{}", inner_part.trim_end(), tail_part.trim());
+                }
+            }
+        }
+    }
+
+    // 5. REMOVE ANY REMAINING ENTIRELY UNMATCHED PARENTHESIS IF ACROSS ENTIRE TEXT IT HAS ZERO OPPOSITES
+    let total_open: usize = cleaned_lines.iter().map(|l| l.chars().filter(|&c| is_open_paren(c)).count()).sum();
+    let total_close: usize = cleaned_lines.iter().map(|l| l.chars().filter(|&c| is_close_paren(c)).count()).sum();
+    if total_open > 0 && total_close == 0 {
+        for line in &mut cleaned_lines {
+            *line = line.chars().filter(|&c| !is_open_paren(c)).collect();
+        }
+    } else if total_close > 0 && total_open == 0 {
+        for line in &mut cleaned_lines {
+            *line = line.chars().filter(|&c| !is_close_paren(c)).collect();
+        }
+    }
+
+    cleaned_lines.join("\n")
 }
 
 /// RECOVERS KNOWN SYSTEMATIC HANGUL OCR CONFUSIONS FROM MANHWA BRUSH/ACTION FONTS
@@ -788,6 +917,50 @@ mod tests {
         assert_eq!(
             normalize_korean_ocr_confusions("윗사람에게 공손해야 한다"),
             "윗사람에게 공손해야 한다"
+        );
+    }
+
+    #[test]
+    fn test_strip_hallucinated_border_parentheses() {
+        // STRIPS UNMATCHED LEADING FULLWIDTH PARENTHESIS FROM BUBBLE BORDER ARC
+        assert_eq!(
+            strip_hallucinated_border_parentheses("（格各异，但都是网"),
+            "格各异，但都是网"
+        );
+        // STRIPS ENCLOSING HALFWIDTH PARENTHESES WRAPPING ENTIRE DIALOGUE
+        assert_eq!(
+            strip_hallucinated_border_parentheses("(久等了!)"),
+            "久等了!"
+        );
+        assert_eq!(
+            strip_hallucinated_border_parentheses("(还有!)"),
+            "还有!"
+        );
+        assert_eq!(
+            strip_hallucinated_border_parentheses("(顾飞老师。)"),
+            "顾飞老师。"
+        );
+        assert_eq!(
+            strip_hallucinated_border_parentheses("(久等了)！"),
+            "久等了！"
+        );
+        assert_eq!(
+            strip_hallucinated_border_parentheses("（还有！）"),
+            "还有！"
+        );
+        // PRESERVES INNER LEGITIMATE PARENTHESES AND NUMBERED LISTS
+        assert_eq!(
+            strip_hallucinated_border_parentheses("Hello (world) test"),
+            "Hello (world) test"
+        );
+        assert_eq!(
+            strip_hallucinated_border_parentheses("(1) First item"),
+            "(1) First item"
+        );
+        // CLEAN_STRAY_OCR_ARTIFACTS INTEGRATION
+        assert_eq!(
+            clean_stray_ocr_artifacts("(久等了!)"),
+            "久等了!"
         );
     }
 }
