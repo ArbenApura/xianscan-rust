@@ -604,7 +604,7 @@ pub fn is_mixed_script_debris(text: &str, source_lang: Option<&str>) -> bool {
             crate::ml::detect::has_native_script_for_lang(&c.to_string(), source_lang)
         })
         .count();
-    if has_greek_symbol && non_native_runs >= 2 {
+    if has_greek_symbol && non_native_runs >= 1 {
         return true;
     }
     if native == 0 {

@@ -153,9 +153,13 @@ pub fn should_reject_candidate_region(
             });
         let is_cjk_garbage = is_cjk && avg_score < 0.70 && !crate::ml::detect::has_cjk_characters(cleaned) && !is_expressive_bubble_punct;
         let lacks_native = !crate::ml::detect::has_native_script_for_lang(cleaned, source_lang);
+        let native_count = cleaned.chars().filter(|c| crate::ml::detect::has_native_script_for_lang(&c.to_string(), source_lang)).count();
+        let digit_latin_count = cleaned.chars().filter(|c| c.is_ascii_digit() || c.is_ascii_alphabetic()).count();
+        let is_digit_corrupted_noise = avg_score < 0.68 && native_count <= 1 && digit_latin_count >= 2 && !is_expressive_bubble_punct;
         let is_low_conf_noise = avg_score < 0.68 && (lacks_native || !crate::ml::detect::has_cjk_characters(cleaned)) && !is_expressive_bubble_punct;
         if (cluster_rect.w <= tiny_bubble_w && cluster_rect.h <= tiny_bubble_h && (is_low_conf_noise || is_noise_or_digit || is_cjk_garbage))
             || is_cjk_garbage
+            || is_digit_corrupted_noise
         {
             return true;
         }
@@ -312,16 +316,16 @@ pub fn should_reject_candidate_region(
     let is_shout = crate::ml::detect::is_onomatopoeia_or_shout(cleaned) && char_count <= 6;
     let is_pure_cjk = cleaned.chars().all(|c| crate::ml::detect::has_cjk_characters(&c.to_string()) || c.is_whitespace() || matches!(c, '…' | '·' | '—' | '～' | '！' | '？' | '。' | '，' | '、' | '–' | '¿' | '¡'));
     let is_vert_narration = is_pure_cjk
-        && cluster_rect.h >= 45
-        && cluster_rect.h >= (cluster_rect.w as f32 * 1.3) as i32
+        && cluster_rect.h >= 60
+        && cluster_rect.h >= (cluster_rect.w as f32 * 1.5) as i32
         && char_count >= 2
-        && (has_narrative_punctuation || avg_score >= 0.70 || compute_chromatic_color_variance(img, cluster_rect) < 20.0);
-    let is_sign_or_narration_box = is_cjk && !is_oversized_single_char && ((char_count >= 2 && ((cluster_rect.w >= 50 && cluster_rect.h >= 20) || (cluster_rect.w >= 20 && cluster_rect.h >= 45) || (cluster_rect.w >= 30 && cluster_rect.h >= 30)) && avg_score >= 0.70) || (char_count >= 4 && is_pure_cjk && cluster_rect.h >= 60 && avg_score >= 0.62) || is_vert_narration) && !is_shout;
+        && (has_narrative_punctuation || avg_score >= 0.75 || compute_chromatic_color_variance(img, cluster_rect) < 20.0);
+    let is_sign_or_narration_box = is_cjk && !is_oversized_single_char && ((char_count >= 2 && ((cluster_rect.w >= 50 && cluster_rect.h >= 20) || (cluster_rect.w >= 20 && cluster_rect.h >= 45 && char_count >= 3) || (cluster_rect.w >= 30 && cluster_rect.h >= 30 && char_count >= 3)) && avg_score >= 0.70) || (char_count >= 4 && is_pure_cjk && cluster_rect.h >= 60 && avg_score >= 0.62) || is_vert_narration) && !is_shout;
     let is_margin_isolated_char = (cluster_rect.x <= 5 || cluster_rect.x + cluster_rect.w >= page_w as i32 - 5) && avg_score < 0.75;
     let is_valid_cjk_glyph = is_cjk
         && ((char_count >= 3 && avg_score >= 0.70)
             || (char_count == 2 && cluster_rect.w >= 50 && avg_score >= 0.70)
-            || (char_count <= 2 && avg_score >= 0.70 && (!is_oversized_single_char || compute_chromatic_color_variance(img, cluster_rect) < 15.0))
+            || (char_count <= 2 && avg_score >= 0.72 && (!is_oversized_single_char || compute_chromatic_color_variance(img, cluster_rect) < 15.0))
             || is_vert_narration)
         && cleaned.chars().any(|c| crate::ml::detect::has_cjk_characters(&c.to_string()))
         && !is_margin_isolated_char;
