@@ -542,9 +542,9 @@ function createJobTrackerStore() {
 				pageIds: opts.pageIds,
 				inpaintMode: curSettings?.inpaintMode,
 				enableWhiteInpaint: curSettings?.enableWhiteInpaint,
-				pageConcurrency: opts.pageConcurrency ?? curSettings?.parallelProcesses,
 				inpaintExpansionPct: curSettings?.inpaintExpansionPct,
-				typesetExpansionPct: curSettings?.typesetExpansionPct,
+				enableTypesetCentering: curSettings?.enableTypesetCentering,
+				pageConcurrency: opts.pageConcurrency ?? curSettings?.parallelProcesses,
 				typesetOptions: {
 					fontDialogue: curSettings?.typesetFont,
 					fontCjk: curSettings?.typesetCjkFont,

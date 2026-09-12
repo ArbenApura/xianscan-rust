@@ -64,6 +64,7 @@ fn test_region_schema_default_angle() {
         confidence: 0.95,
         vertical: false,
         angle: 0.0,
+        ocr_box: None,
         inpaint_box: None,
         typeset_box: None,
         is_title: false,

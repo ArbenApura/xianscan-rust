@@ -4,7 +4,7 @@ use image::DynamicImage;
 // -- INTERNAL IMPORTS -- //
 use crate::ml::geometry::box_iou;
 use crate::ml::schemas::{BoxRect, Region, RegionKind};
-use super::geometry::expand_box;
+use super::geometry::{expand_box, DEFAULT_INPAINT_EXPANSION_PCT};
 
 // -- CONSTANTS -- //
 // SAFE INTERIOR INSET FROM THE STROKED BUBBLE OUTLINE (INSCRIBED CORE THE TEXT MAY FILL)
@@ -256,13 +256,13 @@ pub fn resolve_carrier_box(
 /// SO CRAMPED BUBBLES ARE NEVER ALTERED. THE INPAINT MASK POLYGON IS LEFT TIGHT. THE VALIDATED
 /// CARRIER IS PUBLISHED ON THE REGION (`carrier_box`) FOR INSPECT-PAGE BUBBLE VIEWERS.
 pub fn expand_bubble_text_boxes(
-    regions: &mut Vec<Region>,
+    regions: &mut [Region],
     obstacles: &[(BoxRect, BoxRect)],
     img: Option<&DynamicImage>,
     page_w: u32,
     page_h: u32,
-    inpaint_pct: f32,
-    typeset_pct: f32,
+    inpaint_padding_pct: Option<f32>,
+    enable_typeset_centering: Option<bool>,
 ) {
     if regions.is_empty() {
         return;
@@ -274,9 +274,10 @@ pub fn expand_bubble_text_boxes(
         return;
     }
 
-    // PHASE 1: COMPUTE TARGET BASE BOXES FROM ORIGINAL GEOMETRY ONLY.
+    let enable_centering = enable_typeset_centering.unwrap_or(true);
+
+    // PHASE 1: COMPUTE TARGET TYPESET BOXES FROM ORIGINAL GEOMETRY ONLY.
     // SIBLING LIMITS READ ORIGINAL (UNSCALED) BOXES SO THEY NEVER DEPEND ON ALREADY-SCALED NEIGHBORS.
-    let orig_boxes: Vec<BoxRect> = regions.iter().map(|r| r.box_.clone()).collect();
     let mut targets: Vec<Option<BoxRect>> = vec![None; regions.len()];
     let mut carrier_boxes: Vec<Option<BoxRect>> = vec![None; regions.len()];
     let mut carrier_valid: Vec<bool> = vec![false; regions.len()];
@@ -457,7 +458,7 @@ pub fn expand_bubble_text_boxes(
         let b = regions[i].bubble_box.clone().unwrap();
         let (mut outer_l, mut outer_r, mut outer_t, mut outer_b) = (b.x, b.x + b.w, b.y, b.y + b.h);
 
-        if let Some(new_box) = &targets[i] {
+        let typeset_target = if let Some(new_box) = &targets[i] {
             // COLLISION ROLLBACK AGAINST NON-SIBLING REGIONS (FREE TEXT / SFX / OTHER BUBBLES)
             let collides = regions.iter().enumerate().any(|(j, o)| {
                 j != i
@@ -474,9 +475,13 @@ pub fn expand_bubble_text_boxes(
                     }
             });
             if !collides {
-                regions[i].box_ = new_box.clone();
+                new_box.clone()
+            } else {
+                regions[i].box_.clone()
             }
-        }
+        } else {
+            regions[i].box_.clone()
+        };
 
         // GUARANTEE: BASE BOX MUST NEVER EXCEED OUTER BUBBLE BOUNDARY UNLESS NEEDED TO COVER ITS OWN TEXT
         clamp_box_to_core(&mut regions[i].box_, outer_l, outer_r, outer_t, outer_b);
@@ -548,7 +553,7 @@ pub fn expand_bubble_text_boxes(
         let v_cut_happened = carrier_valid[i] && ((carrier.y - b.y).max(0) >= 14 || ((b.y + b.h) - (carrier.y + carrier.h)).max(0) >= 14);
         let h_cut_happened = carrier_valid[i] && ((carrier.x - b.x).max(0) >= 14 || ((b.x + b.w) - (carrier.x + carrier.w)).max(0) >= 14);
 
-        let is_vertically_elongated = !v_cut_happened && (carrier.h as f32 >= carrier.w as f32 * 1.60 || (carrier.h >= 120 && max_vm >= 50.0));
+        let is_vertically_elongated = !v_cut_happened && (carrier.h as f32 >= carrier.w as f32 * 1.60 || (carrier.h >= 220 && max_vm >= 70.0));
         let is_heavily_offset_vertically = is_vertically_elongated && min_vm > 0.0 && (max_vm / min_vm >= 2.5) && (max_vm - min_vm >= 35.0);
 
         let left_m = (regions[i].box_.x - carrier.x).max(0);
@@ -558,62 +563,69 @@ pub fn expand_bubble_text_boxes(
         let is_horizontally_elongated = !h_cut_happened && carrier.w >= 200 && ((carrier.w as f32 >= carrier.h as f32 * 1.70 && max_hm >= 60.0) || (!v_cut_happened && carrier.w >= 220 && carrier.w as f32 >= carrier.h as f32 * 1.25 && max_hm >= 60.0));
         let is_heavily_offset_horizontally = is_horizontally_elongated && min_hm > 0.0 && (max_hm / min_hm >= 2.5) && (max_hm - min_hm >= 45.0);
 
-        if is_sole_occupant
-            && !is_vertical_edge_cut
-            && has_healthy_vertical_fill
-            && !is_heavily_offset_vertically
-            && !is_heavily_offset_horizontally
-        {
-            let mut typeset_box = expand_box(&regions[i].box_, typeset_pct, page_w, page_h);
-            let safe_h = if carrier_valid[i] {
-                carrier.h
+        if enable_centering {
+            if is_sole_occupant
+                && !is_vertical_edge_cut
+                && has_healthy_vertical_fill
+                && !is_heavily_offset_vertically
+                && !is_heavily_offset_horizontally
+            {
+                let mut typeset_box = typeset_target;
+                let safe_h = if carrier_valid[i] {
+                    carrier.h
+                } else {
+                    outer_b - outer_t
+                };
+                let fill = typeset_box.h as f32 / safe_h.max(1) as f32;
+                let is_single_short_token = regions[i].text.chars().filter(|c| !c.is_whitespace()).count() <= 3;
+                if (!regions[i].vertical || is_single_short_token) && (typeset_box.h <= 45 || fill <= 0.35) && fill <= 0.45 {
+                    let target_tb_h = ((typeset_box.h as f32 * 2.2).round() as i32).min((safe_h as f32 * 0.75) as i32);
+                    if target_tb_h > typeset_box.h {
+                        typeset_box.h = target_tb_h;
+                    }
+                }
+                typeset_box.x = carrier_cx - typeset_box.w / 2;
+                typeset_box.y = carrier_cy - typeset_box.h / 2;
+                // PRESERVE SYMMETRIC CENTERING WHILE GUARANTEEING NO TEXT CLIPPING AT TRAILING OR LEAD EDGES
+                // MINOR SHIFTS (<= 4PX) ARE NORMAL CENTERING SLACK; SIGNIFICANT DEFICITS (> 4PX) CLAMP/EXPAND
+                // SO MULTI-LINE TEXT (SUCH AS 4-LINE THOUGHT BALLOONS) NEVER HAS CHARACTERS CUT OFF.
+                if !regions[i].polygon.is_empty() {
+                    if typeset_box.x > regions[i].box_.x + 4 {
+                        let clip_left = typeset_box.x - regions[i].box_.x;
+                        typeset_box.x -= clip_left;
+                        typeset_box.w += clip_left * 2;
+                    }
+                    if typeset_box.x + typeset_box.w + 4 < regions[i].box_.x + regions[i].box_.w {
+                        let clip_right = (regions[i].box_.x + regions[i].box_.w) - (typeset_box.x + typeset_box.w);
+                        typeset_box.x -= clip_right;
+                        typeset_box.w += clip_right * 2;
+                    }
+                    if typeset_box.y + typeset_box.h + 4 < regions[i].box_.y + regions[i].box_.h {
+                        let clip_bot = (regions[i].box_.y + regions[i].box_.h) - (typeset_box.y + typeset_box.h);
+                        typeset_box.y -= clip_bot;
+                        typeset_box.h += clip_bot * 2;
+                    }
+                }
+                if carrier_valid[i] {
+                    // VALIDATED TAIL-CUT CARRIER: THE TYPESET BOX MUST NOT SPILL INTO THE SEVERED TAIL
+                    clamp_box_to_core(&mut typeset_box, carrier.x, carrier.x + carrier.w, carrier.y, carrier.y + carrier.h);
+                } else {
+                    clamp_box_to_core(&mut typeset_box, outer_l, outer_r, outer_t, outer_b);
+                }
+                regions[i].typeset_box = Some(typeset_box);
             } else {
-                outer_b - outer_t
-            };
-            let fill = typeset_box.h as f32 / safe_h.max(1) as f32;
-            if !regions[i].vertical && typeset_box.h <= 35 && fill <= 0.35 {
-                let target_tb_h = ((typeset_box.h as f32 * 2.6).round() as i32).min((safe_h as f32 * 0.75) as i32);
-                if target_tb_h > typeset_box.h {
-                    typeset_box.h = target_tb_h;
-                }
-            }
-            typeset_box.x = carrier_cx - typeset_box.w / 2;
-            typeset_box.y = carrier_cy - typeset_box.h / 2;
-            // PRESERVE SYMMETRIC CENTERING WHILE GUARANTEEING NO TEXT CLIPPING AT TRAILING OR LEAD EDGES
-            // MINOR SHIFTS (<= 4PX) ARE NORMAL CENTERING SLACK; SIGNIFICANT DEFICITS (> 4PX) CLAMP/EXPAND
-            // SO MULTI-LINE TEXT (SUCH AS 4-LINE THOUGHT BALLOONS) NEVER HAS CHARACTERS CUT OFF.
-            if !regions[i].polygon.is_empty() {
-                if typeset_box.x > regions[i].box_.x + 4 {
-                    let clip_left = typeset_box.x - regions[i].box_.x;
-                    typeset_box.x -= clip_left;
-                    typeset_box.w += clip_left * 2;
-                }
-                if typeset_box.x + typeset_box.w + 4 < regions[i].box_.x + regions[i].box_.w {
-                    let clip_right = (regions[i].box_.x + regions[i].box_.w) - (typeset_box.x + typeset_box.w);
-                    typeset_box.x -= clip_right;
-                    typeset_box.w += clip_right * 2;
-                }
-                if typeset_box.y + typeset_box.h + 4 < regions[i].box_.y + regions[i].box_.h {
-                    let clip_bot = (regions[i].box_.y + regions[i].box_.h) - (typeset_box.y + typeset_box.h);
-                    typeset_box.y -= clip_bot;
-                    typeset_box.h += clip_bot * 2;
-                }
-            }
-            if carrier_valid[i] {
-                // VALIDATED TAIL-CUT CARRIER: THE TYPESET BOX MUST NOT SPILL INTO THE SEVERED TAIL
-                clamp_box_to_core(&mut typeset_box, carrier.x, carrier.x + carrier.w, carrier.y, carrier.y + carrier.h);
-            } else {
+                let mut typeset_box = typeset_target;
                 clamp_box_to_core(&mut typeset_box, outer_l, outer_r, outer_t, outer_b);
+                regions[i].typeset_box = Some(typeset_box);
             }
-            regions[i].typeset_box = Some(typeset_box);
         } else {
-            let mut typeset_box = expand_box(&regions[i].box_, typeset_pct, page_w, page_h);
-            clamp_box_to_core(&mut typeset_box, outer_l, outer_r, outer_t, outer_b);
-            regions[i].typeset_box = Some(typeset_box);
+            // CENTERING AND EXPANSION DISABLED: PRESERVE EXACT RAW TEXT ANCHOR BOUNDARY
+            regions[i].typeset_box = Some(regions[i].box_.clone());
         }
 
-        // INPAINT BOX REMAINS TIGHT TO ORIGINAL OCR TEXT TO PREVENT OVER-INPAINTING ARTWORK
-        let mut inpaint_box = expand_box(&orig_boxes[i], inpaint_pct, page_w, page_h);
+        // INPAINT BOX REMAINS TIGHT TO ORIGINAL OCR TEXT WITH CONFIGURABLE (DEFAULT 3%) EXPANSION TO PREVENT OVER-INPAINTING ARTWORK
+        let inpaint_pct = inpaint_padding_pct.unwrap_or(DEFAULT_INPAINT_EXPANSION_PCT);
+        let mut inpaint_box = expand_box(&regions[i].box_, inpaint_pct, page_w, page_h);
         clamp_box_to_core(&mut inpaint_box, outer_l, outer_r, outer_t, outer_b);
         regions[i].inpaint_box = Some(inpaint_box);
     }

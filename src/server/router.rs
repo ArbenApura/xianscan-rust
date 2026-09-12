@@ -217,7 +217,7 @@ async fn analyze_handler(
     let mut source_lang = None;
     let mut target_lang = None;
     let mut inpaint_padding_pct = None;
-    let mut typeset_padding_pct = None;
+    let mut enable_typeset_centering = None;
     let mut allow_degraded_fallback = None;
 
     while let Ok(Some(field)) = multipart.next_field().await {
@@ -248,11 +248,10 @@ async fn analyze_handler(
                     inpaint_padding_pct = Some(val);
                 }
             }
-        } else if name == "typeset_padding_pct" || name == "typesetPaddingPct" {
+        } else if name == "enable_typeset_centering" || name == "enableTypesetCentering" {
             if let Ok(text) = field.text().await {
-                if let Ok(val) = text.trim().parse::<f32>() {
-                    typeset_padding_pct = Some(val);
-                }
+                let trimmed = text.trim().to_lowercase();
+                enable_typeset_centering = Some(trimmed == "true" || trimmed == "1");
             }
         } else if name == "allow_degraded_fallback" || name == "allowDegradedFallback" {
             if let Ok(text) = field.text().await {
@@ -280,7 +279,7 @@ async fn analyze_handler(
         source_lang,
         target_lang,
         inpaint_padding_pct,
-        typeset_padding_pct,
+        enable_typeset_centering,
         allow_degraded_fallback,
     };
 

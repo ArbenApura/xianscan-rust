@@ -39,7 +39,11 @@ fn test_regression_page_outer_realm_enemies_asura_battlefield() {
     let cb0 = r0.carrier_box.as_ref().expect("carrier box must exist");
     assert_eq!(cb0.h, 164);
     let tb0 = r0.typeset_box.as_ref().expect("typeset box must exist");
-    assert_eq!(tb0.y, 101);
+    assert_eq!(tb0.y, 76);
+    assert_eq!(tb0.h, 92);
+    let tb0_cy = tb0.y + tb0.h / 2;
+    let cb0_cy = cb0.y + cb0.h / 2;
+    assert!((tb0_cy - cb0_cy).abs() <= 1, "Typeset center must align with carrier center");
 
     // 3. PANEL 2 REACTION BUBBLE WITH UPWARD TAIL: "怎么了？"
     let r1 = res.regions.iter().find(|r| r.text.contains("怎么了")).expect("Must detect r1");

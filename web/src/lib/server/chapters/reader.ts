@@ -402,12 +402,15 @@ export function getPageWithRegions(pageId: number) {
 		height: pageRow.height,
 		regions: allRegions.map((r) => {
 			const parsedBox = safeJson(r.box) as any;
+			const parsedOcrBox = (r as any).ocrBox ? safeJson((r as any).ocrBox) : (parsedBox?.ocr_box ?? null);
 			const parsedInpaintBox = r.inpaintBox ? safeJson(r.inpaintBox) : (parsedBox?.inpaint_box ?? null);
 			const parsedTypesetBox = r.typesetBox ? safeJson(r.typesetBox) : (parsedBox?.typeset_box ?? null);
 			return {
 				id: r.id,
 				seq: r.seq,
 				box: parsedBox,
+				ocrBox: parsedOcrBox,
+				ocr_box: parsedOcrBox,
 				inpaintBox: parsedInpaintBox,
 				inpaint_box: parsedInpaintBox,
 				typesetBox: parsedTypesetBox,

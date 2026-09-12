@@ -36,6 +36,7 @@ fn test_page_6857_manhwa_bubble_safe_core_and_tail_handling() {
             id: "9059".to_string(),
             box_: top_ocr,
             polygon: vec![],
+            ocr_box: None,
             inpaint_box: None,
             typeset_box: None,
             text: "이제 다시 진료받으러\n올 필요는 없겠군.".to_string(),
@@ -54,6 +55,7 @@ fn test_page_6857_manhwa_bubble_safe_core_and_tail_handling() {
             id: "9060".to_string(),
             box_: bot_ocr.clone(),
             polygon: vec![],
+            ocr_box: None,
             inpaint_box: None,
             typeset_box: None,
             text: "석의원,\n그동안 고마웠네.".to_string(),
@@ -70,7 +72,7 @@ fn test_page_6857_manhwa_bubble_safe_core_and_tail_handling() {
         },
     ];
 
-    expand_bubble_text_boxes(&mut regions, &[], None, page_w, page_h, 0.03, 0.00);
+    expand_bubble_text_boxes(&mut regions, &[], None, page_w, page_h, None, None);
 
     // VERIFY TOP REGION (9059): TAIL-CUT CARRIER LIMITS THE TYPESET BOX INSIDE THE UPPER CHAMBER
     let top_tb = regions[0].typeset_box.as_ref().expect("top typeset box should exist");
@@ -106,6 +108,7 @@ fn test_page_113830_thought_bubble_right_lobe_tail_cutting() {
         id: "65471".to_string(),
         box_: ocr_box,
         polygon: vec![],
+        ocr_box: None,
         inpaint_box: None,
         typeset_box: None,
         text: "现在，魏家\n该给我一个\n交代了。".to_string(),
@@ -121,7 +124,7 @@ fn test_page_113830_thought_bubble_right_lobe_tail_cutting() {
         carrier_box: None,
     }];
 
-    expand_bubble_text_boxes(&mut regions, &[], None, page_w, page_h, 0.03, 0.00);
+    expand_bubble_text_boxes(&mut regions, &[], None, page_w, page_h, None, None);
 
     // 1. CARRIER BOX MUST PROPERLY SEVER THE RIGHT THOUGHT LOBE (WIDTH REDUCED FROM 229 TO 193)
     let carrier = regions[0].carrier_box.as_ref().expect("carrier box must be published for right lobe thought bubble");
@@ -154,6 +157,7 @@ fn test_page_113831_thought_bubble_left_lobe_tail_cutting() {
         id: "65476".to_string(),
         box_: ocr_box,
         polygon: vec![],
+        ocr_box: None,
         inpaint_box: None,
         typeset_box: None,
         text: "这么巧，这\n么说，许多\n故人同学都\n会回来了？".to_string(),
@@ -169,7 +173,7 @@ fn test_page_113831_thought_bubble_left_lobe_tail_cutting() {
         carrier_box: None,
     }];
 
-    expand_bubble_text_boxes(&mut regions, &[], None, page_w, page_h, 0.03, 0.00);
+    expand_bubble_text_boxes(&mut regions, &[], None, page_w, page_h, None, None);
 
     // 1. CARRIER BOX MUST PROPERLY SEVER THE LEFT THOUGHT LOBE (X SHIFTED FROM 557 TO 579, WIDTH FROM 217 TO 195)
     let carrier = regions[0].carrier_box.as_ref().expect("carrier box must be published for left lobe thought bubble");
@@ -208,6 +212,7 @@ fn test_page_117955_short_horizontal_dialogue_bubble_expansion() {
             [224, 410],
             [61, 410],
         ],
+        ocr_box: None,
         inpaint_box: None,
         typeset_box: None,
         text: "玄·天·斩·剑·术！".to_string(),
@@ -223,20 +228,22 @@ fn test_page_117955_short_horizontal_dialogue_bubble_expansion() {
         carrier_box: None,
     }];
 
-    expand_bubble_text_boxes(&mut regions, &[], None, page_w, page_h, 0.03, 0.00);
+    expand_bubble_text_boxes(&mut regions, &[], None, page_w, page_h, None, None);
 
-    let expanded = &regions[0].box_;
-    assert!(
-        expanded.h >= 32,
-        "Expanded base box height should be >= 32px (was {})",
-        expanded.h
-    );
+    // BASE BOX REMAINS TIGHT ORIGINAL OCR BOUNDARY WITHOUT ARTIFICIAL INFLATION
+    assert_eq!(regions[0].box_.h, 26);
+    assert_eq!(regions[0].box_.w, 163);
 
-    // TYPESET BOX MUST BE CENTERED AND EXPANDED
+    // TYPESET BOX MUST BE CENTERED AND EXPANDED TO FIT MULTI-LINE TRANSLATION
     let tb = regions[0].typeset_box.as_ref().expect("typeset box must exist");
     assert!(tb.h >= 65, "typeset_box height should be >= 65px");
     assert!(tb.y >= bubble.y && tb.y + tb.h <= bubble.y + bubble.h);
     assert!(tb.x >= bubble.x && tb.x + tb.w <= bubble.x + bubble.w);
+
+    // INPAINT BOX DERIVES FROM TIGHT BASE WITH FIXED 3% EXPANSION
+    let ib = regions[0].inpaint_box.as_ref().expect("inpaint box must exist");
+    assert!(ib.w >= regions[0].box_.w);
+    assert!(ib.h >= regions[0].box_.h);
 }
 
 #[test]

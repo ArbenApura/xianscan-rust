@@ -76,9 +76,9 @@ export interface AppSettings {
 	typesetPreviewPreset: string;
 	typesetAllCaps: boolean;
 	enableTextRotation: boolean;
+	enableTypesetCentering: boolean;
 	enableWhiteInpaint: boolean;
 	inpaintExpansionPct: number;
-	typesetExpansionPct: number;
 	hasCompletedOnboarding: boolean;
 	livePipelinePreview: boolean;
 	enabledSystemFonts: string[];
@@ -228,9 +228,9 @@ export const DEFAULTS: AppSettings = {
 	typesetPreviewPreset: 'en',
 	typesetAllCaps: true,
 	enableTextRotation: true,
+	enableTypesetCentering: true,
 	enableWhiteInpaint: true,
 	inpaintExpansionPct: 0.03,
-	typesetExpansionPct: 0.0,
 	hasCompletedOnboarding: false,
 	livePipelinePreview: true,
 	enabledSystemFonts: [],
@@ -275,9 +275,9 @@ export const SERVER_CANONICAL_KEYS: (keyof AppSettings)[] = [
 	'typesetPreviewPreset',
 	'typesetAllCaps',
 	'enableTextRotation',
+	'enableTypesetCentering',
 	'enableWhiteInpaint',
 	'inpaintExpansionPct',
-	'typesetExpansionPct',
 	'hasCompletedOnboarding',
 	'livePipelinePreview',
 	'enabledSystemFonts',
@@ -295,6 +295,7 @@ export const WEBTOON_KIND_COOKIE = 'mt_webtoon_kind';
 export const WEBTOON_WIDTH_COOKIE = 'mt_webtoon_width';
 export const INPAINT_MODE_COOKIE = 'mt_inpaint_mode';
 export const WHITE_INPAINT_COOKIE = 'mt_white_inpaint';
+export const INPAINT_EXPANSION_COOKIE = 'mt_inpaint_exp';
 export const WATERMARK_INPAINT_COOKIE = 'mt_watermark_inpaint';
 export const EXEC_DEVICE_COOKIE = 'mt_exec_device';
 export const PARALLEL_PROCESSES_COOKIE = 'mt_parallel_processes';
@@ -309,8 +310,7 @@ export const TYPESET_CONTRAST_COOKIE = 'mt_ts_contrast';
 export const TYPESET_CASING_COOKIE = 'mt_ts_casing';
 export const TYPESET_ALL_CAPS_COOKIE = 'mt_ts_allcaps';
 export const TYPESET_ROTATION_COOKIE = 'mt_ts_rot';
-export const INPAINT_EXPANSION_COOKIE = 'mt_inpaint_exp';
-export const TYPESET_EXPANSION_COOKIE = 'mt_typeset_exp';
+export const TYPESET_CENTERING_COOKIE = 'mt_ts_centering';
 
 export const DARK_THEMES: Theme[] = ['dark'];
 
@@ -1014,6 +1014,8 @@ function createSettings() {
 				setCookie(WEBTOON_WIDTH_COOKIE, s.webtoonWidth);
 				setCookie(INPAINT_MODE_COOKIE, s.inpaintMode);
 				setCookie(WHITE_INPAINT_COOKIE, String(s.enableWhiteInpaint));
+				setCookie(INPAINT_EXPANSION_COOKIE, String(s.inpaintExpansionPct));
+				setCookie(TYPESET_CENTERING_COOKIE, String(s.enableTypesetCentering));
 				setCookie(EXEC_DEVICE_COOKIE, s.executionDevice);
 			} catch {
 				// IGNORE STORAGE ERRORS (PRIVATE MODE / QUOTA)

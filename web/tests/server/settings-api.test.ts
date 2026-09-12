@@ -78,8 +78,7 @@ describe('Settings & Reading History Server API Routes', () => {
 				method: 'PATCH',
 				headers: { 'Content-Type': 'application/json' },
 				body: JSON.stringify({
-					inpaintExpansionPct: 0.08,
-					typesetExpansionPct: 0.15,
+					enableWhiteInpaint: false,
 					executionDevice: 'cuda',
 				}),
 			});
@@ -87,8 +86,7 @@ describe('Settings & Reading History Server API Routes', () => {
 			const patchRes = await PATCH({ request: req } as unknown as RequestEvent);
 			expect(patchRes.status).toBe(200);
 			const patchData = await patchRes.json();
-			expect(patchData.inpaintExpansionPct).toBe(0.08);
-			expect(patchData.typesetExpansionPct).toBe(0.15);
+			expect(patchData.enableWhiteInpaint).toBe(false);
 			expect(patchData.executionDevice).toBe('cuda');
 			// Untouched keys stay default
 			expect(patchData.inpaintMode).toBe('patch');
@@ -96,8 +94,8 @@ describe('Settings & Reading History Server API Routes', () => {
 			// Re-query with GET to confirm persistence in SQLite
 			const getRes = await GET({} as RequestEvent);
 			const getData = await getRes.json();
-			expect(getData.inpaintExpansionPct).toBe(0.08);
-			expect(getData.typesetExpansionPct).toBe(0.15);
+			expect(getData.enableWhiteInpaint).toBe(false);
+			expect(getData.executionDevice).toBe('cuda');
 		});
 
 		it('gracefully handles and ignores invalid/unknown payload keys', async () => {
@@ -365,7 +363,7 @@ describe('Settings & Reading History Server API Routes', () => {
 			vi.resetModules();
 			const { PATCH } = await import('../../src/routes/api/settings/+server');
 
-			// SET CANONICAL SETTINGS IN SQLITE: SFX DISABLED, CUSTOM EXPANSIONS, CUSTOM FONT
+			// SET CANONICAL SETTINGS IN SQLITE: CUSTOM FONT, PADDING, OUTLINE
 			const patchReq = new Request('http://localhost/api/settings', {
 				method: 'PATCH',
 				headers: { 'Content-Type': 'application/json' },
@@ -373,8 +371,6 @@ describe('Settings & Reading History Server API Routes', () => {
 					typesetFont: 'Anime Ace',
 					typesetPadding: 0.08,
 					typesetOutline: 'heavy',
-					inpaintExpansionPct: 0.07,
-					typesetExpansionPct: 0.12,
 				}),
 			});
 			const patchRes = await PATCH({ request: patchReq } as unknown as RequestEvent);
@@ -385,8 +381,6 @@ describe('Settings & Reading History Server API Routes', () => {
 			expect(canonical.typesetFont).toBe('Anime Ace');
 			expect(canonical.typesetPadding).toBe(0.08);
 			expect(canonical.typesetOutline).toBe('heavy');
-			expect(canonical.inpaintExpansionPct).toBe(0.07);
-			expect(canonical.typesetExpansionPct).toBe(0.12);
 		});
 	});
 });

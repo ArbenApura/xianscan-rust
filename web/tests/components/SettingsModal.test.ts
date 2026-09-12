@@ -316,12 +316,28 @@ describe('SettingsModal Component UI', () => {
 		await tick();
 		expect(screen.queryByText('Reset Defaults')).toBeNull();
 
+		// Bubble Centering & Expansion switch is rendered and checked by default
+		const centeringSwitch = screen.getByRole('switch', { name: /Bubble Centering & Expansion/i });
+		expect(centeringSwitch).toBeTruthy();
+		expect(centeringSwitch.getAttribute('aria-checked')).toBe('true');
+
+		// Toggle Bubble Centering & Expansion off
+		await fireEvent.click(centeringSwitch);
+		await tick();
+		expect(screen.getByText('Reset Defaults')).toBeTruthy();
+
+		// Reset typesetting defaults restores centering switch
+		await fireEvent.click(screen.getByText('Reset Defaults'));
+		await tick();
+		expect(screen.queryByText('Reset Defaults')).toBeNull();
+		expect(centeringSwitch.getAttribute('aria-checked')).toBe('true');
+
 		// 3. INPAINTING TAB
 		const inpaintTab = screen.getByRole('button', { name: /Inpainting/i });
 		await fireEvent.click(inpaintTab);
 		await tick();
 
-		expect(screen.getByRole('heading', { name: /Inpainting & Masking/i })).toBeTruthy();
+		expect(screen.getByRole('heading', { name: /Inpainting & Cleaning/i })).toBeTruthy();
 		expect(screen.queryByText('Reset Defaults')).toBeNull();
 
 		// WHITE BUBBLE SHRINKWRAP SWITCH IS RENDERED AND CHECKED BY DEFAULT
@@ -357,6 +373,30 @@ describe('SettingsModal Component UI', () => {
 		await fireEvent.click(inpaintResetBtn);
 		await tick();
 		expect(screen.queryByText('Reset Defaults')).toBeNull();
+
+		// INPAINT MASK MARGIN IS RENDERED WITH +3% DEFAULT
+		expect(screen.getByText('Inpaint Mask Margin')).toBeTruthy();
+		expect(screen.getByText('+3%')).toBeTruthy();
+
+		// CLICK 10% PRESET
+		const tenPctBtn = screen.getByText('10%').closest('button');
+		expect(tenPctBtn).toBeTruthy();
+		await fireEvent.click(tenPctBtn!);
+		await tick();
+
+		expect(get(settings).inpaintExpansionPct).toBe(0.1);
+		expect(screen.getByText('+10%')).toBeTruthy();
+
+		// RESET DEFAULTS APPEARS
+		inpaintResetBtn = screen.getByText('Reset Defaults');
+		expect(inpaintResetBtn).toBeTruthy();
+
+		// RESET RESTORES TO +3% (0.03)
+		await fireEvent.click(inpaintResetBtn);
+		await tick();
+		expect(screen.queryByText('Reset Defaults')).toBeNull();
+		expect(get(settings).inpaintExpansionPct).toBe(0.03);
+		expect(screen.getByText('+3%')).toBeTruthy();
 	});
 
 	it('renders Inference & Sampling card and changes parameters directly', async () => {
@@ -755,7 +795,7 @@ describe('SettingsModal Component UI', () => {
 		// 6 CANONICAL CATEGORIES ARE PRESENT
 		expect(screen.getByRole('button', { name: /General & Appearance/i })).toBeTruthy();
 		expect(screen.getByRole('button', { name: /Typesetting & Lettering/i })).toBeTruthy();
-		expect(screen.getByRole('button', { name: /Inpainting & Masking/i })).toBeTruthy();
+		expect(screen.getByRole('button', { name: /Inpainting & Cleaning/i })).toBeTruthy();
 		expect(screen.getByRole('button', { name: /AI Translation Providers/i })).toBeTruthy();
 		expect(screen.getByRole('button', { name: /Hardware & Compute/i })).toBeTruthy();
 		expect(screen.getByRole('button', { name: /About & Diagnostics/i })).toBeTruthy();

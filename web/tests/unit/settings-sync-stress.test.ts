@@ -26,8 +26,7 @@ describe('Settings & Reading History Sync Engine Stress Tests', () => {
 			// Trigger hydrateFromRemote with new server settings
 			settings.hydrateFromRemote({
 				inpaintMode: 'full',
-				inpaintExpansionPct: 0.08,
-				typesetExpansionPct: 0.15,
+				typesetPadding: 0.12,
 			});
 
 			// Fast-forward timers
@@ -38,8 +37,7 @@ describe('Settings & Reading History Sync Engine Stress Tests', () => {
 
 			const current = get(settings);
 			expect(current.inpaintMode).toBe('full');
-			expect(current.inpaintExpansionPct).toBe(0.08);
-			expect(current.typesetExpansionPct).toBe(0.15);
+			expect(current.typesetPadding).toBe(0.12);
 		});
 
 		it('debounces rapid user setting mutations into a single consolidated PATCH', () => {
@@ -50,11 +48,11 @@ describe('Settings & Reading History Sync Engine Stress Tests', () => {
 			global.fetch = fetchSpy;
 
 			// User rapidly adjusts slider 5 times within 200ms
-			settings.update((s) => ({ ...s, inpaintExpansionPct: 0.04 }));
-			settings.update((s) => ({ ...s, inpaintExpansionPct: 0.05 }));
-			settings.update((s) => ({ ...s, inpaintExpansionPct: 0.06 }));
-			settings.update((s) => ({ ...s, inpaintExpansionPct: 0.07 }));
-			settings.update((s) => ({ ...s, inpaintExpansionPct: 0.08 }));
+			settings.update((s) => ({ ...s, typesetPadding: 0.06 }));
+			settings.update((s) => ({ ...s, typesetPadding: 0.07 }));
+			settings.update((s) => ({ ...s, typesetPadding: 0.08 }));
+			settings.update((s) => ({ ...s, typesetPadding: 0.09 }));
+			settings.update((s) => ({ ...s, typesetPadding: 0.10 }));
 
 			// Advance only 200ms (debounce is 500ms)
 			vi.advanceTimersByTime(200);
@@ -65,7 +63,7 @@ describe('Settings & Reading History Sync Engine Stress Tests', () => {
 			expect(fetchSpy).toHaveBeenCalledTimes(1);
 
 			const callBody = JSON.parse(fetchSpy.mock.calls[0][1].body);
-			expect(callBody.inpaintExpansionPct).toBe(0.08);
+			expect(callBody.typesetPadding).toBe(0.10);
 		});
 	});
 

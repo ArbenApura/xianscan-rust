@@ -50,6 +50,26 @@ describe('HttpPipelineClient', () => {
 		expect(result.width).toBe(800);
 	});
 
+	it('analyze forwards inpaint_padding_pct to FormData when provided', async () => {
+		const fetchImpl = mockFetch(200, { width: 800, height: 1200, backend: 'comic-ctd', regions: [] });
+		const client = new HttpPipelineClient('http://sidecar:8001', fetchImpl);
+
+		await client.analyze(Buffer.from('png-bytes'), undefined, { inpaintPaddingPct: 0.06 });
+
+		const body = fetchImpl.mock.calls[0][1]?.body as FormData;
+		expect(body.get('inpaint_padding_pct')).toBe('0.06');
+	});
+
+	it('analyze forwards enable_typeset_centering to FormData when provided', async () => {
+		const fetchImpl = mockFetch(200, { width: 800, height: 1200, backend: 'comic-ctd', regions: [] });
+		const client = new HttpPipelineClient('http://sidecar:8001', fetchImpl);
+
+		await client.analyze(Buffer.from('png-bytes'), undefined, { enableTypesetCentering: false });
+
+		const body = fetchImpl.mock.calls[0][1]?.body as FormData;
+		expect(body.get('enable_typeset_centering')).toBe('false');
+	});
+
 	it('clean POSTs image + regions JSON and returns the PNG buffer', async () => {
 		const fetchImpl = mockFetch(200, () => Buffer.from('png-bytes'));
 		const client = new HttpPipelineClient('http://sidecar:8001/', fetchImpl); // TRAILING SLASH STRIPPED

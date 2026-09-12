@@ -1227,7 +1227,7 @@ pub fn analyze_image_with_fusion_timed(
         is_latin,
         source_lang,
         options.and_then(|o| o.inpaint_padding_pct),
-        options.and_then(|o| o.typeset_padding_pct),
+        options.and_then(|o| o.enable_typeset_centering),
     );
 
     // Filter out low-confidence standalone single-character artwork artifacts (e.g. blush mark '红', conf < 0.58, w <= 35 && h <= 35)

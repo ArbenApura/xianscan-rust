@@ -82,8 +82,6 @@ fn test_pipeline_analyze_with_language_filtering() {
     let zh_opts = AnalyzeOptions {
         source_lang: Some("zh-Hans".to_string()),
         target_lang: Some("en".to_string()),
-        inpaint_padding_pct: None,
-        typeset_padding_pct: None,
         ..Default::default()
     };
     let zh_res = engine.analyze_image_with_options(&img, Some(&zh_opts)).expect("ZH analyze failed");
@@ -115,8 +113,6 @@ fn test_end_to_end_pipeline_with_rfdetr_on_manga_fixture() {
     let opts = AnalyzeOptions {
         source_lang: Some("ja".to_string()),
         target_lang: Some("en".to_string()),
-        inpaint_padding_pct: None,
-        typeset_padding_pct: None,
         ..Default::default()
     };
 

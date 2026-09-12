@@ -89,19 +89,14 @@ export function sanitizeSettingValue(key: keyof AppSettings, value: unknown): un
 			return Math.max(1, Math.min(4, isNaN(n) ? 1 : Math.round(n)));
 		}
 
-		case 'inpaintExpansionPct': {
-			const n = Number(value);
-			return Math.max(0.0, Math.min(0.20, isNaN(n) ? 0.03 : n));
-		}
-
-		case 'typesetExpansionPct': {
-			const n = Number(value);
-			return Math.max(0.0, Math.min(0.30, isNaN(n) ? 0.03 : n));
-		}
-
 		case 'typesetPadding': {
 			const n = Number(value);
 			return Math.max(0.01, Math.min(0.15, isNaN(n) ? 0.05 : n));
+		}
+
+		case 'inpaintExpansionPct': {
+			const n = Number(value);
+			return Math.max(0, Math.min(0.30, isNaN(n) ? 0.03 : Number(n.toFixed(2))));
 		}
 
 		case 'inpaintMode':
@@ -130,6 +125,7 @@ export function sanitizeSettingValue(key: keyof AppSettings, value: unknown): un
 
 		case 'livePipelinePreview':
 		case 'enableWhiteInpaint':
+		case 'enableTypesetCentering':
 			return typeof value === 'boolean' ? value : true;
 
 		case 'enabledSystemFonts': {

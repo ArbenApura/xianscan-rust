@@ -46,7 +46,6 @@
 		type InpaintMode,
 		type ExecutionDevice,
 		type TypesetOutline,
-		type TypesetContrast,
 		type TypesetCasing,
 		type TypesetFontWeight,
 		type ReasoningEffortOption,
@@ -58,11 +57,13 @@
 	import Check from 'lucide-svelte/icons/check';
 	import Cpu from 'lucide-svelte/icons/cpu';
 	import Eraser from 'lucide-svelte/icons/eraser';
+	import Brush from 'lucide-svelte/icons/brush';
 	import Zap from 'lucide-svelte/icons/zap';
 	import ZapOff from 'lucide-svelte/icons/zap-off';
 	import Layers from 'lucide-svelte/icons/layers';
 	import Activity from 'lucide-svelte/icons/activity';
 	import Type from 'lucide-svelte/icons/type';
+	import AlignCenter from 'lucide-svelte/icons/align-center';
 	import Scissors from 'lucide-svelte/icons/scissors';
 	import Key from 'lucide-svelte/icons/key';
 	import Eye from 'lucide-svelte/icons/eye';
@@ -90,7 +91,6 @@
 	import RotateCcw from 'lucide-svelte/icons/rotate-ccw';
 	import Sun from 'lucide-svelte/icons/sun';
 	import Moon from 'lucide-svelte/icons/moon';
-	import Contrast from 'lucide-svelte/icons/contrast';
 	import Compass from 'lucide-svelte/icons/compass';
 	import Edit3 from 'lucide-svelte/icons/edit-3';
 	import ChevronLeft from 'lucide-svelte/icons/chevron-left';
@@ -476,32 +476,10 @@
 		{ value: 0.12, label: 'Airy (12%)', sub: 'Large boundary padding' },
 	];
 
-	const CONTRAST_PRESETS: { id: TypesetContrast; label: string; shortLabel: string; desc: string }[] = [
-		{ id: 'auto', label: 'Auto Contrast', shortLabel: 'Auto', desc: 'Luminance' },
-		{ id: 'dark', label: 'Always Dark', shortLabel: 'Dark', desc: 'Black text' },
-		{ id: 'light', label: 'Always Light', shortLabel: 'Light', desc: 'White text' },
-	];
-
 	const CASING_PRESETS: { id: TypesetCasing; label: string; sample: string; desc: string }[] = [
 		{ id: 'uppercase', label: 'UPPERCASE', sample: 'HOLD ON! WHAT IS...', desc: 'Standard comic scanlation' },
 		{ id: 'original', label: 'Normal / As Is', sample: 'Hold on! What is...', desc: 'Keep sentence casing' },
 		{ id: 'lowercase', label: 'lowercase', sample: 'hold on! what is...', desc: 'All lower case' },
-	];
-
-	const INPAINT_EXPANSION_PRESETS: { value: number; label: string; sub: string }[] = [
-		{ value: 0.0, label: '0%', sub: 'Exact text bound' },
-		{ value: 0.03, label: '3%', sub: 'Minimal margin (Default)' },
-		{ value: 0.06, label: '6%', sub: 'Standard cleaning' },
-		{ value: 0.09, label: '9%', sub: 'Broad inpaint mask' },
-		{ value: 0.12, label: '12%', sub: 'Max font halo erase' },
-	];
-
-	const TYPESET_EXPANSION_PRESETS: { value: number; label: string; sub: string }[] = [
-		{ value: 0.0, label: '0%', sub: 'Exact text bound' },
-		{ value: 0.03, label: '3%', sub: 'Minimal wrap margin (Default)' },
-		{ value: 0.06, label: '6%', sub: 'Compact wrap margin' },
-		{ value: 0.09, label: '9%', sub: 'Broad wrap margin' },
-		{ value: 0.12, label: '12%', sub: 'Balanced wrap' },
 	];
 
 	const THEMES: { id: Theme; label: string; dot: string }[] = [
@@ -867,12 +845,6 @@
 		toast.success(`Text stroke outline set to ${label}`);
 	}
 
-	function setContrast(mode: TypesetContrast) {
-		settings.update((s) => ({ ...s, typesetContrast: mode }));
-		const label = CONTRAST_PRESETS.find((p) => p.id === mode)?.label || mode;
-		toast.success(`Contrast mode set to ${label}`);
-	}
-
 	function setCasing(casing: TypesetCasing) {
 		settings.update((s) => ({
 			...s,
@@ -891,24 +863,20 @@
 		});
 	}
 
+	function toggleTypesetCentering() {
+		settings.update((s) => {
+			const next = s.enableTypesetCentering === false;
+			toast.success(`Bubble centering & expansion ${next ? 'enabled' : 'disabled'}`);
+			return { ...s, enableTypesetCentering: next };
+		});
+	}
+
 	function toggleLivePipelinePreview() {
 		settings.update((s) => {
 			const next = s.livePipelinePreview === false;
 			toast.success(`Live pipeline step previews ${next ? 'enabled' : 'disabled'}`);
 			return { ...s, livePipelinePreview: next };
 		});
-	}
-
-	function setInpaintExpansion(val: number) {
-		settings.update((s) => ({ ...s, inpaintExpansionPct: val }));
-		const label = INPAINT_EXPANSION_PRESETS.find((p) => Math.abs(p.value - val) < 0.005)?.label || `${Math.round(val * 100)}%`;
-		toast.success(`Inpaint cleaning expansion set to ${label}`);
-	}
-
-	function setTypesetExpansion(val: number) {
-		settings.update((s) => ({ ...s, typesetExpansionPct: val }));
-		const label = TYPESET_EXPANSION_PRESETS.find((p) => Math.abs(p.value - val) < 0.005)?.label || `${Math.round(val * 100)}%`;
-		toast.success(`Typeset layout expansion set to ${label}`);
 	}
 
 	function updateSourceLang(lang: string) {
@@ -935,9 +903,9 @@
 		($settings.typesetCjkFont || 'Microsoft YaHei') !== DEFAULTS.typesetCjkFont ||
 		Math.abs(($settings.typesetPadding || 0.05) - DEFAULTS.typesetPadding) >= 0.005 ||
 		($settings.typesetOutline || 'standard') !== DEFAULTS.typesetOutline ||
-		($settings.typesetContrast || 'auto') !== DEFAULTS.typesetContrast ||
 		($settings.typesetCasing || 'uppercase') !== DEFAULTS.typesetCasing ||
 		Boolean($settings.enableTextRotation) !== Boolean(DEFAULTS.enableTextRotation) ||
+		Boolean($settings.enableTypesetCentering ?? true) !== Boolean(DEFAULTS.enableTypesetCentering ?? true) ||
 		Boolean($settings.livePipelinePreview !== false) !== Boolean(DEFAULTS.livePipelinePreview !== false) ||
 		($settings.typesetPreviewPreset || 'en') !== (DEFAULTS.typesetPreviewPreset || 'en') ||
 		($settings.typesetPreviewText || '') !== (DEFAULTS.typesetPreviewText || '');
@@ -945,8 +913,7 @@
 	$: isInpaintingModified =
 		($settings.inpaintMode || 'patch') !== DEFAULTS.inpaintMode ||
 		Boolean($settings.enableWhiteInpaint ?? true) !== Boolean(DEFAULTS.enableWhiteInpaint ?? true) ||
-		Math.abs(($settings.inpaintExpansionPct ?? 0.03) - DEFAULTS.inpaintExpansionPct) >= 0.005 ||
-		Math.abs(($settings.typesetExpansionPct ?? 0.0) - DEFAULTS.typesetExpansionPct) >= 0.005;
+		Math.abs(($settings.inpaintExpansionPct ?? DEFAULTS.inpaintExpansionPct) - DEFAULTS.inpaintExpansionPct) >= 0.005;
 
 	function resetAppearanceDefaults() {
 		settings.update((s) => ({
@@ -971,6 +938,7 @@
 			typesetCasing: DEFAULTS.typesetCasing,
 			typesetAllCaps: DEFAULTS.typesetAllCaps,
 			enableTextRotation: DEFAULTS.enableTextRotation,
+			enableTypesetCentering: DEFAULTS.enableTypesetCentering,
 			livePipelinePreview: DEFAULTS.livePipelinePreview,
 			typesetPreviewPreset: DEFAULTS.typesetPreviewPreset,
 			typesetPreviewText: DEFAULTS.typesetPreviewText,
@@ -987,7 +955,6 @@
 			inpaintMode: DEFAULTS.inpaintMode,
 			enableWhiteInpaint: DEFAULTS.enableWhiteInpaint,
 			inpaintExpansionPct: DEFAULTS.inpaintExpansionPct,
-			typesetExpansionPct: DEFAULTS.typesetExpansionPct,
 		}));
 		toast.success('Inpainting settings reset to defaults');
 	}
@@ -995,6 +962,19 @@
 	function toggleWhiteInpaint() {
 		const current = $settings.enableWhiteInpaint ?? true;
 		settings.update((s) => ({ ...s, enableWhiteInpaint: !current }));
+	}
+
+	const INPAINT_EXPANSION_PRESETS = [
+		{ value: 0.0, label: '0%', desc: 'Tight raw text anchor' },
+		{ value: 0.03, label: '3%', desc: 'Balanced default padding' },
+		{ value: 0.06, label: '6%', desc: 'Moderate coverage for fuzzy edges' },
+		{ value: 0.1, label: '10%', desc: 'Wide boundary for complex glyphs' },
+		{ value: 0.15, label: '15%', desc: 'Maximum cleaning perimeter' },
+	];
+
+	function setInpaintExpansion(val: number) {
+		settings.update((s) => ({ ...s, inpaintExpansionPct: val }));
+		toast.success(`Inpaint mask margin set to ${Math.round(val * 100)}%`);
 	}
 
 	// CONVENTIONAL INFERENCE CONFIGURATION HELPERS
@@ -1744,7 +1724,7 @@
 	$: previewFontFamily = isTextCjk
 		? `"${$settings.typesetCjkFont || 'Microsoft YaHei'}", "Yu Gothic", "Malgun Gothic", "Noto Sans CJK SC", sans-serif`
 		: (selectedFont?.stack || `"${$settings.typesetFont || 'CC Wild Words'}", sans-serif`);
-	$: previewIsDarkBubble = $settings.typesetContrast === 'light' ? true : $settings.typesetContrast === 'dark' ? false : previewDarkBackground;
+	$: previewIsDarkBubble = previewDarkBackground;
 	$: previewTextColor = previewIsDarkBubble ? '#ffffff' : '#111111';
 	$: previewStrokeColor = previewIsDarkBubble ? '#000000' : '#ffffff';
 	$: previewStrokeWidth = $settings.typesetOutline === 'none' ? '0px' : $settings.typesetOutline === 'thin' ? '1px' : $settings.typesetOutline === 'heavy' ? '3px' : '2px';
@@ -1776,8 +1756,8 @@
 			title: 'Reader & Studio',
 			items: [
 				{ id: 'appearance', label: 'General & Appearance', icon: Palette, keywords: ['theme', 'light', 'dark', 'sepia', 'font', 'language', 'locale', 'source', 'target'] },
-				{ id: 'typesetting', label: 'Typesetting & Lettering', icon: Type, keywords: ['font', 'cjk', 'bubble', 'dialogue', 'padding', 'stroke', 'outline', 'contrast', 'casing', 'angle', 'rotation', 'preview'] },
-				{ id: 'inpainting', label: 'Inpainting & Masking', icon: Eraser, keywords: ['inpaint', 'patch', 'scaled', 'full', 'watermark', 'geometry', 'expansion', 'mask'] },
+				{ id: 'typesetting', label: 'Typesetting & Lettering', icon: Type, keywords: ['font', 'cjk', 'bubble', 'dialogue', 'padding', 'stroke', 'outline', 'casing', 'angle', 'rotation', 'preview'] },
+				{ id: 'inpainting', label: 'Inpainting & Cleaning', icon: Eraser, keywords: ['inpaint', 'patch', 'scaled', 'full', 'cleaning', 'white', 'shrinkwrap'] },
 			],
 		},
 		{
@@ -1815,18 +1795,18 @@
 		{ id: 'preview', label: 'Live Speech Bubble Preview', category: 'typesetting', categoryLabel: 'Typesetting & Lettering', categoryIcon: Type, keywords: ['preview', 'bubble', 'dialogue', 'sample', 'live', 'manga'] },
 		{ id: 'typeset-font', label: 'Latin Dialogue Font', category: 'typesetting', categoryLabel: 'Typesetting & Lettering', categoryIcon: Type, keywords: ['font', 'latin', 'english', 'wild words', 'montserrat', 'general sans', 'poppins', 'system fonts', 'import font', 'custom font', 'ttf', 'otf', 'woff2', 'variable'] },
 		{ id: 'typeset-weight', label: 'Dialogue Font Weight (Regular & Bold)', category: 'typesetting', categoryLabel: 'Typesetting & Lettering', categoryIcon: Type, keywords: ['weight', 'bold', 'regular', 'thickness', '400', '700', 'font weight', 'variants'] },
+		{ id: 'typeset-casing', label: 'Dialogue Letterform Casing', category: 'typesetting', categoryLabel: 'Typesetting & Lettering', categoryIcon: Type, keywords: ['casing', 'uppercase', 'lowercase', 'all-caps', 'capitalization'] },
 		{ id: 'typeset-cjk', label: 'CJK East Asian Fallback Engine', category: 'typesetting', categoryLabel: 'Typesetting & Lettering', categoryIcon: Type, keywords: ['cjk', 'chinese', 'japanese', 'korean', 'fallback', 'font', 'yahei', 'gothic', 'hangul'] },
 		{ id: 'typeset-padding', label: 'Bubble Inset Padding', category: 'typesetting', categoryLabel: 'Typesetting & Lettering', categoryIcon: Type, keywords: ['padding', 'margin', 'inset', 'tight', 'balanced', 'spacious', 'airy', 'fit'] },
 		{ id: 'typeset-outline', label: 'Text Stroke Outline', category: 'typesetting', categoryLabel: 'Typesetting & Lettering', categoryIcon: Type, keywords: ['stroke', 'outline', 'border', 'thin', 'standard', 'heavy', 'thickness'] },
-		{ id: 'typeset-contrast', label: 'Contrast Strategy', category: 'typesetting', categoryLabel: 'Typesetting & Lettering', categoryIcon: Type, keywords: ['contrast', 'auto', 'luminance', 'dark', 'light'] },
 		{ id: 'typeset-angle', label: 'Bubble Tilt Angle Rotation', category: 'typesetting', categoryLabel: 'Typesetting & Lettering', categoryIcon: Type, keywords: ['tilt', 'angle', 'rotation', 'rotate', 'diagonal'] },
-		{ id: 'typeset-casing', label: 'Dialogue Letterform Casing', category: 'typesetting', categoryLabel: 'Typesetting & Lettering', categoryIcon: Type, keywords: ['casing', 'uppercase', 'lowercase', 'all-caps', 'capitalization'] },
+		{ id: 'typeset-centering', label: 'Bubble Centering & Expansion', category: 'typesetting', categoryLabel: 'Typesetting & Lettering', categoryIcon: AlignCenter, keywords: ['centering', 'expansion', 'center', 'bubble', 'anchor', 'slack', 'carrier'] },
 		{ id: 'live-pipeline-preview', label: 'Live Pipeline Step Previews', category: 'typesetting', categoryLabel: 'Typesetting & Lettering', categoryIcon: Eye, keywords: ['preview', 'live', 'ocr', 'inpaint', 'progressive', 'intermediate', 'step', 'stream'] },
 
 		// INPAINTING
-		{ id: 'inpaint-mode', label: 'Inpainting Strategy', category: 'inpainting', categoryLabel: 'Inpainting & Masking', categoryIcon: Eraser, keywords: ['inpaint', 'patch', 'scaled', 'full', 'erase', 'cleaning', 'lama'] },
-		{ id: 'inpaint-white', label: 'White Bubble Shrinkwrap Cleaning', category: 'inpainting', categoryLabel: 'Inpainting & Masking', categoryIcon: Eraser, keywords: ['white', 'shrinkwrap', 'bubble', 'clean', 'cavity', 'dust', 'inpaint', 'speech'] },
-		{ id: 'inpaint-geom', label: 'Three-Tier Region Geometry Expansion', category: 'inpainting', categoryLabel: 'Inpainting & Masking', categoryIcon: Eraser, keywords: ['geometry', 'expansion', 'tier', 'margin', 'bounds', 'inpaint mask', 'typeset box'] },
+		{ id: 'inpaint-mode', label: 'Inpainting Strategy', category: 'inpainting', categoryLabel: 'Inpainting & Cleaning', categoryIcon: Eraser, keywords: ['inpaint', 'patch', 'scaled', 'full', 'erase', 'cleaning', 'lama'] },
+		{ id: 'inpaint-margin', label: 'Inpaint Mask Margin', category: 'inpainting', categoryLabel: 'Inpainting & Cleaning', categoryIcon: Eraser, keywords: ['inpaint', 'margin', 'padding', 'expansion', 'boundary', 'mask', 'tight', 'ocr'] },
+		{ id: 'inpaint-white', label: 'White Bubble Shrinkwrap Cleaning', category: 'inpainting', categoryLabel: 'Inpainting & Cleaning', categoryIcon: Eraser, keywords: ['white', 'shrinkwrap', 'bubble', 'clean', 'cavity', 'dust', 'inpaint', 'speech'] },
 
 		// AI PROVIDERS
 		{ id: 'ai-guide', label: 'AI Translation Getting Started Guide', category: 'providers', categoryLabel: 'AI Translation Providers', categoryIcon: Info, keywords: ['getting started', 'guide', 'instructions', 'help', 'tutorial', 'setup', 'onboarding'] },
@@ -2581,6 +2561,46 @@
 							</div>
 						</div>
 
+						<!-- DIALOGUE LETTERFORM CASING -->
+						<div
+							id="setting-typeset-casing"
+							class={cn(
+								'space-y-1.5 pt-1 transition-all duration-300',
+								highlightedSettingId === 'typeset-casing' && 'ring-2 ring-[#b23a2e] dark:ring-[#e08a63] bg-[#b23a2e]/[0.06] dark:bg-[#e08a63]/[0.08] rounded-2xl p-2.5 -m-1',
+							)}
+						>
+							<div class="flex items-center justify-between">
+								<div class="text-xs font-bold uppercase tracking-wider opacity-80">Dialogue Letterform Casing</div>
+								{#if !isCasingApplicable}
+									<span class="text-[10px] opacity-50 italic">Active font is all-caps / CJK</span>
+								{/if}
+							</div>
+							<div class="grid grid-cols-1 sm:grid-cols-3 gap-2">
+								{#each CASING_PRESETS as cPreset}
+									{@const isSelected = ($settings.typesetCasing || 'uppercase') === cPreset.id}
+									<button
+										type="button"
+										on:click={() => setCasing(cPreset.id)}
+										class={cn(
+											'flex flex-col justify-between rounded-xl border p-2.5 text-left transition-all',
+											isSelected
+												? 'border-[#b23a2e] bg-[#b23a2e]/[0.08] text-[#b23a2e] dark:text-[#e08a63] ring-2 ring-[#b23a2e]/30 font-bold shadow-xs'
+												: 'border-black/10 hover:border-black/20 hover:bg-black/[0.02] dark:border-white/10 dark:hover:border-white/20 dark:hover:bg-white/[0.02]',
+										)}
+										use:ripple
+									>
+										<div class="flex items-center justify-between">
+											<span class="text-xs font-bold pl-0.5">{cPreset.label}</span>
+											{#if isSelected}
+												<Check size={12} class="text-[#b23a2e] dark:text-[#e08a63] shrink-0" />
+											{/if}
+										</div>
+										<div class="mt-1 text-[9px] opacity-60 leading-tight pl-0.5">{cPreset.desc}</div>
+									</button>
+								{/each}
+							</div>
+						</div>
+
 						<!-- CJK FALLBACK ENGINE -->
 						<div
 							id="setting-typeset-cjk"
@@ -2734,73 +2754,6 @@
 							</div>
 						</div>
 
-						<!-- CONTRAST STRATEGY -->
-						<div
-							id="setting-typeset-contrast"
-							class={`border-t border-black/10 pt-4 dark:border-white/10 space-y-1.5 transition-all duration-300 ${highlightedSettingId === 'typeset-contrast' ? 'ring-2 ring-[#b23a2e] dark:ring-[#e08a63] bg-[#b23a2e]/[0.06] dark:bg-[#e08a63]/[0.08] rounded-2xl p-2.5 -m-1' : ''}`}
-						>
-							<div class="text-xs font-bold uppercase tracking-wider opacity-80">Contrast Strategy</div>
-							<div class="grid grid-cols-1 sm:grid-cols-3 gap-2">
-								{#each CONTRAST_PRESETS as cPreset}
-									{@const isSelected = ($settings.typesetContrast || 'auto') === cPreset.id}
-									<button
-										type="button"
-										on:click={() => setContrast(cPreset.id)}
-										class={`flex flex-col justify-between rounded-xl border p-2.5 text-left transition-all ${
-											isSelected
-												? 'border-[#b23a2e] bg-[#b23a2e]/[0.08] text-[#b23a2e] dark:text-[#e08a63] ring-2 ring-[#b23a2e]/30 font-bold shadow-xs'
-												: 'border-black/10 hover:border-black/20 hover:bg-black/[0.02] dark:border-white/10 dark:hover:border-white/20 dark:bg-white/[0.02]'
-										}`}
-										use:ripple
-									>
-										<div class="flex items-center justify-between">
-											<span class="text-xs font-bold pl-0.5">{cPreset.label}</span>
-											{#if isSelected}
-												<Check size={12} class="text-[#b23a2e] dark:text-[#e08a63] shrink-0" />
-											{/if}
-										</div>
-										<div class="mt-1 text-[9px] opacity-60 leading-tight pl-0.5">{cPreset.desc}</div>
-									</button>
-								{/each}
-							</div>
-						</div>
-
-						<!-- DIALOGUE LETTERFORM CASING -->
-						<div
-							id="setting-typeset-casing"
-							class={`border-t border-black/10 pt-4 dark:border-white/10 space-y-1.5 transition-all duration-300 ${highlightedSettingId === 'typeset-casing' ? 'ring-2 ring-[#b23a2e] dark:ring-[#e08a63] bg-[#b23a2e]/[0.06] dark:bg-[#e08a63]/[0.08] rounded-2xl p-2.5 -m-1' : ''}`}
-						>
-							<div class="flex items-center justify-between">
-								<div class="text-xs font-bold uppercase tracking-wider opacity-80">Dialogue Letterform Casing</div>
-								{#if !isCasingApplicable}
-									<span class="text-[10px] opacity-50 italic">Active font is all-caps / CJK</span>
-								{/if}
-							</div>
-							<div class="grid grid-cols-1 sm:grid-cols-3 gap-2">
-								{#each CASING_PRESETS as cPreset}
-									{@const isSelected = ($settings.typesetCasing || 'uppercase') === cPreset.id}
-									<button
-										type="button"
-										on:click={() => setCasing(cPreset.id)}
-										class={`flex flex-col justify-between rounded-xl border p-2.5 text-left transition-all ${
-											isSelected
-												? 'border-[#b23a2e] bg-[#b23a2e]/[0.08] text-[#b23a2e] dark:text-[#e08a63] ring-2 ring-[#b23a2e]/30 font-bold shadow-xs'
-												: 'border-black/10 hover:border-black/20 hover:bg-black/[0.02] dark:border-white/10 dark:hover:border-white/20 dark:hover:bg-white/[0.02]'
-										}`}
-										use:ripple
-									>
-										<div class="flex items-center justify-between">
-											<span class="text-xs font-bold pl-0.5">{cPreset.label}</span>
-											{#if isSelected}
-												<Check size={12} class="text-[#b23a2e] dark:text-[#e08a63] shrink-0" />
-											{/if}
-										</div>
-										<div class="mt-1 text-[9px] opacity-60 leading-tight pl-0.5">{cPreset.desc}</div>
-									</button>
-								{/each}
-							</div>
-						</div>
-
 						<!-- ORIENTATION & LIVE PIPELINE TOGGLES -->
 						<div class="border-t border-black/10 pt-4 dark:border-white/10 space-y-2.5">
 							<div
@@ -2815,6 +2768,21 @@
 									checked={$settings.enableTextRotation}
 									on:click={toggleTextRotation}
 									ariaLabel="Bubble Tilt Angle"
+								/>
+							</div>
+
+							<div
+								id="setting-typeset-centering"
+								class={`flex items-center justify-between rounded-xl border border-black/10 bg-black/[0.02] p-3 dark:border-white/10 dark:bg-white/[0.02] transition-all duration-300 ${highlightedSettingId === 'typeset-centering' ? 'ring-2 ring-[#b23a2e] dark:ring-[#e08a63] bg-[#b23a2e]/[0.06] dark:bg-[#e08a63]/[0.08]' : ''}`}
+							>
+								<div>
+									<div class="text-xs font-bold">Bubble Centering & Expansion</div>
+									<div class="text-[10px] opacity-60 mt-0.5">Anchor translated text to bubble centers and expand typesetting into available space</div>
+								</div>
+								<Switch
+									checked={$settings.enableTypesetCentering ?? true}
+									on:click={toggleTypesetCentering}
+									ariaLabel="Bubble Centering & Expansion"
 								/>
 							</div>
 
@@ -2835,13 +2803,13 @@
 						</div>
 					</div>
 
-				<!-- SECTION 3: INPAINTING & MASKING -->
+				<!-- SECTION 3: INPAINTING & CLEANING -->
 				{:else if activeCategory === 'inpainting'}
 					<div class="space-y-5">
 						<div class="flex flex-col sm:flex-row sm:items-center justify-between gap-2 sm:gap-4">
 							<div class="min-w-0 flex-1">
-								<h2 class="text-base font-bold">Inpainting & Masking</h2>
-								<p class="text-xs opacity-60 mt-0.5">Artwork cleaning strategies, watermark removal, and three-tier geometry bounds</p>
+								<h2 class="text-base font-bold">Inpainting & Cleaning</h2>
+								<p class="text-xs opacity-60 mt-0.5">Artwork inpainting strategies and speech bubble shrinkwrap cleaning</p>
 							</div>
 							{#if isInpaintingModified}
 								<button
@@ -2889,6 +2857,50 @@
 							</div>
 						</div>
 
+						<!-- INPAINT MASK MARGIN -->
+						<div class="border-t border-black/10 pt-4 dark:border-white/10">
+							<div
+								id="setting-inpaint-margin"
+								class={cn(
+									'space-y-2.5 transition-all duration-300',
+									highlightedSettingId === 'inpaint-margin' &&
+										'ring-2 ring-[#b23a2e] dark:ring-[#e08a63] bg-[#b23a2e]/[0.06] dark:bg-[#e08a63]/[0.08] rounded-2xl p-2.5 -m-1'
+								)}
+							>
+								<div class="flex items-center justify-between">
+									<div class="flex items-center gap-1.5">
+										<Sliders size={14} class="text-[#b23a2e] dark:text-[#e08a63]" />
+										<span class="text-xs font-bold">Inpaint Mask Margin</span>
+									</div>
+									<Badge variant="neutral" class="font-mono text-[10px]">
+										+{Math.round(($settings.inpaintExpansionPct ?? 0.03) * 100)}%
+									</Badge>
+								</div>
+								<p class="text-[11px] opacity-60 leading-relaxed">
+									Expands the clean boundary outward from raw text contours to erase residual stroke artifacts before typesetting.
+								</p>
+								<div class="grid grid-cols-2 sm:grid-cols-5 gap-1.5">
+									{#each INPAINT_EXPANSION_PRESETS as preset}
+										{@const isSelected = Math.abs(($settings.inpaintExpansionPct ?? 0.03) - preset.value) < 0.005}
+										<button
+											type="button"
+											on:click={() => setInpaintExpansion(preset.value)}
+											class={cn(
+												'flex flex-col items-center justify-center p-2 rounded-xl border text-center transition-all cursor-pointer',
+												isSelected
+													? 'border-[#b23a2e] bg-[#b23a2e]/[0.08] text-[#b23a2e] dark:text-[#e08a63] ring-1 ring-[#b23a2e]/30 font-bold shadow-2xs'
+													: 'border-black/10 bg-white/60 hover:bg-black/5 dark:border-white/10 dark:bg-neutral-800/60 dark:hover:bg-white/5 opacity-80 hover:opacity-100'
+											)}
+											use:ripple
+										>
+											<span class="text-xs font-mono font-bold">{preset.label}</span>
+											<span class="text-[9px] opacity-60 leading-tight mt-0.5">{preset.desc}</span>
+										</button>
+									{/each}
+								</div>
+							</div>
+						</div>
+
 						<!-- WHITE BUBBLE SHRINKWRAP CLEANING -->
 						<div class="border-t border-black/10 pt-4 dark:border-white/10">
 							<div
@@ -2901,7 +2913,7 @@
 							>
 								<div>
 									<div class="text-xs font-bold flex items-center gap-1.5">
-										<Eraser size={14} class="text-[#b23a2e] dark:text-[#e08a63]" />
+										<Brush size={14} class="text-[#b23a2e] dark:text-[#e08a63]" />
 										<span>White Bubble Shrinkwrap Cleaning</span>
 									</div>
 									<p class="text-[11px] opacity-60 mt-0.5 leading-relaxed">
@@ -2913,92 +2925,6 @@
 									on:click={toggleWhiteInpaint}
 									ariaLabel="White Bubble Shrinkwrap Cleaning"
 								/>
-							</div>
-						</div>
-
-						<!-- THREE-TIER REGION GEOMETRY EXPANSION -->
-						<div
-							id="setting-inpaint-geom"
-							class={`border-t border-black/10 pt-4 dark:border-white/10 space-y-3 transition-all duration-300 ${highlightedSettingId === 'inpaint-geom' ? 'ring-2 ring-[#b23a2e] dark:ring-[#e08a63] bg-[#b23a2e]/[0.06] dark:bg-[#e08a63]/[0.08] rounded-2xl p-2.5 -m-1' : ''}`}
-						>
-							<div class="text-xs font-bold uppercase tracking-wider opacity-80 flex items-center gap-1.5">
-								<Sliders size={14} class="text-[#b23a2e] dark:text-[#e08a63]" />
-								<span>Three-Tier Region Geometry Expansion</span>
-							</div>
-
-							<!-- VISUAL DIAGRAM CARD -->
-							<div class="relative overflow-hidden rounded-xl border border-black/10 bg-neutral-100 dark:border-white/10 dark:bg-neutral-950 p-3 flex flex-col items-center justify-center">
-								<div class="w-full max-w-[280px] rounded-lg border-2 border-[#7f1d1d] dark:border-red-500 bg-[#7f1d1d]/20 dark:bg-red-500/20 p-2 flex flex-col items-center text-center">
-									<div class="flex items-center justify-between w-full text-[9px] font-bold text-[#7f1d1d] dark:text-red-300 mb-1 px-1">
-										<span>Tier 3: Typesetting Box</span>
-										<span class="font-mono">+{Math.round(($settings.typesetExpansionPct ?? 0.03) * 100)}%</span>
-									</div>
-									<div class="w-[90%] rounded-md border-2 border-dashed border-black/80 dark:border-white/80 bg-black/10 dark:bg-white/10 p-1.5 flex flex-col items-center">
-										<div class="flex items-center justify-between w-full text-[8.5px] font-semibold text-neutral-800 dark:text-neutral-200 mb-1 px-0.5">
-											<span>Tier 2: Inpaint Mask</span>
-											<span class="font-mono">+{Math.round(($settings.inpaintExpansionPct ?? 0.03) * 100)}%</span>
-										</div>
-										<div class="w-[85%] rounded border-2 border-dotted border-white bg-black/20 dark:bg-black/60 px-2 py-1 text-center font-mono text-[9px] font-bold text-white shadow-xs">
-											Tier 1: Text Anchor (0%)
-										</div>
-									</div>
-								</div>
-							</div>
-
-							<div class="space-y-1.5">
-								<div class="flex items-center justify-between text-[11px]">
-									<span class="font-semibold opacity-75">Tier 2: Inpaint Mask Margin</span>
-									<span class="font-mono opacity-60">+{Math.round(($settings.inpaintExpansionPct ?? 0.03) * 100)}%</span>
-								</div>
-								<div class="grid grid-cols-5 gap-1.5">
-									{#each INPAINT_EXPANSION_PRESETS as preset}
-										{@const isSelected = Math.abs(($settings.inpaintExpansionPct ?? 0.03) - preset.value) < 0.005}
-										<button
-											type="button"
-											on:click={() => setInpaintExpansion(preset.value)}
-											class={`rounded-lg border py-1 px-1 text-center transition-all ${
-												isSelected
-													? 'border-[#b23a2e] bg-[#b23a2e]/[0.08] text-[#b23a2e] dark:text-[#e08a63] font-bold ring-1 ring-[#b23a2e]/30'
-													: 'border-black/10 hover:border-black/20 dark:border-white/10 opacity-75'
-											}`}
-											use:ripple
-										>
-											<span class="text-xs">{preset.label}</span>
-										</button>
-									{/each}
-								</div>
-							</div>
-
-							<div class="space-y-1.5">
-								<div class="flex items-center justify-between text-[11px]">
-									<span class="font-semibold opacity-75">Tier 3: Typeset Box Margin</span>
-									<span class="font-mono opacity-60">+{Math.round(($settings.typesetExpansionPct ?? 0.03) * 100)}%</span>
-								</div>
-								<div class="grid grid-cols-5 gap-1.5">
-									{#each TYPESET_EXPANSION_PRESETS as preset}
-										{@const isSelected = Math.abs(($settings.typesetExpansionPct ?? 0.03) - preset.value) < 0.005}
-										<button
-											type="button"
-											on:click={() => setTypesetExpansion(preset.value)}
-											class={`rounded-lg border py-1 px-1 text-center transition-all ${
-												isSelected
-													? 'border-[#b23a2e] bg-[#b23a2e]/[0.08] text-[#b23a2e] dark:text-[#e08a63] font-bold ring-1 ring-[#b23a2e]/30'
-													: 'border-black/10 hover:border-black/20 dark:border-white/10 opacity-75'
-											}`}
-											use:ripple
-										>
-											<span class="text-xs">{preset.label}</span>
-										</button>
-									{/each}
-								</div>
-							</div>
-
-							<!-- NOTICE: RE-TRANSLATION REQUIRED FOR NEW EXPANSION MARGINS -->
-							<div class="flex items-start gap-2 rounded-xl border border-amber-500/25 bg-amber-500/10 p-2.5 text-[10.5px] leading-relaxed text-amber-800 dark:text-amber-300">
-								<Info size={14} class="shrink-0 text-amber-600 dark:text-amber-400 mt-0.5" />
-								<span>
-									<strong>Note:</strong> Changing region geometry expansion percentages applies to future chapter translations. To apply new boundary margins to previously translated chapters, trigger a full re-translation.
-								</span>
 							</div>
 						</div>
 					</div>

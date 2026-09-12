@@ -7,9 +7,9 @@ import type { PipelineRegion, PipelineBox } from './pipeline-client';
 // -- CONSTANTS -- //
 const COLOR_BUBBLE_STROKE = 'rgba(6, 182, 212, 0.90)';
 const COLOR_BUBBLE_FILL = 'rgba(6, 182, 212, 0.10)';
-const COLOR_BASE_STROKE = 'rgba(148, 163, 184, 0.95)';
-const COLOR_BASE_FILL = 'rgba(148, 163, 184, 0.20)';
-const COLOR_BASE_HATCH = 'rgba(148, 163, 184, 0.50)';
+const COLOR_OCR_STROKE = 'rgba(148, 163, 184, 0.95)';
+const COLOR_OCR_FILL = 'rgba(148, 163, 184, 0.20)';
+const COLOR_OCR_HATCH = 'rgba(148, 163, 184, 0.50)';
 const COLOR_TYPESET_STROKE = 'rgba(178, 58, 46, 0.95)';
 const COLOR_TYPESET_FILL = 'rgba(178, 58, 46, 0.20)';
 const COLOR_ALIGN_GUIDE = 'rgba(178, 58, 46, 0.85)';
@@ -17,7 +17,6 @@ const COLOR_FREE_TEXT_STROKE = 'rgba(139, 92, 246, 0.90)';
 const COLOR_FREE_TEXT_FILL = 'rgba(139, 92, 246, 0.16)';
 
 // -- HELPER FUNCTIONS -- //
-
 // COMPUTE INTERSECTION OVER UNION (IoU) OF TWO RECTANGLES
 function computeBoxIoU(a: PipelineBox, b: PipelineBox): number {
 	const x1 = Math.max(a.x, b.x);
@@ -130,7 +129,7 @@ function drawReticle(ctx: SKRSContext2D, cx: number, cy: number, radius: number,
 /**
  * RENDERS THE LIVE OCR ANNOTATION PREVIEW IMAGE FEATURING:
  * - UNIFIED BLUE BUBBLE BOUNDARY (CARRIER CUT-TAIL OR DETECTED BUBBLE)
- * - ORIGINAL BASE TEXT DETECTION BOX
+ * - TIGHT OCR TEXT DETECTION BOX
  * - CALCULATED TYPESET LAYOUT BOUNDARY
  * - FOUR-CORNER ALIGNMENT CONNECTING GUIDE LINES
  * - TYPESET CENTER CROSSHAIR RETICLE
@@ -183,16 +182,17 @@ export async function renderAnnotatedOcrImage(
 			ctx.setLineDash([]);
 			ctx.strokeRect(bubbleBox.x, bubbleBox.y, bubbleBox.w, bubbleBox.h);
 
-			// 2. RENDER BASE DETECTION BOX (NEUTRAL GRAY DASHED WITH 45-DEGREE DIAGONAL HATCH)
-			ctx.fillStyle = COLOR_BASE_FILL;
-			ctx.fillRect(r.box.x, r.box.y, r.box.w, r.box.h);
+			// 2. RENDER OCR TIGHT TEXT BOUNDARY BOX (NEUTRAL GRAY DASHED WITH 45-DEGREE DIAGONAL HATCH)
+			const ocrBox: PipelineBox = r.ocr_box || r.box;
+			ctx.fillStyle = COLOR_OCR_FILL;
+			ctx.fillRect(ocrBox.x, ocrBox.y, ocrBox.w, ocrBox.h);
 
-			drawDiagonalHatch(ctx, r.box, COLOR_BASE_HATCH, 12);
+			drawDiagonalHatch(ctx, ocrBox, COLOR_OCR_HATCH, 12);
 
-			ctx.strokeStyle = COLOR_BASE_STROKE;
+			ctx.strokeStyle = COLOR_OCR_STROKE;
 			ctx.lineWidth = 1.8;
 			ctx.setLineDash([5, 4]);
-			ctx.strokeRect(r.box.x, r.box.y, r.box.w, r.box.h);
+			ctx.strokeRect(ocrBox.x, ocrBox.y, ocrBox.w, ocrBox.h);
 
 			// 3. RENDER CALCULATED TYPESET BOUNDARY (CINNABAR RED)
 			const typesetBox: PipelineBox = r.typeset_box || r.box;
@@ -256,13 +256,14 @@ export async function renderAnnotatedOcrImage(
 			drawReticle(ctx, typesetCx, typesetCy, 4.5, COLOR_TYPESET_STROKE);
 		} else {
 			// B. FREE TEXT REGION (NO SFX LABELS OR TEXT RENDERING)
+			const freeBox: PipelineBox = r.ocr_box || r.box;
 			ctx.fillStyle = COLOR_FREE_TEXT_FILL;
-			ctx.fillRect(r.box.x, r.box.y, r.box.w, r.box.h);
+			ctx.fillRect(freeBox.x, freeBox.y, freeBox.w, freeBox.h);
 
 			ctx.strokeStyle = COLOR_FREE_TEXT_STROKE;
 			ctx.lineWidth = 1.8;
 			ctx.setLineDash([]);
-			ctx.strokeRect(r.box.x, r.box.y, r.box.w, r.box.h);
+			ctx.strokeRect(freeBox.x, freeBox.y, freeBox.w, freeBox.h);
 		}
 
 		ctx.restore();

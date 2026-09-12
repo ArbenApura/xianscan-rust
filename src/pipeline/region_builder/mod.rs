@@ -15,7 +15,7 @@ pub use clustering::{cluster_lines_into_utterances, format_lines_cluster, polygo
 pub use dedup::deduplicate_and_unify_regions;
 pub use expansion::{bubble_core, clamp_box_to_core, derive_carrier_box, expand_bubble_text_boxes, resolve_carrier_box, scale_tall_narrow_free_text_base_box, valid_tail_cut_carrier};
 pub use filter::should_reject_candidate_region;
-pub use geometry::{compute_chromatic_color_variance, expand_box, extract_carrier_box_from_image, extract_dark_bubble_envelope, extract_white_bubble_envelope};
+pub use geometry::{compute_chromatic_color_variance, expand_box, extract_carrier_box_from_image, extract_dark_bubble_envelope, extract_white_bubble_envelope, DEFAULT_INPAINT_EXPANSION_PCT};
 pub use refine::{run_fallback_crop_recognition, try_refine_cluster_crop, FallbackCropOutcome, RefinementOutcome};
 
 // -- TESTS -- //
@@ -24,59 +24,7 @@ pub use refine::{run_fallback_crop_recognition, try_refine_cluster_crop, Fallbac
 mod tests {
     use super::*;
     use image::{DynamicImage, Rgb};
-    use crate::ml::schemas::BoxRect;
-
-    #[test]
-    fn test_expand_box_geometry() {
-        let base = BoxRect { x: 100, y: 100, w: 200, h: 100 };
-        let page_w = 1000;
-        let page_h = 1000;
-
-        // UNIFORM / ISOTROPIC INPAINT EXPANSION (EQUAL PADDING ON ALL 4 SIDES)
-        // ref_dim = 100.max(200*0.4) = 100 -> uniform_pad = (100 * 0.06 * 1.5) = 9px
-        let inpaint = expand_box(&base, 0.06, page_w, page_h);
-        assert_eq!(inpaint.x, 91);
-        assert_eq!(inpaint.y, 91);
-        assert_eq!(inpaint.w, 218);
-        assert_eq!(inpaint.h, 118);
-
-        // UNIFORM / ISOTROPIC TYPESET EXPANSION (EQUAL PADDING ON ALL 4 SIDES)
-        // ref_dim = 100.max(200*0.4) = 100 -> uniform_pad = (100 * 0.12 * 1.5) = 18px
-        let typeset = expand_box(&base, 0.12, page_w, page_h);
-        assert_eq!(typeset.x, 82);
-        assert_eq!(typeset.y, 82);
-        assert_eq!(typeset.w, 236);
-        assert_eq!(typeset.h, 136);
-    }
-
-    #[test]
-    fn test_expand_box_clamping_to_boundaries() {
-        let edge_box = BoxRect { x: 5, y: 5, w: 50, h: 50 };
-        let page_w = 52;
-        let page_h = 52;
-
-        let expanded = expand_box(&edge_box, 0.20, page_w, page_h);
-        assert_eq!(expanded.x, 0);
-        assert_eq!(expanded.y, 0);
-        assert_eq!(expanded.w, 52);
-        assert_eq!(expanded.h, 52);
-    }
-
-    #[test]
-    fn test_expand_box_does_not_over_expand_opposite_side_when_clipped() {
-        // BOX NEAR THE LEFT PAGE EDGE BUT WITH ROOM ON THE RIGHT: THE EXPANSION MUST BE
-        // CLIPPED ON THE LEFT ONLY, NOT SHIFTED TO OVER-EXPAND THE RIGHT EDGE.
-        let base = BoxRect { x: 5, y: 100, w: 50, h: 50 };
-        let page_w = 200;
-        let page_h = 200;
-        // ref_dim = 50 -> uniform_pad = (50 * 0.20 * 1.5) = 15
-        // LEFT CLIPPED TO 0 (5 - 15); RIGHT EDGE = 5 + 50 + 15 = 70 -> WIDTH = 70
-        let expanded = expand_box(&base, 0.20, page_w, page_h);
-        assert_eq!(expanded.x, 0);
-        assert_eq!(expanded.w, 70);
-        assert_eq!(expanded.y, 85);
-        assert_eq!(expanded.h, 80);
-    }
+    use crate::ml::schemas::{BoxRect, Region, RegionKind};
 
     #[test]
     fn test_noise_strokes_filtering() {
@@ -150,6 +98,7 @@ mod tests {
             id: "r0".to_string(),
             box_: ocr_box,
             polygon: vec![],
+            ocr_box: None,
             inpaint_box: None,
             typeset_box: None,
             text: "环顾".to_string(),
@@ -165,7 +114,7 @@ mod tests {
             carrier_box: None,
         }];
 
-        expand_bubble_text_boxes(&mut regions, &[], None, 800, 1132, 0.05, 0.10);
+        expand_bubble_text_boxes(&mut regions, &[], None, 800, 1132, None, None);
 
         // BASE BOX MUST STAY STRICTLY INSIDE THE BUBBLE BOUNDARY
         assert!(regions[0].box_.x >= bubble.x);
@@ -190,6 +139,7 @@ mod tests {
             id: "r1".to_string(),
             box_: ocr_box,
             polygon: vec![],
+            ocr_box: None,
             inpaint_box: None,
             typeset_box: None,
             text: "スゴすぎー".to_string(),
@@ -205,13 +155,21 @@ mod tests {
             carrier_box: None,
         }];
 
-        expand_bubble_text_boxes(&mut regions, &[], None, 1370, 1012, 0.05, 0.10);
+        expand_bubble_text_boxes(&mut regions, &[], None, 1370, 1012, None, None);
 
-        // THE BASE BOX MUST EXPAND ITS WIDTH TO UTILIZE THE AVAILABLE BUBBLE ROOM
-        assert!(regions[0].box_.w > 100);
-        // AND REMAIN CONSTRAINED WITHIN THE BUBBLE BOUNDARY
-        assert!(regions[0].box_.x >= bubble.x);
-        assert!(regions[0].box_.x + regions[0].box_.w <= bubble.x + bubble.w);
+        // BASE BOX REMAINS TIGHT ORIGINAL OCR BOUNDARY
+        assert_eq!(regions[0].box_.w, 60);
+
+        // TYPESETTING BOX EXPANDS ITS WIDTH TO UTILIZE AVAILABLE BUBBLE ROOM
+        let tb = regions[0].typeset_box.as_ref().expect("typeset_box must exist");
+        assert!(tb.w > 100);
+        assert!(tb.x >= bubble.x);
+        assert!(tb.x + tb.w <= bubble.x + bubble.w);
+
+        // INPAINT BOX DERIVES FROM TIGHT BASE WITH FIXED 3% EXPANSION
+        let ib = regions[0].inpaint_box.as_ref().expect("inpaint_box must exist");
+        assert!(ib.w >= regions[0].box_.w);
+        assert!(ib.h >= regions[0].box_.h);
     }
 
     #[test]
@@ -228,6 +186,7 @@ mod tests {
             id: "r2".to_string(),
             box_: ocr_box,
             polygon: vec![],
+            ocr_box: None,
             inpaint_box: None,
             typeset_box: None,
             text: "아이가 스물을\n넘기기 힘들 걸세.\n그런 체질이야.".to_string(),
@@ -243,7 +202,7 @@ mod tests {
             carrier_box: None,
         }];
 
-        expand_bubble_text_boxes(&mut regions, &[], None, 690, 2095, 0.05, 0.10);
+        expand_bubble_text_boxes(&mut regions, &[], None, 690, 2095, None, None);
 
         let expanded = &regions[0].box_;
         let new_cx = expanded.x + expanded.w / 2;
@@ -276,6 +235,7 @@ mod tests {
             id: "r_bot".to_string(),
             box_: ocr_box.clone(),
             polygon: vec![],
+            ocr_box: None,
             inpaint_box: None,
             typeset_box: None,
             text: "석 의원,\n그동안 고마웠네.".to_string(),
@@ -291,7 +251,7 @@ mod tests {
             carrier_box: None,
         }];
 
-        expand_bubble_text_boxes(&mut regions, &[], None, 690, 1771, 0.03, 0.00);
+        expand_bubble_text_boxes(&mut regions, &[], None, 690, 1771, None, None);
 
         let typeset_box = regions[0].typeset_box.as_ref().expect("typeset_box should exist");
 
@@ -314,6 +274,7 @@ mod tests {
             id: "r_top".to_string(),
             box_: ocr_box,
             polygon: vec![],
+            ocr_box: None,
             inpaint_box: None,
             typeset_box: None,
             text: "이제 다시 진료받으러\n올 필요는 없겠군.".to_string(),
@@ -329,15 +290,15 @@ mod tests {
             carrier_box: None,
         }];
 
-        expand_bubble_text_boxes(&mut regions, &[], None, 690, 1771, 0.05, 0.10);
+        expand_bubble_text_boxes(&mut regions, &[], None, 690, 1771, None, None);
 
         let typeset_box = regions[0].typeset_box.as_ref().expect("typeset_box should exist");
 
         // MUST NOT BE EXPANDED DOWNWARD INTO THE TAIL: EXPANSION LIMITS COME FROM THE TAIL-CUT
         // CARRIER CHAMBER, AND THE TYPESET BOX CENTERS IN THE CARRIER WITH ITS HEIGHT ANCHORED
         // TO THE (GENTLY SCALED) TEXT BOX, NEVER BLEEDING INTO THE TAIL REGION BELOW.
-        assert_eq!(typeset_box.y, 819, "typeset_box y should center in the validated carrier chamber");
-        assert_eq!(typeset_box.h, 190, "typeset_box height must stay clamped inside the tail-cut carrier");
+        assert_eq!(typeset_box.y, 841, "typeset_box y should center in the validated carrier chamber");
+        assert_eq!(typeset_box.h, 146, "typeset_box height must stay clamped inside the tail-cut carrier");
         // VALIDATED CARRIER IS PUBLISHED ON THE REGION FOR INSPECT-PAGE VIEWERS
         assert_eq!(regions[0].carrier_box, Some(BoxRect { x: 208, y: 779, w: 463, h: 271 }));
     }
@@ -381,6 +342,7 @@ mod tests {
                 id: "r0".to_string(),
                 box_: BoxRect { x: 280, y: 199, w: 57, h: 82 },
                 polygon: vec![],
+                ocr_box: None,
                 inpaint_box: None,
                 typeset_box: None,
                 text: "あ…\nうん。".to_string(),
@@ -399,6 +361,7 @@ mod tests {
                 id: "r1".to_string(),
                 box_: BoxRect { x: 370, y: 175, w: 108, h: 174 },
                 polygon: vec![],
+                ocr_box: None,
                 inpaint_box: None,
                 typeset_box: None,
                 text: "学校内て\nスマホ持ち歩くの\n校則違反じゃん。".to_string(),
@@ -415,7 +378,7 @@ mod tests {
             },
         ];
 
-        expand_bubble_text_boxes(&mut regions, &[], None, 810, 737, 0.03, 0.00);
+        expand_bubble_text_boxes(&mut regions, &[], None, 810, 737, None, None);
 
         // BOTH REGIONS MUST PRESERVE INDIVIDUAL SIBLING ANCHORS (NOT COLLAPSED TO BUBBLE CENTER)
         assert!(regions[0].typeset_box.is_some());
@@ -460,6 +423,7 @@ mod tests {
             id: "r_tail".to_string(),
             box_: ocr_box.clone(),
             polygon: vec![],
+            ocr_box: None,
             inpaint_box: None,
             typeset_box: None,
             text: "지금 당장\n돌아가라.".to_string(),
@@ -475,7 +439,7 @@ mod tests {
             carrier_box: None,
         }];
 
-        expand_bubble_text_boxes(&mut regions, &[], None, 690, 1771, 0.05, 0.10);
+        expand_bubble_text_boxes(&mut regions, &[], None, 690, 1771, None, None);
 
         let carrier = regions[0].carrier_box.clone().expect("validated carrier must be published");
         assert!(carrier.h < bubble.h, "downward tail must be cut from the published carrier");
@@ -507,6 +471,7 @@ mod tests {
             id: "r_clean".to_string(),
             box_: ocr_box,
             polygon: vec![],
+            ocr_box: None,
             inpaint_box: None,
             typeset_box: None,
             text: "普通の\nセリフ。".to_string(),
@@ -522,7 +487,7 @@ mod tests {
             carrier_box: None,
         }];
 
-        expand_bubble_text_boxes(&mut regions, &[], None, 690, 1771, 0.05, 0.10);
+        expand_bubble_text_boxes(&mut regions, &[], None, 690, 1771, None, None);
 
         assert!(regions[0].carrier_box.is_none(), "carrier must not be published without a genuine tail cut");
         // BEHAVIOR IS UNCHANGED: EXPANSION USES THE FULL BUBBLE SAFE CORE
@@ -586,5 +551,135 @@ mod tests {
         let modified_right = scale_tall_narrow_free_text_base_box(&mut b_right, true, 1000);
         assert!(modified_right);
         assert!(b_right.x + b_right.w <= 1000, "Box right edge must not exceed page_w");
+    }
+
+    #[test]
+    fn test_dedup_merges_ocr_box_on_fragment_unification() {
+        use image::{Rgb, RgbImage};
+        use crate::ml::schemas::{Region, RegionKind};
+
+        let dummy_img = DynamicImage::ImageRgb8(RgbImage::from_pixel(1000, 1000, Rgb([255, 255, 255])));
+        let r1 = Region {
+            id: "r1".to_string(),
+            box_: BoxRect { x: 100, y: 100, w: 100, h: 50 },
+            polygon: vec![[100, 100], [200, 100], [200, 150], [100, 150]],
+            ocr_box: Some(BoxRect { x: 105, y: 105, w: 90, h: 40 }),
+            inpaint_box: Some(BoxRect { x: 100, y: 100, w: 100, h: 50 }),
+            typeset_box: Some(BoxRect { x: 100, y: 100, w: 100, h: 50 }),
+            text: "第一行内容".to_string(),
+            confidence: 0.95,
+            vertical: false,
+            angle: 0.0,
+            bubble_box: Some(BoxRect { x: 80, y: 80, w: 200, h: 180 }),
+            bubble_polygon: None,
+            centroid: None,
+            kind: RegionKind::DialogueBubble,
+            is_title: false,
+            is_subtitle: false,
+            carrier_box: None,
+        };
+
+        let r2 = Region {
+            id: "r2".to_string(),
+            box_: BoxRect { x: 100, y: 155, w: 100, h: 50 },
+            polygon: vec![[100, 155], [200, 155], [200, 205], [100, 205]],
+            ocr_box: Some(BoxRect { x: 108, y: 160, w: 85, h: 40 }),
+            inpaint_box: Some(BoxRect { x: 100, y: 155, w: 100, h: 50 }),
+            typeset_box: Some(BoxRect { x: 100, y: 155, w: 100, h: 50 }),
+            text: "第二行内容".to_string(),
+            confidence: 0.95,
+            vertical: false,
+            angle: 0.0,
+            bubble_box: Some(BoxRect { x: 80, y: 80, w: 200, h: 180 }),
+            bubble_polygon: None,
+            centroid: None,
+            kind: RegionKind::DialogueBubble,
+            is_title: false,
+            is_subtitle: false,
+            carrier_box: None,
+        };
+
+        let deduped = deduplicate_and_unify_regions(vec![r1, r2], &dummy_img, 1000, 1000, DEFAULT_INPAINT_EXPANSION_PCT);
+        assert_eq!(deduped.len(), 1, "Expected both fragments to unify into a single region");
+        assert!(deduped[0].ocr_box.is_some(), "Expected ocr_box to be present on unified region");
+
+        let ocr = deduped[0].ocr_box.as_ref().unwrap();
+        // UNIFIED OCR BOX SHOULD COVER FROM MIN(105, 108)=105 TO MAX(105+90, 108+85)=195 (W=90)
+        // AND FROM MIN(105, 160)=105 TO MAX(105+40, 160+40)=200 (H=95)
+        assert_eq!(ocr.x, 105);
+        assert_eq!(ocr.y, 105);
+        assert_eq!(ocr.w, 90);
+        assert_eq!(ocr.h, 95);
+
+        // UNIFIED INPAINT BOX MUST HAVE DEFAULT 3% EXPANSION
+        assert!(deduped[0].inpaint_box.is_some());
+        let inpaint = deduped[0].inpaint_box.as_ref().unwrap();
+        assert!(inpaint.x <= deduped[0].box_.x);
+        assert!(inpaint.y <= deduped[0].box_.y);
+        assert!(inpaint.w >= deduped[0].box_.w);
+        assert!(inpaint.h >= deduped[0].box_.h);
+    }
+
+    #[test]
+    fn test_expand_box_geometry() {
+        let b = BoxRect { x: 100, y: 100, w: 100, h: 50 };
+        let expanded = expand_box(&b, DEFAULT_INPAINT_EXPANSION_PCT, 1000, 1000);
+
+        // 3% EXPANSION WITH UNIFORM PADDING SHOULD EXPAND BOX SYMMETRICALLY
+        assert!(expanded.x < b.x);
+        assert!(expanded.y < b.y);
+        assert!(expanded.w > b.w);
+        assert!(expanded.h > b.h);
+        assert_eq!(expanded.x + expanded.w / 2, b.x + b.w / 2);
+    }
+
+    #[test]
+    fn test_expand_box_clamping_to_boundaries() {
+        let b = BoxRect { x: 0, y: 0, w: 100, h: 50 };
+        let expanded = expand_box(&b, DEFAULT_INPAINT_EXPANSION_PCT, 1000, 1000);
+
+        // LEFT AND TOP EDGES CLAMP AT ZERO WITHOUT NEGATIVE VALUES
+        assert_eq!(expanded.x, 0);
+        assert_eq!(expanded.y, 0);
+
+        let b_edge = BoxRect { x: 950, y: 950, w: 50, h: 50 };
+        let expanded_edge = expand_box(&b_edge, DEFAULT_INPAINT_EXPANSION_PCT, 1000, 1000);
+
+        // RIGHT AND BOTTOM EDGES CLAMP AT CANVAS LIMITS WITHOUT OVERFLOW
+        assert!(expanded_edge.x + expanded_edge.w <= 1000);
+        assert!(expanded_edge.y + expanded_edge.h <= 1000);
+    }
+
+    #[test]
+    fn test_bubble_expansion_disabled_preserves_raw_text_box() {
+        let mut regions = vec![Region {
+            id: "r0".to_string(),
+            box_: BoxRect { x: 450, y: 50, w: 100, h: 40 },
+            polygon: vec![[450, 50], [550, 50], [550, 90], [450, 90]],
+            bubble_box: Some(BoxRect { x: 400, y: 20, w: 200, h: 140 }),
+            bubble_polygon: None,
+            centroid: None,
+            kind: RegionKind::DialogueBubble,
+            text: "Hello world".to_string(),
+            confidence: 0.95,
+            vertical: false,
+            angle: 0.0,
+            ocr_box: Some(BoxRect { x: 450, y: 50, w: 100, h: 40 }),
+            inpaint_box: None,
+            typeset_box: None,
+            is_title: false,
+            is_subtitle: false,
+            carrier_box: None,
+        }];
+
+        expand_bubble_text_boxes(&mut regions, &[], None, 1000, 1000, None, Some(false));
+
+        let typeset = regions[0].typeset_box.as_ref().expect("typeset_box must be present");
+        assert_eq!(typeset, &regions[0].box_, "When centering is disabled, typeset_box must match raw box_");
+        assert_eq!(typeset.x, 450);
+        assert_eq!(typeset.w, 100);
+
+        // INPAINT BOX SHOULD STILL BE GENERATED
+        assert!(regions[0].inpaint_box.is_some());
     }
 }

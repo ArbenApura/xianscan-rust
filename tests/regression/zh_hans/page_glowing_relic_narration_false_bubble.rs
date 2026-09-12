@@ -85,7 +85,7 @@ fn test_regression_page_glowing_relic_narration_false_bubble() {
         "Panel 1 narration must contain both lines ('钱倒是不重要' and '自有妙用'), got '{}'",
         narration.text
     );
-    // Crucial check: Box must cover Line 1 (y=59) and Line 2 (down to y=129). If y >= 70, Line 1 was severed!
+    // CRUCIAL CHECK: BOX MUST COVER LINE 1 (Y=59) AND LINE 2 (DOWN TO Y=129). IF Y >= 70, LINE 1 WAS SEVERED!
     crate::assert_region_bounds!(narration, RegionKind::FreeText, 74, 59, 244, 70, 8);
 
     // 3. PANEL 1 RIGHT BUBBLE: '那东西，\n一定要拿到！'

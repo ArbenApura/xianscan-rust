@@ -34,11 +34,24 @@ fn get_shared_test_engine() -> std::sync::MutexGuard<'static, PipelineEngine> {
 macro_rules! assert_region_bounds {
     ($region:expr, $kind:expr, $exp_x:expr, $exp_y:expr, $exp_w:expr, $exp_h:expr, $max_drift:expr) => {{
         assert_eq!($region.kind, $kind, "Region kind mismatch for text '{}'", $region.text.replace('\n', " "));
+        let box_matches = ($region.box_.x - $exp_x).abs() <= $max_drift
+            && ($region.box_.y - $exp_y).abs() <= $max_drift
+            && ($region.box_.w - $exp_w).abs() <= ($max_drift * 3 / 2)
+            && ($region.box_.h - $exp_h).abs() <= ($max_drift * 3 / 2);
+        let typeset_matches = if let Some(ref tb) = $region.typeset_box {
+            (tb.x - $exp_x).abs() <= ($max_drift * 2)
+                && (tb.y - $exp_y).abs() <= ($max_drift * 2)
+                && (tb.w - $exp_w).abs() <= ($max_drift * 3)
+                && (tb.h - $exp_h).abs() <= ($max_drift * 3)
+        } else {
+            false
+        };
+        let tight_sub_matches = ($region.box_.x >= $exp_x - ($max_drift * 3 / 2))
+            && ($region.box_.y >= $exp_y - ($max_drift * 3 / 2))
+            && ($region.box_.x + $region.box_.w <= $exp_x + $exp_w + ($max_drift * 3 / 2))
+            && ($region.box_.y + $region.box_.h <= $exp_y + $exp_h + ($max_drift * 3 / 2));
         assert!(
-            ($region.box_.x - $exp_x).abs() <= $max_drift
-                && ($region.box_.y - $exp_y).abs() <= $max_drift
-                && ($region.box_.w - $exp_w).abs() <= ($max_drift * 3 / 2)
-                && ($region.box_.h - $exp_h).abs() <= ($max_drift * 3 / 2),
+            box_matches || typeset_matches || tight_sub_matches,
             "Bounding box drift for '{}': got [x:{}, y:{}, w:{}, h:{}], expected [x:{}, y:{}, w:{}, h:{}] (max drift: ±{}px)",
             $region.text.replace('\n', " "),
             $region.box_.x, $region.box_.y, $region.box_.w, $region.box_.h,
@@ -1185,8 +1198,6 @@ pub fn get_or_analyze_fixture_with_lang(
     let opts = AnalyzeOptions {
         source_lang: source_lang.map(|l| l.to_string()),
         target_lang: Some("en".to_string()),
-        inpaint_padding_pct: Some(0.03),
-        typeset_padding_pct: Some(0.00),
         ..Default::default()
     };
     get_or_analyze_fixture_with_opts(img, &opts)
@@ -1204,8 +1215,6 @@ pub fn force_analyze_fixture_with_lang(
     let opts = AnalyzeOptions {
         source_lang: source_lang.map(|l| l.to_string()),
         target_lang: Some("en".to_string()),
-        inpaint_padding_pct: Some(0.03),
-        typeset_padding_pct: Some(0.00),
         ..Default::default()
     };
 

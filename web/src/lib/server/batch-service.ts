@@ -53,7 +53,7 @@ export interface StartBatchOptions {
 	inpaintMode?: string;
 	enableWhiteInpaint?: boolean;
 	inpaintExpansionPct?: number;
-	typesetExpansionPct?: number;
+	enableTypesetCentering?: boolean;
 	enableSfx?: boolean;
 	sfxMaxAreaPct?: number;
 	typesetOptions?: TypesetOptions;
@@ -70,7 +70,7 @@ export interface PersistedBatchRecord {
 		inpaintMode?: string;
 		enableWhiteInpaint?: boolean;
 		inpaintExpansionPct?: number;
-		typesetExpansionPct?: number;
+		enableTypesetCentering?: boolean;
 		enableSfx?: boolean;
 		sfxMaxAreaPct?: number;
 		typesetOptions?: TypesetOptions;
@@ -126,7 +126,7 @@ let batchResliceBeforeBatch: boolean = false;
 let batchInpaintMode: string = 'patch';
 let batchEnableWhiteInpaint: boolean | undefined = undefined;
 let batchInpaintExpansionPct: number | undefined = undefined;
-let batchTypesetExpansionPct: number | undefined = undefined;
+let batchEnableTypesetCentering: boolean | undefined = undefined;
 let batchTypesetOptions: TypesetOptions | undefined = undefined;
 let batchWatchdogTimer: ReturnType<typeof setInterval> | null = null;
 let settingsDebounceTimer: ReturnType<typeof setTimeout> | null = null;
@@ -157,7 +157,7 @@ function persistBatchState(): void {
 				inpaintMode: batchInpaintMode,
 				enableWhiteInpaint: batchEnableWhiteInpaint,
 				inpaintExpansionPct: batchInpaintExpansionPct,
-				typesetExpansionPct: batchTypesetExpansionPct,
+				enableTypesetCentering: batchEnableTypesetCentering,
 				typesetOptions: batchTypesetOptions,
 			},
 			recoveryCount: chapterRecoveryCountMap,
@@ -353,8 +353,8 @@ async function executeChapterJob(chapter: BatchChapterItem, force: boolean) {
 			pipeline: createPipelineClient(),
 			inpaintMode: (liveSettings.inpaintMode || batchInpaintMode) as any,
 			enableWhiteInpaint: liveSettings.enableWhiteInpaint ?? batchEnableWhiteInpaint ?? true,
-			inpaintExpansionPct: liveSettings.inpaintExpansionPct ?? batchInpaintExpansionPct,
-			typesetExpansionPct: liveSettings.typesetExpansionPct ?? batchTypesetExpansionPct,
+			inpaintExpansionPct: liveSettings.inpaintExpansionPct ?? batchInpaintExpansionPct ?? 0.03,
+			enableTypesetCentering: liveSettings.enableTypesetCentering ?? batchEnableTypesetCentering ?? true,
 			typesetOptions: batchTypesetOptions,
 			dataRoot: DATA_ROOT,
 			cacheSalt: getActiveProvider().baseUrl,
@@ -735,7 +735,7 @@ export const batchService = {
 		batchInpaintMode = opts.inpaintMode || 'patch';
 		batchEnableWhiteInpaint = opts.enableWhiteInpaint;
 		batchInpaintExpansionPct = opts.inpaintExpansionPct;
-		batchTypesetExpansionPct = opts.typesetExpansionPct;
+		batchEnableTypesetCentering = opts.enableTypesetCentering;
 		batchTypesetOptions = opts.typesetOptions;
 
 		// QUERY CHAPTER DETAILS FROM DATABASE
@@ -1390,8 +1390,9 @@ export function reconcileAndRecoverOnStartup(force = false): BatchTranslationSta
 		batchPageConcurrency = parsed.options?.pageConcurrency;
 		batchResliceBeforeBatch = Boolean(parsed.options?.resliceBeforeBatch);
 		batchInpaintMode = parsed.options?.inpaintMode || 'patch';
+		batchEnableWhiteInpaint = parsed.options?.enableWhiteInpaint;
 		batchInpaintExpansionPct = parsed.options?.inpaintExpansionPct;
-		batchTypesetExpansionPct = parsed.options?.typesetExpansionPct;
+		batchEnableTypesetCentering = parsed.options?.enableTypesetCentering;
 		batchTypesetOptions = parsed.options?.typesetOptions;
 
 		// QUERY ACTUAL DB CHAPTERS AND PAGES

@@ -5,9 +5,9 @@ export const translateChapterSchema = z.object({
 	pageIds: z.array(z.number().int().positive()).optional(),
 	inpaintMode: z.string().optional(),
 	enableWhiteInpaint: z.boolean().optional(),
+	inpaintExpansionPct: z.number().min(0).max(0.30).optional().default(0.03),
+	enableTypesetCentering: z.boolean().optional().default(true),
 	pageConcurrency: z.number().int().min(1).max(16).optional(),
-	inpaintExpansionPct: z.number().min(0.0).max(0.20).optional(),
-	typesetExpansionPct: z.number().min(0.0).max(0.30).optional(),
 	typesetOptions: z
 		.object({
 			fontDialogue: z.string().optional(),

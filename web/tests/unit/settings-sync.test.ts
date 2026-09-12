@@ -81,12 +81,11 @@ describe('Settings & Reading History SQLite Persistence', () => {
 	});
 
 	it('updates partial settings without overwriting other keys', () => {
-		updateCanonicalSettings({ inpaintExpansionPct: 0.08, typesetExpansionPct: 0.15 }, db as any);
+		updateCanonicalSettings({ inpaintMode: 'full', enableWhiteInpaint: false }, db as any);
 		const settings = getCanonicalSettings(db as any);
-		expect(settings.inpaintExpansionPct).toBe(0.08);
-		expect(settings.typesetExpansionPct).toBe(0.15);
+		expect(settings.inpaintMode).toBe('full');
+		expect(settings.enableWhiteInpaint).toBe(false);
 		// Unmodified keys remain at their defaults
-		expect(settings.inpaintMode).toBe('patch');
 		expect(settings.parallelProcesses).toBe(1);
 	});
 

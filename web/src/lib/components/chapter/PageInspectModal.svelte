@@ -60,7 +60,7 @@
 	let showBubbles = true;
 	let showBubbleText = true;
 	let showFreeText = true;
-	let showBaseTier = false;
+	let showOcrTier = false;
 	let showInpaintTier = false;
 	let showTypesetTier = true;
 	let hoveredRegionId: number | null = null;
@@ -91,7 +91,8 @@
 				if (typeof parsed.showBubbles === 'boolean') showBubbles = parsed.showBubbles;
 				if (typeof parsed.showBubbleText === 'boolean') showBubbleText = parsed.showBubbleText;
 				if (typeof parsed.showFreeText === 'boolean') showFreeText = parsed.showFreeText;
-				if (typeof parsed.showBaseTier === 'boolean') showBaseTier = parsed.showBaseTier;
+				if (typeof parsed.showOcrTier === 'boolean') showOcrTier = parsed.showOcrTier;
+				else if (typeof parsed.showBaseTier === 'boolean') showOcrTier = parsed.showBaseTier;
 				if (typeof parsed.showInpaintTier === 'boolean') showInpaintTier = parsed.showInpaintTier;
 				if (typeof parsed.showTypesetTier === 'boolean') showTypesetTier = parsed.showTypesetTier;
 			}
@@ -108,7 +109,7 @@
 					showBubbles,
 					showBubbleText,
 					showFreeText,
-					showBaseTier,
+					showOcrTier,
 					showInpaintTier,
 					showTypesetTier,
 				}),
@@ -136,7 +137,7 @@
 
 	// PERSIST LAYER TOGGLES ON USER INTERACTION
 	$: if (typeof window !== 'undefined' && open) {
-		const _ = [showRegions, showBubbles, showBubbleText, showFreeText, showBaseTier, showInpaintTier, showTypesetTier];
+		const _ = [showRegions, showBubbles, showBubbleText, showFreeText, showOcrTier, showInpaintTier, showTypesetTier];
 		savePersistedToggles();
 	}
 
@@ -320,6 +321,16 @@
 		].join(' ');
 	}
 
+	function getOcrBox(region: any): { x: number; y: number; w: number; h: number } | null {
+		if (!region) return null;
+		if (region.ocrBox) return getBox(region.ocrBox);
+		if (region.ocr_box) return getBox(region.ocr_box);
+		const b = getBox(region.box);
+		if (b && (b as any).ocr_box) return getBox((b as any).ocr_box);
+		if (b && (b as any).ocrBox) return getBox((b as any).ocrBox);
+		return b;
+	}
+
 	function getBubbleBox(region: any): { x: number; y: number; w: number; h: number } | null {
 		if (!region) return null;
 		if (region.bubble_box) return getBox(region.bubble_box);
@@ -335,7 +346,7 @@
 		const b = getBox(region.box);
 		if (b && (b as any).inpaint_box) return getBox((b as any).inpaint_box);
 		if (b && (b as any).inpaintBox) return getBox((b as any).inpaintBox);
-		return null;
+		return b;
 	}
 
 	function getTypesetBox(region: any): { x: number; y: number; w: number; h: number } | null {
@@ -809,6 +820,9 @@
 				confidence: r.conf,
 				angle: getRegionAngle(r),
 				vertical: isRegionVertical(r),
+				box: getBox(r.box),
+				ocrBox: getOcrBox(r),
+				inpaintBox: getInpaintBox(r),
 				typesetBox: getTypesetBox(r),
 				bubbleBox: getBubbleBox(r),
 				bubblePolygon: getBubblePolygon(r),
@@ -1048,7 +1062,7 @@
 									{@const inpaintB = getInpaintBox(region)}
 									{@const typesetB = getTypesetBox(region)}
 									{@const kind = getRegionKind(region)}
-									{@const allTiersDisabled = !showBaseTier && !showInpaintTier && !showTypesetTier}
+									{@const allTiersDisabled = !showOcrTier && !showInpaintTier && !showTypesetTier}
 									{@const isVisible =
 										!isHidden &&
 										(active ||
@@ -1060,7 +1074,7 @@
 										{@const bw = b.w}
 										{@const bh = b.h}
 										{@const angle = getRegionAngle(region)}
-										<!-- COLOR PALETTE: BASE / INPAINT / TYPESET -->
+										<!-- COLOR PALETTE: OCR / INPAINT / TYPESET -->
 										{@const stroke = kind === 'free_text' ? '#8b5cf6' : '#b23a2e'}
 										{@const lightStroke = kind === 'free_text' ? '#c084fc' : '#f87171'}
 										{@const darkStroke = kind === 'free_text' ? '#5b21b6' : '#7f1d1d'}
@@ -1081,8 +1095,8 @@
 												opacity={active ? 1 : 0.9}
 												transform={angle ? `rotate(${angle} ${typesetB.x + typesetB.w / 2} ${typesetB.y + typesetB.h / 2})` : undefined}
 											/>
-										{:else if (showTypesetTier || (allTiersDisabled && active)) && (!showBaseTier || allTiersDisabled)}
-											<!-- RETAIN TYPESET BOX WHEN BASE IS HIDDEN EVEN WITHOUT EXPANSION -->
+										{:else if (showTypesetTier || (allTiersDisabled && active)) && (!showOcrTier || allTiersDisabled)}
+											<!-- RETAIN TYPESET BOX WHEN OCR IS HIDDEN EVEN WITHOUT EXPANSION -->
 											<rect
 												x={bx}
 												y={by}
@@ -1098,7 +1112,7 @@
 										{/if}
 
 										<!-- TIER 2: INPAINT MASK BOUNDARY (BLACK DASHED OUTLINE + LIGHT TINT) -->
-										{#if showInpaintTier && inpaintB && (inpaintB.w !== bw || inpaintB.h !== bh)}
+										{#if showInpaintTier && inpaintB}
 											<rect
 												x={inpaintB.x}
 												y={inpaintB.y}
@@ -1111,16 +1125,18 @@
 												rx="4"
 												opacity={active ? 1 : 0.85}
 												filter="drop-shadow(0 0 1px rgba(255,255,255,0.8))"
+												transform={angle ? `rotate(${angle} ${inpaintB.x + inpaintB.w / 2} ${inpaintB.y + inpaintB.h / 2})` : undefined}
 											/>
 										{/if}
 
-										<!-- TIER 1: BASE TEXT ANCHOR (0% PADDING, WHITE DOTTED OUTLINE + TRANSPARENT FILL) -->
-										{#if showBaseTier}
+										<!-- TIER 1: OCR TIGHT TEXT BOUNDARY (WHITE DOTTED OUTLINE + TRANSPARENT FILL) -->
+										{#if showOcrTier}
+											{@const ocrB = getOcrBox(region) || b}
 											<rect
-												x={bx}
-												y={by}
-												width={bw}
-												height={bh}
+												x={ocrB.x}
+												y={ocrB.y}
+												width={ocrB.w}
+												height={ocrB.h}
 												fill="transparent"
 												stroke="#ffffff"
 												stroke-width={active ? 2.2 : 1.4}
@@ -1128,6 +1144,7 @@
 												rx="3"
 												opacity={active ? 1 : 0.9}
 												filter="drop-shadow(0 0 1px rgba(0,0,0,0.8))"
+												transform={angle ? `rotate(${angle} ${ocrB.x + ocrB.w / 2} ${ocrB.y + ocrB.h / 2})` : undefined}
 											/>
 										{/if}
 										<!-- REGION SEQUENCE BADGE -->
@@ -1307,20 +1324,20 @@
 						<div class="flex flex-wrap sm:flex-col items-center sm:items-end justify-between sm:justify-center gap-1.5 sm:gap-1 shrink-0 px-0.5 sm:pl-1 sm:h-[38px]">
 							<span class="opacity-60 text-[9.5px] leading-tight">{pw} × {ph} px · {page.regions?.length ?? 0} regions</span>
 							<div class="flex items-center gap-1.5 sm:gap-2 text-[9px] leading-tight select-none">
-								<!-- TOGGLE BASE TIER -->
+								<!-- TOGGLE OCR TIER -->
 								<button
 									type="button"
 									class={`inline-flex items-center gap-1 px-1 py-0.5 rounded transition-all cursor-pointer ${
-										showBaseTier
+										showOcrTier
 											? 'opacity-90 font-medium hover:opacity-100'
 											: 'opacity-35 line-through hover:opacity-60'
 									}`}
-									title={showBaseTier ? 'Click to hide Base (0%) text anchor layer' : 'Click to show Base (0%) text anchor layer'}
-									on:click={() => (showBaseTier = !showBaseTier)}
+									title={showOcrTier ? 'Click to hide OCR tight text boundary layer' : 'Click to show OCR tight text boundary layer'}
+									on:click={() => (showOcrTier = !showOcrTier)}
 									use:ripple
 								>
-									<span class={`w-2.5 h-2 rounded-xs border border-dotted border-neutral-400 dark:border-white ${showBaseTier ? 'bg-transparent' : 'bg-transparent opacity-40'}`}></span>
-									<span>Base (0%)</span>
+									<span class={`w-2.5 h-2 rounded-xs border border-dotted border-neutral-400 dark:border-white ${showOcrTier ? 'bg-transparent' : 'bg-transparent opacity-40'}`}></span>
+									<span>OCR</span>
 								</button>
 
 								<!-- TOGGLE INPAINT TIER -->

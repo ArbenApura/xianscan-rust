@@ -98,4 +98,24 @@ describe('Annotated OCR Preview Generator', () => {
 		expect(result).toBeInstanceOf(Buffer);
 		expect(result.length).toBeGreaterThan(100);
 	});
+
+	it('renders tight ocr_box boundary when provided on region', async () => {
+		const buf = createSampleImageBuffer(500, 700);
+		const regions: any[] = [
+			{
+				id: 'reg-ocr-1',
+				box: { x: 50, y: 60, w: 200, h: 100 },
+				ocr_box: { x: 60, y: 70, w: 180, h: 80 },
+				typeset_box: { x: 50, y: 60, w: 200, h: 100 },
+				bubble_box: { x: 30, y: 40, w: 240, h: 140 },
+				text: 'Sample with tight ocr box',
+				kind: 'dialogue_bubble',
+			},
+		];
+
+		const result = await renderAnnotatedOcrImage(buf, regions);
+		expect(result).toBeInstanceOf(Buffer);
+		expect(result.length).toBeGreaterThan(100);
+	});
 });
+

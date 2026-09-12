@@ -18,7 +18,6 @@
 		fontAvailabilityStore,
 		refreshFontAvailability,
 		type TypesetOutline,
-		type TypesetContrast,
 		type TypesetCasing,
 		type TypesetFontWeight,
 	} from '$lib/stores/settings';
@@ -29,7 +28,6 @@
 	import RotateCcw from 'lucide-svelte/icons/rotate-ccw';
 	import Sun from 'lucide-svelte/icons/sun';
 	import Moon from 'lucide-svelte/icons/moon';
-	import Contrast from 'lucide-svelte/icons/contrast';
 	import Compass from 'lucide-svelte/icons/compass';
 	import Palette from 'lucide-svelte/icons/palette';
 	import Languages from 'lucide-svelte/icons/languages';
@@ -133,13 +131,6 @@
 		{ value: 0.12, label: 'Airy (12%)', sub: 'Large boundary padding' },
 	];
 
-	// -- CONTRAST PRESETS -- //
-	const CONTRAST_PRESETS: { id: TypesetContrast; label: string; desc: string }[] = [
-		{ id: 'auto', label: 'Auto Contrast', desc: 'Luminance sensing chooses black or white fill' },
-		{ id: 'dark', label: 'Always Dark', desc: 'Black text with white stroke border' },
-		{ id: 'light', label: 'Always Light', desc: 'White text with black stroke border' },
-	];
-
 	// -- CASING PRESETS -- //
 	const CASING_PRESETS: { id: TypesetCasing; label: string; sample: string; desc: string }[] = [
 		{ id: 'uppercase', label: 'UPPERCASE', sample: 'HOLD ON! WHAT IS THIS...', desc: 'Standard comic scanlation format' },
@@ -188,12 +179,6 @@
 		toast.success(`Text stroke outline set to ${label}`);
 	}
 
-	function setContrast(mode: TypesetContrast) {
-		settings.update((s) => ({ ...s, typesetContrast: mode }));
-		const label = CONTRAST_PRESETS.find((p) => p.id === mode)?.label || mode;
-		toast.success(`Contrast mode set to ${label}`);
-	}
-
 	function setCasing(casing: TypesetCasing) {
 		settings.update((s) => ({
 			...s,
@@ -212,34 +197,12 @@
 		});
 	}
 
-	// -- INPAINT EXPANSION PRESETS -- //
-	const INPAINT_EXPANSION_PRESETS: { value: number; label: string; sub: string }[] = [
-		{ value: 0.0, label: '0%', sub: 'Exact text bound' },
-		{ value: 0.03, label: '3%', sub: 'Minimal margin · Default' },
-		{ value: 0.06, label: '6%', sub: 'Standard cleaning' },
-		{ value: 0.09, label: '9%', sub: 'Broad inpaint mask' },
-		{ value: 0.12, label: '12%', sub: 'Maximum font halo erase' },
-	];
-
-	// -- TYPESET EXPANSION PRESETS -- //
-	const TYPESET_EXPANSION_PRESETS: { value: number; label: string; sub: string }[] = [
-		{ value: 0.0, label: '0%', sub: 'Exact text bound' },
-		{ value: 0.03, label: '3%', sub: 'Minimal wrap margin' },
-		{ value: 0.06, label: '6%', sub: 'Compact wrap margin · Default' },
-		{ value: 0.09, label: '9%', sub: 'Broad wrap margin' },
-		{ value: 0.12, label: '12%', sub: 'Balanced wrap' },
-	];
-
-	function setInpaintExpansion(val: number) {
-		settings.update((s) => ({ ...s, inpaintExpansionPct: val }));
-		const label = INPAINT_EXPANSION_PRESETS.find((p) => Math.abs(p.value - val) < 0.005)?.label || `${Math.round(val * 100)}%`;
-		toast.success(`Inpaint cleaning expansion set to ${label}`);
-	}
-
-	function setTypesetExpansion(val: number) {
-		settings.update((s) => ({ ...s, typesetExpansionPct: val }));
-		const label = TYPESET_EXPANSION_PRESETS.find((p) => Math.abs(p.value - val) < 0.005)?.label || `${Math.round(val * 100)}%`;
-		toast.success(`Typeset layout expansion set to ${label}`);
+	function toggleTypesetCentering() {
+		settings.update((s) => {
+			const next = s.enableTypesetCentering === false;
+			toast.success(`Bubble centering & expansion ${next ? 'enabled' : 'disabled'}`);
+			return { ...s, enableTypesetCentering: next };
+		});
 	}
 
 	$: isTypesettingModified =
@@ -248,11 +211,9 @@
 		($settings.typesetCjkFont || 'Microsoft YaHei') !== DEFAULTS.typesetCjkFont ||
 		Math.abs(($settings.typesetPadding || 0.05) - DEFAULTS.typesetPadding) >= 0.005 ||
 		($settings.typesetOutline || 'standard') !== DEFAULTS.typesetOutline ||
-		($settings.typesetContrast || 'auto') !== DEFAULTS.typesetContrast ||
 		($settings.typesetCasing || 'uppercase') !== DEFAULTS.typesetCasing ||
 		Boolean($settings.enableTextRotation) !== Boolean(DEFAULTS.enableTextRotation) ||
-		Math.abs(($settings.inpaintExpansionPct ?? 0.03) - DEFAULTS.inpaintExpansionPct) >= 0.005 ||
-		Math.abs(($settings.typesetExpansionPct ?? 0.0) - DEFAULTS.typesetExpansionPct) >= 0.005 ||
+		Boolean($settings.enableTypesetCentering ?? true) !== Boolean(DEFAULTS.enableTypesetCentering ?? true) ||
 		($settings.typesetPreviewPreset || 'en') !== (DEFAULTS.typesetPreviewPreset || 'en') ||
 		($settings.typesetPreviewText || '') !== (DEFAULTS.typesetPreviewText || '');
 
@@ -268,8 +229,7 @@
 			typesetCasing: DEFAULTS.typesetCasing,
 			typesetAllCaps: DEFAULTS.typesetAllCaps,
 			enableTextRotation: DEFAULTS.enableTextRotation,
-			inpaintExpansionPct: DEFAULTS.inpaintExpansionPct,
-			typesetExpansionPct: DEFAULTS.typesetExpansionPct,
+			enableTypesetCentering: DEFAULTS.enableTypesetCentering,
 			typesetPreviewPreset: DEFAULTS.typesetPreviewPreset,
 			typesetPreviewText: DEFAULTS.typesetPreviewText,
 		}));
@@ -368,7 +328,7 @@
 	$: previewFontFamily = isTextCjk
 		? `"${$settings.typesetCjkFont || 'Microsoft YaHei'}", "Yu Gothic", "Malgun Gothic", "Noto Sans CJK SC", sans-serif`
 		: (selectedFont?.stack || `"${$settings.typesetFont || 'CC Wild Words'}", sans-serif`);
-	$: previewIsDarkBubble = $settings.typesetContrast === 'light' ? true : $settings.typesetContrast === 'dark' ? false : previewDarkBackground;
+	$: previewIsDarkBubble = previewDarkBackground;
 	$: previewTextColor = previewIsDarkBubble ? '#ffffff' : '#111111';
 	$: previewStrokeColor = previewIsDarkBubble ? '#000000' : '#ffffff';
 	$: previewStrokeWidth = $settings.typesetOutline === 'none' ? '0px' : $settings.typesetOutline === 'thin' ? '1px' : $settings.typesetOutline === 'heavy' ? '3px' : '2px';
@@ -678,6 +638,37 @@
 				</div>
 			</div>
 
+			<!-- DIALOGUE CASING 3-WAY SELECTOR (ONLY SHOWN FOR FONTS SUPPORTING MIXED/LOWER CASE) -->
+			{#if isCasingApplicable}
+				<div class="space-y-1.5 pt-1">
+					<div class="text-[11px] font-semibold opacity-75 pl-0.5">Dialogue Letterform Casing</div>
+					<div class="grid grid-cols-1 sm:grid-cols-3 gap-2">
+						{#each CASING_PRESETS as cPreset}
+							{@const isSelected = ($settings.typesetCasing || 'uppercase') === cPreset.id}
+							<button
+								type="button"
+								on:click={() => setCasing(cPreset.id)}
+								class={cn(
+									'flex flex-col justify-between rounded-xl border p-2.5 text-left transition-all',
+									isSelected
+										? 'border-[#b23a2e] bg-[#b23a2e]/[0.08] text-[#b23a2e] dark:text-[#e08a63] ring-2 ring-[#b23a2e]/30 shadow-xs'
+										: 'border-black/10 hover:border-black/20 hover:bg-black/[0.02] dark:border-white/10 dark:hover:border-white/20 dark:hover:bg-white/[0.02]',
+								)}
+								use:ripple
+							>
+								<div class="flex items-center justify-between">
+									<span class="text-xs font-bold pl-0.5">{cPreset.label}</span>
+									{#if isSelected}
+										<Check size={12} class="text-[#b23a2e] dark:text-[#e08a63] shrink-0" />
+									{/if}
+								</div>
+								<div class="mt-1 text-[9px] opacity-60 leading-tight pl-0.5">{cPreset.desc}</div>
+							</button>
+						{/each}
+					</div>
+				</div>
+			{/if}
+
 			<!-- CJK FALLBACK STACK -->
 			<div class="space-y-1.5 pt-1">
 				<div class="flex items-center justify-between gap-2 pl-0.5">
@@ -824,40 +815,8 @@
 				<p class="text-[11px] opacity-60 pl-0.5">High-contrast text stroke outlines and background luminance sensing</p>
 			</div>
 
-			<!-- CONTRAST MODE -->
-			<div class="space-y-1.5">
-				<div class="text-[11px] font-semibold opacity-75 pl-0.5">Contrast Strategy</div>
-				<div class="grid grid-cols-1 sm:grid-cols-3 gap-2">
-					{#each CONTRAST_PRESETS as cPreset}
-						{@const isSelected = ($settings.typesetContrast || 'auto') === cPreset.id}
-						<button
-							type="button"
-							on:click={() => setContrast(cPreset.id)}
-							class={`flex items-start gap-2.5 rounded-xl border p-2.5 text-left transition-all ${
-								isSelected
-									? 'border-[#b23a2e] bg-[#b23a2e]/[0.08] text-[#b23a2e] dark:text-[#e08a63] ring-2 ring-[#b23a2e]/30 shadow-xs'
-									: 'border-black/10 hover:border-black/20 hover:bg-black/[0.02] dark:border-white/10 dark:hover:border-white/20 dark:hover:bg-white/[0.02]'
-							}`}
-							use:ripple
-						>
-							{#if cPreset.id === 'auto'}
-								<Contrast size={15} class="shrink-0 mt-0.5" />
-							{:else if cPreset.id === 'dark'}
-								<Moon size={15} class="shrink-0 mt-0.5" />
-							{:else}
-								<Sun size={15} class="shrink-0 mt-0.5" />
-							{/if}
-							<div>
-								<div class="text-xs font-bold pl-0.5">{cPreset.label}</div>
-								<div class="text-[10px] opacity-60 leading-tight mt-0.5 pl-0.5">{cPreset.desc}</div>
-							</div>
-						</button>
-					{/each}
-				</div>
-			</div>
-
 			<!-- STROKE OUTLINE THICKNESS -->
-			<div class="space-y-1.5 pt-1">
+			<div class="space-y-1.5">
 				<div class="text-[11px] font-semibold opacity-75 pl-0.5">Text Stroke Outline</div>
 				<div class="grid grid-cols-2 sm:grid-cols-4 gap-2">
 					{#each OUTLINE_PRESETS as oPreset}
@@ -908,135 +867,18 @@
 				/>
 			</div>
 
-			<!-- DIALOGUE CASING 3-WAY SELECTOR (ONLY SHOWN FOR FONTS SUPPORTING MIXED/LOWER CASE) -->
-			{#if isCasingApplicable}
-				<div class="space-y-1.5 pt-1">
-					<div class="text-[11px] font-semibold opacity-75 pl-0.5">Dialogue Letterform Casing</div>
-					<div class="grid grid-cols-1 sm:grid-cols-3 gap-2">
-						{#each CASING_PRESETS as cPreset}
-							{@const isSelected = ($settings.typesetCasing || 'uppercase') === cPreset.id}
-							<button
-								type="button"
-								on:click={() => setCasing(cPreset.id)}
-								class={`flex flex-col justify-between rounded-xl border p-2.5 text-left transition-all ${
-									isSelected
-										? 'border-[#b23a2e] bg-[#b23a2e]/[0.08] text-[#b23a2e] dark:text-[#e08a63] ring-2 ring-[#b23a2e]/30 shadow-xs'
-										: 'border-black/10 hover:border-black/20 hover:bg-black/[0.02] dark:border-white/10 dark:hover:border-white/20 dark:hover:bg-white/[0.02]'
-								}`}
-								use:ripple
-							>
-								<div class="flex items-center justify-between">
-									<span class="text-xs font-bold pl-0.5">{cPreset.label}</span>
-									{#if isSelected}
-										<Check size={12} class="text-[#b23a2e] dark:text-[#e08a63] shrink-0" />
-									{/if}
-								</div>
-								<div class="mt-1 text-[9px] opacity-60 leading-tight pl-0.5">{cPreset.desc}</div>
-							</button>
-						{/each}
-					</div>
-				</div>
-			{/if}
-		</div>
-
-		<!-- 6. THREE-TIER REGION GEOMETRY EXPANSION (ADVANCED FOOTPRINT) -->
-		<div class="border-t border-black/10 pt-4 dark:border-white/10 space-y-3.5">
-			<div>
-				<div class="text-xs font-bold uppercase tracking-wider opacity-80 flex items-center gap-1.5">
-					<Sliders size={14} class="text-[#b23a2e] dark:text-[#e08a63]" />
-					<span class="pl-0.5">Three-Tier Region Geometry Expansion</span>
-				</div>
-				<p class="text-[11px] opacity-60 pl-0.5 mt-0.5">Controls the inpaint cleaning footprint and target typesetting layout bounds computed from text anchors.</p>
-			</div>
-
-			<!-- THREE-TIER VISUAL DIAGRAM CARD -->
-			<div class="relative overflow-hidden rounded-xl border border-black/10 bg-neutral-100 dark:border-white/10 dark:bg-neutral-950 p-4 flex flex-col items-center justify-center">
-				<!-- TIER 3 TYPESET BOX (SOLID BOLD BORDER + OPAQUE FILL) -->
-				<div
-					class="w-full max-w-[290px] rounded-lg border-2 border-[#7f1d1d] dark:border-red-500 bg-[#7f1d1d]/20 dark:bg-red-500/20 p-2.5 transition-all flex flex-col items-center text-center shadow-xs"
-				>
-					<div class="flex items-center justify-between w-full text-[9px] font-bold text-[#7f1d1d] dark:text-red-300 mb-1.5 px-1">
-						<span>Tier 3: Typesetting Box</span>
-						<span class="font-mono">+{Math.round(($settings.typesetExpansionPct ?? 0.06) * 100)}%</span>
-					</div>
-
-					<!-- TIER 2 INPAINT BOX (BLACK/NEUTRAL DASHED BORDER + TRANSLUCENT TINT) -->
-					<div
-						class="w-[90%] rounded-md border-2 border-dashed border-black/80 dark:border-white/80 bg-black/10 dark:bg-white/10 p-2 transition-all flex flex-col items-center"
-					>
-						<div class="flex items-center justify-between w-full text-[8.5px] font-semibold text-neutral-800 dark:text-neutral-200 mb-1.5 px-0.5">
-							<span>Tier 2: Inpaint Mask</span>
-							<span class="font-mono">+{Math.round(($settings.inpaintExpansionPct ?? 0.03) * 100)}%</span>
-						</div>
-
-						<!-- TIER 1 BASE ANCHOR (WHITE DOTTED BORDER + TRANSPARENT FILL WITH SHADOW) -->
-						<div
-							class="w-[85%] rounded border-2 border-dotted border-white bg-black/20 dark:bg-black/60 px-2 py-1.5 text-center font-mono text-[9.5px] font-bold text-white shadow-xs"
-						>
-							Tier 1: Text Anchor (0%)
-						</div>
-					</div>
-				</div>
-			</div>
-
-			<!-- TIER 2 INPAINT EXPANSION PRESETS -->
-			<div class="space-y-1.5">
-				<div class="flex items-center justify-between">
-					<div class="text-[10.5px] font-medium opacity-75 pl-0.5">Tier 2: Inpaint Mask Expansion (Cleaning Margin)</div>
-					<span class="text-[10px] font-mono opacity-60">+{Math.round(($settings.inpaintExpansionPct ?? 0.03) * 100)}%</span>
+			<!-- CENTERING & EXPANSION TOGGLE -->
+			<div class="flex items-center justify-between gap-4 rounded-xl border border-black/10 bg-black/[0.01] p-3 dark:border-white/10 dark:bg-white/[0.01]">
+				<div>
+					<div class="text-xs font-bold pl-0.5">Bubble Centering & Expansion</div>
+					<p class="text-[10px] opacity-60 mt-0.5 pl-0.5">Anchor translated text to bubble centers and expand typesetting into available space</p>
 				</div>
 
-				<div class="grid grid-cols-5 gap-1 sm:gap-1.5">
-					{#each INPAINT_EXPANSION_PRESETS as preset}
-						{@const isSelected = Math.abs(($settings.inpaintExpansionPct ?? 0.03) - preset.value) < 0.005}
-						<button
-							type="button"
-							on:click={() => setInpaintExpansion(preset.value)}
-							class={`flex flex-col items-center justify-center rounded-lg border py-1.5 px-0.5 sm:px-1 text-center transition-all ${
-								isSelected
-									? 'border-[#b23a2e] bg-[#b23a2e]/[0.08] text-[#b23a2e] dark:text-[#e08a63] font-bold ring-2 ring-[#b23a2e]/30'
-									: 'border-black/10 hover:border-black/20 hover:bg-black/[0.02] dark:border-white/10 dark:hover:border-white/20 dark:hover:bg-white/[0.02] opacity-75'
-							}`}
-							use:ripple
-						>
-							<span class="text-[11px] sm:text-xs">{preset.label}</span>
-						</button>
-					{/each}
-				</div>
-			</div>
-
-			<!-- TIER 3 TYPESET EXPANSION PRESETS -->
-			<div class="space-y-1.5">
-				<div class="flex items-center justify-between">
-					<div class="text-[10.5px] font-medium opacity-75 pl-0.5">Tier 3: Typesetting Layout Expansion (Wrapping Budget)</div>
-					<span class="text-[10px] font-mono opacity-60">+{Math.round(($settings.typesetExpansionPct ?? 0.06) * 100)}%</span>
-				</div>
-
-				<div class="grid grid-cols-5 gap-1 sm:gap-1.5">
-					{#each TYPESET_EXPANSION_PRESETS as preset}
-						{@const isSelected = Math.abs(($settings.typesetExpansionPct ?? 0.06) - preset.value) < 0.005}
-						<button
-							type="button"
-							on:click={() => setTypesetExpansion(preset.value)}
-							class={`flex flex-col items-center justify-center rounded-lg border py-1.5 px-0.5 sm:px-1 text-center transition-all ${
-								isSelected
-									? 'border-[#b23a2e] bg-[#b23a2e]/[0.08] text-[#b23a2e] dark:text-[#e08a63] font-bold ring-2 ring-[#b23a2e]/30'
-									: 'border-black/10 hover:border-black/20 hover:bg-black/[0.02] dark:border-white/10 dark:hover:border-white/20 dark:hover:bg-white/[0.02] opacity-75'
-							}`}
-							use:ripple
-						>
-							<span class="text-[11px] sm:text-xs">{preset.label}</span>
-						</button>
-					{/each}
-				</div>
-			</div>
-
-			<!-- NOTICE: RE-TRANSLATION REQUIRED FOR NEW EXPANSION MARGINS -->
-			<div class="flex items-start gap-2 rounded-xl border border-amber-500/25 bg-amber-500/10 p-2.5 text-[10.5px] leading-relaxed text-amber-800 dark:text-amber-300">
-				<Info size={14} class="shrink-0 text-amber-600 dark:text-amber-400 mt-0.5" />
-				<span>
-					<strong>Note:</strong> Changing region geometry expansion percentages applies to future chapter translations. To apply new boundary margins to previously translated chapters, trigger a full re-translation.
-				</span>
+				<Switch
+					checked={$settings.enableTypesetCentering ?? true}
+					on:click={toggleTypesetCentering}
+					ariaLabel="Bubble Centering & Expansion"
+				/>
 			</div>
 		</div>
 

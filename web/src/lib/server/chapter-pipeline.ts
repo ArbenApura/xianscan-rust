@@ -76,7 +76,7 @@ export interface ChapterPipelineDeps {
 	inpaintMode?: string;
 	enableWhiteInpaint?: boolean;
 	inpaintExpansionPct?: number;
-	typesetExpansionPct?: number;
+	enableTypesetCentering?: boolean;
 	typesetOptions?: TypesetOptions;
 	/**
 	 * OPACQUE PROVIDER DISCRIMINATOR FOR THE TRANSLATION CACHE — THE API LAYER SETS IT FROM
@@ -145,6 +145,7 @@ export function resolveDialoguePunctuation(text: string): string | null {
 function regionRow(region: PipelineRegion, seq: number) {
 	const boxObj = {
 		...region.box,
+		ocr_box: region.ocr_box ?? null,
 		inpaint_box: region.inpaint_box ?? null,
 		typeset_box: region.typeset_box ?? null,
 		bubble_box: region.bubble_box ?? null,
@@ -636,8 +637,8 @@ export async function runChapterPipeline(
 			const analyzed = await deps.pipeline.analyze(image, signal, {
 				sourceLang: pair.sourceLang,
 				targetLang: pair.targetLang,
-				inpaintPaddingPct: deps.inpaintExpansionPct,
-				typesetPaddingPct: deps.typesetExpansionPct,
+				inpaintPaddingPct: deps.inpaintExpansionPct ?? 0.03,
+				enableTypesetCentering: deps.enableTypesetCentering ?? true,
 			});
 			signal.throwIfAborted();
 			if (deps.isPageCancelled?.(page.id)) return;

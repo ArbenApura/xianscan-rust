@@ -148,21 +148,21 @@ export const regions = sqliteTable(
 			.notNull()
 			.references(() => pages.id, { onDelete: 'cascade' }),
 		seq: integer('seq').notNull(),
-		// {x,y,w,h} JSON — THE DETECTOR'S AXIS-ALIGNED BOX.
+		// {x,y,w,h} JSON - THE DETECTOR'S AXIS-ALIGNED BOX.
 		box: text('box').notNull(),
-		// {x,y,w,h} JSON — TIER 2 INPAINT MASK BOUNDARY (+6% EXPANSION).
+		// {x,y,w,h} JSON - INPAINT MASK BOUNDARY.
 		inpaintBox: text('inpaint_box'),
-		// {x,y,w,h} JSON — TIER 3 TYPESETTING LAYOUT BOX (+12% EXPANSION).
+		// {x,y,w,h} JSON - TYPESETTING LAYOUT BOX.
 		typesetBox: text('typeset_box'),
-		// [[x,y],...] JSON — THE DETECTOR'S POLYGON (MORE PRECISE THAN THE BOX FOR INPAINT MASKS).
+		// [[x,y],...] JSON - THE DETECTOR'S POLYGON (MORE PRECISE THAN THE BOX FOR INPAINT MASKS).
 		polygon: text('polygon'),
 		// OCR TEXT IN THE SOURCE LANGUAGE AND THE LLM TRANSLATION INTO THE TARGET LANGUAGE.
 		textSource: text('text_source').notNull().default(''),
 		textTarget: text('text_target'),
 		originalTarget: text('original_target'),
-		// 'pending' | 'translated' | 'failed' — TRANSLATION STATE.
+		// 'pending' | 'translated' | 'failed' - TRANSLATION STATE.
 		status: text('status', { enum: ['pending', 'translated', 'failed'] }).notNull().default('pending'),
-		// OCR CONFIDENCE (0..1) — NULL WHEN UNKNOWN.
+		// OCR CONFIDENCE (0..1) - NULL WHEN UNKNOWN.
 		conf: real('conf'),
 		createdAt: epochMs('created_at')
 			.notNull()

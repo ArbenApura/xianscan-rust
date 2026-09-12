@@ -16,7 +16,6 @@ pub fn deduplicate_and_unify_regions(
     page_w: u32,
     page_h: u32,
     inpaint_pct: f32,
-    typeset_pct: f32,
 ) -> Vec<Region> {
     let mut deduped_regions: Vec<Region> = Vec::new();
 
@@ -285,6 +284,21 @@ pub fn deduplicate_and_unify_regions(
                         };
                         existing.inpaint_box = Some(expand_box(&existing.box_, inpaint_pct, page_w, page_h));
 
+                        if let (Some(eo), Some(ro)) = (&existing.ocr_box, &r.ocr_box) {
+                            let ox1 = eo.x.min(ro.x);
+                            let oy1 = eo.y.min(ro.y);
+                            let ox2 = (eo.x + eo.w).max(ro.x + ro.w);
+                            let oy2 = (eo.y + eo.h).max(ro.y + ro.h);
+                            existing.ocr_box = Some(BoxRect {
+                                x: ox1.max(0),
+                                y: oy1.max(0),
+                                w: (ox2 - ox1).max(1).min(page_w as i32 - ox1.max(0)),
+                                h: (oy2 - oy1).max(1).min(page_h as i32 - oy1.max(0)),
+                            });
+                        } else if existing.ocr_box.is_none() {
+                            existing.ocr_box = r.ocr_box.clone();
+                        }
+
                         let center_u = (final_min_u + final_max_u) / 2.0;
                         let center_v = (final_min_v + final_max_v) / 2.0;
                         let cx = center_u * cos_m - center_v * sin_m;
@@ -480,7 +494,23 @@ pub fn deduplicate_and_unify_regions(
                             h: (max_y - min_y).min(page_h as i32 - min_y),
                         };
                         existing.inpaint_box = Some(expand_box(&existing.box_, inpaint_pct, page_w, page_h));
-                        existing.typeset_box = Some(expand_box(&existing.box_, typeset_pct, page_w, page_h));
+                        existing.typeset_box = Some(existing.box_.clone());
+
+                        if let (Some(eo), Some(ro)) = (&existing.ocr_box, &r.ocr_box) {
+                            let ox1 = eo.x.min(ro.x);
+                            let oy1 = eo.y.min(ro.y);
+                            let ox2 = (eo.x + eo.w).max(ro.x + ro.w);
+                            let oy2 = (eo.y + eo.h).max(ro.y + ro.h);
+                            existing.ocr_box = Some(BoxRect {
+                                x: ox1.max(0),
+                                y: oy1.max(0),
+                                w: (ox2 - ox1).max(1).min(page_w as i32 - ox1.max(0)),
+                                h: (oy2 - oy1).max(1).min(page_h as i32 - oy1.max(0)),
+                            });
+                        } else if existing.ocr_box.is_none() {
+                            existing.ocr_box = r.ocr_box.clone();
+                        }
+
                         existing.polygon = vec![
                             [min_x, min_y],
                             [max_x, min_y],

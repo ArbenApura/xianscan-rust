@@ -3,6 +3,7 @@
 import { json, error } from '@sveltejs/kit';
 import { batchService } from '$lib/server/batch-service';
 import { getCanonicalSettings } from '$lib/server/settings-service';
+import { WHITE_INPAINT_COOKIE, INPAINT_EXPANSION_COOKIE, TYPESET_CENTERING_COOKIE } from '$lib/stores/settings';
 import type { RequestHandler } from './$types';
 
 // GET CURRENT BATCH STATE
@@ -44,7 +45,7 @@ export const POST: RequestHandler = async ({ request, cookies }) => {
 		inpaintMode,
 		enableWhiteInpaint,
 		inpaintExpansionPct,
-		typesetExpansionPct,
+		enableTypesetCentering,
 		enableWatermarkInpaint,
 		typesetOptions,
 	} = body;
@@ -78,17 +79,17 @@ export const POST: RequestHandler = async ({ request, cookies }) => {
 	const resolvedEnableWhiteInpaint =
 		typeof enableWhiteInpaint === 'boolean'
 			? enableWhiteInpaint
-			: (cookies.get('mt_white_inpaint') ? cookies.get('mt_white_inpaint') === 'true' : (canonical.enableWhiteInpaint ?? true));
+			: (cookies.get(WHITE_INPAINT_COOKIE) ? cookies.get(WHITE_INPAINT_COOKIE) === 'true' : (canonical.enableWhiteInpaint ?? true));
 
-	const resolvedInpaintExp =
+	const resolvedInpaintExpansionPct =
 		typeof inpaintExpansionPct === 'number'
 			? inpaintExpansionPct
-			: (cookies.get('mt_inpaint_exp') ? Number(cookies.get('mt_inpaint_exp')) : canonical.inpaintExpansionPct ?? 0.03);
+			: (cookies.get(INPAINT_EXPANSION_COOKIE) ? Number(cookies.get(INPAINT_EXPANSION_COOKIE)) : (canonical.inpaintExpansionPct ?? 0.03));
 
-	const resolvedTypesetExp =
-		typeof typesetExpansionPct === 'number'
-			? typesetExpansionPct
-			: (cookies.get('mt_typeset_exp') ? Number(cookies.get('mt_typeset_exp')) : canonical.typesetExpansionPct ?? 0.0);
+	const resolvedEnableTypesetCentering =
+		typeof enableTypesetCentering === 'boolean'
+			? enableTypesetCentering
+			: (cookies.get(TYPESET_CENTERING_COOKIE) ? cookies.get(TYPESET_CENTERING_COOKIE) === 'true' : (canonical.enableTypesetCentering ?? true));
 
 	const resolvedTypesetOptions = {
 		fontDialogue: typesetOptions?.fontDialogue || (cookies.get('mt_ts_font') || canonical.typesetFont || 'CC Wild Words'),
@@ -117,8 +118,8 @@ export const POST: RequestHandler = async ({ request, cookies }) => {
 				resliceBeforeBatch: resolvedResliceBeforeBatch,
 				inpaintMode: resolvedInpaintMode,
 				enableWhiteInpaint: resolvedEnableWhiteInpaint,
-				inpaintExpansionPct: resolvedInpaintExp,
-				typesetExpansionPct: resolvedTypesetExp,
+				inpaintExpansionPct: resolvedInpaintExpansionPct,
+				enableTypesetCentering: resolvedEnableTypesetCentering,
 				typesetOptions: resolvedTypesetOptions,
 			},
 		);

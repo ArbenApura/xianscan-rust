@@ -14,6 +14,8 @@ import {
 	WEBTOON_WIDTH_COOKIE,
 	INPAINT_MODE_COOKIE,
 	WHITE_INPAINT_COOKIE,
+	INPAINT_EXPANSION_COOKIE,
+	TYPESET_CENTERING_COOKIE,
 	EXEC_DEVICE_COOKIE,
 	PARALLEL_PROCESSES_COOKIE,
 	PARALLEL_CHAPTERS_COOKIE,
@@ -37,6 +39,8 @@ export interface UserPreferences {
 	webtoonWidth: 'sm' | 'md' | 'lg';
 	inpaintMode: InpaintMode;
 	enableWhiteInpaint: boolean;
+	inpaintExpansionPct: number;
+	enableTypesetCentering: boolean;
 	executionDevice: ExecutionDevice;
 	parallelProcesses: number;
 	parallelChapters: number;
@@ -129,6 +133,14 @@ export const load: LayoutServerLoad = async ({ cookies }) => {
 	const rawWhiteInpaint = cookies.get(WHITE_INPAINT_COOKIE);
 	const enableWhiteInpaint = rawWhiteInpaint !== undefined ? rawWhiteInpaint === 'true' : (canonicalSettings?.enableWhiteInpaint ?? true);
 
+	const rawInpaintExpansion = cookies.get(INPAINT_EXPANSION_COOKIE);
+	const inpaintExpansionPct = rawInpaintExpansion !== undefined && !Number.isNaN(Number(rawInpaintExpansion))
+		? Math.max(0, Math.min(0.30, Number(rawInpaintExpansion)))
+		: (canonicalSettings?.inpaintExpansionPct ?? 0.03);
+
+	const rawTypesetCentering = cookies.get(TYPESET_CENTERING_COOKIE);
+	const enableTypesetCentering = rawTypesetCentering !== undefined ? rawTypesetCentering === 'true' : (canonicalSettings?.enableTypesetCentering ?? true);
+
 	const rawDevice = cookies.get(EXEC_DEVICE_COOKIE);
 	const defaultDevice = canonicalSettings?.executionDevice && VALID_EXEC_DEVICES.has(canonicalSettings.executionDevice) ? canonicalSettings.executionDevice : 'auto';
 	const executionDevice: ExecutionDevice = VALID_EXEC_DEVICES.has(rawDevice as ExecutionDevice) ? (rawDevice as ExecutionDevice) : defaultDevice;
@@ -154,6 +166,8 @@ export const load: LayoutServerLoad = async ({ cookies }) => {
 		webtoonWidth,
 		inpaintMode,
 		enableWhiteInpaint,
+		inpaintExpansionPct,
+		enableTypesetCentering,
 		executionDevice,
 		parallelProcesses,
 		parallelChapters,

@@ -32,6 +32,7 @@ fn test_region_serialization() {
         confidence: 0.95,
         vertical: true,
         angle: 0.0,
+        ocr_box: Some(BoxRect { x: 1, y: 1, w: 8, h: 8 }),
         inpaint_box: None,
         typeset_box: None,
         is_title: false,
@@ -42,11 +43,13 @@ fn test_region_serialization() {
     let json = serde_json::to_string(&r).unwrap();
     assert!(json.contains(r#""box":{"x":0,"y":0,"w":10,"h":10}"#));
     assert!(json.contains(r#""text":"你好""#));
+    assert!(json.contains(r#""ocr_box":{"x":1,"y":1,"w":8,"h":8}"#));
 
     let parsed: Region = serde_json::from_str(&json).unwrap();
     assert_eq!(parsed.id, "r0");
     assert_eq!(parsed.text, "你好");
     assert!(parsed.vertical);
+    assert_eq!(parsed.ocr_box, Some(BoxRect { x: 1, y: 1, w: 8, h: 8 }));
 }
 
 /// # Schema Test: `AnalyzeResponse` Full Roundtrip
@@ -67,6 +70,7 @@ fn test_analyze_response_roundtrip() {
         confidence: 0.9,
         vertical: true,
         angle: 0.0,
+        ocr_box: None,
         inpaint_box: None,
         typeset_box: None,
         is_title: false,
@@ -117,14 +121,16 @@ fn test_analyze_options_serialization() {
         source_lang: Some("zh-Hans".to_string()),
         target_lang: Some("en".to_string()),
         inpaint_padding_pct: None,
-        typeset_padding_pct: None,
+        enable_typeset_centering: Some(true),
         allow_degraded_fallback: None,
     };
     let json = serde_json::to_string(&opts).unwrap();
     assert!(json.contains(r#""source_lang":"zh-Hans""#));
     assert!(json.contains(r#""target_lang":"en""#));
+    assert!(json.contains(r#""enable_typeset_centering":true"#));
 
     let parsed: AnalyzeOptions = serde_json::from_str(&json).unwrap();
     assert_eq!(parsed.source_lang.as_deref(), Some("zh-Hans"));
     assert_eq!(parsed.target_lang.as_deref(), Some("en"));
+    assert_eq!(parsed.enable_typeset_centering, Some(true));
 }

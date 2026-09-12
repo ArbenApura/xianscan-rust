@@ -221,7 +221,7 @@ function createBatchTrackerStore() {
 						inpaintMode: curSettings?.inpaintMode,
 						enableWhiteInpaint: curSettings?.enableWhiteInpaint,
 						inpaintExpansionPct: curSettings?.inpaintExpansionPct,
-						typesetExpansionPct: curSettings?.typesetExpansionPct,
+						enableTypesetCentering: curSettings?.enableTypesetCentering,
 						typesetOptions: {
 							fontDialogue: curSettings?.typesetFont,
 							fontCjk: curSettings?.typesetCjkFont,

@@ -18,6 +18,7 @@ import { db } from '$lib/server/db';
 import { getChapterJob, startChapterJob, setChapterJobAddPage, abortChapterJob, isChapterPageCancelled, type JobHandle } from '$lib/server/translation-service';
 import { getCanonicalSettings } from '$lib/server/settings-service';
 import { translateChapterSchema } from '$lib/schemas';
+import { WHITE_INPAINT_COOKIE, INPAINT_EXPANSION_COOKIE, TYPESET_CENTERING_COOKIE } from '$lib/stores/settings';
 
 import type { RequestHandler } from './$types';
 
@@ -97,7 +98,13 @@ export const POST: RequestHandler = async ({ params, request, cookies }) => {
 		: cookies.get('mt_inpaint_mode') ?? canonical.inpaintMode ?? 'patch';
 	const enableWhiteInpaint = parsed.success && typeof parsed.data.enableWhiteInpaint === 'boolean'
 		? parsed.data.enableWhiteInpaint
-		: (cookies.get('mt_white_inpaint') ? cookies.get('mt_white_inpaint') === 'true' : (canonical.enableWhiteInpaint ?? true));
+		: (cookies.get(WHITE_INPAINT_COOKIE) ? cookies.get(WHITE_INPAINT_COOKIE) === 'true' : (canonical.enableWhiteInpaint ?? true));
+	const inpaintExpansionPct = parsed.success && typeof parsed.data.inpaintExpansionPct === 'number'
+		? parsed.data.inpaintExpansionPct
+		: (cookies.get(INPAINT_EXPANSION_COOKIE) ? Number(cookies.get(INPAINT_EXPANSION_COOKIE)) : (canonical.inpaintExpansionPct ?? 0.03));
+	const enableTypesetCentering = parsed.success && typeof parsed.data.enableTypesetCentering === 'boolean'
+		? parsed.data.enableTypesetCentering
+		: (cookies.get(TYPESET_CENTERING_COOKIE) ? cookies.get(TYPESET_CENTERING_COOKIE) === 'true' : (canonical.enableTypesetCentering ?? true));
 	const pageConcurrency = parsed.success && typeof parsed.data.pageConcurrency === 'number'
 		? Math.max(1, Math.min(16, parsed.data.pageConcurrency))
 		: Math.max(1, Math.min(16, Number(cookies.get('mt_parallel_processes')) || canonical.parallelProcesses || 2));
@@ -126,19 +133,13 @@ export const POST: RequestHandler = async ({ params, request, cookies }) => {
 			: (cookies.get('mt_ts_rot') ? cookies.get('mt_ts_rot') === 'true' : (canonical.enableTextRotation ?? true)),
 	};
 
-	const inpaintExpansionPct = parsed.success && typeof parsed.data.inpaintExpansionPct === 'number'
-		? parsed.data.inpaintExpansionPct
-		: (cookies.get('mt_inpaint_exp') ? Number(cookies.get('mt_inpaint_exp')) : canonical.inpaintExpansionPct ?? 0.03);
-	const typesetExpansionPct = parsed.success && typeof parsed.data.typesetExpansionPct === 'number'
-		? parsed.data.typesetExpansionPct
-		: (cookies.get('mt_typeset_exp') ? Number(cookies.get('mt_typeset_exp')) : canonical.typesetExpansionPct ?? 0.0);
 	// RECORD AI SPEND ON THE LEDGER (THE JOB STAYS DETACHED — FAILURES LOG, NOT THROW)
 	const deps = {
 		pipeline: createPipelineClient(),
 		inpaintMode,
 		enableWhiteInpaint,
 		inpaintExpansionPct,
-		typesetExpansionPct,
+		enableTypesetCentering,
 		pageConcurrency,
 		typesetOptions,
 		dataRoot: DATA_ROOT,

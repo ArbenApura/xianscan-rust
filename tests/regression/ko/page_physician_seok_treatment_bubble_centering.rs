@@ -103,7 +103,8 @@ fn test_regression_page_physician_seok_treatment_bubble_centering() {
     // VERIFY BOTTOM TYPESET BOX PRESERVES BASE BOX DIMENSIONS AND CENTERS TO BUBBLE CENTROID
     if let Some(tb) = &bot_bubble.typeset_box {
         assert_eq!(tb.w, bot_bubble.box_.w, "Bottom typeset box width should match base box width");
-        assert_eq!(tb.h, bot_bubble.box_.h, "Bottom typeset box height should match base box height");
+        assert!(tb.h >= bot_bubble.box_.h, "Bottom typeset box height should be >= tight base box height");
+        assert_eq!(tb.h, 80, "Bottom typeset box height should expand to 80px");
         let bb = bot_bubble.bubble_box.as_ref().expect("bubble_box must exist");
         assert!((tb.x + tb.w / 2 - (bb.x + bb.w / 2)).abs() <= 5, "Bottom typeset box X center should match bubble X center");
         assert!((tb.y + tb.h / 2 - (bb.y + bb.h / 2)).abs() <= 5, "Bottom typeset box Y center should match bubble Y center");

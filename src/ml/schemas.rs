@@ -35,6 +35,8 @@ pub struct Region {
     pub box_: BoxRect,
     pub polygon: Vec<[i32; 2]>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ocr_box: Option<BoxRect>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub inpaint_box: Option<BoxRect>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub typeset_box: Option<BoxRect>,
@@ -67,7 +69,7 @@ pub struct AnalyzeOptions {
     #[serde(default)]
     pub inpaint_padding_pct: Option<f32>,
     #[serde(default)]
-    pub typeset_padding_pct: Option<f32>,
+    pub enable_typeset_centering: Option<bool>,
     #[serde(default)]
     pub allow_degraded_fallback: Option<bool>,
 }

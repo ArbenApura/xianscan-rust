@@ -12,7 +12,7 @@ use super::clustering::{cluster_lines_into_utterances, format_lines_cluster};
 use super::dedup::deduplicate_and_unify_regions;
 use super::expansion::{expand_bubble_text_boxes, scale_tall_narrow_free_text_base_box};
 use super::filter::should_reject_candidate_region;
-use super::geometry::expand_box;
+use super::geometry::{expand_box, DEFAULT_INPAINT_EXPANSION_PCT};
 use super::refine::{run_fallback_crop_recognition, try_refine_cluster_crop};
 
 // -- FUNCTIONS & ALGORITHMS -- //
@@ -32,10 +32,9 @@ pub fn build_regions(
     _is_latin: bool,
     source_lang: Option<&str>,
     inpaint_padding_pct: Option<f32>,
-    typeset_padding_pct: Option<f32>,
+    enable_typeset_centering: Option<bool>,
 ) -> Vec<Region> {
-    let inpaint_pct = inpaint_padding_pct.unwrap_or(0.03);
-    let typeset_pct = typeset_padding_pct.unwrap_or(0.00);
+    let inpaint_pct = inpaint_padding_pct.unwrap_or(DEFAULT_INPAINT_EXPANSION_PCT);
     let mut regions: Vec<Region> = Vec::new();
 
     // CLEAN LEADING AND TRAILING WATERMARK DEBRIS AND ADJUST LINE POLYGONS PROPORTIONALLY
@@ -856,7 +855,7 @@ pub fn build_regions(
                 let vertical = is_container_vert;
                 let angle = angle_deg;
 
-                let mut final_box_rect = if !active_line_polys.is_empty() {
+                let final_box_rect = if !active_line_polys.is_empty() {
                     let mut min_x = i32::MAX;
                     let mut min_y = i32::MAX;
                     let mut max_x = i32::MIN;
@@ -870,38 +869,11 @@ pub fn build_regions(
                         }
                     }
 
-                    // CONTAINER-BOUNDARY EXPANSION ONLY FOR SINGLE-UTTERANCE CONTAINERS:
-                    // A SPLIT MULTI-UTTERANCE CONTAINER MUST KEEP PER-CLUSTER TIGHT BOUNDS
-                    // SO SIBLING REGIONS DO NOT OVERLAP INTO CONTAINMENT-DROP AT DEDUP.
-                    let max_horiz_pad = if is_container_vert || is_detector_vert { (box_rect.w as f32 * 0.85).clamp(60.0, 160.0) as i32 } else { 45 };
-                    if container_is_single_utterance && (box_rect.x + box_rect.w) > max_x && (box_rect.x + box_rect.w - max_x) <= max_horiz_pad && min_x >= box_rect.x - 25 {
-                        max_x = max_x.max(box_rect.x + box_rect.w);
-                    }
-
-                    if container_is_single_utterance && (box_rect.x < min_x) && (min_x - box_rect.x) <= 160 && (box_rect.y <= min_y + 15 && box_rect.y + box_rect.h >= max_y - 15) {
-                        min_x = min_x.min(box_rect.x);
-                    }
-
-                    let is_horizontal_single_line_free_text = !is_container_vert && !is_detector_vert && matched_bubble.is_none() && cluster_lines.len() == 1;
-                    if container_is_single_utterance && !is_horizontal_single_line_free_text && (box_rect.y < min_y) && (min_y - box_rect.y) <= 45 && (box_rect.x <= min_x + 15 && box_rect.x + box_rect.w >= max_x - 15) {
-                        min_y = min_y.min(box_rect.y);
-                    } else if container_is_single_utterance && !is_horizontal_single_line_free_text && (is_container_vert || is_detector_vert || matched_bubble.is_some()) && box_rect.y < min_y && (min_y - box_rect.y) <= 400 {
-                        min_y = min_y.min(box_rect.y);
-                    }
-
-                    let max_vert_trailing_pad = ((box_rect.h as f32 * 0.50).round() as i32).max(180);
-                    if container_is_single_utterance && (is_container_vert || is_detector_vert) && (box_rect.y + box_rect.h) > max_y && (box_rect.y + box_rect.h - max_y) <= max_vert_trailing_pad {
-                        max_y = max_y.max(box_rect.y + box_rect.h);
-                    } else if container_is_single_utterance && matched_bubble.is_some() && (box_rect.y + box_rect.h) > max_y && (box_rect.y + box_rect.h - max_y) <= 25 && min_x >= box_rect.x - 10 && max_x <= box_rect.x + box_rect.w + 10 {
-                        max_y = max_y.max(box_rect.y + box_rect.h);
-                    }
-
-                    let fx = min_x.max(0);
-                    let fy = min_y.max(0);
-                    let fw = (max_x - min_x).max(1).min(page_w as i32 - fx);
-                    let fh = (max_y - min_y).max(1).min(page_h as i32 - fy);
-
-                    BoxRect { x: fx, y: fy, w: fw, h: fh }
+                    let raw_fx = min_x.max(0);
+                    let raw_fy = min_y.max(0);
+                    let raw_fw = (max_x - min_x).max(1).min(page_w as i32 - raw_fx);
+                    let raw_fh = (max_y - min_y).max(1).min(page_h as i32 - raw_fy);
+                    BoxRect { x: raw_fx, y: raw_fy, w: raw_fw, h: raw_fh }
                 } else {
                     cluster_rect
                 };
@@ -941,11 +913,12 @@ pub fn build_regions(
                     RegionKind::FreeText
                 };
 
-                // SCALE TALL, NARROW FREE TEXT BASE BOUNDARY BOX TO AID TYPESETTING READABILITY
-                scale_tall_narrow_free_text_base_box(&mut final_box_rect, matched_bubble_final.is_none(), page_w);
+                // SCALE TALL, NARROW FREE TEXT TYPESETTING BOX TO AID READABILITY (BASE REMAINS TIGHT OCR ANCHOR)
+                let mut typeset_box = final_box_rect.clone();
+                scale_tall_narrow_free_text_base_box(&mut typeset_box, matched_bubble_final.is_none(), page_w);
 
                 let inpaint_box = Some(expand_box(&final_box_rect, inpaint_pct, page_w, page_h));
-                let typeset_box = Some(expand_box(&final_box_rect, typeset_pct, page_w, page_h));
+                let typeset_box = Some(typeset_box);
 
                 let text_polygon = if angle.abs() >= 1.5 && !active_line_polys.is_empty() {
                     let mut min_u = f32::MAX;
@@ -971,27 +944,21 @@ pub fn build_regions(
                         (font_scale * 0.35).clamp(6.0, 14.0)
                     };
                     let v_pad = if matched_bubble_final.is_some() {
-                        (font_scale * 0.60).clamp(10.0, 25.0)
+                        (font_scale * 0.35).clamp(8.0, 18.0)
                     } else {
-                        (font_scale * 0.25).clamp(4.0, 10.0)
+                        (font_scale * 0.20).clamp(4.0, 10.0)
                     };
-                    min_u -= u_pad;
-                    max_u += u_pad;
-                    max_v += v_pad;
-                    let u_v_corners = [
-                        (min_u, min_v),
-                        (max_u, min_v),
-                        (max_u, max_v),
-                        (min_u, max_v),
+                    let corners = [
+                        (min_u - u_pad, min_v - v_pad),
+                        (max_u + u_pad, min_v - v_pad),
+                        (max_u + u_pad, max_v + v_pad),
+                        (min_u - u_pad, max_v + v_pad),
                     ];
-                    u_v_corners
-                        .iter()
-                        .map(|&(u, v)| {
-                            let rx = u * cos_a - v * sin_a;
-                            let ry = u * sin_a + v * cos_a;
-                            [rx.round() as i32, ry.round() as i32]
-                        })
-                        .collect()
+                    corners.iter().map(|&(u, v)| {
+                        let rx = u * cos_a - v * sin_a;
+                        let ry = u * sin_a + v * cos_a;
+                        [rx.round() as i32, ry.round() as i32]
+                    }).collect()
                 } else {
                     vec![
                         [final_box_rect.x, final_box_rect.y],
@@ -1023,8 +990,9 @@ pub fn build_regions(
 
                 regions.push(Region {
                     id: format!("r{}", regions.len()),
-                    box_: final_box_rect,
+                    box_: final_box_rect.clone(),
                     polygon: text_polygon,
+                    ocr_box: Some(final_box_rect),
                     inpaint_box,
                     typeset_box,
                     text: cleaned,
@@ -1072,7 +1040,7 @@ pub fn build_regions(
                     // Rejected fallback
                 } else {
                     produced_region = true;
-                    let mut final_box_rect = if !fallback.polys.is_empty() {
+                    let final_box_rect = if !fallback.polys.is_empty() {
                         let mut min_x = i32::MAX;
                         let mut min_y = i32::MAX;
                         let mut max_x = i32::MIN;
@@ -1094,11 +1062,14 @@ pub fn build_regions(
                         box_rect.clone()
                     };
 
-                    // SCALE TALL, NARROW FREE TEXT BASE BOUNDARY BOX TO AID TYPESETTING READABILITY
-                    scale_tall_narrow_free_text_base_box(&mut final_box_rect, matched_bubble.is_none(), page_w);
+                    let raw_ocr_box = final_box_rect.clone();
+
+                    // SCALE TALL, NARROW FREE TEXT TYPESETTING BOX TO AID READABILITY (BASE REMAINS TIGHT OCR ANCHOR)
+                    let mut typeset_box = final_box_rect.clone();
+                    scale_tall_narrow_free_text_base_box(&mut typeset_box, matched_bubble.is_none(), page_w);
 
                     let inpaint_box = Some(expand_box(&final_box_rect, inpaint_pct, page_w, page_h));
-                    let typeset_box = Some(expand_box(&final_box_rect, typeset_pct, page_w, page_h));
+                    let typeset_box = Some(typeset_box);
 
                     let text_polygon = vec![
                         [final_box_rect.x, final_box_rect.y],
@@ -1131,6 +1102,7 @@ pub fn build_regions(
                         id: format!("r{}", regions.len()),
                         box_: final_box_rect,
                         polygon: text_polygon,
+                        ocr_box: Some(raw_ocr_box),
                         inpaint_box,
                         typeset_box,
                         text: cleaned,
@@ -1160,7 +1132,7 @@ pub fn build_regions(
     if std::env::var("XIANSCAN_PROBE").is_ok() {
         eprintln!("[PROBE-PREDEDUP] {} regions: {:?}", regions.len(), regions.iter().map(|r| format!("{}@{:?}v{}", r.text.replace('\n', "|"), r.box_, r.vertical as i32)).collect::<Vec<_>>());
     }
-    let mut deduped_regions = deduplicate_and_unify_regions(regions, img, page_w, page_h, inpaint_pct, typeset_pct);
+    let mut deduped_regions = deduplicate_and_unify_regions(regions, img, page_w, page_h, inpaint_pct);
     if std::env::var("XIANSCAN_PROBE").is_ok() {
         eprintln!("[PROBE-POSTDEDUP] {} regions: {:?}", deduped_regions.len(), deduped_regions.iter().map(|r| format!("{}@{:?}", r.text.replace('\n', "|"), r.box_)).collect::<Vec<_>>());
     }
@@ -1181,7 +1153,7 @@ pub fn build_regions(
     }
 
     // EXPAND DIALOGUE-BUBBLE TEXT BASE BOUNDARY TO UTILIZE UNUSED BUBBLE AREA (BUBBLE TEXT ONLY)
-    expand_bubble_text_boxes(&mut deduped_regions, &bubble_obstacles, Some(img), page_w, page_h, inpaint_pct, typeset_pct);
+    expand_bubble_text_boxes(&mut deduped_regions, &bubble_obstacles, Some(img), page_w, page_h, inpaint_padding_pct, enable_typeset_centering);
 
     deduped_regions
 }

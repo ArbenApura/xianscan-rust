@@ -368,5 +368,94 @@ describe('PageInspectModal Component UI', () => {
 		const baseRect = document.querySelector('rect[stroke="#ffffff"]');
 		expect(baseRect).toBeNull();
 	});
+
+	it('toggles OCR tier layer and renders tight ocrBox when active', async () => {
+		const mockPage = {
+			id: 108,
+			seq: 0,
+			filePath: 'page_8.png',
+			width: 800,
+			height: 1200,
+			regions: [
+				{
+					id: 801,
+					seq: 0,
+					textSource: '紧密边框',
+					textTarget: 'Tight OCR Box',
+					box: { x: 50, y: 100, w: 200, h: 80 },
+					ocrBox: { x: 55, y: 105, w: 180, h: 70 },
+					typesetBox: { x: 50, y: 100, w: 200, h: 80 },
+				},
+			],
+		};
+
+		render(PageInspectModal, {
+			props: {
+				open: true,
+				page: mockPage,
+			},
+		});
+
+		// INITIALLY OCR TIER IS DISABLED
+		const ocrToggleBtn = screen.getByTitle('Click to show OCR tight text boundary layer');
+		expect(ocrToggleBtn).toBeTruthy();
+		expect(screen.getByText('OCR')).toBeTruthy();
+		expect(document.querySelector('rect[width="180"][height="70"]')).toBeNull();
+
+		// TOGGLE OCR TIER ON
+		await fireEvent.click(ocrToggleBtn);
+		await tick();
+
+		// OCR RECT WITH EXACT TIGHT DIMS SHOULD NOW BE RENDERED WITH WHITE STROKE
+		const ocrRect = document.querySelector('rect[width="180"][height="70"]');
+		expect(ocrRect).toBeTruthy();
+		expect(ocrRect?.getAttribute('stroke')).toBe('#ffffff');
+	});
+
+	it('toggles Inpaint tier layer and renders inpaintBox even when dimensions match base box', async () => {
+		const mockPage = {
+			id: 109,
+			seq: 0,
+			filePath: 'page_9.png',
+			width: 800,
+			height: 1200,
+			regions: [
+				{
+					id: 901,
+					seq: 0,
+					textSource: '去除残墨',
+					textTarget: 'Inpaint boundary',
+					box: { x: 50, y: 100, w: 200, h: 80 },
+					inpaintBox: { x: 50, y: 100, w: 200, h: 80 },
+					typesetBox: { x: 50, y: 100, w: 200, h: 80 },
+				},
+			],
+		};
+
+		render(PageInspectModal, {
+			props: {
+				open: true,
+				page: mockPage,
+			},
+		});
+
+		// INITIALLY INPAINT TIER IS DISABLED
+		const inpaintToggleBtn = screen.getByTitle('Click to show Inpaint mask boundary layer');
+		expect(inpaintToggleBtn).toBeTruthy();
+		expect(screen.getByText('Inpaint')).toBeTruthy();
+		expect(document.querySelector('rect[stroke="#000000"]')).toBeNull();
+
+		// TOGGLE INPAINT TIER ON
+		await fireEvent.click(inpaintToggleBtn);
+		await tick();
+
+		// INPAINT RECT WITH EXACT DIMS MUST BE RENDERED WITH BLACK DASHED STROKE
+		const inpaintRect = document.querySelector('rect[stroke="#000000"]');
+		expect(inpaintRect).toBeTruthy();
+		expect(inpaintRect?.getAttribute('width')).toBe('200');
+		expect(inpaintRect?.getAttribute('height')).toBe('80');
+		expect(inpaintRect?.getAttribute('stroke-dasharray')).toBe('3.5 2');
+	});
 });
+
 

@@ -4,6 +4,9 @@ use image::{DynamicImage, GenericImageView};
 // -- INTERNAL IMPORTS -- //
 use crate::ml::schemas::BoxRect;
 
+// -- CONSTANTS -- //
+pub const DEFAULT_INPAINT_EXPANSION_PCT: f32 = 0.03;
+
 // -- FUNCTIONS & ALGORITHMS -- //
 
 /// EXPAND BOX BY A UNIFORM / ISOTROPIC MARGIN PERCENTAGE CLAMPED TO CANVAS BOUNDS

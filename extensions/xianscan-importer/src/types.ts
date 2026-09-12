@@ -136,9 +136,9 @@ export interface ServerCanonicalSettings {
 	parallelProcesses?: number;
 	parallelChapters?: number;
 	inpaintMode?: string;
-	inpaintExpansionPct?: number;
-	typesetExpansionPct?: number;
 	enableWhiteInpaint?: boolean;
+	inpaintExpansionPct?: number;
+	enableTypesetCentering?: boolean;
 	enableWatermarkInpaint?: boolean;
 	enableSfx?: boolean;
 	sfxMaxAreaPct?: number;
