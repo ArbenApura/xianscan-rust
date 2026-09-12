@@ -9,20 +9,24 @@ import { parseFontBuffer, groupFontFilesByFamily } from '$lib/server/typeset/fon
 describe('parseFontBuffer', () => {
 	const fontDir = join(process.cwd(), 'static/fonts');
 
-	it('parses CC Wild Words font header correctly', () => {
+	it('parses CC Wild Words font header correctly and detects all-caps constraint', () => {
 		const buf = readFileSync(join(fontDir, 'CCWildWords-Roman.ttf'));
 		const meta = parseFontBuffer(buf);
 		expect(meta.familyName).toBe('CC Wild Words');
 		expect(meta.format).toBe('truetype');
 		expect(meta.supportedWeights).toEqual(['normal']);
+		expect(meta.allCapsOnly).toBe(true);
+		expect(meta.supportedCasings).toEqual(['uppercase']);
 	});
 
-	it('parses General Sans Regular font correctly', () => {
+	it('parses General Sans Regular font correctly with full casing support', () => {
 		const buf = readFileSync(join(fontDir, 'GeneralSans-Regular.ttf'));
 		const meta = parseFontBuffer(buf);
 		expect(meta.familyName).toBe('General Sans');
 		expect(meta.format).toBe('truetype');
 		expect(meta.supportedWeights).toEqual(['normal']);
+		expect(meta.allCapsOnly).toBe(false);
+		expect(meta.supportedCasings).toEqual(['uppercase', 'original', 'lowercase']);
 	});
 
 	it('parses General Sans Bold font correctly with bold weight detection', () => {

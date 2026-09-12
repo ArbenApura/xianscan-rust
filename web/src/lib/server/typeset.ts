@@ -15,6 +15,7 @@ import {
 	fontFor,
 	fontSpec,
 	drawTextLineWithRuns,
+	resolveEffectiveCasing,
 	FONT_DIALOGUE,
 	FONT_FALLBACK_NAME,
 	FONT_DEFAULT_CJK,
@@ -107,18 +108,19 @@ export async function typesetPage(
 
 		// STANDARD PATH — UNIFIED NATURAL MULTI-LINE WRAPPING WITH USER CASING
 		const isCjk = CJK_REGEX.test(rawText);
+		const font = fontFor(rawText, fontDialogue, fontCjk);
+		const effectiveCasing = resolveEffectiveCasing(font, casing);
 		let text: string;
 		if (isCjk) {
 			text = rawText;
-		} else if (casing === 'lowercase') {
+		} else if (effectiveCasing === 'lowercase') {
 			text = rawText.toLowerCase();
-		} else if (casing === 'original') {
+		} else if (effectiveCasing === 'original') {
 			text = rawText;
 		} else {
 			text = rawText.toUpperCase();
 		}
 
-		const font = fontFor(text, fontDialogue, fontCjk);
 		const isSfx = isSfxOrShout(text);
 		const maxW = Math.max(10, r.box.w * (1 - 2 * inset));
 		const maxH = Math.max(10, r.box.h * (1 - 2 * inset));

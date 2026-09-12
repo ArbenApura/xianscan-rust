@@ -848,6 +848,47 @@ describe('SettingsModal Component UI', () => {
 			expect(trigger.textContent).toContain('gemini');
 		});
 	});
+
+	it('automatically falls back dialogue casing to uppercase when switching to CC Wild Words in Typesetting tab', async () => {
+		const fetchMock = vi.fn().mockImplementation(async (url: string) => {
+			if (url.includes('/api/system/fonts')) {
+				return {
+					ok: true,
+					json: async () => ({
+						fonts: {
+							'CC Wild Words': { available: true, bundled: true, supportedWeights: ['normal'], allCapsOnly: true, supportedCasings: ['uppercase'] },
+							'Friendly Sans': { available: true, bundled: true, supportedWeights: ['normal'] },
+						},
+					}),
+				};
+			}
+			return { ok: true, json: async () => ({}) };
+		});
+		global.fetch = fetchMock;
+
+		settings.set({
+			...DEFAULTS,
+			typesetFont: 'Friendly Sans',
+			typesetCasing: 'lowercase',
+			typesetAllCaps: false,
+		});
+
+		render(SettingsModal, {
+			props: {
+				open: true,
+				initialTab: 'typesetting',
+			},
+		});
+		await tick();
+
+		const ccBtn = screen.getByRole('button', { name: /CC Wild Words/i });
+		await fireEvent.click(ccBtn);
+		await tick();
+
+		expect(get(settings).typesetFont).toBe('CC Wild Words');
+		expect(get(settings).typesetCasing).toBe('uppercase');
+		expect(get(settings).typesetAllCaps).toBe(true);
+	});
 });
 
 

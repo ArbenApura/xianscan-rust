@@ -336,6 +336,9 @@ export interface FontAvailabilityItem {
 	hasItalic?: boolean;
 	isVariable?: boolean;
 	variantsCount?: number;
+	allCapsOnly?: boolean;
+	lowercaseOnly?: boolean;
+	supportedCasings?: ('uppercase' | 'original' | 'lowercase')[];
 }
 
 /**
@@ -404,12 +407,38 @@ export function resolveEffectiveFontWeight(
 }
 
 /**
+ * RESOLVES THE EFFECTIVE CASING FOR A FONT WITH SAFE FALLBACK IF UNSUPPORTED
+ */
+export function resolveEffectiveCasing(
+	fontFamily: string,
+	requestedCasing?: 'uppercase' | 'original' | 'lowercase' | string,
+): 'uppercase' | 'original' | 'lowercase' {
+	const fam = (fontFamily || '').trim().toLowerCase();
+	if (fam === 'cc wild words' || fam.includes('wild words') || fam.includes('allcaps') || fam.includes('all-caps')) {
+		return 'uppercase';
+	}
+	const normalized =
+		requestedCasing === 'lowercase' || requestedCasing === 'original' ? requestedCasing : 'uppercase';
+	return normalized;
+}
+
+/**
  * DETECTS AND RETURNS AVAILABILITY STATUS AND SUPPORTED WEIGHTS FOR ALL DIALOGUE & CJK FONTS
  */
 export function getFontAvailability(db: any = defaultDb): Record<string, FontAvailabilityItem> {
 	registerFonts(db);
-	const fontMeta: Record<string, { bundled: boolean; note: string; defaultWeights?: ('normal' | 'bold' | string)[] }> = {
-		'CC Wild Words': { bundled: true, note: 'Bundled comic dialogue font', defaultWeights: ['normal'] },
+	const fontMeta: Record<
+		string,
+		{
+			bundled: boolean;
+			note: string;
+			defaultWeights?: ('normal' | 'bold' | string)[];
+			allCapsOnly?: boolean;
+			lowercaseOnly?: boolean;
+			supportedCasings?: ('uppercase' | 'original' | 'lowercase')[];
+		}
+	> = {
+		'CC Wild Words': { bundled: true, note: 'Bundled comic dialogue font', defaultWeights: ['normal'], allCapsOnly: true, supportedCasings: ['uppercase'] },
 		'Friendly Sans': { bundled: true, note: 'Bundled clean Latin / symbol fallback', defaultWeights: ['normal'] },
 		'General Sans': { bundled: true, note: 'Bundled clean modern sans', defaultWeights: ['normal', 'bold'] },
 		'Poppins': { bundled: true, note: 'Bundled geometric rounded', defaultWeights: ['bold'] },
@@ -455,6 +484,9 @@ export function getFontAvailability(db: any = defaultDb): Record<string, FontAva
 			custom: false,
 			note: meta.note,
 			supportedWeights,
+			allCapsOnly: meta.allCapsOnly,
+			lowercaseOnly: meta.lowercaseOnly,
+			supportedCasings: meta.supportedCasings,
 		};
 	}
 

@@ -16,6 +16,7 @@ import {
 	resolveScriptFont,
 	getFontAvailability,
 	resolveEffectiveFontWeight,
+	resolveEffectiveCasing,
 	typesetPage,
 	wrapText,
 	fontSpec,
@@ -1177,6 +1178,29 @@ Tattered Flesh-Cutting Knife`;
 		expect(avail['General Sans'].supportedWeights).toEqual(['normal', 'bold']);
 		expect(avail['CC Wild Words'].supportedWeights).toEqual(['normal']);
 		expect(avail['Montserrat'].supportedWeights).toEqual(['bold']);
+	});
+
+	it('resolves dialogue letterform casing correctly and falls back when unsupported', () => {
+		// CC WILD WORDS ONLY SUPPORTS UPPERCASE (ACCEPTS CANONICAL, LOWERCASE, AND SUBSTRING VARIANTS)
+		expect(resolveEffectiveCasing('CC Wild Words', 'lowercase')).toBe('uppercase');
+		expect(resolveEffectiveCasing('cc wild words', 'lowercase')).toBe('uppercase');
+		expect(resolveEffectiveCasing('Wild Words', 'original')).toBe('uppercase');
+		expect(resolveEffectiveCasing('CC Wild Words', 'original')).toBe('uppercase');
+		expect(resolveEffectiveCasing('CC Wild Words', 'uppercase')).toBe('uppercase');
+
+		// GENERAL SANS SUPPORTS ALL CASINGS
+		expect(resolveEffectiveCasing('General Sans', 'lowercase')).toBe('lowercase');
+		expect(resolveEffectiveCasing('General Sans', 'original')).toBe('original');
+		expect(resolveEffectiveCasing('General Sans', 'uppercase')).toBe('uppercase');
+
+		// FRIENDLY SANS SUPPORTS ALL CASINGS
+		expect(resolveEffectiveCasing('Friendly Sans', 'lowercase')).toBe('lowercase');
+		expect(resolveEffectiveCasing('Friendly Sans', 'original')).toBe('original');
+
+		// GETFONTAVAILABILITY RETURNS ALLCAPSONLY AND SUPPORTEDCASINGS
+		const avail = getFontAvailability();
+		expect(avail['CC Wild Words'].allCapsOnly).toBe(true);
+		expect(avail['CC Wild Words'].supportedCasings).toEqual(['uppercase']);
 	});
 });
 

@@ -54,6 +54,9 @@
 		normalizeFontWeightSelectValue,
 		isWeightSupportedByFont,
 		getValidFontWeightForFont,
+		CASING_PRESETS,
+		isCasingSupportedByFont,
+		getValidCasingForFont,
 	} from '$lib/stores/settings';
 	import { mlStatus } from '$lib/stores/ml-status';
 	import { versionCheck } from '$lib/stores/version-check';
@@ -482,17 +485,6 @@
 		{ value: 0.12, label: 'Airy (12%)', sub: 'Large boundary padding' },
 	];
 
-	const CASING_PRESETS: { id: TypesetCasing; label: string; sample: string; desc: string }[] = [
-		{ id: 'uppercase', label: 'UPPERCASE', sample: 'HOLD ON! WHAT IS...', desc: 'Standard comic scanlation' },
-		{ id: 'original', label: 'Normal / As Is', sample: 'Hold on! What is...', desc: 'Keep sentence casing' },
-		{ id: 'lowercase', label: 'lowercase', sample: 'hold on! what is...', desc: 'All lower case' },
-	];
-
-	const CASING_OPTIONS: SelectOption[] = [
-		{ value: 'uppercase', label: 'UPPERCASE', hint: 'Standard comic scanlation' },
-		{ value: 'original', label: 'Normal / As Is', hint: 'Keep sentence casing' },
-		{ value: 'lowercase', label: 'lowercase', hint: 'All lower case' },
-	];
 
 	const THEMES: { id: Theme; label: string; dot: string }[] = [
 		{ id: 'auto', label: 'Auto', dot: 'border-slate-400 bg-gradient-to-r from-[#fbfaf7] via-slate-400 to-[#13100c]' },
@@ -822,11 +814,17 @@
 		const supported = targetStatus?.supportedWeights || targetOption?.supportedWeights || ['normal'];
 		const isVariable = Boolean(targetStatus?.isVariable || targetOption?.isVariable);
 		const nextWeight = getValidFontWeightForFont($settings.typesetFontWeight, supported, isVariable);
+		const isAllCaps = targetStatus?.allCapsOnly ?? targetOption?.allCapsOnly ?? false;
+		const isLowercase = targetStatus?.lowercaseOnly ?? targetOption?.lowercaseOnly ?? false;
+		const supportedCasings = targetStatus?.supportedCasings || targetOption?.supportedCasings;
+		const nextCasing = getValidCasingForFont($settings.typesetCasing, supportedCasings, isAllCaps, isLowercase);
 
 		settings.update((s) => ({
 			...s,
 			typesetFont: font,
 			typesetFontWeight: nextWeight,
+			typesetCasing: nextCasing,
+			typesetAllCaps: nextCasing === 'uppercase',
 		}));
 		toast.success(`Dialogue font set to ${font}`);
 	}
@@ -858,6 +856,10 @@
 
 	function setCasing(casing: TypesetCasing | string) {
 		const c = casing as TypesetCasing;
+		if (!isCasingSupportedByFont(c, supportedCasings, isFontAllCaps, isFontLowercaseOnly)) {
+			toast.error(`Selected font does not support ${c} letterform`);
+			return;
+		}
 		settings.update((s) => ({
 			...s,
 			typesetCasing: c,
@@ -1730,13 +1732,40 @@
 		};
 	}) satisfies SelectOption[];
 
-	// AUTO-FALLBACK IF CURRENT WEIGHT IS UNSUPPORTED BY SELECTED FONT
+	$: isFontAllCaps = fontStatus?.allCapsOnly ?? selectedFont?.allCapsOnly ?? false;
+	$: isFontLowercaseOnly = fontStatus?.lowercaseOnly ?? selectedFont?.lowercaseOnly ?? false;
+	$: supportedCasings = fontStatus?.supportedCasings || selectedFont?.supportedCasings;
+
+	// DIALOGUE LETTERFORM CASING SELECTOR OPTIONS
+	$: casingOptions = CASING_PRESETS.map((p) => {
+		const supported = isCasingSupportedByFont(p.id, supportedCasings, isFontAllCaps, isFontLowercaseOnly);
+		return {
+			value: p.id,
+			label: p.label,
+			hint: supported ? p.desc : 'Not supported by font',
+			disabled: !supported,
+		};
+	}) satisfies SelectOption[];
+
+	// AUTO-FALLBACK IF CURRENT WEIGHT OR CASING IS UNSUPPORTED BY SELECTED FONT
 	let prevDialogueFont = $settings.typesetFont;
 	$: if ($settings.typesetFont && $settings.typesetFont !== prevDialogueFont) {
 		prevDialogueFont = $settings.typesetFont;
 		const nextWeight = getValidFontWeightForFont($settings.typesetFontWeight, supportedWeights, selectedFont?.isVariable);
 		if (nextWeight !== normalizeFontWeightSelectValue($settings.typesetFontWeight)) {
 			settings.update((s) => ({ ...s, typesetFontWeight: nextWeight }));
+		}
+		const nextCasing = getValidCasingForFont($settings.typesetCasing, supportedCasings, isFontAllCaps, isFontLowercaseOnly);
+		if (nextCasing !== ($settings.typesetCasing || 'uppercase')) {
+			settings.update((s) => ({ ...s, typesetCasing: nextCasing, typesetAllCaps: nextCasing === 'uppercase' }));
+		}
+	}
+
+	// ENSURE ACTIVE CASING IS SUPPORTED BY CURRENTLY SELECTED FONT
+	$: {
+		const validCasing = getValidCasingForFont($settings.typesetCasing, supportedCasings, isFontAllCaps, isFontLowercaseOnly);
+		if (validCasing !== ($settings.typesetCasing || 'uppercase')) {
+			settings.update((s) => ({ ...s, typesetCasing: validCasing, typesetAllCaps: validCasing === 'uppercase' }));
 		}
 	}
 
@@ -1751,9 +1780,9 @@
 	$: previewFontWeight = normalizeFontWeightNumeric($settings.typesetFontWeight);
 	$: previewFontStyle = $settings.enableTypesetItalic ? 'italic' : 'normal';
 	$: previewEffectiveText =
-		($settings.typesetCasing || 'uppercase') === 'uppercase'
+		isFontAllCaps || ($settings.typesetCasing || 'uppercase') === 'uppercase'
 			? previewSampleText.toUpperCase()
-			: $settings.typesetCasing === 'lowercase'
+			: isFontLowercaseOnly || $settings.typesetCasing === 'lowercase'
 				? previewSampleText.toLowerCase()
 				: previewSampleText;
 	$: previewTransformRotation = $settings.enableTextRotation ? `rotate(${previewSimulatedAngle}deg)` : 'none';
@@ -2524,8 +2553,13 @@
 												{/if}
 											</div>
 										</div>
-										<div class="mt-1 text-[10px] opacity-60 truncate pl-1.5">
-											{!isAvailable ? 'Not Installed on Server' : font.sub}
+										<div class="mt-1 flex items-center justify-between gap-1">
+											<span class="text-[10px] opacity-60 truncate pl-1.5">{!isAvailable ? 'Not Installed on Server' : font.sub}</span>
+											{#if (font.allCapsOnly || (font.supportedCasings && font.supportedCasings.length === 1 && font.supportedCasings[0] === 'uppercase')) && isAvailable}
+												<span class="rounded bg-black/5 dark:bg-white/10 px-1 py-0.2 text-[8px] font-bold opacity-70 shrink-0">ALL-CAPS</span>
+											{:else if (font.lowercaseOnly || (font.supportedCasings && font.supportedCasings.length === 1 && font.supportedCasings[0] === 'lowercase')) && isAvailable}
+												<span class="rounded bg-black/5 dark:bg-white/10 px-1 py-0.2 text-[8px] font-bold opacity-70 shrink-0">LOWERCASE</span>
+											{/if}
 										</div>
 									</button>
 								{/each}
@@ -2564,7 +2598,7 @@
 									Dialogue Letterform Casing
 								</div>
 								<Select
-									items={CASING_OPTIONS}
+									items={casingOptions}
 									value={$settings.typesetCasing || 'uppercase'}
 									on:change={(e) => setCasing(e.detail)}
 								/>

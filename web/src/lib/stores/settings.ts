@@ -380,6 +380,8 @@ export interface TypesetFontOption {
 	sub: string;
 	stack?: string;
 	allCapsOnly?: boolean;
+	lowercaseOnly?: boolean;
+	supportedCasings?: TypesetCasing[];
 	bundled?: boolean;
 	custom?: boolean;
 	system?: boolean;
@@ -391,7 +393,7 @@ export interface TypesetFontOption {
 }
 
 export const AVAILABLE_TYPESET_FONTS: TypesetFontOption[] = [
-	{ id: 'CC Wild Words', label: 'CC Wild Words', sub: 'Classic Comic All-Caps', stack: "'CC Wild Words', 'WildWorld', sans-serif", allCapsOnly: true, bundled: true, supportedWeights: ['normal', '400'] },
+	{ id: 'CC Wild Words', label: 'CC Wild Words', sub: 'Classic Comic All-Caps', stack: "'CC Wild Words', 'WildWorld', sans-serif", allCapsOnly: true, supportedCasings: ['uppercase'], bundled: true, supportedWeights: ['normal', '400'] },
 	{ id: 'Friendly Sans', label: 'Friendly Sans', sub: 'Clean Comic Sans-Serif', stack: "'Friendly Sans', sans-serif", bundled: true, supportedWeights: ['normal', '400'] },
 	{ id: 'General Sans', label: 'General Sans', sub: 'Clean Modern Sans', stack: "'General Sans', sans-serif", bundled: true, supportedWeights: ['normal', 'bold', '400', '700'] },
 	{ id: 'Poppins', label: 'Poppins', sub: 'Geometric Rounded', stack: "'Poppins', sans-serif", bundled: true, supportedWeights: ['bold', '700'] },
@@ -419,6 +421,9 @@ export interface FontAvailabilityStatus {
 	supportedWeights?: ('normal' | 'bold' | string)[];
 	isVariable?: boolean;
 	variantsCount?: number;
+	allCapsOnly?: boolean;
+	lowercaseOnly?: boolean;
+	supportedCasings?: TypesetCasing[];
 }
 
 export interface CustomFontVariantItem {
@@ -440,7 +445,70 @@ export interface CustomFontItem {
 	fileSize: number;
 	supportedWeights: ('normal' | 'bold' | string)[];
 	isVariable?: boolean;
+	allCapsOnly?: boolean;
+	lowercaseOnly?: boolean;
+	supportedCasings?: TypesetCasing[];
 	variants?: CustomFontVariantItem[];
+}
+
+export interface CasingPreset {
+	id: TypesetCasing;
+	label: string;
+	sample: string;
+	desc: string;
+}
+
+export const CASING_PRESETS: CasingPreset[] = [
+	{ id: 'uppercase', label: 'UPPERCASE', sample: 'HOLD ON! WHAT IS...', desc: 'Standard comic scanlation' },
+	{ id: 'original', label: 'Normal / As Is', sample: 'Hold on! What is...', desc: 'Keep sentence casing' },
+	{ id: 'lowercase', label: 'lowercase', sample: 'hold on! what is...', desc: 'All lower case' },
+];
+
+export function isCasingSupportedByFont(
+	casing: TypesetCasing,
+	supportedCasings?: TypesetCasing[],
+	allCapsOnly?: boolean,
+	lowercaseOnly?: boolean,
+): boolean {
+	if (allCapsOnly) {
+		return casing === 'uppercase';
+	}
+	if (lowercaseOnly) {
+		return casing === 'lowercase';
+	}
+	if (supportedCasings && supportedCasings.length > 0) {
+		return supportedCasings.includes(casing);
+	}
+	return true;
+}
+
+export function getValidCasingForFont(
+	currentCasing?: TypesetCasing | string | null,
+	supportedCasings?: TypesetCasing[],
+	allCapsOnly?: boolean,
+	lowercaseOnly?: boolean,
+): TypesetCasing {
+	const normalized: TypesetCasing =
+		currentCasing === 'lowercase' || currentCasing === 'original' ? currentCasing : 'uppercase';
+
+	if (isCasingSupportedByFont(normalized, supportedCasings, allCapsOnly, lowercaseOnly)) {
+		return normalized;
+	}
+
+	// PREFER UPPERCASE FOR SCANLATIONS
+	if (isCasingSupportedByFont('uppercase', supportedCasings, allCapsOnly, lowercaseOnly)) {
+		return 'uppercase';
+	}
+	// PREFER ORIGINAL
+	if (isCasingSupportedByFont('original', supportedCasings, allCapsOnly, lowercaseOnly)) {
+		return 'original';
+	}
+	// PREFER LOWERCASE
+	if (isCasingSupportedByFont('lowercase', supportedCasings, allCapsOnly, lowercaseOnly)) {
+		return 'lowercase';
+	}
+
+	return 'uppercase';
 }
 
 export interface FontWeightPreset {
@@ -524,6 +592,9 @@ export interface SystemFontInfo {
 	scriptType: 'dialogue' | 'cjk';
 	supportedWeights: ('normal' | 'bold')[];
 	isVariable?: boolean;
+	allCapsOnly?: boolean;
+	lowercaseOnly?: boolean;
+	supportedCasings?: TypesetCasing[];
 }
 
 export const customFontsStore = writable<CustomFontItem[]>([]);
@@ -664,21 +735,30 @@ export function getMergedDialogueFonts(
 				scriptType: 'dialogue',
 				supportedWeights: f.supportedWeights,
 				isVariable: f.isVariable,
+				allCapsOnly: f.allCapsOnly,
+				lowercaseOnly: f.lowercaseOnly,
+				supportedCasings: f.supportedCasings,
 				variants: f.variants,
 			};
 		});
 
 	const systemDialogueOptions: TypesetFontOption[] = enabledSystemFonts
 		.filter((name) => !isSystemFontCjk(name, systemFonts))
-		.map((familyName) => ({
-			id: familyName,
-			label: familyName,
-			sub: 'System Installed Font',
-			stack: `"${familyName}", sans-serif`,
-			system: true,
-			scriptType: 'dialogue',
-			supportedWeights: ['normal', 'bold'],
-		}));
+		.map((familyName) => {
+			const info = systemFonts.find((s) => s.family.toLowerCase() === familyName.toLowerCase());
+			return {
+				id: familyName,
+				label: familyName,
+				sub: 'System Installed Font',
+				stack: `"${familyName}", sans-serif`,
+				system: true,
+				scriptType: 'dialogue',
+				supportedWeights: info?.supportedWeights || ['normal', 'bold'],
+				allCapsOnly: info?.allCapsOnly,
+				lowercaseOnly: info?.lowercaseOnly,
+				supportedCasings: info?.supportedCasings,
+			};
+		});
 
 	return [...AVAILABLE_TYPESET_FONTS, ...customDialogueOptions, ...systemDialogueOptions];
 }
@@ -707,6 +787,9 @@ export function getMergedCjkFonts(
 				scriptType: 'cjk',
 				supportedWeights: f.supportedWeights,
 				isVariable: f.isVariable,
+				allCapsOnly: f.allCapsOnly,
+				lowercaseOnly: f.lowercaseOnly,
+				supportedCasings: f.supportedCasings,
 				variants: f.variants,
 			};
 		});
@@ -727,7 +810,7 @@ export function getMergedCjkFonts(
 }
 
 export const fontAvailabilityStore = writable<Record<string, FontAvailabilityStatus>>({
-	'CC Wild Words': { available: true, bundled: true, note: 'Bundled comic dialogue font', supportedWeights: ['normal'] },
+	'CC Wild Words': { available: true, bundled: true, note: 'Bundled comic dialogue font', supportedWeights: ['normal'], allCapsOnly: true, supportedCasings: ['uppercase'] },
 	'Friendly Sans': { available: true, bundled: true, note: 'Bundled clean Latin / symbol fallback', supportedWeights: ['normal'] },
 	'General Sans': { available: true, bundled: true, note: 'Bundled clean modern sans', supportedWeights: ['normal', 'bold'] },
 	'Poppins': { available: true, bundled: true, note: 'Bundled geometric rounded', supportedWeights: ['bold'] },

@@ -8,6 +8,9 @@ export interface ParsedFontMeta {
 	postScriptName?: string;
 	format: 'truetype' | 'opentype';
 	supportedWeights: ('normal' | 'bold')[];
+	allCapsOnly?: boolean;
+	lowercaseOnly?: boolean;
+	supportedCasings?: ('uppercase' | 'original' | 'lowercase')[];
 	weightClass?: number;
 	weightNumeric: number;
 	weightLabel: string;
@@ -26,6 +29,9 @@ export interface ParsedFontFamilyGroup {
 	format: 'truetype' | 'opentype';
 	isVariable: boolean;
 	supportedWeights: ('normal' | 'bold')[];
+	allCapsOnly?: boolean;
+	lowercaseOnly?: boolean;
+	supportedCasings?: ('uppercase' | 'original' | 'lowercase')[];
 	variants: ParsedFontVariantItem[];
 }
 
@@ -54,6 +60,40 @@ function decodeUtf16Be(buf: Buffer, start: number, length: number): string {
 		}
 	}
 	return s.trim();
+}
+
+function checkCmapCasingCoverage(buf: Buffer, cmapOffset: number, cmapLength: number): { hasUpper: boolean; hasLower: boolean } | null {
+	if (!cmapOffset || cmapLength < 4 || cmapOffset + cmapLength > buf.length) return null;
+	try {
+		const numSubtables = buf.readUInt16BE(cmapOffset + 2);
+		for (let i = 0; i < numSubtables; i++) {
+			const recOffset = cmapOffset + 4 + i * 8;
+			if (recOffset + 8 > buf.length) break;
+			const subOffset = cmapOffset + buf.readUInt32BE(recOffset + 4);
+			if (subOffset + 14 > buf.length) continue;
+			const format = buf.readUInt16BE(subOffset);
+			if (format === 4) {
+				const segCountX2 = buf.readUInt16BE(subOffset + 6);
+				const segCount = Math.floor(segCountX2 / 2);
+				const endCodeOffset = subOffset + 14;
+				const startCodeOffset = endCodeOffset + 2 + segCountX2;
+				if (startCodeOffset + segCountX2 > buf.length) continue;
+
+				let hasUpper = false;
+				let hasLower = false;
+				for (let s = 0; s < segCount; s++) {
+					const end = buf.readUInt16BE(endCodeOffset + s * 2);
+					const start = buf.readUInt16BE(startCodeOffset + s * 2);
+					if (start <= 90 && end >= 65) hasUpper = true;
+					if (start <= 122 && end >= 97) hasLower = true;
+				}
+				return { hasUpper, hasLower };
+			}
+		}
+	} catch {
+		// FALLBACK SILENTLY ON CORRUPTED CMAP
+	}
+	return null;
 }
 
 /**
@@ -86,6 +126,8 @@ export function parseFontBuffer(buf: Buffer): ParsedFontMeta {
 	let os2TableLength = 0;
 	let fvarTableOffset = 0;
 	let fvarTableLength = 0;
+	let cmapTableOffset = 0;
+	let cmapTableLength = 0;
 
 	for (let i = 0; i < numTables; i++) {
 		const entryOffset = 12 + i * 16;
@@ -102,6 +144,9 @@ export function parseFontBuffer(buf: Buffer): ParsedFontMeta {
 		} else if (tag === 'fvar') {
 			fvarTableOffset = offset;
 			fvarTableLength = length;
+		} else if (tag === 'cmap') {
+			cmapTableOffset = offset;
+			cmapTableLength = length;
 		}
 	}
 
@@ -244,6 +289,27 @@ export function parseFontBuffer(buf: Buffer): ParsedFontMeta {
 			? ['bold']
 			: ['normal'];
 
+	// DETECT CASING RESTRICTIONS (ALL-CAPS OR LOWERCASE ONLY)
+	const isAllCapsName =
+		/all[\s-_]?caps|allcaps|uppercase/i.test(resolvedFamily) ||
+		/all[\s-_]?caps|allcaps|uppercase/i.test(resolvedSubfamily) ||
+		/all[\s-_]?caps|allcaps|uppercase/i.test(postScriptName) ||
+		/cc\s*wild\s*words/i.test(resolvedFamily);
+
+	const isLowercaseName =
+		/lowercase/i.test(resolvedFamily) ||
+		/lowercase/i.test(resolvedSubfamily) ||
+		/lowercase/i.test(postScriptName);
+
+	const cmapCoverage = checkCmapCasingCoverage(buf, cmapTableOffset, cmapTableLength);
+	const allCapsOnly = isAllCapsName || (cmapCoverage !== null && cmapCoverage.hasUpper && !cmapCoverage.hasLower);
+	const lowercaseOnly = isLowercaseName || (cmapCoverage !== null && !cmapCoverage.hasUpper && cmapCoverage.hasLower);
+	const supportedCasings: ('uppercase' | 'original' | 'lowercase')[] = allCapsOnly
+		? ['uppercase']
+		: lowercaseOnly
+			? ['lowercase']
+			: ['uppercase', 'original', 'lowercase'];
+
 	const weightLabel = deriveWeightLabel(weightNumeric);
 	const style: 'normal' | 'italic' = isItalic ? 'italic' : 'normal';
 
@@ -253,6 +319,9 @@ export function parseFontBuffer(buf: Buffer): ParsedFontMeta {
 		postScriptName: postScriptName || undefined,
 		format,
 		supportedWeights,
+		allCapsOnly,
+		lowercaseOnly,
+		supportedCasings,
 		weightClass,
 		weightNumeric,
 		weightLabel,
@@ -292,12 +361,21 @@ export function groupFontFilesByFamily(
 				format: meta.format,
 				isVariable: meta.isVariable,
 				supportedWeights: [...meta.supportedWeights],
+				allCapsOnly: meta.allCapsOnly,
+				lowercaseOnly: meta.lowercaseOnly,
+				supportedCasings: meta.supportedCasings ? [...meta.supportedCasings] : undefined,
 				variants: [],
 			};
 			groups.set(key, group);
 		} else {
 			if (meta.isVariable) {
 				group.isVariable = true;
+			}
+			if (meta.allCapsOnly) {
+				group.allCapsOnly = true;
+			}
+			if (meta.lowercaseOnly) {
+				group.lowercaseOnly = true;
 			}
 			for (const w of meta.supportedWeights) {
 				if (!group.supportedWeights.includes(w)) {

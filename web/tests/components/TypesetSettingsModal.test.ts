@@ -4,8 +4,9 @@
 import { render, fireEvent, screen, cleanup } from '@testing-library/svelte';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { tick } from 'svelte';
+import { get } from 'svelte/store';
 import TypesetSettingsModal from '$lib/components/TypesetSettingsModal.svelte';
-import { settings } from '$lib/stores/settings';
+import { settings, DEFAULTS } from '$lib/stores/settings';
 import { validateForm } from '$lib/utils/form';
 import { typesetOptionsSchema } from '$lib/schemas';
 
@@ -74,5 +75,29 @@ describe('TypesetSettingsModal Component UI', () => {
 		expect(res.success).toBe(true);
 		expect(res.data?.fontFamily).toBe('wild-words');
 		expect(res.data?.outline).toBe('medium');
+	});
+
+	it('automatically falls back dialogue casing to uppercase when font is CC Wild Words', async () => {
+		settings.set({
+			...DEFAULTS,
+			typesetFont: 'Friendly Sans',
+			typesetCasing: 'lowercase',
+			typesetAllCaps: false,
+		});
+
+		render(TypesetSettingsModal, {
+			props: {
+				open: true,
+			},
+		});
+		await tick();
+
+		const ccBtn = screen.getByText('CC Wild Words').closest('button');
+		await fireEvent.click(ccBtn!);
+		await tick();
+
+		expect(get(settings).typesetFont).toBe('CC Wild Words');
+		expect(get(settings).typesetCasing).toBe('uppercase');
+		expect(get(settings).typesetAllCaps).toBe(true);
 	});
 });
