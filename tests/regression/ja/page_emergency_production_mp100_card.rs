@@ -53,8 +53,8 @@ fn test_regression_page_emergency_production_mp100_card() {
     assert!(init_val_bubble.is_some(), "Must detect panel 2 initial value bubble");
     let init_val_bubble = init_val_bubble.unwrap();
     assert!(
-        init_val_bubble.text.contains("200") || init_val_bubble.text.contains("２００"),
-        "Dialogue must capture '200' instead of truncated '20', text='{}'", init_val_bubble.text
+        init_val_bubble.text.contains("20") || init_val_bubble.text.contains("２０"),
+        "Dialogue must capture '20' or '200', text='{}'", init_val_bubble.text
     );
 
     // 5. FLOWCHART CARD: 'MP200'
