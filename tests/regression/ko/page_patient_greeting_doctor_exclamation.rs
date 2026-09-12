@@ -61,6 +61,7 @@ fn test_regression_page_patient_greeting_doctor_exclamation() {
         15
     );
     crate::assert_bubble_bounds!(doctor_bubble, 355, 324, 279, 208, 15);
+    crate::assert_carrier_bounds!(doctor_bubble, 355, 324, 278, 185, 15);
     crate::assert_region_angle!(doctor_bubble, 0.0, 1.5);
 
     // 3. EXPLICIT NEGATIVE GUARD: STANDALONE SYMBOL / REACTION BUBBLE SUPPRESSION

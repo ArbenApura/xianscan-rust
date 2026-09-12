@@ -85,6 +85,30 @@ macro_rules! assert_bubble_bounds {
     }};
 }
 
+/// ASSERTS EXACT TAIL-CUT CARRIER CHAMBER BOUNDS (CARRIER_BOX) WITH STRICT DRIFT TOLERANCES
+#[macro_export]
+macro_rules! assert_carrier_bounds {
+    ($region:expr, $exp_x:expr, $exp_y:expr, $exp_w:expr, $exp_h:expr, $max_drift:expr) => {{
+        assert!(
+            $region.carrier_box.is_some(),
+            "Expected carrier_box (tail-cut chamber) for region '{}', but got None",
+            $region.text.replace('\n', " ")
+        );
+        let c = $region.carrier_box.as_ref().unwrap();
+        assert!(
+            (c.x - $exp_x).abs() <= $max_drift
+                && (c.y - $exp_y).abs() <= $max_drift
+                && (c.w - $exp_w).abs() <= ($max_drift * 3 / 2)
+                && (c.h - $exp_h).abs() <= ($max_drift * 3 / 2),
+            "Tail-cut carrier_box drift for '{}': got [x:{}, y:{}, w:{}, h:{}], expected [x:{}, y:{}, w:{}, h:{}] (max drift: ±{}px)",
+            $region.text.replace('\n', " "),
+            c.x, c.y, c.w, c.h,
+            $exp_x, $exp_y, $exp_w, $exp_h,
+            $max_drift
+        );
+    }};
+}
+
 /// ASSERTS ROTATION ANGLE IN DEGREES WITH STRICT DRIFT TOLERANCES
 #[macro_export]
 macro_rules! assert_region_angle {

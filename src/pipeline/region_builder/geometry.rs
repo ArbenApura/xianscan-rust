@@ -382,6 +382,11 @@ pub fn extract_carrier_box_from_image(img: &DynamicImage, b: &BoxRect, t: &BoxRe
     };
     candidate_radii.dedup();
 
+    let eff_tx = t.x.max(b.x);
+    let eff_ty = t.y.max(b.y);
+    let eff_tr = (t.x + t.w).min(b.x + b.w);
+    let eff_tb = (t.y + t.h).min(b.y + b.h);
+
     let mut best_carrier: Option<BoxRect> = None;
 
     for r_erode in candidate_radii {
@@ -591,25 +596,18 @@ pub fn extract_carrier_box_from_image(img: &DynamicImage, b: &BoxRect, t: &BoxRe
         let candidate = BoxRect {
             x: carrier_x.max(b.x),
             y: carrier_y.max(b.y),
-            w: carrier_w.min(b.w).max(t.w),
-            h: carrier_h.min(b.h).max(t.h),
+            w: carrier_w.min(b.w),
+            h: carrier_h.min(b.h),
         };
 
-        // VALIDITY CHECK: CARRIER MUST COMFORTABLY ACCOMMODATE THE TEXT
-        let encloses_text = candidate.x <= t.x
-            && (candidate.x + candidate.w) >= (t.x + t.w)
-            && candidate.y <= t.y
-            && (candidate.y + candidate.h) >= (t.y + t.h);
+        // VALIDITY CHECK: CARRIER MUST COMFORTABLY ACCOMMODATE INSCRIBED TEXT (WITH 8PX OVERHANG SLACK)
+        let encloses_text = candidate.x <= eff_tx + 8
+            && (candidate.x + candidate.w) + 8 >= eff_tr
+            && candidate.y <= eff_ty + 8
+            && (candidate.y + candidate.h) + 8 >= eff_tb;
 
         if encloses_text {
-            let max_trim = (candidate.x - b.x).abs()
-                .max((candidate.y - b.y).abs())
-                .max(((b.x + b.w) - (candidate.x + candidate.w)).abs())
-                .max(((b.y + b.h) - (candidate.y + candidate.h)).abs());
-            let total_trim = (b.w - candidate.w).max(0) + (b.h - candidate.h).max(0);
-
-            // IF A GENUINE TAIL CUT WAS ACHIEVED AT THIS RADIUS, ADOPT IT IMMEDIATELY
-            if max_trim >= 14 || total_trim >= 18 {
+            if super::expansion::valid_tail_cut_carrier(&candidate, b, ph) {
                 return candidate;
             }
 

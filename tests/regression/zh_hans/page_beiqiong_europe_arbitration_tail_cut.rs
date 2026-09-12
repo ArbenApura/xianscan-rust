@@ -32,7 +32,14 @@ fn test_regression_page_beiqiong_europe_arbitration_tail_cut() {
     // 1. EXACT ELEMENT COUNTS
     crate::assert_element_counts!(res, 5, 5, 0);
 
-    // 2. REGION 1: "这些条件，恐怕不会那么轻易就能谈成啊"
+    // 2. PANEL 1 LEFT SPEECH BUBBLE: "我要北琼派填充黑暗仲裁部留下的势力空白..."
+    let p1_bubble = res.regions.iter().find(|r| r.text.contains("北琼派") || r.text.contains("黑暗仲裁部"));
+    assert!(p1_bubble.is_some(), "Must detect panel 1 left speech bubble");
+    let p1_bubble = p1_bubble.unwrap();
+    assert_eq!(p1_bubble.kind, xianscan_rust::ml::schemas::RegionKind::DialogueBubble);
+    crate::assert_carrier_bounds!(p1_bubble, 34, 391, 254, 285, 15);
+
+    // 3. REGION 1: "这些条件，恐怕不会那么轻易就能谈成啊"
     // Full bubble boundary must be preserved (no bottom cut slicing through ellipsis dots, no left cut)
     let condition_bubble = res.regions.iter().find(|r| r.text.contains("这些条件") || r.text.contains("轻易"));
     assert!(condition_bubble.is_some(), "Must detect '这些条件，恐怕不会那么轻易就能谈成啊' bubble");

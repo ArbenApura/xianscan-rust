@@ -80,7 +80,7 @@ fn test_regression_page_eleven_years_red_smoke_narration() {
     crate::assert_region_angle!(mid_bubble, 0.0, 1.5);
 
     // Carrier box must sever downward tail and typeset box must be centered inside carrier chamber
-    assert!(mid_bubble.carrier_box.is_some(), "Middle dialogue bubble must publish a carrier box");
+    crate::assert_carrier_bounds!(mid_bubble, 295, 930, 315, 245, 15);
     let carrier = mid_bubble.carrier_box.as_ref().unwrap();
     let tb = mid_bubble.typeset_box.as_ref().expect("typeset box must exist");
     assert!(carrier.h <= 255, "Carrier height must cut off bottom tail, got {}", carrier.h);

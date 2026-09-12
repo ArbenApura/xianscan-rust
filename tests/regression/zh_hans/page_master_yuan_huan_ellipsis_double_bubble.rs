@@ -142,6 +142,7 @@ fn test_regression_page_master_yuan_huan_ellipsis_double_bubble() {
         "Bubble text must contain '哼', got: '{}'",
         hmph.text.replace('\n', "\\n")
     );
+    crate::assert_carrier_bounds!(hmph, 625, 1564, 157, 120, 15);
 
     // 5. SHRINKWRAP INPAINTING PRESERVATION:
     // "……" IN THE UPPER LOBE MUST NOT BE WIPED OUT

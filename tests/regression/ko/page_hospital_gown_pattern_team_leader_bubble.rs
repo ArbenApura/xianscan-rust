@@ -45,6 +45,7 @@ fn test_regression_page_hospital_gown_pattern_team_leader_bubble() {
     assert_eq!(top_bubble.kind, RegionKind::DialogueBubble);
     crate::assert_region_bounds!(top_bubble, RegionKind::DialogueBubble, 168, 355, 162, 106, 15);
 
+    crate::assert_carrier_bounds!(top_bubble, 136, 327, 233, 171, 15);
     let carrier0 = top_bubble.carrier_box.as_ref().expect("Region 0 must publish carrier box");
     assert!(carrier0.h >= 170 && carrier0.h <= 180, "Region 0 carrier height must preserve oval body, got {}", carrier0.h);
     let tb0 = top_bubble.typeset_box.as_ref().expect("Region 0 typeset box must exist");
@@ -63,6 +64,7 @@ fn test_regression_page_hospital_gown_pattern_team_leader_bubble() {
     assert!(!team_leader_bubble.text.to_uppercase().contains("HOSPITAL"), "Bubble text must not contain HOSPITAL pattern noise");
     assert!(!team_leader_bubble.text.to_uppercase().contains("OSPITAL"), "Bubble text must not contain OSPITAL pattern noise");
 
+    crate::assert_carrier_bounds!(team_leader_bubble, 437, 1202, 196, 129, 15);
     let carrier1 = team_leader_bubble.carrier_box.as_ref().expect("Region 1 must publish carrier box");
     assert!(carrier1.y >= 1198 && carrier1.y <= 1206, "Region 1 carrier top must preserve oval apex, got {}", carrier1.y);
     assert!(carrier1.h >= 125 && carrier1.h <= 138, "Region 1 carrier height must match oval body, got {}", carrier1.h);

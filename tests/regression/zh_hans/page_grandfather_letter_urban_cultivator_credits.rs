@@ -34,6 +34,7 @@ fn test_page_grandfather_letter_urban_cultivator_credits() {
         .expect("Top-right speech bubble '这!！！' must be detected");
     assert!(b1.text.contains("这") && (b1.text.contains('!') || b1.text.contains('！')));
     crate::assert_region_bounds!(b1, RegionKind::DialogueBubble, 649, 127, 112, 48, 20);
+    crate::assert_carrier_bounds!(b1, 620, 74, 166, 158, 15);
 
     let b2 = res
         .regions
@@ -50,6 +51,7 @@ fn test_page_grandfather_letter_urban_cultivator_credits() {
         .expect("Bottom speech bubble '啊……' must be detected");
     assert_eq!(b3.text.trim(), "啊……");
     crate::assert_region_bounds!(b3, RegionKind::DialogueBubble, 201, 1013, 98, 52, 20);
+    crate::assert_carrier_bounds!(b3, 178, 988, 144, 100, 15);
 
     // 3. VERIFY UNIFIED CREDITS BLOCK (NO TITLE POLLUTION)
     let credits = res

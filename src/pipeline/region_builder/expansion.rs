@@ -116,34 +116,37 @@ pub fn derive_carrier_box(b: &BoxRect, t: &BoxRect, page_h: u32) -> BoxRect {
     let m_side = m_left.min(m_right);
     let m_vert = m_top.min(m_bot);
 
+    let min_v_delta = 18.max((b.h as f32 * 0.08).round() as i32);
+    let min_h_delta = 18.max((b.w as f32 * 0.08).round() as i32);
+
     // VERTICAL TAILS:
-    // SKEWED BY >= 1.30x AND MIN 26PX DELTA BETWEEN TOP AND BOTTOM MARGINS.
-    // IF THE BUBBLE EXTENDS NEAR THE TOP OR BOTTOM CANVAS EDGE (b.y <= 12 OR b.y + b.h >= page_h - 12),
-    // IT IS CUT/SEVERED BY THE SLICE SEAM RATHER THAN HAVING A TRUE ASYMMETRIC TAIL, SO BYPASS VERTICAL TAIL TRIMMING.
-    let is_top_or_bottom_edge = b.y <= 12 || (b.y + b.h) as u32 >= page_h.saturating_sub(12);
-    if !is_top_or_bottom_edge {
-        if m_bot as f32 >= m_top as f32 * 1.30 && (m_bot - m_top) >= 26 {
-            // DOWNWARD TAIL: TOP/LEFT/RIGHT ARE TRUE BUBBLE BOUNDARIES, TRIM BOTTOM EXCESS
-            let safe_pad = (m_top as f32).min(m_side as f32 * 0.90).max(12.0).round() as i32;
-            let eff_bottom = (t.y + t.h + safe_pad).min(b.y + b.h);
-            carrier.h = (eff_bottom - b.y).max(t.h + 10);
-        } else if m_top as f32 >= m_bot as f32 * 1.30 && (m_top - m_bot) >= 26 {
-            // UPWARD TAIL: BOTTOM/LEFT/RIGHT ARE TRUE BUBBLE BOUNDARIES, TRIM TOP EXCESS
-            let safe_pad = (m_bot as f32).min(m_side as f32 * 0.90).max(12.0).round() as i32;
-            let eff_top = (t.y - safe_pad).max(b.y);
-            carrier.h = (b.y + b.h - eff_top).max(t.h + 10);
-            carrier.y = eff_top;
-        }
+    // SKEWED BY >= 1.35x AND SCALE-ADAPTIVE DELTA (MIN 18PX) BETWEEN TOP AND BOTTOM MARGINS.
+    // IF THE BUBBLE EXTENDS NEAR THE TOP CANVAS EDGE (b.y <= 12), BYPASS UPWARD TRIMMING ONLY.
+    // IF THE BUBBLE EXTENDS NEAR THE BOTTOM CANVAS EDGE (b.y + b.h >= page_h - 12), BYPASS DOWNWARD TRIMMING ONLY.
+    let is_bot_edge = (b.y + b.h) as u32 >= page_h.saturating_sub(12);
+    let is_top_edge = b.y <= 12;
+
+    if !is_bot_edge && m_bot as f32 >= m_top.max(1) as f32 * 1.35 && (m_bot - m_top) >= min_v_delta {
+        // DOWNWARD TAIL: TOP/LEFT/RIGHT ARE TRUE BUBBLE BOUNDARIES, TRIM BOTTOM EXCESS
+        let safe_pad = (m_top as f32).min(m_side as f32 * 0.90).max(12.0).round() as i32;
+        let eff_bottom = (t.y + t.h + safe_pad).min(b.y + b.h);
+        carrier.h = (eff_bottom - b.y).max(t.h + 10);
+    } else if !is_top_edge && m_top as f32 >= m_bot.max(1) as f32 * 1.35 && (m_top - m_bot) >= min_v_delta {
+        // UPWARD TAIL: BOTTOM/LEFT/RIGHT ARE TRUE BUBBLE BOUNDARIES, TRIM TOP EXCESS
+        let safe_pad = (m_bot as f32).min(m_side as f32 * 0.90).max(12.0).round() as i32;
+        let eff_top = (t.y - safe_pad).max(b.y);
+        carrier.h = (b.y + b.h - eff_top).max(t.h + 10);
+        carrier.y = eff_top;
     }
 
     // HORIZONTAL TAILS:
-    // SKEWED BY >= 1.50x AND MIN 22PX DELTA BETWEEN LEFT AND RIGHT MARGINS
-    if m_right as f32 >= m_left as f32 * 1.50 && (m_right - m_left) >= 22 {
+    // SKEWED BY >= 1.35x AND SCALE-ADAPTIVE DELTA (MIN 18PX) BETWEEN LEFT AND RIGHT MARGINS
+    if m_right as f32 >= m_left.max(1) as f32 * 1.35 && (m_right - m_left) >= min_h_delta {
         // RIGHTWARD TAIL: TOP/BOTTOM/LEFT ARE TRUE BUBBLE BOUNDARIES, TRIM RIGHT EXCESS
         let safe_pad = (m_left as f32).min(m_vert as f32 * 0.90).max(12.0).round() as i32;
         let eff_right = (t.x + t.w + safe_pad).min(b.x + b.w);
         carrier.w = (eff_right - b.x).max(t.w + 10);
-    } else if m_left as f32 >= m_right as f32 * 1.50 && (m_left - m_right) >= 22 {
+    } else if m_left as f32 >= m_right.max(1) as f32 * 1.35 && (m_left - m_right) >= min_h_delta {
         // LEFTWARD TAIL: TOP/BOTTOM/RIGHT ARE TRUE BUBBLE BOUNDARIES, TRIM LEFT EXCESS
         let safe_pad = (m_right as f32).min(m_vert as f32 * 0.90).max(12.0).round() as i32;
         let eff_left = (t.x - safe_pad).max(b.x);
@@ -174,18 +177,23 @@ pub fn valid_tail_cut_carrier(carrier: &BoxRect, b: &BoxRect, page_h: u32) -> bo
     let trim_top = (carrier.y - b.y).max(0);
     let trim_bot = ((b.y + b.h) - (carrier.y + carrier.h)).max(0);
 
-    let max_opp_v = 14.max((b.h as f32 * 0.07).round() as i32);
-    let max_opp_h = 14.max((b.w as f32 * 0.07).round() as i32);
+    let max_opp_h = 10.max((b.w as f32 * 0.07).round() as i32);
+    let max_opp_v = 10.max((b.h as f32 * 0.07).round() as i32);
 
-    let is_h_cut = (trim_right >= 14 && trim_left <= max_opp_h && trim_right >= trim_left * 2 && (trim_right - trim_left) >= 12)
-        || (trim_left >= 14 && trim_right <= max_opp_h && trim_left >= trim_right * 2 && (trim_left - trim_right) >= 12);
+    let min_h_tail = if b.w <= 120 { 5 } else { 8 };
+    let min_v_tail = if b.h <= 120 { 5 } else { 8 };
 
-    let dominant_v = trim_bot.max(trim_top);
-    let is_substantial_v = (dominant_v as f32 / b.h.max(1) as f32 >= 0.11) || dominant_v >= 22;
+    let is_h_cut = (trim_right >= min_h_tail && trim_left <= max_opp_h && if trim_left <= 3 { trim_right - trim_left >= 4 } else { trim_right >= 14 && trim_right as f32 >= trim_left as f32 * 2.2 && trim_right - trim_left >= 12 })
+        || (trim_left >= min_h_tail && trim_right <= max_opp_h && if trim_right <= 3 { trim_left - trim_right >= 4 } else { trim_left >= 14 && trim_left as f32 >= trim_right as f32 * 2.2 && trim_left - trim_right >= 12 });
 
-    let is_v_cut = is_substantial_v
-        && ((trim_bot >= 14 && trim_top <= max_opp_v && trim_bot >= trim_top * 2 && (trim_bot - trim_top) >= 12)
-            || (trim_top >= 14 && trim_bot <= max_opp_v && trim_top >= trim_bot * 2 && (trim_top - trim_bot) >= 12));
+    let is_bot_cut = trim_bot >= min_v_tail && trim_top <= max_opp_v
+        && if trim_top <= 3 { trim_bot - trim_top >= 4 } else { (trim_bot >= 13 && trim_top <= 4 && trim_bot - trim_top >= 8) || (trim_bot >= 14 && trim_bot as f32 >= trim_top as f32 * 2.2 && trim_bot - trim_top >= 12) };
+
+    let is_top_substantial = (trim_top as f32 / b.h.max(1) as f32 >= 0.080) || trim_top >= 16;
+    let is_top_cut = is_top_substantial && trim_top >= min_v_tail && trim_bot <= max_opp_v
+        && if trim_bot <= 3 { trim_top - trim_bot >= 4 } else { (trim_top >= 13 && trim_bot <= 4 && trim_top - trim_bot >= 8) || (trim_top >= 14 && trim_top as f32 >= trim_bot as f32 * 2.2 && trim_top - trim_bot >= 12) };
+
+    let is_v_cut = is_bot_cut || is_top_cut;
 
     if !is_h_cut && !is_v_cut {
         return false;
@@ -202,12 +210,16 @@ pub fn valid_tail_cut_carrier(carrier: &BoxRect, b: &BoxRect, page_h: u32) -> bo
         return false;
     }
 
-    // DEGENERATE CHAMBER GUARD: EROSION/DILATION ARTIFACTS OR MICRO BODIES ARE UNTRUSTWORTHY
+    // DEGENERATE CHAMBER GUARD
     if carrier.w < 20 || carrier.h < 20 {
         return false;
     }
-    // EDGE-CUT BUBBLES: THE SLICE SEAM MIMICS A TAIL, SO CARRIER DERIVATION IS UNRELIABLE
-    if b.y <= 12 || (b.y + b.h) as u32 >= page_h.saturating_sub(12) {
+
+    // EDGE-CUT BUBBLES: THE SLICE SEAM MIMICS A TAIL ONLY ALONG THE EDGE-TOUCHING BOUNDARY
+    if b.y <= 12 && trim_top > 0 && trim_top < 15 {
+        return false;
+    }
+    if (b.y + b.h) as u32 >= page_h.saturating_sub(12) && trim_bot > 0 {
         return false;
     }
     true
@@ -215,10 +227,9 @@ pub fn valid_tail_cut_carrier(carrier: &BoxRect, b: &BoxRect, page_h: u32) -> bo
 
 /// RESOLVE CARRIER (BODY) BOX BY COOPERATIVE CROSS-VALIDATION OF GEOMETRIC AND MORPHOLOGICAL ENGINES.
 ///
-/// WHEN BOTH GEOMETRIC AND IMAGE MORPHOLOGY EXTRACTORS AGREE ON A GENUINE CUT, COMBINES THEIR BOUNDARIES
-/// CONSERVATIVELY ALONG THE TRIMMED AXIS. WHEN IMAGE MORPHOLOGY MISSES AN ASYMMETRIC PROTRUSION (SUCH AS
-/// BULBOUS THOUGHT LOBES WHOSE RADIUS EXCEEDS DISK EROSION KERNELS), THE GEOMETRIC MARGIN DETECTOR RESCUES
-/// THE CUT CHAMBER.
+/// WHEN IMAGE DATA IS AVAILABLE, PREFERS IMAGE MORPHOLOGY CONTOURS (EXTRACT_CARRIER_BOX_FROM_IMAGE) TO PREVENT
+/// OFF-CENTER TEXT INSIDE TAILLESS BUBBLES FROM INDUCING FALSE GEOMETRIC CUTS. IN FALLBACK / HEADLESS SCENARIOS
+/// WITHOUT RASTER PIXELS, DERIVE_CARRIER_BOX SERVERS AS THE MARGIN-SKEW APPROXIMATOR.
 pub fn resolve_carrier_box(
     b: &BoxRect,
     t: &BoxRect,
