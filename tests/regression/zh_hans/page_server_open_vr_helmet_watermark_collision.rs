@@ -147,6 +147,7 @@ fn test_regression_page_server_open_vr_helmet_watermark_collision() {
         "Panel 3 sound effect must be cleanly isolated as '嘀', got '{}'",
         sfx_di.text
     );
+    crate::assert_region_angle!(sfx_di, 3.98, 1.0);
 
     // 6. EXPLICIT NEGATIVE GUARDS
     assert!(

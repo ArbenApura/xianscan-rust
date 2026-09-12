@@ -589,7 +589,9 @@ pub fn build_regions(
                     let (_, _, lw, lh) = polygon_bounds(&l.polygon);
                     let th = super::clustering::polygon_thickness(&l.polygon);
                     let min_dim = (th * 1.8).max(18.0) as i32;
-                    if lw >= min_dim || lh >= min_dim {
+                    // STANDALONE SOUND EFFECT GLYPHS OUTSIDE BUBBLES PRESERVE TRUE ROTATION ANGLE
+                    let is_isolated_single = filtered_matched.len() == 1 && matched_bubble.is_none() && (lw >= 35 || lh >= 35);
+                    if lw >= min_dim || lh >= min_dim || is_isolated_single {
                         let a = calculate_box_angle_i32(&l.polygon);
                         if a != 0.0 { Some(a) } else { None }
                     } else {
@@ -624,7 +626,9 @@ pub fn build_regions(
                         let (_, _, lw, lh) = polygon_bounds(&l.polygon);
                         let th = super::clustering::polygon_thickness(&l.polygon);
                         let min_dim = (th * 1.8).max(18.0) as i32;
-                        if lw >= min_dim || lh >= min_dim {
+                        // STANDALONE SOUND EFFECT GLYPHS OUTSIDE BUBBLES PRESERVE TRUE ROTATION ANGLE
+                        let is_isolated_single = cluster_lines.len() == 1 && matched_bubble.is_none() && (lw >= 35 || lh >= 35);
+                        if lw >= min_dim || lh >= min_dim || is_isolated_single {
                             let a = calculate_box_angle_i32(&l.polygon);
                             if a != 0.0 { Some(a) } else { None }
                         } else {
@@ -649,7 +653,9 @@ pub fn build_regions(
                 });
 
                 angle_deg = if !cluster_lines.is_empty() && median_line_angle.abs() >= 1.5 {
-                    if (median_line_angle.abs() < 4.0 && (box_angle == 0.0 || box_angle.abs() < 1.5)) || (matched_bubble.is_some() && is_short_hangul && median_line_angle.abs() < 10.0 && box_angle.abs() < 2.0) {
+                    if (matched_bubble.is_some() && median_line_angle.abs() < 4.0 && (box_angle == 0.0 || box_angle.abs() < 1.5))
+                        || (matched_bubble.is_some() && is_short_hangul && median_line_angle.abs() < 10.0 && box_angle.abs() < 2.0)
+                    {
                         0.0
                     } else {
                         median_line_angle
