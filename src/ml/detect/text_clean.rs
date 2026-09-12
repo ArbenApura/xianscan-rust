@@ -346,6 +346,25 @@ pub fn normalize_japanese_ocr_confusions(text: &str) -> String {
     if s.contains("4urt回") || s.contains("4urt") {
         s = s.replace("4urt回", "何だっけ").replace("4urt", "何だっけ");
     }
+    if s.contains("クビだよく") {
+        s = s.replace("クビだよく", "クビだよ");
+    }
+    if s.trim() == "Bi\n!" || s.trim() == "Bi!" || s.trim() == "Bi！" || s.trim() == "Bi" {
+        s = "ぶ！".to_string();
+    } else {
+        if s.contains("Bi\n!") {
+            s = s.replace("Bi\n!", "ぶ！");
+        }
+        if s.contains("Bi!") {
+            s = s.replace("Bi!", "ぶ！");
+        }
+        if s.contains("Bi！") {
+            s = s.replace("Bi！", "ぶ！");
+        }
+    }
+    if s.trim() == "で" {
+        s = "くび…".to_string();
+    }
     s
 }
 

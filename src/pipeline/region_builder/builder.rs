@@ -350,11 +350,19 @@ pub fn build_regions(
                 }
             }
 
-            is_container_vert = if v_count > 0 && h_count > 0 {
+            let is_decidedly_horizontal_container = box_rect.w >= (box_rect.h as f32 * 1.35) as i32
+                || matched_bubble.map_or(false, |b| b.w >= (b.h as f32 * 1.40) as i32);
+
+            is_container_vert = if is_decidedly_horizontal_container && h_count > 0 {
+                v_area > (h_area as f32 * 2.5) as i64 && v_count >= h_count * 2
+            } else if v_count > 0 && h_count > 0 {
                 // If there are multiple distinct vertical lines or high vertical count, or container is tall/square-bubble with vertical lines
-                v_area > (h_area as f32 * 1.20) as i64 || (box_rect.h > (box_rect.w as f32 * 1.2) as i32 && v_count >= h_count) || (v_count >= 2 && v_count >= h_count) || (matched_bubble.is_some() && is_cjk && v_count >= 2)
+                v_area > (h_area as f32 * 1.20) as i64
+                    || (box_rect.h > (box_rect.w as f32 * 1.2) as i32 && v_count >= h_count)
+                    || (v_count >= 2 && v_count >= h_count && !is_decidedly_horizontal_container)
+                    || (matched_bubble.is_some() && is_cjk && v_count >= 2 && !is_decidedly_horizontal_container)
             } else if v_count > 0 {
-                true
+                !is_decidedly_horizontal_container || box_rect.h > box_rect.w
             } else if h_count > 0 {
                 false
             } else {

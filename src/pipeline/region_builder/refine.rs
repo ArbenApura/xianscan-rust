@@ -389,13 +389,37 @@ pub fn try_refine_cluster_crop(
         !has_cjk || (non_native >= native && non_native >= 2)
     };
 
+    let cluster_contrary_to_container = if !is_container_vert {
+        cluster_lines.len() >= 2 && cluster_lines.iter().filter(|l| {
+            let (_, _, lw, lh) = polygon_bounds(&l.polygon);
+            lh as f32 >= lw as f32 * 1.25
+        }).count() >= cluster_lines.len() / 2 + 1
+    } else {
+        cluster_lines.len() >= 2 && cluster_lines.iter().filter(|l| {
+            let (_, _, lw, lh) = polygon_bounds(&l.polygon);
+            lw as f32 >= lh as f32 * 1.25
+        }).count() >= cluster_lines.len() / 2 + 1
+    };
+
+    let crop_matches_container = if !is_container_vert {
+        !valid_crop_lines.is_empty() && valid_crop_lines.iter().all(|(p, _, _)| {
+            let (_, _, pw, ph) = polygon_bounds(p);
+            pw >= ph
+        })
+    } else {
+        !valid_crop_lines.is_empty() && valid_crop_lines.iter().all(|(p, _, _)| {
+            let (_, _, pw, ph) = polygon_bounds(p);
+            ph >= pw
+        })
+    };
+
     let is_improved = if is_cjk {
         !is_excessive_expansion && !has_disparate_sfx_merge && !is_corrupted_punct_to_digits && !is_crop_corrupted_latin && (
             crop_cjk_count > combined_cjk_count
                 || (is_corrupted_latin_in_bubble && crop_cjk_count >= 1)
                 || has_more_ellipsis
                 || (is_combined_pure_punct && clean_crop_text.chars().any(|c| matches!(c, '！' | '？' | '!' | '?')))
-                || (crop_cjk_count == combined_cjk_count && !is_severely_shrunk && res.score > avg_score + 0.02)
+                || (crop_cjk_count == combined_cjk_count && !is_severely_shrunk && (res.score > avg_score + 0.02 || (cluster_contrary_to_container && crop_matches_container && res.score >= avg_score - 0.05)))
                 || (res.score >= 0.70 && avg_score < 0.60 && !is_severely_shrunk)
         )
     } else {
