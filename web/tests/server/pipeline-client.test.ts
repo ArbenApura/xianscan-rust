@@ -54,11 +54,12 @@ describe('HttpPipelineClient', () => {
 		const fetchImpl = mockFetch(200, () => Buffer.from('png-bytes'));
 		const client = new HttpPipelineClient('http://sidecar:8001/', fetchImpl); // TRAILING SLASH STRIPPED
 
-		const out = await client.clean(Buffer.from('img'), REGIONS);
+		const out = await client.clean(Buffer.from('img'), REGIONS, 'patch', undefined, false);
 
 		expect(String(fetchImpl.mock.calls[0][0])).toBe('http://sidecar:8001/pages/clean');
 		const body = fetchImpl.mock.calls[0][1]?.body as FormData;
 		expect(String(body.get('regions'))).toContain('"id":"r0"');
+		expect(body.get('enable_white_inpaint')).toBe('false');
 		expect(out.toString()).toBe('png-bytes');
 	});
 

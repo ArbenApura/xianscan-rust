@@ -129,6 +129,7 @@ export function sanitizeSettingValue(key: keyof AppSettings, value: unknown): un
 			return Boolean(value);
 
 		case 'livePipelinePreview':
+		case 'enableWhiteInpaint':
 			return typeof value === 'boolean' ? value : true;
 
 		case 'enabledSystemFonts': {

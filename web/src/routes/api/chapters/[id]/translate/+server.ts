@@ -95,6 +95,9 @@ export const POST: RequestHandler = async ({ params, request, cookies }) => {
 	const inpaintMode = parsed.success && parsed.data.inpaintMode
 		? parsed.data.inpaintMode
 		: cookies.get('mt_inpaint_mode') ?? canonical.inpaintMode ?? 'patch';
+	const enableWhiteInpaint = parsed.success && typeof parsed.data.enableWhiteInpaint === 'boolean'
+		? parsed.data.enableWhiteInpaint
+		: (cookies.get('mt_white_inpaint') ? cookies.get('mt_white_inpaint') === 'true' : (canonical.enableWhiteInpaint ?? true));
 	const pageConcurrency = parsed.success && typeof parsed.data.pageConcurrency === 'number'
 		? Math.max(1, Math.min(16, parsed.data.pageConcurrency))
 		: Math.max(1, Math.min(16, Number(cookies.get('mt_parallel_processes')) || canonical.parallelProcesses || 2));
@@ -133,6 +136,7 @@ export const POST: RequestHandler = async ({ params, request, cookies }) => {
 	const deps = {
 		pipeline: createPipelineClient(),
 		inpaintMode,
+		enableWhiteInpaint,
 		inpaintExpansionPct,
 		typesetExpansionPct,
 		pageConcurrency,

@@ -16,6 +16,7 @@ pub fn clean_image(
     img: &DynamicImage,
     regions: &[CleanRequestRegion],
     mode: &str,
+    enable_white_inpaint: bool,
 ) -> Result<DynamicImage> {
     let (w, h) = img.dimensions();
     let mut polygons = Vec::new();
@@ -50,6 +51,10 @@ pub fn clean_image(
     } else {
         img.clone()
     };
+
+    if !enable_white_inpaint {
+        return Ok(cleaned_img);
+    }
 
     // AFTER INPAINTING: RUN OUTSIDE-IN SHRINKWRAP CAVITY CLEANING ON CONFIRMED WHITE BUBBLES
     // TO ERASE RESIDUAL DUST, SMUDGES, AND INTERNAL WATERMARKS WHILE PRESERVING BORDER GRAPHICS

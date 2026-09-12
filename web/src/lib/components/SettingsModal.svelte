@@ -944,6 +944,7 @@
 
 	$: isInpaintingModified =
 		($settings.inpaintMode || 'patch') !== DEFAULTS.inpaintMode ||
+		Boolean($settings.enableWhiteInpaint ?? true) !== Boolean(DEFAULTS.enableWhiteInpaint ?? true) ||
 		Math.abs(($settings.inpaintExpansionPct ?? 0.03) - DEFAULTS.inpaintExpansionPct) >= 0.005 ||
 		Math.abs(($settings.typesetExpansionPct ?? 0.0) - DEFAULTS.typesetExpansionPct) >= 0.005;
 
@@ -984,10 +985,16 @@
 		settings.update((s) => ({
 			...s,
 			inpaintMode: DEFAULTS.inpaintMode,
+			enableWhiteInpaint: DEFAULTS.enableWhiteInpaint,
 			inpaintExpansionPct: DEFAULTS.inpaintExpansionPct,
 			typesetExpansionPct: DEFAULTS.typesetExpansionPct,
 		}));
 		toast.success('Inpainting settings reset to defaults');
+	}
+
+	function toggleWhiteInpaint() {
+		const current = $settings.enableWhiteInpaint ?? true;
+		settings.update((s) => ({ ...s, enableWhiteInpaint: !current }));
 	}
 
 	// CONVENTIONAL INFERENCE CONFIGURATION HELPERS
@@ -1818,6 +1825,7 @@
 
 		// INPAINTING
 		{ id: 'inpaint-mode', label: 'Inpainting Strategy', category: 'inpainting', categoryLabel: 'Inpainting & Masking', categoryIcon: Eraser, keywords: ['inpaint', 'patch', 'scaled', 'full', 'erase', 'cleaning', 'lama'] },
+		{ id: 'inpaint-white', label: 'White Bubble Shrinkwrap Cleaning', category: 'inpainting', categoryLabel: 'Inpainting & Masking', categoryIcon: Eraser, keywords: ['white', 'shrinkwrap', 'bubble', 'clean', 'cavity', 'dust', 'inpaint', 'speech'] },
 		{ id: 'inpaint-geom', label: 'Three-Tier Region Geometry Expansion', category: 'inpainting', categoryLabel: 'Inpainting & Masking', categoryIcon: Eraser, keywords: ['geometry', 'expansion', 'tier', 'margin', 'bounds', 'inpaint mask', 'typeset box'] },
 
 		// AI PROVIDERS
@@ -2878,6 +2886,33 @@
 										<p class="mt-2 text-[11px] opacity-75 leading-relaxed">{mode.blurb}</p>
 									</button>
 								{/each}
+							</div>
+						</div>
+
+						<!-- WHITE BUBBLE SHRINKWRAP CLEANING -->
+						<div class="border-t border-black/10 pt-4 dark:border-white/10">
+							<div
+								id="setting-inpaint-white"
+								class={cn(
+									'flex items-start justify-between gap-4 rounded-xl border border-black/10 bg-black/[0.02] p-3 dark:border-white/10 dark:bg-white/[0.02] transition-all duration-300',
+									highlightedSettingId === 'inpaint-white' &&
+										'ring-2 ring-[#b23a2e] dark:ring-[#e08a63] bg-[#b23a2e]/[0.06] dark:bg-[#e08a63]/[0.08]'
+								)}
+							>
+								<div>
+									<div class="text-xs font-bold flex items-center gap-1.5">
+										<Eraser size={14} class="text-[#b23a2e] dark:text-[#e08a63]" />
+										<span>White Bubble Shrinkwrap Cleaning</span>
+									</div>
+									<p class="text-[11px] opacity-60 mt-0.5 leading-relaxed">
+										Flush residual inpainting dust, smudges, and watermarks inside speech bubbles while preserving outer ink strokes.
+									</p>
+								</div>
+								<Switch
+									checked={$settings.enableWhiteInpaint ?? true}
+									on:click={toggleWhiteInpaint}
+									ariaLabel="White Bubble Shrinkwrap Cleaning"
+								/>
 							</div>
 						</div>
 

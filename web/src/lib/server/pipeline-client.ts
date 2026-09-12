@@ -146,7 +146,7 @@ export interface PipelineClient {
 			sfxMaxAreaPct?: number;
 		},
 	): Promise<AnalyzeResult>;
-	clean(image: Buffer, regions: CleanRegionInput[], inpaintMode?: string, signal?: AbortSignal): Promise<Buffer>;
+	clean(image: Buffer, regions: CleanRegionInput[], inpaintMode?: string, signal?: AbortSignal, enableWhiteInpaint?: boolean): Promise<Buffer>;
 	health(): Promise<{ status: string; detector: string; inpainter: string }>;
 	getHardware?(signal?: AbortSignal): Promise<HardwareStatus>;
 	getTelemetry?(signal?: AbortSignal): Promise<SystemTelemetry>;
@@ -226,11 +226,18 @@ export class HttpPipelineClient implements PipelineClient {
 		return (await resp.json()) as AnalyzeResult;
 	}
 
-	async clean(image: Buffer, regions: CleanRegionInput[], inpaintMode: string = 'patch', signal?: AbortSignal): Promise<Buffer> {
+	async clean(
+		image: Buffer,
+		regions: CleanRegionInput[],
+		inpaintMode: string = 'patch',
+		signal?: AbortSignal,
+		enableWhiteInpaint: boolean = true,
+	): Promise<Buffer> {
 		const form = new FormData();
 		form.append('image', new Blob([new Uint8Array(image)]), 'page.webp');
 		form.append('regions', JSON.stringify(regions));
 		form.append('inpaint_mode', inpaintMode);
+		form.append('enable_white_inpaint', String(enableWhiteInpaint));
 		const resp = await this.request('/pages/clean', { method: 'POST', body: form }, signal);
 		if (!resp.ok) throw new PipelineError(`clean failed (${resp.status}): ${await resp.text()}`, resp.status);
 		return Buffer.from(await resp.arrayBuffer());

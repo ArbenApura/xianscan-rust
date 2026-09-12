@@ -541,6 +541,7 @@ function createJobTrackerStore() {
 				force: opts.force ?? false,
 				pageIds: opts.pageIds,
 				inpaintMode: curSettings?.inpaintMode,
+				enableWhiteInpaint: curSettings?.enableWhiteInpaint,
 				pageConcurrency: opts.pageConcurrency ?? curSettings?.parallelProcesses,
 				inpaintExpansionPct: curSettings?.inpaintExpansionPct,
 				typesetExpansionPct: curSettings?.typesetExpansionPct,

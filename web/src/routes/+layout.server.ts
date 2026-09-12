@@ -13,6 +13,7 @@ import {
 	WEBTOON_KIND_COOKIE,
 	WEBTOON_WIDTH_COOKIE,
 	INPAINT_MODE_COOKIE,
+	WHITE_INPAINT_COOKIE,
 	EXEC_DEVICE_COOKIE,
 	PARALLEL_PROCESSES_COOKIE,
 	PARALLEL_CHAPTERS_COOKIE,
@@ -35,6 +36,7 @@ export interface UserPreferences {
 	webtoonKind: 'output' | 'original';
 	webtoonWidth: 'sm' | 'md' | 'lg';
 	inpaintMode: InpaintMode;
+	enableWhiteInpaint: boolean;
 	executionDevice: ExecutionDevice;
 	parallelProcesses: number;
 	parallelChapters: number;
@@ -124,6 +126,9 @@ export const load: LayoutServerLoad = async ({ cookies }) => {
 	const defaultInpaint = canonicalSettings?.inpaintMode && VALID_INPAINT_MODES.has(canonicalSettings.inpaintMode) ? canonicalSettings.inpaintMode : 'patch';
 	const inpaintMode: InpaintMode = VALID_INPAINT_MODES.has(rawInpaint as InpaintMode) ? (rawInpaint as InpaintMode) : defaultInpaint;
 
+	const rawWhiteInpaint = cookies.get(WHITE_INPAINT_COOKIE);
+	const enableWhiteInpaint = rawWhiteInpaint !== undefined ? rawWhiteInpaint === 'true' : (canonicalSettings?.enableWhiteInpaint ?? true);
+
 	const rawDevice = cookies.get(EXEC_DEVICE_COOKIE);
 	const defaultDevice = canonicalSettings?.executionDevice && VALID_EXEC_DEVICES.has(canonicalSettings.executionDevice) ? canonicalSettings.executionDevice : 'auto';
 	const executionDevice: ExecutionDevice = VALID_EXEC_DEVICES.has(rawDevice as ExecutionDevice) ? (rawDevice as ExecutionDevice) : defaultDevice;
@@ -148,6 +153,7 @@ export const load: LayoutServerLoad = async ({ cookies }) => {
 		webtoonKind,
 		webtoonWidth,
 		inpaintMode,
+		enableWhiteInpaint,
 		executionDevice,
 		parallelProcesses,
 		parallelChapters,

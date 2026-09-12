@@ -42,6 +42,7 @@ export const POST: RequestHandler = async ({ request, cookies }) => {
 		pageConcurrency,
 		resliceBeforeBatch,
 		inpaintMode,
+		enableWhiteInpaint,
 		inpaintExpansionPct,
 		typesetExpansionPct,
 		enableWatermarkInpaint,
@@ -73,6 +74,11 @@ export const POST: RequestHandler = async ({ request, cookies }) => {
 		typeof inpaintMode === 'string'
 			? inpaintMode
 			: cookies.get('mt_inpaint_mode') || canonical.inpaintMode || 'patch';
+
+	const resolvedEnableWhiteInpaint =
+		typeof enableWhiteInpaint === 'boolean'
+			? enableWhiteInpaint
+			: (cookies.get('mt_white_inpaint') ? cookies.get('mt_white_inpaint') === 'true' : (canonical.enableWhiteInpaint ?? true));
 
 	const resolvedInpaintExp =
 		typeof inpaintExpansionPct === 'number'
@@ -110,6 +116,7 @@ export const POST: RequestHandler = async ({ request, cookies }) => {
 				pageConcurrency: resolvedPageConcurrency,
 				resliceBeforeBatch: resolvedResliceBeforeBatch,
 				inpaintMode: resolvedInpaintMode,
+				enableWhiteInpaint: resolvedEnableWhiteInpaint,
 				inpaintExpansionPct: resolvedInpaintExp,
 				typesetExpansionPct: resolvedTypesetExp,
 				typesetOptions: resolvedTypesetOptions,

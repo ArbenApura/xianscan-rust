@@ -74,6 +74,7 @@ export interface ChapterPipelineDeps {
 	llm?: OpenAI;
 	model?: string;
 	inpaintMode?: string;
+	enableWhiteInpaint?: boolean;
 	inpaintExpansionPct?: number;
 	typesetExpansionPct?: number;
 	typesetOptions?: TypesetOptions;
@@ -825,7 +826,7 @@ export async function runChapterPipeline(
 				try {
 					const cleaned =
 						cleanRegions.length > 0
-							? await deps.pipeline.clean(image, cleanRegions, deps.inpaintMode ?? 'patch', pageAbortController.signal)
+							? await deps.pipeline.clean(image, cleanRegions, deps.inpaintMode ?? 'patch', pageAbortController.signal, deps.enableWhiteInpaint ?? true)
 							: image;
 					pageAbortController.signal.throwIfAborted();
 					if (deps.isPageCancelled?.(page.id)) return { cleaned: image, cleanPath: '' };

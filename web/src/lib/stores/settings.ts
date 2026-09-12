@@ -76,6 +76,7 @@ export interface AppSettings {
 	typesetPreviewPreset: string;
 	typesetAllCaps: boolean;
 	enableTextRotation: boolean;
+	enableWhiteInpaint: boolean;
 	inpaintExpansionPct: number;
 	typesetExpansionPct: number;
 	hasCompletedOnboarding: boolean;
@@ -227,6 +228,7 @@ export const DEFAULTS: AppSettings = {
 	typesetPreviewPreset: 'en',
 	typesetAllCaps: true,
 	enableTextRotation: true,
+	enableWhiteInpaint: true,
 	inpaintExpansionPct: 0.03,
 	typesetExpansionPct: 0.0,
 	hasCompletedOnboarding: false,
@@ -273,6 +275,7 @@ export const SERVER_CANONICAL_KEYS: (keyof AppSettings)[] = [
 	'typesetPreviewPreset',
 	'typesetAllCaps',
 	'enableTextRotation',
+	'enableWhiteInpaint',
 	'inpaintExpansionPct',
 	'typesetExpansionPct',
 	'hasCompletedOnboarding',
@@ -291,6 +294,7 @@ export const READER_VIEW_COOKIE = 'mt_reader_view';
 export const WEBTOON_KIND_COOKIE = 'mt_webtoon_kind';
 export const WEBTOON_WIDTH_COOKIE = 'mt_webtoon_width';
 export const INPAINT_MODE_COOKIE = 'mt_inpaint_mode';
+export const WHITE_INPAINT_COOKIE = 'mt_white_inpaint';
 export const WATERMARK_INPAINT_COOKIE = 'mt_watermark_inpaint';
 export const EXEC_DEVICE_COOKIE = 'mt_exec_device';
 export const PARALLEL_PROCESSES_COOKIE = 'mt_parallel_processes';
@@ -1009,6 +1013,7 @@ function createSettings() {
 				setCookie(WEBTOON_KIND_COOKIE, s.webtoonKind);
 				setCookie(WEBTOON_WIDTH_COOKIE, s.webtoonWidth);
 				setCookie(INPAINT_MODE_COOKIE, s.inpaintMode);
+				setCookie(WHITE_INPAINT_COOKIE, String(s.enableWhiteInpaint));
 				setCookie(EXEC_DEVICE_COOKIE, s.executionDevice);
 			} catch {
 				// IGNORE STORAGE ERRORS (PRIVATE MODE / QUOTA)

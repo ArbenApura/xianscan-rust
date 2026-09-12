@@ -324,16 +324,36 @@ describe('SettingsModal Component UI', () => {
 		expect(screen.getByRole('heading', { name: /Inpainting & Masking/i })).toBeTruthy();
 		expect(screen.queryByText('Reset Defaults')).toBeNull();
 
-		// Change inpaint mode to Scaled (512x512)
+		// WHITE BUBBLE SHRINKWRAP SWITCH IS RENDERED AND CHECKED BY DEFAULT
+		const whiteInpaintSwitch = screen.getByRole('switch', { name: /White Bubble Shrinkwrap Cleaning/i });
+		expect(whiteInpaintSwitch).toBeTruthy();
+		expect(whiteInpaintSwitch.getAttribute('aria-checked')).toBe('true');
+
+		// TOGGLE WHITE BUBBLE SHRINKWRAP OFF
+		await fireEvent.click(whiteInpaintSwitch);
+		await tick();
+		expect(whiteInpaintSwitch.getAttribute('aria-checked')).toBe('false');
+
+		// RESET DEFAULTS APPEARS
+		let inpaintResetBtn = screen.getByText('Reset Defaults');
+		expect(inpaintResetBtn).toBeTruthy();
+
+		// RESET INPAINTING DEFAULTS
+		await fireEvent.click(inpaintResetBtn);
+		await tick();
+		expect(screen.queryByText('Reset Defaults')).toBeNull();
+		expect(whiteInpaintSwitch.getAttribute('aria-checked')).toBe('true');
+
+		// CHANGE INPAINT MODE TO SCALED (512x512)
 		const scaledBtn = screen.getByText('Balanced (512x512)').closest('button');
 		await fireEvent.click(scaledBtn!);
 		await tick();
 
-		// Reset Defaults appears
-		const inpaintResetBtn = screen.getByText('Reset Defaults');
+		// RESET DEFAULTS APPEARS
+		inpaintResetBtn = screen.getByText('Reset Defaults');
 		expect(inpaintResetBtn).toBeTruthy();
 
-		// Reset inpainting defaults
+		// RESET INPAINTING DEFAULTS
 		await fireEvent.click(inpaintResetBtn);
 		await tick();
 		expect(screen.queryByText('Reset Defaults')).toBeNull();

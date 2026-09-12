@@ -49,6 +49,7 @@ export const POST: RequestHandler = async ({ params, cookies }) => {
 	// 2. RETRIEVE CANONICAL AND COOKIE INFERENCE / TYPESET SETTINGS
 	const canonical = getCanonicalSettings();
 	const inpaintMode = cookies.get('mt_inpaint_mode') || canonical.inpaintMode || 'patch';
+	const enableWhiteInpaint = cookies.get('mt_white_inpaint') ? cookies.get('mt_white_inpaint') === 'true' : (canonical.enableWhiteInpaint ?? true);
 	const parallelWorkers = Math.max(1, Math.min(4, Number(cookies.get('mt_parallel_chapters')) || canonical.parallelChapters || 1));
 	const pageConcurrency = Math.max(1, Math.min(8, Number(cookies.get('mt_parallel_processes')) || canonical.parallelProcesses || 2));
 	const inpaintExpansionPct = cookies.get('mt_inpaint_exp') ? Number(cookies.get('mt_inpaint_exp')) : canonical.inpaintExpansionPct ?? 0.03;
@@ -77,6 +78,7 @@ export const POST: RequestHandler = async ({ params, cookies }) => {
 				pageConcurrency,
 				resliceBeforeBatch: false,
 				inpaintMode,
+				enableWhiteInpaint,
 				inpaintExpansionPct,
 				typesetExpansionPct,
 				typesetOptions,

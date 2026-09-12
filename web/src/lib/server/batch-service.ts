@@ -51,6 +51,7 @@ export interface StartBatchOptions {
 	resliceBeforeBatch?: boolean;
 	pageIds?: number[];
 	inpaintMode?: string;
+	enableWhiteInpaint?: boolean;
 	inpaintExpansionPct?: number;
 	typesetExpansionPct?: number;
 	enableSfx?: boolean;
@@ -67,6 +68,7 @@ export interface PersistedBatchRecord {
 		resliceBeforeBatch?: boolean;
 		pageIds?: number[];
 		inpaintMode?: string;
+		enableWhiteInpaint?: boolean;
 		inpaintExpansionPct?: number;
 		typesetExpansionPct?: number;
 		enableSfx?: boolean;
@@ -122,6 +124,7 @@ let maxParallelWorkers = MAX_PARALLEL_WORKERS_DEFAULT;
 let batchPageConcurrency: number | undefined = undefined;
 let batchResliceBeforeBatch: boolean = false;
 let batchInpaintMode: string = 'patch';
+let batchEnableWhiteInpaint: boolean | undefined = undefined;
 let batchInpaintExpansionPct: number | undefined = undefined;
 let batchTypesetExpansionPct: number | undefined = undefined;
 let batchTypesetOptions: TypesetOptions | undefined = undefined;
@@ -152,6 +155,7 @@ function persistBatchState(): void {
 				pageConcurrency: batchPageConcurrency,
 				resliceBeforeBatch: batchResliceBeforeBatch,
 				inpaintMode: batchInpaintMode,
+				enableWhiteInpaint: batchEnableWhiteInpaint,
 				inpaintExpansionPct: batchInpaintExpansionPct,
 				typesetExpansionPct: batchTypesetExpansionPct,
 				typesetOptions: batchTypesetOptions,
@@ -348,6 +352,7 @@ async function executeChapterJob(chapter: BatchChapterItem, force: boolean) {
 		const deps = {
 			pipeline: createPipelineClient(),
 			inpaintMode: (liveSettings.inpaintMode || batchInpaintMode) as any,
+			enableWhiteInpaint: liveSettings.enableWhiteInpaint ?? batchEnableWhiteInpaint ?? true,
 			inpaintExpansionPct: liveSettings.inpaintExpansionPct ?? batchInpaintExpansionPct,
 			typesetExpansionPct: liveSettings.typesetExpansionPct ?? batchTypesetExpansionPct,
 			typesetOptions: batchTypesetOptions,
@@ -728,6 +733,7 @@ export const batchService = {
 		batchPageConcurrency = typeof opts.pageConcurrency === 'number' ? Math.max(1, Math.min(16, opts.pageConcurrency)) : undefined;
 		batchResliceBeforeBatch = Boolean(opts.resliceBeforeBatch) && (!opts.pageIds || opts.pageIds.length === 0);
 		batchInpaintMode = opts.inpaintMode || 'patch';
+		batchEnableWhiteInpaint = opts.enableWhiteInpaint;
 		batchInpaintExpansionPct = opts.inpaintExpansionPct;
 		batchTypesetExpansionPct = opts.typesetExpansionPct;
 		batchTypesetOptions = opts.typesetOptions;

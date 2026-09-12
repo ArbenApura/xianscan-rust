@@ -219,6 +219,7 @@ function createBatchTrackerStore() {
 						pageConcurrency,
 						resliceBeforeBatch,
 						inpaintMode: curSettings?.inpaintMode,
+						enableWhiteInpaint: curSettings?.enableWhiteInpaint,
 						inpaintExpansionPct: curSettings?.inpaintExpansionPct,
 						typesetExpansionPct: curSettings?.typesetExpansionPct,
 						typesetOptions: {

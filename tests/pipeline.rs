@@ -44,13 +44,18 @@ fn test_end_to_end_pipeline_on_zhang_yude_cemetery() {
         })
         .collect();
 
-    let cleaned_img = engine.clean_image(&img, &clean_regions, "patch").expect("Clean image failed");
-    let scaled_img = engine.clean_image(&img, &clean_regions, "scaled").expect("Clean scaled failed");
+    let cleaned_img = engine.clean_image(&img, &clean_regions, "patch", true).expect("Clean image failed");
+    let scaled_img = engine.clean_image(&img, &clean_regions, "scaled", true).expect("Clean scaled failed");
     assert_eq!(scaled_img.width(), img.width());
     assert_eq!(scaled_img.height(), img.height());
 
     assert_eq!(cleaned_img.width(), img.width());
     assert_eq!(cleaned_img.height(), img.height());
+
+    // VERIFY DISABLING WHITE INPAINT SUCCEEDS
+    let raw_inpaint_img = engine.clean_image(&img, &clean_regions, "patch", false).expect("Clean image without white inpaint failed");
+    assert_eq!(raw_inpaint_img.width(), img.width());
+    assert_eq!(raw_inpaint_img.height(), img.height());
 }
 
 /// # Language-Aware Filtering Pipeline Test

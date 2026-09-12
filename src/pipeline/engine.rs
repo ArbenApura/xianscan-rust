@@ -193,8 +193,8 @@ impl PipelineEngine {
         analyze_image_with_options(self, img, options)
     }
 
-    pub fn clean_image(&mut self, img: &DynamicImage, regions: &[CleanRequestRegion], mode: &str) -> Result<DynamicImage> {
-        clean_image(&mut self.inpainter, img, regions, mode)
+    pub fn clean_image(&mut self, img: &DynamicImage, regions: &[CleanRequestRegion], mode: &str, enable_white_inpaint: bool) -> Result<DynamicImage> {
+        clean_image(&mut self.inpainter, img, regions, mode, enable_white_inpaint)
     }
 
     /// Explicitly triggers process memory reclamation and working-set page release back to the OS.

@@ -328,6 +328,7 @@ async fn clean_handler(
     let mut image_bytes = None;
     let mut regions_json = None;
     let mut inpaint_mode = "patch".to_string();
+    let mut enable_white_inpaint = true;
 
     while let Ok(Some(field)) = multipart.next_field().await {
         let name = field.name().unwrap_or_default().to_string();
@@ -344,6 +345,11 @@ async fn clean_handler(
                 if !text.trim().is_empty() {
                     inpaint_mode = text.trim().to_string();
                 }
+            }
+        } else if name == "enable_white_inpaint" || name == "white_inpaint" {
+            if let Ok(text) = field.text().await {
+                let t = text.trim();
+                enable_white_inpaint = t != "false" && t != "0";
             }
         }
     }
@@ -367,7 +373,7 @@ async fn clean_handler(
         let mut engine = engine_lock.lock().map_err(|e| {
             (StatusCode::INTERNAL_SERVER_ERROR, format!("Failed to lock engine: {}", e))
         })?;
-        let cleaned = engine.clean_image(&img, &regions, &inpaint_mode)
+        let cleaned = engine.clean_image(&img, &regions, &inpaint_mode, enable_white_inpaint)
             .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("Inpainting failed: {}", e)))?;
 
         let mut out_bytes = std::io::Cursor::new(Vec::new());
