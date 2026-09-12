@@ -144,6 +144,13 @@ pub fn should_reject_candidate_region(
         if is_pure_digits_in_bubble {
             return true;
         }
+        let has_digit = cleaned.chars().any(|c| c.is_ascii_digit());
+        let is_digit_or_letter_shard_in_bubble = has_digit
+            && char_count <= 2
+            && (cluster_rect.w >= 70 || cluster_rect.h >= 70);
+        if is_digit_or_letter_shard_in_bubble {
+            return true;
+        }
         let is_noise_or_digit = crate::ml::detect::is_standalone_digit_or_particle_noise(cleaned)
             || crate::ml::detect::is_standalone_noise_stroke(cleaned)
             || cleaned.lines().all(|l| {
