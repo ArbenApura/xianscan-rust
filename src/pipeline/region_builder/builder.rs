@@ -411,7 +411,7 @@ pub fn build_regions(
                     let t = l.text.trim();
                     let lacks_native = !crate::ml::detect::has_native_script_for_lang(t, source_lang);
                     let is_punct = t.chars().any(|c| matches!(c, '！' | '？' | '!' | '?' | '…'));
-                    let is_pure_latin_word = lacks_native && !is_punct && t.chars().all(|c| c.is_ascii_alphabetic() || c.is_whitespace() || c.is_ascii_punctuation());
+                    let is_pure_latin_word = lacks_native && !is_punct && t.chars().all(|c| c.is_ascii_alphanumeric() || c.is_whitespace() || c.is_ascii_punctuation()) && !crate::ml::detect::is_legitimate_cjk_latin_loanword_or_dialogue(t);
                     let is_stroke_noise = crate::ml::detect::is_standalone_noise_stroke(t) && has_multi_char;
                     let is_noise_or_digit = (!is_punct && is_stroke_noise) || (lacks_native && !is_punct && (crate::ml::detect::is_standalone_digit_or_particle_noise(t) || crate::ml::detect::is_standalone_noise_stroke(t)));
                     let is_garbled_latin_debris = !is_punct && {
@@ -1062,7 +1062,8 @@ pub fn build_regions(
                 page_w,
                 page_h,
             ) {
-                let cleaned = fallback.text.trim().to_string();
+                let (trail_cleaned, _) = crate::ml::detect::strip_trailing_watermark_debris(&fallback.text, source_lang);
+                let cleaned = trail_cleaned.trim().to_string();
                 let cleaned = crate::ml::detect::normalize_vertical_exclamation(&cleaned, is_bubble_region, box_rect.w, box_rect.h);
                 if should_reject_candidate_region(
                     &cleaned,

@@ -804,7 +804,7 @@ pub fn is_legitimate_cjk_latin_loanword_or_dialogue(suffix: &str) -> bool {
         return true;
     }
 
-    // 2. COMMON CJK GAMING, TECH, SLANG, AND DIALOGUE ACRONYMS OR LOANWORDS (WITH OPTIONAL NUMERIC STAT VALUE, E.G. MP100, LV99, HP500)
+    // 2. COMMON CJK GAMING, TECH, SLANG, AND DIALOGUE ACRONYMS OR LOANWORDS
     let word = trimmed.trim_matches(|c: char| c.is_ascii_punctuation() || matches!(c, '！' | '？' | '…' | '～' | '。' | '，')).to_uppercase();
     const CJK_LATIN_TERMS: &[&str] = &[
         "NPC", "BOSS", "PK", "EXP", "HP", "MP", "GM", "ID", "VIP", "CD", "DPS", "AOE", "BUG",
@@ -814,18 +814,24 @@ pub fn is_legitimate_cjk_latin_loanword_or_dialogue(suffix: &str) -> bool {
         "HI", "HELLO", "YES", "COOL", "PASS", "MISS", "CRIT", "BUFF", "DEBUFF", "TANK",
         "HEAL", "HEALER", "AGGRO", "SOLO", "CARRY", "PRO", "NOOB", "EZ", "AFK", "SP", "AP",
     ];
+    const NUMERIC_STAT_TERMS: &[&str] = &[
+        "HP", "MP", "SP", "AP", "EXP", "LV", "LEVEL", "CP", "BP", "ATK", "DEF", "STR", "DEX",
+        "INT", "AGI", "VIT", "LUK", "CH", "EP", "VOL",
+    ];
 
-    let base_term = word.trim_matches(|c: char| c.is_ascii_digit() || matches!(c, '+' | '-' | '.' | ':' | '：' | ' '));
-    if CJK_LATIN_TERMS.contains(&word.as_str()) || (!base_term.is_empty() && CJK_LATIN_TERMS.contains(&base_term)) {
+    if CJK_LATIN_TERMS.contains(&word.as_str()) {
         return true;
     }
 
-    // 3. SHORT ALL-CAPS ACRONYMS (2 TO 4 CHARACTERS, E.G. 'VR', 'PVP', 'PVE', WITH OPTIONAL STAT VALUE)
-    if (word.len() >= 2 && word.len() <= 4 && word.chars().all(|c| c.is_ascii_uppercase()))
-        || (!base_term.is_empty() && base_term.len() >= 2 && base_term.len() <= 4 && base_term.chars().all(|c| c.is_ascii_uppercase()))
-    {
-        let check = if !base_term.is_empty() { base_term } else { word.as_str() };
-        if check != "TL" && check != "RAW" {
+    let has_digits = word.chars().any(|c| c.is_ascii_digit());
+    let base_term = word.trim_matches(|c: char| c.is_ascii_digit() || matches!(c, '+' | '-' | '.' | ':' | '：' | ' '));
+    if has_digits && !base_term.is_empty() && NUMERIC_STAT_TERMS.contains(&base_term) {
+        return true;
+    }
+
+    // 3. SHORT ALL-CAPS ACRONYMS (2 TO 4 CHARACTERS, E.G. 'VR', 'PVP', 'PVE') WITHOUT DIGIT ATTACHMENTS
+    if !has_digits && word.len() >= 2 && word.len() <= 4 && word.chars().all(|c| c.is_ascii_uppercase()) {
+        if word != "TL" && word != "RAW" {
             return true;
         }
     }
@@ -859,11 +865,13 @@ pub fn strip_trailing_watermark_debris(line_text: &str, source_lang: Option<&str
     }
     if let Some(idx) = chars.iter().rposition(|&c| crate::ml::detect::has_native_script_for_lang(&c.to_string(), source_lang) || crate::ml::detect::has_cjk_characters(&c.to_string()) || matches!(c, '。' | '！' | '？' | '，' | '、' | '…' | '”' | '’' | '」' | '』' | '）' | ')')) {
         let suffix: String = chars[idx + 1..].iter().collect();
-        let suffix_trimmed = suffix.trim_start_matches(|c| matches!(c, '·' | '.' | '_' | '-' | '|' | ' ' | '/' | '\\' | ':')).trim();
+        let suffix_trimmed = suffix
+            .trim_start_matches(|c: char| c.is_whitespace() || matches!(c, '·' | '.' | '_' | '-' | '|' | '/' | '\\' | ':'))
+            .trim();
         let has_letters = suffix_trimmed.chars().any(|c| c.is_ascii_alphabetic());
         let is_latin_debris = !suffix_trimmed.is_empty()
             && has_letters
-            && suffix_trimmed.chars().all(|c| c.is_ascii_alphanumeric() || c.is_ascii_punctuation())
+            && suffix_trimmed.chars().all(|c| c.is_ascii_alphanumeric() || c.is_ascii_punctuation() || c.is_whitespace())
             && suffix_trimmed.chars().count() >= 2;
         if is_latin_debris && !is_legitimate_cjk_latin_loanword_or_dialogue(suffix_trimmed) {
             let clean_prefix: String = chars[..=idx].iter().collect();

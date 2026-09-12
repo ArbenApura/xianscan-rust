@@ -300,13 +300,15 @@ pub fn try_refine_cluster_crop(
     // PRODUCED BY CROP RECOGNITION MATCHING DOWNSTREAM BUILDER PRUNING BEHAVIOR
     if is_cjk {
         let has_multi_char = dedup_crop_lines.iter().any(|(_, ot, _)| ot.trim().chars().count() >= 2);
+        let has_native_line = dedup_crop_lines.iter().any(|(_, ot, _)| crate::ml::detect::has_cjk_characters(ot.trim()));
         dedup_crop_lines.retain(|(_, text, _)| {
             let t = text.trim();
             let has_native = crate::ml::detect::has_cjk_characters(t);
             let is_punct = !t.is_empty() && t.chars().all(|c| c.is_ascii_punctuation() || matches!(c, '…' | '·' | '—' | '～' | '！' | '？' | '。' | '，'));
             let is_stroke_noise = crate::ml::detect::is_standalone_noise_stroke(t) && has_multi_char;
             let is_noise = ((!has_native && !is_punct) || is_stroke_noise) && (crate::ml::detect::is_standalone_digit_or_particle_noise(t) || crate::ml::detect::is_standalone_noise_stroke(t));
-            !is_noise
+            let is_latin_noise = has_native_line && !has_native && !is_punct && t.chars().all(|c| c.is_ascii_alphanumeric() || c.is_whitespace() || c.is_ascii_punctuation()) && !crate::ml::detect::is_legitimate_cjk_latin_loanword_or_dialogue(t);
+            !is_noise && !is_latin_noise
         });
     }
 
@@ -513,11 +515,31 @@ pub fn run_fallback_crop_recognition(
     };
 
     let (isolated_text, isolated_score, fallback_polys) = if let Some(res) = cached_hit {
-        let text = res.text.trim().to_string();
+        let is_cjk = crate::ml::detect::is_cjk_source(source_lang);
+        let has_native_line = res.lines.iter().any(|(_, ot, _)| crate::ml::detect::has_cjk_characters(ot.trim()));
+        let filtered_lines: Vec<_> = if is_cjk && has_native_line {
+            res.lines
+                .into_iter()
+                .filter(|(_, text, _)| {
+                    let t = text.trim();
+                    let has_native = crate::ml::detect::has_cjk_characters(t);
+                    let is_punct = !t.is_empty() && t.chars().all(|c| c.is_ascii_punctuation() || matches!(c, '…' | '·' | '—' | '～' | '！' | '？' | '。' | '，'));
+                    let is_latin_noise = !has_native && !is_punct && t.chars().all(|c| c.is_ascii_alphanumeric() || c.is_whitespace() || c.is_ascii_punctuation()) && !crate::ml::detect::is_legitimate_cjk_latin_loanword_or_dialogue(t);
+                    !is_latin_noise
+                })
+                .collect()
+        } else {
+            res.lines
+        };
+        let text = if !filtered_lines.is_empty() {
+            filtered_lines.iter().map(|(_, t, _)| t.clone()).collect::<Vec<_>>().join("\n")
+        } else {
+            res.text.trim().to_string()
+        };
         let score = res.score;
         let mut fallback_polys = Vec::new();
-        if !res.lines.is_empty() {
-            for (l_poly, _, _) in res.lines {
+        if !filtered_lines.is_empty() {
+            for (l_poly, _, _) in filtered_lines {
                 let offset_poly: Vec<[i32; 2]> = l_poly.iter().map(|p| [p[0] + crop_x as i32, p[1] + crop_y as i32]).collect();
                 fallback_polys.push(offset_poly);
             }
@@ -533,15 +555,39 @@ pub fn run_fallback_crop_recognition(
         let mut recorded_result: Option<OcrResult> = None;
 
         if let Ok(Some(res)) = o.recognize_crop_with_lang(&crop, source_lang) {
-            isolated_text = res.text.trim().to_string();
+            let is_cjk = crate::ml::detect::is_cjk_source(source_lang);
+            let has_native_line = res.lines.iter().any(|(_, ot, _)| crate::ml::detect::has_cjk_characters(ot.trim()));
+            let filtered_lines: Vec<_> = if is_cjk && has_native_line {
+                res.lines
+                    .into_iter()
+                    .filter(|(_, text, _)| {
+                        let t = text.trim();
+                        let has_native = crate::ml::detect::has_cjk_characters(t);
+                        let is_punct = !t.is_empty() && t.chars().all(|c| c.is_ascii_punctuation() || matches!(c, '…' | '·' | '—' | '～' | '！' | '？' | '。' | '，'));
+                        let is_latin_noise = !has_native && !is_punct && t.chars().all(|c| c.is_ascii_alphanumeric() || c.is_whitespace() || c.is_ascii_punctuation()) && !crate::ml::detect::is_legitimate_cjk_latin_loanword_or_dialogue(t);
+                        !is_latin_noise
+                    })
+                    .collect()
+            } else {
+                res.lines
+            };
+            isolated_text = if !filtered_lines.is_empty() {
+                filtered_lines.iter().map(|(_, t, _)| t.clone()).collect::<Vec<_>>().join("\n")
+            } else {
+                res.text.trim().to_string()
+            };
             isolated_score = res.score;
-            if !res.lines.is_empty() {
-                for (l_poly, _, _) in &res.lines {
+            if !filtered_lines.is_empty() {
+                for (l_poly, _, _) in &filtered_lines {
                     let offset_poly: Vec<[i32; 2]> = l_poly.iter().map(|p| [p[0] + crop_x as i32, p[1] + crop_y as i32]).collect();
                     fallback_polys.push(offset_poly);
                 }
             }
-            recorded_result = Some(res);
+            recorded_result = Some(OcrResult {
+                text: isolated_text.clone(),
+                score: isolated_score,
+                lines: filtered_lines,
+            });
         }
 
         if isolated_text.is_empty() {
@@ -569,7 +615,8 @@ pub fn run_fallback_crop_recognition(
         (isolated_text, isolated_score, fallback_polys)
     };
 
-    let mut isolated_text = crate::ml::detect::clean_stray_ocr_artifacts(&isolated_text);
+    let (stripped, _) = crate::ml::detect::strip_trailing_watermark_debris(&isolated_text, source_lang);
+    let mut isolated_text = crate::ml::detect::clean_stray_ocr_artifacts(&stripped);
     if crate::ml::detect::is_vertical_ellipsis_dot_noise(&isolated_text, is_bubble, box_rect.w, box_rect.h) {
         isolated_text = "……".to_string();
     }

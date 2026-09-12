@@ -87,10 +87,21 @@ pub fn should_reject_candidate_region(
         return true;
     }
     if !is_bubble {
-        let is_bracketed_title = (cleaned.starts_with('[') && cleaned.ends_with(']'))
-            || (cleaned.starts_with('【') && cleaned.ends_with('】'))
-            || (cleaned.starts_with('《') && cleaned.ends_with('》'));
-        if is_bracketed_title {
+        let has_bracketed_title = cleaned.lines().any(|l| {
+            let lt = l.trim();
+            (lt.starts_with('[') && lt.ends_with(']'))
+                || (lt.starts_with('【') && lt.ends_with('】'))
+                || (lt.starts_with('《') && lt.ends_with('》'))
+        });
+        let has_tabular_or_phone_metric = cleaned.lines().any(|l| {
+            let lt = l.trim();
+            crate::ml::detect::is_standalone_table_cell(lt)
+                || (lt.contains('%') && lt.chars().any(|c| c.is_ascii_digit()) && (lt.contains(':') || lt.contains('：')))
+        });
+        if has_bracketed_title && has_tabular_or_phone_metric {
+            return true;
+        }
+        if has_bracketed_title {
             let is_tabular_prop_header = split_lines.iter().filter(|l| {
                 let (lx, ly, lw, lh) = polygon_bounds(&l.polygon);
                 let dy = (ly - (cluster_rect.y + cluster_rect.h)).max(cluster_rect.y - (ly + lh)).max(0);
