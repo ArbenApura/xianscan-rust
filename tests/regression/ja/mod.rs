@@ -14,4 +14,14 @@ mod page_seven_year_old_summoner_talent;
 mod page_novice_summoner_blank_scrolls_slanted_caption;
 mod page_sage_reincarnation_class_change;
 mod page_sage_reincarnation_novice_skill;
+mod page_weak_body_like_you_split_bubble;
+mod page_emergency_production_mp100_card;
+mod page_escape_together_barbaric_war;
+mod page_death_falling_gravel_what_was_it;
+mod page_pursuers_food_shortage_done_it_again;
+mod page_atmosphere_getting_bad_king;
+mod page_cursed_tool_party_coordination;
+mod page_holy_knight_you_are_fired;
+mod page_fang_wolf_pack_could_he_be;
+mod page_melissa_exclamation_not_one;
 
