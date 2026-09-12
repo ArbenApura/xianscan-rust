@@ -235,7 +235,7 @@
 		<div class="flex flex-col items-center text-center">
 			<div class="mb-5 flex items-center justify-center">
 				<Badge variant="cinnabar">
-					v0.5.0-beta Native Engine
+					v0.5.0-beta.6 Native Engine
 				</Badge>
 			</div>
 

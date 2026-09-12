@@ -46,6 +46,8 @@ export const DOC_NAVIGATION: DocSection[] = [
 		items: [
 			{ id: 'gpu-setup', title: 'GPU Hardware Acceleration', href: '/docs/advanced/gpu/' },
 			{ id: 'ml-pipeline', title: 'ML Pipeline & Inpainting Engine', href: '/docs/advanced/ml-pipeline/' },
+			{ id: 'typography-fonts', title: 'Typography & Custom Fonts', href: '/docs/advanced/typography/' },
+			{ id: 'storage-maintenance', title: 'Storage & System Maintenance', href: '/docs/advanced/storage/' },
 			{ id: 'api-reference', title: 'REST API & Automation', href: '/docs/advanced/api/' },
 			{ id: 'extension-development', title: 'Extension & Client Architecture', href: '/docs/advanced/extensions/' },
 			{ id: 'self-hosting', title: 'Remote Server & Cloudflare Tunnels', href: '/docs/advanced/self-hosting/' },

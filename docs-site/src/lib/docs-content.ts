@@ -21,7 +21,7 @@ export const DOCS_CONTENT: Record<string, DocChapterContent> = {
 	'getting-started/quick-start': {
 		title: 'Quick Start (3-Minute Setup)',
 		description: 'Install and launch XianScan standalone server to translate your first raw comic chapter in under 3 minutes.',
-		lastUpdated: '2026-09-02',
+		lastUpdated: '2026-09-12',
 		sections: [
 			{
 				id: 'download-binary',
@@ -86,7 +86,7 @@ Upon launch, XianScan logs its startup sequence directly in the terminal (initia
 	'getting-started/reading': {
 		title: 'How to Import & Read',
 		description: 'Explore the Webtoon reader, Side-by-Side comparison, Page Grid manager, Page Inspector, and Smart Re-slicing.',
-		lastUpdated: '2026-09-02',
+		lastUpdated: '2026-09-12',
 		sections: [
 			{
 				id: 'chapter-view-modes',
@@ -131,13 +131,23 @@ Click **Smart Re-slice** in the chapter menu to:
 - **Pipeline Controls**: Use the toolbar menu to **Translate All**, **Cancel Translation**, or **Clear Progress** to re-translate with a different AI model or glossary theme.
 `,
 			},
+			{
+				id: 'chapter-ordering-settings',
+				title: '5. Navigation, Sorting, and Settings Search',
+				content: `
+- **Settings Instant Search** - Search across all settings panels, AI providers, hardware configurations, and typeset controls with real-time query filtering and direct anchor jumping.
+- **Natural Alphanumeric Page Sorting** - File imports automatically sort pages naturally (ensuring page 2 appears before page 10 instead of lexical ordering).
+- **Chapter Position Reordering** - Manually adjust chapter sequence positions when organizing large manga and webtoon volumes.
+- **Creature and Monster Pronouns** - Configure pronoun resolution prompts for monster, beast, and fantasy spirit dialogue to avoid unnatural human gender assignments.
+`,
+			},
 		],
 	},
 
 	'getting-started/requirements': {
 		title: 'System Requirements & Hardware Specs',
 		description: 'Hardware recommendations and performance benchmarks across CPU, GPU, and Apple Silicon architectures.',
-		lastUpdated: '2026-09-02',
+		lastUpdated: '2026-09-12',
 		sections: [
 			{
 				id: 'hardware-tiers',
@@ -169,7 +179,7 @@ XianScan is built in pure Rust with lock-free \`mimalloc\` memory allocation and
 	'extensions/importer': {
 		title: 'Browser Web Importer',
 		description: '1-click chapter capture and live in-browser overlay translation for Chromium and Firefox browsers.',
-		lastUpdated: '2026-09-02',
+		lastUpdated: '2026-09-12',
 		sections: [
 			{
 				id: 'importer-overview',
@@ -192,8 +202,8 @@ Download the ready-to-use extension assets directly from [GitHub Releases](https
 
 | Browser Family | Release Asset | Installation Steps |
 | :--- | :--- | :--- |
-| **Chrome / Edge / Brave / Opera** | \`xianscan-importer-v1.2.0.zip\` | 1. Extract the ZIP archive.<br>2. Open \`chrome://extensions/\` (or \`edge://extensions/\` / \`brave://extensions/\`).<br>3. Enable **Developer mode** in the top-right corner.<br>4. Click **Load unpacked** and select the extracted folder. |
-| **Firefox / Floorp** | \`xianscan-importer-firefox-v1.2.0.xpi\` | 1. Open \`about:addons\` in Firefox.<br>2. Click the **Gear ⚙** icon and select **Install Add-on From File...** (or drag-and-drop the \`.xpi\` file into Firefox).<br>3. Alternatively, open \`about:debugging#/runtime/this-firefox\` and click **Load Temporary Add-on...**. |
+| **Chrome / Edge / Brave / Opera** | \`xianscan-importer-v1.2.0-beta.6.zip\` | 1. Extract the ZIP archive.<br>2. Open \`chrome://extensions/\` (or \`edge://extensions/\` / \`brave://extensions/\`).<br>3. Enable **Developer mode** in the top-right corner.<br>4. Click **Load unpacked** and select the extracted folder. |
+| **Firefox / Floorp** | \`xianscan-importer-firefox-v1.2.0-beta.6.xpi\` | 1. Open \`about:addons\` in Firefox.<br>2. Click the **Gear ⚙** icon and select **Install Add-on From File...** (or drag-and-drop the \`.xpi\` file into Firefox).<br>3. Alternatively, open \`about:debugging#/runtime/this-firefox\` and click **Load Temporary Add-on...**. |
 
 *(For building from source and internal architecture, see [Extension & Client Architecture](/docs/advanced/extensions)).*
 `,
@@ -208,13 +218,22 @@ Download the ready-to-use extension assets directly from [GitHub Releases](https
 4. Click **Import to XianScan** to send chapter pages to your library, or toggle **Live In-Page Translate** to replace speech bubbles inline on the page in real time.
 `,
 			},
+			{
+				id: 'importer-pipeline-controls',
+				title: '4. Dynamic Pipeline Steps and Progress Feedback',
+				content: `
+- **Dynamic Step Selection** - Selectively toggle OCR detection, inpainting, translation, or typesetting before queuing an import to fit your workflow.
+- **Dedicated Progress Feedback** - Distinct loading states indicate image payload uploads and server-side reslicing before queueing chapters.
+- **Multi-Tier Page Ordering** - Resilient sorting tiers ensure correct reading sequence across complex virtual-scrolling readers.
+`,
+			},
 		],
 	},
 
 	'extensions/mihon': {
 		title: 'Mihon Android App (Wi-Fi Sync)',
 		description: 'Stream translated chapters over your local Wi-Fi LAN directly into Mihon, Tachiyomi, and Android comic readers.',
-		lastUpdated: '2026-09-02',
+		lastUpdated: '2026-09-12',
 		sections: [
 			{
 				id: 'mihon-overview',
@@ -280,7 +299,7 @@ You can find your LAN address printed directly in the XianScan startup terminal 
 	'translation/models': {
 		title: 'Choosing AI Providers (Local & Cloud)',
 		description: 'Configuration guide and benchmark comparisons across local offline LLMs and cloud API translation providers.',
-		lastUpdated: '2026-09-02',
+		lastUpdated: '2026-09-12',
 		sections: [
 			{
 				id: 'providers-overview',
@@ -365,7 +384,7 @@ Fine-tune model generation behavior to match your workflow:
 	'translation/glossaries': {
 		title: 'Preset Themes & Multilingual Glossaries',
 		description: 'Explore the 7 specialized fiction theme packs, 20-language support matrix, and Aho-Corasick matching engine.',
-		lastUpdated: '2026-09-02',
+		lastUpdated: '2026-09-12',
 		sections: [
 			{
 				id: 'themes-breakdown',
@@ -408,7 +427,7 @@ All 7 preset theme packs are compiled across 20 languages:
 	'advanced/gpu': {
 		title: 'GPU Hardware Acceleration (CUDA, DirectML, CoreML)',
 		description: 'Complete guide for configuring NVIDIA CUDA + cuDNN on Linux, DirectML on Windows, and CoreML on Apple Silicon.',
-		lastUpdated: '2026-09-02',
+		lastUpdated: '2026-09-12',
 		sections: [
 			{
 				id: 'directml-windows',
@@ -544,7 +563,7 @@ curl -X POST http://localhost:8123/system/device \\
 	'advanced/ml-pipeline': {
 		title: 'ML Pipeline & Inpainting Engine',
 		description: 'Architectural breakdown of text detection, multilingual OCR reading flow, LaMa neural inpainting, and typesetting.',
-		lastUpdated: '2026-09-02',
+		lastUpdated: '2026-09-12',
 		sections: [
 			{
 				id: 'pipeline-stages',
@@ -588,6 +607,10 @@ XianScan executes a modular, multi-threaded neural pipeline implemented directly
   - \`clustering.rs\`: Aggregates overlapping or adjacent text lines into coherent dialogue blocks.
   - \`expansion.rs\`: Expands text bounding boxes with configurable safety padding to ensure full glyph coverage.
   - \`dedup.rs\`: Resolves conflicting bounding boxes using Intersection-over-Union (IoU) heuristics.
+- **Dark Bubble Boundary Containment** - Strict boundary checks enforce dark speech bubble isolation and prevent background overflows.
+- **Slanted SFX Rotation Angle Preservation** - Preserves native rotation angles for tilted sound effects and standalone glyphs without snapping to axis alignment.
+- **Dialogue Assembly and Noise Filtering** - Filters bubble tail caret artifacts, deduplicates dash-prolonged shouts, and suppresses vertical ellipsis noise.
+- **Dialogue and Loanword Retention** - Preserves valid Latin words in CJK texts and recovers terminal dialogue punctuation.
 `,
 			},
 			{
@@ -611,6 +634,7 @@ XianScan executes a modular, multi-threaded neural pipeline implemented directly
   - XianScan crops tight local patches around detected dialogue bubbles, inpaints each patch at native resolution, and composites them back seamlessly onto the unedited source image.
 - **Solid Background Fast Path (\`is_solid_background_patch\`)**:
   - Automatically identifies solid / flat white speech bubbles and replaces them instantly with exact color fills, bypassing GPU neural execution for sub-millisecond performance.
+- **White Bubble Shrinkwrap Cleaning** - Optional shrinkwrap mask mode isolates text glyphs rather than wiping the entire bubble interior, keeping speech bubble outlines and interior textures intact.
 `,
 			},
 			{
@@ -626,10 +650,89 @@ XianScan executes a modular, multi-threaded neural pipeline implemented directly
 		],
 	},
 
+	'advanced/typography': {
+		title: 'Typography & Custom Fonts',
+		description: 'Configure custom font families, multi-weight variants, operating system font discovery, and typesetting layout controls.',
+		lastUpdated: '2026-09-12',
+		sections: [
+			{
+				id: 'font-management',
+				title: '1. Custom Fonts and Variant Management',
+				content: `
+XianScan supports uploading custom web and desktop fonts (.ttf, .otf, and .woff2) directly into the web studio.
+
+- **Multi-Weight Variant Mapping** - Map distinct font files to specific font weights within a single family (Regular, Bold, ExtraBold, Black, Light, Medium, SemiBold). The typesetting engine automatically selects the right variant matching the layout configuration.
+- **Local Storage** - Uploaded font files are validated, parsed with \`font-parser.ts\`, and stored securely in the local application data directory.
+- **REST Font API** - Manage fonts programmatically using \`/api/system/fonts\` and \`/api/system/fonts/:id/variants\`.
+`,
+			},
+			{
+				id: 'system-font-discovery',
+				title: '2. Operating System Font Discovery',
+				content: `
+Instead of manually downloading and uploading font files, XianScan can scan and import fonts already installed on your machine.
+
+- **Cross-Platform Scanners** - Discovers fonts installed in standard system paths across Windows (\`C:\\Windows\\Fonts\`), macOS (\`/Library/Fonts\`, \`~/Library/Fonts\`), and Linux (\`/usr/share/fonts\`, \`~/.local/share/fonts\`).
+- **System Font Browser Modal** - Browse installed system fonts, preview font specimens in real time, and import families into the typesetting studio directly.
+`,
+			},
+			{
+				id: 'typography-controls',
+				title: '3. Advanced Typography Controls',
+				content: `
+Fine-tune dialogue text rendering to match comic styles.
+
+- **Numeric Font Weights** - Specify standard numeric font weights from 100 to 900, giving fine control beyond simple normal and bold toggles.
+- **Text Casing Transforms** - Choose text transformations (uppercase, lowercase, capitalize, or normal) to follow traditional comic lettering conventions.
+- **Typesetting Expansion Margins** - Decouple text box anchoring from tight bubble borders with configurable expansion margins, preventing letter descenders and punctuation from being clipped.
+- **Contrast Outline Strokes** - Add customizable outline widths and colors around text glyphs to maintain legibility against textured or dark backgrounds.
+`,
+			},
+		],
+	},
+
+	'advanced/storage': {
+		title: 'Storage & System Maintenance',
+		description: 'Monitor disk consumption, inspect book storage allocations, clean transient caches, and manage permanent file deletions.',
+		lastUpdated: '2026-09-12',
+		sections: [
+			{
+				id: 'storage-telemetry',
+				title: '1. System-Wide Storage Telemetry',
+				content: `
+XianScan provides live telemetry gauges to monitor disk consumption across all library assets.
+
+- **Visual Storage Breakdown** - Real-time metrics tracking raw source scans, inpainting cache files, typeset output canvases, SQLite database storage, and temporary processing buffers.
+- **Transient Cache Purging** - Clean up temporary reslice slices, intermediate preprocessing images, and stale background task buffers directly in the maintenance panel.
+`,
+			},
+			{
+				id: 'book-storage-modal',
+				title: '2. Book-Level Storage Inspector',
+				content: `
+Inspect disk usage on a per-book basis using the Book Storage Modal.
+
+- **Asset Breakdown** - View exact byte sizes for original page scans, neural inpainting caches, and final rendered images for any individual series.
+- **Targeted Purging** - Clear cached inpainting masks or reset rendered canvases for a specific book without affecting other series in your library.
+`,
+			},
+			{
+				id: 'deletion-maintenance',
+				title: '3. Disk Deletion Guarantees and File Cleanup',
+				content: `
+When books, chapters, or pages are deleted from the library, XianScan enforces complete disk cleanup.
+
+- **Physical File Unlinking** - Associated original images, rendered layers, and thumbnail files are permanently deleted from the host filesystem alongside database records.
+- **Orphan File Detection** - Automated scanner identifies unindexed files left behind by interrupted uploads or aborted batch runs.
+`,
+			},
+		],
+	},
+
 	'advanced/api': {
 		title: 'REST API & Automation',
 		description: 'Comprehensive REST API documentation, Axum backend endpoints, and SvelteKit routes.',
-		lastUpdated: '2026-09-02',
+		lastUpdated: '2026-09-12',
 		sections: [
 			{
 				id: 'api-endpoints',
@@ -673,6 +776,19 @@ XianScan executes a modular, multi-threaded neural pipeline implemented directly
 | \`GET /api/glossary\` | Fetch compiled system preset themes and custom terms |
 | \`POST /api/glossary\` | Insert or update custom glossary entries |
 | \`GET /api/pages/:id/file?kind=output\` | Retrieve rendered page image (\`output\`, \`cleaned\`, \`original\`, \`thumb\`) |
+| \`GET /api/system/fonts\` | List custom and system fonts with variant mappings |
+| \`POST /api/system/fonts\` | Upload custom font family file (.ttf, .otf, .woff2) |
+| \`GET /api/system/fonts/:id\` | Get font details and mapped weight variants |
+| \`DELETE /api/system/fonts/:id\` | Remove custom font family |
+| \`POST /api/system/fonts/:id/variants\` | Upload additional font weight variant |
+| \`DELETE /api/system/fonts/:id/variants/:variantId\` | Remove specific font variant |
+| \`GET /api/system/fonts/system\` | Query discovered local operating system fonts |
+| \`POST /api/system/fonts/system/:family\` | Import local OS font into the studio |
+| \`GET /api/system/storage\` | System-wide disk consumption and cache telemetry |
+| \`POST /api/system/storage\` | Trigger transient cache purge or orphan cleanup |
+| \`GET /api/books/:id/storage\` | Get per-book disk consumption breakdown |
+| \`POST /api/books/:id/storage\` | Purge book cache or rendered canvases |
+| \`POST /api/batch\` | Queue and execute whole-chapter batch translation jobs |
 | \`GET /api/mihon/*\` | Mihon / Tachiyomi source protocol endpoints |
 `,
 			},
@@ -682,7 +798,7 @@ XianScan executes a modular, multi-threaded neural pipeline implemented directly
 	'advanced/extensions': {
 		title: 'Extension & Client Architecture',
 		description: 'Internal architecture, build pipelines, and protocol specifications for the Browser Importer and Mihon Android extension.',
-		lastUpdated: '2026-09-02',
+		lastUpdated: '2026-09-12',
 		sections: [
 			{
 				id: 'importer-architecture',
@@ -747,7 +863,7 @@ cd extensions/xianscan-mihon
 	'advanced/self-hosting': {
 		title: 'Remote Server & Cloudflare Tunnels',
 		description: 'Deploy headless GPU servers (AWS EC2 / Hetzner) and configure zero-trust Cloudflare Tunnels.',
-		lastUpdated: '2026-09-04',
+		lastUpdated: '2026-09-12',
 		sections: [
 			{
 				id: 'docker-deployment',

@@ -285,7 +285,7 @@
 
 				<!-- DRAWER FOOTER LINKS -->
 				<div class="pt-5 mt-6 border-t border-black/10 dark:border-white/10 flex items-center justify-between text-xs opacity-60">
-					<span class="text-[11px] font-medium">XianScan v0.5.0</span>
+					<span class="text-[11px] font-medium">XianScan v0.5.0-beta.6</span>
 					<div class="flex items-center gap-3">
 						<a
 							href="https://discord.gg/dRWaQftNnR"

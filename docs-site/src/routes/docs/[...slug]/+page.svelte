@@ -223,7 +223,7 @@
 	{:else}
 		<!-- STANDARD CHAPTER PLACEHOLDER -->
 		<Callout variant="note" title="Section Under Active Writing">
-			This documentation chapter is currently being compiled for the <code>v0.5.0-beta</code> release. In the meantime, you can explore the codebase or discuss technical details in the Discord community.
+			This documentation chapter is currently being compiled for the <code>v0.5.0-beta.6</code> release. In the meantime, you can explore the codebase or discuss technical details in the Discord community.
 		</Callout>
 
 		<div class="my-8">
