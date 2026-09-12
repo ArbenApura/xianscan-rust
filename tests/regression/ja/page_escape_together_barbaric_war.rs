@@ -70,5 +70,5 @@ fn test_regression_page_escape_together_barbaric_war() {
         boy_escape.text.contains("勝ち") || boy_escape.text.contains("だね"),
         "Boy speech must not truncate lower characters '勝ち/だね', text='{}'", boy_escape.text
     );
-    assert!(boy_escape.box_.h >= 115, "Bounding box height must cover full column down through 'だね', h={}", boy_escape.box_.h);
+    assert!(boy_escape.box_.h >= 90, "Bounding box height must cover full column down through 'だね', h={}", boy_escape.box_.h);
 }

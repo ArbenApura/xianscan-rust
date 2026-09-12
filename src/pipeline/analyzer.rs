@@ -196,8 +196,8 @@ pub fn analyze_image_with_fusion_timed(
             return false;
         }
         if is_cjk && line.text.contains('\n') {
-            let has_sub_lines = cleaned_rapid_lines.iter().any(|other| {
-                if std::ptr::eq(other, *line) || other.text.contains('\n') {
+            let sub_lines: Vec<&crate::ml::ocr::OcrLine> = cleaned_rapid_lines.iter().filter(|other| {
+                if std::ptr::eq(*other, *line) || other.text.contains('\n') {
                     return false;
                 }
                 let (ox, oy, ow, oh) = crate::ml::geometry::polygon_bounds(&other.polygon);
@@ -205,8 +205,15 @@ pub fn analyze_image_with_fusion_timed(
                 let inter_x = (lx + lw).min(ox + ow) - lx.max(ox);
                 let inter_y = (ly + lh).min(oy + oh) - ly.max(oy);
                 is_vert && inter_x > 0 && inter_y > 0 && (inter_x * inter_y) as f32 / (ow * oh).max(1) as f32 >= 0.70
+            }).collect();
+            let composite_lines: Vec<&str> = line.text.lines().map(|s| s.trim()).filter(|s| !s.is_empty()).collect();
+            let all_lines_covered = !sub_lines.is_empty() && composite_lines.iter().all(|cl| {
+                sub_lines.iter().any(|sl| {
+                    let st = sl.text.trim();
+                    st == *cl || st.contains(*cl) || cl.contains(st)
+                })
             });
-            if has_sub_lines {
+            if all_lines_covered {
                 return false;
             }
         }
@@ -597,7 +604,22 @@ pub fn analyze_image_with_fusion_timed(
                     let iy2 = (pb.y + pb.h).min(b2.y + b2.h) - pb.y.max(b2.y);
                     let cov2 = (ix2.max(0) * iy2.max(0)) as f32 / (b2.w * b2.h).max(1) as f32;
 
-                    cov1 >= 0.60 && cov2 >= 0.60
+                    if cov1 < 0.60 || cov2 < 0.60 {
+                        return false;
+                    }
+
+                    // BOTH BOX CENTERS MUST RESIDE WITHIN THE ELLIPTICAL ENVELOPE OF THE SPEECH BUBBLE
+                    let cx = pb.x as f32 + pb.w as f32 / 2.0;
+                    let cy = pb.y as f32 + pb.h as f32 / 2.0;
+                    let rx = (pb.w as f32 / 2.0).max(1.0);
+                    let ry = (pb.h as f32 / 2.0).max(1.0);
+
+                    let c1x = (cur_b.x as f32 + cur_b.w as f32 / 2.0 - cx) / rx;
+                    let c1y = (cur_b.y as f32 + cur_b.h as f32 / 2.0 - cy) / ry;
+                    let c2x = (b2.x as f32 + b2.w as f32 / 2.0 - cx) / rx;
+                    let c2y = (b2.y as f32 + b2.h as f32 / 2.0 - cy) / ry;
+
+                    (c1x * c1x + c1y * c1y) <= 0.85 && (c2x * c2x + c2y * c2y) <= 0.85
                 });
 
                 if let Some(pb) = shared_bubble {

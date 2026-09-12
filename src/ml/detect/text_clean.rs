@@ -336,10 +336,14 @@ pub fn clean_stray_ocr_artifacts(text: &str) -> String {
 /// HIRAGANA ろ AND る LOOK VERY SIMILAR IN STYLIZED FONTS, FREQUENTLY CAUSING
 /// ADVERB そろそろ TO BE MISRECOGNIZED AS UNGRAMMATICAL そろそる.
 pub fn normalize_japanese_ocr_confusions(text: &str) -> String {
-    if !text.contains("そろそる") {
-        return text.to_string();
+    let mut s = text.to_string();
+    if s.contains("そろそる") {
+        s = s.replace("そろそる", "そろそろ");
     }
-    text.replace("そろそる", "そろそろ")
+    if s.contains("行ミう") {
+        s = s.replace("行ミう", "行こう");
+    }
+    s
 }
 
 /// NORMALIZES VERTICAL EXCLAMATION MARK OCR CONFUSIONS IN SPEECH BUBBLES
