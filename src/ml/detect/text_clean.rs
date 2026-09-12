@@ -343,6 +343,9 @@ pub fn normalize_japanese_ocr_confusions(text: &str) -> String {
     if s.contains("行ミう") {
         s = s.replace("行ミう", "行こう");
     }
+    if s.contains("4urt回") || s.contains("4urt") {
+        s = s.replace("4urt回", "何だっけ").replace("4urt", "何だっけ");
+    }
     s
 }
 

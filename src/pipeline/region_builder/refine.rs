@@ -382,7 +382,7 @@ pub fn try_refine_cluster_crop(
     });
     let is_corrupted_punct_to_digits = is_combined_pure_punct && is_crop_digits_bullets_or_noise;
 
-    let is_crop_corrupted_latin = is_cjk && !is_bubble && {
+    let is_crop_corrupted_latin = is_cjk && (!is_bubble || !crate::ml::detect::is_legitimate_cjk_latin_loanword_or_dialogue(&clean_crop_text)) && {
         let has_cjk = clean_crop_text.chars().any(|c| crate::ml::detect::has_cjk_characters(&c.to_string()));
         let non_native = clean_crop_text.chars().filter(|c| c.is_ascii_alphanumeric() && !crate::ml::detect::has_cjk_characters(&c.to_string())).count();
         let native = clean_crop_text.chars().filter(|c| crate::ml::detect::has_cjk_characters(&c.to_string())).count();

@@ -308,6 +308,7 @@ pub fn build_regions(
 
         let mut is_container_vert = box_rect.h > (box_rect.w as f32 * 1.3) as i32;
         let mut angle_deg = 0.0f32;
+        let mut produced_any_region = false;
 
         if !matched.is_empty() {
             // DETERMINE DOMINANT TEXT ORIENTATION INSIDE THIS CONTAINER (HORIZONTAL VS VERTICAL TBRL)
@@ -1036,8 +1037,10 @@ pub fn build_regions(
                     is_subtitle: false,
                     carrier_box: None,
                 });
+                produced_any_region = true;
             }
-        } else {
+        }
+        if !produced_any_region {
             // FALLBACK: TARGETED ISOLATED RECOGNITION CROP FOR MISSED CANDIDATE CONTAINER
             let mut produced_region = false;
             if let Some(fallback) = run_fallback_crop_recognition(
