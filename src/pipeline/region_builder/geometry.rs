@@ -717,6 +717,7 @@ pub fn extract_dark_bubble_envelope(
 
     // UPWARD RAYS
     let mut top_stops = Vec::new();
+    let mut top_hits = 0usize;
     for frac in [0.20, 0.35, 0.50, 0.65, 0.80] {
         let rx = bx + (bw as f32 * frac) as i32;
         let mut stop_y = by;
@@ -724,6 +725,7 @@ pub fn extract_dark_bubble_envelope(
             let ry = by - step;
             if !is_dark_pixel(rx, ry) {
                 stop_y = ry.max(0);
+                top_hits += 1;
                 break;
             }
             stop_y = ry.max(0);
@@ -735,6 +737,7 @@ pub fn extract_dark_bubble_envelope(
 
     // DOWNWARD RAYS
     let mut bot_stops = Vec::new();
+    let mut bot_hits = 0usize;
     for frac in [0.20, 0.35, 0.50, 0.65, 0.80] {
         let rx = bx + (bw as f32 * frac) as i32;
         let mut stop_y = by + bh;
@@ -742,6 +745,7 @@ pub fn extract_dark_bubble_envelope(
             let ry = by + bh + step;
             if !is_dark_pixel(rx, ry) {
                 stop_y = ry.min(page_h as i32);
+                bot_hits += 1;
                 break;
             }
             stop_y = ry.min(page_h as i32);
@@ -753,6 +757,7 @@ pub fn extract_dark_bubble_envelope(
 
     // LEFTWARD RAYS
     let mut left_stops = Vec::new();
+    let mut left_hits = 0usize;
     for frac in [0.20, 0.35, 0.50, 0.65, 0.80] {
         let ry = by + (bh as f32 * frac) as i32;
         let mut stop_x = bx;
@@ -760,6 +765,7 @@ pub fn extract_dark_bubble_envelope(
             let rx = bx - step;
             if !is_dark_pixel(rx, ry) {
                 stop_x = rx.max(0);
+                left_hits += 1;
                 break;
             }
             stop_x = rx.max(0);
@@ -771,6 +777,7 @@ pub fn extract_dark_bubble_envelope(
 
     // RIGHTWARD RAYS
     let mut right_stops = Vec::new();
+    let mut right_hits = 0usize;
     for frac in [0.20, 0.35, 0.50, 0.65, 0.80] {
         let ry = by + (bh as f32 * frac) as i32;
         let mut stop_x = bx + bw;
@@ -778,6 +785,7 @@ pub fn extract_dark_bubble_envelope(
             let rx = bx + bw + step;
             if !is_dark_pixel(rx, ry) {
                 stop_x = rx.min(page_w as i32);
+                right_hits += 1;
                 break;
             }
             stop_x = rx.min(page_w as i32);
@@ -786,6 +794,11 @@ pub fn extract_dark_bubble_envelope(
     }
     right_stops.sort();
     let bubble_max_x = right_stops[2].clamp(0, page_w as i32);
+
+    // MUST HIT A NON-DARK BORDER IN ALL 4 DIRECTIONS (A SOLID BLACK SPEECH BALLOON MUST BE FULLY ENCLOSED BY SURROUNDING ARTWORK)
+    if top_hits < 3 || bot_hits < 3 || left_hits < 3 || right_hits < 3 {
+        return None;
+    }
 
     let raw_w = (bubble_max_x - bubble_x).max(bw + 10);
     let raw_h = (bubble_max_y - bubble_y).max(bh + 10);

@@ -138,3 +138,4 @@ mod page_gu_fei_teacher_gossip_haha_laughter_merge;
 mod page_sacred_family_worship_vertical_ellipsis;
 mod page_wyvern_art_mystic_chant_scribble;
 mod page_tree_quiet_sfx_vertical_ellipsis;
+mod page_glowing_relic_narration_false_bubble;

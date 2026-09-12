@@ -501,7 +501,12 @@ pub fn analyze_image_with_fusion_timed(
                 let iy = (pb.y + pb.h).min(ly + lh) - pb.y.max(ly);
                 ix > 0 && iy > 0 && (ix * iy) as f32 / (lw * lh).max(1) as f32 >= 0.50
             });
-            if !in_existing_bubble {
+            let in_multiline_text_bubble = effective_text_bubbles.iter().any(|(tb, _)| {
+                let ix = (tb.x + tb.w).min(lx + lw) - tb.x.max(lx);
+                let iy = (tb.y + tb.h).min(ly + lh) - tb.y.max(ly);
+                ix > 0 && iy > 0 && (ix * iy) as f32 / (lw * lh).max(1) as f32 >= 0.50 && tb.h >= (lh as f32 * 1.35) as i32
+            });
+            if !in_existing_bubble && !in_multiline_text_bubble {
                 if let Some(dark_b) = extract_dark_bubble_envelope(img, lx, ly, lw, lh, page_w, page_h) {
                     if let Some(pos) = effective_bubbles.iter().position(|eb| {
                         let ix = (eb.x + eb.w).min(dark_b.x + dark_b.w) - eb.x.max(dark_b.x);
