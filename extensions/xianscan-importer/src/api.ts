@@ -382,6 +382,7 @@ export class XianScanClient {
 			sfxMaxAreaPct: s.sfxMaxAreaPct,
 			typesetOptions: {
 				fontDialogue: s.typesetFont,
+				fontWeight: s.typesetFontWeight,
 				fontCjk: s.typesetCjkFont,
 				boxInset: s.typesetPadding,
 				outlineMode: s.typesetOutline,

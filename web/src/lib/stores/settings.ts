@@ -26,7 +26,18 @@ export type TypesetContrast = 'auto' | 'dark' | 'light';
 
 export type TypesetCasing = 'uppercase' | 'original' | 'lowercase';
 
-export type TypesetFontWeight = 'normal' | 'bold';
+export type TypesetFontWeight =
+	| '100'
+	| '200'
+	| '300'
+	| '400'
+	| '500'
+	| '600'
+	| '700'
+	| '800'
+	| '900'
+	| 'normal'
+	| 'bold';
 
 export type LibraryLayout = 'grid' | 'list' | 'compact';
 
@@ -77,6 +88,7 @@ export interface AppSettings {
 	typesetAllCaps: boolean;
 	enableTextRotation: boolean;
 	enableTypesetCentering: boolean;
+	enableTypesetItalic: boolean;
 	enableWhiteInpaint: boolean;
 	inpaintExpansionPct: number;
 	hasCompletedOnboarding: boolean;
@@ -229,6 +241,7 @@ export const DEFAULTS: AppSettings = {
 	typesetAllCaps: true,
 	enableTextRotation: true,
 	enableTypesetCentering: true,
+	enableTypesetItalic: false,
 	enableWhiteInpaint: true,
 	inpaintExpansionPct: 0.03,
 	hasCompletedOnboarding: false,
@@ -276,6 +289,7 @@ export const SERVER_CANONICAL_KEYS: (keyof AppSettings)[] = [
 	'typesetAllCaps',
 	'enableTextRotation',
 	'enableTypesetCentering',
+	'enableTypesetItalic',
 	'enableWhiteInpaint',
 	'inpaintExpansionPct',
 	'hasCompletedOnboarding',
@@ -311,6 +325,7 @@ export const TYPESET_CASING_COOKIE = 'mt_ts_casing';
 export const TYPESET_ALL_CAPS_COOKIE = 'mt_ts_allcaps';
 export const TYPESET_ROTATION_COOKIE = 'mt_ts_rot';
 export const TYPESET_CENTERING_COOKIE = 'mt_ts_centering';
+export const TYPESET_ITALIC_COOKIE = 'mt_ts_italic';
 
 export const DARK_THEMES: Theme[] = ['dark'];
 
@@ -370,27 +385,27 @@ export interface TypesetFontOption {
 	system?: boolean;
 	customId?: string;
 	scriptType?: 'dialogue' | 'cjk';
-	supportedWeights?: ('normal' | 'bold')[];
+	supportedWeights?: ('normal' | 'bold' | string)[];
 	isVariable?: boolean;
 	variants?: CustomFontVariantItem[];
 }
 
 export const AVAILABLE_TYPESET_FONTS: TypesetFontOption[] = [
-	{ id: 'CC Wild Words', label: 'CC Wild Words', sub: 'Classic Comic All-Caps', stack: "'CC Wild Words', 'WildWorld', sans-serif", allCapsOnly: true, bundled: true, supportedWeights: ['normal'] },
-	{ id: 'Friendly Sans', label: 'Friendly Sans', sub: 'Clean Comic Sans-Serif', stack: "'Friendly Sans', sans-serif", bundled: true, supportedWeights: ['normal'] },
-	{ id: 'General Sans', label: 'General Sans', sub: 'Clean Modern Sans', stack: "'General Sans', sans-serif", bundled: true, supportedWeights: ['normal', 'bold'] },
-	{ id: 'Poppins', label: 'Poppins', sub: 'Geometric Rounded', stack: "'Poppins', sans-serif", bundled: true, supportedWeights: ['bold'] },
-	{ id: 'Montserrat', label: 'Montserrat', sub: 'Bold Contemporary', stack: "'Montserrat', sans-serif", bundled: true, supportedWeights: ['bold'] },
-	{ id: 'Lexend', label: 'Lexend', sub: 'High Legibility', stack: "'Lexend', sans-serif", bundled: true, supportedWeights: ['bold'] },
+	{ id: 'CC Wild Words', label: 'CC Wild Words', sub: 'Classic Comic All-Caps', stack: "'CC Wild Words', 'WildWorld', sans-serif", allCapsOnly: true, bundled: true, supportedWeights: ['normal', '400'] },
+	{ id: 'Friendly Sans', label: 'Friendly Sans', sub: 'Clean Comic Sans-Serif', stack: "'Friendly Sans', sans-serif", bundled: true, supportedWeights: ['normal', '400'] },
+	{ id: 'General Sans', label: 'General Sans', sub: 'Clean Modern Sans', stack: "'General Sans', sans-serif", bundled: true, supportedWeights: ['normal', 'bold', '400', '700'] },
+	{ id: 'Poppins', label: 'Poppins', sub: 'Geometric Rounded', stack: "'Poppins', sans-serif", bundled: true, supportedWeights: ['bold', '700'] },
+	{ id: 'Montserrat', label: 'Montserrat', sub: 'Bold Contemporary', stack: "'Montserrat', sans-serif", bundled: true, supportedWeights: ['bold', '700'] },
+	{ id: 'Lexend', label: 'Lexend', sub: 'High Legibility', stack: "'Lexend', sans-serif", bundled: true, supportedWeights: ['bold', '700'] },
 ];
 
 export const AVAILABLE_CJK_FONTS: TypesetFontOption[] = [
-	{ id: 'WenQuanYi Micro Hei', label: 'WenQuanYi Micro Hei', sub: 'Bundled Universal CJK Engine', bundled: true, supportedWeights: ['normal', 'bold'] },
-	{ id: 'Microsoft YaHei', label: 'Microsoft YaHei', sub: 'Chinese Simplified & Traditional', supportedWeights: ['normal', 'bold'] },
-	{ id: 'Yu Gothic', label: 'Yu Gothic', sub: 'Japanese Manga Standard', supportedWeights: ['normal', 'bold'] },
-	{ id: 'Malgun Gothic', label: 'Malgun Gothic', sub: 'Korean Hangul Manhwa', supportedWeights: ['normal', 'bold'] },
-	{ id: 'Noto Sans CJK SC', label: 'Noto Sans CJK', sub: 'Universal CJK (Linux / Noto)', supportedWeights: ['normal', 'bold'] },
-	{ id: 'Friendly Sans', label: 'Friendly Sans', sub: 'Clean Latin / Symbol Fallback', bundled: true, supportedWeights: ['normal'] },
+	{ id: 'WenQuanYi Micro Hei', label: 'WenQuanYi Micro Hei', sub: 'Bundled Universal CJK Engine', bundled: true, supportedWeights: ['normal', 'bold', '400', '700'] },
+	{ id: 'Microsoft YaHei', label: 'Microsoft YaHei', sub: 'Chinese Simplified & Traditional', supportedWeights: ['normal', 'bold', '400', '700'] },
+	{ id: 'Yu Gothic', label: 'Yu Gothic', sub: 'Japanese Manga Standard', supportedWeights: ['normal', 'bold', '400', '700'] },
+	{ id: 'Malgun Gothic', label: 'Malgun Gothic', sub: 'Korean Hangul Manhwa', supportedWeights: ['normal', 'bold', '400', '700'] },
+	{ id: 'Noto Sans CJK SC', label: 'Noto Sans CJK', sub: 'Universal CJK (Linux / Noto)', supportedWeights: ['normal', 'bold', '400', '700'] },
+	{ id: 'Friendly Sans', label: 'Friendly Sans', sub: 'Clean Latin / Symbol Fallback', bundled: true, supportedWeights: ['normal', '400'] },
 ];
 
 export interface FontAvailabilityStatus {
@@ -401,14 +416,14 @@ export interface FontAvailabilityStatus {
 	id?: string;
 	scriptType?: 'dialogue' | 'cjk';
 	note: string;
-	supportedWeights?: ('normal' | 'bold')[];
+	supportedWeights?: ('normal' | 'bold' | string)[];
 	isVariable?: boolean;
 	variantsCount?: number;
 }
 
 export interface CustomFontVariantItem {
 	id: string;
-	weight: 'normal' | 'bold';
+	weight: 'normal' | 'bold' | string;
 	weightNumeric: number;
 	weightLabel: string;
 	style: 'normal' | 'italic';
@@ -423,9 +438,85 @@ export interface CustomFontItem {
 	format: 'truetype' | 'opentype';
 	scriptType: 'dialogue' | 'cjk';
 	fileSize: number;
-	supportedWeights: ('normal' | 'bold')[];
+	supportedWeights: ('normal' | 'bold' | string)[];
 	isVariable?: boolean;
 	variants?: CustomFontVariantItem[];
+}
+
+export interface FontWeightPreset {
+	value: TypesetFontWeight;
+	label: string;
+	numeric: number;
+	hint: string;
+}
+
+export const FONT_WEIGHT_PRESETS: FontWeightPreset[] = [
+	{ value: '100', label: 'Thin', numeric: 100, hint: 'Weight 100' },
+	{ value: '200', label: 'Extra Light', numeric: 200, hint: 'Weight 200' },
+	{ value: '300', label: 'Light', numeric: 300, hint: 'Weight 300' },
+	{ value: '400', label: 'Regular', numeric: 400, hint: 'Weight 400' },
+	{ value: '500', label: 'Medium', numeric: 500, hint: 'Weight 500' },
+	{ value: '600', label: 'Semi Bold', numeric: 600, hint: 'Weight 600' },
+	{ value: '700', label: 'Bold', numeric: 700, hint: 'Weight 700' },
+	{ value: '800', label: 'Extra Bold', numeric: 800, hint: 'Weight 800' },
+	{ value: '900', label: 'Black', numeric: 900, hint: 'Weight 900' },
+];
+
+export function normalizeFontWeightNumeric(weight?: TypesetFontWeight | string | number | null): number {
+	if (!weight) return 400;
+	if (weight === 'bold' || weight === 700 || weight === '700') return 700;
+	if (weight === 'normal' || weight === 400 || weight === '400') return 400;
+	const parsed = Number(weight);
+	if (!Number.isNaN(parsed) && parsed >= 100 && parsed <= 900) return parsed;
+	return 400;
+}
+
+export function normalizeFontWeightSelectValue(weight?: TypesetFontWeight | string | number | null): TypesetFontWeight {
+	if (!weight || weight === 'normal' || weight === 400 || weight === '400') return '400';
+	if (weight === 'bold' || weight === 700 || weight === '700') return '700';
+	const parsed = Number(weight);
+	if (!Number.isNaN(parsed) && parsed >= 100 && parsed <= 900) {
+		return String(Math.round(parsed / 100) * 100) as TypesetFontWeight;
+	}
+	return '400';
+}
+
+export function isWeightSupportedByFont(
+	numericWeight: number,
+	supportedWeights?: string[],
+	isVariable?: boolean,
+): boolean {
+	if (isVariable) return true;
+	if (!supportedWeights || supportedWeights.length === 0) return numericWeight === 400;
+	if (supportedWeights.includes(String(numericWeight))) return true;
+	if (numericWeight === 700 && supportedWeights.includes('bold')) return true;
+	if (numericWeight === 400 && supportedWeights.includes('normal')) return true;
+	return false;
+}
+
+export function getValidFontWeightForFont(
+	currentWeight?: TypesetFontWeight | string | number | null,
+	supportedWeights?: string[],
+	isVariable?: boolean,
+): TypesetFontWeight {
+	if (isVariable) {
+		return normalizeFontWeightSelectValue(currentWeight);
+	}
+	const num = normalizeFontWeightNumeric(currentWeight);
+	if (isWeightSupportedByFont(num, supportedWeights, isVariable)) {
+		return normalizeFontWeightSelectValue(currentWeight);
+	}
+	// PREFER REGULAR 400
+	if (isWeightSupportedByFont(400, supportedWeights, isVariable)) {
+		return '400';
+	}
+	// PREFER BOLD 700
+	if (isWeightSupportedByFont(700, supportedWeights, isVariable)) {
+		return '700';
+	}
+	// FIRST AVAILABLE SUPPORTED WEIGHT
+	const match = FONT_WEIGHT_PRESETS.find((p) => isWeightSupportedByFont(p.numeric, supportedWeights, isVariable));
+	return match ? match.value : '400';
 }
 
 export interface SystemFontInfo {
@@ -465,7 +556,7 @@ const loadedBrowserFonts = new Set<string>();
 export async function loadBrowserFontFace(font: {
 	id: string;
 	name: string;
-	supportedWeights?: ('normal' | 'bold')[];
+	supportedWeights?: ('normal' | 'bold' | string)[];
 	isVariable?: boolean;
 	variants?: CustomFontVariantItem[];
 }): Promise<boolean> {
@@ -1016,6 +1107,9 @@ function createSettings() {
 				setCookie(WHITE_INPAINT_COOKIE, String(s.enableWhiteInpaint));
 				setCookie(INPAINT_EXPANSION_COOKIE, String(s.inpaintExpansionPct));
 				setCookie(TYPESET_CENTERING_COOKIE, String(s.enableTypesetCentering));
+				if (s.typesetFontWeight) {
+					setCookie(TYPESET_FONT_WEIGHT_COOKIE, s.typesetFontWeight);
+				}
 				setCookie(EXEC_DEVICE_COOKIE, s.executionDevice);
 			} catch {
 				// IGNORE STORAGE ERRORS (PRIVATE MODE / QUOTA)

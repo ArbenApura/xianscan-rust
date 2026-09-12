@@ -452,9 +452,10 @@ export function fitFontSize(
 	maxSize?: number,
 	boxInset?: number,
 	customCjk?: string,
-	fontWeight?: 'normal' | 'bold',
+	fontWeight?: 'normal' | 'bold' | string | number,
+	fontStyle?: 'normal' | 'italic' | boolean,
 ): number {
-	return fitFontSizeWithLines(ctx, text, fontFamily, boxW, boxH, startSize, maxSize, boxInset, customCjk, fontWeight).size;
+	return fitFontSizeWithLines(ctx, text, fontFamily, boxW, boxH, startSize, maxSize, boxInset, customCjk, fontWeight, fontStyle).size;
 }
 
 export function fitFontSizeWithLines(
@@ -467,7 +468,8 @@ export function fitFontSizeWithLines(
 	maxSize?: number,
 	boxInset?: number,
 	customCjk?: string,
-	fontWeight?: 'normal' | 'bold',
+	fontWeight?: 'normal' | 'bold' | string | number,
+	fontStyle?: 'normal' | 'italic' | boolean,
 ): FitFontSizeLayout {
 	const inset = boxInset ?? BOX_INSET;
 	const maxW = Math.max(10, boxW * (1 - 2 * inset));
@@ -494,7 +496,7 @@ export function fitFontSizeWithLines(
 	// WINNING (SIZE, LINES) PAIR — THE LARGEST VALIDATED LAYOUT ACROSS ALL PASSES.
 	// RENDER MUST DRAW EXACTLY THESE LINES SO THE FIT CHECKS AND THE RENDER MATCH.
 	let finalSize = MIN_FONT_SIZE;
-	ctx.font = fontSpec(MIN_FONT_SIZE, fontFamily, text, customCjk, fontWeight);
+	ctx.font = fontSpec(MIN_FONT_SIZE, fontFamily, text, customCjk, fontWeight, fontStyle);
 	let finalLines: string[] = wrapText(ctx, text, maxW);
 	const consider = (size: number, lines: string[]): void => {
 		if (size > finalSize && lines.length > 0) {
@@ -533,7 +535,7 @@ export function fitFontSizeWithLines(
 	// BUT WRAP INTO A SHORTER CLEAN LINE AT SIZE N+1). A BINARY SEARCH FALSELY
 	// PRUNES LARGER VALID SIZES WHEN A SINGLE INTERMEDIATE SIZE OVERFLOWS.
 	for (let mid = hi; mid >= lo; mid--) {
-		ctx.font = fontSpec(mid, fontFamily, text, customCjk, fontWeight);
+		ctx.font = fontSpec(mid, fontFamily, text, customCjk, fontWeight, fontStyle);
 
 		// HYPHENATION-AWARE MAX WORD WIDTH: USE THE WIDEST SEGMENT AFTER APPLYING
 		// HYPHENATION BREAKS (MATCHING WHAT wrapText WILL ACTUALLY PRODUCE).
@@ -616,7 +618,7 @@ export function fitFontSizeWithLines(
 		const TALL_NARROW_VERT_TOLERANCE = 1.0;
 		let safeFloor = MIN_FONT_SIZE;
 		for (let mid = geometricCandidate; mid >= MIN_FONT_SIZE; mid--) {
-			ctx.font = fontSpec(mid, fontFamily, text, customCjk, fontWeight);
+			ctx.font = fontSpec(mid, fontFamily, text, customCjk, fontWeight, fontStyle);
 			const lines = reflowText(ctx, text, maxW);
 			const lineH = mid * LINE_HEIGHT;
 			const allFitW = lines.every((l) => ctx.measureText(l).width <= maxW + 0.5);
@@ -642,7 +644,7 @@ export function fitFontSizeWithLines(
 	// HYPHENATE CLEANLY AT SIZE N+1), SO A BINARY SEARCH COULD MISS THE FILL BAND.
 	if (aspectRatio >= TALL_FILL_MIN_ASPECT) {
 		for (let mid = effectiveCap; mid >= MIN_FONT_SIZE; mid--) {
-			ctx.font = fontSpec(mid, fontFamily, text, customCjk, fontWeight);
+			ctx.font = fontSpec(mid, fontFamily, text, customCjk, fontWeight, fontStyle);
 			const lines = wrapText(ctx, text, maxW);
 			const allLinesFitW = lines.every((l) => ctx.measureText(l).width <= maxW + 0.5);
 			if (allLinesFitW && lines.length * mid * LINE_HEIGHT <= maxH) {
@@ -662,7 +664,7 @@ export function fitFontSizeWithLines(
 	let best = cleanBest;
 
 	for (let mid = hi; mid >= lo; mid--) {
-		ctx.font = fontSpec(mid, fontFamily, text, customCjk, fontWeight);
+		ctx.font = fontSpec(mid, fontFamily, text, customCjk, fontWeight, fontStyle);
 		let totalWordWidth = 0;
 		for (const w of words) {
 			totalWordWidth += ctx.measureText(w).width;
@@ -704,13 +706,14 @@ export function fitSingleLineSize(
 	maxH: number,
 	startSize: number,
 	customCjk?: string,
-	fontWeight?: 'normal' | 'bold',
+	fontWeight?: 'normal' | 'bold' | string | number,
+	fontStyle?: 'normal' | 'italic' | boolean,
 ): number {
 	let lo = MIN_FONT_SIZE;
 	let hi = Math.max(lo, startSize);
 	while (lo < hi) {
 		const mid = Math.ceil((lo + hi) / 2);
-		ctx.font = fontSpec(mid, fontFamily, text, customCjk, fontWeight);
+		ctx.font = fontSpec(mid, fontFamily, text, customCjk, fontWeight, fontStyle);
 		const textWidth = ctx.measureText(text).width;
 		const lineH = mid * LINE_HEIGHT;
 		if (textWidth <= maxW && lineH <= maxH) lo = mid;

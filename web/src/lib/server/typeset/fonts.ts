@@ -332,7 +332,8 @@ export interface FontAvailabilityItem {
 	id?: string;
 	scriptType?: 'dialogue' | 'cjk';
 	note: string;
-	supportedWeights: ('normal' | 'bold')[];
+	supportedWeights: ('normal' | 'bold' | string)[];
+	hasItalic?: boolean;
 	isVariable?: boolean;
 	variantsCount?: number;
 }
@@ -343,9 +344,21 @@ export interface FontAvailabilityItem {
 export function resolveEffectiveFontWeight(
 	fontFamily: string,
 	requestedWeight?: 'normal' | 'bold' | string | number,
-): 'normal' | 'bold' {
-	const w: 'normal' | 'bold' =
-		requestedWeight === 'bold' || requestedWeight === 700 || requestedWeight === '700' ? 'bold' : 'normal';
+): 'normal' | 'bold' | number {
+	let targetWeight = 400;
+	if (requestedWeight === 'bold' || requestedWeight === '700' || requestedWeight === 700) {
+		targetWeight = 700;
+	} else if (requestedWeight === 'normal' || requestedWeight === '400' || requestedWeight === 400) {
+		targetWeight = 400;
+	} else if (typeof requestedWeight === 'number' && requestedWeight >= 100 && requestedWeight <= 900) {
+		targetWeight = requestedWeight;
+	} else if (typeof requestedWeight === 'string') {
+		const parsed = Number(requestedWeight);
+		if (!Number.isNaN(parsed) && parsed >= 100 && parsed <= 900) {
+			targetWeight = parsed;
+		}
+	}
+
 	const fam = (fontFamily || '').trim();
 
 	// CC WILD WORDS AND FRIENDLY SANS ONLY BUNDLE REGULAR (400)
@@ -356,9 +369,9 @@ export function resolveEffectiveFontWeight(
 	if (fam === 'Montserrat' || fam === 'Poppins' || fam === 'Lexend' || fam === 'General Sans Bold') {
 		return 'bold';
 	}
-	// GENERAL SANS SUPPORTS BOTH NORMAL AND BOLD
+	// GENERAL SANS BUNDLES 400 AND 700
 	if (fam === 'General Sans') {
-		return w;
+		return targetWeight >= 600 ? 'bold' : 'normal';
 	}
 
 	// QUERY SKIA FAMILIES CACHE FOR SYSTEM AND NON-BUNDLED FONTS
@@ -367,17 +380,27 @@ export function resolveEffectiveFontWeight(
 		if (parsed && Array.isArray(parsed) && parsed.length > 0) {
 			const match = parsed.find((f) => f.family.toLowerCase() === fam.toLowerCase());
 			if (match && Array.isArray(match.styles) && match.styles.length > 0) {
-				const hasBold = match.styles.some((s) => s.weight >= 600);
-				const hasNormal = match.styles.some((s) => s.weight < 600);
-				if (w === 'bold' && !hasBold && hasNormal) return 'normal';
-				if (w === 'normal' && !hasNormal && hasBold) return 'bold';
+				let closestWeight = match.styles[0].weight;
+				let minDiff = Math.abs(closestWeight - targetWeight);
+				for (const s of match.styles) {
+					const diff = Math.abs(s.weight - targetWeight);
+					if (diff < minDiff) {
+						minDiff = diff;
+						closestWeight = s.weight;
+					}
+				}
+				if (closestWeight === 400) return 'normal';
+				if (closestWeight === 700) return 'bold';
+				return closestWeight;
 			}
 		}
 	} catch {
-		// FALLBACK TO REQUESTED WEIGHT ON ERROR
+		// FALLBACK TO TARGET WEIGHT ON ERROR
 	}
 
-	return w;
+	if (targetWeight === 400) return 'normal';
+	if (targetWeight === 700) return 'bold';
+	return targetWeight;
 }
 
 /**
@@ -385,7 +408,7 @@ export function resolveEffectiveFontWeight(
  */
 export function getFontAvailability(db: any = defaultDb): Record<string, FontAvailabilityItem> {
 	registerFonts(db);
-	const fontMeta: Record<string, { bundled: boolean; note: string; defaultWeights?: ('normal' | 'bold')[] }> = {
+	const fontMeta: Record<string, { bundled: boolean; note: string; defaultWeights?: ('normal' | 'bold' | string)[] }> = {
 		'CC Wild Words': { bundled: true, note: 'Bundled comic dialogue font', defaultWeights: ['normal'] },
 		'Friendly Sans': { bundled: true, note: 'Bundled clean Latin / symbol fallback', defaultWeights: ['normal'] },
 		'General Sans': { bundled: true, note: 'Bundled clean modern sans', defaultWeights: ['normal', 'bold'] },
@@ -411,20 +434,18 @@ export function getFontAvailability(db: any = defaultDb): Record<string, FontAva
 	const result: Record<string, FontAvailabilityItem> = {};
 	for (const [name, meta] of Object.entries(fontMeta)) {
 		const isAvail = meta.bundled || GlobalFonts.has(name);
-		let supportedWeights: ('normal' | 'bold')[] = meta.defaultWeights ? [...meta.defaultWeights] : ['normal'];
+		let supportedWeights: ('normal' | 'bold' | string)[] = meta.defaultWeights ? [...meta.defaultWeights] : ['normal'];
 
 		if (!meta.defaultWeights) {
 			const entry = skiaFamilies.find((f) => f.family.toLowerCase() === name.toLowerCase());
 			if (entry && Array.isArray(entry.styles) && entry.styles.length > 0) {
-				const hasBold = entry.styles.some((s) => s.weight >= 600);
-				const hasNormal = entry.styles.some((s) => s.weight < 600);
-				if (hasBold && hasNormal) {
-					supportedWeights = ['normal', 'bold'];
-				} else if (hasBold) {
-					supportedWeights = ['bold'];
-				} else {
-					supportedWeights = ['normal'];
+				const weights = new Set<string>();
+				for (const s of entry.styles) {
+					weights.add(String(s.weight));
+					if (s.weight >= 600) weights.add('bold');
+					if (s.weight < 600) weights.add('normal');
 				}
+				supportedWeights = Array.from(weights);
 			}
 		}
 
@@ -441,9 +462,12 @@ export function getFontAvailability(db: any = defaultDb): Record<string, FontAva
 	try {
 		const customRows = db.select().from(customFonts).all();
 		for (const row of customRows) {
-			let supportedWeights: ('normal' | 'bold')[] = ['normal'];
+			let supportedWeights: ('normal' | 'bold' | string)[] = ['normal'];
 			try {
-				supportedWeights = JSON.parse(row.supportedWeights);
+				const parsed = JSON.parse(row.supportedWeights);
+				if (Array.isArray(parsed)) {
+					supportedWeights = parsed.map(String);
+				}
 			} catch {
 				// FALLBACK TO NORMAL
 			}
@@ -454,6 +478,10 @@ export function getFontAvailability(db: any = defaultDb): Record<string, FontAva
 				if (variants && variants.length > 0) {
 					variantsCount = variants.length;
 					for (const v of variants) {
+						if (v.weightNumeric) {
+							const wStr = String(v.weightNumeric);
+							if (!supportedWeights.includes(wStr)) supportedWeights.push(wStr);
+						}
 						const mapped: 'normal' | 'bold' = v.weightNumeric >= 600 ? 'bold' : 'normal';
 						if (!supportedWeights.includes(mapped)) {
 							supportedWeights.push(mapped);
@@ -746,7 +774,10 @@ export function fontSpec(
 	text?: string,
 	customCjk?: string,
 	fontWeight?: 'normal' | 'bold' | string | number,
+	fontStyle?: 'normal' | 'italic' | boolean,
 ): string {
+	const isItalic = fontStyle === true || fontStyle === 'italic';
+	const stylePrefix = isItalic ? 'italic ' : '';
 	const isPureNonLatin = Boolean(text && NON_LATIN_SCRIPT_REGEX.test(text) && !/[a-zA-Z]/.test(text));
 
 	if (isPureNonLatin) {
@@ -755,14 +786,12 @@ export function fontSpec(
 				? customCjk
 				: resolveScriptFont(text, customCjk);
 		const effectiveWeight = resolveEffectiveFontWeight(cjkPrimary, fontWeight ?? 'bold');
-		const weightPrefix = effectiveWeight === 'bold' ? 'bold ' : '';
-		return `${weightPrefix}${size}px "${cjkPrimary}", ${CJK_FONT_STACK}`;
+		return `${stylePrefix}${effectiveWeight} ${size}px "${cjkPrimary}", ${CJK_FONT_STACK}`;
 	}
 
 	const fontName = fontNameOrText ?? FONT_DIALOGUE;
 	const effectiveWeight = resolveEffectiveFontWeight(fontName, fontWeight);
-	const weightPrefix = effectiveWeight === 'bold' ? 'bold ' : '';
-	return `${weightPrefix}${size}px "${fontName}"${FONT_FALLBACK}`;
+	return `${stylePrefix}${effectiveWeight} ${size}px "${fontName}"${FONT_FALLBACK}`;
 }
 
 export function measureTextWithRuns(
@@ -772,16 +801,17 @@ export function measureTextWithRuns(
 	primaryFont?: string,
 	fallbackFont?: string,
 	customCjk?: string,
-	fontWeight?: 'normal' | 'bold',
+	fontWeight?: 'normal' | 'bold' | string | number,
+	fontStyle?: 'normal' | 'italic' | boolean,
 ): number {
 	const runs = splitTextRuns(text, primaryFont, fallbackFont);
 	if (runs.length === 1 && !runs[0].isFallbackSymbol) {
-		ctx.font = fontSpec(size, runs[0].font, text, customCjk, fontWeight);
+		ctx.font = fontSpec(size, runs[0].font, text, customCjk, fontWeight, fontStyle);
 		return ctx.measureText(text).width;
 	}
 	let totalW = 0;
 	for (const run of runs) {
-		ctx.font = fontSpec(size, run.font, run.isFallbackSymbol ? run.text : undefined, customCjk, fontWeight);
+		ctx.font = fontSpec(size, run.font, run.isFallbackSymbol ? run.text : undefined, customCjk, fontWeight, fontStyle);
 		totalW += ctx.measureText(run.text).width;
 	}
 	return totalW;
@@ -800,12 +830,13 @@ export function drawTextLineWithRuns(
 	isDarkStroke: boolean,
 	customCjk?: string,
 	align: 'center' | 'left' = 'center',
-	fontWeight?: 'normal' | 'bold',
+	fontWeight?: 'normal' | 'bold' | string | number,
+	fontStyle?: 'normal' | 'italic' | boolean,
 ): void {
 	const runs = splitTextRuns(line, primaryFont, fallbackFont);
 	let totalW = 0;
 	for (const run of runs) {
-		ctx.font = fontSpec(size, run.font, run.isFallbackSymbol ? run.text : undefined, customCjk, fontWeight);
+		ctx.font = fontSpec(size, run.font, run.isFallbackSymbol ? run.text : undefined, customCjk, fontWeight, fontStyle);
 		totalW += ctx.measureText(run.text).width;
 	}
 
@@ -814,7 +845,7 @@ export function drawTextLineWithRuns(
 	ctx.textBaseline = 'alphabetic';
 
 	for (const run of runs) {
-		ctx.font = fontSpec(size, run.font, run.isFallbackSymbol ? run.text : undefined, customCjk, fontWeight);
+		ctx.font = fontSpec(size, run.font, run.isFallbackSymbol ? run.text : undefined, customCjk, fontWeight, fontStyle);
 		if (strokeWidth > 0) {
 			ctx.lineWidth = strokeWidth;
 			ctx.lineJoin = 'round';

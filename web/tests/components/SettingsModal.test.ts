@@ -376,16 +376,16 @@ describe('SettingsModal Component UI', () => {
 
 		// INPAINT MASK MARGIN IS RENDERED WITH +3% DEFAULT
 		expect(screen.getByText('Inpaint Mask Margin')).toBeTruthy();
-		expect(screen.getByText('+3%')).toBeTruthy();
+		expect(screen.getAllByText('+3%').length).toBeGreaterThanOrEqual(1);
 
-		// CLICK 10% PRESET
-		const tenPctBtn = screen.getByText('10%').closest('button');
-		expect(tenPctBtn).toBeTruthy();
-		await fireEvent.click(tenPctBtn!);
+		// CLICK 6% PRESET
+		const sixPctBtn = screen.getByText('6%').closest('button');
+		expect(sixPctBtn).toBeTruthy();
+		await fireEvent.click(sixPctBtn!);
 		await tick();
 
-		expect(get(settings).inpaintExpansionPct).toBe(0.1);
-		expect(screen.getByText('+10%')).toBeTruthy();
+		expect(get(settings).inpaintExpansionPct).toBe(0.06);
+		expect(screen.getAllByText('+6%').length).toBeGreaterThanOrEqual(1);
 
 		// RESET DEFAULTS APPEARS
 		inpaintResetBtn = screen.getByText('Reset Defaults');
@@ -396,7 +396,7 @@ describe('SettingsModal Component UI', () => {
 		await tick();
 		expect(screen.queryByText('Reset Defaults')).toBeNull();
 		expect(get(settings).inpaintExpansionPct).toBe(0.03);
-		expect(screen.getByText('+3%')).toBeTruthy();
+		expect(screen.getAllByText('+3%').length).toBeGreaterThanOrEqual(1);
 	});
 
 	it('renders Inference & Sampling card and changes parameters directly', async () => {

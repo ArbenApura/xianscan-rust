@@ -143,6 +143,7 @@ export interface ServerCanonicalSettings {
 	enableSfx?: boolean;
 	sfxMaxAreaPct?: number;
 	typesetFont?: string;
+	typesetFontWeight?: string;
 	typesetCjkFont?: string;
 	typesetPadding?: number;
 	typesetOutline?: string;

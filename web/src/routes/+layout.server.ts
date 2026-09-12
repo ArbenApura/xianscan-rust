@@ -16,6 +16,7 @@ import {
 	WHITE_INPAINT_COOKIE,
 	INPAINT_EXPANSION_COOKIE,
 	TYPESET_CENTERING_COOKIE,
+	TYPESET_ITALIC_COOKIE,
 	EXEC_DEVICE_COOKIE,
 	PARALLEL_PROCESSES_COOKIE,
 	PARALLEL_CHAPTERS_COOKIE,
@@ -41,6 +42,7 @@ export interface UserPreferences {
 	enableWhiteInpaint: boolean;
 	inpaintExpansionPct: number;
 	enableTypesetCentering: boolean;
+	enableTypesetItalic: boolean;
 	executionDevice: ExecutionDevice;
 	parallelProcesses: number;
 	parallelChapters: number;
@@ -141,6 +143,9 @@ export const load: LayoutServerLoad = async ({ cookies }) => {
 	const rawTypesetCentering = cookies.get(TYPESET_CENTERING_COOKIE);
 	const enableTypesetCentering = rawTypesetCentering !== undefined ? rawTypesetCentering === 'true' : (canonicalSettings?.enableTypesetCentering ?? true);
 
+	const rawTypesetItalic = cookies.get(TYPESET_ITALIC_COOKIE);
+	const enableTypesetItalic = rawTypesetItalic !== undefined ? rawTypesetItalic === 'true' : (canonicalSettings?.enableTypesetItalic ?? false);
+
 	const rawDevice = cookies.get(EXEC_DEVICE_COOKIE);
 	const defaultDevice = canonicalSettings?.executionDevice && VALID_EXEC_DEVICES.has(canonicalSettings.executionDevice) ? canonicalSettings.executionDevice : 'auto';
 	const executionDevice: ExecutionDevice = VALID_EXEC_DEVICES.has(rawDevice as ExecutionDevice) ? (rawDevice as ExecutionDevice) : defaultDevice;
@@ -168,6 +173,7 @@ export const load: LayoutServerLoad = async ({ cookies }) => {
 		enableWhiteInpaint,
 		inpaintExpansionPct,
 		enableTypesetCentering,
+		enableTypesetItalic,
 		executionDevice,
 		parallelProcesses,
 		parallelChapters,

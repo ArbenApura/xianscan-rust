@@ -20,6 +20,11 @@
 		type TypesetOutline,
 		type TypesetCasing,
 		type TypesetFontWeight,
+		FONT_WEIGHT_PRESETS,
+		normalizeFontWeightNumeric,
+		normalizeFontWeightSelectValue,
+		isWeightSupportedByFont,
+		getValidFontWeightForFont,
 	} from '$lib/stores/settings';
 	// IMPORTED ICONS
 	import Type from 'lucide-svelte/icons/type';
@@ -43,6 +48,7 @@
 	import Button from '$lib/components/ui/Button.svelte';
 	import Switch from '$lib/components/ui/Switch.svelte';
 	import ConfirmDialog from '$lib/components/ui/ConfirmDialog.svelte';
+	import Select, { type SelectOption } from '$lib/components/ui/Select.svelte';
 	import ImportFontModal from '$lib/components/typeset/ImportFontModal.svelte';
 	import SystemFontBrowserModal from '$lib/components/typeset/SystemFontBrowserModal.svelte';
 
@@ -138,28 +144,34 @@
 		{ id: 'lowercase', label: 'lowercase', sample: 'hold on! what is this...', desc: 'All lower case letterform' },
 	];
 
+	// -- CASING SELECT OPTIONS -- //
+	const CASING_OPTIONS: SelectOption[] = [
+		{ value: 'uppercase', label: 'UPPERCASE', hint: 'Standard comic scanlation' },
+		{ value: 'original', label: 'Normal / As Is', hint: 'Keep sentence casing' },
+		{ value: 'lowercase', label: 'lowercase', hint: 'All lower case' },
+	];
+
 	function setTypesetFont(font: string) {
 		const targetStatus = $fontAvailabilityStore[font];
-		const targetOption = AVAILABLE_TYPESET_FONTS.find((f) => f.id === font);
+		const targetOption = dialogueFonts.find((f) => f.id === font);
 		const supported = targetStatus?.supportedWeights || targetOption?.supportedWeights || ['normal'];
-		const hasBold = supported.includes('bold');
-		const hasNormal = supported.includes('normal');
+		const isVariable = Boolean(targetStatus?.isVariable || targetOption?.isVariable);
+		const nextWeight = getValidFontWeightForFont($settings.typesetFontWeight, supported, isVariable);
 
-		settings.update((s) => {
-			let nextWeight = s.typesetFontWeight || 'normal';
-			if (nextWeight === 'bold' && !hasBold && hasNormal) {
-				nextWeight = 'normal';
-			} else if (nextWeight === 'normal' && !hasNormal && hasBold) {
-				nextWeight = 'bold';
-			}
-			return { ...s, typesetFont: font, typesetFontWeight: nextWeight };
-		});
+		settings.update((s) => ({
+			...s,
+			typesetFont: font,
+			typesetFontWeight: nextWeight,
+		}));
 		toast.success(`Dialogue font set to ${font}`);
 	}
 
-	function setTypesetFontWeight(weight: TypesetFontWeight) {
-		settings.update((s) => ({ ...s, typesetFontWeight: weight }));
-		toast.success(`Font weight set to ${weight === 'bold' ? 'Bold (700)' : 'Regular (400)'}`);
+	function setTypesetFontWeight(weight: TypesetFontWeight | string) {
+		const w = weight as TypesetFontWeight;
+		settings.update((s) => ({ ...s, typesetFontWeight: w }));
+		const preset = FONT_WEIGHT_PRESETS.find((p) => p.value === w);
+		const label = preset ? `${preset.label} (${preset.numeric})` : (w === 'bold' ? 'Bold (700)' : 'Regular (400)');
+		toast.success(`Font weight set to ${label}`);
 	}
 
 	function setTypesetCjkFont(font: string) {
@@ -179,13 +191,14 @@
 		toast.success(`Text stroke outline set to ${label}`);
 	}
 
-	function setCasing(casing: TypesetCasing) {
+	function setCasing(casing: TypesetCasing | string) {
+		const c = casing as TypesetCasing;
 		settings.update((s) => ({
 			...s,
-			typesetCasing: casing,
-			typesetAllCaps: casing === 'uppercase',
+			typesetCasing: c,
+			typesetAllCaps: c === 'uppercase',
 		}));
-		const label = CASING_PRESETS.find((c) => c.id === casing)?.label || casing;
+		const label = CASING_PRESETS.find((p) => p.id === c)?.label || c;
 		toast.success(`Dialogue casing set to ${label}`);
 	}
 
@@ -207,7 +220,8 @@
 
 	$: isTypesettingModified =
 		($settings.typesetFont || 'CC Wild Words') !== DEFAULTS.typesetFont ||
-		($settings.typesetFontWeight || 'normal') !== DEFAULTS.typesetFontWeight ||
+		normalizeFontWeightSelectValue($settings.typesetFontWeight) !== normalizeFontWeightSelectValue(DEFAULTS.typesetFontWeight) ||
+		Boolean($settings.enableTypesetItalic) !== Boolean(DEFAULTS.enableTypesetItalic) ||
 		($settings.typesetCjkFont || 'Microsoft YaHei') !== DEFAULTS.typesetCjkFont ||
 		Math.abs(($settings.typesetPadding || 0.05) - DEFAULTS.typesetPadding) >= 0.005 ||
 		($settings.typesetOutline || 'standard') !== DEFAULTS.typesetOutline ||
@@ -222,6 +236,7 @@
 			...s,
 			typesetFont: DEFAULTS.typesetFont,
 			typesetFontWeight: DEFAULTS.typesetFontWeight,
+			enableTypesetItalic: DEFAULTS.enableTypesetItalic,
 			typesetCjkFont: DEFAULTS.typesetCjkFont,
 			typesetPadding: DEFAULTS.typesetPadding,
 			typesetOutline: DEFAULTS.typesetOutline,
@@ -306,25 +321,30 @@
 	$: selectedCjkFont = cjkFonts.find((f) => f.id === $settings.typesetCjkFont) || AVAILABLE_CJK_FONTS[0];
 	$: fontStatus = $fontAvailabilityStore[$settings.typesetFont];
 	$: supportedWeights = fontStatus?.supportedWeights || selectedFont?.supportedWeights || ['normal'];
-	$: isNormalSupported = supportedWeights.includes('normal');
-	$: isBoldSupported = supportedWeights.includes('bold');
-	$: effectiveWeight = !isBoldSupported && $settings.typesetFontWeight === 'bold'
-		? 'normal'
-		: !isNormalSupported && $settings.typesetFontWeight === 'normal'
-			? 'bold'
-			: ($settings.typesetFontWeight || 'normal');
+	$: effectiveWeight = normalizeFontWeightSelectValue($settings.typesetFontWeight);
 
-	// Auto-fallback if the current setting is unsupported by the selected font
-	$: if ($settings.typesetFontWeight && supportedWeights.length > 0) {
-		if ($settings.typesetFontWeight === 'bold' && !isBoldSupported && isNormalSupported) {
-			settings.update((s) => ({ ...s, typesetFontWeight: 'normal' }));
-		} else if ($settings.typesetFontWeight === 'normal' && !isNormalSupported && isBoldSupported) {
-			settings.update((s) => ({ ...s, typesetFontWeight: 'bold' }));
+	// -- FONT WEIGHT SELECT OPTIONS -- //
+	$: fontWeightOptions = FONT_WEIGHT_PRESETS.map((p) => {
+		const supported = isWeightSupportedByFont(p.numeric, supportedWeights, selectedFont?.isVariable);
+		return {
+			value: p.value,
+			label: p.label,
+			hint: supported ? p.hint : 'Not supported by font',
+			disabled: !supported,
+		};
+	}) satisfies SelectOption[];
+
+	// AUTO-FALLBACK IF CURRENT WEIGHT IS UNSUPPORTED BY SELECTED FONT
+	let prevDialogueFont = $settings.typesetFont;
+	$: if ($settings.typesetFont && $settings.typesetFont !== prevDialogueFont) {
+		prevDialogueFont = $settings.typesetFont;
+		const nextWeight = getValidFontWeightForFont($settings.typesetFontWeight, supportedWeights, selectedFont?.isVariable);
+		if (nextWeight !== normalizeFontWeightSelectValue($settings.typesetFontWeight)) {
+			settings.update((s) => ({ ...s, typesetFontWeight: nextWeight }));
 		}
 	}
 
 	$: isTextCjk = CJK_REGEX.test(previewSampleText);
-	$: isCasingApplicable = !isTextCjk && !selectedFont?.allCapsOnly && $settings.typesetFont !== 'CC Wild Words';
 	$: previewFontFamily = isTextCjk
 		? `"${$settings.typesetCjkFont || 'Microsoft YaHei'}", "Yu Gothic", "Malgun Gothic", "Noto Sans CJK SC", sans-serif`
 		: (selectedFont?.stack || `"${$settings.typesetFont || 'CC Wild Words'}", sans-serif`);
@@ -332,8 +352,10 @@
 	$: previewTextColor = previewIsDarkBubble ? '#ffffff' : '#111111';
 	$: previewStrokeColor = previewIsDarkBubble ? '#000000' : '#ffffff';
 	$: previewStrokeWidth = $settings.typesetOutline === 'none' ? '0px' : $settings.typesetOutline === 'thin' ? '1px' : $settings.typesetOutline === 'heavy' ? '3px' : '2px';
+	$: previewFontWeight = normalizeFontWeightNumeric($settings.typesetFontWeight);
+	$: previewFontStyle = $settings.enableTypesetItalic ? 'italic' : 'normal';
 	$: previewEffectiveText =
-		!isCasingApplicable || ($settings.typesetCasing || 'uppercase') === 'uppercase'
+		($settings.typesetCasing || 'uppercase') === 'uppercase'
 			? previewSampleText.toUpperCase()
 			: $settings.typesetCasing === 'lowercase'
 				? previewSampleText.toLowerCase()
@@ -444,7 +466,8 @@
 						class="leading-snug select-none transition-all duration-150 break-words px-1.5"
 						style="
 							font-family: {previewFontFamily};
-							font-weight: {effectiveWeight === 'bold' ? 'bold' : 'normal'};
+							font-weight: {previewFontWeight};
+							font-style: {previewFontStyle};
 							font-size: {previewFontSizePx};
 							color: {previewTextColor};
 							paint-order: stroke fill;
@@ -573,101 +596,28 @@
 				</div>
 			</div>
 
-			<!-- DIALOGUE FONT WEIGHT SELECTOR -->
-			<div class="space-y-1.5 pt-1">
-				<div class="flex items-center justify-between gap-2 pl-0.5">
-					<div class="text-[11px] font-semibold opacity-75 shrink-0">
-						<span class="hidden sm:inline">Dialogue Font Weight</span>
-						<span class="sm:hidden">Font Weight</span>
-					</div>
-					{#if !isBoldSupported || !isNormalSupported}
-						<span class="text-[10px] text-amber-600 dark:text-amber-400 font-medium truncate text-right">
-							<span class="hidden sm:inline">{selectedFont?.label || 'Selected font'} only supports {isBoldSupported ? 'Bold' : 'Regular'}</span>
-							<span class="sm:hidden">{isBoldSupported ? 'Bold only' : 'Regular only'}</span>
-						</span>
-					{/if}
+			<!-- FONT WEIGHT & CASING ROW -->
+			<div class="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-1">
+				<!-- DIALOGUE FONT WEIGHT SELECTOR -->
+				<div class="space-y-1.5">
+					<div class="text-[11px] font-semibold opacity-75 pl-0.5">Dialogue Font Weight</div>
+					<Select
+						items={fontWeightOptions}
+						value={effectiveWeight}
+						on:change={(e) => setTypesetFontWeight(e.detail)}
+					/>
 				</div>
-				<div class="grid grid-cols-2 gap-2">
-					<button
-						type="button"
-						disabled={!isNormalSupported}
-						on:click={() => isNormalSupported && setTypesetFontWeight('normal')}
-						title={!isNormalSupported ? `${selectedFont?.label || 'Selected font'} does not include regular weight` : 'Regular (400)'}
-						class={cn(
-							'flex items-center justify-between rounded-xl border p-2.5 text-left transition-all',
-							!isNormalSupported
-								? 'opacity-40 cursor-not-allowed border-black/5 bg-black/[0.01] dark:border-white/5 dark:bg-white/[0.01]'
-								: effectiveWeight === 'normal'
-									? 'border-[#b23a2e] bg-[#b23a2e]/[0.08] text-[#b23a2e] dark:text-[#e08a63] ring-2 ring-[#b23a2e]/30 shadow-xs cursor-pointer'
-									: 'border-black/10 hover:border-black/20 hover:bg-black/[0.02] dark:border-white/10 dark:hover:border-white/20 dark:hover:bg-white/[0.02] cursor-pointer',
-						)}
-						use:ripple
-					>
-						<div class="flex flex-col">
-							<span class="text-xs font-normal pl-1.5" style="font-family: {previewFontFamily};">Regular</span>
-							<span class="text-[10px] opacity-60 pl-1.5">Weight 400</span>
-						</div>
-						{#if effectiveWeight === 'normal'}
-							<Check size={13} class="text-[#b23a2e] dark:text-[#e08a63] shrink-0" />
-						{/if}
-					</button>
 
-					<button
-						type="button"
-						disabled={!isBoldSupported}
-						on:click={() => isBoldSupported && setTypesetFontWeight('bold')}
-						title={!isBoldSupported ? `${selectedFont?.label || 'Selected font'} does not include bold weight` : 'Bold (700)'}
-						class={cn(
-							'flex items-center justify-between rounded-xl border p-2.5 text-left transition-all',
-							!isBoldSupported
-								? 'opacity-40 cursor-not-allowed border-black/5 bg-black/[0.01] dark:border-white/5 dark:bg-white/[0.01]'
-								: effectiveWeight === 'bold'
-									? 'border-[#b23a2e] bg-[#b23a2e]/[0.08] text-[#b23a2e] dark:text-[#e08a63] ring-2 ring-[#b23a2e]/30 shadow-xs cursor-pointer'
-									: 'border-black/10 hover:border-black/20 hover:bg-black/[0.02] dark:border-white/10 dark:hover:border-white/20 dark:hover:bg-white/[0.02] cursor-pointer',
-						)}
-						use:ripple
-					>
-						<div class="flex flex-col">
-							<span class="text-xs font-bold pl-1.5" style="font-family: {previewFontFamily};">Bold</span>
-							<span class="text-[10px] opacity-60 pl-1.5">Weight 700</span>
-						</div>
-						{#if effectiveWeight === 'bold'}
-							<Check size={13} class="text-[#b23a2e] dark:text-[#e08a63] shrink-0" />
-						{/if}
-					</button>
+				<!-- DIALOGUE LETTERFORM CASING -->
+				<div class="space-y-1.5">
+					<div class="text-[11px] font-semibold opacity-75 pl-0.5">Dialogue Letterform Casing</div>
+					<Select
+						items={CASING_OPTIONS}
+						value={$settings.typesetCasing || 'uppercase'}
+						on:change={(e) => setCasing(e.detail)}
+					/>
 				</div>
 			</div>
-
-			<!-- DIALOGUE CASING 3-WAY SELECTOR (ONLY SHOWN FOR FONTS SUPPORTING MIXED/LOWER CASE) -->
-			{#if isCasingApplicable}
-				<div class="space-y-1.5 pt-1">
-					<div class="text-[11px] font-semibold opacity-75 pl-0.5">Dialogue Letterform Casing</div>
-					<div class="grid grid-cols-1 sm:grid-cols-3 gap-2">
-						{#each CASING_PRESETS as cPreset}
-							{@const isSelected = ($settings.typesetCasing || 'uppercase') === cPreset.id}
-							<button
-								type="button"
-								on:click={() => setCasing(cPreset.id)}
-								class={cn(
-									'flex flex-col justify-between rounded-xl border p-2.5 text-left transition-all',
-									isSelected
-										? 'border-[#b23a2e] bg-[#b23a2e]/[0.08] text-[#b23a2e] dark:text-[#e08a63] ring-2 ring-[#b23a2e]/30 shadow-xs'
-										: 'border-black/10 hover:border-black/20 hover:bg-black/[0.02] dark:border-white/10 dark:hover:border-white/20 dark:hover:bg-white/[0.02]',
-								)}
-								use:ripple
-							>
-								<div class="flex items-center justify-between">
-									<span class="text-xs font-bold pl-0.5">{cPreset.label}</span>
-									{#if isSelected}
-										<Check size={12} class="text-[#b23a2e] dark:text-[#e08a63] shrink-0" />
-									{/if}
-								</div>
-								<div class="mt-1 text-[9px] opacity-60 leading-tight pl-0.5">{cPreset.desc}</div>
-							</button>
-						{/each}
-					</div>
-				</div>
-			{/if}
 
 			<!-- CJK FALLBACK STACK -->
 			<div class="space-y-1.5 pt-1">
@@ -762,14 +712,50 @@
 			</div>
 		</div>
 
-		<!-- 3. BUBBLE FITTING & PADDING -->
+		<!-- 3. TEXT STROKE OUTLINE -->
+		<div class="border-t border-black/10 pt-4 dark:border-white/10 space-y-3">
+			<div>
+				<div class="text-xs font-bold uppercase tracking-wider opacity-80 flex items-center gap-1.5">
+					<Palette size={14} class="text-[#b23a2e] dark:text-[#e08a63]" />
+					<span class="pl-0.5">Text Stroke Outline</span>
+				</div>
+				<p class="text-[11px] opacity-60 pl-0.5">High-contrast text stroke outlines and borders</p>
+			</div>
+
+			<div class="grid grid-cols-2 sm:grid-cols-4 gap-2">
+				{#each OUTLINE_PRESETS as oPreset}
+					{@const isSelected = ($settings.typesetOutline || 'standard') === oPreset.id}
+					<button
+						type="button"
+						on:click={() => setOutline(oPreset.id)}
+						class={cn(
+							'flex flex-col justify-between rounded-xl border p-2.5 text-left transition-all cursor-pointer',
+							isSelected
+								? 'border-[#b23a2e] bg-[#b23a2e]/[0.08] text-[#b23a2e] dark:text-[#e08a63] ring-2 ring-[#b23a2e]/30 shadow-xs'
+								: 'border-black/10 hover:border-black/20 hover:bg-black/[0.02] dark:border-white/10 dark:hover:border-white/20 dark:bg-white/[0.02]',
+						)}
+						use:ripple
+					>
+						<div class="flex items-center justify-between">
+							<span class="text-xs font-bold pl-0.5">{oPreset.label}</span>
+							{#if isSelected}
+								<Check size={12} class="text-[#b23a2e] dark:text-[#e08a63] shrink-0" />
+							{/if}
+						</div>
+						<div class="mt-1 text-[9px] opacity-60 leading-tight pl-0.5">{oPreset.desc}</div>
+					</button>
+				{/each}
+			</div>
+		</div>
+
+		<!-- 4. BUBBLE GEOMETRY, INSET PADDING & ORIENTATION -->
 		<div class="border-t border-black/10 pt-4 dark:border-white/10 space-y-4">
 			<div>
 				<div class="text-xs font-bold uppercase tracking-wider opacity-80 flex items-center gap-1.5">
 					<Sliders size={14} class="text-[#b23a2e] dark:text-[#e08a63]" />
-					<span class="pl-0.5">Bubble Fitting & Inset Padding</span>
+					<span class="pl-0.5">Bubble Geometry & Inset Padding</span>
 				</div>
-				<p class="text-[11px] opacity-60 pl-0.5">Edge padding clearance margin between rendered text and bubble boundary</p>
+				<p class="text-[11px] opacity-60 pl-0.5">Edge padding clearance margin and comic bubble layout adaptation</p>
 			</div>
 
 			<!-- BUBBLE INSET PADDING -->
@@ -785,11 +771,12 @@
 						<button
 							type="button"
 							on:click={() => setPadding(preset.value)}
-							class={`flex flex-col justify-between rounded-xl border p-2.5 text-left transition-all ${
+							class={cn(
+								'flex flex-col justify-between rounded-xl border p-2.5 text-left transition-all cursor-pointer',
 								isSelected
 									? 'border-[#b23a2e] bg-[#b23a2e]/[0.08] text-[#b23a2e] dark:text-[#e08a63] ring-2 ring-[#b23a2e]/30 shadow-xs'
-									: 'border-black/10 hover:border-black/20 hover:bg-black/[0.02] dark:border-white/10 dark:hover:border-white/20 dark:hover:bg-white/[0.02]'
-							}`}
+									: 'border-black/10 hover:border-black/20 hover:bg-black/[0.02] dark:border-white/10 dark:hover:border-white/20 dark:bg-white/[0.02]',
+							)}
 							use:ripple
 						>
 							<div class="flex items-center justify-between">
@@ -803,82 +790,35 @@
 					{/each}
 				</div>
 			</div>
-		</div>
 
-		<!-- 4. CONTRAST & OUTLINE BORDERS -->
-		<div class="border-t border-black/10 pt-4 dark:border-white/10 space-y-4">
-			<div>
-				<div class="text-xs font-bold uppercase tracking-wider opacity-80 flex items-center gap-1.5">
-					<Palette size={14} class="text-[#b23a2e] dark:text-[#e08a63]" />
-					<span class="pl-0.5">Legibility & Stroke Borders</span>
-				</div>
-				<p class="text-[11px] opacity-60 pl-0.5">High-contrast text stroke outlines and background luminance sensing</p>
-			</div>
+			<div class="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+				<!-- ROTATION TOGGLE -->
+				<div class="flex items-start justify-between gap-3 rounded-xl border border-black/10 bg-black/[0.01] p-3 dark:border-white/10 dark:bg-white/[0.01]">
+					<div class="min-w-0 pr-1">
+						<div class="text-xs font-bold pl-0.5">Follow Comic Bubble Tilt Angle</div>
+						<p class="text-[10px] opacity-60 mt-0.5 pl-0.5 leading-relaxed">Rotate rendered text along detected diagonal comic bubbles (±2° to ±45°)</p>
+					</div>
 
-			<!-- STROKE OUTLINE THICKNESS -->
-			<div class="space-y-1.5">
-				<div class="text-[11px] font-semibold opacity-75 pl-0.5">Text Stroke Outline</div>
-				<div class="grid grid-cols-2 sm:grid-cols-4 gap-2">
-					{#each OUTLINE_PRESETS as oPreset}
-						{@const isSelected = ($settings.typesetOutline || 'standard') === oPreset.id}
-						<button
-							type="button"
-							on:click={() => setOutline(oPreset.id)}
-							class={`flex flex-col justify-between rounded-xl border p-2.5 text-left transition-all ${
-								isSelected
-									? 'border-[#b23a2e] bg-[#b23a2e]/[0.08] text-[#b23a2e] dark:text-[#e08a63] ring-2 ring-[#b23a2e]/30 shadow-xs'
-									: 'border-black/10 hover:border-black/20 hover:bg-black/[0.02] dark:border-white/10 dark:hover:border-white/20 dark:hover:bg-white/[0.02]'
-							}`}
-							use:ripple
-						>
-							<div class="flex items-center justify-between">
-								<span class="text-xs font-bold pl-0.5">{oPreset.label}</span>
-								{#if isSelected}
-									<Check size={12} class="text-[#b23a2e] dark:text-[#e08a63] shrink-0" />
-								{/if}
-							</div>
-							<div class="mt-1 text-[9px] opacity-60 leading-tight pl-0.5">{oPreset.desc}</div>
-						</button>
-					{/each}
-				</div>
-			</div>
-		</div>
-
-		<!-- 5. ORIENTATION & CASING FORMATTING -->
-		<div class="border-t border-black/10 pt-4 dark:border-white/10 space-y-3.5">
-			<div>
-				<div class="text-xs font-bold uppercase tracking-wider opacity-80 flex items-center gap-1.5">
-					<Compass size={14} class="text-[#b23a2e] dark:text-[#e08a63]" />
-					<span class="pl-0.5">Orientation & Formatting</span>
-				</div>
-			</div>
-
-			<!-- ROTATION TOGGLE -->
-			<div class="flex items-center justify-between gap-4 rounded-xl border border-black/10 bg-black/[0.01] p-3 dark:border-white/10 dark:bg-white/[0.01]">
-				<div>
-					<div class="text-xs font-bold pl-0.5">Follow Comic Bubble Tilt Angle</div>
-					<p class="text-[10px] opacity-60 mt-0.5 pl-0.5">Rotate rendered text along detected diagonal comic bubbles (±2° to ±45°)</p>
+					<Switch
+						checked={$settings.enableTextRotation}
+						on:click={toggleTextRotation}
+						ariaLabel="Follow Comic Bubble Tilt Angle"
+					/>
 				</div>
 
-				<Switch
-					checked={$settings.enableTextRotation}
-					on:click={toggleTextRotation}
-					ariaLabel="Follow Comic Bubble Tilt Angle"
-				/>
-			</div>
+				<!-- CENTERING & EXPANSION TOGGLE -->
+				<div class="flex items-start justify-between gap-3 rounded-xl border border-black/10 bg-black/[0.01] p-3 dark:border-white/10 dark:bg-white/[0.01]">
+					<div class="min-w-0 pr-1">
+						<div class="text-xs font-bold pl-0.5">Bubble Centering & Expansion</div>
+						<p class="text-[10px] opacity-60 mt-0.5 pl-0.5 leading-relaxed">Anchor translated text to bubble centers and expand typesetting into available space</p>
+					</div>
 
-			<!-- CENTERING & EXPANSION TOGGLE -->
-			<div class="flex items-center justify-between gap-4 rounded-xl border border-black/10 bg-black/[0.01] p-3 dark:border-white/10 dark:bg-white/[0.01]">
-				<div>
-					<div class="text-xs font-bold pl-0.5">Bubble Centering & Expansion</div>
-					<p class="text-[10px] opacity-60 mt-0.5 pl-0.5">Anchor translated text to bubble centers and expand typesetting into available space</p>
+					<Switch
+						checked={$settings.enableTypesetCentering ?? true}
+						on:click={toggleTypesetCentering}
+						ariaLabel="Bubble Centering & Expansion"
+					/>
 				</div>
-
-				<Switch
-					checked={$settings.enableTypesetCentering ?? true}
-					on:click={toggleTypesetCentering}
-					ariaLabel="Bubble Centering & Expansion"
-				/>
 			</div>
 		</div>
 
@@ -910,7 +850,7 @@
 	bind:open={importDialogueModalOpen}
 	targetScriptType="dialogue"
 	on:imported={(e) => {
-		$settings.typesetFont = e.detail.font.name;
+		setTypesetFont(e.detail.font.name);
 	}}
 />
 
@@ -929,7 +869,7 @@
 	targetScriptType="dialogue"
 	lockScriptType={true}
 	on:enabled={(e) => {
-		$settings.typesetFont = e.detail.family;
+		setTypesetFont(e.detail.family);
 	}}
 />
 

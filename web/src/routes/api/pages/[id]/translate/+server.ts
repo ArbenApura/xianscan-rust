@@ -64,6 +64,8 @@ export const POST: RequestHandler = async ({ params, cookies }) => {
 		colorMode: ((cookies.get('mt_ts_contrast') as any) || canonical.typesetContrast || 'auto') as any,
 		casing: ((cookies.get('mt_ts_casing') as any) || canonical.typesetCasing || 'uppercase') as any,
 		enableRotation: cookies.get('mt_ts_rot') ? cookies.get('mt_ts_rot') === 'true' : (canonical.enableTextRotation ?? true),
+		fontWeight: ((cookies.get('mt_ts_font_weight') as any) || (canonical as any).typesetFontWeight || 'normal') as any,
+		fontStyle: (cookies.get('mt_ts_italic') ? (cookies.get('mt_ts_italic') === 'true' ? 'italic' : 'normal') : (canonical.enableTypesetItalic ? 'italic' : 'normal')) as any,
 	};
 
 	try {

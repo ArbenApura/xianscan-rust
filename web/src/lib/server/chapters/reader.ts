@@ -317,6 +317,10 @@ export async function retypesetPage(
 			colorMode: _opts?.colorMode || (canonical.typesetContrast || 'auto'),
 			casing: _opts?.casing || (canonical.typesetCasing || 'uppercase'),
 			enableRotation: typeof _opts?.enableRotation === 'boolean' ? _opts.enableRotation : (canonical.enableTextRotation ?? true),
+			fontWeight: _opts?.fontWeight || (canonical as any).typesetFontWeight || 'normal',
+			fontStyle: _opts?.fontStyle || (typeof _opts?.enableItalic === 'boolean'
+				? (_opts.enableItalic ? 'italic' : 'normal')
+				: (canonical.enableTypesetItalic ? 'italic' : 'normal')),
 			...(_opts || {}),
 		};
 

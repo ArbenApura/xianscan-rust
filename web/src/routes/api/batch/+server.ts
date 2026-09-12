@@ -103,6 +103,10 @@ export const POST: RequestHandler = async ({ request, cookies }) => {
 		enableRotation: typeof typesetOptions?.enableRotation === 'boolean'
 			? typesetOptions.enableRotation
 			: (cookies.get('mt_ts_rot') ? cookies.get('mt_ts_rot') === 'true' : (canonical.enableTextRotation ?? true)),
+		fontWeight: typesetOptions?.fontWeight || ((cookies.get('mt_ts_font_weight') as any) || (canonical as any).typesetFontWeight || 'normal'),
+		fontStyle: typesetOptions?.fontStyle || (typeof typesetOptions?.enableItalic === 'boolean'
+			? (typesetOptions.enableItalic ? 'italic' : 'normal')
+			: (cookies.get('mt_ts_italic') ? (cookies.get('mt_ts_italic') === 'true' ? 'italic' : 'normal') : (canonical.enableTypesetItalic ? 'italic' : 'normal'))),
 	};
 
 	try {

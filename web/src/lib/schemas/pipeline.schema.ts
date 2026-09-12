@@ -18,6 +18,9 @@ export const translateChapterSchema = z.object({
 			casing: z.enum(['uppercase', 'original', 'lowercase']).optional(),
 			allCaps: z.boolean().optional(),
 			enableRotation: z.boolean().optional(),
+			fontWeight: z.union([z.enum(['normal', 'bold']), z.string(), z.number()]).optional(),
+			fontStyle: z.enum(['normal', 'italic']).optional(),
+			enableItalic: z.boolean().optional(),
 		})
 		.optional(),
 });

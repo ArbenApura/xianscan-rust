@@ -5,6 +5,7 @@
 		label: string;
 		icon?: ComponentType;
 		hint?: string;
+		disabled?: boolean;
 	}
 
 	function portal(node: HTMLElement, target: HTMLElement) {
@@ -72,14 +73,25 @@
 	// -- FUNCTIONS -- //
 
 	function select(opt: SelectOption) {
+		if (opt.disabled) return;
 		value = opt.value;
 		open = false;
 		dispatch('change', opt.value);
 		triggerEl?.focus();
 	}
 
+	function findNextEnabledIndex(startIndex: number, direction: 1 | -1): number {
+		let curr = startIndex + direction;
+		while (curr >= 0 && curr < items.length) {
+			if (!items[curr]?.disabled) return curr;
+			curr += direction;
+		}
+		return startIndex;
+	}
+
 	async function moveActive(to: number) {
-		activeIndex = Math.min(items.length - 1, Math.max(0, to));
+		if (to < 0 || to >= items.length || items[to]?.disabled) return;
+		activeIndex = to;
 		await tick();
 		dropdownEl?.querySelector(`#${CSS.escape(optionId(activeIndex))}`)?.scrollIntoView({ block: 'nearest' });
 	}
@@ -90,7 +102,11 @@
 		updatePosition();
 		await tick();
 		updatePosition();
-		await moveActive(active < 0 ? 0 : active);
+		let targetIdx = active;
+		if (targetIdx < 0 || items[targetIdx]?.disabled) {
+			targetIdx = items.findIndex((o) => !o.disabled);
+		}
+		await moveActive(targetIdx < 0 ? 0 : targetIdx);
 	}
 
 	// KEYBOARD ON THE TRIGGER: OPEN THE LISTBOX AND PRE-HIGHLIGHT.
@@ -151,20 +167,23 @@
 				break;
 			case 'ArrowDown':
 				e.preventDefault();
-				moveActive(activeIndex + 1);
+				moveActive(findNextEnabledIndex(activeIndex, 1));
 				break;
 			case 'ArrowUp':
 				e.preventDefault();
-				moveActive(activeIndex - 1);
+				moveActive(findNextEnabledIndex(activeIndex, -1));
 				break;
 			case 'Home':
 				e.preventDefault();
-				moveActive(0);
+				moveActive(items.findIndex((o) => !o.disabled));
 				break;
-			case 'End':
+			case 'End': {
 				e.preventDefault();
-				moveActive(items.length - 1);
+				let last = items.length - 1;
+				while (last >= 0 && items[last]?.disabled) last--;
+				if (last >= 0) moveActive(last);
 				break;
+			}
 			case 'Enter':
 			case ' ':
 				if (activeIndex >= 0 && items[activeIndex]) {
@@ -251,17 +270,20 @@
 				type="button"
 				role="option"
 				id={optionId(i)}
+				disabled={opt.disabled}
 				aria-selected={opt.value === value}
+				aria-disabled={opt.disabled}
 				use:ripple
 				on:click={() => select(opt)}
-				on:mousemove={() => (activeIndex = i)}
+				on:mousemove={() => !opt.disabled && (activeIndex = i)}
 				class={cn(
 					'flex w-full items-center gap-2 rounded-lg text-left transition-colors',
 					size === 'sm' ? 'px-2 py-1 text-xs' : 'px-2.5 py-1.5 text-sm',
+					opt.disabled && 'opacity-40 cursor-not-allowed',
 					opt.value === value
 						? 'bg-[#c0392b]/10 text-[#b23a2e] dark:text-[#e08a63]'
-						: 'hover:bg-black/5 dark:hover:bg-white/5',
-					i === activeIndex && 'bg-black/5 dark:bg-white/10',
+						: !opt.disabled && 'hover:bg-black/5 dark:hover:bg-white/5',
+					i === activeIndex && !opt.disabled && 'bg-black/5 dark:bg-white/10',
 				)}
 			>
 				{#if opt.icon}<svelte:component this={opt.icon} size={size === 'sm' ? 12 : 14} class="shrink-0" />{/if}

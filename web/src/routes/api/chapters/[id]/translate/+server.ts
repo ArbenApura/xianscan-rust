@@ -131,6 +131,14 @@ export const POST: RequestHandler = async ({ params, request, cookies }) => {
 		enableRotation: parsed.success && typeof parsed.data.typesetOptions?.enableRotation === 'boolean'
 			? parsed.data.typesetOptions.enableRotation
 			: (cookies.get('mt_ts_rot') ? cookies.get('mt_ts_rot') === 'true' : (canonical.enableTextRotation ?? true)),
+		fontWeight: parsed.success && parsed.data.typesetOptions?.fontWeight
+			? parsed.data.typesetOptions.fontWeight
+			: ((cookies.get('mt_ts_font_weight') as any) || (canonical as any).typesetFontWeight || 'normal'),
+		fontStyle: parsed.success && parsed.data.typesetOptions?.fontStyle
+			? parsed.data.typesetOptions.fontStyle
+			: (parsed.success && typeof parsed.data.typesetOptions?.enableItalic === 'boolean'
+				? (parsed.data.typesetOptions.enableItalic ? 'italic' : 'normal')
+				: (cookies.get('mt_ts_italic') ? (cookies.get('mt_ts_italic') === 'true' ? 'italic' : 'normal') : (canonical.enableTypesetItalic ? 'italic' : 'normal'))),
 	};
 
 	// RECORD AI SPEND ON THE LEDGER (THE JOB STAYS DETACHED — FAILURES LOG, NOT THROW)

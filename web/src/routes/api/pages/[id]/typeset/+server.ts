@@ -33,6 +33,7 @@ export const POST: RequestHandler = async ({ params, request, cookies }) => {
 			? userOpts.enableRotation
 			: (cookies?.get('mt_ts_rot') ? cookies.get('mt_ts_rot') === 'true' : (canonical.enableTextRotation ?? true)),
 		fontWeight: (userOpts?.fontWeight || (cookies?.get('mt_ts_font_weight') as any) || (canonical as any).typesetFontWeight || 'normal') as any,
+		fontStyle: (userOpts?.fontStyle || (typeof userOpts?.enableItalic === 'boolean' ? (userOpts.enableItalic ? 'italic' : 'normal') : (cookies?.get('mt_ts_italic') ? (cookies.get('mt_ts_italic') === 'true' ? 'italic' : 'normal') : (canonical.enableTypesetItalic ? 'italic' : 'normal')))) as any,
 	};
 
 	try {

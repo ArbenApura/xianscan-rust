@@ -115,9 +115,13 @@ export function sanitizeSettingValue(key: keyof AppSettings, value: unknown): un
 			return VALID_CASINGS.includes(value as TypesetCasing) ? value : 'uppercase';
 
 		case 'typesetFontWeight':
+			if (typeof value === 'string' && ['100', '200', '300', '400', '500', '600', '700', '800', '900', 'normal', 'bold'].includes(value)) {
+				return value;
+			}
 			return value === 'bold' ? 'bold' : 'normal';
 
 		case 'enableTextRotation':
+		case 'enableTypesetItalic':
 		case 'resliceBeforeBatch':
 		case 'typesetAllCaps':
 		case 'hasCompletedOnboarding':

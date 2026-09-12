@@ -182,6 +182,7 @@ describe('XianScanClient', () => {
 				enableSfx: false,
 				sfxMaxAreaPct: 0.1,
 				typesetFont: 'CC Wild Words',
+				typesetFontWeight: 'normal',
 				typesetCjkFont: 'WenQuanYi Micro Hei',
 				typesetPadding: 0.05,
 				typesetOutline: 'standard',
@@ -209,6 +210,7 @@ describe('XianScanClient', () => {
 				sfxMaxAreaPct: 0.1,
 				typesetOptions: {
 					fontDialogue: 'CC Wild Words',
+					fontWeight: 'normal',
 					fontCjk: 'WenQuanYi Micro Hei',
 					boxInset: 0.05,
 					outlineMode: 'standard',
