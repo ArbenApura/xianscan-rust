@@ -574,6 +574,67 @@ pub fn analyze_image_with_fusion_timed(
     // A. Use Detector-First Text and Free-Text Boxes if available (Koharu / RT-DETR)
     let is_detector_first = fusion_res.backend == "rfdetr-seg-2xl" || fusion_res.backend == "rtdetr-v2";
     if is_detector_first && (!effective_text_bubbles.is_empty() || !fusion_res.text_free.is_empty()) {
+        // UNIFY ADJACENT PARALLEL VERTICAL COLUMNS WITHIN THE SAME SINGLE-CHAMBER SPEECH BUBBLE
+        let mut merged_tb: Vec<(crate::ml::schemas::BoxRect, f32)> = Vec::new();
+        let mut tb_merged_flags = vec![false; effective_text_bubbles.len()];
+        for i in 0..effective_text_bubbles.len() {
+            if tb_merged_flags[i] {
+                continue;
+            }
+            let (mut cur_b, mut cur_score) = effective_text_bubbles[i].clone();
+            for j in (i + 1)..effective_text_bubbles.len() {
+                if tb_merged_flags[j] {
+                    continue;
+                }
+                let (b2, s2) = &effective_text_bubbles[j];
+                // BOTH MUST BE IN THE SAME SPEECH BUBBLE
+                let shared_bubble = effective_bubbles.iter().find(|pb| {
+                    let ix1 = (pb.x + pb.w).min(cur_b.x + cur_b.w) - pb.x.max(cur_b.x);
+                    let iy1 = (pb.y + pb.h).min(cur_b.y + cur_b.h) - pb.y.max(cur_b.y);
+                    let cov1 = (ix1.max(0) * iy1.max(0)) as f32 / (cur_b.w * cur_b.h).max(1) as f32;
+
+                    let ix2 = (pb.x + pb.w).min(b2.x + b2.w) - pb.x.max(b2.x);
+                    let iy2 = (pb.y + pb.h).min(b2.y + b2.h) - pb.y.max(b2.y);
+                    let cov2 = (ix2.max(0) * iy2.max(0)) as f32 / (b2.w * b2.h).max(1) as f32;
+
+                    cov1 >= 0.60 && cov2 >= 0.60
+                });
+
+                if let Some(pb) = shared_bubble {
+                    // SINGLE-CHAMBER BUBBLE CHECK
+                    let pb_ratio = pb.w as f32 / pb.h.max(1) as f32;
+                    let is_single_chamber = pb_ratio >= 0.50 && pb_ratio <= 1.80;
+
+                    let is_b1_vert = cur_b.h >= (cur_b.w as f32 * 1.15) as i32;
+                    let is_b2_vert = b2.h >= (b2.w as f32 * 1.15) as i32;
+
+                    if is_single_chamber && is_b1_vert && is_b2_vert {
+                        let (left_b, right_b) = if cur_b.x < b2.x { (&cur_b, b2) } else { (b2, &cur_b) };
+                        let horiz_gap = right_b.x - (left_b.x + left_b.w);
+                        let vert_overlap = (left_b.y + left_b.h).min(right_b.y + right_b.h) - left_b.y.max(right_b.y);
+                        let min_h = left_b.h.min(right_b.h);
+
+                        if horiz_gap >= -15 && horiz_gap <= 55 && vert_overlap > 0 && (vert_overlap as f32 / min_h as f32 >= 0.25) {
+                            let min_x = cur_b.x.min(b2.x);
+                            let min_y = cur_b.y.min(b2.y);
+                            let max_x = (cur_b.x + cur_b.w).max(b2.x + b2.w);
+                            let max_y = (cur_b.y + cur_b.h).max(b2.y + b2.h);
+                            cur_b = crate::ml::schemas::BoxRect {
+                                x: min_x,
+                                y: min_y,
+                                w: max_x - min_x,
+                                h: max_y - min_y,
+                            };
+                            cur_score = cur_score.max(*s2);
+                            tb_merged_flags[j] = true;
+                        }
+                    }
+                }
+            }
+            merged_tb.push((cur_b, cur_score));
+        }
+        effective_text_bubbles = merged_tb;
+
         for (b, score) in &effective_text_bubbles {
             let inside_any_bubble = effective_bubbles.iter().any(|pb| {
                 let ix = (pb.x + pb.w).min(b.x + b.w) - pb.x.max(b.x);

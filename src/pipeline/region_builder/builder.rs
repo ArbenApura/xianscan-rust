@@ -678,7 +678,7 @@ pub fn build_regions(
                 });
 
                 angle_deg = if !cluster_lines.is_empty() && median_line_angle.abs() >= 1.5 {
-                    if (matched_bubble.is_some() && median_line_angle.abs() < 4.0 && (box_angle == 0.0 || box_angle.abs() < 1.5))
+                    if (matched_bubble.is_some() && median_line_angle.abs() < 6.0 && (box_angle == 0.0 || box_angle.abs() < 2.0))
                         || (matched_bubble.is_some() && is_short_hangul && median_line_angle.abs() < 10.0 && box_angle.abs() < 2.0)
                     {
                         0.0
@@ -727,7 +727,7 @@ pub fn build_regions(
                     let cx = cluster_rect.x + cluster_rect.w / 2;
                     let cy = cluster_rect.y + cluster_rect.h / 2;
                     cx > b.x + 8 && cx < b.x + b.w - 8 && cy > b.y + 8 && cy < b.y + b.h - 8
-                })) && (!is_container_vert || angle_deg.abs() < 4.0 || box_angle.abs() >= 2.0);
+                })) && (!is_container_vert || angle_deg.abs() < 6.0 || box_angle.abs() >= 2.0);
 
 
                 // SUPPRESS TITLE ARTWORK LOGO CALLIGRAPHY ON CHAPTER PUBLICATION CREDIT CARDS BEFORE RUNNING CROP REFINEMENT
@@ -894,7 +894,7 @@ pub fn build_regions(
                 };
 
                 let is_slanted_vert_free = is_container_vert
-                    && angle.abs() >= 4.0
+                    && angle.abs() >= 6.0
                     && (box_angle == 0.0 || box_angle.abs() < 2.0);
 
                 let matched_bubble_final = if is_slanted_vert_free {

@@ -251,13 +251,21 @@ pub fn try_refine_cluster_crop(
     }
 
     // SUPPRESS OPTICAL BORDER SLICES AND ARTIFACTS TOUCHING CROP EDGES
+    let has_substantial_lines = dedup_crop_lines.iter().any(|l| l.1.trim().chars().count() >= 3);
     dedup_crop_lines.retain(|l| {
-        let (lx, _ly, lw, lh) = polygon_bounds(&l.0);
+        let (lx, ly, lw, lh) = polygon_bounds(&l.0);
         let t = l.1.trim();
+        let is_punct = t.chars().all(|c| c.is_ascii_punctuation() || matches!(c, '！' | '？' | '!' | '?' | '…'));
+        let touches_edge = lx <= 4 || (lx + lw) >= (crop_w as i32 - 4) || ly <= 4 || (ly + lh) >= (crop_h as i32 - 4);
+        let is_single_char_border_artifact = has_substantial_lines
+            && !is_punct
+            && t.chars().count() == 1
+            && touches_edge
+            && (lw <= 24 || lh <= 24);
         let is_edge_sliver = (lw <= 12 || (lh as f32 >= lw as f32 * 2.0 && lw <= 16 && t.chars().count() <= 1))
             && l.2 < 0.70
             && (lx <= 4 || (lx + lw) >= (crop_w as i32 - 4));
-        !is_edge_sliver
+        !is_single_char_border_artifact && !is_edge_sliver
     });
 
     // IF CROP CONTAINS A DOMINANT HIGH-CONFIDENCE SENTENCE LINE (SCORE >= 0.70), SUPPRESS LOW-CONFIDENCE NOISE FRAGMENTS
