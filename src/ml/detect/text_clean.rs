@@ -212,7 +212,7 @@ pub fn is_onomatopoeia_or_shout(text: &str) -> bool {
         .collect();
     let is_repeated_sound = if chars.len() >= 2 && chars.len() <= 6 {
         let first = chars[0];
-        if first.is_ascii_alphanumeric() || first == 'し' || first == 'い' || first == '一' || first == '丨' {
+        if first.is_ascii_alphanumeric() || first == 'し' || first == 'い' || first == 'あ' || first == 'え' || first == '一' || first == '丨' {
             false
         } else if chars.iter().all(|&c| c == first) {
             true
