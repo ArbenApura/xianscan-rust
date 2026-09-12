@@ -252,6 +252,27 @@ pub fn analyze_image_with_fusion_timed(
                 }
             }
         }
+        if is_cjk {
+            // FILTER OVEREXTENDED DILATED DUPLICATE LINES (E.G. DILATED ACROSS HAIR OR BACKGROUND ART)
+            let is_dilated_duplicate = cleaned_rapid_lines.iter().any(|other| {
+                if std::ptr::eq(other, *line) {
+                    return false;
+                }
+                let (_ox, oy, ow, oh) = crate::ml::geometry::polygon_bounds(&other.polygon);
+                let iy = ((ly + lh).min(oy + oh) - ly.max(oy)).max(0);
+                let vert_overlap = iy as f32 / lh.min(oh).max(1) as f32;
+                if vert_overlap < 0.60 {
+                    return false;
+                }
+                let t_line = line.text.trim();
+                let t_other = other.text.trim();
+                let same_text = t_line == t_other || (!t_line.is_empty() && (t_line.ends_with(t_other) || t_other.ends_with(t_line)));
+                same_text && (lw as f32) >= (ow as f32 * 1.50) && lw >= 180 && (line.score <= other.score || (lw as f32) >= (ow as f32 * 2.0))
+            });
+            if is_dilated_duplicate {
+                return false;
+            }
+        }
         true
     }).collect();
 
@@ -799,8 +820,13 @@ pub fn analyze_image_with_fusion_timed(
                         }
                     };
                     let char_count = line.text.chars().filter(|c| !c.is_whitespace()).count();
-                    let is_giant_calligraphy_to_body = is_cjk && (lh as f32 >= 120.0 || (lw as f32 >= 350.0 && lh as f32 >= 80.0)) && char_count <= 4 && bh <= 200.0;
                     let is_slanted_free_line = crate::ml::geometry::calculate_box_angle_i32(&line.polygon).abs() >= 12.0;
+                    let effective_glyph_h = if is_slanted_free_line {
+                        super::region_builder::polygon_thickness(&line.polygon)
+                    } else {
+                        lh as f32
+                    };
+                    let is_giant_calligraphy_to_body = is_cjk && (effective_glyph_h >= 120.0 || (lw as f32 >= 350.0 && effective_glyph_h >= 80.0)) && char_count <= 4 && bh <= 200.0;
                     let is_bubble_cb = fusion_res.bubbles.iter().any(|b| {
                         let ix = (bx + bw).min((b.x + b.w) as f32) - bx.max(b.x as f32);
                         let iy = (by + bh).min((b.y + b.h) as f32) - by.max(b.y as f32);

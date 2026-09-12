@@ -138,6 +138,7 @@ export interface ServerCanonicalSettings {
 	inpaintMode?: string;
 	inpaintExpansionPct?: number;
 	typesetExpansionPct?: number;
+	enableWhiteInpaint?: boolean;
 	enableWatermarkInpaint?: boolean;
 	enableSfx?: boolean;
 	sfxMaxAreaPct?: number;

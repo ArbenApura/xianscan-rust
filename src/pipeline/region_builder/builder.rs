@@ -505,8 +505,14 @@ pub fn build_regions(
                         && (overlap_ratio_m >= 0.50 || iou >= 0.35)
                         && (m_has_digit_prefix && !o_has_digit_prefix || m.score <= existing.score);
 
+                    let is_horizontal_row_subslice = !is_container_vert
+                        && (mw as f32) <= (ow as f32 * 0.55)
+                        && clean_m.chars().count() <= 3
+                        && overlap_ratio_m >= 0.70
+                        && (clean_m.chars().any(|c| clean_o.contains(c)) || m_has_digit_prefix);
+
                     let vert_col_sub_overlap = vert_col_overlap && is_same_column;
-                    if ((iou >= 0.40 || overlap_ratio_m >= 0.60 || (vert_col_sub_overlap && is_sub) || (vert_col_overlap && is_exact) || is_horizontal_suffix_noise || (overlap_ratio_m >= 0.30 && is_sub) || is_m_furigana_of_o || is_m_worse_near_dup) && (is_exact || is_sub || is_horizontal_suffix_noise || is_m_furigana_of_o || is_m_worse_near_dup))
+                    if ((iou >= 0.40 || overlap_ratio_m >= 0.60 || (vert_col_sub_overlap && is_sub) || (vert_col_overlap && is_exact) || is_horizontal_suffix_noise || is_horizontal_row_subslice || (overlap_ratio_m >= 0.30 && is_sub) || is_m_furigana_of_o || is_m_worse_near_dup) && (is_exact || is_sub || is_horizontal_suffix_noise || is_horizontal_row_subslice || is_m_furigana_of_o || is_m_worse_near_dup))
                         && !is_vert_col_text_and_punct
                     {
                         is_dup = true;
@@ -575,7 +581,13 @@ pub fn build_regions(
                             && (overlap_ratio_o >= 0.50 || iou >= 0.35)
                             && (o_has_digit_prefix && !m_has_digit_prefix || m.score > existing.score);
 
-                        let is_existing_dup = ((iou >= 0.40 || overlap_ratio_o >= 0.60 || (vert_col_sub_overlap && is_existing_sub) || (vert_col_overlap && is_existing_exact) || is_existing_suffix_noise || (overlap_ratio_o >= 0.30 && is_existing_sub) || is_o_furigana_of_m || is_o_worse_near_dup) && (is_existing_exact || is_existing_sub || is_existing_suffix_noise || is_o_furigana_of_m || is_o_worse_near_dup))
+                        let is_existing_horizontal_row_subslice = !is_container_vert
+                            && (ow as f32) <= (mw as f32 * 0.55)
+                            && clean_o.chars().count() <= 3
+                            && overlap_ratio_o >= 0.70
+                            && (clean_o.chars().any(|c| clean_m.contains(c)) || o_has_digit_prefix);
+
+                        let is_existing_dup = ((iou >= 0.40 || overlap_ratio_o >= 0.60 || (vert_col_sub_overlap && is_existing_sub) || (vert_col_overlap && is_existing_exact) || is_existing_suffix_noise || is_existing_horizontal_row_subslice || (overlap_ratio_o >= 0.30 && is_existing_sub) || is_o_furigana_of_m || is_o_worse_near_dup) && (is_existing_exact || is_existing_sub || is_existing_suffix_noise || is_existing_horizontal_row_subslice || is_o_furigana_of_m || is_o_worse_near_dup))
                             && !is_vert_col_text_and_punct;
                         !is_existing_dup
                     });

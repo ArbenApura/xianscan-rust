@@ -159,10 +159,34 @@ pub fn should_reject_candidate_region(
         {
             return true;
         }
-    } else if is_bubble && cluster_rect.w <= (ref_dim * 0.035).clamp(18.0, 35.0) as i32 && cluster_rect.h <= (ref_dim * 0.10).clamp(50.0, 110.0) as i32 {
-        let is_small_kana_gasp = cleaned.trim() == "っ" || cleaned.trim() == "ッ" || cleaned.trim() == "ー";
-        if is_small_kana_gasp {
-            return true;
+
+        // 4b. SUPPRESS NARROW VERTICAL REACTION SHARDS / EXCLAMATION SLITS DETECTED AS BUBBLES
+        // ACTION REACTION SHARDS (E.G. A JAGGED SHARD WITH A RED EXCLAMATION MARK '!') ARE OFTEN
+        // DETECTED AS NARROW VERTICAL BUBBLES (W <= 45PX, H >= 65PX, H >= 2.0 * W).
+        // WHEN OCR RECOGNIZES ONLY <= 1 CHARACTER (OFTEN MISREADING THE VERTICAL EXCLAMATION STROKE
+        // AS CJK '三' OR '日' OR DIGIT '1'), THIS IS A NON-DIALOGUE REACTION EFFECT AND MUST BE FILTERED.
+        let matched_b = bubbles.iter().find(|b| {
+            let cx = cluster_rect.x + cluster_rect.w / 2;
+            let cy = cluster_rect.y + cluster_rect.h / 2;
+            cx >= b.x - 15 && cx <= b.x + b.w + 15 && cy >= b.y - 15 && cy <= b.y + b.h + 15
+        });
+        if let Some(b) = matched_b {
+            let is_narrow_slit_bubble = (b.w <= ((ref_dim * 0.05).clamp(25.0, 48.0) as i32)
+                && b.h >= ((ref_dim * 0.07).clamp(45.0, 70.0) as i32)
+                && b.h as f32 >= b.w as f32 * 2.0)
+                || (b.h as f32 >= b.w as f32 * 1.6 && cluster_rect.h as f32 >= cluster_rect.w as f32 * 1.8 && cluster_rect.h >= 45);
+            let is_single_char = char_count <= 1;
+            let text_wider_than_bubble = cluster_rect.w as f32 >= b.w as f32 * 1.30;
+            if is_narrow_slit_bubble && (is_single_char || text_wider_than_bubble) {
+                return true;
+            }
+        }
+
+        if cluster_rect.w <= (ref_dim * 0.035).clamp(18.0, 35.0) as i32 && cluster_rect.h <= (ref_dim * 0.10).clamp(50.0, 110.0) as i32 {
+            let is_small_kana_gasp = cleaned.trim() == "っ" || cleaned.trim() == "ッ" || cleaned.trim() == "ー";
+            if is_small_kana_gasp {
+                return true;
+            }
         }
     }
 
@@ -243,6 +267,11 @@ pub fn should_reject_candidate_region(
     }
     if crate::ml::detect::is_pure_punctuation_only(cleaned) {
         if !is_bubble {
+            return true;
+        }
+        let is_single_exclamation = (cleaned.trim() == "!" || cleaned.trim() == "！")
+            && (cluster_rect.h as f32 >= cluster_rect.w as f32 * 1.6 || avg_score < 0.70);
+        if is_single_exclamation {
             return true;
         }
         let is_expressive_bubble_punct = cleaned.chars().any(|c| matches!(c, '！' | '？' | '!' | '?' | '…' | '·' | '—' | '～' | '¿' | '¡'));

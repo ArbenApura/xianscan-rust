@@ -376,6 +376,7 @@ export class XianScanClient {
 			inpaintMode: s.inpaintMode,
 			inpaintExpansionPct: s.inpaintExpansionPct,
 			typesetExpansionPct: s.typesetExpansionPct,
+			enableWhiteInpaint: s.enableWhiteInpaint,
 			enableWatermarkInpaint: s.enableWatermarkInpaint,
 			enableSfx: s.enableSfx,
 			sfxMaxAreaPct: s.sfxMaxAreaPct,

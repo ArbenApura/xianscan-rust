@@ -140,3 +140,5 @@ mod page_wyvern_art_mystic_chant_scribble;
 mod page_tree_quiet_sfx_vertical_ellipsis;
 mod page_glowing_relic_narration_false_bubble;
 mod page_douluo_awakening_soul_power_zero;
+mod page_tang_hao_twin_martial_souls_exclamation_shard;
+mod page_tang_san_hammer_forging_timing_force;
