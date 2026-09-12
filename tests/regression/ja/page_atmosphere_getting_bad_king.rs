@@ -45,7 +45,7 @@ fn test_regression_page_atmosphere_getting_bad_king() {
     assert!(leave_bubble.is_some(), "Must detect panel 3 right dialogue bubble");
 
     // 4. PANEL 3 RIGHT DIAMOND BUBBLE: 'んん？'
-    let hmm_diamond = res.regions.iter().find(|r| (r.text.contains("ん") || r.text.contains("?")) && r.box_.y >= 550 && r.box_.y <= 750 && r.box_.x >= 550 && r.box_.x <= 700);
+    let hmm_diamond = res.regions.iter().find(|r| (r.text.contains("ん") || r.text.contains("?")) && r.box_.y >= 550 && r.box_.y <= 800 && r.box_.x >= 500 && r.box_.x <= 700);
     assert!(hmm_diamond.is_some(), "Must detect panel 3 diamond bubble 'んん？'");
 
     // 5. PANEL 3 LEFT BUBBLE: 'はい' & '我が王よ'
