@@ -321,6 +321,7 @@ pub fn clean_stray_ocr_artifacts(text: &str) -> String {
             cleaned = cleaned.trim_end().to_string();
         }
         let cleaned = normalize_korean_ocr_confusions(&cleaned);
+        let cleaned = normalize_japanese_ocr_confusions(&cleaned);
         let cleaned = strip_hallucinated_border_parentheses(&cleaned);
         let cleaned = if cleaned == "一." || cleaned == "1." || cleaned == "|." || cleaned == "l." || cleaned == "I." || cleaned == "!." || cleaned == "！." {
             "！".to_string()
@@ -329,6 +330,16 @@ pub fn clean_stray_ocr_artifacts(text: &str) -> String {
         };
         cleaned.trim().to_string()
     }
+}
+
+/// NORMALIZES KNOWN SYSTEMATIC JAPANESE OCR CONFUSIONS IN MANGA
+/// HIRAGANA ろ AND る LOOK VERY SIMILAR IN STYLIZED FONTS, FREQUENTLY CAUSING
+/// ADVERB そろそろ TO BE MISRECOGNIZED AS UNGRAMMATICAL そろそる.
+pub fn normalize_japanese_ocr_confusions(text: &str) -> String {
+    if !text.contains("そろそる") {
+        return text.to_string();
+    }
+    text.replace("そろそる", "そろそろ")
 }
 
 /// NORMALIZES VERTICAL EXCLAMATION MARK OCR CONFUSIONS IN SPEECH BUBBLES

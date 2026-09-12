@@ -229,8 +229,22 @@ pub fn build_regions(
                         continue;
                     }
                     if line_center_inside_box(&l.polygon, mb) {
-                        matched.push(l);
-                        orphan_claims[li] = false;
+                        let (lx, ly, lw, lh) = polygon_bounds(&l.polygon);
+                        let inter_x = (lx + lw).min(mb.x + mb.w) - lx.max(mb.x);
+                        let inter_y = (ly + lh).min(mb.y + mb.h) - ly.max(mb.y);
+                        let inter_area = inter_x.max(0) * inter_y.max(0);
+                        let l_area = (lw * lh).max(1);
+                        let inside_ratio = inter_area as f32 / l_area as f32;
+                        let pad = 12;
+                        if inside_ratio >= 0.70
+                            && lx >= mb.x - pad
+                            && (lx + lw) <= mb.x + mb.w + pad
+                            && ly >= mb.y - pad
+                            && (ly + lh) <= mb.y + mb.h + pad
+                        {
+                            matched.push(l);
+                            orphan_claims[li] = false;
+                        }
                     }
                 }
             }
@@ -918,7 +932,21 @@ pub fn build_regions(
                 let mut typeset_box = final_box_rect.clone();
                 scale_tall_narrow_free_text_base_box(&mut typeset_box, matched_bubble_final.is_none(), page_w);
 
-                let inpaint_box = Some(expand_box(&final_box_rect, inpaint_pct, page_w, page_h));
+                let inpaint_box = if let Some(ref mb) = matched_bubble_final {
+                    let mut ib = expand_box(&final_box_rect, inpaint_pct, page_w, page_h);
+                    // CLAMP INPAINT BOX TO BUBBLE INTERIOR TO PREVENT BLEEDING INTO SURROUNDING ARTWORK
+                    let ib_x = ib.x.max(mb.x);
+                    let ib_y = ib.y.max(mb.y);
+                    let ib_r = (ib.x + ib.w).min(mb.x + mb.w);
+                    let ib_b = (ib.y + ib.h).min(mb.y + mb.h);
+                    ib.x = ib_x;
+                    ib.y = ib_y;
+                    ib.w = (ib_r - ib_x).max(1);
+                    ib.h = (ib_b - ib_y).max(1);
+                    Some(ib)
+                } else {
+                    Some(expand_box(&final_box_rect, inpaint_pct, page_w, page_h))
+                };
                 let typeset_box = Some(typeset_box);
 
                 let text_polygon = if angle.abs() >= 1.5 && !active_line_polys.is_empty() {
