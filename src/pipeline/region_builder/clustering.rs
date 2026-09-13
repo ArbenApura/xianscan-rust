@@ -89,6 +89,19 @@ pub fn cluster_lines_into_utterances<'a>(
                         return false;
                     }
 
+                    // STAGGERED MULTI-LOBE BUBBLE DISPARITY GUARD:
+                    // IN COMPOUND / FIGURE-8 SPEECH BUBBLES, DISTINCT LOBES EXHIBIT BOTH A SIGNIFICANT
+                    // TOP STEP AND BOTTOM STEP (STAGGERED VERTICAL OFFSET), SEPARATING THE TWO CLAUSES.
+                    if is_bubble {
+                        let top_delta = (ly - cy).abs();
+                        let bot_delta = ((ly + lh) - (cy + ch)).abs();
+                        let min_col_h = lh.min(ch);
+                        let stagger_threshold = (min_col_h as f32 * 0.30).max(30.0) as i32;
+                        if top_delta >= stagger_threshold && bot_delta >= stagger_threshold && horiz_gap >= 8 {
+                            return false;
+                        }
+                    }
+
                     // SFX AND DIALOGUE / NARRATION DISPARITY GUARD:
                     // NEVER CLUSTER AN ISOLATED SOUND EFFECT / ONOMATOPOEIA WITH REGULAR SENTENCE DIALOGUE OR NARRATION OUTSIDE BUBBLES.
                     if !is_bubble {
@@ -172,8 +185,15 @@ pub fn cluster_lines_into_utterances<'a>(
                         false
                     };
 
+                    let is_short_interjection = prev_text.chars().filter(|c| !c.is_whitespace()).count() <= 3;
+                    let term_gap_threshold = if is_short_interjection {
+                        (median_th * 0.30).max(5.0)
+                    } else {
+                        (median_th * 0.45).max(6.0)
+                    };
+
                     let is_vert_lobe_split = vert_gap >= (median_th * 1.35).max(22.0)
-                        || (ends_with_term && vert_gap >= (median_th * 0.45).max(6.0))
+                        || (ends_with_term && vert_gap >= term_gap_threshold)
                         || is_sfx_split;
 
                     if is_vert_lobe_split && !sub_cluster.is_empty() {

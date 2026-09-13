@@ -1113,6 +1113,11 @@ pub fn analyze_image_with_fusion_timed(
                     continue;
                 }
 
+                // DO NOT RESCUE STANDALONE ACTION ONOMATOPOEIA OR SOUND EFFECTS ON ARTWORK OUTSIDE BUBBLE ANCHORS
+                if !is_near_layout_anchor && crate::ml::detect::is_onomatopoeia_or_shout(&line.text) {
+                    continue;
+                }
+
                 // IF NOT NEAR ANY LAYOUT DETECTION, ONLY RESCUE HIGH-CONFIDENCE NATIVE SCRIPT ON CLEAN GUTTER OR TITLE NARRATION
                 let has_any_layout = !effective_bubbles.is_empty() || !effective_text_bubbles.is_empty() || !fusion_res.text_free.is_empty();
                 if has_any_layout && !is_near_layout_anchor {

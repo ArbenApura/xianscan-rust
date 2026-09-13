@@ -26,8 +26,11 @@ fn test_regression_page_monster_claw_rubble_interrobang_bubble() {
         println!("  Region r{}: kind={:?}, angle={:.2}, box={:?}, text='{}', conf={:.2}", i, r.kind, r.angle, r.box_, r.text.replace('\n', "\\n"), r.confidence);
     }
 
-    // 0. EXACT ELEMENT COUNTS: 0 REGIONS (PUNCTUATION MISREAD AS UNTRANSLATABLE DIGIT '12' IS SKIPPED)
-    assert_eq!(res.regions.len(), 0, "Must skip region when detected as untranslatable digit '12'");
+    // 0. EXACT ELEMENT COUNTS: 1 DIALOGUE BUBBLE ('!?' / '！？' NOT HALLUCINATED AS '12')
+    assert_eq!(res.regions.len(), 1, "Must detect bottom-right spiky dialogue bubble containing '!?'");
+    let bubble = res.regions.first().unwrap();
+    assert_eq!(bubble.kind, xianscan_rust::ml::schemas::RegionKind::DialogueBubble);
+    assert!(bubble.text.contains("!?") || bubble.text.contains("！？"), "Must detect '!?' or '！？', got '{}'", bubble.text);
 
     // 1. NEGATIVE GUARDS
     assert!(!res.regions.iter().any(|r| r.text.contains("12") || r.text.contains("1?")), "Must not output digit '12' or '1?'");

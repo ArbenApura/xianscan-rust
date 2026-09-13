@@ -25,7 +25,7 @@ static SHARED_TEST_ENGINE: LazyLock<Mutex<PipelineEngine>> = LazyLock::new(|| {
     Mutex::new(PipelineEngine::new_ocr_only(models_dir))
 });
 
-fn get_shared_test_engine() -> std::sync::MutexGuard<'static, PipelineEngine> {
+pub(crate) fn get_shared_test_engine() -> std::sync::MutexGuard<'static, PipelineEngine> {
     SHARED_TEST_ENGINE.lock().unwrap()
 }
 

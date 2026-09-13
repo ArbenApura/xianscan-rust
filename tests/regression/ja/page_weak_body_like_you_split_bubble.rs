@@ -35,8 +35,9 @@ fn test_regression_page_weak_body_like_you_split_bubble() {
             i, r.kind, r.box_, r.bubble_box, r.text.replace('\n', "\\n"), r.confidence, r.vertical);
     }
 
-    // 0. STRICT 8-REGION ACCOUNTING (8 DIALOGUEBUBBLES, 0 SOUNDEFFECTS, 0 FREETEXT)
-    crate::assert_element_counts!(res, 8, 8, 0, 0);
+    // 0. STRICT 9-REGION ACCOUNTING (9 DIALOGUEBUBBLES, 0 SOUNDEFFECTS, 0 FREETEXT)
+    // PANEL 3 FIGURE-8 BUBBLE SPLITS ACROSS THE WAIST INTO TWO DISTINCT DIALOGUE BUBBLES
+    crate::assert_element_counts!(res, 9, 9, 0, 0);
 
     // 1. PANEL 1 TOP-RIGHT BUBBLE: '拓斗様が 話しかけてくれたこと'
     let spoken_bubble = res.regions.iter().find(|r| r.text.contains("拓斗様が") || r.text.contains("話しかけて"));
@@ -74,19 +75,20 @@ fn test_regression_page_weak_body_like_you_split_bubble() {
     crate::assert_region_bounds!(elf_bubble, xianscan_rust::ml::schemas::RegionKind::DialogueBubble, 606, 835, 85, 242, 10);
     crate::assert_bubble_bounds!(elf_bubble, 532, 798, 221, 325, 10);
 
-    // 6. PANEL 3 BOY CRYING UNIFIED BUBBLE: '僕は身体が弱かったから 君みたいになりたかったのかも'
-    // MUST UNIFY BOTH COLUMNS AND MUST NOT EMIT A SEPARATE FREE_TEXT REGION FOR '君みたいに'
-    let weak_body_bubble = res.regions.iter().find(|r| r.text.contains("弱かったから") && r.text.contains("なりたかった"));
-    assert!(weak_body_bubble.is_some(), "Must unify both vertical columns inside the panel 3 speech bubble into a single region");
-    let weak_body_bubble = weak_body_bubble.unwrap();
-    assert_eq!(weak_body_bubble.kind, xianscan_rust::ml::schemas::RegionKind::DialogueBubble, "Unified region must be DialogueBubble");
-    crate::assert_bubble_bounds!(weak_body_bubble, 269, 1263, 175, 202, 10);
+    // 6. PANEL 3 BOY CRYING FIGURE-8 BUBBLE: SPLIT INTO TWO DISTINCT DIALOGUE LOBES
+    // LOBE 1 (UPPER-RIGHT): '僕は身体が\n弱かったから'
+    let weak_body_lobe1 = res.regions.iter().find(|r| r.text.contains("弱かったから") && !r.text.contains("なりたかった"));
+    assert!(weak_body_lobe1.is_some(), "Must detect upper-right lobe '僕は身体が\\n弱かったから'");
+    let weak_body_lobe1 = weak_body_lobe1.unwrap();
+    assert_eq!(weak_body_lobe1.kind, xianscan_rust::ml::schemas::RegionKind::DialogueBubble);
+    crate::assert_bubble_bounds!(weak_body_lobe1, 269, 1263, 175, 202, 10);
 
-    // NEGATIVE GUARD: NO ORPHAN FREE_TEXT REGION FOR '君みたいになりたかったのかも'
-    assert!(
-        !res.regions.iter().any(|r| r.kind == xianscan_rust::ml::schemas::RegionKind::FreeText && r.text.contains("君みたいに")),
-        "Must not emit stray free_text fragment for second column of speech bubble"
-    );
+    // LOBE 2 (LOWER-LEFT): '君みたいに\nなりたかったの\nかも'
+    let weak_body_lobe2 = res.regions.iter().find(|r| r.text.contains("君みたいに") || r.text.contains("なりたかった"));
+    assert!(weak_body_lobe2.is_some(), "Must detect lower-left lobe '君みたいに\\nなりたかったの\\nかも'");
+    let weak_body_lobe2 = weak_body_lobe2.unwrap();
+    assert_eq!(weak_body_lobe2.kind, xianscan_rust::ml::schemas::RegionKind::DialogueBubble);
+    crate::assert_bubble_bounds!(weak_body_lobe2, 269, 1263, 175, 202, 10);
 
     // 7. PANEL 4 RIGHT BOY BUBBLE: '君を…アトゥを使うのは 僕のプレイスタイルで ポリシーだったんだ'
     let atou_bubble = res.regions.iter().find(|r| r.text.contains("アトゥを使うのは") || r.text.contains("プレイスタイル"));

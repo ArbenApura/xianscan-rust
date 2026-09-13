@@ -38,8 +38,8 @@ fn test_regression_page_pirate_flag_east_wind_lowres_parity() {
         );
     }
 
-    // 0. STRICT 9-REGION ACCOUNTING (9 DIALOGUE BUBBLES, 0 SOUNDEFFECTS, 0 FREETEXT)
-    crate::assert_element_counts!(res, 9, 9, 0, 0);
+    // 0. STRICT 9-REGION ACCOUNTING (8 DIALOGUE BUBBLES, 0 SOUNDEFFECTS, 1 FREETEXT)
+    crate::assert_element_counts!(res, 9, 8, 0, 1);
 
     // 1. TOP-RIGHT NARRATION BOX: '大约一年 前左右，'
     let top_right = res.regions.iter().find(|r| r.text.contains("大约一年"));

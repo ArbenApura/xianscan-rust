@@ -267,7 +267,21 @@ pub fn is_onomatopoeia_or_shout(text: &str) -> bool {
         false
     };
 
-    is_action_sfx_char || is_exclamation_shout || is_korean_sfx_char || is_repeated_sound || is_latin_shout || is_cyrillic_sfx
+    // Cracking, blast, or nature ambient sound effect patterns (e.g. "咔嚓", "味察", "察咔", "轰隆", "静斯", "靜斯")
+    let is_cracking_or_blast_sfx = {
+        let s: String = clean_chars.iter().collect();
+        s.contains("咔嚓")
+            || s.contains("味察")
+            || s.contains("察咔")
+            || s.contains("轰隆")
+            || s.contains("静斯")
+            || s.contains("靜斯")
+            || (s.starts_with("轰") && clean_chars.len() <= 3)
+            || (s.starts_with("静") && clean_chars.len() <= 2)
+            || (s.starts_with("靜") && clean_chars.len() <= 2)
+    };
+
+    is_action_sfx_char || is_exclamation_shout || is_korean_sfx_char || is_repeated_sound || is_latin_shout || is_cyrillic_sfx || is_cracking_or_blast_sfx
 }
 
 /// UNIVERSAL CLEANING FOR OCR ARTIFACTS AND UNICODE STANDARDIZATION
@@ -532,6 +546,24 @@ pub fn is_pure_punctuation_only(text: &str) -> bool {
         return true;
     }
     !t.chars().any(|c| c.is_alphanumeric())
+}
+
+/// CHECK IF A GIVEN TEXT STRING CONSISTS EXCLUSIVELY OF EXCLAMATION MARKS (E.G. "!", "!!", "!!!", "！", "！！", "！！！")
+pub fn is_pure_exclamation_only(text: &str) -> bool {
+    let t = text.trim();
+    if t.is_empty() {
+        return false;
+    }
+    t.chars().all(|c| c == '!' || c == '！' || c.is_whitespace())
+}
+
+/// CHECK IF A GIVEN TEXT STRING CONSISTS EXCLUSIVELY OF EXCLAMATION AND QUESTION MARKS (E.G. "!?", "！？", "!", "?", "！！")
+pub fn is_pure_exclamation_or_question_only(text: &str) -> bool {
+    let t = text.trim();
+    if t.is_empty() {
+        return false;
+    }
+    t.chars().all(|c| matches!(c, '!' | '！' | '?' | '？' | '¿' | '¡') || c.is_whitespace())
 }
 
 /// CHECK IF A NARROW VERTICAL STRING INSIDE A SPEECH BUBBLE REPRESENTS VERTICAL ELLIPSIS DOT HALLUCINATIONS

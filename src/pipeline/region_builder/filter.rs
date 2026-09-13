@@ -291,9 +291,8 @@ pub fn should_reject_candidate_region(
         if !is_bubble {
             return true;
         }
-        let is_single_exclamation = (cleaned.trim() == "!" || cleaned.trim() == "！")
-            && (cluster_rect.h as f32 >= cluster_rect.w as f32 * 1.6 || avg_score < 0.70);
-        if is_single_exclamation {
+        // PURE EXCLAMATION BUBBLES ("!", "!!", "!!!", "！", "！！", "！！！") ARE REACTION MARKS REQUIRING NO TRANSLATION
+        if crate::ml::detect::is_pure_exclamation_only(cleaned) {
             return true;
         }
         let is_expressive_bubble_punct = cleaned.chars().any(|c| matches!(c, '！' | '？' | '!' | '?' | '…' | '·' | '—' | '～' | '¿' | '¡'));
@@ -372,6 +371,26 @@ pub fn should_reject_candidate_region(
     // 8c. SUPPRESS UNPUNCTUATED FLOATING ONOMATOPOEIA OUTSIDE SPEECH BUBBLES ON ARTWORK
     if source_lang == Some("ko") && !is_bubble && !is_card_or_aligned_text && is_shout && !has_narrative_punctuation {
         return true;
+    }
+
+    // 8d. SUPPRESS BACKGROUND BLAST, CRACKING, OR NATURE AMBIENT SFX OUTSIDE SPEECH BUBBLES
+    if !is_bubble && !is_card_or_aligned_text {
+        let s: String = cleaned
+            .chars()
+            .filter(|c| !c.is_whitespace() && !c.is_ascii_punctuation() && !matches!(*c, '！' | '？' | '：' | '…' | '～' | '·' | '—' | '–'))
+            .collect();
+        if s.contains("咔嚓")
+            || s.contains("味察")
+            || s.contains("察咔")
+            || s.contains("轰隆")
+            || s.contains("静斯")
+            || s.contains("靜斯")
+            || (s.starts_with("轰") && s.chars().count() <= 3)
+            || (s.starts_with("静") && s.chars().count() <= 2)
+            || (s.starts_with("靜") && s.chars().count() <= 2)
+        {
+            return true;
+        }
     }
 
     // 10. SUPPRESS TRANSLUCENT AGGREGATOR WATERMARKS

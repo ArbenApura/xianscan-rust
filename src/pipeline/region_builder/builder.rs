@@ -369,6 +369,39 @@ pub fn build_regions(
                 box_rect.h > (box_rect.w as f32 * 1.3) as i32
             };
 
+            // ATTACH ADJACENT PARALLEL VERTICAL COLUMNS IN MULTI-COLUMN VERTICAL TEXT BLOCKS
+            // In vertical CJK manga captions / speech, multi-column candidate boxes from detectors
+            // may truncate an outer column whose center falls slightly outside the box boundary.
+            if is_container_vert && matched.len() >= 2 {
+                for (li, l) in split_lines.iter().enumerate() {
+                    if !orphan_claims[li] {
+                        continue;
+                    }
+                    let t = l.text.trim();
+                    if crate::ml::detect::is_onomatopoeia_or_shout(t) {
+                        continue;
+                    }
+                    let (lx, ly, lw, lh) = polygon_bounds(&l.polygon);
+                    let is_vert_cand = lh >= (lw as f32 * 1.15) as i32 || t.chars().count() >= 2;
+                    if !is_vert_cand {
+                        continue;
+                    }
+                    let is_adjacent_column = matched.iter().any(|m| {
+                        let (mx, my, mw, mh) = polygon_bounds(&m.polygon);
+                        let overlap_y = (ly + lh).min(my + mh) - ly.max(my);
+                        let vert_overlap_ratio = overlap_y.max(0) as f32 / lh.min(mh).max(1) as f32;
+                        let horiz_gap = if lx >= mx + mw { lx - (mx + mw) } else if mx >= lx + lw { mx - (lx + lw) } else { 0 };
+                        let max_gap = (mw.max(lw) as f32 * 1.5).clamp(15.0, 35.0) as i32;
+                        let height_ratio = (lh as f32 / mh as f32).max(mh as f32 / lh as f32);
+                        vert_overlap_ratio >= 0.50 && horiz_gap <= max_gap && height_ratio <= 2.2
+                    });
+                    if is_adjacent_column {
+                        matched.push(l);
+                        orphan_claims[li] = false;
+                    }
+                }
+            }
+
             // PRUNE PERPENDICULAR PHANTOM SLICES THAT CONFLICT WITH DOMINANT ORIENTATION
             let mut orientation_filtered: Vec<&OcrLine> = if h_count > 0 && v_count > 0 {
                 matched.iter().copied().filter(|m| {
@@ -686,8 +719,28 @@ pub fn build_regions(
                         && t.chars().all(|c| (c >= '\u{AC00}' && c <= '\u{D7A3}') || c.is_ascii_punctuation() || matches!(c, '…' | '·' | '—' | '～' | '。' | '，' | '、' | '！' | '？' | '!' | '?' | '.' | '~'))
                 });
 
+                // COMPUTE TIGHT BOUNDS OF THIS CLUSTER
+                let mut c_min_x = i32::MAX;
+                let mut c_min_y = i32::MAX;
+                let mut c_max_x = i32::MIN;
+                let mut c_max_y = i32::MIN;
+                for l in &cluster_lines {
+                    let (lx, ly, lw, lh) = polygon_bounds(&l.polygon);
+                    c_min_x = c_min_x.min(lx);
+                    c_min_y = c_min_y.min(ly);
+                    c_max_x = c_max_x.max(lx + lw);
+                    c_max_y = c_max_y.max(ly + lh);
+                }
+                let mut cluster_rect = BoxRect {
+                    x: c_min_x.max(0),
+                    y: c_min_y.max(0),
+                    w: (c_max_x - c_min_x).max(1),
+                    h: (c_max_y - c_min_y).max(1),
+                };
+
+
                 angle_deg = if !cluster_lines.is_empty() && median_line_angle.abs() >= 1.5 {
-                    if (matched_bubble.is_some() && median_line_angle.abs() < 6.0 && (box_angle == 0.0 || box_angle.abs() < 2.0))
+                    if (matched_bubble.is_some() && median_line_angle.abs() < 5.0 && (box_angle == 0.0 || box_angle.abs() < 2.0))
                         || (matched_bubble.is_some() && is_short_hangul && median_line_angle.abs() < 10.0 && box_angle.abs() < 2.0)
                     {
                         0.0
@@ -713,30 +766,11 @@ pub fn build_regions(
                 combined_text = crate::ml::detect::clean_stray_ocr_artifacts(&combined_text);
                 let mut avg_score = cluster_lines.iter().map(|l| l.score).sum::<f32>() / cluster_lines.len() as f32;
 
-                // COMPUTE TIGHT BOUNDS OF THIS CLUSTER
-                let mut c_min_x = i32::MAX;
-                let mut c_min_y = i32::MAX;
-                let mut c_max_x = i32::MIN;
-                let mut c_max_y = i32::MIN;
-                for l in &cluster_lines {
-                    let (lx, ly, lw, lh) = polygon_bounds(&l.polygon);
-                    c_min_x = c_min_x.min(lx);
-                    c_min_y = c_min_y.min(ly);
-                    c_max_x = c_max_x.max(lx + lw);
-                    c_max_y = c_max_y.max(ly + lh);
-                }
-                let mut cluster_rect = BoxRect {
-                    x: c_min_x.max(0),
-                    y: c_min_y.max(0),
-                    w: (c_max_x - c_min_x).max(1),
-                    h: (c_max_y - c_min_y).max(1),
-                };
-
                 let is_cluster_in_bubble = (is_bubble_region || matched_bubble.is_some() || bubbles.iter().any(|b| {
                     let cx = cluster_rect.x + cluster_rect.w / 2;
                     let cy = cluster_rect.y + cluster_rect.h / 2;
                     cx > b.x + 8 && cx < b.x + b.w - 8 && cy > b.y + 8 && cy < b.y + b.h - 8
-                })) && (!is_container_vert || angle_deg.abs() < 6.0 || box_angle.abs() >= 2.0);
+                })) && (!is_container_vert || angle_deg.abs() < 5.0 || box_angle.abs() >= 2.0);
 
 
                 // SUPPRESS TITLE ARTWORK LOGO CALLIGRAPHY ON CHAPTER PUBLICATION CREDIT CARDS BEFORE RUNNING CROP REFINEMENT
@@ -903,7 +937,7 @@ pub fn build_regions(
                 };
 
                 let is_slanted_vert_free = is_container_vert
-                    && angle.abs() >= 6.0
+                    && angle.abs() >= 5.0
                     && (box_angle == 0.0 || box_angle.abs() < 2.0);
 
                 let matched_bubble_final = if is_slanted_vert_free {
@@ -976,10 +1010,17 @@ pub fn build_regions(
                         }
                     }
                     let font_scale = super::clustering::polygon_thickness(&active_line_polys[0]);
-                    let u_pad = if matched_bubble_final.is_some() {
-                        (font_scale * 0.90).clamp(18.0, 35.0)
+                    let (u_pad_min, u_pad_max) = if matched_bubble_final.is_some() {
+                        let p = (font_scale * 0.90).clamp(18.0, 35.0);
+                        (p, p)
                     } else {
-                        (font_scale * 0.35).clamp(6.0, 14.0)
+                        let p_min = (font_scale * 0.35).clamp(6.0, 14.0);
+                        let p_max = if is_container_vert && active_line_polys.len() >= 2 {
+                            (font_scale * 0.85).clamp(18.0, 28.0)
+                        } else {
+                            p_min
+                        };
+                        (p_min, p_max)
                     };
                     let v_pad = if matched_bubble_final.is_some() {
                         (font_scale * 0.35).clamp(8.0, 18.0)
@@ -987,10 +1028,10 @@ pub fn build_regions(
                         (font_scale * 0.20).clamp(4.0, 10.0)
                     };
                     let corners = [
-                        (min_u - u_pad, min_v - v_pad),
-                        (max_u + u_pad, min_v - v_pad),
-                        (max_u + u_pad, max_v + v_pad),
-                        (min_u - u_pad, max_v + v_pad),
+                        (min_u - u_pad_min, min_v - v_pad),
+                        (max_u + u_pad_max, min_v - v_pad),
+                        (max_u + u_pad_max, max_v + v_pad),
+                        (min_u - u_pad_min, max_v + v_pad),
                     ];
                     corners.iter().map(|&(u, v)| {
                         let rx = u * cos_a - v * sin_a;

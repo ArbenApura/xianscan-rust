@@ -58,15 +58,22 @@ pub fn deduplicate_and_unify_regions(
 
             let text_contains = clean_r == clean_e || clean_e.contains(clean_r) || clean_r.contains(clean_e) || has_shared_major_line || is_contained_text || has_cjk_sub;
 
-            let has_unshared_r = lines_r.iter().any(|lr| !lines_e.iter().any(|le| le == lr || le.contains(lr) || lr.contains(le)));
-            let has_unshared_e = lines_e.iter().any(|le| !lines_r.iter().any(|lr| lr == le || lr.contains(le) || le.contains(lr)));
+            let has_unshared_r = lines_r.iter().any(|lr| {
+                let is_noise = lr.chars().all(|c| c.is_ascii_digit() || c.is_ascii_punctuation() || c.is_whitespace());
+                !is_noise && !lines_e.iter().any(|le| le == lr || le.contains(lr) || lr.contains(le))
+            });
+            let has_unshared_e = lines_e.iter().any(|le| {
+                let is_noise = le.chars().all(|c| c.is_ascii_digit() || c.is_ascii_punctuation() || c.is_whitespace());
+                !is_noise && !lines_r.iter().any(|lr| lr == le || lr.contains(le) || le.contains(lr))
+            });
             let is_partial_chain = has_unshared_r && has_unshared_e;
 
+            let shares_bubble = existing.bubble_box.is_some() && existing.bubble_box == r.bubble_box;
             let is_bubble_subset = !is_partial_chain
                 && (existing.bubble_box.is_some() || r.bubble_box.is_some())
                 && text_contains
                 && inter_area > 0
-                && (overlap_r >= 0.40 || overlap_e >= 0.40 || iou >= 0.30);
+                && (overlap_r >= 0.40 || overlap_e >= 0.40 || iou >= 0.30 || (shares_bubble && (overlap_r >= 0.20 || overlap_e >= 0.20)));
 
             let is_spatial_containment_subset = !is_partial_chain
                 && (text_contains || has_shared_major_line)
@@ -385,7 +392,11 @@ pub fn deduplicate_and_unify_regions(
                     // Top height anchor difference: if tops are not strictly aligned, do not merge
                     let top_delta = (ry - ey).abs();
                     let min_h = rh.min(eh);
-                    let max_allowed_top_delta = (min_h as f32 * 0.08).max(14.0) as i32;
+                    let max_allowed_top_delta = if r.bubble_box.is_some() {
+                        (min_h as f32 * 0.30).max(30.0) as i32
+                    } else {
+                        (min_h as f32 * 0.08).max(14.0) as i32
+                    };
                     if top_delta > max_allowed_top_delta {
                         continue;
                     }
@@ -393,7 +404,7 @@ pub fn deduplicate_and_unify_regions(
                     // Scale-proportional horizontal gap check
                     let horiz_gap = if rx >= ex + ew { rx - (ex + ew) } else if ex >= rx + rw { ex - (rx + rw) } else { 0 };
                     let max_allowed_gap = if r.bubble_box.is_some() {
-                        (rw.min(ew) as f32 * 0.15).max(4.0) as i32
+                        (rw.min(ew) as f32 * 0.75).clamp(12.0, 32.0) as i32
                     } else {
                         (rw.min(ew) as f32 * 0.35).clamp(6.0, 30.0) as i32
                     };
@@ -403,7 +414,8 @@ pub fn deduplicate_and_unify_regions(
 
                     // Vertical overlap check
                     let overlap_y = (ry + rh).min(ey + eh) - ry.max(ey);
-                    if (overlap_y.max(0) as f32 / min_h.max(1) as f32) < 0.75 {
+                    let min_overlap_ratio = if r.bubble_box.is_some() { 0.40 } else { 0.75 };
+                    if (overlap_y.max(0) as f32 / min_h.max(1) as f32) < min_overlap_ratio {
                         continue;
                     }
                         } else {

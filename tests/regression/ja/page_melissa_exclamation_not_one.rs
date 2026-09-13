@@ -28,17 +28,13 @@ fn test_regression_page_melissa_exclamation_not_one() {
             i, r.kind, r.box_, r.bubble_box, r.text.replace('\n', "\\n"), r.confidence, r.vertical);
     }
 
-    // 0. DIALOGUE BUBBLE ACCOUNTING
-    assert!(res.regions.len() >= 3, "Expected at least 3 regions, found {}", res.regions.len());
+    // 0. DIALOGUE BUBBLE ACCOUNTING: PURE EXCLAMATION BUBBLE '！' IS SUPPRESSED, LEAVING 2 STORY DIALOGUES
+    let dialogue_bubbles: Vec<_> = res.regions.iter().filter(|r| r.kind == xianscan_rust::ml::schemas::RegionKind::DialogueBubble).collect();
+    assert_eq!(dialogue_bubbles.len(), 2, "Expected exactly 2 dialogue bubbles (pure exclamation bubble skipped), found {}", dialogue_bubbles.len());
 
-    // 1. PANEL 2 REACTION BUBBLE: '！'
-    // MUST NOT BE RECOGNIZED AS '一.'
+    // 1. PANEL 2 REACTION BUBBLE: '！' MUST BE SUPPRESSED (ISOLATED EXCLAMATION MARKS REQUIRE NO TRANSLATION)
     let excl_bubble = res.regions.iter().find(|r| r.box_.y >= 500 && r.box_.y <= 650 && r.box_.x >= 250 && r.box_.x <= 360);
-    assert!(excl_bubble.is_some(), "Must detect Melissa exclamation bubble");
-    let excl_bubble = excl_bubble.unwrap();
-    assert!(!excl_bubble.text.contains("一."), "Exclamation mark must not be misrecognized as '一.', text='{}'", excl_bubble.text);
-    assert!(!excl_bubble.text.trim().eq("一"), "Exclamation mark must not be misrecognized as kanji '一', text='{}'", excl_bubble.text);
-    assert!(excl_bubble.text.contains('！') || excl_bubble.text.contains('!'), "Text should be an exclamation mark, text='{}'", excl_bubble.text);
+    assert!(excl_bubble.is_none(), "Pure exclamation reaction bubble must be suppressed");
 
     // 2. PANEL 2 RIGHT BUBBLE: 'まあ アイツのことは 今はどうでもいいが'
     let well_bubble = res.regions.iter().find(|r| r.text.contains("アイツのこと") || r.text.contains("どうでもいい"));
