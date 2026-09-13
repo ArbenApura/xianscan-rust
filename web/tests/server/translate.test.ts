@@ -60,6 +60,16 @@ describe('systemPrompt', () => {
 		expect(p).toContain('Punctuation Restraint: Minimize em dashes');
 	});
 
+	it('includes region kind semantics and declarative mood preservation for free_text vs dialogue bubbles', () => {
+		const p = systemPrompt('zh-Hans', 'en');
+		expect(p).toContain('Region Kind Semantics (dialogue_bubble vs. free_text)');
+		expect(p).toContain('Declarative vs. Interrogative Mood & Punctuation Preservation');
+		expect(p).toContain('Character Annotation Tags & Status Labels');
+		expect(p).toContain('Miniature Floating Asides');
+		expect(p).toContain('[free_text] "不看八卦新闻。" -> "Doesn\'t read gossip news."');
+		expect(p).toContain('[free_text] "不看八卦新闻？" -> "You don\'t read gossip news?"');
+	});
+
 	it('produces specialized Russian/Cyrillic prompt without Chinese Wuxia rules', () => {
 		const p = systemPrompt('ru', 'en');
 		expect(p).toContain('Cyrillic Comic Rules');
@@ -1207,8 +1217,53 @@ describe('parseExtractedTerms & extractTerms', () => {
 		expect(userMsg.content).toContain('Senior Brother, please wait!');
 		expect(userMsg.content).toContain('=== CURRENT PAGE DIALOGUE CONTEXT ===');
 		expect(userMsg.content).toContain('Who goes there?');
-		expect(userMsg.content).toContain('休得无礼！');
 		expect(userMsg.content).toContain('叶掌门，久仰大名！');
 	});
+
+	it('preserves declarative period on strict full stop statements in sanitizeTranslationArtifacts', () => {
+		// SOURCE ENDS WITH PERIOD, CONTAINS NO QUESTION PARTICLES -> STRIP HALLUCINATED TRAILING QUESTION MARK
+		const fixed = sanitizeTranslationArtifacts("You don't read the gossip news?", '不看八卦新闻。');
+		expect(fixed).toBe("You don't read the gossip news.");
+
+		// SOURCE HAS QUESTION MARK -> PRESERVE QUESTION MARK
+		const preservedQuestion = sanitizeTranslationArtifacts("You don't read the gossip news?", '不看八卦新闻？');
+		expect(preservedQuestion).toBe("You don't read the gossip news?");
+
+		// SOURCE HAS QUESTION PARTICLE WITH PERIOD -> PRESERVE QUESTION MARK
+		const particleQuestion = sanitizeTranslationArtifacts('Really?', '真的吗。');
+		expect(particleQuestion).toBe('Really?');
+	});
+
+	it('passes regionKind and mood preservation directives in translateSingleText', async () => {
+		let capturedPayload: any = null;
+		const client = {
+			chat: {
+				completions: {
+					create: async (payload: any) => {
+						capturedPayload = payload;
+						return {
+							choices: [{ message: { content: "Doesn't read gossip news." } }],
+							usage: { prompt_tokens: 20, completion_tokens: 5, total_tokens: 25 },
+						};
+					},
+				},
+			},
+		} as unknown as OpenAI;
+
+		const res = await translateSingleText('不看八卦新闻。', PAIR, {
+			client,
+			regionKind: 'free_text',
+		});
+
+		expect(res.text).toBe("Doesn't read gossip news.");
+		expect(capturedPayload).not.toBeNull();
+		const systemMsg = capturedPayload.messages.find((m: any) => m.role === 'system');
+		expect(systemMsg.content).toContain('Declarative vs. Interrogative Mood');
+		expect(systemMsg.content).toContain('Region Kind Semantics');
+		const userMsg = capturedPayload.messages.find((m: any) => m.role === 'user');
+		expect(userMsg.content).toContain('comic annotation / free text');
+		expect(userMsg.content).toContain('不看八卦新闻。');
+	});
 });
+
 

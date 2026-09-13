@@ -309,6 +309,7 @@ export async function translateSingleText(
 		};
 		terms?: TermDraft[];
 		customPrompt?: string | null;
+		regionKind?: string;
 	} = {},
 ): Promise<{ text: string; usage: TranslationUsage }> {
 	const trimmed = text.trim();
@@ -346,12 +347,16 @@ Rules:
 		systemContent = `You are a professional comic and manhua translator translating dialogue/speech bubbles from ${srcName} to natural ${tgtName}.
 Rules:
 - Preserve speech nuance, comic tone, exclamations, sound effects, and character voice.
-- Avoid overusing em dashes (—), semicolons (;), or colons (:). Dialogue should feel naturally spoken; use periods, commas, or ellipses instead, reserving colons strictly for UI or stat labels and em dashes for abrupt speech interruptions.
+- Avoid overusing em dashes, semicolons (;), or colons (:). Dialogue should feel naturally spoken; use periods, commas, or ellipses instead, reserving colons strictly for UI or stat labels and dashes for abrupt speech interruptions.
 - Positive Identity & Pronoun Disambiguation:
   * Ban on Ambiguous Singular "They/Them": NEVER use singular "they/them/their" as a hedge for an individual character. Reserve "they/them" strictly for plural groups or mobs.
   * Gender & Pronoun Locking: Maintain established character gender across surrounding dialogue context.
   * Beasts, Monsters & Non-Human Entities: Resolve pronouns for beasts, monsters, summons, or animals to "it / its" or descriptive nouns ("the beast", "the creature"), never human "he / him" or "she / her", unless explicitly personified or anthropomorphized.
   * Pro-Drop: Resolve zero-subject imperative or direct questions to the listener as second-person ("you"), declarative self-actions as first-person ("I / me"), and thoughts as first-person ("I / me").
+- Declarative vs. Interrogative Mood: Never convert a declarative sentence ending with a full stop or period (。, .) into a question (?), unless the source explicitly contains an interrogative marker (such as Chinese 吗/呢/吧/难道/岂). Conversely, preserve question marks (？, ?) when present.
+- Region Kind Semantics:
+  * When translating character annotation tags or free_text descriptive labels (e.g. status tags or gag commentary like "不看八卦新闻。"), translate as concise declarative third-person or subjectless phrases (e.g. "Doesn't read gossip news.") rather than defaulting to second-person ("you") address.
+  * When translating miniature asides with question markers (e.g. "不看八卦新闻？"), preserve the interrogative aside ("You don't read gossip news?").
 - Output ONLY the translated text without commentary, quotes, or markdown fences.`;
 
 		const srcProfile = getSourceLanguageProfile(pair.sourceLang, tgtName);
@@ -426,19 +431,16 @@ Rules:
 		}
 	}
 
-	if (contextBlock || opts.currentPageContext || opts.terms?.length) {
-		let itemLabel = 'speech/dialogue bubble';
-		if (opts.kind === 'chapter') {
-			itemLabel = 'chapter title';
-		} else if (opts.kind === 'title') {
-			itemLabel = 'book title';
-		} else if (opts.kind === 'term') {
-			itemLabel = 'proper noun/term';
-		}
-		userContent += `Translate the following ${itemLabel} into natural ${tgtName} (${pair.targetLang}):\n"${trimmed}"\n\nOutput ONLY the translated text string, no commentary, no markdown fences, no quotes.`;
-	} else {
-		userContent += trimmed;
+	let itemLabel = opts.regionKind === 'free_text' ? 'comic annotation / free text' : 'speech/dialogue bubble';
+	if (opts.kind === 'chapter') {
+		itemLabel = 'chapter title';
+	} else if (opts.kind === 'title') {
+		itemLabel = 'book title';
+	} else if (opts.kind === 'term') {
+		itemLabel = 'proper noun/term';
 	}
+
+	userContent += `Translate the following ${itemLabel} into natural ${tgtName} (${pair.targetLang}):\n"${trimmed}"\n\nOutput ONLY the translated text string, no commentary, no markdown fences, no quotes.`;
 
 	messages.push({ role: 'user', content: userContent });
 

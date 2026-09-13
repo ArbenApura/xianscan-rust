@@ -46,6 +46,15 @@ export function sanitizeTranslationArtifacts(translated: string, source: string)
 		}
 	}
 
+	// 4. PREVENT HALLUCINATED QUESTION MARK ON STRICT DECLARATIVE SOURCE WITH FULL STOP
+	// IF SOURCE STRICTLY ENDS WITH A FULL STOP (。 OR .) AND CONTAINS NO INTERROGATIVE MARKERS OR PARTICLES,
+	// BUT THE TRANSLATION ENDS WITH "?", RESTORE DECLARATIVE TERMINATION (PERIOD).
+	const sourceEndsWithPeriod = /[。.]\s*$/u.test(s);
+	const sourceHasInterrogative = /[?？]|(?:[吗呢吧]|难道|怎么|为什么|岂|谁|什么|哪|か|까)/u.test(s);
+	if (sourceEndsWithPeriod && !sourceHasInterrogative && t.endsWith('?')) {
+		t = t.replace(/\?+\s*$/u, '.');
+	}
+
 	return t;
 }
 

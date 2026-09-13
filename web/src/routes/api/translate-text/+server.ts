@@ -143,6 +143,8 @@ export const POST: RequestHandler = async ({ request }) => {
 			| undefined;
 		let matchedTerms: TermDraft[] | undefined;
 
+		let resolvedRegionKind: string | undefined;
+
 		// RETRIEVE SLIDING DIALOGUE CONTEXT AND SIBLING BUBBLE FLOW WHEN PAGE AND CHAPTER EXIST
 		if (resolvedChapter && resolvedPage) {
 			dialogueContext = getDbDialogueContext(resolvedChapter.id, resolvedPage.seq);
@@ -168,6 +170,7 @@ export const POST: RequestHandler = async ({ request }) => {
 						: -1;
 
 				if (targetIdx !== -1) {
+					resolvedRegionKind = parseKindFromBox(pageRegions[targetIdx].box);
 					currentPageContext = {
 						before: pageRegions.slice(0, targetIdx).map((r) => ({
 							textSource: r.textSource,
@@ -223,6 +226,7 @@ export const POST: RequestHandler = async ({ request }) => {
 			currentPageContext,
 			terms: matchedTerms,
 			customPrompt: resolvedBook?.customPrompt || undefined,
+			regionKind: resolvedRegionKind,
 		});
 
 		return json({
