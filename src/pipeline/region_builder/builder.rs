@@ -757,6 +757,15 @@ pub fn build_regions(
                     median_line_angle
                 };
 
+                // SLANTED SOUND EFFECT & FREE TEXT INK ANGLE ESTIMATION:
+                // WHEN DETECTOR BOX OR OCR POLICE DETECTED AN AXIS-ALIGNED ENVELOPE (ANGLE = 0.0)
+                // FOR SLANTED TEXT/SFX, MEASURE ROTATION ANGLE DIRECTLY FROM DARK INK PIXELS.
+                if angle_deg == 0.0 && matched_bubble.is_none() && !is_container_vert && !cluster_lines.is_empty() {
+                    if let Some(ink_ang) = super::geometry::estimate_text_ink_angle(img, &cluster_rect) {
+                        angle_deg = ink_ang;
+                    }
+                }
+
                 let alpha_rad = angle_deg * (std::f32::consts::PI / 180.0);
                 let cos_a = alpha_rad.cos();
                 let sin_a = alpha_rad.sin();

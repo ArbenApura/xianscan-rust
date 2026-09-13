@@ -636,7 +636,22 @@ pub fn analyze_image_with_fusion_timed(
                         let vert_overlap = (left_b.y + left_b.h).min(right_b.y + right_b.h) - left_b.y.max(right_b.y);
                         let min_h = left_b.h.min(right_b.h);
 
-                        if horiz_gap >= -15 && horiz_gap <= 55 && vert_overlap > 0 && (vert_overlap as f32 / min_h as f32 >= 0.25) {
+                        // DISTINCT LOBE SEPARATION GUARD: DO NOT UNIFY WHEN PRECEDING RIGHT COLUMN ENDS WITH
+                        // TERMINAL PUNCTUATION OR WHEN HORIZONTAL GAP INDICATES SEPARATE LOBES (GAP >= 22PX)
+                        let right_b_has_term_punct = filtered_rapid_lines.iter().any(|l| {
+                            let (lx, ly, lw, lh) = crate::ml::geometry::polygon_bounds(&l.polygon);
+                            let ix = (right_b.x + right_b.w).min(lx + lw) - right_b.x.max(lx);
+                            let iy = (right_b.y + right_b.h).min(ly + lh) - right_b.y.max(ly);
+                            if ix > 0 && iy > 0 && (ix * iy) as f32 / (lw * lh).max(1) as f32 >= 0.40 {
+                                let t = l.text.trim();
+                                t.ends_with('！') || t.ends_with('!') || t.ends_with('？') || t.ends_with('?') || t.ends_with('。') || t.ends_with('…')
+                            } else {
+                                false
+                            }
+                        });
+                        let is_distinct_lobes = (horiz_gap >= 18 && right_b_has_term_punct) || horiz_gap >= 26;
+
+                        if !is_distinct_lobes && horiz_gap >= -15 && horiz_gap <= 55 && vert_overlap > 0 && (vert_overlap as f32 / min_h as f32 >= 0.25) {
                             let min_x = cur_b.x.min(b2.x);
                             let min_y = cur_b.y.min(b2.y);
                             let max_x = (cur_b.x + cur_b.w).max(b2.x + b2.w);

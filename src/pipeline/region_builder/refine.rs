@@ -107,6 +107,11 @@ pub fn try_refine_cluster_crop(
         return None;
     }
 
+    let is_snug_full_stop = is_bubble
+        && !is_container_vert
+        && cluster_lines.len() == 1
+        && (trimmed_combined.ends_with('。') || trimmed_combined.ends_with('.'));
+
     let target_rect = if is_oversized_single {
         BoxRect {
             x: cluster_rect.x.min(box_rect.x),
@@ -115,12 +120,23 @@ pub fn try_refine_cluster_crop(
             h: (cluster_rect.y + cluster_rect.h).max(box_rect.y + box_rect.h) - cluster_rect.y.min(box_rect.y),
         }
     } else if is_bubble || is_truncated_multiline || (is_container_taller && cluster_lines.len() <= 2) || (is_container_wider && cluster_lines.len() <= 2) || (is_standalone_alphanumeric_risk && cluster_lines.len() <= 2) {
-        BoxRect {
-            x: cluster_rect.x.min(box_rect.x),
-            y: cluster_rect.y.min(box_rect.y),
-            w: (cluster_rect.x + cluster_rect.w).max(box_rect.x + box_rect.w) - cluster_rect.x.min(box_rect.x),
-            h: (cluster_rect.y + cluster_rect.h).max(box_rect.y + box_rect.h) - cluster_rect.y.min(box_rect.y),
-        }
+        let (tx, tw) = if is_snug_full_stop {
+            // IN HORIZONTAL BUBBLES WITH COMPLETE SINGLE-LINE FULL-STOP SENTENCE, DO NOT EXPAND HORIZONTALLY
+            // TO OUTER BUBBLE CIRCLE BORDERS AS THAT INDUCES OCR TO RECOGNIZE CURVED BORDER ARCS AS BRACKETS
+            (cluster_rect.x, cluster_rect.w)
+        } else {
+            let min_x = cluster_rect.x.min(box_rect.x);
+            let max_x = (cluster_rect.x + cluster_rect.w).max(box_rect.x + box_rect.w);
+            (min_x, max_x - min_x)
+        };
+        let (ty, th) = if is_bubble && is_container_vert && cluster_lines.len() == 1 && (trimmed_combined.ends_with('。') || trimmed_combined.ends_with('.')) {
+            (cluster_rect.y, cluster_rect.h)
+        } else {
+            let min_y = cluster_rect.y.min(box_rect.y);
+            let max_y = (cluster_rect.y + cluster_rect.h).max(box_rect.y + box_rect.h);
+            (min_y, max_y - min_y)
+        };
+        BoxRect { x: tx, y: ty, w: tw, h: th }
     } else {
         cluster_rect.clone()
     };
@@ -129,6 +145,8 @@ pub fn try_refine_cluster_crop(
         if is_oversized_single { 0 } else { 8 }
     } else if !is_bubble {
         2
+    } else if is_snug_full_stop {
+        4
     } else {
         16
     };
@@ -136,6 +154,8 @@ pub fn try_refine_cluster_crop(
         if is_oversized_single { 0 } else { 16 }
     } else if !is_bubble {
         4
+    } else if is_snug_full_stop {
+        6
     } else {
         8
     };
@@ -416,10 +436,14 @@ pub fn try_refine_cluster_crop(
     };
 
     let is_improved = if is_cjk {
+        let is_inverted_leading_punct = combined_text.trim_start().starts_with(|c: char| c.is_ascii_punctuation() || matches!(c, '！' | '？' | '!' | '?'))
+            && clean_crop_text.trim_start().starts_with(|c: char| crate::ml::detect::has_cjk_characters(&c.to_string()));
+
         !is_excessive_expansion && !has_disparate_sfx_merge && !is_corrupted_punct_to_digits && !is_crop_corrupted_latin && (
             crop_cjk_count > combined_cjk_count
                 || (is_corrupted_latin_in_bubble && crop_cjk_count >= 1)
                 || has_more_ellipsis
+                || is_inverted_leading_punct
                 || (is_combined_pure_punct && clean_crop_text.chars().any(|c| matches!(c, '！' | '？' | '!' | '?')))
                 || (crop_cjk_count == combined_cjk_count && !is_severely_shrunk && (res.score > avg_score + 0.02 || (cluster_contrary_to_container && crop_matches_container && res.score >= avg_score - 0.05)))
                 || (res.score >= 0.70 && avg_score < 0.60 && !is_severely_shrunk)

@@ -418,6 +418,31 @@ pub fn deduplicate_and_unify_regions(
                     if (overlap_y.max(0) as f32 / min_h.max(1) as f32) < min_overlap_ratio {
                         continue;
                     }
+
+                    // COMPOUND SPEECH BUBBLE MULTI-LOBE & TERMINAL PUNCTUATION GUARD FOR VERTICAL TBRL
+                    // IN TBRL VERTICAL CJK MANGA, TEXT IS READ RIGHT TO LEFT. IF THE PRECEDING (RIGHTMOST)
+                    // BLOCK ENDS WITH TERMINAL PUNCTUATION AND HAS A NOTICEABLE HORIZONTAL SEPARATION,
+                    // OR IF BOTH BLOCKS REPRESENT DISTINCT MULTI-LINE LOBES, KEEP THEM SEPARATE.
+                    let (right_block, _) = if rx >= ex { (&r, &*existing) } else { (&*existing, &r) };
+                    let right_text = right_block.text.trim();
+                    let right_ends_term = right_text.ends_with('！')
+                        || right_text.ends_with('!')
+                        || right_text.ends_with('？')
+                        || right_text.ends_with('?')
+                        || right_text.ends_with('。')
+                        || right_text.ends_with('…')
+                        || right_text.ends_with("..");
+                    let min_term_hgap = 14;
+                    let min_lobe_hgap = 22;
+                    if (right_ends_term && horiz_gap >= min_term_hgap) || (r.bubble_box.is_some() && horiz_gap >= min_lobe_hgap) {
+                        continue;
+                    }
+
+                    let r_line_count = r.text.lines().count();
+                    let e_line_count = existing.text.lines().count();
+                    if r.bubble_box.is_some() && r_line_count >= 2 && e_line_count >= 2 && horiz_gap >= 12 {
+                        continue;
+                    }
                         } else {
                             // Horizontal lines
                             let is_in_same_bubble = match (&r.bubble_box, &existing.bubble_box) {

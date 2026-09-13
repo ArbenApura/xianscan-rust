@@ -1047,3 +1047,43 @@ pub fn extract_white_bubble_envelope(
         h: final_h,
     })
 }
+
+/// ESTIMATES THE ORIENTED ROTATION ANGLE (IN DEGREES) OF TEXT INK INSIDE A BOUNDING BOX.
+/// USES ROTATING CALIPERS (get_mini_boxes) ON DARK INK PIXELS TO MEASURE TRUE SLANTED ANGLE.
+pub fn estimate_text_ink_angle(img: &DynamicImage, rect: &BoxRect) -> Option<f32> {
+    if rect.w < 20 || rect.h < 12 {
+        return None;
+    }
+    let (pw, ph) = img.dimensions();
+    let crop_x = rect.x.clamp(0, pw as i32) as u32;
+    let crop_y = rect.y.clamp(0, ph as i32) as u32;
+    let crop_w = (rect.w as u32).min(pw - crop_x);
+    let crop_h = (rect.h as u32).min(ph - crop_y);
+    if crop_w < 20 || crop_h < 12 {
+        return None;
+    }
+    let patch = img.crop_imm(crop_x, crop_y, crop_w, crop_h).to_luma8();
+    let mut dark_pts: Vec<[f32; 2]> = Vec::new();
+    for py in 0..crop_h {
+        for px in 0..crop_w {
+            let lum = patch.get_pixel(px, py)[0];
+            if lum < 120 {
+                dark_pts.push([px as f32, py as f32]);
+            }
+        }
+    }
+    let total_pixels = crop_w * crop_h;
+    if dark_pts.len() < 35 || (dark_pts.len() as f32 / total_pixels as f32) > 0.45 {
+        return None;
+    }
+    let (mini_box, sside) = crate::ml::geometry::get_mini_boxes(&dark_pts);
+    if sside < 4.0 {
+        return None;
+    }
+    let ang = crate::ml::geometry::calculate_box_angle(&mini_box);
+    if ang.abs() >= 2.5 && ang.abs() <= 45.0 {
+        Some(ang)
+    } else {
+        None
+    }
+}

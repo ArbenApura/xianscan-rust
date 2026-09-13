@@ -400,7 +400,7 @@ pub fn normalize_vertical_exclamation(text: &str, is_bubble: bool, w: i32, h: i3
         return "！".to_string();
     }
     if is_bubble && (h as f32) >= (w as f32 * 1.25) {
-        if t == "一" || t == "1" || t == "|" || t == "l" || t == "I" {
+        if t == "一" || t == "1" || t == "|" || t == "l" || t == "I" || t == "公" {
             return "！".to_string();
         }
     }
@@ -555,7 +555,24 @@ pub fn strip_hallucinated_border_parentheses(text: &str) -> String {
         }
     }
 
-    cleaned_lines.join("\n")
+    // 6. STRIP HALLUCINATED ENCLOSING BRACKETS WRAPPING SENTENCE DIALOGUE (E.G. "【好吧。】", "[好吧。]", "【你好！】")
+    // NOTE: LEGITIMATE EAST ASIAN SKILL OR ITEM TAGS (E.G. "【猛毒】", "【鑑定】") DO NOT END IN SENTENCE PUNCTUATION.
+    let mut final_lines: Vec<String> = Vec::with_capacity(cleaned_lines.len());
+    for line in cleaned_lines {
+        let tr = line.trim();
+        if (tr.starts_with('【') && tr.ends_with('】')) || (tr.starts_with('[') && tr.ends_with(']')) {
+            let open_len = if tr.starts_with('【') { '【'.len_utf8() } else { '['.len_utf8() };
+            let close_len = if tr.ends_with('】') { '】'.len_utf8() } else { ']'.len_utf8() };
+            let inner = &tr[open_len..tr.len() - close_len].trim();
+            if inner.ends_with('。') || inner.ends_with('！') || inner.ends_with('？') || inner.ends_with('!') || inner.ends_with('?') || inner.ends_with('…') {
+                final_lines.push(inner.to_string());
+                continue;
+            }
+        }
+        final_lines.push(line);
+    }
+
+    final_lines.join("\n")
 }
 
 /// RECOVERS KNOWN SYSTEMATIC HANGUL OCR CONFUSIONS FROM MANHWA BRUSH/ACTION FONTS
