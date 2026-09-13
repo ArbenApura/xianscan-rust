@@ -414,8 +414,11 @@ pub fn strip_hallucinated_border_parentheses(text: &str) -> String {
         return String::new();
     }
 
-    let is_open_paren = |c: char| matches!(c, '(' | '（' | '【' | '[' | '〔' | '〈' | '《');
-    let is_close_paren = |c: char| matches!(c, ')' | '）' | '】' | ']' | '〕' | '〉' | '》');
+    // ONLY CURVED PARENTHESES AND RECTANGULAR BRACKETS MATCH ROUND/SQUARE BUBBLE BORDER ARCS
+    // EXCLUDE JAPANESE LENTICULAR BRACKETS (【 】), QUOTE MARKS (《 》, 〈 〉), AND TORTOISESHELL (〔 〕)
+    // WHICH ARE LEGITIMATE EAST ASIAN TEXT CONVENTIONS FOR SKILLS, ITEMS, DIALOGUE, AND TITLES
+    let is_open_paren = |c: char| matches!(c, '(' | '（' | '[');
+    let is_close_paren = |c: char| matches!(c, ')' | '）' | ']');
     let is_any_paren = |c: char| is_open_paren(c) || is_close_paren(c);
 
     if !t.chars().any(is_any_paren) {
@@ -436,47 +439,59 @@ pub fn strip_hallucinated_border_parentheses(text: &str) -> String {
 
         // 1. UNMATCHED LEADING OPENING PARENTHESIS ON THIS LINE (NO CLOSING PARENTHESIS ON LINE)
         if open_count > 0 && close_count == 0 && l_str.starts_with(is_open_paren) {
-            let first_char = l_str.chars().next().unwrap();
-            l_str = l_str[first_char.len_utf8()..].trim_start().to_string();
+            if let Some(first_char) = l_str.chars().next() {
+                l_str = l_str[first_char.len_utf8()..].trim_start().to_string();
+            }
         }
 
         // 2. UNMATCHED TRAILING CLOSING PARENTHESIS ON THIS LINE (NO OPENING PARENTHESIS ON LINE)
         if close_count > 0 && open_count == 0 {
             let trimmed_end = l_str.trim_end();
             if trimmed_end.ends_with(is_close_paren) {
-                let last_char = trimmed_end.chars().last().unwrap();
-                l_str = trimmed_end[..trimmed_end.len() - last_char.len_utf8()].trim_end().to_string();
+                if let Some(last_char) = trimmed_end.chars().last() {
+                    let cut_idx = trimmed_end.len().saturating_sub(last_char.len_utf8());
+                    l_str = trimmed_end[..cut_idx].trim_end().to_string();
+                }
             } else if let Some(pos) = trimmed_end.rfind(is_close_paren) {
-                let after_paren = &trimmed_end[pos + 1..];
-                if after_paren.chars().all(|c| c.is_ascii_punctuation() || matches!(c, '！' | '？' | '。' | '…' | '～' | '，' | '、')) {
-                    let mut reconstructed = trimmed_end[..pos].to_string();
-                    let paren_char = trimmed_end[pos..].chars().next().unwrap();
-                    reconstructed.push_str(&trimmed_end[pos + paren_char.len_utf8()..]);
-                    l_str = reconstructed.trim_end().to_string();
+                if let Some(paren_char) = trimmed_end[pos..].chars().next() {
+                    let after_paren = &trimmed_end[pos + paren_char.len_utf8()..];
+                    if after_paren.chars().all(|c| c.is_ascii_punctuation() || matches!(c, '！' | '？' | '。' | '…' | '～' | '，' | '、')) {
+                        let mut reconstructed = trimmed_end[..pos].to_string();
+                        reconstructed.push_str(after_paren);
+                        l_str = reconstructed.trim_end().to_string();
+                    }
                 }
             }
         }
 
         // 3. ENCLOSING PARENTHESES WRAPPING THIS ENTIRE LINE
-        // E.G. "(久等了!)", "(还有!)", "(顾飞老师。)", "（久等了）", "(久等了)!"
+        // E.G. "(久等了!)", "(还有!)", "(顾飞老师。)", "（久等了）", "(久等了)!", "（久等了）！"
         if l_str.starts_with(is_open_paren) {
             let cur_open = l_str.chars().filter(|&c| is_open_paren(c)).count();
             let cur_close = l_str.chars().filter(|&c| is_close_paren(c)).count();
             if cur_open == 1 && cur_close == 1 {
                 let trimmed_end = l_str.trim_end();
                 if trimmed_end.ends_with(is_close_paren) {
-                    let first_char = l_str.chars().next().unwrap();
-                    let last_char = trimmed_end.chars().last().unwrap();
-                    let inner = &trimmed_end[first_char.len_utf8()..trimmed_end.len() - last_char.len_utf8()];
-                    l_str = inner.trim().to_string();
+                    if let (Some(first_char), Some(last_char)) = (l_str.chars().next(), trimmed_end.chars().last()) {
+                        let start_idx = first_char.len_utf8();
+                        let end_idx = trimmed_end.len().saturating_sub(last_char.len_utf8());
+                        if start_idx <= end_idx {
+                            let inner = &trimmed_end[start_idx..end_idx];
+                            l_str = inner.trim().to_string();
+                        }
+                    }
                 } else if let Some(pos) = trimmed_end.rfind(is_close_paren) {
-                    let after_paren = &trimmed_end[pos + 1..];
-                    if after_paren.chars().all(|c| c.is_ascii_punctuation() || matches!(c, '！' | '？' | '。' | '…' | '～' | '，' | '、')) {
-                        let first_char = l_str.chars().next().unwrap();
-                        let paren_char = trimmed_end[pos..].chars().next().unwrap();
-                        let inner_part = &trimmed_end[first_char.len_utf8()..pos];
-                        let tail_part = &trimmed_end[pos + paren_char.len_utf8()..];
-                        l_str = format!("{}{}", inner_part.trim(), tail_part.trim());
+                    if let Some(paren_char) = trimmed_end[pos..].chars().next() {
+                        let after_paren = &trimmed_end[pos + paren_char.len_utf8()..];
+                        if after_paren.chars().all(|c| c.is_ascii_punctuation() || matches!(c, '！' | '？' | '。' | '…' | '～' | '，' | '、')) {
+                            if let Some(first_char) = l_str.chars().next() {
+                                let start_idx = first_char.len_utf8();
+                                if start_idx <= pos {
+                                    let inner_part = &trimmed_end[start_idx..pos];
+                                    l_str = format!("{}{}", inner_part.trim(), after_paren.trim());
+                                }
+                            }
+                        }
                     }
                 }
             }
@@ -490,9 +505,13 @@ pub fn strip_hallucinated_border_parentheses(text: &str) -> String {
         let first_starts = cleaned_lines.first().map(|l| l.trim().starts_with(is_open_paren)).unwrap_or(false);
         let last_ends = cleaned_lines.last().map(|l| {
             let tr = l.trim_end();
-            tr.ends_with(is_close_paren) || (tr.rfind(is_close_paren).map(|p| {
-                tr[p + 1..].chars().all(|c| c.is_ascii_punctuation() || matches!(c, '！' | '？' | '。' | '…' | '～' | '，' | '、'))
-            }).unwrap_or(false))
+            tr.ends_with(is_close_paren) || tr.rfind(is_close_paren).map(|p| {
+                if let Some(paren_char) = tr[p..].chars().next() {
+                    tr[p + paren_char.len_utf8()..].chars().all(|c| c.is_ascii_punctuation() || matches!(c, '！' | '？' | '。' | '…' | '～' | '，' | '、'))
+                } else {
+                    false
+                }
+            }).unwrap_or(false)
         }).unwrap_or(false);
 
         let total_open: usize = cleaned_lines.iter().map(|l| l.chars().filter(|&c| is_open_paren(c)).count()).sum();
@@ -501,19 +520,23 @@ pub fn strip_hallucinated_border_parentheses(text: &str) -> String {
         if first_starts && last_ends && total_open == 1 && total_close == 1 {
             if let Some(first_line) = cleaned_lines.first_mut() {
                 let tr = first_line.trim();
-                let first_char = tr.chars().next().unwrap();
-                *first_line = tr[first_char.len_utf8()..].trim_start().to_string();
+                if let Some(first_char) = tr.chars().next() {
+                    *first_line = tr[first_char.len_utf8()..].trim_start().to_string();
+                }
             }
             if let Some(last_line) = cleaned_lines.last_mut() {
                 let tr = last_line.trim_end();
                 if tr.ends_with(is_close_paren) {
-                    let last_char = tr.chars().last().unwrap();
-                    *last_line = tr[..tr.len() - last_char.len_utf8()].trim_end().to_string();
+                    if let Some(last_char) = tr.chars().last() {
+                        let cut_idx = tr.len().saturating_sub(last_char.len_utf8());
+                        *last_line = tr[..cut_idx].trim_end().to_string();
+                    }
                 } else if let Some(pos) = tr.rfind(is_close_paren) {
-                    let paren_char = tr[pos..].chars().next().unwrap();
-                    let inner_part = &tr[..pos];
-                    let tail_part = &tr[pos + paren_char.len_utf8()..];
-                    *last_line = format!("{}{}", inner_part.trim_end(), tail_part.trim());
+                    if let Some(paren_char) = tr[pos..].chars().next() {
+                        let inner_part = &tr[..pos];
+                        let tail_part = &tr[pos + paren_char.len_utf8()..];
+                        *last_line = format!("{}{}", inner_part.trim_end(), tail_part.trim());
+                    }
                 }
             }
         }
@@ -1058,6 +1081,32 @@ mod tests {
         assert_eq!(
             strip_hallucinated_border_parentheses("（还有！）"),
             "还有！"
+        );
+        // STRIPS FULLWIDTH ENCLOSING PARENTHESES WITH TRAILING PUNCTUATION WITHOUT UTF8 PANIC
+        assert_eq!(
+            strip_hallucinated_border_parentheses("（久等了）！"),
+            "久等了！"
+        );
+        assert_eq!(
+            strip_hallucinated_border_parentheses("（还有）!"),
+            "还有!"
+        );
+        assert_eq!(
+            strip_hallucinated_border_parentheses("（第一行\n第二行）！"),
+            "第一行\n第二行！"
+        );
+        // PRESERVES JAPANESE LENTICULAR AND ANGLE BRACKETS (NOT BUBBLE BORDER ARCS)
+        assert_eq!(
+            strip_hallucinated_border_parentheses("【猛毒】の呪符が"),
+            "【猛毒】の呪符が"
+        );
+        assert_eq!(
+            strip_hallucinated_border_parentheses("【猛毒】"),
+            "【猛毒】"
+        );
+        assert_eq!(
+            clean_stray_ocr_artifacts("【猛毒】の呪符が"),
+            "【猛毒】の呪符が"
         );
         // PRESERVES INNER LEGITIMATE PARENTHESES AND NUMBERED LISTS
         assert_eq!(
