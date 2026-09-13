@@ -26,6 +26,7 @@ pub fn build_regions(
     order: &[usize],
     split_lines: &[OcrLine],
     bubbles: &[BoxRect],
+    onomatopoeia: &[(BoxRect, f32)],
     page_w: u32,
     page_h: u32,
     is_cjk: bool,
@@ -36,6 +37,43 @@ pub fn build_regions(
 ) -> Vec<Region> {
     let inpaint_pct = inpaint_padding_pct.unwrap_or(DEFAULT_INPAINT_EXPANSION_PCT);
     let mut regions: Vec<Region> = Vec::new();
+
+    // HELPER TO TEST IF A LINE OVERLAPS DETECTED ONOMATOPOEIA (SFX)
+    let line_overlaps_sfx = |lx: i32, ly: i32, lw: i32, lh: i32| -> bool {
+        onomatopoeia.iter().any(|(sfx_b, score)| {
+            if *score < 0.20 {
+                return false;
+            }
+            let sx = sfx_b.x;
+            let sy = sfx_b.y;
+            let sw = sfx_b.w;
+            let sh = sfx_b.h;
+            let ix = (sx + sw).min(lx + lw) - sx.max(lx);
+            let iy = (sy + sh).min(ly + lh) - sy.max(ly);
+            if ix > 0 && iy > 0 {
+                let inter_area = (ix * iy) as f32;
+                let l_area = (lw * lh).max(1) as f32;
+                let s_area = (sw * sh).max(1) as f32;
+                inter_area / l_area >= 0.15 || inter_area / s_area >= 0.15
+            } else {
+                false
+            }
+        })
+    };
+
+    // HELPER TO TEST IF A LINE IS FOREIGN SFX SCRIPT (E.G. JAPANESE KANA IN CHINESE/KOREAN SOURCE)
+    let is_foreign_sfx_script = |t: &str| -> bool {
+        if let Some(lang) = source_lang {
+            let trimmed = lang.trim().to_ascii_lowercase();
+            if trimmed.starts_with("zh") || trimmed.starts_with("ko") {
+                let has_kana = crate::ml::detect::JAPANESE_KANA_RE.is_match(t);
+                let has_nat = crate::ml::detect::has_native_script_for_lang(t, source_lang);
+                return has_kana && !has_nat;
+            }
+        }
+        false
+    };
+
 
     // CLEAN LEADING AND TRAILING WATERMARK DEBRIS AND ADJUST LINE POLYGONS PROPORTIONALLY
     let cleaned_split_lines: Vec<OcrLine> = split_lines
@@ -211,7 +249,6 @@ pub fn build_regions(
             })
             .collect();
 
-
         // BUBBLE-ENVELOPE LINE COMPLETION: A BUBBLE-BACKED CANDIDATE BOX CAN BE A PARTIAL
         // SLICE OF THE BALLOON (E.G. A STAGGERED DOUBLE-LOBE BALLOON WHERE THE DETECTOR BOX
         // HUGS ONE LOBE), ORPHANING THE OUTERMOST TEXT COLUMN WHOSE CENTER SITS INSIDE THE
@@ -230,6 +267,9 @@ pub fn build_regions(
                     }
                     if line_center_inside_box(&l.polygon, mb) {
                         let (lx, ly, lw, lh) = polygon_bounds(&l.polygon);
+                        if line_overlaps_sfx(lx, ly, lw, lh) || is_foreign_sfx_script(&l.text) {
+                            continue;
+                        }
                         let inter_x = (lx + lw).min(mb.x + mb.w) - lx.max(mb.x);
                         let inter_y = (ly + lh).min(mb.y + mb.h) - ly.max(mb.y);
                         let inter_area = inter_x.max(0) * inter_y.max(0);
@@ -262,6 +302,19 @@ pub fn build_regions(
                 let is_pure_punct = !t.is_empty() && t.chars().all(|c| matches!(c, '！' | '？' | '!' | '?' | '…' | 'ー' | '─' | '～' | '~' | '―'));
                 if is_pure_punct {
                     let (lx, ly, lw, lh) = polygon_bounds(&l.polygon);
+                    if line_overlaps_sfx(lx, ly, lw, lh) {
+                        continue;
+                    }
+                    if let Some(mb) = matched_bubble {
+                        let pad = 12;
+                        if lx < mb.x - pad
+                            || (lx + lw) > mb.x + mb.w + pad
+                            || ly < mb.y - pad
+                            || (ly + lh) > mb.y + mb.h + pad
+                        {
+                            continue;
+                        }
+                    }
                     let is_adjacent_to_matched = matched.iter().any(|m| {
                         let (mx, my, mw, mh) = polygon_bounds(&m.polygon);
                         let overlap_y = (ly + lh).min(my + mh) - ly.max(my);
@@ -276,6 +329,7 @@ pub fn build_regions(
                 }
             }
         }
+
 
         // IN NON-LATIN SCRIPT SOURCES (E.G. KOREAN, CJK), DROP OVERLAPPING PURE LATIN NOISE LINES AND DIGIT NOISE
         if crate::ml::detect::is_non_latin_source(source_lang) && matched.iter().any(|l| {
@@ -382,10 +436,32 @@ pub fn build_regions(
                         continue;
                     }
                     let (lx, ly, lw, lh) = polygon_bounds(&l.polygon);
+                    if line_overlaps_sfx(lx, ly, lw, lh) || is_foreign_sfx_script(t) {
+                        continue;
+                    }
+                    if let Some(mb) = matched_bubble {
+                        let pad = 12;
+                        if lx < mb.x - pad
+                            || (lx + lw) > mb.x + mb.w + pad
+                            || ly < mb.y - pad
+                            || (ly + lh) > mb.y + mb.h + pad
+                        {
+                            continue;
+                        }
+                    }
+                    if crate::ml::detect::is_non_latin_source(source_lang) {
+                        let lacks_native = !crate::ml::detect::has_native_script_for_lang(t, source_lang);
+                        let is_punct = t.chars().all(|c| matches!(c, '！' | '？' | '!' | '?' | '…'));
+                        let is_latin_noise = lacks_native && !is_punct && t.chars().all(|c| c.is_ascii_alphanumeric() || c.is_whitespace() || c.is_ascii_punctuation()) && !crate::ml::detect::is_legitimate_cjk_latin_loanword_or_dialogue(t);
+                        if is_latin_noise {
+                            continue;
+                        }
+                    }
                     let is_vert_cand = lh >= (lw as f32 * 1.15) as i32 || t.chars().count() >= 2;
                     if !is_vert_cand {
                         continue;
                     }
+
                     let is_adjacent_column = matched.iter().any(|m| {
                         let (mx, my, mw, mh) = polygon_bounds(&m.polygon);
                         let overlap_y = (ly + lh).min(my + mh) - ly.max(my);
@@ -847,6 +923,9 @@ pub fn build_regions(
                 } else {
                     None
                 };
+
+
+
                 if let Some(refined) = refine_outcome {
                     let orig_first_char = combined_text.trim_start().chars().find(|c| crate::ml::detect::has_cjk_characters(&c.to_string()));
                     let crop_first_char = refined.text.trim_start().chars().find(|c| crate::ml::detect::has_cjk_characters(&c.to_string()));

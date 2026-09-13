@@ -14,7 +14,7 @@ pub use grouping::{cluster_adjacent_sfx_boxes, deduplicate_boxes, filter_orthogo
 pub use lang::{
     filter_text_by_source_lang, has_alphanumeric_characters, has_cjk_characters, has_native_script_for_lang, is_cjk_source,
     is_cyrillic_source, is_latin_source, is_non_latin_source, is_standalone_alphanumeric_without_cjk, is_standalone_digit_or_particle_noise, is_thai_source,
-    strip_cjk_characters, CJK_CHAR_RE, CYRILLIC_CHAR_RE, NON_LATIN_SCRIPT_RE, THAI_CHAR_RE,
+    strip_cjk_characters, CJK_CHAR_RE, CYRILLIC_CHAR_RE, JAPANESE_KANA_RE, NON_LATIN_SCRIPT_RE, THAI_CHAR_RE,
 };
 pub use text_clean::{
     clean_stray_ocr_artifacts, clean_ui_header_text, is_credits_or_metadata_text, is_legitimate_cjk_latin_loanword_or_dialogue, is_likely_watermark, is_mixed_script_debris, is_onomatopoeia_or_shout, is_pure_exclamation_only, is_pure_exclamation_or_question_only, is_pure_punctuation_only, is_pure_watermark_region, is_repetitive_tabular_text, is_standalone_noise_stroke, is_standalone_table_cell,

@@ -432,17 +432,18 @@ pub fn deduplicate_and_unify_regions(
                         || right_text.ends_with('。')
                         || right_text.ends_with('…')
                         || right_text.ends_with("..");
-                    let min_term_hgap = 14;
-                    let min_lobe_hgap = 22;
+                    let min_term_hgap = 8;
+                    let min_lobe_hgap = 18;
                     if (right_ends_term && horiz_gap >= min_term_hgap) || (r.bubble_box.is_some() && horiz_gap >= min_lobe_hgap) {
                         continue;
                     }
 
                     let r_line_count = r.text.lines().count();
                     let e_line_count = existing.text.lines().count();
-                    if r.bubble_box.is_some() && r_line_count >= 2 && e_line_count >= 2 && horiz_gap >= 12 {
+                    if r.bubble_box.is_some() && r_line_count >= 2 && e_line_count >= 2 && horiz_gap >= 8 {
                         continue;
                     }
+
                         } else {
                             // Horizontal lines
                             let is_in_same_bubble = match (&r.bubble_box, &existing.bubble_box) {

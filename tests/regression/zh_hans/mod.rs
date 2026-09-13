@@ -149,3 +149,4 @@ mod page_gu_fei_gym_class_teacher_bubble;
 mod page_monster_emergency_heal_thought_bubble_tail;
 mod page_sotu_open_up_banner_tail_cut;
 mod page_beckman_bandits_double_bubble_exclamation;
+mod page_mayor_ransom_makino_alert_split_bubble;

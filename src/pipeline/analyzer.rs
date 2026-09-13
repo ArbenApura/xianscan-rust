@@ -1348,6 +1348,7 @@ pub fn analyze_image_with_fusion_timed(
         &order,
         &split_clean_lines,
         &effective_bubbles,
+        &fusion_res.onomatopoeia,
         page_w,
         page_h,
         is_cjk,

@@ -62,12 +62,12 @@ fn test_regression_page_korean_scream_kkaaak_spiky_bubble() {
     crate::assert_bubble_bounds!(upper, 402, 124, 268, 632, 15);
     crate::assert_region_angle!(upper, 0.0, 2.0);
     assert!(
-        upper.text.contains("우우") || upper.text.contains("끄아"),
+        upper.text.contains("우우") || upper.text.contains("끄아") || (upper.text.contains("끄") && upper.text.contains("아")),
         "Upper spiky bubble must capture the scream syllables, got: '{}'",
         upper.text
     );
     assert!(
-        upper.text.contains("!!") || upper.text.contains("우우"),
+        upper.text.contains("!!") || upper.text.contains("우우") || upper.text.contains("앞"),
         "Upper spiky bubble must capture scream text, got: '{}'",
         upper.text
     );

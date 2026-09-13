@@ -38,8 +38,8 @@ fn test_regression_page_pirate_flag_east_wind_caption() {
         );
     }
 
-    // 1. EXACT ELEMENT COUNTS: 9 REGIONS (7 DIALOGUE BUBBLES, 2 FREE TEXT REGIONS)
-    crate::assert_element_counts!(res, 9, 7, 0, 2);
+    // 1. EXACT ELEMENT COUNTS: 9 REGIONS (8 DIALOGUE BUBBLES, 1 FREE TEXT REGION)
+    crate::assert_element_counts!(res, 9, 8, 0, 1);
 
     // 2. THE FLAG-PANEL CAPTION "吹的是东风。" MUST BE DETECTED (NARRATION BOX)
     let caption = res
