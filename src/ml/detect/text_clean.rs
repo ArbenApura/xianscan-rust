@@ -643,7 +643,7 @@ pub fn is_mixed_script_debris(text: &str, source_lang: Option<&str>) -> bool {
         if is_sym {
             has_greek_symbol = true;
         }
-        let is_kana = is_zh && (('\u{3040}'..='\u{309F}').contains(c) || ('\u{30A0}'..='\u{30FF}').contains(c));
+        let is_kana = is_zh && matches!(*c, '\u{3040}'..='\u{309F}' | '\u{30A0}'..='\u{30FF}');
         let is_non_nat = c.is_ascii_alphanumeric() || is_sym || is_kana || matches!(*c, 'ェ' | 'ィ' | 'ゥ' | 'ォ' | 'ャ' | 'ュ' | 'ョ');
         if is_non_nat {
             if !in_non_native {
@@ -656,8 +656,8 @@ pub fn is_mixed_script_debris(text: &str, source_lang: Option<&str>) -> bool {
     }
     let native = chars
         .iter()
-        .filter(|c| {
-            if is_zh && (('\u{3040}'..='\u{309F}').contains(c) || ('\u{30A0}'..='\u{30FF}').contains(c)) {
+        .filter(|&&c| {
+            if is_zh && matches!(c, '\u{3040}'..='\u{309F}' | '\u{30A0}'..='\u{30FF}') {
                 return false;
             }
             crate::ml::detect::has_native_script_for_lang(&c.to_string(), source_lang)
