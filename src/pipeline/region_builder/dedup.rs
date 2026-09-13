@@ -248,7 +248,36 @@ pub fn deduplicate_and_unify_regions(
                         && (e_w_u.max(r_w_u) >= e_w_u.min(r_w_u) * 1.40)
                         && (v_gap >= (font_scale * 0.35).max(8.0));
 
-                    if is_adjacent_v && is_aligned_u && !is_multi_line_guard && !is_distant_utterance_guard && !is_disparate_font_scale && !is_header_to_body_disparity {
+                    // GUARD: NARROW DETECTOR BOX WITH PARTIAL OCR BLEED.
+                    // WHEN BOTH REGIONS HAVE GENUINELY DISJOINT CONTENT (is_partial_chain) AND NEITHER IS
+                    // A CONSECUTIVE SLICE, ONE REGION IS SIGNIFICANTLY NARROWER THAN THE OTHER IN THE ROTATED
+                    // FRAME. THIS PATTERN INDICATES A NARROW DETECTOR BOX THAT CAPTURED THE HEADER LINE PLUS
+                    // A PARTIAL TRUNCATED READ OF THE WIDER BODY BELOW. DO NOT MERGE: THEY ARE DIFFERENT TEXT.
+                    let is_narrow_partial_chain = !is_consecutive_slice
+                        && is_partial_chain
+                        && e_w_u.max(r_w_u) >= e_w_u.min(r_w_u) * 1.45
+                        && v_gap <= (font_scale * 2.0).max(40.0);
+
+                    // BLEED-LINE TRIMMING: WHEN THE NARROW BOX IS THE EXISTING REGION AND is_narrow_partial_chain,
+                    // REMOVE ANY LINES FROM THE NARROW BOX THAT ARE STRICT SUBSTRINGS OF A LINE IN THE WIDER BOX.
+                    // THIS STRIPS OCR BLEED (PARTIAL TRUNCATED READS) FROM THE NARROW REGION, LEAVING ONLY THE
+                    // LINES THAT ARE GENUINELY UNIQUE TO THAT BOX (E.G. THE BANNER HEADER).
+                    if is_narrow_partial_chain && e_w_u < r_w_u {
+                        let r_lines_wide: Vec<&str> = r.text.lines().map(|s| s.trim()).filter(|s| !s.is_empty()).collect();
+                        let trimmed: Vec<&str> = lines_e.iter().copied().filter(|el| {
+                            let el_clean: String = el.chars().filter(|c| !c.is_whitespace()).collect();
+                            if el_clean.chars().count() < 2 { return true; } // KEEP VERY SHORT LINES
+                            !r_lines_wide.iter().any(|rl| {
+                                let rl_clean: String = rl.chars().filter(|c| !c.is_whitespace()).collect();
+                                rl_clean.contains(&el_clean) && rl_clean != el_clean
+                            })
+                        }).collect();
+                        if !trimmed.is_empty() && trimmed.len() < lines_e.len() {
+                            existing.text = trimmed.join("\n");
+                        }
+                    }
+
+                    if is_adjacent_v && is_aligned_u && !is_multi_line_guard && !is_distant_utterance_guard && !is_disparate_font_scale && !is_header_to_body_disparity && !is_narrow_partial_chain {
                         is_duplicate = true;
 
                         let min_u = e_min_u.min(r_min_u);
@@ -478,27 +507,47 @@ pub fn deduplicate_and_unify_regions(
                                         && overlap_ratio >= 0.70
                                         && center_delta <= 45;
 
-                                    if !is_tall_continuous_balloon {
+                                    // WIDE BUBBLE SIDE-BY-SIDE COLUMN LAYOUT:
+                                    // A SINGLE WIDE BUBBLE WHOSE OCR DETECTED TWO HORIZONTAL COLUMNS (SIDE BY SIDE).
+                                    // THE COLUMNS HAVE HIGH VERTICAL OVERLAP AND NEGLIGIBLE HORIZONTAL GAP BETWEEN THEM.
+                                    let horiz_gap_c = if rx >= ex + ew { rx - (ex + ew) } else if ex >= rx + rw { ex - (rx + rw) } else { 0 };
+                                    let vert_overlap_c = ((ry + rh).min(ey + eh) - ry.max(ey)).max(0);
+                                    let vert_overlap_ratio = vert_overlap_c as f32 / rh.min(eh).max(1) as f32;
+                                    let is_side_by_side_columns = b.w >= b.h
+                                        && horiz_gap_c <= (min_w as f32 * 0.20).max(20.0) as i32
+                                        && vert_overlap_ratio >= 0.55;
+
+                                    if !is_tall_continuous_balloon && !is_side_by_side_columns {
                                         continue;
                                     }
                                 }
                                 let is_left_aligned = left_delta <= (min_w as f32 * 0.20).max(15.0) as i32;
-                                if !is_left_aligned && (center_delta > 40 || left_delta > 35) {
-                                    continue;
-                                }
-                                if center_delta > 80 && left_delta > 40 {
-                                    continue;
-                                }
-                                // Inside the same speech bubble, text lines can be centered or shaped to the balloon
-                                let font_line_h = (rh as f32 / r_line_count).min(eh as f32 / e_line_count);
-                                let vert_gap = if ry >= ey + eh { ry - (ey + eh) } else if ey >= ry + rh { ey - (ry + rh) } else { 0 };
-                                let max_allowed_gap = (font_line_h * 0.60).max(18.0) as i32;
-                                if vert_gap > max_allowed_gap {
-                                    continue;
-                                }
-                                let overlap_x = (rx + rw).min(ex + ew) - rx.max(ex);
-                                if (overlap_x.max(0) as f32 / min_w.max(1) as f32) < 0.40 && center_delta > 35 {
-                                    continue;
+                                // SIDE-BY-SIDE COLUMNS: LARGE horizontal left-edge delta is expected;
+                                // skip alignment guards and use horizontal gap as the anchor instead.
+                                let horiz_gap_same = if rx >= ex + ew { rx - (ex + ew) } else if ex >= rx + rw { ex - (rx + rw) } else { 0 };
+                                let vert_overlap_same = ((ry + rh).min(ey + eh) - ry.max(ey)).max(0);
+                                let vert_overlap_ratio_same = vert_overlap_same as f32 / rh.min(eh).max(1) as f32;
+                                let is_side_by_side = horiz_gap_same <= (min_w as f32 * 0.20).max(20.0) as i32
+                                    && vert_overlap_ratio_same >= 0.55
+                                    && horiz_gap_same > 0; // ACTUALLY SIDE BY SIDE, NOT OVERLAPPING
+                                if !is_side_by_side {
+                                    if !is_left_aligned && (center_delta > 40 || left_delta > 35) {
+                                        continue;
+                                    }
+                                    if center_delta > 80 && left_delta > 40 {
+                                        continue;
+                                    }
+                                    // Inside the same speech bubble, text lines can be centered or shaped to the balloon
+                                    let font_line_h = (rh as f32 / r_line_count).min(eh as f32 / e_line_count);
+                                    let vert_gap = if ry >= ey + eh { ry - (ey + eh) } else if ey >= ry + rh { ey - (ry + rh) } else { 0 };
+                                    let max_allowed_gap = (font_line_h * 0.60).max(18.0) as i32;
+                                    if vert_gap > max_allowed_gap {
+                                        continue;
+                                    }
+                                    let overlap_x = (rx + rw).min(ex + ew) - rx.max(ex);
+                                    if (overlap_x.max(0) as f32 / min_w.max(1) as f32) < 0.40 && center_delta > 35 {
+                                        continue;
+                                    }
                                 }
                             } else {
                                 if left_delta > (min_w as f32 * 0.12).max(10.0) as i32 {
@@ -605,6 +654,29 @@ pub fn deduplicate_and_unify_regions(
         r.text = crate::ml::detect::clean_ui_header_text(&r.text);
         r.id = format!("r{}", i);
     }
+
+    // D. SUPPRESS VERTICAL SLANTED FREE-TEXT BACKGROUND ARTWORK DETECTIONS.
+    // VERTICAL TBRL FREE-TEXT REGIONS WITH A MEANINGFUL SLANT ANGLE (>= 4°) AND NO BUBBLE CONTAINER
+    // ARE TYPICALLY BACKGROUND CALLIGRAPHY PROPS, WALL SCROLLS, OR DISPLAY ARTWORK - NOT STORY TEXT.
+    // SUPPRESS THESE WHEN CONFIDENCE IS BELOW 0.72 AND THE BOX IS LARGE ENOUGH TO BE ARTWORK
+    // (SMALL BOXES <= 8000 PX² ARE PRESERVED AS THEY ARE LIKELY LEGITIMATE SHORT SFX OR STAMPS).
+    deduped_regions.retain(|r| {
+        let is_vertical_slanted_freetext = r.vertical
+            && r.angle.abs() >= 4.0
+            && r.bubble_box.is_none();
+        if !is_vertical_slanted_freetext {
+            return true; // KEEP NON-ARTWORK REGIONS UNCONDITIONALLY
+        }
+        let box_area = (r.box_.w * r.box_.h).max(1) as usize;
+        let char_count = r.text.chars().filter(|c| !c.is_whitespace()).count();
+        // SUPPRESS LARGE LOW-CONFIDENCE REGIONS (BACKGROUND ART PROPS).
+        // THE AREA THRESHOLD (> 20000 PX²) ENSURES SMALL LEGITIMATE STORY TEXT (SFX, STAMPS, SHORT NARRATION)
+        // IS PRESERVED WHILE LARGE CALLIGRAPHY SCROLLS AND ARTWORK PANELS ARE SUPPRESSED.
+        let is_large_low_confidence = r.confidence < 0.70 && box_area > 20000;
+        // SUPPRESS SMALL TRIVIAL FRAGMENTS EVEN AT MODERATE CONFIDENCE (e.g. 2-3 CHAR NOISE FROM ART)
+        let is_noise_fragment = char_count <= 5 && r.confidence < 0.75 && box_area > 8000;
+        !(is_large_low_confidence || is_noise_fragment)
+    });
 
     deduped_regions
 }

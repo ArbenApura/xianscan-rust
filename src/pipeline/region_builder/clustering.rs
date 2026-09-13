@@ -382,6 +382,36 @@ pub fn cluster_lines_into_utterances<'a>(
                 (min_line_h * 1.75).max(35.0)
             };
             let is_substantial_gap = (vert_gap >= gap_threshold && !is_slanted_monologue) || is_standalone_line_rank_split;
+
+            // SLANTED HEADER-TO-BODY DISPARITY SPLIT:
+            // IN SLANTED FREE-TEXT CARDS (e.g. CAR INFOTAINMENT SCREENS), A SINGLE SHORT CATEGORY
+            // BANNER LINE SITS ABOVE A WIDER MULTI-LINE NEWS BODY. THE BANNER IS NARROWER BY >= 20%
+            // IN THE ROTATED READING-DIRECTION WIDTH. DETECT PURELY BY GEOMETRY: CURRENT CLUSTER
+            // IS EXACTLY 1 LINE, THE INCOMING ROW IS SUBSTANTIALLY WIDER, AND THERE IS A NON-TRIVIAL
+            // VERTICAL GAP (>= 10PX) BETWEEN THEM. THE GAP CONDITION PREVENTS SPLITTING CONSECUTIVE
+            // LABEL-VALUE LINES ON CREDITS OR STATUS CARDS WHERE LINES ARE SIMPLY DIFFERENT LENGTHS.
+            let is_slanted_header_to_body = is_slanted_monologue
+                && !is_bubble
+                && current_cluster.len() == 1
+                && vert_gap >= 10.0
+                && {
+                    let prev_w = prev_row.iter().map(|l| {
+                        let (lx, _, lw, lh) = polygon_bounds(&l.polygon);
+                        // READING-DIRECTION WIDTH IN ROTATED FRAME: u = x*cos_a + y*sin_a
+                        let u_left = lx as f32 * cos_a + (lx + lw) as f32 * cos_a.min(0.0).abs();
+                        let u_right = (lx + lw) as f32 * cos_a + lx as f32 * cos_a.min(0.0).abs();
+                        (u_right - u_left).abs().max(lw as f32).max(lh as f32 * 1.5)
+                    }).fold(0.0_f32, f32::max);
+                    let curr_w = row.iter().map(|l| {
+                        let (lx, _, lw, lh) = polygon_bounds(&l.polygon);
+                        let u_left = lx as f32 * cos_a + (lx + lw) as f32 * cos_a.min(0.0).abs();
+                        let u_right = (lx + lw) as f32 * cos_a + lx as f32 * cos_a.min(0.0).abs();
+                        (u_right - u_left).abs().max(lw as f32).max(lh as f32 * 1.5)
+                    }).fold(0.0_f32, f32::max);
+                    prev_w > 0.0 && curr_w >= prev_w * 1.20
+                };
+
+
             let is_pure_silence_prev = !prev_row_text.is_empty()
                 && prev_row_text.chars().all(|c| matches!(c, '…' | '.' | '·' | '(' | ')' | '（' | '）' | ' ' | '6'));
             let is_pure_silence_curr = !curr_row_text.is_empty()
@@ -414,7 +444,7 @@ pub fn cluster_lines_into_utterances<'a>(
                 false
             };
 
-            let should_split = is_substantial_gap || is_ellipsis_split || is_multi_lobe_split || (ends_with_punct && vert_gap >= (min_line_h * 0.70).max(16.0)) || is_caption_to_title || is_title_to_credits || is_repeated_bracketed_tag;
+            let should_split = is_substantial_gap || is_ellipsis_split || is_multi_lobe_split || (ends_with_punct && vert_gap >= (min_line_h * 0.70).max(16.0)) || is_caption_to_title || is_title_to_credits || is_repeated_bracketed_tag || is_slanted_header_to_body;
 
             if should_split && !current_cluster.is_empty() {
                 paragraph_clusters.push(current_cluster);
