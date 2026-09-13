@@ -848,12 +848,27 @@ pub fn build_regions(
                     None
                 };
                 if let Some(refined) = refine_outcome {
+                    let orig_first_char = combined_text.trim_start().chars().find(|c| crate::ml::detect::has_cjk_characters(&c.to_string()));
+                    let crop_first_char = refined.text.trim_start().chars().find(|c| crate::ml::detect::has_cjk_characters(&c.to_string()));
+                    let same_leading_char = orig_first_char.is_some() && orig_first_char == crop_first_char;
+
                     combined_text = refined.text;
                     avg_score = refined.avg_score;
                     if !refined.active_line_polys.is_empty() {
                         active_line_polys = refined.active_line_polys;
                         is_container_vert = refined.is_container_vert;
                         angle_deg = refined.angle_deg;
+
+                        // IF REFINEMENT DID NOT RECOVER NEW LEADING CJK CHARACTERS ON THE LEFT (HORIZONTAL TEXT),
+                        // PREVENT LINE POLYGONS FROM DILATING PAST CLUSTER_RECT.X INTO EMPTY BUBBLE MARGINS
+                        if !is_container_vert && same_leading_char {
+                            let clamp_min_x = (cluster_rect.x - 4).max(0);
+                            for poly in &mut active_line_polys {
+                                for p in poly {
+                                    p[0] = p[0].max(clamp_min_x);
+                                }
+                            }
+                        }
 
                         let mut r_min_x = i32::MAX;
                         let mut r_min_y = i32::MAX;

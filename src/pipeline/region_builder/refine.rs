@@ -477,10 +477,80 @@ pub fn try_refine_cluster_crop(
     if !valid_crop_lines.is_empty() && !is_slanted_multiline_block {
         let mut crop_v_count = 0;
         let mut crop_h_count = 0;
+        let crop_img = img.crop_imm(crop_x, crop_y, crop_w, crop_h);
         for (line_poly, _, _) in &valid_crop_lines {
+            let (lx, ly, lw, lh) = polygon_bounds(line_poly);
+            let (tight_lx, tight_lw) = if !is_container_vert && lx <= 2 && lw >= (crop_w as i32 - 4) && lh >= 8 {
+                let rgb_crop = crop_img.to_rgb8();
+                let is_dark_bg = {
+                    let mut sum = 0u64;
+                    for cy in ly.max(0) as u32..(ly + lh).min(crop_h as i32) as u32 {
+                        for cx in 0..crop_w {
+                            let p = rgb_crop.get_pixel(cx, cy);
+                            sum += (p[0] as u32 * 299 + p[1] as u32 * 587 + p[2] as u32 * 114) as u64;
+                        }
+                    }
+                    let count = (crop_w * (lh as u32)).max(1) as u64;
+                    (sum / count / 1000) < 128
+                };
+                let mut x_proj = vec![0u32; crop_w as usize];
+                for cy in ly.max(0) as u32..(ly + lh).min(crop_h as i32) as u32 {
+                    for cx in 0..crop_w {
+                        let p = rgb_crop.get_pixel(cx, cy);
+                        let lum = (p[0] as u32 * 299 + p[1] as u32 * 587 + p[2] as u32 * 114) / 1000;
+                        let is_ink = if is_dark_bg { lum >= 150 } else { lum <= 180 };
+                        if is_ink {
+                            x_proj[cx as usize] += 1;
+                        }
+                    }
+                }
+                let min_ink = if lh >= 16 { 2 } else { 1 };
+                let mut first_x = None;
+                for x in 0..crop_w as usize {
+                    if x_proj[x] >= min_ink {
+                        if x < 8 {
+                            let has_gap = (x + 1..(x + 7).min(crop_w as usize)).all(|gx| x_proj[gx] == 0);
+                            if has_gap {
+                                continue;
+                            }
+                        }
+                        first_x = Some(x);
+                        break;
+                    }
+                }
+                let mut last_x = None;
+                for x in (0..crop_w as usize).rev() {
+                    if x_proj[x] >= min_ink {
+                        if x + 8 >= crop_w as usize {
+                            let gap_start = x.saturating_sub(6);
+                            let has_gap = (gap_start..x).all(|gx| x_proj[gx] == 0);
+                            if has_gap {
+                                continue;
+                            }
+                        }
+                        last_x = Some(x);
+                        break;
+                    }
+                }
+                match (first_x, last_x) {
+                    (Some(start_x), Some(end_x)) if end_x >= start_x + 4 => {
+                        let pad_x = 3u32;
+                        let px0 = (start_x as u32).saturating_sub(pad_x) as i32;
+                        let px1 = (((end_x as u32) + 1 + pad_x).min(crop_w)) as i32;
+                        (px0, (px1 - px0).max(1))
+                    }
+                    _ => (lx, lw),
+                }
+            } else {
+                (lx, lw)
+            };
+
             let page_poly: Vec<[i32; 2]> = line_poly
                 .iter()
-                .map(|p| [(p[0] + crop_x as i32).max(0), (p[1] + crop_y as i32).max(0)])
+                .map(|p| {
+                    let rel_x = if lw > 0 { ((p[0] - lx) as f32 / lw as f32 * tight_lw as f32) as i32 + tight_lx } else { p[0] };
+                    [(rel_x + crop_x as i32).max(0), (p[1] + crop_y as i32).max(0)]
+                })
                 .collect();
             let (_, _, pw, ph) = polygon_bounds(&page_poly);
             if ph > (pw as f32 * 1.25) as i32 {

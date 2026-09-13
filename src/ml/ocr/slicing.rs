@@ -209,12 +209,68 @@ pub fn horizontal_paragraph_to_line_strips(crop: &DynamicImage) -> Vec<(Vec<[i32
         let crop_h = crop_y1 - crop_y0;
 
         if crop_h >= 8 && w >= 8 {
+            // COMPUTE HORIZONTAL INK EXTENTS FOR THIS SPECIFIC ROW BAND
+            let mut x_proj = vec![0_u32; w as usize];
+            for y in y0..y1 {
+                for x in 0..w {
+                    let p = rgb.get_pixel(x, y);
+                    let lum = (p[0] as u32 * 299 + p[1] as u32 * 587 + p[2] as u32 * 114) / 1000;
+                    let is_ink = if is_dark_bg { lum >= 150 } else { lum <= 180 };
+                    if is_ink {
+                        x_proj[x as usize] += 1;
+                    }
+                }
+            }
+
+            let band_h = y1 - y0;
+            let min_col_ink = if band_h >= 16 { 2 } else { 1 };
+
+            // FIND FIRST AND LAST INK COLUMNS, SKIPPING ISOLATED MARGIN ARTIFACTS
+            let mut fx = None;
+            for x in 0..w as usize {
+                if x_proj[x] >= min_col_ink {
+                    if x < 8 {
+                        let has_gap = (x + 1..(x + 7).min(w as usize)).all(|gx| x_proj[gx] == 0);
+                        if has_gap {
+                            continue;
+                        }
+                    }
+                    fx = Some(x);
+                    break;
+                }
+            }
+
+            let mut lx = None;
+            for x in (0..w as usize).rev() {
+                if x_proj[x] >= min_col_ink {
+                    if x + 8 >= w as usize {
+                        let gap_start = x.saturating_sub(6);
+                        let has_gap = (gap_start..x).all(|gx| x_proj[gx] == 0);
+                        if has_gap {
+                            continue;
+                        }
+                    }
+                    lx = Some(x);
+                    break;
+                }
+            }
+
+            let (poly_x0, poly_x1) = match (fx, lx) {
+                (Some(start_x), Some(end_x)) if end_x >= start_x + 4 => {
+                    let pad_x = 3_u32;
+                    let px0 = (start_x as u32).saturating_sub(pad_x);
+                    let px1 = ((end_x as u32) + 1 + pad_x).min(w);
+                    (px0 as i32, px1 as i32)
+                }
+                _ => (0, w as i32),
+            };
+
             let strip_img = crop.crop_imm(0, crop_y0, w, crop_h);
             let poly = vec![
-                [0, y0 as i32],
-                [w as i32, y0 as i32],
-                [w as i32, y1 as i32],
-                [0, y1 as i32],
+                [poly_x0, y0 as i32],
+                [poly_x1, y0 as i32],
+                [poly_x1, y1 as i32],
+                [poly_x0, y1 as i32],
             ];
             line_strips.push((poly, strip_img));
         }
