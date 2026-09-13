@@ -371,6 +371,38 @@ export function isHardLineBreak(prevLine: string, nextLine: string): boolean {
 		return true;
 	}
 
+	// 5. PREVIOUS LINE IS A STANDALONE SENDER USERNAME, CONTACT NAME, OR TITLE
+	// (E.G. "King Jin", "Shuangshuang", "Chacha", "锦王", "茶茶")
+	// CHARACTERISTICS: <= 3 WORDS, <= 25 CHARS, DOES NOT END WITH CONNECTIVE WORDS OR PUNCTUATION,
+	// AND NEXT LINE IS A SUBSTANTIVE DIALOGUE/MESSAGE BODY STARTING WITH A CAPITAL LETTER OR CJK CHARACTER.
+	const CONNECTIVE_WORDS_REGEX =
+		/\b(a|an|the|and|or|but|to|of|in|on|at|for|with|that|this|my|your|his|her|their|our|said|asked|thought|felt|was|were|is|are|been|has|have|had|would|could|should|will|can|if|when|as|while|so|than|then|just|very|too|also|know|knows|knew|think|thinks|see|sees|saw|he|she|it|they|we|i|you)\b/i;
+	const CJK_CONNECTIVE_PARTICLES_REGEX = /[的地得和与跟及但而或]$/;
+
+	const isCjkPrev = /^[\u4e00-\u9fa5\uac00-\ud7af\u3040-\u30ff\s]+$/.test(prev);
+	const isCjkNext = /^[\u4e00-\u9fa5\uac00-\ud7af\u3040-\u30ff]/.test(next);
+	const hasNoConnective = isCjkPrev
+		? !CJK_CONNECTIVE_PARTICLES_REGEX.test(prev)
+		: !CONNECTIVE_WORDS_REGEX.test(prev);
+
+	if (
+		prevWords.length <= 3 &&
+		prev.length <= 25 &&
+		!/[,，;；\-\/\\]$/.test(prev) &&
+		hasNoConnective
+	) {
+		const nextStartsWithCapitalOrCjk =
+			/^([A-Z\u4e00-\u9fa5\uac00-\ud7af\u3040-\u30ff"“'‘])/.test(next);
+		const nextWords = next.split(/\s+/);
+		const nextIsSubstantiveBody = isCjkNext
+			? next.length >= 4
+			: nextWords.length >= 3 || (nextWords.length >= 2 && /[,.!?]/.test(next));
+
+		if (nextStartsWithCapitalOrCjk && nextIsSubstantiveBody) {
+			return true;
+		}
+	}
+
 	return false;
 }
 

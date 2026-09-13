@@ -76,7 +76,7 @@ pub fn try_refine_cluster_crop(
         && is_cjk
         && !crate::ml::detect::has_cjk_characters(combined_text)
         && combined_text.chars().any(|c| c.is_ascii_alphabetic());
-    let is_clean_expressive_punct = is_combined_pure_punct && avg_score >= 0.70;
+    let is_clean_expressive_punct = is_combined_pure_punct && avg_score >= 0.65;
     let single_char_count = combined_text.chars().filter(|c| !c.is_whitespace()).count();
     let is_oversized_single = cluster_lines.len() == 1
         && single_char_count <= 2
@@ -210,7 +210,7 @@ pub fn try_refine_cluster_crop(
                 let intermediate = if trailing_stripped.trim().is_empty() { t } else { trailing_stripped.trim() };
                 let (leading_stripped, _) = crate::ml::detect::strip_leading_watermark_debris(intermediate, source_lang);
                 let clean_t = if leading_stripped.trim().is_empty() { intermediate } else { leading_stripped.trim() };
-                if clean_t.is_empty() || crate::ml::detect::is_watermark_line(clean_t) || (!is_bubble && crate::ml::detect::is_standalone_table_cell(clean_t)) {
+                if clean_t.is_empty() || crate::ml::detect::is_watermark_line(clean_t) {
                     return None;
                 }
                 let is_already_matched = cluster_lines.iter().any(|cl| {
@@ -398,11 +398,15 @@ pub fn try_refine_cluster_crop(
             })
     };
 
-    // PREVENT CORRUPTING VALID PUNCTUATION CLUSTERS (?!, !?, ...) INTO SPLIT DIGIT/BULLET/LETTER ARTIFACTS (21, ●, 12, N)
+    // PREVENT CORRUPTING VALID PUNCTUATION CLUSTERS (?!, !?, ...) INTO SPLIT DIGIT/BULLET/LETTER ARTIFACTS (21, ●, 12, N, e\n1:)
     let is_crop_digits_bullets_or_noise = clean_crop_text.chars().all(|c| {
         c.is_ascii_digit() || c.is_whitespace() || matches!(c, '●' | '○' | '•' | '·' | 'N' | 'n' | 'v' | 'V' | 'u' | 'U' | 'l' | 'I' | '|')
     });
-    let is_corrupted_punct_to_digits = is_combined_pure_punct && is_crop_digits_bullets_or_noise;
+    let is_corrupted_punct_to_digits = is_combined_pure_punct && {
+        let has_cjk = clean_crop_text.chars().any(|c| crate::ml::detect::has_cjk_characters(&c.to_string()));
+        let has_alphanumeric = clean_crop_text.chars().any(|c| c.is_ascii_alphanumeric());
+        !has_cjk && (has_alphanumeric || is_crop_digits_bullets_or_noise)
+    };
 
     let is_crop_corrupted_latin = is_cjk && (!is_bubble || !crate::ml::detect::is_legitimate_cjk_latin_loanword_or_dialogue(&clean_crop_text)) && {
         let has_cjk = clean_crop_text.chars().any(|c| crate::ml::detect::has_cjk_characters(&c.to_string()));
@@ -445,7 +449,7 @@ pub fn try_refine_cluster_crop(
                 || has_more_ellipsis
                 || is_inverted_leading_punct
                 || (is_combined_pure_punct && clean_crop_text.chars().any(|c| matches!(c, '！' | '？' | '!' | '?')))
-                || (crop_cjk_count == combined_cjk_count && !is_severely_shrunk && (res.score > avg_score + 0.02 || (cluster_contrary_to_container && crop_matches_container && res.score >= avg_score - 0.05)))
+                || (!is_combined_pure_punct && crop_cjk_count == combined_cjk_count && !is_severely_shrunk && (res.score > avg_score + 0.02 || (cluster_contrary_to_container && crop_matches_container && res.score >= avg_score - 0.05)))
                 || (res.score >= 0.70 && avg_score < 0.60 && !is_severely_shrunk)
         )
     } else {

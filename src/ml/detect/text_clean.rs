@@ -414,11 +414,11 @@ pub fn strip_hallucinated_border_parentheses(text: &str) -> String {
         return String::new();
     }
 
-    // ONLY CURVED PARENTHESES AND RECTANGULAR BRACKETS MATCH ROUND/SQUARE BUBBLE BORDER ARCS
+    // ONLY CURVED PARENTHESES, RECTANGULAR BRACKETS, AND CHEVRONS MATCH ROUND/SQUARE BUBBLE BORDER ARCS OR TAIL POINTERS
     // EXCLUDE JAPANESE LENTICULAR BRACKETS (【 】), QUOTE MARKS (《 》, 〈 〉), AND TORTOISESHELL (〔 〕)
     // WHICH ARE LEGITIMATE EAST ASIAN TEXT CONVENTIONS FOR SKILLS, ITEMS, DIALOGUE, AND TITLES
-    let is_open_paren = |c: char| matches!(c, '(' | '（' | '[');
-    let is_close_paren = |c: char| matches!(c, ')' | '）' | ']');
+    let is_open_paren = |c: char| matches!(c, '(' | '（' | '[' | '<' | '＜');
+    let is_close_paren = |c: char| matches!(c, ')' | '）' | ']' | '>' | '＞');
     let is_any_paren = |c: char| is_open_paren(c) || is_close_paren(c);
 
     if !t.chars().any(is_any_paren) {
@@ -434,31 +434,49 @@ pub fn strip_hallucinated_border_parentheses(text: &str) -> String {
             continue;
         }
 
-        let open_count = l_str.chars().filter(|&c| is_open_paren(c)).count();
-        let close_count = l_str.chars().filter(|&c| is_close_paren(c)).count();
-
-        // 1. UNMATCHED LEADING OPENING PARENTHESIS ON THIS LINE (NO CLOSING PARENTHESIS ON LINE)
-        if open_count > 0 && close_count == 0 && l_str.starts_with(is_open_paren) {
-            if let Some(first_char) = l_str.chars().next() {
+        // 1. UNMATCHED LEADING OPENING PARENTHESIS OR CHEVRON POINTER ARTIFACT
+        if let Some(first_char) = l_str.chars().next() {
+            let is_leading_artifact = match first_char {
+                '(' | '（' => !l_str.chars().skip(1).any(|c| matches!(c, ')' | '）')),
+                '[' => !l_str.chars().skip(1).any(|c| c == ']'),
+                '<' | '＜' => !l_str.chars().skip(1).any(|c| matches!(c, '>' | '＞')),
+                '>' | '＞' => true,
+                _ => false,
+            };
+            if is_leading_artifact {
                 l_str = l_str[first_char.len_utf8()..].trim_start().to_string();
             }
         }
 
-        // 2. UNMATCHED TRAILING CLOSING PARENTHESIS ON THIS LINE (NO OPENING PARENTHESIS ON LINE)
-        if close_count > 0 && open_count == 0 {
-            let trimmed_end = l_str.trim_end();
-            if trimmed_end.ends_with(is_close_paren) {
-                if let Some(last_char) = trimmed_end.chars().last() {
-                    let cut_idx = trimmed_end.len().saturating_sub(last_char.len_utf8());
-                    l_str = trimmed_end[..cut_idx].trim_end().to_string();
-                }
+        // 2. UNMATCHED TRAILING CLOSING PARENTHESIS OR CHEVRON POINTER ARTIFACT
+        let trimmed_end = l_str.trim_end();
+        if let Some(last_char) = trimmed_end.chars().last() {
+            let char_count = trimmed_end.chars().count();
+            let is_trailing_artifact = match last_char {
+                ')' | '）' => !trimmed_end.chars().take(char_count.saturating_sub(1)).any(|c| matches!(c, '(' | '（')),
+                ']' => !trimmed_end.chars().take(char_count.saturating_sub(1)).any(|c| c == '['),
+                '>' | '＞' => !trimmed_end.chars().take(char_count.saturating_sub(1)).any(|c| matches!(c, '<' | '＜')),
+                '<' | '＜' => true,
+                _ => false,
+            };
+            if is_trailing_artifact {
+                let cut_idx = trimmed_end.len().saturating_sub(last_char.len_utf8());
+                l_str = trimmed_end[..cut_idx].trim_end().to_string();
             } else if let Some(pos) = trimmed_end.rfind(is_close_paren) {
                 if let Some(paren_char) = trimmed_end[pos..].chars().next() {
                     let after_paren = &trimmed_end[pos + paren_char.len_utf8()..];
                     if after_paren.chars().all(|c| c.is_ascii_punctuation() || matches!(c, '！' | '？' | '。' | '…' | '～' | '，' | '、')) {
-                        let mut reconstructed = trimmed_end[..pos].to_string();
-                        reconstructed.push_str(after_paren);
-                        l_str = reconstructed.trim_end().to_string();
+                        let has_opener = match paren_char {
+                            ')' | '）' => trimmed_end[..pos].chars().any(|c| matches!(c, '(' | '（')),
+                            ']' => trimmed_end[..pos].chars().any(|c| c == '['),
+                            '>' | '＞' => trimmed_end[..pos].chars().any(|c| matches!(c, '<' | '＜')),
+                            _ => false,
+                        };
+                        if !has_opener {
+                            let mut reconstructed = trimmed_end[..pos].to_string();
+                            reconstructed.push_str(after_paren);
+                            l_str = reconstructed.trim_end().to_string();
+                        }
                     }
                 }
             }
@@ -746,119 +764,8 @@ pub fn clean_ui_header_text(text: &str) -> String {
     text.to_string()
 }
 
-/// CHECK IF A GIVEN TEXT BLOCK REPRESENTS A REPETITIVE UI TABLE, CHAPTER LIST, OR DATA GRID PROP
-pub fn is_repetitive_tabular_text(text: &str) -> bool {
-    let t = text.trim();
-    if t.is_empty() {
-        return false;
-    }
-    let lines: Vec<&str> = t.lines().map(|l| l.trim()).filter(|l| !l.is_empty()).collect();
-    if lines.is_empty() {
-        return false;
-    }
 
-    // EXEMPT SOUND EFFECTS AND DIALOGUE SHOUTS (E.G. "嘀！\n嘀！", "咚！\n咚！") FROM TABULAR PRUNING
-    if is_onomatopoeia_or_shout(t) || lines.iter().all(|l| is_onomatopoeia_or_shout(l)) {
-        return false;
-    }
 
-    // 1. ALL LINES IDENTICAL (E.G. "댓글:1\n댓글:1" OR "조회수:1\n조회수:1\n조회수:1")
-    if lines.len() >= 2 && lines.iter().all(|&l| l == lines[0]) {
-        return true;
-    }
-
-    // 2. HIGH PROPORTION OF DUPLICATE LINES IN MULTI-LINE BLOCK (>= 3 LINES)
-    if lines.len() >= 3 {
-        let mut counts = std::collections::HashMap::new();
-        for &l in &lines {
-            *counts.entry(l).or_insert(0usize) += 1;
-        }
-        let max_dup = counts.values().copied().max().unwrap_or(0);
-        if max_dup >= 3 && max_dup * 10 >= lines.len() * 6 {
-            return true;
-        }
-        let total_dups: usize = counts.values().filter(|&&c| c >= 2).sum();
-        if total_dups >= 4 && total_dups * 10 >= lines.len() * 7 {
-            return true;
-        }
-    }
-
-    // 3. REPEATED KEY-VALUE / COUNTER DELIMITER PATTERNS (E.G. LINES WITH ": <DIGITS>", ":1", "댓글:1", "조회수:1")
-    if lines.len() >= 3 {
-        let delimiter_lines = lines.iter().filter(|l| {
-            let s = l.trim();
-            if let Some((idx, ch)) = s.char_indices().rev().find(|&(_, c)| c == ':' || c == '：') {
-                let rest = s[idx + ch.len_utf8()..].trim();
-                !rest.is_empty() && rest.chars().all(|c| c.is_ascii_digit() || c.is_whitespace() || c == 'T' || c == 't' || c == 'l' || c == 'I')
-            } else if let Some((idx, ch)) = s.char_indices().rev().find(|&(_, c)| c == '|' || c == '│') {
-                let rest = s[idx + ch.len_utf8()..].trim();
-                !rest.is_empty() && rest.chars().any(|c| c.is_ascii_digit())
-            } else {
-                false
-            }
-        }).count();
-
-        if delimiter_lines >= 3 && delimiter_lines * 10 >= lines.len() * 7 {
-            return true;
-        }
-    }
-
-    // 4. REPEATED MULTI-CHARACTER SUBSTRING ACROSS >= 60% OF LINES IN A TALL LIST (>= 5 LINES)
-    if lines.len() >= 5 {
-        let mut ngram_counts = std::collections::HashMap::new();
-        for line in &lines {
-            let chars: Vec<char> = line.chars().filter(|c| !c.is_whitespace()).collect();
-            if chars.len() >= 2 {
-                let mut seen_in_line = std::collections::HashSet::new();
-                for w in chars.windows(2) {
-                    let s: String = w.iter().collect();
-                    if !s.chars().all(|c| c.is_ascii_punctuation()) && seen_in_line.insert(s.clone()) {
-                        *ngram_counts.entry(s).or_insert(0usize) += 1;
-                    }
-                }
-                if chars.len() >= 3 {
-                    for w in chars.windows(3) {
-                        let s: String = w.iter().collect();
-                        if !s.chars().all(|c| c.is_ascii_punctuation()) && seen_in_line.insert(s.clone()) {
-                            *ngram_counts.entry(s).or_insert(0usize) += 1;
-                        }
-                    }
-                }
-            }
-        }
-        for (_ngram, count) in ngram_counts {
-            if count >= 4 && count * 10 >= lines.len() * 6 {
-                return true;
-            }
-        }
-    }
-
-    false
-}
-
-/// CHECK IF A SHORT LINE IS A STANDALONE TABLE CELL COUNTER / METRIC DEBRIS
-pub fn is_standalone_table_cell(text: &str) -> bool {
-    let t = text.trim();
-    if t.is_empty() {
-        return true;
-    }
-    if t.chars().count() <= 10 {
-        // 1. Colon + counter (e.g. "댓글:1", "조회수:1", "것글:1", ":1", ":T")
-        if let Some((idx, ch)) = t.char_indices().rev().find(|&(_, c)| c == ':' || c == '：') {
-            let rest = t[idx + ch.len_utf8()..].trim();
-            if !rest.is_empty() && rest.chars().all(|c| c.is_ascii_digit() || c == 'T' || c == 't' || c == 'l' || c == 'I' || c == '1' || c == '조' || c == '회') {
-                return true;
-            }
-        }
-        // 2. Standalone chapter / view / metric index (e.g. "열람3125화", "연라3113하", "열람11작쪽", "조회수1", "조외수T", "조외수1", "Ch.12", "Vol.3")
-        let is_metric_cell = (t.starts_with("열람") || t.starts_with("연라") || t.starts_with("조회") || t.starts_with("조외") || t.starts_with("댓글") || t.starts_with("것글") || t.starts_with("Ch.") || t.starts_with("Vol."))
-            && t.chars().any(|c| c.is_ascii_digit() || c == 'T' || c == 't' || c == '1' || c == 'I' || c == 'l');
-        if is_metric_cell {
-            return true;
-        }
-    }
-    false
-}
 
 /// CHECKS WHETHER A LATIN SUFFIX ATTACHED TO CJK SCRIPT IS A LEGITIMATE LOANWORD, GAMING TERM, OR SPOKEN DIALOGUE
 pub fn is_legitimate_cjk_latin_loanword_or_dialogue(suffix: &str) -> bool {
@@ -910,6 +817,12 @@ pub fn is_legitimate_cjk_latin_loanword_or_dialogue(suffix: &str) -> bool {
         if word != "TL" && word != "RAW" {
             return true;
         }
+    }
+
+    // 4. QUANTITY / MULTIPLIER / ITEM COUNT NOTATION (E.G. 'x8', 'x5', 'x10', 'x80', 'x120', 'x160')
+    let lower = trimmed.trim_matches(|c: char| c.is_ascii_punctuation() || matches!(c, '！' | '？' | '…' | '～' | '。' | '，')).to_lowercase();
+    if (lower.starts_with('x') || lower.starts_with('×')) && lower.len() >= 2 && lower[1..].chars().all(|c| c.is_ascii_digit()) {
+        return true;
     }
 
     false
@@ -1133,6 +1046,15 @@ mod tests {
         assert_eq!(
             strip_hallucinated_border_parentheses("(1) First item"),
             "(1) First item"
+        );
+        // STRIPS UNMATCHED LEADING CHEVRON POINTER ARTIFACTS
+        assert_eq!(
+            strip_hallucinated_border_parentheses(">讨厌，你说什么"),
+            "讨厌，你说什么"
+        );
+        assert_eq!(
+            strip_hallucinated_border_parentheses("<讨厌，你说什么"),
+            "讨厌，你说什么"
         );
         // CLEAN_STRAY_OCR_ARTIFACTS INTEGRATION
         assert_eq!(

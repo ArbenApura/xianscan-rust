@@ -1086,6 +1086,22 @@ Tattered Flesh-Cutting Knife`;
 		const headerLines = reflowText(x, headerText, 250);
 		expect(headerLines[0]).toContain('[QUEST ALERT]');
 		expect(headerLines[1]).toContain('Floor 48');
+
+		// CASE 4: STANDALONE SENDER USERNAMES IN SMARTPHONE CHAT/INBOX RETAIN HARD BREAKS (Page 130968)
+		const chat1 = 'King Jin\nMr. Qian, I sincerely apologize to you!\nI was truly blind to dare mock you just now...';
+		const chatLines1 = reflowText(x, chat1, 350);
+		expect(chatLines1[0]).toBe('King Jin');
+		expect(chatLines1[1]).toContain('Mr. Qian');
+
+		const chat2 = 'Shuangshuang\nBrother Qian, thank you so much,\nI really do not know how to repay you!';
+		const chatLines2 = reflowText(x, chat2, 350);
+		expect(chatLines2[0]).toBe('Shuangshuang');
+		expect(chatLines2[1]).toContain('Brother Qian');
+
+		const chat3 = 'Chacha\nBrother Qian, are you free to have a cup of tea together?';
+		const chatLines3 = reflowText(x, chat3, 350);
+		expect(chatLines3[0]).toBe('Chacha');
+		expect(chatLines3[1]).toContain('Brother Qian');
 	});
 
 	it('fits hyphenated compound words like God-grade and Heaven-Mending without collapsing to MIN_FONT_SIZE (Page 118129 Region 74281)', () => {

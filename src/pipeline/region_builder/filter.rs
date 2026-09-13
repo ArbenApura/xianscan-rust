@@ -79,40 +79,6 @@ pub fn should_reject_candidate_region(
         return true;
     }
 
-    // 3c. DROP REPETITIVE UI TABLES, CHAPTER LISTS, SPREADSHEET PROPS, AND DUPLICATE COUNTER BLOCKS
-    if !is_bubble && crate::ml::detect::is_repetitive_tabular_text(cleaned) {
-        return true;
-    }
-    if !is_bubble && crate::ml::detect::is_standalone_table_cell(cleaned) {
-        return true;
-    }
-    if !is_bubble {
-        let has_bracketed_title = cleaned.lines().any(|l| {
-            let lt = l.trim();
-            (lt.starts_with('[') && lt.ends_with(']'))
-                || (lt.starts_with('【') && lt.ends_with('】'))
-                || (lt.starts_with('《') && lt.ends_with('》'))
-        });
-        let has_tabular_or_phone_metric = cleaned.lines().any(|l| {
-            let lt = l.trim();
-            crate::ml::detect::is_standalone_table_cell(lt)
-                || (lt.contains('%') && lt.chars().any(|c| c.is_ascii_digit()) && (lt.contains(':') || lt.contains('：')))
-        });
-        if has_bracketed_title && has_tabular_or_phone_metric {
-            return true;
-        }
-        if has_bracketed_title {
-            let is_tabular_prop_header = split_lines.iter().filter(|l| {
-                let (lx, ly, lw, lh) = polygon_bounds(&l.polygon);
-                let dy = (ly - (cluster_rect.y + cluster_rect.h)).max(cluster_rect.y - (ly + lh)).max(0);
-                let dx = (lx - (cluster_rect.x + cluster_rect.w)).max(cluster_rect.x - (lx + lw)).max(0);
-                dx <= 100 && dy <= 300 && crate::ml::detect::is_standalone_table_cell(&l.text)
-            }).count() >= 3;
-            if is_tabular_prop_header {
-                return true;
-            }
-        }
-    }
 
     // 3b. DROP STACKED DISPLAY CALLIGRAPHY COLUMNS (TECHNIQUE NAMES / TITLES LETTERED ONE GLYPH PER LINE)
     // STYLIZED BRUSH / OUTLINED LETTERING IS ALWAYS SEGMENTED AS ONE HUGE GLYPH PER OCR LINE,
@@ -291,8 +257,9 @@ pub fn should_reject_candidate_region(
         if !is_bubble {
             return true;
         }
-        // PURE EXCLAMATION BUBBLES ("!", "!!", "!!!", "！", "！！", "！！！") ARE REACTION MARKS REQUIRING NO TRANSLATION
-        if crate::ml::detect::is_pure_exclamation_only(cleaned) {
+        // PURE EXCLAMATION BUBBLES: MINOR VISUAL REACTION TICKS ("!", "!!", "！", "！！" IN NARROW BOXES) ARE FILTERED OUT
+        let punct_count = cleaned.chars().filter(|c| !c.is_whitespace()).count();
+        if crate::ml::detect::is_pure_exclamation_only(cleaned) && (punct_count <= 2 || cluster_rect.w <= 50) {
             return true;
         }
         let is_expressive_bubble_punct = cleaned.chars().any(|c| matches!(c, '！' | '？' | '!' | '?' | '…' | '·' | '—' | '～' | '¿' | '¡'));

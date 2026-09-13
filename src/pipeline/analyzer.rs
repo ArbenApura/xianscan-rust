@@ -868,11 +868,9 @@ pub fn analyze_image_with_fusion_timed(
                 let is_distinct_rank_line = (bh <= 35.0 || (lh as f32) <= 35.0)
                     && (line.text.trim().ends_with("弟子") || line.text.trim().ends_with("阶") || line.text.trim().ends_with("级") || line.text.trim().ends_with("层") || line.text.trim().ends_with("段") || line.text.trim().ends_with("境") || line.text.trim().ends_with("部"))
                     && (ly as f32 >= by + bh + 10.0);
-                let is_tabular_line = parent_bubble.is_none() && (crate::ml::detect::is_repetitive_tabular_text(&line.text) || crate::ml::detect::is_standalone_table_cell(&line.text));
                 let is_adjacent_trailing_row = !is_subtitle_to_title
                     && !is_separate_detector_box
                     && !is_distinct_rank_line
-                    && !is_tabular_line
                     && !leaks_outside_bubble
                     && (bw >= bh * 0.70 || (lw as f32) >= lh as f32 * 1.20)
                     && !(bh > bw * 1.60 && (lw as f32) < bw * 0.70)
@@ -884,7 +882,6 @@ pub fn analyze_image_with_fusion_timed(
                 // Leading row check: merge upwards if a leading line is immediately above with high horizontal overlap
                 let is_adjacent_leading_row = !is_subtitle_to_title
                     && !is_separate_detector_box
-                    && !is_tabular_line
                     && !leaks_outside_bubble
                     && (lx as f32 >= bx - 35.0 && (lx + lw) as f32 <= bx + bw + 35.0)
                     && ((ly + lh) as f32 >= by - 25.0)
@@ -990,7 +987,7 @@ pub fn analyze_image_with_fusion_timed(
                             && ix >= 0.35 * (lw as f32).min(bw)
                             && (bw <= (lw as f32 * 1.6) || (lw as f32) >= bw * 0.85);
 
-                        if !is_tabular_line && (is_horiz_single_line || is_vert_single_line || is_partial_vert_container || is_horiz_contained_line || is_adjacent_trailing_row || is_adjacent_leading_row) && !is_trailing_latin_noise {
+                        if (is_horiz_single_line || is_vert_single_line || is_partial_vert_container || is_horiz_contained_line || is_adjacent_trailing_row || is_adjacent_leading_row) && !is_trailing_latin_noise {
                             // GUARD: Do not expand a compact dialogue detector box if the line is slanted free-text or distant crowd reaction
                             let is_slanted_line = crate::ml::geometry::calculate_box_angle_i32(&line.polygon).abs() >= 12.0;
                             if !is_slanted_line {
@@ -1059,13 +1056,7 @@ pub fn analyze_image_with_fusion_timed(
                     continue;
                 }
 
-                // DO NOT RESCUE REPETITIVE TABULAR DATA, CHAPTER METRICS, OR STANDALONE TABLE CELL COUNTERS
-                let line_inside_any_bubble = effective_bubbles.iter().any(|b| {
-                    crate::ml::geometry::line_center_inside_box(&line.polygon, b)
-                });
-                if !line_inside_any_bubble && (crate::ml::detect::is_repetitive_tabular_text(&line.text) || crate::ml::detect::is_standalone_table_cell(&line.text)) {
-                    continue;
-                }
+
 
                 // LAYOUT-ANCHORED RESCUE: CHECK IF THE OCR LINE IS ADJACENT TO ANY CONFIDENT DETECTED LAYOUT BOX (BUBBLE OR TEXT CANDIDATE)
                 let is_near_layout_anchor = effective_bubbles
