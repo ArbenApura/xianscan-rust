@@ -90,7 +90,17 @@ export const TARGET_LANGUAGE_OPTIONS = [
 	{ value: 'fr', label: 'Français (French - Tier 2)' },
 	{ value: 'de', label: 'Deutsch (German - Tier 2)' },
 	{ value: 'ru', label: 'Русский (Russian - Tier 2)' },
+	{ value: 'pt', label: 'Português (Portuguese - Tier 2)' },
+	{ value: 'it', label: 'Italiano (Italian - Tier 2)' },
 	{ value: 'id', label: 'Bahasa Indonesia (Indonesian - Tier 2)' },
+	{ value: 'tr', label: 'Türkçe (Turkish - Tier 3)' },
+	{ value: 'nl', label: 'Nederlands (Dutch - Tier 3)' },
+	{ value: 'pl', label: 'Polski (Polish - Tier 3)' },
+	{ value: 'th', label: 'ไทย (Thai - Tier 3)' },
+	{ value: 'hi', label: 'हिन्दी (Hindi - Tier 3)' },
+	{ value: 'uk', label: 'Українська (Ukrainian - Tier 3)' },
+	{ value: 'sv', label: 'Svenska (Swedish - Tier 3)' },
+	{ value: 'fi', label: 'Suomi (Finnish - Tier 3)' },
 ];
 
 const TRADITIONAL_CHAR_PATTERN = /[們這為會經說國動時現實體學業發問門沒進聽階級歡迎龍鳳飛鳥馬魚車書長萬與變並單當點對讓頭儘幾後畫兒極總處愛鐵無樂義氣開專鬥蒼術靈斬寶閣莊記話職師歸來劍聖陣傳廣導應隊戰惡獸護衛歷險煉]/;

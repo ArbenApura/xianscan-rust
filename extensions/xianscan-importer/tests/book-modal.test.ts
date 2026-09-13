@@ -41,8 +41,25 @@ describe('BookModalController', () => {
 					</button>
 					<div id="newBookTargetLangDropdown" class="custom-select-dropdown">
 						<button class="custom-select-option mono active" type="button" data-value="en">English</button>
-						<button class="custom-select-option mono" type="button" data-value="zh-Hans">Chinese (Simplified)</button>
-						<button class="custom-select-option mono" type="button" data-value="ko">Korean</button>
+						<button class="custom-select-option mono" type="button" data-value="zh-Hans">Chinese (Simplified - 简体中文)</button>
+						<button class="custom-select-option mono" type="button" data-value="zh-Hant">Chinese (Traditional - 繁體中文)</button>
+						<button class="custom-select-option mono" type="button" data-value="ja">Japanese (日本語)</button>
+						<button class="custom-select-option mono" type="button" data-value="ko">Korean (한국어)</button>
+						<button class="custom-select-option mono" type="button" data-value="es">Spanish (Español)</button>
+						<button class="custom-select-option mono" type="button" data-value="fr">French (Français)</button>
+						<button class="custom-select-option mono" type="button" data-value="de">German (Deutsch)</button>
+						<button class="custom-select-option mono" type="button" data-value="ru">Russian (Русский)</button>
+						<button class="custom-select-option mono" type="button" data-value="pt">Portuguese (Português)</button>
+						<button class="custom-select-option mono" type="button" data-value="it">Italian (Italiano)</button>
+						<button class="custom-select-option mono" type="button" data-value="id">Indonesian (Bahasa Indonesia)</button>
+						<button class="custom-select-option mono" type="button" data-value="tr">Turkish (Türkçe)</button>
+						<button class="custom-select-option mono" type="button" data-value="nl">Dutch (Nederlands)</button>
+						<button class="custom-select-option mono" type="button" data-value="pl">Polish (Polski)</button>
+						<button class="custom-select-option mono" type="button" data-value="th">Thai (ไทย)</button>
+						<button class="custom-select-option mono" type="button" data-value="hi">Hindi (हिन्दी)</button>
+						<button class="custom-select-option mono" type="button" data-value="uk">Ukrainian (Українська)</button>
+						<button class="custom-select-option mono" type="button" data-value="sv">Swedish (Svenska)</button>
+						<button class="custom-select-option mono" type="button" data-value="fi">Finnish (Suomi)</button>
 					</div>
 				</div>
 				<button id="cancelBookModalBtn"></button>
@@ -124,4 +141,38 @@ describe('BookModalController', () => {
 			targetLang: 'en'
 		}));
 	});
+
+	it('contains all 20 supported target languages in target dropdown', () => {
+		const expectedTargetLangs = [
+			'en', 'zh-Hans', 'zh-Hant', 'ja', 'ko', 'es', 'fr', 'de', 'ru',
+			'pt', 'it', 'id', 'tr', 'nl', 'pl', 'th', 'hi', 'uk', 'sv', 'fi'
+		];
+		const renderedOptions = Array.from(
+			document.querySelectorAll<HTMLButtonElement>('#newBookTargetLangDropdown .custom-select-option')
+		).map(el => el.dataset.value);
+
+		expect(renderedOptions).toHaveLength(20);
+		for (const code of expectedTargetLangs) {
+			expect(renderedOptions).toContain(code);
+		}
+	});
+
+	it('honors dynamically selected target language such as Portuguese or Turkish', async () => {
+		controller.open('Cultivation Chronicle', 'zh-Hans');
+
+		const ptOption = document.querySelector<HTMLButtonElement>('#newBookTargetLangDropdown [data-value="pt"]');
+		ptOption?.click();
+
+		const confirmBtn = document.getElementById('confirmBookModalBtn') as HTMLButtonElement;
+		confirmBtn.click();
+
+		await Promise.resolve();
+
+		expect(mockClient.createBook).toHaveBeenCalledWith(expect.objectContaining({
+			title: 'Cultivation Chronicle',
+			sourceLang: 'zh-Hans',
+			targetLang: 'pt'
+		}));
+	});
 });
+
