@@ -202,8 +202,8 @@ Download the ready-to-use extension assets directly from [GitHub Releases](https
 
 | Browser Family | Release Asset | Installation Steps |
 | :--- | :--- | :--- |
-| **Chrome / Edge / Brave / Opera** | \`xianscan-importer-v1.2.0-beta.6.zip\` | 1. Extract the ZIP archive.<br>2. Open \`chrome://extensions/\` (or \`edge://extensions/\` / \`brave://extensions/\`).<br>3. Enable **Developer mode** in the top-right corner.<br>4. Click **Load unpacked** and select the extracted folder. |
-| **Firefox / Floorp** | \`xianscan-importer-firefox-v1.2.0-beta.6.xpi\` | 1. Open \`about:addons\` in Firefox.<br>2. Click the **Gear ⚙** icon and select **Install Add-on From File...** (or drag-and-drop the \`.xpi\` file into Firefox).<br>3. Alternatively, open \`about:debugging#/runtime/this-firefox\` and click **Load Temporary Add-on...**. |
+| **Chrome / Edge / Brave / Opera** | \`xianscan-importer-v1.2.0-beta.7.zip\` | 1. Extract the ZIP archive.<br>2. Open \`chrome://extensions/\` (or \`edge://extensions/\` / \`brave://extensions/\`).<br>3. Enable **Developer mode** in the top-right corner.<br>4. Click **Load unpacked** and select the extracted folder. |
+| **Firefox / Floorp** | \`xianscan-importer-firefox-v1.2.0-beta.7.xpi\` | 1. Open \`about:addons\` in Firefox.<br>2. Click the **Gear ⚙** icon and select **Install Add-on From File...** (or drag-and-drop the \`.xpi\` file into Firefox).<br>3. Alternatively, open \`about:debugging#/runtime/this-firefox\` and click **Load Temporary Add-on...**. |
 
 *(For building from source and internal architecture, see [Extension & Client Architecture](/docs/advanced/extensions)).*
 `,
