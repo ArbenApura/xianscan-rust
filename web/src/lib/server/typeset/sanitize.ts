@@ -5,7 +5,7 @@ import { type TypesetRegion } from './stat-panel';
 export function sanitizeForFont(text: string): string {
 	if (!text) return '';
 	let trimmed = text.trim().replace(/[〜～]/g, '~');
-	if (CJK_REGEX.test(trimmed)) {
+	if (CJK_REGEX.test(trimmed) && !/[a-zA-Z]/.test(trimmed)) {
 		return trimmed
 			.replace(/[ \t]{2,}/g, ' ')
 			.trim();

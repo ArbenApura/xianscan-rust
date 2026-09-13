@@ -20,6 +20,7 @@ import {
 	typesetPage,
 	wrapText,
 	fontSpec,
+	registerFonts,
 } from '$lib/server/typeset';
 
 function ctx() {
@@ -1217,6 +1218,54 @@ Tattered Flesh-Cutting Knife`;
 		const avail = getFontAvailability();
 		expect(avail['CC Wild Words'].allCapsOnly).toBe(true);
 		expect(avail['CC Wild Words'].supportedCasings).toEqual(['uppercase']);
+	});
+});
+
+describe('apostrophe and CJK boundary reflow (Page 132010 & 132019 regression)', () => {
+	it('keeps English words intact and normalizes curly apostrophes without character-level CJK chopping', () => {
+		registerFonts();
+		const c = createCanvas(10, 10);
+		const ctx2 = c.getContext('2d');
+
+		// Page 132019 Region 108946
+		const raw19 = "Actually, in my view, why insist on starting your own business? We’re both people who aren’t short on money. Why not bow your head to your father?";
+		const sanitized19 = sanitizeForFont(raw19);
+		expect(sanitized19).toContain("We're");
+		expect(sanitized19).toContain("aren't");
+
+		const text19 = sanitized19.toUpperCase();
+		const fitted19 = fitFontSizeWithLines(ctx2, text19, 'CC Wild Words', 382, 214, 32, 32, 0.05);
+		expect(fitted19.size).toBeGreaterThanOrEqual(18);
+		// Words must remain intact across line boundaries
+		for (const line of fitted19.lines) {
+			expect(line).not.toMatch(/^\s*NSIST\b/);
+			expect(line).not.toMatch(/^\s*WN BUSINESS\b/);
+		}
+		expect(fitted19.lines.some((l) => l.includes('INSIST'))).toBe(true);
+		expect(fitted19.lines.some((l) => l.includes('OWN BUSINESS?'))).toBe(true);
+
+		// Page 132010 Region 108921
+		const raw10 = "Oh, they’re just American errand runners. They handle all sorts of jobs, including extra work on sets.";
+		const sanitized10 = sanitizeForFont(raw10);
+		expect(sanitized10).toContain("they're");
+
+		const text10 = sanitized10.toUpperCase();
+		const fitted10 = fitFontSizeWithLines(ctx2, text10, 'CC Wild Words', 289, 184, 32, 32, 0.05);
+		expect(fitted10.size).toBeGreaterThanOrEqual(18);
+		for (const line of fitted10.lines) {
+			expect(line).not.toMatch(/^\s*MERICAN\b/);
+			expect(line).not.toMatch(/^\s*UNNERS\b/);
+		}
+		expect(fitted10.lines.some((l) => l.includes('AMERICAN'))).toBe(true);
+		expect(fitted10.lines.some((l) => l.includes('RUNNERS.'))).toBe(true);
+	});
+
+	it('preserves newline consideration for intentional line breaks in multi-line dialogue', () => {
+		const c = createCanvas(10, 10);
+		const ctx2 = c.getContext('2d');
+		const multiline = "Line one header:\nLine two continuation with details.";
+		const fitted = fitFontSizeWithLines(ctx2, multiline.toUpperCase(), 'CC Wild Words', 300, 150, 24, 24, 0.05);
+		expect(fitted.lines[0]).toBe('LINE ONE HEADER:');
 	});
 });
 

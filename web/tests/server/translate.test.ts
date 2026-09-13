@@ -68,6 +68,9 @@ describe('systemPrompt', () => {
 		expect(p).toContain('Miniature Floating Asides');
 		expect(p).toContain('[free_text] "不看八卦新闻。" -> "Doesn\'t read gossip news."');
 		expect(p).toContain('[free_text] "不看八卦新闻？" -> "You don\'t read gossip news?"');
+		expect(p).toContain('Bluff, Cover Story & Gullibility Reactions');
+		expect(p).toContain('Modern Manhua Brand & Platform Parodies');
+		expect(p).toContain('美困');
 	});
 
 	it('produces specialized Russian/Cyrillic prompt without Chinese Wuxia rules', () => {

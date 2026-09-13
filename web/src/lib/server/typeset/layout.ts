@@ -211,7 +211,7 @@ export function wrapText(ctx: { measureText(t: string): { width: number } }, tex
 
 	for (const paragraph of text.split('\n')) {
 		let current = '';
-		if (CJK_REGEX.test(paragraph)) {
+		if (CJK_REGEX.test(paragraph) && !/[a-zA-Z]/.test(paragraph)) {
 			for (let i = 0; i < paragraph.length; i++) {
 				const char = paragraph[i];
 				const candidate = `${current}${char}`;
