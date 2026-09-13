@@ -302,11 +302,15 @@ pub fn clean_stray_ocr_artifacts(text: &str) -> String {
             // STRIP INLINE TRAILING THOUGHT BUBBLE TAIL DIGITS (E.G. "...…200000", "……0000", "…000")
             let mut line_str = line.to_string();
             let trimmed = line_str.trim_end();
-            if let Some((idx, ch)) = trimmed.char_indices().rfind(|&(_, c)| !c.is_ascii_digit() && c != 'o' && c != 'O') {
+            let is_circle_or_tail_digit = |c: char| matches!(c, '0' | 'o' | 'O' | '°' | '○' | '●' | '•' | '2' | '3' | '5' | '8' | '9');
+            if let Some((idx, ch)) = trimmed.char_indices().rfind(|&(_, c)| !is_circle_or_tail_digit(c)) {
                 let tail_start = idx + ch.len_utf8();
                 let tail = &trimmed[tail_start..];
-                if tail.len() >= 3 && tail.len() <= 8 && tail.chars().all(|c| c == '0' || c == 'o' || c == 'O' || c == '2' || c == '3' || c == '5' || c == '8' || c == '9') {
-                    if ch == '.' || ch == '…' || ch == '·' || ch == '。' || ch == ' ' {
+                if !tail.is_empty() && tail.len() <= 8 && tail.chars().all(is_circle_or_tail_digit) {
+                    let is_long_ellipsis_tail = tail.len() >= 3 && matches!(ch, '.' | '…' | '·' | '。' | ' ');
+                    let is_punct_tail_circle = matches!(ch, '，' | '、' | '。' | '！' | '？' | '!' | '?' | '…' | '·' | '~' | '～')
+                        && tail.chars().all(|c| matches!(c, '0' | 'o' | 'O' | '°' | '○' | '●' | '•'));
+                    if is_long_ellipsis_tail || is_punct_tail_circle {
                         line_str = trimmed[..tail_start].trim_end().to_string();
                     }
                 }
@@ -410,8 +414,8 @@ pub fn strip_hallucinated_border_parentheses(text: &str) -> String {
         return String::new();
     }
 
-    let is_open_paren = |c: char| c == '(' || c == '（';
-    let is_close_paren = |c: char| c == ')' || c == '）';
+    let is_open_paren = |c: char| matches!(c, '(' | '（' | '【' | '[' | '〔' | '〈' | '《');
+    let is_close_paren = |c: char| matches!(c, ')' | '）' | '】' | ']' | '〕' | '〉' | '》');
     let is_any_paren = |c: char| is_open_paren(c) || is_close_paren(c);
 
     if !t.chars().any(is_any_paren) {

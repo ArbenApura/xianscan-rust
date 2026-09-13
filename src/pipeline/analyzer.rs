@@ -1053,12 +1053,19 @@ pub fn analyze_image_with_fusion_timed(
                 }
 
                 // LAYOUT-ANCHORED RESCUE: CHECK IF THE OCR LINE IS ADJACENT TO ANY CONFIDENT DETECTED LAYOUT BOX (BUBBLE OR TEXT CANDIDATE)
-                let is_near_layout_anchor = effective_bubbles.iter().chain(effective_text_bubbles.iter().filter(|(_, s)| *s >= 0.25).map(|(b, _)| b)).chain(fusion_res.text_free.iter().filter(|(_, s)| *s >= 0.25).map(|(b, _)| b)).any(|b| {
-                    let (bx, by, bw, bh) = (b.x as f32, b.y as f32, b.w as f32, b.h as f32);
-                    let dx = (bx - (lx + lw) as f32).max((lx as f32) - (bx + bw)).max(0.0);
-                    let dy = (by - (ly + lh) as f32).max((ly as f32) - (by + bh)).max(0.0);
-                    dx <= 35.0 && dy <= 35.0
-                });
+                let is_near_layout_anchor = effective_bubbles
+                    .iter()
+                    .chain(effective_text_bubbles.iter().filter(|(b, s)| {
+                        let is_giant_screen = (b.h >= 300 && b.w >= 250) && *s <= 0.35;
+                        *s >= 0.25 && !is_giant_screen
+                    }).map(|(b, _)| b))
+                    .chain(fusion_res.text_free.iter().filter(|(_, s)| *s >= 0.25).map(|(b, _)| b))
+                    .any(|b| {
+                        let (bx, by, bw, bh) = (b.x as f32, b.y as f32, b.w as f32, b.h as f32);
+                        let dx = (bx - (lx + lw) as f32).max((lx as f32) - (bx + bw)).max(0.0);
+                        let dy = (by - (ly + lh) as f32).max((ly as f32) - (by + bh)).max(0.0);
+                        dx <= 35.0 && dy <= 35.0
+                    });
 
                 // DO NOT RESCUE UNASSIGNED OCR LINES ON NON-BUBBLE BACKGROUND IF THEY LIE INSIDE A PANEL ALREADY CONTAINING DETECTED SPEECH BUBBLES
                 let inside_bubble_panel = fusion_res.panels.iter().any(|p| {
@@ -1142,7 +1149,11 @@ pub fn analyze_image_with_fusion_timed(
                         Some("zh_hans") | Some("zh_hant") | Some("zh-Hans") | Some("zh-Hant") => 2,
                         _ => 3,
                     };
-                    if !is_native_or_stat || line.score < 0.70 || line.text.chars().filter(|c| !c.is_whitespace()).count() < min_chars {
+                    let min_score = match source_lang {
+                        Some("ko") => 0.72,
+                        _ => 0.70,
+                    };
+                    if !is_native_or_stat || line.score < min_score || line.text.chars().filter(|c| !c.is_whitespace()).count() < min_chars {
                         continue;
                     }
                 }

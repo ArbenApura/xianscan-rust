@@ -120,18 +120,18 @@ pub fn derive_carrier_box(b: &BoxRect, t: &BoxRect, page_h: u32) -> BoxRect {
     let min_h_delta = 18.max((b.w as f32 * 0.08).round() as i32);
 
     // VERTICAL TAILS:
-    // SKEWED BY >= 1.35x AND SCALE-ADAPTIVE DELTA (MIN 18PX) BETWEEN TOP AND BOTTOM MARGINS.
+    // SKEWED BY >= 1.30x AND SCALE-ADAPTIVE DELTA (MIN 18PX) BETWEEN TOP AND BOTTOM MARGINS.
     // IF THE BUBBLE EXTENDS NEAR THE TOP CANVAS EDGE (b.y <= 12), BYPASS UPWARD TRIMMING ONLY.
     // IF THE BUBBLE EXTENDS NEAR THE BOTTOM CANVAS EDGE (b.y + b.h >= page_h - 12), BYPASS DOWNWARD TRIMMING ONLY.
     let is_bot_edge = (b.y + b.h) as u32 >= page_h.saturating_sub(12);
     let is_top_edge = b.y <= 12;
 
-    if !is_bot_edge && m_bot as f32 >= m_top.max(1) as f32 * 1.35 && (m_bot - m_top) >= min_v_delta {
+    if !is_bot_edge && m_bot as f32 >= m_top.max(1) as f32 * 1.30 && (m_bot - m_top) >= min_v_delta {
         // DOWNWARD TAIL: TOP/LEFT/RIGHT ARE TRUE BUBBLE BOUNDARIES, TRIM BOTTOM EXCESS
         let safe_pad = (m_top as f32).min(m_side as f32 * 0.90).max(12.0).round() as i32;
         let eff_bottom = (t.y + t.h + safe_pad).min(b.y + b.h);
         carrier.h = (eff_bottom - b.y).max(t.h + 10);
-    } else if !is_top_edge && m_top as f32 >= m_bot.max(1) as f32 * 1.35 && (m_top - m_bot) >= min_v_delta {
+    } else if !is_top_edge && m_top as f32 >= m_bot.max(1) as f32 * 1.30 && (m_top - m_bot) >= min_v_delta {
         // UPWARD TAIL: BOTTOM/LEFT/RIGHT ARE TRUE BUBBLE BOUNDARIES, TRIM TOP EXCESS
         let safe_pad = (m_bot as f32).min(m_side as f32 * 0.90).max(12.0).round() as i32;
         let eff_top = (t.y - safe_pad).max(b.y);
@@ -201,12 +201,16 @@ pub fn valid_tail_cut_carrier(carrier: &BoxRect, b: &BoxRect, page_h: u32) -> bo
 
     // ASPECT RATIO CONSISTENCY CHECK:
     // A PROMINENT DIRECTIONAL TAIL (TRIM >= 20PX) EXTENDS THE ENVELOPE ALONG ITS PROTRUSION AXIS.
-    // THE REMAINING CHAMBER MUST NOT BE CRUSHED INTO AN UNNATURALLY FLATTENED SLIT (CHAMBER RATIO >= 3.5
-    // OR DOMINANT TRIM >= 75% OF THE TOTAL ENVELOPE SPAN).
-    if is_v_cut && (trim_bot >= 20 || trim_top >= 20) && (carrier.w as f32 / carrier.h.max(1) as f32 >= 3.5 || (trim_bot.max(trim_top) as f32 / b.h as f32 >= 0.75)) {
+    // THE REMAINING CHAMBER MUST NOT BE CRUSHED INTO AN UNNATURALLY FLATTENED SLIT.
+    // FOR STANDARD OVAL BUBBLES, RATIO IS BOUNDED AT 3.5; FOR ELONGATED PANORAMA BANNERS,
+    // THE UPPER LIMIT SCALES PROPORTIONALLY WITH THE ORIGINAL BUBBLE ASPECT RATIO.
+    let max_v_ratio = 3.5f32.max(b.w as f32 / b.h.max(1) as f32 * 2.0).min(8.0);
+    let max_h_ratio = 3.5f32.max(b.h as f32 / b.w.max(1) as f32 * 2.0).min(8.0);
+
+    if is_v_cut && (trim_bot >= 20 || trim_top >= 20) && (carrier.w as f32 / carrier.h.max(1) as f32 >= max_v_ratio || (trim_bot.max(trim_top) as f32 / b.h as f32 >= 0.75)) {
         return false;
     }
-    if is_h_cut && (trim_left >= 20 || trim_right >= 20) && (carrier.h as f32 / carrier.w.max(1) as f32 >= 3.5 || (trim_left.max(trim_right) as f32 / b.w as f32 >= 0.75)) {
+    if is_h_cut && (trim_left >= 20 || trim_right >= 20) && (carrier.h as f32 / carrier.w.max(1) as f32 >= max_h_ratio || (trim_left.max(trim_right) as f32 / b.w as f32 >= 0.75)) {
         return false;
     }
 
@@ -467,7 +471,6 @@ pub fn expand_bubble_text_boxes(
     // PHASE 2: APPLY TARGETS AND GUARANTEE BASE BOX STAYS WITHIN BUBBLE BOUNDARY.
     for &i in &indexes {
         let b = regions[i].bubble_box.clone().unwrap();
-        let (mut outer_l, mut outer_r, mut outer_t, mut outer_b) = (b.x, b.x + b.w, b.y, b.y + b.h);
 
         let typeset_target = if let Some(new_box) = &targets[i] {
             // COLLISION ROLLBACK AGAINST NON-SIBLING REGIONS (FREE TEXT / SFX / OTHER BUBBLES)
@@ -494,14 +497,16 @@ pub fn expand_bubble_text_boxes(
             regions[i].box_.clone()
         };
 
-        // GUARANTEE: BASE BOX MUST NEVER EXCEED OUTER BUBBLE BOUNDARY UNLESS NEEDED TO COVER ITS OWN TEXT
-        clamp_box_to_core(&mut regions[i].box_, outer_l, outer_r, outer_t, outer_b);
+        // GUARANTEE: BASE BOX MUST NEVER EXCEED OUTER BUBBLE BOUNDARY
+        clamp_box_to_core(&mut regions[i].box_, b.x, b.x + b.w, b.y, b.y + b.h);
         if !regions[i].polygon.is_empty() {
             let mut text_min_x = i32::MAX;
             let mut text_min_y = i32::MAX;
             let mut text_max_x = i32::MIN;
             let mut text_max_y = i32::MIN;
-            for p in &regions[i].polygon {
+            for p in &mut regions[i].polygon {
+                p[0] = p[0].clamp(b.x, b.x + b.w);
+                p[1] = p[1].clamp(b.y, b.y + b.h);
                 text_min_x = text_min_x.min(p[0]);
                 text_min_y = text_min_y.min(p[1]);
                 text_max_x = text_max_x.max(p[0]);
@@ -510,17 +515,14 @@ pub fn expand_bubble_text_boxes(
             if text_min_x < regions[i].box_.x || text_max_x > regions[i].box_.x + regions[i].box_.w
                 || text_min_y < regions[i].box_.y || text_max_y > regions[i].box_.y + regions[i].box_.h
             {
-                let nx = regions[i].box_.x.min(text_min_x);
-                let ny = regions[i].box_.y.min(text_min_y);
-                let nw = (regions[i].box_.x + regions[i].box_.w).max(text_max_x) - nx;
-                let nh = (regions[i].box_.y + regions[i].box_.h).max(text_max_y) - ny;
+                let nx = regions[i].box_.x.min(text_min_x).max(b.x);
+                let ny = regions[i].box_.y.min(text_min_y).max(b.y);
+                let nw = ((regions[i].box_.x + regions[i].box_.w).max(text_max_x) - nx).min(b.x + b.w - nx).max(1);
+                let nh = ((regions[i].box_.y + regions[i].box_.h).max(text_max_y) - ny).min(b.y + b.h - ny).max(1);
                 regions[i].box_ = BoxRect { x: nx, y: ny, w: nw, h: nh };
             }
         }
-        outer_l = outer_l.min(regions[i].box_.x);
-        outer_r = outer_r.max(regions[i].box_.x + regions[i].box_.w);
-        outer_t = outer_t.min(regions[i].box_.y);
-        outer_b = outer_b.max(regions[i].box_.y + regions[i].box_.h);
+        let (outer_l, outer_r, outer_t, outer_b) = (b.x, b.x + b.w, b.y, b.y + b.h);
 
         // SAFE-CORE CENTERING FOR SOLE-OCCUPANT BUBBLES WITHIN THEIR DERIVED CARRIER
         let has_obstacle = obstacles.iter().any(|(obs_b, _)| box_iou(&b, obs_b) >= 0.5);

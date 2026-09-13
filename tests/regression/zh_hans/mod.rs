@@ -146,3 +146,5 @@ mod page_qianli_counterattack_bug_mage;
 mod page_gu_fei_curtain_waving_jiudengle_bubble;
 mod page_gu_fei_student_lecture_haiyou_bubble;
 mod page_gu_fei_gym_class_teacher_bubble;
+mod page_monster_emergency_heal_thought_bubble_tail;
+mod page_sotu_open_up_banner_tail_cut;
