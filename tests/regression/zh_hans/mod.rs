@@ -156,3 +156,5 @@ mod page_marry_me_favorability_hologram_leading_bracket;
 mod page_live_stream_gift_pill_banners_multipliers;
 mod page_golden_dragon_gift_list_card;
 mod page_smartphone_chat_inbox_messages_newlines;
+mod page_group_chat_villa_emperor_handle_split;
+mod page_car_screen_news_headline_banner_split;

@@ -868,9 +868,14 @@ pub fn analyze_image_with_fusion_timed(
                 let is_distinct_rank_line = (bh <= 35.0 || (lh as f32) <= 35.0)
                     && (line.text.trim().ends_with("弟子") || line.text.trim().ends_with("阶") || line.text.trim().ends_with("级") || line.text.trim().ends_with("层") || line.text.trim().ends_with("段") || line.text.trim().ends_with("境") || line.text.trim().ends_with("部"))
                     && (ly as f32 >= by + bh + 10.0);
+                let is_speaker_or_header_label = {
+                    let t = line.text.trim();
+                    t.ends_with('：') || t.ends_with(':')
+                };
                 let is_adjacent_trailing_row = !is_subtitle_to_title
                     && !is_separate_detector_box
                     && !is_distinct_rank_line
+                    && !is_speaker_or_header_label
                     && !leaks_outside_bubble
                     && (bw >= bh * 0.70 || (lw as f32) >= lh as f32 * 1.20)
                     && !(bh > bw * 1.60 && (lw as f32) < bw * 0.70)
@@ -879,10 +884,12 @@ pub fn analyze_image_with_fusion_timed(
                     && (ly as f32 >= by + bh - 25.0)
                     && ((ly as f32) <= by + bh + 45.0)
                     && ix >= 0.35 * (lw as f32).min(bw);
-                // Leading row check: merge upwards if a leading line is immediately above with high horizontal overlap
+                // LEADING ROW CHECK: MERGE UPWARDS IF A LEADING LINE IS IMMEDIATELY ABOVE WITH HIGH HORIZONTAL OVERLAP
+                // GUARD: DO NOT MERGE SPEAKER LABELS OR HEADER NICKNAMES ENDING WITH COLONS
                 let is_adjacent_leading_row = !is_subtitle_to_title
                     && !is_separate_detector_box
                     && !leaks_outside_bubble
+                    && !is_speaker_or_header_label
                     && (lx as f32 >= bx - 35.0 && (lx + lw) as f32 <= bx + bw + 35.0)
                     && ((ly + lh) as f32 >= by - 25.0)
                     && ((ly + lh) as f32 <= by + 20.0)
