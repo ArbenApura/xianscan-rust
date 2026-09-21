@@ -55,7 +55,7 @@ export const LANGUAGES: Record<string, Language> = {
 	pt: { code: 'pt', name: 'Portuguese', endonym: 'Português', script: 'latin', romanization: null, wordDelimited: true, tier: 2 },
 	it: { code: 'it', name: 'Italian', endonym: 'Italiano', script: 'latin', romanization: null, wordDelimited: true, tier: 2 },
 	id: { code: 'id', name: 'Indonesian', endonym: 'Bahasa Indonesia', script: 'latin', romanization: null, wordDelimited: true, tier: 2 },
-
+    ar: { code: 'ar', name: 'Arabic', endonym: 'العربية', script: 'arabic', romanization: null, wordDelimited: true, tier: 3, rtl: true },
 	// TIER 3: Moderate corpora (good grammar, but less specialized comic/nuanced phrasing)
 	tr: { code: 'tr', name: 'Turkish', endonym: 'Türkçe', script: 'latin', romanization: null, wordDelimited: true, tier: 3 },
 	nl: { code: 'nl', name: 'Dutch', endonym: 'Nederlands', script: 'latin', romanization: null, wordDelimited: true, tier: 3 },
@@ -101,6 +101,7 @@ export const TARGET_LANGUAGE_OPTIONS = [
 	{ value: 'uk', label: 'Українська (Ukrainian - Tier 3)' },
 	{ value: 'sv', label: 'Svenska (Swedish - Tier 3)' },
 	{ value: 'fi', label: 'Suomi (Finnish - Tier 3)' },
+	{ value: 'ar', label: 'العربية (Arabic - Tier 3)' },
 ];
 
 const TRADITIONAL_CHAR_PATTERN = /[們這為會經說國動時現實體學業發問門沒進聽階級歡迎龍鳳飛鳥馬魚車書長萬與變並單當點對讓頭儘幾後畫兒極總處愛鐵無樂義氣開專鬥蒼術靈斬寶閣莊記話職師歸來劍聖陣傳廣導應隊戰惡獸護衛歷險煉]/;
