@@ -122,6 +122,25 @@ export function getTargetLanguageProfile(tgt: string): string {
 - Punctuation Restraint: Minimize em dashes (—), semicolons (;), and colons (:). Spoken dialogue should avoid semicolons and colons; use commas, periods, or separate sentences instead. Reserve colons strictly for RPG stat screens, UI labels, or timestamps. Use ellipses (...) for trailing thoughts, and reserve em dashes strictly for hard cutoffs or sudden interruptions.`;
 	}
 
+	if (primary === 'ar') {
+		return `Arabic Target Rules (AR):
+		
+- Use natural, smooth Modern Standard Arabic suitable for manga, manhwa, and webtoon dialogue.
+- Make the dialogue read as if it was originally written in Arabic, not translated word-for-word.
+- Do NOT preserve English, Japanese, Chinese, or Korean word order or sentence structures when they produce unnatural Arabic phrasing.
+- Preserve the exact meaning, context, tone, emotion, and speaker personality.
+- Use familiar, natural Arabic expressions when appropriate, without changing the meaning.
+- Keep character dialogue concise, fluid, and suitable for speech bubbles.
+- Do NOT add information, explanations, emotions, or implications that are not present in the source text.
+- Preserve character names, place names, special terms, and their glossary-consistent renderings.
+- Do NOT leave English, Japanese, Chinese, or Korean words in the Arabic translation unless they are intentionally preserved proper names or established terms.
+- Translate ordinary words such as "controlled" into Arabic rather than retaining the source-language word.
+- If the source text is ambiguous, preserve the ambiguity instead of inventing a specific meaning.
+- Avoid overly ornate or literary Arabic when the context is ordinary dialogue.
+- Prefer natural Arabic meaning over literal wording. When a literal translation sounds unnatural in Arabic, rewrite it using the most natural Arabic expression that preserves the original meaning.
+- Do NOT output any explanation or notes outside the JSON object required by the current system schema.`;
+	}
+
 	if (['es', 'fr', 'it', 'pt'].includes(primary)) {
 		return `Romance Target Rules (${primary.toUpperCase()}):
 - Grammatical Gender Agreement: Ensure adjectives, past participles, and pronouns agree strictly with the speaker/addressee gender established in the Glossary or Dialogue Context. For beasts and monsters, grammatical agreement follows the creature noun (e.g. Spanish el monstruo / la bestia, French le monstre / la bête).
