@@ -5,9 +5,9 @@
 	"private": true,
 	"type": "module",
 	"scripts": {
-		"dev": "vite dev --host 0.0.0.0 --port 8125",
+		"dev": "vite dev --port 8125",
 		"build": "vite build",
-		"preview": "node --env-file-if-exists=.env build --host 0.0.0.0 --port 8124",
+		"preview": "node --env-file-if-exists=.env build",
 		"start": "node --env-file-if-exists=.env build",
 		"check": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json",
 		"lint": "prettier --check . && eslint .",
@@ -33,7 +33,7 @@
 		"@testing-library/svelte": "^4",
 		"@types/better-sqlite3": "^7.6.12",
 		"@types/papaparse": "^5.3.15",
-		"@vitest/coverage-v8": "^4.1.10",
+		"@vitest/coverage-v8": "~3.2.7",
 		"autoprefixer": "^10.4.20",
 		"drizzle-kit": "^0.28.1",
 		"eslint": "^9.14.0",
@@ -50,7 +50,7 @@
 		"typescript": "^5.6.3",
 		"typescript-eslint": "^8.14.0",
 		"vite": "^5.4.11",
-		"vitest": "^4.1.10"
+		"vitest": "~3.2.7"
 	},
 	"dependencies": {
 		"@fontsource/inter": "^5.1.0",

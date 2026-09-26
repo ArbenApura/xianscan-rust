@@ -26,7 +26,7 @@ embed-web = []
 tokio = { version = "1.43", features = ["full"] }
 axum = { version = "0.8", features = ["multipart", "ws"] }
 tower = "0.5"
-tower-http = { version = "0.6", features = ["cors", "trace", "fs", "compression-full"] }
+tower-http = { version = "0.6", features = ["cors", "trace", "fs", "compression-full", "catch-panic"] }
 
 # Serialization & JSON
 serde = { version = "1.0", features = ["derive"] }
@@ -34,6 +34,8 @@ serde_json = "1.0"
 regex = "1.11"
 sha2 = "0.10"
 hex = "0.4"
+# ACCESS TOKEN AND ML SECRET (ALREADY IN Cargo.lock VIA OTHER CRATES)
+getrandom = "0.2"
 
 # Computer Vision, Geometry & Math
 image = { version = "0.25", default-features = false, features = ["png", "jpeg", "webp", "bmp", "tiff"] }
@@ -69,10 +71,19 @@ colored = "2"
 
 # Windows DXGI Adapter Enumeration + ANSI/VT console enablement
 [target.'cfg(windows)'.dependencies]
-windows = { version = "0.58", features = ["Win32_Graphics_Dxgi", "Win32_System_Console"] }
+windows = { version = "0.58", features = ["Win32_Graphics_Dxgi", "Win32_System_Console", "Win32_System_JobObjects", "Win32_System_Threading", "Win32_Foundation", "Win32_Security"] }
+
+[build-dependencies]
+# MODEL HASH CHECK FOR embed-models BUILDS (FEAT-008 PHASE 3); BOTH ALREADY IN Cargo.lock
+sha2 = "0.10"
+hex = "0.4"
 
 [target.'cfg(windows)'.build-dependencies]
 winres = "0.1"
+
+# PR_SET_PDEATHSIG FOR THE NODE CHILD (ALREADY IN Cargo.lock AS A TRANSITIVE DEPENDENCY)
+[target.'cfg(target_os = "linux")'.dependencies]
+libc = "0.2"
 
 [target.'cfg(target_os = "macos")'.dependencies]
 metal = "0.29"
