@@ -87,6 +87,7 @@ grounding-lab/
 training-lab/
 docs/superpowers/
 superpowers/
+features/
 scratch/
 models/*.bak
 
@@ -102,3 +103,7 @@ tests/fixtures/**/*.jpg
 tests/fixtures/**/*.png
 !tests/fixtures/**/.gitkeep
 !tests/fixtures/synthetic/**
+
+# DOCS-SITE SHOWCASE COPIES: THE SOURCE IS docs/showcase (FEAT-008 PHASE 10); THE DEMO VIDEO STAYS TRACKED
+docs-site/static/showcase/*
+!docs-site/static/showcase/xianscan_demo.mp4

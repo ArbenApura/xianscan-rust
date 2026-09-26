@@ -4,7 +4,9 @@
 	"private": true,
 	"type": "module",
 	"scripts": {
+		"predev": "node scripts/sync-showcase.js",
 		"dev": "vite dev --port 8126",
+		"prebuild": "node scripts/sync-showcase.js",
 		"build": "vite build && node scripts/postbuild.js",
 		"preview": "vite preview --port 8126",
 		"check": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json",
