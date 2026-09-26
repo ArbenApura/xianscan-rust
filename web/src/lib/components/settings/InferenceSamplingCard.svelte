@@ -78,7 +78,8 @@ SettingsModal.svelte) -->
 	}
 
 	function setDialogueContextPages(val: number) {
-		const clamped = Math.max(0, Math.min(10, Math.round(val)));
+		// SAME 0-30 RANGE AS THE SERVER (settings-service.ts) AND THE CUSTOM INPUT BELOW
+		const clamped = Math.max(0, Math.min(30, Math.round(val)));
 		settings.update((s) => ({ ...s, translationDialogueContextPages: clamped }));
 		if (clamped === 0) {
 			toast.success('Dialogue context disabled (0 pages)');
