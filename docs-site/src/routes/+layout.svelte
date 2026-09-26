@@ -20,6 +20,7 @@
 	import '../app.css';
 	import { themeStore, THEME_CLASS, THEME_HEADER, THEME_PANEL } from '$lib/stores/theme';
 	import { DOC_NAVIGATION } from '$lib/docs-nav';
+	import { APP_VERSION } from '$lib/version';
 	import { Button, DiscordIcon } from '$lib/components/ui';
 	import { ripple } from '$lib/actions/ripple';
 	import SearchModal from '$lib/components/SearchModal.svelte';
@@ -285,7 +286,7 @@
 
 				<!-- DRAWER FOOTER LINKS -->
 				<div class="pt-5 mt-6 border-t border-black/10 dark:border-white/10 flex items-center justify-between text-xs opacity-60">
-					<span class="text-[11px] font-medium">XianScan v0.5.0-beta.8</span>
+					<span class="text-[11px] font-medium">XianScan v{APP_VERSION}</span>
 					<div class="flex items-center gap-3">
 						<a
 							href="https://discord.gg/dRWaQftNnR"

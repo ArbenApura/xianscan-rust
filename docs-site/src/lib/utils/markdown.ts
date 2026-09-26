@@ -39,8 +39,9 @@ export function renderMarkdown(markdown: string): string {
 		</div>`);
 	});
 
-	// 2. IMAGES & VIDEOS (![alt](url))
-	output = output.replace(/!\[([^\]]*)\]\(([^)]+)\)/g, (_match, alt, src) => {
+	// 2. IMAGES & VIDEOS (![alt](url)) ON A LINE OF THEIR OWN. AN IMAGE INSIDE A TABLE CELL IS LEFT FOR renderInline,
+	// SO IT DOES NOT BREAK THE TABLE APART.
+	output = output.replace(/^!\[([^\]]*)\]\(([^)]+)\)[ \t]*$/gm, (_match, alt, src) => {
 		const safeSrc = escapeHtml(src.trim());
 		const safeAlt = escapeHtml(alt.trim());
 		if (safeSrc.endsWith('.mp4') || safeSrc.endsWith('.webm')) {
@@ -94,7 +95,15 @@ export function renderMarkdown(markdown: string): string {
 	output = output.replace(/^## (.*?)$/gm, (_m, h) => savePlaceholder(`<h2 class="mt-10 mb-4 border-b border-black/10 dark:border-white/10 pb-2 text-lg sm:text-xl font-bold tracking-tight">${renderInline(h)}</h2>`));
 
 	// 6. BLOCKQUOTES
-	output = output.replace(/^> (.*?)$/gm, (_m, q) => savePlaceholder(`<blockquote class="my-3 border-l-2 border-[#b23a2e] pl-3 italic opacity-85 text-xs sm:text-sm">${renderInline(q)}</blockquote>`));
+	// CONSECUTIVE "> " LINES FORM ONE NOTE BOX
+	output = output.replace(/(?:^> .*(?:\n|$))+/gm, (block) => {
+		const body = block
+			.trim()
+			.split('\n')
+			.map((line) => renderInline(line.replace(/^> /, '')))
+			.join('<br />');
+		return savePlaceholder(`<blockquote class="my-4 rounded-r-lg border-l-2 border-[#b23a2e] bg-[#b23a2e]/[0.04] px-3 py-2 text-xs sm:text-sm leading-relaxed dark:border-[#e08a63] dark:bg-[#e08a63]/[0.06]">${body}</blockquote>`);
+	});
 
 	// 7. LISTS (Ordered and Unordered, with sub-item nesting)
 	output = output.replace(/(?:^|\n)((?:(?:[ \t]*(?:[-*]|\d+\.)) [^\n]+\n*)+)/g, (_match, listBlock) => {
@@ -102,6 +111,8 @@ export function renderMarkdown(markdown: string): string {
 		if (rawLines.length === 0) return '';
 
 		const isOrdered = /^\s*\d+\.\s+/.test(rawLines[0]);
+		// A LIST SPLIT BY A CODE BLOCK OR IMAGE KEEPS COUNTING FROM ITS FIRST NUMBER
+		const startNumber = isOrdered ? parseInt(rawLines[0].trim(), 10) : 1;
 		let listHtml = '';
 		let inSublist = false;
 
@@ -134,7 +145,8 @@ export function renderMarkdown(markdown: string): string {
 			? 'my-3 list-decimal space-y-1.5 pl-6 text-xs sm:text-sm'
 			: 'my-3 list-disc space-y-1.5 pl-5 text-xs sm:text-sm';
 
-		return savePlaceholder(`<${tag} class="${cls}">${listHtml}</${tag}>`);
+		const startAttr = isOrdered && startNumber > 1 ? ` start="${startNumber}"` : '';
+		return savePlaceholder(`<${tag}${startAttr} class="${cls}">${listHtml}</${tag}>`);
 	});
 
 	// 8. PARAGRAPHS
@@ -160,9 +172,17 @@ export function renderMarkdown(markdown: string): string {
 }
 
 function renderInline(text: string): string {
-	return text
-		// INLINE CODE
-		.replace(/`([^`]+)`/g, '<code class="rounded bg-black/5 dark:bg-white/10 px-1.5 py-0.5 text-[11px] font-mono text-[#b23a2e] dark:text-[#e08a63]">$1</code>')
+	// INLINE CODE IS ESCAPED AND SET ASIDE FIRST, SO PLACEHOLDERS LIKE <version> STAY VISIBLE
+	// AND ASTERISKS OR UNDERSCORES INSIDE CODE ARE NOT READ AS EMPHASIS
+	const codeSpans: string[] = [];
+	const withoutCode = text.replace(/`([^`]+)`/g, (_m, code) => {
+		codeSpans.push(`<code class="rounded bg-black/5 dark:bg-white/10 px-1.5 py-0.5 text-[11px] font-mono text-[#b23a2e] dark:text-[#e08a63]">${escapeHtml(code)}</code>`);
+		return `\u0000${codeSpans.length - 1}\u0000`;
+	});
+
+	return withoutCode
+		// INLINE IMAGES (FOR EXAMPLE A SCREENSHOT PER TABLE CELL). BEFORE LINKS, WHICH SHARE THE [..](..) SHAPE.
+		.replace(/!\[([^\]]*)\]\(([^)]+)\)/g, (_m, alt, src) => `<img src="${escapeHtml(src.trim())}" alt="${escapeHtml(alt.trim())}" class="block mx-auto h-auto w-auto max-h-96 rounded-lg border border-black/10 dark:border-white/10" loading="lazy" />`)
 		// BOLD
 		.replace(/\*\*([^*]+)\*\*/g, '<strong class="font-bold opacity-100">$1</strong>')
 		// ITALIC
@@ -174,7 +194,11 @@ function renderInline(text: string): string {
 			if (isExternal) {
 				return `<a href="${cleanUrl}" class="font-semibold text-[#b23a2e] hover:underline dark:text-[#e08a63] transition-colors" target="_blank" rel="noreferrer">${linkText}</a>`;
 			}
-			const normalizedUrl = cleanUrl.startsWith('/docs/') && !cleanUrl.endsWith('/') && !cleanUrl.includes('#') ? `${cleanUrl}/` : cleanUrl;
+			// DOCS PAGES LIVE AT TRAILING-SLASH URLS; ADD THE SLASH BEFORE ANY #anchor
+			const [path, hash] = cleanUrl.split('#');
+			const normalizedPath = path.startsWith('/docs/') && !path.endsWith('/') ? `${path}/` : path;
+			const normalizedUrl = hash !== undefined ? `${normalizedPath}#${hash}` : normalizedPath;
 			return `<a href="${normalizedUrl}" class="font-semibold text-[#b23a2e] hover:underline dark:text-[#e08a63] transition-colors">${linkText}</a>`;
-		});
+		})
+		.replace(/\u0000(\d+)\u0000/g, (_m, idx) => codeSpans[Number(idx)]);
 }
