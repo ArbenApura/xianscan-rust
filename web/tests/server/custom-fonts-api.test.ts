@@ -179,6 +179,20 @@ describe('uploaded font script detection (FEAT-006 PHASE 8)', () => {
 		return getTestDb().select().from(customFonts).where(eq(customFonts.name, name)).get();
 	}
 
+	it('deleting a font clears it from the canonical accent fonts (FEAT-010 review H8)', async () => {
+		await upload('Montserrat-Bold.ttf', 'Accent Test Font');
+		const row = storedRow('Accent Test Font');
+		const { updateCanonicalSettings, getCanonicalSettings, invalidateSettingsCache } = await import('$lib/server/settings-service');
+		updateCanonicalSettings({ typesetAccentFonts: { latin: 'Accent Test Font', han: 'WenQuanYi Micro Hei' }, typesetScriptFonts: { cyrillic: 'Accent Test Font' } });
+		const { DELETE } = await import('../../src/routes/api/system/fonts/[id]/+server');
+		const res = await DELETE({ params: { id: row!.id } } as unknown as RequestEvent);
+		expect(res.status).toBe(200);
+		invalidateSettingsCache();
+		const settings = getCanonicalSettings();
+		expect(settings.typesetAccentFonts).toEqual({ han: 'WenQuanYi Micro Hei' });
+		expect(settings.typesetScriptFonts.cyrillic).toBeUndefined();
+	});
+
 	it('a Devanagari-only font is stored with its script and the non-Latin category', async () => {
 		const data = await upload('NotoSansDevanagari-Regular.ttf', 'Test Devanagari', { scriptType: 'dialogue' });
 		expect(data.success).toBe(true);

@@ -355,9 +355,10 @@ describe('SettingsModal Component UI', () => {
 		expect(screen.getByRole('heading', { name: /Typesetting & Lettering Studio/i })).toBeTruthy();
 		expect(screen.queryByText('Reset Defaults')).toBeNull();
 
-		// Toggle Live Pipeline Step Previews off
-		const livePreviewSwitch = screen.getByRole('switch', { name: /Live Pipeline Step Previews/i });
-		await fireEvent.click(livePreviewSwitch);
+		// Toggle Bubble Tilt Angle off (Live Pipeline Step Previews moved to General & Appearance, FEAT-010)
+		expect(screen.queryByRole('switch', { name: /Live Pipeline Step Previews/i })).toBeNull();
+		const tiltSwitch = screen.getByRole('switch', { name: /Bubble Tilt Angle/i });
+		await fireEvent.click(tiltSwitch);
 		await tick();
 
 		// Reset Defaults should appear
@@ -902,45 +903,18 @@ describe('SettingsModal Component UI', () => {
 		});
 	});
 
-	it('automatically falls back dialogue casing to uppercase when switching to CC Wild Words in Typesetting tab', async () => {
-		const fetchMock = vi.fn().mockImplementation(async (url: string) => {
-			if (url.includes('/api/system/fonts')) {
-				return {
-					ok: true,
-					json: async () => ({
-						fonts: {
-							'CC Wild Words': { available: true, bundled: true, supportedWeights: ['normal'], allCapsOnly: true, supportedCasings: ['uppercase'] },
-							'Friendly Sans': { available: true, bundled: true, supportedWeights: ['normal'] },
-						},
-					}),
-				};
-			}
-			return { ok: true, json: async () => ({}) };
-		});
-		global.fetch = fetchMock;
-
-		settings.set({
-			...DEFAULTS,
-			typesetFont: 'Friendly Sans',
-			typesetCasing: 'lowercase',
-			typesetAllCaps: false,
-		});
-
-		render(SettingsModal, {
-			props: {
-				open: true,
-				initialTab: 'typesetting',
-			},
-		});
+	it('shows Live Pipeline Step Previews under General & Appearance and resets it there (FEAT-010)', async () => {
+		global.fetch = vi.fn().mockImplementation(async () => ({ ok: true, json: async () => ({ providers: [] }) }));
+		settings.set({ ...DEFAULTS });
+		render(SettingsModal, { props: { open: true, initialTab: 'appearance' } });
 		await tick();
-
-		const ccBtn = screen.getByRole('button', { name: /CC Wild Words/i });
-		await fireEvent.click(ccBtn);
+		const live = screen.getByRole('switch', { name: /Live Pipeline Step Previews/i });
+		await fireEvent.click(live);
 		await tick();
-
-		expect(get(settings).typesetFont).toBe('CC Wild Words');
-		expect(get(settings).typesetCasing).toBe('uppercase');
-		expect(get(settings).typesetAllCaps).toBe(true);
+		expect(get(settings).livePipelinePreview).toBe(false);
+		await fireEvent.click(screen.getByText('Reset Defaults'));
+		await tick();
+		expect(get(settings).livePipelinePreview).toBe(true);
 	});
 
 	it('dispatches close event when clicking the modal close button or backdrop', async () => {
@@ -1356,7 +1330,8 @@ describe('SettingsModal tab remount regressions', () => {
 
 		const input = screen.getByPlaceholderText('Search settings...') as HTMLInputElement;
 		const cases: [string, RegExp][] = [
-			['rtl', /Script fonts/i],
+			['rtl', /Fonts \(dialogue and accent font per script\)/i],
+			['technique', /Accent font/i],
 			['exact', /Live Speech Bubble Preview/i],
 			['restart', /LAN Access/i],
 			['print-token', /Access Token & Device Pairing/i],

@@ -59,7 +59,7 @@ describe('single-text prompts', () => {
 	});
 
 	it('the prompt version was bumped', () => {
-		expect(PROMPT_VERSION).toBe('v23');
+		expect(PROMPT_VERSION).toBe('v24');
 	});
 });
 

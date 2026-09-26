@@ -12,6 +12,7 @@
 	import RotateCcw from 'lucide-svelte/icons/rotate-ccw';
 	// IMPORTED COMPONENTS
 	import LanguagePicker from '$lib/components/ui/LanguagePicker.svelte';
+	import Switch from '$lib/components/ui/Switch.svelte';
 
 	// -- OPTIONAL PROPS -- //
 
@@ -52,8 +53,18 @@
 		settings.update((s) => ({ ...s, targetLang: lang }));
 	}
 
+	// MOVED HERE FROM TYPESETTING (FEAT-010 ADR-012): IT CONTROLS THE CHAPTER VIEW, NOT HOW TEXT IS LETTERED
+	function toggleLivePipelinePreview() {
+		settings.update((s) => {
+			const next = s.livePipelinePreview === false;
+			toast.success(`Live pipeline step previews ${next ? 'enabled' : 'disabled'}`);
+			return { ...s, livePipelinePreview: next };
+		});
+	}
+
 	// TAB MODIFICATION DETECTORS (FOR CONDITIONAL RESET BUTTON VISIBILITY)
 	$: isAppearanceModified =
+		Boolean($settings.livePipelinePreview !== false) !== Boolean(DEFAULTS.livePipelinePreview !== false) ||
 		$settings.theme !== DEFAULTS.theme ||
 		$settings.appFont !== DEFAULTS.appFont ||
 		($settings.sourceLang || 'zh-Hans') !== (DEFAULTS.sourceLang || 'zh-Hans') ||
@@ -66,6 +77,7 @@
 			appFont: DEFAULTS.appFont,
 			sourceLang: DEFAULTS.sourceLang,
 			targetLang: DEFAULTS.targetLang,
+			livePipelinePreview: DEFAULTS.livePipelinePreview,
 		}));
 		toast.success('General & Appearance settings reset to defaults');
 	}
@@ -176,5 +188,21 @@
 				/>
 			</div>
 		</div>
+	</div>
+
+	<!-- LIVE PIPELINE STEP PREVIEWS -->
+	<div
+		id="setting-live-pipeline-preview"
+		class={`flex items-center justify-between gap-3 rounded-xl border border-black/10 bg-black/[0.02] p-3 dark:border-white/10 dark:bg-white/[0.02] transition-all duration-300 ${highlightedSettingId === 'live-pipeline-preview' ? 'ring-2 ring-[#b23a2e] dark:ring-[#e08a63] bg-[#b23a2e]/[0.06] dark:bg-[#e08a63]/[0.08]' : ''}`}
+	>
+		<div class="min-w-0">
+			<div class="text-xs font-bold">Live Pipeline Step Previews</div>
+			<div class="text-[10px] opacity-60 mt-0.5">Stream live visual updates through OCR annotations, inpainting, and typesetting</div>
+		</div>
+		<Switch
+			checked={$settings.livePipelinePreview !== false}
+			on:click={toggleLivePipelinePreview}
+			ariaLabel="Live Pipeline Step Previews"
+		/>
 	</div>
 </div>

@@ -1,4 +1,7 @@
 // TYPESET REGION DEFINITIONS AND SFX HEURISTICS
+// IMPORTED TYPES
+import type { RegionRole } from '$lib/types';
+
 // -- TYPES -- //
 
 export interface TypesetBox {
@@ -17,6 +20,8 @@ export interface TypesetRegion {
 	text: string;
 	vertical?: boolean;
 	angle?: number;
+	/** 'accent' REGIONS MAY USE THE ACCENT FONT (FEAT-010); DEFAULT 'dialogue'. */
+	role?: RegionRole;
 }
 
 // -- FUNCTIONS -- //

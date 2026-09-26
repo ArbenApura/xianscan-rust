@@ -188,6 +188,7 @@ Click a page in Grid or Compare view, or use **Inspect Page Details** in Webtoon
 - **Original**, **Translated Output** and **Cleaned** tabs show each stage of the page (the last two appear once they exist).
 - **OCR**, **Inpaint** and **Typeset** overlays show the detected text areas, what was cleaned, and where the translation was placed.
 - Click a text region to read the recognized source text and edit its translation, or ask the AI for a new one.
+- Skill names, attacks and title cards the translator marked as accent text show an **Accent** badge (the tooltip says who marked it: AI, Glossary or You). In the region editor, **Lettering** switches a region between **Dialogue** and **Accent**. Re-translating the page resets these switches. See [Accent Font](/docs/advanced/typography#accent-font).
 - **Retypeset** redraws the text only (fast, keeps your edits). **Re-translate Page** runs the whole page again from the start.
 - **OCR Pipeline** opens the recognition details, including a confidence score for each region.
 - **LLM Prompt** shows exactly what was sent to the translation model, and **Copy Debug** copies the page details for a bug report.
@@ -430,7 +431,7 @@ The translation model is not reachable.
 				id: 'boxes',
 				title: '3. Translated Text Shows Empty Boxes',
 				content: `
-No installed font covers the target language's script. XianScan warns about this in the book editor and while translating. Open **Settings** -> **Typesetting & Lettering** -> **Script Fonts** and pick or import a font for that script. See [Typography & Fonts](/docs/advanced/typography).
+No installed font covers the target language's script. XianScan warns about this in the book editor and while translating. Open **Settings** -> **Typesetting & Lettering**, then pick a font for that script's row in the **Fonts** table, or choose **Import font...** in that dropdown. See [Typography & Fonts](/docs/advanced/typography).
 `,
 			},
 			{
@@ -678,6 +679,8 @@ A glossary tells the translator how to render a name or term, every time. Open *
 - **Import CSV** and **Export** move glossaries between books or computers.
 
 Matching tolerates small OCR mistakes, so a term is still found when one character was misread.
+
+Terms with the category **technique** also mark free-floating text that is exactly that term as accent text, so a recurring technique name gets the [accent font](/docs/advanced/typography#accent-font) on every page.
 `,
 			},
 			{
@@ -885,6 +888,8 @@ The web server (\`web/src/lib/server/translate/\`) sends the page's text to your
 - recent dialogue from previous pages (see [Dialogue Context](/docs/translation/models#dialogue-context)).
 
 Failed or cut-off answers are retried with a larger output budget.
+
+The model also returns a \`styles\` map that marks accent text (named techniques, attacks, spells and title cards). The labels are cached with the translation, stored per text region, and topped up by glossary terms of the category **technique**.
 `,
 			},
 			{
@@ -911,6 +916,7 @@ The web server draws the translation with Skia (\`@napi-rs/canvas\`, code in \`w
 - **Arabic:** drawn right to left with Arabic punctuation (\`؟ ، ؛\`), whole words kept together.
 - **Fonts:** each line uses a font that really covers its script (see [Typography & Fonts](/docs/advanced/typography)). If none does, a warning appears, because the text would show as boxes.
 - **Outline and tilt:** an outline in contrast to the background, and text rotated to match tilted bubbles (2 to 45 degrees).
+- **Accent text:** drawn in the accent font for its script when that font has every letter; missing symbols come from the dialogue font, and the text is centred on its measured ink. Otherwise it uses the dialogue font with one outline step heavier.
 `,
 			},
 		],
@@ -918,48 +924,80 @@ The web server draws the translation with Skia (\`@napi-rs/canvas\`, code in \`w
 
 	'advanced/typography': {
 		title: 'Typography & Fonts',
-		description: 'Choose fonts for each script, import your own, and adjust how dialogue text is drawn.',
+		description: 'Choose the dialogue and accent font for each script, import your own fonts, and adjust how text is drawn.',
 		lastUpdated: '2026-09-26',
 		sections: [
 			{
 				id: 'dialogue-font',
-				title: '1. Dialogue Font and Style',
+				title: '1. The Fonts Table and Text Style',
 				content: `
-In **Settings** -> **Typesetting & Lettering**:
+**Settings** -> **Typesetting & Lettering** -> **Fonts** is a table with one row per writing system and two columns:
 
-- **Latin Dialogue Font:** the font for Latin-script languages (English, Spanish and so on).
+- **Dialogue:** the font for speech, thoughts and captions. The **Latin** row is the font for English, Spanish, Indonesian and other Latin-script languages.
+- **Accent:** the font for skill names, attacks, spells and title cards (see [Accent Font](#accent-font)). Latin starts with the bundled **Sigmar One**; other scripts start **Off**, which means accent text looks like dialogue.
+
+Latin, the scripts your books are translated into, the scripts of the default language pair (**General & Appearance**) and any script you set a font for are listed. **Show all scripts** reveals the others: Chinese, Japanese, Korean, Cyrillic, Thai, Hindi and Arabic, the scripts of every supported language.
+
+Below the table:
+
 - **Dialogue Font Weight:** from 100 (Thin) to 900 (Black). XianScan uses the matching file when a family has several weights.
 - **Dialogue Letterform Casing:** UPPERCASE (classic comic lettering), Normal / As Is, or lowercase.
-- **Text Stroke Outline:** None, Thin, Standard or Heavy, plus whether the outline is automatic, dark or light.
+- **Text Stroke Outline:** None, Thin, Standard or Heavy.
 - **Bubble Inset Padding:** how much space to leave between text and the bubble edge.
 - **Bubble Centering & Expansion:** lets text use a little more room than the detected text area, so letters are not clipped.
-- **Bubble Tilt Angle Rotation:** rotate text to follow tilted bubbles.
+- **Bubble Tilt Angle:** rotate text to follow tilted bubbles.
 
-**Live Speech Bubble Preview** shows the result as you change settings. The preview is drawn by your browser; **Render exact preview** draws it with the real typesetter so you see exactly what the pipeline will produce.
+**Live Speech Bubble Preview** shows the result as you change settings. The preview is drawn by your browser; **Render exact preview** draws it with the real typesetter so you see exactly what the pipeline will produce. Once an accent font is set, both previews also show an accent sample under the bubble.
+
+**Live Pipeline Step Previews** is under **General & Appearance**.
 `,
 			},
 			{
 				id: 'script-fonts',
-				title: '2. Script Fonts (CJK, Hindi, Thai, Arabic, Cyrillic...)',
+				title: '2. Fonts for Other Scripts (CJK, Hindi, Thai, Arabic, Cyrillic...)',
 				content: `
-**Settings** -> **Typesetting & Lettering** -> **Script Fonts** sets the font for each writing system.
+Every script row in the Fonts table has its own dialogue font.
 
-- **Automatic** (default) picks the best available font that really has the letters, and shows which font it chose. It tries your choice for that script first, then the dialogue font if it covers the script, then a bundled or system font.
+- **Automatic** (default) picks the best available font that really has the letters, and shows which font it chose. It tries your choice for that script first, then the Latin dialogue font if it covers the script, then a bundled or system font.
 - **Bundled fonts** work everywhere, including Docker: Noto Sans Devanagari (Hindi), Noto Sans Thai, Tajawal (Arabic) and WenQuanYi Micro Hei (CJK).
 - **System fonts** are used too when installed, for example Nirmala UI and Leelawadee UI on Windows, Kohinoor Devanagari and Thonburi on macOS, or Noto fonts on Linux.
-- Each script row can open the system font list or the import dialog, filtered to fonts that cover that script. Imported fonts for other scripts appear under **Imported script fonts**, where you can delete them.
-- A **red** notice means no available font covers a script; **amber** means the font you chose does not. The book editor and folder import warn about the target language in the same way.
+- A **red** note under a cell means no available font covers that script, so its text would show as boxes; **amber** means the font you chose does not have those letters. The book editor and folder import warn about the target language in the same way.
+`,
+			},
+			{
+				id: 'accent-font',
+				title: '3. Accent Font (Skills, Attacks and Title Cards)',
+				content: `
+Comics letter some text differently from speech: a cultivation technique announced over the art, a shonen attack call, a fantasy spell, a system message like \`[Skill: Shadow Step]\`, or a title card for a new arc. XianScan calls this **accent text**.
+
+- **The translator marks it.** While translating a page, the AI also says which text regions are accent text. Ordinary speech that only mentions a technique stays dialogue. Glossary terms with the category **technique** mark matching free-floating text as accent text too.
+- **Choose the font per script** in the **Accent** column of the Fonts table. Latin uses the bundled **Sigmar One** by default; pick a brush font for Chinese, for example, or another display font for Latin. Set a cell to **Off** to letter that script's accent text like dialogue; with every cell **Off**, pages look exactly as before accent fonts existed.
+- **Accent casing, weight and speech bubbles:** once an accent font is set, a row under the table sets its casing and weight, and **Accent in speech bubbles** (off by default) decides whether accent text inside a speech bubble also gets the accent font.
+- **Every letter must be in the font.** An accent font is used for a region only when it has every letter of that text. Many display fonts have no accented letters, so French \`É\` or Spanish \`Ñ\` makes that region fall back to the dialogue font with a slightly heavier outline. The Accent cell lists the common letters a font lacks.
+- **Symbols:** brackets, dashes and similar marks missing from the accent font are drawn in the dialogue font, so \`[Skill: ...]\` keeps its brackets.
+- **System fonts on Linux, Docker and macOS user fonts:** XianScan cannot always read which letters these fonts have, and the Accent cell says so. Import the font file to get the letter check.
+- **Fix a region by hand:** in the Page Inspector, accent regions show an **Accent** badge. Open a region and switch **Lettering** between **Dialogue** and **Accent**. Re-translating the page resets these switches, like manual text edits.
 `,
 			},
 			{
 				id: 'custom-fonts',
-				title: '3. Importing Fonts',
+				title: '4. Importing and Removing Fonts',
 				content: `
-Import \`.ttf\` and \`.otf\` files from the font picker. XianScan reads each font and shows which scripts it covers. It also warns about old Hindi fonts that use a legacy encoding and would print the wrong letters.
+Every dropdown in the Fonts table ends with two commands. The font you add goes straight into the cell you opened it from.
 
-You can add several weights (Regular, Bold and so on) to one family.
+- **Import font...:** add \`.ttf\` and \`.otf\` files. XianScan reads each font and shows which scripts it covers. It also warns about old Hindi fonts that use a legacy encoding and would print the wrong letters. You can add several weights (Regular, Bold and so on) to one family.
+- **Add system font...:** use a font that is already installed on your computer. XianScan looks in the standard font folders: \`C:\\Windows\\Fonts\` and your user fonts folder on Windows, \`/System/Library/Fonts\` and \`/Library/Fonts\` on macOS, and \`/usr/share/fonts\` and \`/usr/local/share/fonts\` on Linux.
 
-Instead of importing, you can pick a font that is already installed on your computer from the **System Fonts** list. XianScan looks in the standard font folders: \`C:\\Windows\\Fonts\` and your user fonts folder on Windows, \`/System/Library/Fonts\` and \`/Library/Fonts\` on macOS, and \`/usr/share/fonts\` and \`/usr/local/share/fonts\` on Linux.
+Fonts you added are listed under the table as **Your fonts**. The **x** on a chip deletes an imported font or removes a system font from the choices; cells that used it go back to the default dialogue font, **Automatic** or **Off**.
+`,
+			},
+			{
+				id: 'accent-font-sources',
+				title: '5. Getting Accent Fonts',
+				content: `
+XianScan ships one accent font, **Sigmar One** (SIL Open Font License), the default for Latin. It has every accented letter the supported Latin languages use, so French, Spanish, German, Polish or Turkish accent text stays in the accent font. For other scripts, or another Latin look, the **Free accent fonts** link above the Fonts table lists more free fonts under the same licence, for example Bangers (Latin), Zhi Mang Xing and Ma Shan Zheng (Chinese brush), Yuji Boku (Japanese), Black Han Sans (Korean), Rozha One (Hindi), Kanit (Thai), Lalezar (Arabic) and Russo One (Russian). Download one from its page, then choose **Import font...** in an Accent cell.
+
+Freeware comic fonts, such as many Blambot fonts, are fine to import for your own reading, but their licences usually forbid sharing them. XianScan never bundles or uploads a font you import.
 `,
 			},
 		],
@@ -1093,7 +1131,7 @@ curl -H "Authorization: Bearer $XIANSCAN_TOKEN" http://192.168.1.20:8124/api/boo
 | \`GET /api/chapters/:id/download\` | Chapter ZIP. Pages that could not be included are listed in \`MISSING_PAGES.txt\` and the \`x-missing-pages\` header |
 | \`GET\`, \`PATCH\`, \`DELETE /api/pages/:id\` | Read, edit or delete a page |
 | \`GET /api/pages/:id/file?kind=output\` | Page image: \`output\`, \`cleaned\`, \`original\`, \`thumb\` or \`annotated\` |
-| \`PATCH /api/pages/:id/regions/:regionId\` | Edit one text region's translation |
+| \`PATCH /api/pages/:id/regions/:regionId\` | Edit one text region's translation or its lettering (\`role\`: \`dialogue\` or \`accent\`) |
 | \`GET /api/covers/:bookId/file?w=512\` | Book cover, resized (80 to 1600 px) |
 `,
 			},
@@ -1136,8 +1174,9 @@ curl -H "Authorization: Bearer $XIANSCAN_TOKEN" http://192.168.1.20:8124/api/boo
 | \`GET\`, \`DELETE /api/system/fonts/:id\` | Read or remove an imported font |
 | \`POST /api/system/fonts/:id/variants\`, \`DELETE /api/system/fonts/:id/variants/:variantId\` | Add or remove a weight |
 | \`GET /api/system/fonts/system\` | Fonts installed on the computer |
-| \`GET /api/system/fonts/coverage\` | Which font is used for each script |
-| \`POST /api/typeset/preview\` | Render an exact typesetting preview |
+| \`GET /api/system/fonts/coverage\` | Which font is used for each script, and the letters each accent font lacks (\`accent\`) |
+| \`GET /api/system/fonts/book-scripts\` | Scripts your books are typeset in |
+| \`POST /api/typeset/preview\` | Render an exact typesetting preview (optional \`accentText\` adds an accent sample) |
 | \`GET\`, \`PATCH /api/system/access\` | LAN state, token and addresses; turn LAN on or off (after a restart) |
 | \`POST /api/system/access/token/regenerate\` | Replace the access token |
 | \`POST /api/auth/unlock\`, \`GET /api/auth/status\`, \`POST /api/auth/logout\` | Browser session |

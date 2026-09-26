@@ -166,6 +166,10 @@ export const regions = sqliteTable(
 		conf: real('conf'),
 		// SCALE OF conf: 0 = LEGACY SIGMOID SCALE, 1 = SOFTMAX MEAN (FEAT-003 ADR-006).
 		confScale: integer('conf_scale').notNull().default(0),
+		// 'dialogue' | 'accent' - HOW THE REGION IS LETTERED (FEAT-010 ADR-005).
+		role: text('role', { enum: ['dialogue', 'accent'] }).notNull().default('dialogue'),
+		// 'llm' | 'glossary' | 'user' - WHO SET role; NULL FOR THE DEFAULT DIALOGUE ROLE.
+		roleSource: text('role_source', { enum: ['llm', 'glossary', 'user'] }),
 		createdAt: epochMs('created_at')
 			.notNull()
 			.$defaultFn(() => Date.now()),

@@ -6,6 +6,10 @@
 		icon?: ComponentType;
 		hint?: string;
 		disabled?: boolean;
+		/** CSS font-family FOR THIS OPTION'S LABEL (FONT PICKERS SHOW EACH FAMILY IN ITS OWN FACE). */
+		fontFamily?: string;
+		/** A COMMAND, NOT A VALUE (FOR EXAMPLE "IMPORT FONT..."): CHOOSING IT FIRES `action` AND KEEPS THE VALUE. */
+		action?: boolean;
 	}
 
 	function portal(node: HTMLElement, target: HTMLElement) {
@@ -44,12 +48,14 @@
 	export let disabled = false;
 	export let size: 'sm' | 'md' = 'md';
 	export let buttonClass = '';
+	/** HIDE THE SELECTED OPTION'S HINT IN THE CLOSED TRIGGER (NARROW CELLS); THE OPEN LIST STILL SHOWS HINTS. */
+	export let hideTriggerHint = false;
 	let className = '';
 	export { className as class };
 
 	// -- CONSTANTS -- //
 
-	const dispatch = createEventDispatcher<{ change: string }>();
+	const dispatch = createEventDispatcher<{ change: string; action: string }>();
 
 	// -- STATES -- //
 
@@ -74,6 +80,12 @@
 
 	function select(opt: SelectOption) {
 		if (opt.disabled) return;
+		if (opt.action) {
+			open = false;
+			dispatch('action', opt.value);
+			triggerEl?.focus();
+			return;
+		}
 		value = opt.value;
 		open = false;
 		dispatch('change', opt.value);
@@ -242,8 +254,9 @@
 		)}
 	>
 		{#if selected?.icon}<svelte:component this={selected.icon} size={size === 'sm' ? 12 : 14} class="shrink-0 opacity-60" />{/if}
-		<span class={cn('flex-1 truncate', !selected && 'opacity-40')}>{selected?.label ?? placeholder}</span>
-		{#if selected?.hint}<span class="shrink-0 text-xs tabular-nums opacity-40">{selected.hint}</span>{/if}
+		<!-- A FONT NAME IS A RUNTIME VALUE, SO ITS FAMILY IS AN INLINE STYLE (EXCEPTION (b)) -->
+		<span class={cn('flex-1 truncate', !selected && 'opacity-40')} style={selected?.fontFamily ? `font-family: ${selected.fontFamily}` : undefined}>{selected?.label ?? placeholder}</span>
+		{#if selected?.hint && !hideTriggerHint}<span class="shrink-0 text-xs tabular-nums opacity-40">{selected.hint}</span>{/if}
 		<ChevronDown
 			size={size === 'sm' ? 12 : 14}
 			class={cn('shrink-0 opacity-50 transition-transform duration-200', open && 'rotate-180')}
@@ -279,6 +292,9 @@
 				class={cn(
 					'flex w-full items-center gap-2 rounded-lg text-left transition-colors',
 					size === 'sm' ? 'px-2 py-1 text-xs' : 'px-2.5 py-1.5 text-sm',
+					// COMMANDS SIT BELOW A DIVIDER, IN THE ACCENT COLOUR
+					opt.action && 'font-semibold text-[#b23a2e] dark:text-[#e08a63]',
+					opt.action && !items[i - 1]?.action && 'mt-1 rounded-t-none border-t border-black/10 pt-1.5 dark:border-white/10',
 					opt.disabled && 'opacity-40 cursor-not-allowed',
 					opt.value === value
 						? 'bg-[#c0392b]/10 text-[#b23a2e] dark:text-[#e08a63]'
@@ -287,7 +303,7 @@
 				)}
 			>
 				{#if opt.icon}<svelte:component this={opt.icon} size={size === 'sm' ? 12 : 14} class="shrink-0" />{/if}
-				<span class="flex-1 truncate">{opt.label}</span>
+				<span class="flex-1 truncate" style={opt.fontFamily ? `font-family: ${opt.fontFamily}` : undefined}>{opt.label}</span>
 				{#if opt.hint}<span class="shrink-0 text-xs tabular-nums opacity-40">{opt.hint}</span>{/if}
 				{#if opt.value === value}<Check size={size === 'sm' ? 12 : 14} class="shrink-0" />{/if}
 			</button>

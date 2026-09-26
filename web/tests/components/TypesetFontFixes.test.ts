@@ -2,7 +2,7 @@
  * @vitest-environment jsdom
  */
 // FONT UI FIXES: SLOT-AWARE SYSTEM FONT BROWSER, IMPORT MODAL LABELS AND STALE UPLOADS, COVERAGE NOTICE ORDERING,
-// SCRIPT FONT DELETE / DISABLE AND COVERAGE REQUEST ORDERING, AND THE EXACT PREVIEW REQUEST.
+// FONTS TABLE IMPORT / SYSTEM FONTS / REMOVAL, COVERAGE REQUEST ORDERING, AND THE EXACT PREVIEW REQUEST.
 import { render, fireEvent, screen, cleanup, waitFor, within } from '@testing-library/svelte';
 import { describe, it, expect, afterEach, beforeEach, vi } from 'vitest';
 import { tick } from 'svelte';
@@ -11,7 +11,7 @@ import { settings, DEFAULTS, customFontsStore, systemFontsStore, effectiveTypese
 import SystemFontBrowserModal from '$lib/components/typeset/SystemFontBrowserModal.svelte';
 import ImportFontModal from '$lib/components/typeset/ImportFontModal.svelte';
 import ScriptCoverageNotice from '$lib/components/book/ScriptCoverageNotice.svelte';
-import ScriptFontsSection from '$lib/components/settings/ScriptFontsSection.svelte';
+import FontRolesTable from '$lib/components/settings/FontRolesTable.svelte';
 import TypesettingTab from '$lib/components/settings/TypesettingTab.svelte';
 
 // THE REAL Select PORTALS ITS DROPDOWN, WHICH DOES NOT MOUNT UNDER JSDOM
@@ -148,55 +148,92 @@ describe('ScriptCoverageNotice', () => {
 	});
 });
 
-// -- SCRIPT FONTS SECTION (BUGS 2 AND 6) -- //
+// -- FONTS TABLE: IMPORT, SYSTEM FONTS AND REMOVAL INLINE (FEAT-010) -- //
 
-describe('ScriptFontsSection delete / disable and coverage requests', () => {
+describe('FontRolesTable your fonts, import and system fonts', () => {
+	function stubAll(extra?: (url: string, init?: RequestInit) => Response | undefined) {
+		const calls: string[] = [];
+		vi.stubGlobal(
+			'fetch',
+			vi.fn(async (url: string, init?: RequestInit) => {
+				calls.push(`${init?.method ?? 'GET'} ${url}`);
+				const custom = extra?.(String(url), init);
+				if (custom) return custom;
+				if (String(url).startsWith('/api/system/fonts/coverage')) return new Response(JSON.stringify(coverageBody()), { status: 200 });
+				return new Response('{}', { status: 200 });
+			}),
+		);
+		return calls;
+	}
+
+	it('lists imported and enabled system fonts as removable chips, and nothing when there are none', async () => {
+		stubAll();
+		const { unmount } = render(FontRolesTable);
+		expect(screen.queryByTestId('your-fonts')).toBeNull();
+		unmount();
+		customFontsStore.set([thaiFont, { ...thaiFont, id: 'font-deva', name: 'NotoSansDevanagari', scriptType: 'dialogue', scripts: ['latin', 'devanagari'] }]);
+		settings.update((s) => ({ ...s, enabledSystemFonts: ['Tahoma'] }));
+		render(FontRolesTable);
+		expect(within(screen.getByTestId('your-font-My Thai')).getByTestId('your-font-delete')).toBeTruthy();
+		expect(within(screen.getByTestId('your-font-NotoSansDevanagari')).getByTestId('your-font-delete')).toBeTruthy();
+		expect(within(screen.getByTestId('your-font-Tahoma')).getByTestId('your-font-disable')).toBeTruthy();
+	});
+
+	it('deleting an imported font clears it from script and accent cells (review H8)', async () => {
+		const calls = stubAll((url, init) => (init?.method === 'DELETE' ? new Response(JSON.stringify({ success: true }), { status: 200 }) : undefined));
+		customFontsStore.set([thaiFont]);
+		settings.update((s) => ({ ...s, typesetScriptFonts: { thai: 'My Thai' }, typesetAccentFonts: { thai: 'My Thai', latin: 'Bangers' } }));
+		render(FontRolesTable);
+		await fireEvent.click(within(screen.getByTestId('your-font-My Thai')).getByTestId('your-font-delete'));
+		await fireEvent.click(await screen.findByRole('button', { name: /Delete Font/ }));
+		await waitFor(() => expect(calls).toContain('DELETE /api/system/fonts/font-thai'));
+		await waitFor(() => expect(get(settings).typesetAccentFonts).toEqual({ latin: 'Bangers' }));
+		expect(get(settings).typesetScriptFonts.thai).toBeUndefined();
+	});
+
+	it('removing a system font chip clears it from every cell and the enabled list', async () => {
+		stubAll();
+		settings.update((s) => ({ ...s, enabledSystemFonts: ['Tahoma'], typesetFont: 'Tahoma', typesetScriptFonts: { thai: 'Tahoma' }, typesetAccentFonts: { latin: 'Tahoma' } }));
+		render(FontRolesTable);
+		await fireEvent.click(within(screen.getByTestId('your-font-Tahoma')).getByTestId('your-font-disable'));
+		const s = get(settings);
+		expect(s.enabledSystemFonts).not.toContain('Tahoma');
+		expect(s.typesetFont).toBe(DEFAULTS.typesetFont);
+		expect(s.typesetScriptFonts.thai).toBeUndefined();
+		expect(s.typesetAccentFonts.latin).toBeUndefined();
+	});
+
+	it('Add system font in the Latin accent cell assigns that cell only, never the dialogue font (review H7)', async () => {
+		stubAll();
+		systemFontsStore.set([{ family: 'Impact', scriptType: 'dialogue', scripts: ['latin'], supportedWeights: ['normal'] } as never]);
+		render(FontRolesTable);
+		const [, accent] = within(screen.getByTestId('font-row-latin')).getAllByRole('combobox') as HTMLSelectElement[];
+		await fireEvent.change(accent, { target: { value: '__system__' } });
+		await fireEvent.click(await screen.findByRole('button', { name: /^Enable$/ }));
+		const s = get(settings);
+		expect(s.enabledSystemFonts).toContain('Impact');
+		expect(s.typesetAccentFonts.latin).toBe('Impact');
+		expect(s.typesetFont).toBe(DEFAULTS.typesetFont);
+	});
+
+	it('an already enabled system font is picked for the cell with Use', async () => {
+		stubAll();
+		systemFontsStore.set([{ family: 'Tahoma', scriptType: 'dialogue', scripts: ['latin', 'thai'], supportedWeights: ['normal'] } as never]);
+		settings.update((s) => ({ ...s, targetLang: 'th', enabledSystemFonts: ['Tahoma'] }));
+		render(FontRolesTable);
+		const [, accent] = within(await screen.findByTestId('font-row-thai')).getAllByRole('combobox') as HTMLSelectElement[];
+		await fireEvent.change(accent, { target: { value: '__system__' } });
+		await fireEvent.click(await screen.findByRole('button', { name: /^Use$/ }));
+		expect(get(settings).typesetAccentFonts.thai).toBe('Tahoma');
+		expect(get(settings).typesetScriptFonts.thai).toBeUndefined();
+	});
+});
+
+// -- FONTS TABLE COVERAGE REQUESTS (BUG 6, NOW IN FontRolesTable) -- //
+
+describe('FontRolesTable coverage requests', () => {
 	beforeEach(() => {
 		settings.update((s) => ({ ...s, targetLang: 'th', sourceLang: 'ja', typesetScriptFonts: {} }));
-	});
-
-	it('lists imported non-Latin fonts with a delete action, and offers delete beside a slot that uses one', async () => {
-		vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify(coverageBody()), { status: 200 })));
-		customFontsStore.set([thaiFont]);
-		settings.update((s) => ({ ...s, typesetScriptFonts: { thai: 'My Thai' } }));
-		const deleted = vi.fn();
-		const { component } = render(ScriptFontsSection);
-		component.$on('deleteFont', (e: CustomEvent) => deleted(e.detail));
-		const list = screen.getByTestId('imported-script-fonts');
-		expect(within(list).getByText('My Thai')).toBeTruthy();
-		await fireEvent.click(screen.getByTestId('script-font-delete-thai'));
-		expect(deleted).toHaveBeenCalledWith({ id: 'font-thai', name: 'My Thai' });
-		await fireEvent.click(screen.getByTestId('imported-script-font-delete-font-thai'));
-		expect(deleted).toHaveBeenCalledTimes(2);
-	});
-
-	it('lists an unassigned imported font that covers a script and Latin too, with a delete action', async () => {
-		// E.G. A VARIABLE NOTO SANS DEVANAGARI: FILED AS A DIALOGUE FONT BECAUSE IT HAS LATIN LETTERS
-		vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify(coverageBody()), { status: 200 })));
-		customFontsStore.set([{ ...thaiFont, id: 'font-deva', name: 'NotoSansDevanagari', scriptType: 'dialogue', scripts: ['latin', 'devanagari'] }]);
-		const deleted = vi.fn();
-		const { component } = render(ScriptFontsSection);
-		component.$on('deleteFont', (e: CustomEvent) => deleted(e.detail));
-		expect(within(screen.getByTestId('imported-script-fonts')).getByText('NotoSansDevanagari')).toBeTruthy();
-		await fireEvent.click(screen.getByTestId('imported-script-font-delete-font-deva'));
-		expect(deleted).toHaveBeenCalledWith({ id: 'font-deva', name: 'NotoSansDevanagari' });
-	});
-
-	it('keeps a Latin-only imported font out of the script fonts list', () => {
-		vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify(coverageBody()), { status: 200 })));
-		customFontsStore.set([{ ...thaiFont, id: 'font-latin', name: 'My Latin', scriptType: 'dialogue', scripts: ['latin'] }]);
-		render(ScriptFontsSection);
-		expect(screen.queryByTestId('imported-script-fonts')).toBeNull();
-	});
-
-	it('offers disable beside a slot that uses an enabled system font', async () => {
-		vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify(coverageBody()), { status: 200 })));
-		settings.update((s) => ({ ...s, enabledSystemFonts: ['Tahoma'], typesetScriptFonts: { thai: 'Tahoma' } }));
-		const disabled = vi.fn();
-		const { component } = render(ScriptFontsSection);
-		component.$on('disableFont', (e: CustomEvent) => disabled(e.detail));
-		await fireEvent.click(screen.getByTestId('script-font-disable-thai'));
-		expect(disabled).toHaveBeenCalledWith({ family: 'Tahoma' });
 	});
 
 	it('sends the pending slots with the coverage request and ignores a stale answer', async () => {
@@ -205,21 +242,22 @@ describe('ScriptFontsSection delete / disable and coverage requests', () => {
 		vi.stubGlobal(
 			'fetch',
 			vi.fn(async (url: string) => {
-				// ONLY COVERAGE REQUESTS COUNT (THE SETTINGS STORE MAY SYNC TOO)
-				if (!String(url).startsWith('/api/system/fonts/coverage')) return new Response('{}', { status: 200 });
+				// ONLY COVERAGE REQUESTS COUNT (THE SETTINGS STORE AND THE BOOK SCRIPTS LOOKUP MAY FETCH TOO)
+				if (!String(url).startsWith('/api/system/fonts/coverage')) return new Response(JSON.stringify({ scripts: [] }), { status: 200 });
 				urls.push(String(url));
 				return urls.length === 1 ? first.promise : new Response(JSON.stringify(coverageBody('Fresh Font')), { status: 200 });
 			}),
 		);
-		render(ScriptFontsSection);
-		const row = await screen.findByTestId('script-font-row-thai');
-		const select = within(row).getByRole('combobox') as HTMLSelectElement;
+		render(FontRolesTable);
+		const row = await screen.findByTestId('font-row-thai');
+		const [select] = within(row).getAllByRole('combobox') as HTMLSelectElement[];
 		await fireEvent.change(select, { target: { value: 'Noto Sans Thai' } });
 		await waitFor(() => expect(urls.length).toBe(2));
 		const params = new URL(urls[1], 'http://localhost').searchParams;
 		expect(JSON.parse(params.get('scriptFonts') || '{}')).toEqual({ thai: 'Noto Sans Thai' });
 		expect(params.get('dialogue')).toBe(DEFAULTS.typesetFont);
-		await waitFor(() => expect(within(row).getByText('Automatic (Fresh Font)')).toBeTruthy());
+		await fireEvent.change(select, { target: { value: '__automatic__' } });
+		await waitFor(() => expect(within(row).getAllByText('Automatic (Fresh Font)').length).toBeGreaterThan(0));
 		// THE FIRST (OLDER) REQUEST RETURNS LAST; ITS ANSWER IS DROPPED
 		first.resolve(new Response(JSON.stringify(coverageBody('Stale Font')), { status: 200 }));
 		await new Promise((r) => setTimeout(r, 0));
@@ -236,7 +274,7 @@ describe('ScriptFontsSection delete / disable and coverage requests', () => {
 				return new Response(JSON.stringify(coverageBody()), { status: 200 });
 			}),
 		);
-		render(ScriptFontsSection);
+		render(FontRolesTable);
 		await waitFor(() => expect(coverageCalls).toBe(1));
 		// A NEW BUT EQUAL SLOT MAP AND AN UNRELATED SETTING
 		settings.update((s) => ({ ...s, typesetOutline: 'heavy', typesetScriptFonts: { ...s.typesetScriptFonts } }));
@@ -245,6 +283,22 @@ describe('ScriptFontsSection delete / disable and coverage requests', () => {
 		// A REAL SLOT CHANGE DOES REFETCH
 		settings.update((s) => ({ ...s, typesetScriptFonts: { thai: 'Noto Sans Thai' } }));
 		await waitFor(() => expect(coverageCalls).toBe(2));
+	});
+});
+
+// -- DIALOGUE FONT CASING FALLBACK (MOVED FROM SettingsModal.test.ts; THE FONT CARDS BECAME THE FONTS TABLE) -- //
+
+describe('TypesettingTab Latin dialogue font', () => {
+	it('falls back to uppercase casing when switching to CC Wild Words', async () => {
+		vi.stubGlobal('fetch', vi.fn(async () => new Response('{}', { status: 200 })));
+		settings.set({ ...DEFAULTS, typesetFont: 'Friendly Sans', typesetCasing: 'lowercase', typesetAllCaps: false });
+		render(TypesettingTab);
+		const [latin] = within(screen.getByTestId('font-row-latin')).getAllByRole('combobox') as HTMLSelectElement[];
+		await fireEvent.change(latin, { target: { value: 'CC Wild Words' } });
+		const s = get(settings);
+		expect(s.typesetFont).toBe('CC Wild Words');
+		expect(s.typesetCasing).toBe('uppercase');
+		expect(s.typesetAllCaps).toBe(true);
 	});
 });
 
@@ -296,32 +350,69 @@ describe('TypesettingTab exact preview', () => {
 		expect(URL.revokeObjectURL).toHaveBeenCalledWith('blob:preview');
 	});
 
-	it('a dialogue import without Latin letters does not become the dialogue font', async () => {
-		const uploads: Record<string, unknown>[] = [
-			{ success: true, font: { ...thaiFont }, scripts: ['thai'], warnings: [] },
-			{ success: true, font: { ...thaiFont, id: 'font-latin', name: 'My Latin', scriptType: 'dialogue', scripts: ['latin'] }, scripts: ['latin'], warnings: [] },
-		];
+	it('Import font in an accent cell assigns the imported font to that cell only (FEAT-010)', async () => {
 		vi.stubGlobal(
 			'fetch',
 			vi.fn(async (url: string, init?: RequestInit) => {
-				if (String(url) === '/api/system/fonts' && init?.method === 'POST') return new Response(JSON.stringify(uploads.shift()), { status: 200 });
+				if (String(url) === '/api/system/fonts' && init?.method === 'POST') {
+					return new Response(JSON.stringify({ success: true, font: { ...thaiFont, id: 'font-latin', name: 'My Latin', scriptType: 'dialogue', scripts: ['latin'] }, scripts: ['latin'], warnings: [] }), { status: 200 });
+				}
 				return new Response('{}', { status: 200 });
 			}),
 		);
 		render(TypesettingTab);
-		const importOnce = async () => {
-			const dialogueSection = document.getElementById('setting-typeset-font')!;
-			await fireEvent.click(within(dialogueSection).getByRole('button', { name: /Import/ }));
-			const input = document.querySelectorAll<HTMLInputElement>('#custom-font-input')[0];
-			await fireEvent.change(input, { target: { files: [new File(['x'], 'Some-Regular.ttf')] } });
-			await fireEvent.click(screen.getByRole('button', { name: /Import Dialogue Font/ }));
-			await new Promise((r) => setTimeout(r, 0));
-			await tick();
-		};
-		await importOnce();
+		const [, accent] = within(screen.getByTestId('font-row-latin')).getAllByRole('combobox') as HTMLSelectElement[];
+		await fireEvent.change(accent, { target: { value: '__import__' } });
+		const input = document.querySelectorAll<HTMLInputElement>('#custom-font-input')[0];
+		await fireEvent.change(input, { target: { files: [new File(['x'], 'Some-Regular.ttf')] } });
+		await fireEvent.click(screen.getByRole('button', { name: /Import Dialogue Font/ }));
+		await waitFor(() => expect(get(settings).typesetAccentFonts.latin).toBe('My Latin'));
 		expect(get(settings).typesetFont).toBe(DEFAULTS.typesetFont);
-		await importOnce();
-		await waitFor(() => expect(get(settings).typesetFont).toBe('My Latin'));
+	});
+
+	it('shows the accent callout in the default Sigmar One and sends it with the exact preview (FEAT-010)', async () => {
+		settings.update((s) => ({ ...s, typesetAccentCasing: 'original' }));
+		render(TypesettingTab);
+		expect(screen.getByTestId('accent-preview').textContent?.trim()).toBe('Green Wood Sword Art');
+		await fireEvent.click(screen.getByTestId('render-exact-preview'));
+		await waitFor(() => expect(screen.getByAltText('Exact typeset preview')).toBeTruthy());
+		expect(previewBodies[0].accentText).toBe('Green Wood Sword Art');
+		expect(previewBodies[0].options).toMatchObject({ accentFonts: { latin: 'Sigmar One' }, accentCasing: 'original' });
+		// CHANGING THE ACCENT FONT CLEARS THE STALE IMAGE
+		settings.update((s) => ({ ...s, typesetAccentFonts: { latin: 'Lexend' } }));
+		await tick();
+		expect(screen.queryByAltText('Exact typeset preview')).toBeNull();
+	});
+
+	it('shows no accent callout and sends no accent sample when every accent cell is Off', async () => {
+		settings.update((s) => ({ ...s, typesetAccentFonts: {} }));
+		render(TypesettingTab);
+		expect(screen.queryByTestId('accent-preview')).toBeNull();
+		await fireEvent.click(screen.getByTestId('render-exact-preview'));
+		await waitFor(() => expect(previewBodies.length).toBe(1));
+		expect(previewBodies[0]).not.toHaveProperty('accentText');
+	});
+
+	it('an import without Latin letters from the Latin dialogue cell never becomes the dialogue font (restored guard)', async () => {
+		vi.stubGlobal(
+			'fetch',
+			vi.fn(async (url: string, init?: RequestInit) => {
+				if (String(url) === '/api/system/fonts' && init?.method === 'POST') {
+					return new Response(JSON.stringify({ success: true, font: { ...thaiFont }, scripts: ['thai'], warnings: [] }), { status: 200 });
+				}
+				return new Response('{}', { status: 200 });
+			}),
+		);
+		render(TypesettingTab);
+		const [dialogue] = within(screen.getByTestId('font-row-latin')).getAllByRole('combobox') as HTMLSelectElement[];
+		await fireEvent.change(dialogue, { target: { value: '__import__' } });
+		const input = document.querySelectorAll<HTMLInputElement>('#custom-font-input')[0];
+		await fireEvent.change(input, { target: { files: [new File(['x'], 'MyThai-Regular.ttf')] } });
+		await fireEvent.click(screen.getByRole('button', { name: /Import Dialogue Font/ }));
+		await new Promise((r) => setTimeout(r, 0));
+		await tick();
+		expect(get(settings).typesetFont).toBe(DEFAULTS.typesetFont);
+		expect(get(settings).typesetAccentFonts.latin).toBe('Sigmar One');
 	});
 
 	it("shows the server's error message, not the raw JSON body", async () => {

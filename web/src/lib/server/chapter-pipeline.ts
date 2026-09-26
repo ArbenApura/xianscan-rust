@@ -28,7 +28,7 @@ import PQueue from './queue';
 import { clearAllCache } from '@napi-rs/canvas';
 import { and, asc, desc, eq, inArray, lt, sql } from 'drizzle-orm';
 // IMPORTED TYPES
-import type { TranslationUsage, PipelineStep, LangPair, TermDraft } from '$lib/types';
+import type { TranslationUsage, PipelineStep, LangPair, TermDraft, RegionRole, RegionRoleSource } from '$lib/types';
 // IMPORTED MODULES
 import { detectSourceLanguage, typesetScriptForBook } from '$lib/languages';
 import { resolveDialoguePunctuation } from './translate/filter';
@@ -38,7 +38,7 @@ import type { JobEvent } from './translation-service';
 import type { AnalyzeResult, PipelineClient, PipelineRegion } from './pipeline-client';
 import { db } from './db';
 import { chapters, pages, regions, translations, books, type Page } from './db/schema';
-import { translatePage, classifyRegionForTranslation, resolveModel, type PageTranslation } from './translate';
+import { translatePage, classifyRegionForTranslation, resolveModel, applyGlossaryAccentLabels, type PageTranslation } from './translate';
 import { isRetryable } from './llm';
 import { getCachedPageTranslation, pageCacheKey, savePageTranslation } from './cache';
 import { ChapterDialogueTracker, computePositionTag, parseKindFromBox, type PageDialogueRecord } from './translate/dialogue-tracker';
@@ -128,7 +128,7 @@ function warnIfScriptUncovered(chapterId: number, opts: TypesetOptions | undefin
 		emit({
 			type: 'warning',
 			chapterId,
-			message: `No installed font covers ${label}, so pages will show boxes. Open Settings, Typesetting & Lettering, Script Fonts.`,
+			message: `No installed font covers ${label}, so pages will show boxes. Open Settings, Typesetting & Lettering, Fonts.`,
 		});
 	} catch (err) {
 		console.warn('[chapter-pipeline] font coverage check skipped:', err);
@@ -971,6 +971,8 @@ export async function runChapterPipeline(
 					pos: computePositionTag(r.box),
 				}));
 
+			// ACCENT LABELS FOR THIS PAGE (FEAT-010): MODEL styles PLUS GLOSSARY technique MATCHES, SET BY THE TASK BELOW
+			let roleLabels = new Map<string, { role: RegionRole; source: RegionRoleSource }>();
 			const translateTask = (async () => {
 				const byRegion = new Map<string, string>();
 
@@ -1039,6 +1041,7 @@ export async function runChapterPipeline(
 					if (cached) {
 						dialogueTracker.recordTranslation(page.seq, cached.byRegion);
 						for (const [id, text] of cached.byRegion) byRegion.set(id, text);
+						roleLabels = applyGlossaryAccentLabels(sources, effectiveTerms, cached.styles);
 						const tTrans = performance.now() - tTrans0;
 						const cachedResponseData = {
 							raw: '',
@@ -1076,6 +1079,8 @@ export async function runChapterPipeline(
 					// 2. UNCACHED: SERIALIZED PER-BOOK LLM CALL
 					// RE-FETCH LATEST DIALOGUE CONTEXT AND GLOSSARY INSIDE CHAIN TRANSLATE TO PREVENT STALE CLOSURE
 					let finalCacheKey = cacheKey;
+					// TERMS THE GLOSSARY ACCENT CROSS-CHECK USES: THE FRESH SET WHEN THE CHAIN RE-MATCHES
+					let labelTerms = effectiveTerms;
 					const translated = await chainTranslate(async () => {
 						const maxContextPages = getCanonicalSettings().translationDialogueContextPages ?? 4;
 						const freshDialogueContext = dialogueTracker.getContextWindow(page.seq, maxContextPages);
@@ -1095,11 +1100,13 @@ export async function runChapterPipeline(
 						const freshTransientPageTerms = freshMatchedTerms.filter((t) => !activeChapterTerms.has(t.source));
 						const freshEffectiveTerms = [...freshChapterTerms, ...freshTransientPageTerms];
 						finalCacheKey = pageCacheKey(sources, freshEffectiveTerms, model, pair, deps.cacheSalt ?? '', customPrompt);
+						labelTerms = freshEffectiveTerms;
 
 						const freshCached = getCachedPageTranslation(page.id, finalCacheKey);
 						if (freshCached) {
 							const cachedResult: PageTranslation & { fromCache?: boolean } = {
 								byRegion: freshCached.byRegion,
+								styles: freshCached.styles,
 								usage: freshCached.usage ?? { model, promptTokens: 0, cachedTokens: 0, completionTokens: 0 },
 								fromCache: true,
 							};
@@ -1126,8 +1133,10 @@ export async function runChapterPipeline(
 						sources.length > 0 &&
 						sources.every((s) => Boolean(translated.byRegion.get(s.id)?.trim()));
 					if (!(translated as any).fromCache && allTranslatableSucceeded) {
-						savePageTranslation(page.id, finalCacheKey, translated.byRegion, model, translated.usage);
+						// THE CACHE HOLDS ONLY THE MODEL'S LABELS; GLOSSARY LABELS ARE RECOMPUTED ON EVERY RUN (REVIEW M-L4)
+						savePageTranslation(page.id, finalCacheKey, translated.byRegion, model, translated.usage, translated.styles);
 					}
+					roleLabels = applyGlossaryAccentLabels(sources, labelTerms, translated.styles);
 
 					if (translated.newTerms && translated.newTerms.length > 0) {
 						await addNewTerms(chapter.bookId, translated.newTerms, chapterId);
@@ -1265,11 +1274,14 @@ export async function runChapterPipeline(
 						}
 					}
 					const status = target ? 'translated' : 'failed';
+					const label = roleLabels.get(region.id);
 					tx.update(regions)
 						.set({
 							textTarget: target || null,
 							originalTarget: target || null,
 							status,
+							role: label?.role ?? 'dialogue',
+							roleSource: label?.source ?? null,
 						})
 						.where(and(eq(regions.pageId, page.id), eq(regions.seq, seqById.get(region.id) ?? -1)))
 						.run();
@@ -1317,6 +1329,7 @@ export async function runChapterPipeline(
 					kind: r.kind,
 					vertical: r.vertical,
 					angle: r.angle,
+					role: roleLabels.get(r.id)?.role ?? 'dialogue',
 				}));
 
 			// IF TRANSLATION COMPLETELY FAILED FOR ALL TRANSLATABLE REGIONS, DO NOT MARK DONE

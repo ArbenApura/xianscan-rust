@@ -6,7 +6,8 @@
 import { GlobalFonts, createCanvas } from '@napi-rs/canvas';
 // IMPORTED MODULES
 import type { Script } from '$lib/languages';
-import type { ScriptFontSlot } from '$lib/typeset-scripts';
+import { scriptOfChar, type ScriptFontSlot } from '$lib/typeset-scripts';
+import type { CodepointSet } from './font-parser';
 
 // -- CONSTANTS -- //
 
@@ -36,6 +37,17 @@ const cache = new Map<string, boolean>();
 /** OPTIONAL SOURCES CONSULTED BEFORE THE PROBE (BUNDLED FONT TABLE, CUSTOM FONT METADATA). */
 type CoverageSource = (family: string, script: Script) => boolean | undefined;
 const sources: CoverageSource[] = [];
+
+/**
+ * CODE POINT SOURCES (FEAT-010 ADR-008): THE cmap OF A FAMILY'S FILE. undefined = "NOT MINE, ASK THE NEXT SOURCE",
+ * null = "MINE, BUT THE SET IS UNKNOWN" (UNREADABLE FILE, NAME MISMATCH).
+ */
+type CodepointSource = (family: string) => CodepointSet | null | undefined;
+const codepointSources: CodepointSource[] = [];
+const codepointCache = new Map<string, CodepointSet | null>();
+
+// LETTERS, COMBINING MARKS AND DIGITS: THE CHARACTERS A FONT MUST HAVE TO LETTER A WORD WITHOUT MIXING FAMILIES
+const LETTER_LIKE = /[\p{L}\p{M}\p{N}]/u;
 
 // -- FUNCTIONS -- //
 
@@ -83,4 +95,73 @@ export function registerCoverageSource(source: CoverageSource): void {
 /** FORGET CACHED ANSWERS (A FONT WAS UPLOADED, REMOVED OR RE-REGISTERED). */
 export function invalidateCoverageCache(): void {
 	cache.clear();
+	codepointCache.clear();
+}
+
+/** ADDS A CODE POINT LOOKUP (BUNDLED, CUSTOM, SYSTEM FILES), CONSULTED IN REGISTRATION ORDER. */
+export function registerCodepointSource(source: CodepointSource): void {
+	codepointSources.push(source);
+	codepointCache.clear();
+}
+
+/** THE FAMILY'S CODE POINTS FROM ITS FONT FILE, OR null WHEN UNKNOWN. AN EMPTY SET COUNTS AS UNKNOWN. */
+export function familyCodepoints(family: string): CodepointSet | null {
+	const key = family.toLowerCase();
+	if (codepointCache.has(key)) return codepointCache.get(key) ?? null;
+	let result: CodepointSet | null = null;
+	for (const source of codepointSources) {
+		try {
+			const found = source(family);
+			if (found === undefined) continue;
+			result = found && found.ranges.length > 0 ? found : null;
+		} catch {
+			result = null;
+		}
+		break;
+	}
+	codepointCache.set(key, result);
+	return result;
+}
+
+/** THE LETTERS, MARKS AND DIGITS OF `text` (PUNCTUATION, SYMBOLS, SPACES AND JOINERS DROPPED). */
+export function lettersOf(text: string): string[] {
+	return [...text].filter((ch) => LETTER_LIKE.test(ch));
+}
+
+/**
+ * TRUE WHEN THE FAMILY HAS A GLYPH FOR EVERY LETTER, MARK AND DIGIT OF `text` (FEAT-010 ADR-008). WITH AN UNKNOWN
+ * CODE POINT SET THIS FALLS BACK TO SCRIPT-LEVEL COVERAGE FOR EACH SCRIPT IN THE TEXT (THE LETTER GUARANTEE THEN
+ * DOES NOT HOLD; THE SETTINGS UI SAYS SO).
+ */
+export function familyCoversText(family: string, text: string): boolean {
+	const letters = lettersOf(text);
+	const set = familyCodepoints(family);
+	if (set) return letters.every((ch) => set.has(ch.codePointAt(0) as number));
+	const scripts = new Set<Script>();
+	for (const ch of letters) {
+		const script = scriptOfChar(ch);
+		if (script !== 'common') scripts.add(script);
+	}
+	if (scripts.size === 0) return familyRegistered(family);
+	return [...scripts].every((script) => familyCovers(family, script));
+}
+
+/** THE DISTINCT CHARACTERS OF `text` THE FAMILY LACKS (ANY CHARACTER, NOT ONLY LETTERS); EMPTY WHEN UNKNOWN. */
+export function familyMissing(family: string, text: string): string[] {
+	const set = familyCodepoints(family);
+	if (!set) return [];
+	const missing: string[] = [];
+	for (const ch of text) {
+		if (/\s/u.test(ch) || missing.includes(ch)) continue;
+		if (!set.has(ch.codePointAt(0) as number)) missing.push(ch);
+	}
+	return missing;
+}
+
+function familyRegistered(family: string): boolean {
+	try {
+		return GlobalFonts.has(family);
+	} catch {
+		return false;
+	}
 }

@@ -45,16 +45,32 @@ export function pageCacheKey(
 
 export interface CachedPageTranslation {
 	byRegion: Map<string, string>;
+	/** THE MODEL'S ACCENT LABELS (FEAT-010 ADR-006); EMPTY FOR ROWS WRITTEN BEFORE v2. */
+	styles: Map<string, 'accent'>;
 	usage: TranslationUsage | null;
 }
 
-function parseContent(contentTarget: string): Map<string, string> {
+/** READS BOTH SHAPES: v2 {"v":2,"translations":{...},"styles":{...}} AND THE OLDER FLAT {id: text} MAP. */
+export function parseContent(contentTarget: string): { byRegion: Map<string, string>; styles: Map<string, 'accent'> } {
+	const byRegion = new Map<string, string>();
+	const styles = new Map<string, 'accent'>();
 	try {
-		const obj = JSON.parse(contentTarget) as Record<string, string>;
-		return new Map(Object.entries(obj));
+		const obj = JSON.parse(contentTarget) as Record<string, unknown>;
+		if (!obj || typeof obj !== 'object' || Array.isArray(obj)) return { byRegion, styles };
+		const isV2 = obj.v === 2 && obj.translations && typeof obj.translations === 'object';
+		const translations = (isV2 ? obj.translations : obj) as Record<string, unknown>;
+		for (const [id, text] of Object.entries(translations)) {
+			if (typeof text === 'string') byRegion.set(id, text);
+		}
+		if (isV2 && obj.styles && typeof obj.styles === 'object' && !Array.isArray(obj.styles)) {
+			for (const [id, value] of Object.entries(obj.styles as Record<string, unknown>)) {
+				if (value === 'accent' && byRegion.has(id)) styles.set(id, 'accent');
+			}
+		}
 	} catch {
-		return new Map();
+		// UNREADABLE ROW: TREATED AS A CACHE MISS BY THE CALLER
 	}
+	return { byRegion, styles };
 }
 
 export function getCachedPageTranslation(pageId: number, cacheKey: string): CachedPageTranslation | null {
@@ -65,10 +81,11 @@ export function getCachedPageTranslation(pageId: number, cacheKey: string): Cach
 			.where(and(eq(translations.pageId, pageId), eq(translations.cacheKey, cacheKey)))
 			.get();
 		if (!row) return null;
-		const byRegion = parseContent(row.contentTarget);
+		const { byRegion, styles } = parseContent(row.contentTarget);
 		if (byRegion.size === 0) return null;
 		return {
 			byRegion,
+			styles,
 			usage: {
 				model: row.model,
 				promptTokens: row.promptTokens ?? 0,
@@ -87,10 +104,11 @@ export function savePageTranslation(
 	byRegion: Map<string, string>,
 	model: string,
 	usage: TranslationUsage,
+	styles: Map<string, 'accent'> = new Map(),
 ): void {
 	if (!byRegion || byRegion.size === 0) return;
 	try {
-		const contentTarget = JSON.stringify(Object.fromEntries(byRegion));
+		const contentTarget = JSON.stringify({ v: 2, translations: Object.fromEntries(byRegion), styles: Object.fromEntries(styles) });
 		db.insert(translations)
 			.values({
 				pageId,

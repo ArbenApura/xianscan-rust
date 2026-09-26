@@ -11,6 +11,7 @@ import { db } from '$lib/server/db';
 import { customFonts, customFontFiles } from '$lib/server/db/schema';
 import { getUserFontsDir, resolveUserFontFilePath, LATIN_DIALOGUE_FONTS, invalidateCustomFontsCache } from '$lib/server/typeset/fonts';
 import { getCanonicalSettings, updateCanonicalSettings } from '$lib/server/settings-service';
+import { fontRemovalPatch } from '$lib/stores/settings';
 
 // -- HANDLERS -- //
 
@@ -88,29 +89,11 @@ export const DELETE: RequestHandler = async ({ params }) => {
 	db.delete(customFonts).where(eq(customFonts.id, fontId)).run();
 	invalidateCustomFontsCache();
 
-	// FALLBACK CANONICAL SETTINGS IF DELETED FONT WAS ACTIVELY CONFIGURED
-	const canonical = getCanonicalSettings();
-	let needsSettingsUpdate = false;
-	const nextSettings: any = {};
-
-	if (canonical.typesetFont === row.name) {
-		nextSettings.typesetFont = 'CC Wild Words';
-		needsSettingsUpdate = true;
-	}
-	if (canonical.typesetCjkFont === row.name) {
-		nextSettings.typesetCjkFont = 'WenQuanYi Micro Hei';
-		needsSettingsUpdate = true;
-	}
-	// SCRIPT SLOTS THAT USED THE FONT GO BACK TO AUTOMATIC (NOT TO A FIXED FALLBACK FONT)
-	const scriptFonts = canonical.typesetScriptFonts ?? {};
-	const keptSlots = Object.fromEntries(Object.entries(scriptFonts).filter(([, family]) => family !== row.name));
-	if (Object.keys(keptSlots).length !== Object.keys(scriptFonts).length) {
-		nextSettings.typesetScriptFonts = keptSlots;
-		needsSettingsUpdate = true;
-	}
-
-	if (needsSettingsUpdate) {
-		updateCanonicalSettings(nextSettings);
+	// SETTINGS THAT USED THE FONT FALL BACK: DIALOGUE TO THE DEFAULT, SCRIPT SLOTS TO AUTOMATIC, ACCENT SLOTS TO OFF.
+	// SKIA KEEPS THE FAMILY REGISTERED UNTIL RESTART, SO CLEARING THE SETTINGS IS WHAT STOPS IT BEING USED (FEAT-010 H8)
+	const patch = fontRemovalPatch(getCanonicalSettings(), row.name);
+	if (Object.keys(patch).length > 0) {
+		updateCanonicalSettings(patch);
 	}
 
 	return json({ success: true });

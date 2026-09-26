@@ -1,7 +1,7 @@
 import { eq, inArray } from 'drizzle-orm';
 import { db as defaultDb } from './db';
 import { appSettings } from './db/schema';
-import { DEFAULTS, sanitizeScriptFonts, type AppSettings, type InpaintMode, type ExecutionDevice, type TypesetOutline, type TypesetContrast, type TypesetCasing, type ReasoningEffortOption } from '$lib/stores/settings';
+import { DEFAULTS, sanitizeAccentFonts, sanitizeScriptFonts, type AppSettings, type InpaintMode, type ExecutionDevice, type TypesetOutline, type TypesetContrast, type TypesetCasing, type ReasoningEffortOption } from '$lib/stores/settings';
 import { SCRIPT_FONT_SLOTS, type ScriptFontSlot } from '$lib/typeset-scripts';
 import { familyCovers } from './typeset/coverage';
 import { isBundledFontFamily } from './typeset/bundled-families';
@@ -117,9 +117,11 @@ export function sanitizeSettingValue(key: keyof AppSettings, value: unknown): un
 			return VALID_CONTRASTS.includes(value as TypesetContrast) ? value : 'auto';
 
 		case 'typesetCasing':
+		case 'typesetAccentCasing':
 			return VALID_CASINGS.includes(value as TypesetCasing) ? value : 'uppercase';
 
 		case 'typesetFontWeight':
+		case 'typesetAccentFontWeight':
 			if (typeof value === 'string' && ['100', '200', '300', '400', '500', '600', '700', '800', '900', 'normal', 'bold'].includes(value)) {
 				return value;
 			}
@@ -127,6 +129,7 @@ export function sanitizeSettingValue(key: keyof AppSettings, value: unknown): un
 
 		case 'enableTextRotation':
 		case 'enableTypesetItalic':
+		case 'typesetAccentInBubbles':
 		case 'resliceBeforeBatch':
 		case 'typesetAllCaps':
 		case 'hasCompletedOnboarding':
@@ -183,6 +186,9 @@ export function sanitizeSettingValue(key: keyof AppSettings, value: unknown): un
 
 		case 'typesetScriptFonts':
 			return sanitizeScriptFonts(value);
+
+		case 'typesetAccentFonts':
+			return sanitizeAccentFonts(value);
 
 		case 'typesetPreviewText':
 			return typeof value === 'string' ? value.slice(0, 500) : String(value || '').slice(0, 500);

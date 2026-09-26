@@ -55,3 +55,29 @@ describe('typeset preview endpoint', () => {
 		await expect(request({ text: 'ok', pad: 'y'.repeat(20000) })).rejects.toMatchObject({ status: 413 });
 	});
 });
+
+describe('accent sample (FEAT-010)', () => {
+	async function size(res: Response) {
+		const { loadImage } = await import('@napi-rs/canvas');
+		const img = await loadImage(Buffer.from(await res.arrayBuffer()));
+		return { w: img.width, h: img.height };
+	}
+
+	it('adds a band below the bubble for the accent sample', async () => {
+		expect(await size(await request({ text: 'Hold on!', targetLang: 'en' }))).toEqual({ w: 600, h: 300 });
+		expect(await size(await request({ text: 'Hold on!', targetLang: 'en', accentText: 'Green Wood Sword Art' }))).toEqual({ w: 600, h: 420 });
+	});
+
+	it('renders the accent sample in the accent font sent with the request', async () => {
+		const plain = Buffer.from(await (await request({ text: 'Hold on!', targetLang: 'en', accentText: 'GREEN WOOD' })).arrayBuffer());
+		const styled = Buffer.from(
+			await (await request({ text: 'Hold on!', targetLang: 'en', accentText: 'GREEN WOOD', options: { accentFonts: { latin: 'Montserrat' } } })).arrayBuffer(),
+		);
+		expect(styled.equals(plain)).toBe(false);
+	});
+
+	it('rejects an accent sample over 200 characters', async () => {
+		await expect(request({ text: 'Hold on!', accentText: 'A'.repeat(201) })).rejects.toMatchObject({ status: 400 });
+	});
+});
+

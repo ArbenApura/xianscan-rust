@@ -4,11 +4,13 @@
 
 // IMPORTED DEP-MODULES
 import { eq } from 'drizzle-orm';
+import { drizzle } from 'drizzle-orm/better-sqlite3';
 import { migrate } from 'drizzle-orm/better-sqlite3/migrator';
 // IMPORTED MODULES
 import { fileURLToPath } from 'node:url';
 import { beforeEach, describe, expect, it } from 'vitest';
 import { createDb, runMigrationsAndSafeguards } from '$lib/server/db';
+import * as schema from '$lib/server/db/schema';
 import { books, chapters, pages, regions } from '$lib/server/db/schema';
 import Database from 'better-sqlite3';
 import { getTestDb, resetDb, seedBook, seedChapter, seedGlossary, seedPage, seedRegion, type TestDb } from '../helpers/db';
@@ -81,6 +83,39 @@ describe('db helper roundtrip', () => {
 		runMigrationsAndSafeguards(sqlite);
 		const rows = sqlite.prepare('SELECT created_at FROM `__drizzle_migrations` WHERE created_at = ?').all(1788510316624);
 		expect(rows.length).toBe(1);
+	});
+});
+
+describe('region role columns (FEAT-010)', () => {
+	it('defaults a new region to the dialogue role with no role source', () => {
+		seedBook(db, { id: 'b1' });
+		const chapter = seedChapter(db, { bookId: 'b1', seq: 0 });
+		const page = seedPage(db, { chapterId: chapter.id, seq: 0 });
+		const region = seedRegion(db, { pageId: page.id, seq: 0, textSource: '青木剑诀' });
+
+		const got = db.select().from(regions).where(eq(regions.id, region.id)).get();
+		expect(got?.role).toBe('dialogue');
+		expect(got?.roleSource).toBeNull();
+	});
+
+	it('keeps existing regions as dialogue when a database at 0016 is migrated to 0017', () => {
+		const sqlite = new Database(':memory:');
+		// BUILD THE FULL SCHEMA, THEN ROLL THE REGIONS TABLE BACK TO ITS 0016 SHAPE
+		runMigrationsAndSafeguards(sqlite);
+		const seeded = drizzle(sqlite, { schema });
+		seedBook(seeded, { id: 'b1' });
+		const chapter = seedChapter(seeded, { bookId: 'b1', seq: 0 });
+		seedPage(seeded, { chapterId: chapter.id, seq: 0 });
+		sqlite.exec('ALTER TABLE regions DROP COLUMN role_source; ALTER TABLE regions DROP COLUMN role;');
+		sqlite.prepare("INSERT INTO regions (page_id, seq, box, text_source, created_at) VALUES (1, 0, '{}', 'x', 0)").run();
+		const when0017 = 1790412512250;
+		sqlite.prepare('DELETE FROM `__drizzle_migrations` WHERE created_at = ?').run(when0017);
+
+		runMigrationsAndSafeguards(sqlite);
+
+		const row = sqlite.prepare('SELECT role, role_source FROM regions WHERE seq = 0').get() as { role: string; role_source: string | null };
+		expect(row.role).toBe('dialogue');
+		expect(row.role_source).toBeNull();
 	});
 });
 

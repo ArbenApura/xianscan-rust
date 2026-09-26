@@ -74,3 +74,37 @@ describe('buildTypesetOptions precedence', () => {
 		expect(buildTypesetOptions({ canonical: canonical(), targetScript: 'thai' }).targetScript).toBe('thai');
 	});
 });
+
+describe('accent options (FEAT-010)', () => {
+	it('defaults to the bundled Sigmar One for Latin, uppercase, normal weight and not in bubbles', () => {
+		const opts = buildTypesetOptions({ canonical: canonical() });
+		expect(opts.accentFonts).toEqual({ latin: 'Sigmar One' });
+		expect(opts.accentCasing).toBe('uppercase');
+		expect(opts.accentFontWeight).toBe('normal');
+		expect(opts.accentInBubbles).toBe(false);
+	});
+
+	it('takes canonical settings, and the request beats canonical', () => {
+		const c = canonical({ typesetAccentFonts: { latin: 'BadaBoom BB' }, typesetAccentCasing: 'original', typesetAccentInBubbles: true });
+		const fromCanonical = buildTypesetOptions({ canonical: c });
+		expect(fromCanonical.accentFonts).toEqual({ latin: 'BadaBoom BB' });
+		expect(fromCanonical.accentCasing).toBe('original');
+		expect(fromCanonical.accentInBubbles).toBe(true);
+		const fromRequest = buildTypesetOptions({ canonical: c, userOpts: { accentFonts: { han: 'Ma Shan Zheng' }, accentInBubbles: false } });
+		expect(fromRequest.accentFonts).toEqual({ han: 'Ma Shan Zheng' });
+		expect(fromRequest.accentInBubbles).toBe(false);
+	});
+
+	it('sanitises a request map: unknown scripts, non-strings and long names are dropped', () => {
+		const opts = buildTypesetOptions({
+			canonical: canonical(),
+			userOpts: { accentFonts: { latin: '  Bangers ', klingon: 'X', han: 5, arabic: 'A'.repeat(200) } as never },
+		});
+		expect(opts.accentFonts).toEqual({ latin: 'Bangers' });
+	});
+
+	it('ignores an unknown accent casing', () => {
+		expect(buildTypesetOptions({ canonical: canonical(), userOpts: { accentCasing: 'shouty' } as never }).accentCasing).toBe('uppercase');
+	});
+});
+

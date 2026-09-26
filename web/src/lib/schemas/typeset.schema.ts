@@ -11,6 +11,11 @@ export const typesetOptionsSchema = z.object({
 	fontDialogue: z.string().optional(),
 	fontCjk: z.string().optional(),
 	scriptFonts: z.record(z.enum(SCRIPT_FONT_SLOTS as unknown as [ScriptFontSlot, ...ScriptFontSlot[]]), z.string().max(128)).optional(),
+	// ACCENT FONT PER SCRIPT, 'latin' INCLUDED (FEAT-010)
+	accentFonts: z.record(z.enum(['latin', ...SCRIPT_FONT_SLOTS] as unknown as [string, ...string[]]), z.string().max(128)).optional(),
+	accentCasing: z.enum(['uppercase', 'original', 'lowercase']).optional(),
+	accentFontWeight: z.union([z.enum(['normal', 'bold']), z.string(), z.number()]).optional(),
+	accentInBubbles: z.boolean().optional(),
 	fontSize: z.number().min(6).max(120).optional(),
 	boxInset: z.number().min(0.01).max(0.20).optional(),
 	lineHeight: z.number().min(0.5).max(3.0).optional(),

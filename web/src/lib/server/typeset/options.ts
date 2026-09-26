@@ -5,7 +5,7 @@ import type { Cookies } from '@sveltejs/kit';
 // IMPORTED DEP-MODULES
 import { eq } from 'drizzle-orm';
 // IMPORTED MODULES
-import { DEFAULTS, sanitizeScriptFonts, type AppSettings } from '$lib/stores/settings';
+import { DEFAULTS, sanitizeAccentFonts, sanitizeScriptFonts, type AppSettings } from '$lib/stores/settings';
 import { detectSourceLanguage, typesetScriptForBook, type Script } from '$lib/languages';
 import type { ScriptFontSlot } from '$lib/typeset-scripts';
 import { db } from '../db';
@@ -69,6 +69,25 @@ export function buildTypesetOptions({ canonical, cookies, userOpts, targetScript
 		fontStyle:
 			italicFromUser ??
 			(italicCookie !== undefined ? (italicCookie ? 'italic' : 'normal') : canonical.enableTypesetItalic ? 'italic' : 'normal'),
+		...buildAccentOptions(canonical, u),
+	};
+}
+
+/**
+ * THE ACCENT FIELDS (FEAT-010): REQUEST, THEN CANONICAL SETTINGS, THEN DEFAULTS; NO COOKIES (ADR-010). A REQUEST MAP
+ * IS SANITISED BECAUSE SOME CALLERS PASS UNVALIDATED BODIES (BATCH, REGION EDIT).
+ */
+export function buildAccentOptions(
+	canonical: AppSettings,
+	userOpts: UserTypesetOptions = {},
+): Pick<TypesetOptions, 'accentFonts' | 'accentCasing' | 'accentFontWeight' | 'accentInBubbles'> {
+	const casing = (value: unknown) => (value === 'uppercase' || value === 'original' || value === 'lowercase' ? value : undefined);
+	return {
+		accentFonts: sanitizeAccentFonts(userOpts.accentFonts ?? canonical.typesetAccentFonts),
+		accentCasing: casing(userOpts.accentCasing) ?? casing(canonical.typesetAccentCasing) ?? DEFAULTS.typesetAccentCasing,
+		accentFontWeight: (userOpts.accentFontWeight || canonical.typesetAccentFontWeight || DEFAULTS.typesetAccentFontWeight) as TypesetOptions['accentFontWeight'],
+		accentInBubbles:
+			typeof userOpts.accentInBubbles === 'boolean' ? userOpts.accentInBubbles : Boolean(canonical.typesetAccentInBubbles ?? DEFAULTS.typesetAccentInBubbles),
 	};
 }
 

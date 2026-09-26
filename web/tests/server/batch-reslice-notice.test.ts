@@ -73,7 +73,7 @@ describe('batch chapter notices', () => {
 
 		// THE TRANSLATION STILL STARTS, AND ITS NON-FATAL WARNING IS ADDED ONCE
 		await waitFor(() => h.subscriber !== null);
-		const warning = 'No installed font covers Arabic, so pages will show boxes. Open Settings, Typesetting & Lettering, Script Fonts.';
+		const warning = 'No installed font covers Arabic, so pages will show boxes. Open Settings, Typesetting & Lettering, Fonts.';
 		h.subscriber!({ type: 'warning', chapterId: ch.id, message: warning });
 		h.subscriber!({ type: 'warning', chapterId: ch.id, message: warning });
 		expect(batchService.getState().queue[0].notices).toEqual([notices[0], warning]);

@@ -132,4 +132,56 @@ describe('EditRegionTranslationModal Component UI', () => {
 
 		expect(savedHandler).toHaveBeenCalled();
 	});
+
+	describe('lettering role (FEAT-010)', () => {
+		const accentRegion = {
+			id: 11,
+			seq: 0,
+			textSource: '青木剑诀',
+			textTarget: 'Green Wood Sword Art',
+			originalTarget: 'Green Wood Sword Art',
+			kind: 'free_text',
+			role: 'accent',
+			roleSource: 'llm',
+		};
+
+		function mockSave() {
+			const fetchMock = vi.fn().mockResolvedValue({ ok: true, json: async () => ({ region: accentRegion, outputPath: 'o.webp', outputRev: 2 }) });
+			global.fetch = fetchMock;
+			return fetchMock;
+		}
+
+		it('starts from the stored role and does not send it when only the text changed', async () => {
+			const fetchMock = mockSave();
+			render(EditRegionTranslationModal, { props: { open: true, pageId: 1, region: accentRegion } });
+			expect(screen.getByTestId('region-role-accent').getAttribute('aria-checked')).toBe('true');
+
+			const textarea = screen.getByPlaceholderText('Enter translated dialogue to typeset onto the page...') as HTMLTextAreaElement;
+			await fireEvent.input(textarea, { target: { value: 'Green Wood Sword Art!' } });
+			await fireEvent.click(screen.getByText('Save'));
+
+			const body = JSON.parse(fetchMock.mock.calls[0][1].body);
+			expect(body.textTarget).toBe('Green Wood Sword Art!');
+			expect(body).not.toHaveProperty('role');
+		});
+
+		it('sends the role when the user changes it', async () => {
+			const fetchMock = mockSave();
+			render(EditRegionTranslationModal, { props: { open: true, pageId: 1, region: accentRegion } });
+			await fireEvent.click(screen.getByTestId('region-role-dialogue'));
+			await fireEvent.click(screen.getByText('Save'));
+
+			expect(JSON.parse(fetchMock.mock.calls[0][1].body).role).toBe('dialogue');
+		});
+
+		it('warns when accent is chosen for a speech bubble while accent in bubbles is off', async () => {
+			render(EditRegionTranslationModal, {
+				props: { open: true, pageId: 1, region: { ...accentRegion, kind: 'dialogue_bubble', role: 'dialogue' } },
+			});
+			expect(screen.queryByTestId('region-role-bubble-hint')).toBeNull();
+			await fireEvent.click(screen.getByTestId('region-role-accent'));
+			await tick();
+			expect(screen.getByTestId('region-role-bubble-hint')).toBeTruthy();
+		});
+	});
 });

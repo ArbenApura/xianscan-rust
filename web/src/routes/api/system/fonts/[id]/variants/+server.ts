@@ -11,7 +11,7 @@ import { GlobalFonts } from '@napi-rs/canvas';
 // IMPORTED MODULES
 import { db } from '$lib/server/db';
 import { customFonts, customFontFiles } from '$lib/server/db/schema';
-import { getUserFontsDir } from '$lib/server/typeset/fonts';
+import { getUserFontsDir, invalidateCustomFontsCache } from '$lib/server/typeset/fonts';
 import { parseFontBuffer } from '$lib/server/typeset/font-parser';
 
 // -- HANDLERS -- //
@@ -61,8 +61,9 @@ export const POST: RequestHandler = async ({ params, request }) => {
 
 		writeFileSync(filePath, buffer);
 
-		// REGISTER IN SKIA UNDER FAMILY NAME
+		// REGISTER IN SKIA UNDER FAMILY NAME; A NEW WEIGHT MUST NOT BE HIDDEN BY CACHED WEIGHT ANSWERS (FEAT-010)
 		GlobalFonts.registerFromPath(filePath, font.name);
+		invalidateCustomFontsCache();
 
 		db.insert(customFontFiles).values({
 			id: variantId,

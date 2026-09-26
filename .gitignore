@@ -81,6 +81,7 @@ Thumbs.db
 staging/
 tests/.cache/
 .agents/
+.claude/
 .reasonix/
 .discord/
 grounding-lab/

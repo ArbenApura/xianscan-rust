@@ -132,7 +132,7 @@ export const POST: RequestHandler = async ({ request }) => {
 				warnings.push(`"${fontName}" only covers Latin letters; it will not help with non-Latin text.`);
 			} else if (!uploadSlot && requestedScriptType === 'dialogue' && groupScripts.length > 0 && !groupScripts.includes('latin')) {
 				// STORED AS A SCRIPT FONT: THE DIALOGUE FONT MUST DRAW LATIN TEXT, SO THE CLIENT DOES NOT SELECT IT THERE
-				warnings.push(`"${fontName}" has no Latin letters, so it cannot be the dialogue font. Choose it under Script Fonts instead.`);
+				warnings.push(`"${fontName}" has no Latin letters, so it cannot be the Latin dialogue font. Pick it for its script in the Fonts table instead.`);
 			}
 
 			// DISALLOW NAMES THAT COLLIDE WITH BUNDLED SYSTEM FONTS

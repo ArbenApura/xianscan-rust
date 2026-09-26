@@ -7,10 +7,10 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createCanvas } from '@napi-rs/canvas';
 import type OpenAI from 'openai';
 import { eq } from 'drizzle-orm';
-import { getTestDb, resetDb, seedBook, seedChapter, seedPage, type TestDb } from '../helpers/db';
+import { getTestDb, resetDb, seedBook, seedChapter, seedGlossary, seedPage, type TestDb } from '../helpers/db';
 import type { AnalyzeResult, PipelineClient } from '$lib/server/pipeline-client';
 import { chapterWork } from '$lib/server/chapter-pipeline';
-import { pages, regions, glossary } from '$lib/server/db/schema';
+import { pages, regions, glossary, translations } from '$lib/server/db/schema';
 
 vi.mock('$lib/server/db', async () => ({ db: (await import('../helpers/db')).getTestDb() }));
 // WRAP THE REAL COVERAGE CHECK SO A TEST CAN PRETEND NO FONT HAS A SCRIPT (FEAT-006 PHASE 11)
@@ -1163,5 +1163,113 @@ describe('runChapterPipeline', () => {
 		expect(errEv).toBeDefined();
 		expect(errEv.failedStep).toBe('translate');
 		expect(errEv.message).toContain('401 Incorrect API key provided');
+	});
+});
+
+// -- ACCENT LABELS (FEAT-010 PHASE 4) -- //
+
+describe('accent labels through the pipeline', () => {
+	const ACCENT_SOURCE = '青木剑诀';
+
+	function freeTextPipeline() {
+		pipeline.analyze = async () => ({
+			width: 200,
+			height: 300,
+			backend: 'comic-ctd',
+			regions: [
+				{
+					id: 'r0',
+					box: { x: 20, y: 30, w: 160, h: 60 },
+					polygon: [
+						[20, 30],
+						[180, 30],
+						[180, 90],
+						[20, 90],
+					],
+					text: ACCENT_SOURCE,
+					confidence: 0.95,
+					vertical: false,
+					kind: 'free_text',
+				},
+			],
+		});
+	}
+
+	function llmReply(payload: unknown) {
+		let calls = 0;
+		const client = {
+			chat: {
+				completions: {
+					create: async () => {
+						calls++;
+						return { choices: [{ message: { content: JSON.stringify(payload) } }], usage: { prompt_tokens: 50, completion_tokens: 10, total_tokens: 60 } };
+					},
+				},
+			},
+		} as unknown as OpenAI;
+		return { client, calls: () => calls };
+	}
+
+	it('stores model labels on the region, passes them to the typesetter and caches them', async () => {
+		const { typesetPage } = await import('$lib/server/typeset');
+		vi.mocked(typesetPage).mockClear();
+		freeTextPipeline();
+		const { chapter, page } = seedChapterWithPage('accent-llm.png');
+		await run(chapter.id, llmReply({ translations: { r0: 'Green Wood Sword Art' }, styles: { r0: 'accent' }, newTerms: [] }).client);
+
+		const region = db.select().from(regions).where(eq(regions.pageId, page.id)).get();
+		expect(region?.role).toBe('accent');
+		expect(region?.roleSource).toBe('llm');
+		const typesetRegions = vi.mocked(typesetPage).mock.calls[0][1];
+		expect(typesetRegions[0]).toMatchObject({ role: 'accent', kind: 'free_text' });
+
+		const row = db.select().from(translations).where(eq(translations.pageId, page.id)).get();
+		expect(JSON.parse(row!.contentTarget)).toEqual({ v: 2, translations: { r0: 'Green Wood Sword Art' }, styles: { r0: 'accent' } });
+	});
+
+	it('restores labels from the cache on a re-run without calling the model', async () => {
+		freeTextPipeline();
+		const { chapter, page } = seedChapterWithPage('accent-cache.png');
+		await run(chapter.id, llmReply({ translations: { r0: 'Green Wood Sword Art' }, styles: { r0: 'accent' }, newTerms: [] }).client);
+		const second = llmReply({ translations: { r0: 'Other' }, styles: {}, newTerms: [] });
+		db.update(pages).set({ status: 'pending' }).where(eq(pages.id, page.id)).run();
+		await run(chapter.id, second.client);
+
+		expect(second.calls()).toBe(0);
+		const region = db.select().from(regions).where(eq(regions.pageId, page.id)).get();
+		expect(region?.textTarget).toBe('Green Wood Sword Art');
+		expect(region?.role).toBe('accent');
+	});
+
+	it('labels a glossary technique match but never writes that label into the cache', async () => {
+		freeTextPipeline();
+		const { chapter, page } = seedChapterWithPage('accent-glossary.png');
+		seedGlossary(db, { scope: 'book', bookId: 'b1', source: ACCENT_SOURCE, target: 'Green Wood Sword Art', category: 'technique' });
+		// SEEDED STRAIGHT INTO SQLITE: DROP THE MATCHER BUILT FOR b1 BY EARLIER TESTS (THE APP'S GLOSSARY API DOES THIS)
+		(await import('$lib/server/glossary-match')).invalidateBook('b1');
+		await run(chapter.id, llmReply({ translations: { r0: 'Green Wood Sword Art' }, styles: {}, newTerms: [] }).client);
+
+		const region = db.select().from(regions).where(eq(regions.pageId, page.id)).get();
+		expect(region?.role).toBe('accent');
+		expect(region?.roleSource).toBe('glossary');
+		const row = db.select().from(translations).where(eq(translations.pageId, page.id)).get();
+		expect(JSON.parse(row!.contentTarget).styles).toEqual({});
+
+		// A CACHE HIT RECOMPUTES THE GLOSSARY LABEL WITHOUT CALLING THE MODEL (CODE CRITIC LOW)
+		const second = llmReply({ translations: { r0: 'Other' }, styles: {}, newTerms: [] });
+		db.update(pages).set({ status: 'pending' }).where(eq(pages.id, page.id)).run();
+		await run(chapter.id, second.client);
+		expect(second.calls()).toBe(0);
+		const again = db.select().from(regions).where(eq(regions.pageId, page.id)).get();
+		expect(again?.role).toBe('accent');
+		expect(again?.roleSource).toBe('glossary');
+	});
+
+	it('leaves unlabelled regions as dialogue with no source', async () => {
+		const { chapter, page } = seedChapterWithPage('accent-none.png');
+		await run(chapter.id, fakeLlm());
+		const region = db.select().from(regions).where(eq(regions.pageId, page.id)).get();
+		expect(region?.role).toBe('dialogue');
+		expect(region?.roleSource).toBeNull();
 	});
 });

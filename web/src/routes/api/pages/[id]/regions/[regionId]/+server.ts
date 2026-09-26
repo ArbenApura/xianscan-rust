@@ -24,22 +24,24 @@ export const PATCH: RequestHandler = async ({ params, request }) => {
 		throw error(400, 'Invalid request body');
 	}
 
-	let targetToSave: string | null = null;
-	let origTarget = existingRegion.originalTarget ?? existingRegion.textTarget;
-	if (parsed.data.action === 'reset_ai') {
-		targetToSave = origTarget;
-	} else {
-		targetToSave = (parsed.data.textTarget ?? '').trim() || null;
+	const origTarget = existingRegion.originalTarget ?? existingRegion.textTarget;
+	const update: Partial<typeof regions.$inferInsert> = {};
+	// TEXT IS WRITTEN ONLY WHEN SENT (OR ON A RESET): A ROLE-ONLY REQUEST KEEPS THE TRANSLATION (FEAT-010 REVIEW M-L3)
+	if (parsed.data.action === 'reset_ai' || parsed.data.textTarget !== undefined) {
+		const targetToSave = parsed.data.action === 'reset_ai' ? origTarget : (parsed.data.textTarget ?? '').trim() || null;
+		update.textTarget = targetToSave;
+		update.originalTarget = origTarget;
+		update.status = targetToSave ? 'translated' : 'pending';
+	}
+	// ONLY A CHANGED ROLE BECOMES A USER CHOICE; RE-SENDING THE STORED ROLE KEEPS ITS SOURCE (REVIEW H2)
+	if (parsed.data.role && parsed.data.role !== existingRegion.role) {
+		update.role = parsed.data.role;
+		update.roleSource = 'user';
 	}
 
-	db.update(regions)
-		.set({
-			textTarget: targetToSave,
-			originalTarget: origTarget,
-			status: targetToSave ? 'translated' : 'pending',
-		})
-		.where(eq(regions.id, regionId))
-		.run();
+	if (Object.keys(update).length > 0) {
+		db.update(regions).set(update).where(eq(regions.id, regionId)).run();
+	}
 
 	// Retypeset the page canvas
 	let newOutputPath = existingPage.outputPath;

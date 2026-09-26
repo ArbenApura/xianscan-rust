@@ -59,7 +59,7 @@
 		<AlertTriangle size={13} class="mt-0.5 shrink-0" />
 		<span>
 			No installed font has {SCRIPT_LABELS[uncovered]} letters, so translated text would show as boxes. Pick or import one in
-			Settings, Typesetting & Lettering, Script Fonts.
+			Settings, Typesetting & Lettering, Fonts.
 		</span>
 	</div>
 {/if}

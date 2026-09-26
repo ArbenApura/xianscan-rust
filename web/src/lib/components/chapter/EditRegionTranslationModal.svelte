@@ -32,6 +32,8 @@
 	}>();
 
 	let editTargetText = '';
+	// FEAT-010: HOW THE REGION IS LETTERED; SENT ONLY WHEN THE USER CHANGES IT (REVIEW H2)
+	let editRole: 'dialogue' | 'accent' = 'dialogue';
 	let customInstruction = '';
 	let isRerolling = false;
 	let isSaving = false;
@@ -52,6 +54,7 @@
 		if (lastInitializedKey !== key) {
 			lastInitializedKey = key;
 			editTargetText = region.textTarget ?? '';
+			editRole = region.role === 'accent' ? 'accent' : 'dialogue';
 			customInstruction = '';
 			isRerolling = false;
 			isSaving = false;
@@ -65,6 +68,11 @@
 		editTargetText &&
 		editTargetText.trim() !== (region.originalTarget || '').trim()
 	);
+
+	$: storedRole = region?.role === 'accent' ? 'accent' : 'dialogue';
+	$: roleChanged = editRole !== storedRole;
+	// THE ACCENT FONT SKIPS SPEECH BUBBLES UNLESS THE SETTING SAYS OTHERWISE (FEAT-010 ADR-004)
+	$: accentSkippedInBubble = editRole === 'accent' && (region?.kind ?? 'dialogue_bubble') === 'dialogue_bubble' && !$settings.typesetAccentInBubbles;
 
 	$: panel = THEME_PANEL[$settings.theme];
 	$: panelBorder = THEME_PANEL_BORDER[$settings.theme];
@@ -143,6 +151,7 @@
 		const payload = {
 			textTarget: action === 'reset_ai' ? (region.originalTarget ?? region.textTarget) : editTargetText,
 			action,
+			...(roleChanged ? { role: editRole } : {}),
 			typesetOptions: {
 				fontDialogue: $settings.typesetFont,
 				scriptFonts: $settings.typesetScriptFonts,
@@ -376,6 +385,41 @@
 						placeholder="Enter translated dialogue to typeset onto the page..."
 						class="w-full rounded-xl border border-black/15 bg-white p-3 text-xs leading-relaxed text-neutral-900 outline-none focus:border-[#b23a2e] focus:ring-1 focus:ring-[#b23a2e] dark:border-white/15 dark:bg-[#141210] dark:text-neutral-100 dark:focus:border-[#e08a63] dark:focus:ring-[#e08a63]"
 					></textarea>
+
+					<!-- LETTERING ROLE (FEAT-010) -->
+					<div class="space-y-1.5 pt-1">
+						<div class="flex items-center justify-between gap-2">
+							<span class="font-bold text-xs text-neutral-800 dark:text-neutral-200">Lettering</span>
+							<div class="inline-flex rounded-lg border border-black/10 p-0.5 dark:border-white/10" role="radiogroup" aria-label="Lettering">
+								{#each [{ id: 'dialogue', label: 'Dialogue' }, { id: 'accent', label: 'Accent' }] as option}
+									<button
+										type="button"
+										role="radio"
+										aria-checked={editRole === option.id}
+										data-testid={`region-role-${option.id}`}
+										on:click={() => (editRole = option.id === 'accent' ? 'accent' : 'dialogue')}
+										use:ripple
+										class={cn(
+											'rounded-md px-2.5 py-1 text-[11px] font-semibold transition-colors cursor-pointer',
+											editRole === option.id
+												? 'bg-[#b23a2e] text-white dark:bg-[#e08a63] dark:text-neutral-950'
+												: 'text-neutral-600 hover:bg-black/5 dark:text-neutral-300 dark:hover:bg-white/10',
+										)}
+									>
+										{option.label}
+									</button>
+								{/each}
+							</div>
+						</div>
+						<p class="text-[10px] opacity-60 leading-relaxed">
+							Accent is for skill names, attacks, spells and title cards. It uses the accent font from Typesetting settings.
+						</p>
+						{#if accentSkippedInBubble}
+							<p class="text-[10px] font-semibold text-amber-700 dark:text-amber-300" data-testid="region-role-bubble-hint">
+								This region is a speech bubble. The accent font is not used inside speech bubbles unless "Accent in speech bubbles" is on.
+							</p>
+						{/if}
+					</div>
 				</div>
 			</div>
 

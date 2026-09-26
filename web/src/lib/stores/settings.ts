@@ -84,6 +84,12 @@ export interface AppSettings {
 	typesetCjkFont: string;
 	/** THE USER'S FONT PER SCRIPT; A MISSING SLOT MEANS AUTOMATIC (FEAT-006). */
 	typesetScriptFonts: Partial<Record<ScriptFontSlot, string>>;
+	/** ACCENT FONT PER SCRIPT, 'latin' INCLUDED; AN EMPTY MAP LEAVES ACCENT TEXT LOOKING LIKE DIALOGUE (FEAT-010). */
+	typesetAccentFonts: Partial<Record<Script, string>>;
+	typesetAccentCasing: TypesetCasing;
+	typesetAccentFontWeight: TypesetFontWeight;
+	/** ALSO USE THE ACCENT FONT FOR ACCENT TEXT INSIDE SPEECH BUBBLES (FEAT-010 ADR-004). */
+	typesetAccentInBubbles: boolean;
 	typesetPadding: number;
 	typesetOutline: TypesetOutline;
 	typesetContrast: TypesetContrast;
@@ -238,6 +244,11 @@ export const DEFAULTS: AppSettings = {
 	typesetFontWeight: 'normal',
 	typesetCjkFont: 'WenQuanYi Micro Hei',
 	typesetScriptFonts: {},
+	// SIGMAR ONE SHIPS WITH XIANSCAN AS THE LATIN ACCENT FONT; OTHER SCRIPTS START OFF (FEAT-010)
+	typesetAccentFonts: { latin: 'Sigmar One' },
+	typesetAccentCasing: 'uppercase',
+	typesetAccentFontWeight: 'normal',
+	typesetAccentInBubbles: false,
 	typesetPadding: 0.05,
 	typesetOutline: 'standard',
 	typesetContrast: 'auto',
@@ -287,6 +298,10 @@ export const SERVER_CANONICAL_KEYS: (keyof AppSettings)[] = [
 	'typesetFontWeight',
 	'typesetCjkFont',
 	'typesetScriptFonts',
+	'typesetAccentFonts',
+	'typesetAccentCasing',
+	'typesetAccentFontWeight',
+	'typesetAccentInBubbles',
 	'typesetPadding',
 	'typesetOutline',
 	'typesetContrast',
@@ -399,6 +414,11 @@ export interface TypesetFontOption {
 	isVariable?: boolean;
 	variants?: CustomFontVariantItem[];
 }
+
+/** ACCENT-ONLY BUNDLED FONTS (FEAT-010): OFFERED IN THE LATIN ACCENT CELL, NOT AS DIALOGUE FONTS. */
+export const BUNDLED_ACCENT_FONTS: TypesetFontOption[] = [
+	{ id: 'Sigmar One', label: 'Sigmar One', sub: 'Bundled accent font', stack: "'Sigmar One', sans-serif", bundled: true, scripts: ['latin'], supportedWeights: ['normal', '400'] },
+];
 
 export const AVAILABLE_TYPESET_FONTS: TypesetFontOption[] = [
 	{ id: 'CC Wild Words', label: 'CC Wild Words', sub: 'Classic Comic All-Caps', stack: "'CC Wild Words', 'WildWorld', sans-serif", allCapsOnly: true, supportedCasings: ['uppercase'], bundled: true, supportedWeights: ['normal', '400'] },
@@ -842,6 +862,12 @@ const BUNDLED_SCRIPT_FONT_OPTIONS: Partial<Record<ScriptFontSlot, TypesetFontOpt
 	arabic: { id: 'Tajawal', label: 'Tajawal', sub: 'Bundled Arabic', bundled: true, supportedWeights: ['normal', 'bold'], scripts: ['arabic', 'latin'] },
 };
 
+/** EACH BUNDLED SCRIPT FONT ONCE (THE FONT LIBRARY LISTS THEM BESIDE THE BUNDLED DIALOGUE FONTS, FEAT-010). */
+export function bundledScriptFontOptions(): TypesetFontOption[] {
+	const seen = new Set<string>();
+	return Object.values(BUNDLED_SCRIPT_FONT_OPTIONS).filter((f): f is TypesetFontOption => Boolean(f) && !seen.has(f!.id) && Boolean(seen.add(f!.id)));
+}
+
 /** THE FAMILY A PREVIEW SHOULD USE FOR A SCRIPT: THE USER'S CHOICE, ELSE THE BUNDLED FONT. */
 export function scriptPreviewFamily(slot: ScriptFontSlot, scriptFonts: Partial<Record<ScriptFontSlot, string>> = {}): string | undefined {
 	return scriptFonts[slot] || BUNDLED_SCRIPT_FONT_OPTIONS[slot]?.id;
@@ -1182,6 +1208,43 @@ export function sanitizeScriptFonts(value: unknown): Partial<Record<ScriptFontSl
 	return out;
 }
 
+/** ACCENT FONTS: 'latin' PLUS THE SCRIPT SLOTS, EACH A NON-EMPTY FAMILY NAME OF AT MOST 128 CHARACTERS (FEAT-010). */
+export function sanitizeAccentFonts(value: unknown): Partial<Record<Script, string>> {
+	const out: Partial<Record<Script, string>> = {};
+	if (typeof value !== 'object' || value === null || Array.isArray(value)) return out;
+	for (const script of ['latin', ...SCRIPT_FONT_SLOTS] as Script[]) {
+		const family = (value as Record<string, unknown>)[script];
+		if (typeof family === 'string' && family.trim() && family.length <= 128) out[script] = family.trim();
+	}
+	return out;
+}
+
+/**
+ * THE SETTINGS CHANGES WHEN A FONT IS DELETED OR A SYSTEM FONT IS DISABLED (FEAT-010 REVIEW H8): THE DIALOGUE AND
+ * LEGACY CJK FONTS GO BACK TO THEIR DEFAULTS, SCRIPT SLOTS TO AUTOMATIC AND ACCENT SLOTS TO OFF. ONLY CHANGED KEYS ARE
+ * RETURNED. `disableSystem` ALSO DROPS THE FAMILY FROM THE ENABLED SYSTEM FONTS.
+ */
+export function fontRemovalPatch(
+	s: Pick<AppSettings, 'typesetFont' | 'typesetCjkFont' | 'typesetScriptFonts' | 'typesetAccentFonts' | 'enabledSystemFonts'>,
+	family: string,
+	options: { disableSystem?: boolean } = {},
+): Partial<AppSettings> {
+	const patch: Partial<AppSettings> = {};
+	if (s.typesetFont === family) patch.typesetFont = DEFAULTS.typesetFont;
+	if (s.typesetCjkFont === family) patch.typesetCjkFont = DEFAULTS.typesetCjkFont;
+	const scriptFonts = s.typesetScriptFonts ?? {};
+	const keptScript = Object.fromEntries(Object.entries(scriptFonts).filter(([, f]) => f !== family));
+	if (Object.keys(keptScript).length !== Object.keys(scriptFonts).length) patch.typesetScriptFonts = keptScript;
+	const accentFonts = s.typesetAccentFonts ?? {};
+	const keptAccent = Object.fromEntries(Object.entries(accentFonts).filter(([, f]) => f !== family));
+	if (Object.keys(keptAccent).length !== Object.keys(accentFonts).length) patch.typesetAccentFonts = keptAccent;
+	if (options.disableSystem) {
+		const enabled = s.enabledSystemFonts ?? [];
+		if (enabled.includes(family)) patch.enabledSystemFonts = enabled.filter((f) => f !== family);
+	}
+	return patch;
+}
+
 /** VALUE EQUALITY FOR SETTINGS: OBJECTS AND ARRAYS COMPARE BY CONTENT, SO AN UNCHANGED MAP NEVER RE-SYNCS. */
 export function settingEquals(a: unknown, b: unknown): boolean {
 	if (a === b) return true;
@@ -1222,6 +1285,7 @@ function mergeKnown(parsed: unknown): AppSettings {
 		out.parallelProcesses = 2;
 	}
 	out.typesetScriptFonts = sanitizeScriptFonts(out.typesetScriptFonts);
+	out.typesetAccentFonts = sanitizeAccentFonts(out.typesetAccentFonts);
 	// VERSION 12: A CUSTOM CJK FONT BECOMES THE han / kana / hangul SCRIPT SLOTS
 	if ((parsed as any)?.version < 12 && out.typesetCjkFont && out.typesetCjkFont !== DEFAULTS.typesetCjkFont) {
 		const slots = out.typesetScriptFonts;

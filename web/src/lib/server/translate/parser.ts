@@ -2,6 +2,11 @@
 import { stripThinkingTags } from '../llm';
 import type { RegionSource } from './prompts';
 
+// THE "styles" OBJECT OF A v24 REPLY (FLAT: ITS VALUES ARE PLAIN STRINGS WITH NO BRACES). A REPLY CUT OFF INSIDE THE
+// BLOCK HAS NO CLOSING BRACE, SO THE BLOCK ALSO ENDS AT THE END OF THE TEXT (CODE CRITIC FEAT-010: A TRUNCATED STYLES
+// BLOCK OTHERWISE PUT "accent" OVER THE REAL TRANSLATION)
+const STYLES_BLOCK_REGEX = /"styles"\s*:\s*\{[^{}]*(?:\}|$)/;
+
 export function sanitizeTranslationArtifacts(translated: string, source: string): string {
 	let t = translated.trim();
 	const s = source.trim();
@@ -107,7 +112,7 @@ export function parseTranslations(
 						: parsed;
 
 				for (const [k, val] of Object.entries(transObj)) {
-					if (k === 'newTerms' || k === 'terms' || k === 'translations') continue;
+					if (k === 'newTerms' || k === 'terms' || k === 'translations' || k === 'styles') continue;
 					if (typeof val === 'string') {
 						const trimmed = val.trim();
 						if (trimmed) rawMap.set(k, trimmed);
@@ -128,13 +133,16 @@ export function parseTranslations(
 	}
 
 	if (rawMap.size === 0) {
-		const unbraced = cleaned.replace(/^\{/, '').replace(/\}$/, '');
+		// DROP THE styles BLOCK FIRST (FEAT-010 REVIEW H1): ITS "<id>": "accent" PAIRS WOULD OTHERWISE OVERWRITE THE
+		// REAL TRANSLATIONS OF THOSE IDS IN THE SALVAGE MAP
+		const unbraced = cleaned.replace(STYLES_BLOCK_REGEX, '').replace(/^\{/, '').replace(/\}$/, '');
 		for (const m of unbraced.matchAll(/"([A-Za-z0-9_-]+)"\s*:\s*"((?:[^"\\]|\\.)*)"/g)) {
 			const k = m[1];
 			if (
 				k === 'newTerms' ||
 				k === 'terms' ||
 				k === 'translations' ||
+				k === 'styles' ||
 				k === 'source' ||
 				k === 'target' ||
 				k === 'category' ||
@@ -208,6 +216,41 @@ export function parseTranslations(
 	}
 
 	return out.size > 0 ? out : null;
+}
+
+/**
+ * ACCENT LABELS FROM THE MODEL'S "styles" MAP (FEAT-010 ADR-002): ONLY KNOWN REGION IDS WHOSE VALUE IS "accent" (ANY
+ * CASE). A MISSING, EMPTY OR MALFORMED MAP MEANS EVERY REGION IS DIALOGUE. NEVER THROWS.
+ */
+export function parseStyles(raw: string, knownIds: Set<string>): Map<string, 'accent'> {
+	const out = new Map<string, 'accent'>();
+	try {
+		const cleaned = stripThinkingTags(raw).replace(/```(?:json)?/gi, '').trim();
+		const add = (id: string, value: unknown) => {
+			if (knownIds.has(id) && typeof value === 'string' && value.trim().toLowerCase() === 'accent') out.set(id, 'accent');
+		};
+		const firstBrace = cleaned.indexOf('{');
+		const lastBrace = cleaned.lastIndexOf('}');
+		if (firstBrace !== -1 && lastBrace > firstBrace) {
+			try {
+				const parsed = JSON.parse(cleaned.slice(firstBrace, lastBrace + 1)) as Record<string, unknown>;
+				const styles = parsed?.styles;
+				if (styles && typeof styles === 'object' && !Array.isArray(styles)) {
+					for (const [id, value] of Object.entries(styles as Record<string, unknown>)) add(id, value);
+				}
+				return out;
+			} catch {
+				// FALL THROUGH TO THE SALVAGE REGEX (TRUNCATED OR MALFORMED REPLY)
+			}
+		}
+		const block = cleaned.match(STYLES_BLOCK_REGEX);
+		if (block) {
+			for (const m of block[0].matchAll(/"([A-Za-z0-9_-]+)"\s*:\s*"([^"]*)"/g)) add(m[1], m[2]);
+		}
+	} catch {
+		// UNEXPECTED INPUT: NO LABELS
+	}
+	return out;
 }
 
 export function looksDegenerate(translated: string, source: string): boolean {

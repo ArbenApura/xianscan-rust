@@ -47,6 +47,8 @@
 
 	// -- CONSTANTS -- //
 	const INSPECT_LAYERS_STORAGE_KEY = 'xianscan:inspect_layer_toggles';
+	// WHO MARKED A REGION AS ACCENT TEXT (FEAT-010)
+	const ACCENT_SOURCE_LABELS: Record<string, string> = { llm: 'AI', glossary: 'Glossary', user: 'You' };
 
 	const dispatch = createEventDispatcher<{
 		close: void;
@@ -700,6 +702,8 @@
 		if (reg) {
 			reg.textTarget = updatedReg.textTarget;
 			reg.originalTarget = updatedReg.originalTarget;
+			reg.role = updatedReg.role;
+			reg.roleSource = updatedReg.roleSource;
 		}
 		if (e.detail.outputPath) {
 			page.outputPath = e.detail.outputPath;
@@ -738,6 +742,8 @@
 			if (reg) {
 				reg.textTarget = data.region.textTarget;
 				reg.originalTarget = data.region.originalTarget;
+				reg.role = data.region.role;
+				reg.roleSource = data.region.roleSource;
 			}
 			if (data.outputPath) {
 				page.outputPath = data.outputPath;
@@ -1494,6 +1500,17 @@
 										{:else}
 											<span class="rounded bg-purple-500/15 border border-purple-500/30 px-1.5 py-0.5 text-[9px] font-bold text-purple-700 dark:text-purple-300">
 												Free Text
+											</span>
+										{/if}
+
+										<!-- ACCENT LETTERING BADGE (FEAT-010): WHO MARKED IT IN THE TOOLTIP -->
+										{#if region.role === 'accent'}
+											<span
+												class="rounded bg-[#a97f28]/15 border border-[#a97f28]/30 px-1.5 py-0.5 text-[9px] font-bold text-[#8a6620] dark:bg-[#c9a24b]/20 dark:text-[#d8b15a]"
+												title={`Accent text, marked by ${ACCENT_SOURCE_LABELS[region.roleSource ?? 'llm'] ?? 'AI'}${kind === 'dialogue_bubble' && !$settings.typesetAccentInBubbles ? ' (the accent font is not used in speech bubbles)' : ''}`}
+												data-testid="region-accent-badge"
+											>
+												Accent
 											</span>
 										{/if}
 

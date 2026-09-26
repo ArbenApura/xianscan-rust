@@ -92,3 +92,20 @@ describe('client settings model', () => {
 		expect(settingEquals('a', 'b')).toBe(false);
 	});
 });
+
+describe('accent fonts in stored settings (FEAT-010)', () => {
+	it('mergeKnownSettings keeps valid accent slots and drops junk', () => {
+		const merged = mergeKnownSettings({ typesetAccentFonts: { latin: 'Bangers', han: '', kana: 7, bogus: 'X' } });
+		expect(merged.typesetAccentFonts).toEqual({ latin: 'Bangers' });
+		expect(mergeKnownSettings({ typesetAccentFonts: null }).typesetAccentFonts).toEqual({});
+		expect(mergeKnownSettings({ typesetAccentFonts: ['Bangers'] }).typesetAccentFonts).toEqual({});
+	});
+
+	it('sanitizeSettingValue validates every accent key', () => {
+		expect(sanitizeSettingValue('typesetAccentFonts', { latin: 'Bangers', x: 'Y' })).toEqual({ latin: 'Bangers' });
+		expect(sanitizeSettingValue('typesetAccentCasing', 'original')).toBe('original');
+		expect(sanitizeSettingValue('typesetAccentCasing', 'nope')).toBe('uppercase');
+		expect(sanitizeSettingValue('typesetAccentFontWeight', 'bold')).toBe('bold');
+		expect(sanitizeSettingValue('typesetAccentInBubbles', 'yes')).toBe(true);
+	});
+});

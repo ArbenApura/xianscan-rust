@@ -13,6 +13,7 @@ export * from './translate/parser';
 export * from './translate/extraction';
 export * from './translate/dialogue-tracker';
 export * from './translate/filter';
+export * from './translate/accent';
 export { resolveModel } from './llm';
 
 import {
@@ -23,7 +24,7 @@ import {
 	type RegionSource,
 } from './translate/prompts';
 import { getKnownSfxTranslation } from './translate/sfx';
-import { looksDegenerate, parseTranslations } from './translate/parser';
+import { looksDegenerate, parseStyles, parseTranslations } from './translate/parser';
 import { parseExtractedTerms } from './translate/extraction';
 import { classifyRegionForTranslation, sanitizeOcrSourceText } from './translate/filter';
 import {
@@ -52,6 +53,8 @@ export interface PageTranslationOptions {
 
 export interface PageTranslation {
 	byRegion: Map<string, string>;
+	/** ACCENT LABELS FROM THE MODEL'S "styles" MAP (FEAT-010); EMPTY WHEN NONE. */
+	styles: Map<string, 'accent'>;
 	usage: TranslationUsage;
 	newTerms?: TermDraft[];
 	rawPrompt?: string;
@@ -61,7 +64,7 @@ export interface PageTranslation {
 	finishReason?: string;
 }
 
-export const PROMPT_VERSION = 'v23';
+export const PROMPT_VERSION = 'v24';
 
 function mergeUsage(acc: TranslationUsage, u: TranslationUsage): void {
 	acc.promptTokens += u.promptTokens;
@@ -169,7 +172,7 @@ export async function translatePage(
 	const model = resolveModel(opts.model);
 	const usage = { model, promptTokens: 0, cachedTokens: 0, completionTokens: 0 } as TranslationUsage;
 
-	if (regions.length === 0) return { byRegion: new Map(), usage, newTerms: [], rawPrompt: '', rawResponse: '', durationMs: 0 };
+	if (regions.length === 0) return { byRegion: new Map(), styles: new Map(), usage, newTerms: [], rawPrompt: '', rawResponse: '', durationMs: 0 };
 
 	// 1. PRE-TRANSLATION CLASSIFICATION: PARTITION REGIONS INTO TRANSLATABLE VS RESOLVED/SKIPPED
 	const translatableRegions: RegionSource[] = [];
@@ -188,6 +191,7 @@ export async function translatePage(
 	if (translatableRegions.length === 0) {
 		return {
 			byRegion: preResolved,
+			styles: new Map(),
 			usage,
 			newTerms: [],
 			rawPrompt: '',
@@ -239,6 +243,7 @@ export async function translatePage(
 	const durationMs = Math.round(performance.now() - t0);
 	mergeUsage(usage, u1);
 	const byRegion = (raw ? parseTranslations(raw, new Set(translatableRegions.map((r) => r.id)), translatableRegions) : null) ?? new Map();
+	const styles = raw ? parseStyles(raw, new Set(translatableRegions.map((r) => r.id))) : new Map<string, 'accent'>();
 
 	// MERGE PRE-RESOLVED REGIONS INTO FINAL TRANSLATION MAP
 	for (const [id, target] of preResolved) {
@@ -284,6 +289,7 @@ export async function translatePage(
 
 	return {
 		byRegion,
+		styles,
 		usage,
 		newTerms: discoveredTerms,
 		rawPrompt,

@@ -16,6 +16,8 @@ export const BUNDLED_FONT_FILES: [string, string[]][] = [
 	['NotoSansDevanagari-Regular.ttf', ['Noto Sans Devanagari']],
 	['NotoSansThai-Regular.ttf', ['Noto Sans Thai']],
 	['Tajawal-Regular.ttf', ['Tajawal']],
+	// DEFAULT LATIN ACCENT FONT (FEAT-010, SIL OFL 1.1)
+	['SigmarOne-Regular.ttf', ['Sigmar One']],
 ];
 
 const BUNDLED_FILE_BY_FAMILY = new Map<string, string>(

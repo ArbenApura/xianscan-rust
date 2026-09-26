@@ -70,6 +70,27 @@ describe('Settings & Reading History Server API Routes', () => {
 	});
 
 	describe('PATCH /api/settings', () => {
+		it('persists and sanitises the accent font settings (FEAT-010)', async () => {
+			vi.resetModules();
+			const { PATCH, GET } = await import('../../src/routes/api/settings/+server');
+			const req = new Request('http://localhost/api/settings', {
+				method: 'PATCH',
+				headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify({
+					typesetAccentFonts: { latin: 'BadaBoom BB', han: 'Ma Shan Zheng', bogus: 'X' },
+					typesetAccentCasing: 'shouty',
+					typesetAccentFontWeight: '700',
+					typesetAccentInBubbles: 1,
+				}),
+			});
+			expect((await PATCH({ request: req } as unknown as RequestEvent)).status).toBe(200);
+			const data = await (await GET({} as RequestEvent)).json();
+			expect(data.typesetAccentFonts).toEqual({ latin: 'BadaBoom BB', han: 'Ma Shan Zheng' });
+			expect(data.typesetAccentCasing).toBe('uppercase');
+			expect(data.typesetAccentFontWeight).toBe('700');
+			expect(data.typesetAccentInBubbles).toBe(true);
+		});
+
 		it('partially updates specific keys without corrupting other settings', async () => {
 			vi.resetModules();
 			const { PATCH, GET } = await import('../../src/routes/api/settings/+server');

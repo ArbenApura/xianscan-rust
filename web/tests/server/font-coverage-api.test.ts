@@ -69,3 +69,50 @@ describe('font coverage endpoint', () => {
 		await expect(call('?script=klingon')).rejects.toMatchObject({ status: 400 });
 	});
 });
+
+describe('accent font coverage (FEAT-010)', () => {
+	it('reports each configured accent font with the sample letters it lacks', async () => {
+		// BUNDLED FAMILIES, SO THE ANSWER DOES NOT DEPEND ON THE MACHINE
+		updateCanonicalSettings({ typesetAccentFonts: { latin: 'CC Wild Words', han: 'WenQuanYi Micro Hei' } });
+		invalidateSettingsCache();
+		const data = await call('');
+		const latin = data.accent.find((a: { script: string }) => a.script === 'latin');
+		expect(latin).toMatchObject({ family: 'CC Wild Words', available: true, verified: true, coversScript: true });
+		expect(latin.missing).toContain('É');
+		// SUPPORTED LANGUAGES ONLY: POLISH AND TURKISH LETTERS ARE CHECKED, VIETNAMESE ONES ARE NOT
+		expect(latin.missing).toEqual(expect.arrayContaining(['Ł', 'Ş']));
+		expect(latin.missing).not.toContain('Ơ');
+		expect(latin.missing).not.toContain('A');
+		expect(data.accent.find((a: { script: string }) => a.script === 'han')).toMatchObject({ available: true, coversScript: true });
+	});
+
+	it('uses the pending accentFonts override and reports an unknown family as unavailable', async () => {
+		const data = await call(`?accentFonts=${encodeURIComponent(JSON.stringify({ latin: 'No Such Font 123' }))}`);
+		expect(data.accent).toEqual([{ script: 'latin', family: 'No Such Font 123', available: false, verified: false, coversScript: false, missing: [] }]);
+	});
+
+	it('rejects an accentFonts override that is not a JSON object', async () => {
+		await expect(call('?accentFonts=%5B1%5D')).rejects.toMatchObject({ status: 400 });
+		await expect(call('?accentFonts=nope')).rejects.toMatchObject({ status: 400 });
+	});
+
+	it('reports the bundled default Sigmar One as available with every supported Latin letter', async () => {
+		const data = await call('');
+		expect(data.accent).toEqual([{ script: 'latin', family: 'Sigmar One', available: true, verified: true, coversScript: true, missing: [] }]);
+	});
+
+	it('has an empty accent list when every accent cell is Off', async () => {
+		expect((await call(`?accentFonts=${encodeURIComponent('{}')}`)).accent).toEqual([]);
+	});
+});
+
+describe('book scripts endpoint (FEAT-010)', () => {
+	it('lists the scripts the library is typeset in plus the default target', async () => {
+		const { getTestDb, seedBook } = await import('../helpers/db');
+		seedBook(getTestDb(), { id: 'hi-book', targetLang: 'hi', sourceLang: 'zh-Hans' });
+		seedBook(getTestDb(), { id: 'ar-book', targetLang: 'ar', sourceLang: 'ko' });
+		const { GET: bookScripts } = await import('../../src/routes/api/system/fonts/book-scripts/+server');
+		const data = await (await bookScripts({} as RequestEvent)).json();
+		expect(new Set(data.scripts)).toEqual(new Set(['devanagari', 'arabic', 'latin']));
+	});
+});

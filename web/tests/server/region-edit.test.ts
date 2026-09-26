@@ -3,6 +3,7 @@ import { getTestDb, resetDb, seedBook, seedChapter, seedPage, seedRegion, seedGl
 import { pages, regions } from '$lib/server/db/schema';
 import { eq } from 'drizzle-orm';
 import { PATCH } from '../../src/routes/api/pages/[id]/regions/[regionId]/+server';
+import { GET as pageGET } from '../../src/routes/api/pages/[id]/+server';
 import { POST as typesetPOST } from '../../src/routes/api/pages/[id]/typeset/+server';
 import { POST as translateTextPOST } from '../../src/routes/api/translate-text/+server';
 
@@ -279,5 +280,83 @@ describe('Page Region Translation Edit & Retypeset API', () => {
 				]),
 			}),
 		);
+	});
+});
+
+// -- REGION ROLE (FEAT-010 PHASE 5) -- //
+
+describe('region role edits', () => {
+	beforeEach(() => {
+		resetDb();
+	});
+
+	function seedTranslatedRegion(role: 'dialogue' | 'accent' = 'dialogue', roleSource: 'llm' | 'glossary' | 'user' | null = null) {
+		const db = getTestDb();
+		seedBook(db, { id: 'book-r' });
+		const chapter = seedChapter(db, { bookId: 'book-r', seq: 0 });
+		const page = seedPage(db, { chapterId: chapter.id, seq: 0 });
+		const region = seedRegion(db, { pageId: page.id, seq: 0, textSource: '青木剑诀' });
+		db.update(regions)
+			.set({ textTarget: 'Green Wood Sword Art', originalTarget: 'Green Wood Sword Art', status: 'translated', role, roleSource })
+			.where(eq(regions.id, region.id))
+			.run();
+		return { db, page, region };
+	}
+
+	async function patch(pageId: number, regionId: number, body: unknown) {
+		const request = new Request(`http://localhost/api/pages/${pageId}/regions/${regionId}`, {
+			method: 'PATCH',
+			headers: { 'Content-Type': 'application/json' },
+			body: JSON.stringify(body),
+		});
+		return PATCH({ params: { id: String(pageId), regionId: String(regionId) }, request } as any);
+	}
+
+	it('stores a changed role as a user choice', async () => {
+		const { db, page, region } = seedTranslatedRegion('dialogue');
+		const res = await patch(page.id, region.id, { role: 'accent' });
+		expect(res.status).toBe(200);
+		const json = await res.json();
+		expect(json.region.role).toBe('accent');
+		expect(json.region.roleSource).toBe('user');
+		const got = db.select().from(regions).where(eq(regions.id, region.id)).get();
+		expect(got?.role).toBe('accent');
+	});
+
+	it('keeps the translation on a role-only request (review M-L3)', async () => {
+		const { db, page, region } = seedTranslatedRegion('dialogue');
+		await patch(page.id, region.id, { role: 'accent' });
+		const got = db.select().from(regions).where(eq(regions.id, region.id)).get();
+		expect(got?.textTarget).toBe('Green Wood Sword Art');
+		expect(got?.status).toBe('translated');
+	});
+
+	it('leaves an unchanged role and its source alone when saving text (review H2)', async () => {
+		const { db, page, region } = seedTranslatedRegion('accent', 'llm');
+		await patch(page.id, region.id, { textTarget: 'Green Wood Sword Art!', role: 'accent' });
+		const got = db.select().from(regions).where(eq(regions.id, region.id)).get();
+		expect(got?.textTarget).toBe('Green Wood Sword Art!');
+		expect(got?.role).toBe('accent');
+		expect(got?.roleSource).toBe('llm');
+	});
+
+	it('leaves the role alone when the request has no role', async () => {
+		const { db, page, region } = seedTranslatedRegion('accent', 'glossary');
+		await patch(page.id, region.id, { textTarget: 'Changed' });
+		const got = db.select().from(regions).where(eq(regions.id, region.id)).get();
+		expect(got?.role).toBe('accent');
+		expect(got?.roleSource).toBe('glossary');
+	});
+
+	it('rejects an unknown role', async () => {
+		const { page, region } = seedTranslatedRegion();
+		await expect(patch(page.id, region.id, { role: 'shout' })).rejects.toMatchObject({ status: 400 });
+	});
+
+	it('returns role and roleSource from GET /api/pages/:id', async () => {
+		const { page } = seedTranslatedRegion('accent', 'llm');
+		const res = await pageGET({ params: { id: String(page.id) } } as any);
+		const json = await res.json();
+		expect(json.page.regions[0]).toMatchObject({ role: 'accent', roleSource: 'llm' });
 	});
 });

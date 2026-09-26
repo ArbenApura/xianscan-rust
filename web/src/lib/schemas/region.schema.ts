@@ -17,6 +17,8 @@ export const translateTextSchema = z.object({
 export const updateRegionSchema = z.object({
 	textTarget: z.string().optional(),
 	action: z.enum(['save', 'reset_ai']).optional().default('save'),
+	// FEAT-010: 'accent' USES THE ACCENT FONT; A CHANGED ROLE IS STORED AS A USER CHOICE
+	role: z.enum(['dialogue', 'accent']).optional(),
 	typesetOptions: z.record(z.unknown()).optional(),
 });
 

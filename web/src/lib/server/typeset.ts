@@ -32,6 +32,7 @@ import { textFontStack } from './typeset/script-fonts';
 import { pickTextColor, sampleBackground } from './typeset/color';
 import { decollideRegions } from './typeset/decollision';
 import { sanitizeForFont } from './typeset/sanitize';
+import { accentActive, accentScriptContext, appliesAccent, heavierOutline, resolveAccentFont, runMeasuringContext } from './typeset/accent';
 
 // -- CONSTANTS -- //
 
@@ -71,6 +72,12 @@ export interface TypesetOptions {
 	fontWeight?: 'normal' | 'bold' | string | number;
 	fontStyle?: 'normal' | 'italic' | boolean;
 	enableItalic?: boolean;
+	/** ACCENT FONT PER SCRIPT, 'latin' INCLUDED (FEAT-010); EMPTY OR UNSET LEAVES OUTPUT UNCHANGED. */
+	accentFonts?: Partial<Record<Script, string>>;
+	accentCasing?: 'uppercase' | 'original' | 'lowercase';
+	accentFontWeight?: 'normal' | 'bold' | string | number;
+	/** ALSO APPLY THE ACCENT FONT TO ACCENT REGIONS INSIDE SPEECH BUBBLES (ADR-004). */
+	accentInBubbles?: boolean;
 }
 
 // -- FUNCTIONS -- //
@@ -122,6 +129,10 @@ export async function typesetPage(
 	const enableRotation = opts.enableRotation ?? true;
 	const align = opts.align === 'right' ? 'center' : (opts.align ?? 'center');
 	const effectiveLineHeight = opts.lineHeight ?? LINE_HEIGHT;
+	// ACCENT FONT (FEAT-010): OFF UNLESS A CONFIGURED ACCENT FAMILY IS AVAILABLE, SO OUTPUT IS UNCHANGED WITHOUT ONE
+	const accentOn = accentActive(opts);
+	const accentCasing = opts.accentCasing ?? 'uppercase';
+	const accentWeight = opts.accentFontWeight ?? 'normal';
 
 	const img = await loadImage(cleanedPng);
 	const canvas = createCanvas(img.width, img.height);
@@ -159,18 +170,37 @@ export async function typesetPage(
 		const dir = resolveDirection(rawText, opts.direction);
 		// RIGHT-TO-LEFT TEXT IS NEVER RE-CASED: LATIN NAMES INSIDE ARABIC KEEP THE MODEL'S CASING (ADR-005)
 		const isCaseless = dir === 'rtl' || CASELESS_SCRIPTS.has(dominantScript(rawText, scriptCtx.targetScript));
-		const font = fontFor(rawText, fontDialogue, fontCjk, scriptCtx);
-		const effectiveCasing = resolveEffectiveCasing(font, casing);
-		let text: string;
-		if (isCaseless) {
-			text = rawText;
-		} else if (effectiveCasing === 'lowercase') {
-			text = rawText.toLowerCase();
-		} else if (effectiveCasing === 'original') {
-			text = rawText;
-		} else {
-			text = rawText.toUpperCase();
+		const applyCasing = (value: string, family: string, requested: typeof casing): string => {
+			if (isCaseless) return value;
+			const effectiveCasing = resolveEffectiveCasing(family, requested);
+			if (effectiveCasing === 'lowercase') return value.toLowerCase();
+			if (effectiveCasing === 'original') return value;
+			return value.toUpperCase();
+		};
+		let font = fontFor(rawText, fontDialogue, fontCjk, scriptCtx);
+		let text = applyCasing(rawText, font, casing);
+
+		// PER-REGION STYLE: THE PAGE-LEVEL VALUES UNLESS THIS REGION IS DRAWN IN THE ACCENT FONT (FEAT-010)
+		let regionCtx = scriptCtx;
+		let regionWeight = fontWeight;
+		let regionOutline = outlineMode;
+		let accentRendered = false;
+		if (accentOn && appliesAccent(r, opts)) {
+			const accent = resolveAccentFont(rawText, opts, scriptCtx, (value, family) => applyCasing(value, family, accentCasing));
+			if (accent) {
+				regionCtx = accentScriptContext(scriptCtx, accent);
+				font = fontFor(rawText, accent.font, fontCjk, regionCtx);
+				text = accent.text;
+				regionWeight = accentWeight;
+				accentRendered = true;
+			} else {
+				// NO ACCENT FONT HAS EVERY LETTER: DIALOGUE FONT, ONE OUTLINE STEP HEAVIER (ADR-009)
+				regionOutline = heavierOutline(outlineMode);
+			}
 		}
+		// LEFT-TO-RIGHT ACCENT REGIONS MEASURE BY THE RUNS THEY ARE DRAWN WITH. RIGHT-TO-LEFT LINES ARE NEVER SPLIT INTO
+		// RUNS (ONE fillText PER LINE), SO THEY MEASURE ON THE CANVAS LIKE RIGHT-TO-LEFT DIALOGUE
+		const measureCtx = accentRendered && dir === 'ltr' ? runMeasuringContext(ctx, font, regionCtx, fontCjk, regionWeight, fontStyle, dir) : ctx;
 
 		const isSfx = isSfxOrShout(text);
 		const maxW = Math.max(10, r.box.w * (1 - 2 * inset));
@@ -181,13 +211,32 @@ export async function typesetPage(
 		if (!isSfx && r.kind === 'dialogue_bubble') {
 			const maxDialogueSize = opts.fontSize ? opts.fontSize : Math.max(24, Math.round(img.width * 0.035));
 			const cap = Math.min(sizeCap, Math.round(maxDialogueSize * (dir === 'rtl' ? RTL_SIZE_BOOST : 1)));
-			initialFitted = fitFontSizeWithLines(ctx, text, font, r.box.w, r.box.h, cap, cap, inset, fontCjk, fontWeight, fontStyle, scriptCtx);
-			if (text.split(/\s+/).length >= 2) {
+			initialFitted = fitFontSizeWithLines(measureCtx, text, font, r.box.w, r.box.h, cap, cap, inset, fontCjk, regionWeight, fontStyle, regionCtx);
+			// A REGION DRAWN IN THE ACCENT FONT NEVER MOVES THE PAGE BASELINE; A LABELLED REGION DRAWN AS DIALOGUE STILL
+			// COUNTS, SO THE MEDIAN IS UNCHANGED WHEN THE FEATURE IS OFF (REVIEW H6)
+			if (text.split(/\s+/).length >= 2 && !accentRendered) {
 				dialogueSizes.push(initialFitted.size);
 			}
 		}
 
-		preparedRegions.push({ r, rawText, text, color, isSfx, font, maxW, maxH, sizeCap, initialFitted, dir });
+		preparedRegions.push({
+			r,
+			rawText,
+			text,
+			color,
+			isSfx,
+			font,
+			maxW,
+			maxH,
+			sizeCap,
+			initialFitted,
+			dir,
+			regionCtx,
+			regionWeight,
+			regionOutline,
+			accentRendered,
+			measureCtx,
+		});
 	}
 
 	// COMPUTE PAGE DIALOGUE MEDIAN BASELINE
@@ -199,7 +248,7 @@ export async function typesetPage(
 
 	// PASS 2: RENDER REGIONS WITH HARMONIZED SIZING
 	for (const prep of preparedRegions) {
-		const { r, text, color, isSfx, font, maxW, maxH, sizeCap, initialFitted, dir } = prep;
+		const { r, text, color, isSfx, font, maxW, maxH, sizeCap, initialFitted, dir, regionCtx, regionWeight, regionOutline, accentRendered, measureCtx } = prep;
 
 		const { x, y, w, h } = r.box;
 		const angleDeg = r.angle ?? 0;
@@ -216,7 +265,7 @@ export async function typesetPage(
 		let lines: string[];
 
 		if (isSfx) {
-			size = fitSingleLineSize(ctx, text, font, maxW, maxH, sizeCap, fontCjk, fontWeight, fontStyle, scriptCtx);
+			size = fitSingleLineSize(measureCtx, text, font, maxW, maxH, sizeCap, fontCjk, regionWeight, fontStyle, regionCtx);
 			lines = [text];
 		} else if (initialFitted && initialFitted.size <= cap) {
 			// REUSE PASS 1 FITTED RESULT DIRECTLY IF CAP WAS NOT REDUCED BELOW INITIAL FIT
@@ -224,12 +273,12 @@ export async function typesetPage(
 			lines = initialFitted.lines;
 		} else {
 			// USE THE FITTED LAYOUT DIRECTLY SO THE RENDER MATCHES THE VALIDATED FIT CHECKS
-			const fitted = fitFontSizeWithLines(ctx, text, font, w, h, cap, cap, inset, fontCjk, fontWeight, fontStyle, scriptCtx);
+			const fitted = fitFontSizeWithLines(measureCtx, text, font, w, h, cap, cap, inset, fontCjk, regionWeight, fontStyle, regionCtx);
 			size = fitted.size;
 			lines = fitted.lines;
 		}
 
-		ctx.font = fontSpec(size, font, text, fontCjk, fontWeight, fontStyle, textFontStack(text, font, scriptCtx));
+		ctx.font = fontSpec(size, font, text, fontCjk, regionWeight, fontStyle, textFontStack(text, font, regionCtx));
 		const lineH = size * effectiveLineHeight;
 		const totalH = lines.length * lineH;
 
@@ -246,11 +295,11 @@ export async function typesetPage(
 		let strokeWidth: number;
 		if (opts.strokeWidth !== undefined) {
 			strokeWidth = opts.strokeWidth;
-		} else if (outlineMode === 'none') {
+		} else if (regionOutline === 'none') {
 			strokeWidth = 0;
-		} else if (outlineMode === 'thin') {
+		} else if (regionOutline === 'thin') {
 			strokeWidth = isBlackOnLight ? Math.max(1.0, size * 0.06) : Math.max(1.5, size * 0.10);
-		} else if (outlineMode === 'heavy') {
+		} else if (regionOutline === 'heavy') {
 			strokeWidth = isBlackOnLight ? Math.max(3.0, size * 0.16) : Math.max(5.0, size * 0.26);
 		} else {
 			strokeWidth = isBlackOnLight
@@ -267,8 +316,12 @@ export async function typesetPage(
 		// REAL INK: ARABIC HAS TALL ASCENDERS AND DEEP DESCENDERS, SO THE FIXED RULE SITS IT TOO LOW (FEAT-007 PHASE 4)
 		let topToBaseline = size * 0.75;
 		let inkBelow = 0;
-		if (dir === 'rtl') {
-			ctx.font = rtlFontSpec(size, font, text, fontCjk, fontWeight, fontStyle, scriptCtx);
+		// ACCENT FONTS VARY WIDELY IN CAP HEIGHT AND DESCENT, SO THEY ARE CENTRED ON THEIR MEASURED INK TOO (ADR-013)
+		if (dir === 'rtl' || accentRendered) {
+			ctx.font =
+				dir === 'rtl'
+					? rtlFontSpec(size, font, text, fontCjk, regionWeight, fontStyle, regionCtx)
+					: fontSpec(size, font, text, fontCjk, regionWeight, fontStyle, textFontStack(text, font, regionCtx));
 			let ascent = 0;
 			let descent = 0;
 			for (const line of lines) {
@@ -304,9 +357,9 @@ export async function typesetPage(
 					isDarkStroke,
 					fontCjk,
 					lineAlign,
-					fontWeight,
+					regionWeight,
 					fontStyle,
-					scriptCtx,
+					regionCtx,
 					dir,
 				);
 				ty += lineH;
@@ -329,9 +382,9 @@ export async function typesetPage(
 					isDarkStroke,
 					fontCjk,
 					lineAlign,
-					fontWeight,
+					regionWeight,
 					fontStyle,
-					scriptCtx,
+					regionCtx,
 					dir,
 				);
 				ty += lineH;

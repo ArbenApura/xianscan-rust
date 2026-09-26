@@ -237,6 +237,7 @@ export async function updateRegionTranslation(
 						kind: boxObj?.kind,
 						vertical: (r as any).vertical ?? boxObj?.vertical,
 						angle: (r as any).angle ?? boxObj?.angle,
+						role: r.role ?? 'dialogue',
 					};
 				});
 
@@ -299,13 +300,23 @@ export async function retypesetPage(
 					kind: boxObj?.kind,
 					vertical: (r as any).vertical ?? boxObj?.vertical,
 					angle: (r as any).angle ?? boxObj?.angle,
+					role: r.role ?? 'dialogue',
 				};
 			});
 
 		const canonical = getCanonicalSettings();
 		const builtOpts = buildTypesetOptions({ canonical, userOpts: _opts, targetScript: targetScriptForPage(pageId) });
-		// RAW CALLER OPTIONS STILL WIN FIELD BY FIELD, AS BEFORE; THE BOOK SCRIPT IS KEPT UNLESS THE CALLER SET ONE
-		const mergedOpts = { ...builtOpts, ...(_opts || {}), targetScript: _opts?.targetScript ?? builtOpts.targetScript };
+		// RAW CALLER OPTIONS STILL WIN FIELD BY FIELD, AS BEFORE; THE BOOK SCRIPT IS KEPT UNLESS THE CALLER SET ONE.
+		// THE ACCENT FIELDS COME FROM builtOpts, WHICH ALREADY PREFERS THE CALLER'S SANITISED VALUES (FEAT-010 REVIEW L-U8)
+		const mergedOpts = {
+			...builtOpts,
+			...(_opts || {}),
+			targetScript: _opts?.targetScript ?? builtOpts.targetScript,
+			accentFonts: builtOpts.accentFonts,
+			accentCasing: builtOpts.accentCasing,
+			accentFontWeight: builtOpts.accentFontWeight,
+			accentInBubbles: builtOpts.accentInBubbles,
+		};
 
 		const { typesetPage } = await import('../typeset');
 		const out = await typesetPage(cleanedBuf, typesetRegions, mergedOpts);
@@ -413,6 +424,8 @@ export function getPageWithRegions(pageId: number) {
 				originalTarget: (r as any).originalTarget ?? r.textTarget,
 				conf: r.conf,
 				confScale: r.confScale,
+				role: r.role ?? 'dialogue',
+				roleSource: r.roleSource ?? null,
 			};
 		}),
 	};

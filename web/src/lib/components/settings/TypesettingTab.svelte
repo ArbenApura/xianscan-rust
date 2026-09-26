@@ -11,11 +11,9 @@
 		DEFAULTS,
 		customFontsStore,
 		systemFontsStore,
-		unloadBrowserFontFace,
 		getMergedDialogueFonts,
 		fontAvailabilityStore,
 		effectiveTypeset,
-		refreshFontAvailability,
 		scriptPreviewFamily,
 		type TypesetOutline,
 		type TypesetCasing,
@@ -28,27 +26,19 @@
 		CASING_PRESETS,
 		isCasingSupportedByFont,
 		getValidCasingForFont,
-		type CustomFontItem,
 	} from '$lib/stores/settings';
-	import { dominantScript, SCRIPT_LABELS, type ScriptFontSlot } from '$lib/typeset-scripts';
+	import { dominantScript, SCRIPT_LABELS } from '$lib/typeset-scripts';
 	// IMPORTED DEP-COMPONENTS
-	import Check from 'lucide-svelte/icons/check';
 	import Type from 'lucide-svelte/icons/type';
-	import Plus from 'lucide-svelte/icons/plus';
-	import Trash2 from 'lucide-svelte/icons/trash-2';
 	import RotateCcw from 'lucide-svelte/icons/rotate-ccw';
 	import Sun from 'lucide-svelte/icons/sun';
 	import Moon from 'lucide-svelte/icons/moon';
 	import Compass from 'lucide-svelte/icons/compass';
 	import Edit3 from 'lucide-svelte/icons/edit-3';
-	import Monitor from 'lucide-svelte/icons/monitor';
 	// IMPORTED COMPONENTS
 	import Switch from '$lib/components/ui/Switch.svelte';
-	import ConfirmDialog from '$lib/components/ui/ConfirmDialog.svelte';
 	import Select, { type SelectOption } from '$lib/components/ui/Select.svelte';
-	import ImportFontModal from '$lib/components/typeset/ImportFontModal.svelte';
-	import SystemFontBrowserModal from '$lib/components/typeset/SystemFontBrowserModal.svelte';
-	import ScriptFontsSection from '$lib/components/settings/ScriptFontsSection.svelte';
+	import FontRolesTable from '$lib/components/settings/FontRolesTable.svelte';
 
 	// -- OPTIONAL PROPS -- //
 
@@ -74,6 +64,19 @@
 		// RIGHT-TO-LEFT LAYOUT IS HANDLED BY FEAT-007; THIS SAMPLE CHECKS THE GLYPHS
 		{ id: 'ar', label: 'العربية', lang: 'ar', text: 'انتظر! ما هذا المستوى من التدريب...؟!' },
 	];
+
+	// ACCENT SAMPLE PER PRESET (FEAT-010): A SKILL CALLOUT SHOWN UNDER THE BUBBLE ONCE AN ACCENT FONT IS SET
+	const ACCENT_SAMPLES: Record<string, string> = {
+		en: 'Green Wood Sword Art',
+		'zh-hans': '青木剑诀',
+		'zh-hant': '青木劍訣',
+		ja: '奥義・青木剣',
+		ko: '청목검법',
+		hi: 'हरित वन खड्ग कला',
+		th: 'วิชากระบี่ไม้เขียว',
+		ru: 'Техника Меча Зелёного Леса',
+		ar: 'فن سيف الخشب الأخضر',
+	};
 
 	let previewDarkBackground = false;
 	let previewSimulatedAngle = 8;
@@ -124,99 +127,6 @@
 		{ value: 0.08, label: 'Spacious (8%)', sub: 'Generous breathing room' },
 		{ value: 0.12, label: 'Airy (12%)', sub: 'Large boundary padding' },
 	];
-
-	let importDialogueModalOpen = false;
-	let importCjkModalOpen = false;
-	// THE SCRIPT SLOT THE SYSTEM-FONT / IMPORT MODALS WERE OPENED FOR (FEAT-006)
-	let scriptSlotForModal: ScriptFontSlot | undefined = undefined;
-	function openSlotBrowser(slot: ScriptFontSlot): void {
-		scriptSlotForModal = slot;
-		systemCjkModalOpen = true;
-	}
-	function openSlotImport(slot: ScriptFontSlot): void {
-		scriptSlotForModal = slot;
-		importCjkModalOpen = true;
-	}
-	function assignScriptSlot(slot: ScriptFontSlot, family: string): void {
-		settings.update((s) => ({ ...s, typesetScriptFonts: { ...(s.typesetScriptFonts || {}), [slot]: family } }));
-	}
-	function withoutScriptFont(map: Partial<Record<ScriptFontSlot, string>> | undefined, family: string) {
-		return Object.fromEntries(Object.entries(map || {}).filter(([, f]) => f !== family)) as Partial<Record<ScriptFontSlot, string>>;
-	}
-	let systemDialogueModalOpen = false;
-	let systemCjkModalOpen = false;
-	let confirmDeleteFontOpen = false;
-	let fontToDelete: { id: string; name: string } | null = null;
-	let isDeletingFont = false;
-
-	function promptDeleteFont(id: string, name: string): void {
-		fontToDelete = { id, name };
-		confirmDeleteFontOpen = true;
-	}
-
-	async function handleDeleteFont(): Promise<void> {
-		if (!fontToDelete) return;
-		isDeletingFont = true;
-		try {
-			const res = await fetch(`/api/system/fonts/${fontToDelete.id}`, { method: 'DELETE' });
-			const data = await res.json();
-			if (res.ok && data.success) {
-				toast.success(`Font "${fontToDelete.name}" deleted`);
-				await refreshFontAvailability();
-				if ($settings.typesetFont === fontToDelete.name) {
-					settings.update((s) => ({ ...s, typesetFont: DEFAULTS.typesetFont }));
-				}
-				if ($settings.typesetCjkFont === fontToDelete.name) {
-					settings.update((s) => ({ ...s, typesetCjkFont: DEFAULTS.typesetCjkFont }));
-				}
-				const deletedName = fontToDelete.name;
-				settings.update((s) => ({ ...s, typesetScriptFonts: withoutScriptFont(s.typesetScriptFonts, deletedName) }));
-			} else {
-				toast.error(data.error || 'Failed to delete font');
-			}
-		} catch (err: any) {
-			toast.error(err.message || 'Failed to delete font');
-		} finally {
-			isDeletingFont = false;
-			confirmDeleteFontOpen = false;
-			fontToDelete = null;
-		}
-	}
-
-	/** A FONT WITHOUT LATIN LETTERS IS STORED AS A SCRIPT FONT, SO IT MUST NOT BECOME THE DIALOGUE FONT. */
-	function handleDialogueImported(font: CustomFontItem): void {
-		const coversLatin = font.scripts && font.scripts.length > 0 ? font.scripts.includes('latin') : font.scriptType === 'dialogue';
-		if (coversLatin && font.scriptType === 'dialogue') {
-			$settings.typesetFont = font.name;
-			return;
-		}
-		toast.warning(`"${font.name}" has no Latin letters, so it was not set as the dialogue font. Pick it under Script Fonts instead.`);
-	}
-
-	function disableSystemFont(familyName: string, fontLabel?: string): void {
-		settings.update((s) => {
-			const nextEnabled = (s.enabledSystemFonts || []).filter((f) => f !== familyName);
-			let nextTypesetFont = s.typesetFont;
-			let nextTypesetCjkFont = s.typesetCjkFont;
-
-			if (s.typesetFont === familyName) {
-				nextTypesetFont = 'CC Wild Words';
-			}
-			if (s.typesetCjkFont === familyName) {
-				nextTypesetCjkFont = 'WenQuanYi Micro Hei';
-			}
-
-			return {
-				...s,
-				enabledSystemFonts: nextEnabled,
-				typesetFont: nextTypesetFont,
-				typesetCjkFont: nextTypesetCjkFont,
-				typesetScriptFonts: withoutScriptFont(s.typesetScriptFonts, familyName),
-			};
-		});
-		unloadBrowserFontFace(familyName);
-		toast.info(`Disabled "${fontLabel || familyName}" from typesetting choices`);
-	}
 
 	function setTypesetFont(font: string) {
 		const targetStatus = $fontAvailabilityStore[font];
@@ -291,26 +201,21 @@
 		});
 	}
 
-	function toggleLivePipelinePreview() {
-		settings.update((s) => {
-			const next = s.livePipelinePreview === false;
-			toast.success(`Live pipeline step previews ${next ? 'enabled' : 'disabled'}`);
-			return { ...s, livePipelinePreview: next };
-		});
-	}
-
 	$: isTypesettingModified =
 		($settings.typesetFont || 'CC Wild Words') !== DEFAULTS.typesetFont ||
 		normalizeFontWeightSelectValue($settings.typesetFontWeight) !== normalizeFontWeightSelectValue(DEFAULTS.typesetFontWeight) ||
 		Boolean($settings.enableTypesetItalic) !== Boolean(DEFAULTS.enableTypesetItalic) ||
 		($settings.typesetCjkFont || DEFAULTS.typesetCjkFont) !== DEFAULTS.typesetCjkFont ||
 		Object.keys($settings.typesetScriptFonts || {}).length > 0 ||
+		JSON.stringify($settings.typesetAccentFonts || {}) !== JSON.stringify(DEFAULTS.typesetAccentFonts) ||
+		($settings.typesetAccentCasing || 'uppercase') !== DEFAULTS.typesetAccentCasing ||
+		normalizeFontWeightSelectValue($settings.typesetAccentFontWeight) !== normalizeFontWeightSelectValue(DEFAULTS.typesetAccentFontWeight) ||
+		Boolean($settings.typesetAccentInBubbles) !== Boolean(DEFAULTS.typesetAccentInBubbles) ||
 		Math.abs(($settings.typesetPadding || 0.05) - DEFAULTS.typesetPadding) >= 0.005 ||
 		($settings.typesetOutline || 'standard') !== DEFAULTS.typesetOutline ||
 		($settings.typesetCasing || 'uppercase') !== DEFAULTS.typesetCasing ||
 		Boolean($settings.enableTextRotation) !== Boolean(DEFAULTS.enableTextRotation) ||
 		Boolean($settings.enableTypesetCentering ?? true) !== Boolean(DEFAULTS.enableTypesetCentering ?? true) ||
-		Boolean($settings.livePipelinePreview !== false) !== Boolean(DEFAULTS.livePipelinePreview !== false) ||
 		($settings.typesetPreviewPreset || 'en') !== (DEFAULTS.typesetPreviewPreset || 'en') ||
 		($settings.typesetPreviewText || '') !== (DEFAULTS.typesetPreviewText || '');
 
@@ -322,6 +227,10 @@
 			enableTypesetItalic: DEFAULTS.enableTypesetItalic,
 			typesetCjkFont: DEFAULTS.typesetCjkFont,
 			typesetScriptFonts: {},
+			typesetAccentFonts: { ...DEFAULTS.typesetAccentFonts },
+			typesetAccentCasing: DEFAULTS.typesetAccentCasing,
+			typesetAccentFontWeight: DEFAULTS.typesetAccentFontWeight,
+			typesetAccentInBubbles: DEFAULTS.typesetAccentInBubbles,
 			typesetPadding: DEFAULTS.typesetPadding,
 			typesetOutline: DEFAULTS.typesetOutline,
 			typesetContrast: DEFAULTS.typesetContrast,
@@ -329,7 +238,6 @@
 			typesetAllCaps: DEFAULTS.typesetAllCaps,
 			enableTextRotation: DEFAULTS.enableTextRotation,
 			enableTypesetCentering: DEFAULTS.enableTypesetCentering,
-			livePipelinePreview: DEFAULTS.livePipelinePreview,
 			typesetPreviewPreset: DEFAULTS.typesetPreviewPreset,
 			typesetPreviewText: DEFAULTS.typesetPreviewText,
 		}));
@@ -422,6 +330,8 @@
 					text: previewSampleText,
 					targetLang: preset?.lang,
 					options: exactPreviewOptions,
+					// THE ACCENT CALLOUT IS RENDERED TOO ONCE AN ACCENT FONT IS SET (FEAT-010)
+					...(accentPreviewOn ? { accentText: accentSampleText } : {}),
 				}),
 			});
 			if (!res.ok) throw new Error(await readErrorMessage(res));
@@ -454,6 +364,24 @@
 	$: previewInsetPadding = `${Math.max(8, Math.round(120 * ($settings.typesetPadding || 0.05)))}px`;
 	$: previewFontSizePx = '14px';
 
+	// ACCENT PREVIEW (FEAT-010): THE CALLOUT USES THE ACCENT FONT FOR THE SAMPLE'S SCRIPT, THE ACCENT CASING AND WEIGHT
+	$: accentFonts = $settings.typesetAccentFonts || {};
+	$: accentPreviewOn = Object.keys(accentFonts).length > 0;
+	$: accentSampleText = ACCENT_SAMPLES[selectedPresetId] ?? ACCENT_SAMPLES.en;
+	$: accentPreviewScript = dominantScript(accentSampleText, 'latin');
+	// KANJI IN THE JAPANESE SAMPLE USE THE kana SLOT, AS THE RENDERER DOES FOR A JAPANESE BOOK
+	$: accentPreviewFamily = (selectedPresetId === 'ja' && accentPreviewScript === 'han' ? accentFonts.kana : undefined) ?? accentFonts[accentPreviewScript];
+	$: accentPreviewFontFamily = accentPreviewFamily ? `"${accentPreviewFamily}", ${previewFontFamily}` : previewFontFamily;
+	$: accentPreviewCased = accentPreviewScript !== 'latin' && accentPreviewScript !== 'cyrillic' && accentPreviewScript !== 'greek'
+		? accentSampleText
+		: ($settings.typesetAccentCasing || 'uppercase') === 'uppercase'
+			? accentSampleText.toUpperCase()
+			: ($settings.typesetAccentCasing || 'uppercase') === 'lowercase'
+				? accentSampleText.toLowerCase()
+				: accentSampleText;
+	// NO ACCENT FONT FOR THIS SCRIPT: THE DIALOGUE FONT WITH A HEAVIER OUTLINE, AS THE RENDERER DOES (ADR-009)
+	$: accentPreviewStroke = accentPreviewFamily ? previewStrokeWidth : previewStrokeWidth === '0px' ? '1px' : previewStrokeWidth === '1px' ? '2px' : '3px';
+
 	// EVERYTHING THE EXACT RENDER DEPENDS ON, IN THE PREVIEW ROUTE'S OPTION SCHEMA
 	$: exactPreviewOptions = {
 		fontDialogue: $settings.typesetFont || DEFAULTS.typesetFont,
@@ -465,9 +393,13 @@
 		colorMode: $settings.typesetContrast || DEFAULTS.typesetContrast,
 		boxInset: Math.min(0.2, Math.max(0.01, $settings.typesetPadding || DEFAULTS.typesetPadding)),
 		enableRotation: Boolean($settings.enableTextRotation),
+		accentFonts,
+		accentCasing: $settings.typesetAccentCasing || DEFAULTS.typesetAccentCasing,
+		accentFontWeight: $settings.typesetAccentFontWeight || DEFAULTS.typesetAccentFontWeight,
+		accentInBubbles: Boolean($settings.typesetAccentInBubbles),
 	};
 	// A PRIMITIVE KEY, SO AN UNRELATED SETTINGS CHANGE DOES NOT CLEAR THE RENDERED IMAGE
-	$: exactPreviewKey = JSON.stringify([previewSampleText, selectedPresetId, isCustomTextMode, exactPreviewOptions]);
+	$: exactPreviewKey = JSON.stringify([previewSampleText, selectedPresetId, isCustomTextMode, exactPreviewOptions, accentPreviewOn ? accentSampleText : null]);
 	$: clearExactPreview(exactPreviewKey);
 
 	// -- LIFECYCLES -- //
@@ -482,7 +414,7 @@
 	<div class="flex flex-col sm:flex-row sm:items-center justify-between gap-2 sm:gap-4">
 		<div class="min-w-0 flex-1">
 			<h2 class="text-base font-bold">Typesetting & Lettering Studio</h2>
-			<p class="text-xs opacity-60 mt-0.5">Dialogue and script fonts, stroke, padding, and live bubble preview</p>
+			<p class="text-xs opacity-60 mt-0.5">Dialogue and accent fonts per script, stroke, padding, and live bubble preview</p>
 		</div>
 		{#if isTypesettingModified}
 			<button
@@ -565,7 +497,7 @@
 
 		<!-- SIMULATED MANGA ARTWORK CANVAS -->
 		<div
-			class={`relative flex min-h-[150px] items-center justify-center overflow-hidden rounded-xl border p-6 transition-colors duration-200 ${
+			class={`relative flex min-h-[150px] flex-col items-center justify-center gap-4 overflow-hidden rounded-xl border p-6 transition-colors duration-200 ${
 				previewDarkBackground ? 'bg-neutral-900 border-neutral-800 text-white' : 'bg-[#faf7f2] border-neutral-300/80 text-neutral-900'
 			}`}
 		>
@@ -595,6 +527,22 @@
 					{previewEffectiveText}
 				</div>
 			</div>
+			{#if accentPreviewOn}
+				<!-- ACCENT CALLOUT (FEAT-010): FREE TEXT IN THE ACCENT FONT; FAMILY AND STROKE ARE RUNTIME VALUES (EXCEPTION (b)) -->
+				<div
+					class="relative z-10 max-w-full select-none break-words text-center text-lg leading-tight"
+					data-testid="accent-preview"
+					style="
+						font-family: {accentPreviewFontFamily};
+						font-weight: {normalizeFontWeightNumeric($settings.typesetAccentFontWeight)};
+						color: {previewDarkBackground ? '#ffffff' : '#111111'};
+						paint-order: stroke fill;
+						-webkit-text-stroke: {accentPreviewStroke} {previewDarkBackground ? '#000000' : '#ffffff'};
+					"
+				>
+					{accentPreviewCased}
+				</div>
+			{/if}
 			<div class="absolute bottom-2 right-2.5 flex items-center gap-1 rounded-md bg-black/50 px-2 py-0.5 text-[9px] font-mono text-white backdrop-blur-xs">
 				<Compass size={10} />
 				<span>{$settings.enableTextRotation ? `Tilt Angle: +${previewSimulatedAngle}°` : 'Horizontal (0°)'}</span>
@@ -625,129 +573,8 @@
 		{/if}
 	</div>
 
-	<!-- LIVE PIPELINE STEP PREVIEWS -->
-	<div
-		id="setting-live-pipeline-preview"
-		class={cn(
-			'flex items-center justify-between rounded-xl border border-black/10 bg-black/[0.02] p-3 dark:border-white/10 dark:bg-white/[0.02] transition-all duration-300',
-			highlightedSettingId === 'live-pipeline-preview' && 'ring-2 ring-[#b23a2e] dark:ring-[#e08a63] bg-[#b23a2e]/[0.06] dark:bg-[#e08a63]/[0.08]',
-		)}
-	>
-		<div>
-			<div class="text-xs font-bold">Live Pipeline Step Previews</div>
-			<div class="text-[10px] opacity-60 mt-0.5">Stream live visual updates through OCR annotations, inpainting, and typesetting</div>
-		</div>
-		<Switch
-			checked={$settings.livePipelinePreview !== false}
-			on:click={toggleLivePipelinePreview}
-			ariaLabel="Live Pipeline Step Previews"
-		/>
-	</div>
-
-	<!-- LATIN DIALOGUE FONT -->
-	<div
-		id="setting-typeset-font"
-		class={cn(
-			'border-t border-black/10 pt-4 dark:border-white/10 space-y-2 transition-all duration-300',
-			highlightedSettingId === 'typeset-font' && 'ring-2 ring-[#b23a2e] dark:ring-[#e08a63] bg-[#b23a2e]/[0.06] dark:bg-[#e08a63]/[0.08] rounded-2xl p-2.5 -m-1',
-		)}
-	>
-		<div class="flex items-center justify-between gap-2">
-			<div class="text-xs font-bold uppercase tracking-wider opacity-80 truncate min-w-0">
-				<span class="hidden sm:inline">Latin / English Dialogue Font</span>
-				<span class="sm:hidden">Dialogue Font</span>
-			</div>
-			<div class="flex items-center gap-1 shrink-0">
-				<button
-					type="button"
-					on:click={() => (systemDialogueModalOpen = true)}
-					class="inline-flex items-center gap-1 rounded-lg px-2 py-0.5 text-[11px] font-semibold text-neutral-700 hover:bg-black/5 dark:text-neutral-300 dark:hover:bg-white/5 transition cursor-pointer whitespace-nowrap shrink-0"
-					use:ripple
-					title="Browse and enable fonts installed on your operating system"
-				>
-					<Monitor size={12} />
-					<span>System Fonts</span>
-				</button>
-				<button
-					type="button"
-					on:click={() => (importDialogueModalOpen = true)}
-					class="inline-flex items-center gap-1 rounded-lg px-2 py-0.5 text-[11px] font-semibold text-[#b23a2e] hover:bg-[#b23a2e]/10 dark:text-[#e08a63] dark:hover:bg-[#e08a63]/10 transition cursor-pointer whitespace-nowrap shrink-0"
-					use:ripple
-				>
-					<Plus size={13} />
-					<span>Import</span>
-				</button>
-			</div>
-		</div>
-		<div class="grid grid-cols-2 sm:grid-cols-3 gap-2">
-			{#each dialogueFonts as font}
-				{@const isSelected = ($settings.typesetFont || 'CC Wild Words') === font.id}
-				{@const status = $fontAvailabilityStore[font.id]}
-				{@const isAvailable = status ? status.available : (font.bundled ?? true)}
-				<button
-					type="button"
-					disabled={!isAvailable}
-					on:click={() => isAvailable && setTypesetFont(font.id)}
-					title={!isAvailable ? `${font.label} is not installed on this system / server` : font.label}
-					class={cn(
-						'flex flex-col justify-between rounded-xl border p-2.5 text-left transition-all',
-						!isAvailable
-							? 'opacity-40 cursor-not-allowed border-black/5 bg-black/[0.01] dark:border-white/5 dark:bg-white/[0.01]'
-							: isSelected
-								? 'border-[#b23a2e] bg-[#b23a2e]/[0.08] text-[#b23a2e] dark:text-[#e08a63] ring-2 ring-[#b23a2e]/30 shadow-xs cursor-pointer'
-								: 'border-black/10 hover:border-black/20 hover:bg-black/[0.02] dark:border-white/10 dark:hover:border-white/20 dark:hover:bg-white/[0.02] cursor-pointer',
-					)}
-					use:ripple
-				>
-					<div class="flex items-center justify-between gap-1">
-						<span class="text-xs font-bold pl-1.5 truncate" style="font-family: {font.stack};">{font.label}</span>
-						<div class="flex items-center gap-1 shrink-0">
-							{#if font.custom}
-								<span class="text-[8.5px] font-mono font-semibold px-1 py-0.2 rounded bg-[#a97f28]/15 text-[#a97f28] dark:bg-[#c9a24b]/20 dark:text-[#d8b15a]">
-									{font.isVariable ? 'Variable' : (font.variants && font.variants.length > 0 ? `${font.variants.length + 1}w` : 'Imported')}
-								</span>
-								<button
-									type="button"
-									on:click={(e) => { e.stopPropagation(); promptDeleteFont(font.customId || font.id, font.label); }}
-									class="p-0.5 rounded text-neutral-400 hover:text-red-600 hover:bg-red-500/10 dark:hover:text-red-400 dark:hover:bg-red-500/20 transition cursor-pointer"
-									title="Delete imported font"
-									use:ripple
-								>
-									<Trash2 size={12} />
-								</button>
-							{:else if font.system}
-								<span class="text-[8.5px] font-mono font-semibold px-1 py-0.2 rounded bg-sky-500/15 text-sky-700 dark:bg-sky-400/20 dark:text-sky-300">System</span>
-								<button
-									type="button"
-									on:click={(e) => { e.stopPropagation(); disableSystemFont(font.id, font.label); }}
-									class="p-0.5 rounded text-neutral-400 hover:text-red-600 hover:bg-red-500/10 dark:hover:text-red-400 dark:hover:bg-red-500/20 transition cursor-pointer"
-									title="Disable system font"
-									use:ripple
-								>
-									<Trash2 size={12} />
-								</button>
-							{:else if !isAvailable}
-								<span class="text-[8.5px] font-mono font-semibold px-1 py-0.2 rounded bg-neutral-200/70 text-neutral-600 dark:bg-neutral-800 dark:text-neutral-400">Missing</span>
-							{:else if font.bundled}
-								<span class="text-[8.5px] font-mono font-semibold px-1 py-0.2 rounded bg-[#4f7a64]/15 text-[#4f7a64] dark:bg-[#4f7a64]/25 dark:text-[#83b39a]">Bundled</span>
-							{/if}
-							{#if isSelected}
-								<Check size={13} class="text-[#b23a2e] dark:text-[#e08a63] shrink-0" />
-							{/if}
-						</div>
-					</div>
-					<div class="mt-1 flex items-center justify-between gap-1">
-						<span class="text-[10px] opacity-60 truncate pl-1.5">{!isAvailable ? 'Not Installed on Server' : font.sub}</span>
-						{#if (font.allCapsOnly || (font.supportedCasings && font.supportedCasings.length === 1 && font.supportedCasings[0] === 'uppercase')) && isAvailable}
-							<span class="rounded bg-black/5 dark:bg-white/10 px-1 py-0.2 text-[8px] font-bold opacity-70 shrink-0">ALL-CAPS</span>
-						{:else if (font.lowercaseOnly || (font.supportedCasings && font.supportedCasings.length === 1 && font.supportedCasings[0] === 'lowercase')) && isAvailable}
-							<span class="rounded bg-black/5 dark:bg-white/10 px-1 py-0.2 text-[8px] font-bold opacity-70 shrink-0">LOWERCASE</span>
-						{/if}
-					</div>
-				</button>
-			{/each}
-		</div>
-	</div>
+	<!-- FONTS TABLE: DIALOGUE AND ACCENT FONT PER SCRIPT, WITH IMPORT, SYSTEM FONTS AND REMOVAL INLINE (FEAT-010) -->
+	<FontRolesTable {highlightedSettingId} on:setDialogueFont={(e) => setTypesetFont(e.detail)} />
 
 	<!-- FONT WEIGHT & CASING ROW -->
 	<div class="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-1">
@@ -787,15 +614,6 @@
 			/>
 		</div>
 	</div>
-
-	<!-- SCRIPT FONTS (FEAT-006): ONE CHOICE PER WRITING SYSTEM, WITH COVERAGE CHECKS -->
-	<ScriptFontsSection
-		highlighted={highlightedSettingId === 'typeset-cjk'}
-		on:browse={(e) => openSlotBrowser(e.detail.slot)}
-		on:import={(e) => openSlotImport(e.detail.slot)}
-		on:deleteFont={(e) => promptDeleteFont(e.detail.id, e.detail.name)}
-		on:disableFont={(e) => disableSystemFont(e.detail.family)}
-	/>
 
 	<!-- TEXT STROKE OUTLINE -->
 	<div
@@ -896,59 +714,4 @@
 			</div>
 		</div>
 	</div>
-</div>
-
-<!-- THE TAB'S DIALOGS NOW RENDER INSIDE THE SETTINGS PANE; display:contents KEEPS THEM OUT OF THE PANE'S space-y MARGINS -->
-<div class="contents">
-	<!-- IMPORT DIALOGUE FONT MODAL -->
-	<ImportFontModal
-		bind:open={importDialogueModalOpen}
-		targetScriptType="dialogue"
-		on:imported={(e) => handleDialogueImported(e.detail.font)}
-	/>
-
-	<!-- IMPORT CJK FALLBACK FONT MODAL -->
-	<ImportFontModal
-		bind:open={importCjkModalOpen}
-		targetScriptType="cjk"
-		targetSlot={scriptSlotForModal}
-		on:imported={(e) => {
-			if (scriptSlotForModal) assignScriptSlot(scriptSlotForModal, e.detail.font.name);
-			else $settings.typesetCjkFont = e.detail.font.name;
-		}}
-	/>
-
-	<!-- SYSTEM DIALOGUE FONT BROWSER MODAL -->
-	<SystemFontBrowserModal
-		bind:open={systemDialogueModalOpen}
-		targetScriptType="dialogue"
-		lockScriptType={true}
-		on:enabled={(e) => {
-			$settings.typesetFont = e.detail.family;
-		}}
-	/>
-
-	<!-- SYSTEM CJK FONT BROWSER MODAL -->
-	<SystemFontBrowserModal
-		bind:open={systemCjkModalOpen}
-		targetScriptType="cjk"
-		targetSlot={scriptSlotForModal}
-		lockScriptType={true}
-		on:enabled={(e) => {
-			// WITH A SLOT, THE BROWSER ALREADY ASSIGNED IT; OTHERWISE KEEP THE LEGACY CJK SETTING
-			if (!scriptSlotForModal) $settings.typesetCjkFont = e.detail.family;
-		}}
-	/>
-
-	<!-- CONFIRM FONT DELETION DIALOG -->
-	<ConfirmDialog
-		bind:open={confirmDeleteFontOpen}
-		title="Delete Custom Font"
-		message={`Are you sure you want to delete the font "${fontToDelete?.name}"? This action cannot be undone.`}
-		confirmLabel="Delete Font"
-		variant="danger"
-		loading={isDeletingFont}
-		on:confirm={handleDeleteFont}
-		on:cancel={() => (fontToDelete = null)}
-	/>
 </div>

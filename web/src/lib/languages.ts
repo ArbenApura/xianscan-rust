@@ -172,6 +172,15 @@ export function languageName(code: string | null | undefined): string {
 	return getLanguage(code).name;
 }
 
+/**
+ * THE SCRIPTS THE SUPPORTED LANGUAGES ARE WRITTEN IN (FEAT-010), IN LANGUAGE-LIST ORDER. THE RENDERER SUPPORTS MORE
+ * SCRIPTS (GREEK, HEBREW, BENGALI, TAMIL) FOR STRAY CHARACTERS, BUT NO BOOK CAN BE TRANSLATED INTO THEM, SO FONT
+ * SETTINGS ONLY OFFER THESE.
+ */
+export function languageScripts(): Script[] {
+	return [...new Set(Object.values(LANGUAGES).map((l) => l.script))];
+}
+
 export function targetLanguageOptions(): TargetOption[] {
 	return Object.values(LANGUAGES)
 		.map((l) => ({

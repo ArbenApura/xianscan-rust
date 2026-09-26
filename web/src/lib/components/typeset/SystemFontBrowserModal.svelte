@@ -6,6 +6,7 @@ import { toast } from 'svelte-sonner';
 // IMPORTED MODULES
 import {
 	settings,
+	fontRemovalPatch,
 	systemFontsStore,
 	systemFontsLoadingStore,
 	fetchInstalledSystemFonts,
@@ -36,6 +37,11 @@ export let targetScriptType: 'dialogue' | 'cjk' = 'dialogue';
 export let lockScriptType: boolean = true;
 /** WHEN SET, THE BROWSER LISTS ONLY FONTS WITH GLYPHS FOR THIS SCRIPT AND ENABLING ONE ASSIGNS IT TO THAT SLOT. */
 export let targetSlot: ScriptFontSlot | undefined = undefined;
+/**
+ * ENABLE ONLY (FEAT-010 REVIEW H7): THE FONT LIBRARY ADDS FONTS TO THE CHOICES WITHOUT ASSIGNING THEM TO ANY ROLE; THE
+ * USER PICKS THEM IN THE FONTS TABLE. OTHERWISE ENABLING ALSO SELECTS THE FONT, AS BEFORE.
+ */
+export let enableOnly: boolean = false;
 
 // -- CONSTANTS -- //
 
@@ -66,28 +72,8 @@ async function handleRefresh(): Promise<void> {
 
 /** REMOVES A SYSTEM FONT FROM THE TYPESETTING CHOICES; EVERY SETTING THAT USED IT GOES BACK TO ITS DEFAULT. */
 function disableFont(familyName: string): void {
-	settings.update((s) => {
-		const next = (s.enabledSystemFonts || []).filter((f) => f !== familyName);
-		let nextTypesetFont = s.typesetFont;
-		let nextTypesetCjkFont = s.typesetCjkFont;
-		if (s.typesetFont === familyName) {
-			nextTypesetFont = 'CC Wild Words';
-		}
-		if (s.typesetCjkFont === familyName) {
-			nextTypesetCjkFont = 'WenQuanYi Micro Hei';
-		}
-		// SCRIPT SLOTS THAT USED IT GO BACK TO AUTOMATIC
-		const nextScriptFonts = Object.fromEntries(
-			Object.entries(s.typesetScriptFonts || {}).filter(([, family]) => family !== familyName),
-		);
-		return {
-			...s,
-			enabledSystemFonts: next,
-			typesetFont: nextTypesetFont,
-			typesetCjkFont: nextTypesetCjkFont,
-			typesetScriptFonts: nextScriptFonts,
-		};
-	});
+	// DIALOGUE, SCRIPT AND ACCENT SETTINGS THAT USED IT FALL BACK (FEAT-010 REVIEW H8)
+	settings.update((s) => ({ ...s, ...fontRemovalPatch(s, familyName, { disableSystem: true }) }));
 	toast.info(`Disabled "${familyName}" from typesetting choices`);
 }
 
@@ -95,6 +81,9 @@ function disableFont(familyName: string): void {
 function enableFont(familyName: string): void {
 	settings.update((s) => {
 		const next = [...(s.enabledSystemFonts || []), familyName];
+		if (enableOnly) {
+			return { ...s, enabledSystemFonts: next };
+		}
 		if (targetSlot) {
 			return { ...s, enabledSystemFonts: next, typesetScriptFonts: { ...(s.typesetScriptFonts || {}), [targetSlot]: familyName } };
 		}
@@ -111,8 +100,9 @@ function enableFont(familyName: string): void {
 		: targetScriptType === 'cjk'
 			? 'CJK fallback typesetting'
 			: 'dialogue speech bubbles';
-	toast.success(`Enabled and selected "${familyName}" for ${categoryDesc}`);
+	toast.success(enableOnly ? `Enabled "${familyName}"` : `Enabled and selected "${familyName}" for ${categoryDesc}`);
 	dispatch('enabled', { family: familyName, scriptType: targetScriptType });
+	if (enableOnly) open = false;
 }
 
 /** AN ALREADY ENABLED FONT IS ONLY ASSIGNED TO THE SLOT; IT STAYS ENABLED FOR EVERY OTHER SETTING THAT USES IT. */
@@ -127,6 +117,11 @@ function useForSlot(familyName: string, slot: ScriptFontSlot): void {
 function handleFontAction(familyName: string): void {
 	const enabled = ($settings.enabledSystemFonts || []).includes(familyName);
 	if (!enabled) enableFont(familyName);
+	// ENABLE-ONLY (THE FONTS TABLE): AN ENABLED FONT IS PICKED FOR THE CELL THAT OPENED THE BROWSER
+	else if (enableOnly) {
+		dispatch('enabled', { family: familyName, scriptType: targetScriptType });
+		open = false;
+	}
 	else if (targetSlot) useForSlot(familyName, targetSlot);
 	else disableFont(familyName);
 }
@@ -137,7 +132,12 @@ $: if (open && targetScriptType) {
 	activeTab = targetScriptType;
 }
 
-$: if (open && $systemFontsStore.length === 0) {
+// ONE AUTOMATIC SCAN PER OPENING: AN EMPTY RESULT MUST NOT TRIGGER ANOTHER SCAN (IT LOOPED WITH A SPINNER). THE REFRESH
+// BUTTON STILL RESCANS ON DEMAND.
+let scannedThisOpen = false;
+$: if (!open) scannedThisOpen = false;
+$: if (open && !scannedThisOpen && $systemFontsStore.length === 0) {
+	scannedThisOpen = true;
 	fetchInstalledSystemFonts();
 }
 
@@ -218,12 +218,14 @@ $: searchPlaceholder = targetSlot
 			<Button
 				variant="ghost"
 				size="sm"
-				loading={$systemFontsLoadingStore}
+				loading={$systemFontsLoadingStore && $systemFontsStore.length > 0}
+				disabled={$systemFontsLoadingStore}
 				on:click={handleRefresh}
 				title="Rescan system font directories"
 				class="shrink-0"
 			>
-				<RefreshCw size={13} class={cn($systemFontsLoadingStore && 'animate-spin')} />
+				<!-- Button SHOWS ITS OWN SPINNER WHILE LOADING; THE ICON IS ONLY SHOWN WHEN IDLE (ONE SPINNER, NOT TWO) -->
+				{#if !($systemFontsLoadingStore && $systemFontsStore.length > 0)}<RefreshCw size={13} />{/if}
 			</Button>
 		</div>
 
@@ -264,7 +266,7 @@ $: searchPlaceholder = targetSlot
 			{:else}
 				{#each filteredFonts as font}
 					{@const enabled = ($settings.enabledSystemFonts || []).includes(font.family)}
-					{@const inSlot = Boolean(targetSlot && $settings.typesetScriptFonts?.[targetSlot] === font.family)}
+					{@const inSlot = Boolean(!enableOnly && targetSlot && $settings.typesetScriptFonts?.[targetSlot] === font.family)}
 					<div
 						class={cn(
 							'group flex flex-col gap-1.5 rounded-2xl border p-3 transition-all',
@@ -314,7 +316,7 @@ $: searchPlaceholder = targetSlot
 									on:click={() => handleFontAction(font.family)}
 									class={cn(
 										'inline-flex items-center gap-1.5 rounded-xl px-2.5 py-1 text-xs font-semibold transition-all cursor-pointer shadow-2xs whitespace-nowrap disabled:cursor-default',
-										inSlot || (enabled && !targetSlot)
+										inSlot || (enabled && !targetSlot && !enableOnly)
 											? 'bg-[#4f7a64] text-white hover:bg-[#3d604e] dark:bg-[#5b8a72] dark:hover:bg-[#4d7560]'
 											: 'border border-black/10 bg-white text-neutral-800 hover:bg-neutral-50 dark:border-white/10 dark:bg-neutral-800 dark:text-neutral-200 dark:hover:bg-neutral-700'
 									)}
@@ -323,7 +325,7 @@ $: searchPlaceholder = targetSlot
 									{#if inSlot}
 										<Check size={12} />
 										<span>In use</span>
-									{:else if enabled && targetSlot}
+									{:else if enabled && (targetSlot || enableOnly)}
 										<Plus size={12} />
 										<span>Use</span>
 									{:else if enabled}

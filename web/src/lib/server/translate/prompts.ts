@@ -205,6 +205,7 @@ export function systemPrompt(
 		`       1) Character Annotation Tags & Status Labels: Concise descriptive callouts or boxes with pointers directed at a character (e.g. status tags, traits, gullibility callouts like [ 真信了 ], or gag commentary like [ 不看八卦新闻。 ], [ 刚刚睡醒 ], [ 沉迷游戏中 ]). Translate as concise declarative third-person or subjectless phrases (e.g. "(He) actually bought it!", "Doesn't read gossip news.", "Just woke up.", "Lost in a game."). Do NOT invert these into first-person confessions ("I actually believed it") or second-person ("you") address.`,
 		`       2) Miniature Floating Asides: Whispered reactions or chibi murmurs near characters. If the text has question markers or question punctuation (e.g. "不看八卦新闻？", "真的吗？"), translate as an aside question ("You don't read gossip news?", "Really?"). If declarative, translate as self-talk or whispered remark ("So scary...", "I don't read gossip news.").`,
 		`       3) Scene / Narrative Captions: Descriptive setting or time cards (e.g. "The next morning.").`,
+		`   - Accent Text (styles): A region whose whole content is a named technique, martial art, attack, spell, summoned being, activated skill or ability (including rank or tier prefixes such as 玄阶中级, 검법, 奥義), or a dramatic title card announcing an arc, location or chapter, is accent text. Examples across genres: cultivation techniques, shonen attack calls, fantasy spell names, system skill activations like "[Skill: Shadow Step]". Ordinary speech that merely mentions a technique is NOT accent text. List accent regions in "styles" as {"<id>": "accent"}. Omit non-accent regions from "styles" only; "translations" must still contain every region ID.`,
 		`4. Spoken Comic Register & Bubble Geometry:`,
 		`   - Declarative vs. Interrogative Mood & Punctuation Preservation: Never convert a declarative sentence ending with a full stop or period (。, .) into an English question (?), unless the source explicitly contains an interrogative marker (e.g. Chinese 吗/呢/吧/难道/岂, Japanese か/の, Korean 까/나/니/요). Conversely, if the source contains question punctuation (？, ?${arabicTarget ? ', ؟' : ''}) or question particles, preserve the interrogative mood in the translation regardless of whether the region is a bubble or free text.`,
 		`     * [free_text] "不看八卦新闻。" -> "Doesn't read gossip news." (declarative character note / gag label)`,
@@ -231,7 +232,7 @@ export function systemPrompt(
 	];
 
 	const outputSchemaSection = `### IV. OUTPUT SCHEMA AND FORMAT REQUIREMENTS
-1. Return a valid JSON object containing two top-level keys: "translations" and "newTerms".
+1. Return a valid JSON object containing three top-level keys: "translations", "styles" and "newTerms".
 2. Strict 1:1 Region Mapping in "translations": You MUST provide a translation for EVERY provided input region ID. Exactly one translation per ID: no more, no less. Do not skip or omit any region.
 3. Target Language: ALL translation values and context descriptions MUST be strictly in ${tgtName} (${tgt}). Never leave raw source characters.
 4. Mandatory Glossary Compliance (Zero Deviation): For every term listed in the project Glossary, you MUST use the EXACT target translation string verbatim whenever its source characters appear in any region. Do NOT re-translate, synonymize, or alter Glossary terms.
@@ -240,10 +241,14 @@ export function systemPrompt(
    - Headword-Only Anti-Duplicate Rule: Only skip a term if its exact source characters or aliases are ALREADY an explicit headword (prefixed with ★) in the project Glossary. Mentioning a word in another term's description context does NOT count as an existing entry. If a term does not have its own ★ headword entry, it MUST be extracted.
    - For every new term, provide its source, target translation, category, gender, aliases (e.g. ["小凡"] or []), and a 1-sentence context description.
    - If there are no new terms appearing on this page, output an empty array: "newTerms": [].
-6. Output JSON Structure:
+6. Accent Styles in "styles": Map each accent text region ID (see Accent Text in section I) to "accent". If no region is accent text, output "styles": {}.
+7. Output JSON Structure:
 {
   "translations": {
     "<id>": "<${tgtName} translation of <id>>"
+  },
+  "styles": {
+    "<accent region id>": "accent"
   },
   "newTerms": [
     {
@@ -326,7 +331,7 @@ export function userPrompt(
 Region IDs: [${idList}]
 ${regionPayload(regions)}
 
-Translate all ${count} region IDs into ${tgtName} and extract any new terms into "newTerms" following the system schema. Output ONLY the JSON object.`;
+Translate all ${count} region IDs into ${tgtName}, mark accent text regions in "styles", and extract any new terms into "newTerms" following the system schema. Output ONLY the JSON object.`;
 }
 
 export function buildMessages(

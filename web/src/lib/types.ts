@@ -244,6 +244,11 @@ export interface BatchTranslationState {
 
 export type RegionKind = 'dialogue_bubble' | 'free_text';
 
+// HOW A REGION IS LETTERED (FEAT-010): 'accent' = NAMED TECHNIQUE, ATTACK, SPELL, SKILL OR TITLE CARD
+export type RegionRole = 'dialogue' | 'accent';
+// WHO SET THE ROLE: THE TRANSLATION MODEL, A GLOSSARY technique TERM, OR THE USER
+export type RegionRoleSource = 'llm' | 'glossary' | 'user';
+
 export interface PageRegion {
 	id: string;
 	seq: number;
@@ -262,7 +267,10 @@ export interface PageRegion {
 	confScale?: number | null;
 	angle?: number | null;
 	vertical?: boolean;
-}export interface Chapter {
+	role?: RegionRole;
+	roleSource?: RegionRoleSource | null;
+}
+export interface Chapter {
 	id: number;
 	bookId?: string;
 	seq: number;

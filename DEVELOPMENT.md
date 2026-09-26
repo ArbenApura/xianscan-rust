@@ -287,8 +287,9 @@ curl -H "Authorization: Bearer $XIANSCAN_TOKEN" http://192.168.1.10:8124/api/boo
 | `/api/covers/:bookId` | `POST`, `DELETE` | Upload or remove a dedicated cover (`/api/covers/:bookId/file` serves it). |
 | `/api/auth/unlock` | `POST` | Exchange the access token for a browser session cookie (`/api/auth/status`, `/api/auth/logout`). |
 | `/api/system/access` | `GET`, `PATCH` | LAN access setting, token and network addresses (`POST /api/system/access/token/regenerate` replaces the token). |
-| `/api/system/fonts/coverage` | `GET` | Per-script font chain and covering fonts. |
-| `/api/typeset/preview` | `POST` | Exact typeset preview rendered by the server. |
+| `/api/system/fonts/coverage` | `GET` | Per-script font chain and covering fonts; `accent` lists each accent font with the sample letters it lacks (`?accentFonts=` overrides the saved ones). |
+| `/api/system/fonts/book-scripts` | `GET` | Scripts the library's books are typeset in (rows of the Fonts table). |
+| `/api/typeset/preview` | `POST` | Exact typeset preview rendered by the server; optional `accentText` adds an accent sample below the bubble. |
 | `/api/glossary` | `GET`, `POST`, `DELETE` | Dynamic terminology glossary CRUD (Aho-Corasick matching). |
 | `/api/translate-text` | `POST` | Context-aware LLM dialogue translation (Ollama, LM Studio, Cloud APIs). |
 | `/api/mihon/*` | `GET` | Mihon / Tachiyomi mobile reader source repository and chapter stream. |

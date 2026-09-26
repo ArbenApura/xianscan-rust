@@ -511,6 +511,27 @@ describe('PageInspectModal Component UI', () => {
 		expect(inpaintRect?.getAttribute('height')).toBe('80');
 		expect(inpaintRect?.getAttribute('stroke-dasharray')).toBe('3.5 2');
 	});
+
+	it('shows an Accent badge with who marked it (FEAT-010)', async () => {
+		const mockPage = {
+			id: 105,
+			seq: 0,
+			filePath: 'page_1.png',
+			outputPath: 'output/page_1.png',
+			width: 800,
+			height: 1200,
+			regions: [
+				{ id: 701, seq: 0, textSource: '青木剑诀', textTarget: 'Green Wood Sword Art', box: { x: 10, y: 10, w: 100, h: 40 }, kind: 'free_text', role: 'accent', roleSource: 'glossary' },
+				{ id: 702, seq: 1, textSource: '站住', textTarget: 'Stop', box: { x: 10, y: 80, w: 100, h: 40 }, kind: 'dialogue_bubble', role: 'dialogue', roleSource: null },
+			],
+		};
+
+		render(PageInspectModal, { props: { open: true, page: mockPage } });
+		await fireEvent.click(screen.getByText('Regions (2)'));
+		await tick();
+
+		const badges = screen.getAllByTestId('region-accent-badge');
+		expect(badges).toHaveLength(1);
+		expect(badges[0].getAttribute('title')).toBe('Accent text, marked by Glossary');
+	});
 });
-
-

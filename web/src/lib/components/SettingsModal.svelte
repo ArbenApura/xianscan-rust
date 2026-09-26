@@ -174,15 +174,15 @@
 
 		// TYPESETTING
 		{ id: 'preview', label: 'Live Speech Bubble Preview', category: 'typesetting', categoryLabel: 'Typesetting & Lettering', categoryIcon: Type, keywords: ['preview', 'bubble', 'dialogue', 'sample', 'live', 'manga', 'exact', 'render', 'rtl', 'arabic'] },
-		{ id: 'typeset-font', label: 'Latin Dialogue Font', category: 'typesetting', categoryLabel: 'Typesetting & Lettering', categoryIcon: Type, keywords: ['font', 'latin', 'english', 'wild words', 'montserrat', 'general sans', 'poppins', 'system fonts', 'import font', 'custom font', 'ttf', 'otf', 'woff2', 'variable'] },
+		{ id: 'typeset-fonts', label: 'Fonts (dialogue and accent font per script)', category: 'typesetting', categoryLabel: 'Typesetting & Lettering', categoryIcon: Type, keywords: ['font', 'fonts', 'dialogue', 'latin', 'english', 'wild words', 'montserrat', 'general sans', 'poppins', 'system fonts', 'import font', 'your fonts', 'custom font', 'ttf', 'otf', 'woff2', 'variable', 'cjk', 'chinese', 'japanese', 'korean', 'fallback', 'yahei', 'gothic', 'hangul', 'hindi', 'devanagari', 'thai', 'arabic', 'russian', 'cyrillic', 'script', 'tofu', 'boxes', 'coverage', 'rtl', 'tajawal', 'noto'] },
+		{ id: 'typeset-accent', label: 'Accent font (skills, attacks, spells, title cards)', category: 'typesetting', categoryLabel: 'Typesetting & Lettering', categoryIcon: Type, keywords: ['accent', 'skill', 'technique', 'attack', 'spell', 'title', 'stylish', 'display', 'callout', 'martial art', 'move', 'casing', 'weight', 'speech bubbles'] },
 		{ id: 'typeset-weight', label: 'Dialogue Font Weight (Regular & Bold)', category: 'typesetting', categoryLabel: 'Typesetting & Lettering', categoryIcon: Type, keywords: ['weight', 'bold', 'regular', 'thickness', '400', '700', 'font weight', 'variants'] },
 		{ id: 'typeset-casing', label: 'Dialogue Letterform Casing', category: 'typesetting', categoryLabel: 'Typesetting & Lettering', categoryIcon: Type, keywords: ['casing', 'uppercase', 'lowercase', 'all-caps', 'capitalization'] },
-		{ id: 'typeset-cjk', label: 'Script fonts (Chinese, Japanese, Korean, Hindi, Thai, Arabic, Cyrillic...)', category: 'typesetting', categoryLabel: 'Typesetting & Lettering', categoryIcon: Type, keywords: ['cjk', 'chinese', 'japanese', 'korean', 'fallback', 'font', 'yahei', 'gothic', 'hangul', 'hindi', 'devanagari', 'thai', 'arabic', 'russian', 'cyrillic', 'script', 'tofu', 'boxes', 'coverage', 'rtl', 'tajawal', 'noto'] },
 		{ id: 'typeset-padding', label: 'Bubble Inset Padding', category: 'typesetting', categoryLabel: 'Typesetting & Lettering', categoryIcon: Type, keywords: ['padding', 'margin', 'inset', 'tight', 'balanced', 'spacious', 'airy', 'fit'] },
 		{ id: 'typeset-outline', label: 'Text Stroke Outline', category: 'typesetting', categoryLabel: 'Typesetting & Lettering', categoryIcon: Type, keywords: ['stroke', 'outline', 'border', 'thin', 'standard', 'heavy', 'thickness'] },
 		{ id: 'typeset-angle', label: 'Bubble Tilt Angle Rotation', category: 'typesetting', categoryLabel: 'Typesetting & Lettering', categoryIcon: Type, keywords: ['tilt', 'angle', 'rotation', 'rotate', 'diagonal'] },
 		{ id: 'typeset-centering', label: 'Bubble Centering & Expansion', category: 'typesetting', categoryLabel: 'Typesetting & Lettering', categoryIcon: AlignCenter, keywords: ['centering', 'expansion', 'center', 'bubble', 'anchor', 'slack', 'carrier'] },
-		{ id: 'live-pipeline-preview', label: 'Live Pipeline Step Previews', category: 'typesetting', categoryLabel: 'Typesetting & Lettering', categoryIcon: Eye, keywords: ['preview', 'live', 'ocr', 'inpaint', 'progressive', 'intermediate', 'step', 'stream'] },
+		{ id: 'live-pipeline-preview', label: 'Live Pipeline Step Previews', category: 'appearance', categoryLabel: 'General & Appearance', categoryIcon: Eye, keywords: ['preview', 'live', 'ocr', 'inpaint', 'progressive', 'intermediate', 'step', 'stream'] },
 
 		// INPAINTING
 		{ id: 'inpaint-mode', label: 'Inpainting Strategy', category: 'inpainting', categoryLabel: 'Inpainting & Cleaning', categoryIcon: Eraser, keywords: ['inpaint', 'patch', 'scaled', 'full', 'erase', 'cleaning', 'lama', 'tiles', 'memory', 'bands', 'aspect'] },
@@ -521,7 +521,7 @@
 					<div
 						bind:this={searchPopoverEl}
 						transition:fly={{ y: -6, duration: 150, easing: cubicOut }}
-						class="absolute top-full left-2 right-2 mt-1.5 z-40 max-h-[290px] overflow-y-auto rounded-xl border border-black/15 bg-white/95 p-1.5 shadow-2xl backdrop-blur-md dark:border-white/15 dark:bg-[#1a1612]/95 space-y-2.5"
+						class="absolute top-full left-2 right-2 mt-1.5 z-40 max-h-[290px] overflow-y-auto overflow-x-hidden rounded-xl border border-black/15 bg-white/95 p-1.5 shadow-2xl backdrop-blur-md dark:border-white/15 dark:bg-[#1a1612]/95 space-y-2.5"
 					>
 						{#if matchingSettingsGroups.size === 0}
 							<div class="p-3 text-center text-xs opacity-60">
@@ -530,10 +530,10 @@
 						{:else}
 							{#each Array.from(matchingSettingsGroups.entries()) as [catTitle, groupData]}
 								{@const GroupIcon = groupData.categoryIcon}
-								<div class="space-y-1">
-									<div class="flex items-center gap-1.5 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider text-[#b23a2e] dark:text-[#e08a63] opacity-80">
+								<div class="space-y-1 min-w-0">
+									<div class="flex items-center gap-1.5 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider text-[#b23a2e] dark:text-[#e08a63] opacity-80 min-w-0">
 										<GroupIcon size={12} class="shrink-0" />
-										<span class="pl-1">{catTitle}</span>
+										<span class="truncate pl-1">{catTitle}</span>
 									</div>
 									<div class="space-y-0.5">
 										{#each groupData.items as setting}
@@ -545,14 +545,14 @@
 												on:click={() => jumpToSetting(setting)}
 												on:mouseenter={() => (searchSelectedIndex = flatIdx)}
 												class={cn(
-													'w-full flex items-center justify-between rounded-lg px-2.5 py-1.5 text-left text-xs transition-colors cursor-pointer group',
+													'w-full min-w-0 flex items-center justify-between rounded-lg px-2.5 py-1.5 text-left text-xs transition-colors cursor-pointer group',
 													searchSelectedIndex === flatIdx
 														? 'bg-[#b23a2e]/[0.08] dark:bg-[#e08a63]/[0.12] ring-1 ring-[#b23a2e]/25 dark:ring-[#e08a63]/30 font-medium'
 														: 'hover:bg-black/5 dark:hover:bg-white/5',
 												)}
 												use:ripple
 											>
-												<span class="truncate pl-1.5">
+												<span class="flex-1 min-w-0 truncate pl-1.5">
 													{#if hp.match}
 														{hp.before}<span class="font-bold text-[#b23a2e] dark:text-[#e08a63] underline">{hp.match}</span>{hp.after}
 													{:else}
@@ -572,17 +572,17 @@
 							{/each}
 
 							<!-- KEYBOARD HINTS FOOTER -->
-							<div class="border-t border-black/10 dark:border-white/10 pt-1.5 px-2 flex items-center justify-between text-[10px] opacity-60">
-								<span class="flex items-center gap-1">
+							<div class="border-t border-black/10 dark:border-white/10 pt-1.5 px-2 flex flex-wrap items-center justify-between gap-1 text-[10px] opacity-60">
+								<span class="flex items-center gap-1 shrink-0">
 									<kbd class="rounded border border-black/10 dark:border-white/15 bg-black/[0.03] dark:bg-white/[0.05] px-1 py-0.2 font-mono text-[9px]">↑</kbd>
 									<kbd class="rounded border border-black/10 dark:border-white/15 bg-black/[0.03] dark:bg-white/[0.05] px-1 py-0.2 font-mono text-[9px]">↓</kbd>
 									<span>Navigate</span>
 								</span>
-								<span class="flex items-center gap-1">
+								<span class="flex items-center gap-1 shrink-0">
 									<kbd class="rounded border border-black/10 dark:border-white/15 bg-black/[0.03] dark:bg-white/[0.05] px-1 py-0.2 font-mono text-[9px]">↵</kbd>
 									<span>Jump</span>
 								</span>
-								<span class="flex items-center gap-1">
+								<span class="flex items-center gap-1 shrink-0">
 									<kbd class="rounded border border-black/10 dark:border-white/15 bg-black/[0.03] dark:bg-white/[0.05] px-1.5 py-0.2 font-mono text-[9px]">ESC</kbd>
 									<span>Dismiss</span>
 								</span>

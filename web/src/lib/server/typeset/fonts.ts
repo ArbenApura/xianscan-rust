@@ -13,8 +13,8 @@ import { customFonts, customFontFiles } from '../db/schema';
 import { DATA_ROOT } from '../paths';
 import { JOINER_REGEX, SCRIPT_RANGES, dominantScript, scriptOfChar } from '$lib/typeset-scripts';
 import { buildScriptFontChain, fontStackString, textFontStack, type ScriptFontContext } from './script-fonts';
-import { familyCovers, invalidateCoverageCache, registerCoverageSource } from './coverage';
-import { parseFontBuffer, readCmapCoverage, scriptsCoveredBy, splitFontCollection } from './font-parser';
+import { familyCodepoints, familyCovers, invalidateCoverageCache, registerCodepointSource, registerCoverageSource } from './coverage';
+import { parseFontBuffer, readCmapCoverage, scriptsCoveredBy, splitFontCollection, type CodepointSet } from './font-parser';
 import { BUNDLED_FONT_FILES, bundledFontFileFor, isBundledFontFamily } from './bundled-families';
 import type { ScriptFontSlot } from '$lib/typeset-scripts';
 import type { Script } from '$lib/languages';
@@ -52,6 +52,11 @@ registerCoverageSource((family, script) => {
 	const scripts = CUSTOM_COVERAGE.get(family.toLowerCase());
 	return scripts && scripts.length > 0 ? scripts.includes(script) : undefined;
 });
+
+/** CODE POINTS OF EVERY BUNDLED FAMILY (AND ITS ALIASES), READ WITH BUNDLED_COVERAGE (FEAT-010 ADR-008). */
+export const BUNDLED_CODEPOINTS = new Map<string, CodepointSet>();
+/** CODE POINTS OF USER-IMPORTED FAMILIES, READ LAZILY FROM THE PRIMARY FILE; null = UNREADABLE. */
+const CUSTOM_CODEPOINTS = new Map<string, CodepointSet | null>();
 
 /** EVERY SCRIPT THE COVERAGE ENGINE CAN ANSWER FOR (LATIN PLUS THE SLOT SCRIPTS). */
 const ALL_SCRIPTS: Script[] = ['latin', 'han', 'kana', 'hangul', 'devanagari', 'thai', 'arabic', 'cyrillic', 'greek', 'hebrew', 'bengali', 'tamil'];
@@ -95,10 +100,14 @@ export interface TextColor {
 }
 
 let fontsRegistered = false;
+/** CACHE FOR resolveEffectiveFontWeight, CLEARED WHENEVER A FONT FILE IS REGISTERED. */
+const weightCache = new Map<string, 'normal' | 'bold' | number>();
 let customFontsRegistered = false;
 
 export function invalidateCustomFontsCache(): void {
 	customFontsRegistered = false;
+	weightCache.clear();
+	CUSTOM_CODEPOINTS.clear();
 	invalidateCoverageCache();
 }
 
@@ -136,6 +145,8 @@ export function resolveFontDir(): string {
 function tryRegisterFont(fontPath: string, fontName?: string): boolean {
 	try {
 		if (!existsSync(fontPath)) return false;
+		// A NEW FILE CAN ADD WEIGHTS TO A FAMILY: FORGET CACHED WEIGHT ANSWERS
+		weightCache.clear();
 		if (fontName) {
 			GlobalFonts.registerFromPath(fontPath, fontName);
 		} else {
@@ -233,6 +244,8 @@ export function registerFonts(db: any = defaultDb): void {
 	tryRegisterFont(join(fontDir, 'NotoSansThai-Bold.ttf'), 'Noto Sans Thai');
 	tryRegisterFont(join(fontDir, 'Tajawal-Regular.ttf'), 'Tajawal');
 	tryRegisterFont(join(fontDir, 'Tajawal-Bold.ttf'), 'Tajawal');
+	// DEFAULT LATIN ACCENT FONT (FEAT-010): SKILL NAMES, ATTACKS AND TITLE CARDS
+	tryRegisterFont(join(fontDir, 'SigmarOne-Regular.ttf'), 'Sigmar One');
 	recordBundledCoverage(fontDir);
 
 	// PLATFORM SYSTEM FONTS (WINDOWS, LINUX, MACOS)
@@ -304,8 +317,12 @@ function recordBundledCoverage(fontDir: string): void {
 	for (const [file, families] of BUNDLED_COVERAGE_FILES) {
 		try {
 			const buf = readFileSync(join(fontDir, file));
-			const scripts = scriptsCoveredBy(readCmapCoverage(buf, splitFontCollection(buf)[0]));
-			for (const family of families) BUNDLED_COVERAGE.set(family.toLowerCase(), scripts);
+			const codepoints = readCmapCoverage(buf, splitFontCollection(buf)[0]);
+			const scripts = scriptsCoveredBy(codepoints);
+			for (const family of families) {
+				BUNDLED_COVERAGE.set(family.toLowerCase(), scripts);
+				BUNDLED_CODEPOINTS.set(family.toLowerCase(), codepoints);
+			}
 		} catch {
 			// A MISSING BUNDLED FILE IS REPORTED BY REGISTRATION; THE PROBE STILL ANSWERS FOR IT
 		}
@@ -553,7 +570,18 @@ export function resolveEffectiveFontWeight(
 	}
 
 	const fam = (fontFamily || '').trim();
+	// GlobalFonts.families LISTS EVERY INSTALLED FAMILY AND IS SLOW; LAYOUT ASKS FOR THE SAME FAMILY AND WEIGHT MANY
+	// TIMES PER REGION (FEAT-010: ONCE PER MEASURED STRING FOR ACCENT REGIONS), SO THE ANSWER IS CACHED
+	const cacheKey = `${fam.toLowerCase()}|${targetWeight}`;
+	const cached = weightCache.get(cacheKey);
+	if (cached !== undefined) return cached;
+	const result = effectiveWeightFor(fam, targetWeight);
+	weightCache.set(cacheKey, result);
+	return result;
+}
 
+
+function effectiveWeightFor(fam: string, targetWeight: number): 'normal' | 'bold' | number {
 	// CC WILD WORDS AND FRIENDLY SANS ONLY BUNDLE REGULAR (400)
 	if (fam === 'CC Wild Words' || fam === 'Friendly Sans') {
 		return 'normal';
@@ -892,6 +920,66 @@ export function resolveSystemFontFilePath(familyName: string): string | null {
 	return result;
 }
 
+/** THE cmap OF THE FACE NAMED `family` IN `path` (ANY FACE OF A .ttc), OR null WHEN NO FACE HAS THAT NAME. */
+export function codepointsOfNamedFace(path: string, family: string): CodepointSet | null {
+	const buf = readFileSync(path);
+	const wanted = family.trim().toLowerCase();
+	for (const dir of splitFontCollection(buf)) {
+		try {
+			if (parseFontBuffer(buf, dir).familyName.trim().toLowerCase() === wanted) return readCmapCoverage(buf, dir);
+		} catch {
+			// UNPARSEABLE FACE: TRY THE NEXT
+		}
+	}
+	return null;
+}
+
+/** CODE POINTS OF A USER-IMPORTED FAMILY (undefined WHEN THE FAMILY IS NOT IMPORTED). */
+function customFontCodepoints(family: string, db: any = defaultDb): CodepointSet | null | undefined {
+	const key = family.trim().toLowerCase();
+	if (CUSTOM_CODEPOINTS.has(key)) return CUSTOM_CODEPOINTS.get(key) ?? null;
+	let row: { fileName: string } | undefined;
+	try {
+		row = db.select().from(customFonts).where(eq(customFonts.name, family.trim())).get();
+	} catch {
+		return undefined;
+	}
+	if (!row) return undefined;
+	let result: CodepointSet | null = null;
+	try {
+		const path = resolveUserFontFilePath(row.fileName) || join(getUserFontsDir(), row.fileName);
+		if (existsSync(path)) {
+			const buf = readFileSync(path);
+			result = readCmapCoverage(buf, splitFontCollection(buf)[0]);
+		}
+	} catch {
+		result = null;
+	}
+	CUSTOM_CODEPOINTS.set(key, result);
+	return result;
+}
+
+/**
+ * CODE POINTS OF AN INSTALLED OS FAMILY. ONLY A FACE WHOSE NAME MATCHES COUNTS: resolveSystemFontFilePath FALLS
+ * BACK TO A PREFIX MATCH THAT MAY BE ANOTHER FAMILY, AND IT DOES NOT SEARCH SUBFOLDERS (LINUX, DOCKER, macOS USER
+ * FONTS), SO THOSE FAMILIES STAY UNKNOWN (null) AND THE SETTINGS UI SAYS "NOT VERIFIED".
+ */
+function systemFontCodepoints(family: string): CodepointSet | null | undefined {
+	if (isBundledFontFamily(family)) return undefined;
+	const path = resolveSystemFontFilePath(family);
+	// NO FILE FOUND: NOT AN OS FONT WE CAN READ, SO LET LATER SOURCES ANSWER (UNKNOWN WHEN NONE DOES)
+	if (!path) return undefined;
+	try {
+		return codepointsOfNamedFace(path, family);
+	} catch {
+		return null;
+	}
+}
+
+registerCodepointSource((family) => BUNDLED_CODEPOINTS.get(family.toLowerCase()));
+registerCodepointSource((family) => customFontCodepoints(family));
+registerCodepointSource((family) => systemFontCodepoints(family));
+
 /**
  * AUTOMATICALLY RESOLVES THE MOST APPROPRIATE CJK / NON-LATIN SCRIPT FONT FAMILY FOR GIVEN TEXT
  */
@@ -928,6 +1016,10 @@ export function defaultScriptContext(dialogue: string = FONT_DIALOGUE, customCjk
  */
 export function splitTextRunsByScript(text: string, primaryFont: string | undefined, scriptCtx: ScriptFontContext): TextRun[] {
 	const fontMain = primaryFont || scriptCtx.dialogue || FONT_DIALOGUE;
+	if (scriptCtx.codepointRouting) {
+		const routed = splitTextRunsRouted(text, fontMain, scriptCtx);
+		if (routed) return routed;
+	}
 	const isWildWords = fontMain === FONT_DIALOGUE || fontMain.toLowerCase().includes('wild words');
 	const chainFor = (script: ScriptFontSlot) => buildScriptFontChain(script, scriptCtx);
 
@@ -969,6 +1061,77 @@ export function splitTextRunsByScript(text: string, primaryFont: string | undefi
 		if (key === 'symbol') return { text: runText, font: FONT_FALLBACK_NAME, isFallbackSymbol: true, script: 'latin' };
 		const stack = [...chainFor(key), fontMain];
 		return { text: runText, font: stack[0], isFallbackSymbol: true, script: key, stack };
+	});
+}
+
+/** TRUE FOR CC WILD WORDS AND ITS ALIASES, WHOSE [ ] { } | \ GLYPHS ARE COMIC ARROWS, NOT BRACKETS. */
+function isWildWordsFamily(family: string): boolean {
+	return family === FONT_DIALOGUE || family.toLowerCase().includes('wild words');
+}
+
+/**
+ * THE FONT FOR A CHARACTER AN ACCENT FONT LACKS (FEAT-010 REVIEW H5): THE PAGE'S DIALOGUE FONT WHEN ITS cmap HAS THE
+ * CHARACTER AND IT IS NOT ONE OF WILD WORDS' REMAPPED SYMBOLS (THEIR cmap ENTRIES DRAW ARROWS), OTHERWISE THE LATIN
+ * FALLBACK FONT.
+ */
+export function symbolFallbackFont(dialogue: string | undefined, ch: string): string {
+	if (!dialogue) return FONT_FALLBACK_NAME;
+	if (isWildWordsFamily(dialogue) && UNSUPPORTED_WILDWORDS_REGEX.test(ch)) return FONT_FALLBACK_NAME;
+	const set = familyCodepoints(dialogue);
+	return set && set.has(ch.codePointAt(0) as number) ? dialogue : FONT_FALLBACK_NAME;
+}
+
+/**
+ * LETTER-LEVEL RUN SPLITTING FOR ACCENT REGIONS (FEAT-010 ADR-008): A LATIN OR COMMON CHARACTER MISSING FROM THE
+ * PRIMARY FONT'S cmap GOES TO A SYMBOL RUN IN symbolFallbackFont; OTHER SCRIPTS USE THEIR CHAINS AS USUAL. RETURNS null
+ * WHEN THE PRIMARY FONT'S CODE POINTS ARE UNKNOWN, SO THE CALLER KEEPS THE REGULAR RULES.
+ */
+function splitTextRunsRouted(text: string, fontMain: string, scriptCtx: ScriptFontContext): TextRun[] | null {
+	const set = familyCodepoints(fontMain);
+	if (!set) return null;
+	for (const ch of text) {
+		const script = scriptOfChar(ch);
+		// RIGHT-TO-LEFT LINES STAY ONE RUN (FEAT-006 ADR-007), EXACTLY AS IN THE REGULAR PATH
+		if (script === 'arabic' || script === 'hebrew') return null;
+	}
+	const missing = (ch: string) => !/\s/u.test(ch) && !set.has(ch.codePointAt(0) as number);
+	const pieces: { key: string; text: string }[] = [];
+	for (const ch of text) {
+		const script = scriptOfChar(ch);
+		let key: string;
+		if (JOINER_REGEX.test(ch)) {
+			// ZWJ / ZWNJ AND COMBINING MARKS ALWAYS STAY WITH THE PRECEDING LETTERS, EVEN WHEN THE cmap LACKS THE JOINER:
+			// SPLITTING THEM OUT BREAKS DEVANAGARI AND BENGALI CONJUNCTS ACROSS FONTS (CODE CRITIC FEAT-010)
+			if (pieces.length > 0) {
+				pieces[pieces.length - 1].text += ch;
+				continue;
+			}
+			key = 'main';
+		} else if (script === 'common') {
+			if (missing(ch)) {
+				key = `symbol:${symbolFallbackFont(scriptCtx.symbolFallback, ch)}`;
+			} else if (pieces.length > 0) {
+				pieces[pieces.length - 1].text += ch;
+				continue;
+			} else {
+				key = 'main';
+			}
+		} else if (script === 'latin') {
+			key = missing(ch) ? `symbol:${symbolFallbackFont(scriptCtx.symbolFallback, ch)}` : 'main';
+		} else {
+			key = `script:${script}`;
+		}
+		const last = pieces[pieces.length - 1];
+		if (last && last.key === key) last.text += ch;
+		else pieces.push({ key, text: ch });
+	}
+	if (pieces.length === 0) return [{ text, font: fontMain, isFallbackSymbol: false, script: 'latin' }];
+	return pieces.map(({ key, text: runText }): TextRun => {
+		if (key === 'main') return { text: runText, font: fontMain, isFallbackSymbol: false, script: 'latin' };
+		if (key.startsWith('symbol:')) return { text: runText, font: key.slice('symbol:'.length), isFallbackSymbol: true, script: 'latin' };
+		const slot = key.slice('script:'.length) as ScriptFontSlot;
+		const stack = [...buildScriptFontChain(slot, scriptCtx), fontMain];
+		return { text: runText, font: stack[0], isFallbackSymbol: true, script: slot, stack };
 	});
 }
 
