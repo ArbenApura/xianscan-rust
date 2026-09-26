@@ -18,7 +18,7 @@ export interface BenchmarkGallery {
 export const BENCHMARK_GALLERIES: Record<string, { title: string; desc: string; samples: Array<{ name: string; raw: string; cleaned: string; translated: string }> }> = {
 		'benchmarks/manhua': {
 			title: 'Chinese Manhua (Xianxia & Wuxia)',
-			desc: 'Tested on high-density dialogue, multi-line narrative boxes, and extensive Daoist realm terminology.',
+			desc: 'Real XianScan output on Chinese manhua with dense dialogue, long narration boxes and cultivation terms. Drag the slider to compare the raw scan with the result; switch to Inpaint to see the cleaned page before the translation is added.',
 			samples: [
 				{
 					name: '《斗罗大陆3龙王传说》 Soul Land 3: Legend of the Dragon King',
@@ -54,7 +54,7 @@ export const BENCHMARK_GALLERIES: Record<string, { title: string; desc: string; 
 		},
 		'benchmarks/manhwa': {
 			title: 'Korean Manhwa & Webtoons',
-			desc: 'Tested on continuous tall vertical rolls, non-text gutter valley slicing, and Korean Hangul OCR models.',
+			desc: 'Real XianScan output on Korean webtoons: long vertical strips, re-sliced at panel gaps. Drag the slider to compare the raw scan with the result; switch to Inpaint to see the cleaned page before the translation is added.',
 			samples: [
 				{
 					name: '《갓 오브 하이스쿨》 The God of High School',
@@ -90,7 +90,7 @@ export const BENCHMARK_GALLERIES: Record<string, { title: string; desc: string; 
 		},
 		'benchmarks/manga': {
 			title: 'Japanese Manga',
-			desc: 'Tested on vertical text columns, right-to-left speech flow, and screentone inpainting reconstruction.',
+			desc: 'Real XianScan output on Japanese manga: vertical text, right-to-left reading order and screentone backgrounds. Drag the slider to compare the raw scan with the result; switch to Inpaint to see the cleaned page before the translation is added.',
 			samples: [
 				{
 					name: '《ワンパンマン》 One Punch Man',

@@ -146,7 +146,7 @@
 <article class="prose max-w-3xl w-full min-w-0 dark:prose-invert">
 	<!-- BREADCRUMB -->
 	<div class="mb-4 flex flex-wrap items-center gap-2 text-xs opacity-60">
-		<a href="/" class="hover:underline">Docs</a>
+		<a href="/" class="hover:underline">Home</a>
 		<span>/</span>
 		<span>{currentSection?.title ?? 'Documentation'}</span>
 		<span>/</span>
@@ -215,8 +215,8 @@
 		</div>
 	{:else}
 		<!-- STANDARD CHAPTER PLACEHOLDER -->
-		<Callout variant="note" title="Section Under Active Writing">
-			This documentation chapter is currently being compiled for the <code>v0.5.0-beta.8</code> release. In the meantime, you can explore the codebase or discuss technical details in the Discord community.
+		<Callout variant="note" title="Page Not Found">
+			This page does not exist or has moved. Use the navigation or search to find what you need, or ask in the Discord community.
 		</Callout>
 
 		<div class="my-8">
@@ -225,11 +225,8 @@
 
 		<section id="scope" class="space-y-4">
 			<h2 class="font-display text-xl font-bold tracking-tight">
-				What Will Be Covered Here
+				Need Help?
 			</h2>
-			<p class="text-xs leading-relaxed opacity-75 sm:text-sm">
-				Comprehensive documentation for this module including technical architectures, parameter configurations, and usage workflows will be published shortly.
-			</p>
 			<div class="flex flex-wrap gap-3 pt-2">
 				<Button
 					variant="primary"

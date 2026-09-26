@@ -19,6 +19,7 @@
 	import SlidersHorizontal from 'lucide-svelte/icons/sliders-horizontal';
 
 	// IMPORTED MODULES
+	import { APP_VERSION } from '$lib/version';
 	import { Button, Badge, Card, InkDivider, ComparisonSlider, SegmentedControl, DiscordIcon, type SegmentOption } from '$lib/components/ui';
 
 	// -- STATES -- //
@@ -74,45 +75,45 @@
 	const PIPELINE_STEPS = [
 		{
 			step: '01',
-			title: 'Webtoon Gutter Reslicing',
+			title: 'Webtoon Re-slicing',
 			icon: SlidersHorizontal,
 			tag: 'Reslice',
-			desc: 'Recombines and splits vertical strips along natural panel gutters before processing, ensuring speech bubbles are never sliced in half across seams.',
+			desc: 'Joins webtoon strips and cuts them again in the empty gaps between panels, so no speech bubble is split across two images.',
 		},
 		{
 			step: '02',
-			title: 'Bubble & Panel Segmentation',
+			title: 'Bubble & Text Detection',
 			icon: Scan,
 			tag: 'RF-DETR',
-			desc: 'Koharu RF-DETR Seg 2XL and RT-DETR models extract dialogue bubbles, narrative text boxes, and panel boundaries with polygon masks.',
+			desc: 'Koharu RF-DETR finds speech bubbles, captions and sound effects, and the OCR line detector finds every line of text inside them.',
 		},
 		{
 			step: '03',
 			title: 'Multi-Language OCR',
 			icon: FileText,
 			tag: '10 Languages',
-			desc: 'RapidOCR engine extracts Hanzi, Hangul, and Kanji/Kana, ordering dialogue by cultural reading flow (RTL manga, vertical columns, or horizontal webtoons).',
+			desc: 'RapidOCR reads Chinese, Japanese, Korean and seven more languages, in reading order: right to left for manga, left to right for manhwa and manhua.',
 		},
 		{
 			step: '04',
 			title: 'Context-Aware Translation',
 			icon: Languages,
-			tag: 'LLM & Memory',
-			desc: 'Elastic 5-page sliding dialogue context window combined with Aho-Corasick domain glossaries preserves speaker identity, pronouns, and terminology.',
+			tag: 'Your LLM',
+			desc: 'The LLM you choose, local or cloud, translates each page with your glossary, per-book directives and the dialogue from previous pages.',
 		},
 		{
 			step: '05',
-			title: 'Neural Artwork Inpainting',
+			title: 'Artwork Inpainting',
 			icon: Paintbrush,
-			tag: 'LaMa FFC',
-			desc: 'LaMa Fast Fourier Convolutions with 1:1 localized patch cropping remove source text while preserving artwork textures, gradients, and screentones.',
+			tag: 'LaMa',
+			desc: 'A manga-tuned LaMa model removes the original text and rebuilds the artwork, screentones and gradients behind it, at full resolution.',
 		},
 		{
 			step: '06',
 			title: 'Automated Typesetting',
 			icon: Sparkles,
-			tag: 'Google Skia',
-			desc: 'Computes optimal font sizing via binary-search fitting, multi-line wrapping, text outline strokes, and bubble tilt alignment using Google Skia.',
+			tag: 'Skia',
+			desc: 'Fits the translation into each bubble with balanced line breaks, outlines, rotation for tilted bubbles, and the right font for every script.',
 		},
 	];
 
@@ -235,7 +236,7 @@
 		<div class="flex flex-col items-center text-center">
 			<div class="mb-5 flex items-center justify-center">
 				<Badge variant="cinnabar">
-					v0.5.0-beta.8 Native Engine
+					v{APP_VERSION}
 				</Badge>
 			</div>
 
@@ -367,7 +368,7 @@
 				The 6-Stage Scanlation Pipeline
 			</h2>
 			<p class="mt-1.5 text-xs sm:text-sm opacity-75 max-w-xl mx-auto">
-				Pure Rust neural inference pipeline executing reslicing, detection, OCR, translation, inpainting, and typesetting in a single automated pass.
+				Every image step runs on your own computer. Only the recognized text goes to your translation model, and that can be local too.
 			</p>
 		</div>
 
