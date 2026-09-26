@@ -176,7 +176,29 @@ fn home_dir() -> PathBuf {
 /// Directory where the extracted web app lives: `{appdata}/XianScan/app/`.
 /// Populated (or refreshed) by `extract_if_needed()` on startup.
 pub fn get_app_dir() -> PathBuf {
-    app_data_root().join("app")
+    resolve_app_dir(std::env::var("XIANSCAN_APP_DIR").ok().as_deref(), &app_data_root())
+}
+
+/// THE EXTRACTED-APP DIRECTORY: `XIANSCAN_APP_DIR` WHEN SET AND NON-EMPTY (THE DOCKER IMAGE POINTS IT AT A ROOT-OWNED
+/// PATH OUTSIDE THE /config VOLUME), ELSE `<app data root>/app` (FEAT-008 PHASE 7).
+pub fn resolve_app_dir(override_dir: Option<&str>, default_root: &std::path::Path) -> PathBuf {
+    match override_dir.map(str::trim) {
+        Some(dir) if !dir.is_empty() => PathBuf::from(dir),
+        _ => default_root.join("app"),
+    }
+}
+
+/// TRUE WHEN THE FILE AT `path` HOLDS EXACTLY `expected` (LENGTH FIRST, THEN BYTES). A MISSING FILE IS A MISMATCH.
+pub fn file_matches(path: &std::path::Path, expected: &[u8]) -> std::io::Result<bool> {
+    let meta = match std::fs::metadata(path) {
+        Ok(m) => m,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(false),
+        Err(e) => return Err(e),
+    };
+    if meta.len() != expected.len() as u64 {
+        return Ok(false);
+    }
+    Ok(std::fs::read(path)? == expected)
 }
 
 /// Directory where user data lives: `{appdata}/XianScan/data/`.
@@ -241,6 +263,11 @@ pub fn extract_if_needed() -> anyhow::Result<Option<PathBuf>> {
                 .join("static")
                 .join("fonts")
                 .join("wqy-microhei.ttc")
+                .exists()
+            && app_dir
+                .join("static")
+                .join("fonts")
+                .join("NotoSansDevanagari-Regular.ttf")
                 .exists();
 
         let icu_exist = if !SKIA_ICU_BYTES.is_empty() {
@@ -274,10 +301,55 @@ pub fn extract_if_needed() -> anyhow::Result<Option<PathBuf>> {
             && node_exist
             && pkg_exist;
 
+        if std::env::var("XIANSCAN_APP_DIR").map(|v| !v.trim().is_empty()).unwrap_or(false) {
+            let old = resolve_app_dir(None, &app_data_root()).join("VERSION");
+            if old.exists() {
+                tracing::info!(
+                    "Old web assets at {} are no longer used and can be deleted.",
+                    old.parent().unwrap_or(&old).display()
+                );
+            }
+        }
+
         if !already_current {
-            tracing::debug!("First launch — extracting web app files to {:?}", app_dir);
+            tracing::debug!("First launch: extracting web app files to {:?}", app_dir);
             std::fs::create_dir_all(&app_dir)?;
             extract_all(&app_dir)?;
+        }
+
+        // EVERY LAUNCH: THE EXECUTABLE PARTS MUST BE THE EMBEDDED BYTES BEFORE NODE RUNS THEM (FEAT-008 PHASE 7, ADR-007)
+        let mismatched = verify_extracted(&app_dir)?;
+        if !mismatched.is_empty() {
+            tracing::warn!(
+                "Extracted web assets differ from this binary ({} file(s), e.g. {}); extracting again.",
+                mismatched.len(),
+                mismatched[0].display()
+            );
+            if let Err(e) = extract_all(&app_dir) {
+                let read_only = e
+                    .downcast_ref::<std::io::Error>()
+                    .map(|io| io.kind() == std::io::ErrorKind::PermissionDenied)
+                    .unwrap_or(false);
+                if read_only {
+                    anyhow::bail!(
+                        "extracted web assets in {} were modified and the directory is read-only; refusing to start",
+                        app_dir.display()
+                    );
+                }
+                return Err(e);
+            }
+            let still = verify_extracted(&app_dir)?;
+            if !still.is_empty() {
+                anyhow::bail!(
+                    "extracted web assets in {} still differ from this binary after re-extraction (e.g. {})",
+                    app_dir.display(),
+                    still[0].display()
+                );
+            }
+        }
+
+        // THE VERSION STAMP IS WRITTEN ONLY AFTER A SUCCESSFUL VERIFY
+        if !already_current {
             std::fs::write(&version_stamp, APP_VERSION)?;
             tracing::debug!("Web app files ready.");
         }
@@ -288,6 +360,66 @@ pub fn extract_if_needed() -> anyhow::Result<Option<PathBuf>> {
     // embed-web disabled — caller uses on-disk web/ folder.
     #[cfg(not(feature = "embed-web"))]
     Ok(None)
+}
+
+/// THE EXTRACTED FILES THAT DIFFER FROM THE EMBEDDED BYTES: THE NODE BINARY, THE NATIVE ADDONS AND EVERY JAVASCRIPT
+/// FILE (EVERYTHING NODE EXECUTES). FONTS, SQL AND IMAGES ARE NOT CHECKED (ADR-007).
+#[cfg(feature = "embed-web")]
+pub fn verify_extracted(app_dir: &std::path::Path) -> anyhow::Result<Vec<PathBuf>> {
+    let mut expected: Vec<(PathBuf, &'static [u8])> = Vec::new();
+    if !NODE_BINARY.is_empty() {
+        let node_exe_name = if cfg!(windows) { "node.exe" } else { "node" };
+        expected.push((app_dir.join("bin").join(node_exe_name), NODE_BINARY));
+    }
+    let modules = app_dir.join("node_modules");
+    let bs3_root = modules.join("better-sqlite3");
+    expected.push((bs3_root.join("build").join("Release").join("better_sqlite3.node"), BETTER_SQLITE3_NODE));
+    let canvas_dir = modules.join("@napi-rs").join("canvas");
+    expected.push((canvas_dir.join(SKIA_NODE_FILENAME), SKIA_NODE));
+    let image_dir = modules.join("@napi-rs").join("image");
+    if !IMAGE_NODE.is_empty() {
+        expected.push((image_dir.join(IMAGE_NODE_FILENAME), IMAGE_NODE));
+    }
+    collect_js(&WEB_BUILD, &app_dir.join("build"), &mut expected);
+    collect_js(&BETTER_SQLITE3_LIB, &bs3_root.join("lib"), &mut expected);
+    collect_js(&BINDINGS_PKG, &modules.join("bindings"), &mut expected);
+    collect_js(&FILE_URI_TO_PATH_PKG, &modules.join("file-uri-to-path"), &mut expected);
+    collect_js(&NAPI_CANVAS_JS, &canvas_dir, &mut expected);
+    collect_js(&NAPI_IMAGE_JS, &image_dir, &mut expected);
+
+    let mut mismatched = Vec::new();
+    for (path, bytes) in expected {
+        if !file_matches(&path, bytes)? {
+            mismatched.push(path);
+        }
+    }
+    Ok(mismatched)
+}
+
+/// THE .js / .mjs / .cjs FILES OF AN EMBEDDED DIRECTORY, MAPPED TO WHERE extract_dir WRITES THEM.
+#[cfg(feature = "embed-web")]
+fn collect_js(dir: &'static include_dir::Dir<'static>, dest: &std::path::Path, out: &mut Vec<(PathBuf, &'static [u8])>) {
+    use include_dir::DirEntry;
+    for entry in dir.entries() {
+        match entry {
+            DirEntry::File(f) => {
+                let is_js = f
+                    .path()
+                    .extension()
+                    .and_then(|e| e.to_str())
+                    .map(|e| matches!(e, "js" | "mjs" | "cjs"))
+                    .unwrap_or(false);
+                if is_js {
+                    let name = f.path().file_name().unwrap_or_else(|| f.path().as_os_str());
+                    out.push((dest.join(name), f.contents()));
+                }
+            }
+            DirEntry::Dir(sub) => {
+                let sub_name = sub.path().file_name().unwrap_or_else(|| sub.path().as_os_str());
+                collect_js(sub, &dest.join(sub_name), out);
+            }
+        }
+    }
 }
 
 /// Write every embedded file to `app_dir`, creating directories as needed.
@@ -423,4 +555,70 @@ fn extract_dir(dir: &include_dir::Dir<'_>, dest: &std::path::Path) -> anyhow::Re
         }
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn temp_dir(name: &str) -> PathBuf {
+        let dir = std::env::temp_dir().join(format!("xianscan-web-assets-{}-{}", name, std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).expect("create temp dir");
+        dir
+    }
+
+    #[test]
+    fn resolve_app_dir_uses_override_when_set() {
+        let root = std::path::Path::new("/data/XianScan");
+        assert_eq!(resolve_app_dir(Some("/app/runtime"), root), PathBuf::from("/app/runtime"));
+    }
+
+    #[test]
+    fn resolve_app_dir_ignores_empty_override() {
+        let root = std::path::Path::new("/data/XianScan");
+        assert_eq!(resolve_app_dir(Some("  "), root), root.join("app"));
+    }
+
+    #[test]
+    fn resolve_app_dir_defaults_to_app_under_root() {
+        let root = std::path::Path::new("/data/XianScan");
+        assert_eq!(resolve_app_dir(None, root), root.join("app"));
+    }
+
+    #[test]
+    fn file_matches_detects_same_length_different_bytes() {
+        let dir = temp_dir("matches");
+        let path = dir.join("bin");
+        std::fs::write(&path, b"abcd").expect("write");
+        assert!(file_matches(&path, b"abcd").expect("read"));
+        assert!(!file_matches(&path, b"abce").expect("read"));
+        assert!(!file_matches(&path, b"abc").expect("read"));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn file_matches_false_when_missing() {
+        let dir = temp_dir("missing");
+        assert!(!file_matches(&dir.join("nope"), b"x").expect("missing is not an error"));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[cfg(feature = "embed-web")]
+    #[test]
+    fn verify_extracted_flags_tampered_node_binary() {
+        let dir = temp_dir("verify");
+        extract_all(&dir).expect("extract");
+        assert!(verify_extracted(&dir).expect("verify").is_empty(), "a fresh extraction must verify");
+        if NODE_BINARY.is_empty() {
+            return;
+        }
+        let node = dir.join("bin").join(if cfg!(windows) { "node.exe" } else { "node" });
+        let mut bytes = std::fs::read(&node).expect("read node");
+        bytes[0] ^= 0xFF;
+        std::fs::write(&node, &bytes).expect("tamper");
+        let bad = verify_extracted(&dir).expect("verify");
+        assert!(bad.contains(&node), "tampered node binary not reported: {bad:?}");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 }

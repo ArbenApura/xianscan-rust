@@ -3,7 +3,10 @@ use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
+use std::time::{Duration, Instant};
 use colored::Colorize;
+
+use super::child_guard;
 use tracing::debug;
 
 // -- TYPES & STRUCTS -- //
@@ -14,30 +17,59 @@ enum ServerKind {
     ViteDev,
 }
 
+fn lock_or_recover<T>(m: &std::sync::Mutex<T>) -> std::sync::MutexGuard<'_, T> {
+    m.lock().unwrap_or_else(|poisoned| poisoned.into_inner())
+}
+
 pub struct SsrServer {
     child: Arc<std::sync::Mutex<Option<Child>>>,
     shutdown_signal: Arc<AtomicBool>,
     supervisor_handle: Option<tokio::task::JoinHandle<()>>,
 }
 
+/// EVERYTHING THE NODE CHILD NEEDS TO KNOW ABOUT PORTS AND ACCESS. THE SUPERVISOR KEEPS THE CONFIG
+/// IT STARTED WITH, SO A LAN TOGGLE APPLIES ON THE NEXT FULL RESTART OF XIANSCAN.
+#[derive(Debug, Clone)]
+pub struct SpawnConfig {
+    pub port: u16,
+    pub ml_port: u16,
+    pub bind_host: &'static str,
+    pub bind_source: &'static str,
+    pub token_path: PathBuf,
+    pub ml_secret: Option<String>,
+    pub env: SsrEnv,
+}
+
+/// DATA PATHS FORWARDED TO THE NODE CHILD. RESOLVED ONCE IN main (NOT RE-READ FROM THE ENVIRONMENT).
+#[derive(Debug, Clone)]
+pub struct SsrEnv {
+    pub data_root: PathBuf,
+    pub database_path: PathBuf,
+}
+
 // -- TRAITS & IMPLEMENTATIONS -- //
 
 impl SsrServer {
-    pub fn start(web_dir: &Path, port: u16, ml_port: u16) -> anyhow::Result<Self> {
-        Self::start_internal(ServerKind::Ssr, web_dir, port, ml_port)
+    pub fn start(web_dir: &Path, cfg: SpawnConfig) -> anyhow::Result<Self> {
+        Self::start_internal(ServerKind::Ssr, web_dir, cfg)
     }
 
-    pub fn start_vite_dev(web_dir: &Path, port: u16, ml_port: u16) -> anyhow::Result<Self> {
-        Self::start_internal(ServerKind::ViteDev, web_dir, port, ml_port)
+    pub fn start_vite_dev(web_dir: &Path, cfg: SpawnConfig) -> anyhow::Result<Self> {
+        Self::start_internal(ServerKind::ViteDev, web_dir, cfg)
     }
 
     fn start_internal(
         kind: ServerKind,
         web_dir: &Path,
-        port: u16,
-        ml_port: u16,
+        cfg: SpawnConfig,
     ) -> anyhow::Result<Self> {
-        let initial_child = spawn_process(kind, web_dir, port, ml_port)?;
+        let port = cfg.port;
+        warn_if_port_taken(cfg.bind_host, port);
+
+        // SPAWNED ON THE CALLING (MAIN) THREAD; RESTARTS HAPPEN ON TOKIO WORKER THREADS, WHICH LIVE AS
+        // LONG AS THE RUNTIME. NEVER SPAWN FROM `spawn_blocking`: ON LINUX, PDEATHSIG FIRES WHEN THE
+        // SPAWNING THREAD EXITS, AND BLOCKING-POOL THREADS EXIT AFTER 10 S IDLE (IT WOULD KILL NODE).
+        let initial_child = spawn_process(kind, web_dir, &cfg, 0)?;
         let child = Arc::new(std::sync::Mutex::new(Some(initial_child)));
         let shutdown_signal = Arc::new(AtomicBool::new(false));
 
@@ -46,121 +78,114 @@ impl SsrServer {
         let web_dir_buf = web_dir.to_path_buf();
 
         let supervisor_handle = tokio::spawn(async move {
-            let mut consecutive_failures: u32 = 0;
-            let mut last_spawn_time = std::time::Instant::now();
+            let mut exit_times: Vec<Instant> = Vec::new();
+            let mut last_spawn_time = Instant::now();
+            let mut restart_count: u32 = 0;
+            // SET WHEN THE CHILD EXITED (OR A RESPAWN FAILED) AND A RESTART IS DUE AFTER THE DELAY
+            let mut pending_restart: Option<Duration> = None;
 
             loop {
-                tokio::time::sleep(std::time::Duration::from_millis(1000)).await;
+                tokio::time::sleep(Duration::from_millis(1000)).await;
                 if shutdown_clone.load(Ordering::SeqCst) {
                     break;
                 }
 
-                let needs_restart = {
-                    let mut guard = match child_clone.lock() {
-                        Ok(g) => g,
-                        Err(_) => break,
-                    };
+                if pending_restart.is_none() {
+                pending_restart = {
+                    // A POISONED LOCK MUST NOT END SUPERVISION; THE CHILD HANDLE INSIDE IS STILL VALID
+                    let mut guard = lock_or_recover(&child_clone);
+                    let mut exited = None;
                     if let Some(ref mut c) = *guard {
                         match c.try_wait() {
                             Ok(Some(status)) => {
                                 // REAP TERMINATED PROCESS TO PREVENT ZOMBIE PROCESSES
                                 let _ = c.wait();
-                                // REMOVE TERMINATED PROCESS FROM MUTEX TO PREVENT RE-POLLING STALE HANDLE
-                                let _ = guard.take();
-
-                                if !shutdown_clone.load(Ordering::SeqCst) {
-                                    if last_spawn_time.elapsed() < std::time::Duration::from_secs(4) {
-                                        consecutive_failures += 1;
-                                    } else {
-                                        consecutive_failures = 1;
-                                    }
-
-                                    eprintln!(
-                                        "\n  {} Web Studio (port {}) exited unexpectedly (status {}).",
-                                        "[!]".bright_yellow().bold(),
-                                        port,
-                                        status
-                                    );
-
-                                    if consecutive_failures >= 5 {
-                                        eprintln!(
-                                            "  {} Repeated crashes detected ({} consecutive quick exits). Pausing restart for 10s...",
-                                            "[!]".bright_red().bold(),
-                                            consecutive_failures
-                                        );
-                                    } else {
-                                        eprintln!(
-                                            "  {} Automatically restarting Web Studio...",
-                                            "↻".bright_cyan().bold()
-                                        );
-                                    }
-                                    true
-                                } else {
-                                    false
-                                }
+                                exited = Some(status);
                             }
-                            Ok(None) => false,
-                            Err(e) => {
-                                tracing::warn!("Failed to poll web child process: {}", e);
-                                false
-                            }
+                            Ok(None) => {}
+                            Err(e) => tracing::warn!("Failed to poll web child process: {}", e),
                         }
-                    } else {
-                        false
+                    }
+                    match exited {
+                        Some(status) if !shutdown_clone.load(Ordering::SeqCst) => {
+                            // REMOVE TERMINATED PROCESS FROM MUTEX TO PREVENT RE-POLLING STALE HANDLE
+                            let _ = guard.take();
+                            let now = Instant::now();
+                            let uptime = now.duration_since(last_spawn_time);
+                            if uptime >= HEALTHY_UPTIME {
+                                exit_times.clear();
+                            }
+                            exit_times.retain(|t| now.duration_since(*t) < BACKOFF_WINDOW);
+                            exit_times.push(now);
+                            let ages: Vec<Duration> = exit_times.iter().map(|t| now.duration_since(*t)).collect();
+                            let delay = restart_delay(&ages, uptime);
+
+                            eprintln!(
+                                "\n  {} Web Studio (port {}) exited unexpectedly (status {}).",
+                                "[!]".bright_yellow().bold(),
+                                port,
+                                status
+                            );
+                            if status.code() == Some(NODE_CRASH_EXIT_CODE) {
+                                eprintln!(
+                                    "  {} Web Studio crashed on an uncaught exception, see the log above.",
+                                    "[!]".bright_red().bold()
+                                );
+                            }
+                            eprintln!(
+                                "  {} Restarting Web Studio in {} s ({} exit(s) in the last minute)...",
+                                "↻".bright_cyan().bold(),
+                                delay.as_secs(),
+                                exit_times.len()
+                            );
+                            Some(delay)
+                        }
+                        Some(_) => {
+                            let _ = guard.take();
+                            None
+                        }
+                        None => None,
                     }
                 };
+                }
 
-                if needs_restart {
-                    if consecutive_failures >= 5 {
-                        tokio::time::sleep(std::time::Duration::from_secs(10)).await;
-                        consecutive_failures = 0;
-                    }
+                let Some(delay) = pending_restart.take() else { continue };
+                tokio::time::sleep(delay).await;
+                if shutdown_clone.load(Ordering::SeqCst) {
+                    break;
+                }
 
-                    if shutdown_clone.load(Ordering::SeqCst) {
-                        break;
-                    }
-
-                    match spawn_process(kind, &web_dir_buf, port, ml_port) {
-                        Ok(mut new_child) => {
-                            last_spawn_time = std::time::Instant::now();
-                            if let Ok(mut guard) = child_clone.lock() {
-                                if shutdown_clone.load(Ordering::SeqCst) {
-                                    // TERMINATE CHILD IMMEDIATELY IF SHUTDOWN OCCURRED IN-FLIGHT OR UNDER LOCK
-                                    #[cfg(windows)]
-                                    {
-                                        let pid = new_child.id();
-                                        let _ = Command::new("taskkill")
-                                            .args(["/PID", &pid.to_string(), "/T", "/F"])
-                                            .stdout(Stdio::null())
-                                            .stderr(Stdio::null())
-                                            .status();
-                                    }
-                                    let _ = new_child.kill();
-                                    let _ = new_child.wait();
-                                    break;
-                                }
-                                *guard = Some(new_child);
-                            } else {
-                                let _ = new_child.kill();
-                                let _ = new_child.wait();
+                restart_count += 1;
+                match spawn_process(kind, &web_dir_buf, &cfg, restart_count) {
+                    Ok(mut new_child) => {
+                        last_spawn_time = Instant::now();
+                        {
+                            let mut guard = lock_or_recover(&child_clone);
+                            if shutdown_clone.load(Ordering::SeqCst) {
+                                // TERMINATE CHILD IMMEDIATELY IF SHUTDOWN OCCURRED IN-FLIGHT OR UNDER LOCK
+                                kill_tree(&mut new_child);
                                 break;
                             }
-                            eprintln!(
-                                "  {} Web Studio restarted and listening on port {}.\n",
-                                "✓".bright_green().bold(),
-                                port
-                            );
+                            *guard = Some(new_child);
                         }
-                        Err(e) => {
-                            consecutive_failures += 1;
-                            eprintln!(
-                                "  {} Failed to restart Web Studio: {}",
-                                "[✗]".bright_red().bold(),
-                                e
-                            );
-                            // BACK OFF SLIGHTLY BEFORE NEXT RESTART ATTEMPT
-                            tokio::time::sleep(std::time::Duration::from_millis(3000)).await;
-                        }
+                        eprintln!(
+                            "  {} Web Studio restarted and listening on port {}.\n",
+                            "✓".bright_green().bold(),
+                            port
+                        );
+                    }
+                    Err(e) => {
+                        // COUNTS AS A QUICK EXIT SO REPEATED SPAWN FAILURES BACK OFF TOO
+                        exit_times.push(Instant::now());
+                        let ages: Vec<Duration> = exit_times.iter().map(|t| t.elapsed()).collect();
+                        let delay = restart_delay(&ages, Duration::ZERO);
+                        eprintln!(
+                            "  {} Failed to restart Web Studio: {} (retrying in {} s)",
+                            "[✗]".bright_red().bold(),
+                            e,
+                            delay.as_secs()
+                        );
+                        pending_restart = Some(delay);
                     }
                 }
             }
@@ -178,19 +203,10 @@ impl SsrServer {
         if let Some(handle) = self.supervisor_handle.take() {
             handle.abort();
         }
-        if let Ok(mut guard) = self.child.lock() {
+        {
+            let mut guard = lock_or_recover(&self.child);
             if let Some(mut child) = guard.take() {
-                #[cfg(windows)]
-                {
-                    let pid = child.id();
-                    let _ = Command::new("taskkill")
-                        .args(["/PID", &pid.to_string(), "/T", "/F"])
-                        .stdout(Stdio::null())
-                        .stderr(Stdio::null())
-                        .status();
-                }
-                let _ = child.kill();
-                let _ = child.wait();
+                kill_tree(&mut child);
             }
         }
     }
@@ -204,19 +220,88 @@ impl Drop for SsrServer {
 
 // -- FUNCTIONS & ALGORITHMS -- //
 
-fn spawn_process(
-    kind: ServerKind,
-    web_dir: &Path,
-    port: u16,
-    ml_port: u16,
-) -> anyhow::Result<Child> {
-    match kind {
-        ServerKind::Ssr => spawn_ssr_process(web_dir, port, ml_port),
-        ServerKind::ViteDev => spawn_vite_dev_process(web_dir, port, ml_port),
+/// EXIT CODE THE NODE SERVER USES AFTER AN UNCAUGHT EXCEPTION (FEAT-002 ADR-005).
+const NODE_CRASH_EXIT_CODE: i32 = 70;
+/// EXITS OLDER THAN THIS NO LONGER COUNT TOWARD THE BACKOFF.
+const BACKOFF_WINDOW: Duration = Duration::from_secs(60);
+/// A RUN THAT STAYED UP THIS LONG WAS HEALTHY; THE NEXT RESTART STARTS FROM THE SHORTEST DELAY.
+const HEALTHY_UPTIME: Duration = Duration::from_secs(120);
+const MAX_RESTART_DELAY: Duration = Duration::from_secs(60);
+
+/// DELAY BEFORE RESTARTING THE WEB SERVER. `recent_exits` ARE THE AGES OF PAST EXITS (THE ONE THAT
+/// JUST HAPPENED IS 0 S OLD); ONLY THOSE IN THE LAST 60 S COUNT. 1 S, 2 S, 4 S ... CAPPED AT 60 S,
+/// AND BACK TO 1 S WHEN THE LAST RUN STAYED UP FOR 2 MINUTES.
+pub fn restart_delay(recent_exits: &[Duration], uptime_of_last_run: Duration) -> Duration {
+    if uptime_of_last_run >= HEALTHY_UPTIME {
+        return Duration::from_secs(1);
+    }
+    let exits = recent_exits.iter().filter(|age| **age < BACKOFF_WINDOW).count().max(1) as u32;
+    let factor = 1_u64.checked_shl(exits - 1).unwrap_or(u64::MAX);
+    Duration::from_secs(factor).min(MAX_RESTART_DELAY)
+}
+
+/// ADR-007: REPORT (NEVER KILL) WHATEVER ALREADY HOLDS THE WEB PORT, USUALLY AN ORPHANED NODE
+/// SERVER FROM AN EARLIER CRASH. CHECKS THE SAME ADDRESS THE CHILD WILL BIND.
+fn warn_if_port_taken(host: &str, port: u16) {
+    if std::net::TcpListener::bind((host, port)).is_ok() {
+        return;
+    }
+    let find = if cfg!(windows) {
+        format!("netstat -ano | findstr :{port}   (then: tasklist /FI \"PID eq <pid>\")")
+    } else {
+        format!("lsof -nP -iTCP:{port} -sTCP:LISTEN")
+    };
+    eprintln!(
+        "\n  {} Port {} is already in use, probably by an orphaned Web Studio (node) from an earlier crash.\n      Find it with: {}\n      Stop that process or set PORT to another value, then restart XianScan.",
+        "[!]".bright_yellow().bold(),
+        port,
+        find
+    );
+}
+
+/// KILLS THE CHILD AND (ON WINDOWS) EVERYTHING IT STARTED, THEN REAPS IT.
+fn kill_tree(child: &mut Child) {
+    #[cfg(windows)]
+    {
+        let pid = child.id();
+        let _ = Command::new("taskkill")
+            .args(["/PID", &pid.to_string(), "/T", "/F"])
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .status();
+    }
+    let _ = child.kill();
+    let _ = child.wait();
+}
+
+fn spawn_process(kind: ServerKind, web_dir: &Path, cfg: &SpawnConfig, restart_count: u32) -> anyhow::Result<Child> {
+    let mut cmd = match kind {
+        ServerKind::Ssr => ssr_command(web_dir, cfg)?,
+        ServerKind::ViteDev => vite_dev_command(web_dir, cfg),
+    };
+    cmd.env("XIANSCAN_RESTART_COUNT", restart_count.to_string());
+    // THE STDIN WATCHDOG ONLY FOR THE BUILT SERVER; `yarn dev` HAS ITS OWN STDIN HANDLING
+    child_guard::configure_command(&mut cmd, kind == ServerKind::Ssr);
+    debug!("Starting web server ({:?}) on port {}...", kind, cfg.port);
+    let child = cmd.spawn()?;
+    if let Err(e) = child_guard::bind_child(&child) {
+        tracing::warn!("Web Studio will not be stopped automatically if XianScan crashes: {}", e);
+    }
+    Ok(child)
+}
+
+/// ACCESS-RELATED ENVIRONMENT SHARED BY BOTH SPAWN PATHS.
+fn apply_access_env(cmd: &mut Command, cfg: &SpawnConfig) {
+    cmd.env("HOST", cfg.bind_host)
+        .env("XIANSCAN_BIND_SOURCE", cfg.bind_source)
+        .env("ACCESS_TOKEN_PATH", &cfg.token_path);
+    if let Some(secret) = &cfg.ml_secret {
+        cmd.env("ML_SHARED_SECRET", secret);
     }
 }
 
-fn spawn_ssr_process(web_dir: &Path, port: u16, ml_port: u16) -> anyhow::Result<Child> {
+fn ssr_command(web_dir: &Path, cfg: &SpawnConfig) -> anyhow::Result<Command> {
+    let (port, ml_port) = (cfg.port, cfg.ml_port);
     let node_bin = find_node_binary(web_dir)?;
     let clean_web_dir = normalize_windows_path(web_dir);
     let build_index = clean_web_dir.join("build").join("index.js");
@@ -230,11 +315,8 @@ fn spawn_ssr_process(web_dir: &Path, port: u16, ml_port: u16) -> anyhow::Result<
 
     let mut cmd = Command::new(&node_bin);
 
-    // RESOLVE DATA_ROOT AND DATABASE_PATH FROM ENVIRONMENT SO WE FORWARD
-    // VALUES MAIN.RS ALREADY COMPUTED (APP-DATA DIR ON EMBED-WEB BUILDS, OR ./DATA FOR ON-DISK DEV BUILDS).
-    let data_root = std::env::var("DATA_ROOT").unwrap_or_else(|_| "./data".to_string());
-    let db_path = std::env::var("DATABASE_PATH")
-        .unwrap_or_else(|_| format!("{}/xianscan.db", data_root));
+    // FORWARD THE DATA PATHS MAIN.RS ALREADY COMPUTED
+    let (data_root, db_path) = (&cfg.env.data_root, &cfg.env.database_path);
 
     // NODE_PATH LETS NODE RESOLVE `require('better-sqlite3')` AND
     // `require('@napi-rs/canvas')` FROM EXTRACTED NODE_MODULES DIRECTORY
@@ -263,10 +345,9 @@ fn spawn_ssr_process(web_dir: &Path, port: u16, ml_port: u16) -> anyhow::Result<
         .arg("build/index.js")
         .current_dir(&clean_web_dir)
         .env("PORT", port.to_string())
-        .env("HOST", "0.0.0.0")
         .env("ML_BASE_URL", format!("http://127.0.0.1:{}", ml_port))
-        .env("DATA_ROOT", &data_root)
-        .env("DATABASE_PATH", &db_path)
+        .env("DATA_ROOT", data_root)
+        .env("DATABASE_PATH", db_path)
         .env("NODE_PATH", &node_path)
         .env("BODY_SIZE_LIMIT", "64M")
         .stdout(if verbose_logging() {
@@ -276,16 +357,14 @@ fn spawn_ssr_process(web_dir: &Path, port: u16, ml_port: u16) -> anyhow::Result<
         })
         .stderr(Stdio::inherit());
 
-    debug!("Starting SvelteKit SSR Engine on port {}...", port);
-    let child = cmd.spawn()?;
-    Ok(child)
+    apply_access_env(&mut cmd, cfg);
+    Ok(cmd)
 }
 
-fn spawn_vite_dev_process(web_dir: &Path, port: u16, ml_port: u16) -> anyhow::Result<Child> {
+fn vite_dev_command(web_dir: &Path, cfg: &SpawnConfig) -> Command {
+    let (port, ml_port) = (cfg.port, cfg.ml_port);
     let clean_web_dir = normalize_windows_path(web_dir);
-    let data_root = std::env::var("DATA_ROOT").unwrap_or_else(|_| "./data".to_string());
-    let db_path = std::env::var("DATABASE_PATH")
-        .unwrap_or_else(|_| format!("{}/xianscan.db", data_root));
+    let (data_root, db_path) = (&cfg.env.data_root, &cfg.env.database_path);
 
     #[cfg(windows)]
     let mut cmd = Command::new("cmd");
@@ -300,10 +379,9 @@ fn spawn_vite_dev_process(web_dir: &Path, port: u16, ml_port: u16) -> anyhow::Re
     cmd.current_dir(&clean_web_dir)
         .env("PORT", port.to_string())
         .env("DEV_PORT", port.to_string())
-        .env("HOST", "0.0.0.0")
         .env("ML_BASE_URL", format!("http://127.0.0.1:{}", ml_port))
-        .env("DATA_ROOT", &data_root)
-        .env("DATABASE_PATH", &db_path)
+        .env("DATA_ROOT", data_root)
+        .env("DATABASE_PATH", db_path)
         // STREAM VITE STDOUT ONLY WHEN LOG_REQUESTS=1 QUIET BY DEFAULT SO BENIGN
         // BROWSER PROBES (E.G. /.well-known/appspecific/* CHROME DEVTOOLS) DON'T
         // CLUTTER THE CLI WITH 404 NOISE. STDERR (REAL ERRORS) IS ALWAYS SHOWN.
@@ -314,9 +392,8 @@ fn spawn_vite_dev_process(web_dir: &Path, port: u16, ml_port: u16) -> anyhow::Re
         })
         .stderr(Stdio::inherit());
 
-    debug!("Starting Vite Live Dev Server on port {}...", port);
-    let child = cmd.spawn()?;
-    Ok(child)
+    apply_access_env(&mut cmd, cfg);
+    cmd
 }
 
 /// WHETHER THE SSR CHILD PROCESS SHOULD STREAM ITS STDOUT TO OURS.
