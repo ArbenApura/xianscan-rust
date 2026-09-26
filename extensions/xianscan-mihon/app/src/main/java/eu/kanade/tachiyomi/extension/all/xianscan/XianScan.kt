@@ -14,10 +14,12 @@ import eu.kanade.tachiyomi.source.model.SManga
 import eu.kanade.tachiyomi.source.online.HttpSource
 import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
+import okhttp3.Interceptor
+import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.Response
+import java.io.IOException
 import kotlinx.serialization.decodeFromString
-import kotlinx.serialization.json.Json
 
 class XianScan : HttpSource(), ConfigurableSource, UnmeteredSource {
 
@@ -33,7 +35,7 @@ class XianScan : HttpSource(), ConfigurableSource, UnmeteredSource {
             return if (!pref.isNullOrBlank()) pref.trimEnd('/') else DEFAULT_ADDRESS
         }
 
-    private val json = Json { ignoreUnknownKeys = true }
+    private val json = XIANSCAN_JSON
 
     // CONFIGURABLE SERVER ADDRESS — A PHONE CANNOT REACH THE DESKTOP'S 127.0.0.1.
     override fun setupPreferenceScreen(screen: PreferenceScreen) {
@@ -49,6 +51,51 @@ class XianScan : HttpSource(), ConfigurableSource, UnmeteredSource {
             validationMessage = "The URL is invalid, malformed, or ends with a slash",
             restartRequired = false,
         )
+
+        val tokenSet = !getPreferences(id).getString(KEY_TOKEN, null).isNullOrBlank()
+        screen.addEditTextPreference(
+            title = "Access token",
+            key = KEY_TOKEN,
+            default = "",
+            summary = if (tokenSet) "Set" else "Not set",
+            dialogMessage = "Copy it from XianScan: Settings, Network & Access",
+            inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_PASSWORD,
+            validate = { TOKEN_PATTERN.matches(it.trim()) },
+            validationMessage = "The token is 20 to 200 letters, digits, - or _",
+            restartRequired = false,
+            summaryFor = { if (it.isBlank()) "Not set" else "Set" },
+        )
+    }
+
+    // -- ACCESS TOKEN -- //
+
+    // AN INTERCEPTOR (NOT headersBuilder) BECAUSE HttpSource CACHES headers; THIS WAY A NEW TOKEN
+    // APPLIES WITHOUT RESTARTING THE APP. THE TOKEN ONLY GOES TO THE CONFIGURED SERVER HOST.
+    override val client: OkHttpClient = network.client.newBuilder()
+        .addInterceptor { chain -> authInterceptor(chain) }
+        .build()
+
+    private fun authInterceptor(chain: Interceptor.Chain): Response {
+        val request = chain.request()
+        val server = baseUrl.toHttpUrlOrNull()
+        val token = getPreferences(id).getString(KEY_TOKEN, null)?.trim().orEmpty()
+        val isServer = server != null && request.url.host == server.host && request.url.port == server.port
+
+        val outgoing = if (isServer && token.isNotEmpty()) {
+            request.newBuilder().header(TOKEN_HEADER, token).build()
+        } else {
+            request
+        }
+
+        val response = chain.proceed(outgoing)
+        if (isServer && response.code == 401) {
+            response.close()
+            throw IOException(
+                "XianScan rejected the access token. Open XianScan on your computer, Settings, Network & Access, " +
+                    "and paste the token into this extension's settings.",
+            )
+        }
+        return response
     }
 
     // -- SEARCH / POPULAR / LATEST -- //
@@ -130,6 +177,9 @@ class XianScan : HttpSource(), ConfigurableSource, UnmeteredSource {
     companion object {
         private const val DEFAULT_ADDRESS = "http://127.0.0.1:8124"
         private const val KEY_ADDRESS = "serverAddress"
+        private const val KEY_TOKEN = "accessToken"
+        private const val TOKEN_HEADER = "X-XianScan-Token"
+        private val TOKEN_PATTERN = Regex("^[A-Za-z0-9_-]{20,200}$")
     }
 }
 

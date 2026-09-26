@@ -8,7 +8,7 @@ ext {
     extName = 'XianScan'
     pkgNameSuffix = 'all.xianscan'
     extClass = 'eu.kanade.tachiyomi.extension.all.xianscan.XianScanFactory'
-    extVersionCode = 2
+    extVersionCode = 3
     libVersion = '1.6'
 }
 
@@ -26,6 +26,7 @@ android {
             appName: 'XianScan',
             extClass: extClass,
             nsfw: 0,
+            extensionLib: libVersion,
         ]
         setProperty('archivesBaseName', "tachiyomi-$pkgNameSuffix-v$versionName")
     }
@@ -52,10 +53,24 @@ android {
 
     buildTypes {
         release {
+            // NO GIT METADATA IN THE APK (FEAT-005 PHASE 3)
+            vcsInfo.include = false
             minifyEnabled false
             def hasSigning = signingConfigs.release.storeFile != null
             signingConfig hasSigning ? signingConfigs.release : signingConfigs.debug
         }
+    }
+
+    // NO BUILD METADATA IN THE APK: THE KOTLIN TOOLING FILE AND THE ENCRYPTED DEPENDENCY BLOCK (FEAT-005 PHASE 3)
+    packaging {
+        resources {
+            excludes += ['kotlin-tooling-metadata.json']
+        }
+    }
+
+    dependenciesInfo {
+        includeInApk = false
+        includeInBundle = false
     }
 
     buildFeatures {
@@ -77,13 +92,22 @@ android {
 }
 
 dependencies {
-    // EXTENSION API STUBS — PROVIDED BY THE MIHON HOST AT RUNTIME.
-    compileOnly 'com.github.keiyoushi:extensions-lib:6e0c96cea8'
-    // DI USED TO RESOLVE THE APP CONTEXT INSIDE THE EXTENSION PROCESS.
-    compileOnly 'com.github.null2264.injekt:injekt-core:4135455a2a'
-    compileOnly 'androidx.preference:preference-ktx:1.2.1'
-    compileOnly 'com.squareup.okhttp3:okhttp:5.0.0-alpha.14'
-    compileOnly 'io.reactivex:rxjava:1.3.8'
-    compileOnly 'org.jetbrains.kotlinx:kotlinx-coroutines-android:1.9.0'
-    compileOnly 'org.jetbrains.kotlinx:kotlinx-serialization-json:1.7.3'
+    // EVERYTHING HERE IS PROVIDED BY THE HOST AT RUNTIME. NOTHING MAY BE `implementation` (FEAT-005 PHASE 2).
+    // THE KOTLIN STDLIB IS compileOnly TOO, SO IT IS NEVER PACKAGED (SEE kotlin.stdlib.default.dependency).
+    compileOnly libs.kotlin.stdlib
+    // EXTENSION API STUBS AND DI USED TO RESOLVE THE APP CONTEXT INSIDE THE EXTENSION PROCESS.
+    compileOnly libs.tachiyomi.lib
+    compileOnly libs.injekt.core
+    compileOnly libs.preference.ktx
+    compileOnly libs.okhttp
+    compileOnly libs.rxjava
+    compileOnly libs.coroutines.android
+    compileOnly libs.serialization.json
+
+    // UNIT TESTS ONLY (FEAT-005 PHASE 9); testImplementation NEVER REACHES THE APK (scripts/verify-apk.sh PROVES IT).
+    testImplementation libs.junit
+    testImplementation libs.kotlin.stdlib
+    testImplementation libs.serialization.json
+    // EXTENSION API STUBS, SO SManga RESOLVES WHEN THE DTO FILE CLASS IS LOADED
+    testImplementation libs.tachiyomi.lib
 }

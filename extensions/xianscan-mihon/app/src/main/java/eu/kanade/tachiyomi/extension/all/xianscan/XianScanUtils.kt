@@ -18,6 +18,8 @@ fun PreferenceScreen.addEditTextPreference(
     validationMessage: String? = null,
     key: String = title,
     restartRequired: Boolean = false,
+    // RECOMPUTES THE SUMMARY AFTER A SAVE (E.G. "SET" / "NOT SET" FOR SECRETS, NEVER THE VALUE)
+    summaryFor: ((String) -> String)? = null,
 ) {
     EditTextPreference(context).apply {
         this.key = key
@@ -62,6 +64,10 @@ fun PreferenceScreen.addEditTextPreference(
 
                 if (restartRequired && result) {
                     Toast.makeText(context, "Restart Tachiyomi to apply new setting.", Toast.LENGTH_LONG).show()
+                }
+
+                if (result && summaryFor != null) {
+                    this.summary = summaryFor(text)
                 }
 
                 result

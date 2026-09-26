@@ -2,6 +2,10 @@ package eu.kanade.tachiyomi.extension.all.xianscan
 
 import eu.kanade.tachiyomi.source.model.SManga
 import kotlinx.serialization.Serializable
+import kotlinx.serialization.json.Json
+
+// THE ONE JSON CONFIG THE SOURCE DECODES WITH; THE UNIT TESTS USE THIS EXACT INSTANCE (FEAT-005 PHASE 9).
+internal val XIANSCAN_JSON = Json { ignoreUnknownKeys = true }
 
 @Serializable
 data class MangaDto(

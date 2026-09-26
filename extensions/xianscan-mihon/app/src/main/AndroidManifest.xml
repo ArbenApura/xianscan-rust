@@ -2,7 +2,7 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
     <!-- REQUIRED BY MIHON / TACHIYOMI FOR EXTENSION DISCOVERY -->
-    <uses-feature android:name="tachiyomi.extension" required="false" />
+    <uses-feature android:name="tachiyomi.extension" />
 
     <application
         android:label="${appName}"
@@ -16,6 +16,10 @@
         <meta-data
             android:name="tachiyomi.extension.nsfw"
             android:value="${nsfw}" />
+        <!-- EXTENSION LIB VERSION, READ BEFORE THE versionName FALLBACK (FEAT-005 PHASE 6, ADR-005) -->
+        <meta-data
+            android:name="tachiyomix.extensionLib"
+            android:value="${extensionLib}" />
     </application>
 
 </manifest>
