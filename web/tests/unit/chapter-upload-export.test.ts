@@ -1,7 +1,7 @@
 // USER-FACING UPLOAD AND EXPORT MESSAGES (AUDIT: BROKEN #3, MISSING #15, WRONG #4/#5)
 import { describe, expect, it } from 'vitest';
 import { chapterUploadErrorMessage } from '$lib/utils/upload';
-import { zipExportToast } from '$lib/utils/chapter-export';
+import { chapterArchiveName, zipContentDisposition, zipExportToast } from '$lib/utils/chapter-export';
 import { INPAINT_MODES } from '$lib/stores/settings';
 
 describe('chapterUploadErrorMessage', () => {
@@ -55,5 +55,28 @@ describe('inpaint mode descriptions', () => {
 
 	it('uses no em dashes', () => {
 		for (const m of INPAINT_MODES) expect(`${m.label}${m.tag}${m.blurb}`).not.toContain(String.fromCharCode(0x2014));
+	});
+});
+
+describe('chapterArchiveName', () => {
+	it('keeps letters of every script, so a CJK or Hangul title is not reduced to chapter_<id>', () => {
+		expect(chapterArchiveName('第12话 重生', 'chapter_7')).toBe('第12话_重生');
+		expect(chapterArchiveName('제 3화', 'chapter_7')).toBe('제_3화');
+		expect(chapterArchiveName('The End', 'chapter_7')).toBe('The_End');
+	});
+
+	it('drops characters that are unsafe in file names and falls back when nothing is left', () => {
+		expect(chapterArchiveName('a/b:c*?"<>|d', 'chapter_7')).toBe('abcd');
+		expect(chapterArchiveName('  ...  ', 'chapter_7')).toBe('chapter_7');
+		expect(chapterArchiveName(null, 'chapter_7')).toBe('chapter_7');
+	});
+});
+
+describe('zipContentDisposition', () => {
+	it('sends an ASCII filename plus the full UTF-8 name, since headers only carry Latin-1', () => {
+		const header = zipContentDisposition('第12话', 'chapter_7');
+		expect(header).toBe(`attachment; filename="12.zip"; filename*=UTF-8''${encodeURIComponent('第12话.zip')}`);
+		expect(zipContentDisposition('重生', 'chapter_7')).toContain('filename="chapter_7.zip"');
+		expect(zipContentDisposition('The_End', 'chapter_7')).toContain('filename="The_End.zip"');
 	});
 });

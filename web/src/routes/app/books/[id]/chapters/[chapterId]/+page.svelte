@@ -29,7 +29,7 @@
 	import { apiJson } from '$lib/api';
 	import { parseDataTransferItems, type DiscoveredChapter } from '$lib/utils/folder-drop';
 	import { chapterUploadErrorMessage } from '$lib/utils/upload';
-	import { zipExportToast } from '$lib/utils/chapter-export';
+	import { chapterArchiveName, zipExportToast } from '$lib/utils/chapter-export';
 	import MultiChapterImportModal from '$lib/components/chapter/MultiChapterImportModal.svelte';
 	import type { PageData as ServerPageData } from './$types';
 
@@ -785,7 +785,7 @@
 			const anchor = document.createElement('a');
 			const rawName = (chapter.titleTarget || chapter.title || `Chapter ${chapter.seq + 1}`).trim();
 			anchor.href = url;
-			anchor.download = `${rawName.replace(/[^\w\- ]+/g, '').replace(/\s+/g, '_') || `chapter_${chapter.id}`}.zip`;
+			anchor.download = `${chapterArchiveName(rawName, `chapter_${chapter.id}`)}.zip`;
 			// SOME FIREFOX VERSIONS ONLY FOLLOW A DOWNLOAD ANCHOR THAT IS IN THE DOCUMENT
 			anchor.style.display = 'none';
 			document.body.appendChild(anchor);

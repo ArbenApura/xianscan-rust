@@ -7,6 +7,7 @@ import { extname, join } from 'node:path';
 import { zipSync } from 'fflate';
 // IMPORTED MODULES
 import { assertChapterExists } from '$lib/server/chapters';
+import { chapterArchiveName, zipContentDisposition } from '$lib/utils/chapter-export';
 import { db } from '$lib/server/db';
 import { pages } from '$lib/server/db/schema';
 import { DATA_ROOT } from '$lib/server/paths';
@@ -22,7 +23,7 @@ export const GET: RequestHandler = async ({ params }) => {
 	// FOLDER-BASED ZIP - THE ARCHIVE UNPACKS INTO ONE CHAPTER FOLDER HOLDING THE PAGES, WHICH IS
 	// THE STRUCTURE MIHON/TACHIYOMI LOCAL SOURCES EXPECT (<book>/<chapter>/images).
 	// THE SAME NAME THE CLIENT GIVES THE DOWNLOAD: THE TRANSLATED TITLE WHEN THERE IS ONE (FEAT-009 PHASE 7)
-	const safeTitle = (chapter.titleTarget || chapter.title).trim().replace(/[^\w\- ]+/g, '').replace(/\s+/g, '_') || `chapter_${chapterId}`;
+	const safeTitle = chapterArchiveName(chapter.titleTarget || chapter.title, `chapter_${chapterId}`);
 
 	// IMAGES ARE ALREADY COMPRESSED: STORE THEM (LEVEL 0) SO A BIG CHAPTER DOES NOT BLOCK THE EVENT LOOP ON A
 	// USELESS DEFLATE PASS. ONLY THE TEXT NOTE IS COMPRESSED.
@@ -63,7 +64,7 @@ export const GET: RequestHandler = async ({ params }) => {
 	const zipped = zipSync(files);
 	const headers: Record<string, string> = {
 		'content-type': 'application/zip',
-		'content-disposition': `attachment; filename="${safeTitle}.zip"`,
+		'content-disposition': zipContentDisposition(safeTitle, `chapter_${chapterId}`),
 		// A KNOWN LENGTH MAKES THE CLIENT'S PROGRESS BAR REAL
 		'content-length': String(zipped.byteLength),
 	};
