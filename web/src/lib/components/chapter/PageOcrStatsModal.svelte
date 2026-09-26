@@ -18,6 +18,7 @@
 	// IMPORTED MODULES
 	import { ripple } from '$lib/actions/ripple';
 	import { cn } from '$lib/utils/cn';
+	import { pageAverageConfidence, isEstimatedPageAverage, LEGACY_CONFIDENCE_TOOLTIP } from '$lib/confidence';
 
 	// IMPORTED COMPONENTS
 	import { Modal, Button } from '$lib/components/ui';
@@ -60,6 +61,9 @@
 		rescued_crops_count: number;
 		final_regions_count: number;
 		avg_confidence: number;
+		avg_ocr_confidence?: number | null;
+		confidence_scale?: string | null;
+		refine_crop_attempts?: number;
 		steps?: OcrStepLog[];
 	}
 
@@ -70,7 +74,8 @@
 	// -- REACTIVE STATES -- //
 	let parsedStats: OcrStatsPayload | null = null;
 	let rawJsonText = '';
-	let avgConfidence = 0;
+	let avgConfidence: number | null = null;
+	let avgConfidenceEstimated = false;
 
 	// -- REACTIVE STATEMENTS -- //
 	$: {
@@ -89,14 +94,9 @@
 			}
 		}
 
-		if (parsedStats?.avg_confidence !== undefined && parsedStats?.avg_confidence !== null) {
-			avgConfidence = parsedStats.avg_confidence;
-		} else if (page?.regions?.length) {
-			const sum = page.regions.reduce((acc: number, r: any) => acc + (r.conf ?? 0), 0);
-			avgConfidence = sum / page.regions.length;
-		} else {
-			avgConfidence = 0;
-		}
+		// CALIBRATED AVERAGE FIRST, THEN THE LEGACY AVERAGE CONVERTED, THEN THE REGION MEAN (FEAT-003)
+		avgConfidence = pageAverageConfidence(parsedStats, page?.regions ?? []);
+		avgConfidenceEstimated = avgConfidence !== null && isEstimatedPageAverage(parsedStats, page?.regions ?? []);
 	}
 
 	// -- FUNCTIONS -- //
@@ -116,7 +116,7 @@
 		return `${(ms / 1000).toFixed(2)} s`;
 	}
 
-	function formatPercent(val?: number): string {
+	function formatPercent(val?: number | null): string {
 		if (val === undefined || val === null || isNaN(val)) return '-';
 		return `${(val * 100).toFixed(1)}%`;
 	}
@@ -193,7 +193,11 @@
 				</div>
 				<div class="min-w-0">
 					<div class="text-[10px] font-medium text-neutral-500 uppercase tracking-wider">Avg Confidence</div>
-					<div class="text-xs sm:text-sm font-bold font-mono truncate">
+					<div
+						class="text-xs sm:text-sm font-bold font-mono truncate"
+						title={avgConfidenceEstimated ? LEGACY_CONFIDENCE_TOOLTIP : undefined}
+						data-testid="avg-confidence"
+					>
 						{formatPercent(avgConfidence)}
 					</div>
 				</div>

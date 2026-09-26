@@ -35,6 +35,7 @@
 	import EditRegionTranslationModal from './EditRegionTranslationModal.svelte';
 	import PageLlmPromptModal from './PageLlmPromptModal.svelte';
 	import PageOcrStatsModal from './PageOcrStatsModal.svelte';
+	import { displayConfidence, isEstimatedConfidence, LEGACY_CONFIDENCE_TOOLTIP } from '$lib/confidence';
 
 	// -- REQUIRED PROPS -- //
 
@@ -168,21 +169,27 @@
 		hoveredRegionId = null;
 	}
 
+	// ONLY THE LATEST REQUEST MAY APPLY ITS ANSWER: A SLOW RESPONSE FOR A PAGE THE USER ALREADY LEFT MUST NOT OVERWRITE
+	// THE PAGE NOW SHOWN (FEAT-009 PHASE 9)
+	let detailsRequestId = 0;
+
 	async function fetchFreshPageData(pageId: number, silent = false) {
 		if (!pageId) return;
+		const req = ++detailsRequestId;
 		if (!silent) loadingDetails = true;
 		try {
 			const res = await fetch(`/api/pages/${pageId}`);
 			if (!res.ok) throw new Error('Failed to load page details');
 			const data = await res.json();
+			if (req !== detailsRequestId || page?.id !== pageId) return;
 			if (data.page && data.page.id === pageId) {
 				page = { ...page, ...data.page };
 				dispatch('update', { page, reloadKey });
 			}
 		} catch (e: any) {
-			if (!silent) toast.error('Could not refresh page regions');
+			if (!silent && req === detailsRequestId) toast.error('Could not refresh page regions');
 		} finally {
-			loadingDetails = false;
+			if (req === detailsRequestId) loadingDetails = false;
 		}
 	}
 
@@ -662,11 +669,15 @@
 	}
 
 	// AUTO-FIT PAGE INTO VIEWPORT ON INSPECTION
-	$: if (open && page?.id && imageScrollContainer) {
+	// FIT ONCE PER PAGE: A DETAILS REFRESH REASSIGNS page, WHICH USED TO RESET THE USER'S ZOOM (FEAT-009 PHASE 9)
+	let lastFitPageId: number | null = null;
+	$: if (open && page?.id && imageScrollContainer && page.id !== lastFitPageId) {
+		lastFitPageId = page.id;
 		setTimeout(() => {
 			fitToPage(false);
 		}, 60);
 	}
+	$: if (!open) lastFitPageId = null;
 
 	function selectRegionOnMobile(region: any) {
 		selectedRegionId = region.id;
@@ -708,7 +719,7 @@
 		try {
 			const typesetOptions = {
 				fontDialogue: $settings.typesetFont,
-				fontCjk: $settings.typesetCjkFont,
+				scriptFonts: $settings.typesetScriptFonts,
 				boxInset: $settings.typesetPadding,
 				outlineMode: $settings.typesetOutline,
 				colorMode: $settings.typesetContrast,
@@ -751,7 +762,7 @@
 		try {
 			const typesetOptions = {
 				fontDialogue: $settings.typesetFont,
-				fontCjk: $settings.typesetCjkFont,
+				scriptFonts: $settings.typesetScriptFonts,
 				boxInset: $settings.typesetPadding,
 				outlineMode: $settings.typesetOutline,
 				colorMode: $settings.typesetContrast,
@@ -818,6 +829,7 @@
 				seq: r.seq,
 				kind: getRegionKind(r),
 				confidence: r.conf,
+				confScale: r.confScale ?? 0,
 				angle: getRegionAngle(r),
 				vertical: isRegionVertical(r),
 				box: getBox(r.box),
@@ -1494,9 +1506,13 @@
 												Preserved Art
 											</span>
 										{/if}
-										{#if region.conf !== null}
-											<span class="text-[10px] font-mono opacity-50">
-												{(region.conf * 100).toFixed(0)}% conf
+										{#if displayConfidence(region.conf, region.confScale) !== null}
+											<span
+												class="text-[10px] font-mono opacity-50"
+												title={isEstimatedConfidence(region.conf, region.confScale) ? LEGACY_CONFIDENCE_TOOLTIP : undefined}
+												data-testid="region-conf"
+											>
+												{((displayConfidence(region.conf, region.confScale) ?? 0) * 100).toFixed(0)}% conf
 											</span>
 										{/if}
 									</div>
@@ -1626,7 +1642,7 @@
 											</div>
 										</div>
 
-										<div class="break-words leading-snug text-[11px]">
+										<div class="break-words leading-snug text-[11px]" dir="auto">
 											{region.textTarget}
 										</div>
 									</div>

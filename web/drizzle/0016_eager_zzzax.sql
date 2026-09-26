@@ -1,0 +1,1 @@
+ALTER TABLE `regions` ADD `conf_scale` integer DEFAULT 0 NOT NULL;

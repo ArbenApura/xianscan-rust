@@ -15,6 +15,32 @@ describe('PageInspectModal Component UI', () => {
 		cleanup();
 	});
 
+	it('ignores a late refresh for a page the user already left (FEAT-009 Phase 9)', async () => {
+		let releasePage1: ((r: Response) => void) | null = null;
+		global.fetch = vi.fn().mockImplementation((url: string) => {
+			if (String(url).endsWith('/api/pages/1')) return new Promise<Response>((r) => (releasePage1 = r));
+			if (String(url).endsWith('/api/pages/2')) {
+				return Promise.resolve(new Response(JSON.stringify({ page: { id: 2, seq: 1, regions: [] } }), { status: 200 }));
+			}
+			return Promise.resolve(new Response('{}', { status: 200 }));
+		}) as any;
+		const page1 = { id: 1, seq: 0, filePath: 'p1.png', width: 800, height: 1200, regions: [] };
+		const page2 = { id: 2, seq: 1, filePath: 'p2.png', width: 800, height: 1200, regions: [] };
+		const { component } = render(PageInspectModal, { props: { open: true, page: page1 } });
+		const updates: number[] = [];
+		component.$on('update', (e: CustomEvent) => updates.push(e.detail.page.id));
+		await tick();
+
+		component.$set({ page: page2 });
+		await tick();
+		releasePage1!(new Response(JSON.stringify({ page: { id: 1, seq: 0, regions: [] } }), { status: 200 }));
+		await new Promise((r) => setTimeout(r, 0));
+		await tick();
+
+		expect(screen.getByText('Inspect Page 2 (ID: 2)')).toBeTruthy();
+		expect(updates).not.toContain(1);
+	});
+
 	it('renders inspection modal with page details and detected regions', async () => {
 		const mockPage = {
 			id: 101,
@@ -50,6 +76,33 @@ describe('PageInspectModal Component UI', () => {
 
 		expect(screen.getByText('你好世界')).toBeTruthy();
 		expect(screen.getByText('Hello World')).toBeTruthy();
+	});
+
+	it('shows calibrated confidence as is and converts legacy confidence with an estimate tooltip (FEAT-003)', async () => {
+		const mockPage = {
+			id: 104,
+			seq: 0,
+			filePath: 'page_1.png',
+			outputPath: 'output/page_1.png',
+			width: 800,
+			height: 1200,
+			regions: [
+				{ id: 601, seq: 0, textSource: '甲', textTarget: 'A', box: { x: 10, y: 10, w: 100, h: 40 }, conf: 0.97, confScale: 1 },
+				{ id: 602, seq: 1, textSource: '乙', textTarget: 'B', box: { x: 10, y: 80, w: 100, h: 40 }, conf: 0.731058, confScale: 0 },
+				{ id: 603, seq: 2, textSource: '丙', textTarget: 'C', box: { x: 10, y: 150, w: 100, h: 40 }, conf: null, confScale: 0 },
+			],
+		};
+
+		render(PageInspectModal, { props: { open: true, page: mockPage } });
+		await fireEvent.click(screen.getByText('Regions (3)'));
+		await tick();
+
+		const badges = screen.getAllByTestId('region-conf');
+		expect(badges).toHaveLength(2);
+		expect(badges[0].textContent?.trim()).toBe('97% conf');
+		expect(badges[0].getAttribute('title')).toBeNull();
+		expect(badges[1].textContent?.trim()).toBe('100% conf');
+		expect(badges[1].getAttribute('title')).toBe('Estimated from an older analysis. Re-run OCR for an exact value.');
 	});
 
 	it('renders LLM Prompt button and opens conversation history dialog with benchmarks', async () => {
@@ -202,7 +255,9 @@ describe('PageInspectModal Component UI', () => {
 		expect(typesetCall[1].method).toBe('POST');
 		const body = JSON.parse(typesetCall[1].body);
 		expect(body.typesetOptions).toBeDefined();
-		expect(body.typesetOptions.fontCjk).toBe('WenQuanYi Micro Hei');
+		// FEAT-006: THE PER-SCRIPT SLOTS ARE SENT (EMPTY = AUTOMATIC), NOT THE OLD SINGLE CJK FONT
+		expect(body.typesetOptions.scriptFonts).toEqual({});
+		expect(body.typesetOptions.fontCjk).toBeUndefined();
 	});
 
 	it('renders Re-translate Page button and dispatches retranslate event on click', async () => {
