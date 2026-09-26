@@ -17,6 +17,8 @@ import {
 	fastScrollPreload
 } from './content/scanner';
 import { InPlaceTranslationCoordinator } from './content/coordinator';
+import { getServerUrl } from './core/storage';
+import { isOnServerDashboard } from './core/origin';
 
 // -- RE-EXPORTS FOR BACKWARD COMPATIBILITY & TEST SUITES -- //
 
@@ -35,12 +37,7 @@ export {
 
 // -- RUNTIME MESSAGE LISTENER (GUARDED AGAINST SELF-HOSTED DASHBOARD) -- //
 
-if (
-	typeof window !== 'undefined' &&
-	!window.location.hostname.includes('localhost') &&
-	!window.location.hostname.includes('127.0.0.1') &&
-	!window.location.pathname.startsWith('/app')
-) {
+function startContentScript(): void {
 	try {
 		(window as any).__xianscan_coordinator?.destroy?.();
 	} catch {
@@ -194,4 +191,12 @@ if (
 		return false;
 	});
 	}
+}
+
+// SKIP THE CONFIGURED XIANSCAN SERVER ITSELF (INCLUDING A LAN ADDRESS), NOTHING ELSE. THE OLD CHECK
+// MATCHED ANY "localhost" HOST OR "/app" PATH, WHICH MISSED LAN DASHBOARDS AND SKIPPED UNRELATED SITES.
+if (typeof window !== 'undefined' && typeof chrome !== 'undefined' && chrome.runtime?.id) {
+	void getServerUrl().then(serverUrl => {
+		if (!isOnServerDashboard(window.location.href, serverUrl)) startContentScript();
+	});
 }

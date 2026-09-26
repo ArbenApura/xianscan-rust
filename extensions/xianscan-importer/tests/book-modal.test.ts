@@ -60,6 +60,7 @@ describe('BookModalController', () => {
 						<button class="custom-select-option mono" type="button" data-value="uk">Ukrainian (Українська)</button>
 						<button class="custom-select-option mono" type="button" data-value="sv">Swedish (Svenska)</button>
 						<button class="custom-select-option mono" type="button" data-value="fi">Finnish (Suomi)</button>
+						<button class="custom-select-option mono" type="button" data-value="ar">Arabic (العربية)</button>
 					</div>
 				</div>
 				<button id="cancelBookModalBtn"></button>
@@ -142,16 +143,16 @@ describe('BookModalController', () => {
 		}));
 	});
 
-	it('contains all 20 supported target languages in target dropdown', () => {
+	it('contains all 21 supported target languages in target dropdown', () => {
 		const expectedTargetLangs = [
 			'en', 'zh-Hans', 'zh-Hant', 'ja', 'ko', 'es', 'fr', 'de', 'ru',
-			'pt', 'it', 'id', 'tr', 'nl', 'pl', 'th', 'hi', 'uk', 'sv', 'fi'
+			'pt', 'it', 'id', 'tr', 'nl', 'pl', 'th', 'hi', 'uk', 'sv', 'fi', 'ar'
 		];
 		const renderedOptions = Array.from(
 			document.querySelectorAll<HTMLButtonElement>('#newBookTargetLangDropdown .custom-select-option')
 		).map(el => el.dataset.value);
 
-		expect(renderedOptions).toHaveLength(20);
+		expect(renderedOptions).toHaveLength(21);
 		for (const code of expectedTargetLangs) {
 			expect(renderedOptions).toContain(code);
 		}

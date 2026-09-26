@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { XianScanClient } from '../src/api';
+import { AuthRequiredError, XianScanClient } from '../src/api';
 
 describe('XianScanClient', () => {
 	let client: XianScanClient;
@@ -265,5 +265,52 @@ describe('XianScanClient', () => {
 		const result = await client.cancelBatchTranslation(42);
 		expect(result.success).toBe(true);
 		expect(result.removed).toBe(false);
+	});
+});
+
+describe('XianScanClient access token', () => {
+	const ok = (body: unknown = {}) => ({ ok: true, status: 200, json: async () => body, body: null });
+	const tokenOf = (call: any[]) => new Headers(call[1]?.headers).get('X-XianScan-Token');
+
+	it('sends the token on direct JSON, FormData, reslice and translate requests', async () => {
+		const mockFetch = vi.fn().mockResolvedValue(ok({ id: 1, added: 1 }));
+		const client = new XianScanClient('http://192.168.1.10:8124', mockFetch, 'tok-123');
+
+		await client.getBooks();
+		await client.uploadPages(1, [{ blob: new Blob(['x']), filename: 'a.png' }]);
+		await client.triggerReslice(1);
+		await client.triggerTranslate(1);
+
+		expect(mockFetch).toHaveBeenCalledTimes(4);
+		for (const call of mockFetch.mock.calls) expect(tokenOf(call)).toBe('tok-123');
+		// MULTIPART MUST KEEP ITS BROWSER-SET CONTENT-TYPE
+		expect(new Headers(mockFetch.mock.calls[1][1].headers).get('content-type')).toBeNull();
+	});
+
+	it('sends no token header when none is set', async () => {
+		const mockFetch = vi.fn().mockResolvedValue(ok({ books: [] }));
+		const client = new XianScanClient('http://127.0.0.1:8124', mockFetch);
+		await client.getBooks();
+		expect(tokenOf(mockFetch.mock.calls[0])).toBeNull();
+	});
+
+	it('throws AuthRequiredError on 401 auth_required', async () => {
+		const mockFetch = vi.fn().mockResolvedValue({
+			ok: false,
+			status: 401,
+			json: async () => ({ code: 'auth_required', message: 'XianScan access token required.' }),
+		});
+		const client = new XianScanClient('http://192.168.1.10:8124', mockFetch);
+		await expect(client.getBooks()).rejects.toBeInstanceOf(AuthRequiredError);
+	});
+
+	it('the localhost / 127.0.0.1 fallback swaps only the host', async () => {
+		const mockFetch = vi
+			.fn()
+			.mockRejectedValueOnce(new Error('Failed to fetch'))
+			.mockResolvedValueOnce(ok({ books: [] }));
+		const client = new XianScanClient('http://localhost:8124/localhost-proxy', mockFetch);
+		await client.getBooks();
+		expect(mockFetch.mock.calls[1][0]).toBe('http://127.0.0.1:8124/localhost-proxy/api/books');
 	});
 });

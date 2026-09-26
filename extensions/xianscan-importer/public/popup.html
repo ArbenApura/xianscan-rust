@@ -356,11 +356,11 @@
 			</div>
 			<div class="modal-body">
 				<label class="field-label mono">Book Title</label>
-				<input type="text" id="newBookTitleInput" class="text-input" placeholder="e.g. Tales of Demons and Gods">
+				<input type="text" id="newBookTitleInput" dir="auto" class="text-input" placeholder="e.g. Tales of Demons and Gods">
 
 				<label class="field-label mono" style="margin-top: 8px;">Target Title (Optional translation)</label>
 				<div class="input-row">
-					<input type="text" id="newBookTitleTargetInput" class="text-input" placeholder="e.g. Stardust">
+					<input type="text" id="newBookTitleTargetInput" dir="auto" class="text-input" placeholder="e.g. Stardust">
 					<button class="icon-btn" id="translateBookTitleBtn" type="button" title="Auto-translate book title" aria-label="Auto-translate book title">
 						<span id="translateBookTitleIcon">
 							<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -431,6 +431,7 @@
 						<button class="custom-select-option mono" type="button" data-value="uk">Ukrainian (Українська)</button>
 						<button class="custom-select-option mono" type="button" data-value="sv">Swedish (Svenska)</button>
 						<button class="custom-select-option mono" type="button" data-value="fi">Finnish (Suomi)</button>
+						<button class="custom-select-option mono" type="button" data-value="ar">Arabic (العربية)</button>
 					</div>
 				</div>
 			</div>
@@ -484,6 +485,11 @@
 				<input type="text" id="serverUrlInput" class="text-input mono" placeholder="http://127.0.0.1:8124">
 				<div class="mono" style="font-size: 9px; color: var(--text-muted); margin-top: 6px; line-height: 1.3;">
 					Local address or LAN URL of your self-hosted XianScan backend server.
+				</div>
+				<label class="field-label mono" for="accessTokenInput" style="margin-top: 12px;">Access token</label>
+				<input type="password" id="accessTokenInput" class="text-input mono" autocomplete="off" spellcheck="false" placeholder="Paste the token">
+				<div class="mono" style="font-size: 9px; color: var(--text-muted); margin-top: 6px; line-height: 1.3;">
+					From XianScan: Settings, Network &amp; Access.
 				</div>
 			</div>
 			<div class="modal-actions">

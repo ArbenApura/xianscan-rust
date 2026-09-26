@@ -8,6 +8,7 @@ import { NOISE_CONTAINER_SELECTORS, isFloatingOrSticky, isLikelyAdOrBannerImage 
 import { getCanonicalUrl } from '../core/heuristics/url-clustering';
 import { resolveSafeImageUrl, clearSafeImageUrlCache, invalidateCachedSafeUrl } from './safe-image';
 import { findPrimaryReaderContainer } from './scanner';
+import { shouldProxyServerImage } from '../core/origin';
 
 // -- CONSTANTS -- //
 
@@ -391,7 +392,7 @@ export class DomReplacerEngine {
 				this.runSelfMutation(() => {
 					img.setAttribute('data-xianscan-page-id', String(matchedPage.id));
 					img.setAttribute('data-xianscan-page-seq', String(matchedPage.seq));
-					const shouldProxy = isHttpsHost && targetUrl.startsWith('http://') && typeof chrome !== 'undefined' && !!chrome.runtime?.sendMessage;
+					const shouldProxy = shouldProxyServerImage(targetUrl);
 
 					if (!shouldProxy) {
 						img.src = targetUrl;
@@ -482,7 +483,7 @@ export class DomReplacerEngine {
 					? `${this.baseUrl}/api/pages/${page.id}/file?kind=${effectiveKind}&rev=${effectiveRev}`
 					: `${this.baseUrl}/api/pages/${page.id}/file?kind=original&rev=${page.originalRev ?? 1}`;
 
-				const shouldProxy = isHttpsHost && targetUrl.startsWith('http://') && typeof chrome !== 'undefined' && !!chrome.runtime?.sendMessage;
+				const shouldProxy = shouldProxyServerImage(targetUrl);
 
 				if (i === 0) {
 					// SLICE 0 DIRECTLY REPLACES THE ANCHOR HOST IMAGE
@@ -658,7 +659,7 @@ export class DomReplacerEngine {
 
 			if (isOutputReady || isCleanedReady || isAnnotatedReady) {
 				const targetUrl = `${this.baseUrl}/api/pages/${page.id}/file?kind=${effectiveKind}&rev=${effectiveRev}`;
-				const shouldProxy = isHttpsHost && targetUrl.startsWith('http://') && typeof chrome !== 'undefined' && !!chrome.runtime?.sendMessage;
+				const shouldProxy = shouldProxyServerImage(targetUrl);
 
 				this.sanitizeLazyAttributes(img);
 				this.runSelfMutation(() => {
@@ -716,7 +717,7 @@ export class DomReplacerEngine {
 					? `${this.baseUrl}/api/pages/${page.id}/file?kind=output&rev=${page.outputRev}`
 					: `${this.baseUrl}/api/pages/${page.id}/file?kind=original&rev=${page.originalRev ?? 1}`;
 
-				const shouldProxy = isHttpsHost && targetUrl.startsWith('http://') && typeof chrome !== 'undefined' && !!chrome.runtime?.sendMessage;
+				const shouldProxy = shouldProxyServerImage(targetUrl);
 
 				const templateImg = hostImgs[hostImgs.length - 1];
 				const clone = templateImg.cloneNode(true) as HTMLImageElement;
@@ -816,7 +817,7 @@ export class DomReplacerEngine {
 
 		const newUrl = `${this.baseUrl}/api/pages/${pageId}/file?kind=output&rev=${outputRev}`;
 		const isHttpsHost = typeof window !== 'undefined' && window.location.protocol === 'https:';
-		const shouldProxy = isHttpsHost && newUrl.startsWith('http://') && typeof chrome !== 'undefined' && !!chrome.runtime?.sendMessage;
+		const shouldProxy = shouldProxyServerImage(newUrl);
 
 		if (img) {
 			this.sanitizeLazyAttributes(img);
@@ -972,7 +973,7 @@ export class DomReplacerEngine {
 		const effectiveRev = effectiveStage === 'annotated' ? (annotatedRev || existingMeta?.annotatedRev || rev) : rev;
 		const newUrl = `${this.baseUrl}/api/pages/${pageId}/file?kind=${effectiveStage}&rev=${effectiveRev}`;
 		const isHttpsHost = typeof window !== 'undefined' && window.location.protocol === 'https:';
-		const shouldProxy = isHttpsHost && newUrl.startsWith('http://') && typeof chrome !== 'undefined' && !!chrome.runtime?.sendMessage;
+		const shouldProxy = shouldProxyServerImage(newUrl);
 
 		this.sanitizeLazyAttributes(img);
 		this.runSelfMutation(() => {

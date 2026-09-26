@@ -1,23 +1,49 @@
 // -- BACKGROUND SERVICE WORKER: CONTEXT MENUS, SESSION FETCHER, STREAMING & LIVE SYNC -- //
 
 // IMPORTED MODULES
-import { XianScanClient } from './api';
-import { getServerUrl, saveSiteMapping, findMappingForUrl, deleteSiteMapping, updateSiteMappingEnabled } from './core/storage';
+import { getServerUrl, getAccessToken, saveSiteMapping, findMappingForUrl, deleteSiteMapping, updateSiteMappingEnabled } from './core/storage';
+import { isServerUrl } from './core/origin';
 import { initKeepAliveService } from './background/keep-alive';
 import { initContextMenus } from './background/context-menus';
-import { safeFetch, fetchImageBlob, arrayBufferToBase64 } from './background/downloader';
+import { arrayBufferToBase64 } from './background/downloader';
 import { attachLiveTranslationListener, abortSseStream } from './background/sse-streamer';
 import { runBatchImportJob } from './background/batch-runner';
 import { setJobCancelled } from './background/job-state';
+import { createServerClient, proxyServerRequest, serverFetch } from './background/server-proxy';
 
 // -- INITIALIZATION -- //
 
 initContextMenus();
 initKeepAliveService();
 
+// -- FUNCTIONS -- //
+
+// SERVER IMAGE AS A DATA URL FOR CONTENT SCRIPTS AND THE POPUP (MIXED CONTENT, OR A LAN SERVER THAT
+// NEEDS THE TOKEN). ONLY THE CONFIGURED SERVER IS REACHABLE THIS WAY.
+async function fetchServerImageData(url: string): Promise<{ dataUrl: string; mime: string }> {
+	if (!/^https?:\/\//i.test(url)) throw new Error('Only http(s) image URLs are supported');
+	const serverUrl = await getServerUrl();
+	if (!isServerUrl(url, serverUrl)) throw new Error('Image URL is not on the configured XianScan server');
+
+	const controller = new AbortController();
+	const timeoutId = setTimeout(() => controller.abort(), 15000);
+	try {
+		const res = await serverFetch(url, { signal: controller.signal, headers: { Accept: 'image/*' } });
+		if (!res.ok) throw new Error(`HTTP ${res.status}`);
+		const blob = await res.blob();
+		const mime = blob.type || 'image/jpeg';
+		return { dataUrl: arrayBufferToBase64(await blob.arrayBuffer(), mime), mime };
+	} finally {
+		clearTimeout(timeoutId);
+	}
+}
+
 // -- RUNTIME MESSAGE DISPATCHER -- //
 
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+	// ONLY THIS EXTENSION'S OWN PAGES AND CONTENT SCRIPTS MAY TALK TO THE WORKER
+	if (sender.id !== chrome.runtime.id) return false;
+
 	if (message.type === 'START_IMPORT_JOB') {
 		runBatchImportJob(message.payload, sender.tab?.url || message.refererUrl)
 			.then(() => sendResponse({ success: true }))
@@ -30,8 +56,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 		chrome.storage.local.set({ activeImportJob: null });
 		if (message.chapterId) {
 			abortSseStream(Number(message.chapterId));
-			getServerUrl().then(url => {
-				const client = new XianScanClient(url, safeFetch);
+			createServerClient().then(client => {
 				void client.cancelBatchTranslation(Number(message.chapterId)).then(res => {
 					if (!res.success || !res.removed) {
 						void client.cancelTranslation(message.chapterId);
@@ -88,43 +113,10 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 		return true;
 	}
 
-// PROXY FETCH HELPER WITH LOCALHOST AND 127.0.0.1 FALLBACK PLUS TIMEOUT
-async function proxyFetchWithFallback(rawUrl: string, options: RequestInit = {}): Promise<Response> {
-	const controller = new AbortController();
-	const timeoutId = setTimeout(() => controller.abort(), 12000);
-	const fetchOptions: RequestInit = {
-		...options,
-		signal: controller.signal
-	};
-
-	let cleanUrl = rawUrl;
-	try {
-		const u = new URL(rawUrl);
-		u.pathname = u.pathname.replace(/\/+/g, '/');
-		cleanUrl = u.href;
-	} catch {
-		cleanUrl = rawUrl;
-	}
-
-	try {
-		return await safeFetch(cleanUrl, fetchOptions);
-	} catch (err: any) {
-		const isConnIssue = err?.message?.includes('Failed to fetch') || err?.name === 'AbortError';
-		if (isConnIssue && (cleanUrl.includes('localhost') || cleanUrl.includes('127.0.0.1'))) {
-			const fallbackUrl = cleanUrl.includes('localhost')
-				? cleanUrl.replace('localhost', '127.0.0.1')
-				: cleanUrl.replace('127.0.0.1', 'localhost');
-			return await safeFetch(fallbackUrl, fetchOptions);
-		}
-		throw err;
-	} finally {
-		clearTimeout(timeoutId);
-	}
-}
-
 	if (message.type === 'PROXY_REQUEST') {
 		const { url, options } = message;
-		proxyFetchWithFallback(url, options)
+		Promise.all([getServerUrl(), getAccessToken()])
+			.then(([serverUrl, token]) => proxyServerRequest(url, options, { serverUrl, token }))
 			.then(async res => {
 				const data = await res.json().catch(() => ({}));
 				sendResponse({ ok: res.ok, status: res.status, data });
@@ -136,16 +128,9 @@ async function proxyFetchWithFallback(rawUrl: string, options: RequestInit = {})
 	}
 
 	if (message.type === 'FETCH_IMAGE_DATA') {
-		fetchImageBlob(message.url, message.referer)
-			.then(async ({ blob, ext }) => {
-				const buffer = await blob.arrayBuffer();
-				const mime = blob.type || (ext === 'png' ? 'image/png' : ext === 'webp' ? 'image/webp' : 'image/jpeg');
-				const dataUrl = arrayBufferToBase64(buffer, mime);
-				sendResponse({ ok: true, dataUrl, mime });
-			})
-			.catch(err => {
-				sendResponse({ ok: false, error: err.message });
-			});
+		fetchServerImageData(message.url)
+			.then(({ dataUrl, mime }) => sendResponse({ ok: true, dataUrl, mime }))
+			.catch(err => sendResponse({ ok: false, error: err.message }));
 		return true;
 	}
 

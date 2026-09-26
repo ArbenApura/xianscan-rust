@@ -4,11 +4,11 @@
 import type { ImportJobPayload, ChapterSyncMessage } from '../types';
 
 // IMPORTED MODULES
-import { XianScanClient } from '../api';
 import { sanitizeFileName } from '../utils/sanitize';
 import { getServerUrl, saveSiteMapping, findMappingForUrl } from '../core/storage';
 import { safeBroadcast, broadcastToChapterTabs } from '../core/messaging';
-import { safeFetch, fetchImageBlobWithTabFallback } from './downloader';
+import { fetchImageBlobWithTabFallback } from './downloader';
+import { createServerClient } from './server-proxy';
 import { isJobCancelled, setJobCancelled } from './job-state';
 import { attachLiveTranslationListener } from './sse-streamer';
 
@@ -18,7 +18,7 @@ import { attachLiveTranslationListener } from './sse-streamer';
 export async function runBatchImportJob(payload: ImportJobPayload, refererUrl?: string): Promise<void> {
 	setJobCancelled(false);
 	const serverUrl = await getServerUrl();
-	const client = new XianScanClient(serverUrl, safeFetch);
+	const client = await createServerClient();
 	const total = payload.imageUrls.length;
 	let processedCount = 0;
 	let uploadedSuccessCount = 0;

@@ -4,7 +4,7 @@
 import type { ChapterMappingEntry } from './types';
 
 // IMPORTED MODULES
-import { XianScanClient } from './api';
+import { AuthRequiredError, XianScanClient } from './api';
 import { ToastComponent } from './popup/components/toast';
 import { StepperComponent } from './popup/components/stepper';
 import { SettingsModalController } from './popup/modals/settings-modal';
@@ -145,9 +145,13 @@ class PopupController {
 	async init(): Promise<void> {
 		this.bindHeaderEvents();
 
-		const stored = await chrome.storage.local.get(['serverUrl', 'inPlaceReplacement']);
+		const stored = await chrome.storage.local.get(['serverUrl', 'inPlaceReplacement', 'accessToken']);
 		if (stored.serverUrl) {
 			this.client.setBaseUrl(stored.serverUrl);
+		}
+		// THE POPUP IS AN EXTENSION PAGE, SO IT MAY HOLD THE TOKEN FOR ITS DIRECT (MULTIPART) UPLOADS
+		if (typeof stored.accessToken === 'string') {
+			this.client.setAccessToken(stored.accessToken);
 		}
 
 		const inPlace = stored.inPlaceReplacement === true;
@@ -161,7 +165,7 @@ class PopupController {
 
 	private bindHeaderEvents(): void {
 		this.toggleSettingsBtn.addEventListener('click', () => {
-			this.settingsModal.open(this.client.getBaseUrl());
+			void this.settingsModal.open(this.client.getBaseUrl());
 		});
 	}
 
@@ -269,7 +273,17 @@ class PopupController {
 				this.serverStatusBadge.title = 'Server is unreachable';
 				this.serverStatusBadge.textContent = 'Offline';
 			}
-		} catch {
+		} catch (err) {
+			if (err instanceof AuthRequiredError) {
+				this.serverStatusBadge.className = 'server-badge error mono';
+				this.serverStatusBadge.title = 'XianScan needs the access token';
+				this.serverStatusBadge.textContent = 'Locked';
+				void this.settingsModal.open(
+					this.client.getBaseUrl(),
+					'Paste the access token from XianScan: Settings, Network & Access.',
+				);
+				return;
+			}
 			this.serverStatusBadge.className = 'server-badge error mono';
 			this.serverStatusBadge.title = 'Server connection failed';
 			this.serverStatusBadge.textContent = 'Offline';

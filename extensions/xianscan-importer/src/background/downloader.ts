@@ -1,5 +1,9 @@
 // -- BACKGROUND IMAGE DOWNLOADER AND TAB CONTEXT FALLBACK -- //
 
+// IMPORTED MODULES
+import { getServerUrl } from '../core/storage';
+import { isServerUrl } from '../core/origin';
+
 // -- FUNCTIONS -- //
 
 // SAFE FETCH WRAPPER GUARANTEEING VALID WORKERGLOBALSCOPE OR WINDOW CONTEXT
@@ -22,8 +26,17 @@ export function arrayBufferToBase64(buffer: ArrayBuffer, mimeType = 'image/jpeg'
 	return `data:${mimeType};base64,${btoa(binary)}`;
 }
 
-// DOWNLOAD IMAGE AS BLOB WITH ROBUST TIMEOUT & FORMAT DETECTION
+// PAGE-SUPPLIED IMAGE URLS MUST NEVER BE AIMED AT THE XIANSCAN API ITSELF (DEFENCE IN DEPTH)
+export async function assertNotServerUrl(url: string): Promise<void> {
+	const serverUrl = await getServerUrl();
+	if (isServerUrl(url, serverUrl)) {
+		throw new Error('Refusing to download an image from the XianScan server itself');
+	}
+}
+
+// DOWNLOAD IMAGE AS BLOB WITH ROBUST TIMEOUT & FORMAT DETECTION. NEVER ATTACHES THE ACCESS TOKEN.
 export async function fetchImageBlob(url: string, _referer?: string): Promise<{ blob: Blob; ext: string }> {
+	await assertNotServerUrl(url);
 	const controller = new AbortController();
 	const timeoutId = setTimeout(() => controller.abort(), 15000);
 
@@ -79,6 +92,8 @@ export async function fetchImageBlob(url: string, _referer?: string): Promise<{ 
 
 // FETCH IMAGE BLOB WITH HOST-TAB FALLBACK FOR HOTLINK PROTECTED CDNS
 export async function fetchImageBlobWithTabFallback(url: string, refererUrl?: string): Promise<{ blob: Blob; ext: string }> {
+	// CHECKED HERE TOO SO THE TAB FALLBACK BELOW CANNOT BE USED TO REACH THE SERVER
+	await assertNotServerUrl(url);
 	try {
 		return await fetchImageBlob(url, refererUrl);
 	} catch (err) {

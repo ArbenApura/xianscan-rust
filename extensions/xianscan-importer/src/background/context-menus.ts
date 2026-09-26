@@ -1,10 +1,10 @@
 // -- CONTEXT MENU REGISTRATION AND QUICK IMPORT HANDLERS -- //
 
 // IMPORTED MODULES
-import { XianScanClient } from '../api';
+import type { XianScanClient } from '../api';
 import { sanitizeFileName } from '../utils/sanitize';
-import { getServerUrl } from '../core/storage';
-import { fetchImageBlob, safeFetch } from './downloader';
+import { fetchImageBlob } from './downloader';
+import { createServerClient } from './server-proxy';
 
 // -- FUNCTIONS -- //
 
@@ -51,8 +51,7 @@ export function initContextMenus(): void {
 // UPLOAD A SINGLE IMAGE FROM RIGHT-CLICK CONTEXT MENU
 export async function handleSingleImageUpload(srcUrl: string, targetType: 'recent' | 'inbox', pageUrl?: string): Promise<void> {
 	try {
-		const serverUrl = await getServerUrl();
-		const client = new XianScanClient(serverUrl, safeFetch);
+		const client = await createServerClient();
 
 		const { blob, ext } = await fetchImageBlob(srcUrl, pageUrl);
 		const filename = sanitizeFileName(`quick_import_${Date.now()}.${ext}`);

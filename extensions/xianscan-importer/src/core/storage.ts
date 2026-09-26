@@ -37,6 +37,29 @@ export async function setServerUrl(serverUrl: string): Promise<void> {
 	await chrome.storage.local.set({ serverUrl });
 }
 
+// ORIGIN OF THE CONFIGURED SERVER (SCHEME + HOST + PORT)
+export async function getServerOrigin(): Promise<string> {
+	const url = await getServerUrl();
+	try {
+		return new URL(url).origin;
+	} catch {
+		return new URL(DEFAULT_SERVER_URL).origin;
+	}
+}
+
+// ACCESS TOKEN FROM XIANSCAN SETTINGS, NETWORK & ACCESS. ONLY THE BACKGROUND WORKER AND THE POPUP
+// READ IT: CONTENT SCRIPTS NEVER CALL THIS, AND IT IS DELIBERATELY NOT PART OF getExtensionPreferences.
+export async function getAccessToken(): Promise<string> {
+	if (typeof chrome === 'undefined' || !chrome.storage?.local) return '';
+	const stored = await chrome.storage.local.get(['accessToken']);
+	return typeof stored.accessToken === 'string' ? stored.accessToken : '';
+}
+
+export async function setAccessToken(token: string): Promise<void> {
+	if (typeof chrome === 'undefined' || !chrome.storage?.local) return;
+	await chrome.storage.local.set({ accessToken: token.trim() });
+}
+
 // RETRIEVE ALL SITE URL TO CHAPTER MAPPINGS
 export async function getSiteMappings(): Promise<Record<string, ChapterMappingEntry>> {
 	if (typeof chrome === 'undefined' || !chrome.storage?.local) return {};

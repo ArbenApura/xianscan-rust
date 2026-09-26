@@ -137,4 +137,22 @@ describe('safe-image utility', () => {
 
 		expect(callOrder).toContain('http://127.0.0.1:8124/translated-high');
 	});
+
+	it('uses the background proxy for a non-loopback server on an http page', async () => {
+		Object.defineProperty(window, 'location', { value: { protocol: 'http:' }, writable: true });
+		const sampleBase64 = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==';
+		const sendMessage = vi.fn((msg: any, callback: (r: any) => void) => {
+			if (msg.type === 'FETCH_IMAGE_DATA') callback({ ok: true, dataUrl: sampleBase64, mime: 'image/png' });
+		});
+		(globalThis as any).chrome = { runtime: { sendMessage } };
+
+		const lan = await resolveSafeImageUrl('http://192.168.1.10:8124/api/pages/9/file?kind=output');
+		expect(lan).toMatch(/^blob:/);
+		expect(sendMessage).toHaveBeenCalledTimes(1);
+
+		// A LOOPBACK SERVER ON AN HTTP PAGE STAYS A DIRECT URL (ADR-006 IMAGE EXEMPTION)
+		const local = await resolveSafeImageUrl('http://127.0.0.1:8124/api/pages/9/file?kind=output');
+		expect(local).toBe('http://127.0.0.1:8124/api/pages/9/file?kind=output');
+		expect(sendMessage).toHaveBeenCalledTimes(1);
+	});
 });

@@ -4,7 +4,7 @@
 import type { PageTranslatedMessage, PageStageMessage, ChapterSyncMessage } from '../types';
 
 // IMPORTED MODULES
-import { safeFetch } from './downloader';
+import { serverFetch } from './server-proxy';
 import { safeBroadcast, broadcastToChapterTabs } from '../core/messaging';
 import { isJobCancelled } from './job-state';
 
@@ -23,7 +23,7 @@ export async function attachGlobalSyncListener(serverUrl: string): Promise<void>
 
 	try {
 		const targetUrl = `${serverUrl}/api/sync/events`;
-		const res = await safeFetch(targetUrl, {
+		const res = await serverFetch(targetUrl, {
 			method: 'GET',
 			headers: { 'Accept': 'text/event-stream' },
 			signal: controller.signal
@@ -121,7 +121,7 @@ export async function attachLiveTranslationListener(chapterId: number, serverUrl
 
 	try {
 		const targetUrl = `${serverUrl}/api/chapters/${chapterId}/translate`;
-		const res = await safeFetch(targetUrl, {
+		const res = await serverFetch(targetUrl, {
 			method: 'GET',
 			headers: { 'Accept': 'text/event-stream' },
 			signal: controller.signal

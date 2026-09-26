@@ -1,4 +1,5 @@
 import type { BookSummary, ChapterSummary, ChapterReaderResult, ServerCanonicalSettings } from './types';
+import { swapLoopbackAlias } from './core/origin';
 
 export interface CreateBookPayload {
 	title: string;
@@ -23,13 +24,40 @@ function safeFetch(input: RequestInfo | URL, init?: RequestInit): Promise<Respon
 	return fn.call(scope, input, init);
 }
 
+// THE SERVER ANSWERED 401 auth_required: THE ACCESS TOKEN IS MISSING OR WRONG
+export class AuthRequiredError extends Error {
+	constructor(message = 'XianScan access token required. Copy it from Settings, Network & Access.') {
+		super(message);
+		this.name = 'AuthRequiredError';
+	}
+}
+
+function isAuthRequired(status: number, data: unknown): boolean {
+	return status === 401 && typeof data === 'object' && data !== null && (data as { code?: string }).code === 'auth_required';
+}
+
+function authErrorMessage(data: unknown): string | undefined {
+	const msg = (data as { message?: unknown } | null)?.message;
+	return typeof msg === 'string' && msg.trim() ? msg : undefined;
+}
+
+// MERGE EXTRA HEADERS INTO ANY HeadersInit SHAPE
+function withHeaders(init: RequestInit, extra: Record<string, string>): RequestInit {
+	if (Object.keys(extra).length === 0) return init;
+	const headers = new Headers(init.headers);
+	for (const [k, v] of Object.entries(extra)) headers.set(k, v);
+	return { ...init, headers };
+}
+
 export class XianScanClient {
 	private baseUrl: string;
 	private fetchImpl: typeof fetch;
+	private accessToken: string;
 
-	constructor(baseUrl = 'http://127.0.0.1:8124', fetchImpl?: typeof fetch) {
+	constructor(baseUrl = 'http://127.0.0.1:8124', fetchImpl?: typeof fetch, accessToken = '') {
 		this.baseUrl = baseUrl.replace(/\/+$/, '');
 		this.fetchImpl = fetchImpl || safeFetch;
+		this.accessToken = accessToken.trim();
 	}
 
 	setBaseUrl(url: string) {
@@ -38,6 +66,15 @@ export class XianScanClient {
 
 	getBaseUrl(): string {
 		return this.baseUrl;
+	}
+
+	setAccessToken(token: string) {
+		this.accessToken = token.trim();
+	}
+
+	// DIRECT (NON-PROXIED) REQUESTS CARRY THE TOKEN; THE BACKGROUND PROXY ADDS IT FOR PROXIED ONES
+	private authHeaders(): Record<string, string> {
+		return this.accessToken ? { 'X-XianScan-Token': this.accessToken } : {};
 	}
 
 	private async request<T>(path: string, options: RequestInit = {}): Promise<T> {
@@ -93,6 +130,10 @@ export class XianScanClient {
 						throw new Error('Extension context invalidated.');
 					}
 
+					if (isAuthRequired(proxyResult.status, proxyResult.data)) {
+						throw new AuthRequiredError(authErrorMessage(proxyResult.data));
+					}
+
 					if (proxyResult.status > 0) {
 						let msg = `Request failed with status ${proxyResult.status}`;
 						if (typeof proxyResult.data === 'string' && proxyResult.data.trim()) {
@@ -137,7 +178,7 @@ export class XianScanClient {
 			try {
 				const fn = this.fetchImpl || safeFetch;
 				const scope = typeof self !== 'undefined' ? self : globalThis;
-				return await fn.call(scope, urlToTry, { ...options, signal: controller.signal });
+				return await fn.call(scope, urlToTry, withHeaders({ ...options, signal: controller.signal }, this.authHeaders()));
 			} finally {
 				clearTimeout(timeoutId);
 			}
@@ -147,10 +188,9 @@ export class XianScanClient {
 		try {
 			res = await tryDirectFetch(targetUrl);
 		} catch (primaryErr) {
-			// IF LOCALHOST FAILED, TRY 127.0.0.1 (OR VICE-VERSA)
-			const altBase = this.baseUrl.includes('localhost')
-				? this.baseUrl.replace('localhost', '127.0.0.1')
-				: this.baseUrl.replace('127.0.0.1', 'localhost');
+			// IF LOCALHOST FAILED, TRY 127.0.0.1 (OR VICE-VERSA). ONLY THE HOST IS SWAPPED.
+			const altBase = swapLoopbackAlias(this.baseUrl)?.replace(/\/+$/, '');
+			if (!altBase) throw primaryErr;
 
 			try {
 				res = await tryDirectFetch(`${altBase}${path}`);
@@ -162,6 +202,9 @@ export class XianScanClient {
 
 		if (!res.ok) {
 			const errorData = await res.json().catch(() => ({}));
+			if (isAuthRequired(res.status, errorData)) {
+				throw new AuthRequiredError(authErrorMessage(errorData));
+			}
 			const msg = (errorData as { message?: string }).message || `Request failed with status ${res.status}`;
 			throw new Error(msg);
 		}
@@ -279,11 +322,12 @@ export class XianScanClient {
 			const scope = typeof self !== 'undefined' ? self : globalThis;
 			const res = await fn.call(scope, targetUrl, {
 				method: 'POST',
-				headers: { 'Content-Type': 'application/json' }
+				headers: { 'Content-Type': 'application/json', ...this.authHeaders() }
 			});
 
 			if (!res.ok) {
 				const errorData = await res.json().catch(() => ({}));
+				if (isAuthRequired(res.status, errorData)) throw new AuthRequiredError(authErrorMessage(errorData));
 				const msg = (errorData as { message?: string }).message || `Reslice failed with status ${res.status}`;
 				throw new Error(msg);
 			}
@@ -319,7 +363,7 @@ export class XianScanClient {
 				const scope = typeof self !== 'undefined' ? self : globalThis;
 				const res = await fn.call(scope, targetUrl, {
 					method: 'POST',
-					headers: { 'Content-Type': 'application/json' },
+					headers: { 'Content-Type': 'application/json', ...this.authHeaders() },
 					body: JSON.stringify({ force: false }),
 					signal: controller.signal
 				});

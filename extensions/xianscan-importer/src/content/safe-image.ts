@@ -1,5 +1,8 @@
 // -- SAFE IMAGE URL RESOLVER AND BOUNDED FETCH QUEUE -- //
 
+// IMPORTED MODULES
+import { shouldProxyServerImage } from '../core/origin';
+
 // -- CONSTANTS -- //
 
 const MAX_SAFE_DATA_URL_CACHE_SIZE = 500;
@@ -143,11 +146,9 @@ export async function resolveSafeImageUrl(rawUrl: string, priority = false): Pro
 		return safeDataUrlCache.get(rawUrl)!;
 	}
 
-	const isHttpsPage = typeof window !== 'undefined' && window.location.protocol === 'https:';
-	const isHttpServer = rawUrl.startsWith('http://');
-
-	// IF WE ARE ON AN HTTPS PAGE AND THE IMAGE SERVER IS HTTP, REQUEST DATA URL OR BUFFER FROM BACKGROUND VIA QUEUE
-	if (isHttpsPage && isHttpServer && typeof chrome !== 'undefined' && chrome.runtime?.sendMessage) {
+	// MIXED CONTENT (HTTPS PAGE, HTTP SERVER) OR A NON-LOOPBACK SERVER THAT NEEDS THE ACCESS TOKEN:
+	// REQUEST THE IMAGE FROM THE BACKGROUND WORKER VIA THE QUEUE
+	if (shouldProxyServerImage(rawUrl)) {
 		return enqueueFetch(async () => {
 			if (safeDataUrlCache.has(rawUrl)) {
 				return safeDataUrlCache.get(rawUrl)!;

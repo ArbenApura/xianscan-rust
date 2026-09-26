@@ -6,6 +6,7 @@ import type { ChapterReaderPage, ChapterMappingEntry } from '../../types';
 // IMPORTED MODULES
 import { XianScanClient } from '../../api';
 import { resolveSafeImageUrl } from '../../content/safe-image';
+import { shouldProxyServerImage } from '../../core/origin';
 import { ToastComponent } from '../components/toast';
 import { StepperComponent } from '../components/stepper';
 import { findMappingForUrl } from '../../core/storage';
@@ -492,7 +493,8 @@ export class TrackerViewController {
 			const rev = isReady ? (page.outputRev ?? 1) : (page.originalRev ?? 1);
 			const targetUrl = buildSliceThumbnailUrl(this.client.getBaseUrl(), page.id, target, rev, 240);
 
-			img.src = targetUrl;
+			// A LAN SERVER NEEDS THE TOKEN, WHICH AN <img> CANNOT SEND: LOAD THROUGH THE BACKGROUND INSTEAD
+			if (!shouldProxyServerImage(targetUrl)) img.src = targetUrl;
 			img.id = `slice-img-${page.id}`;
 			void resolveSafeImageUrl(targetUrl).then(safeUrl => {
 				if (safeUrl) img.src = safeUrl;
@@ -545,7 +547,7 @@ export class TrackerViewController {
 		const sliceImg = document.getElementById(`slice-img-${pageId}`) as HTMLImageElement;
 		if (sliceImg) {
 			const newUrl = buildSliceThumbnailUrl(this.client.getBaseUrl(), pageId, 'output', outputRev, 240);
-			sliceImg.src = newUrl;
+			if (!shouldProxyServerImage(newUrl)) sliceImg.src = newUrl;
 			void resolveSafeImageUrl(newUrl).then(safeUrl => {
 				if (safeUrl) sliceImg.src = safeUrl;
 			});
