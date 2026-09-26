@@ -68,9 +68,9 @@ flowchart LR
 
 1. **Web Importer Extension**: Captures full comic chapters directly from online reader sites, smoothly handling lazy-loaded images and filtering out ad containers.
 2. **Webtoon Gutter Reslicing**: Automatically recombines and splits tall vertical strips along natural panel gutters before processing, ensuring speech bubbles are never cut in half across slice seams.
-3. **Speech Bubble & Panel Segmentation**: Uses high-resolution segmentation (Koharu RF-DETR Seg 2XL / RT-DETR) to identify dialogue bubbles and panel boundaries.
+3. **Speech Bubble & Text Detection**: Koharu RF-DETR Seg 2XL finds dialogue bubbles, captions, sound effects and panels, and the OCR line detector finds each line of text inside them.
 4. **Multi-Language OCR**: High-accuracy text extraction with support for vertical and horizontal text layouts across 10 languages.
-5. **Context-Aware AI Translation & Glossaries**: Integrates with local LLMs (Ollama, LM Studio with Qwen, Llama, Gemma) or cloud APIs (Gemini, OpenAI, Groq, OpenRouter). Uses an elastic multi-page dialogue memory tracker (up to 5 previous pages) to keep speaker identity, pronouns, and topic consistent across page turns, combined with Aho-Corasick terminology glossaries to enforce consistent names and cultivation terms across chapters.
+5. **Context-Aware AI Translation & Glossaries**: Integrates with local LLMs (Ollama, LM Studio with Qwen, Llama, Gemma) or cloud APIs (Gemini, OpenAI, Groq, OpenRouter). Uses a sliding dialogue context of previous pages (4 by default, adjustable) to keep speaker identity, pronouns, and topic consistent across page turns, combined with Aho-Corasick terminology glossaries to enforce consistent names and cultivation terms across chapters.
 6. **Neural Artwork Inpainting (LaMa)**: Removes dialogue text while reconstructing underlying artwork, gradients, and textures with configurable edge padding.
 7. **Typesetting Studio & Typography**: Automatically computes font sizing, line breaks, outline strokes, and bubble tilt, with per-script fonts (Hindi, Thai, Arabic including right-to-left layout, CJK, and more).
 8. **Interactive Studio Inspector**: Visual overlay to inspect raw OCR bounding boxes, character confidence scores, model prompts, and make quick text adjustments before saving.
@@ -133,6 +133,9 @@ Download the pre-compiled binary for your system from [Releases](https://github.
   ```bash
   chmod +x xianscan && ./xianscan
   ```
+- **macOS**: the binary is not signed by Apple; run `xattr -dr com.apple.quarantine .` in the extracted folder first.
+
+Keep every file from the archive in one folder: the Windows ZIP includes `DirectML.dll` and the Linux archive the ONNX Runtime GPU libraries.
 
 *All neural network weights, OCR dictionaries, and the Web UI are embedded inside the executable. No network connection is required for core startup and CPU inference.*
 
@@ -146,7 +149,7 @@ Each release includes `SHA256SUMS.txt`; verify your download with `sha256sum -c 
 ### 3. Translate a Book
 1. Click **+ New Book** and select source and target languages.
 2. Drag and drop chapter folders into the browser, or import pages with the browser extension.
-3. Configure your translation provider (local Ollama/LM Studio or cloud API) and start the pipeline.
+3. Configure your translation provider. The default is Ollama with `qwen3.5:9b`: install [Ollama](https://ollama.com/) and run `ollama pull qwen3.5:9b`. Or pick a cloud API in **Settings -> AI Translation Providers**. Then click **Translate All**.
 
 ### Run with Docker
 

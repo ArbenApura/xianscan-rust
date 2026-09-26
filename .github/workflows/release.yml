@@ -49,7 +49,7 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          # Windows x86_64 (DirectML - Universal for AMD Radeon, Intel Arc, Qualcomm, NVIDIA)
+          # Windows x86_64 (DirectML - dedicated AMD Radeon, Intel Arc and NVIDIA GPUs)
           - os: windows-latest
             target: x86_64-pc-windows-msvc
             artifact_name: xianscan.exe
@@ -364,12 +364,12 @@ jobs:
             | Platform | Architecture | File | Acceleration Engine |
             | :--- | :--- | :--- | :--- |
             | **Windows** | x86_64 | `xianscan-windows-x86_64.zip` | ⚡ DirectX 12 DirectML (AMD, Intel, NVIDIA) |
-            | **Linux** | x86_64 | `xianscan-linux-x86_64.tar.gz` | ⚡ NVIDIA CUDA + cuDNN |
+            | **Linux** | x86_64 | `xianscan-linux-x86_64.tar.gz` | ⚡ NVIDIA CUDA 13 + cuDNN 9 (driver 580+) |
             | **macOS** | Apple Silicon (M1–M4) | `xianscan-macos-arm64.tar.gz` | ⚡ Apple Silicon CoreML + Metal |
 
             ### 🧩 Browser Importer Extensions
             - **Chrome / Edge / Brave / Opera**: Download `xianscan-importer-v*.zip` and extract to load unpacked in `chrome://extensions`.
-            - **Firefox**: Download `xianscan-importer-firefox-v*.xpi` and install directly in `about:addons`.
+            - **Firefox**: Download `xianscan-importer-firefox-v*.xpi`. It is not signed by Mozilla: load it with **Load Temporary Add-on** in `about:debugging#/runtime/this-firefox` (until Firefox restarts), or install it permanently in Firefox Developer Edition, Nightly or ESR with `xpinstall.signatures.required` set to `false`.
 
             ### 📱 Mihon / Tachiyomi Android Extension
             - **1-Click Extension Repository URL**: `https://raw.githubusercontent.com/ArbenApura/xianscan-rust/repo/index.min.json`

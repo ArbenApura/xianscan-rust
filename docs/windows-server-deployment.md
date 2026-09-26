@@ -20,8 +20,8 @@ This guide details how to deploy **XianScan** on headless or remote Windows Serv
 
 Unlike Linux deployments that require configuring CUDA toolkits, matching cuDNN versions, and linking runtime libraries, the Windows build of XianScan uses **DirectML (DirectX 12)**:
 
-- **Zero CUDA/cuDNN Configuration**: DirectML is built into the Windows OS (`DirectML.dll`), eliminating complex CUDA toolkit and cuDNN dynamic library matching issues.
-- **Vendor Agnostic**: Accelerates seamlessly across NVIDIA (GeForce, RTX, Tesla, Quadro), AMD (Radeon), Intel (Arc), and Qualcomm Snapdragon GPUs.
+- **Zero CUDA/cuDNN Configuration**: the release ZIP ships its own `DirectML.dll` next to `xianscan.exe` (keep them together), so no CUDA toolkit or cuDNN is needed.
+- **Vendor Agnostic**: Accelerates dedicated NVIDIA (GeForce, RTX, Tesla, Quadro), AMD (Radeon) and Intel (Arc) GPUs. Integrated graphics run on the CPU, and text recognition (OCR) always runs on the CPU on Windows; detection and inpainting use the GPU.
 - **Optimized Dimension Bucketing**: Built-in 64px inpainting bucketing and 128px OCR width bucketing prevent DirectX 12 PSO (Pipeline State Object) shader recompilations, enabling sub-second neural inpainting (0.11s for 9 patches) and 1.4s layout detection.
 - **Headless Cloud Server Caveat**: Fresh Windows Server installations default to the software-rendered `Microsoft Basic Display Adapter`. DirectML requires a physical GPU display driver to activate hardware acceleration. Once the driver is installed, DirectML immediately binds to your GPU with zero extra steps.
 
