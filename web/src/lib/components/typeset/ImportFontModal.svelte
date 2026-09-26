@@ -138,6 +138,8 @@ function handleFilesAdd(files: FileList | File[]): void {
 			const first = selectedFiles[0];
 			const baseName = first.name.replace(/\.[^/.]+$/, '');
 			const cleaned = baseName
+				// VARIABLE-FONT AXIS TAGS IN THE FILE NAME, E.G. "NotoSansDevanagari[wdth,wght]"
+				.replace(/\[[^\]]*\]/g, '')
 				.replace(/[-_](static|variablefont|vf)/gi, '')
 				.replace(/[-_](regular|bold|italic|semibold|semi-bold|light|thin|black|medium)/gi, '')
 				.replace(/[-_]/g, ' ')

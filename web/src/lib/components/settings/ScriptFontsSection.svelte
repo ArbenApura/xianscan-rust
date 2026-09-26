@@ -129,8 +129,11 @@
 	$: others = SCRIPT_FONT_SLOTS.filter((s) => !primary.includes(s));
 	$: scriptFonts = $settings.typesetScriptFonts || {};
 	$: enabledSystemFonts = $settings.enabledSystemFonts || [];
-	// IMPORTED FONTS WITHOUT LATIN LETTERS NEVER APPEAR IN THE DIALOGUE GRID, SO THEY ARE MANAGED HERE
-	$: importedScriptFonts = $customFontsStore.filter((f) => f.scriptType !== 'dialogue');
+	// EVERY IMPORTED FONT THAT COVERS A NON-LATIN SCRIPT IS MANAGED HERE, EVEN WHEN IT ALSO HAS LATIN LETTERS (THOSE ALSO
+	// SHOW IN THE DIALOGUE GRID); FONTS WITHOUT LATIN LETTERS NEVER APPEAR IN THE DIALOGUE GRID AT ALL
+	$: importedScriptFonts = $customFontsStore.filter(
+		(f) => f.scriptType !== 'dialogue' || (f.scripts ?? []).some((sc) => sc !== 'latin'),
+	);
 	// PRIMITIVE KEYS: A SETTINGS CHANGE THAT LEAVES THESE EQUAL DOES NOT RE-RUN THE CHECK BELOW
 	$: dialogueFontKey = $settings.typesetFont || '';
 	$: scriptFontsKey = JSON.stringify(scriptFonts);
@@ -249,7 +252,7 @@
 		<span>{showOther ? 'Hide other scripts' : `Other scripts (${others.length})`}</span>
 	</button>
 
-	<!-- IMPORTED NON-LATIN FONTS: THE ONLY PLACE THEY CAN BE DELETED (THE DIALOGUE GRID LISTS LATIN FONTS ONLY) -->
+	<!-- IMPORTED FONTS THAT COVER A NON-LATIN SCRIPT; FOR ONES WITHOUT LATIN LETTERS THIS IS THE ONLY PLACE TO DELETE THEM -->
 	{#if importedScriptFonts.length > 0}
 		<div class="space-y-1.5" data-testid="imported-script-fonts">
 			<div class="text-[10px] font-bold uppercase tracking-wider opacity-60">Imported script fonts</div>

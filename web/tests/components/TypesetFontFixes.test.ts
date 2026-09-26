@@ -170,6 +170,25 @@ describe('ScriptFontsSection delete / disable and coverage requests', () => {
 		expect(deleted).toHaveBeenCalledTimes(2);
 	});
 
+	it('lists an unassigned imported font that covers a script and Latin too, with a delete action', async () => {
+		// E.G. A VARIABLE NOTO SANS DEVANAGARI: FILED AS A DIALOGUE FONT BECAUSE IT HAS LATIN LETTERS
+		vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify(coverageBody()), { status: 200 })));
+		customFontsStore.set([{ ...thaiFont, id: 'font-deva', name: 'NotoSansDevanagari', scriptType: 'dialogue', scripts: ['latin', 'devanagari'] }]);
+		const deleted = vi.fn();
+		const { component } = render(ScriptFontsSection);
+		component.$on('deleteFont', (e: CustomEvent) => deleted(e.detail));
+		expect(within(screen.getByTestId('imported-script-fonts')).getByText('NotoSansDevanagari')).toBeTruthy();
+		await fireEvent.click(screen.getByTestId('imported-script-font-delete-font-deva'));
+		expect(deleted).toHaveBeenCalledWith({ id: 'font-deva', name: 'NotoSansDevanagari' });
+	});
+
+	it('keeps a Latin-only imported font out of the script fonts list', () => {
+		vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify(coverageBody()), { status: 200 })));
+		customFontsStore.set([{ ...thaiFont, id: 'font-latin', name: 'My Latin', scriptType: 'dialogue', scripts: ['latin'] }]);
+		render(ScriptFontsSection);
+		expect(screen.queryByTestId('imported-script-fonts')).toBeNull();
+	});
+
 	it('offers disable beside a slot that uses an enabled system font', async () => {
 		vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify(coverageBody()), { status: 200 })));
 		settings.update((s) => ({ ...s, enabledSystemFonts: ['Tahoma'], typesetScriptFonts: { thai: 'Tahoma' } }));

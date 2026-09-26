@@ -978,6 +978,13 @@ export async function refreshFontAvailability(): Promise<Record<string, FontAvai
 					try {
 						supportedWeights = typeof row.supportedWeights === 'string' ? JSON.parse(row.supportedWeights) : row.supportedWeights;
 					} catch {}
+					// SCRIPTS THE FILE COVERS (A JSON STRING FROM THE DB ROW). WITHOUT THEM A FONT THAT ALSO HAS LATIN LETTERS NEVER
+					// SHOWED UP IN ITS SCRIPT SLOT OR IN THE SCRIPT FONTS LIST, SO IT COULD ONLY BE DELETED FROM THE DIALOGUE GRID
+					let scripts: Script[] | undefined;
+					try {
+						const parsed = typeof row.scripts === 'string' ? JSON.parse(row.scripts) : row.scripts;
+						if (Array.isArray(parsed)) scripts = parsed.filter((sc: unknown): sc is Script => typeof sc === 'string');
+					} catch {}
 					return {
 						id: row.id,
 						name: row.name,
@@ -988,6 +995,7 @@ export async function refreshFontAvailability(): Promise<Record<string, FontAvai
 						supportedWeights,
 						isVariable: Boolean(row.isVariable),
 						variants: Array.isArray(row.variants) ? row.variants : [],
+						scripts,
 					};
 				});
 				customFontsStore.set(items);
