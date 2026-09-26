@@ -192,7 +192,7 @@ jobs:
       # PUBLISH-ONCE (FEAT-008 PHASE 4): BUILD JOBS ONLY HAND OVER WORKFLOW ARTIFACTS. publish-release CREATES
       # THE GITHUB RELEASE AFTER EVERY BUILD LEG SUCCEEDED, SO A FAILED LEG NEVER LEAVES A PARTIAL RELEASE.
       - name: Upload Release Archive as Workflow Artifact
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: bin-${{ matrix.target }}
           path: ${{ matrix.release_asset }}
@@ -231,7 +231,7 @@ jobs:
         run: yarn package
 
       - name: Upload Extension Packages as Workflow Artifact
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: importer
           path: |
@@ -314,7 +314,7 @@ jobs:
           bash extensions/xianscan-mihon/scripts/verify-apk.sh
 
       - name: Upload Mihon APK as Workflow Artifact
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: mihon-apk
           path: extensions/xianscan-mihon/app/build/outputs/apk/release/*.apk
