@@ -479,6 +479,7 @@
 								</button>
 							</div>
 							<pre
+								dir="auto"
 								class="max-h-40 sm:max-h-48 overflow-y-auto whitespace-pre-wrap rounded-lg bg-black/5 p-2 sm:p-2.5 font-mono text-[10.5px] sm:text-[11px] leading-relaxed text-neutral-800 dark:bg-black/40 dark:text-neutral-200">{systemPromptText}</pre>
 						</div>
 					{/if}
@@ -515,6 +516,7 @@
 								</button>
 							</div>
 							<pre
+								dir="auto"
 								class="max-h-36 sm:max-h-40 overflow-y-auto whitespace-pre-wrap rounded-lg bg-black/5 p-2 sm:p-2.5 font-mono text-[10.5px] sm:text-[11px] leading-relaxed text-neutral-800 dark:bg-black/40 dark:text-neutral-200">{chapterGlossaryText}</pre>
 						</div>
 					{/if}
@@ -551,6 +553,7 @@
 								</button>
 							</div>
 							<pre
+								dir="auto"
 								class="max-h-36 sm:max-h-40 overflow-y-auto whitespace-pre-wrap rounded-lg bg-black/5 p-2 sm:p-2.5 font-mono text-[10.5px] sm:text-[11px] leading-relaxed text-neutral-800 dark:bg-black/40 dark:text-neutral-200">{pageGlossaryText}</pre>
 						</div>
 					{/if}
@@ -582,6 +585,7 @@
 								</button>
 							</div>
 							<pre
+								dir="auto"
 								class="max-h-36 sm:max-h-40 overflow-y-auto whitespace-pre-wrap rounded-lg bg-black/5 p-2 sm:p-2.5 font-mono text-[10.5px] sm:text-[11px] leading-relaxed text-neutral-800 dark:bg-black/40 dark:text-neutral-200">{dialogueContextText}</pre>
 						</div>
 					{/if}
@@ -613,6 +617,7 @@
 								</button>
 							</div>
 							<pre
+								dir="auto"
 								class="max-h-48 sm:max-h-56 overflow-y-auto whitespace-pre-wrap rounded-lg bg-black/5 p-2 sm:p-2.5 font-mono text-[10.5px] sm:text-[11px] leading-relaxed text-neutral-800 dark:bg-black/40 dark:text-neutral-200">{userPromptText}</pre>
 						</div>
 					{/if}
@@ -644,6 +649,7 @@
 								</button>
 							</div>
 							<pre
+								dir="auto"
 								class="max-h-52 sm:max-h-64 overflow-y-auto whitespace-pre-wrap rounded-lg bg-black/5 p-2 sm:p-2.5 font-mono text-[10.5px] sm:text-[11px] leading-relaxed text-neutral-800 dark:bg-black/40 dark:text-neutral-200">{rawResponseText}</pre>
 						</div>
 					{/if}
@@ -653,6 +659,7 @@
 					class="rounded-xl border border-black/10 bg-black/[0.02] p-2.5 sm:p-3 dark:border-white/10 dark:bg-white/[0.02]"
 				>
 					<pre
+								dir="auto"
 						class="whitespace-pre-wrap font-mono text-[10.5px] sm:text-[11px] leading-relaxed text-neutral-800 dark:text-neutral-200 select-all">{page.llmPrompt ||
 							'No prompt recorded'}</pre>
 				</div>
@@ -661,6 +668,7 @@
 					class="rounded-xl border border-black/10 bg-black/[0.02] p-2.5 sm:p-3 dark:border-white/10 dark:bg-white/[0.02]"
 				>
 					<pre
+								dir="auto"
 						class="whitespace-pre-wrap font-mono text-[10.5px] sm:text-[11px] leading-relaxed text-neutral-800 dark:text-neutral-200 select-all">{rawResponseText ||
 							'No response recorded'}</pre>
 				</div>

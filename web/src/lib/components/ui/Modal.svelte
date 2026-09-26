@@ -5,7 +5,7 @@
 
 <script lang="ts">
 	// IMPORTED DEP-MODULES
-	import { createEventDispatcher } from 'svelte';
+	import { createEventDispatcher, onDestroy } from 'svelte';
 	import { fade, fly } from 'svelte/transition';
 	import { cubicOut } from 'svelte/easing';
 	// IMPORTED MODULES
@@ -13,6 +13,7 @@
 	import { focusTrap } from '$lib/actions/focusTrap';
 	import { ripple } from '$lib/actions/ripple';
 	import { scrollLock } from '$lib/actions/scrollLock';
+	import { registerModalDismiss } from '$lib/utils/modal-stack';
 	import { settings, THEME_PANEL, THEME_PANEL_BORDER } from '$lib/stores/settings';
 	// IMPORTED DEP-COMPONENTS
 	import X from 'lucide-svelte/icons/x';
@@ -59,9 +60,29 @@
 		open = false;
 		dispatch('close');
 	}
-</script>
 
-<svelte:window on:keydown={(e) => open && closable && e.key === 'Escape' && close()} />
+	// DEPTH-AWARE MODAL ESCAPE REGISTRATION. STAYS REGISTERED WHILE OPEN EVEN WHEN NOT CLOSABLE, SO A
+	// BUSY DIALOG SWALLOWS ESCAPE (close() IS A NO-OP) INSTEAD OF LETTING IT DISMISS THE LAYER UNDERNEATH.
+	let cleanupDismiss: (() => void) | null = null;
+
+	$: if (open) {
+		if (!cleanupDismiss) {
+			cleanupDismiss = registerModalDismiss(titleId, () => close());
+		}
+	} else {
+		if (cleanupDismiss) {
+			cleanupDismiss();
+			cleanupDismiss = null;
+		}
+	}
+
+	onDestroy(() => {
+		if (cleanupDismiss) {
+			cleanupDismiss();
+			cleanupDismiss = null;
+		}
+	});
+</script>
 
 {#if open}
 	<!-- DIALOG: BOTTOM SHEET ON MOBILE, TOP-ANCHORED OR CENTERED CARD ON DESKTOP. use:scrollLock FREEZES THE PAGE BEHIND. -->
@@ -76,7 +97,7 @@
 		aria-modal="true"
 		aria-labelledby={title ? titleId : undefined}
 	>
-		<!-- BACKDROP OVERLAY — NO RIPPLE (A FULL-SCREEN DISMISS SHOULDN'T FLASH A RIPPLE ON CLICK) -->
+		<!-- BACKDROP OVERLAY - NO RIPPLE (A FULL-SCREEN DISMISS SHOULDN'T FLASH A RIPPLE ON CLICK) -->
 		<button
 			class="fixed inset-0 bg-black/40 backdrop-blur-sm"
 			on:click={() => closable && close()}
@@ -108,7 +129,7 @@
 					<h2 id={titleId} class="text-sm sm:text-base font-semibold truncate">{title}</h2>
 					<slot name="header" />
 					{#if closable}
-						<!-- CLOSE BUTTON — TRANSLUCENT HOVER READS ON EVERY THEME PANEL -->
+						<!-- CLOSE BUTTON - TRANSLUCENT HOVER READS ON EVERY THEME PANEL -->
 						<button
 							on:click={close}
 							use:ripple

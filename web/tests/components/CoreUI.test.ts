@@ -207,4 +207,70 @@ describe('Core UI Primitive Components', () => {
 		expect(screen.getByText('Omitted')).toBeTruthy();
 		expect(screen.getByText('Auto')).toBeTruthy();
 	});
+
+	it('dismisses only topmost dialog in LIFO order when modals are stacked', async () => {
+		const { component: modalA } = render(Modal, {
+			props: {
+				open: true,
+				title: 'Modal A',
+			},
+		});
+
+		const { component: modalB } = render(Modal, {
+			props: {
+				open: true,
+				title: 'Modal B',
+			},
+		});
+
+		let closedA = false;
+		let closedB = false;
+		modalA.$on('close', () => {
+			closedA = true;
+		});
+		modalB.$on('close', () => {
+			closedB = true;
+		});
+
+		// FIRST ESCAPE: ONLY TOPMOST (MODAL B) CLOSES
+		const escEvent1 = new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true });
+		window.dispatchEvent(escEvent1);
+		await tick();
+
+		expect(closedB).toBe(true);
+		expect(closedA).toBe(false);
+
+		// UNMOUNT MODAL B TO SIMULATE IT CLOSING
+		modalB.$set({ open: false });
+		await tick();
+
+		// SECOND ESCAPE: MODAL A CLOSES
+		const escEvent2 = new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true });
+		window.dispatchEvent(escEvent2);
+		await tick();
+
+		expect(closedA).toBe(true);
+	});
+
+	it('does not close Modal when child element prevents default on Escape key', async () => {
+		const { component } = render(Modal, {
+			props: {
+				open: true,
+				title: 'Search Modal',
+			},
+		});
+
+		let closed = false;
+		component.$on('close', () => {
+			closed = true;
+		});
+
+		// SIMULATE CHILD INPUT PREVENTING DEFAULT ON ESCAPE
+		const customEsc = new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true });
+		customEsc.preventDefault();
+		window.dispatchEvent(customEsc);
+		await tick();
+
+		expect(closed).toBe(false);
+	});
 });

@@ -1,6 +1,6 @@
 <script lang="ts">
 	// IMPORTED DEP-MODULES
-	import { createEventDispatcher } from 'svelte';
+	import { createEventDispatcher, onDestroy } from 'svelte';
 	import { fade, fly } from 'svelte/transition';
 	import { cubicOut } from 'svelte/easing';
 	// IMPORTED MODULES
@@ -8,6 +8,7 @@
 	import { focusTrap } from '$lib/actions/focusTrap';
 	import { ripple } from '$lib/actions/ripple';
 	import { scrollLock } from '$lib/actions/scrollLock';
+	import { registerModalDismiss } from '$lib/utils/modal-stack';
 	import { settings, THEME_PANEL, THEME_PANEL_BORDER } from '$lib/stores/settings';
 	// IMPORTED DEP-COMPONENTS
 	import TriangleAlert from 'lucide-svelte/icons/triangle-alert';
@@ -28,6 +29,8 @@
 
 	// -- CONSTANTS -- //
 
+	const confirmSeq = Math.random().toString(36).substring(2, 9);
+	const dialogId = `confirm-dialog-${confirmSeq}`;
 	const dispatch = createEventDispatcher<{ confirm: void; cancel: void }>();
 	const STYLES = {
 		danger: { icon: 'text-red-500', iconBg: 'bg-red-500/10', confirm: 'bg-red-600 text-white hover:bg-red-500' },
@@ -79,6 +82,8 @@
 		dispatch('confirm');
 	}
 	function cancel() {
+		// BUSY: THE CANCEL BUTTON IS DISABLED, SO ESCAPE AND THE BACKDROP ARE NO-OPS TOO
+		if (loading) return;
 		open = false;
 		dispatch('cancel');
 	}
@@ -89,9 +94,28 @@
 			confirm();
 		}
 	}
-</script>
 
-<svelte:window on:keydown={(e) => open && e.key === 'Escape' && cancel()} />
+	// DEPTH-AWARE CONFIRM DIALOG ESCAPE REGISTRATION (STAYS REGISTERED WHILE LOADING; cancel() IGNORES IT)
+	let cleanupDismiss: (() => void) | null = null;
+
+	$: if (open) {
+		if (!cleanupDismiss) {
+			cleanupDismiss = registerModalDismiss(dialogId, () => cancel());
+		}
+	} else {
+		if (cleanupDismiss) {
+			cleanupDismiss();
+			cleanupDismiss = null;
+		}
+	}
+
+	onDestroy(() => {
+		if (cleanupDismiss) {
+			cleanupDismiss();
+			cleanupDismiss = null;
+		}
+	});
+</script>
 
 <!-- DIALOG OVERLAY -->
 {#if open}
@@ -102,7 +126,7 @@
 		role="dialog"
 		aria-modal="true"
 	>
-		<!-- BACKDROP DISMISS BUTTON — NO RIPPLE -->
+		<!-- BACKDROP DISMISS BUTTON - NO RIPPLE -->
 		<button
 			class="absolute inset-0 bg-black/40 backdrop-blur-sm"
 			on:click={cancel}

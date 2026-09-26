@@ -56,7 +56,7 @@
 		rtl: false,
 	}));
 	const TIER_LABEL: Record<1 | 2 | 3, string> = {
-		1: 'Best — production quality',
+		1: 'Best - production quality',
 		2: 'Strong',
 		3: 'Usable',
 	};
@@ -153,6 +153,9 @@
 
 	function onKeydown(e: KeyboardEvent) {
 		if (open && e.key === 'Escape') {
+			// CONSUME THE KEY SO THE MODAL-STACK (WINDOW, BUBBLE PHASE) DOES NOT ALSO CLOSE THE SURROUNDING DIALOG
+			e.preventDefault();
+			e.stopPropagation();
 			close();
 			triggerEl?.focus();
 		}
@@ -168,7 +171,6 @@
 		portalTarget = document.createElement('div');
 		document.body.appendChild(portalTarget);
 		document.addEventListener('mousedown', onClickOutside);
-		document.addEventListener('keydown', onKeydown);
 		window.addEventListener('scroll', onScroll, true);
 		window.addEventListener('resize', onScroll);
 	});
@@ -176,13 +178,15 @@
 	onDestroy(() => {
 		if (typeof document !== 'undefined') {
 			document.removeEventListener('mousedown', onClickOutside);
-			document.removeEventListener('keydown', onKeydown);
 			window.removeEventListener('scroll', onScroll, true);
 			window.removeEventListener('resize', onScroll);
 			if (portalTarget?.parentNode) portalTarget.parentNode.removeChild(portalTarget);
 		}
 	});
 </script>
+
+<!-- ESCAPE CLOSES THE DROPDOWN (DOCUMENT FIRES BEFORE THE MODAL-STACK'S WINDOW LISTENER, SO IT CAN CONSUME THE KEY) -->
+<svelte:document on:keydown={onKeydown} />
 
 <!-- TRIGGER -->
 <div class={cn('relative', klass)}>
@@ -261,7 +265,7 @@
 					<BookOpen size={16} class="shrink-0 opacity-70" />
 					<span class="min-w-0 flex-1">
 						<span class="block font-medium">Read in original</span>
-						<span class="block text-[11px] opacity-50">No translation — just the source text</span>
+						<span class="block text-[11px] opacity-50">No translation - just the source text</span>
 					</span>
 					{#if isNone}<Check size={15} class="shrink-0" />{/if}
 				</button>

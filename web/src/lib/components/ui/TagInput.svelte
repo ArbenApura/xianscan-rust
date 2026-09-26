@@ -1,5 +1,5 @@
 <script lang="ts">
-	// CHIP-STYLE TAG / GENRE INPUT — A WRAP OF REMOVABLE CHIPS, AN INLINE TEXT INPUT, A LIVE SUGGESTION
+	// CHIP-STYLE TAG / GENRE INPUT - A WRAP OF REMOVABLE CHIPS, AN INLINE TEXT INPUT, A LIVE SUGGESTION
 	// PALETTE, AND A COUNTER. DESIGNED FOR BOOK GENRES/TAGS IN CREATE/EDIT FORMS. VALUE IS BINDABLE.
 
 	// IMPORTED MODULES
@@ -27,7 +27,7 @@
 
 	// -- REACTIVE STATES -- //
 
-	// ALREADY-SELECTED TAG KEYS (LOWERCASED) — CASE-INSENSITIVE DEDUP WITHIN THE INPUT ITSELF.
+	// ALREADY-SELECTED TAG KEYS (LOWERCASED) - CASE-INSENSITIVE DEDUP WITHIN THE INPUT ITSELF.
 	$: selectedKeys = new Set(value.map((t) => normalizeKey(t)));
 
 	// SUGGESTIONS THAT ARE STILL ADDABLE, FILTERED BY THE CURRENT DRAFT, CAPPED FOR BREVITY.
@@ -68,14 +68,16 @@
 			add(draft);
 		} else if (e.key === 'Backspace' && draft === '' && value.length > 0) {
 			remove(value[value.length - 1]);
-		} else if (e.key === 'Escape') {
+		} else if (e.key === 'Escape' && draft !== '') {
+			// FIRST ESCAPE DISCARDS THE DRAFT ONLY; AN EMPTY FIELD LETS IT THROUGH SO THE SURROUNDING MODAL CLOSES
+			e.preventDefault();
 			draft = '';
 			inputEl?.blur();
 		}
 	}
 </script>
 
-<!-- TAG INPUT — LABEL, CHIP FIELD, SUGGESTION PALETTE, COUNTER -->
+<!-- TAG INPUT - LABEL, CHIP FIELD, SUGGESTION PALETTE, COUNTER -->
 <div>
 	<!-- LABEL ROW + COUNTER -->
 	{#if label}
@@ -87,7 +89,7 @@
 		</div>
 	{/if}
 
-	<!-- CHIP FIELD — WRAP OF SELECTED CHIPS + INLINE INPUT -->
+	<!-- CHIP FIELD - WRAP OF SELECTED CHIPS + INLINE INPUT -->
 	<div
 		class="flex flex-wrap items-center gap-1.5 rounded-lg border border-black/10 bg-transparent px-2 py-1.5 transition-colors focus-within:border-[#b23a2e] focus-within:ring-2 focus-within:ring-[#b23a2e]/20 dark:border-white/[0.06]"
 	>
@@ -109,7 +111,7 @@
 			</span>
 		{/each}
 
-		<!-- INLINE ADD-INPUT — HIDDEN AT MAX SO THE FIELD READS AS A FINISHED CHIP LIST -->
+		<!-- INLINE ADD-INPUT - HIDDEN AT MAX SO THE FIELD READS AS A FINISHED CHIP LIST -->
 		{#if value.length < max}
 			<input
 				bind:this={inputEl}
@@ -137,7 +139,7 @@
 		{/if}
 	</div>
 
-	<!-- SUGGESTION PALETTE — QUICK-ADD CHIPS FOR COMMON GENRES / EXISTING TAGS (HIDDEN AT MAX) -->
+	<!-- SUGGESTION PALETTE - QUICK-ADD CHIPS FOR COMMON GENRES / EXISTING TAGS (HIDDEN AT MAX) -->
 	{#if value.length < max && visibleSuggestions.length > 0}
 		<div class="mt-1.5 flex flex-wrap gap-1.5">
 			{#each visibleSuggestions as suggestion (suggestion)}

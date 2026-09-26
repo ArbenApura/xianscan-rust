@@ -7,7 +7,7 @@
 	import { focusTrap } from '$lib/actions/focusTrap';
 	import { ripple } from '$lib/actions/ripple';
 	import { scrollLock } from '$lib/actions/scrollLock';
-	import { registerModalDismiss, unregisterModalDismiss } from '$lib/utils/modal-stack';
+	import { registerModalDismiss } from '$lib/utils/modal-stack';
 	import { settings, THEME_PANEL, THEME_PANEL_BORDER } from '$lib/stores/settings';
 	import { validateForm } from '$lib/utils/form';
 	import { translateTextSchema, updateRegionSchema } from '$lib/schemas';
@@ -69,15 +69,22 @@
 	$: panel = THEME_PANEL[$settings.theme];
 	$: panelBorder = THEME_PANEL_BORDER[$settings.theme];
 
-	// HIERARCHICAL ESCAPE KEY REGISTRATION (DEPTH-AWARE DISMISSAL)
-	$: if (open && !isSaving) {
-		registerModalDismiss(modalId, () => handleClose());
-	} else {
-		unregisterModalDismiss(modalId);
+	// HIERARCHICAL ESCAPE KEY REGISTRATION (DEPTH-AWARE DISMISSAL). STAYS REGISTERED WHILE SAVING SO ESCAPE
+	// IS SWALLOWED (handleClose() IS A NO-OP) INSTEAD OF DISMISSING THE LAYER UNDERNEATH.
+	let cleanupDismiss: (() => void) | null = null;
+
+	$: if (open) {
+		if (!cleanupDismiss) {
+			cleanupDismiss = registerModalDismiss(modalId, () => handleClose());
+		}
+	} else if (cleanupDismiss) {
+		cleanupDismiss();
+		cleanupDismiss = null;
 	}
 
 	onDestroy(() => {
-		unregisterModalDismiss(modalId);
+		cleanupDismiss?.();
+		cleanupDismiss = null;
 	});
 
 	function getBox(rawBox: any): { x: number; y: number; w: number; h: number } | null {
@@ -138,7 +145,7 @@
 			action,
 			typesetOptions: {
 				fontDialogue: $settings.typesetFont,
-				fontCjk: $settings.typesetCjkFont,
+				scriptFonts: $settings.typesetScriptFonts,
 				boxInset: $settings.typesetPadding,
 				outlineMode: $settings.typesetOutline,
 				colorMode: $settings.typesetContrast,
@@ -362,6 +369,7 @@
 						{/if}
 					</div>
 					<textarea
+						dir="auto"
 						id="edit-target-text-dialog"
 						bind:value={editTargetText}
 						rows="3"

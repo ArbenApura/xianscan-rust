@@ -1,6 +1,8 @@
 // MODAL & DIALOG ESCAPE STACK MANAGER
-// Guarantees that when multiple dialogs or sheets are stacked (e.g., ConfirmDialog over InspectModal, or EditModal over InspectModal),
-// pressing the Escape key dismisses ONLY the topmost (deepest) active dialog in LIFO order.
+// GUARANTEES THAT WHEN MULTIPLE DIALOGS OR SHEETS ARE STACKED (E.G., CONFIRMATION DIALOG OVER SETTINGS MODAL),
+// PRESSING THE ESCAPE KEY DISMISSES ONLY THE TOPMOST ACTIVE DIALOG IN LIFO ORDER.
+
+// -- TYPES -- //
 
 type DismissFn = () => void;
 
@@ -9,19 +11,25 @@ interface StackItem {
 	dismiss: DismissFn;
 }
 
-const activeModalStack: StackItem[] = [];
-let isCapturingEscape = false;
+// -- STATES -- //
 
-function handleGlobalEscapeCapture(e: KeyboardEvent) {
+const activeModalStack: StackItem[] = [];
+let isListening = false;
+
+// -- FUNCTIONS -- //
+
+function handleGlobalEscape(e: KeyboardEvent) {
+	// IME COMPOSITION USES ESCAPE TO CANCEL THE CANDIDATE, NOT TO CLOSE THE DIALOG
+	if (e.isComposing || e.keyCode === 229) return;
 	if (e.key !== 'Escape') return;
+	if (e.defaultPrevented) return;
 	if (activeModalStack.length === 0) return;
 
-	// Stop propagation so other event listeners on window or elements do not fire simultaneously
+	// STOP PROPAGATION SO LOWER HANDLERS DO NOT ALSO DISMISS
 	e.preventDefault();
 	e.stopPropagation();
-	e.stopImmediatePropagation();
 
-	// Dismiss only the top-most dialog
+	// DISMISS ONLY THE TOP-MOST DIALOG
 	const top = activeModalStack[activeModalStack.length - 1];
 	if (top) {
 		top.dismiss();
@@ -29,12 +37,12 @@ function handleGlobalEscapeCapture(e: KeyboardEvent) {
 }
 
 export function registerModalDismiss(id: string, dismiss: DismissFn): () => void {
-	if (typeof window !== 'undefined' && !isCapturingEscape) {
-		window.addEventListener('keydown', handleGlobalEscapeCapture, { capture: true });
-		isCapturingEscape = true;
+	if (typeof window !== 'undefined' && !isListening) {
+		window.addEventListener('keydown', handleGlobalEscape);
+		isListening = true;
 	}
 
-	// Avoid duplicates
+	// AVOID DUPLICATES
 	const existingIdx = activeModalStack.findIndex((item) => item.id === id);
 	if (existingIdx !== -1) {
 		activeModalStack.splice(existingIdx, 1);
@@ -53,8 +61,8 @@ export function unregisterModalDismiss(id: string): void {
 		activeModalStack.splice(idx, 1);
 	}
 
-	if (activeModalStack.length === 0 && isCapturingEscape && typeof window !== 'undefined') {
-		window.removeEventListener('keydown', handleGlobalEscapeCapture, { capture: true });
-		isCapturingEscape = false;
+	if (activeModalStack.length === 0 && isListening && typeof window !== 'undefined') {
+		window.removeEventListener('keydown', handleGlobalEscape);
+		isListening = false;
 	}
 }
