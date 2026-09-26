@@ -2,7 +2,7 @@
 import type { LangPair, TermDraft, TranslationUsage } from '$lib/types';
 import type { ReasoningEffortOption } from '$lib/stores/settings';
 import type OpenAI from 'openai';
-import { languageName } from '$lib/languages';
+import { languageName, scriptOfLanguage } from '$lib/languages';
 import { computeUsage, createClient, queued, resolveModel, stripThinkingTags, thinkingParam, withRetry } from './llm';
 import { getCanonicalSettings } from './settings-service';
 
@@ -61,7 +61,7 @@ export interface PageTranslation {
 	finishReason?: string;
 }
 
-export const PROMPT_VERSION = 'v22';
+export const PROMPT_VERSION = 'v23';
 
 function mergeUsage(acc: TranslationUsage, u: TranslationUsage): void {
 	acc.promptTokens += u.promptTokens;
@@ -267,7 +267,9 @@ export async function translatePage(
 	// APPLY LOCAL SFX DICTIONARY FALLBACK DIRECTLY TO ANY UNTRANSLATED OR DEGENERATE REGIONS.
 	for (const r of translatableRegions) {
 		const current = byRegion.get(r.id);
-		const sfxFallback = getKnownSfxTranslation(r.text, pair.sourceLang);
+		// THE SFX DICTIONARY IS ENGLISH: FOR OTHER TARGETS AN UNTRANSLATED REGION (RETRIED OR SHOWN AS FAILED) BEATS
+		// ENGLISH ON AN ARABIC PAGE (FEAT-007 ADR-010)
+		const sfxFallback = pair.targetLang.startsWith('en') ? getKnownSfxTranslation(r.text, pair.sourceLang) : null;
 		if (!current) {
 			if (sfxFallback) {
 				byRegion.set(r.id, sfxFallback);
@@ -323,24 +325,27 @@ export async function translateSingleText(
 	const client = opts.client ?? createClient();
 	const srcName = languageName(pair.sourceLang);
 	const tgtName = languageName(pair.targetLang);
+	const tgtScript = scriptOfLanguage(pair.targetLang) ?? 'latin';
+	const casedTarget = ['latin', 'cyrillic', 'greek'].includes(tgtScript);
+	const romanizedNames = tgtScript === 'latin' || tgtScript === 'han' || tgtScript === 'kana' || tgtScript === 'hangul';
 
 	let systemContent = '';
 	if (opts.kind === 'chapter') {
 		systemContent = `You are a professional comic and novel localizer. Translate the provided chapter title from ${srcName} to ${tgtName} (${pair.targetLang}).
 Rules:
 - Translate concisely and naturally into ${tgtName}.
-- Localize the word for "Chapter" and numbering format naturally into ${tgtName} (e.g. for English: "Chapter 1: ...", for Hindi: "अध्याय 1: ...", for Korean: "제1화: ...", for Japanese: "第1話: ...", for Russian: "Глава 1: ...", for Spanish: "Capítulo 1: ...", for French: "Chapitre 1: ...", for Indonesian: "Bab 1: ...").
+- Localize the word for "Chapter" and numbering format naturally into ${tgtName} (e.g. for English: "Chapter 1: ...", for Hindi: "अध्याय 1: ...", for Korean: "제1화: ...", for Japanese: "第1話: ...", for Russian: "Глава 1: ...", for Spanish: "Capítulo 1: ...", for French: "Chapitre 1: ...", for Indonesian: "Bab 1: ...", for Arabic: "الفصل 1: ...").
 - Do NOT keep the English word "Chapter" unless the target language is English.
 - Do NOT output commentary, quotes, explanations, or markdown fences. Output ONLY the translated chapter title string in ${tgtName}.`;
 	} else if (opts.kind === 'title') {
 		systemContent = `You are a professional comic and novel localizer. Translate the provided book title from ${srcName} to ${tgtName}.
 Rules:
-- Translate concisely into natural title case (e.g. "妖神记" -> "Tales of Demons and Gods", "斗破苍穹" -> "Battle Through the Heavens").
+- ${casedTarget ? 'Translate concisely into natural title case (e.g. "妖神记" -> "Tales of Demons and Gods", "斗破苍穹" -> "Battle Through the Heavens").' : 'Translate into a natural, concise title.'}
 - Do NOT output commentary, explanations, notes, quotes, or markdown fences. Output ONLY the translated title string.`;
 	} else if (opts.kind === 'term') {
 		systemContent = `You are a professional localization translator. Translate the provided term, character name, technique, or proper noun from ${srcName} to natural ${tgtName}.
 Rules:
-- For personal names, use capitalized romanization / Pinyin with proper spacing (e.g. 叶凡 -> Ye Fan, 陈北玄 -> Chen Beixuan). Always fuse 2-character standalone given names into a single word (e.g. 北玄 -> Beixuan, NEVER "Bei Xuan").
+- ${romanizedNames ? 'For personal names, use capitalized romanization / Pinyin with proper spacing (e.g. 叶凡 -> Ye Fan, 陈北玄 -> Chen Beixuan). Always fuse 2-character standalone given names into a single word (e.g. 北玄 -> Beixuan, NEVER "Bei Xuan").' : `For personal names, transliterate the pronunciation into ${tgtName} script (for Arabic: 叶凡 -> يي فان). Keep a 2-character given name as a single word.`}
 - For terms / items / techniques, translate the meaning into natural ${tgtName}.
 - Output ONLY the translated term without quotes or explanation.`;
 	} else {
@@ -351,7 +356,7 @@ Rules:
 - Positive Identity & Pronoun Disambiguation:
   * Ban on Ambiguous Singular "They/Them": NEVER use singular "they/them/their" as a hedge for an individual character. Reserve "they/them" strictly for plural groups or mobs.
   * Gender & Pronoun Locking: Maintain established character gender across surrounding dialogue context.
-  * Beasts, Monsters & Non-Human Entities: Resolve pronouns for beasts, monsters, summons, or animals to "it / its" or descriptive nouns ("the beast", "the creature"), never human "he / him" or "she / her", unless explicitly personified or anthropomorphized.
+  * Beasts, Monsters & Non-Human Entities: Resolve pronouns for beasts, monsters, summons, or animals to "it / its" or descriptive nouns ("the beast", "the creature"), never human "he / him" or "she / her", unless explicitly personified or anthropomorphized. For target languages with grammatical gender, the creature noun's grammatical gender decides agreement instead.
   * Pro-Drop: Resolve zero-subject imperative or direct questions to the listener as second-person ("you"), declarative self-actions as first-person ("I / me"), and thoughts as first-person ("I / me").
 - Declarative vs. Interrogative Mood: Never convert a declarative sentence ending with a full stop or period (。, .) into a question (?), unless the source explicitly contains an interrogative marker (such as Chinese 吗/呢/吧/难道/岂). Conversely, preserve question marks (？, ?) when present.
 - Region Kind Semantics:

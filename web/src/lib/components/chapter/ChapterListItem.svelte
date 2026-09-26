@@ -331,7 +331,8 @@
 								</span>
 								<a
 									href={`/app/books/${bookId}/chapters/${chapter.id}/`}
-									class="block truncate px-0.5 text-sm font-bold tracking-tight hover:text-[#b23a2e] dark:hover:text-[#e08a63] sm:text-base"
+									dir="auto"
+					class="block truncate px-0.5 text-sm font-bold tracking-tight hover:text-[#b23a2e] dark:hover:text-[#e08a63] sm:text-base"
 									title={chapter.titleTarget ||
 										chapter.title ||
 										`Chapter ${chapter.seq + 1}`}
@@ -546,7 +547,8 @@
 				<div class="flex min-w-0 items-center gap-1.5">
 					<a
 						href={`/app/books/${bookId}/chapters/${chapter.id}/`}
-						class="block truncate px-0.5 text-xs font-bold hover:text-[#b23a2e] dark:hover:text-[#e08a63] sm:text-sm"
+						dir="auto"
+					class="block truncate px-0.5 text-xs font-bold hover:text-[#b23a2e] dark:hover:text-[#e08a63] sm:text-sm"
 						title={chapter.titleTarget || chapter.title || `Chapter ${chapter.seq + 1}`}
 					>
 						{chapter.titleTarget || chapter.title || `Chapter ${chapter.seq + 1}`}
@@ -686,6 +688,7 @@
 			<div class="min-w-0 flex-1">
 				<a
 					href={`/app/books/${bookId}/chapters/${chapter.id}/`}
+					dir="auto"
 					class="block truncate px-0.5 text-xs font-semibold hover:text-[#b23a2e] dark:hover:text-[#e08a63]"
 					title={chapter.titleTarget || chapter.title || `Chapter ${chapter.seq + 1}`}
 				>

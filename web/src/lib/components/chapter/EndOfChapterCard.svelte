@@ -23,7 +23,7 @@
 
 <div class="mt-14 mb-16 flex flex-col items-center gap-4 rounded-3xl border border-black/10 bg-white/60 p-8 text-center backdrop-blur-md shadow-xs dark:border-white/10 dark:bg-white/[0.02] max-w-xl mx-auto w-full">
 	<div class="flex items-center gap-2 text-xs font-semibold opacity-60">
-		<span class="max-w-[320px] truncate">End of {currentLabel}</span>
+		<span class="max-w-[320px] truncate" dir="auto">End of {currentLabel}</span>
 		<span>•</span>
 		<span>{totalPages} Page{totalPages === 1 ? '' : 's'}</span>
 	</div>
@@ -39,7 +39,7 @@
 				title={`Previous (${prevLabel})`}
 			>
 				<ChevronLeft size={16} />
-				<span class="max-w-[180px] truncate">Previous ({prevLabel})</span>
+				<span class="max-w-[180px] truncate" dir="auto">Previous ({prevLabel})</span>
 			</a>
 		{/if}
 
@@ -59,7 +59,7 @@
 				use:ripple
 				title={`Next Chapter (${nextLabel})`}
 			>
-				<span class="max-w-[200px] truncate">Next ({nextLabel})</span>
+				<span class="max-w-[200px] truncate" dir="auto">Next ({nextLabel})</span>
 				<ChevronRight size={16} />
 			</a>
 		{/if}

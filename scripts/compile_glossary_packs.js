@@ -5,13 +5,10 @@ import { fileURLToPath } from 'url';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-// All 20 supported system languages
-const LANGUAGES = [
-	'zh-Hans', 'zh-Hant', 'en', 'ja', 'ko',
-	'es', 'fr', 'de', 'ru', 'pt',
-	'it', 'id', 'th', 'tr', 'nl',
-	'pl', 'hi', 'uk', 'sv', 'fi'
-];
+// THE PACK LANGUAGES, SHARED WITH THE APP (web/src/lib/server/glossary-packs/index.ts)
+const LANGUAGES = JSON.parse(
+	fs.readFileSync(path.resolve(__dirname, '../web/src/lib/server/glossary-packs/data/pack-languages.json'), 'utf8'),
+);
 
 const THEMES = ['xianxia', 'murim', 'system', 'fantasy', 'rofan', 'palace', 'scifi'];
 

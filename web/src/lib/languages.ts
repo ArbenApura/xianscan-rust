@@ -55,7 +55,7 @@ export const LANGUAGES: Record<string, Language> = {
 	pt: { code: 'pt', name: 'Portuguese', endonym: 'Português', script: 'latin', romanization: null, wordDelimited: true, tier: 2 },
 	it: { code: 'it', name: 'Italian', endonym: 'Italiano', script: 'latin', romanization: null, wordDelimited: true, tier: 2 },
 	id: { code: 'id', name: 'Indonesian', endonym: 'Bahasa Indonesia', script: 'latin', romanization: null, wordDelimited: true, tier: 2 },
-    ar: { code: 'ar', name: 'Arabic', endonym: 'العربية', script: 'arabic', romanization: null, wordDelimited: true, tier: 3, rtl: true },
+
 	// TIER 3: Moderate corpora (good grammar, but less specialized comic/nuanced phrasing)
 	tr: { code: 'tr', name: 'Turkish', endonym: 'Türkçe', script: 'latin', romanization: null, wordDelimited: true, tier: 3 },
 	nl: { code: 'nl', name: 'Dutch', endonym: 'Nederlands', script: 'latin', romanization: null, wordDelimited: true, tier: 3 },
@@ -65,6 +65,7 @@ export const LANGUAGES: Record<string, Language> = {
 	uk: { code: 'uk', name: 'Ukrainian', endonym: 'Українська', script: 'cyrillic', romanization: null, wordDelimited: true, tier: 3 },
 	sv: { code: 'sv', name: 'Swedish', endonym: 'Svenska', script: 'latin', romanization: null, wordDelimited: true, tier: 3 },
 	fi: { code: 'fi', name: 'Finnish', endonym: 'Suomi', script: 'latin', romanization: null, wordDelimited: true, tier: 3 },
+	ar: { code: 'ar', name: 'Arabic', endonym: 'العربية', script: 'arabic', romanization: null, wordDelimited: true, tier: 3, rtl: true },
 };
 
 export const SOURCE_LANGUAGE_OPTIONS = [
@@ -80,29 +81,11 @@ export const SOURCE_LANGUAGE_OPTIONS = [
 	{ value: 'en', label: '🇺🇸 English (Western Comics)', name: 'English', endonym: 'English' },
 ];
 
-export const TARGET_LANGUAGE_OPTIONS = [
-	{ value: 'en', label: 'English (Tier 1)' },
-	{ value: 'zh-Hans', label: '简体中文 (Simplified - Tier 1)' },
-	{ value: 'zh-Hant', label: '繁體中文 (Traditional - Tier 1)' },
-	{ value: 'ja', label: '日本語 (Japanese - Tier 2)' },
-	{ value: 'ko', label: '한국어 (Korean - Tier 2)' },
-	{ value: 'es', label: 'Español (Spanish - Tier 2)' },
-	{ value: 'fr', label: 'Français (French - Tier 2)' },
-	{ value: 'de', label: 'Deutsch (German - Tier 2)' },
-	{ value: 'ru', label: 'Русский (Russian - Tier 2)' },
-	{ value: 'pt', label: 'Português (Portuguese - Tier 2)' },
-	{ value: 'it', label: 'Italiano (Italian - Tier 2)' },
-	{ value: 'id', label: 'Bahasa Indonesia (Indonesian - Tier 2)' },
-	{ value: 'tr', label: 'Türkçe (Turkish - Tier 3)' },
-	{ value: 'nl', label: 'Nederlands (Dutch - Tier 3)' },
-	{ value: 'pl', label: 'Polski (Polish - Tier 3)' },
-	{ value: 'th', label: 'ไทย (Thai - Tier 3)' },
-	{ value: 'hi', label: 'हिन्दी (Hindi - Tier 3)' },
-	{ value: 'uk', label: 'Українська (Ukrainian - Tier 3)' },
-	{ value: 'sv', label: 'Svenska (Swedish - Tier 3)' },
-	{ value: 'fi', label: 'Suomi (Finnish - Tier 3)' },
-	{ value: 'ar', label: 'العربية (Arabic - Tier 3)' },
-];
+// DERIVED FROM LANGUAGES SO A NEW TARGET (E.G. ARABIC) CAN NEVER BE MISSING HERE
+export const TARGET_LANGUAGE_OPTIONS = Object.values(LANGUAGES).map((l) => ({
+	value: l.code,
+	label: `${l.endonym} (${l.name} - Tier ${l.tier})`,
+}));
 
 const TRADITIONAL_CHAR_PATTERN = /[們這為會經說國動時現實體學業發問門沒進聽階級歡迎龍鳳飛鳥馬魚車書長萬與變並單當點對讓頭儘幾後畫兒極總處愛鐵無樂義氣開專鬥蒼術靈斬寶閣莊記話職師歸來劍聖陣傳廣導應隊戰惡獸護衛歷險煉]/;
 const SIMPLIFIED_CHAR_PATTERN = /[们这为会经说国动时现实体学业发问门没进听阶级欢迎龙凤飞鸟马鱼车书长万与变并单当点对让头尽几后画儿极总处爱铁无乐义气开专斗苍术灵斩宝阁庄记话职师归来剑圣阵传广导应队战恶兽护卫历险炼]/;
@@ -149,12 +132,38 @@ export function detectSourceLanguage(text: string, fallback = 'zh-Hans'): string
 
 export function getLanguage(code: string | null | undefined): Language {
 	if (!code || code === 'auto') return LANGUAGES['zh-Hans'];
+	return lookupLanguage(code) ?? LANGUAGES['zh-Hans'];
+}
+
+/** THE REGISTERED LANGUAGE FOR `code` (INCLUDING THE REGIONAL ALIASES getLanguage ACCEPTS), OR NULL. */
+function lookupLanguage(code: string | null | undefined): Language | null {
+	if (!code) return null;
 	if (LANGUAGES[code]) return LANGUAGES[code];
 	if (code === 'zh-CN' || code === 'zh_CN' || code === 'zh') return LANGUAGES['zh-Hans'];
 	if (code === 'zh-TW' || code === 'zh_TW' || code === 'zh-HK') return LANGUAGES['zh-Hant'];
 	if (code === 'ja-JP' || code === 'ja_JP') return LANGUAGES['ja'];
 	if (code === 'ko-KR' || code === 'ko_KR') return LANGUAGES['ko'];
-	return LANGUAGES['zh-Hans'];
+	// ANY OTHER REGIONAL VARIANT (ar-SA, pt-BR, es_MX): FALL BACK TO THE BASE LANGUAGE
+	return LANGUAGES[code.split(/[-_]/)[0]] ?? null;
+}
+
+/** TRUE FOR A KNOWN RIGHT-TO-LEFT LANGUAGE (ar, ar-EG ...); FALSE FOR UNKNOWN CODES (NO CHINESE FALLBACK HERE). */
+export function isRtlLanguage(code: string | null | undefined): boolean {
+	return Boolean(lookupLanguage(code)?.rtl);
+}
+
+/** THE SCRIPT A LANGUAGE IS WRITTEN IN, OR NULL FOR AN UNKNOWN CODE (UNLIKE getLanguage, NO CHINESE DEFAULT). */
+export function scriptOfLanguage(code: string | null | undefined): Script | null {
+	return lookupLanguage(code)?.script ?? null;
+}
+
+/**
+ * THE SCRIPT A BOOK'S PAGES ARE TYPESET IN: THE TARGET LANGUAGE'S, OR THE SOURCE'S WHEN THE BOOK IS NOT TRANSLATED
+ * (THE PAGE KEEPS ITS SOURCE TEXT). UNKNOWN CODES FALL BACK TO LATIN.
+ */
+export function typesetScriptForBook(targetLang: string, sourceLang: string): Script {
+	if (targetLang === NO_TRANSLATION) return scriptOfLanguage(sourceLang) ?? 'latin';
+	return scriptOfLanguage(targetLang) ?? 'latin';
 }
 
 export function languageName(code: string | null | undefined): string {

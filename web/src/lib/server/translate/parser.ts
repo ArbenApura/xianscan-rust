@@ -26,14 +26,14 @@ export function sanitizeTranslationArtifacts(translated: string, source: string)
 
 	// 2. TRAILING BUBBLE TAIL OCR DIGITS (e.g. "! 20..." OR "! 20……" AFTER TERMINAL PUNCTUATION)
 	// IF SOURCE HAD TERMINAL PUNCTUATION FOLLOWED BY STRAY NUMBERS / TAIL ELLIPSES, STRIP IT FROM TRANSLATION.
-	const sourceTailMatch = s.match(/([!！？?。~～])\s*(?:\d{1,3}|oo|o\s*o\s*o)\s*(?:[.．…·]+)?$/i);
+	const sourceTailMatch = s.match(/([!！？?؟。~～])\s*(?:\d{1,3}|oo|o\s*o\s*o)\s*(?:[.．…·]+)?$/i);
 	if (sourceTailMatch) {
 		// STRIP TRAILING MATCHING DIGITS / ELLIPSES FROM TRANSLATION
-		t = t.replace(/([!?.~])\s*(?:\d{1,3}|oo|o\s*o\s*o)\s*(?:[.．…·]+)?$/i, '$1').trim();
+		t = t.replace(/([!?.~؟])\s*(?:\d{1,3}|oo|o\s*o\s*o)\s*(?:[.．…·]+)?$/i, '$1').trim();
 		t = t.replace(/\s+(?:\d{1,3}|oo|o\s*o\s*o)\s*(?:[.．…·]+)?$/i, '').trim();
 	}
 
-	// 3. STRIP REDUNDANT WRAPPING QUOTES IF SOURCE WAS NOT QUOTED
+	// 3. STRIP REDUNDANT WRAPPING QUOTES IF SOURCE WAS NOT QUOTED (ARABIC « » ARE STRIPPED THE SAME WAY AS "")
 	const sourceIsQuoted = /^["'“‘「《].*["'”’」》]$/u.test(s);
 	if (!sourceIsQuoted) {
 		if (
@@ -50,9 +50,9 @@ export function sanitizeTranslationArtifacts(translated: string, source: string)
 	// IF SOURCE STRICTLY ENDS WITH A FULL STOP (。 OR .) AND CONTAINS NO INTERROGATIVE MARKERS OR PARTICLES,
 	// BUT THE TRANSLATION ENDS WITH "?", RESTORE DECLARATIVE TERMINATION (PERIOD).
 	const sourceEndsWithPeriod = /[。.]\s*$/u.test(s);
-	const sourceHasInterrogative = /[?？]|(?:[吗呢吧]|难道|怎么|为什么|岂|谁|什么|哪|か|까)/u.test(s);
-	if (sourceEndsWithPeriod && !sourceHasInterrogative && t.endsWith('?')) {
-		t = t.replace(/\?+\s*$/u, '.');
+	const sourceHasInterrogative = /[?？؟]|(?:[吗呢吧]|难道|怎么|为什么|岂|谁|什么|哪|か|까)/u.test(s);
+	if (sourceEndsWithPeriod && !sourceHasInterrogative && /[?؟]\s*$/u.test(t)) {
+		t = t.replace(/[?؟]+\s*$/u, '.');
 	}
 
 	return t;

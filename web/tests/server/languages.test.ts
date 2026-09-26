@@ -142,3 +142,47 @@ describe('Multilingual Pipeline & Typesetting', () => {
 		expect(lines.join(' ')).toContain('Good');
 	});
 });
+
+describe('scriptOfLanguage (FEAT-006)', () => {
+	it('accepts the same regional aliases as getLanguage', async () => {
+		const { scriptOfLanguage } = await import('$lib/languages');
+		expect(scriptOfLanguage('zh-CN')).toBe('han');
+		expect(scriptOfLanguage('zh_TW')).toBe('han');
+		expect(scriptOfLanguage('zh-HK')).toBe('han');
+		expect(scriptOfLanguage('ja-JP')).toBe('kana');
+		expect(scriptOfLanguage('ko_KR')).toBe('hangul');
+		expect(scriptOfLanguage('ar')).toBe('arabic');
+	});
+
+	it('does not default unknown or auto codes to Chinese', async () => {
+		const { scriptOfLanguage, getLanguage } = await import('$lib/languages');
+		expect(scriptOfLanguage('auto')).toBeNull();
+		expect(scriptOfLanguage('')).toBeNull();
+		// getLanguage KEEPS ITS CHINESE DEFAULT FOR EXISTING CALLERS
+		expect(getLanguage('xx').code).toBe('zh-Hans');
+	});
+});
+
+describe('right-to-left languages (FEAT-007)', () => {
+	it('isRtlLanguage knows Arabic and its regional codes, and nothing else', async () => {
+		const { isRtlLanguage } = await import('$lib/languages');
+		expect(isRtlLanguage('ar')).toBe(true);
+		expect(isRtlLanguage('ar-EG')).toBe(true);
+		expect(isRtlLanguage('en')).toBe(false);
+		expect(isRtlLanguage('xx')).toBe(false);
+		expect(isRtlLanguage(null)).toBe(false);
+	});
+
+	it('regional codes resolve to the base language', async () => {
+		const { getLanguage } = await import('$lib/languages');
+		expect(getLanguage('ar-SA').code).toBe('ar');
+		expect(getLanguage('pt_BR').code).toBe('pt');
+		expect(getLanguage('zh-TW').code).toBe('zh-Hant');
+	});
+
+	it('TARGET_LANGUAGE_OPTIONS lists every registered language, Arabic included', async () => {
+		const { TARGET_LANGUAGE_OPTIONS, LANGUAGES } = await import('$lib/languages');
+		expect(TARGET_LANGUAGE_OPTIONS.map((o) => o.value).sort()).toEqual(Object.keys(LANGUAGES).sort());
+		expect(TARGET_LANGUAGE_OPTIONS.find((o) => o.value === 'ar')?.label).toBe('العربية (Arabic - Tier 3)');
+	});
+});

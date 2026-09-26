@@ -18,6 +18,7 @@
 <label class="block">
 	{#if label}<span class="mb-1 block text-xs font-medium opacity-60">{label}</span>{/if}
 	<textarea
+		dir="auto"
 		bind:value
 		{placeholder}
 		{rows}

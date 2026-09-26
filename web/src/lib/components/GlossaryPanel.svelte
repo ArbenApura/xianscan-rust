@@ -766,7 +766,7 @@
 										{/if}
 										<span class="font-medium">{e.source}</span>
 										<span class="opacity-30">→</span>
-										<span class="break-words text-[#b23a2e] dark:text-[#e08a63]">{e.target}</span>
+										<span class="break-words text-[#b23a2e] dark:text-[#e08a63]" dir="auto">{e.target}</span>
 									</div>
 									<!-- DESCRIPTION — CLAMPED SO LONG NOTES DON'T BLOAT THE ROW -->
 									{#if e.context}
@@ -989,6 +989,7 @@
 			<span class="mb-1 block text-xs font-medium opacity-60">Target rendering</span>
 			<div class="flex items-center gap-2">
 				<input
+					dir="auto"
 					bind:value={fTarget}
 					placeholder="target rendering"
 					class="h-[38px] min-w-0 flex-1 rounded-md border border-black/10 bg-transparent px-2.5 text-sm outline-none focus:border-[#c0392b] dark:border-white/[0.06]"
@@ -1024,6 +1025,7 @@
 		<label class="block">
 			<span class="mb-1 block text-xs font-medium opacity-60">Description (optional)</span>
 			<textarea
+				dir="auto"
 				bind:value={fContext}
 				rows="2"
 				placeholder="What this is and its role in the story (e.g. The protagonist's senior martial brother and rival)"
@@ -1033,6 +1035,7 @@
 		<label class="block">
 			<span class="mb-1 block text-xs font-medium opacity-60">Aliases (optional)</span>
 			<input
+				dir="auto"
 				bind:value={fAliases}
 				placeholder="Other source forms, comma-separated (e.g. 齊兄, 澈)"
 				class="w-full rounded-md border border-black/10 bg-transparent px-2.5 py-2 text-sm outline-none focus:border-[#c0392b] dark:border-white/[0.06]"

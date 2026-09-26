@@ -4,7 +4,7 @@ import type OpenAI from 'openai';
 // IMPORTED TYPES
 import type { LangPair, TermDraft } from '$lib/types';
 // IMPORTED MODULES
-import { languageName } from '$lib/languages';
+import { languageName, scriptOfLanguage } from '$lib/languages';
 import { formatDialogueContextBlock, type DialogueContextWindow } from './dialogue-tracker';
 
 // -- TYPES -- //
@@ -123,22 +123,19 @@ export function getTargetLanguageProfile(tgt: string): string {
 	}
 
 	if (primary === 'ar') {
+		// REGISTER RULES FROM THE ORIGINAL CONTRIBUTION (MO350AZ, PR #5 / #6); GRAMMAR, PUNCTUATION AND NAMING ADDED IN
+		// FEAT-007. RULES THE CORE INVARIANTS ALREADY STATE (LEAKAGE, JSON ONLY, NO ADDED INFORMATION) ARE NOT REPEATED.
 		return `Arabic Target Rules (AR):
-		
-- Use natural, smooth Modern Standard Arabic suitable for manga, manhwa, and webtoon dialogue.
-- Make the dialogue read as if it was originally written in Arabic, not translated word-for-word.
-- Do NOT preserve English, Japanese, Chinese, or Korean word order or sentence structures when they produce unnatural Arabic phrasing.
-- Preserve the exact meaning, context, tone, emotion, and speaker personality.
-- Use familiar, natural Arabic expressions when appropriate, without changing the meaning.
-- Keep character dialogue concise, fluid, and suitable for speech bubbles.
-- Do NOT add information, explanations, emotions, or implications that are not present in the source text.
-- Preserve character names, place names, special terms, and their glossary-consistent renderings.
-- Do NOT leave English, Japanese, Chinese, or Korean words in the Arabic translation unless they are intentionally preserved proper names or established terms.
-- Translate ordinary words such as "controlled" into Arabic rather than retaining the source-language word.
-- If the source text is ambiguous, preserve the ambiguity instead of inventing a specific meaning.
-- Avoid overly ornate or literary Arabic when the context is ordinary dialogue.
-- Prefer natural Arabic meaning over literal wording. When a literal translation sounds unnatural in Arabic, rewrite it using the most natural Arabic expression that preserves the original meaning.
-- Do NOT output any explanation or notes outside the JSON object required by the current system schema.`;
+- Register: Natural, smooth Modern Standard Arabic suited to manga, manhwa and webtoon dialogue. It must read as if written in Arabic, not translated word for word: do not keep source word order or sentence structure when it sounds unnatural, and prefer the most natural Arabic expression that preserves the meaning. Keep bubbles concise and avoid ornate literary style for ordinary dialogue.
+- Grammatical Gender (no neuter): Arabic has no "it". Beasts and monsters take the grammatical gender of the noun used (الوحش and المخلوق masculine, الأفعى feminine); verbs, adjectives and pronouns agree with it. This overrides the "it / its" rule of the core invariants.
+- Addressee Gender: Second person pronouns, imperatives and verb forms must match the addressee's gender from the Glossary or Dialogue Context (أنتَ / أنتِ, اذهبْ / اذهبي).
+- Dual: Use dual forms (هما، أنتما، ـان / ـين) when exactly two people are addressed or described.
+- Punctuation: Use the Arabic comma (،), question mark (؟) and semicolon (؛). Use ! for exclamations and ؟! for surprised questions, «» for quotations and ... for trailing thoughts.
+- Split Bubbles: Arabic has no letter case; a continued sentence simply continues after ... in the next bubble. Do not repeat conjunctions such as و at its start unless needed.
+- Names: Transliterate character and place names into Arabic script (e.g. Ye Fan -> يي فان). Never leave Latin letters for a name unless it is a brand or is written in Latin in the source art.
+- Tashkeel: No full vocalisation; add a single mark only where a word would otherwise be ambiguous.
+- Digits: Use Western digits (0-9).
+- Honorifics: Render senior / junior martial titles and -nim / -sama style honorifics as natural Arabic address (يا سيدي، يا معلمي، أخي الأكبر، أختي الكبرى) instead of transliterating them.`;
 	}
 
 	if (['es', 'fr', 'it', 'pt'].includes(primary)) {
@@ -175,6 +172,10 @@ export function systemPrompt(
 	const tgtLabel = tgtName === tgt ? tgt : `${tgtName} (${tgt})`;
 	const srcProfile = getSourceLanguageProfile(src, tgtName);
 	const tgtProfile = getTargetLanguageProfile(tgt);
+	// LETTER CASE AND CASE-BASED CONTINUATION ONLY MEAN SOMETHING FOR CASED SCRIPTS (FEAT-007)
+	const tgtScript = scriptOfLanguage(tgt) ?? 'latin';
+	const cased = ['latin', 'cyrillic', 'greek'].includes(tgtScript);
+	const arabicTarget = tgtScript === 'arabic';
 
 	const sfxDirective = `Focus translations strictly on speech dialogue bubbles, thought clouds, narration boxes, and UI panels. Omit or ignore ambient background sound effect regions.`;
 
@@ -184,7 +185,7 @@ export function systemPrompt(
 		`3. Positive Identity & Pronoun Disambiguation:`,
 		`   - Ban on Ambiguous Singular "They/Them": NEVER use singular "they/them/their" as a hedge for an individual character. Reserve "they/them" strictly for plural groups, mobs, or multiple individuals.`,
 		`   - Gender & Pronoun Locking: Once a character or speaker's gender is established (via Glossary [masculine]/[feminine], honorifics, or preceding dialogue context), strictly maintain matching pronouns (he/him/his vs. she/her/hers) across all subsequent bubbles and pages. Never switch gender mid-scene.`,
-		`   - Beasts, Monsters, Animals & Non-Human Entities: When referring to non-human adversaries, beasts, magical/spirit beasts, summons, monsters, or wild animals (e.g. wolves, dragons, 괴물, 魔物, 妖兽, 化け物), resolve pronouns strictly to "it / its" or descriptive nouns ("the beast", "the creature", "the monster"), NEVER human "he / him" or "she / her", unless the creature is explicitly anthropomorphized, speaks human dialogue, or possesses a confirmed human gender in the Glossary.`,
+		`   - Beasts, Monsters, Animals & Non-Human Entities: When referring to non-human adversaries, beasts, magical/spirit beasts, summons, monsters, or wild animals (e.g. wolves, dragons, 괴물, 魔物, 妖兽, 化け物), resolve pronouns strictly to "it / its" or descriptive nouns ("the beast", "the creature", "the monster"), NEVER human "he / him" or "she / her", unless the creature is explicitly anthropomorphized, speaks human dialogue, or possesses a confirmed human gender in the Glossary. For target languages with grammatical gender, follow the TARGET SPECIFICS section instead.`,
 		`   - Scene Monologue & Direct Address Scope: When a character (Speaker A) addresses or marvels at another character (Speaker B) in a 1-on-1 scene (e.g. "あなた/君", "あなたは違います", "あなたなら..."), ALL subsequent praises, assessments, and predictions in that speech turn MUST remain in the second person ("you / your"), NOT third person ("he / she"). Never flip to "he/she" simply because downstream bubbles lack an explicit "you" or are separated by other visual panels.`,
 		`   - Interleaved Speech vs. Inner Monologue Streams: When a scene alternates between an external speaker's monologue (formal/narrative speech evaluating abilities or status) and a listener's inner thoughts (informal reactions, panic, or realizations):`,
 		`     * The external speaker's stream MUST remain strictly in 2nd person ("you / your"), praising or evaluating the listener directly ("Summoning such an entity at age seven...", "If you continue to grow..."). Do NOT let the listener's interspersed 1st-person thoughts cause the speaker's surrounding dialogue to flip into 3rd person ("he / she").`,
@@ -205,12 +206,12 @@ export function systemPrompt(
 		`       2) Miniature Floating Asides: Whispered reactions or chibi murmurs near characters. If the text has question markers or question punctuation (e.g. "不看八卦新闻？", "真的吗？"), translate as an aside question ("You don't read gossip news?", "Really?"). If declarative, translate as self-talk or whispered remark ("So scary...", "I don't read gossip news.").`,
 		`       3) Scene / Narrative Captions: Descriptive setting or time cards (e.g. "The next morning.").`,
 		`4. Spoken Comic Register & Bubble Geometry:`,
-		`   - Declarative vs. Interrogative Mood & Punctuation Preservation: Never convert a declarative sentence ending with a full stop or period (。, .) into an English question (?), unless the source explicitly contains an interrogative marker (e.g. Chinese 吗/呢/吧/难道/岂, Japanese か/の, Korean 까/나/니/요). Conversely, if the source contains question punctuation (？, ?) or question particles, preserve the interrogative mood in the translation regardless of whether the region is a bubble or free text.`,
+		`   - Declarative vs. Interrogative Mood & Punctuation Preservation: Never convert a declarative sentence ending with a full stop or period (。, .) into an English question (?), unless the source explicitly contains an interrogative marker (e.g. Chinese 吗/呢/吧/难道/岂, Japanese か/の, Korean 까/나/니/요). Conversely, if the source contains question punctuation (？, ?${arabicTarget ? ', ؟' : ''}) or question particles, preserve the interrogative mood in the translation regardless of whether the region is a bubble or free text.`,
 		`     * [free_text] "不看八卦新闻。" -> "Doesn't read gossip news." (declarative character note / gag label)`,
 		`     * [free_text] "不看八卦新闻？" -> "You don't read gossip news?" (interrogative miniature aside)`,
 		`     * [free_text] "刚刚睡醒。" -> "Just woke up."`,
 		`     * [free_text] "真的吗？" -> "Really?"`,
-		`   - Write punchy, natural spoken ${tgtName} dialogue suitable for comic voice acting in standard sentence case (never ALL-CAPS).`,
+		`   - Write punchy, natural spoken ${tgtName} dialogue suitable for comic voice acting${cased ? ' in standard sentence case (never ALL-CAPS)' : ''}.`,
 		`   - Line Breaks: Do NOT blindly copy source OCR line breaks. Re-flow target text into visually balanced, centered lines (inverted pyramid / diamond layout) suited for comic speech bubbles. Preserve \\n only between distinct stanzas, separate thoughts, or UI lists.`,
 		`   - Punctuation Restraint (Dashes, Semicolons & Colons): Avoid overusing em dashes, semicolons (;), or colons (:). Spoken dialogue rarely uses semicolons or colons; use commas, periods, or natural sentence splits instead. Reserve colons strictly for RPG stat screens, UI labels, or timestamps. For trailing thoughts, pauses, or hesitations, use ellipses (...). For clauses and parentheticals, use commas or natural sentence splits. Reserve double hyphens or standard dashes strictly for abrupt mid-word or mid-sentence cutoffs when a character is suddenly interrupted or cut off by action.`,
 		`5. Sound Effects (SFX) Policy:`,
@@ -218,7 +219,7 @@ export function systemPrompt(
 		`6. Split-Bubble Continuity:`,
 		`   - When a continuous sentence spans multiple consecutive speech bubbles:`,
 		`     * Place trailing ellipses (...) on the preceding bubble.`,
-		`     * Begin the succeeding bubble in lowercase continuation without repeating subjects or conjunctions.`,
+		`     * ${cased ? 'Begin the succeeding bubble in lowercase continuation without repeating subjects or conjunctions.' : 'Continue the sentence in the succeeding bubble without repeating subjects or conjunctions.'}`,
 		`     * Subject & Person Lock: Succeeding continuation bubbles MUST maintain the exact same grammatical person, subject, and tone established in the preceding bubble.`,
 		`7. Mandatory Glossary Adherence (Zero Deviation):`,
 		`   - The project Glossary provided in the system messages contains authoritative terminology overrides. Whenever a source term (or its alias) appears in dialogue, you MUST use its EXACT specified target translation verbatim. Never substitute with dictionary synonyms, alternate spellings, or grammatical variations.`,

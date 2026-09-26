@@ -8,7 +8,8 @@ import { desc, eq } from 'drizzle-orm';
 import { db } from '$lib/server/db';
 import { appSettings, books } from '$lib/server/db/schema';
 import { getGlossaryPage } from '$lib/server/glossary';
-import { listAvailablePacks } from '$lib/server/glossary-packs';
+import { listAvailablePacks, PACK_LANGUAGES } from '$lib/server/glossary-packs';
+import { intParam } from '$lib/server/params';
 
 // -- FUNCTIONS -- //
 
@@ -59,8 +60,8 @@ export const load: PageServerLoad = async ({ url }) => {
 	const sourceLang = url.searchParams.get('src') || DEFAULT_SOURCE_LANG;
 	const targetLang = url.searchParams.get('tgt') || DEFAULT_TARGET_LANG;
 	const q = url.searchParams.get('q') || '';
-	const page = Math.max(1, parseInt(url.searchParams.get('page') || '1', 10));
-	const pageSize = Math.min(200, Math.max(1, parseInt(url.searchParams.get('pageSize') || '10', 10)));
+	const page = intParam(url, 'page', 1, 1, 1_000_000);
+	const pageSize = intParam(url, 'pageSize', 10, 1, 200);
 
 	const initialGlossary = await getGlossaryPage(scope, scope === 'book' ? selectedBookId : null, {
 		q,
@@ -92,6 +93,7 @@ export const load: PageServerLoad = async ({ url }) => {
 	return {
 		books: fallbackBook ? [fallbackBook, ...activeBooks] : activeBooks,
 		packs,
+		presetLanguages: [...PACK_LANGUAGES],
 		initialGlossary,
 		initialScope: scope,
 		initialBookId: selectedBookId,

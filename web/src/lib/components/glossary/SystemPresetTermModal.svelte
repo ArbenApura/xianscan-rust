@@ -140,7 +140,7 @@
 					<div>
 						<span class="text-[10px] sm:text-[11px] font-semibold uppercase tracking-wider opacity-50">Standard Translation</span>
 						<div class="mt-0.5 sm:mt-1 flex items-center justify-between gap-2">
-							<span class="text-base sm:text-lg font-bold text-[#b23a2e] dark:text-[#e08a63] break-words">{term.target}</span>
+							<span class="text-base sm:text-lg font-bold text-[#b23a2e] dark:text-[#e08a63] break-words" dir="auto">{term.target}</span>
 							<button
 								type="button"
 								on:click={copyTarget}

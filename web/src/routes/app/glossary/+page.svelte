@@ -8,6 +8,7 @@
 	import { goto } from '$app/navigation';
 	import { page } from '$app/stores';
 	import { apiFetch } from '$lib/api';
+	import { languageName } from '$lib/languages';
 	import { ripple } from '$lib/actions/ripple';
 	// IMPORTED DEP-COMPONENTS
 	import ArrowLeft from 'lucide-svelte/icons/arrow-left';
@@ -32,6 +33,13 @@
 	let books = data.books;
 	let sourceLang = data.initialSourceLang;
 	let targetLang = data.initialTargetLang;
+	// PRESET PACKS ONLY EXIST FOR THE PACK LANGUAGES; OTHER PAIRS GET NO (AND NEVER ENGLISH) PRESET TERMS
+	$: presetPairSupported = (data.presetLanguages ?? []).includes(sourceLang) && (data.presetLanguages ?? []).includes(targetLang);
+	// NAME THE SIDE(S) THAT LACK PACKS (E.G. ARABIC -> ENGLISH IS MISSING ARABIC, NOT ENGLISH)
+	$: missingPresetLangs = [sourceLang, targetLang]
+		.filter((lang, i, all) => all.indexOf(lang) === i && !(data.presetLanguages ?? []).includes(lang))
+		.map((lang) => languageName(lang))
+		.join(' or ');
 	let scope: 'global' | 'book' = data.initialScope;
 	let selectedBookId = data.initialBookId || (books.length > 0 ? books[0].id : '');
 	let mounted = false;
@@ -272,6 +280,9 @@
 						</span>
 					</div>
 
+					{#if !presetPairSupported}
+						<span class="text-[11px] opacity-60" data-testid="no-preset-terms">No preset terms for {missingPresetLangs} yet.</span>
+					{/if}
 					{#each data.packs || [] as pack (pack.id)}
 						<button
 							type="button"

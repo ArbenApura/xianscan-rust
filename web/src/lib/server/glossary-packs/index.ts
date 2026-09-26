@@ -2,6 +2,10 @@
 // IMPORTED TYPES
 import type { LangPair, TermDraft } from '$lib/types';
 import MASTER_GLOSSARY from './data/master-glossary.json';
+// THE LANGUAGES EVERY MASTER ENTITY HAS A TRANSLATION FOR (SHARED WITH scripts/compile_glossary_packs.js)
+import PACK_LANGUAGES_JSON from './data/pack-languages.json';
+
+export const PACK_LANGUAGES: readonly string[] = PACK_LANGUAGES_JSON;
 
 // -- TYPES -- //
 
@@ -83,40 +87,46 @@ export function clearPacksCache(): void {
 /**
  * Builds and returns all 2,660 multilingual theme packs derived dynamically in memory (<1ms).
  */
+/**
+ * ONE PACK TERM FOR A LANGUAGE PAIR, OR NULL WHEN THE ENTITY HAS NO TRANSLATION ON EITHER SIDE. NEVER FALLS BACK TO
+ * ENGLISH OR CHINESE: A WRONG-LANGUAGE "TRANSLATION" IN THE GLOSSARY IS WORSE THAN NONE (FEAT-007 ADR-006).
+ */
+export function resolvePackTerm(entity: MasterGlossaryEntity, src: string, tgt: string): TermDraft | null {
+	const source = entity.translations[src];
+	const target = entity.translations[tgt];
+	if (!source || !target) return null;
+	return {
+		source,
+		target,
+		category: entity.category as any,
+		gender: (entity.gender || 'neuter') as any,
+		aliases: [],
+		context: entity.context,
+		pinned: false,
+	};
+}
+
+/** TRUE WHEN THE PRESET PACKS HAVE TERMS FOR THIS LANGUAGE PAIR. */
+export function hasPresetPacks(pair: LangPair): boolean {
+	return PACK_LANGUAGES.includes(pair.sourceLang) && PACK_LANGUAGES.includes(pair.targetLang);
+}
+
 export function loadAllPacks(): Map<string, GlossaryPack> {
 	if (cachedPacks) return cachedPacks;
 	const packs = new Map<string, GlossaryPack>();
 	const entities = MASTER_GLOSSARY as MasterGlossaryEntity[];
 
-	const LANGUAGES = [
-		'zh-Hans', 'zh-Hant', 'en', 'ja', 'ko',
-		'es', 'fr', 'de', 'ru', 'pt',
-		'it', 'id', 'th', 'tr', 'nl',
-		'pl', 'hi', 'uk', 'sv', 'fi'
-	];
-
-	for (const src of LANGUAGES) {
-		for (const tgt of LANGUAGES) {
+	for (const src of PACK_LANGUAGES) {
+		for (const tgt of PACK_LANGUAGES) {
 			if (src === tgt) continue;
 
 			for (const theme of Object.keys(THEME_TITLES)) {
 				const packId = `${src}-${tgt}-${theme}`;
 				const themeEntities = entities.filter((e) => e.theme === theme);
 
-				const terms: TermDraft[] = themeEntities.map((entity) => {
-					const source = entity.translations[src] || entity.translations['en'] || entity.translations['zh-Hans'];
-					const target = entity.translations[tgt] || entity.translations['en'] || entity.translations['zh-Hans'];
-
-					return {
-						source,
-						target,
-						category: entity.category as any,
-						gender: (entity.gender || 'neuter') as any,
-						aliases: [],
-						context: entity.context,
-						pinned: false,
-					};
-				});
+				const terms: TermDraft[] = themeEntities
+					.map((entity) => resolvePackTerm(entity, src, tgt))
+					.filter((term): term is TermDraft => term !== null);
 
 				packs.set(packId, {
 					id: packId,
@@ -157,6 +167,8 @@ export function getActivePackTerms(
 	const results: { term: TermDraft; packId: string }[] = [];
 	const entities = MASTER_GLOSSARY as MasterGlossaryEntity[];
 	const { sourceLang: src, targetLang: tgt } = pair;
+	// NO PRESET TERMS FOR A PAIR OUTSIDE THE PACK LANGUAGES (E.G. ARABIC): NEVER SUBSTITUTE ENGLISH
+	if (!hasPresetPacks(pair)) return results;
 
 	for (const theme of Object.keys(THEME_TITLES)) {
 		const packId = `${src}-${tgt}-${theme}`;
@@ -167,21 +179,8 @@ export function getActivePackTerms(
 
 		const themeEntities = entities.filter((e) => e.theme === theme);
 		for (const entity of themeEntities) {
-			const source = entity.translations[src] || entity.translations['en'] || entity.translations['zh-Hans'];
-			const target = entity.translations[tgt] || entity.translations['en'] || entity.translations['zh-Hans'];
-
-			results.push({
-				term: {
-					source,
-					target,
-					category: entity.category as any,
-					gender: (entity.gender || 'neuter') as any,
-					aliases: [],
-					context: entity.context,
-					pinned: false,
-				},
-				packId,
-			});
+			const term = resolvePackTerm(entity, src, tgt);
+			if (term) results.push({ term, packId });
 		}
 	}
 
