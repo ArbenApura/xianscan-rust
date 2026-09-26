@@ -8,6 +8,7 @@ import { getImageDimensionsFromBuffer } from '$lib/server/chapters/dimensions';
 import {
 	MAX_UNKNOWN_FORMAT_BYTES,
 	assertDecodeAllowed,
+	maxImagePixelsFromEnv,
 	assertImageWithinLimits,
 	readImageDims,
 } from '$lib/server/image-limits';
@@ -134,5 +135,16 @@ describe('pixel caps', () => {
 		await expect(assertDecodeAllowed(big, 'Page')).rejects.toMatchObject({ status: 422 });
 		// SMALL UNKNOWN FILES ARE LEFT TO THE DECODER (WHICH REPORTS ITS OWN ERROR)
 		await expect(assertDecodeAllowed(Buffer.from('not-an-image-at-all-1234567890'), 'Page')).resolves.toBeNull();
+	});
+});
+
+describe('XIANSCAN_MAX_IMAGE_MP', () => {
+	it('raises the cap like the engine does, so the override works end to end', () => {
+		expect(maxImagePixelsFromEnv('250')).toBe(250_000_000);
+		expect(maxImagePixelsFromEnv(' 150 ')).toBe(150_000_000);
+	});
+
+	it('keeps 100 MP for a missing or invalid value, as the engine ignores it', () => {
+		for (const raw of [undefined, '', '0', '-5', '1.5', 'abc']) expect(maxImagePixelsFromEnv(raw)).toBe(100_000_000);
 	});
 });

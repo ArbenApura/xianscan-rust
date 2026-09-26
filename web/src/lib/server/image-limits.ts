@@ -7,7 +7,7 @@ import { getImageDimensionsFromBuffer } from './chapters/dimensions';
 
 // -- CONSTANTS -- //
 
-export const MAX_IMAGE_PIXELS = 100_000_000;
+const DEFAULT_MAX_IMAGE_PIXELS = 100_000_000;
 export const MAX_IMAGE_EDGE = 65_535;
 export const MAX_THUMB_HEIGHT = 8_000;
 // @napi-rs/image `metadata()` DECODES THE WHOLE IMAGE (MEASURED: +400 MB RSS FOR A 20000 x 20000 PNG), SO
@@ -22,6 +22,17 @@ export interface ImageDims {
 }
 
 // -- FUNCTIONS -- //
+
+/**
+ * PER-IMAGE PIXEL CAP FROM `XIANSCAN_MAX_IMAGE_MP` (A POSITIVE WHOLE NUMBER OF MEGAPIXELS), THE SAME VARIABLE AND RULE
+ * THE ENGINE USES (src/ml/intake.rs), SO RAISING IT LETS AN IMAGE THROUGH BOTH SIDES. ANYTHING ELSE KEEPS 100 MP.
+ */
+export function maxImagePixelsFromEnv(raw: string | undefined): number {
+	const mp = Number(raw?.trim() || NaN);
+	return Number.isInteger(mp) && mp > 0 ? mp * 1_000_000 : DEFAULT_MAX_IMAGE_PIXELS;
+}
+
+export const MAX_IMAGE_PIXELS = maxImagePixelsFromEnv(process.env.XIANSCAN_MAX_IMAGE_MP);
 
 /** HEADER-ONLY DIMENSIONS FOR GIF AND BMP (THE SHARED PARSER COVERS PNG, JPEG AND WEBP). */
 function extraHeaderDims(buf: Buffer): ImageDims | null {
@@ -66,7 +77,7 @@ export function withinImageLimits(dims: ImageDims): boolean {
 export function assertDimsWithinLimits(dims: ImageDims, label: string): void {
 	if (!withinImageLimits(dims)) {
 		const mp = Math.round((dims.width * dims.height) / 1_000_000);
-		throw error(422, `${label} is ${dims.width} x ${dims.height} (${mp} MP); the limit is 100 MP.`);
+		throw error(422, `${label} is ${dims.width} x ${dims.height} (${mp} MP); the limit is ${MAX_IMAGE_PIXELS / 1_000_000} MP.`);
 	}
 }
 
