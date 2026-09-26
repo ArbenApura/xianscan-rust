@@ -2,7 +2,8 @@ declare global {
 	namespace App {
 		// interface Error {}
 		interface Locals {
-			// NO AUTH — SINGLE-USER, SELF-HOSTED APP. RESERVED FOR FUTURE CONTEXT.
+			// SET BY accessHandle: HOW THIS REQUEST WAS ALLOWED IN
+			access?: { via: 'public' | 'local' | 'token' | 'cookie' };
 		}
 		// interface PageData {}
 		// interface PageState {}

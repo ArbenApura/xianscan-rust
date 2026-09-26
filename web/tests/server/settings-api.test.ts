@@ -383,4 +383,18 @@ describe('Settings & Reading History Server API Routes', () => {
 			expect(canonical.typesetOutline).toBe('heavy');
 		});
 	});
+
+	describe('Initial settings seed (R4)', () => {
+		it('still seeds when only non-AppSettings rows such as lanAccessEnabled exist', async () => {
+			vi.resetModules();
+			const db = getTestDb();
+			const { setLanAccessEnabled } = await import('../../src/lib/server/access/access-settings');
+			const { seedInitialSettingsIfEmpty, getCanonicalSettings } = await import('../../src/lib/server/settings-service');
+
+			setLanAccessEnabled(true, db as any);
+			seedInitialSettingsIfEmpty({ typesetFont: 'Anime Ace' }, db as any);
+
+			expect(getCanonicalSettings(db as any).typesetFont).toBe('Anime Ace');
+		});
+	});
 });

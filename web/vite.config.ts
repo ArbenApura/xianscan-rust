@@ -5,11 +5,12 @@ export default defineConfig(({ command }) => ({
 	plugins: [sveltekit()],
 	server: {
 		port: Number(process.env.DEV_PORT) || 8125,
-		host: '0.0.0.0',
+		// LOOPBACK UNLESS THE LAUNCHER (OR THE DEVELOPER) ASKS FOR LAN WITH HOST=0.0.0.0
+		host: process.env.HOST || '127.0.0.1',
 	},
 	preview: {
 		port: Number(process.env.PORT) || 8124,
-		host: '0.0.0.0',
+		host: process.env.HOST || '127.0.0.1',
 	},
 	ssr: {
 		// IN BUILD MODE: BUNDLE ALL PURE-JS DEPS INTO SERVER CHUNKS FOR ZERO-DEPENDENCY RELEASE.

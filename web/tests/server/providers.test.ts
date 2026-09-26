@@ -9,7 +9,119 @@ import {
 	seedDefaultProviders,
 	maskApiKey,
 	testProviderConnection,
+	fetchAvailableModels,
+	isLocalProvider,
+	normalizeBaseUrl,
+	ProviderUpdateError,
 } from '$lib/server/providers';
+
+// RECORDS THE KEY AND BASE URL EACH OUTBOUND CHAT CALL WAS MADE WITH
+function spyOnChatCalls() {
+	const calls: Array<{ apiKey: string; baseURL: string }> = [];
+	const spy = vi.spyOn(OpenAI.Chat.Completions.prototype, 'create');
+	spy.mockImplementation(async function (this: any) {
+		calls.push({ apiKey: this._client.apiKey, baseURL: this._client.baseURL });
+		return { choices: [{ message: { content: 'ok' } }] } as any;
+	});
+	return { calls, spy };
+}
+
+describe('provider key and base URL hardening', () => {
+	beforeEach(async () => {
+		await resetDb();
+	});
+
+	it('does not send the stored key to a caller-supplied baseUrl', async () => {
+		const db = getTestDb();
+		updateProvider('deepseek', { apiKey: 'sk-stored-secret-123456' }, db);
+		const { calls, spy } = spyOnChatCalls();
+
+		const res = await testProviderConnection({ id: 'deepseek', baseUrl: 'https://evil.example/v1', db });
+		const models = await fetchAvailableModels({ id: 'deepseek', baseUrl: 'https://evil.example/v1', db });
+
+		expect(res.ok).toBe(false);
+		expect(res.code).toBe('key_required_for_new_base_url');
+		expect(models.code).toBe('key_required_for_new_base_url');
+		expect(calls.every((c) => c.apiKey !== 'sk-stored-secret-123456')).toBe(true);
+		expect(calls.length).toBe(0);
+		spy.mockRestore();
+	});
+
+	it('uses the stored key when baseUrl equals the stored one after normalisation', async () => {
+		const db = getTestDb();
+		updateProvider('deepseek', { apiKey: 'sk-stored-secret-123456' }, db);
+		const { calls, spy } = spyOnChatCalls();
+
+		const res = await testProviderConnection({ id: 'deepseek', baseUrl: 'https://API.DeepSeek.com:443/', model: 'm', db });
+
+		expect(res.ok).toBe(true);
+		expect(calls).toHaveLength(1);
+		expect(calls[0].apiKey).toBe('sk-stored-secret-123456');
+		expect(calls[0].baseURL).toContain('api.deepseek.com');
+		spy.mockRestore();
+	});
+
+	it('updateProvider rejects a new remote baseUrl without a key (409 code)', () => {
+		const db = getTestDb();
+		updateProvider('custom', { apiKey: 'sk-stored-secret-123456', baseUrl: 'https://a.example/v1' }, db);
+		expect(() => updateProvider('custom', { baseUrl: 'https://b.example/v1' }, db)).toThrow(ProviderUpdateError);
+		try {
+			updateProvider('custom', { baseUrl: 'https://b.example/v1' }, db);
+		} catch (e: any) {
+			expect(e.code).toBe('key_required_for_new_base_url');
+		}
+		expect(getProviderById('custom', db)?.baseUrl).toBe('https://a.example/v1');
+	});
+
+	it('updateProvider accepts a new baseUrl together with a new key, and with clearApiKey', () => {
+		const db = getTestDb();
+		updateProvider('custom', { apiKey: 'sk-stored-secret-123456', baseUrl: 'https://a.example/v1' }, db);
+		updateProvider('custom', { baseUrl: 'https://b.example/v1/', apiKey: 'sk-new-key-abcdef' }, db);
+		expect(getProviderById('custom', db)?.baseUrl).toBe('https://b.example/v1');
+		expect(getProviderById('custom', db)?.apiKey).toBe('sk-new-key-abcdef');
+
+		updateProvider('custom', { baseUrl: 'https://c.example/v1', clearApiKey: true }, db);
+		expect(getProviderById('custom', db)?.baseUrl).toBe('https://c.example/v1');
+		expect(getProviderById('custom', db)?.apiKey).toBe('');
+	});
+
+	it('isLocalProvider parses the hostname', () => {
+		expect(isLocalProvider('https://evil.example/localhost')).toBe(false);
+		expect(isLocalProvider('https://localhost.evil.example/v1')).toBe(false);
+		expect(isLocalProvider('http://[::1]:11434/v1')).toBe(true);
+		expect(isLocalProvider('http://127.0.0.1:1234/v1')).toBe(true);
+		expect(isLocalProvider('ollama')).toBe(true);
+		expect(isLocalProvider('deepseek')).toBe(false);
+	});
+
+	it('normalizeBaseUrl drops trailing slashes, default ports and host case', () => {
+		expect(normalizeBaseUrl('HTTPS://Api.Example.com:443/v1///')).toBe('https://api.example.com/v1');
+		expect(normalizeBaseUrl('ftp://example.com')).toBeNull();
+		expect(normalizeBaseUrl('http://user:pass@example.com')).toBeNull();
+	});
+
+	it('error messages do not include the base URL or upstream body for network failures', async () => {
+		const spy = vi.spyOn(OpenAI.Chat.Completions.prototype, 'create');
+		spy.mockImplementation(async () => {
+			const err: any = new Error('connect ECONNREFUSED 10.0.0.5:8080 <html>internal admin</html>');
+			err.code = 'ECONNREFUSED';
+			throw err;
+		});
+
+		const res = await testProviderConnection({
+			id: 'custom',
+			apiKey: 'test-key',
+			baseUrl: 'http://10.0.0.5:8080/v1',
+			model: 'm',
+		});
+
+		expect(res.ok).toBe(false);
+		expect(res.message).toBe('Connection failed: connection refused');
+		expect(res.message).not.toContain('10.0.0.5');
+		expect(res.detail).toBeUndefined();
+		spy.mockRestore();
+	});
+});
 
 describe('providers.ts', () => {
 	beforeEach(async () => {
@@ -217,7 +329,9 @@ describe('providers.ts', () => {
 		});
 
 		expect(res.ok).toBe(false);
-		expect(res.message).toContain("Parameter 'top_p'=0.9 is not supported for kimi-k3 model");
+		// THE FIXED MESSAGE CARRIES THE STATUS; THE PROVIDER'S OWN TEXT MOVES TO `detail`
+		expect(res.message).toContain('HTTP 400');
+		expect(res.detail).toContain("Parameter 'top_p'=0.9 is not supported for kimi-k3 model");
 		createSpy.mockRestore();
 	});
 

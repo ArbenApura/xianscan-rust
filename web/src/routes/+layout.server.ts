@@ -58,11 +58,13 @@ const VALID_WEBTOON_WIDTHS = new Set(['sm', 'md', 'lg']);
 const VALID_INPAINT_MODES = new Set<InpaintMode>(['patch', 'scaled', 'full']);
 const VALID_EXEC_DEVICES = new Set<ExecutionDevice>(['auto', 'cuda', 'dml', 'coreml', 'cpu']);
 
-export const load: LayoutServerLoad = async ({ cookies }) => {
+export const load: LayoutServerLoad = async ({ cookies, locals }) => {
 	let canonicalSettings: AppSettings | null = null;
 	const historyMap: Record<string, { chapterId: number; seq: number; pageSeq: number; totalPages: number; completed: boolean; updatedAt: number; title?: string | null; titleTarget?: string | null }> = {};
+	// PUBLIC PAGES (/unlock) ARE SERVED TO UNAUTHENTICATED CALLERS: SEND THEM NO LIBRARY OR SETTINGS DATA
+	const isPublic = locals.access?.via === 'public';
 
-	try {
+	if (!isPublic) try {
 		canonicalSettings = getCanonicalSettings();
 		const rows = db
 			.select({
@@ -180,7 +182,9 @@ export const load: LayoutServerLoad = async ({ cookies }) => {
 		resliceBeforeBatch,
 	};
 
-	const llmStatus = isLlmProviderConfigured();
+	const llmStatus = isPublic
+		? { configured: true, activeProvider: { id: '', name: '', isLocal: false, hasKey: false } }
+		: isLlmProviderConfigured();
 
 	return {
 		preferences,

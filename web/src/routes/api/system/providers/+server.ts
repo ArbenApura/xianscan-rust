@@ -1,6 +1,6 @@
 import { json, error } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
-import { getProviders, updateProvider } from '$lib/server/providers';
+import { getProviders, updateProvider, ProviderUpdateError } from '$lib/server/providers';
 import { updateProviderSchema } from '$lib/schemas';
 import { syncBus } from '$lib/server/sync-bus';
 
@@ -18,7 +18,7 @@ export const POST: RequestHandler = async ({ request }) => {
 		const body = await request.json().catch(() => ({}));
 		const parsed = updateProviderSchema.safeParse(body);
 		if (!parsed.success) {
-			throw error(400, 'Provider ID is required');
+			throw error(400, parsed.error.issues[0]?.message || 'Provider ID is required');
 		}
 
 		const { id, apiKey, clearApiKey, baseUrl, activeModel, availableModels, enabled, isDefault } = parsed.data;
@@ -38,6 +38,9 @@ export const POST: RequestHandler = async ({ request }) => {
 
 		return json({ provider: updated });
 	} catch (e: any) {
+		if (e instanceof ProviderUpdateError) {
+			return json({ message: e.message, code: e.code }, { status: e.code === 'invalid_base_url' ? 400 : 409 });
+		}
 		if (e?.status) throw e;
 		throw error(500, e?.message || 'Failed to update AI provider');
 	}

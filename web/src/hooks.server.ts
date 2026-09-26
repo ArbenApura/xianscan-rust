@@ -2,6 +2,7 @@
 import type { Handle, HandleServerError } from '@sveltejs/kit';
 // IMPORTED DEP-MODULES
 import { sequence } from '@sveltejs/kit/hooks';
+import { dev } from '$app/environment';
 // IMPORTED MODULES
 import {
 	THEME_BG,
@@ -13,6 +14,10 @@ import {
 } from '$lib/stores/settings';
 import { getCanonicalSettings } from '$lib/server/settings-service';
 import { batchService } from '$lib/server/batch-service';
+import { accessHandle } from '$lib/server/access/handle';
+import { applyBindSourceOnBoot } from '$lib/server/access/access-settings';
+import { syncPersistedHardwareSettings } from '$lib/server/hardware-sync';
+import { armParentWatchdog, installProcessGuards } from '$lib/server/process-guards';
 
 // -- TYPES -- //
 
@@ -26,19 +31,28 @@ const DARK = ['dark'];
 
 // -- LIFECYCLES -- //
 
-// PROCESS-LEVEL RESILIENCE. A STRAY ASYNC REJECTION (e.g. A DETACHED TRANSLATION JOB SAVING TO A PAGE
-// THE USER DELETED MID-FLIGHT) MUST NOT TAKE THE WHOLE SERVER DOWN. NODE EXITS ON AN UNHANDLED REJECTION
-// BY DEFAULT; LOG IT AND KEEP SERVING. REGISTERED ONCE (HMR-SAFE).
+// PROCESS-LEVEL RESILIENCE, REGISTERED ONCE (HMR-SAFE). A STRAY ASYNC REJECTION IS LOGGED AND THE SERVER KEEPS
+// SERVING; AN UNCAUGHT EXCEPTION EXITS IN PRODUCTION SO THE RUST SUPERVISOR RESTARTS A CLEAN SERVER (SEE
+// process-guards.ts).
 if (!globalThis.__mtProcessGuards) {
 	globalThis.__mtProcessGuards = true;
-	process.on('unhandledRejection', (reason) => console.error('[server] unhandled rejection (kept alive):', reason));
-	process.on('uncaughtException', (err) => console.error('[server] uncaught exception (kept alive):', err));
+	installProcessGuards({ dev });
+	// EXIT WITH THE RUST PARENT (NO ORPHANED SERVER HOLDING THE PORT); ONLY ARMED WHEN IT SPAWNED US
+	armParentWatchdog();
 	// RESTORE CRASH-INTERRUPTED TRANSLATION BATCH QUEUE
 	try {
 		batchService.reconcileAndRecoverOnStartup();
 	} catch (err) {
 		console.warn('[server] failed to run batch recovery on startup:', err);
 	}
+	// A PRE-TOKEN INSTALL STARTED IN LAN MODE: RECORD THAT AND QUEUE THE ONE-TIME NOTICE (ADR-007)
+	try {
+		applyBindSourceOnBoot();
+	} catch (err) {
+		console.warn('[server] failed to record the legacy LAN access setting:', err);
+	}
+	// PUSH THE PERSISTED DEVICE / VRAM SETTINGS TO THE ML SERVER ONCE (NOT ON EVERY GET)
+	syncPersistedHardwareSettings().catch((err) => console.warn('[server] hardware settings sync failed:', err));
 }
 
 // -- HANDLES -- //
@@ -106,27 +120,9 @@ const themeHandle: Handle = async ({ event, resolve }) => {
 	});
 };
 
-// CORS HANDLE FOR BROWSER EXTENSIONS & LAN ACCESS
-const corsHandle: Handle = async ({ event, resolve }) => {
-	if (event.request.method === 'OPTIONS') {
-		return new Response(null, {
-			status: 204,
-			headers: {
-				'Access-Control-Allow-Origin': '*',
-				'Access-Control-Allow-Methods': 'GET, POST, PUT, PATCH, DELETE, OPTIONS',
-				'Access-Control-Allow-Headers': 'Content-Type, Authorization, X-Requested-With',
-			},
-		});
-	}
-
-	const response = await resolve(event);
-	response.headers.set('Access-Control-Allow-Origin', '*');
-	response.headers.set('Access-Control-Allow-Methods', 'GET, POST, PUT, PATCH, DELETE, OPTIONS');
-	response.headers.set('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Requested-With');
-	return response;
-};
-
-export const handle = sequence(corsHandle, probeHandle, loggingHandle, themeHandle);
+// ACCESS CONTROL (TOKEN, SESSION COOKIE, TRUSTED LOOPBACK) AND EXTENSION-ONLY CORS RUN FIRST.
+// SEE $lib/server/access/handle.ts
+export const handle = sequence(accessHandle, probeHandle, loggingHandle, themeHandle);
 
 // SERVER ERROR HANDLER: SUPPRESSES 404 LOGS IN CLI
 export const handleError: HandleServerError = ({ error, status }) => {

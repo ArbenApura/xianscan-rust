@@ -284,10 +284,23 @@ export function updateProvider(
 ): ProviderPublicInfo {
 	seedDefaultProviders(db);
 	const now = Date.now();
+	const stored = getProviderById(id, db);
 
 	const updates: Record<string, unknown> = {
 		updatedAt: now,
 	};
+
+	if (input.baseUrl !== undefined && input.baseUrl.trim().length > 0) {
+		const normalized = normalizeBaseUrl(input.baseUrl);
+		if (!normalized) throw new ProviderUpdateError('invalid_base_url');
+		const hasStoredKey = Boolean(stored?.apiKey && stored.apiKey.trim().length > 0);
+		const newKeyGiven = input.apiKey !== undefined && input.apiKey.trim().length > 0;
+		const changed = !stored || !sameBaseUrl(normalized, stored.baseUrl);
+		// NEVER LET A STORED KEY FOLLOW THE PROVIDER TO A NEW REMOTE HOST
+		if (hasStoredKey && changed && !newKeyGiven && !input.clearApiKey && !isLocalProvider(normalized)) {
+			throw new ProviderUpdateError('key_required_for_new_base_url');
+		}
+	}
 
 	if (input.clearApiKey) {
 		updates.apiKey = '';
@@ -295,7 +308,7 @@ export function updateProvider(
 		updates.apiKey = input.apiKey.trim();
 	}
 	if (input.baseUrl !== undefined && input.baseUrl.trim().length > 0) {
-		updates.baseUrl = input.baseUrl.trim();
+		updates.baseUrl = normalizeBaseUrl(input.baseUrl) ?? input.baseUrl.trim();
 	}
 	if (input.activeModel !== undefined && input.activeModel.trim().length > 0) {
 		updates.activeModel = input.activeModel.trim();
@@ -344,16 +357,103 @@ export function updateProvider(
 	};
 }
 
+const LOCAL_PROVIDER_IDS = new Set(['ollama', 'lmstudio']);
+const LOCAL_HOSTNAMES = new Set(['localhost', '127.0.0.1', '[::1]', '::1', '0.0.0.0']);
+
+export type ProviderCredentialError = 'key_required_for_new_base_url' | 'invalid_base_url' | 'key_required';
+
+const CREDENTIAL_ERROR_TEXT: Record<ProviderCredentialError, string> = {
+	key_required_for_new_base_url: 'Enter the API key again for the new base URL.',
+	invalid_base_url: 'Base URL must be an http(s) URL without credentials.',
+	key_required: 'API Key is empty. Please provide a valid API key.',
+};
+
+export class ProviderUpdateError extends Error {
+	constructor(public code: ProviderCredentialError) {
+		super(CREDENTIAL_ERROR_TEXT[code]);
+		this.name = 'ProviderUpdateError';
+	}
+}
+
+/** Canonical form for comparing base URLs: lower-case host, no default port, no trailing slash. */
+export function normalizeBaseUrl(raw: string): string | null {
+	if (typeof raw !== 'string' || raw.trim().length === 0) return null;
+	let u: URL;
+	try {
+		u = new URL(raw.trim());
+	} catch {
+		return null;
+	}
+	if (u.protocol !== 'http:' && u.protocol !== 'https:') return null;
+	if (u.username || u.password) return null;
+	// URL ALREADY LOWER-CASES THE HOST AND DROPS DEFAULT PORTS
+	const path = u.pathname.replace(/\/+$/, '');
+	return `${u.protocol}//${u.host}${path}${u.search}`;
+}
+
+export function sameBaseUrl(a: string | null | undefined, b: string | null | undefined): boolean {
+	if (!a || !b) return false;
+	const na = normalizeBaseUrl(a);
+	return na !== null && na === normalizeBaseUrl(b);
+}
+
 export function isLocalProvider(idOrBase?: string): boolean {
 	if (!idOrBase) return false;
-	const lower = idOrBase.toLowerCase();
-	return (
-		lower === 'ollama' ||
-		lower === 'lmstudio' ||
-		lower.includes('localhost') ||
-		lower.includes('127.0.0.1') ||
-		lower.includes('0.0.0.0')
-	);
+	if (LOCAL_PROVIDER_IDS.has(idOrBase.toLowerCase())) return true;
+	try {
+		return LOCAL_HOSTNAMES.has(new URL(idOrBase.trim()).hostname.toLowerCase());
+	} catch {
+		return false;
+	}
+}
+
+export type ResolvedCredentials =
+	| { key: string; base: string; isLocal: boolean; usedStoredKey: boolean }
+	| { error: ProviderCredentialError };
+
+/**
+ * Picks the key and base URL for an outbound provider call. The stored key is only ever
+ * paired with the stored base URL, so a caller cannot redirect a saved key to another host.
+ */
+export function resolveProviderCredentials(
+	params: { id?: string; apiKey?: string; baseUrl?: string },
+	db = defaultDb,
+): ResolvedCredentials {
+	const stored = params.id ? getProviderById(params.id, db) : null;
+	const fallbackBase =
+		stored?.baseUrl || DEFAULT_PROVIDERS.find((p) => p.id === params.id)?.baseUrl || 'https://api.deepseek.com';
+	const callerBase = params.baseUrl && params.baseUrl.trim().length > 0 ? params.baseUrl.trim() : undefined;
+	if (callerBase && !normalizeBaseUrl(callerBase)) return { error: 'invalid_base_url' };
+
+	const base = callerBase ?? fallbackBase;
+	const isLocal = isLocalProvider(params.id) || isLocalProvider(base);
+	const callerKey = params.apiKey && params.apiKey.trim().length > 0 ? params.apiKey.trim() : undefined;
+	if (callerKey) return { key: callerKey, base, isLocal, usedStoredKey: false };
+
+	const storedKey = stored?.apiKey && stored.apiKey.trim().length > 0 ? stored.apiKey.trim() : undefined;
+	const baseIsStored = !callerBase || (stored !== null && sameBaseUrl(callerBase, stored.baseUrl));
+	if (baseIsStored && storedKey && stored) {
+		return { key: storedKey, base: stored.baseUrl || base, isLocal, usedStoredKey: true };
+	}
+	if (isLocal) return { key: 'local-dummy-key', base, isLocal, usedStoredKey: false };
+	return { error: baseIsStored ? 'key_required' : 'key_required_for_new_base_url' };
+}
+
+/** Short, fixed error text for provider calls. The full error goes to the server log only. */
+export function describeProviderError(e: unknown): { message: string; status?: number; detail?: string } {
+	const err = e as any;
+	const status = typeof err?.status === 'number' ? err.status : undefined;
+	if (status !== undefined) {
+		// THE PROVIDER ANSWERED: ITS OWN ERROR TEXT (E.G. AN UNSUPPORTED PARAMETER) IS KEPT, TRUNCATED
+		const raw = String(err?.error?.message ?? err?.message ?? '').replace(/\s+/g, ' ').trim();
+		return { message: `HTTP ${status}`, status, detail: raw.length > 0 ? raw.slice(0, 300) : undefined };
+	}
+	const text = `${err?.name ?? ''} ${err?.code ?? ''} ${err?.cause?.code ?? ''} ${err?.message ?? ''}`.toLowerCase();
+	if (/timeout|timed out|etimedout|aborted/.test(text)) return { message: 'timeout' };
+	if (/econnrefused|connection refused/.test(text)) return { message: 'connection refused' };
+	if (/enotfound|eai_again|getaddrinfo|dns/.test(text)) return { message: 'DNS lookup failed' };
+	if (/cert|tls|ssl|self.signed/.test(text)) return { message: 'TLS error' };
+	return { message: 'request failed' };
 }
 
 export function isLlmProviderConfigured(db = defaultDb): {
@@ -395,40 +495,32 @@ export async function testProviderConnection(params: {
 	frequencyPenalty?: number | null;
 	presencePenalty?: number | null;
 	db?: typeof defaultDb;
-}): Promise<{ ok: boolean; message: string; latencyMs: number; modelUsed: string }> {
+}): Promise<{
+	ok: boolean;
+	message: string;
+	latencyMs: number;
+	modelUsed: string;
+	code?: ProviderCredentialError;
+	detail?: string;
+}> {
 	const start = Date.now();
-	let key = params.apiKey;
-	let base = params.baseUrl;
 	let model = params.model;
 
-	if (params.id && (!key || !base || !model)) {
-		const existing = getProviderById(params.id, params.db);
-		if (existing) {
-			if (!key) key = existing.apiKey;
-			if (!base) base = existing.baseUrl;
-			if (!model) model = existing.activeModel;
-		}
+	if (params.id && !model) {
+		model = getProviderById(params.id, params.db)?.activeModel;
 	}
 
-	const isLocal = isLocalProvider(params.id) || isLocalProvider(base);
-
-	if (!key || key.trim().length === 0) {
-		if (isLocal) {
-			key = 'local-dummy-key';
-		} else {
-			return {
-				ok: false,
-				message: 'API Key is empty. Please provide a valid API key.',
-				latencyMs: 0,
-				modelUsed: model || 'unknown',
-			};
-		}
+	const creds = resolveProviderCredentials(params, params.db);
+	if ('error' in creds) {
+		return {
+			ok: false,
+			code: creds.error,
+			message: CREDENTIAL_ERROR_TEXT[creds.error],
+			latencyMs: 0,
+			modelUsed: model || 'unknown',
+		};
 	}
-
-	if (!base || base.trim().length === 0) {
-		const def = DEFAULT_PROVIDERS.find((p) => p.id === params.id);
-		base = def?.baseUrl || 'https://api.deepseek.com';
-	}
+	const { key, base, isLocal } = creds;
 
 	if (!model || model.trim().length === 0) {
 		const def = DEFAULT_PROVIDERS.find((p) => p.id === params.id);
@@ -502,12 +594,14 @@ export async function testProviderConnection(params: {
 		};
 	} catch (e: any) {
 		const latencyMs = Date.now() - start;
-		const errorMsg = e?.message || e?.toString() || 'Unknown error';
+		console.warn(`[providers] connection test failed for ${params.id ?? 'unknown'}:`, e);
+		const described = describeProviderError(e);
 		return {
 			ok: false,
 			message: isLocal
-				? `Connection failed to ${base}: ${errorMsg}. Please ensure your local server is started.`
-				: `Connection failed: ${errorMsg}`,
+				? `Connection failed: ${described.message}. Please ensure your local server is started.`
+				: `Connection failed: ${described.message}`,
+			detail: described.detail,
 			latencyMs,
 			modelUsed: model,
 		};
@@ -518,26 +612,21 @@ export async function fetchAvailableModels(params: {
 	id: string;
 	apiKey?: string;
 	baseUrl?: string;
-}): Promise<{ ok: boolean; models: string[]; message?: string }> {
-	const prov = getProviderById(params.id);
-	let key = params.apiKey !== undefined && params.apiKey !== ''
-		? params.apiKey
-		: (prov ? prov.apiKey || '' : '');
-
-	let base = params.baseUrl || prov?.baseUrl;
-	if (!base || base.trim().length === 0) {
-		const def = DEFAULT_PROVIDERS.find((p) => p.id === params.id);
-		base = def?.baseUrl || 'https://api.deepseek.com';
+	db?: typeof defaultDb;
+}): Promise<{ ok: boolean; models: string[]; message?: string; code?: ProviderCredentialError; detail?: string }> {
+	const creds = resolveProviderCredentials(params, params.db);
+	if ('error' in creds) {
+		return {
+			ok: false,
+			models: [],
+			code: creds.error,
+			message:
+				creds.error === 'key_required'
+					? 'API key is required to query cloud models.'
+					: CREDENTIAL_ERROR_TEXT[creds.error],
+		};
 	}
-
-	const isLocal = isLocalProvider(params.id) || isLocalProvider(base);
-	if (!key || key.trim().length === 0) {
-		if (isLocal) {
-			key = 'local-dummy-key';
-		} else {
-			return { ok: false, models: [], message: 'API key is required to query cloud models.' };
-		}
-	}
+	const { key, base, isLocal } = creds;
 
 	try {
 		const client = new OpenAI({
@@ -559,13 +648,15 @@ export async function fetchAvailableModels(params: {
 		}
 		return { ok: true, models: models.sort((a, b) => a.localeCompare(b)) };
 	} catch (e: any) {
-		const err = e?.message || e?.toString() || 'Failed to list models';
+		console.warn(`[providers] model listing failed for ${params.id}:`, e);
+		const described = describeProviderError(e);
 		return {
 			ok: false,
 			models: [],
 			message: isLocal
-				? `Cannot connect to local server (${base}): ${err}. Make sure your local runner is running.`
-				: `Failed to query models: ${err}`,
+				? `Cannot connect to local server: ${described.message}. Make sure your local runner is running.`
+				: `Failed to query models: ${described.message}`,
+			detail: described.detail,
 		};
 	}
 }
