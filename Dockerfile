@@ -6,8 +6,9 @@
 #
 # The build context must contain the release archive:
 #
-#   gh release download v0.5.0-beta.7 --pattern 'xianscan-linux-x86_64.tar.gz' \
-#     --repo ArbenApura/xianscan-rust
+#   gh release download v0.5.0-beta.8 --pattern 'xianscan-linux-x86_64.tar.gz' \
+#     --pattern 'SHA256SUMS.txt' --repo ArbenApura/xianscan-rust
+#   sha256sum -c SHA256SUMS.txt --ignore-missing
 #   docker build -t xianscan .
 #
 # Release workflow (.github/workflows/release.yml) automates this and publishes
@@ -28,6 +29,8 @@ LABEL org.opencontainers.image.title="xianscan" \
 # fontconfig + a fallback font family are required for typesetting / font
 # enumeration at runtime; everything else (models, OCR dictionaries, fonts,
 # Node.js runtime, web UI) is embedded inside the release binary.
+# Script fonts for Hindi (Noto Sans Devanagari), Thai (Noto Sans Thai), Arabic (Tajawal)
+# and CJK (WenQuanYi Micro Hei) are bundled too, so no extra font packages are needed.
 RUN set -eux; \
     apt-get update; \
     apt-get install -y --no-install-recommends \
@@ -48,13 +51,22 @@ RUN set -eux; \
     chmod 0755 /app/xianscan; \
     mkdir -p /config; \
     chown app:app /config; \
-    chown -R root:root /app
+    XIANSCAN_APP_DIR=/app/runtime /app/xianscan --extract-only; \
+    chown -R root:root /app; \
+    chmod -R a+rX,go-w /app
+
+# THE WEB APP AND NODE RUNTIME ARE EXTRACTED AT BUILD TIME INTO /app/runtime (ROOT-OWNED, READ-ONLY FOR THE app USER,
+# OUTSIDE THE /config VOLUME). THE BINARY VERIFIES THEM BYTE FOR BYTE ON EVERY START AND REFUSES TO RUN A MODIFIED COPY.
 
 # Library, settings (SQLite), and caches are stored under /config.
-ENV XDG_DATA_HOME=/config \
+# XIANSCAN_BIND=lan: a container is only reachable through its published port. Other devices
+# still need the access token (docker exec <container> /app/xianscan --print-token).
+ENV XIANSCAN_BIND=lan \
+    XIANSCAN_APP_DIR=/app/runtime \
+    XDG_DATA_HOME=/config \
     XDG_CACHE_HOME=/config/.cache \
     HOME=/config \
-    LD_LIBRARY_PATH=/app:${LD_LIBRARY_PATH:+:${LD_LIBRARY_PATH}}
+    LD_LIBRARY_PATH=/app
 
 USER app:app
 VOLUME /config

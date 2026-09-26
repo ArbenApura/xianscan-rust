@@ -22,6 +22,11 @@ fn main() {
 
     println!("cargo:rerun-if-changed=assets/icon.ico");
 
+    // 2. EMBEDDED MODELS MUST BE THE PINNED ONES (FEAT-008 PHASE 3)
+    if std::env::var("CARGO_FEATURE_EMBED_MODELS").is_ok() {
+        verify_model_manifest();
+    }
+
     // Only do discovery work when embed-web is requested.
     if std::env::var("CARGO_FEATURE_EMBED_WEB").is_err() {
         return;
@@ -393,4 +398,48 @@ fn strip_unc_prefix(s: String) -> String {
     s.strip_prefix(r"\\?\")
         .map(|stripped| stripped.to_string())
         .unwrap_or(s)
+}
+
+/// CHECKS EVERY MODEL LISTED IN models/manifest.tsv (SIZE AND SHA-256) BEFORE IT IS EMBEDDED. A MISSING OR DIFFERENT
+/// FILE FAILS THE BUILD (NEVER THE SHIPPED BINARY). XIANSCAN_SKIP_MODEL_HASH=1 SKIPS IT WITH A WARNING FOR LOCAL
+/// EXPERIMENTS; CI NEVER SETS IT. FETCH THE MODELS WITH scripts/fetch-models.sh.
+fn verify_model_manifest() {
+    use sha2::{Digest, Sha256};
+    use std::io::Read;
+
+    let root = PathBuf::from(std::env::var("CARGO_MANIFEST_DIR").unwrap());
+    let manifest = root.join("models").join("manifest.tsv");
+    println!("cargo:rerun-if-changed={}", manifest.display());
+    println!("cargo:rerun-if-env-changed=XIANSCAN_SKIP_MODEL_HASH");
+    if std::env::var("XIANSCAN_SKIP_MODEL_HASH").map(|v| v == "1").unwrap_or(false) {
+        println!("cargo:warning=XIANSCAN_SKIP_MODEL_HASH=1: embedded models are NOT checked against models/manifest.tsv");
+        return;
+    }
+    let text = std::fs::read_to_string(&manifest)
+        .unwrap_or_else(|e| panic!("embed-models needs {}: {} (run scripts/fetch-models.sh)", manifest.display(), e));
+    for line in text.lines().skip(1).filter(|l| !l.trim().is_empty()) {
+        let cols: Vec<&str> = line.split('\t').collect();
+        assert!(cols.len() == 4, "malformed models/manifest.tsv row: {line}");
+        let (file, size, sha) = (cols[0], cols[1], cols[2]);
+        let path = root.join("models").join(file);
+        println!("cargo:rerun-if-changed={}", path.display());
+        let mut f = std::fs::File::open(&path)
+            .unwrap_or_else(|e| panic!("model {} is missing ({e}); run scripts/fetch-models.sh", path.display()));
+        let mut hasher = Sha256::new();
+        let mut buf = vec![0_u8; 1 << 20];
+        let mut total: u64 = 0;
+        loop {
+            let n = f.read(&mut buf).unwrap_or_else(|e| panic!("read {}: {e}", path.display()));
+            if n == 0 {
+                break;
+            }
+            total += n as u64;
+            hasher.update(&buf[..n]);
+        }
+        let actual = hex::encode(hasher.finalize());
+        assert!(
+            total.to_string() == size && actual == sha,
+            "model {file} does not match models/manifest.tsv: expected {size} bytes sha256 {sha}, got {total} bytes sha256 {actual} (run scripts/fetch-models.sh)"
+        );
+    }
 }

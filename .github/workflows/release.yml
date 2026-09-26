@@ -7,17 +7,44 @@ on:
   workflow_dispatch:
     inputs:
       tag_name:
-        description: 'Release Tag Name (e.g. v0.5.0-beta.7)'
+        description: 'Existing release tag to build and publish'
         required: true
-        default: 'v0.5.0-beta.7'
+        default: ''
 
-permissions:
-  contents: write
+# FEAT-008 PHASE 4: NO WORKFLOW-LEVEL TOKEN SCOPES. EVERY JOB DECLARES THE LEAST IT NEEDS.
+permissions: {}
+
+# THE ONE PLACE THE TAG IS DERIVED. STEPS READ $TAG_NAME (SHELL) OR ${{ env.TAG_NAME }} (ACTION INPUTS).
+env:
+  TAG_NAME: ${{ github.event.inputs.tag_name || github.ref_name }}
+
+concurrency:
+  group: release-${{ github.event.inputs.tag_name || github.ref_name }}
+  cancel-in-progress: false
 
 jobs:
+  # FEAT-008 PHASE 2: THE TAG MUST EQUAL v + THE VERSION IN Cargo.toml, web/package.json, Cargo.lock AND THE WEB
+  # FALLBACK LITERALS. NOTHING IS BUILT OR PUBLISHED OTHERWISE.
+  verify-version:
+    name: Verify release version
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout the tag
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: refs/tags/${{ env.TAG_NAME }}
+          persist-credentials: false
+      - name: Check versions
+        run: bash scripts/check-release-version.sh "$TAG_NAME"
+
   build-release:
     name: Build ${{ matrix.target }}
+    needs: verify-version
     runs-on: ${{ matrix.os }}
+    permissions:
+      contents: read
     strategy:
       fail-fast: false
       matrix:
@@ -45,12 +72,21 @@ jobs:
 
     steps:
       - name: Checkout Code
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: refs/tags/${{ env.TAG_NAME }}
+          persist-credentials: false
 
       - name: Setup Node.js (for Web UI build)
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
-          node-version: 22
+          # EXACT PIN (FEAT-008 PHASE 4). THIS NODE IS ALSO THE RUNTIME STAGED INTO THE BINARY BELOW.
+          node-version-file: .nvmrc
+
+      - name: Record Pinned Node.js Version
+        shell: bash
+        run: |
+          echo "Node.js $(node --version) (pinned in .nvmrc: $(tr -d '[:space:]' < .nvmrc))" | tee -a "$GITHUB_STEP_SUMMARY"
 
       - name: Install Linux Native Build Dependencies
         if: matrix.os == 'ubuntu-latest'
@@ -61,29 +97,20 @@ jobs:
 
       - name: Build SvelteKit Frontend + Native Addons
         working-directory: web
+        shell: bash
+        # FROZEN LOCKFILE AND NO DEPENDENCY LIFECYCLE SCRIPTS. ONLY better-sqlite3 NEEDS ITS INSTALL SCRIPT
+        # (PREBUILT OR node-gyp), SO IT IS REBUILT EXPLICITLY AND ITS ADDON IS CHECKED (FEAT-008 PHASE 4).
         run: |
-          yarn install
+          yarn install --frozen-lockfile --ignore-scripts
+          npm rebuild better-sqlite3
+          test -f node_modules/better-sqlite3/build/Release/better_sqlite3.node
           yarn build
 
       - name: Download AI Model Weights for Embedded Binary
         shell: bash
+        # PINNED REVISIONS AND SHA-256 FROM models/manifest.tsv; build.rs CHECKS THEM AGAIN (FEAT-008 PHASE 3)
         run: |
-          mkdir -p models
-          CURL_FLAGS="--retry 5 --retry-delay 3 --retry-all-errors --connect-timeout 30 --max-time 300 -f -sSL -C -"
-          echo "Downloading Koharu RF-DETR Seg Layout Detector (~145MB)..."
-          curl $CURL_FLAGS -o models/rfdetr-seg-2xlarge.onnx "https://huggingface.co/DevilishDaoSaint/koharu-layout-rfdetr/resolve/main/rfdetr-seg-2xlarge.onnx"
-          echo "Downloading LaMa Inpainting (~206MB)..."
-          curl $CURL_FLAGS -o models/lama.onnx "https://huggingface.co/ogkalu/lama-manga-onnx-dynamic/resolve/main/lama-manga-dynamic.onnx"
-          echo "Downloading PP-OCR Detection (~10MB)..."
-          curl $CURL_FLAGS -o models/PP-OCRv6_det_small.onnx "https://www.modelscope.cn/models/RapidAI/RapidOCR/resolve/v3.9.2/onnx/PP-OCRv6/det/PP-OCRv6_det_small.onnx"
-          echo "Downloading PP-OCR Recognition (~21MB)..."
-          curl $CURL_FLAGS -o models/PP-OCRv6_rec_small.onnx "https://www.modelscope.cn/models/RapidAI/RapidOCR/resolve/v3.9.2/onnx/PP-OCRv6/rec/PP-OCRv6_rec_small.onnx"
-          echo "Downloading Korean OCR Recognition (~13MB)..."
-          curl $CURL_FLAGS -o models/korean_mobile_v2.0_rec.onnx "https://huggingface.co/xberg-io/paddleocr-onnx-models/resolve/main/rec/korean/model.onnx"
-          echo "Downloading Cyrillic OCR Recognition (~8MB)..."
-          curl $CURL_FLAGS -o models/cyrillic_mobile_v2.0_rec.onnx "https://huggingface.co/xberg-io/paddleocr-onnx-models/resolve/main/rec/eslav/model.onnx"
-          echo "Downloading Thai OCR Recognition (~8MB)..."
-          curl $CURL_FLAGS -o models/th_PP-OCRv5_mobile_rec.onnx "https://huggingface.co/xberg-io/paddleocr-onnx-models/resolve/main/rec/thai/model.onnx"
+          bash scripts/fetch-models.sh
           ls -lh models/
 
       - name: Stage Standalone Node.js Runtime for Embedded Binary
@@ -99,12 +126,19 @@ jobs:
             chmod +x web/bin/node
           fi
           echo "Staged Node.js runtime version:"
-          web/bin/node* --version
+          STAGED=$(web/bin/node* --version)
+          echo "$STAGED"
+          EXPECTED="v$(tr -d '[:space:]' < .nvmrc)"
+          if [ "$STAGED" != "$EXPECTED" ]; then
+            echo "::error::Staged Node.js $STAGED does not match the pinned $EXPECTED from .nvmrc"
+            exit 1
+          fi
           ls -lh web/bin/
 
       - name: Setup Rust Toolchain
-        uses: dtolnay/rust-toolchain@stable
+        uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable
         with:
+          toolchain: stable
           targets: ${{ matrix.target }}
 
       - name: Build Standalone 1-File Release Binary (Embedded Models + Web UI + Node.js)
@@ -155,53 +189,38 @@ jobs:
           tar -czf ${{ matrix.release_asset }} -C staging .
 
 
-      - name: Upload Artifact to GitHub Release
-        uses: softprops/action-gh-release@v2
-        if: startsWith(github.ref, 'refs/tags/') || github.event_name == 'workflow_dispatch'
+      # PUBLISH-ONCE (FEAT-008 PHASE 4): BUILD JOBS ONLY HAND OVER WORKFLOW ARTIFACTS. publish-release CREATES
+      # THE GITHUB RELEASE AFTER EVERY BUILD LEG SUCCEEDED, SO A FAILED LEG NEVER LEAVES A PARTIAL RELEASE.
+      - name: Upload Release Archive as Workflow Artifact
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
-          tag_name: ${{ github.event.inputs.tag_name || github.ref_name }}
-          files: ${{ matrix.release_asset }}
-          body: |
-            ## 🚀 XianScan ${{ github.event.inputs.tag_name || github.ref_name }}
-
-            Self-hosted AI-powered manga, manhua, and comic localization engine with embedded OCR, neural text detection, LaMa inpainting, and typesetter.
-
-            ### 📦 Multi-Platform Downloads
- 
-            | Platform | Architecture | File | Acceleration Engine |
-            | :--- | :--- | :--- | :--- |
-            | **Windows** | x86_64 | `xianscan-windows-x86_64.zip` | ⚡ DirectX 12 DirectML (AMD, Intel, NVIDIA) |
-            | **Linux** | x86_64 | `xianscan-linux-x86_64.tar.gz` | ⚡ NVIDIA CUDA + cuDNN |
-            | **macOS** | Apple Silicon (M1–M4) | `xianscan-macos-arm64.tar.gz` | ⚡ Apple Silicon CoreML + Metal |
-
-            ### 🧩 Browser Importer Extensions
-            - **Chrome / Edge / Brave / Opera**: Download `xianscan-importer-chrome.zip` and extract to load unpacked in `chrome://extensions`.
-            - **Firefox**: Download `xianscan-importer-firefox.xpi` and install directly in `about:addons`.
-
-            ### 📱 Mihon / Tachiyomi Android Extension
-            - **1-Click Extension Repository URL**: `https://raw.githubusercontent.com/ArbenApura/xianscan-rust/repo/index.min.json`
-            - **Direct APK**: Download `tachiyomi-all.xianscan-*.apk` below.
-
-            ---
-          draft: false
-          prerelease: false
-          generate_release_notes: true
+          name: bin-${{ matrix.target }}
+          path: ${{ matrix.release_asset }}
+          if-no-files-found: error
+          retention-days: 7
 
   build-extension:
     name: Build Browser Extension
+    needs: verify-version
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     steps:
       - name: Checkout Code
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: refs/tags/${{ env.TAG_NAME }}
+          persist-credentials: false
 
       - name: Setup Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
-          node-version: 22
+          node-version-file: .nvmrc
 
       - name: Install Extension Dependencies
         working-directory: extensions/xianscan-importer
-        run: yarn install
+        # ONLY esbuild HAS AN INSTALL SCRIPT HERE AND THE BUILD USES ITS JS API (FEAT-008 PHASE 4)
+        run: yarn install --frozen-lockfile --ignore-scripts
 
       - name: Run Extension Unit Tests
         working-directory: extensions/xianscan-importer
@@ -211,26 +230,31 @@ jobs:
         working-directory: extensions/xianscan-importer
         run: yarn package
 
-      - name: Upload Extension Artifacts to GitHub Release
-        uses: softprops/action-gh-release@v2
-        if: startsWith(github.ref, 'refs/tags/') || github.event_name == 'workflow_dispatch'
+      - name: Upload Extension Packages as Workflow Artifact
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
-          tag_name: ${{ github.event.inputs.tag_name || github.ref_name }}
-          files: |
+          name: importer
+          path: |
             extensions/xianscan-importer/store/*.zip
             extensions/xianscan-importer/store/*.xpi
-          draft: false
-          prerelease: false
+          if-no-files-found: error
+          retention-days: 7
 
   build-mihon-extension:
     name: Build Mihon Android Extension
+    needs: verify-version
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     steps:
       - name: Checkout Code
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: refs/tags/${{ env.TAG_NAME }}
+          persist-credentials: false
 
       - name: Setup Java 21
-        uses: actions/setup-java@v4
+        uses: actions/setup-java@cf277c60eb25467037889841efdb72551f06f6c3 # v4
         with:
           distribution: 'temurin'
           java-version: '21'
@@ -283,44 +307,119 @@ jobs:
           chmod +x gradlew
           ./gradlew :app:assembleRelease
 
-      - name: Upload Mihon APK to GitHub Release
-        uses: softprops/action-gh-release@v2
-        if: startsWith(github.ref, 'refs/tags/') || github.event_name == 'workflow_dispatch'
+      - name: Verify APK contents
+        # THE APK MAY HOLD ONLY XIANSCAN'S OWN CLASSES; THE HOST PROVIDES KOTLIN AND EVERY LIBRARY (FEAT-005 PHASE 8)
+        run: |
+          export ANDROID_HOME="${ANDROID_HOME:-/usr/local/lib/android/sdk}"
+          bash extensions/xianscan-mihon/scripts/verify-apk.sh
+
+      - name: Upload Mihon APK as Workflow Artifact
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
-          tag_name: ${{ github.event.inputs.tag_name || github.ref_name }}
-          files: extensions/xianscan-mihon/app/build/outputs/apk/release/*.apk
+          name: mihon-apk
+          path: extensions/xianscan-mihon/app/build/outputs/apk/release/*.apk
+          if-no-files-found: error
+          retention-days: 7
+
+      - name: Remove Signing Material
+        if: always()
+        working-directory: extensions/xianscan-mihon
+        run: rm -f xianscan-release.jks signing.properties
+
+  # FEAT-008 PHASE 4: THE ONLY JOB THAT CREATES THE RELEASE. IT RUNS AFTER EVERY BUILD LEG SUCCEEDED, HAS NO
+  # CHECKOUT AND NO INSTALL STEP, AND PUBLISHES EXACTLY THE ARTIFACTS THE BUILD JOBS PRODUCED.
+  publish-release:
+    name: Publish GitHub Release
+    needs: [verify-version, build-release, build-extension, build-mihon-extension]
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/') || github.event_name == 'workflow_dispatch'
+    permissions:
+      contents: write
+    steps:
+      - name: Download Build Artifacts
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          path: dist
+          merge-multiple: true
+
+      - name: Compute SHA-256 Checksums
+        run: |
+          cd dist
+          sha256sum * > SHA256SUMS.txt
+          cat SHA256SUMS.txt
+          ls -lh
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2
+        with:
+          tag_name: ${{ env.TAG_NAME }}
+          files: dist/*
+          body: |
+            ## 🚀 XianScan ${{ env.TAG_NAME }}
+
+            Self-hosted AI-powered manga, manhua, and comic localization engine with embedded OCR, neural text detection, LaMa inpainting, and typesetter.
+
+            ### 📦 Multi-Platform Downloads
+ 
+            | Platform | Architecture | File | Acceleration Engine |
+            | :--- | :--- | :--- | :--- |
+            | **Windows** | x86_64 | `xianscan-windows-x86_64.zip` | ⚡ DirectX 12 DirectML (AMD, Intel, NVIDIA) |
+            | **Linux** | x86_64 | `xianscan-linux-x86_64.tar.gz` | ⚡ NVIDIA CUDA + cuDNN |
+            | **macOS** | Apple Silicon (M1–M4) | `xianscan-macos-arm64.tar.gz` | ⚡ Apple Silicon CoreML + Metal |
+
+            ### 🧩 Browser Importer Extensions
+            - **Chrome / Edge / Brave / Opera**: Download `xianscan-importer-v*.zip` and extract to load unpacked in `chrome://extensions`.
+            - **Firefox**: Download `xianscan-importer-firefox-v*.xpi` and install directly in `about:addons`.
+
+            ### 📱 Mihon / Tachiyomi Android Extension
+            - **1-Click Extension Repository URL**: `https://raw.githubusercontent.com/ArbenApura/xianscan-rust/repo/index.min.json`
+            - **Direct APK**: Download `tachiyomi-all.xianscan-*.apk` below.
+
+            ### 🔒 Checksums
+            Verify downloads with `sha256sum -c SHA256SUMS.txt --ignore-missing`.
+
+            ---
           draft: false
+          # BETA TAGS STAY FULL RELEASES UNTIL THE OWNER DECIDES ADR-009
           prerelease: false
+          generate_release_notes: true
 
   build-docker:
     name: Build & Publish Docker Image
-    needs: build-release
+    needs: [publish-release]
     runs-on: ubuntu-latest
     permissions:
-      contents: write
+      contents: read
       packages: write
+    outputs:
+      image_name: ${{ steps.image.outputs.name }}
+      image_version: ${{ steps.image.outputs.version }}
     steps:
       - name: Checkout Code
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: refs/tags/${{ env.TAG_NAME }}
+          persist-credentials: false
 
-      # Reuse the exact binary published by build-release (embedded models, web
+      # Reuse the exact archive build-release produced (embedded models, web
       # UI, Node.js runtime, and ORT CUDA provider libs) instead of rebuilding
       # from source, so the image always matches the release archive.
-      - name: Download Linux Release Asset
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          TAG_NAME: ${{ github.event.inputs.tag_name || github.ref_name }}
-        run: |
-          gh release download "$TAG_NAME" --repo "${{ github.repository }}" \
-            --pattern 'xianscan-linux-x86_64.tar.gz' --clobber
-          ls -lh xianscan-linux-x86_64.tar.gz
+      - name: Download Linux Release Archive
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: bin-x86_64-unknown-linux-gnu
+          path: .
+
+      - name: Check Linux Release Archive
+        run: ls -lh xianscan-linux-x86_64.tar.gz
 
       - name: Compute Image Name and Tags
         id: image
+        env:
+          REPO_OWNER: ${{ github.repository_owner }}
         run: |
-          TAG_NAME="${{ github.event.inputs.tag_name || github.ref_name }}"
           VERSION="${TAG_NAME#v}"
-          IMAGE="ghcr.io/${{ github.repository_owner }}/xianscan"
+          IMAGE="ghcr.io/${REPO_OWNER}/xianscan"
           IMAGE="${IMAGE,,}"  # GHCR repository names must be lowercase
           {
             echo "name=${IMAGE}"
@@ -329,17 +428,17 @@ jobs:
           } >> "$GITHUB_OUTPUT"
 
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
+        uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
 
       - name: Login to GitHub Container Registry
-        uses: docker/login-action@v3
+        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Build and Push Image
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
         with:
           context: .
           platforms: linux/amd64
@@ -348,12 +447,20 @@ jobs:
           build-args: |
             XIANSCAN_VERSION=${{ steps.image.outputs.version }}
 
+  # FEAT-008 PHASE 4: THE RELEASE-NOTES EDIT IS SPLIT OUT OF build-docker SO THE WRITE TOKEN NEVER SITS NEXT TO A BUILD.
+  annotate-release-docker:
+    name: Append Docker Section to Release Notes
+    needs: build-docker
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
       - name: Append Docker section to release notes
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          TAG_NAME: ${{ github.event.inputs.tag_name || github.ref_name }}
-          IMAGE: ${{ steps.image.outputs.name }}
-          VERSION: ${{ steps.image.outputs.version }}
+          GH_REPO: ${{ github.repository }}
+          IMAGE: ${{ needs.build-docker.outputs.image_name }}
+          VERSION: ${{ needs.build-docker.outputs.image_version }}
         run: |
           {
             echo ''
@@ -382,30 +489,28 @@ jobs:
 
   virustotal-scan:
     name: VirusTotal Security Scan
-    needs: [build-release, build-extension, build-mihon-extension, build-docker]
+    needs: [publish-release, build-docker]
     runs-on: ubuntu-latest
     if: (startsWith(github.ref, 'refs/tags/') || github.event_name == 'workflow_dispatch')
     permissions:
       contents: write
+    # JOB-LEVEL SO THE STEP CONDITION BELOW DOES NOT DEPEND ON A STEP SEEING ITS OWN env (FEAT-008 PHASE 4)
+    env:
+      VT_API_KEY: ${{ secrets.VT_API_KEY }}
     steps:
-      - name: Checkout Code
-        uses: actions/checkout@v4
+      - name: Download Release Artifacts
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          path: release-assets
+          merge-multiple: true
 
-      - name: Download GitHub Release Assets
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          TAG_NAME: ${{ github.event.inputs.tag_name || github.ref_name }}
-        run: |
-          mkdir -p release-assets
-          gh release download "$TAG_NAME" --dir release-assets || true
-          ls -lh release-assets/
+      - name: List Release Artifacts
+        run: ls -lh release-assets/
 
       - name: VirusTotal Analysis
         if: env.VT_API_KEY != ''
         id: virustotal
-        uses: crazy-max/ghaction-virustotal@v5
-        env:
-          VT_API_KEY: ${{ secrets.VT_API_KEY }}
+        uses: crazy-max/ghaction-virustotal@936d8c5c00afe97d3d9a1af26d017cfdf26800a2 # v5
         with:
           vt_api_key: ${{ secrets.VT_API_KEY }}
           files: |
@@ -420,7 +525,8 @@ jobs:
         if: steps.virustotal.outputs.analysis != ''
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          TAG_NAME: ${{ github.event.inputs.tag_name || github.ref_name }}
+          GH_REPO: ${{ github.repository }}
+          VT_ANALYSIS: ${{ steps.virustotal.outputs.analysis }}
         run: |
           # BUILD THE MARKDOWN TABLE FROM THE ACTION'S `<filename>=<url>,<filename>=<url>` OUTPUT
           {
@@ -429,7 +535,7 @@ jobs:
             echo ''
             echo '| Artifact | Report |'
             echo '| :--- | :--- |'
-            IFS=',' read -ra ENTRIES <<< "${{ steps.virustotal.outputs.analysis }}"
+            IFS=',' read -ra ENTRIES <<< "$VT_ANALYSIS"
             for e in "${ENTRIES[@]}"; do
               f="${e%%=*}"; u="${e#*=}"
               echo "| \`$f\` | [View report]($u) |"
@@ -447,6 +553,3 @@ jobs:
 
           printf '%s\n%s\n' "$BODY" "$(cat /tmp/vt-section.md)" > /tmp/new-body.md
           gh release edit "$TAG_NAME" --notes-file /tmp/new-body.md
-
-
-

@@ -1,0 +1,9 @@
+# FEAT-008 PHASE 5: KEEPS THE SHA-PINNED ACTIONS CURRENT. DEPENDABOT REWRITES THE SHA AND THE TRAILING "# vX" COMMENT.
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    commit-message:
+      prefix: ci

@@ -11,20 +11,25 @@ on:
       - '.github/workflows/mihon-repo.yml'
   workflow_dispatch:
 
-permissions:
-  contents: write
+# FEAT-008 PHASE 4: NO WORKFLOW-LEVEL TOKEN SCOPES. THE SIGNING SECRETS LIVE ONLY IN build, THE WRITE TOKEN
+# LIVES ONLY IN deploy.
+permissions: {}
 
 jobs:
-  build-and-deploy-repo:
-    name: Build & Deploy Mihon Repo
+  build:
+    name: Build Mihon Repo
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
 
     steps:
       - name: Checkout Code
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
 
       - name: Setup Java 21
-        uses: actions/setup-java@v4
+        uses: actions/setup-java@cf277c60eb25467037889841efdb72551f06f6c3 # v4
         with:
           distribution: 'temurin'
           java-version: '21'
@@ -79,47 +84,20 @@ jobs:
           chmod +x gradlew
           ./gradlew :app:assembleRelease
 
+      - name: Verify APK contents
+        # THE APK MAY HOLD ONLY XIANSCAN'S OWN CLASSES; THE HOST PROVIDES KOTLIN AND EVERY LIBRARY (FEAT-005 PHASE 8)
+        run: |
+          export ANDROID_HOME="${ANDROID_HOME:-/usr/local/lib/android/sdk}"
+          bash extensions/xianscan-mihon/scripts/verify-apk.sh
+
       - name: Assemble Mihon Extension Repository Assets
         run: |
           mkdir -p repo-dist/apk
-          
-          # COPY BUILT APK TO BOTH ROOT AND APK/ FOR 100% RESOLUTION COMPATIBILITY
-          APK_SRC=$(find extensions/xianscan-mihon/app/build/outputs/apk/release -name "*.apk" | head -n 1)
-          APK_NAME="tachiyomi-all.xianscan-v1.6.2.apk"
-          cp "$APK_SRC" "repo-dist/$APK_NAME"
-          cp "$APK_SRC" "repo-dist/apk/$APK_NAME"
-          # BACKWARD COMPATIBILITY ALIAS
-          cp "$APK_SRC" "repo-dist/tachiyomi-all.xianscan-v1.6.1.apk"
-          cp "$APK_SRC" "repo-dist/apk/tachiyomi-all.xianscan-v1.6.1.apk"
-          
-          # GENERATE REPO INDEX JSON
-          cat << 'EOF' > repo-dist/index.json
-          [
-            {
-              "name": "XianScan",
-              "pkg": "eu.kanade.tachiyomi.extension.all.xianscan",
-              "apk": "tachiyomi-all.xianscan-v1.6.2.apk",
-              "lang": "all",
-              "code": 2,
-              "version": "1.6.2",
-              "nsfw": 0,
-              "hasReadme": 1,
-              "hasChangelog": 0,
-              "sources": [
-                {
-                  "name": "XianScan",
-                  "lang": "all",
-                  "id": 0,
-                  "baseUrl": "http://127.0.0.1:8124"
-                }
-              ]
-            }
-          ]
-          EOF
-          
-          # GENERATE MINIFIED REPO INDEX JSON
-          python3 -c "import json; data=json.load(open('repo-dist/index.json')); json.dump(data, open('repo-dist/index.min.json', 'w'), separators=(',', ':'))"
-          
+
+          # APK, index.json, index.min.json AND index.pb ARE ALL DERIVED FROM THE BUILD'S output-metadata.json, SO THE
+          # INDEX ALWAYS DESCRIBES THE APK THAT WAS BUILT (FEAT-005 PHASE 10, ADR-006)
+          python3 extensions/xianscan-mihon/scripts/build-repo-index.py repo-dist
+
           # GENERATE REPO DEFINITION JSON (MATCHING KEIYOUSHI STRUCTURE)
           cat << 'EOF' > repo-dist/repo.json
           {
@@ -133,80 +111,33 @@ jobs:
           EOF
           python3 -c "import json; data=json.load(open('repo-dist/repo.json')); json.dump(data, open('repo-dist/repo.min.json', 'w'), separators=(',', ':'))"
 
-          # GENERATE GZIP PROTOBUF INDEX.PB (MATCHING MIHON NETWORKEXTENSIONSTORE MODEL)
-          python3 -c "
-          import gzip
-
-          def encode_varint(val):
-              out = bytearray()
-              while val > 0x7f:
-                  out.append((val & 0x7f) | 0x80)
-                  val >>= 7
-              out.append(val & 0x7f)
-              return bytes(out)
-
-          def encode_field(num, wire, data):
-              return encode_varint((num << 3) | wire) + data
-
-          def encode_varint_field(num, val):
-              return encode_field(num, 0, encode_varint(val))
-
-          def encode_bytes_field(num, data):
-              if isinstance(data, str):
-                  data = data.encode('utf-8')
-              return encode_field(num, 2, encode_varint(len(data)) + data)
-
-          # 1. Source (field 8 of extension)
-          source_bytes = (
-              encode_varint_field(1, 0) +
-              encode_bytes_field(2, 'XianScan') +
-              encode_bytes_field(3, 'all') +
-              encode_bytes_field(4, 'http://127.0.0.1:8124')
-          )
-
-          # 2. Assets (field 3 of extension)
-          assets_bytes = (
-              encode_bytes_field(1, 'https://raw.githubusercontent.com/ArbenApura/xianscan-rust/repo/tachiyomi-all.xianscan-v1.6.2.apk') +
-              encode_bytes_field(2, 'https://raw.githubusercontent.com/ArbenApura/xianscan-rust/main/extensions/xianscan-mihon/app/src/main/res/mipmap-xhdpi/ic_launcher.png')
-          )
-
-          # 3. Extension (field 1 inside field 101)
-          ext_bytes = (
-              encode_bytes_field(1, 'XianScan') +
-              encode_bytes_field(2, 'eu.kanade.tachiyomi.extension.all.xianscan') +
-              encode_bytes_field(3, assets_bytes) +
-              encode_bytes_field(4, '1.6') +
-              encode_varint_field(5, 2) +
-              encode_bytes_field(6, '1.6.2') +
-              encode_varint_field(7, 0) +
-              encode_bytes_field(8, source_bytes)
-          )
-
-          # 4. Field 101 wrapper (repeated field 1)
-          field_101_bytes = encode_bytes_field(1, ext_bytes)
-
-          # 5. Links (field 4)
-          links_bytes = encode_bytes_field(1, 'https://github.com/ArbenApura/xianscan-rust')
-
-          # 6. Root message
-          root_bytes = (
-              encode_bytes_field(1, 'XianScan') +
-              encode_bytes_field(2, 'XIAN') +
-              encode_bytes_field(3, '2d2bfe33f124f582d6f2f60ed4192b79cb51afc3a17f6dd92d7df87e6886dfa6') +
-              encode_bytes_field(4, links_bytes) +
-              encode_bytes_field(101, field_101_bytes)
-          )
-
-          with open('repo-dist/index.pb', 'wb') as f:
-              f.write(gzip.compress(root_bytes))
-          print('Successfully generated repo-dist/index.pb with byte size:', len(root_bytes))
-          "
-
           # COPY README FOR THE EXTENSION
           cp extensions/xianscan-mihon/README.md repo-dist/README.md
 
+      - name: Upload Repository as Workflow Artifact
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: repo-dist
+          path: repo-dist
+          if-no-files-found: error
+          retention-days: 7
+
+  deploy:
+    name: Deploy Mihon Repo
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Download Repository Artifact
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: repo-dist
+          path: repo-dist
+
       - name: Deploy to 'repo' Branch
-        uses: peaceiris/actions-gh-pages@v4
+        uses: peaceiris/actions-gh-pages@84c30a85c19949d7eee79c4ff27748b70285e453 # v4
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
           publish_branch: repo
