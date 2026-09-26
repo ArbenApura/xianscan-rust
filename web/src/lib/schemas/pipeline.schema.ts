@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { SCRIPT_FONT_SLOTS, type ScriptFontSlot } from '$lib/typeset-scripts';
 
 export const translateChapterSchema = z.object({
 	force: z.boolean().default(false),
@@ -12,6 +13,7 @@ export const translateChapterSchema = z.object({
 		.object({
 			fontDialogue: z.string().optional(),
 			fontCjk: z.string().optional(),
+			scriptFonts: z.record(z.enum(SCRIPT_FONT_SLOTS as unknown as [ScriptFontSlot, ...ScriptFontSlot[]]), z.string().max(128)).optional(),
 			boxInset: z.number().optional(),
 			outlineMode: z.enum(['none', 'thin', 'standard', 'heavy']).optional(),
 			colorMode: z.enum(['auto', 'dark', 'light']).optional(),

@@ -9,6 +9,7 @@ import { pages, chapters, books } from '$lib/server/db/schema';
 import { resetPageProgress } from '$lib/server/chapters';
 import { batchService } from '$lib/server/batch-service';
 import { getCanonicalSettings } from '$lib/server/settings-service';
+import { buildTypesetOptions } from '$lib/server/typeset/options';
 import { WHITE_INPAINT_COOKIE, INPAINT_EXPANSION_COOKIE, TYPESET_CENTERING_COOKIE } from '$lib/stores/settings';
 
 // -- ENDPOINT HANDLER -- //
@@ -56,17 +57,7 @@ export const POST: RequestHandler = async ({ params, cookies }) => {
 	const parallelWorkers = Math.max(1, Math.min(4, Number(cookies.get('mt_parallel_chapters')) || canonical.parallelChapters || 1));
 	const pageConcurrency = Math.max(1, Math.min(8, Number(cookies.get('mt_parallel_processes')) || canonical.parallelProcesses || 2));
 
-	const typesetOptions = {
-		fontDialogue: cookies.get('mt_ts_font') || canonical.typesetFont || 'CC Wild Words',
-		fontCjk: cookies.get('mt_ts_cjk_font') || canonical.typesetCjkFont || 'Microsoft YaHei',
-		boxInset: cookies.get('mt_ts_padding') ? Number(cookies.get('mt_ts_padding')) : canonical.typesetPadding ?? 0.05,
-		outlineMode: ((cookies.get('mt_ts_outline') as any) || canonical.typesetOutline || 'standard') as any,
-		colorMode: ((cookies.get('mt_ts_contrast') as any) || canonical.typesetContrast || 'auto') as any,
-		casing: ((cookies.get('mt_ts_casing') as any) || canonical.typesetCasing || 'uppercase') as any,
-		enableRotation: cookies.get('mt_ts_rot') ? cookies.get('mt_ts_rot') === 'true' : (canonical.enableTextRotation ?? true),
-		fontWeight: ((cookies.get('mt_ts_font_weight') as any) || (canonical as any).typesetFontWeight || 'normal') as any,
-		fontStyle: (cookies.get('mt_ts_italic') ? (cookies.get('mt_ts_italic') === 'true' ? 'italic' : 'normal') : (canonical.enableTypesetItalic ? 'italic' : 'normal')) as any,
-	};
+	const typesetOptions = buildTypesetOptions({ canonical, cookies });
 
 	try {
 		// 3. START SINGLE-PAGE TARGETED TRANSLATION

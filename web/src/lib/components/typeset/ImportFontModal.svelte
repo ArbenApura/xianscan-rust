@@ -5,6 +5,8 @@ import { createEventDispatcher } from 'svelte';
 import { toast } from 'svelte-sonner';
 // IMPORTED MODULES
 import { refreshFontAvailability, type CustomFontItem } from '$lib/stores/settings';
+import { SCRIPT_LABELS, type ScriptFontSlot } from '$lib/typeset-scripts';
+import type { Script } from '$lib/languages';
 import { cn } from '$lib/utils/cn';
 import { ripple } from '$lib/actions/ripple';
 // IMPORTED DEP-COMPONENTS
@@ -19,13 +21,14 @@ import Layers from 'lucide-svelte/icons/layers';
 import Modal from '$lib/components/ui/Modal.svelte';
 import Button from '$lib/components/ui/Button.svelte';
 import TextField from '$lib/components/ui/TextField.svelte';
-import SegmentedControl from '$lib/components/ui/SegmentedControl.svelte';
 
 // -- OPTIONAL PROPS -- //
 
 export let open: boolean = false;
 export let targetScriptType: 'dialogue' | 'cjk' = 'dialogue';
 export let lockScriptType: boolean = true;
+/** THE SCRIPT SLOT THE USER UPLOADED FROM, IF ANY: THE SERVER WARNS WHEN THE FONT DOES NOT COVER IT (FEAT-006). */
+export let targetSlot: ScriptFontSlot | undefined = undefined;
 
 // -- CONSTANTS -- //
 
@@ -33,12 +36,22 @@ const dispatch = createEventDispatcher<{
 	imported: { font: CustomFontItem };
 }>();
 
-const SCRIPT_OPTIONS = [
-	{ value: 'dialogue', label: 'Latin Dialogue' },
-	{ value: 'cjk', label: 'CJK Fallback' },
-];
-
 const MAX_SIZE_BYTES = 20 * 1024 * 1024; // 20 MB
+
+// EXAMPLE FAMILIES PER SCRIPT SLOT FOR THE NAME FIELD'S PLACEHOLDER
+const SLOT_PLACEHOLDERS: Record<ScriptFontSlot, string> = {
+	han: 'e.g. Noto Sans SC, Source Han Sans, PingFang SC',
+	kana: 'e.g. Noto Sans JP, Yu Gothic, Hiragino Sans',
+	hangul: 'e.g. Noto Sans KR, Malgun Gothic, Nanum Gothic',
+	devanagari: 'e.g. Noto Sans Devanagari, Mukta, Hind',
+	thai: 'e.g. Noto Sans Thai, Sarabun, Prompt',
+	arabic: 'e.g. Noto Sans Arabic, Tajawal, Cairo',
+	cyrillic: 'e.g. PT Sans, Roboto, Comic CAT',
+	greek: 'e.g. Noto Sans, GFS Neohellenic, Roboto',
+	hebrew: 'e.g. Noto Sans Hebrew, Rubik, Heebo',
+	bengali: 'e.g. Noto Sans Bengali, Hind Siliguri',
+	tamil: 'e.g. Noto Sans Tamil, Catamaran, Mukta Malar',
+};
 
 // -- STATES -- //
 
@@ -49,6 +62,10 @@ let isUploading: boolean = false;
 let errorMessage: string = '';
 let fileInputRef: HTMLInputElement | null = null;
 let isDragging: boolean = false;
+// SHOWN AFTER AN UPLOAD THAT CAME BACK WITH WARNINGS (SCRIPTS ARE DETECTED FROM THE FILE, NOT CHOSEN BY HAND)
+let uploadResult: { name: string; scripts: Script[]; warnings: string[] } | null = null;
+// BUMPED ON EVERY CLOSE: AN UPLOAD THAT FINISHES AFTER ITS MODAL CLOSED (OR WAS REOPENED) NEVER TOUCHES THE NEW ONE
+let uploadToken = 0;
 
 // -- FUNCTIONS -- //
 
@@ -79,17 +96,21 @@ function detectWeightHint(filename: string): { label: string; isBold: boolean } 
 }
 
 function resetForm(): void {
+	uploadToken++;
 	selectedFiles = [];
 	fontName = '';
 	scriptType = targetScriptType;
 	isUploading = false;
 	errorMessage = '';
 	isDragging = false;
+	uploadResult = null;
 	if (fileInputRef) fileInputRef.value = '';
 }
 
 function handleFilesAdd(files: FileList | File[]): void {
 	errorMessage = '';
+	// A NEW FILE STARTS A NEW IMPORT: THE PREVIOUS RESULT AND ITS WARNINGS NO LONGER APPLY
+	uploadResult = null;
 	const incoming = Array.from(files);
 	const validFiles: File[] = [];
 
@@ -164,6 +185,7 @@ async function handleUpload(): Promise<void> {
 		return;
 	}
 
+	const token = ++uploadToken;
 	isUploading = true;
 	errorMessage = '';
 
@@ -174,6 +196,7 @@ async function handleUpload(): Promise<void> {
 		}
 		formData.append('name', fontName.trim());
 		formData.append('scriptType', scriptType);
+		if (targetSlot) formData.append('slot', targetSlot);
 
 		const res = await fetch('/api/system/fonts', {
 			method: 'POST',
@@ -187,15 +210,30 @@ async function handleUpload(): Promise<void> {
 		}
 
 		await refreshFontAvailability();
+		if (token !== uploadToken) {
+			// THE MODAL WAS CLOSED MEANWHILE: THE FONT IS STORED, BUT NOTHING IS SELECTED AND THE FORM IS LEFT ALONE
+			toast.success(`Font "${data.font.name}" imported`);
+			return;
+		}
 		const countDesc = selectedFiles.length > 1 ? ` (${selectedFiles.length} weights)` : '';
-		toast.success(`Font "${data.font.name}"${countDesc} imported successfully`);
+		const scripts: Script[] = Array.isArray(data.scripts) ? data.scripts : [];
+		const warnings: string[] = Array.isArray(data.warnings) ? data.warnings : [];
+		const covers = scripts.length > 0 ? `. Covers: ${scripts.map((sc) => SCRIPT_LABELS[sc] ?? sc).join(', ')}` : '';
+		toast.success(`Font "${data.font.name}"${countDesc} imported${covers}`);
 		dispatch('imported', { font: data.font });
-		open = false;
-		resetForm();
+		if (warnings.length > 0) {
+			// KEEP THE MODAL OPEN SO THE WARNING IS READ, NOT MISSED IN A TOAST
+			uploadResult = { name: data.font.name, scripts, warnings };
+			selectedFiles = [];
+		} else {
+			open = false;
+			resetForm();
+		}
 	} catch (err: any) {
+		if (token !== uploadToken) return;
 		errorMessage = err.message || 'An unexpected error occurred during font upload.';
 	} finally {
-		isUploading = false;
+		if (token === uploadToken) isUploading = false;
 	}
 }
 
@@ -209,24 +247,34 @@ $: if (!open) {
 	resetForm();
 }
 
-$: modalTitle = lockScriptType
-	? targetScriptType === 'cjk'
-		? 'Import CJK Fallback Font'
-		: 'Import Dialogue Font'
-	: 'Import Custom Font';
+// A SCRIPT SLOT NAMES ITS OWN SCRIPT (THAI, ARABIC...); ONLY THE SLOT-LESS LEGACY PATH SAYS CJK
+$: slotLabel = targetSlot ? SCRIPT_LABELS[targetSlot] : undefined;
 
-$: buttonLabel = lockScriptType
-	? targetScriptType === 'cjk'
-		? 'Import CJK Font'
-		: 'Import Dialogue Font'
-	: 'Import Font';
+$: modalTitle = slotLabel
+	? `Import ${slotLabel} Font`
+	: lockScriptType
+		? targetScriptType === 'cjk'
+			? 'Import CJK Fallback Font'
+			: 'Import Dialogue Font'
+		: 'Import Custom Font';
 
-$: placeholderText = targetScriptType === 'cjk'
-	? 'e.g. Noto Sans CJK, Source Han Sans, PingFang'
-	: 'e.g. CC Wild Words, Open Sans, Anime Ace';
+$: buttonLabel = slotLabel
+	? 'Import Font'
+	: lockScriptType
+		? targetScriptType === 'cjk'
+			? 'Import CJK Font'
+			: 'Import Dialogue Font'
+		: 'Import Font';
+
+$: placeholderText = targetSlot
+	? SLOT_PLACEHOLDERS[targetSlot]
+	: targetScriptType === 'cjk'
+		? 'e.g. Noto Sans CJK, Source Han Sans, PingFang'
+		: 'e.g. CC Wild Words, Open Sans, Anime Ace';
 </script>
 
-<Modal bind:open title={modalTitle} size="md" placement="center" on:close={() => (open = false)}>
+<!-- NOT CLOSABLE MID-UPLOAD; THE UPLOAD TOKEN STILL GUARDS A CLOSE FROM OUTSIDE (THE PARENT RESETTING open) -->
+<Modal bind:open title={modalTitle} size="md" placement="center" closable={!isUploading} on:close={() => (open = false)}>
 	<div class="space-y-4">
 		<!-- DROPZONE FILE SELECTOR -->
 		<div
@@ -326,40 +374,31 @@ $: placeholderText = targetScriptType === 'cjk'
 			{/if}
 		</div>
 
-		<!-- SCRIPT TARGET CATEGORY -->
-		{#if !lockScriptType}
-			<div class="space-y-1.5">
-				<label for="font-script-type" class="block text-xs font-bold uppercase tracking-wider opacity-75">
-					Font Category
-				</label>
-				<SegmentedControl options={SCRIPT_OPTIONS} bind:value={scriptType} block />
-				<p class="text-[11px] opacity-60">
-					{scriptType === 'dialogue'
-						? 'Used for primary Latin and English speech bubble dialogue.'
-						: 'Used as fallback glyph stack for Chinese, Japanese, or Korean text.'}
-				</p>
+		<!-- DETECTED SCRIPTS: THE FILE DECIDES WHICH SCRIPTS A FONT CAN RENDER (FEAT-006) -->
+		{#if uploadResult}
+			<div class="space-y-2 rounded-xl border border-amber-500/30 bg-amber-500/10 p-3 text-xs" data-testid="font-upload-result">
+				<div class="font-semibold">"{uploadResult.name}" was imported.</div>
+				{#if uploadResult.scripts.length > 0}
+					<div class="flex flex-wrap gap-1.5">
+						{#each uploadResult.scripts as sc}
+							<span class="rounded-md bg-black/5 px-2 py-0.5 text-[11px] font-semibold dark:bg-white/10">{SCRIPT_LABELS[sc] ?? sc}</span>
+						{/each}
+					</div>
+				{/if}
+				{#each uploadResult.warnings as warning}
+					<div class="flex items-start gap-2 text-amber-800 dark:text-amber-200">
+						<AlertCircle size={14} class="mt-0.5 shrink-0" />
+						<span>{warning}</span>
+					</div>
+				{/each}
 			</div>
 		{:else}
-			<div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2.5 rounded-xl border border-black/10 bg-black/[0.02] p-3 dark:border-white/10 dark:bg-white/[0.02]">
-				<div class="space-y-0.5 min-w-0 flex-1">
-					<div class="text-[11px] font-bold uppercase tracking-wider opacity-60">Target Category</div>
-					<div class="text-xs font-semibold text-current">
-						{targetScriptType === 'cjk' ? 'CJK East Asian Fallback Engine' : 'Latin Speech Bubble Dialogue'}
-					</div>
-					<p class="text-[11px] opacity-60">
-						{targetScriptType === 'cjk'
-							? 'Renders Chinese, Japanese, or Korean text glyphs.'
-							: 'Renders primary English and Latin comic dialogue.'}
-					</p>
-				</div>
-				<span class={cn(
-					'inline-flex shrink-0 self-start sm:self-center items-center rounded-lg px-2.5 py-1 text-[11px] font-bold uppercase tracking-wider',
-					targetScriptType === 'cjk'
-						? 'bg-[#b23a2e]/10 text-[#b23a2e] dark:bg-[#e08a63]/15 dark:text-[#e08a63]'
-						: 'bg-[#4f7a64]/10 text-[#4f7a64] dark:bg-[#83b39a]/15 dark:text-[#83b39a]'
-				)}>
-					{targetScriptType === 'cjk' ? 'CJK' : 'Dialogue'}
-				</span>
+			<div class="rounded-xl border border-black/10 bg-black/[0.02] p-3 text-[11px] opacity-80 dark:border-white/10 dark:bg-white/[0.02]">
+				{#if targetSlot}
+					Uploading for <strong>{SCRIPT_LABELS[targetSlot]}</strong> text. The scripts a font can render are read from the file itself.
+				{:else}
+					The scripts a font can render (Latin, Hindi, Thai, Chinese...) are read from the file itself.
+				{/if}
 			</div>
 		{/if}
 

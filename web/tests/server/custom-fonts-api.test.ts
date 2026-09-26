@@ -5,6 +5,8 @@ import { readFileSync, existsSync, unlinkSync } from 'node:fs';
 import { join } from 'node:path';
 import { getTestDb, resetDb } from '../helpers/db';
 import { typesetPage, getUserFontsDir } from '$lib/server/typeset';
+import { eq } from 'drizzle-orm';
+import { customFonts } from '$lib/server/db/schema';
 
 vi.mock('$lib/server/db', async () => ({ db: (await import('../helpers/db')).getTestDb() }));
 
@@ -152,5 +154,70 @@ describe('Custom Fonts Server API and Typesetting Integration', () => {
 		// 6. VERIFY NOT FOUND AFTER DELETION
 		const notFoundRes = await getFontBinary({ params: { id: createdFontId! } } as unknown as RequestEvent);
 		expect(notFoundRes.status).toBe(404);
+	});
+});
+
+describe('uploaded font script detection (FEAT-006 PHASE 8)', () => {
+	const fontDir = join(process.cwd(), 'static/fonts');
+
+	beforeEach(() => {
+		resetDb();
+	});
+
+	async function upload(file: string, name: string, extra: Record<string, string> = {}) {
+		vi.resetModules();
+		const { POST } = await import('../../src/routes/api/system/fonts/+server');
+		const form = new FormData();
+		form.append('file', new File([readFileSync(join(fontDir, file))], file, { type: 'font/ttf' }));
+		form.append('name', name);
+		for (const [k, v] of Object.entries(extra)) form.append(k, v);
+		const res = await POST({ request: new Request('http://localhost', { method: 'POST', body: form }) } as unknown as RequestEvent);
+		return res.json();
+	}
+
+	function storedRow(name: string) {
+		return getTestDb().select().from(customFonts).where(eq(customFonts.name, name)).get();
+	}
+
+	it('a Devanagari-only font is stored with its script and the non-Latin category', async () => {
+		const data = await upload('NotoSansDevanagari-Regular.ttf', 'Test Devanagari', { scriptType: 'dialogue' });
+		expect(data.success).toBe(true);
+		expect(data.scripts).toEqual(['devanagari']);
+		const row = storedRow('Test Devanagari');
+		expect(JSON.parse(row!.scripts)).toEqual(['devanagari']);
+		expect(row!.scriptType).toBe('cjk');
+		// UPLOADED AS A DIALOGUE FONT, SO THE CLIENT IS TOLD WHY IT WAS NOT SELECTED THERE
+		expect(data.font.scriptType).toBe('cjk');
+		expect(data.warnings.join(' ')).toMatch(/no Latin letters/);
+	});
+
+	it('Poppins is stored as Latin + Devanagari and stays a dialogue font', async () => {
+		const data = await upload('Poppins-Bold.ttf', 'Test Poppins', { scriptType: 'cjk' });
+		expect(data.scripts).toEqual(expect.arrayContaining(['latin', 'devanagari']));
+		const row = storedRow('Test Poppins');
+		expect(row!.scriptType).toBe('dialogue');
+		expect(data.warnings.join(' ')).not.toMatch(/no Latin letters/);
+	});
+
+	it('warns when a font uploaded for a script slot does not cover that script', async () => {
+		const data = await upload('GeneralSans-Regular.ttf', 'Test Latin For Thai', { slot: 'thai' });
+		expect(data.success).toBe(true);
+		expect(data.warnings.join(' ')).toMatch(/no thai characters/);
+	});
+
+	it('attaching a variant to an existing family unions the scripts', async () => {
+		await upload('NotoSansThai-Regular.ttf', 'Test Mixed Family');
+		const second = await upload('GeneralSans-Bold.ttf', 'Test Mixed Family');
+		expect(second.success).toBe(true);
+		expect(JSON.parse(storedRow('Test Mixed Family')!.scripts).sort()).toEqual(['latin', 'thai']);
+	});
+
+	it('an old row with scripts [] is backfilled from its file when fonts are registered', async () => {
+		await upload('NotoSansThai-Regular.ttf', 'Test Thai Backfill');
+		getTestDb().update(customFonts).set({ scripts: '[]' }).where(eq(customFonts.name, 'Test Thai Backfill')).run();
+		const { invalidateCustomFontsCache, registerCustomFonts } = await import('$lib/server/typeset/fonts');
+		invalidateCustomFontsCache();
+		registerCustomFonts(getTestDb());
+		expect(JSON.parse(storedRow('Test Thai Backfill')!.scripts)).toEqual(['thai']);
 	});
 });

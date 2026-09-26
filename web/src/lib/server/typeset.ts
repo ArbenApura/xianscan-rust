@@ -18,12 +18,17 @@ import {
 	resolveEffectiveCasing,
 	FONT_DIALOGUE,
 	FONT_FALLBACK_NAME,
-	FONT_DEFAULT_CJK,
-	CJK_REGEX,
+	BUNDLED_SCRIPT_FONTS,
+	rtlFontSpec,
 	type TextColor,
 } from './typeset/fonts';
+import type { Script } from '$lib/languages';
+import { dominantScript, type ScriptFontSlot } from '$lib/typeset-scripts';
+import { resolveDirection, type DirectionOverride } from '$lib/text-direction';
+import type { ScriptFontContext } from './typeset/script-fonts';
 import { isSfxOrShout, type TypesetRegion } from './typeset/stat-panel';
 import { fitFontSize, fitFontSizeWithLines, fitSingleLineSize, isStructuredList } from './typeset/layout';
+import { textFontStack } from './typeset/script-fonts';
 import { pickTextColor, sampleBackground } from './typeset/color';
 import { decollideRegions } from './typeset/decollision';
 import { sanitizeForFont } from './typeset/sanitize';
@@ -34,10 +39,23 @@ const BOX_INSET = 0.05;
 const MAX_SFX_FONT_SIZE = 100;
 const LINE_HEIGHT = 1.2;
 const OUTLINE_FACTOR = 0.18;
+// OPTICAL SIZE FACTOR FOR RIGHT-TO-LEFT DIALOGUE (FEAT-007 ADR-007). 1.0 = NO BOOST UNTIL THE OWNER'S VISUAL
+// REVIEW; 1.1 TO 1.15 IS THE LIKELY RANGE.
+const RTL_SIZE_BOOST = 1.0;
+
+// SCRIPTS WITHOUT LETTER CASE: CASING TRANSFORMS ARE SKIPPED FOR TEXT DOMINATED BY THEM
+const CASELESS_SCRIPTS = new Set<Script>(['han', 'kana', 'hangul', 'devanagari', 'thai', 'arabic', 'hebrew', 'bengali', 'tamil']);
 
 export interface TypesetOptions {
 	fontDialogue?: string;
+	/** @deprecated USE scriptFonts; STILL APPLIED TO THE han / kana / hangul SLOTS WHEN THOSE ARE NOT SET. */
 	fontCjk?: string;
+	/** THE SCRIPT THE BOOK IS TYPESET IN; DEFAULTS TO THE DOMINANT SCRIPT OF ALL REGION TEXT. */
+	targetScript?: Script;
+	/** THE USER'S FONT PER SCRIPT (FEAT-006). */
+	scriptFonts?: Partial<Record<ScriptFontSlot, string>>;
+	/** TEXT DIRECTION PER REGION: 'auto' (DEFAULT) DETECTS IT FROM THE TEXT (FEAT-007). */
+	direction?: DirectionOverride;
 	fontSize?: number;
 	boxInset?: number;
 	lineHeight?: number;
@@ -55,6 +73,26 @@ export interface TypesetOptions {
 	enableItalic?: boolean;
 }
 
+// -- FUNCTIONS -- //
+
+/** THE DEPRECATED fontCjk OPTION, OR UNDEFINED WHEN IT IS UNSET OR THE PLAIN FALLBACK FONT. */
+function legacyCjkFont(opts: Pick<TypesetOptions, 'fontCjk'>): string | undefined {
+	return opts.fontCjk && opts.fontCjk !== FONT_FALLBACK_NAME ? opts.fontCjk : undefined;
+}
+
+/**
+ * THE SLOT MAP THE RENDERER USES. A LEGACY fontCjk (ONLY SET FOR AN OLD CLIENT'S EXPLICIT REQUEST, SEE
+ * buildTypesetOptions) FILLS THE han / kana / hangul SLOTS THAT ARE STILL UNSET; EVERY OTHER SLOT IS AS GIVEN.
+ */
+export function resolveScriptFontSlots(opts: Pick<TypesetOptions, 'fontCjk' | 'scriptFonts'>): Partial<Record<ScriptFontSlot, string>> {
+	const scriptFonts: Partial<Record<ScriptFontSlot, string>> = { ...(opts.scriptFonts ?? {}) };
+	const fontCjk = legacyCjkFont(opts);
+	if (fontCjk) {
+		for (const slot of ['han', 'kana', 'hangul'] as const) scriptFonts[slot] ??= fontCjk;
+	}
+	return scriptFonts;
+}
+
 export async function typesetPage(
 	cleanedPng: Buffer,
 	regions: TypesetRegion[],
@@ -62,9 +100,19 @@ export async function typesetPage(
 ): Promise<Buffer> {
 	registerFonts();
 	const fontDialogue = opts.fontDialogue || FONT_DIALOGUE;
-	const fontCjk = opts.fontCjk || FONT_DEFAULT_CJK;
+	// NO FORCED CJK DEFAULT ANY MORE: AN UNSET SLOT RESOLVES THROUGH THE SCRIPT-AWARE CHAIN (FEAT-006)
+	const fontCjk = legacyCjkFont(opts);
+	const scriptFonts = resolveScriptFontSlots(opts);
 	ensureFontRegistered(fontDialogue);
-	ensureFontRegistered(fontCjk);
+	for (const family of new Set(Object.values(scriptFonts))) {
+		if (family) ensureFontRegistered(family);
+	}
+	const scriptCtx: ScriptFontContext = {
+		dialogue: fontDialogue,
+		scriptFonts,
+		targetScript: opts.targetScript ?? dominantScript(regions.map((r) => r.text).join(' '), 'latin'),
+		bundled: BUNDLED_SCRIPT_FONTS,
+	};
 	const fontWeight = opts.fontWeight ?? 'normal';
 	const fontStyle = opts.fontStyle ?? (opts.enableItalic ? 'italic' : 'normal');
 	const inset = opts.boxInset ?? BOX_INSET;
@@ -106,12 +154,15 @@ export async function typesetPage(
 			color = pickTextColor(bg);
 		}
 
-		// STANDARD PATH — UNIFIED NATURAL MULTI-LINE WRAPPING WITH USER CASING
-		const isCjk = CJK_REGEX.test(rawText);
-		const font = fontFor(rawText, fontDialogue, fontCjk);
+		// STANDARD PATH: UNIFIED NATURAL MULTI-LINE WRAPPING WITH USER CASING
+		// CASING ONLY APPLIES TO CASED SCRIPTS; LATIN NAMES INSIDE HINDI / ARABIC / CJK TEXT KEEP THE MODEL'S CASING
+		const dir = resolveDirection(rawText, opts.direction);
+		// RIGHT-TO-LEFT TEXT IS NEVER RE-CASED: LATIN NAMES INSIDE ARABIC KEEP THE MODEL'S CASING (ADR-005)
+		const isCaseless = dir === 'rtl' || CASELESS_SCRIPTS.has(dominantScript(rawText, scriptCtx.targetScript));
+		const font = fontFor(rawText, fontDialogue, fontCjk, scriptCtx);
 		const effectiveCasing = resolveEffectiveCasing(font, casing);
 		let text: string;
-		if (isCjk) {
+		if (isCaseless) {
 			text = rawText;
 		} else if (effectiveCasing === 'lowercase') {
 			text = rawText.toLowerCase();
@@ -129,14 +180,14 @@ export async function typesetPage(
 		let initialFitted: { size: number; lines: string[] } | undefined;
 		if (!isSfx && r.kind === 'dialogue_bubble') {
 			const maxDialogueSize = opts.fontSize ? opts.fontSize : Math.max(24, Math.round(img.width * 0.035));
-			const cap = Math.min(sizeCap, maxDialogueSize);
-			initialFitted = fitFontSizeWithLines(ctx, text, font, r.box.w, r.box.h, cap, cap, inset, fontCjk, fontWeight, fontStyle);
+			const cap = Math.min(sizeCap, Math.round(maxDialogueSize * (dir === 'rtl' ? RTL_SIZE_BOOST : 1)));
+			initialFitted = fitFontSizeWithLines(ctx, text, font, r.box.w, r.box.h, cap, cap, inset, fontCjk, fontWeight, fontStyle, scriptCtx);
 			if (text.split(/\s+/).length >= 2) {
 				dialogueSizes.push(initialFitted.size);
 			}
 		}
 
-		preparedRegions.push({ r, rawText, text, color, isSfx, font, maxW, maxH, sizeCap, initialFitted });
+		preparedRegions.push({ r, rawText, text, color, isSfx, font, maxW, maxH, sizeCap, initialFitted, dir });
 	}
 
 	// COMPUTE PAGE DIALOGUE MEDIAN BASELINE
@@ -148,14 +199,14 @@ export async function typesetPage(
 
 	// PASS 2: RENDER REGIONS WITH HARMONIZED SIZING
 	for (const prep of preparedRegions) {
-		const { r, text, color, isSfx, font, maxW, maxH, sizeCap, initialFitted } = prep;
+		const { r, text, color, isSfx, font, maxW, maxH, sizeCap, initialFitted, dir } = prep;
 
 		const { x, y, w, h } = r.box;
 		const angleDeg = r.angle ?? 0;
 		const hasRotation = enableRotation && Math.abs(angleDeg) >= 2.0 && Math.abs(angleDeg) <= 45.0;
 
 		const maxDialogueSize = opts.fontSize ? opts.fontSize : Math.max(24, Math.round(img.width * 0.035));
-		let cap = r.kind === 'dialogue_bubble' ? Math.min(sizeCap, maxDialogueSize) : sizeCap;
+		let cap = r.kind === 'dialogue_bubble' ? Math.min(sizeCap, Math.round(maxDialogueSize * (dir === 'rtl' ? RTL_SIZE_BOOST : 1))) : sizeCap;
 		const isShortNonShout = text.split(/\s+/).length <= 2 && !/[!！]/.test(text);
 		if (pageDialogueBaseline > 0 && isShortNonShout && r.kind === 'dialogue_bubble' && !opts.fontSize) {
 			cap = Math.min(cap, Math.max(18, Math.round(pageDialogueBaseline * 1.25)));
@@ -165,7 +216,7 @@ export async function typesetPage(
 		let lines: string[];
 
 		if (isSfx) {
-			size = fitSingleLineSize(ctx, text, font, maxW, maxH, sizeCap, fontCjk, fontWeight, fontStyle);
+			size = fitSingleLineSize(ctx, text, font, maxW, maxH, sizeCap, fontCjk, fontWeight, fontStyle, scriptCtx);
 			lines = [text];
 		} else if (initialFitted && initialFitted.size <= cap) {
 			// REUSE PASS 1 FITTED RESULT DIRECTLY IF CAP WAS NOT REDUCED BELOW INITIAL FIT
@@ -173,17 +224,20 @@ export async function typesetPage(
 			lines = initialFitted.lines;
 		} else {
 			// USE THE FITTED LAYOUT DIRECTLY SO THE RENDER MATCHES THE VALIDATED FIT CHECKS
-			const fitted = fitFontSizeWithLines(ctx, text, font, w, h, cap, cap, inset, fontCjk, fontWeight, fontStyle);
+			const fitted = fitFontSizeWithLines(ctx, text, font, w, h, cap, cap, inset, fontCjk, fontWeight, fontStyle, scriptCtx);
 			size = fitted.size;
 			lines = fitted.lines;
 		}
 
-		ctx.font = fontSpec(size, font, text, fontCjk, fontWeight, fontStyle);
+		ctx.font = fontSpec(size, font, text, fontCjk, fontWeight, fontStyle, textFontStack(text, font, scriptCtx));
 		const lineH = size * effectiveLineHeight;
 		const totalH = lines.length * lineH;
 
 		ctx.save();
+		ctx.direction = dir;
 		ctx.textAlign = align === 'left' ? 'left' : 'center';
+		// 'left' MEANS START-ALIGNED (ADR-004): THE RIGHT EDGE FOR A RIGHT-TO-LEFT REGION
+		const lineAlign: 'center' | 'start' = align === 'left' ? 'start' : 'center';
 		ctx.textBaseline = 'alphabetic';
 
 		const isBlackOnLight = color.fill === 'black' || color.fill === '#111111';
@@ -209,36 +263,57 @@ export async function typesetPage(
 		ctx.strokeStyle = color.stroke;
 		ctx.fillStyle = color.fill;
 
-		const visualH = (lines.length - 1) * lineH + size * 0.75;
+		// LATIN KEEPS THE FIXED 0.75 EM CAP-HEIGHT BASELINE (ITS OUTPUT MUST NOT MOVE). RIGHT-TO-LEFT TEXT IS CENTRED ON ITS
+		// REAL INK: ARABIC HAS TALL ASCENDERS AND DEEP DESCENDERS, SO THE FIXED RULE SITS IT TOO LOW (FEAT-007 PHASE 4)
+		let topToBaseline = size * 0.75;
+		let inkBelow = 0;
+		if (dir === 'rtl') {
+			ctx.font = rtlFontSpec(size, font, text, fontCjk, fontWeight, fontStyle, scriptCtx);
+			let ascent = 0;
+			let descent = 0;
+			for (const line of lines) {
+				const m = ctx.measureText(line);
+				ascent = Math.max(ascent, m.actualBoundingBoxAscent ?? 0);
+				descent = Math.max(descent, m.actualBoundingBoxDescent ?? 0);
+			}
+			if (ascent > 0) {
+				topToBaseline = ascent;
+				inkBelow = descent;
+			}
+		}
+		const visualH = (lines.length - 1) * lineH + topToBaseline + inkBelow;
 
 		if (hasRotation) {
 			const cx = x + w / 2;
 			const cy = y + h / 2;
 			ctx.translate(cx, cy);
 			ctx.rotate((angleDeg * Math.PI) / 180);
-			let ty = -visualH / 2 + size * 0.75;
+			let ty = -visualH / 2 + topToBaseline;
 			for (const line of lines) {
 				drawTextLineWithRuns(
 					ctx,
 					line,
-					align === 'left' ? -maxW / 2 : 0,
+					align === 'left' ? (dir === 'rtl' ? maxW / 2 : -maxW / 2) : 0,
 					ty,
 					size,
 					font,
-					fontCjk,
+					// NO FORCED FALLBACK FONT: EACH SCRIPT RUN USES ITS OWN CHAIN
+					'',
 					color,
 					strokeWidth,
 					isDarkStroke,
 					fontCjk,
-					align === 'left' ? 'left' : 'center',
+					lineAlign,
 					fontWeight,
 					fontStyle,
+					scriptCtx,
+					dir,
 				);
 				ty += lineH;
 			}
 		} else {
-			const tx = align === 'left' ? x + (w - maxW) / 2 : x + w / 2;
-			let ty = y + (h - visualH) / 2 + size * 0.75;
+			const tx = align === 'left' ? (dir === 'rtl' ? x + (w + maxW) / 2 : x + (w - maxW) / 2) : x + w / 2;
+			let ty = y + (h - visualH) / 2 + topToBaseline;
 			for (const line of lines) {
 				drawTextLineWithRuns(
 					ctx,
@@ -247,14 +322,17 @@ export async function typesetPage(
 					ty,
 					size,
 					font,
-					fontCjk,
+					// NO FORCED FALLBACK FONT: EACH SCRIPT RUN USES ITS OWN CHAIN
+					'',
 					color,
 					strokeWidth,
 					isDarkStroke,
 					fontCjk,
-					align === 'left' ? 'left' : 'center',
+					lineAlign,
 					fontWeight,
 					fontStyle,
+					scriptCtx,
+					dir,
 				);
 				ty += lineH;
 			}

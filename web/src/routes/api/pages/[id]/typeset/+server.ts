@@ -4,6 +4,7 @@ import { pages } from '$lib/server/db/schema';
 import { eq } from 'drizzle-orm';
 import { retypesetPage } from '$lib/server/chapters';
 import { getCanonicalSettings } from '$lib/server/settings-service';
+import { buildTypesetOptions, targetScriptForPage } from '$lib/server/typeset/options';
 import { retypesetPageSchema } from '$lib/schemas';
 
 export const POST: RequestHandler = async ({ params, request, cookies }) => {
@@ -20,21 +21,12 @@ export const POST: RequestHandler = async ({ params, request, cookies }) => {
 	const parsed = retypesetPageSchema.safeParse(body);
 	const userOpts = parsed.success ? parsed.data?.typesetOptions : undefined;
 
-	const typesetOptions = {
-		fontDialogue: userOpts?.fontDialogue || userOpts?.fontFamily || (cookies?.get('mt_ts_font') || canonical.typesetFont || 'CC Wild Words'),
-		fontCjk: userOpts?.fontCjk || (cookies?.get('mt_ts_cjk_font') || canonical.typesetCjkFont || 'Microsoft YaHei'),
-		boxInset: typeof userOpts?.boxInset === 'number'
-			? userOpts.boxInset
-			: (cookies?.get('mt_ts_padding') ? Number(cookies.get('mt_ts_padding')) : canonical.typesetPadding ?? 0.05),
-		outlineMode: (userOpts?.outlineMode || userOpts?.outline || (cookies?.get('mt_ts_outline') as any) || canonical.typesetOutline || 'standard') as any,
-		colorMode: (userOpts?.colorMode || (cookies?.get('mt_ts_contrast') as any) || canonical.typesetContrast || 'auto') as any,
-		casing: (userOpts?.casing || (cookies?.get('mt_ts_casing') as any) || canonical.typesetCasing || 'uppercase') as any,
-		enableRotation: typeof userOpts?.enableRotation === 'boolean'
-			? userOpts.enableRotation
-			: (cookies?.get('mt_ts_rot') ? cookies.get('mt_ts_rot') === 'true' : (canonical.enableTextRotation ?? true)),
-		fontWeight: (userOpts?.fontWeight || (cookies?.get('mt_ts_font_weight') as any) || (canonical as any).typesetFontWeight || 'normal') as any,
-		fontStyle: (userOpts?.fontStyle || (typeof userOpts?.enableItalic === 'boolean' ? (userOpts.enableItalic ? 'italic' : 'normal') : (cookies?.get('mt_ts_italic') ? (cookies.get('mt_ts_italic') === 'true' ? 'italic' : 'normal') : (canonical.enableTypesetItalic ? 'italic' : 'normal')))) as any,
-	};
+	const typesetOptions = buildTypesetOptions({
+		canonical,
+		cookies,
+		userOpts: userOpts as Record<string, unknown> | undefined,
+		targetScript: targetScriptForPage(pageId),
+	});
 
 	try {
 		const result = await retypesetPage(pageId, typesetOptions);

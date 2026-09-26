@@ -739,38 +739,29 @@ Tattered Flesh-Cutting Knife`;
 		expect(resultBuf.length).toBeGreaterThan(0);
 	});
 
-	it('renders Hindi Devanagari dialogue text using Nirmala UI font stack in typesetPage', async () => {
+	// FEAT-006: TWO DIFFERENT SAME-LENGTH WORDS MUST RENDER DIFFERENTLY. IF EVERY GLYPH WERE THE SAME .notdef BOX
+	// (THE OLD HINDI / THAI BUG) THE TWO PAGES WOULD BE BYTE-IDENTICAL.
+	async function renderBubble(text: string): Promise<Buffer> {
 		const pageImage = createCanvas(800, 1200).toBuffer('image/png');
-		const resultBuf = await typesetPage(
-			pageImage,
-			[
-				{
-					id: 'r0',
-					box: { x: 100, y: 100, w: 300, h: 150 },
-					text: 'मुझे फाइटर बनना था। पर मैं तो जादूगर बन गया!',
-					kind: 'dialogue_bubble',
-				},
-			],
-			{ format: 'png' },
-		);
-		expect(resultBuf.length).toBeGreaterThan(0);
+		return typesetPage(pageImage, [{ id: 'r0', box: { x: 100, y: 100, w: 300, h: 150 }, text, kind: 'dialogue_bubble' }], {
+			format: 'png',
+		} as never);
+	}
+
+	it('renders real Hindi (Devanagari) glyphs in typesetPage', async () => {
+		const a = await renderBubble('मुझे फाइटर बनना था। पर मैं तो जादूगर बन गया!');
+		const b = await renderBubble('कमल नयन');
+		const c = await renderBubble('नयन कमल');
+		expect(a.length).toBeGreaterThan(0);
+		expect(b.equals(c)).toBe(false);
 	});
 
-	it('renders Thai dialogue text using Leelawadee UI font stack in typesetPage', async () => {
-		const pageImage = createCanvas(800, 1200).toBuffer('image/png');
-		const resultBuf = await typesetPage(
-			pageImage,
-			[
-				{
-					id: 'r0',
-					box: { x: 100, y: 100, w: 300, h: 150 },
-					text: 'ฉันอยากเล่นเป็นนักสู้ แต่กลับกลายเป็นนักเวทซะงั้น!',
-					kind: 'dialogue_bubble',
-				},
-			],
-			{ format: 'png' },
-		);
-		expect(resultBuf.length).toBeGreaterThan(0);
+	it('renders real Thai glyphs in typesetPage', async () => {
+		const a = await renderBubble('ฉันอยากเล่นเป็นนักสู้ แต่กลับกลายเป็นนักเวทซะงั้น!');
+		const b = await renderBubble('กขค งจฉ');
+		const c = await renderBubble('งจฉ กขค');
+		expect(a.length).toBeGreaterThan(0);
+		expect(b.equals(c)).toBe(false);
 	});
 
 	it('reclaims vertical height in narrow manga bubble for "Well then..." (Region 48922)', () => {
@@ -844,14 +835,22 @@ Tattered Flesh-Cutting Knife`;
 		expect(lines.length * size * 1.2).toBeLessThanOrEqual(149 * 0.9);
 	});
 
-	it('resolves appropriate script font family for Chinese, Japanese, Korean, Thai, Hindi, and Cyrillic', () => {
-		expect(resolveScriptFont('该死！')).toBe('Microsoft YaHei');
-		expect(resolveScriptFont('こんにちは！')).toBe('Yu Gothic');
-		expect(resolveScriptFont('안녕하세요!')).toBe('Malgun Gothic');
-		expect(resolveScriptFont('สวัสดีครับ')).toBe('Leelawadee UI');
-		expect(resolveScriptFont('नमस्ते')).toBe('Nirmala UI');
-		expect(resolveScriptFont('Привет')).toBe('Arial');
-		expect(resolveScriptFont('Hello World')).toBe('Microsoft YaHei');
+	it('resolves a script font that really covers Chinese, Japanese, Korean, Thai, Hindi and Cyrillic', async () => {
+		// FEAT-006: ASSERT COVERAGE, NOT WINDOWS FAMILY NAMES (THE BUNDLED FONTS MAKE THIS HOLD ON EVERY OS)
+		const { familyCovers } = await import('$lib/server/typeset/coverage');
+		const cases: [string, 'han' | 'kana' | 'hangul' | 'thai' | 'devanagari' | 'cyrillic'][] = [
+			['该死！', 'han'],
+			['こんにちは！', 'kana'],
+			['안녕하세요!', 'hangul'],
+			['สวัสดีครับ', 'thai'],
+			['नमस्ते', 'devanagari'],
+			['Привет', 'cyrillic'],
+		];
+		for (const [text, script] of cases) {
+			const family = resolveScriptFont(text);
+			expect({ text, family, covered: familyCovers(family, script) }).toEqual({ text, family, covered: true });
+		}
+		expect(familyCovers(resolveScriptFont('Hello World'), 'han')).toBe(true);
 		expect(resolveScriptFont('Custom override', 'Custom CJK Font')).toBe('Custom CJK Font');
 	});
 

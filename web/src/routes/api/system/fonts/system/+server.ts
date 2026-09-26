@@ -5,18 +5,22 @@ import type { RequestHandler } from '@sveltejs/kit';
 import { json } from '@sveltejs/kit';
 // IMPORTED MODULES
 import { getAvailableSystemFonts } from '$lib/server/typeset/fonts';
+import { SCRIPT_FONT_SLOTS } from '$lib/typeset-scripts';
 
 // -- HANDLERS -- //
 
 export const GET: RequestHandler = async ({ url }) => {
 	try {
 		const q = (url.searchParams.get('q') || '').trim().toLowerCase();
-		const scriptFilter = (url.searchParams.get('script') || '').trim().toLowerCase();
+		const scriptFilter = (url.searchParams.get('script') || url.searchParams.get('scriptType') || '').trim().toLowerCase();
 
 		let fonts = getAvailableSystemFonts();
 
 		if (scriptFilter === 'dialogue' || scriptFilter === 'cjk') {
 			fonts = fonts.filter((f) => f.scriptType === scriptFilter);
+		} else if (scriptFilter === 'latin' || (SCRIPT_FONT_SLOTS as readonly string[]).includes(scriptFilter)) {
+			// A REAL SCRIPT (FEAT-006): ONLY FAMILIES WITH GLYPHS FOR IT
+			fonts = fonts.filter((f) => (f.scripts as string[]).includes(scriptFilter));
 		}
 
 		if (q) {

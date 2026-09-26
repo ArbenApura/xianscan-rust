@@ -9,6 +9,7 @@ import { DATA_ROOT } from '../paths';
 import { getCanonicalSettings } from '../settings-service';
 import { getImageDimensionsFromBuffer } from './dimensions';
 import { assertChapterExists, compactChapterPageSeqs } from './mutations';
+import { buildTypesetOptions, targetScriptForPage } from '../typeset/options';
 
 export interface ChapterRegionData {
 	id: number;
@@ -17,6 +18,7 @@ export interface ChapterRegionData {
 	textSource: string;
 	textTarget: string | null;
 	conf: number | null;
+	confScale: number;
 }
 
 export interface ChapterPageData {
@@ -239,15 +241,7 @@ export async function updateRegionTranslation(
 				});
 
 			const canonical = getCanonicalSettings();
-			const defaultTypesetOpts = {
-				fontDialogue: canonical.typesetFont || 'CC Wild Words',
-				fontCjk: canonical.typesetCjkFont || 'WenQuanYi Micro Hei',
-				boxInset: canonical.typesetPadding ?? 0.05,
-				outlineMode: canonical.typesetOutline || 'standard',
-				colorMode: canonical.typesetContrast || 'auto',
-				casing: canonical.typesetCasing || 'uppercase',
-				enableRotation: canonical.enableTextRotation ?? true,
-			};
+			const defaultTypesetOpts = buildTypesetOptions({ canonical, targetScript: targetScriptForPage(pageId) });
 
 			const { typesetPage } = await import('../typeset');
 			const out = await typesetPage(cleanedBuf, typesetRegions, defaultTypesetOpts);
@@ -309,20 +303,9 @@ export async function retypesetPage(
 			});
 
 		const canonical = getCanonicalSettings();
-		const mergedOpts = {
-			fontDialogue: _opts?.fontDialogue || _opts?.fontFamily || (canonical.typesetFont || 'CC Wild Words'),
-			fontCjk: _opts?.fontCjk || (canonical.typesetCjkFont || 'WenQuanYi Micro Hei'),
-			boxInset: typeof _opts?.boxInset === 'number' ? _opts.boxInset : (canonical.typesetPadding ?? 0.05),
-			outlineMode: _opts?.outlineMode || _opts?.outline || (canonical.typesetOutline || 'standard'),
-			colorMode: _opts?.colorMode || (canonical.typesetContrast || 'auto'),
-			casing: _opts?.casing || (canonical.typesetCasing || 'uppercase'),
-			enableRotation: typeof _opts?.enableRotation === 'boolean' ? _opts.enableRotation : (canonical.enableTextRotation ?? true),
-			fontWeight: _opts?.fontWeight || (canonical as any).typesetFontWeight || 'normal',
-			fontStyle: _opts?.fontStyle || (typeof _opts?.enableItalic === 'boolean'
-				? (_opts.enableItalic ? 'italic' : 'normal')
-				: (canonical.enableTypesetItalic ? 'italic' : 'normal')),
-			...(_opts || {}),
-		};
+		const builtOpts = buildTypesetOptions({ canonical, userOpts: _opts, targetScript: targetScriptForPage(pageId) });
+		// RAW CALLER OPTIONS STILL WIN FIELD BY FIELD, AS BEFORE; THE BOOK SCRIPT IS KEPT UNLESS THE CALLER SET ONE
+		const mergedOpts = { ...builtOpts, ...(_opts || {}), targetScript: _opts?.targetScript ?? builtOpts.targetScript };
 
 		const { typesetPage } = await import('../typeset');
 		const out = await typesetPage(cleanedBuf, typesetRegions, mergedOpts);
@@ -429,6 +412,7 @@ export function getPageWithRegions(pageId: number) {
 				textTarget: r.textTarget,
 				originalTarget: (r as any).originalTarget ?? r.textTarget,
 				conf: r.conf,
+				confScale: r.confScale,
 			};
 		}),
 	};

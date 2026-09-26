@@ -14,6 +14,7 @@ import {
 } from '$lib/stores/settings';
 import { cn } from '$lib/utils/cn';
 import { ripple } from '$lib/actions/ripple';
+import { SCRIPT_LABELS, SCRIPT_SAMPLES, type ScriptFontSlot } from '$lib/typeset-scripts';
 // IMPORTED DEP-COMPONENTS
 import Search from 'lucide-svelte/icons/search';
 import Check from 'lucide-svelte/icons/check';
@@ -21,6 +22,7 @@ import Plus from 'lucide-svelte/icons/plus';
 import RefreshCw from 'lucide-svelte/icons/refresh-cw';
 import Monitor from 'lucide-svelte/icons/monitor';
 import Sparkles from 'lucide-svelte/icons/sparkles';
+import EyeOff from 'lucide-svelte/icons/eye-off';
 // IMPORTED COMPONENTS
 import Modal from '$lib/components/ui/Modal.svelte';
 import Button from '$lib/components/ui/Button.svelte';
@@ -32,6 +34,8 @@ import Badge from '$lib/components/ui/Badge.svelte';
 export let open: boolean = false;
 export let targetScriptType: 'dialogue' | 'cjk' = 'dialogue';
 export let lockScriptType: boolean = true;
+/** WHEN SET, THE BROWSER LISTS ONLY FONTS WITH GLYPHS FOR THIS SCRIPT AND ENABLING ONE ASSIGNS IT TO THAT SLOT. */
+export let targetSlot: ScriptFontSlot | undefined = undefined;
 
 // -- CONSTANTS -- //
 
@@ -60,42 +64,71 @@ async function handleRefresh(): Promise<void> {
 	toast.success('System font list refreshed');
 }
 
-function toggleFontEnabled(familyName: string): void {
-	const current = $settings.enabledSystemFonts || [];
-	if (current.includes(familyName)) {
-		settings.update((s) => {
-			const next = (s.enabledSystemFonts || []).filter((f) => f !== familyName);
-			let nextTypesetFont = s.typesetFont;
-			let nextTypesetCjkFont = s.typesetCjkFont;
-			if (s.typesetFont === familyName) {
-				nextTypesetFont = 'CC Wild Words';
-			}
-			if (s.typesetCjkFont === familyName) {
-				nextTypesetCjkFont = 'WenQuanYi Micro Hei';
-			}
-			return {
-				...s,
-				enabledSystemFonts: next,
-				typesetFont: nextTypesetFont,
-				typesetCjkFont: nextTypesetCjkFont,
-			};
-		});
-		toast.info(`Disabled "${familyName}" from typesetting choices`);
-	} else {
-		settings.update((s) => {
-			const next = [...(s.enabledSystemFonts || []), familyName];
-			if (targetScriptType === 'cjk') {
-				return { ...s, enabledSystemFonts: next, typesetCjkFont: familyName };
-			} else {
-				return { ...s, enabledSystemFonts: next, typesetFont: familyName };
-			}
-		});
-		// LOAD FONT IN BROWSER FOR LIVE CANVAS PREVIEW
-		loadSystemBrowserFontFace(familyName);
-		const categoryDesc = targetScriptType === 'cjk' ? 'CJK fallback typesetting' : 'dialogue speech bubbles';
-		toast.success(`Enabled and selected "${familyName}" for ${categoryDesc}`);
-		dispatch('enabled', { family: familyName, scriptType: targetScriptType });
-	}
+/** REMOVES A SYSTEM FONT FROM THE TYPESETTING CHOICES; EVERY SETTING THAT USED IT GOES BACK TO ITS DEFAULT. */
+function disableFont(familyName: string): void {
+	settings.update((s) => {
+		const next = (s.enabledSystemFonts || []).filter((f) => f !== familyName);
+		let nextTypesetFont = s.typesetFont;
+		let nextTypesetCjkFont = s.typesetCjkFont;
+		if (s.typesetFont === familyName) {
+			nextTypesetFont = 'CC Wild Words';
+		}
+		if (s.typesetCjkFont === familyName) {
+			nextTypesetCjkFont = 'WenQuanYi Micro Hei';
+		}
+		// SCRIPT SLOTS THAT USED IT GO BACK TO AUTOMATIC
+		const nextScriptFonts = Object.fromEntries(
+			Object.entries(s.typesetScriptFonts || {}).filter(([, family]) => family !== familyName),
+		);
+		return {
+			...s,
+			enabledSystemFonts: next,
+			typesetFont: nextTypesetFont,
+			typesetCjkFont: nextTypesetCjkFont,
+			typesetScriptFonts: nextScriptFonts,
+		};
+	});
+	toast.info(`Disabled "${familyName}" from typesetting choices`);
+}
+
+/** ENABLES A SYSTEM FONT AND SELECTS IT FOR THE TARGET SLOT (OR THE DIALOGUE / LEGACY CJK SETTING). */
+function enableFont(familyName: string): void {
+	settings.update((s) => {
+		const next = [...(s.enabledSystemFonts || []), familyName];
+		if (targetSlot) {
+			return { ...s, enabledSystemFonts: next, typesetScriptFonts: { ...(s.typesetScriptFonts || {}), [targetSlot]: familyName } };
+		}
+		if (targetScriptType === 'cjk') {
+			return { ...s, enabledSystemFonts: next, typesetCjkFont: familyName };
+		} else {
+			return { ...s, enabledSystemFonts: next, typesetFont: familyName };
+		}
+	});
+	// LOAD FONT IN BROWSER FOR LIVE CANVAS PREVIEW
+	loadSystemBrowserFontFace(familyName, true);
+	const categoryDesc = targetSlot
+		? `${SCRIPT_LABELS[targetSlot]} text`
+		: targetScriptType === 'cjk'
+			? 'CJK fallback typesetting'
+			: 'dialogue speech bubbles';
+	toast.success(`Enabled and selected "${familyName}" for ${categoryDesc}`);
+	dispatch('enabled', { family: familyName, scriptType: targetScriptType });
+}
+
+/** AN ALREADY ENABLED FONT IS ONLY ASSIGNED TO THE SLOT; IT STAYS ENABLED FOR EVERY OTHER SETTING THAT USES IT. */
+function useForSlot(familyName: string, slot: ScriptFontSlot): void {
+	settings.update((s) => ({ ...s, typesetScriptFonts: { ...(s.typesetScriptFonts || {}), [slot]: familyName } }));
+	loadSystemBrowserFontFace(familyName);
+	toast.success(`Using "${familyName}" for ${SCRIPT_LABELS[slot]} text`);
+	dispatch('enabled', { family: familyName, scriptType: targetScriptType });
+}
+
+/** THE MAIN BUTTON: WITH A TARGET SLOT IT NEVER DISABLES (THAT IS THE SEPARATE DISABLE BUTTON). */
+function handleFontAction(familyName: string): void {
+	const enabled = ($settings.enabledSystemFonts || []).includes(familyName);
+	if (!enabled) enableFont(familyName);
+	else if (targetSlot) useForSlot(familyName, targetSlot);
+	else disableFont(familyName);
 }
 
 // -- REACTIVE STATEMENTS -- //
@@ -110,8 +143,24 @@ $: if (open && $systemFontsStore.length === 0) {
 
 $: effectiveTab = lockScriptType ? targetScriptType : activeTab;
 
+/** DOES THE FONT HAVE GLYPHS FOR THE TARGET SLOT? OLDER SERVERS WITHOUT `scripts` FALL BACK TO THE CJK CATEGORY. */
+function coversSlot(font: SystemFontInfo, slot: ScriptFontSlot): boolean {
+	if (font.scripts) return font.scripts.includes(slot);
+	return (slot === 'han' || slot === 'kana' || slot === 'hangul') && font.scriptType === 'cjk';
+}
+
+function sampleFor(font: SystemFontInfo): string {
+	if (targetSlot) return SCRIPT_SAMPLES[targetSlot];
+	const nonLatin = font.scripts?.find((sc) => sc !== 'latin');
+	if (font.scripts && font.scripts.includes('latin')) return SAMPLE_TEXT_DIALOGUE;
+	if (nonLatin) return SCRIPT_SAMPLES[nonLatin];
+	return font.scriptType === 'cjk' ? SAMPLE_TEXT_CJK : SAMPLE_TEXT_DIALOGUE;
+}
+
 $: filteredFonts = ($systemFontsStore || []).filter((font: SystemFontInfo) => {
-	if (effectiveTab !== 'all' && font.scriptType !== effectiveTab) {
+	if (targetSlot) {
+		if (!coversSlot(font, targetSlot)) return false;
+	} else if (effectiveTab !== 'all' && font.scriptType !== effectiveTab) {
 		return false;
 	}
 	if (searchQuery.trim()) {
@@ -120,19 +169,26 @@ $: filteredFonts = ($systemFontsStore || []).filter((font: SystemFontInfo) => {
 	return true;
 });
 
-$: categoryCount = lockScriptType
-	? ($systemFontsStore || []).filter((f) => f.scriptType === targetScriptType).length
-	: ($systemFontsStore || []).length;
+$: categoryCount = targetSlot
+	? ($systemFontsStore || []).filter((f) => coversSlot(f, targetSlot as ScriptFontSlot)).length
+	: lockScriptType
+		? ($systemFontsStore || []).filter((f) => f.scriptType === targetScriptType).length
+		: ($systemFontsStore || []).length;
 
 $: enabledCount = ($settings.enabledSystemFonts || []).length;
 
-$: modalTitle = lockScriptType
+$: modalTitle = targetSlot
+	? `System Fonts for ${SCRIPT_LABELS[targetSlot]}`
+	: lockScriptType
 	? targetScriptType === 'cjk'
 		? 'System CJK Fallback Fonts'
 		: 'System Dialogue Fonts'
 	: 'System Installed Fonts';
 
-$: searchPlaceholder = lockScriptType
+// A SCRIPT SLOT (ARABIC, THAI...) NAMES ITS OWN SCRIPT; ONLY THE SLOT-LESS LEGACY PATH SAYS CJK
+$: searchPlaceholder = targetSlot
+	? `Search installed ${SCRIPT_LABELS[targetSlot]} fonts...`
+	: lockScriptType
 	? targetScriptType === 'cjk'
 		? 'Search installed CJK fonts (e.g. YaHei, Gothic, Ming)...'
 		: 'Search installed dialogue fonts (e.g. Arial, Comic, Impact)...'
@@ -208,6 +264,7 @@ $: searchPlaceholder = lockScriptType
 			{:else}
 				{#each filteredFonts as font}
 					{@const enabled = ($settings.enabledSystemFonts || []).includes(font.family)}
+					{@const inSlot = Boolean(targetSlot && $settings.typesetScriptFonts?.[targetSlot] === font.family)}
 					<div
 						class={cn(
 							'group flex flex-col gap-1.5 rounded-2xl border p-3 transition-all',
@@ -220,7 +277,11 @@ $: searchPlaceholder = lockScriptType
 						<div class="flex items-center justify-between gap-2">
 							<div class="min-w-0 flex-1 flex items-center gap-1.5 flex-wrap">
 								<span class="text-xs font-bold text-current truncate">{font.family}</span>
-								{#if !lockScriptType}
+								{#if font.scripts && font.scripts.length > 0}
+									{#each font.scripts.filter((sc) => sc !== 'latin').slice(0, 4) as sc}
+										<Badge variant="cinnabar">{SCRIPT_LABELS[sc]}</Badge>
+									{/each}
+								{:else if !lockScriptType}
 									<Badge variant={font.scriptType === 'cjk' ? 'cinnabar' : 'neutral'}>
 										{font.scriptType === 'cjk' ? 'CJK' : 'Dialogue'}
 									</Badge>
@@ -233,19 +294,39 @@ $: searchPlaceholder = lockScriptType
 							</div>
 
 							<!-- ACTION TOGGLE -->
-							<div class="shrink-0">
+							<div class="shrink-0 flex items-center gap-1">
+								{#if targetSlot && enabled}
+									<button
+										type="button"
+										on:click={() => disableFont(font.family)}
+										class="inline-flex items-center rounded-xl p-1.5 text-neutral-400 hover:bg-red-500/10 hover:text-red-600 dark:hover:bg-red-500/20 dark:hover:text-red-400 transition cursor-pointer"
+										title={`Disable "${font.family}" everywhere`}
+										aria-label={`Disable ${font.family}`}
+										data-testid="system-font-disable"
+										use:ripple
+									>
+										<EyeOff size={12} />
+									</button>
+								{/if}
 								<button
 									type="button"
-									on:click={() => toggleFontEnabled(font.family)}
+									disabled={inSlot}
+									on:click={() => handleFontAction(font.family)}
 									class={cn(
-										'inline-flex items-center gap-1.5 rounded-xl px-2.5 py-1 text-xs font-semibold transition-all cursor-pointer shadow-2xs whitespace-nowrap',
-										enabled
+										'inline-flex items-center gap-1.5 rounded-xl px-2.5 py-1 text-xs font-semibold transition-all cursor-pointer shadow-2xs whitespace-nowrap disabled:cursor-default',
+										inSlot || (enabled && !targetSlot)
 											? 'bg-[#4f7a64] text-white hover:bg-[#3d604e] dark:bg-[#5b8a72] dark:hover:bg-[#4d7560]'
 											: 'border border-black/10 bg-white text-neutral-800 hover:bg-neutral-50 dark:border-white/10 dark:bg-neutral-800 dark:text-neutral-200 dark:hover:bg-neutral-700'
 									)}
 									use:ripple
 								>
-									{#if enabled}
+									{#if inSlot}
+										<Check size={12} />
+										<span>In use</span>
+									{:else if enabled && targetSlot}
+										<Plus size={12} />
+										<span>Use</span>
+									{:else if enabled}
 										<Check size={12} />
 										<span>Enabled</span>
 									{:else}
@@ -261,7 +342,7 @@ $: searchPlaceholder = lockScriptType
 							class="text-sm font-medium tracking-tight text-current/90 truncate pt-0.5"
 							style="font-family: '{font.family}', sans-serif;"
 						>
-							{font.scriptType === 'cjk' ? SAMPLE_TEXT_CJK : SAMPLE_TEXT_DIALOGUE}
+							{sampleFor(font)}
 						</div>
 					</div>
 				{/each}

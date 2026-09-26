@@ -41,6 +41,10 @@ export function sanitizeForFont(text: string): string {
 		.replace(/…\s*,/g, '… ')
 		.replace(/,\s*([.!?…])/g, '$1')
 		.replace(/,\s*$/g, '')
+		// THE SAME CLEANUP FOR THE ARABIC COMMA (DOUBLED OCR COMMAS, COMMA BEFORE END PUNCTUATION, TRAILING COMMA)
+		.replace(/،\s*،/g, '، ')
+		.replace(/،\s*([.!؟…])/g, '$1')
+		.replace(/،\s*$/g, '')
 		.replace(/[ \t]{2,}/g, ' ')
 		.trim();
 }

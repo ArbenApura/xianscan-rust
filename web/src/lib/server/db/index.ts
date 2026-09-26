@@ -133,6 +133,7 @@ export function runMigrationsAndSafeguards(sqlite: Database.Database) {
 				file_size INTEGER NOT NULL,
 				supported_weights TEXT NOT NULL DEFAULT '["normal"]',
 				is_variable INTEGER NOT NULL DEFAULT 0,
+				scripts TEXT NOT NULL DEFAULT '[]',
 				created_at INTEGER NOT NULL
 			);
 		`);
@@ -161,6 +162,7 @@ export function runMigrationsAndSafeguards(sqlite: Database.Database) {
 
 	// ENSURE RECENT COLUMNS EXIST ON ANY PRE-MIGRATION LEGACY DATABASES
 	try { sqlite.exec(`ALTER TABLE custom_fonts ADD COLUMN is_variable INTEGER NOT NULL DEFAULT 0;`); } catch {}
+	try { sqlite.exec(`ALTER TABLE custom_fonts ADD COLUMN scripts TEXT NOT NULL DEFAULT '[]';`); } catch {}
 	try { sqlite.exec(`ALTER TABLE pages ADD COLUMN panels TEXT;`); } catch {}
 	try { sqlite.exec(`ALTER TABLE pages ADD COLUMN onomatopoeia TEXT;`); } catch {}
 	try { sqlite.exec(`ALTER TABLE pages ADD COLUMN llm_prompt TEXT;`); } catch {}

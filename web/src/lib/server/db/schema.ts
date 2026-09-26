@@ -164,6 +164,8 @@ export const regions = sqliteTable(
 		status: text('status', { enum: ['pending', 'translated', 'failed'] }).notNull().default('pending'),
 		// OCR CONFIDENCE (0..1) - NULL WHEN UNKNOWN.
 		conf: real('conf'),
+		// SCALE OF conf: 0 = LEGACY SIGMOID SCALE, 1 = SOFTMAX MEAN (FEAT-003 ADR-006).
+		confScale: integer('conf_scale').notNull().default(0),
 		createdAt: epochMs('created_at')
 			.notNull()
 			.$defaultFn(() => Date.now()),
@@ -349,6 +351,8 @@ export const customFonts = sqliteTable('custom_fonts', {
 	fileSize: integer('file_size').notNull(),
 	supportedWeights: text('supported_weights').notNull().default('["normal"]'),
 	isVariable: integer('is_variable', { mode: 'boolean' }).notNull().default(false),
+	// JSON Script[] READ FROM THE FONT'S cmap (FEAT-006); '[]' = NOT YET SCANNED (BACKFILLED LAZILY)
+	scripts: text('scripts').notNull().default('[]'),
 	createdAt: epochMs('created_at')
 		.notNull()
 		.$defaultFn(() => Date.now()),

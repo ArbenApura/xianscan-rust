@@ -4,7 +4,7 @@ import type { RequestHandler } from '@sveltejs/kit';
 // IMPORTED DEP-MODULES
 import { readFileSync, existsSync } from 'node:fs';
 // IMPORTED MODULES
-import { resolveSystemFontFilePath } from '$lib/server/typeset/fonts';
+import { resolveBundledFontFilePath, resolveSystemFontFilePath } from '$lib/server/typeset/fonts';
 
 // -- HANDLERS -- //
 
@@ -14,7 +14,8 @@ export const GET: RequestHandler = async ({ params }) => {
 		return new Response('FONT FAMILY REQUIRED', { status: 400 });
 	}
 
-	const filePath = resolveSystemFontFilePath(family);
+	// A FONT THAT SHIPS WITH XIANSCAN (OLDER SETTINGS MAY LIST ONE AS A SYSTEM FONT) IS SERVED FROM THE APP'S FONT DIR
+	const filePath = resolveBundledFontFilePath(family) ?? resolveSystemFontFilePath(family);
 	if (!filePath || !existsSync(filePath)) {
 		return new Response('SYSTEM FONT FILE NOT FOUND', { status: 404 });
 	}

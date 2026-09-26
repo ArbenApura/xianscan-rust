@@ -12,7 +12,9 @@ import { GlobalFonts } from '@napi-rs/canvas';
 import { db } from '$lib/server/db';
 import { customFonts, customFontFiles } from '$lib/server/db/schema';
 import { getFontAvailability, getUserFontsDir, LATIN_DIALOGUE_FONTS, registerCustomFonts, invalidateCustomFontsCache } from '$lib/server/typeset/fonts';
-import { parseFontBuffer, groupFontFilesByFamily } from '$lib/server/typeset/font-parser';
+import { parseFontBuffer, groupFontFilesByFamily, detectLegacyEncoding } from '$lib/server/typeset/font-parser';
+import { SCRIPT_FONT_SLOTS, type ScriptFontSlot } from '$lib/typeset-scripts';
+import type { Script } from '$lib/languages';
 
 // -- CONSTANTS -- //
 
@@ -31,6 +33,9 @@ const RESERVED_BUNDLED_FONTS = new Set([
 	'lexend bold',
 	'wenquanyi micro hei',
 	'wenquanyi micro hei bold',
+	'noto sans devanagari',
+	'noto sans thai',
+	'tajawal',
 ]);
 
 // -- HANDLERS -- //
@@ -101,13 +106,34 @@ export const POST: RequestHandler = async ({ request }) => {
 		const rawLabel = (formData.get('name')?.toString() || '').trim();
 		const sanitizedCustom = rawLabel.replace(/["'\\;\x00-\x1f\x7f]/g, '').trim().slice(0, 64);
 		const scriptTypeRaw = (formData.get('scriptType')?.toString() || 'dialogue').toLowerCase();
-		const scriptType: 'dialogue' | 'cjk' = scriptTypeRaw === 'cjk' ? 'cjk' : 'dialogue';
+		const requestedScriptType: 'dialogue' | 'cjk' = scriptTypeRaw === 'cjk' ? 'cjk' : 'dialogue';
+		// THE SCRIPT SLOT THE USER UPLOADED FROM, IF ANY (FOR THE "DOES NOT COVER" WARNING)
+		const slotRaw = formData.get('slot')?.toString() as ScriptFontSlot | undefined;
+		const uploadSlot = slotRaw && SCRIPT_FONT_SLOTS.includes(slotRaw) ? slotRaw : undefined;
+		const warnings: string[] = [];
+		let resultScripts: Script[] = [];
 
 		const userFontsDir = getUserFontsDir();
 		let primaryResultFont: any = null;
 
 		for (const [, group] of groups) {
 			const fontName = (groups.size === 1 && sanitizedCustom) ? sanitizedCustom : group.familyName;
+			// COVERAGE FROM THE FILES' cmap DECIDES THE CATEGORY; THE FORM FIELD ONLY WHEN NOTHING COULD BE READ
+			const groupScripts = [...new Set(group.variants.flatMap((v) => v.meta.scripts ?? []))] as Script[];
+			const scriptType: 'dialogue' | 'cjk' =
+				groupScripts.length === 0 ? requestedScriptType : groupScripts.includes('latin') ? 'dialogue' : 'cjk';
+			for (const v of group.variants) {
+				const warning = detectLegacyEncoding({ ...v.meta, fileName: v.fileName }, v.meta.scripts ?? []);
+				if (warning && !warnings.includes(warning)) warnings.push(warning);
+			}
+			if (uploadSlot && groupScripts.length > 0 && !groupScripts.includes(uploadSlot)) {
+				warnings.push(`"${fontName}" has no ${uploadSlot} characters, so it cannot render text in that script.`);
+			} else if (!uploadSlot && requestedScriptType === 'cjk' && groupScripts.length > 0 && groupScripts.every((sc) => sc === 'latin')) {
+				warnings.push(`"${fontName}" only covers Latin letters; it will not help with non-Latin text.`);
+			} else if (!uploadSlot && requestedScriptType === 'dialogue' && groupScripts.length > 0 && !groupScripts.includes('latin')) {
+				// STORED AS A SCRIPT FONT: THE DIALOGUE FONT MUST DRAW LATIN TEXT, SO THE CLIENT DOES NOT SELECT IT THERE
+				warnings.push(`"${fontName}" has no Latin letters, so it cannot be the dialogue font. Choose it under Script Fonts instead.`);
+			}
 
 			// DISALLOW NAMES THAT COLLIDE WITH BUNDLED SYSTEM FONTS
 			if (RESERVED_BUNDLED_FONTS.has(fontName.toLowerCase())) {
@@ -159,15 +185,23 @@ export const POST: RequestHandler = async ({ request }) => {
 					}
 				}
 
+				let existingScripts: Script[] = [];
+				try {
+					existingScripts = JSON.parse((existingFont as { scripts?: string }).scripts || '[]');
+				} catch {}
+				const mergedScripts = [...new Set([...existingScripts, ...groupScripts])] as Script[];
+				resultScripts = mergedScripts;
+
 				db.update(customFonts)
 					.set({
 						supportedWeights: JSON.stringify(currentWeights),
 						isVariable: existingFont.isVariable || group.isVariable,
+						scripts: JSON.stringify(mergedScripts),
 					})
 					.where(eq(customFonts.id, existingFont.id))
 					.run();
 
-				if (existingFont.scriptType === 'dialogue') {
+				if (mergedScripts.length > 0 ? mergedScripts.includes('latin') : existingFont.scriptType === 'dialogue') {
 					LATIN_DIALOGUE_FONTS.add(fontName);
 				}
 
@@ -180,6 +214,7 @@ export const POST: RequestHandler = async ({ request }) => {
 					fileSize: existingFont.fileSize,
 					supportedWeights: currentWeights,
 					isVariable: existingFont.isVariable || group.isVariable,
+					scripts: mergedScripts,
 				};
 			} else {
 				// CREATE NEW FONT FAMILY RECORD
@@ -200,6 +235,7 @@ export const POST: RequestHandler = async ({ request }) => {
 				if (scriptType === 'dialogue') {
 					LATIN_DIALOGUE_FONTS.add(fontName);
 				}
+				resultScripts = groupScripts;
 
 				// INSERT PARENT CUSTOM FONT FAMILY FIRST
 				db.insert(customFonts).values({
@@ -211,6 +247,7 @@ export const POST: RequestHandler = async ({ request }) => {
 					fileSize: totalSize,
 					supportedWeights: JSON.stringify(group.supportedWeights),
 					isVariable: group.isVariable,
+					scripts: JSON.stringify(groupScripts),
 					createdAt: Date.now(),
 				}).run();
 
@@ -246,6 +283,7 @@ export const POST: RequestHandler = async ({ request }) => {
 					fileSize: totalSize,
 					supportedWeights: group.supportedWeights,
 					isVariable: group.isVariable,
+					scripts: groupScripts,
 				};
 			}
 		}
@@ -257,6 +295,8 @@ export const POST: RequestHandler = async ({ request }) => {
 		return json({
 			success: true,
 			font: primaryResultFont,
+			scripts: resultScripts,
+			warnings,
 		});
 	} catch (e: any) {
 		return json({ success: false, error: e?.message || 'FAILED TO UPLOAD FONT' }, { status: 500 });

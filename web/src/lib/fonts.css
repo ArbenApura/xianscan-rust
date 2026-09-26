@@ -106,3 +106,51 @@
 	src: url('/fonts/FriendlySans-Italic.ttf') format('truetype');
 }
 
+/* BUNDLED SCRIPT FONTS (FEAT-006): THE SAME FILES THE SERVER TYPESETTER USES, SO PREVIEWS MATCH */
+@font-face {
+	font-family: 'Noto Sans Devanagari';
+	font-style: normal;
+	font-display: swap;
+	font-weight: 400;
+	src: url('/fonts/NotoSansDevanagari-Regular.ttf') format('truetype');
+}
+
+@font-face {
+	font-family: 'Noto Sans Devanagari';
+	font-style: normal;
+	font-display: swap;
+	font-weight: 700;
+	src: url('/fonts/NotoSansDevanagari-Bold.ttf') format('truetype');
+}
+
+@font-face {
+	font-family: 'Noto Sans Thai';
+	font-style: normal;
+	font-display: swap;
+	font-weight: 400;
+	src: url('/fonts/NotoSansThai-Regular.ttf') format('truetype');
+}
+
+@font-face {
+	font-family: 'Noto Sans Thai';
+	font-style: normal;
+	font-display: swap;
+	font-weight: 700;
+	src: url('/fonts/NotoSansThai-Bold.ttf') format('truetype');
+}
+
+@font-face {
+	font-family: 'Tajawal';
+	font-style: normal;
+	font-display: swap;
+	font-weight: 400;
+	src: url('/fonts/Tajawal-Regular.ttf') format('truetype');
+}
+
+@font-face {
+	font-family: 'Tajawal';
+	font-style: normal;
+	font-display: swap;
+	font-weight: 700;
+	src: url('/fonts/Tajawal-Bold.ttf') format('truetype');
+}

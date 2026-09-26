@@ -25,7 +25,7 @@ export function isSfxOrShout(text: string): boolean {
 	const trimmed = text.trim();
 	if (!trimmed) return false;
 	if (trimmed.includes('\n')) return false;
-	if (trimmed.includes('?') || trimmed.includes('？') || trimmed.includes(',') || trimmed.includes('，')) return false;
+	if (trimmed.includes('?') || trimmed.includes('？') || trimmed.includes(',') || trimmed.includes('，') || /[؟،؛]/.test(trimmed)) return false;
 
 	const words = trimmed.split(/\s+/);
 	if (words.length === 1) return true;

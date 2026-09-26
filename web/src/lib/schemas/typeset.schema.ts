@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { SCRIPT_FONT_SLOTS, type ScriptFontSlot } from '$lib/typeset-scripts';
 
 export const typesetOutlineSchema = z.enum(['none', 'subtle', 'medium', 'heavy']);
 export const typesetContrastSchema = z.enum(['standard', 'enhanced', 'maximum']);
@@ -9,6 +10,7 @@ export const typesetOptionsSchema = z.object({
 	fontFamily: z.string().optional(),
 	fontDialogue: z.string().optional(),
 	fontCjk: z.string().optional(),
+	scriptFonts: z.record(z.enum(SCRIPT_FONT_SLOTS as unknown as [ScriptFontSlot, ...ScriptFontSlot[]]), z.string().max(128)).optional(),
 	fontSize: z.number().min(6).max(120).optional(),
 	boxInset: z.number().min(0.01).max(0.20).optional(),
 	lineHeight: z.number().min(0.5).max(3.0).optional(),
@@ -21,6 +23,7 @@ export const typesetOptionsSchema = z.object({
 	allCaps: z.boolean().optional(),
 	enableRotation: z.boolean().optional(),
 	align: typesetAlignSchema.optional(),
+	direction: z.enum(['auto', 'ltr', 'rtl']).optional(),
 	autoFit: z.boolean().optional(),
 	fontWeight: z.union([z.enum(['normal', 'bold']), z.string(), z.number()]).optional(),
 	fontStyle: z.enum(['normal', 'italic']).optional(),

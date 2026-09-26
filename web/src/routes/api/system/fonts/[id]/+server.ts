@@ -101,6 +101,13 @@ export const DELETE: RequestHandler = async ({ params }) => {
 		nextSettings.typesetCjkFont = 'WenQuanYi Micro Hei';
 		needsSettingsUpdate = true;
 	}
+	// SCRIPT SLOTS THAT USED THE FONT GO BACK TO AUTOMATIC (NOT TO A FIXED FALLBACK FONT)
+	const scriptFonts = canonical.typesetScriptFonts ?? {};
+	const keptSlots = Object.fromEntries(Object.entries(scriptFonts).filter(([, family]) => family !== row.name));
+	if (Object.keys(keptSlots).length !== Object.keys(scriptFonts).length) {
+		nextSettings.typesetScriptFonts = keptSlots;
+		needsSettingsUpdate = true;
+	}
 
 	if (needsSettingsUpdate) {
 		updateCanonicalSettings(nextSettings);

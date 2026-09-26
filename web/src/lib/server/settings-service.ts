@@ -1,7 +1,10 @@
-import { eq } from 'drizzle-orm';
+import { eq, inArray } from 'drizzle-orm';
 import { db as defaultDb } from './db';
 import { appSettings } from './db/schema';
-import { DEFAULTS, type AppSettings, type InpaintMode, type ExecutionDevice, type TypesetOutline, type TypesetContrast, type TypesetCasing, type ReasoningEffortOption } from '$lib/stores/settings';
+import { DEFAULTS, sanitizeScriptFonts, type AppSettings, type InpaintMode, type ExecutionDevice, type TypesetOutline, type TypesetContrast, type TypesetCasing, type ReasoningEffortOption } from '$lib/stores/settings';
+import { SCRIPT_FONT_SLOTS, type ScriptFontSlot } from '$lib/typeset-scripts';
+import { familyCovers } from './typeset/coverage';
+import { isBundledFontFamily } from './typeset/bundled-families';
 
 // IN-MEMORY SETTINGS CACHE
 let cachedSettings: AppSettings | null = null;
@@ -19,6 +22,8 @@ const VALID_OUTLINES: TypesetOutline[] = ['none', 'thin', 'standard', 'heavy'];
 const VALID_CONTRASTS: TypesetContrast[] = ['auto', 'dark', 'light'];
 const VALID_CASINGS: TypesetCasing[] = ['uppercase', 'original', 'lowercase'];
 const VALID_REASONING_EFFORTS: ReasoningEffortOption[] = ['auto', 'none', 'minimal', 'low', 'medium', 'high', 'max'];
+// PREVIEW SAMPLE PRESETS THE SETTINGS UI OFFERS (E15: 'zh-hans' / 'zh-hant' WERE BEING RESET TO 'en')
+const VALID_PREVIEW_PRESETS = ['en', 'zh-hans', 'zh-hant', 'ja', 'ko', 'hi', 'th', 'ru', 'ar', 'custom'];
 
 // SANITIZE AND CLAMP INPUT VALUES AGAINST SCHEMA INVARIANTS
 export function sanitizeSettingValue(key: keyof AppSettings, value: unknown): unknown {
@@ -134,7 +139,8 @@ export function sanitizeSettingValue(key: keyof AppSettings, value: unknown): un
 
 		case 'enabledSystemFonts': {
 			if (Array.isArray(value)) {
-				return value.filter((v): v is string => typeof v === 'string').slice(0, 100);
+				// BUNDLED FONTS ARE NOT SYSTEM FONTS (OLDER BUILDS LET THE SYSTEM FONT BROWSER ENABLE THEM); THEIR SCRIPT SLOTS STAY
+				return value.filter((v): v is string => typeof v === 'string' && !isBundledFontFamily(v)).slice(0, 100);
 			}
 			return [];
 		}
@@ -172,7 +178,11 @@ export function sanitizeSettingValue(key: keyof AppSettings, value: unknown): un
 			return Boolean(value);
 
 		case 'typesetPreviewPreset':
-			return ['en', 'ja', 'zh', 'ko', 'custom'].includes(value as string) ? value : 'en';
+			if (value === 'zh') return 'zh-hans';
+			return VALID_PREVIEW_PRESETS.includes(value as string) ? value : 'en';
+
+		case 'typesetScriptFonts':
+			return sanitizeScriptFonts(value);
 
 		case 'typesetPreviewText':
 			return typeof value === 'string' ? value.slice(0, 500) : String(value || '').slice(0, 500);
@@ -242,6 +252,11 @@ export function getCanonicalSettings(db = defaultDb): AppSettings {
 			}
 		}
 
+		if (!rowMap.has('typesetScriptFonts')) {
+			const migrated = migrateLegacyScriptFonts(result, db);
+			if (migrated) result.typesetScriptFonts = migrated;
+		}
+
 		cachedSettings = { ...result };
 		cacheTimestamp = now;
 	} catch (err) {
@@ -250,6 +265,34 @@ export function getCanonicalSettings(db = defaultDb): AppSettings {
 	}
 
 	return result;
+}
+
+/**
+ * ONE-TIME MOVE OF THE OLD SINGLE CJK FONT SETTING INTO PER-SCRIPT SLOTS (FEAT-006). RUNS ONLY WHILE THE
+ * typesetScriptFonts ROW IS ABSENT, AND WRITES THAT ROW, SO IT IS IDEMPOTENT. A NON-DEFAULT CJK FONT FILLS
+ * han / kana / hangul AND EVERY OTHER SLOT IT REALLY COVERS; THE DEFAULT (WENQUANYI) GIVES AN EMPTY MAP.
+ */
+export function migrateLegacyScriptFonts(current: AppSettings, db = defaultDb): Partial<Record<ScriptFontSlot, string>> | null {
+	try {
+		const legacy = current.typesetCjkFont;
+		const map: Partial<Record<ScriptFontSlot, string>> = {};
+		if (legacy && legacy !== DEFAULTS.typesetCjkFont) {
+			for (const slot of SCRIPT_FONT_SLOTS) {
+				if (slot === 'han' || slot === 'kana' || slot === 'hangul' || familyCovers(legacy, slot)) map[slot] = legacy;
+			}
+		}
+		db.insert(appSettings)
+			.values({ key: 'typesetScriptFonts', value: JSON.stringify(map), updatedAt: Date.now() })
+			.onConflictDoNothing()
+			.run();
+		if (Object.keys(map).length > 0) {
+			console.info(`[settings-service] moved CJK font "${legacy}" into script font slots: ${Object.keys(map).join(', ')}`);
+		}
+		return map;
+	} catch (err) {
+		console.warn('[settings-service] script font migration skipped:', err);
+		return null;
+	}
 }
 
 export function updateCanonicalSettings(
@@ -327,7 +370,13 @@ export function seedInitialSettingsIfEmpty(
 	db = defaultDb
 ): void {
 	try {
-		const existing = db.select({ key: appSettings.key }).from(appSettings).limit(1).all();
+		// ONLY AppSettings KEYS COUNT: ROWS SUCH AS lanAccessEnabled CAN EXIST BEFORE THE FIRST SEED (R4)
+		const existing = db
+			.select({ key: appSettings.key })
+			.from(appSettings)
+			.where(inArray(appSettings.key, Object.keys(DEFAULTS)))
+			.limit(1)
+			.all();
 		if (existing.length === 0 && Object.keys(initialValues).length > 0) {
 			updateCanonicalSettings(initialValues, db);
 		}

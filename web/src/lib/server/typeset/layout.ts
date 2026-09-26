@@ -1,13 +1,20 @@
 // TEXT REFLOW, WRAPPING, AND FONT SIZE FITTING ALGORITHMS
 // IMPORTED MODULES
 import { CJK_REGEX, fontSpec } from './fonts';
+import { textFontStack, type ScriptFontContext } from './script-fonts';
+import { scriptOfChar } from '$lib/typeset-scripts';
+import { ARABIC_SCRIPT_REGEX } from '$lib/text-direction';
 
 // -- CONSTANTS -- //
 
 const BOX_INSET = 0.05;
 const MIN_FONT_SIZE = 6;
 const LINE_HEIGHT = 1.2;
-const LONE_PUNCT = /^[.．…·!！?？,，;；:：~～)"'']{1,10}$/;
+const LONE_PUNCT = /^[.．…·!！?？,，;；:：~～)؟،؛«»"'']{1,10}$/;
+// TRAILING PUNCTUATION THAT MAY DETACH FROM A WORD, ARABIC ؟ ، ؛ » INCLUDED (FEAT-007)
+const TRAILING_PUNCT_CLASS = `.!?,:;~…"'؟،؛»`;
+const TRAILING_PUNCT_RE = new RegExp(`^(.*?)([${TRAILING_PUNCT_CLASS}]+)?$`, 'u');
+const MULTI_PUNCT_RE = new RegExp(`^(.*?)([${TRAILING_PUNCT_CLASS}]{2,})$`, 'u');
 // MINIMUM HEIGHT/WIDTH RATIO THAT ACTIVATES THE VERTICAL-FILL HYPHENATION PASS
 const TALL_FILL_MIN_ASPECT = 1.5;
 
@@ -29,6 +36,11 @@ const HYPHEN_SUFFIXES = [
 // -- FUNCTIONS -- //
 
 export function findHyphenationPoints(rawWord: string): number[] {
+	// THE SYLLABLE RULES BELOW ARE ENGLISH: NEVER APPLY THEM TO ARABIC OR ANY OTHER NON-LATIN WORD
+	for (const ch of rawWord) {
+		const script = scriptOfChar(ch);
+		if (script !== 'latin' && script !== 'common') return [];
+	}
 	const word = rawWord.toLowerCase();
 	const len = word.length;
 	// COMIC TYPESETTING: ONLY HYPHENATE WORDS WITH AT LEAST 7 LETTERS
@@ -109,7 +121,7 @@ export function getEffectiveMaxWordWidth(
 ): number {
 	let maxW = 0;
 	for (const w of wordList) {
-		const punctMatch = w.match(/^(.*?)([.!?,:;~…"']+)?$/);
+		const punctMatch = w.match(TRAILING_PUNCT_RE);
 		const stem = punctMatch && punctMatch[1] ? punctMatch[1] : w;
 		const points = findHyphenationPoints(stem);
 		if (points.length > 0) {
@@ -128,14 +140,78 @@ export function getEffectiveMaxWordWidth(
 	return maxW;
 }
 
-export function wrapText(ctx: { measureText(t: string): { width: number } }, text: string, maxWidth: number): string[] {
+// -- COMPLEX SCRIPTS (FEAT-006 PHASE 10) -- //
+
+// CREATED ONCE: SEGMENTERS ARE COSTLY TO BUILD
+const GRAPHEMES = new Intl.Segmenter(undefined, { granularity: 'grapheme' });
+const THAI_WORDS = new Intl.Segmenter('th', { granularity: 'word' });
+// SCRIPTS WHOSE WORDS MUST NEVER GET ENGLISH SYLLABLE HYPHENATION (CJK HAS ITS OWN PER-CHARACTER PATH)
+const HYPHENATION_FREE = new Set(['latin', 'common', 'han', 'kana', 'hangul']);
+
+function isComplexScriptWord(word: string): boolean {
+	for (const ch of word) {
+		if (!HYPHENATION_FREE.has(scriptOfChar(ch))) return true;
+	}
+	return false;
+}
+
+function hasThai(text: string): boolean {
+	for (const ch of text) {
+		if (scriptOfChar(ch) === 'thai') return true;
+	}
+	return false;
+}
+
+/** BREAKS AT GRAPHEME CLUSTER BOUNDARIES ONLY, WITH NO HYPHEN (DEVANAGARI, THAI, ARABIC, CYRILLIC...). */
+function breakAtGraphemes(measure: (t: string) => number, word: string, maxWidth: number): { head: string[]; tail: string } {
+	const head: string[] = [];
+	let current = '';
+	for (const { segment } of GRAPHEMES.segment(word)) {
+		if (!current || measure(current + segment) <= maxWidth) {
+			current += segment;
+		} else {
+			head.push(current);
+			current = segment;
+		}
+	}
+	return { head, tail: current };
+}
+
+/** THAI HAS NO SPACES BETWEEN WORDS: WRAP AT DICTIONARY WORD BOUNDARIES, JOINING WORDS WITHOUT SPACES. */
+function wrapThaiParagraph(measure: (t: string) => number, paragraph: string, maxWidth: number): string[] {
+	const lines: string[] = [];
+	let current = '';
+	for (const { segment } of THAI_WORDS.segment(paragraph)) {
+		if (!current && !segment.trim()) continue;
+		if (measure(current + segment) <= maxWidth) {
+			current += segment;
+			continue;
+		}
+		if (current.trim()) lines.push(current.trimEnd());
+		current = segment.trim() ? segment : '';
+		if (current && measure(current) > maxWidth) {
+			const { head, tail } = breakAtGraphemes(measure, current, maxWidth);
+			lines.push(...head);
+			current = tail;
+		}
+	}
+	if (current.trim()) lines.push(current.trimEnd());
+	return lines;
+}
+
+export function wrapText(
+	ctx: { measureText(t: string): { width: number } },
+	text: string,
+	maxWidth: number,
+	options: { allowGraphemeBreak?: boolean } = {},
+): string[] {
 	const lines: string[] = [];
 
 	function breakLongWord(word: string): { head: string[]; tail: string } {
 		let current = word;
 		const heads: string[] = [];
 
-		const punctMatch = current.match(/^(.*?)([.!?,:;~…"']+)?$/);
+		const punctMatch = current.match(TRAILING_PUNCT_RE);
 		const stem = punctMatch && punctMatch[1] ? punctMatch[1] : current;
 		const trailingPunct = punctMatch && punctMatch[2] ? punctMatch[2] : '';
 
@@ -149,6 +225,13 @@ export function wrapText(ctx: { measureText(t: string): { width: number } }, tex
 			}
 		}
 
+		// ARABIC (FEAT-007 ADR-003): KEEP THE WORD WHOLE SO THE FIT SHRINKS THE FONT INSTEAD. ONLY AS A LAST RESORT
+		// CUT AT GRAPHEME CLUSTERS WITH NO HYPHEN (A HARAKA NEVER LEAVES ITS LETTER, LAM-ALEF STAYS TOGETHER).
+		if (ARABIC_SCRIPT_REGEX.test(word)) {
+			return options.allowGraphemeBreak ? breakAtGraphemes((t) => ctx.measureText(t).width, word, maxWidth) : { head: [], tail: word };
+		}
+		// OTHER NON-LATIN SCRIPTS: NEVER ENGLISH HYPHENATION, NEVER A CUT INSIDE A GRAPHEME CLUSTER
+		if (isComplexScriptWord(word)) return breakAtGraphemes((t) => ctx.measureText(t).width, word, maxWidth);
 		// DO NOT BREAK SHORT WORDS (< 7 LETTERS): KEEP INTACT UNLESS IT HAS TRAILING PUNCTUATION THAT CAN DETACH
 		if (stem.length < 7) {
 			if (trailingPunct && ctx.measureText(stem).width <= maxWidth) {
@@ -158,7 +241,7 @@ export function wrapText(ctx: { measureText(t: string): { width: number } }, tex
 		}
 
 		while (ctx.measureText(current).width > maxWidth && current.length > 1) {
-			const curPunctMatch = current.match(/^(.*?)([.!?,:;~…"']+)?$/);
+			const curPunctMatch = current.match(TRAILING_PUNCT_RE);
 			const curStem = curPunctMatch && curPunctMatch[1] ? curPunctMatch[1] : current;
 			const curPunct = curPunctMatch && curPunctMatch[2] ? curPunctMatch[2] : '';
 
@@ -211,6 +294,10 @@ export function wrapText(ctx: { measureText(t: string): { width: number } }, tex
 
 	for (const paragraph of text.split('\n')) {
 		let current = '';
+		if (hasThai(paragraph)) {
+			lines.push(...wrapThaiParagraph((t) => ctx.measureText(t).width, paragraph, maxWidth));
+			continue;
+		}
 		if (CJK_REGEX.test(paragraph) && !/[a-zA-Z]/.test(paragraph)) {
 			for (let i = 0; i < paragraph.length; i++) {
 				const char = paragraph[i];
@@ -240,7 +327,7 @@ export function wrapText(ctx: { measureText(t: string): { width: number } }, tex
 					}
 				}
 			} else {
-				const m = w.match(/^(.*?)([.!?,:;~…"']{2,})$/);
+				const m = w.match(MULTI_PUNCT_RE);
 				if (m && m[1] && m[2]) {
 					expandedWords.push(m[1], m[2]);
 				} else {
@@ -344,7 +431,7 @@ export function isHardLineBreak(prevLine: string, nextLine: string): boolean {
 	if (!prev || !next) return true;
 
 	// 1. PREVIOUS LINE ENDS WITH DEFINITIVE BREAK PUNCTUATION (COLON, BRACKET, EXCLAMATION, QUESTION, QUOTE)
-	if (/[:：)）\]】>》!！?？"”'’]$/.test(prev)) {
+	if (/[:：)）\]】>》!！?？؟؛"”'’]$/.test(prev)) {
 		return true;
 	}
 
@@ -358,7 +445,7 @@ export function isHardLineBreak(prevLine: string, nextLine: string): boolean {
 	// ORDINARY DIALOGUE WORDS (E.G. "MYSTIC", "HEAVEN", "SLAYING", "NOTICE HOW", "JUST 2") MUST NOT BE FORCED
 	// INTO HARD BREAKS, ALLOWING THEM TO REFLOW NATURALLY INTO BALANCED PARAGRAPHS.
 	const prevWords = prev.split(/\s+/);
-	if (prevWords.length <= 4 && prev.length <= 30 && !/[,，;；\-\/]$/.test(prev)) {
+	if (prevWords.length <= 4 && prev.length <= 30 && !/[,，;；،؛\-\/]$/.test(prev)) {
 		const isCounterHeader = COUNTER_HEADER_REGEX.test(prev) || /^#\d+$/.test(prev) || /^\d+f$/i.test(prev);
 		const isCompoundLabel = COMPOUND_HEADER_REGEX.test(prev);
 		if (isCounterHeader || isCompoundLabel) {
@@ -386,9 +473,11 @@ export function isHardLineBreak(prevLine: string, nextLine: string): boolean {
 		: !CONNECTIVE_WORDS_REGEX.test(prev);
 
 	if (
+		// RULE 5 IS ENGLISH / CJK SPECIFIC: AN ARABIC LINE IS NEVER A "USERNAME" LINE
+		!ARABIC_SCRIPT_REGEX.test(prev) &&
 		prevWords.length <= 3 &&
 		prev.length <= 25 &&
-		!/[,，;；\-\/\\]$/.test(prev) &&
+		!/[,，;；،؛\-\/\\]$/.test(prev) &&
 		hasNoConnective
 	) {
 		const nextStartsWithCapitalOrCjk =
@@ -486,8 +575,9 @@ export function fitFontSize(
 	customCjk?: string,
 	fontWeight?: 'normal' | 'bold' | string | number,
 	fontStyle?: 'normal' | 'italic' | boolean,
+	scriptCtx?: ScriptFontContext,
 ): number {
-	return fitFontSizeWithLines(ctx, text, fontFamily, boxW, boxH, startSize, maxSize, boxInset, customCjk, fontWeight, fontStyle).size;
+	return fitFontSizeWithLines(ctx, text, fontFamily, boxW, boxH, startSize, maxSize, boxInset, customCjk, fontWeight, fontStyle, scriptCtx).size;
 }
 
 export function fitFontSizeWithLines(
@@ -502,8 +592,11 @@ export function fitFontSizeWithLines(
 	customCjk?: string,
 	fontWeight?: 'normal' | 'bold' | string | number,
 	fontStyle?: 'normal' | 'italic' | boolean,
+	scriptCtx?: ScriptFontContext,
 ): FitFontSizeLayout {
 	const inset = boxInset ?? BOX_INSET;
+	// SCRIPT-AWARE MEASURING: THE SAME FAMILIES THE RENDER WILL USE (FEAT-006)
+	const stack = scriptCtx ? textFontStack(text, fontFamily, scriptCtx) : undefined;
 	const maxW = Math.max(10, boxW * (1 - 2 * inset));
 	const maxH = Math.max(10, boxH * (1 - 2 * inset));
 
@@ -516,7 +609,7 @@ export function fitFontSizeWithLines(
 				words.push(i < sub.length - 1 ? `${sub[i]}-` : sub[i]);
 			}
 		} else {
-			const m = w.match(/^(.*?)([.!?,:;~…"']{2,})$/);
+			const m = w.match(MULTI_PUNCT_RE);
 			if (m && m[1] && m[2]) {
 				words.push(m[1], m[2]);
 			} else {
@@ -528,7 +621,7 @@ export function fitFontSizeWithLines(
 	// WINNING (SIZE, LINES) PAIR — THE LARGEST VALIDATED LAYOUT ACROSS ALL PASSES.
 	// RENDER MUST DRAW EXACTLY THESE LINES SO THE FIT CHECKS AND THE RENDER MATCH.
 	let finalSize = MIN_FONT_SIZE;
-	ctx.font = fontSpec(MIN_FONT_SIZE, fontFamily, text, customCjk, fontWeight, fontStyle);
+	ctx.font = fontSpec(MIN_FONT_SIZE, fontFamily, text, customCjk, fontWeight, fontStyle, stack);
 	let finalLines: string[] = wrapText(ctx, text, maxW);
 	const consider = (size: number, lines: string[]): void => {
 		if (size > finalSize && lines.length > 0) {
@@ -536,10 +629,21 @@ export function fitFontSizeWithLines(
 			finalLines = lines;
 		}
 	};
+	// LAST RESORT FOR ARABIC (FEAT-007): AT THE MINIMUM SIZE A WHOLE WORD MAY STILL OVERFLOW A TINY BOX; ONLY THEN
+	// CUT IT AT GRAPHEME CLUSTERS SO THE TEXT STAYS INSIDE THE BUBBLE.
+	const finish = (): FitFontSizeLayout => {
+		if (finalSize === MIN_FONT_SIZE && ARABIC_SCRIPT_REGEX.test(text)) {
+			ctx.font = fontSpec(MIN_FONT_SIZE, fontFamily, text, customCjk, fontWeight, fontStyle, stack);
+			if (finalLines.some((l) => ctx.measureText(l).width > maxW + 0.5)) {
+				return { size: MIN_FONT_SIZE, lines: wrapText(ctx, text, maxW, { allowGraphemeBreak: true }) };
+			}
+		}
+		return { size: finalSize, lines: finalLines };
+	};
 
 	// PRE-COMPUTE STRUCTURED WORD TOKENS ONCE BEFORE THE FONT SIZE LOOP
 	const wordTokens = words.map((w) => {
-		const punctMatch = w.match(/^(.*?)([.!?,:;~…"']+)?$/);
+		const punctMatch = w.match(TRAILING_PUNCT_RE);
 		const stem = punctMatch && punctMatch[1] ? punctMatch[1] : w;
 		const trailingPunct = punctMatch?.[2] ?? '';
 		const points = findHyphenationPoints(stem);
@@ -567,7 +671,7 @@ export function fitFontSizeWithLines(
 	// BUT WRAP INTO A SHORTER CLEAN LINE AT SIZE N+1). A BINARY SEARCH FALSELY
 	// PRUNES LARGER VALID SIZES WHEN A SINGLE INTERMEDIATE SIZE OVERFLOWS.
 	for (let mid = hi; mid >= lo; mid--) {
-		ctx.font = fontSpec(mid, fontFamily, text, customCjk, fontWeight, fontStyle);
+		ctx.font = fontSpec(mid, fontFamily, text, customCjk, fontWeight, fontStyle, stack);
 
 		// HYPHENATION-AWARE MAX WORD WIDTH: USE THE WIDEST SEGMENT AFTER APPLYING
 		// HYPHENATION BREAKS (MATCHING WHAT wrapText WILL ACTUALLY PRODUCE).
@@ -650,7 +754,7 @@ export function fitFontSizeWithLines(
 		const TALL_NARROW_VERT_TOLERANCE = 1.0;
 		let safeFloor = MIN_FONT_SIZE;
 		for (let mid = geometricCandidate; mid >= MIN_FONT_SIZE; mid--) {
-			ctx.font = fontSpec(mid, fontFamily, text, customCjk, fontWeight, fontStyle);
+			ctx.font = fontSpec(mid, fontFamily, text, customCjk, fontWeight, fontStyle, stack);
 			const lines = reflowText(ctx, text, maxW);
 			const lineH = mid * LINE_HEIGHT;
 			const allFitW = lines.every((l) => ctx.measureText(l).width <= maxW + 0.5);
@@ -676,7 +780,7 @@ export function fitFontSizeWithLines(
 	// HYPHENATE CLEANLY AT SIZE N+1), SO A BINARY SEARCH COULD MISS THE FILL BAND.
 	if (aspectRatio >= TALL_FILL_MIN_ASPECT) {
 		for (let mid = effectiveCap; mid >= MIN_FONT_SIZE; mid--) {
-			ctx.font = fontSpec(mid, fontFamily, text, customCjk, fontWeight, fontStyle);
+			ctx.font = fontSpec(mid, fontFamily, text, customCjk, fontWeight, fontStyle, stack);
 			const lines = wrapText(ctx, text, maxW);
 			const allLinesFitW = lines.every((l) => ctx.measureText(l).width <= maxW + 0.5);
 			if (allLinesFitW && lines.length * mid * LINE_HEIGHT <= maxH) {
@@ -688,7 +792,7 @@ export function fitFontSizeWithLines(
 
 	const isNarrowVertical = (boxH / boxW >= 1.15 || boxH >= 120) && boxH >= 65;
 	if (foundClean && (cleanBest >= 14 || !isNarrowVertical)) {
-		return { size: finalSize, lines: finalLines };
+		return finish();
 	}
 
 	lo = Math.max(cleanBest, MIN_FONT_SIZE);
@@ -696,7 +800,7 @@ export function fitFontSizeWithLines(
 	let best = cleanBest;
 
 	for (let mid = hi; mid >= lo; mid--) {
-		ctx.font = fontSpec(mid, fontFamily, text, customCjk, fontWeight, fontStyle);
+		ctx.font = fontSpec(mid, fontFamily, text, customCjk, fontWeight, fontStyle, stack);
 		let totalWordWidth = 0;
 		for (const w of words) {
 			totalWordWidth += ctx.measureText(w).width;
@@ -727,7 +831,7 @@ export function fitFontSizeWithLines(
 		}
 	}
 
-	return { size: finalSize, lines: finalLines };
+	return finish();
 }
 
 export function fitSingleLineSize(
@@ -740,12 +844,14 @@ export function fitSingleLineSize(
 	customCjk?: string,
 	fontWeight?: 'normal' | 'bold' | string | number,
 	fontStyle?: 'normal' | 'italic' | boolean,
+	scriptCtx?: ScriptFontContext,
 ): number {
+	const stack = scriptCtx ? textFontStack(text, fontFamily, scriptCtx) : undefined;
 	let lo = MIN_FONT_SIZE;
 	let hi = Math.max(lo, startSize);
 	while (lo < hi) {
 		const mid = Math.ceil((lo + hi) / 2);
-		ctx.font = fontSpec(mid, fontFamily, text, customCjk, fontWeight, fontStyle);
+		ctx.font = fontSpec(mid, fontFamily, text, customCjk, fontWeight, fontStyle, stack);
 		const textWidth = ctx.measureText(text).width;
 		const lineH = mid * LINE_HEIGHT;
 		if (textWidth <= maxW && lineH <= maxH) lo = mid;
