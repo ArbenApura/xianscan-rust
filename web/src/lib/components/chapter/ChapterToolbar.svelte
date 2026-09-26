@@ -17,6 +17,7 @@
 	import Square from 'lucide-svelte/icons/square';
 	import Pencil from 'lucide-svelte/icons/pencil';
 	import FileX from 'lucide-svelte/icons/file-x';
+	import { PAGE_IMAGE_ACCEPT } from '$lib/image-formats';
 
 	export let bookId: string;
 	export let chapterSeq: number;
@@ -194,7 +195,7 @@
 	<!-- ROW 2: PRIMARY ACTIONS (DESKTOP: FULL CENTERED, NARROW: COMPACT ROW WITH VERTICAL ELLIPSIS POPOVER) -->
 	<input
 		type="file"
-		accept="image/*"
+		accept={PAGE_IMAGE_ACCEPT}
 		multiple
 		class="hidden"
 		bind:this={fileInput}

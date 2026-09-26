@@ -30,6 +30,15 @@ describe('folder-drop utility', () => {
 		expect(isImageFile(zip)).toBe(false);
 	});
 
+	it('isImageFile skips images the upload route rejects, whatever their mime type', () => {
+		// ONE GIF OR BMP IN A DROPPED FOLDER USED TO FAIL THE WHOLE ALL-OR-NOTHING UPLOAD WITH A 400
+		expect(isImageFile(new File([''], 'cover.gif', { type: 'image/gif' }))).toBe(false);
+		expect(isImageFile(new File([''], 'scan.bmp', { type: 'image/bmp' }))).toBe(false);
+		expect(isImageFile(new File([''], 'noext', { type: 'image/png' }))).toBe(false);
+		expect(isImageFile(new File([''], 'photo.HEIC', { type: '' }))).toBe(true);
+		expect(isImageFile(new File([''], 'page.avif', { type: 'image/avif' }))).toBe(true);
+	});
+
 	it('parseChapterSeqHint extracts numbers from various chapter folder names', () => {
 		expect(parseChapterSeqHint('Ch. 05 - The Encounter')).toEqual({
 			title: 'Ch. 05 - The Encounter',

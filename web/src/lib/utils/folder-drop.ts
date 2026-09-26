@@ -1,5 +1,5 @@
-// -- CONSTANTS -- //
-const VALID_IMAGE_EXTENSIONS = new Set(['png', 'jpg', 'jpeg', 'webp', 'avif', 'gif', 'bmp']);
+// IMPORTED MODULES
+import { hasPageImageExtension } from '$lib/image-formats';
 
 // -- TYPES -- //
 export interface DiscoveredChapter {
@@ -24,13 +24,10 @@ export function naturalCompare(a: string, b: string): number {
 	return a.localeCompare(b, undefined, { numeric: true, sensitivity: 'base' });
 }
 
-// CHECK IF A FILE IS A VALID IMAGE BASED ON MIME TYPE OR EXTENSION
+// CHECK IF A FILE IS A PAGE IMAGE THE SERVER ACCEPTS. BY EXTENSION ONLY, LIKE THE SERVER: A MIME TYPE SUCH AS
+// image/gif WOULD LET IN A FILE THAT FAILS THE WHOLE UPLOAD.
 export function isImageFile(file: File): boolean {
-	if (file.type && file.type.startsWith('image/')) {
-		return true;
-	}
-	const ext = file.name.split('.').pop()?.toLowerCase() || '';
-	return VALID_IMAGE_EXTENSIONS.has(ext);
+	return hasPageImageExtension(file.name);
 }
 
 // PARSE CHAPTER SEQUENCE HINT FROM FOLDER NAME (E.G. "Ch. 05", "第3话", "01 - Intro")

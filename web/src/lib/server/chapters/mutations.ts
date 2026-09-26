@@ -11,12 +11,13 @@ import { batchService } from '../batch-service';
 import { DATA_ROOT } from '../paths';
 import { deleteCover, pruneCoverThumbs } from '../covers';
 import { convertBufferToWebP } from './dimensions';
+import { PAGE_IMAGE_EXTENSIONS } from '$lib/image-formats';
 
 // GLOBAL WEBP POLICY: EVERY UPLOAD IS CONVERTED TO WEBP ON IMPORT (ONLY A STATIC
 // WEBP IS KEPT AS-IS). THESE ARE THE ACCEPTED INPUT EXTENSIONS. HEIC DECODE IS
 // OS-GATED (ImageIO / WIC) — ON UNSUPPORTED HOSTS THE CONVERSION FAILS CLEANLY
 // WITH A 400 RATHER THAN STORING A RAW FILE.
-const ALLOWED_EXT = new Set(['.png', '.jpg', '.jpeg', '.webp', '.avif', '.heic', '.heif']);
+const ALLOWED_EXT = new Set(PAGE_IMAGE_EXTENSIONS.map((ext) => `.${ext}`));
 
 export async function assertChapterExists(chapterId: number): Promise<{ id: number; bookId: string; title: string; seq: number; titleTarget: string | null }> {
 	const chapter = db.select().from(chapters).where(eq(chapters.id, chapterId)).get();
