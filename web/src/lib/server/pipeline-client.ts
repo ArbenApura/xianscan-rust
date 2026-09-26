@@ -1,5 +1,10 @@
 import { env } from '$env/dynamic/private';
 import { unzipSync } from 'fflate';
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
+import { DATA_ROOT } from './paths';
+
+export const ML_SECRET_HEADER = 'x-xianscan-ml-secret';
 
 // -- TYPES -- //
 
@@ -23,7 +28,9 @@ export interface PipelineRegion {
 	centroid?: { x: number; y: number } | null;
 	kind?: 'dialogue_bubble' | 'free_text';
 	text: string;
+	// LEGACY SIGMOID-SCALE SCORE; ocr_confidence IS THE CALIBRATED ONE (FEAT-003).
 	confidence: number;
+	ocr_confidence?: number | null;
 	vertical: boolean;
 	angle?: number;
 }
@@ -61,6 +68,9 @@ export interface OcrStats {
 	rescued_crops_count: number;
 	final_regions_count: number;
 	avg_confidence: number;
+	avg_ocr_confidence?: number | null;
+	confidence_scale?: string | null;
+	refine_crop_attempts?: number;
 	steps?: OcrStepLog[];
 }
 
@@ -162,6 +172,15 @@ export interface PipelineClient {
 	pollResliceStatus?(signal?: AbortSignal): Promise<{ pct: number; message: string; done: boolean; run?: number }>;
 	resetResliceStatus?(signal?: AbortSignal): Promise<{ run: number }>;
 	cancelReslice?(run?: number): Promise<void>;
+	/** SIZE LIMITS THE SIDECAR ENFORCES (FROM /health), SO A RESLICE CAN BE REFUSED BEFORE UPLOADING. */
+	getLimits?(signal?: AbortSignal): Promise<SidecarLimits | null>;
+}
+
+export interface SidecarLimits {
+	max_image_pixels: number;
+	max_images: number;
+	max_canvas_pixels: number;
+	reslice_body_bytes: number;
 }
 
 // -- ERRORS -- //
@@ -182,6 +201,7 @@ export class HttpPipelineClient implements PipelineClient {
 	constructor(
 		private readonly baseUrl: string,
 		private readonly fetchImpl: typeof fetch = fetch,
+		private readonly secret?: string,
 	) {
 		// NORMALISE: NEVER BUILD `//pages/...` FROM A TRAILING-SLASH BASE URL
 		this.baseUrl = baseUrl.replace(/\/+$/, '');
@@ -189,7 +209,14 @@ export class HttpPipelineClient implements PipelineClient {
 
 	private async request(path: string, init: RequestInit, signal?: AbortSignal): Promise<Response> {
 		try {
-			return await this.fetchImpl(`${this.baseUrl}${path}`, { ...init, signal });
+			let headers = init.headers;
+			if (this.secret) {
+				// Headers HANDLES PLAIN OBJECTS, ARRAYS AND Headers INSTANCES ALIKE
+				const merged = new Headers(init.headers);
+				merged.set(ML_SECRET_HEADER, this.secret);
+				headers = merged;
+			}
+			return await this.fetchImpl(`${this.baseUrl}${path}`, { ...init, headers, signal });
 		} catch (e) {
 			if (e instanceof PipelineError) throw e;
 			// NETWORK / ABORT — SURFACE AS A CLEAR SIDECAR-DOWN ERROR
@@ -297,6 +324,12 @@ export class HttpPipelineClient implements PipelineClient {
 		if (opts?.maxHeight !== undefined) form.append('max_height', String(opts.maxHeight));
 		const resp = await this.request('/pages/reslice', { method: 'POST', body: form }, signal);
 		if (!resp.ok) throw new PipelineError(`reslice failed (${resp.status}): ${await resp.text()}`, resp.status);
+		// THE SIDECAR STATES HOW MANY SLICES IT SENT. ANYTHING SHORT OF EXACTLY 0..N-1, ALL NON-EMPTY, IS REFUSED:
+		// THE CALLER REPLACES THE WHOLE CHAPTER WITH THIS RESULT, SO A PARTIAL ONE WOULD LOSE PAGES.
+		const expected = Number(resp.headers.get('x-slice-count'));
+		if (!Number.isInteger(expected) || expected <= 0) {
+			throw new PipelineError('reslice returned no valid x-slice-count header', 502);
+		}
 		const zipBuf = Buffer.from(await resp.arrayBuffer());
 		const unzipped = unzipSync(new Uint8Array(zipBuf));
 		const keys = Object.keys(unzipped)
@@ -306,6 +339,17 @@ export class HttpPipelineClient implements PipelineClient {
 				const numB = parseInt(b.replace(/\.(webp|png|jpe?g)$/i, ''), 10);
 				return numA - numB;
 			});
+		if (keys.length !== expected) {
+			throw new PipelineError(`reslice returned ${keys.length} of ${expected} slices`, 502);
+		}
+		keys.forEach((k, i) => {
+			if (parseInt(k.replace(/\.(webp|png|jpe?g)$/i, ''), 10) !== i) {
+				throw new PipelineError(`reslice slice ${i} is missing (got "${k}")`, 502);
+			}
+			if (unzipped[k].byteLength === 0) {
+				throw new PipelineError(`reslice slice ${i} is empty`, 502);
+			}
+		});
 		return keys.map((k) => Buffer.from(unzipped[k]));
 	}
 
@@ -341,6 +385,25 @@ export class HttpPipelineClient implements PipelineClient {
 		if (!resp.ok) throw new PipelineError(`reslice cancel failed (${resp.status})`, resp.status);
 	}
 
+	async getLimits(signal?: AbortSignal): Promise<SidecarLimits | null> {
+		try {
+			const resp = await this.request('/health', { method: 'GET' }, signal);
+			if (!resp.ok) return null;
+			const body = (await resp.json()) as { limits?: Partial<SidecarLimits> };
+			const l = body.limits;
+			if (!l || typeof l.max_canvas_pixels !== 'number') return null;
+			return {
+				max_image_pixels: Number(l.max_image_pixels),
+				max_images: Number(l.max_images),
+				max_canvas_pixels: Number(l.max_canvas_pixels),
+				reslice_body_bytes: Number(l.reslice_body_bytes),
+			};
+		} catch {
+			// AN OLDER SIDECAR (NO LIMITS IN /health) OR A TRANSIENT FAILURE: THE CALLER USES THE DEFAULTS
+			return null;
+		}
+	}
+
 	async health(): Promise<{ status: string; detector: string; inpainter: string }> {
 		const resp = await this.request('/health', { method: 'GET' });
 		if (!resp.ok) throw new PipelineError(`health failed (${resp.status})`, resp.status);
@@ -354,5 +417,16 @@ export function createPipelineClient(): PipelineClient {
 	if (!baseUrl) {
 		throw new Error('ML_BASE_URL is not set — start the ML sidecar (ml/README) and set ML_BASE_URL=http://127.0.0.1:8123');
 	}
-	return new HttpPipelineClient(baseUrl.replace(/\/+$/, ''));
+	return new HttpPipelineClient(baseUrl.replace(/\/+$/, ''), fetch, resolveMlSecret());
+}
+
+// THE LAUNCHER PASSES ML_SHARED_SECRET; IN SPLIT DEV (`--ml-only` + `yarn dev`) IT IS IN <DATA_ROOT>/ml-secret
+function resolveMlSecret(): string | undefined {
+	if (env.ML_SHARED_SECRET && env.ML_SHARED_SECRET.length > 0) return env.ML_SHARED_SECRET;
+	try {
+		const fromFile = readFileSync(join(DATA_ROOT, 'ml-secret'), 'utf8').trim();
+		return fromFile.length > 0 ? fromFile : undefined;
+	} catch {
+		return undefined;
+	}
 }

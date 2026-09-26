@@ -1,13 +1,16 @@
 // DEDICATED BOOK COVER SERVING — RESIZED JPEG THUMBS WITH A DISK CACHE (MIRRORS THE PAGE THUMB PIPELINE).
 // IMPORTED DEP-MODULES
 import { error } from '@sveltejs/kit';
-import { existsSync, mkdirSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync } from 'node:fs';
 import { readFile, stat } from 'node:fs/promises';
 import { extname, join } from 'node:path';
 import { createCanvas, loadImage } from '@napi-rs/canvas';
 // IMPORTED MODULES
 import { resolveCoverTarget } from '$lib/server/covers';
 import { DATA_ROOT } from '$lib/server/paths';
+import { MAX_THUMB_HEIGHT, readImageDims, withinImageLimits } from '$lib/server/image-limits';
+import { intParam } from '$lib/server/params';
+import { writeFileAtomic } from '$lib/server/fs-atomic';
 import type { RequestHandler } from './$types';
 
 // -- CONSTANTS -- //
@@ -23,6 +26,7 @@ const MIME_BY_EXT: Record<string, string> = {
 	'.jpeg': 'image/jpeg',
 	'.png': 'image/png',
 	'.webp': 'image/webp',
+	'.avif': 'image/avif',
 };
 
 // -- HANDLES -- //
@@ -33,16 +37,18 @@ export const GET: RequestHandler = async ({ params, url, request }) => {
 	const sourcePath = join(DATA_ROOT, target.rel);
 	if (!existsSync(sourcePath)) throw error(404, 'Cover file not found on disk.');
 
-	const wRaw = parseInt(url.searchParams.get('w') || '', 10);
-	const isFull = url.searchParams.get('kind') === 'full' || !Number.isInteger(wRaw) || wRaw <= 0;
+	// NO (OR AN INVALID) WIDTH MEANS THE FULL IMAGE; OTHERWISE A THUMB 80..1600 PX WIDE
+	const wRaw = intParam(url, 'w', 0, 0, 1600);
+	const isFull = url.searchParams.get('kind') === 'full' || wRaw <= 0;
 	const sourceExt = extname(target.rel).toLowerCase() || '.jpg';
+	const sourceMime = MIME_BY_EXT[sourceExt] ?? 'application/octet-stream';
 
 	if (isFull) {
 		try {
 			const bytes = await readFile(sourcePath);
 			return new Response(new Uint8Array(bytes), {
 				headers: {
-					'content-type': MIME_BY_EXT[sourceExt] ?? 'image/jpeg',
+					'content-type': sourceMime,
 					'content-length': String(bytes.byteLength),
 					...NO_CACHE_HEADERS,
 				},
@@ -53,7 +59,7 @@ export const GET: RequestHandler = async ({ params, url, request }) => {
 	}
 
 	// RESIZED JPEG THUMB, MEMOIZED ON DISK — THE URL CARRIES THE CONTENT REVISION IN THE KEY.
-	const targetWidth = Math.min(1600, Math.max(80, wRaw));
+	const targetWidth = Math.max(80, wRaw);
 	const cacheKey = `${params.bookId}_${target.kind}_${target.rev}_${targetWidth}.jpg`;
 	const cachePath = join(DATA_ROOT, 'cache', 'covers', cacheKey);
 
@@ -79,15 +85,22 @@ export const GET: RequestHandler = async ({ params, url, request }) => {
 	}
 
 	try {
+		const raw = await readFile(sourcePath);
+		// A PAGE-PROXY COVER CAN BE AN ARBITRARILY TALL STRIP: GATE THE DECODE ON ITS HEADER SIZE
+		const dims = await readImageDims(raw);
+		if (!dims || !withinImageLimits(dims)) throw new Error('cover source over the pixel cap');
 		mkdirSync(join(DATA_ROOT, 'cache', 'covers'), { recursive: true });
-		const img = await loadImage(sourcePath);
-		const scale = targetWidth / img.width;
-		const targetHeight = Math.round(img.height * scale);
+		const img = await loadImage(raw);
+		const fullHeight = Math.max(1, Math.round((img.height * targetWidth) / img.width));
+		// CROP A VERY TALL SOURCE FROM THE TOP INSTEAD OF SQUASHING IT
+		const targetHeight = Math.min(MAX_THUMB_HEIGHT, fullHeight);
+		const sourceHeight = targetHeight < fullHeight ? Math.round((targetHeight * img.width) / targetWidth) : img.height;
 		const canvas = createCanvas(targetWidth, targetHeight);
 		const ctx = canvas.getContext('2d');
-		ctx.drawImage(img, 0, 0, targetWidth, targetHeight);
+		ctx.drawImage(img, 0, 0, img.width, sourceHeight, 0, 0, targetWidth, targetHeight);
 		const jpeg = canvas.toBuffer('image/jpeg', 85);
-		writeFileSync(cachePath, jpeg);
+		// ATOMIC: A CRASH MID-WRITE NEVER LEAVES A TRUNCATED CACHED THUMB
+		writeFileAtomic(cachePath, jpeg);
 		return new Response(new Uint8Array(jpeg), {
 			headers: {
 				'content-type': 'image/jpeg',
@@ -96,12 +109,12 @@ export const GET: RequestHandler = async ({ params, url, request }) => {
 			},
 		});
 	} catch {
-		// FALLBACK TO THE FULL IMAGE IF THUMBNAILING FAILS
+		// FALLBACK TO THE FULL IMAGE (WITH ITS REAL TYPE) IF THUMBNAILING IS REFUSED OR FAILS
 		try {
 			const bytes = await readFile(sourcePath);
 			return new Response(new Uint8Array(bytes), {
 				headers: {
-					'content-type': MIME_BY_EXT[sourceExt] ?? 'image/jpeg',
+					'content-type': sourceMime,
 					'content-length': String(bytes.byteLength),
 					...NO_CACHE_HEADERS,
 				},

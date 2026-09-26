@@ -131,6 +131,18 @@ describe('book cover storage', () => {
 		expect(img.height).toBe(12);
 	});
 
+	it('rejects an over-cap header with 422 and writes nothing', async () => {
+		seedBook(getTestDb(), { id: 'b1' });
+		const header = Buffer.alloc(64);
+		Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]).copy(header, 0);
+		header.writeUInt32BE(13, 8);
+		header.write('IHDR', 12, 'ascii');
+		header.writeUInt32BE(12000, 16);
+		header.writeUInt32BE(12000, 20);
+		await expect(saveCover('b1', new Uint8Array(header), dir)).rejects.toMatchObject({ status: 422 });
+		expect(existsSync(join(dir, 'covers', 'b1.jpg'))).toBe(false);
+	});
+
 	it('rejects undecodable uploads with a friendly error', async () => {
 		seedBook(getTestDb(), { id: 'b1' });
 		await expect(saveCover('b1', new Uint8Array([1, 2, 3, 4]), dir)).rejects.toThrow(/Unsupported or corrupt image/);

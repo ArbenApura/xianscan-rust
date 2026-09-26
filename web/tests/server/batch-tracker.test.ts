@@ -410,5 +410,24 @@ describe('batchService server lifecycle', () => {
 		const state = batchService.reloadActiveBatch();
 		expect(state.status).toBe('idle');
 	});
+	it('getState revision increases after each emit (FEAT-009 Phase 3)', () => {
+		const events: number[] = [];
+		const unsub = batchService.subscribe((e: any) => events.push(e.state.revision));
+		const before = batchService.getState().revision ?? 0;
+		batchService.clearBatch();
+		batchService.clearBatch();
+		const after = batchService.getState().revision ?? 0;
+		unsub();
+		expect(after).toBeGreaterThan(before);
+		// THE SUBSCRIBE SNAPSHOT AND EVERY LATER EMIT CARRY NON-DECREASING REVISIONS
+		expect([...events].sort((x, y) => x - y)).toEqual(events);
+	});
+
+	it('epoch is stable within a process', () => {
+		const a = batchService.getState().epoch;
+		batchService.clearBatch();
+		expect(typeof a).toBe('string');
+		expect(batchService.getState().epoch).toBe(a);
+	});
 });
 

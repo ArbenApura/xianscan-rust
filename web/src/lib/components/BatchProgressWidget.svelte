@@ -37,6 +37,11 @@
 	import { cn } from '$lib/utils/cn';
 	import { PIPELINE_STEP_LABELS, type PageProgressState } from '$lib/types';
 
+	// -- CONSTANTS -- //
+
+	// MIN GAP BETWEEN STATUS RE-CHECKS OF A BATCH CHAPTER THE SERVER REPORTED AS NOT RUNNING
+	const SYNC_COOLDOWN_MS = 3000;
+
 	// -- STATES -- //
 
 	let widgetEl: HTMLElement | null = null;
@@ -349,12 +354,14 @@
 		return nonSkipped;
 	})();
 
-	// ALWAYS CONNECT REAL-TIME TELEMETRY STREAM FOR ALL ACTIVE RUNNING CHAPTERS
+	// ALWAYS CONNECT REAL-TIME TELEMETRY STREAM FOR ALL ACTIVE RUNNING CHAPTERS. THIS RE-RUNS ON EVERY STORE WRITE, SO A
+	// CHAPTER THE SERVER ALREADY FINISHED (STILL 'processing' IN THE BATCH) IS RE-CHECKED AT MOST ONCE PER COOLDOWN
+	// INSTEAD OF BACK-TO-BACK
 	$: if (isRunning && activeChapters.length > 0) {
 		for (const ch of activeChapters) {
 			const job = $jobTracker.jobs[ch.id];
 			if (!job || !job.running) {
-				void jobTracker.syncChapter(ch.id);
+				void jobTracker.syncChapter(ch.id, { minIntervalMs: SYNC_COOLDOWN_MS });
 			}
 		}
 	}
@@ -1221,6 +1228,13 @@
 															</div>
 														</div>
 													{/if}
+													<!-- NON-FATAL CHAPTER NOTICES (SKIPPED RESLICE, NO COVERING FONT) -->
+													{#each ch.notices ?? [] as notice (notice)}
+														<div class="mt-1.5 flex items-start gap-1.5 text-[11px] text-amber-700 dark:text-amber-300" role="status" data-testid="batch-chapter-notice">
+															<AlertTriangle size={12} class="mt-0.5 shrink-0" />
+															<span class="min-w-0 break-words">{notice}</span>
+														</div>
+													{/each}
 												</div>
 											{/each}
 										</div>

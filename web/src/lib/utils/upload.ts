@@ -59,6 +59,16 @@ export function uploadSingleFile(
 	});
 }
 
+// THE ERROR TEXT FOR A FAILED CHAPTER PAGE UPLOAD, KEEPING THE SERVER'S REASON (E.G. A 422 "x.png is
+// 20000 x 8000 (160 MP); the limit is 100 MP.") INSTEAD OF A GENERIC FAILURE
+export async function chapterUploadErrorMessage(chapterTitle: string, res: Response): Promise<string> {
+	const data = (await res.json().catch(() => null)) as { message?: unknown } | null;
+	const reason = typeof data?.message === 'string' && data.message.trim() ? data.message.trim() : '';
+	return reason
+		? `Failed to upload images for "${chapterTitle}": ${reason}`
+		: `Failed to upload images for "${chapterTitle}" (HTTP ${res.status}).`;
+}
+
 // TOTAL PROGRESS PERCENT ACROSS A COLLECTION OF FILES (0-100)
 export function computeGlobalPercent(files: UploadFileInfo[]): number {
 	const total = files.reduce((sum, f) => sum + f.total, 0);

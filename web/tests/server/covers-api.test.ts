@@ -1,12 +1,12 @@
 // IMPORTED DEP-MODULES
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import type { RequestEvent } from '@sveltejs/kit';
-import { mkdtempSync, rmSync, existsSync } from 'node:fs';
+import { mkdtempSync, rmSync, existsSync, mkdirSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { createCanvas } from '@napi-rs/canvas';
+import { createCanvas, loadImage } from '@napi-rs/canvas';
 // IMPORTED MODULES
-import { getTestDb, resetDb, seedBook } from '../helpers/db';
+import { getTestDb, resetDb, seedBook, seedChapter, seedPage } from '../helpers/db';
 
 vi.mock('$lib/server/db', async () => ({ db: (await import('../helpers/db')).getTestDb() }));
 
@@ -105,5 +105,52 @@ describe('covers API routes', () => {
 			status = (e as { status?: number })?.status ?? 0;
 		}
 		expect(status).toBe(400);
+	});
+
+	it('keeps the 422 status for a cover over the pixel cap', async () => {
+		seedBook(getTestDb(), { id: 'b1' });
+		vi.resetModules();
+		const { POST } = await import('../../src/routes/api/covers/[bookId]/+server');
+
+		// PNG SIGNATURE + IHDR CLAIMING 20000 x 20000; NEVER DECODED
+		const header = Buffer.alloc(64);
+		Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]).copy(header, 0);
+		header.writeUInt32BE(13, 8);
+		header.write('IHDR', 12, 'ascii');
+		header.writeUInt32BE(20000, 16);
+		header.writeUInt32BE(20000, 20);
+		const form = new FormData();
+		form.append('cover', new File([header], 'huge.png', { type: 'image/png' }));
+		const req = new Request('http://localhost/api/covers/b1', { method: 'POST', body: form });
+		let status = 0;
+		try {
+			await POST({ request: req, params: { bookId: 'b1' } } as unknown as RequestEvent);
+		} catch (e: unknown) {
+			status = (e as { status?: number })?.status ?? 0;
+		}
+		expect(status).toBe(422);
+		expect(existsSync(join(dir, 'covers', 'b1.jpg'))).toBe(false);
+	});
+
+	it('caps the thumb of a very tall page-proxy cover at 8000 px', async () => {
+		const db = getTestDb();
+		seedBook(db, { id: 'b1' });
+		const chapter = seedChapter(db, { bookId: 'b1', seq: 0 });
+		const canvas = createCanvas(100, 30000);
+		const ctx = canvas.getContext('2d');
+		ctx.fillStyle = '#2d4a6b';
+		ctx.fillRect(0, 0, 100, 30000);
+		mkdirSync(join(dir, 'uploads', '1'), { recursive: true });
+		writeFileSync(join(dir, 'uploads', '1', 'tall.png'), canvas.toBuffer('image/png'));
+		seedPage(db, { chapterId: chapter.id, seq: 0, filePath: 'uploads/1/tall.png' });
+		vi.resetModules();
+		const { GET } = await import('../../src/routes/api/covers/[bookId]/file/+server');
+
+		const url = new URL('http://localhost/api/covers/b1/file?w=100');
+		const res = await GET({ request: new Request(url), url, params: { bookId: 'b1' } } as unknown as RequestEvent);
+		expect(res.headers.get('content-type')).toBe('image/jpeg');
+		const img = await loadImage(Buffer.from(await res.arrayBuffer()));
+		expect(img.width).toBe(100);
+		expect(img.height).toBeLessThanOrEqual(8000);
 	});
 });

@@ -7,7 +7,8 @@ import { toast } from 'svelte-sonner';
 import { streamSse } from '$lib/sse';
 import { apiJson } from '$lib/api';
 import { jobTracker } from './job-tracker';
-import { settings } from './settings';
+import { isNewerBatchState, stampLocalBatchState } from './batch-order';
+import { effectiveTypeset, settings } from './settings';
 import type { BatchChapterItem, BatchTranslationState } from '$lib/types';
 
 // -- CONSTANTS -- //
@@ -38,7 +39,9 @@ function loadLocalState(): BatchTranslationState {
 		if (raw) {
 			const parsed = JSON.parse(raw);
 			if (parsed && Array.isArray(parsed.queue)) {
-				return { ...initialBatchState, ...parsed };
+				// A RESTORED STATE CARRIES NO ORDERING, SO THE FIRST SERVER STATE ALWAYS WINS
+				const { revision: _revision, epoch: _epoch, ...rest } = parsed;
+				return { ...initialBatchState, ...rest };
 			}
 		}
 	} catch {
@@ -62,14 +65,34 @@ function saveLocalState(state: BatchTranslationState): void {
 
 // -- STORE FACTORY -- //
 
-function createBatchTrackerStore() {
-	const { subscribe, set, update } = writable<BatchTranslationState>(loadLocalState());
+// EXPORTED SO TESTS GET A FRESH INSTANCE (autoStart: false SKIPS THE BACKGROUND POLL); THE APP USES batchTracker
+export function createBatchTrackerStore(opts: { autoStart?: boolean } = {}) {
+	const restored = loadLocalState();
+	const { subscribe, set, update } = writable<BatchTranslationState>(restored);
 
+	// NON-NULL WHILE A STREAM IS OPEN OR OPENING
 	let sseAbortController: AbortController | null = null;
-	let isConnectingSse = false;
+	let syncInFlight = false;
+	let bootTimer: ReturnType<typeof setTimeout> | null = null;
 	let pollTimer: ReturnType<typeof setInterval> | null = null;
 	let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
 	let reconnectAttempts = 0;
+	// CHAPTER NOTICES ALREADY TOASTED (A STATE IS RE-SENT ON EVERY CHANGE); ONES IN THE RESTORED STATE WERE SHOWN BEFORE
+	const shownNotices = new Set<string>(restored.queue.flatMap((item) => (item.notices ?? []).map((n) => `${item.id}:${n}`)));
+
+	function showNewNotices(state: BatchTranslationState) {
+		if (!browser) return;
+		for (const item of state.queue) {
+			for (const notice of item.notices ?? []) {
+				const key = `${item.id}:${notice}`;
+				if (shownNotices.has(key)) continue;
+				shownNotices.add(key);
+				const title = item.titleTarget || item.title;
+				// SAME ID AS job-tracker's WARNING TOAST, SO A CHAPTER PAGE OPEN DURING THE BATCH SHOWS IT ONCE
+				toast.warning(title ? `${title}: ${notice}` : notice, { id: `job-warning-${item.id}-${notice}`, duration: 10000 });
+			}
+		}
+	}
 
 	function scheduleReconnect() {
 		if (!browser) return;
@@ -83,8 +106,12 @@ function createBatchTrackerStore() {
 	}
 
 	function handleServerState(state: BatchTranslationState) {
+		// A LATE POLL OR ACTION RESPONSE OLDER THAN A STREAM EVENT ALREADY APPLIED MUST NOT WIN, AND ABOVE ALL MUST NOT
+		// RUN THE clearJob LOOP BELOW FOR A STALE "cancelled" (FEAT-009 PHASE 3, P6)
+		if (!isNewerBatchState(get({ subscribe }), state)) return;
 		set(state);
 		saveLocalState(state);
+		showNewNotices(state);
 		if (state.status === 'cancelled' || state.status === 'idle') {
 			for (const item of state.queue) {
 				jobTracker.clearJob(item.id);
@@ -94,12 +121,11 @@ function createBatchTrackerStore() {
 
 	// CONNECT TO SERVER SSE FEED
 	function connectSse() {
-		if (!browser || isConnectingSse || sseAbortController) return;
+		if (!browser || sseAbortController) return;
 		if (reconnectTimer) {
 			clearTimeout(reconnectTimer);
 			reconnectTimer = null;
 		}
-		isConnectingSse = true;
 
 		const ctrl = new AbortController();
 		sseAbortController = ctrl;
@@ -127,8 +153,10 @@ function createBatchTrackerStore() {
 					scheduleReconnect();
 				}
 			} finally {
-				isConnectingSse = false;
-				sseAbortController = null;
+				// ONLY THE CURRENT STREAM MAY CLEAR ITS SLOT; A NEWER ONE MAY ALREADY BE OPEN (P7)
+				if (sseAbortController === ctrl) {
+					sseAbortController = null;
+				}
 			}
 		})();
 	}
@@ -143,12 +171,12 @@ function createBatchTrackerStore() {
 			sseAbortController.abort();
 			sseAbortController = null;
 		}
-		isConnectingSse = false;
 	}
 
 	// INITIALIZE & SYNC ON LOAD
-	if (browser) {
-		setTimeout(() => {
+	if (browser && opts.autoStart !== false) {
+		bootTimer = setTimeout(() => {
+			bootTimer = null;
 			void sync();
 			connectSse();
 
@@ -165,7 +193,9 @@ function createBatchTrackerStore() {
 	}
 
 	async function sync(): Promise<void> {
-		if (!browser) return;
+		// A SLOW /api/batch NEVER OVERLAPS ITSELF
+		if (!browser || syncInFlight) return;
+		syncInFlight = true;
 		try {
 			const res = await apiJson<BatchTranslationState>('/api/batch');
 			if (res) {
@@ -176,6 +206,8 @@ function createBatchTrackerStore() {
 			}
 		} catch {
 			// Offline or server temporarily unreachable
+		} finally {
+			syncInFlight = false;
 		}
 	}
 
@@ -224,11 +256,13 @@ function createBatchTrackerStore() {
 						enableTypesetCentering: curSettings?.enableTypesetCentering,
 						typesetOptions: {
 							fontDialogue: curSettings?.typesetFont,
-							fontCjk: curSettings?.typesetCjkFont,
+							scriptFonts: curSettings?.typesetScriptFonts,
 							boxInset: curSettings?.typesetPadding,
 							outlineMode: curSettings?.typesetOutline,
 							colorMode: curSettings?.typesetContrast,
-							casing: curSettings?.typesetCasing,
+							// THE EFFECTIVE (FONT-COMPATIBLE) VALUES THE PREVIEW SHOWS; AN UNKNOWN FONT SENDS THE STORED ONES (ADR-004)
+							casing: get(effectiveTypeset).casing,
+							fontWeight: get(effectiveTypeset).weight,
 							enableRotation: curSettings?.enableTextRotation,
 						},
 					},
@@ -377,7 +411,10 @@ function createBatchTrackerStore() {
 				const res = await apiJson<BatchTranslationState>('/api/batch/clear', { method: 'POST' });
 				if (res) handleServerState(res);
 			} catch {
-				handleServerState(initialBatchState);
+				// A LOCAL WRITE KEEPS THE ORDERING STAMP, SO A STALE POLL STILL IN FLIGHT CANNOT BRING THE BATCH BACK
+				const cleared = stampLocalBatchState(get({ subscribe }), initialBatchState);
+				set(cleared);
+				saveLocalState(cleared);
 			}
 		},
 
@@ -388,7 +425,7 @@ function createBatchTrackerStore() {
 				const nextQueue = cur.queue.filter((c) => c.id !== chapterId);
 				const nextState: BatchTranslationState =
 					nextQueue.length === 0
-						? initialBatchState
+						? stampLocalBatchState(cur, initialBatchState)
 						: {
 								...cur,
 								queue: nextQueue,
@@ -407,8 +444,9 @@ function createBatchTrackerStore() {
 					for (const item of cur.queue) {
 						jobTracker.clearJob(item.id);
 					}
-					saveLocalState(initialBatchState);
-					return initialBatchState;
+					const cleared = stampLocalBatchState(cur, initialBatchState);
+					saveLocalState(cleared);
+					return cleared;
 				}
 				return cur;
 			});
@@ -423,6 +461,15 @@ function createBatchTrackerStore() {
 
 		// DIRECT STATE SETTER (FOR TESTING AND SYNCHRONOUS STORE INITIALIZATION)
 		set: handleServerState,
+
+		// STOPS THE POLL, THE RECONNECT TIMER AND THE STREAM (TESTS, HMR)
+		destroy(): void {
+			if (bootTimer) clearTimeout(bootTimer);
+			bootTimer = null;
+			if (pollTimer) clearInterval(pollTimer);
+			pollTimer = null;
+			disconnectSse();
+		},
 	};
 }
 

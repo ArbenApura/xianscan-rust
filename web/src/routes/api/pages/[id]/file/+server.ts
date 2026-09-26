@@ -2,7 +2,7 @@
 // IMPORTED DEP-MODULES
 import { error } from '@sveltejs/kit';
 import { eq } from 'drizzle-orm';
-import { existsSync, mkdirSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync } from 'node:fs';
 import { readFile, stat } from 'node:fs/promises';
 import { extname, join } from 'node:path';
 import { createCanvas, loadImage } from '@napi-rs/canvas';
@@ -10,6 +10,9 @@ import { createCanvas, loadImage } from '@napi-rs/canvas';
 import { db } from '$lib/server/db';
 import { chapters, pages } from '$lib/server/db/schema';
 import { DATA_ROOT } from '$lib/server/paths';
+import { MAX_THUMB_HEIGHT, readImageDims, withinImageLimits, type ImageDims } from '$lib/server/image-limits';
+import { intParam } from '$lib/server/params';
+import { writeFileAtomic } from '$lib/server/fs-atomic';
 import type { RequestHandler } from './$types';
 
 const KINDS = new Set(['original', 'cleaned', 'output', 'thumb', 'annotated']);
@@ -37,7 +40,10 @@ const IMMUTABLE_HEADERS = {
 };
 
 // IN-FLIGHT THUMBNAIL DEDUPLICATION MAP TO PREVENT THUNDERING HERD CPU STARVATION
-const inFlightThumbs = new Map<string, Promise<Uint8Array>>();
+const inFlightThumbs = new Map<string, Promise<{ bytes: Uint8Array; mime: string }>>();
+
+/** THE SOURCE IS TOO LARGE (OR OF UNKNOWN SIZE) TO DECODE FOR A THUMBNAIL: SERVE IT AS IS. */
+class NoThumbnail extends Error {}
 
 export const GET: RequestHandler = async ({ params, url, request }) => {
 	const pageId = Number(params.id);
@@ -72,7 +78,7 @@ export const GET: RequestHandler = async ({ params, url, request }) => {
 
 	// THUMBNAIL SERVING & MEMOIZED DISK CACHING WITH DEDUPLICATION
 	if (kind === 'thumb') {
-		const targetWidth = Math.min(800, Math.max(80, parseInt(url.searchParams.get('w') || '280', 10)));
+		const targetWidth = intParam(url, 'w', 280, 80, 800);
 		const target = url.searchParams.get('target') || (url.searchParams.get('output') === '0' ? 'original' : 'output');
 
 		let rel = page.filePath;
@@ -135,30 +141,42 @@ export const GET: RequestHandler = async ({ params, url, request }) => {
 		// DEDUPLICATE CONCURRENT GENERATION REQUESTS FOR THE SAME CACHE KEY
 		let thumbPromise = inFlightThumbs.get(cacheKey);
 		if (!thumbPromise) {
-			thumbPromise = (async (): Promise<Uint8Array> => {
+			thumbPromise = (async (): Promise<{ bytes: Uint8Array; mime: string }> => {
 				try {
+					const raw = await readFile(sourcePath);
+					// STORED DIMENSIONS DESCRIBE THE ORIGINAL; OTHER STAGES KEEP ITS SIZE BUT ARE READ WHEN UNKNOWN
+					const stored: ImageDims | null =
+						page.width && page.height ? { width: page.width, height: page.height } : null;
+					const dims = stored ?? (await readImageDims(raw));
+					if (!dims || !withinImageLimits(dims)) throw new NoThumbnail();
+
 					mkdirSync(thumbDir, { recursive: true });
-					const img = await loadImage(sourcePath);
-					const scale = targetWidth / img.width;
-					const targetHeight = Math.round(img.height * scale);
+					const img = await loadImage(raw);
+					const fullHeight = Math.max(1, Math.round((img.height * targetWidth) / img.width));
+					// A VERY TALL STRIP IS CROPPED FROM THE TOP (NOT SQUASHED) SO THE THUMB STAYS BOUNDED
+					const targetHeight = Math.min(MAX_THUMB_HEIGHT, fullHeight);
+					const sourceHeight =
+						targetHeight < fullHeight ? Math.round((targetHeight * img.width) / targetWidth) : img.height;
 
 					const canvas = createCanvas(targetWidth, targetHeight);
 					try {
 						const ctx = canvas.getContext('2d');
-						ctx.drawImage(img, 0, 0, targetWidth, targetHeight);
+						ctx.drawImage(img, 0, 0, img.width, sourceHeight, 0, 0, targetWidth, targetHeight);
 						const jpegBuffer = canvas.toBuffer('image/jpeg', 80);
 
-						writeFileSync(cachePath, jpegBuffer);
-						return new Uint8Array(jpegBuffer);
+						// ATOMIC: A CRASH MID-WRITE NEVER LEAVES A TRUNCATED CACHED THUMB
+						writeFileAtomic(cachePath, jpegBuffer);
+						return { bytes: new Uint8Array(jpegBuffer), mime: 'image/jpeg' };
 					} finally {
 						canvas.width = 1;
 						canvas.height = 1;
 					}
 				} catch {
-					// FALLBACK TO FULL IMAGE IF THUMBNAIL RESIZING ENCOUNTERS AN UNEXPECTED IO ISSUE
+					// FALLBACK TO THE FULL IMAGE (WITH ITS REAL TYPE) IF THUMBNAILING IS REFUSED OR FAILS
 					try {
 						const raw = await readFile(sourcePath);
-						return new Uint8Array(raw);
+						const mime = MIME_BY_EXT[extname(rel).toLowerCase()] ?? 'application/octet-stream';
+						return { bytes: new Uint8Array(raw), mime };
 					} catch {
 						throw error(404, 'Source image file not found on disk.');
 					}
@@ -169,11 +187,11 @@ export const GET: RequestHandler = async ({ params, url, request }) => {
 			inFlightThumbs.set(cacheKey, thumbPromise);
 		}
 
-		const thumbBytes = await thumbPromise;
-		return new Response(new Uint8Array(thumbBytes), {
+		const thumb = await thumbPromise;
+		return new Response(new Uint8Array(thumb.bytes), {
 			headers: {
-				'content-type': 'image/jpeg',
-				'content-length': String(thumbBytes.byteLength),
+				'content-type': thumb.mime,
+				'content-length': String(thumb.bytes.byteLength),
 				...NO_CACHE_HEADERS,
 			},
 		});

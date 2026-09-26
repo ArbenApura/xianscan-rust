@@ -3,6 +3,7 @@
 import { json, error } from '@sveltejs/kit';
 import { batchService } from '$lib/server/batch-service';
 import { getCanonicalSettings } from '$lib/server/settings-service';
+import { buildTypesetOptions } from '$lib/server/typeset/options';
 import { WHITE_INPAINT_COOKIE, INPAINT_EXPANSION_COOKIE, TYPESET_CENTERING_COOKIE } from '$lib/stores/settings';
 import type { RequestHandler } from './$types';
 
@@ -91,23 +92,7 @@ export const POST: RequestHandler = async ({ request, cookies }) => {
 			? enableTypesetCentering
 			: (cookies.get(TYPESET_CENTERING_COOKIE) ? cookies.get(TYPESET_CENTERING_COOKIE) === 'true' : (canonical.enableTypesetCentering ?? true));
 
-	const resolvedTypesetOptions = {
-		fontDialogue: typesetOptions?.fontDialogue || (cookies.get('mt_ts_font') || canonical.typesetFont || 'CC Wild Words'),
-		fontCjk: typesetOptions?.fontCjk || (cookies.get('mt_ts_cjk_font') || canonical.typesetCjkFont || 'Microsoft YaHei'),
-		boxInset: typeof typesetOptions?.boxInset === 'number'
-			? typesetOptions.boxInset
-			: (cookies.get('mt_ts_padding') ? Number(cookies.get('mt_ts_padding')) : canonical.typesetPadding ?? 0.05),
-		outlineMode: typesetOptions?.outlineMode || ((cookies.get('mt_ts_outline') as any) || canonical.typesetOutline || 'standard'),
-		colorMode: typesetOptions?.colorMode || ((cookies.get('mt_ts_contrast') as any) || canonical.typesetContrast || 'auto'),
-		casing: typesetOptions?.casing || ((cookies.get('mt_ts_casing') as any) || canonical.typesetCasing || 'uppercase'),
-		enableRotation: typeof typesetOptions?.enableRotation === 'boolean'
-			? typesetOptions.enableRotation
-			: (cookies.get('mt_ts_rot') ? cookies.get('mt_ts_rot') === 'true' : (canonical.enableTextRotation ?? true)),
-		fontWeight: typesetOptions?.fontWeight || ((cookies.get('mt_ts_font_weight') as any) || (canonical as any).typesetFontWeight || 'normal'),
-		fontStyle: typesetOptions?.fontStyle || (typeof typesetOptions?.enableItalic === 'boolean'
-			? (typesetOptions.enableItalic ? 'italic' : 'normal')
-			: (cookies.get('mt_ts_italic') ? (cookies.get('mt_ts_italic') === 'true' ? 'italic' : 'normal') : (canonical.enableTypesetItalic ? 'italic' : 'normal'))),
-	};
+	const resolvedTypesetOptions = buildTypesetOptions({ canonical, cookies, userOpts: typesetOptions });
 
 	try {
 		const state = await batchService.startBatch(

@@ -4,7 +4,8 @@
 // GET  /api/chapters/[id]/translate  (attaches to existing job stream)
 //
 // THE JOB IS DETACHED AND BUFFERED (translation-service) — A CLIENT DISCONNECT DOES NOT KILL IT,
-// AND A (RE)CONNECTING CLIENT REPLAYS EVERYTHING SO FAR. THE STREAM CLOSES ON done/fatal error.
+// AND A (RE)CONNECTING CLIENT REPLAYS EVERYTHING SO FAR. THE STREAM CLOSES ON done / paused / fatal error, AND
+// WHEN THE JOB DROPS ITS READERS (SUPERSEDED, CLEARED).
 // IMPORTED DEP-MODULES
 import { error, json } from '@sveltejs/kit';
 // IMPORTED MODULES
@@ -17,6 +18,7 @@ import { aiUsage } from '$lib/server/db/schema';
 import { db } from '$lib/server/db';
 import { getChapterJob, startChapterJob, setChapterJobAddPage, abortChapterJob, isChapterPageCancelled, type JobHandle } from '$lib/server/translation-service';
 import { getCanonicalSettings } from '$lib/server/settings-service';
+import { buildTypesetOptions } from '$lib/server/typeset/options';
 import { translateChapterSchema } from '$lib/schemas';
 import { WHITE_INPAINT_COOKIE, INPAINT_EXPANSION_COOKIE, TYPESET_CENTERING_COOKIE } from '$lib/stores/settings';
 
@@ -40,20 +42,28 @@ function createSseStream(handle: JobHandle): Response {
 				}
 			};
 
-			unsubscribe = handle.subscribe((e) => {
-				if (closed) return;
-				try {
-					controller.enqueue(encoder.encode(`data: ${JSON.stringify(e)}\n\n`));
-				} catch {
-					// Controller already closed by client termination
-					close();
-					return;
-				}
-				// ONLY CLOSE ON CHAPTER-LEVEL TERMINAL EVENTS (NOT PER-PAGE ERRORS)
-				if (e.type === 'done' || (e.type === 'error' && e.page === undefined)) {
-					close();
-				}
-			});
+			unsubscribe = handle.subscribe(
+				(e) => {
+					if (closed) return;
+					try {
+						controller.enqueue(encoder.encode(`data: ${JSON.stringify(e)}\n\n`));
+					} catch {
+						// Controller already closed by client termination
+						close();
+						return;
+					}
+					// ONLY CLOSE ON CHAPTER-LEVEL TERMINAL EVENTS (NOT PER-PAGE ERRORS). A PAUSE IS TERMINAL TOO: THE
+					// PAUSED RUN NEVER EMITS AGAIN, AND A RESUME STARTS A NEW JOB THE CLIENT MUST ATTACH TO.
+					if (e.type === 'done' || e.type === 'paused' || (e.type === 'error' && e.page === undefined)) {
+						close();
+					}
+				},
+				// THE JOB DROPPED ITS READERS WITHOUT A TERMINAL EVENT (SUPERSEDED, CLEARED, SETTLED): CLOSE SO THE
+				// CLIENT RE-CHECKS /job INSTEAD OF WAITING ON A DEAD STREAM
+				close,
+			);
+			// A TERMINAL EVENT IN THE REPLAY CLOSED THE STREAM BEFORE subscribe RETURNED ITS UNSUBSCRIBE
+			if (closed) unsubscribe();
 		},
 		cancel() {
 			closed = true;
@@ -109,37 +119,11 @@ export const POST: RequestHandler = async ({ params, request, cookies }) => {
 		? Math.max(1, Math.min(16, parsed.data.pageConcurrency))
 		: Math.max(1, Math.min(16, Number(cookies.get('mt_parallel_processes')) || canonical.parallelProcesses || 2));
 
-	const typesetOptions = {
-		fontDialogue: parsed.success && parsed.data.typesetOptions?.fontDialogue
-			? parsed.data.typesetOptions.fontDialogue
-			: (cookies.get('mt_ts_font') || canonical.typesetFont || 'CC Wild Words'),
-		fontCjk: parsed.success && parsed.data.typesetOptions?.fontCjk
-			? parsed.data.typesetOptions.fontCjk
-			: (cookies.get('mt_ts_cjk_font') || canonical.typesetCjkFont || 'Microsoft YaHei'),
-		boxInset: parsed.success && typeof parsed.data.typesetOptions?.boxInset === 'number'
-			? parsed.data.typesetOptions.boxInset
-			: (cookies.get('mt_ts_padding') ? Number(cookies.get('mt_ts_padding')) : canonical.typesetPadding ?? 0.05),
-		outlineMode: parsed.success && parsed.data.typesetOptions?.outlineMode
-			? parsed.data.typesetOptions.outlineMode
-			: ((cookies.get('mt_ts_outline') as any) || canonical.typesetOutline || 'standard'),
-		colorMode: parsed.success && parsed.data.typesetOptions?.colorMode
-			? parsed.data.typesetOptions.colorMode
-			: ((cookies.get('mt_ts_contrast') as any) || canonical.typesetContrast || 'auto'),
-		casing: parsed.success && parsed.data.typesetOptions?.casing
-			? parsed.data.typesetOptions.casing
-			: ((cookies.get('mt_ts_casing') as any) || canonical.typesetCasing || 'uppercase'),
-		enableRotation: parsed.success && typeof parsed.data.typesetOptions?.enableRotation === 'boolean'
-			? parsed.data.typesetOptions.enableRotation
-			: (cookies.get('mt_ts_rot') ? cookies.get('mt_ts_rot') === 'true' : (canonical.enableTextRotation ?? true)),
-		fontWeight: parsed.success && parsed.data.typesetOptions?.fontWeight
-			? parsed.data.typesetOptions.fontWeight
-			: ((cookies.get('mt_ts_font_weight') as any) || (canonical as any).typesetFontWeight || 'normal'),
-		fontStyle: parsed.success && parsed.data.typesetOptions?.fontStyle
-			? parsed.data.typesetOptions.fontStyle
-			: (parsed.success && typeof parsed.data.typesetOptions?.enableItalic === 'boolean'
-				? (parsed.data.typesetOptions.enableItalic ? 'italic' : 'normal')
-				: (cookies.get('mt_ts_italic') ? (cookies.get('mt_ts_italic') === 'true' ? 'italic' : 'normal') : (canonical.enableTypesetItalic ? 'italic' : 'normal'))),
-	};
+	const typesetOptions = buildTypesetOptions({
+		canonical,
+		cookies,
+		userOpts: parsed.success ? parsed.data.typesetOptions : undefined,
+	});
 
 	// RECORD AI SPEND ON THE LEDGER (THE JOB STAYS DETACHED — FAILURES LOG, NOT THROW)
 	const deps = {

@@ -204,6 +204,10 @@
 								• ~{formatDuration(estimatedRemainingMs)} left
 							</span>
 						{/if}
+						<!-- SERVER NOTICE WHILE A FORCED RE-RUN WAITS FOR THE PREVIOUS RUN ("Stopping previous run...") -->
+						{#if running && jobState.statusMessage}
+							<span class="truncate">• {jobState.statusMessage}</span>
+						{/if}
 					</div>
 				</div>
 

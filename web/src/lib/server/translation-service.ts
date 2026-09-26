@@ -37,6 +37,8 @@ export type JobEventType =
 	| 'usage'
 	| 'done'
 	| 'error'
+	/** NON-FATAL NOTICE FOR THE USER (E.G. NO FONT COVERS THE BOOK'S SCRIPT); NEVER FAILS THE JOB. */
+	| 'warning'
 	| 'paused';
 
 export interface JobEvent {
@@ -75,8 +77,10 @@ export interface JobHandle {
 	key: string;
 	status: JobStatus;
 	snapshot: ChapterJobSnapshot | null;
-	/** SUBSCRIBE TO FUTURE EVENTS; IMMEDIATELY REPLAYS THE BUFFERED ONES. RETURNS AN UNSUBSCRIBE FN. */
-	subscribe(fn: (e: JobEvent) => void): () => void;
+	/** SUBSCRIBE TO FUTURE EVENTS; IMMEDIATELY REPLAYS THE BUFFERED ONES. RETURNS AN UNSUBSCRIBE FN.
+	 *  onEnd FIRES ONCE WHEN THE JOB DROPS ITS SUBSCRIBERS WITHOUT A TERMINAL EVENT (SUPERSEDED, CLEARED, SETTLED),
+	 *  SO A STREAM READER CAN CLOSE INSTEAD OF HANGING ON A JOB THAT WILL NEVER EMIT AGAIN. */
+	subscribe(fn: (e: JobEvent) => void, onEnd?: () => void): () => void;
 	abort(): void;
 	/** QUEUE ADDITIONAL PAGE IDS INTO THE RUNNING JOB (NO-OP IF JOB IS NOT RUNNING). */
 	addPages(pageIds: number[]): void;
@@ -104,10 +108,55 @@ interface Job {
 	pendingAddQueue: number[];
 	/** PAGE IDS THAT HAVE BEEN INDIVIDUALLY CANCELLED — CHECKED BY THE PIPELINE BEFORE EACH STEP. */
 	cancelledPages: Set<number>;
+	/** RESOLVES (NEVER REJECTS) WHEN THIS JOB'S WORK HAS FULLY STOPPED, INCLUDING ITS CLEANUP. */
+	settled: Promise<void>;
+	/** MONOTONIC START ORDER, FOR LOGS AND DEBUGGING. */
+	generation: number;
+	/** onEnd CALLBACKS OF THE CURRENT SUBSCRIBERS (SEE JobHandle.subscribe). */
+	enders: Set<() => void>;
+	/** TRUE ONCE THE SUBSCRIBERS WERE ENDED; A LATER subscribe REPLAYS AND ENDS AT ONCE. */
+	ended: boolean;
+	/** TRUE AFTER clearChapterJob: THE SETTLING RUN MUST NOT RE-RETAIN ITS SNAPSHOT. */
+	cleared: boolean;
 }
+
+// A FORCED RE-RUN WAITS AT MOST THIS LONG FOR THE RUN IT SUPERSEDES TO STOP WRITING (FEAT-002 ADR-009)
+export const SUPERSEDE_WAIT_MS = 30_000;
+let jobGeneration = 0;
 
 // PROCESS-WIDE JOB REGISTRY — ONE JOB PER CHAPTER (SINGLE-INSTANCE APP).
 const jobs = new Map<string, Job>();
+
+// RUNS DROPPED FROM THE REGISTRY BY clearChapterJob (PAUSE, RESET, RESLICE) THAT MAY STILL BE WINDING DOWN. THE NEXT
+// START FOR THE SAME CHAPTER WAITS FOR THEM LIKE A FORCED RE-RUN DOES, SO THEIR LATE WRITES CANNOT CLOBBER THE NEW RUN.
+const drainingRuns = new Map<string, Promise<void>>();
+
+function rememberDraining(job: Job): void {
+	const settled = job.settled;
+	drainingRuns.set(job.key, settled);
+	void settled.then(() => {
+		if (drainingRuns.get(job.key) === settled) drainingRuns.delete(job.key);
+	});
+}
+
+// END EVERY SUBSCRIBED STREAM OF THIS JOB (THEY CLOSE; A CLIENT THEN RE-CHECKS /job AND REATTACHES IF NEEDED)
+function endSubscribers(job: Job): void {
+	job.ended = true;
+	const enders = [...job.enders];
+	job.enders.clear();
+	for (const end of enders) {
+		try {
+			end();
+		} catch {
+			// A BROKEN READER MUST NOT STOP THE OTHERS FROM CLOSING
+		}
+	}
+}
+
+function dropListeners(job: Job): void {
+	job.listeners.clear();
+	endSubscribers(job);
+}
 
 // RETENTION BUFFER FOR COMPLETED / RECENT JOBS (10 MINUTE TTL)
 // ALLOWS CLIENT REFRESH / PAGE NAVIGATION TO FETCH THE FINAL REPORT EVEN AFTER STREAM CLOSES.
@@ -409,11 +458,31 @@ function emit(job: Job, event: JobEvent): void {
 	for (const fn of job.listeners) fn(event);
 }
 
-async function run(key: string, chapterId: number, work: ChapterJobWork, initial: JobEvent[]): Promise<void> {
+async function run(
+	key: string,
+	chapterId: number,
+	work: ChapterJobWork,
+	initial: JobEvent[],
+	waitFor?: Promise<void>,
+): Promise<void> {
 	const job = jobs.get(key);
 	if (!job) return;
 	for (const e of initial) emit(job, e);
 	try {
+		if (waitFor) {
+			// THE SUPERSEDED RUN IS STILL WINDING DOWN; STARTING NOW WOULD LET ITS LATE WRITES CLOBBER OURS
+			emit(job, { type: 'phase-change', chapterId, message: 'Stopping previous run...' });
+			let timer: ReturnType<typeof setTimeout> | undefined;
+			await Promise.race([
+				waitFor,
+				new Promise<void>((resolve) => {
+					timer = setTimeout(resolve, SUPERSEDE_WAIT_MS);
+				}),
+			]);
+			clearTimeout(timer);
+			// A THIRD REQUEST MAY HAVE SUPERSEDED (OR THE USER CANCELLED) THIS RUN WHILE IT WAITED
+			if (job.controller.signal.aborted) return;
+		}
 		await work(job.controller.signal, (e) => emit(job, e));
 		if (job.status === 'running') {
 			const targetSet = job.snapshot.targetPageIds && job.snapshot.targetPageIds.length > 0
@@ -527,17 +596,34 @@ async function run(key: string, chapterId: number, work: ChapterJobWork, initial
 			emit(job, { type: 'error', chapterId, message });
 		}
 	} finally {
-		// PRESERVE SNAPSHOT IN RETENTION BUFFER BEFORE REMOVING ACTIVE JOB
+		// PRESERVE SNAPSHOT IN RETENTION BUFFER BEFORE REMOVING ACTIVE JOB. A CLEARED RUN (RESET, PAUSE) OR ONE A NEWER
+		// JOB REPLACED MUST NOT PUT ITS STALE SNAPSHOT BACK: /job WOULD SERVE IT AND THE UI WOULD RESURRECT OLD PAGES.
 		pruneRetained();
-		retainedSnapshots.set(key, {
-			snapshot: JSON.parse(JSON.stringify(job.snapshot)),
-			expiresAt: Date.now() + RETENTION_TTL_MS,
-		});
-		job.listeners.clear();
+		const replaced = jobs.has(key) && jobs.get(key) !== job;
+		if (!job.cleared && !replaced) {
+			retainedSnapshots.set(key, {
+				snapshot: JSON.parse(JSON.stringify(job.snapshot)),
+				expiresAt: Date.now() + RETENTION_TTL_MS,
+			});
+		}
+		dropListeners(job);
 		// ONLY DELETE OUR OWN ENTRY — A SUPERSEDING JOB MAY HAVE BEEN REGISTERED AT THIS KEY
 		// (startChapterJob → existing.controller.abort()), AND WE MUST NOT ORPHAN THE NEW RUN.
 		if (jobs.get(key) === job) {
 			jobs.delete(key);
+		}
+		// A CANCELLED RUN MAY HAVE MARKED PAGES 'processing' AFTER abortChapterJob RESET THEM. REPEAT THAT RESET
+		// NOW THAT IT HAS STOPPED, UNLESS A NEWER JOB ALREADY OWNS THE CHAPTER.
+		if (job.controller.signal.aborted && !jobs.has(key)) {
+			try {
+				db.update(pages)
+					.set({ status: 'pending' })
+					.where(and(eq(pages.chapterId, chapterId), eq(pages.status, 'processing')))
+					.run();
+				syncBus.broadcast({ type: 'pages-updated', chapterId });
+			} catch {
+				// NON-BLOCKING DB CLEANUP
+			}
 		}
 	}
 }
@@ -547,12 +633,23 @@ async function run(key: string, chapterId: number, work: ChapterJobWork, initial
 export function startChapterJob(chapterId: number, work: ChapterJobWork, opts: { force?: boolean } = {}): JobHandle {
 	const key = `chapter:${chapterId}`;
 	const existing = jobs.get(key);
+	let previousSettled: Promise<void> | undefined;
 	if (existing && existing.status === 'running' && !existing.controller.signal.aborted) {
 		if (!opts.force) return toHandle(existing);
-		// SUPERSEDE — THE NEW RUN REPLACES THE OLD ONE
+		// SUPERSEDE: THE NEW RUN REPLACES THE OLD ONE, BUT ONLY STARTS WORK ONCE THE OLD ONE HAS STOPPED
 		existing.status = 'superseded';
 		existing.snapshot.status = 'superseded';
 		existing.controller.abort();
+		previousSettled = existing.settled;
+		// READERS OF THE OLD RUN CLOSE NOW INSTEAD OF HANGING UNTIL IT SETTLES; THEY REATTACH TO THE NEW ONE
+		endSubscribers(existing);
+	} else if (existing) {
+		// ALREADY ABORTED (CANCEL OR AN EARLIER SUPERSEDE) BUT MAYBE STILL WINDING DOWN
+		previousSettled = existing.settled;
+		endSubscribers(existing);
+	} else {
+		// A RUN DROPPED BY clearChapterJob (E.G. PAUSED) MAY STILL BE FLUSHING ITS LAST PAGE WRITES
+		previousSettled = drainingRuns.get(key);
 	}
 
 	const initialSnapshot: ChapterJobSnapshot = {
@@ -580,11 +677,16 @@ export function startChapterJob(chapterId: number, work: ChapterJobWork, opts: {
 		addPageToPool: null,
 		pendingAddQueue: [],
 		cancelledPages: new Set(),
+		settled: Promise.resolve(),
+		generation: ++jobGeneration,
+		enders: new Set(),
+		ended: false,
+		cleared: false,
 	};
 
 	retainedSnapshots.delete(key);
 	jobs.set(key, job);
-	void run(key, chapterId, work, [{ type: 'start', chapterId }]);
+	job.settled = run(key, chapterId, work, [{ type: 'start', chapterId }], previousSettled).catch(() => {});
 	return toHandle(job);
 }
 
@@ -688,17 +790,22 @@ export function clearChapterJob(chapterId: number): void {
 	const key = `chapter:${chapterId}`;
 	const active = jobs.get(key);
 	if (active) {
+		active.cleared = true;
 		active.controller.abort();
-		active.listeners.clear();
+		// CLOSE THE READERS (A BARE clear EMITS NO TERMINAL EVENT, SO THEY WOULD OTHERWISE HANG FOREVER)
+		dropListeners(active);
 		jobs.delete(key);
+		rememberDraining(active);
 	}
 	retainedSnapshots.delete(key);
 }
 
 export function clearAllChapterJobs(): void {
 	for (const [, active] of jobs) {
+		active.cleared = true;
 		active.controller.abort();
-		active.listeners.clear();
+		dropListeners(active);
+		rememberDraining(active);
 	}
 	jobs.clear();
 	retainedSnapshots.clear();
@@ -724,11 +831,21 @@ function toHandle(job: Job): JobHandle {
 		get snapshot() {
 			return JSON.parse(JSON.stringify(job.snapshot)) as ChapterJobSnapshot;
 		},
-		subscribe(fn) {
+		subscribe(fn, onEnd) {
+			if (job.ended) {
+				// THE JOB NO LONGER TALKS TO READERS: REPLAY WHAT HAPPENED, THEN END AT ONCE
+				for (const e of job.events) fn(e);
+				onEnd?.();
+				return () => {};
+			}
 			job.listeners.add(fn);
+			if (onEnd) job.enders.add(onEnd);
 			// REPLAY THE BUFFER — A (RE)CONNECTING SSE CLIENT SEES EVERYTHING THAT HAPPENED SO FAR
 			for (const e of job.events) fn(e);
-			return () => job.listeners.delete(fn);
+			return () => {
+				job.listeners.delete(fn);
+				if (onEnd) job.enders.delete(onEnd);
+			};
 		},
 		abort() {
 			job.controller.abort();

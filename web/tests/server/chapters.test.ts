@@ -20,6 +20,14 @@ const REAL_PNG = Buffer.from(
 	'base64',
 );
 
+// A BUFFER WITH A WEBP HEADER (ALL THE RESLICE SAFETY CHECK LOOKS AT) FOLLOWED BY A MARKER
+function fakeWebp(marker: string): Buffer {
+	const head = Buffer.alloc(12);
+	head.write('RIFF', 0, 'ascii');
+	head.write('WEBP', 8, 'ascii');
+	return Buffer.concat([head, Buffer.from(marker)]);
+}
+
 // -- LIFECYCLES -- //
 
 beforeEach(() => {
@@ -153,8 +161,11 @@ describe('nextPageSeq & reorderPages', () => {
 
 		const dataRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'xianscan-test-'));
 		fs.mkdirSync(path.join(dataRoot, 'uploads', '1'), { recursive: true });
-		fs.writeFileSync(path.join(dataRoot, 'uploads/1/0.png'), Buffer.from('page0'));
-		fs.writeFileSync(path.join(dataRoot, 'uploads/1/1.png'), Buffer.from('page1'));
+		// REAL IMAGE BYTES: THE STITCH RESULT MUST LOOK LIKE AN IMAGE BEFORE IT REPLACES THE TOP PAGE
+		const top = Buffer.concat([REAL_PNG, Buffer.from('page0')]);
+		const bottom = Buffer.from('page1');
+		fs.writeFileSync(path.join(dataRoot, 'uploads/1/0.png'), top);
+		fs.writeFileSync(path.join(dataRoot, 'uploads/1/1.png'), bottom);
 
 		seedBook(db, { id: 'b1' });
 		const chapter = seedChapter(db, { id: 1, bookId: 'b1', seq: 0 });
@@ -174,7 +185,7 @@ describe('nextPageSeq & reorderPages', () => {
 		const remaining = db.select().from(pages).where(eq(pages.chapterId, chapter.id)).all();
 		expect(remaining).toHaveLength(1);
 		expect(remaining[0].seq).toBe(0);
-		expect(fs.readFileSync(path.join(dataRoot, remaining[0].filePath)).toString()).toBe('page0page1');
+		expect(fs.readFileSync(path.join(dataRoot, remaining[0].filePath)).equals(Buffer.concat([top, bottom]))).toBe(true);
 
 		fs.rmSync(dataRoot, { recursive: true, force: true });
 	});
@@ -384,7 +395,7 @@ describe('nextPageSeq & reorderPages', () => {
 				expect(images).toHaveLength(3);
 				// WHEN NO PRESET IS GIVEN, THE CHAPTER RESLICE FALLS BACK TO TUNED DEFAULTS
 				expect(opts).toEqual(DEFAULT_RESLICE_HEIGHTS);
-				return [Buffer.from('pageA'), Buffer.from('pageB')]; // 3 SLICES -> 2 CLEAN PAGES
+				return [fakeWebp('pageA'), fakeWebp('pageB')]; // 3 SLICES -> 2 CLEAN PAGES
 			},
 		};
 
@@ -408,8 +419,8 @@ describe('nextPageSeq & reorderPages', () => {
 		expect(newPages[1].seq).toBe(1);
 
 		// DISK FILES CREATED
-		expect(fs.readFileSync(path.join(dataRoot, newPages[0].filePath)).toString()).toBe('pageA');
-		expect(fs.readFileSync(path.join(dataRoot, newPages[1].filePath)).toString()).toBe('pageB');
+		expect(fs.readFileSync(path.join(dataRoot, newPages[0].filePath)).equals(fakeWebp('pageA'))).toBe(true);
+		expect(fs.readFileSync(path.join(dataRoot, newPages[1].filePath)).equals(fakeWebp('pageB'))).toBe(true);
 
 		// CHAPTER MARKED AS RESLICED: TRUE AND STATUS REVERTED TO PENDING
 		const updatedCh = db.select().from(chapters).where(eq(chapters.id, chapter.id)).get();
@@ -456,7 +467,7 @@ describe('nextPageSeq & reorderPages', () => {
 			health: async () => ({ status: 'ok', detector: 'mock', inpainter: 'mock' }),
 			reslice: async (_images: Buffer[], _signal?: AbortSignal, _run?: number, opts?: unknown) => {
 				receivedOpts = opts;
-				return [Buffer.from('pageA')];
+				return [fakeWebp('pageA')];
 			},
 		};
 
@@ -651,3 +662,84 @@ describe('nextPageSeq & reorderPages', () => {
 });
 
 
+
+describe('uploadPages is all or nothing (FEAT-002 ADR-008)', () => {
+	const png = (name: string) => new File([REAL_PNG], name, { type: 'image/png' });
+
+	async function withUploadDir<T>(chapterId: number, fn: (dir: string) => Promise<T>): Promise<T> {
+		const { DATA_ROOT } = await import('$lib/server/paths');
+		const dir = path.join(DATA_ROOT, 'uploads', String(chapterId));
+		fs.rmSync(dir, { recursive: true, force: true });
+		fs.mkdirSync(dir, { recursive: true });
+		try {
+			return await fn(dir);
+		} finally {
+			fs.rmSync(dir, { recursive: true, force: true });
+		}
+	}
+
+	it('two concurrent uploads to one chapter both succeed with seqs 0..n-1', async () => {
+		const { uploadPages } = await import('$lib/server/chapters');
+		seedBook(db, { id: 'b1' });
+		const chapter = seedChapter(db, { id: 1, bookId: 'b1', seq: 0 });
+		await withUploadDir(chapter.id, async (dir) => {
+			const [a, b] = await Promise.all([
+				uploadPages(chapter.id, [png('1.png'), png('2.png'), png('3.png')]),
+				uploadPages(chapter.id, [png('4.png'), png('5.png')]),
+			]);
+			expect(a + b).toBe(5);
+			const seqs = db.select().from(pages).where(eq(pages.chapterId, chapter.id)).all().map((p) => p.seq).sort((x, y) => x - y);
+			expect(seqs).toEqual([0, 1, 2, 3, 4]);
+			expect(fs.readdirSync(dir)).toHaveLength(5);
+		});
+	});
+
+	it('a bad file in the middle leaves zero new rows and zero new files', async () => {
+		const { uploadPages } = await import('$lib/server/chapters');
+		seedBook(db, { id: 'b1' });
+		const chapter = seedChapter(db, { id: 1, bookId: 'b1', seq: 0 });
+		await withUploadDir(chapter.id, async (dir) => {
+			const broken = new File([Buffer.from('not-an-image-at-all')], '2.png', { type: 'image/png' });
+			await expect(uploadPages(chapter.id, [png('1.png'), broken, png('3.png')])).rejects.toMatchObject({ status: 400 });
+			expect(db.select().from(pages).where(eq(pages.chapterId, chapter.id)).all()).toHaveLength(0);
+			expect(fs.readdirSync(dir)).toHaveLength(0);
+		});
+	});
+
+	it('an unsupported extension rejects the batch before any conversion', async () => {
+		const { uploadPages } = await import('$lib/server/chapters');
+		seedBook(db, { id: 'b1' });
+		const chapter = seedChapter(db, { id: 1, bookId: 'b1', seq: 0 });
+		await withUploadDir(chapter.id, async (dir) => {
+			await expect(uploadPages(chapter.id, [png('1.png'), png('2.gif')])).rejects.toMatchObject({ status: 400 });
+			expect(fs.readdirSync(dir)).toHaveLength(0);
+		});
+	});
+
+	it('an over-cap PNG gives 422 naming the file', async () => {
+		const { uploadPages } = await import('$lib/server/chapters');
+		seedBook(db, { id: 'b1' });
+		const chapter = seedChapter(db, { id: 1, bookId: 'b1', seq: 0 });
+		const header = Buffer.from(REAL_PNG);
+		header.writeUInt32BE(20000, 16);
+		header.writeUInt32BE(20000, 20);
+		await withUploadDir(chapter.id, async () => {
+			await expect(uploadPages(chapter.id, [new File([header], 'huge.png', { type: 'image/png' })])).rejects.toMatchObject({
+				status: 422,
+				body: expect.objectContaining({ message: expect.stringContaining('huge.png') }),
+			});
+		});
+	});
+
+	it('compactChapterPageSeqs works inside an outer transaction (nested as a savepoint)', () => {
+		seedBook(db, { id: 'b1' });
+		const chapter = seedChapter(db, { bookId: 'b1', seq: 0 });
+		seedPage(db, { chapterId: chapter.id, seq: 3 });
+		seedPage(db, { chapterId: chapter.id, seq: 7 });
+		db.transaction(() => {
+			compactChapterPageSeqs(chapter.id);
+		});
+		const seqs = db.select().from(pages).where(eq(pages.chapterId, chapter.id)).all().map((p) => p.seq).sort();
+		expect(seqs).toEqual([0, 1]);
+	});
+});

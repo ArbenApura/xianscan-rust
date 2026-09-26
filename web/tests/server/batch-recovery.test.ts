@@ -385,4 +385,40 @@ describe('Persistent batch queue crash recovery', () => {
 
 		batchService.clearBatch();
 	});
+
+	it('persists the recovery counter before the resumed chapter can start (FEAT-002 Phase 12)', async () => {
+		vi.useFakeTimers();
+		try {
+			const { batchService } = await import('$lib/server/batch-service');
+			seedBook(db, { id: 'book_rc', title: 'Counter Book' });
+			const ch = seedChapter(db, { bookId: 'book_rc', seq: 1, title: 'Chapter 1' });
+			seedPage(db, { chapterId: ch.id, seq: 0 });
+			db.insert(appSettings)
+				.values({
+					key: 'active_batch_job',
+					value: JSON.stringify({
+						state: {
+							active: true,
+							status: 'running',
+							bookId: 'book_rc',
+							bookTitle: 'Counter Book',
+							queue: [{ id: ch.id, seq: 1, title: 'Chapter 1', status: 'processing', pageCount: 1, translatedPages: 0, totalPages: 1 }],
+							currentIndex: 0,
+							startedAt: Date.now() - 60000,
+							completedAt: null,
+						},
+						options: { parallelWorkers: 1 },
+						updatedAt: Date.now() - 10000,
+					}),
+				})
+				.run();
+
+			batchService.reconcileAndRecoverOnStartup(true);
+			// THE AUTO-RESUME TIMER HAS NOT FIRED YET: IF NODE CRASHES ON THIS CHAPTER AGAIN, THE ATTEMPT IS ALREADY ON DISK
+			expect(batchService.getPersistedBatchRecord()?.recoveryCount?.[ch.id]).toBe(1);
+			batchService.clearBatch();
+		} finally {
+			vi.useRealTimers();
+		}
+	});
 });

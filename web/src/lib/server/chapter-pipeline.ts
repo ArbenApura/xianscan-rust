@@ -19,7 +19,7 @@
 //   - PER-PAGE ERROR ISOLATION: ONE BAD PAGE MARKS ITSELF 'error' AND THE JOB CONTINUES.
 //   - THE WORK FUNCTION FITS startChapterJob() (translation-service) — signal + emit.
 //   - ALL FILE PATHS ARE RELATIVE TO dataRoot (web/data/); THE API LAYER PASSES IT.
-import { mkdirSync, readFileSync, writeFileSync, unlinkSync, existsSync, rmSync } from 'node:fs';
+import { mkdirSync, readFileSync, writeFileSync, unlinkSync, existsSync, rmSync, rmdirSync } from 'node:fs';
 import { join } from 'node:path';
 import type OpenAI from 'openai';
 // IMPORTED ENVS ($env/...)
@@ -30,7 +30,8 @@ import { and, asc, desc, eq, inArray, lt, sql } from 'drizzle-orm';
 // IMPORTED TYPES
 import type { TranslationUsage, PipelineStep, LangPair, TermDraft } from '$lib/types';
 // IMPORTED MODULES
-import { detectSourceLanguage } from '$lib/languages';
+import { detectSourceLanguage, typesetScriptForBook } from '$lib/languages';
+import { resolveDialoguePunctuation } from './translate/filter';
 import { addNewTerms } from './glossary';
 import { matchTerms } from './glossary-match';
 import type { JobEvent } from './translation-service';
@@ -41,13 +42,17 @@ import { translatePage, classifyRegionForTranslation, resolveModel, type PageTra
 import { isRetryable } from './llm';
 import { getCachedPageTranslation, pageCacheKey, savePageTranslation } from './cache';
 import { ChapterDialogueTracker, computePositionTag, parseKindFromBox, type PageDialogueRecord } from './translate/dialogue-tracker';
-import { typesetPage, type TypesetOptions } from './typeset';
+import { typesetPage, registerFonts, BUNDLED_SCRIPT_FONTS, FONT_DIALOGUE, type TypesetOptions } from './typeset';
+import { buildScriptFontChain, chainCovers } from './typeset/script-fonts';
+import { SCRIPT_LABELS, type ScriptFontSlot } from '$lib/typeset-scripts';
+import type { Script } from '$lib/languages';
 import { detectImageFormat, isAnimatedWebP } from './chapters/dimensions';
 import { prunePageThumbs, pruneMultiplePageThumbs } from './chapters/mutations';
 import { pruneCoverThumbs } from './covers';
 import { syncBus } from './sync-bus';
 import { getCanonicalSettings } from './settings-service';
 import { renderAnnotatedOcrImage } from './annotated-preview';
+import { assertDecodeAllowed } from './image-limits';
 
 // -- ACTIVE POOL REGISTRY FOR DYNAMIC CONCURRENCY HOT-RESIZING -- //
 const activeChapterPools = new Map<number, PQueue>();
@@ -98,47 +103,44 @@ export interface ChapterPipelineDeps {
 
 export type PipelineEmit = (e: JobEvent) => void;
 
+/**
+ * ONCE PER CHAPTER RUN: WHEN NO INSTALLED FONT HAS THE BOOK'S SCRIPT, SAY SO (CONSOLE + A NON-FATAL 'warning' EVENT)
+ * INSTEAD OF SILENTLY PRODUCING PAGES FULL OF BOXES (FEAT-006 PHASE 11).
+ */
+function warnIfScriptUncovered(chapterId: number, opts: TypesetOptions | undefined, bookScript: Script, emit: PipelineEmit): void {
+	const script = opts?.targetScript ?? bookScript;
+	if (script === 'latin') return;
+	try {
+		registerFonts();
+		const scriptFonts: Partial<Record<ScriptFontSlot, string>> = { ...(opts?.scriptFonts ?? {}) };
+		if (opts?.fontCjk) {
+			for (const slot of ['han', 'kana', 'hangul'] as const) scriptFonts[slot] ??= opts.fontCjk;
+		}
+		const chain = buildScriptFontChain(script, {
+			dialogue: opts?.fontDialogue || FONT_DIALOGUE,
+			scriptFonts,
+			targetScript: script,
+			bundled: BUNDLED_SCRIPT_FONTS,
+		});
+		if (chainCovers(chain, script)) return;
+		const label = SCRIPT_LABELS[script];
+		console.warn(`[chapter-pipeline] chapter ${chapterId}: no installed font covers ${label}`);
+		emit({
+			type: 'warning',
+			chapterId,
+			message: `No installed font covers ${label}, so pages will show boxes. Open Settings, Typesetting & Lettering, Script Fonts.`,
+		});
+	} catch (err) {
+		console.warn('[chapter-pipeline] font coverage check skipped:', err);
+	}
+}
+
 // -- CONSTANTS -- //
 
 // HOW MANY PAGES THE CHAPTER PIPELINE PROCESSES CONCURRENTLY. THE SIDECAR SERVES EACH REQUEST ON A
 // THREADPOOL THREAD (CPU-HEAVY DETECT+OCR), SO 3-4 OVERLAPPING PAGES SATURATE A TYPICAL QUAD-CORE
 // WITHOUT THRASHING. TUNE VIA PIPELINE_PAGE_CONCURRENCY (e.g. 6 ON AN 8-CORE BOX).
 const PAGE_CONCURRENCY = Math.max(1, Number(env.PIPELINE_PAGE_CONCURRENCY ?? '3') || 3);
-
-const DIALOGUE_PUNCT_MAP: Record<string, string> = {
-	'……': '...',
-	'……！': '...!',
-	'……!': '...!',
-	'……？': '...?',
-	'……?': '...?',
-	'……！？': '...?!',
-	'……!?': '...?!',
-	'……？！': '...?!',
-	'……?!': '...?!',
-	'！': '!',
-	'!': '!',
-	'？': '?',
-	'?': '?',
-	'？！': '?!',
-	'?!': '?!',
-	'！？': '!?',
-	'!?': '!?',
-	'...': '...',
-	'...!': '...!',
-	'...?': '...?',
-};
-
-export function resolveDialoguePunctuation(text: string): string | null {
-	const trimmed = text.trim();
-	if (!trimmed) return null;
-	if (DIALOGUE_PUNCT_MAP[trimmed]) return DIALOGUE_PUNCT_MAP[trimmed];
-	if (/^[.．…]+[！!]$/.test(trimmed)) return '...!';
-	if (/^[.．…]+[？?]$/.test(trimmed)) return '...?';
-	if (/^[.．…]+$/.test(trimmed)) return '...';
-	if (/^[！!]+$/.test(trimmed)) return '!'.repeat(Math.min(3, trimmed.length));
-	if (/^[？?]+$/.test(trimmed)) return '?'.repeat(Math.min(3, trimmed.length));
-	return null;
-}
 
 // -- INTERNALS -- //
 
@@ -163,7 +165,9 @@ function regionRow(region: PipelineRegion, seq: number) {
 		typesetBox: region.typeset_box ? JSON.stringify(region.typeset_box) : null,
 		polygon: JSON.stringify(region.polygon),
 		textSource: region.text,
-		conf: region.confidence,
+		// PREFER THE CALIBRATED PROBABILITY; OLDER ML SERVERS ONLY SEND THE LEGACY SCORE (conf_scale 0).
+		conf: region.ocr_confidence ?? region.confidence,
+		confScale: region.ocr_confidence != null ? 1 : 0,
 		status: 'pending' as const,
 	};
 }
@@ -191,6 +195,8 @@ async function ensureWebPBuffer(rawBuf: Buffer): Promise<Buffer> {
 	// ONLY A STATIC WEBP IS SAFE TO PASS THROUGH — PNG/JPEG AND EVERYTHING ELSE
 	// MUST BE CONVERTED BELOW (ANIMATED WEBP SHARES THE WEBP MAGIC BUT IS NOT
 	// DECODABLE BY THE SIDECAR, SO IT IS FLATTENED TOO).
+	// OVER THE PIXEL CAP: THROWS, AND THE PER-PAGE CATCH RECORDS IT AS THIS PAGE'S ERROR
+	await assertDecodeAllowed(rawBuf, 'Page');
 	const fmt = detectImageFormat(rawBuf);
 	if (fmt === 'webp' && !isAnimatedWebP(rawBuf)) return rawBuf;
 	try {
@@ -348,6 +354,7 @@ export async function runChapterPipeline(
 			: book?.sourceLang || 'zh-Hans';
 	const pair: LangPair = { sourceLang: initialSource, targetLang: book?.targetLang || 'en' };
 	const model = resolveModel(deps.model);
+	warnIfScriptUncovered(chapterId, deps.typesetOptions, typesetScriptForBook(pair.targetLang, pair.sourceLang), emit);
 
 	// DIALOGUE TRACKER: TRACKS OCR & TRANSLATED LINES ACROSS PAGES FOR SLIDING-WINDOW CONTEXT INJECTION
 	const dialogueTracker = new ChapterDialogueTracker();
@@ -1251,7 +1258,7 @@ export async function runChapterPipeline(
 				for (const region of analyzed.regions) {
 					let target = byRegion.get(region.id)?.trim() ?? '';
 					if (!target) {
-						const punct = resolveDialoguePunctuation(region.text);
+						const punct = resolveDialoguePunctuation(region.text, pair.targetLang, 'strict');
 						if (punct) {
 							target = punct;
 							byRegion.set(region.id, target);
@@ -1347,7 +1354,11 @@ export async function runChapterPipeline(
 				return;
 			}
 
-			const out = await typesetPage(cleaned, typesetRegions, deps.typesetOptions);
+			// THE BOOK'S SCRIPT DRIVES FONT CHOICE (FEAT-006); A CALLER-SUPPLIED ONE WINS
+			const out = await typesetPage(cleaned, typesetRegions, {
+				...deps.typesetOptions,
+				targetScript: deps.typesetOptions?.targetScript ?? typesetScriptForBook(pair.targetLang, pair.sourceLang),
+			});
 			signal.throwIfAborted();
 			if (deps.isPageCancelled?.(page.id)) return;
 			const outputPath = `output/${chapterId}/${page.seq}.webp`;
@@ -1597,24 +1608,31 @@ export async function runChapterPipeline(
 	}
 
 	if (signal.aborted) {
-		// CLEAN UP ANY PARTIAL ANNOTATED PREVIEWS DIRECTORY IF ABORTED
-		const chapterAnnotatedDir = join(deps.dataRoot, 'annotated', String(chapterId));
-		if (existsSync(chapterAnnotatedDir)) {
+		// CLEAN UP ONLY THIS RUN'S PARTIAL ANNOTATED PREVIEWS. A FORCED RE-RUN MAY ALREADY OWN THE CHAPTER, SO
+		// NEITHER THE WHOLE annotated/<chapterId> FOLDER NOR OTHER PAGES' PATHS ARE TOUCHED (FEAT-002 ADR-009).
+		const runPages = slots.filter((slot) => slot.outcome !== 'skipped').map((slot) => slot.page);
+		for (const p of runPages) {
 			try {
-				rmSync(chapterAnnotatedDir, { recursive: true, force: true });
+				unlinkSync(join(deps.dataRoot, 'annotated', String(chapterId), `${p.seq}.webp`));
+			} catch {
+				// NOT WRITTEN BY THIS RUN, OR ALREADY GONE
+			}
+		}
+		// DROP THE FOLDER ONLY WHEN NOTHING ELSE IS LEFT IN IT (A NON-RECURSIVE rmdir FAILS ON A NON-EMPTY FOLDER)
+		try {
+			rmdirSync(join(deps.dataRoot, 'annotated', String(chapterId)));
+		} catch {
+			// NOT EMPTY OR NOT THERE
+		}
+		if (runPages.length > 0) {
+			try {
+				db.update(pages)
+					.set({ annotatedPath: null })
+					.where(inArray(pages.id, runPages.map((p) => p.id)))
+					.run();
 			} catch {
 				// NON-FATAL
 			}
-		}
-
-		// NULLIFY ANNOTATED PATHS IN DATABASE FOR THIS CHAPTER IF ABORTED
-		try {
-			db.update(pages)
-				.set({ annotatedPath: null })
-				.where(eq(pages.chapterId, chapterId))
-				.run();
-		} catch {
-			// NON-FATAL
 		}
 
 		const abortErr = new Error('The operation was aborted');

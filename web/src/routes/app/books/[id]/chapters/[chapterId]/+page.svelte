@@ -28,6 +28,8 @@
 	import Loader2 from 'lucide-svelte/icons/loader-2';
 	import { apiJson } from '$lib/api';
 	import { parseDataTransferItems, type DiscoveredChapter } from '$lib/utils/folder-drop';
+	import { chapterUploadErrorMessage } from '$lib/utils/upload';
+	import { zipExportToast } from '$lib/utils/chapter-export';
 	import MultiChapterImportModal from '$lib/components/chapter/MultiChapterImportModal.svelte';
 	import type { PageData as ServerPageData } from './$types';
 
@@ -40,6 +42,7 @@
 		textSource: string;
 		textTarget: string | null;
 		conf: number | null;
+		confScale?: number | null;
 	}
 
 	interface ChapterPageItem {
@@ -328,7 +331,8 @@
 
 	// AUTO-ATTACH JOB TRACKER WHEN BATCH STARTS RUNNING FOR THIS CHAPTER
 	$: if (browser && chapterId && activeQueuedBatch?.status === 'processing' && !currentJobState.running) {
-		void jobTracker.syncChapter(chapterId);
+		// COOLDOWN: THIS RE-FIRES ON EVERY STORE WRITE WHILE THE SERVER SAYS "NOT RUNNING"
+		void jobTracker.syncChapter(chapterId, { minIntervalMs: 3000 });
 	}
 
 	// WATCH GLOBAL SYNC BUS FOR EXTERNAL RUNS ON THIS CHAPTER
@@ -599,10 +603,7 @@
 	}
 
 	onMount(() => {
-		lastLoadedChapterId = chapterId;
-		if (chapterId) {
-			void jobTracker.syncChapter(chapterId);
-		}
+		// THE REACTIVE BLOCK ABOVE ALREADY SYNCED THIS CHAPTER ON FIRST RENDER (FEAT-009 PHASE 2)
 		if (chapter && bookId && chapter.bookId === bookId) {
 			readingHistory.recordReading(bookId, {
 				id: chapter.id,
@@ -627,6 +628,7 @@
 	});
 
 	onDestroy(() => {
+		for (const url of [...pendingExportUrls]) revokeExportUrl(url);
 		if (urlCleanupTimer) {
 			clearTimeout(urlCleanupTimer);
 			urlCleanupTimer = null;
@@ -742,6 +744,13 @@
 		}
 	}
 
+	// OBJECT URLS OF FINISHED EXPORTS: REVOKED A MINUTE LATER (THE BROWSER MAY STILL BE READING THE BLOB WHEN click()
+	// RETURNS) OR WHEN THE PAGE IS LEFT (FEAT-009 PHASE 7, OPTION B)
+	const pendingExportUrls = new Set<string>();
+	function revokeExportUrl(url: string) {
+		if (pendingExportUrls.delete(url)) URL.revokeObjectURL(url);
+	}
+
 	// EXPORT THE CHAPTER AS A FOLDER-BASED ZIP WITH LIVE PROGRESS FEEDBACK.
 	async function exportChapterZip() {
 		if (exporting || !chapter) return;
@@ -755,9 +764,10 @@
 				throw new Error((body as { message?: string } | null)?.message || 'Export failed.');
 			}
 			const total = Number(resp.headers.get('content-length') || 0);
+			const doneToast = zipExportToast(resp.headers.get('x-missing-pages'));
 			const reader = resp.body?.getReader();
 			if (!reader) throw new Error('Download stream unavailable.');
-			const chunks: BlobPart[] = [];
+			let chunks: BlobPart[] = [];
 			let received = 0;
 			while (true) {
 				const { done, value } = await reader.read();
@@ -768,15 +778,23 @@
 					total > 0 ? Math.min(99, Math.round((received / total) * 100)) : ((exportProgress + 4) % 80) + 10;
 			}
 			const blob = new Blob(chunks, { type: 'application/zip' });
+			// THE CHUNKS ARE NOW IN THE BLOB: DROP THE SECOND COPY BEFORE THE DOWNLOAD STARTS
+			chunks = [];
 			const url = URL.createObjectURL(blob);
+			pendingExportUrls.add(url);
 			const anchor = document.createElement('a');
 			const rawName = (chapter.titleTarget || chapter.title || `Chapter ${chapter.seq + 1}`).trim();
 			anchor.href = url;
 			anchor.download = `${rawName.replace(/[^\w\- ]+/g, '').replace(/\s+/g, '_') || `chapter_${chapter.id}`}.zip`;
+			// SOME FIREFOX VERSIONS ONLY FOLLOW A DOWNLOAD ANCHOR THAT IS IN THE DOCUMENT
+			anchor.style.display = 'none';
+			document.body.appendChild(anchor);
 			anchor.click();
-			URL.revokeObjectURL(url);
+			anchor.remove();
+			setTimeout(() => revokeExportUrl(url), 60_000);
 			exportProgress = 100;
-			toast.success('ZIP exported.', { id: toastId });
+			if (doneToast.kind === 'warning') toast.warning(doneToast.message, { id: toastId, duration: 10000 });
+			else toast.success(doneToast.message, { id: toastId });
 		} catch (e: any) {
 			toast.error(e?.message || 'Could not export the ZIP.', { id: toastId });
 		} finally {
@@ -1206,7 +1224,8 @@
 						body: form,
 					});
 					if (!uploadRes.ok) {
-						throw new Error(`Failed to upload images for "${ch.title}"`);
+						// KEEP THE SERVER'S REASON (413 TOO LARGE, 422 OVER THE 100 MP LIMIT)
+						throw new Error(await chapterUploadErrorMessage(ch.title, uploadRes));
 					}
 				}
 

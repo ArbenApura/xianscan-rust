@@ -108,6 +108,8 @@ export type JobEventType =
 	| 'usage'
 	| 'done'
 	| 'error'
+	/** NON-FATAL NOTICE FOR THE USER (E.G. NO FONT COVERS THE BOOK'S SCRIPT); NEVER FAILS THE JOB. */
+	| 'warning'
 	| 'paused';
 
 export type PipelineStep =
@@ -218,6 +220,8 @@ export interface BatchChapterItem {
 	translatedPages?: number;
 	totalPages?: number;
 	resliceMessage?: string | null;
+	// NON-FATAL NOTES FOR THIS CHAPTER (A SKIPPED AUTO-RESLICE, A SCRIPT WITH NO COVERING FONT); SHOWN ONCE AS A TOAST
+	notices?: string[];
 }
 
 export interface BatchTranslationState {
@@ -233,6 +237,9 @@ export interface BatchTranslationState {
 	completedAt: number | null;
 	totalPromptTokens: number;
 	totalCompletionTokens: number;
+	// ORDERING (FEAT-009 PHASE 3): MONOTONIC PER SERVER PROCESS; epoch CHANGES ON RESTART. ABSENT ON OLD SERVERS.
+	revision?: number;
+	epoch?: string;
 }
 
 export type RegionKind = 'dialogue_bubble' | 'free_text';
@@ -251,6 +258,8 @@ export interface PageRegion {
 	textTarget?: string | null;
 	originalTarget?: string | null;
 	conf?: number | null;
+	// 0 = LEGACY SIGMOID SCALE, 1 = SOFTMAX MEAN (SEE $lib/confidence).
+	confScale?: number | null;
 	angle?: number | null;
 	vertical?: boolean;
 }export interface Chapter {

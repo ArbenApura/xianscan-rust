@@ -393,3 +393,66 @@ describe('startChapterJob', () => {
 	});
 });
 
+
+describe('forced supersede waits for the old run (FEAT-002 ADR-009)', () => {
+	/** WORK THAT IGNORES ABORT UNTIL THE TEST CALLS release() (A PIPELINE STILL FLUSHING ITS LAST WRITES). */
+	function stubbornWork() {
+		let release: () => void = () => {};
+		const done = new Promise<void>((resolve) => {
+			release = resolve;
+		});
+		const work = vi.fn(async () => {
+			await done;
+		});
+		return { work, release: () => release() };
+	}
+
+	it('starts the new work only after the superseded run has stopped', async () => {
+		const old = stubbornWork();
+		startChapterJob(21, old.work);
+		const next = vi.fn(async () => {});
+		const events: string[] = [];
+		const h2 = startChapterJob(21, next, { force: true });
+		h2.subscribe((e) => events.push(`${e.type}:${e.message ?? ''}`));
+
+		await new Promise((r) => setTimeout(r, 30));
+		expect(next).not.toHaveBeenCalled();
+		expect(events.some((e) => e.includes('Stopping previous run'))).toBe(true);
+
+		old.release();
+		await vi.waitFor(() => expect(next).toHaveBeenCalledTimes(1));
+	});
+
+	it('a third forced start while waiting cancels the second before it runs', async () => {
+		const old = stubbornWork();
+		startChapterJob(22, old.work);
+		const second = vi.fn(async () => {});
+		startChapterJob(22, second, { force: true });
+		const third = vi.fn(async () => {});
+		const h3 = startChapterJob(22, third, { force: true });
+
+		old.release();
+		await vi.waitFor(() => expect(third).toHaveBeenCalledTimes(1));
+		await vi.waitFor(() => expect(h3.status).not.toBe('running'));
+		expect(second).not.toHaveBeenCalled();
+	});
+
+	it('the wait is bounded so a stuck run cannot block the chapter forever', async () => {
+		vi.useFakeTimers();
+		try {
+			const { SUPERSEDE_WAIT_MS } = await import('$lib/server/translation-service');
+			const stuck = stubbornWork();
+			startChapterJob(23, stuck.work);
+			const next = vi.fn(async () => {});
+			startChapterJob(23, next, { force: true });
+
+			await vi.advanceTimersByTimeAsync(SUPERSEDE_WAIT_MS - 1);
+			expect(next).not.toHaveBeenCalled();
+			await vi.advanceTimersByTimeAsync(2);
+			expect(next).toHaveBeenCalledTimes(1);
+			stuck.release();
+		} finally {
+			vi.useRealTimers();
+		}
+	});
+});

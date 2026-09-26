@@ -1,9 +1,10 @@
 // GLOBAL JOB TRACKER STORE — MULTI-CHAPTER BACKGROUND JOB MANAGER WITH SELF-HEALING & SSE REHYDRATION
 import { writable, derived, get } from 'svelte/store';
 import { browser } from '$app/environment';
+import { toast } from 'svelte-sonner';
 import type { ChapterJobSnapshot, JobEventType, PageProgressState, PipelineStep, StepTiming } from '$lib/types';
 import { streamSse, type SseEvent } from '$lib/sse';
-import { settings } from '$lib/stores/settings';
+import { effectiveTypeset, settings } from '$lib/stores/settings';
 
 export type ConnectionState = 'idle' | 'connecting' | 'connected' | 'reconnecting' | 'error';
 
@@ -14,6 +15,9 @@ export interface ChapterJobState {
 	snapshot: ChapterJobSnapshot | null;
 	lastError: string | null;
 	reconnectAttempts: number;
+	/** TRANSIENT SERVER NOTICE WITHOUT A PHASE (E.G. "Stopping previous run..." WHILE A FORCED RE-RUN WAITS); CLEARED BY
+	 *  THE NEXT PHASE OR PAGE PROGRESS. OPTIONAL SO CALLERS AND TESTS BUILDING A STATE BY HAND STILL TYPE-CHECK. */
+	statusMessage?: string | null;
 }
 
 interface JobTrackerState {
@@ -24,12 +28,63 @@ const initialState: JobTrackerState = {
 	jobs: {},
 };
 
-function createJobTrackerStore() {
-	const { subscribe, set, update } = writable<JobTrackerState>(initialState);
+// EXPORTED SO TESTS GET A FRESH INSTANCE; THE APP USES THE jobTracker SINGLETON BELOW
+export function createJobTrackerStore() {
+	const { subscribe, update } = writable<JobTrackerState>(initialState);
 
-	// ACTIVE CONTROLLERS / STREAMS BY CHAPTER ID
+	// ACTIVE CONTROLLERS / STREAMS BY CHAPTER ID. AN ENTRY EXISTS ONLY WHILE ITS STREAM, OR THE RECONNECT IT
+	// SCHEDULED, IS LIVE; THE CONTROLLER IN THE MAP "OWNS" THE CHAPTER (FEAT-009 PHASE 2).
 	const activeControllers = new Map<number, AbortController>();
 	const reconnectTimers = new Map<number, ReturnType<typeof setTimeout>>();
+	// ONE STATUS REQUEST PER CHAPTER AT A TIME. (THE PLAN'S OPTIONAL 1 S COOLDOWN AFTER A "NOT RUNNING" ANSWER IS
+	// OFF BY DEFAULT: IT SKIPPED LEGITIMATE RE-SYNCS, E.G. RETURNING TO A CHAPTER WHOSE JOB WAS JUST STARTED
+	// ELSEWHERE. A REACTIVE CALLER OPTS IN WITH syncChapter(id, { minIntervalMs }).)
+	const inflightSync = new Map<number, Promise<void>>();
+	// WHEN A syncChapter LAST FOUND THE CHAPTER NOT RUNNING (FOR THE OPT-IN COOLDOWN)
+	const idleSyncAt = new Map<number, number>();
+	// PER-CHAPTER GENERATION, BUMPED BY EVERY LOCAL OWNERSHIP CHANGE (NEW STREAM, CANCEL, CLEAR). AN ASYNC STATUS ANSWER
+	// IS APPLIED ONLY IF THE GENERATION IT STARTED UNDER IS STILL CURRENT, SO A STALE /job CANNOT RESURRECT A CLEARED
+	// CHAPTER OR CLOBBER A NEWER STREAM'S STATE.
+	const generations = new Map<number, number>();
+	// WARNINGS ALREADY TOASTED; THE SERVER REPLAYS PAST EVENTS ON EVERY (RE)CONNECT
+	const shownWarnings = new Set<string>();
+
+	function bumpGeneration(chapterId: number): void {
+		generations.set(chapterId, (generations.get(chapterId) ?? 0) + 1);
+		inflightSync.delete(chapterId);
+		idleSyncAt.delete(chapterId);
+	}
+
+	// A CONTROLLER ONLY COUNTS AS A LIVE STREAM WHILE IT IS NOT ABORTED AND THE CHAPTER IS STILL RUNNING: ONE WHOSE
+	// STREAM ALREADY DELIVERED A TERMINAL EVENT (done / paused / A CHAPTER ERROR) MUST NOT BLOCK A RE-ATTACH
+	function hasLiveController(chapterId: number): boolean {
+		const live = activeControllers.get(chapterId);
+		if (!live || live.signal.aborted) return false;
+		return get({ subscribe }).jobs[chapterId]?.running !== false;
+	}
+
+	function showWarningOnce(chapterId: number, event: SseEvent): void {
+		if (!browser || !event.message) return;
+		const message = String(event.message);
+		const key = `${chapterId}:${event.timestamp ?? ''}:${message}`;
+		if (shownWarnings.has(key)) return;
+		shownWarnings.add(key);
+		toast.warning(message, { id: `job-warning-${chapterId}-${message}`, duration: 10000 });
+	}
+
+	function isCurrent(chapterId: number, controller: AbortController): boolean {
+		return activeControllers.get(chapterId) === controller;
+	}
+
+	function releaseIfCurrent(chapterId: number, controller: AbortController): void {
+		if (activeControllers.get(chapterId) === controller) activeControllers.delete(chapterId);
+	}
+
+	function clearReconnectTimer(chapterId: number): void {
+		const t = reconnectTimers.get(chapterId);
+		if (t) clearTimeout(t);
+		reconnectTimers.delete(chapterId);
+	}
 
 	function initChapterState(chapterId: number): ChapterJobState {
 		return {
@@ -39,6 +94,7 @@ function createJobTrackerStore() {
 			snapshot: null,
 			lastError: null,
 			reconnectAttempts: 0,
+			statusMessage: null,
 		};
 	}
 
@@ -99,6 +155,26 @@ function createJobTrackerStore() {
 				} else {
 					s.completedPages = s.pages.filter((p) => p.status === 'done').length;
 				}
+			} else {
+				// A BARE start (A FORCED RE-RUN STILL WAITING FOR THE OLD RUN) CARRIES NO PAGE LIST: THE OLD RUN'S PAGE
+				// STATES ARE NO LONGER TRUE, SO SHOW EVERY PAGE AS PENDING UNTIL THE NEW RUN REPORTS ITS OWN
+				s.pages = s.pages.map((p) => {
+					const reset: PageProgressState = {
+						...p,
+						status: 'pending',
+						currentStep: undefined,
+						timings: {},
+						errorMessage: undefined,
+						failedStep: undefined,
+						retryAttempt: undefined,
+						isRetrying: false,
+						totalDurationMs: undefined,
+					};
+					delete (reset as any).previewStage;
+					return reset;
+				});
+				s.completedAt = undefined;
+				s.totalDurationMs = undefined;
 			}
 		} else if (event.type === 'phase-change' && typeof event.phase === 'string') {
 			s.currentPhase = event.phase as any;
@@ -345,34 +421,97 @@ function createJobTrackerStore() {
 		return s;
 	}
 
-	async function fetchJobStatus(chapterId: number): Promise<ChapterJobSnapshot | null> {
+	type JobStatusResult = { running: boolean; snapshot: ChapterJobSnapshot };
+
+	// HTTP ONLY: NO STORE WRITE, SO A CALLER CAN CHECK IT STILL OWNS THE CHAPTER BEFORE APPLYING THE ANSWER
+	async function fetchJobSnapshot(chapterId: number): Promise<JobStatusResult | null> {
 		if (!browser) return null;
 		try {
 			const res = await fetch(`/api/chapters/${chapterId}/job`);
 			if (!res.ok) return null;
 			const data = await res.json();
-			if (data.snapshot) {
-				update((state) => {
-					const existing = state.jobs[chapterId] || initChapterState(chapterId);
-					return {
-						...state,
-						jobs: {
-							...state.jobs,
-							[chapterId]: {
-								...existing,
-								running: Boolean(data.running),
-								snapshot: data.snapshot,
-								connectionState: data.running ? existing.connectionState : 'idle',
-							},
-						},
-					};
-				});
-				return data.snapshot;
-			}
-			return null;
+			return data.snapshot ? { running: Boolean(data.running), snapshot: data.snapshot } : null;
 		} catch {
 			return null;
 		}
+	}
+
+	function applyJobStatus(chapterId: number, result: JobStatusResult | null): ChapterJobSnapshot | null {
+		if (!result) return null;
+		update((state) => {
+			const existing = state.jobs[chapterId] || initChapterState(chapterId);
+			return {
+				...state,
+				jobs: {
+					...state.jobs,
+					[chapterId]: {
+						...existing,
+						running: result.running,
+						snapshot: result.snapshot,
+						connectionState: result.running ? existing.connectionState : 'idle',
+					},
+				},
+			};
+		});
+		return result.snapshot;
+	}
+
+	// AFTER A DROPPED STREAM (OR ONE THAT ENDED WITHOUT A FINAL EVENT): ASK THE SERVER, THEN RECONNECT WITH BACKOFF
+	// WHILE THE JOB RUNS. NOTHING IS WRITTEN IF A NEWER STREAM, A CANCEL OR A CLEAR TOOK THE CHAPTER MEANWHILE.
+	// RETURNS TRUE WHEN A RECONNECT WAS SCHEDULED (THE CONTROLLER KEEPS OWNING THE CHAPTER DURING THE BACKOFF).
+	async function recoverAfterDrop(
+		chapterId: number,
+		controller: AbortController,
+		reason: string,
+		endedNormally: boolean,
+	): Promise<boolean> {
+		if (controller.signal.aborted || !isCurrent(chapterId, controller)) return false;
+		const latest = await fetchJobSnapshot(chapterId);
+		if (controller.signal.aborted || !isCurrent(chapterId, controller)) return false;
+		applyJobStatus(chapterId, latest);
+		const currentJob = get({ subscribe }).jobs[chapterId];
+
+		if (latest && (latest.snapshot.status === 'running' || currentJob?.running)) {
+			const attempts = (currentJob?.reconnectAttempts || 0) + 1;
+			update((state) => ({
+				...state,
+				jobs: {
+					...state.jobs,
+					[chapterId]: {
+						...(state.jobs[chapterId] || initChapterState(chapterId)),
+						connectionState: 'reconnecting',
+						reconnectAttempts: attempts,
+						lastError: reason,
+					},
+				},
+			}));
+
+			// EXPONENTIAL BACKOFF RECONNECT (MAX 10S)
+			const delay = Math.min(1000 * Math.pow(1.5, attempts), 10000);
+			const timer = setTimeout(() => {
+				if (!isCurrent(chapterId, controller)) return;
+				reconnectTimers.delete(chapterId);
+				void connectStream(chapterId, { method: 'GET' });
+			}, delay);
+			reconnectTimers.set(chapterId, timer);
+			return true;
+		}
+
+		update((state) => ({
+			...state,
+			jobs: {
+				...state.jobs,
+				[chapterId]: {
+					...(state.jobs[chapterId] || initChapterState(chapterId)),
+					running: false,
+					// A STREAM THAT SIMPLY ENDED WHILE THE JOB IS NO LONGER RUNNING IS NOT AN ERROR
+					connectionState: endedNormally ? 'idle' : 'error',
+					reconnectAttempts: 0,
+					lastError: endedNormally ? (state.jobs[chapterId]?.lastError ?? null) : reason || 'Job finished or failed',
+				},
+			},
+		}));
+		return false;
 	}
 
 	async function connectStream(
@@ -380,7 +519,9 @@ function createJobTrackerStore() {
 		opts: { method?: 'GET' | 'POST'; body?: unknown } = { method: 'GET' },
 	): Promise<void> {
 		if (!browser) return;
-		// CANCEL ANY EXISTING CONNECTION FOR THIS CHAPTER
+		clearReconnectTimer(chapterId);
+		bumpGeneration(chapterId);
+		// CANCEL ANY EXISTING CONNECTION FOR THIS CHAPTER; THIS CONTROLLER NOW OWNS IT
 		activeControllers.get(chapterId)?.abort();
 		const controller = new AbortController();
 		activeControllers.set(chapterId, controller);
@@ -395,123 +536,116 @@ function createJobTrackerStore() {
 						...existing,
 						running: true,
 						snapshot: opts.method === 'POST' ? null : existing.snapshot,
+						statusMessage: opts.method === 'POST' ? null : (existing.statusMessage ?? null),
 						connectionState: existing.reconnectAttempts > 0 ? 'reconnecting' : 'connecting',
 					},
 				},
 			};
 		});
 
+		let sawTerminal = false;
+		let handedOff = false;
 		try {
-			await streamSse(
-				`/api/chapters/${chapterId}/translate`,
-				opts,
-				(event) => {
-					update((state) => {
-						const existing = state.jobs[chapterId] || initChapterState(chapterId);
-						const baseSnapshot: ChapterJobSnapshot = existing.snapshot || {
-							chapterId,
-							status: 'running',
-							currentPhase: 'phase1_analyze',
-							startedAt: Date.now(),
-							totalPages: 0,
-							completedPages: 0,
-							failedPages: 0,
-							totalPromptTokens: 0,
-							totalCompletionTokens: 0,
-							cacheHitCount: 0,
-							pages: [],
-						};
-
-						const updatedSnapshot = applyEventToSnapshot(baseSnapshot, event);
+			try {
+				await streamSse(
+					`/api/chapters/${chapterId}/translate`,
+					opts,
+					(event) => {
+						// A SUPERSEDED STREAM STOPS READING AND NEVER WRITES
+						if (!isCurrent(chapterId, controller)) return 'stop';
 						const isTerminal =
 							event.type === 'done' ||
 							event.type === 'paused' ||
 							(event.type === 'error' && event.page === undefined);
+						if (isTerminal) sawTerminal = true;
+						// NON-FATAL: TELL THE USER ONCE PER EVENT (REPLAYS ARE DEDUPED), CHANGE NOTHING IN THE JOB STATE
+						if (event.type === 'warning') showWarningOnce(chapterId, event);
+						update((state) => {
+							const existing = state.jobs[chapterId] || initChapterState(chapterId);
+							const baseSnapshot: ChapterJobSnapshot = existing.snapshot || {
+								chapterId,
+								status: 'running',
+								currentPhase: 'phase1_analyze',
+								startedAt: Date.now(),
+								totalPages: 0,
+								completedPages: 0,
+								failedPages: 0,
+								totalPromptTokens: 0,
+								totalCompletionTokens: 0,
+								cacheHitCount: 0,
+								pages: [],
+							};
 
-						return {
-							...state,
-							jobs: {
-								...state.jobs,
-								[chapterId]: {
-									...existing,
-									running: !isTerminal,
-									connectionState: isTerminal ? 'idle' : 'connected',
-									snapshot: updatedSnapshot,
-									reconnectAttempts: 0,
-									lastError:
-										event.type === 'error' && event.page === undefined
-											? String(event.message)
-											: existing.lastError,
+							const updatedSnapshot = applyEventToSnapshot(baseSnapshot, event);
+							// A PHASE-LESS phase-change CARRIES A NOTICE (E.G. "Stopping previous run..."); ANY REAL
+							// PROGRESS REPLACES IT
+							let statusMessage = existing.statusMessage ?? null;
+							if (event.type === 'phase-change' && typeof event.phase !== 'string' && event.message) {
+								statusMessage = String(event.message);
+							} else if (event.type === 'start') {
+								if (Array.isArray(event.pages) && event.pages.length > 0) statusMessage = null;
+							} else if (event.type !== 'warning' && event.type !== 'usage') {
+								statusMessage = null;
+							}
+
+							return {
+								...state,
+								jobs: {
+									...state.jobs,
+									[chapterId]: {
+										...existing,
+										running: !isTerminal,
+										connectionState: isTerminal ? 'idle' : 'connected',
+										snapshot: updatedSnapshot,
+										statusMessage,
+										reconnectAttempts: 0,
+										lastError:
+											event.type === 'error' && event.page === undefined
+												? String(event.message)
+												: existing.lastError,
+									},
 								},
-							},
-						};
-					});
-				},
-				controller.signal,
-			);
-
-			// STREAM COMPLETED NORMALLY
-			update((state) => {
-				const existing = state.jobs[chapterId];
-				if (!existing) return state;
-				return {
-					...state,
-					jobs: {
-						...state.jobs,
-						[chapterId]: {
-							...existing,
-							running: false,
-							connectionState: 'idle',
-							reconnectAttempts: 0,
-						},
+							};
+						});
+						// STOP READING AFTER A TERMINAL EVENT EVEN IF THE SERVER KEEPS THE STREAM OPEN, SO THE finally BELOW
+						// RELEASES THE CONTROLLER AND A LATER RESUME CAN ATTACH A NEW STREAM
+						if (isTerminal) return 'stop';
 					},
-				};
-			});
-		} catch (err: any) {
-			if (controller.signal.aborted) {
+					controller.signal,
+				);
+			} catch (err: any) {
+				if (controller.signal.aborted) return;
+				console.warn(`[jobTracker] SSE connection failed for chapter ${chapterId}:`, err);
+				handedOff = await recoverAfterDrop(chapterId, controller, err?.message || 'Connection lost', false);
 				return;
 			}
-			console.warn(`[jobTracker] SSE connection failed for chapter ${chapterId}:`, err);
 
-			// CHECK IF JOB STILL RUNNING ON SERVER BEFORE RECONNECTING
-			const latest = await fetchJobStatus(chapterId);
-			const currentJob = get({ subscribe }).jobs[chapterId];
-
-			if (latest && (latest.status === 'running' || currentJob?.running)) {
-				const attempts = (currentJob?.reconnectAttempts || 0) + 1;
-				update((state) => ({
-					...state,
-					jobs: {
-						...state.jobs,
-						[chapterId]: {
-							...(state.jobs[chapterId] || initChapterState(chapterId)),
-							connectionState: 'reconnecting',
-							reconnectAttempts: attempts,
-							lastError: err?.message || 'Connection lost',
+			if (!isCurrent(chapterId, controller)) return;
+			if (sawTerminal) {
+				// STREAM COMPLETED NORMALLY WITH A FINAL EVENT
+				update((state) => {
+					const existing = state.jobs[chapterId];
+					if (!existing) return state;
+					return {
+						...state,
+						jobs: {
+							...state.jobs,
+							[chapterId]: {
+								...existing,
+								running: false,
+								connectionState: 'idle',
+								reconnectAttempts: 0,
+								statusMessage: null,
+							},
 						},
-					},
-				}));
-
-				// EXPONENTIAL BACKOFF RECONNECT (MAX 10S)
-				const delay = Math.min(1000 * Math.pow(1.5, attempts), 10000);
-				const timer = setTimeout(() => {
-					void connectStream(chapterId, { method: 'GET' });
-				}, delay);
-				reconnectTimers.set(chapterId, timer);
+					};
+				});
 			} else {
-				update((state) => ({
-					...state,
-					jobs: {
-						...state.jobs,
-						[chapterId]: {
-							...(state.jobs[chapterId] || initChapterState(chapterId)),
-							running: false,
-							connectionState: 'error',
-							lastError: err?.message || 'Job finished or failed',
-						},
-					},
-				}));
+				// THE STREAM ENDED WITHOUT done / paused / A CHAPTER ERROR (A PROXY CUT IT): RE-CHECK THE SERVER (P3)
+				handedOff = await recoverAfterDrop(chapterId, controller, 'Stream ended before the job finished', true);
 			}
+		} finally {
+			if (!handedOff) releaseIfCurrent(chapterId, controller);
 		}
 	}
 
@@ -519,11 +653,33 @@ function createJobTrackerStore() {
 		subscribe,
 
 		// RESTORE / ATTACH STATE FOR A CHAPTER ON PAGE MOUNT
-		async syncChapter(chapterId: number): Promise<void> {
-			const snapshot = await fetchJobStatus(chapterId);
-			if (snapshot && snapshot.status === 'running') {
-				void connectStream(chapterId, { method: 'GET' });
+		// DEDUPED: A LIVE STREAM OR AN IN-FLIGHT SYNC MEANS NO NEW REQUEST (P4). minIntervalMs (OPT-IN, FOR REACTIVE
+		// CALLERS THAT RE-FIRE ON EVERY STORE WRITE) SKIPS A NEW REQUEST THAT SOON AFTER A "NOT RUNNING" ANSWER.
+		async syncChapter(chapterId: number, opts: { minIntervalMs?: number } = {}): Promise<void> {
+			if (hasLiveController(chapterId)) return;
+			const pending = inflightSync.get(chapterId);
+			if (pending) return pending;
+			if (opts.minIntervalMs) {
+				const last = idleSyncAt.get(chapterId);
+				if (last !== undefined && Date.now() - last < opts.minIntervalMs) return;
 			}
+			const gen = generations.get(chapterId) ?? 0;
+			const run: Promise<void> = (async () => {
+				const result = await fetchJobSnapshot(chapterId);
+				// A NEWER STREAM, A CANCEL OR A CLEAR TOOK THE CHAPTER WHILE THE REQUEST WAS IN FLIGHT: ITS ANSWER IS STALE
+				if ((generations.get(chapterId) ?? 0) !== gen) return;
+				const snapshot = applyJobStatus(chapterId, result);
+				if (snapshot && snapshot.status === 'running') {
+					idleSyncAt.delete(chapterId);
+					void connectStream(chapterId, { method: 'GET' });
+				} else {
+					idleSyncAt.set(chapterId, Date.now());
+				}
+			})().finally(() => {
+				if (inflightSync.get(chapterId) === run) inflightSync.delete(chapterId);
+			});
+			inflightSync.set(chapterId, run);
+			return run;
 		},
 
 		// TRIGGER TRANSLATION (ALL PENDING PAGES OR TARGETED PAGE IDS)
@@ -531,11 +687,9 @@ function createJobTrackerStore() {
 			chapterId: number,
 			opts: { force?: boolean; pageIds?: number[]; pageConcurrency?: number } = {},
 		): Promise<void> {
-			// Clear any pending timers
-			const timer = reconnectTimers.get(chapterId);
-			if (timer) clearTimeout(timer);
-
-			const hasActiveStream = activeControllers.has(chapterId);
+			// A CHAPTER WAITING TO RECONNECT HAS NO STREAM TO REPORT A QUEUED PAGE: OPEN A FRESH ONE INSTEAD (connectStream
+			// ALSO CLEARS THE PENDING RECONNECT). THE TIMER IS LEFT ALONE WHEN A LIVE STREAM ONLY GETS A PAGE QUEUED.
+			const hasActiveStream = hasLiveController(chapterId) && !reconnectTimers.has(chapterId);
 			const curSettings = get(settings);
 			const reqBody = {
 				force: opts.force ?? false,
@@ -547,11 +701,13 @@ function createJobTrackerStore() {
 				pageConcurrency: opts.pageConcurrency ?? curSettings?.parallelProcesses,
 				typesetOptions: {
 					fontDialogue: curSettings?.typesetFont,
-					fontCjk: curSettings?.typesetCjkFont,
+					scriptFonts: curSettings?.typesetScriptFonts,
 					boxInset: curSettings?.typesetPadding,
 					outlineMode: curSettings?.typesetOutline,
 					colorMode: curSettings?.typesetContrast,
-					casing: curSettings?.typesetCasing,
+					// THE EFFECTIVE (FONT-COMPATIBLE) VALUES THE PREVIEW SHOWS; AN UNKNOWN FONT SENDS THE STORED ONES (ADR-004)
+					casing: get(effectiveTypeset).casing,
+					fontWeight: get(effectiveTypeset).weight,
 					enableRotation: curSettings?.enableTextRotation,
 				},
 			};
@@ -569,6 +725,8 @@ function createJobTrackerStore() {
 					const text = await resp.text().catch(() => '');
 					throw new Error(text || 'Failed to queue page for translation');
 				}
+				// THE RESPONSE IS A SECOND SSE STREAM OF THE SAME JOB; THE EXISTING STREAM ALREADY REPORTS IT (P5)
+				await resp.body?.cancel().catch(() => {});
 				return;
 			}
 
@@ -580,8 +738,8 @@ function createJobTrackerStore() {
 
 		// CANCEL / ABORT ACTIVE TRANSLATION JOB
 		async cancelTranslation(chapterId: number): Promise<void> {
-			const timer = reconnectTimers.get(chapterId);
-			if (timer) clearTimeout(timer);
+			clearReconnectTimer(chapterId);
+			bumpGeneration(chapterId);
 			activeControllers.get(chapterId)?.abort();
 			activeControllers.delete(chapterId);
 
@@ -636,6 +794,7 @@ function createJobTrackerStore() {
 							running: false,
 							connectionState: 'idle',
 							snapshot: updatedSnapshot,
+							statusMessage: null,
 							lastError: 'Translation cancelled.',
 						},
 					},
@@ -707,11 +866,10 @@ function createJobTrackerStore() {
 
 		// CLEAR / RESET CHAPTER JOB STATE (E.G. ON CLEAR PROGRESS)
 		clearJob(chapterId: number): void {
-			const timer = reconnectTimers.get(chapterId);
-			if (timer) clearTimeout(timer);
+			clearReconnectTimer(chapterId);
+			bumpGeneration(chapterId);
 			activeControllers.get(chapterId)?.abort();
 			activeControllers.delete(chapterId);
-			reconnectTimers.delete(chapterId);
 
 			update((state) => {
 				const nextJobs = { ...state.jobs };
@@ -725,8 +883,7 @@ function createJobTrackerStore() {
 
 		// ABORT CLIENT STREAM CONNECTION
 		disconnect(chapterId: number): void {
-			const timer = reconnectTimers.get(chapterId);
-			if (timer) clearTimeout(timer);
+			clearReconnectTimer(chapterId);
 			activeControllers.get(chapterId)?.abort();
 			activeControllers.delete(chapterId);
 			update((state) => {

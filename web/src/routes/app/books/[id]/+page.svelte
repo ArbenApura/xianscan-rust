@@ -67,6 +67,7 @@
 	import BookDirectivesModal from '$lib/components/book/BookDirectivesModal.svelte';
 	import BookMetadataFields from '$lib/components/book/BookMetadataFields.svelte';
 	import BookCoverPicker from '$lib/components/book/BookCoverPicker.svelte';
+	import ScriptCoverageNotice from '$lib/components/book/ScriptCoverageNotice.svelte';
 	import type { PageData } from './$types';
 
 	export let data: PageData;
@@ -2068,6 +2069,7 @@
 				<div>
 					<span class="mb-1 block text-xs font-semibold opacity-60">Target Language</span>
 					<LanguagePicker bind:value={editBookTargetLang} excludeCode={editBookSourceLang} />
+					<ScriptCoverageNotice lang={editBookTargetLang} />
 				</div>
 			</div>
 

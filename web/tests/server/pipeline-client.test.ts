@@ -127,4 +127,74 @@ describe('HttpPipelineClient', () => {
 	it('PipelineError is an instanceof Error', () => {
 		expect(new PipelineError('x', 500)).toBeInstanceOf(Error);
 	});
+
+	describe('ML shared secret', () => {
+		const headerOf = (fetchImpl: ReturnType<typeof mockFetch>, i = 0) =>
+			new Headers(fetchImpl.mock.calls[i][1]?.headers).get('x-xianscan-ml-secret');
+
+		it('sends the secret on multipart, GET and JSON calls', async () => {
+			const fetchImpl = mockFetch(200, { width: 1, height: 1, backend: 'x', regions: [], status: 'ok' });
+			const client = new HttpPipelineClient('http://sidecar:8001', fetchImpl, 's3cret');
+
+			await client.analyze(Buffer.from('img'));
+			await client.health();
+			await client.getHardware().catch(() => undefined);
+
+			expect(headerOf(fetchImpl, 0)).toBe('s3cret');
+			expect(headerOf(fetchImpl, 1)).toBe('s3cret');
+			expect(headerOf(fetchImpl, 2)).toBe('s3cret');
+			// MULTIPART BODIES MUST NOT GET A HAND-SET CONTENT-TYPE (THE BOUNDARY WOULD BE LOST)
+			expect(new Headers(fetchImpl.mock.calls[0][1]?.headers).get('content-type')).toBeNull();
+		});
+
+		it('sends no secret header when none is configured', async () => {
+			const fetchImpl = mockFetch(200, { status: 'ok' });
+			const client = new HttpPipelineClient('http://sidecar:8001', fetchImpl);
+			await client.health();
+			expect(headerOf(fetchImpl)).toBeNull();
+		});
+	});
+});
+
+describe('HttpPipelineClient.reslice result validation (FEAT-002)', () => {
+	const webp = (n: number) => {
+		const b = Buffer.alloc(16);
+		b.write('RIFF', 0, 'ascii');
+		b.write('WEBP', 8, 'ascii');
+		b[15] = n;
+		return new Uint8Array(b);
+	};
+
+	async function resliceWith(entries: Record<string, Uint8Array>, count: string | null) {
+		const { zipSync } = await import('fflate');
+		const zip = zipSync(entries);
+		const fetchImpl = vi.fn(async () => {
+			const headers: Record<string, string> = { 'content-type': 'application/zip' };
+			if (count !== null) headers['x-slice-count'] = count;
+			return new Response(zip, { status: 200, headers });
+		});
+		return new HttpPipelineClient('http://sidecar:8001', fetchImpl).reslice([Buffer.from('x')]);
+	}
+
+	it('returns the slices when the count and keys match', async () => {
+		const out = await resliceWith({ '0.webp': webp(0), '1.webp': webp(1) }, '2');
+		expect(out).toHaveLength(2);
+		expect(out[1][15]).toBe(1);
+	});
+
+	it('throws when x-slice-count is missing', async () => {
+		await expect(resliceWith({ '0.webp': webp(0) }, null)).rejects.toBeInstanceOf(PipelineError);
+	});
+
+	it('throws when the count does not match the archive', async () => {
+		await expect(resliceWith({ '0.webp': webp(0), '1.webp': webp(1) }, '3')).rejects.toThrow(/2 of 3/);
+	});
+
+	it('throws when the keys skip a number', async () => {
+		await expect(resliceWith({ '0.webp': webp(0), '2.webp': webp(2) }, '2')).rejects.toThrow(/slice 1 is missing/);
+	});
+
+	it('throws when a slice is empty', async () => {
+		await expect(resliceWith({ '0.webp': webp(0), '1.webp': new Uint8Array(0) }, '2')).rejects.toThrow(/slice 1 is empty/);
+	});
 });

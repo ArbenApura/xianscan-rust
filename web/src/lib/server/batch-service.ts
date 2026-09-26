@@ -24,6 +24,7 @@ import { DATA_ROOT } from '$lib/server/paths';
 import { getCanonicalSettings, onSettingsUpdated } from '$lib/server/settings-service';
 import { isRetryable } from '$lib/server/llm';
 import { syncBus } from '$lib/server/sync-bus';
+import { errorMessage } from '$lib/server/error-message';
 import type {
 	BatchChapterItem,
 	BatchTranslationState,
@@ -216,8 +217,15 @@ onSettingsUpdated(() => {
 
 // -- BROADCASTING & STATE HELPERS -- //
 
+// EVERY EMITTED STATE CARRIES A MONOTONIC REVISION; THE EPOCH CHANGES WHEN THE SERVER RESTARTS. A CLIENT DROPS ANY
+// STATE OLDER THAN ONE IT ALREADY APPLIED, SO A SLOW POLL CANNOT OVERWRITE A NEWER STREAM EVENT (FEAT-009 PHASE 3).
+// NEITHER IS PERSISTED: THEY ARE ADDED ONLY TO THE COPIES HANDED OUT.
+const STATE_EPOCH = crypto.randomUUID();
+let stateRevision = 0;
+
 function emitState() {
-	const snapshot = { ...activeBatchState, queue: [...activeBatchState.queue] };
+	stateRevision++;
+	const snapshot = { ...activeBatchState, queue: [...activeBatchState.queue], revision: stateRevision, epoch: STATE_EPOCH };
 	for (const fn of listeners) {
 		try {
 			fn({ type: 'batch-state', state: snapshot });
@@ -225,6 +233,27 @@ function emitState() {
 			console.error('FAILED TO EMIT BATCH STATE TO SSE SUBSCRIBER:', err);
 		}
 	}
+}
+
+// ADDS A NON-FATAL NOTE TO A QUEUED CHAPTER (DEDUPED) AND PUBLISHES IT; CLIENTS TOAST EACH NEW NOTE ONCE
+function addChapterNotice(chapterId: number, notice: string): void {
+	let changed = false;
+	activeBatchState = {
+		...activeBatchState,
+		queue: activeBatchState.queue.map((item) => {
+			if (item.id !== chapterId || item.notices?.includes(notice)) return item;
+			changed = true;
+			return { ...item, notices: [...(item.notices ?? []), notice] };
+		}),
+	};
+	if (!changed) return;
+	persistBatchState();
+	emitState();
+}
+
+/** THE NOTE SHOWN WHEN AUTO-RESLICE IS SKIPPED (E.G. A CHAPTER OVER THE 400 PAGE OR 200 MP RESLICE LIMIT). */
+export function resliceSkippedNotice(err: unknown): string {
+	return `Reslice skipped: ${errorMessage(err)} Translating the original pages.`;
 }
 
 // -- PIPELINE EXECUTION HELPERS -- //
@@ -318,7 +347,10 @@ async function executeChapterJob(chapter: BatchChapterItem, force: boolean) {
 			if (activeBatchState.status === 'cancelled' || activeBatchState.status === 'paused') {
 				return;
 			}
-			console.warn(`[batchService] Auto-reslice failed for chapter ${chapter.id}, proceeding with translation:`, err?.message);
+			const reason = errorMessage(err);
+			console.warn(`[batchService] Auto-reslice failed for chapter ${chapter.id}, proceeding with translation:`, reason);
+			// SAY SO INSTEAD OF SILENTLY TRANSLATING THE UNSLICED PAGES
+			addChapterNotice(chapter.id, resliceSkippedNotice(err));
 		}
 	}
 
@@ -395,6 +427,12 @@ async function executeChapterJob(chapter: BatchChapterItem, force: boolean) {
 
 			if (!activeBatchState.active || activeBatchState.status === 'paused' || activeBatchState.status === 'cancelled') {
 				unsub();
+				return;
+			}
+
+			// NON-FATAL PIPELINE WARNING (NO FONT COVERS THE TARGET SCRIPT): SURFACE IT IN BATCH MODE TOO
+			if (e.type === 'warning') {
+				if (e.message) addChapterNotice(chapter.id, String(e.message));
 				return;
 			}
 
@@ -705,7 +743,7 @@ function stopWatchdog() {
 export const batchService = {
 	// GET CURRENT CANONICAL STATE
 	getState(): BatchTranslationState {
-		return { ...activeBatchState, queue: [...activeBatchState.queue] };
+		return { ...activeBatchState, queue: [...activeBatchState.queue], revision: stateRevision, epoch: STATE_EPOCH };
 	},
 
 	// SUBSCRIBE TO SERVER-SIDE BATCH SSE UPDATES

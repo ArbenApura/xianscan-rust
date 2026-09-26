@@ -5,6 +5,7 @@ import { createPipelineClient } from '$lib/server/pipeline-client';
 import { resliceChapterSchema } from '$lib/schemas';
 import { DATA_ROOT } from '$lib/server/paths';
 import { syncBus } from '$lib/server/sync-bus';
+import { errorMessage } from '$lib/server/error-message';
 import type { RequestHandler } from './$types';
 
 export const POST: RequestHandler = async ({ params, request }) => {
@@ -74,7 +75,8 @@ export const POST: RequestHandler = async ({ params, request }) => {
 					if (request.signal.aborted) {
 						emit({ type: 'error', message: 'Re-slicing cancelled by user.' });
 					} else {
-						emit({ type: 'error', message: e instanceof Error ? e.message : String(e) });
+						// A LIMIT REFUSAL (413) IS AN HttpError: SEND ITS MESSAGE, NOT ITS JSON BODY
+						emit({ type: 'error', message: errorMessage(e) });
 					}
 				} finally {
 					close();

@@ -9,6 +9,9 @@ import { eq, sql } from 'drizzle-orm';
 import { db } from './db';
 import { books, chapters, pages } from './db/schema';
 import { DATA_ROOT } from './paths';
+import { assertDimsWithinLimits, readImageDims } from './image-limits';
+
+const UNSUPPORTED_COVER = 'Unsupported or corrupt image. Use a common format (JPEG, PNG, WebP, AVIF, HEIC).';
 
 // -- CONSTANTS -- //
 
@@ -91,6 +94,10 @@ export async function saveCover(
 // DECODE ANY SUPPORTED IMAGE TO A DOWNSCALED JPEG. THE @napi-rs/canvas PATH COVERS JPEG/PNG/WEBP;
 // THE @napi-rs/image PATH IS THE FALLBACK FOR EVERYTHING ELSE (AVIF, HEIC, TIFF, BMP, ICO, GIF, …).
 async function encodeCoverJpeg(bytes: Uint8Array): Promise<Buffer> {
+	// NEVER DECODE AN OVER-CAP IMAGE (THE 422 PROPAGATES TO THE ROUTE UNCHANGED)
+	const dims = await readImageDims(Buffer.from(bytes));
+	if (!dims) throw new Error(UNSUPPORTED_COVER);
+	assertDimsWithinLimits(dims, 'Cover image');
 	try {
 		return await encodeCoverJpegViaCanvas(bytes);
 	} catch {
@@ -99,7 +106,7 @@ async function encodeCoverJpeg(bytes: Uint8Array): Promise<Buffer> {
 	try {
 		return encodeCoverJpegViaImage(bytes);
 	} catch {
-		throw new Error('Unsupported or corrupt image. Use a common format (JPEG, PNG, WebP, AVIF, HEIC).');
+		throw new Error(UNSUPPORTED_COVER);
 	}
 }
 

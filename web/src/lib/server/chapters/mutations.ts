@@ -2,7 +2,7 @@
 import { randomUUID } from 'node:crypto';
 import { mkdirSync, writeFileSync, unlinkSync, rmSync, readdirSync, existsSync } from 'node:fs';
 import { join, extname } from 'node:path';
-import { error } from '@sveltejs/kit';
+import { error, isHttpError } from '@sveltejs/kit';
 import { asc, desc, eq } from 'drizzle-orm';
 import { db } from '../db';
 import { books, chapters, pages, regions, translations } from '../db/schema';
@@ -18,7 +18,7 @@ import { convertBufferToWebP } from './dimensions';
 // WITH A 400 RATHER THAN STORING A RAW FILE.
 const ALLOWED_EXT = new Set(['.png', '.jpg', '.jpeg', '.webp', '.avif', '.heic', '.heif']);
 
-export async function assertChapterExists(chapterId: number): Promise<{ id: number; bookId: string; title: string; seq: number }> {
+export async function assertChapterExists(chapterId: number): Promise<{ id: number; bookId: string; title: string; seq: number; titleTarget: string | null }> {
 	const chapter = db.select().from(chapters).where(eq(chapters.id, chapterId)).get();
 	if (!chapter) throw error(404, 'Chapter not found.');
 	return chapter;
@@ -106,63 +106,94 @@ export function markChapterResliceDirty(chapterId: number): void {
 		.run();
 }
 
+/**
+ * ADDS PAGES TO A CHAPTER, ALL OR NOTHING (FEAT-002 ADR-008).
+ * 1. EVERY EXTENSION IS CHECKED BEFORE ANY WORK, 2. EVERY FILE IS CONVERTED IN MEMORY (ANY FAILURE THROWS BEFORE
+ * DISK IS TOUCHED), 3. AFTER THE LAST `await`, FILES ARE WRITTEN AND ROWS INSERTED SYNCHRONOUSLY IN ONE
+ * TRANSACTION, SO A CONCURRENT UPLOAD TO THE SAME CHAPTER CANNOT INTERLEAVE AND BOTH GET DISTINCT SEQS.
+ * THE 64 MIB NODE BODY LIMIT BOUNDS THE BATCH HELD IN MEMORY.
+ */
 export async function uploadPages(chapterId: number, files: File[]): Promise<number> {
-	let count = 0;
-	let seq = nextPageSeq(chapterId);
-	const uploadDir = join(DATA_ROOT, 'uploads', String(chapterId));
-	mkdirSync(uploadDir, { recursive: true });
 	// SORT INCOMING FILES IN NATURAL NUMERIC ORDER TO PRESERVE INTENDED STRIP SEQUENCE
 	const sortedFiles = [...files].sort((a, b) =>
 		a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: 'base' })
 	);
+
+	// 1. REJECT AN UNSUPPORTED FILE BEFORE CONVERTING ANYTHING
 	for (const file of sortedFiles) {
 		const ext = extname(file.name).toLowerCase();
-		if (!ALLOWED_EXT.has(ext)) throw error(400, `Unsupported image type "${ext}" — use PNG/JPEG/WebP/AVIF/HEIC.`);
+		if (!ALLOWED_EXT.has(ext)) throw error(400, `Unsupported image type "${ext}". Use PNG, JPEG, WebP, AVIF or HEIC.`);
+	}
+
+	// 2. CONVERT EVERYTHING IN MEMORY
+	const converted: { data: Buffer; ext: string; width: number | null; height: number | null }[] = [];
+	for (const file of sortedFiles) {
+		const ext = extname(file.name).toLowerCase();
 		const rawBuf = Buffer.from(await file.arrayBuffer());
-		let webpBuf: Buffer;
-		let finalExt: string;
-		let width: number | null = null;
-		let height: number | null = null;
 		try {
-			const converted = await convertBufferToWebP(rawBuf, ext);
-			webpBuf = converted.data;
-			finalExt = converted.ext;
-			width = converted.width;
-			height = converted.height;
+			converted.push(await convertBufferToWebP(rawBuf, ext));
 		} catch (e) {
+			// OVER THE PIXEL CAP OR UNREADABLE SIZE: KEEP THE 422, NAME THE FILE
+			if (isHttpError(e)) throw error(e.status, `"${file.name}": ${e.body.message}`);
 			throw error(400, `"${file.name}" could not be converted to WebP (${(e as Error).message}). Re-export it as PNG, JPEG, or WebP.`);
 		}
-		const fileName = `${randomUUID()}${finalExt}`;
-		writeFileSync(join(uploadDir, fileName), webpBuf);
-		db.insert(pages)
-			.values({
-				chapterId,
-				seq,
-				filePath: `uploads/${chapterId}/${fileName}`,
-				width: width ?? null,
-				height: height ?? null,
-			})
-			.run();
-		seq++;
-		count++;
-	}
-	compactChapterPageSeqs(chapterId);
-	markChapterResliceDirty(chapterId);
-
-	const ch = db.select({ bookId: chapters.bookId }).from(chapters).where(eq(chapters.id, chapterId)).get();
-	if (ch) {
-		const book = db.select({ id: books.id, title: books.title }).from(books).where(eq(books.id, ch.bookId)).get();
-		const isQuickImports = book?.title === 'Web Quick Imports';
-		db.update(books)
-			.set({
-				updatedAt: Date.now(),
-				...(isQuickImports ? { pinned: true } : {})
-			})
-			.where(eq(books.id, ch.bookId))
-			.run();
 	}
 
-	return count;
+	// 3. NO AWAIT FROM HERE ON: WRITE FILES, THEN ONE TRANSACTION FOR EVERY ROW
+	const uploadDir = join(DATA_ROOT, 'uploads', String(chapterId));
+	const written: string[] = [];
+	try {
+		mkdirSync(uploadDir, { recursive: true });
+		const rels: string[] = [];
+		for (const item of converted) {
+			const fileName = `${randomUUID()}${item.ext}`;
+			const abs = join(uploadDir, fileName);
+			writeFileSync(abs, item.data);
+			written.push(abs);
+			rels.push(`uploads/${chapterId}/${fileName}`);
+		}
+
+		db.transaction(() => {
+			let seq = nextPageSeq(chapterId);
+			for (let i = 0; i < converted.length; i++) {
+				db.insert(pages)
+					.values({
+						chapterId,
+						seq: seq++,
+						filePath: rels[i],
+						width: converted[i].width ?? null,
+						height: converted[i].height ?? null,
+					})
+					.run();
+			}
+			compactChapterPageSeqs(chapterId);
+			markChapterResliceDirty(chapterId);
+
+			const ch = db.select({ bookId: chapters.bookId }).from(chapters).where(eq(chapters.id, chapterId)).get();
+			if (ch) {
+				const book = db.select({ id: books.id, title: books.title }).from(books).where(eq(books.id, ch.bookId)).get();
+				const isQuickImports = book?.title === 'Web Quick Imports';
+				db.update(books)
+					.set({
+						updatedAt: Date.now(),
+						...(isQuickImports ? { pinned: true } : {})
+					})
+					.where(eq(books.id, ch.bookId))
+					.run();
+			}
+		});
+	} catch (e) {
+		for (const abs of written) {
+			try {
+				unlinkSync(abs);
+			} catch {
+				// ALREADY GONE
+			}
+		}
+		throw e;
+	}
+
+	return converted.length;
 }
 
 export function reorderPages(chapterId: number, pageIds: number[]): void {

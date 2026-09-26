@@ -1,6 +1,6 @@
 // CHAPTER PIPELINE RUNNER TESTS - THE FULL PER-PAGE LOOP WITH FAKE SIDECAR + FAKE LLM + IN-MEMORY
 // SQLITE + A TEMP DATA ROOT. NO NETWORK, NO MODELS, NO API KEY.
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -13,6 +13,16 @@ import { chapterWork } from '$lib/server/chapter-pipeline';
 import { pages, regions, glossary } from '$lib/server/db/schema';
 
 vi.mock('$lib/server/db', async () => ({ db: (await import('../helpers/db')).getTestDb() }));
+// WRAP THE REAL COVERAGE CHECK SO A TEST CAN PRETEND NO FONT HAS A SCRIPT (FEAT-006 PHASE 11)
+vi.mock('$lib/server/typeset/coverage', async (importOriginal) => {
+	const actual = await importOriginal<typeof import('$lib/server/typeset/coverage')>();
+	return { ...actual, familyCovers: vi.fn(actual.familyCovers) };
+});
+// WRAP THE REAL TYPESETTER SO A TEST CAN SEE THE OPTIONS IT RECEIVED (FEAT-006)
+vi.mock('$lib/server/typeset', async (importOriginal) => {
+	const actual = await importOriginal<typeof import('$lib/server/typeset')>();
+	return { ...actual, typesetPage: vi.fn(actual.typesetPage) };
+});
 
 // -- FAKES -- //
 
@@ -122,6 +132,48 @@ async function run(chapterId: number, llm: OpenAI) {
 // -- TESTS -- //
 
 describe('runChapterPipeline', () => {
+	it('warns once per chapter when no installed font covers the book script (FEAT-006)', async () => {
+		const coverage = await import('$lib/server/typeset/coverage');
+		const actual = await vi.importActual<typeof import('$lib/server/typeset/coverage')>('$lib/server/typeset/coverage');
+		vi.mocked(coverage.familyCovers).mockImplementation(() => false);
+		try {
+			seedBook(db, { id: 'hi-warn', targetLang: 'hi', sourceLang: 'zh-Hans' });
+			const chapter = seedChapter(db, { bookId: 'hi-warn', seq: 0 });
+			seedPage(db, { chapterId: chapter.id, seq: 0, filePath: 'uploads/w0.png' });
+			seedPage(db, { chapterId: chapter.id, seq: 1, filePath: 'uploads/w1.png' });
+			mkdirSync(join(dataRoot, 'uploads'), { recursive: true });
+			writeFileSync(join(dataRoot, 'uploads', 'w0.png'), PAGE_PNG);
+			writeFileSync(join(dataRoot, 'uploads', 'w1.png'), PAGE_PNG);
+			const events = await run(chapter.id, fakeLlm({ r0: 'नमस्ते' }));
+			expect(events.filter((t) => t === 'warning')).toHaveLength(1);
+		} finally {
+			vi.mocked(coverage.familyCovers).mockImplementation(actual.familyCovers);
+		}
+	});
+
+	it('does not warn when the script is covered', async () => {
+		seedBook(db, { id: 'hi-ok', targetLang: 'hi', sourceLang: 'zh-Hans' });
+		const chapter = seedChapter(db, { bookId: 'hi-ok', seq: 0 });
+		seedPage(db, { chapterId: chapter.id, seq: 0, filePath: 'uploads/ok.png' });
+		mkdirSync(join(dataRoot, 'uploads'), { recursive: true });
+		writeFileSync(join(dataRoot, 'uploads', 'ok.png'), PAGE_PNG);
+		const events = await run(chapter.id, fakeLlm({ r0: 'नमस्ते' }));
+		expect(events).not.toContain('warning');
+	});
+
+	it('typesets a Hindi book with the Devanagari target script (FEAT-006)', async () => {
+		const { typesetPage } = await import('$lib/server/typeset');
+		vi.mocked(typesetPage).mockClear();
+		seedBook(db, { id: 'hi-book', targetLang: 'hi', sourceLang: 'zh-Hans' });
+		const chapter = seedChapter(db, { bookId: 'hi-book', seq: 0 });
+		seedPage(db, { chapterId: chapter.id, seq: 0, filePath: 'uploads/hi.png' });
+		mkdirSync(join(dataRoot, 'uploads'), { recursive: true });
+		writeFileSync(join(dataRoot, 'uploads', 'hi.png'), PAGE_PNG);
+		await run(chapter.id, fakeLlm({ r0: 'नमस्ते' }));
+		expect(vi.mocked(typesetPage)).toHaveBeenCalled();
+		expect(vi.mocked(typesetPage).mock.calls[0][2]).toMatchObject({ targetScript: 'devanagari' });
+	});
+
 	it('analyzes, translates, cleans, typesets and marks the page done', async () => {
 		const { chapter, page } = seedChapterWithPage('c1-p0.png');
 		await run(chapter.id, fakeLlm());
@@ -295,6 +347,31 @@ describe('runChapterPipeline', () => {
 
 		const got = db.select().from(pages).where(eq(pages.id, page.id)).get();
 		expect(got?.status).toBe('done'); // THE RESET LET THE RE-RUN COMPLETE IT
+	});
+
+	it('stores the calibrated confidence with scale 1 and legacy confidence with scale 0 (FEAT-003)', async () => {
+		const { chapter, page } = seedChapterWithPage('conf.png');
+		const mixed = new FakePipeline();
+		mixed.analyze = async () => ({
+			width: 200,
+			height: 300,
+			backend: 'comic-ctd',
+			regions: [
+				{ id: 'r0', box: { x: 0, y: 0, w: 50, h: 20 }, polygon: [[0, 0]], text: '甲', confidence: 0.72, ocr_confidence: 0.97, vertical: false },
+				{ id: 'r1', box: { x: 0, y: 100, w: 50, h: 20 }, polygon: [[0, 100]], text: '乙', confidence: 0.7, vertical: false },
+			],
+		});
+		await chapterWork(chapter.id, { pipeline: mixed, dataRoot, llm: fakeLlm({ r0: 'A', r1: 'B' }) })(
+			new AbortController().signal,
+			() => {},
+		);
+
+		const rows = db.select().from(regions).where(eq(regions.pageId, page.id)).orderBy(regions.seq).all();
+		expect(rows).toHaveLength(2);
+		expect(rows[0].conf).toBeCloseTo(0.97, 6);
+		expect(rows[0].confScale).toBe(1);
+		expect(rows[1].conf).toBeCloseTo(0.7, 6);
+		expect(rows[1].confScale).toBe(0);
 	});
 
 	it('translations update only their own region (seq keyed correctly)', async () => {
@@ -500,6 +577,43 @@ describe('runChapterPipeline', () => {
 
 		const typesetEnd = stepEndEvents.find((e) => e.step === 'typeset');
 		expect(typesetEnd?.durationMs).toBeGreaterThanOrEqual(0);
+	});
+
+	it('abort cleanup only touches the annotated previews of the pages this run processed', async () => {
+		seedBook(db, { id: 'b1' });
+		const chapter = seedChapter(db, { bookId: 'b1', seq: 0 });
+		const other = seedPage(db, { chapterId: chapter.id, seq: 0, filePath: 'uploads/p1.png' });
+		const mine = seedPage(db, { chapterId: chapter.id, seq: 1, filePath: 'uploads/p2.png' });
+		mkdirSync(join(dataRoot, 'uploads'), { recursive: true });
+		writeFileSync(join(dataRoot, 'uploads', 'p1.png'), PAGE_PNG);
+		writeFileSync(join(dataRoot, 'uploads', 'p2.png'), PAGE_PNG);
+		// A PREVIEW OWNED BY ANOTHER (NEWER) RUN FOR THE OTHER PAGE, AND A STALE ONE FOR THIS RUN'S PAGE
+		const annotatedDir = join(dataRoot, 'annotated', String(chapter.id));
+		mkdirSync(annotatedDir, { recursive: true });
+		writeFileSync(join(annotatedDir, '0.webp'), 'other-run');
+		writeFileSync(join(annotatedDir, '1.webp'), 'this-run');
+		db.update(pages).set({ annotatedPath: `annotated/${chapter.id}/0.webp` }).where(eq(pages.id, other.id)).run();
+		db.update(pages).set({ annotatedPath: `annotated/${chapter.id}/1.webp` }).where(eq(pages.id, mine.id)).run();
+
+		const controller = new AbortController();
+		const slowPipeline = new FakePipeline();
+		const original = slowPipeline.analyze.bind(slowPipeline);
+		slowPipeline.analyze = async (image, signal) => {
+			const r = await original(image, signal);
+			controller.abort();
+			return r;
+		};
+		await expect(
+			chapterWork(chapter.id, { pipeline: slowPipeline, dataRoot, llm: fakeLlm(), pageConcurrency: 1 }, [mine.id])(
+				controller.signal,
+				() => {},
+			),
+		).rejects.toMatchObject({ name: 'AbortError' });
+
+		expect(db.select().from(pages).where(eq(pages.id, other.id)).get()?.annotatedPath).toBe(`annotated/${chapter.id}/0.webp`);
+		expect(existsSync(join(annotatedDir, '0.webp'))).toBe(true);
+		expect(db.select().from(pages).where(eq(pages.id, mine.id)).get()?.annotatedPath).toBeNull();
+		expect(existsSync(join(annotatedDir, '1.webp'))).toBe(false);
 	});
 
 	it('only processes specified pageIds when provided', async () => {

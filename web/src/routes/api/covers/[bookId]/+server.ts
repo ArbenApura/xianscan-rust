@@ -1,6 +1,6 @@
 // BOOK COVER UPLOAD / DELETE.
 // IMPORTED DEP-MODULES
-import { error, json } from '@sveltejs/kit';
+import { error, isHttpError, json } from '@sveltejs/kit';
 // IMPORTED MODULES
 import { assertBookExists } from '$lib/server/books';
 import { deleteCover, saveCover } from '$lib/server/covers';
@@ -23,6 +23,8 @@ export const POST: RequestHandler = async ({ params, request }) => {
 		const { coverPath, coverRev } = await saveCover(params.bookId, file);
 		return json({ coverPath, coverRev });
 	} catch (err) {
+		// A SIZED REJECTION (422 OVER THE PIXEL CAP) KEEPS ITS STATUS
+		if (isHttpError(err)) throw err;
 		console.error('[covers] cover upload failed:', err);
 		const message = err instanceof Error ? err.message : null;
 		throw error(400, message || 'Cover image could not be saved.');

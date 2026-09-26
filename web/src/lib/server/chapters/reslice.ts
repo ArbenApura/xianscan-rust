@@ -1,4 +1,4 @@
-import { mkdirSync, readFileSync, writeFileSync, unlinkSync, rmSync } from 'node:fs';
+import { mkdirSync, readFileSync, writeFileSync, unlinkSync, rmSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { error } from '@sveltejs/kit';
@@ -9,7 +9,9 @@ import { clearChapterJob } from '../translation-service';
 import { DATA_ROOT } from '../paths';
 import type { PipelineClient } from '../pipeline-client';
 import { pruneCoverThumbs } from '../covers';
-import { getImageDimensionsFromBuffer } from './dimensions';
+import { detectImageFormat, getImageDimensionsFromBuffer } from './dimensions';
+import { writeFileAtomic } from '../fs-atomic';
+import type { SidecarLimits } from '../pipeline-client';
 import { prunePageThumbs, pruneMultiplePageThumbs, reorderPages } from './mutations';
 
 // -- CONSTANTS -- //
@@ -22,12 +24,56 @@ export const DEFAULT_RESLICE_HEIGHTS = {
 	maxHeight: 2000,
 } as const;
 
+// ADR-001 DEFAULTS, USED WHEN THE SIDECAR DOES NOT REPORT ITS OWN LIMITS
+export const DEFAULT_SIDECAR_LIMITS: SidecarLimits = {
+	max_image_pixels: 100_000_000,
+	max_images: 400,
+	max_canvas_pixels: 200_000_000,
+	reslice_body_bytes: 512 * 1024 * 1024,
+};
+
 // -- TYPES -- //
 
 export interface ResliceHeightOptions {
 	targetHeight: number;
 	minHeight: number;
 	maxHeight: number;
+}
+
+/**
+ * THE STITCHED CANVAS SIZE THE SIDECAR WILL PLAN FOR THESE PAGES (SAME FORMULA AS ITS plan_canvas: EVERY PAGE
+ * SCALED TO THE WIDEST ONE). NULL WHEN ANY PAGE HAS UNKNOWN DIMENSIONS.
+ */
+export function planCanvas(dims: { width: number | null; height: number | null }[]): { width: number; height: number } | null {
+	if (dims.length === 0 || dims.some((d) => !d.width || !d.height)) return null;
+	const maxW = Math.max(...dims.map((d) => d.width as number));
+	let height = 0;
+	for (const d of dims) {
+		const w = d.width as number;
+		const h = d.height as number;
+		height += w === maxW ? h : Math.round(h * (maxW / w));
+	}
+	return { width: maxW, height };
+}
+
+/** REFUSES A RESLICE THE SIDECAR WOULD REJECT, BEFORE ANY FILE IS READ OR UPLOADED. */
+export function assertResliceFits(
+	dims: { width: number | null; height: number | null }[],
+	totalBytes: number,
+	limits: SidecarLimits,
+): void {
+	if (dims.length > limits.max_images) {
+		throw error(413, `This chapter has ${dims.length} pages, over the reslice limit of ${limits.max_images}. Split it into smaller chapters first.`);
+	}
+	const canvas = planCanvas(dims);
+	if (canvas && canvas.width * canvas.height > limits.max_canvas_pixels) {
+		const mp = Math.round(limits.max_canvas_pixels / 1_000_000);
+		throw error(413, `This chapter is ${canvas.width} x ${canvas.height} px, over the reslice limit of ${mp} MP. Split it into smaller chapters first.`);
+	}
+	if (totalBytes > limits.reslice_body_bytes) {
+		const mib = Math.round(limits.reslice_body_bytes / (1024 * 1024));
+		throw error(413, `This chapter's pages add up to more than ${mib} MiB, over the reslice upload limit. Split it into smaller chapters first.`);
+	}
 }
 
 export async function stitchPageWithNext(
@@ -54,7 +100,9 @@ export async function stitchPageWithNext(
 	const botBytes = readFileSync(botAbs);
 
 	const stitched = await pipeline.stitch(topBytes, botBytes);
-	writeFileSync(topAbs, stitched);
+	if (!detectImageFormat(stitched)) throw new Error('Stitch returned an unreadable image; the page was left unchanged.');
+	// A CRASH MID-WRITE MUST NOT LEAVE THE TOP PAGE TRUNCATED
+	writeFileAtomic(topAbs, stitched);
 
 	const dims = getImageDimensionsFromBuffer(stitched);
 	let w: number | null = dims.width;
@@ -181,6 +229,18 @@ async function runReslicePipeline(
 
 	if (pageRows.length === 0) throw error(400, 'Chapter has no pages to reslice.');
 
+	// FAIL EARLY (BEFORE READING OR UPLOADING ANYTHING) WHEN THE SIDECAR WOULD REFUSE THIS CHAPTER
+	const limits = (await pipeline.getLimits?.(signal)) ?? DEFAULT_SIDECAR_LIMITS;
+	let totalBytes = 0;
+	for (const p of pageRows) {
+		try {
+			totalBytes += statSync(join(dataRoot, p.filePath)).size;
+		} catch {
+			// A MISSING FILE FAILS BELOW WITH ITS OWN ERROR
+		}
+	}
+	assertResliceFits(pageRows, totalBytes, limits);
+
 	// STEP 1 "READ" IS NEAR-INSTANT (readFileSync) — GIVE IT ONLY 2% SO THE LONG
 	// STEP 2 BELOW OWNS THE OVERWHELMING MAJORITY OF THE PROGRESS BAR.
 	onProgress?.('read', `Reading ${pageRows.length} chapter image slices...`, 2);
@@ -250,6 +310,10 @@ async function runReslicePipeline(
 		}
 	}
 	if (slicedBuffers.length === 0) throw new Error('Reslice produced zero pages.');
+	// NEVER REPLACE THE CHAPTER WITH SOMETHING THAT IS NOT AN IMAGE; THE OLD PAGES STAY UNTOUCHED
+	slicedBuffers.forEach((buf, i) => {
+		if (!detectImageFormat(buf)) throw new Error(`Reslice slice ${i + 1} is not a valid image; the chapter was left unchanged.`);
+	});
 
 	// STEP 3 "SAVE" IS ALSO NEAR-INSTANT (writeFileSync + DB) — GIVE IT THE FINAL 3%.
 	onProgress?.('save', `Writing ${slicedBuffers.length} clean pages and rebuilding database...`, 97);

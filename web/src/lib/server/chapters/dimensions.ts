@@ -1,9 +1,13 @@
-// ZERO-ALLOCATION FAST IMAGE DIMENSION AND FORMAT CONVERTERS (PNG, WebP, JPEG, AVIF)
+// IMPORTED MODULES
+import { assertDecodeAllowed } from '../image-limits';
+
+// ZERO-ALLOCATION HEADER DIMENSION READERS (PNG, WEBP, JPEG) AND THE WEBP CONVERTER.
+// OTHER FORMATS (AVIF, HEIC, GIF, ...) GO THROUGH `readImageDims` IN image-limits.ts.
 export function getImageDimensionsFromBuffer(buf: Buffer): { width: number | null; height: number | null } {
 	if (!buf || buf.length < 24) return { width: null, height: null };
 
 	// 1. PNG Header (0x89 0x50 0x4E 0x47 0x0D 0x0A 0x1A 0x0A)
-	if (buf[0] === 0x89 && buf[1] === 0x50 && buf[2] === 0x4e && buf[3] === 0x47) {
+	if (buf[0] === 0x89 && buf[1] === 0x50 && buf[2] === 0x4e && buf[3] === 0x47 && buf.toString('ascii', 12, 16) === 'IHDR') {
 		const width = buf.readUInt32BE(16);
 		const height = buf.readUInt32BE(20);
 		if (width > 0 && height > 0) return { width, height };
@@ -36,13 +40,15 @@ export function getImageDimensionsFromBuffer(buf: Buffer): { width: number | nul
 	// 3. JPEG (0xFF 0xD8)
 	if (buf[0] === 0xff && buf[1] === 0xd8) {
 		let offset = 2;
-		while (offset < buf.length - 8) {
+		while (offset + 4 <= buf.length) {
 			if (buf[offset] !== 0xff) {
 				offset++;
 				continue;
 			}
 			const marker = buf[offset + 1];
-			if (marker === 0xc0 || marker === 0xc1 || marker === 0xc2) {
+			// EVERY START-OF-FRAME MARKER (BASELINE, PROGRESSIVE, LOSSLESS, ARITHMETIC); C4 / C8 / CC ARE NOT FRAMES
+			if (marker >= 0xc0 && marker <= 0xcf && marker !== 0xc4 && marker !== 0xc8 && marker !== 0xcc) {
+				if (offset + 9 > buf.length) break;
 				const height = buf.readUInt16BE(offset + 5);
 				const width = buf.readUInt16BE(offset + 7);
 				if (width > 0 && height > 0) return { width, height };
@@ -89,6 +95,10 @@ export async function convertBufferToWebP(
 	if (!buffer || buffer.length === 0) {
 		throw new Error('Image buffer is empty (0 bytes received)');
 	}
+
+	// NOTHING OVER THE PIXEL CAP IS EVER DECODED; THE 422 REACHES THE CALLER. A SMALL FILE WHOSE SIZE CANNOT
+	// BE READ IS LEFT TO THE CONVERTERS BELOW (THEY FAIL WITH A CLEAR MESSAGE); A LARGE ONE IS REFUSED.
+	await assertDecodeAllowed(buffer, originalExt ? `Image (${originalExt})` : 'Image');
 
 	const fastDims = getImageDimensionsFromBuffer(buffer);
 	const fmt = detectImageFormat(buffer);

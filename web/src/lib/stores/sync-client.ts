@@ -76,6 +76,11 @@ function createSyncClientStore() {
 	async function connect(): Promise<void> {
 		if (!browser || !isStarted) return;
 
+		// A PENDING BACKOFF RECONNECT IS REPLACED BY THIS CONNECT
+		if (reconnectTimer) {
+			clearTimeout(reconnectTimer);
+			reconnectTimer = null;
+		}
 		// CLEAN UP ANY PRIOR ACTIVE STREAM
 		if (activeController) {
 			activeController.abort();
@@ -109,7 +114,10 @@ function createSyncClientStore() {
 				controller.signal,
 			);
 
-			// STREAM ENDED NORMALLY
+			// STREAM ENDED NORMALLY: RELEASE THE CONTROLLER SO A TAB RETURNING TO THE FOREGROUND CAN RECONNECT AT ONCE
+			if (activeController === controller) {
+				activeController = null;
+			}
 			if (isStarted && !controller.signal.aborted) {
 				scheduleReconnect();
 			}
