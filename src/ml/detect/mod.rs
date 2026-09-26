@@ -4,6 +4,7 @@ pub mod grouping;
 pub mod lang;
 pub mod rfdetr;
 pub mod rtdetr;
+pub mod tiling;
 pub mod text_clean;
 
 pub use dbnet::lines_map_to_boxes;

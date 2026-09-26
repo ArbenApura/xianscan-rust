@@ -9,6 +9,7 @@ use crate::ml::detect::{
 use crate::ml::schemas::{
     AnalyzeOptions, AnalyzeResponse, OcrStats, OcrStepLog, OnomatopoeiaFrame,
 };
+use crate::ml::ocr::score_thresholds as thr;
 use super::engine::PipelineEngine;
 use super::fusion::fuse_detections;
 use super::region_builder::{build_regions, extract_dark_bubble_envelope, extract_white_bubble_envelope};
@@ -123,6 +124,18 @@ pub fn analyze_image_with_fusion_timed(
     options: Option<&AnalyzeOptions>,
     t_total_start: std::time::Instant,
 ) -> Result<AnalyzeResponse> {
+    analyze_with_ocr(&mut engine.ocr, img, fusion_res, options, t_total_start)
+}
+
+/// STAGES 2 AND 3 GIVEN A FUSION RESULT. ONLY THE OCR ENGINE IS NEEDED, SO A CALLER HOLDING PER-MODEL LOCKS CAN
+/// RELEASE THE DETECTOR FIRST (FEAT-004 PHASE 10).
+pub fn analyze_with_ocr(
+    ocr: &mut Option<crate::ml::ocr::RapidOcr>,
+    img: &DynamicImage,
+    fusion_res: &super::fusion::DetectionFusionResult,
+    options: Option<&AnalyzeOptions>,
+    t_total_start: std::time::Instant,
+) -> Result<AnalyzeResponse> {
     let (page_w, page_h) = img.dimensions();
     let source_lang = options.and_then(|o| o.source_lang.as_deref());
     let is_cjk = is_cjk_source(source_lang);
@@ -179,7 +192,7 @@ pub fn analyze_image_with_fusion_timed(
         .collect();
 
     let filtered_rapid_lines: Vec<&crate::ml::ocr::OcrLine> = cleaned_rapid_lines.iter().filter(|line| {
-        if line.score < 0.50 {
+        if line.score < thr::PRE_FUSION_JUNK_FLOOR {
             return false;
         }
         let t = line.text.trim();
@@ -294,7 +307,7 @@ pub fn analyze_image_with_fusion_timed(
     if is_zh && effective_text_bubbles.len() >= 2 {
         let mut merged_indices = std::collections::HashSet::new();
         let mut new_merged_boxes = Vec::new();
-        let rgb_img = img.to_rgb8();
+        let rgb_img = crate::ml::geometry::rgb_view(img);
 
         for i in 0..effective_text_bubbles.len() {
             if merged_indices.contains(&i) {
@@ -571,6 +584,8 @@ pub fn analyze_image_with_fusion_timed(
                         (tb.x - lx).abs() <= 15 && (tb.y - ly).abs() <= 15
                     });
                     if !already_in_tb {
+                        // A3: THIS SCORE JOINS THE TEXT-BUBBLE DETECTOR LIST AND IS COMPARED AGAINST DETECTOR SCORES, SO IT STAYS ON
+                        // THE LEGACY OCR SCALE (FEAT-003 X1); MOVING IT IS A DELIBERATE PHASE 7 DECISION.
                         effective_text_bubbles.push((crate::ml::schemas::BoxRect { x: lx, y: ly, w: lw, h: lh }, line.score));
                     }
                 }
@@ -1163,8 +1178,8 @@ pub fn analyze_image_with_fusion_timed(
                         _ => 3,
                     };
                     let min_score = match source_lang {
-                        Some("ko") => 0.72,
-                        _ => 0.70,
+                        Some("ko") => thr::OFF_ANCHOR_RESCUE_MIN_KO,
+                        _ => thr::OFF_ANCHOR_RESCUE_MIN,
                     };
                     if !is_native_or_stat || line.score < min_score || line.text.chars().filter(|c| !c.is_whitespace()).count() < min_chars {
                         continue;
@@ -1182,11 +1197,12 @@ pub fn analyze_image_with_fusion_timed(
                 });
                 if lw <= 40 && lh <= 55 {
                     let has_cjk = crate::ml::detect::has_cjk_characters(&line.text);
-                    if (!has_cjk && !is_adjacent_stat_line && line.score < 0.85) || (has_cjk && line.score < 0.70) {
+                    if (!has_cjk && !is_adjacent_stat_line && line.score < thr::TINY_RESCUE_MIN_LATIN) || (has_cjk && line.score < thr::TINY_RESCUE_MIN_CJK) {
                         continue;
                     }
                 }
                 candidate_boxes.push(line.polygon.iter().map(|p| [p[0] as f32, p[1] as f32]).collect());
+                // A6: RANKED AGAINST DETECTOR BOXES IN deduplicate_boxes, SO THE LEGACY OCR SCALE STAYS (FEAT-003 X2).
                 candidate_scores.push(line.score);
             }
         }
@@ -1194,7 +1210,7 @@ pub fn analyze_image_with_fusion_timed(
         // Fallback: Group adjacent RapidOCR lines into unified candidates (horizontal rows or vertical columns)
         let mut valid_lines: Vec<&crate::ml::ocr::OcrLine> = Vec::new();
         for line in &fusion_res.rapid_lines {
-            if line.score < 0.50 {
+            if line.score < thr::FALLBACK_JUNK_FLOOR {
                 continue;
             }
             let (lx, ly, lw, lh) = crate::ml::geometry::polygon_bounds(&line.polygon);
@@ -1281,6 +1297,7 @@ pub fn analyze_image_with_fusion_timed(
                 [max_x as f32, max_y as f32],
                 [min_x as f32, max_y as f32],
             ]);
+            // A6: RANKED AGAINST DETECTOR BOXES IN deduplicate_boxes, SO THE LEGACY OCR SCALE STAYS (FEAT-003 X2).
             candidate_scores.push(avg_score);
         }
     }
@@ -1307,6 +1324,9 @@ pub fn analyze_image_with_fusion_timed(
             rescued_crops_count: fusion_res.rescued_crops_count,
             final_regions_count: 0,
             avg_confidence: 0.0,
+            avg_ocr_confidence: None,
+            confidence_scale: Some(crate::ml::ocr::confidence::SCALE_TAG.to_string()),
+            refine_crop_attempts: 0,
             steps: vec![
                 OcrStepLog {
                     step: "Layout & OCR Detection".to_string(),
@@ -1338,8 +1358,9 @@ pub fn analyze_image_with_fusion_timed(
     let t_stage3_start = std::time::Instant::now();
     let split_clean_lines: Vec<crate::ml::ocr::OcrLine> = filtered_rapid_lines.into_iter().cloned().collect();
     let mut active_crops = fusion_res.crop_cache.clone();
+    let mut refine_crop_attempts = 0_usize;
     let mut final_regions = build_regions(
-        &mut engine.ocr,
+        ocr,
         Some(&mut active_crops),
         img,
         &dedup_boxes,
@@ -1354,12 +1375,13 @@ pub fn analyze_image_with_fusion_timed(
         source_lang,
         options.and_then(|o| o.inpaint_padding_pct),
         options.and_then(|o| o.enable_typeset_centering),
+        &mut refine_crop_attempts,
     );
 
     // Filter out low-confidence standalone single-character artwork artifacts (e.g. blush mark '红', conf < 0.58, w <= 35 && h <= 35)
     final_regions.retain(|r| {
         let t = r.text.trim();
-        if t.chars().count() == 1 && r.confidence < 0.58 && (r.box_.w <= 35 && r.box_.h <= 35) {
+        if t.chars().count() == 1 && r.confidence < thr::SINGLE_CHAR_ART_MAX && (r.box_.w <= 35 && r.box_.h <= 35) {
             return false;
         }
         true
@@ -1378,8 +1400,14 @@ pub fn analyze_image_with_fusion_timed(
     } else {
         final_regions.iter().map(|r| r.confidence).sum::<f32>() / final_regions.len() as f32
     };
+    let calibrated: Vec<f32> = final_regions.iter().filter_map(|r| r.ocr_confidence).collect();
+    let avg_ocr_confidence = if calibrated.is_empty() {
+        None
+    } else {
+        Some(calibrated.iter().sum::<f32>() / calibrated.len() as f32)
+    };
 
-    let steps = vec![
+    let mut steps = vec![
         OcrStepLog {
             step: "Comic Layout Detection".to_string(),
             duration_ms: fusion_res.detector_time_ms,
@@ -1428,6 +1456,16 @@ pub fn analyze_image_with_fusion_timed(
         },
     ];
 
+    // A TALL PAGE IS DETECTED IN TILES (FEAT-004 PHASE 5); detector_time_ms ALREADY SUMS THEM
+    let detector_tiles = fusion_res.detector_tiles;
+    if detector_tiles > 1 {
+        steps.push(OcrStepLog {
+            step: "detector_tiles".to_string(),
+            duration_ms: fusion_res.detector_time_ms,
+            details: format!("Layout detector ran on {} overlapping tiles of this tall page", detector_tiles),
+        });
+    }
+
     let stats = OcrStats {
         total_time_ms,
         queue_wait_ms: None,
@@ -1448,6 +1486,9 @@ pub fn analyze_image_with_fusion_timed(
         rescued_crops_count: fusion_res.rescued_crops_count,
         final_regions_count: final_regions.len(),
         avg_confidence,
+        avg_ocr_confidence,
+        confidence_scale: Some(crate::ml::ocr::confidence::SCALE_TAG.to_string()),
+        refine_crop_attempts,
         steps,
     };
 

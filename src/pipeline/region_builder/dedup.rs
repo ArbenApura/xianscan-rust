@@ -8,6 +8,7 @@ use super::geometry::expand_box;
 // -- FUNCTIONS & ALGORITHMS -- //
 
 use crate::ml::detect::is_credits_or_metadata_text;
+use crate::ml::ocr::score_thresholds as thr;
 
 /// DEDUPLICATE OVERLAPPING REGIONS AND UNIFY SLANTED STATUS CARD SLICES
 pub fn deduplicate_and_unify_regions(
@@ -638,6 +639,10 @@ pub fn deduplicate_and_unify_regions(
 
                         existing.text = all_lines.into_iter().map(|(_, s)| s).collect::<Vec<_>>().join("\n");
                         existing.confidence = existing.confidence.max(r.confidence);
+                        existing.ocr_confidence = match (existing.ocr_confidence, r.ocr_confidence) {
+                            (Some(a), Some(b)) => Some(a.max(b)),
+                            (a, b) => a.or(b),
+                        };
                         merged = true;
                         break;
             }
@@ -658,8 +663,9 @@ pub fn deduplicate_and_unify_regions(
     // D. SUPPRESS VERTICAL SLANTED FREE-TEXT BACKGROUND ARTWORK DETECTIONS.
     // VERTICAL TBRL FREE-TEXT REGIONS WITH A MEANINGFUL SLANT ANGLE (>= 4°) AND NO BUBBLE CONTAINER
     // ARE TYPICALLY BACKGROUND CALLIGRAPHY PROPS, WALL SCROLLS, OR DISPLAY ARTWORK - NOT STORY TEXT.
-    // SUPPRESS THESE WHEN CONFIDENCE IS BELOW 0.72 AND THE BOX IS LARGE ENOUGH TO BE ARTWORK
-    // (SMALL BOXES <= 8000 PX² ARE PRESERVED AS THEY ARE LIKELY LEGITIMATE SHORT SFX OR STAMPS).
+    // SUPPRESS THESE WHEN CONFIDENCE IS BELOW SLANTED_ART_LARGE_MAX (0.70) AND THE BOX IS OVER 20000 PX², OR WHEN A
+    // SHORT FRAGMENT (<= 5 CHARS) IS BELOW SLANTED_ART_FRAGMENT_MAX (0.75) AND OVER 8000 PX² (SMALLER BOXES ARE
+    // PRESERVED AS THEY ARE LIKELY LEGITIMATE SHORT SFX OR STAMPS). 0.75 IS ABOVE THE LEGACY CEILING (SPEC X5).
     deduped_regions.retain(|r| {
         let is_vertical_slanted_freetext = r.vertical
             && r.angle.abs() >= 4.0
@@ -672,9 +678,9 @@ pub fn deduplicate_and_unify_regions(
         // SUPPRESS LARGE LOW-CONFIDENCE REGIONS (BACKGROUND ART PROPS).
         // THE AREA THRESHOLD (> 20000 PX²) ENSURES SMALL LEGITIMATE STORY TEXT (SFX, STAMPS, SHORT NARRATION)
         // IS PRESERVED WHILE LARGE CALLIGRAPHY SCROLLS AND ARTWORK PANELS ARE SUPPRESSED.
-        let is_large_low_confidence = r.confidence < 0.70 && box_area > 20000;
+        let is_large_low_confidence = r.confidence < thr::SLANTED_ART_LARGE_MAX && box_area > 20000;
         // SUPPRESS SMALL TRIVIAL FRAGMENTS EVEN AT MODERATE CONFIDENCE (e.g. 2-3 CHAR NOISE FROM ART)
-        let is_noise_fragment = char_count <= 5 && r.confidence < 0.75 && box_area > 8000;
+        let is_noise_fragment = char_count <= 5 && r.confidence < thr::SLANTED_ART_FRAGMENT_MAX && box_area > 8000;
         !(is_large_low_confidence || is_noise_fragment)
     });
 

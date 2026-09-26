@@ -6,6 +6,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 // -- INTERNAL IMPORTS -- //
 use super::detect::ComicTextDetector;
 use super::geometry::polygon_bounds;
+use super::intake::{plan_canvas, scaled_height, validate_heights, IntakeError, IntakeLimits};
 use super::ocr::RapidOcr;
 
 // -- TYPES -- //
@@ -207,6 +208,31 @@ fn has_clear_airspace(profile: &RowProfile, y: u32, total_h: u32) -> bool {
     true
 }
 
+/// THE MODELS RESLICE ASKS FOR TEXT ZONES. A BORROWED PAIR (TESTS, SINGLE-OWNER CALLERS) OR A SHARED ENGINE THAT
+/// LOCKS ITS MODELS FOR ONE WINDOW AT A TIME, SO A LONG RESLICE NEVER HOLDS A MODEL FOR THE WHOLE CHAPTER (PHASE 10).
+pub trait ZoneModels {
+    /// TRUE WHEN ANY ZONE MODEL IS LOADED.
+    fn any(&mut self) -> bool;
+    /// THE FORBIDDEN Y INTERVALS IN [window_top, window_bottom] (SEE detect_forbidden_zones_in_window).
+    fn zones_in_window(&mut self, canvas: &DynamicImage, window_top: u32, window_bottom: u32, safety_margin: i32) -> Vec<(i32, i32)>;
+}
+
+/// ZONE MODELS BORROWED FOR THE WHOLE CALL.
+pub struct BorrowedZoneModels<'a> {
+    pub detector: Option<&'a mut ComicTextDetector>,
+    pub ocr: Option<&'a mut RapidOcr>,
+}
+
+impl ZoneModels for BorrowedZoneModels<'_> {
+    fn any(&mut self) -> bool {
+        self.detector.is_some() || self.ocr.is_some()
+    }
+
+    fn zones_in_window(&mut self, canvas: &DynamicImage, window_top: u32, window_bottom: u32, safety_margin: i32) -> Vec<(i32, i32)> {
+        detect_forbidden_zones_in_window(canvas, window_top, window_bottom, safety_margin, self.detector.as_deref_mut(), self.ocr.as_deref_mut())
+    }
+}
+
 /// DETECT DIALOGUE BUBBLES AND TEXT REGIONS IN A CANDIDATE CUT WINDOW
 pub fn detect_forbidden_zones_in_window(
     canvas: &DynamicImage,
@@ -338,7 +364,7 @@ pub fn find_optimal_cut_points(
         return vec![total_h];
     }
 
-    let rgb = canvas.to_rgb8();
+    let rgb = crate::ml::geometry::rgb_view(canvas);
     let profile = compute_row_profile(&rgb, None);
 
     let mut cut_points = Vec::new();
@@ -351,8 +377,8 @@ pub fn find_optimal_cut_points(
             break;
         }
 
-        let search_start = (current_y + min_height).min(total_h - 1);
-        let search_end = (current_y + max_height).min(total_h - 1);
+        let search_start = current_y.saturating_add(min_height).min(total_h - 1);
+        let search_end = current_y.saturating_add(max_height).min(total_h - 1);
         let ideal_cut = (current_y + target_height) as f32;
 
         // 1ST PASS: SOLID GUTTER BANDS (ROW_VAR < 12.0 && MAX_COL_VAR < 15.0 && EDGE < 8.0)
@@ -469,6 +495,22 @@ pub fn find_optimal_cut_points_with_detectors(
     cancel: Option<&AtomicU64>,
     run_id: u64,
 ) -> Vec<u32> {
+    let mut models = BorrowedZoneModels { detector, ocr };
+    find_optimal_cut_points_with_models(canvas, target_height, min_height, max_height, &mut models, on_progress, cancel, run_id)
+}
+
+/// find_optimal_cut_points_with_detectors OVER ANY ZONE MODELS.
+#[allow(clippy::too_many_arguments)]
+pub fn find_optimal_cut_points_with_models(
+    canvas: &DynamicImage,
+    target_height: u32,
+    min_height: u32,
+    max_height: u32,
+    models: &mut dyn ZoneModels,
+    on_progress: Option<&ResliceProgressFn>,
+    cancel: Option<&AtomicU64>,
+    run_id: u64,
+) -> Vec<u32> {
     let (_w, total_h) = canvas.dimensions();
     if total_h <= max_height {
         // SINGLE PAGE — NO CUTS NEEDED; HAND OFF TO THE ENCODING PHASE (90).
@@ -482,7 +524,7 @@ pub fn find_optimal_cut_points_with_detectors(
         return Vec::new();
     }
 
-    let rgb = canvas.to_rgb8();
+    let rgb = crate::ml::geometry::rgb_view(canvas);
 
     // PHASE A (2..=10%): ROW PROFILE — FAST PARALLEL ROW STATS
     if let Some(cb) = on_progress {
@@ -503,8 +545,6 @@ pub fn find_optimal_cut_points_with_detectors(
     let mut cut_points = Vec::new();
     let mut current_y = 0_u32;
     let mut cached_forbidden_zones: Vec<(i32, i32)> = Vec::new();
-    let mut detector_ref = detector;
-    let mut ocr_ref = ocr;
 
     let estimated_cuts = ((total_h as f32 / target_height as f32).ceil() as u32).max(1);
     let mut cut_idx = 0_u32;
@@ -519,8 +559,8 @@ pub fn find_optimal_cut_points_with_detectors(
             break;
         }
 
-        let search_start = (current_y + min_height).min(total_h - 1);
-        let search_end = (current_y + max_height).min(total_h - 1);
+        let search_start = current_y.saturating_add(min_height).min(total_h - 1);
+        let search_end = current_y.saturating_add(max_height).min(total_h - 1);
         let ideal_cut = (current_y + target_height) as f32;
 
         if let Some(cb) = on_progress {
@@ -580,17 +620,10 @@ pub fn find_optimal_cut_points_with_detectors(
 
         // 2ND PASS: IF NO OBVIOUS WIDE GUTTER EXISTS, DETECT TEXT/BUBBLES IN CANDIDATE WINDOW ON-DEMAND
         if best_y.is_none() {
-            if detector_ref.is_some() || ocr_ref.is_some() {
+            if models.any() {
                 let win_top = search_start.saturating_sub(64);
                 let win_bottom = (search_end + 64).min(total_h);
-                let new_zones = detect_forbidden_zones_in_window(
-                    canvas,
-                    win_top,
-                    win_bottom,
-                    30,
-                    detector_ref.as_deref_mut(),
-                    ocr_ref.as_deref_mut(),
-                );
+                let new_zones = models.zones_in_window(canvas, win_top, win_bottom, 30);
                 cached_forbidden_zones.extend(new_zones);
                 cached_forbidden_zones = merge_intervals(cached_forbidden_zones);
             }
@@ -761,64 +794,63 @@ fn fallback_cut(
     clamped.max(current_y + 64)
 }
 
-/// STITCH MULTIPLE VERTICAL IMAGE STRIPS INTO A SINGLE UNIFIED CANVAS VIA CONTIGUOUS BYTE COPIES
-pub fn stitch_images_vertically(images: &[DynamicImage]) -> DynamicImage {
+/// STITCH MULTIPLE VERTICAL IMAGE STRIPS INTO A SINGLE UNIFIED CANVAS VIA CONTIGUOUS BYTE COPIES.
+/// THE CANVAS SIZE IS PLANNED WITH CHECKED MATH FIRST, SO AN OVERSIZED OR DEGENERATE SET IS
+/// REJECTED BEFORE ANYTHING IS ALLOCATED.
+pub fn stitch_images_vertically(images: &[DynamicImage], limits: &IntakeLimits) -> Result<DynamicImage, IntakeError> {
     if images.is_empty() {
-        return DynamicImage::new_rgb8(0, 0);
+        return Ok(DynamicImage::new_rgb8(0, 0));
     }
     if images.len() == 1 {
-        return images[0].clone();
+        return Ok(images[0].clone());
     }
 
-    let max_w = images.iter().map(|img| img.width()).max().unwrap_or(0);
-    if max_w == 0 {
-        return DynamicImage::new_rgb8(0, 0);
+    let dims: Vec<(u32, u32)> = images.iter().map(|img| img.dimensions()).collect();
+    if dims.iter().all(|&(w, _)| w == 0) {
+        return Ok(DynamicImage::new_rgb8(0, 0));
     }
-
-    let mut total_h = 0_u32;
-    for img in images {
-        let (w, h) = img.dimensions();
-        if w != max_w {
-            let new_h = (h as f32 * (max_w as f32 / w as f32)).round() as u32;
-            total_h += new_h;
-        } else {
-            total_h += h;
-        }
-    }
+    let (max_w, total_h) = plan_canvas(&dims, limits)?;
+    let too_large = || IntakeError::CanvasTooLarge { pixels: u64::MAX, max: limits.max_canvas_pixels };
+    let canvas_len = u64::from(max_w)
+        .checked_mul(total_h)
+        .and_then(|px| px.checked_mul(3))
+        .and_then(|len| usize::try_from(len).ok())
+        .ok_or_else(too_large)?;
+    let total_h = total_h as u32; // plan_canvas GUARANTEES total_h <= u32::MAX
 
     // DIRECT CONTIGUOUS CANVAS ALLOCATION WITHOUT INTERMEDIATE BUFFER REPLICATION
-    let mut canvas_raw = vec![0_u8; (max_w as usize) * (total_h as usize) * 3];
+    let mut canvas_raw = vec![0_u8; canvas_len];
     let mut curr_offset = 0_usize;
 
     for img in images {
         let (w, h) = img.dimensions();
-        if w != max_w {
-            let new_h = (h as f32 * (max_w as f32 / w as f32)).round() as u32;
-            let rgb_img = img.to_rgb8();
-            let resized = image::imageops::resize(
-                &rgb_img,
+        // BORROW AN RGB8 PAGE INSTEAD OF COPYING IT; ONLY THE RESIZE BRANCH NEEDS ITS OWN BUFFER
+        let view = crate::ml::geometry::rgb_view(img);
+        let resized;
+        let rgb_img: &image::RgbImage = if w != max_w {
+            resized = image::imageops::resize(
+                &*view,
                 max_w,
-                new_h,
+                scaled_height(w, h, max_w),
                 image::imageops::FilterType::Triangle,
             );
-            let raw_slice = resized.as_raw();
-            let len = raw_slice.len();
-            canvas_raw[curr_offset..curr_offset + len].copy_from_slice(raw_slice);
-            curr_offset += len;
+            &resized
         } else {
-            let rgb_img = img.to_rgb8();
-            let raw_slice = rgb_img.as_raw();
-            let len = raw_slice.len();
-            canvas_raw[curr_offset..curr_offset + len].copy_from_slice(raw_slice);
-            curr_offset += len;
-        }
+            &view
+        };
+        let raw_slice = rgb_img.as_raw();
+        let end = curr_offset
+            .checked_add(raw_slice.len())
+            .filter(|&end| end <= canvas_raw.len())
+            .ok_or_else(too_large)?;
+        canvas_raw[curr_offset..end].copy_from_slice(raw_slice);
+        curr_offset = end;
     }
 
-    if let Some(buf) = ImageBuffer::<Rgb<u8>, Vec<u8>>::from_raw(max_w, total_h, canvas_raw) {
-        DynamicImage::ImageRgb8(buf)
-    } else {
-        DynamicImage::new_rgb8(max_w, total_h)
-    }
+    Ok(match ImageBuffer::<Rgb<u8>, Vec<u8>>::from_raw(max_w, total_h, canvas_raw) {
+        Some(buf) => DynamicImage::ImageRgb8(buf),
+        None => DynamicImage::new_rgb8(max_w, total_h),
+    })
 }
 
 /// SMART RESLICE CHAPTER WITH DIALOGUE BUBBLE & TEXT PROTECTION
@@ -826,6 +858,9 @@ pub fn stitch_images_vertically(images: &[DynamicImage]) -> DynamicImage {
 /// `cancel` (WHEN PROVIDED) HOLDS THE RUN ID THE CLIENT ASKED TO STOP; THE
 /// WORK BAILS AT THE NEXT CHECKPOINT WHEN IT MATCHES `run_id`. A CANCELLED
 /// RUN RETURNS A PARTIAL/EMPTY PAGE LIST — THE CALLER MUST CHECK THE FLAG.
+///
+/// FAILS (BEFORE ANY HEAVY WORK) ON INVALID HEIGHTS OR A CANVAS OVER `limits`.
+#[allow(clippy::too_many_arguments)]
 pub fn smart_reslice_chapter(
     images: &[DynamicImage],
     target_height: u32,
@@ -836,17 +871,36 @@ pub fn smart_reslice_chapter(
     on_progress: Option<&ResliceProgressFn>,
     cancel: Option<&AtomicU64>,
     run_id: u64,
-) -> Vec<DynamicImage> {
+    limits: &IntakeLimits,
+) -> Result<Vec<DynamicImage>, IntakeError> {
+    let mut models = BorrowedZoneModels { detector, ocr };
+    smart_reslice_chapter_with_models(images, target_height, min_height, max_height, &mut models, on_progress, cancel, run_id, limits)
+}
+
+/// smart_reslice_chapter OVER ANY ZONE MODELS (THE SERVER PASSES ITS SHARED ENGINE).
+#[allow(clippy::too_many_arguments)]
+pub fn smart_reslice_chapter_with_models(
+    images: &[DynamicImage],
+    target_height: u32,
+    min_height: u32,
+    max_height: u32,
+    models: &mut dyn ZoneModels,
+    on_progress: Option<&ResliceProgressFn>,
+    cancel: Option<&AtomicU64>,
+    run_id: u64,
+    limits: &IntakeLimits,
+) -> Result<Vec<DynamicImage>, IntakeError> {
+    validate_heights(target_height, min_height, max_height)?;
     if images.is_empty() {
-        return Vec::new();
+        return Ok(Vec::new());
     }
     if let Some(cb) = on_progress {
         cb(0);
     }
 
-    let stitched = stitch_images_vertically(images);
+    let stitched = stitch_images_vertically(images, limits)?;
     if is_run_cancelled(cancel, run_id) {
-        return Vec::new();
+        return Ok(Vec::new());
     }
     let (w, total_h) = stitched.dimensions();
     if total_h <= max_height {
@@ -855,22 +909,21 @@ pub fn smart_reslice_chapter(
         if let Some(cb) = on_progress {
             cb(90);
         }
-        return vec![stitched];
+        return Ok(vec![stitched]);
     }
 
-    let cut_points = find_optimal_cut_points_with_detectors(
+    let cut_points = find_optimal_cut_points_with_models(
         &stitched,
         target_height,
         min_height,
         max_height,
-        detector,
-        ocr,
+        models,
         on_progress,
         cancel,
         run_id,
     );
     if is_run_cancelled(cancel, run_id) {
-        return Vec::new();
+        return Ok(Vec::new());
     }
 
     // PHASE C (80..=90%): SLICE THE CANVAS INTO PAGES AT THE CHOSEN CUT POINTS.
@@ -902,7 +955,7 @@ pub fn smart_reslice_chapter(
         cb(90);
     }
 
-    pages
+    Ok(pages)
 }
 
 #[cfg(test)]

@@ -5,6 +5,7 @@ use image::DynamicImage;
 use crate::ml::geometry::polygon_bounds;
 use crate::ml::ocr::{CachedCropEntry, OcrLine, OcrResult, RapidOcr};
 use crate::ml::schemas::BoxRect;
+use crate::ml::ocr::score_thresholds as thr;
 
 // -- TYPES & STRUCTS -- //
 
@@ -12,6 +13,8 @@ use crate::ml::schemas::BoxRect;
 pub struct RefinementOutcome {
     pub text: String,
     pub avg_score: f32,
+    /// CALIBRATED CONFIDENCE OF THE REFINED CROP (SAME AGGREGATION AS avg_score).
+    pub avg_prob: f32,
     pub active_line_polys: Vec<Vec<[i32; 2]>>,
     pub is_container_vert: bool,
     pub angle_deg: f32,
@@ -21,6 +24,8 @@ pub struct RefinementOutcome {
 pub struct FallbackCropOutcome {
     pub text: String,
     pub score: f32,
+    /// CALIBRATED CONFIDENCE OF THE CROP (SAME AGGREGATION AS score).
+    pub prob: f32,
     pub polys: Vec<Vec<[i32; 2]>>,
 }
 
@@ -43,6 +48,7 @@ pub fn try_refine_cluster_crop(
     source_lang: Option<&str>,
     page_w: u32,
     page_h: u32,
+    refine_attempts: &mut usize,
 ) -> Option<RefinementOutcome> {
     let container_w = box_rect.w;
     let container_h = box_rect.h;
@@ -54,8 +60,8 @@ pub fn try_refine_cluster_crop(
             || c.is_whitespace()
             || matches!(c, '…' | '·' | '—' | '～' | '！' | '？' | '。' | '，' | '、' | '–' | '¿' | '¡')
     });
-    let is_clean_single_line = !is_bubble && cluster_lines.len() == 1 && avg_score >= 0.70 && !is_container_wider && !is_container_taller;
-    let is_clean_dense_multiline = !is_bubble && cluster_lines.len() >= 3 && avg_score >= 0.65 && (container_h as f32) <= (cluster_lines.len() as f32 * 32.0).max(cluster_rect.h as f32 * 1.35);
+    let is_clean_single_line = !is_bubble && cluster_lines.len() == 1 && avg_score >= thr::CLEAN_SINGLE_LINE_MIN && !is_container_wider && !is_container_taller;
+    let is_clean_dense_multiline = !is_bubble && cluster_lines.len() >= 3 && avg_score >= thr::CLEAN_DENSE_MULTILINE_MIN && (container_h as f32) <= (cluster_lines.len() as f32 * 32.0).max(cluster_rect.h as f32 * 1.35);
     let is_lines_much_wider = (cluster_rect.w as f32) >= (container_w as f32 * 1.30);
 
     let trimmed_combined = combined_text.trim();
@@ -76,18 +82,18 @@ pub fn try_refine_cluster_crop(
         && is_cjk
         && !crate::ml::detect::has_cjk_characters(combined_text)
         && combined_text.chars().any(|c| c.is_ascii_alphabetic());
-    let is_clean_expressive_punct = is_combined_pure_punct && avg_score >= 0.65;
+    let is_clean_expressive_punct = is_combined_pure_punct && avg_score >= thr::CLEAN_PUNCT_MIN;
     let single_char_count = combined_text.chars().filter(|c| !c.is_whitespace()).count();
     let is_oversized_single = cluster_lines.len() == 1
         && single_char_count <= 2
         && (cluster_rect.w >= 80 || cluster_rect.h >= 100 || (container_h >= 100 && container_h > container_w))
-        && avg_score < 0.75;
+        && avg_score < thr::OVERSIZED_SINGLE_MAX;
     let is_wide_vert_card = is_container_vert && cluster_lines.len() <= 2 && (container_w >= 55 || cluster_rect.w >= 55);
 
     // HIGH-QUALITY COMPLETE BUBBLE CHECK: IF CLUSTER ALREADY HAS SOLID CONFIDENCE,
     // VALID CHARACTERS, AND PROPER OCCUPANCY, DO NOT EXECUTE REDUNDANT CROP OCR.
     let is_bubble_complete = is_bubble
-        && avg_score >= 0.75
+        && avg_score >= thr::BUBBLE_COMPLETE_MIN
         && single_char_count >= 2
         && !is_corrupted_latin_in_bubble
         && !is_standalone_alphanumeric_risk
@@ -106,6 +112,8 @@ pub fn try_refine_cluster_crop(
     if !can_refine_crop {
         return None;
     }
+    // PAST THE GATE: A LIVE CROP OCR MAY RUN (REPORTED AS OcrStats.refine_crop_attempts)
+    *refine_attempts += 1;
 
     let is_snug_full_stop = is_bubble
         && !is_container_vert
@@ -218,7 +226,7 @@ pub fn try_refine_cluster_crop(
                     cl_t.eq_ignore_ascii_case(clean_t) || cl_t.to_ascii_uppercase().contains(&clean_t.to_ascii_uppercase())
                 });
                 let is_punct = clean_t.chars().all(|c| c.is_ascii_punctuation() || matches!(c, '！' | '？' | '!' | '?' | '…'));
-                if !is_already_matched && !is_punct && crate::ml::detect::is_standalone_alphanumeric_without_cjk(clean_t) && clean_t.chars().count() <= 5 && *score < 0.85 {
+                if !is_already_matched && !is_punct && crate::ml::detect::is_standalone_alphanumeric_without_cjk(clean_t) && clean_t.chars().count() <= 5 && *score < thr::CROP_ALNUM_NOISE_MAX {
                     return None;
                 }
                 let mut final_t = clean_t.to_string();
@@ -283,15 +291,15 @@ pub fn try_refine_cluster_crop(
             && touches_edge
             && (lw <= 24 || lh <= 24);
         let is_edge_sliver = (lw <= 12 || (lh as f32 >= lw as f32 * 2.0 && lw <= 16 && t.chars().count() <= 1))
-            && l.2 < 0.70
+            && l.2 < thr::CROP_EDGE_SLIVER_MAX
             && (lx <= 4 || (lx + lw) >= (crop_w as i32 - 4));
         !is_single_char_border_artifact && !is_edge_sliver
     });
 
     // IF CROP CONTAINS A DOMINANT HIGH-CONFIDENCE SENTENCE LINE (SCORE >= 0.70), SUPPRESS LOW-CONFIDENCE NOISE FRAGMENTS
     let crop_max_score = dedup_crop_lines.iter().map(|l| l.2).fold(0.0f32, f32::max);
-    if crop_max_score >= 0.70 {
-        dedup_crop_lines.retain(|l| l.2 >= 0.62 || l.2 >= crop_max_score * 0.85);
+    if crop_max_score >= thr::CROP_DOMINANT_MIN {
+        dedup_crop_lines.retain(|l| l.2 >= thr::CROP_WEAK_KEEP_MIN || l.2 >= crop_max_score * thr::CROP_WEAK_KEEP_RATIO);
     }
 
     // ORIENTATION SANITY GUARD: WHEN THE FULL-PAGE OCR ALREADY ISOLATED >= 3 CLEAN
@@ -311,7 +319,7 @@ pub fn try_refine_cluster_crop(
             crop_h_count += 1;
         }
     }
-    let is_clean_vertical_cluster = is_container_vert && cluster_lines.len() >= 3 && avg_score >= 0.70;
+    let is_clean_vertical_cluster = is_container_vert && cluster_lines.len() >= 3 && avg_score >= thr::CLEAN_VERTICAL_CLUSTER_MIN;
     if std::env::var("XIANSCAN_DISABLE_REFINE_GUARD").is_err() && is_clean_vertical_cluster && crop_v_count <= crop_h_count {
         return None;
     }
@@ -383,7 +391,7 @@ pub fn try_refine_cluster_crop(
     // IF THE CROP RESULT MERGED LINES ACROSS MULTIPLE SEPARATE DIALOGUE SENTENCES OR EXPANDED A CLEAN SINGLE LINE IN A COMPACT CONTAINER, DO NOT REPLACE
     let is_excessive_expansion = !is_bubble && (
         (combined_cjk_count >= 3 && crop_cjk_count >= (combined_cjk_count * 5 / 2) && target_rect.h <= 70)
-            || (cluster_lines.len() == 1 && avg_score >= 0.70 && !combined_text.contains('\n') && clean_crop_text.contains('\n') && (
+            || (cluster_lines.len() == 1 && avg_score >= thr::SINGLE_LINE_CLEAN_MIN && !combined_text.contains('\n') && clean_crop_text.contains('\n') && (
                 (!is_container_vert && target_rect.h <= 45)
                     || (is_container_vert && target_rect.w <= 50)
             ))
@@ -449,8 +457,8 @@ pub fn try_refine_cluster_crop(
                 || has_more_ellipsis
                 || is_inverted_leading_punct
                 || (is_combined_pure_punct && clean_crop_text.chars().any(|c| matches!(c, '！' | '？' | '!' | '?')))
-                || (!is_combined_pure_punct && crop_cjk_count == combined_cjk_count && !is_severely_shrunk && (res.score > avg_score + 0.02 || (cluster_contrary_to_container && crop_matches_container && res.score >= avg_score - 0.05)))
-                || (res.score >= 0.70 && avg_score < 0.60 && !is_severely_shrunk)
+                || (!is_combined_pure_punct && crop_cjk_count == combined_cjk_count && !is_severely_shrunk && (res.score > avg_score + thr::CROP_IMPROVE_MARGIN || (cluster_contrary_to_container && crop_matches_container && res.score >= avg_score - thr::CROP_CONTRARY_SLACK)))
+                || (res.score >= thr::CROP_RESCUE_MIN && avg_score < thr::CROP_RESCUE_BASE_MAX && !is_severely_shrunk)
         )
     } else {
         let crop_alphanumeric = clean_crop_text.chars().filter(|c| c.is_alphanumeric()).count();
@@ -464,8 +472,8 @@ pub fn try_refine_cluster_crop(
         !is_excessive_expansion && !is_corrupted_punct_to_digits && (
             has_meaningful_more_text
                 || has_more_ellipsis
-                || (crop_chars == combined_chars && res.score > avg_score + 0.02)
-                || (res.score >= 0.70 && avg_score < 0.60)
+                || (crop_chars == combined_chars && res.score > avg_score + thr::CROP_IMPROVE_MARGIN)
+                || (res.score >= thr::CROP_RESCUE_MIN && avg_score < thr::CROP_RESCUE_BASE_MAX)
         )
     };
 
@@ -575,6 +583,7 @@ pub fn try_refine_cluster_crop(
     Some(RefinementOutcome {
         text: clean_crop_text,
         avg_score: res.score,
+        avg_prob: res.prob_or_derived(),
         active_line_polys: out_polys,
         is_container_vert: out_vert,
         angle_deg: out_angle,
@@ -612,7 +621,8 @@ pub fn run_fallback_crop_recognition(
         None
     };
 
-    let (isolated_text, isolated_score, fallback_polys) = if let Some(res) = cached_hit {
+    let (isolated_text, isolated_score, isolated_prob, fallback_polys) = if let Some(res) = cached_hit {
+        let prob = res.prob_or_derived();
         let is_cjk = crate::ml::detect::is_cjk_source(source_lang);
         let has_native_line = res.lines.iter().any(|(_, ot, _)| crate::ml::detect::has_cjk_characters(ot.trim()));
         let filtered_lines: Vec<_> = if is_cjk && has_native_line {
@@ -642,32 +652,37 @@ pub fn run_fallback_crop_recognition(
                 fallback_polys.push(offset_poly);
             }
         }
-        (text, score, fallback_polys)
+        (text, score, prob, fallback_polys)
     } else {
         let o = ocr.as_mut()?;
         let crop = img.crop_imm(crop_x, crop_y, crop_w, crop_h);
 
         let mut isolated_text = String::new();
-        let mut isolated_score = 0.80f32;
+        // BOTH ARE ALWAYS OVERWRITTEN BEFORE USE, OR THE FUNCTION RETURNS None (SPEC X4)
+        let mut isolated_score = 0.0_f32;
+        let mut isolated_prob = 0.0_f32;
         let mut fallback_polys = Vec::new();
         let mut recorded_result: Option<OcrResult> = None;
 
         if let Ok(Some(res)) = o.recognize_crop_with_lang(&crop, source_lang) {
             let is_cjk = crate::ml::detect::is_cjk_source(source_lang);
             let has_native_line = res.lines.iter().any(|(_, ot, _)| crate::ml::detect::has_cjk_characters(ot.trim()));
-            let filtered_lines: Vec<_> = if is_cjk && has_native_line {
+            let res_prob = res.prob_or_derived();
+            let res_line_probs: Vec<f32> = (0..res.lines.len()).map(|i| res.line_prob(i)).collect();
+            let (filtered_lines, filtered_probs): (Vec<_>, Vec<f32>) = if is_cjk && has_native_line {
                 res.lines
                     .into_iter()
-                    .filter(|(_, text, _)| {
+                    .zip(res_line_probs)
+                    .filter(|((_, text, _), _)| {
                         let t = text.trim();
                         let has_native = crate::ml::detect::has_cjk_characters(t);
                         let is_punct = !t.is_empty() && t.chars().all(|c| c.is_ascii_punctuation() || matches!(c, '…' | '·' | '—' | '～' | '！' | '？' | '。' | '，'));
                         let is_latin_noise = !has_native && !is_punct && t.chars().all(|c| c.is_ascii_alphanumeric() || c.is_whitespace() || c.is_ascii_punctuation()) && !crate::ml::detect::is_legitimate_cjk_latin_loanword_or_dialogue(t);
                         !is_latin_noise
                     })
-                    .collect()
+                    .unzip()
             } else {
-                res.lines
+                (res.lines, res_line_probs)
             };
             isolated_text = if !filtered_lines.is_empty() {
                 filtered_lines.iter().map(|(_, t, _)| t.clone()).collect::<Vec<_>>().join("\n")
@@ -675,6 +690,7 @@ pub fn run_fallback_crop_recognition(
                 res.text.trim().to_string()
             };
             isolated_score = res.score;
+            isolated_prob = res_prob;
             if !filtered_lines.is_empty() {
                 for (l_poly, _, _) in &filtered_lines {
                     let offset_poly: Vec<[i32; 2]> = l_poly.iter().map(|p| [p[0] + crop_x as i32, p[1] + crop_y as i32]).collect();
@@ -685,6 +701,8 @@ pub fn run_fallback_crop_recognition(
                 text: isolated_text.clone(),
                 score: isolated_score,
                 lines: filtered_lines,
+                prob: Some(isolated_prob),
+                line_probs: filtered_probs,
             });
         }
 
@@ -692,6 +710,7 @@ pub fn run_fallback_crop_recognition(
             if let Ok(Some(res)) = o.recognize_line_with_lang(&crop, source_lang) {
                 isolated_text = res.text.trim().to_string();
                 isolated_score = res.score;
+                isolated_prob = res.prob_or_derived();
                 recorded_result = Some(res);
             }
         }
@@ -710,7 +729,7 @@ pub fn run_fallback_crop_recognition(
             }
         }
 
-        (isolated_text, isolated_score, fallback_polys)
+        (isolated_text, isolated_score, isolated_prob, fallback_polys)
     };
 
     let (stripped, _) = crate::ml::detect::strip_trailing_watermark_debris(&isolated_text, source_lang);
@@ -722,6 +741,7 @@ pub fn run_fallback_crop_recognition(
     Some(FallbackCropOutcome {
         text: isolated_text,
         score: isolated_score,
+        prob: isolated_prob,
         polys: fallback_polys,
     })
 }

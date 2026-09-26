@@ -3,5 +3,6 @@ pub mod cleaner;
 pub mod engine;
 pub mod fusion;
 pub mod region_builder;
+pub mod shared;
 
 pub use engine::PipelineEngine;

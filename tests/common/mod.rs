@@ -19,6 +19,8 @@ use xianscan_rust::pipeline::PipelineEngine;
 // GLOBAL REGISTRY TO MAP IMAGE HASHES TO SOURCE FIXTURE FILE PATHS
 static FIXTURE_PATH_MAP: Mutex<Option<HashMap<String, PathBuf>>> = Mutex::new(None);
 static INFERENCE_LOCK: Mutex<()> = Mutex::new(());
+// SERIALISES FIXTURE JSON WRITES: PARALLEL TESTS USED TO INTERLEAVE AND CORRUPT THEM (FEAT-003 SPEC X6)
+static FIXTURE_WRITE_LOCK: Mutex<()> = Mutex::new(());
 
 static SHARED_TEST_ENGINE: LazyLock<Mutex<PipelineEngine>> = LazyLock::new(|| {
     let models_dir = Path::new("models");
@@ -875,7 +877,7 @@ pub fn save_annotated_fixture_to_path(img: &DynamicImage, res: &AnalyzeResponse,
     };
 
     if let Ok(json_str) = serde_json::to_string_pretty(&report) {
-        let _ = std::fs::write(&paths.annotated_json, json_str);
+        write_fixture_atomic(&paths.annotated_json, json_str.as_bytes());
     }
 }
 
@@ -1003,7 +1005,7 @@ pub fn save_layout_fixture(img: &DynamicImage, fusion: &xianscan_rust::pipeline:
         };
 
         if let Ok(json_str) = serde_json::to_string_pretty(&report) {
-            let _ = std::fs::write(&paths.layout_json, json_str);
+            write_fixture_atomic(&paths.layout_json, json_str.as_bytes());
         }
     }
 }
@@ -1042,7 +1044,7 @@ pub fn save_ocr_fixture_with_crops(
         };
 
         if let Ok(json_str) = serde_json::to_string_pretty(&report) {
-            let _ = std::fs::write(&paths.ocr_json, json_str);
+            write_fixture_atomic(&paths.ocr_json, json_str.as_bytes());
         }
     }
 }
@@ -1087,6 +1089,162 @@ pub fn get_or_run_layout_detector_with_lang(
     save_ocr_fixture(img, &fusion.rapid_lines);
 }
 
+/// WRITES A FIXTURE FILE ATOMICALLY: A TEMP FILE THEN A RENAME, UNDER A PROCESS-WIDE LOCK, SO A CRASH OR A PARALLEL
+/// TEST CAN NEVER LEAVE A HALF-WRITTEN JSON BEHIND.
+pub fn write_fixture_atomic(path: &Path, bytes: &[u8]) {
+    let _guard = FIXTURE_WRITE_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    let mut tmp = path.as_os_str().to_owned();
+    tmp.push(".tmp");
+    let tmp = PathBuf::from(tmp);
+    if std::fs::write(&tmp, bytes).is_ok() && std::fs::rename(&tmp, path).is_err() {
+        let _ = std::fs::remove_file(&tmp);
+    }
+}
+
+/// THE SAVED LAYOUT DETECTOR OUTPUT OF A CASE FOLDER (layout_debug.json).
+#[derive(serde::Deserialize)]
+pub struct FolderLayoutReport {
+    pub backend: String,
+    pub panels: Vec<BoxRect>,
+    pub bubbles: Vec<BoxRect>,
+    pub text_bubbles: Vec<(BoxRect, f32)>,
+    pub text_free: Vec<(BoxRect, f32)>,
+    pub onomatopoeia: Vec<(BoxRect, f32)>,
+    pub comic_boxes: Vec<Vec<[i32; 2]>>,
+}
+
+/// THE SAVED OCR OUTPUT OF A CASE FOLDER (ocr_debug.json).
+#[derive(serde::Deserialize)]
+pub struct FolderOcrReport {
+    pub lines: Vec<xianscan_rust::ml::ocr::OcrLine>,
+    #[serde(default)]
+    pub crops: Option<Vec<xianscan_rust::ml::ocr::CachedCropEntry>>,
+}
+
+/// LOADS THE SAVED LAYOUT + OCR OF A FIXTURE INTO A FUSION RESULT, WITH THE SAME ONOMATOPOEIA FILTER THE TESTS HAVE
+/// ALWAYS APPLIED. RETURNS THE FUSION AND THE INITIAL CROP CACHE LENGTH. Err WHEN THE JSONs ARE ABSENT; A JSON THAT
+/// EXISTS BUT DOES NOT PARSE PANICS (IT USED TO FALL THROUGH TO LIVE INFERENCE SILENTLY).
+pub fn load_fusion_from_case_folder(
+    src_path: &Path,
+    img: &DynamicImage,
+) -> Result<(xianscan_rust::pipeline::fusion::DetectionFusionResult, usize), String> {
+    let paths = get_fixture_output_paths(src_path);
+    if !paths.layout_json.exists() || !paths.ocr_json.exists() {
+        return Err(format!("fixture JSON missing in {}", paths.layout_json.parent().unwrap_or(Path::new(".")).display()));
+    }
+    let read = |path: &Path| std::fs::read_to_string(path).unwrap_or_else(|e| panic!("fixture JSON unreadable: {}: {}", path.display(), e));
+    let layout_str = read(&paths.layout_json);
+    let ocr_str = read(&paths.ocr_json);
+    let l_rep: FolderLayoutReport = serde_json::from_str(&layout_str)
+        .unwrap_or_else(|e| panic!("fixture JSON unreadable: {}: {}", paths.layout_json.display(), e));
+    let o_rep: FolderOcrReport = serde_json::from_str(&ocr_str)
+        .unwrap_or_else(|e| panic!("fixture JSON unreadable: {}: {}", paths.ocr_json.display(), e));
+
+    let crop_cache = o_rep.crops.unwrap_or_default();
+    let initial_crops_len = crop_cache.len();
+    let (page_w, page_h) = (img.width(), img.height());
+    let filtered_onomatopoeia: Vec<(BoxRect, f32)> = l_rep.onomatopoeia
+        .into_iter()
+        .filter(|(sfx_b, score)| {
+            let s_mid_x = sfx_b.x + sfx_b.w / 2;
+            let s_mid_y = sfx_b.y + sfx_b.h / 2;
+            let inside_bubble = l_rep.bubbles.iter().any(|b| {
+                s_mid_x >= b.x && s_mid_x <= b.x + b.w && s_mid_y >= b.y && s_mid_y <= b.y + b.h
+            });
+            if inside_bubble {
+                return false;
+            }
+            if *score < 0.25 {
+                return false;
+            }
+            if *score < 0.40 && (sfx_b.w >= 200 && sfx_b.h >= 400) {
+                return false;
+            }
+            let is_sentence = (sfx_b.w as f32 / sfx_b.h.max(1) as f32 >= 2.5) || sfx_b.h <= 35;
+            let is_oversized = (sfx_b.w as f32 >= (page_w as f32) * 0.65 && sfx_b.h >= 120)
+                || ((sfx_b.h as f32 >= (page_h as f32) * 0.35) && !is_sentence && sfx_b.w >= 200)
+                || ((sfx_b.h as f32 >= (page_h as f32) * 0.40) && !is_sentence);
+            !is_oversized
+        })
+        .collect();
+
+    let fusion = xianscan_rust::pipeline::fusion::DetectionFusionResult {
+        comic_boxes: l_rep.comic_boxes,
+        comic_scores: vec![],
+        panels: l_rep.panels,
+        bubbles: l_rep.bubbles,
+        onomatopoeia: filtered_onomatopoeia,
+        text_bubbles: l_rep.text_bubbles,
+        text_free: l_rep.text_free,
+        rapid_lines: o_rep.lines,
+        crop_cache,
+        backend: l_rep.backend,
+        detector_time_ms: 0.0,
+        ocr_fullpage_time_ms: 0.0,
+        rescue_time_ms: 0.0,
+        raw_ocr_lines_count: 0,
+        rescued_crops_count: 0,
+        detector_tiles: 0,
+    };
+    Ok((fusion, initial_crops_len))
+}
+
+/// ONE FIXTURE USED BY A TEST: ITS LANGUAGE FOLDER, FILE / CASE NAME AND THE EXACT source_lang TAG THE TEST PASSES
+/// (TESTS USE "zh", "zh-Hans" AND "zh_hans" FOR THE SAME LANGUAGE, AND THE PIPELINE BRANCHES ON THE EXACT STRING).
+#[allow(dead_code)]
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
+pub struct ManifestEntry {
+    pub lang: String,
+    pub fixture: String,
+    pub source_lang: Option<String>,
+}
+
+/// EVERY FIXTURE THE TEST SOURCES LOAD, PAIRED WITH THE source_lang OF THE SAME TEST FUNCTION (FROM THE SOURCE TEXT
+/// OF tests/**/*.rs, EXCLUDING THIS HELPER MODULE).
+#[allow(dead_code)]
+pub fn fixture_manifest() -> Vec<ManifestEntry> {
+    let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests");
+    let fn_re = regex::Regex::new(r"(?m)^\s*(?:pub\s+)?fn\s+\w+").unwrap();
+    let load_re = regex::Regex::new(r#"(?:load_fixture_or_skip|require_fixture!)\(\s*"([^"]+)"\s*,\s*"([^"]+)""#).unwrap();
+    let lang_re = regex::Regex::new(r#"get_or_analyze_fixture_with_lang\(\s*&\w+\s*,\s*Some\(\s*"([^"]+)"\s*\)"#).unwrap();
+
+    let mut files = Vec::new();
+    let mut stack = vec![root];
+    while let Some(dir) = stack.pop() {
+        let Ok(entries) = std::fs::read_dir(&dir) else { continue };
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if path.is_dir() {
+                if path.file_name().map(|n| n != "common" && n != "fixtures").unwrap_or(false) {
+                    stack.push(path);
+                }
+            } else if path.extension().map(|e| e == "rs").unwrap_or(false) {
+                files.push(path);
+            }
+        }
+    }
+
+    let mut out = Vec::new();
+    for file in files {
+        let Ok(src) = std::fs::read_to_string(&file) else { continue };
+        let starts: Vec<usize> = fn_re.find_iter(&src).map(|m| m.start()).chain(std::iter::once(src.len())).collect();
+        for pair in starts.windows(2) {
+            let body = &src[pair[0]..pair[1]];
+            let source_lang = lang_re.captures(body).map(|c| c[1].to_string());
+            for cap in load_re.captures_iter(body) {
+                out.push(ManifestEntry {
+                    lang: cap[1].to_string(),
+                    fixture: cap[2].to_string(),
+                    source_lang: source_lang.clone(),
+                });
+            }
+        }
+    }
+    out.sort();
+    out.dedup();
+    out
+}
+
 /// HELPER THAT EXECUTES PIPELINE ANALYSIS INSTANTLY FROM GROUND-TRUTH FIXTURE JSONs.
 #[allow(dead_code)]
 pub fn get_or_analyze_fixture(img: &DynamicImage) -> AnalyzeResponse {
@@ -1105,98 +1263,25 @@ pub fn get_or_analyze_fixture_with_opts(
     let key = hash_image(img);
 
     // FAST-PATH: LOAD RAW LAYOUT & OCR DIRECTLY FROM CASE FOLDER (<0.05s EXECUTION)
-
     if let Some(src_path) = get_registered_fixture_path(&key) {
-        let paths = get_fixture_output_paths(&src_path);
-        if paths.layout_json.exists() && paths.ocr_json.exists() {
-            #[derive(serde::Deserialize)]
-            struct FolderLayoutReport {
-                backend: String,
-                panels: Vec<BoxRect>,
-                bubbles: Vec<BoxRect>,
-                text_bubbles: Vec<(BoxRect, f32)>,
-                text_free: Vec<(BoxRect, f32)>,
-                onomatopoeia: Vec<(BoxRect, f32)>,
-                comic_boxes: Vec<Vec<[i32; 2]>>,
+        if let Ok((fusion, initial_crops_len)) = load_fusion_from_case_folder(&src_path, img) {
+            let raw_lines_snapshot = fusion.rapid_lines.clone();
+            let mut engine_guard = get_shared_test_engine();
+            let active_engine: &mut PipelineEngine = &mut *engine_guard;
+
+            let res = xianscan_rust::pipeline::analyzer::analyze_image_with_fusion(
+                active_engine,
+                img,
+                &fusion,
+                Some(opts),
+            ).expect("Pipeline analyze_image_with_fusion failed");
+
+            if res.crop_cache.len() != initial_crops_len && !raw_lines_snapshot.is_empty() {
+                save_ocr_fixture_with_crops(img, &raw_lines_snapshot, &res.crop_cache);
             }
-            #[derive(serde::Deserialize)]
-            struct FolderOcrReport {
-                lines: Vec<xianscan_rust::ml::ocr::OcrLine>,
-                #[serde(default)]
-                crops: Option<Vec<xianscan_rust::ml::ocr::CachedCropEntry>>,
-            }
-            if let (Ok(layout_str), Ok(ocr_str)) = (std::fs::read_to_string(&paths.layout_json), std::fs::read_to_string(&paths.ocr_json)) {
-                if let (Ok(l_rep), Ok(o_rep)) = (serde_json::from_str::<FolderLayoutReport>(&layout_str), serde_json::from_str::<FolderOcrReport>(&ocr_str)) {
-                    let _has_crops_field = o_rep.crops.is_some();
-                    let crop_cache = o_rep.crops.unwrap_or_default();
-                    let initial_crops_len = crop_cache.len();
-                    let raw_lines_snapshot = o_rep.lines.clone();
-                    let (page_w, page_h) = (img.width(), img.height());
-                    let filtered_onomatopoeia: Vec<(BoxRect, f32)> = l_rep.onomatopoeia
-                        .into_iter()
-                        .filter(|(sfx_b, score)| {
-                            let s_mid_x = sfx_b.x + sfx_b.w / 2;
-                            let s_mid_y = sfx_b.y + sfx_b.h / 2;
-                            let inside_bubble = l_rep.bubbles.iter().any(|b| {
-                                s_mid_x >= b.x && s_mid_x <= b.x + b.w && s_mid_y >= b.y && s_mid_y <= b.y + b.h
-                            });
-                            if inside_bubble {
-                                return false;
-                            }
-                            if *score < 0.25 {
-                                return false;
-                            }
-                            if *score < 0.40 && (sfx_b.w >= 200 && sfx_b.h >= 400) {
-                                return false;
-                            }
-                            let is_sentence = (sfx_b.w as f32 / sfx_b.h.max(1) as f32 >= 2.5) || sfx_b.h <= 35;
-                            let is_oversized = (sfx_b.w as f32 >= (page_w as f32) * 0.65 && sfx_b.h >= 120)
-                                || ((sfx_b.h as f32 >= (page_h as f32) * 0.35) && !is_sentence && sfx_b.w >= 200)
-                                || ((sfx_b.h as f32 >= (page_h as f32) * 0.40) && !is_sentence);
-                            !is_oversized
-                        })
-                        .collect();
 
-                    let fusion = xianscan_rust::pipeline::fusion::DetectionFusionResult {
-                        comic_boxes: l_rep.comic_boxes,
-                        comic_scores: vec![],
-                        panels: l_rep.panels,
-                        bubbles: l_rep.bubbles,
-                        onomatopoeia: filtered_onomatopoeia,
-                        text_bubbles: l_rep.text_bubbles,
-                        text_free: l_rep.text_free,
-                        rapid_lines: o_rep.lines,
-                        crop_cache,
-                        backend: l_rep.backend,
-                        detector_time_ms: 0.0,
-                        ocr_fullpage_time_ms: 0.0,
-                        rescue_time_ms: 0.0,
-                        raw_ocr_lines_count: 0,
-                        rescued_crops_count: 0,
-                    };
-
-                    let mut engine_guard = get_shared_test_engine();
-                    let active_engine: &mut PipelineEngine = &mut *engine_guard;
-
-                    let res = xianscan_rust::pipeline::analyzer::analyze_image_with_fusion(
-                        active_engine,
-                        img,
-                        &fusion,
-                        Some(opts),
-                    ).expect("Pipeline analyze_image_with_fusion failed");
-
-                    if res.crop_cache.len() != initial_crops_len && !raw_lines_snapshot.is_empty() {
-                        save_ocr_fixture_with_crops(img, &raw_lines_snapshot, &res.crop_cache);
-                    }
-
-                    if let Some(src_path) = get_registered_fixture_path(&key) {
-                        save_annotated_fixture_to_path(img, &res, &src_path);
-                    } else {
-                        save_annotated_fixture(img, &res);
-                    }
-                    return res;
-                }
-            }
+            save_annotated_fixture_to_path(img, &res, &src_path);
+            return res;
         }
     }
 

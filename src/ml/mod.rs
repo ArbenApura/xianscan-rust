@@ -3,6 +3,7 @@ pub mod device;
 pub mod embedded_models;
 pub mod geometry;
 pub mod inpaint;
+pub mod intake;
 pub mod ocr;
 pub mod reslice;
 pub mod schemas;

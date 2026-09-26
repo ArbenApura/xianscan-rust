@@ -32,10 +32,12 @@ pub fn clean_image(
             // TIGHT INSET FALLBACK IF ONLY BOX_ IS PROVIDED TO PROTECT SPEECH BUBBLE BORDERS
             let inset_x = ((b.w as f32) * 0.05).clamp(2.0, 8.0) as i32;
             let inset_y = ((b.h as f32) * 0.05).clamp(2.0, 6.0) as i32;
-            let ix1 = (b.x + inset_x).min(b.x + b.w);
-            let iy1 = (b.y + inset_y).min(b.y + b.h);
-            let ix2 = (b.x + b.w - inset_x).max(ix1);
-            let iy2 = (b.y + b.h - inset_y).max(iy1);
+            // SATURATING: A CLIENT BOX NEAR i32::MAX MUST NOT OVERFLOW (FEAT-004 G4)
+            let (right, bottom) = (b.x.saturating_add(b.w), b.y.saturating_add(b.h));
+            let ix1 = b.x.saturating_add(inset_x).min(right);
+            let iy1 = b.y.saturating_add(inset_y).min(bottom);
+            let ix2 = right.saturating_sub(inset_x).max(ix1);
+            let iy2 = bottom.saturating_sub(inset_y).max(iy1);
             polygons.push(vec![
                 [ix1, iy1],
                 [ix2, iy1],
@@ -58,7 +60,13 @@ pub fn clean_image(
 
     // AFTER INPAINTING: RUN OUTSIDE-IN SHRINKWRAP CAVITY CLEANING ON CONFIRMED WHITE BUBBLES
     // TO ERASE RESIDUAL DUST, SMUDGES, AND INTERNAL WATERMARKS WHILE PRESERVING BORDER GRAPHICS
-    let mut rgb_buf = cleaned_img.to_rgb8();
+    // AN RGB8 RESULT (ALWAYS THE CASE AFTER A LAMA PASS) GIVES UP ITS BUFFER INSTEAD OF BEING COPIED. OTHER VARIANTS
+    // KEEP THE ORIGINAL SO AN UNMODIFIED RGBA INPUT KEEPS ITS ALPHA (FEAT-004 PHASE 3)
+    let (mut rgb_buf, original) = if matches!(cleaned_img, DynamicImage::ImageRgb8(_)) {
+        (cleaned_img.into_rgb8(), None)
+    } else {
+        (cleaned_img.to_rgb8(), Some(cleaned_img))
+    };
     let mut modified = false;
 
     // COLLECT UNIQUE BUBBLE BOXES AND AGGREGATE ALL ASSOCIATED TEXT REGION SEEDS AND CLEAN BOXES
@@ -68,18 +76,17 @@ pub fn clean_image(
             let mut seed = None;
             if let Some(ref poly) = r.polygon {
                 if !poly.is_empty() {
-                    let mut cx = 0i32;
-                    let mut cy = 0i32;
-                    for pt in poly {
-                        cx += pt[0];
-                        cy += pt[1];
-                    }
-                    seed = Some([cx / poly.len() as i32, cy / poly.len() as i32]);
+                    // SUM IN i64 AND CLAMP THE CENTROID TO THE PAGE (FEAT-004 G4)
+                    let n = poly.len() as i64;
+                    let cx = poly.iter().map(|pt| pt[0] as i64).sum::<i64>() / n;
+                    let cy = poly.iter().map(|pt| pt[1] as i64).sum::<i64>() / n;
+                    let clamp_to = |v: i64, max: u32| v.clamp(0, (max as i64 - 1).max(0)) as i32;
+                    seed = Some([clamp_to(cx, w), clamp_to(cy, h)]);
                 }
             }
             if seed.is_none() {
                 if let Some(ref b) = r.box_ {
-                    seed = Some([b.x + b.w / 2, b.y + b.h / 2]);
+                    seed = Some([b.x.saturating_add(b.w / 2), b.y.saturating_add(b.h / 2)]);
                 }
             }
 
@@ -90,7 +97,7 @@ pub fn clean_image(
                         (i32::MAX, i32::MAX, i32::MIN, i32::MIN),
                         |acc, pt| (acc.0.min(pt[0]), acc.1.min(pt[1]), acc.2.max(pt[0]), acc.3.max(pt[1]))
                     );
-                    Some(BoxRect { x: min_x, y: min_y, w: (max_x - min_x).max(1), h: (max_y - min_y).max(1) })
+                    Some(BoxRect { x: min_x, y: min_y, w: max_x.saturating_sub(min_x).max(1), h: max_y.saturating_sub(min_y).max(1) })
                 })
             });
 
@@ -124,7 +131,7 @@ pub fn clean_image(
     if modified {
         Ok(DynamicImage::ImageRgb8(rgb_buf))
     } else {
-        Ok(cleaned_img)
+        Ok(original.unwrap_or(DynamicImage::ImageRgb8(rgb_buf)))
     }
 }
 

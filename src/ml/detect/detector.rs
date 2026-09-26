@@ -7,6 +7,7 @@ use serde::{Deserialize, Serialize};
 // -- INTERNAL IMPORTS -- //
 use super::rfdetr::RfDetrSegDetector;
 use super::rtdetr::{RtDetrComicDetector, RtDetrResult};
+use super::tiling::{merge_tiled, plan_tiles, Tile, TilingConfig};
 use crate::ml::schemas::BoxRect;
 
 // -- TYPES & STRUCTS -- //
@@ -33,6 +34,8 @@ enum DetectorEngine {
 
 pub struct ComicTextDetector {
     engine: DetectorEngine,
+    // TALL-PAGE TILING (FEAT-004 PHASE 5); ONE TILE MEANS THE SINGLE-PASS PATH, UNCHANGED
+    tiling: TilingConfig,
 }
 
 // -- TRAITS & IMPLEMENTATIONS -- //
@@ -53,6 +56,7 @@ impl ComicTextDetector {
         if is_rtdetr {
             return Ok(Self {
                 engine: DetectorEngine::RtDetr(RtDetrComicDetector::from_session(session)),
+                tiling: TilingConfig::default(),
             });
         }
 
@@ -63,6 +67,7 @@ impl ComicTextDetector {
         if is_rfdetr {
             return Ok(Self {
                 engine: DetectorEngine::RfDetr(RfDetrSegDetector::from_session(session)),
+                tiling: TilingConfig::default(),
             });
         }
 
@@ -76,7 +81,33 @@ impl ComicTextDetector {
         }
     }
 
+    /// REPLACES THE TILING CONFIGURATION (THE A/B HARNESS SWITCHES IT OFF AND ON).
+    pub fn set_tiling(&mut self, cfg: TilingConfig) {
+        self.tiling = cfg;
+    }
+
+    /// THE TILES A PAGE OF THIS SIZE IS DETECTED IN (ONE MEANS A SINGLE PASS).
+    pub fn plan_for(&self, w: u32, h: u32) -> Vec<Tile> {
+        plan_tiles(w, h, &self.tiling)
+    }
+
+    /// DETECTS THE PAGE, TILED WHEN IT IS TALLER THAN THE TRIGGER ASPECT (ADR-003). EACH TILE IS A FULL-WIDTH VIEW
+    /// OF THE PAGE; ITS BOXES ARE MERGED BACK IN PAGE COORDINATES.
     pub fn detect(&mut self, img: &DynamicImage) -> Result<DetectResult> {
+        let (w, h) = img.dimensions();
+        let tiles = self.plan_for(w, h);
+        if tiles.len() <= 1 {
+            return self.detect_single(img);
+        }
+        let mut per_tile = Vec::with_capacity(tiles.len());
+        for tile in tiles {
+            let view = img.crop_imm(0, tile.y0, w, tile.h);
+            per_tile.push((tile, self.detect_single(&view)?));
+        }
+        Ok(merge_tiled(per_tile, w, h))
+    }
+
+    fn detect_single(&mut self, img: &DynamicImage) -> Result<DetectResult> {
         let (orig_w, orig_h) = img.dimensions();
 
         match &mut self.engine {
@@ -86,26 +117,10 @@ impl ComicTextDetector {
                 let mut scores: Vec<f32> = Vec::new();
 
                 // ADD ENCLOSED TEXT BUBBLES
-                for (b, s) in &res.text_bubbles {
-                    boxes.push(vec![
-                        [b.x, b.y],
-                        [b.x + b.w, b.y],
-                        [b.x + b.w, b.y + b.h],
-                        [b.x, b.y + b.h],
-                    ]);
-                    scores.push(*s);
-                }
+                push_rect_polys(&mut boxes, &mut scores, &res.text_bubbles);
 
                 // ADD FREE-FLOATING TEXT / SFX
-                for (b, s) in &res.text_free {
-                    boxes.push(vec![
-                        [b.x, b.y],
-                        [b.x + b.w, b.y],
-                        [b.x + b.w, b.y + b.h],
-                        [b.x, b.y + b.h],
-                    ]);
-                    scores.push(*s);
-                }
+                push_rect_polys(&mut boxes, &mut scores, &res.text_free);
 
                 Ok(DetectResult {
                     boxes,
@@ -127,37 +142,13 @@ impl ComicTextDetector {
                 let mut scores: Vec<f32> = Vec::new();
 
                 // ADD ENCLOSED TEXT BUBBLES
-                for (b, s) in &res.text_bubbles {
-                    boxes.push(vec![
-                        [b.x, b.y],
-                        [b.x + b.w, b.y],
-                        [b.x + b.w, b.y + b.h],
-                        [b.x, b.y + b.h],
-                    ]);
-                    scores.push(*s);
-                }
+                push_rect_polys(&mut boxes, &mut scores, &res.text_bubbles);
 
                 // ADD FREE-FLOATING TEXT
-                for (b, s) in &res.text_free {
-                    boxes.push(vec![
-                        [b.x, b.y],
-                        [b.x + b.w, b.y],
-                        [b.x + b.w, b.y + b.h],
-                        [b.x, b.y + b.h],
-                    ]);
-                    scores.push(*s);
-                }
+                push_rect_polys(&mut boxes, &mut scores, &res.text_free);
 
                 // ADD ONOMATOPOEIA / SFX
-                for (b, s) in &res.onomatopoeia {
-                    boxes.push(vec![
-                        [b.x, b.y],
-                        [b.x + b.w, b.y],
-                        [b.x + b.w, b.y + b.h],
-                        [b.x, b.y + b.h],
-                    ]);
-                    scores.push(*s);
-                }
+                push_rect_polys(&mut boxes, &mut scores, &res.onomatopoeia);
 
                 Ok(DetectResult {
                     boxes,
@@ -174,5 +165,13 @@ impl ComicTextDetector {
                 })
             }
         }
+    }
+}
+
+/// PUSHES EACH (BOX, SCORE) AS A 4-POINT POLYGON AND ITS SCORE, IN ORDER (DOWNSTREAM CODE IS ORDER-SENSITIVE).
+fn push_rect_polys(boxes: &mut Vec<Vec<[i32; 2]>>, scores: &mut Vec<f32>, src: &[(crate::ml::schemas::BoxRect, f32)]) {
+    for (b, s) in src {
+        boxes.push(vec![[b.x, b.y], [b.x + b.w, b.y], [b.x + b.w, b.y + b.h], [b.x, b.y + b.h]]);
+        scores.push(*s);
     }
 }

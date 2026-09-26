@@ -1,5 +1,6 @@
 pub mod lama;
 pub mod patch;
+pub mod plan;
 pub mod shrinkwrap;
 
 pub use lama::LamaInpainter;

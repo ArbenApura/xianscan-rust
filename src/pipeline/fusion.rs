@@ -7,6 +7,7 @@ use crate::ml::detect::clean_stray_ocr_artifacts;
 use crate::ml::geometry::{box_iou_f32, box_iou_pts, box_to_xywh_f32, polygon_bounds};
 use crate::ml::ocr::{OcrLine, RapidOcr};
 use crate::ml::schemas::BoxRect;
+use crate::ml::ocr::score_thresholds as thr;
 
 use anyhow::Result;
 
@@ -28,6 +29,8 @@ pub struct DetectionFusionResult {
     pub rescued_crops_count: usize,
     pub raw_ocr_lines_count: usize,
     pub crop_cache: Vec<crate::ml::ocr::CachedCropEntry>,
+    /// HOW MANY TILES THE LAYOUT DETECTOR RAN ON (1 = ONE PASS, 0 = NO DETECTOR OR REPLAYED FROM A FIXTURE).
+    pub detector_tiles: usize,
 }
 
 // -- FUNCTIONS & ALGORITHMS -- //
@@ -76,7 +79,7 @@ fn filter_fused_ocr_lines(rl: Vec<OcrLine>, page_w: u32, source_lang: Option<&st
             let is_sentence_dialogue = crate::ml::detect::has_native_script_for_lang(t, source_lang)
                 && char_count >= 4
                 && !crate::ml::detect::is_onomatopoeia_or_shout(t);
-            if !is_sentence_dialogue && lw >= (page_w as f32 * 0.60) as i32 && lh >= 120 && line.score < 0.75 {
+            if !is_sentence_dialogue && lw >= (page_w as f32 * 0.60) as i32 && lh >= 120 && line.score < thr::FUSED_GIANT_ART_MAX {
                 return false;
             }
             // 2. DROP WATERMARK RESIDUE AND SCANLATOR WATERMARK LINES
@@ -89,7 +92,7 @@ fn filter_fused_ocr_lines(rl: Vec<OcrLine>, page_w: u32, source_lang: Option<&st
             }
             // 4. DROP HIGH-TILT NON-DIALOGUE WITH LOW RECOGNITION CONFIDENCE (THETA >= 12.0 DEG, SCORE < 0.60)
             let angle = crate::ml::geometry::calculate_box_angle_i32(&line.polygon);
-            if angle.abs() >= 12.0 && line.score < 0.60 {
+            if angle.abs() >= 12.0 && line.score < thr::FUSED_HIGH_TILT_MAX {
                 return false;
             }
             // In non-Latin script sources (CJK/Korean/Japanese), drop slanted/angled pure Latin lines (theta >= 10.0 deg) that lack native script
@@ -101,10 +104,10 @@ fn filter_fused_ocr_lines(rl: Vec<OcrLine>, page_w: u32, source_lang: Option<&st
             let is_margin_flush = px <= 5 || px + lw >= page_w as i32 - 5;
             let has_native = crate::ml::detect::has_native_script_for_lang(t, source_lang);
             let is_multi_native = has_native && char_count >= 2;
-            if is_margin_flush && !is_multi_native && line.score < 0.75 {
+            if is_margin_flush && !is_multi_native && line.score < thr::FUSED_MARGIN_NON_NATIVE_MAX {
                 return false;
             }
-            if is_margin_flush && line.score < 0.65 {
+            if is_margin_flush && line.score < thr::FUSED_MARGIN_MAX {
                 return false;
             }
             true
@@ -116,7 +119,7 @@ fn filter_fused_ocr_lines(rl: Vec<OcrLine>, page_w: u32, source_lang: Option<&st
         .iter()
         .filter_map(|l| {
             let (x, y, w, h) = polygon_bounds(&l.polygon);
-            if h >= 28 && l.score >= 0.65 {
+            if h >= 28 && l.score >= thr::FUSED_NORMAL_LINE_MIN {
                 Some(([x, y, w, h], l.text.trim().to_string(), l.score))
             } else {
                 None
@@ -163,7 +166,10 @@ pub fn fuse_detections(
     allow_degraded_fallback: bool,
 ) -> Result<DetectionFusionResult> {
     let (page_w, _page_h) = img.dimensions();
+    let detector_tiles = detector.as_ref().map(|d| d.plan_for(img.width(), img.height()).len()).unwrap_or(0);
 
+    // probe_hardware LEAVES OUT A GPU BACKEND THAT HAS FAILED (FEAT-004 PHASE 9), SO THIS REFLECTS THE REAL DEVICE.
+    // NOTE: MT_FAST_CPU DEFAULTS TO is_cpu_active HERE BUT TO ON IN device.rs (SESSION MEMORY SETTINGS).
     let (providers, _) = crate::ml::device::probe_hardware();
     let is_cpu_active = providers.first().map(|p| p == "CPUExecutionProvider").unwrap_or(true);
     let fast_cpu = std::env::var("MT_FAST_CPU").map(|v| v == "1" || v.eq_ignore_ascii_case("true")).unwrap_or(is_cpu_active);
@@ -327,7 +333,7 @@ pub fn fuse_detections(
                 let rc_y = ry + rh / 2;
                 let center_in = rc_x >= cb_x && rc_x <= cb_x + cb_w && rc_y >= cb_y && rc_y <= cb_y + cb_h;
                 let iou = box_iou_pts(cb, &rl.polygon);
-                (center_in || iou >= 0.20) && rl.score >= 0.72
+                (center_in || iou >= 0.20) && rl.score >= thr::COMIC_BOX_CONFIDENT_LINE_MIN
             }).count();
 
             let internal_rapid_span_h = rapid_lines.iter().filter_map(|rl| {
@@ -336,7 +342,7 @@ pub fn fuse_detections(
                 let rc_y = ry + rh / 2;
                 let center_in = rc_x >= cb_x && rc_x <= cb_x + cb_w && rc_y >= cb_y && rc_y <= cb_y + cb_h;
                 let iou = box_iou_pts(cb, &rl.polygon);
-                if (center_in || iou >= 0.20) && rl.score >= 0.72 {
+                if (center_in || iou >= 0.20) && rl.score >= thr::COMIC_BOX_CONFIDENT_LINE_MIN {
                     Some((ry, ry + rh))
                 } else {
                     None
@@ -373,7 +379,7 @@ pub fn fuse_detections(
                     let is_non_latin_corrupted_latin = crate::ml::detect::is_non_latin_source(source_lang)
                         && !crate::ml::detect::has_native_script_for_lang(&rl.text, source_lang)
                         && rl.text.chars().any(|c| c.is_ascii_alphabetic());
-                    let is_high_quality_fullpage = rl.score >= 0.78
+                    let is_high_quality_fullpage = rl.score >= thr::FULLPAGE_HIGH_QUALITY_MIN
                         && rl.text.trim().chars().count() >= 3
                         && !is_non_latin_corrupted_latin;
                     let is_wider = !is_rl_vert && if is_high_quality_fullpage {
@@ -387,7 +393,7 @@ pub fn fuse_detections(
                         cb_h >= rh + 10 || (cb_h as f32) >= (rh as f32 * 1.10)
                     };
                     let is_missing_lines = (cb_h as f32) >= (rh as f32 * 1.45) && (cb_h >= 45 && cb_w >= 45);
-                    let is_low_conf_or_degenerate = rl.score < 0.68 || (rl.text.trim().chars().count() <= 1 && (rh >= 35 || rw >= 35)) || is_non_latin_corrupted_latin;
+                    let is_low_conf_or_degenerate = rl.score < thr::RESCUE_LOW_CONF_MAX || (rl.text.trim().chars().count() <= 1 && (rh >= 35 || rw >= 35)) || is_non_latin_corrupted_latin;
                     if is_wider || is_taller || is_missing_lines || is_low_conf_or_degenerate {
                         let pad_x = if is_rl_vert { 16 } else { 15 };
                         let pad_y = if is_rl_vert { 12 } else { 15 };
@@ -406,6 +412,8 @@ pub fn fuse_detections(
                                         text: c_res.text,
                                         score: c_res.score,
                                         lines: c_res.lines,
+                                        prob: c_res.prob,
+                                        line_probs: c_res.line_probs,
                                     })
                                 } else {
                                     None
@@ -427,7 +435,7 @@ pub fn fuse_detections(
                                 let is_excessive_multiline_bleed = (!is_multiline_cb || internal_rapid_lines_count >= 2 || !rl.text.contains('\n'))
                                     && !is_rl_vert
                                     && clean_c.contains('\n')
-                                    && rl.score >= 0.70;
+                                    && rl.score >= thr::MULTILINE_BLEED_LINE_MIN;
                                 // DISCONNECTED CROP ROW GUARD: WHEN A REFINEMENT CROP RECOGNIZES MULTIPLE ROWS
                                 // WHOSE INTERNAL GAPS ARE HUGE RELATIVE TO THE ROWS THEMSELVES, THE CROP SPANS
                                 // DISCONNECTED CONTENT ZONES (E.G. A GIANT BRUSH SFX GLYPH FUSED WITH AN ADJACENT
@@ -524,11 +532,12 @@ pub fn fuse_detections(
                                         clean_chars > rl_chars
                                             || clean_cjk > rl_cjk
                                             || (clean_c.contains('…') && !rl.text.contains('…'))
-                                            || (clean_chars == rl_chars && line_res.score > rl.score + 0.05)
+                                            || (clean_chars == rl_chars && line_res.score > rl.score + thr::CROP_REPLACE_MARGIN) // F10: RELATIVE, LEGACY SCALE UNTIL PHASE 7
                                     )
                                 );
                                 if is_better {
                                     let rl_orig_score = rl.score;
+                                    let rl_orig_prob = rl.prob_or_derived();
                                     let (union_x, union_y, union_w, union_h) = if !line_res.lines.is_empty() {
                                         let mut min_lx = i32::MAX;
                                         let mut min_ly = i32::MAX;
@@ -564,6 +573,7 @@ pub fn fuse_detections(
                                         polygon: offset_poly,
                                         text: clean_c,
                                         score: line_res.score.max(rl_orig_score),
+                                        prob: Some(line_res.prob_or_derived().max(rl_orig_prob)),
                                     };
                                     rescued_crops_count += 1;
                                 }
@@ -602,23 +612,27 @@ pub fn fuse_detections(
                                     result: crop_res.clone(),
                                 });
                                 if !crop_res.lines.is_empty() {
-                                    for (sub_poly, sub_text, sub_score) in crop_res.lines {
-                                        if sub_score >= 0.60 {
+                                    let sub_probs: Vec<f32> = (0..crop_res.lines.len()).map(|i| crop_res.line_prob(i)).collect();
+                                    for ((sub_poly, sub_text, sub_score), sub_prob) in crop_res.lines.into_iter().zip(sub_probs) {
+                                        if sub_score >= thr::UNMATCHED_CROP_ACCEPT_MIN {
                                             let offset_poly = sub_poly.iter().map(|p| [p[0] + crop_x as i32, p[1] + crop_y as i32]).collect();
                                             rapid_lines.push(OcrLine {
                                                 polygon: offset_poly,
                                                 text: sub_text,
                                                 score: sub_score,
+                                                prob: Some(sub_prob),
                                             });
                                             rescued_crops_count += 1;
                                         }
                                     }
                                     recognized_from_crop = true;
-                                } else if !crop_res.text.is_empty() && crop_res.score >= 0.60 {
+                                } else if !crop_res.text.is_empty() && crop_res.score >= thr::UNMATCHED_CROP_ACCEPT_MIN {
+                                    let prob = crop_res.prob_or_derived();
                                     rapid_lines.push(OcrLine {
                                         polygon: cb.clone(),
                                         text: crop_res.text,
                                         score: crop_res.score,
+                                        prob: Some(prob),
                                     });
                                     rescued_crops_count += 1;
                                     recognized_from_crop = true;
@@ -630,11 +644,13 @@ pub fn fuse_detections(
                             let is_strip = (crop_w <= 200 || crop_h <= 200) && (crop_h as f32 >= crop_w as f32 * 1.5 || crop_w as f32 >= crop_h as f32 * 1.5);
                             if is_strip {
                                 if let Ok(Some(line_res)) = o.recognize_line_with_lang(&crop, source_lang) {
-                                    if !line_res.text.trim().is_empty() && line_res.score >= 0.55 {
+                                    if !line_res.text.trim().is_empty() && line_res.score >= thr::STRIP_LINE_ACCEPT_MIN {
+                                        let prob = line_res.prob_or_derived();
                                         rapid_lines.push(OcrLine {
                                             polygon: cb.clone(),
                                             text: line_res.text,
                                             score: line_res.score,
+                                            prob: Some(prob),
                                         });
                                         rescued_crops_count += 1;
                                         recognized_from_crop = true;
@@ -656,11 +672,13 @@ pub fn fuse_detections(
             if let Ok(batched_res) = o.recognize_lines_batched_with_lang(&crops, source_lang) {
                 for (b_idx, res_opt) in batched_res.into_iter().enumerate() {
                     if let Some(line_res) = res_opt {
-                        if !line_res.text.is_empty() && line_res.score >= 0.65 {
+                        if !line_res.text.is_empty() && line_res.score >= thr::BATCHED_LINE_ACCEPT_MIN {
+                            let prob = line_res.prob_or_derived();
                             rapid_lines.push(OcrLine {
                                 polygon: single_line_pending[b_idx].0.clone(),
                                 text: line_res.text,
                                 score: line_res.score,
+                                prob: Some(prob),
                             });
                             rescued_crops_count += 1;
                         }
@@ -688,6 +706,7 @@ pub fn fuse_detections(
         rescued_crops_count,
         raw_ocr_lines_count,
         crop_cache,
+        detector_tiles,
     })
 }
 

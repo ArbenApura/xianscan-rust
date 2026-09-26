@@ -1,4 +1,6 @@
+pub mod confidence;
 pub mod decode;
+pub mod score_thresholds;
 pub mod engine;
 pub mod slicing;
 

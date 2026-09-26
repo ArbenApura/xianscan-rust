@@ -95,3 +95,177 @@ fn test_tier1_synthetic_oversized_sfx_filtering() {
     assert!(!is_oversized3, "Moderate SFX (< 30% canvas height) must be preserved");
 }
 
+
+// -- OCR SCORE CALIBRATION (FEAT-003) -- //
+
+use xianscan_rust::ml::ocr::confidence::{legacy_from_prob, logit, prob_from_legacy, LEGACY_MAX, LEGACY_MIN};
+use xianscan_rust::ml::ocr::decode_ctc_slice;
+
+/// SEEDED LCG (NO NEW DEPENDENCIES). RETURNS VALUES IN [0, 1).
+struct Lcg(u64);
+
+impl Lcg {
+    fn next(&mut self) -> f32 {
+        self.0 = self.0.wrapping_mul(6_364_136_223_846_793_005).wrapping_add(1_442_695_040_888_963_407);
+        ((self.0 >> 40) as f32) / ((1_u64 << 24) as f32)
+    }
+}
+
+fn charset(n: usize) -> Vec<String> {
+    let mut chars = vec!["blank".to_string()];
+    chars.extend((1..n).map(|i| char::from_u32(0x4E00 + i as u32).unwrap().to_string()));
+    chars
+}
+
+/// RANDOM SOFTMAX ROWS; EVERY THIRD STEP IS BIASED TOWARDS BLANK SO REPEATS AND BLANKS BOTH OCCUR.
+fn random_softmax_slice(rng: &mut Lcg, steps: usize, classes: usize) -> Vec<f32> {
+    let mut out = Vec::with_capacity(steps * classes);
+    for t in 0..steps {
+        let mut row: Vec<f32> = (0..classes).map(|_| rng.next() + 1e-3).collect();
+        if t % 3 == 0 {
+            row[0] += 2.0;
+        }
+        let sum: f32 = row.iter().sum();
+        out.extend(row.iter().map(|v| v / sum));
+    }
+    out
+}
+
+/// THE 38a1f16 DECODER SCORE, COPIED VERBATIM (PER-CHARACTER SIGMOID OF THE WINNING PROBABILITY, THEN THE MEAN).
+fn legacy_reference_score(slice: &[f32], steps: usize, classes: usize, characters: &[String]) -> Option<f32> {
+    let (mut prev_idx, mut total, mut count, mut text) = (0_usize, 0.0_f32, 0_usize, String::new());
+    for t in 0..steps {
+        let offset = t * classes;
+        let mut max_val = slice[offset];
+        for c in 1..classes {
+            if slice[offset + c] > max_val {
+                max_val = slice[offset + c];
+            }
+        }
+        let mut max_idx = 0;
+        for c in 1..classes {
+            if slice[offset + c] == max_val {
+                max_idx = c;
+                break;
+            }
+        }
+        if max_idx != 0 && max_idx != prev_idx && max_idx < characters.len() && characters[max_idx] != "blank" {
+            text.push_str(&characters[max_idx]);
+            total += (1.0 / (1.0 + (-max_val.max(-20.0).min(20.0)).exp())).clamp(0.0, 1.0);
+            count += 1;
+        }
+        prev_idx = max_idx;
+    }
+    if text.trim().is_empty() {
+        None
+    } else {
+        Some(if count > 0 { total / count as f32 } else { 0.0 })
+    }
+}
+
+#[test]
+fn ocr_score_decode_softmax_range() {
+    let mut rng = Lcg(7);
+    let chars = charset(12);
+    for _ in 0..200 {
+        let slice = random_softmax_slice(&mut rng, 20, 12);
+        if let Some(res) = decode_ctc_slice(&slice, 20, 12, &chars) {
+            let prob = res.prob.expect("decoder sets prob");
+            assert!((0.0..=1.0).contains(&prob), "prob {prob} out of [0, 1]");
+            assert!(res.score >= LEGACY_MIN && res.score <= LEGACY_MAX + 1e-6, "score {} out of legacy range", res.score);
+        }
+    }
+    // ALL-BLANK SLICE DECODES TO NOTHING
+    let mut blank = vec![0.0_f32; 10 * 12];
+    for t in 0..10 {
+        blank[t * 12] = 1.0;
+    }
+    assert!(decode_ctc_slice(&blank, 10, 12, &chars).is_none());
+}
+
+#[test]
+fn ocr_score_decode_legacy_bit_identical() {
+    let mut rng = Lcg(42);
+    let chars = charset(16);
+    let mut compared = 0;
+    for _ in 0..1000 {
+        let slice = random_softmax_slice(&mut rng, 24, 16);
+        let expected = legacy_reference_score(&slice, 24, 16, &chars);
+        let got = decode_ctc_slice(&slice, 24, 16, &chars);
+        assert_eq!(expected.is_some(), got.is_some());
+        if let (Some(e), Some(g)) = (expected, got) {
+            assert_eq!(e.to_bits(), g.score.to_bits(), "legacy score changed: {e} vs {}", g.score);
+            compared += 1;
+        }
+    }
+    assert!(compared > 900, "too few decodable slices: {compared}");
+}
+
+#[test]
+fn ocr_score_prob_is_mean_max_softmax() {
+    let chars = vec!["blank".to_string(), "a".to_string(), "b".to_string()];
+    #[rustfmt::skip]
+    let slice = [
+        0.05, 0.90, 0.05, // a (0.9)
+        0.05, 0.90, 0.05, // a REPEATED: COLLAPSES
+        0.90, 0.05, 0.05, // BLANK: SKIPPED
+        0.25, 0.25, 0.50, // b (0.5)
+    ];
+    let res = decode_ctc_slice(&slice, 4, 3, &chars).expect("decodes");
+    assert_eq!(res.text, "ab");
+    assert!((res.prob.unwrap() - 0.7).abs() < 1e-6, "prob {:?}", res.prob);
+    let legacy = (legacy_from_prob(0.9) + legacy_from_prob(0.5)) / 2.0;
+    assert_eq!(res.score.to_bits(), legacy.to_bits());
+}
+
+#[test]
+fn ocr_score_logits_input_is_normalised() {
+    let chars = vec!["blank".to_string(), "a".to_string(), "b".to_string()];
+    let slice = [1.0_f32, 3.0, 0.5, 0.0, 0.2, 4.0];
+    let res = decode_ctc_slice(&slice, 2, 3, &chars).expect("decodes");
+    assert_eq!(res.text, "ab");
+    let softmax_max = |row: &[f32]| {
+        let m = row.iter().cloned().fold(f32::MIN, f32::max);
+        1.0 / row.iter().map(|v| (v - m).exp()).sum::<f32>()
+    };
+    let expected = (softmax_max(&slice[0..3]) + softmax_max(&slice[3..6])) / 2.0;
+    let prob = res.prob.unwrap();
+    assert!((prob - expected).abs() < 1e-6, "prob {prob} vs {expected}");
+    assert!(prob <= 1.0);
+}
+
+#[test]
+fn ocr_score_conversion_roundtrip() {
+    for i in 0..=1000 {
+        let p = i as f32 / 1000.0;
+        let back = prob_from_legacy(legacy_from_prob(p));
+        assert!((back - p).abs() < 1e-5, "{p} -> {back}");
+    }
+    assert_eq!(logit(0.5), 0.0);
+    assert_eq!(prob_from_legacy(f32::NAN), 0.0);
+    assert_eq!(prob_from_legacy(0.2), 0.0);
+    assert_eq!(prob_from_legacy(0.99), 1.0);
+}
+
+#[test]
+fn ocr_score_thresholds_registry_status() {
+    use xianscan_rust::ml::ocr::score_thresholds::{computed_status, Scale, REGISTRY};
+    let mut wrong = Vec::new();
+    for t in REGISTRY {
+        // LEGACY ENTRIES ARE CHECKED AGAINST THE SIGMOID RANGE, PROBABILITY ENTRIES (logit OF THE LITERAL) AGAINST [0, 1]
+        let (lo, hi) = match t.scale {
+            Scale::Legacy => (LEGACY_MIN, LEGACY_MAX),
+            Scale::Prob => (0.0, 1.0),
+        };
+        let actual = computed_status(t.value(), t.op, lo, hi);
+        if actual != t.documented_status {
+            wrong.push(format!("{} ({}, {:?} {:?} {}): documented {:?}, computed {:?}", t.name, t.sites, t.scale, t.op, t.value(), t.documented_status, actual));
+        }
+    }
+    assert!(wrong.is_empty(), "threshold registry out of date: {wrong:?}");
+    // EVERY NAME IS UNIQUE
+    let mut names: Vec<&str> = REGISTRY.iter().map(|t| t.name).collect();
+    names.sort_unstable();
+    names.dedup();
+    assert_eq!(names.len(), REGISTRY.len());
+}

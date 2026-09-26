@@ -5,6 +5,7 @@ use image::DynamicImage;
 use crate::ml::geometry::polygon_bounds;
 use crate::ml::ocr::OcrLine;
 use crate::ml::schemas::BoxRect;
+use crate::ml::ocr::score_thresholds as thr;
 use super::geometry::compute_chromatic_color_variance;
 
 // -- FUNCTIONS & ALGORITHMS -- //
@@ -24,6 +25,10 @@ pub fn should_reject_candidate_region(
     split_lines: &[OcrLine],
     bubbles: &[BoxRect],
 ) -> bool {
+    // THE CHROMATIC VARIANCE OF THE CLUSTER IS PURE AND USED BY MANY RULES: COMPUTE IT AT MOST ONCE, LAZILY, SO
+    // SHORT-CIRCUITING IS UNCHANGED (FEAT-004 PHASE 3)
+    let chroma_cell = std::cell::OnceCell::new();
+    let chroma = || *chroma_cell.get_or_init(|| compute_chromatic_color_variance(img, cluster_rect));
     if cleaned.is_empty() {
         return true;
     }
@@ -34,19 +39,19 @@ pub fn should_reject_candidate_region(
     // 1. DROP GIANT ARTWORK HALLUCINATIONS OR SPRAWLING NOISE BOXES
     let max_art_w = ((page_w as f32 * 0.70).max(350.0)) as i32;
     let max_art_h = ((ref_dim * 0.50).max(450.0)) as i32;
-    if !is_bubble && cluster_rect.w >= max_art_w && cluster_rect.h >= max_art_h && avg_score < 0.65 {
+    if !is_bubble && cluster_rect.w >= max_art_w && cluster_rect.h >= max_art_h && avg_score < thr::FILTER_GIANT_ART_MAX {
         return true;
     }
     let char_count = cleaned.chars().filter(|c| !c.is_whitespace()).count();
     let is_sentence_dialogue = crate::ml::detect::has_native_script_for_lang(cleaned, source_lang)
         && char_count >= 5
-        && avg_score >= 0.70
+        && avg_score >= thr::FILTER_SENTENCE_DIALOGUE_MIN
         && !crate::ml::detect::is_onomatopoeia_or_shout(cleaned);
     let is_wide_artwork_hallucination = !is_bubble
         && !is_sentence_dialogue
         && cluster_rect.w >= (page_w as f32 * 0.75) as i32
         && cluster_rect.h >= (ref_dim * 0.14).max(120.0) as i32
-        && (avg_score < 0.68 || char_count <= 4 || (compute_chromatic_color_variance(img, cluster_rect) >= 15.0 && char_count <= 8));
+        && (avg_score < thr::FILTER_WIDE_ART_MAX || char_count <= 4 || (chroma() >= 15.0 && char_count <= 8));
     if is_wide_artwork_hallucination {
         return true;
     }
@@ -66,7 +71,7 @@ pub fn should_reject_candidate_region(
             angle_close && dx <= 80 && dy <= 80 && (lx != cluster_rect.x || ly != cluster_rect.y)
         });
     if !is_bubble {
-        if !is_card_or_aligned_text && angle_deg.abs() >= 12.0 && (avg_score < 0.65 || (char_count <= 2 && avg_score < 0.75 && compute_chromatic_color_variance(img, cluster_rect) >= 12.0)) {
+        if !is_card_or_aligned_text && angle_deg.abs() >= 12.0 && (avg_score < thr::FILTER_HIGH_TILT_MAX || (char_count <= 2 && avg_score < thr::FILTER_HIGH_TILT_SHORT_MAX && chroma() >= 12.0)) {
             return true;
         }
     }
@@ -117,7 +122,7 @@ pub fn should_reject_candidate_region(
     if is_bubble {
         let is_pure_digits_in_bubble = cleaned.chars().all(|c| c.is_ascii_digit() || c.is_whitespace())
             && char_count <= 3
-            && (avg_score < 0.85 || cluster_rect.h >= 70 || char_count <= 2);
+            && (avg_score < thr::FILTER_BUBBLE_DIGITS_MAX || cluster_rect.h >= 70 || char_count <= 2);
         if is_pure_digits_in_bubble {
             return true;
         }
@@ -135,12 +140,12 @@ pub fn should_reject_candidate_region(
                 crate::ml::detect::is_standalone_noise_stroke(lt)
                     || crate::ml::detect::is_standalone_digit_or_particle_noise(lt)
             });
-        let is_cjk_garbage = is_cjk && avg_score < 0.70 && !crate::ml::detect::has_cjk_characters(cleaned) && !is_expressive_bubble_punct;
+        let is_cjk_garbage = is_cjk && avg_score < thr::FILTER_CJK_GARBAGE_MAX && !crate::ml::detect::has_cjk_characters(cleaned) && !is_expressive_bubble_punct;
         let lacks_native = !crate::ml::detect::has_native_script_for_lang(cleaned, source_lang);
         let native_count = cleaned.chars().filter(|c| crate::ml::detect::has_native_script_for_lang(&c.to_string(), source_lang)).count();
         let digit_latin_count = cleaned.chars().filter(|c| c.is_ascii_digit() || c.is_ascii_alphabetic()).count();
-        let is_digit_corrupted_noise = avg_score < 0.68 && native_count <= 1 && digit_latin_count >= 2 && !is_expressive_bubble_punct;
-        let is_low_conf_noise = avg_score < 0.68 && (lacks_native || !crate::ml::detect::has_cjk_characters(cleaned)) && !is_expressive_bubble_punct;
+        let is_digit_corrupted_noise = avg_score < thr::FILTER_DIGIT_NOISE_MAX && native_count <= 1 && digit_latin_count >= 2 && !is_expressive_bubble_punct;
+        let is_low_conf_noise = avg_score < thr::FILTER_LOW_CONF_NOISE_MAX && (lacks_native || !crate::ml::detect::has_cjk_characters(cleaned)) && !is_expressive_bubble_punct;
         if (cluster_rect.w <= tiny_bubble_w && cluster_rect.h <= tiny_bubble_h && (is_low_conf_noise || is_noise_or_digit || is_cjk_garbage))
             || is_cjk_garbage
             || is_digit_corrupted_noise
@@ -188,7 +193,7 @@ pub fn should_reject_candidate_region(
     }
     if is_non_latin && lacks_native_script {
         let is_valid_sfx = crate::ml::detect::is_onomatopoeia_or_shout(cleaned);
-        if !is_bubble && (!is_valid_sfx || avg_score < 0.72 || is_expressive_punct) {
+        if !is_bubble && (!is_valid_sfx || avg_score < thr::FILTER_NON_BUBBLE_NON_SFX_MAX || is_expressive_punct) {
             return true;
         }
     }
@@ -199,7 +204,7 @@ pub fn should_reject_candidate_region(
         let is_short_noise_code = !is_bubble && char_count <= 3 && !is_valid_sfx;
         let is_non_bubble_alphanumeric = !is_bubble && !is_valid_sfx;
         let is_pure_digits_in_bubble = is_bubble && cleaned.chars().all(|c| c.is_ascii_digit() || c.is_whitespace()) && char_count <= 3;
-        let is_low_conf_bubble_garbage = is_bubble && avg_score < 0.70 && !is_expressive_punct && lacks_native_script && (cleaned.lines().count() >= 2 || char_count <= 2);
+        let is_low_conf_bubble_garbage = is_bubble && avg_score < thr::FILTER_BUBBLE_GARBAGE_MAX && !is_expressive_punct && lacks_native_script && (cleaned.lines().count() >= 2 || char_count <= 2);
         let micro_h = (ref_dim * 0.015).clamp(10.0, 20.0) as i32;
         let micro_box = (ref_dim * 0.040).clamp(20.0, 45.0) as i32;
         if (!is_bubble && cluster_rect.h <= micro_h)
@@ -209,7 +214,7 @@ pub fn should_reject_candidate_region(
             || is_pure_digits_in_bubble
             || is_low_conf_bubble_garbage
             || (!is_bubble && cluster_rect.w <= micro_box && cluster_rect.h <= micro_box)
-            || (!is_bubble && avg_score < 0.70 && !is_valid_sfx)
+            || (!is_bubble && avg_score < thr::FILTER_INVALID_SFX_MAX && !is_valid_sfx)
             || (!is_bubble && char_count == 1 && !is_valid_sfx)
         {
             return true;
@@ -218,7 +223,7 @@ pub fn should_reject_candidate_region(
 
     // 5b. DROP MIXED-SCRIPT DECORATIVE GARBAGE: NATIVE CHARACTERS INTERLEAVED WITH 3+ SEPARATE
     // ASCII FRAGMENTS (SIGNATURE OF UNREADABLE IN-WORLD FANTASY LETTERING, CHANT SCRAWL, OR SIGN PLAQUES).
-    if avg_score < 0.70 && crate::ml::detect::is_mixed_script_debris(cleaned, source_lang) {
+    if avg_score < thr::FILTER_MIXED_SCRIPT_DEBRIS_MAX && crate::ml::detect::is_mixed_script_debris(cleaned, source_lang) {
         return true;
     }
 
@@ -237,7 +242,7 @@ pub fn should_reject_candidate_region(
                 return true;
             }
             let has_alien_mix = cleaned.chars().any(|c| c.is_ascii_digit() || matches!(c, '×' | '÷' | '≠' | '±' | 'C' | 'c' | 'x' | 'X'));
-            if avg_score < 0.72 || has_alien_mix {
+            if avg_score < thr::FILTER_ALIEN_MIX_MAX || has_alien_mix {
                 return true;
             }
         }
@@ -264,7 +269,7 @@ pub fn should_reject_candidate_region(
         }
         let is_expressive_bubble_punct = cleaned.chars().any(|c| matches!(c, '！' | '？' | '!' | '?' | '…' | '·' | '—' | '～' | '¿' | '¡'));
         let is_micro_noise = cluster_rect.w <= 12 && cluster_rect.h <= 12;
-        if !is_expressive_bubble_punct || is_micro_noise || avg_score < 0.60 {
+        if !is_expressive_bubble_punct || is_micro_noise || avg_score < thr::FILTER_PUNCT_MICRO_NOISE_MAX {
             return true;
         }
     }
@@ -277,7 +282,7 @@ pub fn should_reject_candidate_region(
             || is_sparse_giant_box
             || cluster_rect.h <= 20
             || cluster_rect.w <= 40
-            || (avg_score < 0.75 && char_count <= 6)
+            || (avg_score < thr::FILTER_SHORT_LOW_CONF_MAX && char_count <= 6)
         {
             return true;
         }
@@ -303,35 +308,35 @@ pub fn should_reject_candidate_region(
         && cluster_rect.h >= 60
         && cluster_rect.h >= (cluster_rect.w as f32 * 1.5) as i32
         && char_count >= 2
-        && (has_narrative_punctuation || avg_score >= 0.75 || compute_chromatic_color_variance(img, cluster_rect) < 20.0);
-    let is_sign_or_narration_box = is_cjk && !is_oversized_single_char && ((char_count >= 2 && ((cluster_rect.w >= 50 && cluster_rect.h >= 20) || (cluster_rect.w >= 20 && cluster_rect.h >= 45 && char_count >= 3) || (cluster_rect.w >= 30 && cluster_rect.h >= 30 && char_count >= 3)) && avg_score >= 0.70) || (char_count >= 4 && is_pure_cjk && cluster_rect.h >= 60 && avg_score >= 0.62) || is_vert_narration) && !is_shout;
-    let is_margin_isolated_char = (cluster_rect.x <= 5 || cluster_rect.x + cluster_rect.w >= page_w as i32 - 5) && avg_score < 0.75;
+        && (has_narrative_punctuation || avg_score >= thr::FILTER_VERT_NARRATION_MIN || chroma() < 20.0);
+    let is_sign_or_narration_box = is_cjk && !is_oversized_single_char && ((char_count >= 2 && ((cluster_rect.w >= 50 && cluster_rect.h >= 20) || (cluster_rect.w >= 20 && cluster_rect.h >= 45 && char_count >= 3) || (cluster_rect.w >= 30 && cluster_rect.h >= 30 && char_count >= 3)) && avg_score >= thr::FILTER_SIGN_BOX_MIN) || (char_count >= 4 && is_pure_cjk && cluster_rect.h >= 60 && avg_score >= thr::FILTER_SIGN_BOX_TALL_MIN) || is_vert_narration) && !is_shout;
+    let is_margin_isolated_char = (cluster_rect.x <= 5 || cluster_rect.x + cluster_rect.w >= page_w as i32 - 5) && avg_score < thr::FILTER_MARGIN_ISOLATED_MAX;
     let is_valid_cjk_glyph = is_cjk
-        && ((char_count >= 3 && avg_score >= 0.70)
-            || (char_count == 2 && cluster_rect.w >= 50 && avg_score >= 0.70)
-            || (char_count <= 2 && avg_score >= 0.72 && (!is_oversized_single_char || compute_chromatic_color_variance(img, cluster_rect) < 15.0))
+        && ((char_count >= 3 && avg_score >= thr::FILTER_VALID_GLYPH_MIN)
+            || (char_count == 2 && cluster_rect.w >= 50 && avg_score >= thr::FILTER_VALID_GLYPH_MIN)
+            || (char_count <= 2 && avg_score >= thr::FILTER_VALID_GLYPH_SHORT_MIN && (!is_oversized_single_char || chroma() < 15.0))
             || is_vert_narration)
         && cleaned.chars().any(|c| crate::ml::detect::has_cjk_characters(&c.to_string()))
         && !is_margin_isolated_char;
     let is_compact_single_glyph_box = char_count <= 2 && cluster_rect.w <= (ref_dim * 0.05).clamp(20.0, 45.0) as i32 && cluster_rect.h <= (ref_dim * 0.05).clamp(20.0, 45.0) as i32;
-    let is_low_conf_single_char = char_count <= 2 && (avg_score < 0.70 || is_oversized_single_char || (is_compact_single_glyph_box && compute_chromatic_color_variance(img, cluster_rect) >= 15.0 && avg_score < 0.72));
+    let is_low_conf_single_char = char_count <= 2 && (avg_score < thr::FILTER_LOW_CONF_SINGLE_CHAR_MAX || is_oversized_single_char || (is_compact_single_glyph_box && chroma() >= 15.0 && avg_score < thr::FILTER_COMPACT_GLYPH_MAX));
     let glyph_count = cleaned.chars().filter(|c| c.is_alphanumeric() || crate::ml::detect::has_cjk_characters(&c.to_string())).count();
     // ONLY SUPPRESS LOW-CONFIDENCE ONOMATOPOEIA NOISE (PRESERVE HIGH-CONFIDENCE MULTI-GLYPH SFX)
-    let is_isolated_sfx = is_shout && (avg_score < 0.65 || (glyph_count <= 1 && avg_score < 0.73));
+    let is_isolated_sfx = is_shout && (avg_score < thr::FILTER_ISOLATED_SFX_MAX || (glyph_count <= 1 && avg_score < thr::FILTER_ISOLATED_SFX_SINGLE_MAX));
 
     if !is_card_or_aligned_text
         && char_count <= 6
         && !is_bubble
         && !is_sign_or_narration_box
         && (!is_valid_cjk_glyph || is_low_conf_single_char || is_margin_isolated_char || is_isolated_sfx || is_oversized_single_char)
-        && (compute_chromatic_color_variance(img, cluster_rect) >= 15.0 || is_margin_isolated_char || is_low_conf_single_char || is_isolated_sfx || is_oversized_single_char || (avg_score < 0.75 && cluster_rect.w <= 45 && cluster_rect.h <= 45))
+        && (chroma() >= 15.0 || is_margin_isolated_char || is_low_conf_single_char || is_isolated_sfx || is_oversized_single_char || (avg_score < thr::FILTER_TINY_BOX_MAX && cluster_rect.w <= 45 && cluster_rect.h <= 45))
     {
         return true;
     }
 
 
     // 8b. SUPPRESS ISOLATED SINGLE-GLYPH NOISE OUTSIDE SPEECH BUBBLES
-    if !is_bubble && !is_card_or_aligned_text && glyph_count <= 1 && char_count <= 2 && (avg_score < 0.73 || (!is_shout && !has_narrative_punctuation && compute_chromatic_color_variance(img, cluster_rect) >= 15.0)) {
+    if !is_bubble && !is_card_or_aligned_text && glyph_count <= 1 && char_count <= 2 && (avg_score < thr::FILTER_SINGLE_GLYPH_MAX || (!is_shout && !has_narrative_punctuation && chroma() >= 15.0)) {
         return true;
     }
 
@@ -366,12 +371,12 @@ pub fn should_reject_candidate_region(
     }
 
     // 11. SUPPRESS LOW-CONFIDENCE REPEATED SFX GLYPHS GENERATED ON HIGH-VARIANCE BACKGROUND
-    if is_cjk && !is_bubble && avg_score < 0.65 && compute_chromatic_color_variance(img, cluster_rect) >= 15.0 && crate::ml::detect::is_onomatopoeia_or_shout(cleaned) {
+    if is_cjk && !is_bubble && avg_score < thr::FILTER_CHROMATIC_SFX_MAX && chroma() >= 15.0 && crate::ml::detect::is_onomatopoeia_or_shout(cleaned) {
         return true;
     }
 
     // 12. SUPPRESS OCR HALLUCINATIONS FROM DECORATIVE ENERGY-BURST / LIGHTNING ARTWORK GLYPHS
-    if is_cjk && !is_bubble && avg_score < 0.70 && compute_chromatic_color_variance(img, cluster_rect) >= 15.0 {
+    if is_cjk && !is_bubble && avg_score < thr::FILTER_CHROMATIC_CJK_MAX && chroma() >= 15.0 {
         let lines: Vec<&str> = cleaned.lines().collect();
         if lines.len() >= 2 {
             let cjk_residues: Vec<String> = lines
@@ -391,7 +396,7 @@ pub fn should_reject_candidate_region(
     }
 
     // 13. SUPPRESS FOLIAGE NOISE / CHROMATIC BACKGROUND TEXTURE ON TINY STROKE FRAGMENTS
-    if !is_bubble && cluster_rect.w <= (ref_dim * 0.045).clamp(25.0, 48.0) as i32 && cluster_rect.h <= (ref_dim * 0.065).clamp(35.0, 65.0) as i32 && compute_chromatic_color_variance(img, cluster_rect) >= 15.0 {
+    if !is_bubble && cluster_rect.w <= (ref_dim * 0.045).clamp(25.0, 48.0) as i32 && cluster_rect.h <= (ref_dim * 0.065).clamp(35.0, 65.0) as i32 && chroma() >= 15.0 {
         if cleaned.contains("快走快走") { eprintln!("[PROBE-REJECT] rule 13"); }
         return true;
     }
@@ -404,8 +409,8 @@ pub fn should_reject_candidate_region(
     }
 
     // 15. SUPPRESS TINY SUB-PIXEL / NOISE FRAGMENTS
-    let is_clean_bg = compute_chromatic_color_variance(img, cluster_rect) < 15.0;
-    let is_valid_cjk_glyph = is_cjk && cleaned.chars().any(|c| crate::ml::detect::has_cjk_characters(&c.to_string())) && avg_score >= 0.70 && is_clean_bg;
+    let is_clean_bg = chroma() < 15.0;
+    let is_valid_cjk_glyph = is_cjk && cleaned.chars().any(|c| crate::ml::detect::has_cjk_characters(&c.to_string())) && avg_score >= thr::FILTER_CLEAN_BG_GLYPH_MIN && is_clean_bg;
     if cluster_rect.w <= 15 && cluster_rect.h <= 15 && !is_valid_cjk_glyph {
         if cleaned.contains("快走快走") { eprintln!("[PROBE-REJECT] rule 15a"); }
         return true;
@@ -420,13 +425,13 @@ pub fn should_reject_candidate_region(
         if cleaned.contains("快走快走") { eprintln!("[PROBE-REJECT] rule 16a"); }
         return true;
     }
-    if !is_bubble && cluster_rect.w <= 35 && cluster_rect.h >= 60 && avg_score < 0.60 {
+    if !is_bubble && cluster_rect.w <= 35 && cluster_rect.h >= 60 && avg_score < thr::FILTER_BORDER_SLIVER_MAX {
         if cleaned.contains("快走快走") { eprintln!("[PROBE-REJECT] rule 16b"); }
         return true;
     }
 
     // 17. SUPPRESS LOW-CONFIDENCE ISOLATED PSEUDO-WORD HALLUCINATIONS ON COMPLEX BACKGROUND ARTWORK
-    if !is_bubble && !is_sign_or_narration_box && ((avg_score < 0.65 && cleaned.chars().count() <= 6 && compute_chromatic_color_variance(img, cluster_rect) >= 15.0) || (avg_score < 0.68 && cleaned.chars().count() <= 4 && !cleaned.contains('\n'))) {
+    if !is_bubble && !is_sign_or_narration_box && ((avg_score < thr::FILTER_PSEUDO_WORD_CHROMATIC_MAX && cleaned.chars().count() <= 6 && chroma() >= 15.0) || (avg_score < thr::FILTER_PSEUDO_WORD_SHORT_MAX && cleaned.chars().count() <= 4 && !cleaned.contains('\n'))) {
         if cleaned.contains("快走快走") { eprintln!("[PROBE-REJECT] rule 17"); }
         return true;
     }
@@ -435,7 +440,7 @@ pub fn should_reject_candidate_region(
     let is_margin_flush = cluster_rect.x <= 5 || cluster_rect.x + cluster_rect.w >= page_w as i32 - 5;
     let is_expressive_margin_text = has_narrative_punctuation && char_count >= 3;
     let is_margin_noise_slice = (cluster_rect.w <= 75 && cluster_rect.h <= 65) || (cluster_rect.w <= 35 && char_count <= 2);
-    if !is_bubble && is_margin_flush && !is_expressive_margin_text && is_margin_noise_slice && avg_score < 0.75 {
+    if !is_bubble && is_margin_flush && !is_expressive_margin_text && is_margin_noise_slice && avg_score < thr::FILTER_MARGIN_NOISE_MAX {
         return true;
     }
 
@@ -444,7 +449,7 @@ pub fn should_reject_candidate_region(
         && !is_sentence_dialogue
         && (cluster_rect.w as f32 >= page_w as f32 * 0.75)
         && cluster_rect.h >= (ref_dim * 0.10).max(90.0) as i32
-        && (avg_score < 0.68 || char_count <= 4 || (compute_chromatic_color_variance(img, cluster_rect) >= 15.0 && char_count <= 8));
+        && (avg_score < thr::FILTER_WIDE_ART_MAX || char_count <= 4 || (chroma() >= 15.0 && char_count <= 8));
     if is_massive_background_occlusion {
         return true;
     }
@@ -506,7 +511,7 @@ pub fn should_reject_candidate_region(
     // 23. SUPPRESS BACKGROUND MEMORIAL TABLETS, GRAVESTONE INSCRIPTIONS, AND SCENERY SIGNBOARDS
     // ON COMPLEX TEXTURED ARTWORK OUTSIDE SPEECH BUBBLES
     if !is_bubble && !is_card_or_aligned_text && !has_narrative_punctuation {
-        let chromatic_var = compute_chromatic_color_variance(img, cluster_rect);
+        let chromatic_var = chroma();
         let mean_lum = compute_mean_luminance(img, cluster_rect);
         let is_textured_dark_scenery = chromatic_var >= 25.0 && mean_lum < 195.0;
         let area = (cluster_rect.w * cluster_rect.h).max(1);
@@ -529,8 +534,7 @@ pub fn should_reject_candidate_region(
 }
 
 fn compute_mean_luminance(img: &DynamicImage, rect: &BoxRect) -> f64 {
-    let rgb = img.to_rgb8();
-    let (pw, ph) = (rgb.width() as i32, rgb.height() as i32);
+    let (pw, ph) = (img.width() as i32, img.height() as i32);
     let x0 = rect.x.clamp(0, pw);
     let y0 = rect.y.clamp(0, ph);
     let x1 = (rect.x + rect.w).clamp(0, pw);
@@ -542,7 +546,7 @@ fn compute_mean_luminance(img: &DynamicImage, rect: &BoxRect) -> f64 {
     let mut count = 0u64;
     for y in y0..y1 {
         for x in x0..x1 {
-            let p = rgb.get_pixel(x as u32, y as u32);
+            let p = crate::ml::geometry::sample_rgb(img, x as u32, y as u32);
             sum += (p[0] as u64 + p[1] as u64 + p[2] as u64) / 3;
             count += 1;
         }

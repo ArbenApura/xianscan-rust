@@ -1,4 +1,5 @@
 use image::{DynamicImage, GenericImageView, ImageBuffer, Rgb};
+use xianscan_rust::ml::intake::{IntakeError, IntakeLimits};
 use xianscan_rust::ml::reslice::{
     find_optimal_cut_points, find_optimal_cut_points_with_detectors, is_point_forbidden,
     smart_reslice_chapter, stitch_images_vertically,
@@ -13,7 +14,7 @@ fn test_stitch_images_vertically() {
     let img1 = DynamicImage::new_rgb8(200, 100);
     let img2 = DynamicImage::ImageRgb8(ImageBuffer::from_pixel(200, 150, Rgb([255, 255, 255])));
 
-    let stitched = stitch_images_vertically(&[img1, img2]);
+    let stitched = stitch_images_vertically(&[img1, img2], &IntakeLimits::default()).unwrap();
     assert_eq!(stitched.dimensions(), (200, 250));
 }
 
@@ -26,7 +27,7 @@ fn test_stitch_images_mismatched_width() {
     let img1 = DynamicImage::new_rgb8(200, 100);
     let img2 = DynamicImage::new_rgb8(400, 100);
 
-    let stitched = stitch_images_vertically(&[img1, img2]);
+    let stitched = stitch_images_vertically(&[img1, img2], &IntakeLimits::default()).unwrap();
     assert_eq!(stitched.width(), 400);
     assert_eq!(stitched.height(), 300);
 }
@@ -101,7 +102,19 @@ fn test_smart_reslice_chapter() {
     let slice3 = DynamicImage::ImageRgb8(ImageBuffer::from_pixel(300, 800, Rgb([120, 120, 120])));
     let slice4 = DynamicImage::ImageRgb8(ImageBuffer::from_pixel(300, 800, Rgb([120, 120, 120])));
 
-    let pages = smart_reslice_chapter(&[slice1, slice2, slice3, slice4], 1600, 1000, 2200, None, None, None, None, 0);
+    let pages = smart_reslice_chapter(
+        &[slice1, slice2, slice3, slice4],
+        1600,
+        1000,
+        2200,
+        None,
+        None,
+        None,
+        None,
+        0,
+        &IntakeLimits::default(),
+    )
+    .unwrap();
     assert!(pages.len() >= 2);
     let total_h: u32 = pages.iter().map(|p| p.height()).sum();
     assert_eq!(total_h, 3200);
@@ -223,7 +236,9 @@ fn test_40_page_reslice_performance_and_progress() {
         Some(&progress_cb),
         None,
         1,
-    );
+        &IntakeLimits::default(),
+    )
+    .unwrap();
 
     let duration = t_start.elapsed();
     let pcts = reported_pcts.lock().unwrap().clone();
@@ -264,3 +279,24 @@ fn test_find_optimal_cut_points_bypasses_measurements_when_window_blocked() {
     }
 }
 
+/// # Reslice Test: Invalid Height Rejection
+///
+/// ## Purpose:
+/// `max_height = u32::MAX` used to overflow `current_y + max_height`. It is now refused up front.
+#[test]
+fn test_smart_reslice_rejects_invalid_heights() {
+    let slice = DynamicImage::ImageRgb8(ImageBuffer::from_pixel(300, 800, Rgb([120, 120, 120])));
+    let result = smart_reslice_chapter(
+        &[slice.clone(), slice],
+        1600,
+        1000,
+        u32::MAX,
+        None,
+        None,
+        None,
+        None,
+        0,
+        &IntakeLimits::default(),
+    );
+    assert!(matches!(result, Err(IntakeError::InvalidHeights(_))), "got {result:?}");
+}

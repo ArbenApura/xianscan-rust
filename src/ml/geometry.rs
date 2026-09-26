@@ -87,15 +87,13 @@ pub fn box_to_xywh_f32(pts: &[[f32; 2]]) -> (f32, f32, f32, f32) {
 }
 
 pub fn box_iou(a: &BoxRect, b: &BoxRect) -> f32 {
-    let ax1 = a.x + a.w;
-    let ay1 = a.y + a.h;
-    let bx1 = b.x + b.w;
-    let by1 = b.y + b.h;
-
-    let ix = (ax1.min(bx1) - a.x.max(b.x)).max(0);
-    let iy = (ay1.min(by1) - a.y.max(b.y)).max(0);
+    // i64 SO CLIENT-SUPPLIED COORDINATES CANNOT OVERFLOW (FEAT-004 G3); IDENTICAL FOR EVERY NON-OVERFLOWING INPUT
+    let (ax, ay, aw, ah) = (a.x as i64, a.y as i64, a.w as i64, a.h as i64);
+    let (bx, by, bw, bh) = (b.x as i64, b.y as i64, b.w as i64, b.h as i64);
+    let ix = ((ax + aw).min(bx + bw) - ax.max(bx)).max(0);
+    let iy = ((ay + ah).min(by + bh) - ay.max(by)).max(0);
     let inter = (ix * iy) as f32;
-    let union = (a.w * a.h + b.w * b.h) as f32 - inter;
+    let union = (aw * ah + bw * bh) as f32 - inter;
 
     if union > 0.0 {
         inter / union
@@ -598,6 +596,10 @@ pub fn fill_polygon(mask: &mut [u8], width: usize, height: usize, poly: &[[i32; 
         node_x.sort_by(|a, b| a.total_cmp(b));
 
         for chunk in node_x.chunks_exact(2) {
+            // A SPAN FULLY LEFT OR RIGHT OF THE PAGE PAINTS NOTHING (IT USED TO BE CLAMPED ONTO THE EDGE COLUMN, G6)
+            if chunk[1] < 0.0 || chunk[0] >= width as f32 {
+                continue;
+            }
             let start_x = (chunk[0].floor() as isize).clamp(0, width as isize - 1) as usize;
             let end_x = (chunk[1].ceil() as isize).clamp(0, width as isize - 1) as usize;
 
@@ -739,6 +741,49 @@ pub fn order_points_clockwise(pts: &[[f32; 2]]) -> [[f32; 2]; 4] {
 }
 
 /// RECTIFIES A ROTATED 4-POINT BOUNDING QUAD INTO AN UPRIGHT HORIZONTAL CROP USING BILINEAR INTERPOLATION
+/// READS ONE PIXEL AS RGB WITHOUT CONVERTING THE WHOLE IMAGE (FEAT-004 ADR-001). MATCHES `to_rgb8()` PIXEL FOR
+/// PIXEL: 8-BIT VARIANTS READ THE RAW BUFFER, THE OTHERS GO THROUGH THE SAME PER-PIXEL CONVERSION `to_rgb8()` USES.
+#[inline]
+pub fn sample_rgb(img: &image::DynamicImage, x: u32, y: u32) -> [u8; 3] {
+    use image::{DynamicImage, Pixel};
+    match img {
+        DynamicImage::ImageRgb8(b) => b.get_pixel(x, y).0,
+        DynamicImage::ImageRgba8(b) => {
+            let p = b.get_pixel(x, y).0;
+            [p[0], p[1], p[2]]
+        }
+        DynamicImage::ImageLuma8(b) => {
+            let l = b.get_pixel(x, y).0[0];
+            [l, l, l]
+        }
+        DynamicImage::ImageLumaA8(b) => {
+            let l = b.get_pixel(x, y).0[0];
+            [l, l, l]
+        }
+        DynamicImage::ImageRgb16(b) => one_pixel_rgb8(DynamicImage::ImageRgb16(image::ImageBuffer::from_pixel(1, 1, *b.get_pixel(x, y)))),
+        DynamicImage::ImageRgba16(b) => one_pixel_rgb8(DynamicImage::ImageRgba16(image::ImageBuffer::from_pixel(1, 1, *b.get_pixel(x, y)))),
+        DynamicImage::ImageLuma16(b) => one_pixel_rgb8(DynamicImage::ImageLuma16(image::ImageBuffer::from_pixel(1, 1, *b.get_pixel(x, y)))),
+        DynamicImage::ImageLumaA16(b) => one_pixel_rgb8(DynamicImage::ImageLumaA16(image::ImageBuffer::from_pixel(1, 1, *b.get_pixel(x, y)))),
+        DynamicImage::ImageRgb32F(b) => one_pixel_rgb8(DynamicImage::ImageRgb32F(image::ImageBuffer::from_pixel(1, 1, *b.get_pixel(x, y)))),
+        DynamicImage::ImageRgba32F(b) => one_pixel_rgb8(DynamicImage::ImageRgba32F(image::ImageBuffer::from_pixel(1, 1, *b.get_pixel(x, y)))),
+        other => image::GenericImageView::get_pixel(other, x, y).to_rgb().0,
+    }
+}
+
+/// ONE PIXEL THROUGH THE SAME COLOR CONVERSION `to_rgb8()` APPLIES TO A WHOLE BUFFER (A 1x1 IMAGE, NO PAGE COPY).
+#[inline]
+fn one_pixel_rgb8(one: image::DynamicImage) -> [u8; 3] {
+    one.to_rgb8().get_pixel(0, 0).0
+}
+
+/// BORROWS THE RGB8 BUFFER WHEN THE IMAGE ALREADY IS ONE, CONVERTS OTHERWISE.
+pub fn rgb_view(img: &image::DynamicImage) -> std::borrow::Cow<'_, image::RgbImage> {
+    match img {
+        image::DynamicImage::ImageRgb8(b) => std::borrow::Cow::Borrowed(b),
+        other => std::borrow::Cow::Owned(other.to_rgb8()),
+    }
+}
+
 pub fn get_rotate_crop_image(img: &image::DynamicImage, pts: &[[i32; 2]]) -> Option<image::DynamicImage> {
     if pts.len() != 4 {
         return None;
@@ -752,19 +797,34 @@ pub fn get_rotate_crop_image(img: &image::DynamicImage, pts: &[[i32; 2]]) -> Opt
     let left_h = ((bl[0] - tl[0]).powi(2) + (bl[1] - tl[1]).powi(2)).sqrt();
     let right_h = ((br[0] - tr[0]).powi(2) + (br[1] - tr[1]).powi(2)).sqrt();
 
-    let crop_w = (top_w.max(bot_w).round() as u32).max(4);
-    let crop_h = (left_h.max(right_h).round() as u32).max(4);
-
     let (img_w, img_h) = image::GenericImageView::dimensions(img);
     if img_w == 0 || img_h == 0 {
         return None;
     }
 
-    let rgb = img.to_rgb8();
-    let mut out = image::ImageBuffer::from_pixel(crop_w, crop_h, image::Rgb([255_u8, 255, 255]));
+    // A DEGENERATE QUAD CANNOT ALLOCATE MORE THAN THE PAGE: CAP BOTH SIDES AT THE PAGE DIAGONAL (FEAT-004 PHASE 3)
+    let diag = ((img_w as f64).hypot(img_h as f64).ceil() as u32).max(4);
+    let crop_w = (top_w.max(bot_w).round() as u32).clamp(4, diag);
+    let crop_h = (left_h.max(right_h).round() as u32).clamp(4, diag);
 
     let max_x_idx = (img_w - 1) as f32;
     let max_y_idx = (img_h - 1) as f32;
+
+    // ONLY THE PIXELS THE BILINEAR LOOP CAN TOUCH ARE CONVERTED: THE CLAMPED BOUNDS OF THE QUAD, WIDENED BY ONE PIXEL
+    // ON EACH SIDE FOR FLOAT ROUNDING OF THE INTERPOLATED POSITIONS AND FOR THE x0 + 1 / y0 + 1 NEIGHBOURS
+    let (mut min_x, mut max_x, mut min_y, mut max_y) = (f32::MAX, f32::MIN, f32::MAX, f32::MIN);
+    for p in [tl, tr, br, bl] {
+        min_x = min_x.min(p[0]);
+        max_x = max_x.max(p[0]);
+        min_y = min_y.min(p[1]);
+        max_y = max_y.max(p[1]);
+    }
+    let bx0 = (min_x.clamp(0.0, max_x_idx).floor() as u32).saturating_sub(1);
+    let by0 = (min_y.clamp(0.0, max_y_idx).floor() as u32).saturating_sub(1);
+    let bx1 = (max_x.clamp(0.0, max_x_idx).floor() as u32 + 2).min(img_w - 1);
+    let by1 = (max_y.clamp(0.0, max_y_idx).floor() as u32 + 2).min(img_h - 1);
+    let patch = img.crop_imm(bx0, by0, bx1 - bx0 + 1, by1 - by0 + 1).to_rgb8();
+    let mut out = image::ImageBuffer::from_pixel(crop_w, crop_h, image::Rgb([255_u8, 255, 255]));
 
     for y in 0..crop_h {
         let v = (y as f32 + 0.5) / crop_h as f32;
@@ -786,10 +846,10 @@ pub fn get_rotate_crop_image(img: &image::DynamicImage, pts: &[[i32; 2]]) -> Opt
             let fx = src_x - x0 as f32;
             let fy = src_y - y0 as f32;
 
-            let p00 = rgb.get_pixel(x0, y0);
-            let p10 = rgb.get_pixel(x1, y0);
-            let p01 = rgb.get_pixel(x0, y1);
-            let p11 = rgb.get_pixel(x1, y1);
+            let p00 = patch.get_pixel(x0 - bx0, y0 - by0);
+            let p10 = patch.get_pixel(x1 - bx0, y0 - by0);
+            let p01 = patch.get_pixel(x0 - bx0, y1 - by0);
+            let p11 = patch.get_pixel(x1 - bx0, y1 - by0);
 
             let mut out_rgb = [0_u8; 3];
             for c in 0..3 {

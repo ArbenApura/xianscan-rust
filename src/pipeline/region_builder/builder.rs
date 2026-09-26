@@ -8,6 +8,7 @@ use crate::ml::geometry::{
 };
 use crate::ml::ocr::{OcrLine, RapidOcr};
 use crate::ml::schemas::{BoxRect, Point2D, Region, RegionKind};
+use crate::ml::ocr::score_thresholds as thr;
 use super::clustering::{cluster_lines_into_utterances, format_lines_cluster};
 use super::dedup::deduplicate_and_unify_regions;
 use super::expansion::{expand_bubble_text_boxes, scale_tall_narrow_free_text_base_box};
@@ -34,6 +35,7 @@ pub fn build_regions(
     source_lang: Option<&str>,
     inpaint_padding_pct: Option<f32>,
     enable_typeset_centering: Option<bool>,
+    refine_attempts: &mut usize,
 ) -> Vec<Region> {
     let inpaint_pct = inpaint_padding_pct.unwrap_or(DEFAULT_INPAINT_EXPANSION_PCT);
     let mut regions: Vec<Region> = Vec::new();
@@ -494,8 +496,8 @@ pub fn build_regions(
 
             // IN CONTAINERS WITH A HIGH-CONFIDENCE DOMINANT LINE (SCORE >= 0.70), SUPPRESS WEAK BACKGROUND NOISE LINES
             let max_score = orientation_filtered.iter().map(|l| l.score).fold(0.0f32, f32::max);
-            if max_score >= 0.70 {
-                orientation_filtered.retain(|l| l.score >= 0.60 || l.score >= max_score * 0.85);
+            if max_score >= thr::DOMINANT_LINE_MIN {
+                orientation_filtered.retain(|l| l.score >= thr::WEAK_LINE_KEEP_MIN || l.score >= max_score * thr::WEAK_LINE_KEEP_RATIO);
             }
 
             // SUPPRESS ISOLATED WATERMARK AND RESIDUE LINES
@@ -507,7 +509,7 @@ pub fn build_regions(
             // IN NON-LATIN CONTAINERS, SUPPRESS PURE LATIN NOISE / CLOTHING PATTERN / DIGIT NOISE LINES
             let has_native_or_punct_line = orientation_filtered.iter().any(|l| {
                 let t = l.text.trim();
-                l.score >= 0.65 && (crate::ml::detect::has_native_script_for_lang(t, source_lang) || t.chars().any(|c| matches!(c, '！' | '？' | '!' | '?' | '…')))
+                l.score >= thr::NATIVE_LINE_PRESENT_MIN && (crate::ml::detect::has_native_script_for_lang(t, source_lang) || t.chars().any(|c| matches!(c, '！' | '？' | '!' | '?' | '…')))
             });
             if has_native_or_punct_line && crate::ml::detect::is_non_latin_source(source_lang) {
                 let has_multi_char = orientation_filtered.iter().any(|other| other.text.trim().chars().count() >= 2);
@@ -845,6 +847,7 @@ pub fn build_regions(
                 let mut combined_text = format_lines_cluster(&cluster_lines, is_cjk, is_container_vert, sin_a, cos_a);
                 combined_text = crate::ml::detect::clean_stray_ocr_artifacts(&combined_text);
                 let mut avg_score = cluster_lines.iter().map(|l| l.score).sum::<f32>() / cluster_lines.len() as f32;
+                let mut avg_prob = cluster_lines.iter().map(|l| l.prob_or_derived()).sum::<f32>() / cluster_lines.len() as f32;
 
                 let is_cluster_in_bubble = (is_bubble_region || matched_bubble.is_some() || bubbles.iter().any(|b| {
                     let cx = cluster_rect.x + cluster_rect.w / 2;
@@ -914,6 +917,7 @@ pub fn build_regions(
                         source_lang,
                         page_w,
                         page_h,
+                        refine_attempts,
                     )
                 } else {
                     None
@@ -928,6 +932,7 @@ pub fn build_regions(
 
                     combined_text = refined.text;
                     avg_score = refined.avg_score;
+                    avg_prob = refined.avg_prob;
                     if !refined.active_line_polys.is_empty() {
                         active_line_polys = refined.active_line_polys;
                         is_container_vert = refined.is_container_vert;
@@ -1174,6 +1179,7 @@ pub fn build_regions(
                     typeset_box,
                     text: cleaned,
                     confidence: avg_score,
+                    ocr_confidence: Some(avg_prob),
                     vertical,
                     angle,
                     bubble_box,
@@ -1288,6 +1294,7 @@ pub fn build_regions(
                         typeset_box,
                         text: cleaned,
                         confidence: fallback.score,
+                        ocr_confidence: Some(fallback.prob),
                         vertical: is_container_vert,
                         angle: angle_deg,
                         bubble_box,

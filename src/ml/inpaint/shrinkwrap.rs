@@ -114,10 +114,10 @@ pub fn clean_white_bubble_shrinkwrap(
 
     // 2. EXTRACT CROP WITH 6PX EXTERIOR PADDING MARGIN
     let pad = 6i32;
-    let bx0 = (bubble_box.x - pad).clamp(0, page_w as i32) as u32;
-    let by0 = (bubble_box.y - pad).clamp(0, page_h as i32) as u32;
-    let bx1 = (bubble_box.x + bubble_box.w + pad).clamp(0, page_w as i32) as u32;
-    let by1 = (bubble_box.y + bubble_box.h + pad).clamp(0, page_h as i32) as u32;
+    let bx0 = bubble_box.x.saturating_sub(pad).clamp(0, page_w as i32) as u32;
+    let by0 = bubble_box.y.saturating_sub(pad).clamp(0, page_h as i32) as u32;
+    let bx1 = bubble_box.x.saturating_add(bubble_box.w).saturating_add(pad).clamp(0, page_w as i32) as u32;
+    let by1 = bubble_box.y.saturating_add(bubble_box.h).saturating_add(pad).clamp(0, page_h as i32) as u32;
 
     if bx1 <= bx0 || by1 <= by0 {
         return false;

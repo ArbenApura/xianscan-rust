@@ -1,6 +1,6 @@
 #[cfg(target_os = "linux")]
 use std::collections::HashMap;
-use std::sync::{LazyLock, Mutex};
+use std::sync::{LazyLock, Mutex, MutexGuard};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
 use anyhow::Result;
@@ -19,12 +19,47 @@ static OVERRIDE_CUDA_MEM_LIMIT_MB: LazyLock<Mutex<Option<usize>>> = LazyLock::ne
 // REPORTING AN ACCELERATOR THAT IS NOT ACTUALLY RUNNING (MISSING RUNTIME).
 static CUDA_RUNTIME_FAILED: AtomicBool = AtomicBool::new(false);
 static COREML_RUNTIME_FAILED: AtomicBool = AtomicBool::new(false);
+static DML_RUNTIME_FAILED: AtomicBool = AtomicBool::new(false);
+
+/// A GPU BACKEND WHOSE SESSION INIT CAN FAIL AT RUNTIME.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum GpuProvider {
+    Cuda,
+    CoreMl,
+    DirectMl,
+}
+
+fn failure_flag(p: GpuProvider) -> &'static AtomicBool {
+    match p {
+        GpuProvider::Cuda => &CUDA_RUNTIME_FAILED,
+        GpuProvider::CoreMl => &COREML_RUNTIME_FAILED,
+        GpuProvider::DirectMl => &DML_RUNTIME_FAILED,
+    }
+}
+
+/// REMEMBERS THAT A GPU BACKEND FAILED TO INITIALIZE, SO LATER SESSIONS GO STRAIGHT TO CPU INSTEAD OF RETRYING THE
+/// GPU EVERY TIME. STICKY UNTIL THE USER CHANGES THE DEVICE (set_active_provider), ADR-007. PUBLIC FOR TESTS.
+#[doc(hidden)]
+pub fn record_gpu_failure(p: GpuProvider) {
+    failure_flag(p).store(true, Ordering::Relaxed);
+}
+
+/// TRUE WHEN THE BACKEND HAS FAILED SINCE THE LAST DEVICE CHANGE.
+pub fn gpu_runtime_failed(p: GpuProvider) -> bool {
+    failure_flag(p).load(Ordering::Relaxed)
+}
 static LAST_GPU_ERROR: LazyLock<Mutex<Option<String>>> = LazyLock::new(|| Mutex::new(None));
 
 // SHORT-TTL CACHE FOR GPU ENUMERATION. THE LINUX PATH RUNS `nvidia-smi`, WHICH CAN HANG
 // ON A WEDGED DRIVER AND WOULD OTHERWISE BLOCK EVERY /system/hardware REQUEST. CACHING
 // ALSO AVOIDS RE-SPAWNING THE SUBPROCESS UP TO 3x PER REQUEST (probe_hardware +
 // get_dedicated_gpu + the direct enumerate call IN get_hardware_status).
+/// THESE STATICS HOLD PLAIN SETTINGS, SO A PANIC ELSEWHERE WHILE ONE WAS LOCKED CANNOT LEAVE THEM
+/// HALF-WRITTEN. RECOVER THE VALUE INSTEAD OF PANICKING EVERY LATER CALLER.
+fn lock_or_recover<T>(m: &Mutex<T>) -> MutexGuard<'_, T> {
+    m.lock().unwrap_or_else(|poisoned| poisoned.into_inner())
+}
+
 static GPU_ENUM_CACHE: LazyLock<Mutex<Option<(Instant, Vec<GpuInfo>)>>> =
     LazyLock::new(|| Mutex::new(None));
 
@@ -372,7 +407,7 @@ fn enumerate_system_gpus_inner() -> Vec<GpuInfo> {
 // THIS MULTIPLE TIMES VIA probe_hardware / get_dedicated_gpu) NEVER RE-ENUMERATE OR
 // RE-SPAWN `nvidia-smi` ON EVERY REQUEST.
 pub fn enumerate_system_gpus() -> Vec<GpuInfo> {
-    let mut cache = GPU_ENUM_CACHE.lock().unwrap();
+    let mut cache = lock_or_recover(&GPU_ENUM_CACHE);
     if let Some((ts, gpus)) = &*cache {
         if ts.elapsed() < GPU_ENUM_CACHE_TTL {
             return gpus.clone();
@@ -388,7 +423,7 @@ pub fn get_dedicated_gpu() -> Option<GpuInfo> {
 }
 
 pub fn probe_hardware() -> (Vec<String>, String) {
-    let override_dev = OVERRIDE_DEVICE.lock().unwrap().clone();
+    let override_dev = lock_or_recover(&OVERRIDE_DEVICE).clone();
     let env_override = override_dev
         .or_else(|| std::env::var("MT_DEVICE").ok())
         .unwrap_or_default()
@@ -400,6 +435,7 @@ pub fn probe_hardware() -> (Vec<String>, String) {
     // HAS NOT ALREADY FAILED TO INITIALIZE (E.G. MISSING CUDA RUNTIME ON LINUX).
     let cuda_usable = cfg!(feature = "cuda") && !CUDA_RUNTIME_FAILED.load(Ordering::Relaxed);
     let coreml_usable = cfg!(feature = "coreml") && !COREML_RUNTIME_FAILED.load(Ordering::Relaxed);
+    let dml_usable = cfg!(feature = "directml") && !DML_RUNTIME_FAILED.load(Ordering::Relaxed);
 
     if env_override == "cpu" || env_override == "none" {
         return (vec!["CPUExecutionProvider".to_string()], "CPU Multi-threaded".to_string());
@@ -426,7 +462,7 @@ pub fn probe_hardware() -> (Vec<String>, String) {
     }
 
     // DirectML (WINDOWS) — REQUIRES THE `directml` FEATURE AND A DETECTED dGPU.
-    if (env_override == "dml" || env_override == "directml") && cfg!(feature = "directml") {
+    if (env_override == "dml" || env_override == "directml") && dml_usable {
         if let Some(dgpu) = &dedicated_gpu {
             return (
                 vec!["DmlExecutionProvider".to_string(), "CPUExecutionProvider".to_string()],
@@ -450,7 +486,7 @@ pub fn probe_hardware() -> (Vec<String>, String) {
                 format!("CoreML Apple GPU ({})", dgpu.name),
             );
         }
-        if cfg!(feature = "directml") {
+        if dml_usable {
             return (
                 vec!["DmlExecutionProvider".to_string(), "CPUExecutionProvider".to_string()],
                 format!("DirectML Dedicated GPU ({})", dgpu.name),
@@ -489,7 +525,7 @@ pub fn get_hardware_status() -> HardwareStatus {
         None
     };
 
-    let last_gpu_err = LAST_GPU_ERROR.lock().unwrap().clone();
+    let last_gpu_err = lock_or_recover(&LAST_GPU_ERROR).clone();
     let gpu_warning = if let Some(ref err) = last_gpu_err {
         Some(format!(
             "Dedicated GPU was detected, but GPU session initialization failed ({}). Running on multi-threaded CPU.",
@@ -504,7 +540,7 @@ pub fn get_hardware_status() -> HardwareStatus {
         amd_warning
     };
 
-    let configured_cuda_vram_limit_mb = *OVERRIDE_CUDA_MEM_LIMIT_MB.lock().unwrap();
+    let configured_cuda_vram_limit_mb = *lock_or_recover(&OVERRIDE_CUDA_MEM_LIMIT_MB);
     let cuda_vram_limit_mb = Some(get_cuda_gpu_memory_limit() / (1024 * 1024));
 
     HardwareStatus {
@@ -519,7 +555,7 @@ pub fn get_hardware_status() -> HardwareStatus {
         // "RAW" CAPABILITY: DIRECTML IS COMPILED IN AND A DEDICATED GPU EXISTS
         // (INDEPENDENT OF THE CURRENT RUNNING PROVIDER — WAS HARDCODED TRUE ON
         // EVERY PLATFORM INCLUDING LINUX, WHERE DIRECTML DOES NOT EXIST).
-        has_directml_raw: cfg!(feature = "directml") && has_dedicated_gpu,
+        has_directml_raw: cfg!(feature = "directml") && has_dedicated_gpu && !DML_RUNTIME_FAILED.load(Ordering::Relaxed),
         has_coreml,
         has_dedicated_gpu,
         detected_gpus,
@@ -536,20 +572,21 @@ pub fn get_hardware_status() -> HardwareStatus {
 
 pub fn set_active_provider(mode: &str) -> HardwareStatus {
     let clean = mode.trim().to_lowercase();
-    let mut guard = OVERRIDE_DEVICE.lock().unwrap();
+    let mut guard = lock_or_recover(&OVERRIDE_DEVICE);
     *guard = if clean == "auto" { None } else { Some(clean) };
     drop(guard);
 
     // RESET TRANSIENT RUNTIME FAILURE FLAGS WHEN USER SWITCHES / PROBES PROVIDERS
     CUDA_RUNTIME_FAILED.store(false, Ordering::Relaxed);
     COREML_RUNTIME_FAILED.store(false, Ordering::Relaxed);
-    *LAST_GPU_ERROR.lock().unwrap() = None;
+    DML_RUNTIME_FAILED.store(false, Ordering::Relaxed);
+    *lock_or_recover(&LAST_GPU_ERROR) = None;
 
     get_hardware_status()
 }
 
 pub fn set_cuda_memory_limit_override(mb: Option<usize>) -> HardwareStatus {
-    let mut guard = OVERRIDE_CUDA_MEM_LIMIT_MB.lock().unwrap();
+    let mut guard = lock_or_recover(&OVERRIDE_CUDA_MEM_LIMIT_MB);
     *guard = mb.filter(|&m| m > 0);
     drop(guard);
     get_hardware_status()
@@ -619,7 +656,7 @@ pub fn get_optimal_cpu_threads() -> usize {
 /// DETERMINES OPTIMAL GPU MEMORY LIMIT PER ONNX SESSION FOR CUDA EP DYNAMICALLY SCALED BY MODEL ARCHITECTURE AND DETECTED VRAM
 pub fn get_cuda_memory_limit_for_model(model_tag: &str) -> usize {
     // 1. RUNTIME EXPLICIT USER CONFIGURATION FROM SETTINGS UI
-    if let Some(limit) = *OVERRIDE_CUDA_MEM_LIMIT_MB.lock().unwrap() {
+    if let Some(limit) = *lock_or_recover(&OVERRIDE_CUDA_MEM_LIMIT_MB) {
         if limit > 0 {
             return limit * 1024 * 1024;
         }
@@ -940,6 +977,35 @@ pub fn trim_process_memory() {
 
 /// CREATES AN ONNX RUNTIME SESSION FROM BYTES USING THE ACTIVE HARDWARE ACCELERATOR
 /// (CUDA, COREML, OR DIRECTML FOR DEDICATED GPUS, WITH AUTOMATIC, GRACEFUL FALLBACK TO MULTI-THREADED CPU).
+/// THE ONE SESSION BUILDER EVERY BACKEND USES (FEAT-004 E5): LEVEL 3 OPTIMIZATION PLUS THE GIVEN THREADS, MEMORY
+/// PATTERN, CPU ARENA, EXTRA CONFIG ENTRIES AND OPTIONAL EXECUTION PROVIDER.
+fn build_session(
+    bytes: &[u8],
+    ep: Option<ort::ep::ExecutionProviderDispatch>,
+    intra_threads: usize,
+    memory_pattern: bool,
+    cpu_arena: bool,
+    extra: &[(&str, &str)],
+) -> Result<Session> {
+    let mut builder = Session::builder()
+        .map_err(|e| anyhow::anyhow!("Builder error: {}", e))?
+        .with_intra_threads(intra_threads)
+        .map_err(|e| anyhow::anyhow!("Intra threads error: {}", e))?
+        .with_optimization_level(GraphOptimizationLevel::Level3)
+        .map_err(|e| anyhow::anyhow!("Opt level error: {}", e))?
+        .with_memory_pattern(memory_pattern)
+        .map_err(|e| anyhow::anyhow!("Memory pattern error: {}", e))?
+        .with_config_entry("session.enable_cpu_mem_arena", if cpu_arena { "1" } else { "0" })
+        .map_err(|e| anyhow::anyhow!("Config entry error: {}", e))?;
+    for (key, value) in extra {
+        builder = builder.with_config_entry(*key, *value).map_err(|e| anyhow::anyhow!("Config entry error: {}", e))?;
+    }
+    if let Some(ep) = ep {
+        builder = builder.with_execution_providers([ep]).map_err(|e| anyhow::anyhow!("Execution provider error: {}", e))?;
+    }
+    builder.commit_from_memory(bytes).map_err(|e| anyhow::anyhow!("Commit error: {}", e))
+}
+
 pub fn create_session_from_memory(bytes: &[u8], model_tag: &str) -> Result<Session> {
     let (providers, _) = probe_hardware();
     let wants_cuda = providers.iter().any(|p| p == "CUDAExecutionProvider");
@@ -954,43 +1020,22 @@ pub fn create_session_from_memory(bytes: &[u8], model_tag: &str) -> Result<Sessi
             let mem_limit = get_cuda_memory_limit_for_model(model_tag);
 
             for attempt in 1..=max_retries {
-                let cuda_res = (|| -> Result<Session> {
-                    let session = Session::builder()
-                        .map_err(|e| anyhow::anyhow!("Builder error: {}", e))?
-                        .with_intra_threads(get_optimal_gpu_host_threads())
-                        .map_err(|e| anyhow::anyhow!("Intra threads error: {}", e))?
-                        .with_optimization_level(GraphOptimizationLevel::Level3)
-                        .map_err(|e| anyhow::anyhow!("Opt level error: {}", e))?
-                        .with_memory_pattern(false)
-                        .map_err(|e| anyhow::anyhow!("Memory pattern error: {}", e))?
-                        .with_config_entry("session.enable_cpu_mem_arena", "0")
-                        .map_err(|e| anyhow::anyhow!("Config entry error: {}", e))?
-                        .with_execution_providers([
-                            ort::ep::CUDA::default()
-                                // NEXT_POWER_OF_TWO LETS THE BFCArena GROW IN POWER-OF-TWO CHUNKS
-                                // UP TO mem_limit, RATHER THAN PRE-ALLOCATING THE ENTIRE LIMIT AT
-                                // SESSION CREATION. SameAsRequested CAUSED REPRODUCIBLE OOM: MODEL
-                                // WEIGHTS CONSUMED THE FULL ARENA BUDGET AT LOAD TIME, LEAVING ONLY
-                                // A FEW MB HEADROOM FOR RUNTIME INFERENCE TENSORS (SOFTMAX, EINSUM,
-                                // FFC PAD), EVEN WHEN mem_limit WAS GENEROUS (6 GB RF-DETR, 2.5 GB LAMA).
-                                .with_arena_extend_strategy(ort::ep::ArenaExtendStrategy::NextPowerOfTwo)
-                                .with_memory_limit(mem_limit)
-                                .build()
-                        ])
-                        .map_err(|e| anyhow::anyhow!("CUDA provider error: {}", e))?
-                        .commit_from_memory(bytes)
-                        .map_err(|e| anyhow::anyhow!("Commit error: {}", e))?;
-                    Ok(session)
-                })();
-
-                match cuda_res {
+                // NEXT_POWER_OF_TWO LETS THE BFCArena GROW IN POWER-OF-TWO CHUNKS UP TO mem_limit, RATHER THAN
+                // PRE-ALLOCATING THE ENTIRE LIMIT AT SESSION CREATION. SameAsRequested CAUSED REPRODUCIBLE OOM: MODEL
+                // WEIGHTS CONSUMED THE FULL ARENA BUDGET AT LOAD TIME, LEAVING ONLY A FEW MB HEADROOM FOR RUNTIME
+                // INFERENCE TENSORS (SOFTMAX, EINSUM, FFC PAD), EVEN WHEN mem_limit WAS GENEROUS (6 GB RF-DETR, 2.5 GB LAMA).
+                let ep = ort::ep::CUDA::default()
+                    .with_arena_extend_strategy(ort::ep::ArenaExtendStrategy::NextPowerOfTwo)
+                    .with_memory_limit(mem_limit)
+                    .build();
+                match build_session(bytes, Some(ep), get_optimal_gpu_host_threads(), false, false, &[]) {
                     Ok(s) => {
                         tracing::info!(
                             "Successfully initialized ONNX model '{}' with CUDA GPU acceleration (VRAM limit: {} MB).",
                             model_tag,
                             mem_limit / (1024 * 1024)
                         );
-                        *LAST_GPU_ERROR.lock().unwrap() = None;
+                        *lock_or_recover(&LAST_GPU_ERROR) = None;
                         return Ok(s);
                     }
                     Err(e) => {
@@ -1008,7 +1053,9 @@ pub fn create_session_from_memory(bytes: &[u8], model_tag: &str) -> Result<Sessi
             }
 
             if let Some(e) = last_err {
-                *LAST_GPU_ERROR.lock().unwrap() = Some(format!("CUDA init error for {}: {}", model_tag, e));
+                // STICKY UNTIL THE USER CHANGES DEVICE: LATER MODELS GO STRAIGHT TO CPU (ADR-007)
+                record_gpu_failure(GpuProvider::Cuda);
+                *lock_or_recover(&LAST_GPU_ERROR) = Some(format!("CUDA init error for {}: {}", model_tag, e));
                 tracing::warn!(
                     "Failed to initialize ONNX model '{}' with CUDA after {} attempts ({}); falling back to CPU multi-threaded.",
                     model_tag, max_retries, e
@@ -1020,32 +1067,15 @@ pub fn create_session_from_memory(bytes: &[u8], model_tag: &str) -> Result<Sessi
     if wants_coreml {
         #[cfg(feature = "coreml")]
         {
-            let coreml_res = (|| -> Result<Session> {
-                let session = Session::builder()
-                    .map_err(|e| anyhow::anyhow!("Builder error: {}", e))?
-                    .with_intra_threads(get_optimal_gpu_host_threads())
-                    .map_err(|e| anyhow::anyhow!("Intra threads error: {}", e))?
-                    .with_optimization_level(GraphOptimizationLevel::Level3)
-                    .map_err(|e| anyhow::anyhow!("Opt level error: {}", e))?
-                    .with_memory_pattern(false)
-                    .map_err(|e| anyhow::anyhow!("Memory pattern error: {}", e))?
-                    .with_config_entry("session.enable_cpu_mem_arena", "0")
-                    .map_err(|e| anyhow::anyhow!("Config entry error: {}", e))?
-                    .with_execution_providers([ort::ep::CoreML::default().build()])
-                    .map_err(|e| anyhow::anyhow!("CoreML provider error: {}", e))?
-                    .commit_from_memory(bytes)
-                    .map_err(|e| anyhow::anyhow!("Commit error: {}", e))?;
-                Ok(session)
-            })();
-
-            match coreml_res {
+            let ep = ort::ep::CoreML::default().build();
+            match build_session(bytes, Some(ep), get_optimal_gpu_host_threads(), false, false, &[]) {
                 Ok(s) => {
                     tracing::info!("Successfully initialized ONNX model '{}' with CoreML acceleration.", model_tag);
                     return Ok(s);
                 }
                 Err(e) => {
-                    COREML_RUNTIME_FAILED.store(true, Ordering::Relaxed);
-                    *LAST_GPU_ERROR.lock().unwrap() = Some(format!("CoreML init error: {}", e));
+                    record_gpu_failure(GpuProvider::CoreMl);
+                    *lock_or_recover(&LAST_GPU_ERROR) = Some(format!("CoreML init error: {}", e));
                     tracing::warn!(
                         "Failed to initialize ONNX model '{}' with CoreML ({}); falling back to CPU multi-threaded.",
                         model_tag, e
@@ -1059,33 +1089,16 @@ pub fn create_session_from_memory(bytes: &[u8], model_tag: &str) -> Result<Sessi
     if wants_dml && !is_ocr {
         #[cfg(feature = "directml")]
         {
-            let dml_res = (|| -> Result<Session> {
-                let session = Session::builder()
-                    .map_err(|e| anyhow::anyhow!("Builder error: {}", e))?
-                    .with_intra_threads(get_optimal_gpu_host_threads())
-                    .map_err(|e| anyhow::anyhow!("Intra threads error: {}", e))?
-                    .with_optimization_level(GraphOptimizationLevel::Level3)
-                    .map_err(|e| anyhow::anyhow!("Opt level error: {}", e))?
-                    .with_memory_pattern(false)
-                    .map_err(|e| anyhow::anyhow!("Memory pattern error: {}", e))?
-                    .with_config_entry("session.enable_cpu_mem_arena", "0")
-                    .map_err(|e| anyhow::anyhow!("Config entry error: {}", e))?
-                    .with_config_entry("session.use_device_allocator_for_initializers", "1")
-                    .map_err(|e| anyhow::anyhow!("Config entry error: {}", e))?
-                    .with_execution_providers([ort::ep::DirectML::default().build()])
-                    .map_err(|e| anyhow::anyhow!("DirectML provider error: {}", e))?
-                    .commit_from_memory(bytes)
-                    .map_err(|e| anyhow::anyhow!("Commit error: {}", e))?;
-                Ok(session)
-            })();
-
-            match dml_res {
+            let ep = ort::ep::DirectML::default().build();
+            let extra = [("session.use_device_allocator_for_initializers", "1")];
+            match build_session(bytes, Some(ep), get_optimal_gpu_host_threads(), false, false, &extra) {
                 Ok(s) => {
                     tracing::info!("Successfully initialized ONNX model '{}' with DirectML GPU acceleration.", model_tag);
                     return Ok(s);
                 }
                 Err(e) => {
-                    *LAST_GPU_ERROR.lock().unwrap() = Some(format!("DirectML init error: {}", e));
+                    record_gpu_failure(GpuProvider::DirectMl);
+                    *lock_or_recover(&LAST_GPU_ERROR) = Some(format!("DirectML init error: {}", e));
                     tracing::warn!(
                         "Failed to initialize ONNX model '{}' with DirectML ({}); falling back to CPU multi-threaded.",
                         model_tag, e
@@ -1095,23 +1108,11 @@ pub fn create_session_from_memory(bytes: &[u8], model_tag: &str) -> Result<Sessi
         }
     }
 
-    // CPU multi-threaded session with Level 3 graph optimization, zero persistent arena, and direct mimalloc backing
+    // CPU multi-threaded session with Level 3 graph optimization. MT_FAST_CPU DEFAULTS TO ON HERE (MEMORY PATTERN AND
+    // ARENA), WHILE fusion.rs DEFAULTS IT TO "CPU IS THE ACTIVE PROVIDER" FOR ITS SEQUENTIAL-VERSUS-PARALLEL CHOICE.
     tracing::debug!("Initializing ONNX model '{}' with CPU execution provider.", model_tag);
     let fast_cpu = std::env::var("MT_FAST_CPU").map(|v| v == "1" || v.eq_ignore_ascii_case("true")).unwrap_or(true);
-    let session = Session::builder()
-        .map_err(|e| anyhow::anyhow!("Session builder error: {}", e))?
-        .with_intra_threads(get_optimal_cpu_threads())
-        .map_err(|e| anyhow::anyhow!("Session intra threads error: {}", e))?
-        .with_optimization_level(GraphOptimizationLevel::Level3)
-        .map_err(|e| anyhow::anyhow!("Session optimization level error: {}", e))?
-        .with_memory_pattern(fast_cpu)
-        .map_err(|e| anyhow::anyhow!("Memory pattern error: {}", e))?
-        .with_config_entry("session.enable_cpu_mem_arena", if fast_cpu { "1" } else { "0" })
-        .map_err(|e| anyhow::anyhow!("Config entry error: {}", e))?
-        .commit_from_memory(bytes)
-        .map_err(|e| anyhow::anyhow!("Commit session from memory error: {}", e))?;
-
-    Ok(session)
+    build_session(bytes, None, get_optimal_cpu_threads(), fast_cpu, fast_cpu, &[])
 }
 
 // -- TESTS -- //

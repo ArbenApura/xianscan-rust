@@ -1,4 +1,5 @@
 use image::{DynamicImage, ImageBuffer, Rgb};
+use xianscan_rust::ml::intake::{IntakeError, IntakeLimits};
 use xianscan_rust::ml::reslice::{
     is_point_forbidden, merge_intervals, stitch_images_vertically,
 };
@@ -12,7 +13,7 @@ fn test_stitch_images_vertically() {
     let img1 = DynamicImage::ImageRgb8(ImageBuffer::from_pixel(200, 100, Rgb([0, 0, 0])));
     let img2 = DynamicImage::ImageRgb8(ImageBuffer::from_pixel(200, 150, Rgb([255, 255, 255])));
 
-    let stitched = stitch_images_vertically(&[img1, img2]);
+    let stitched = stitch_images_vertically(&[img1, img2], &IntakeLimits::default()).unwrap();
     assert_eq!(stitched.width(), 200);
     assert_eq!(stitched.height(), 250);
 }
@@ -27,7 +28,7 @@ fn test_stitch_images_mismatched_width() {
     let img1 = DynamicImage::ImageRgb8(ImageBuffer::from_pixel(200, 100, Rgb([0, 0, 0])));
     let img2 = DynamicImage::ImageRgb8(ImageBuffer::from_pixel(400, 100, Rgb([0, 0, 0])));
 
-    let stitched = stitch_images_vertically(&[img1, img2]);
+    let stitched = stitch_images_vertically(&[img1, img2], &IntakeLimits::default()).unwrap();
     assert_eq!(stitched.width(), 400);
     assert_eq!(stitched.height(), 300);
 }
@@ -68,4 +69,20 @@ fn test_find_optimal_cut_points() {
     let forbidden = vec![(1700, 1900)];
     let cuts = xianscan_rust::ml::reslice::find_optimal_cut_points(&canvas, 1800, 1200, 2400, &forbidden);
     assert!(!cuts.is_empty());
+}
+
+/// # Reslice Test: Extreme Aspect Ratio Rejection
+///
+/// ## Purpose:
+/// A 1 px wide strip next to a 16000 px wide one would need a 256 gigapixel canvas. The stitcher
+/// must refuse it from the planned size alone, before allocating anything.
+#[test]
+fn test_stitch_rejects_extreme_aspect_ratio() {
+    let thin = DynamicImage::ImageRgb8(ImageBuffer::from_pixel(1, 16000, Rgb([0, 0, 0])));
+    let wide = DynamicImage::ImageRgb8(ImageBuffer::from_pixel(16000, 1, Rgb([0, 0, 0])));
+
+    let started = std::time::Instant::now();
+    let result = stitch_images_vertically(&[thin, wide], &IntakeLimits::default());
+    assert!(started.elapsed() < std::time::Duration::from_millis(100));
+    assert!(matches!(result, Err(IntakeError::WidthRatio { index: 0, .. })), "got {result:?}");
 }

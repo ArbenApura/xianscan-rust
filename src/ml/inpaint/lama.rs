@@ -4,7 +4,7 @@ use image::{DynamicImage, GenericImageView, ImageBuffer, Luma, Rgb};
 use ort::{session::Session, value::Tensor};
 use rayon::prelude::*;
 
-use super::patch::find_mask_components;
+use super::plan::{crop_mask, plan_inpaint, InpaintMode};
 
 pub struct LamaInpainter {
     session: Session,
@@ -24,138 +24,65 @@ impl LamaInpainter {
 
     /// Dispatches inpainting based on chosen strategy:
     /// - "patch": Localized 1:1 patch inpainting (Fastest · Recommended)
-    /// - "scaled": Balanced 512x512 resolution (Fast · Standard)
-    /// - "full": Full dynamic uncut canvas pass (Slowest · Full Canvas)
+    /// - "scaled": Balanced resolution, 512 px on the long side of square-ish tiles (Fast · Standard)
+    /// - "full": Full canvas pass, split into overlapping bands above the pixel budget (Slowest · Full Canvas)
+    /// EVERY MODE IS PLANNED UNDER ONE PER-PASS PIXEL BUDGET (FEAT-004 PHASE 6, super::plan).
     pub fn inpaint(&mut self, img: &DynamicImage, mask: &ImageBuffer<Luma<u8>, Vec<u8>>, mode: &str) -> Result<DynamicImage> {
-        let mut has_mask = false;
-        for p in mask.pixels() {
-            if p[0] > 0 {
-                has_mask = true;
-                break;
-            }
-        }
-        if !has_mask {
-            return Ok(img.clone());
-        }
-
-        match mode.to_lowercase().trim() {
-            "scaled" | "balanced" => self.inpaint_scaled_mode(img, mask, 512),
-            "full" | "dynamic" => self.inpaint_full_mode(img, mask),
-            _ => self.inpaint_patch_mode(img, mask, 24),
-        }
+        self.inpaint_planned(img, mask, InpaintMode::parse(mode))
     }
 
     /// Strategy 1: Localized patch inpainting (Fastest + native 1:1 sharpness)
     pub fn inpaint_patch_mode(&mut self, img: &DynamicImage, mask: &ImageBuffer<Luma<u8>, Vec<u8>>, pad: i32) -> Result<DynamicImage> {
+        self.inpaint_planned(img, mask, InpaintMode::Patch { pad })
+    }
+
+    /// STRATEGY 2: Balanced resolution (Fast · Standard); ASPECT IS KEPT, `target_dim` IS THE LONG SIDE OF EACH PASS
+    pub fn inpaint_scaled_mode(&mut self, img: &DynamicImage, mask: &ImageBuffer<Luma<u8>, Vec<u8>>, target_dim: u32) -> Result<DynamicImage> {
+        self.inpaint_planned(img, mask, InpaintMode::Scaled { target: target_dim })
+    }
+
+    /// STRATEGY 3: Full canvas pass (BANDED ABOVE THE PIXEL BUDGET)
+    pub fn inpaint_full_mode(&mut self, img: &DynamicImage, mask: &ImageBuffer<Luma<u8>, Vec<u8>>) -> Result<DynamicImage> {
+        self.inpaint_planned(img, mask, InpaintMode::Full)
+    }
+
+    fn inpaint_planned(&mut self, img: &DynamicImage, mask: &ImageBuffer<Luma<u8>, Vec<u8>>, mode: InpaintMode) -> Result<DynamicImage> {
         let (w, h) = img.dimensions();
-        let components = find_mask_components(mask);
-        if components.is_empty() {
+        if mask.dimensions() != (w, h) {
+            anyhow::bail!("mask size {}x{} does not match image size {}x{}", mask.width(), mask.height(), w, h);
+        }
+        if !mask.pixels().any(|p| p[0] > 0) {
+            return Ok(img.clone());
+        }
+        let passes = plan_inpaint(w, h, mask, mode);
+        if passes.is_empty() {
             return Ok(img.clone());
         }
 
+        // THE ONE FULL-PAGE BUFFER: THE RESULT. EVERY PASS READS ITS OWN SMALL CROP.
         let mut result = img.to_rgb8();
-
-        for (bx, by, bw, bh) in components {
-            let x0 = (bx as i32 - pad).max(0) as u32;
-            let y0 = (by as i32 - pad).max(0) as u32;
-            let x1 = ((bx + bw) as i32 + pad).min(w as i32) as u32;
-            let y1 = ((by + bh) as i32 + pad).min(h as i32) as u32;
-
-            let patch_w = x1 - x0;
-            let patch_h = y1 - y0;
-            if patch_w < 4 || patch_h < 4 {
-                continue;
-            }
-
-            let patch_img = img.crop_imm(x0, y0, patch_w, patch_h);
-            let mut patch_mask: ImageBuffer<Luma<u8>, Vec<u8>> = ImageBuffer::new(patch_w, patch_h);
-            let mut patch_has_active = false;
-
-            for py in 0..patch_h {
-                for px in 0..patch_w {
-                    let m = mask.get_pixel(x0 + px, y0 + py)[0];
-                    if m > 0 {
-                        patch_mask.put_pixel(px, py, Luma([255]));
-                        patch_has_active = true;
+        for pass in passes {
+            let (x, y, pw, ph) = pass.src;
+            let src_img = img.crop_imm(x, y, pw, ph);
+            let src_mask = crop_mask(mask, pass.src);
+            let out = if pass.scale == 1.0 {
+                self.inpaint_single_patch(&src_img, &src_mask)?.to_rgb8()
+            } else {
+                let sw = ((pw as f32 * pass.scale).round() as u32).max(1);
+                let sh = ((ph as f32 * pass.scale).round() as u32).max(1);
+                let small = image::imageops::resize(&src_img.to_rgb8(), sw, sh, image::imageops::FilterType::Triangle);
+                let small_mask = image::imageops::resize(&src_mask, sw, sh, image::imageops::FilterType::Nearest);
+                let inpainted = self.inpaint_single_patch(&DynamicImage::ImageRgb8(small), &small_mask)?;
+                image::imageops::resize(&inpainted.to_rgb8(), pw, ph, image::imageops::FilterType::CatmullRom)
+            };
+            // WRITE BACK ONLY MASKED PIXELS OF THE RECT THIS PASS OWNS
+            let (ox, oy, ow, oh) = pass.own;
+            for yy in oy..oy + oh {
+                for xx in ox..ox + ow {
+                    if mask.get_pixel(xx, yy)[0] > 0 {
+                        let q = out.get_pixel(xx - x, yy - y);
+                        result.put_pixel(xx, yy, Rgb([q[0], q[1], q[2]]));
                     }
-                }
-            }
-
-            if !patch_has_active {
-                continue;
-            }
-
-            let inpainted_patch = self.inpaint_single_patch(&patch_img, &patch_mask)?;
-
-            // Alpha-composite patch into result
-            for py in 0..patch_h {
-                for px in 0..patch_w {
-                    let m = patch_mask.get_pixel(px, py)[0];
-                    if m > 0 {
-                        let inp_p = inpainted_patch.get_pixel(px, py);
-                        result.put_pixel(x0 + px, y0 + py, Rgb([inp_p[0], inp_p[1], inp_p[2]]));
-                    }
-                }
-            }
-        }
-
-        Ok(DynamicImage::ImageRgb8(result))
-    }
-
-    /// STRATEGY 2: Balanced 512x512 resolution (Fast · Standard)
-    pub fn inpaint_scaled_mode(&mut self, img: &DynamicImage, mask: &ImageBuffer<Luma<u8>, Vec<u8>>, target_dim: u32) -> Result<DynamicImage> {
-        let (orig_w, orig_h) = img.dimensions();
-
-        // ONE FULL-PAGE RGB COPY REUSED FOR RESIZE SOURCE + RESULT (WAS TWO COPIES).
-        let page_rgb = img.to_rgb8();
-
-        let in_img = image::imageops::resize(
-            &page_rgb,
-            target_dim,
-            target_dim,
-            image::imageops::FilterType::Triangle,
-        );
-
-        let in_mask = image::imageops::resize(
-            mask,
-            target_dim,
-            target_dim,
-            image::imageops::FilterType::Nearest,
-        );
-
-        let inpainted_512 = self.inpaint_single_patch(&DynamicImage::ImageRgb8(in_img), &in_mask)?;
-
-        let upscaled = image::imageops::resize(
-            &inpainted_512.to_rgb8(),
-            orig_w,
-            orig_h,
-            image::imageops::FilterType::CatmullRom,
-        );
-
-        let mut result = page_rgb;
-        for y in 0..orig_h {
-            for x in 0..orig_w {
-                if mask.get_pixel(x, y)[0] > 0 {
-                    let p = upscaled.get_pixel(x, y);
-                    result.put_pixel(x, y, Rgb([p[0], p[1], p[2]]));
-                }
-            }
-        }
-
-        Ok(DynamicImage::ImageRgb8(result))
-    }
-
-    /// STRATEGY 3: Full dynamic uncut canvas pass
-    pub fn inpaint_full_mode(&mut self, img: &DynamicImage, mask: &ImageBuffer<Luma<u8>, Vec<u8>>) -> Result<DynamicImage> {
-        let (w, h) = img.dimensions();
-        let inpainted = self.inpaint_single_patch(img, mask)?;
-
-        let mut result = img.to_rgb8();
-        for y in 0..h {
-            for x in 0..w {
-                if mask.get_pixel(x, y)[0] > 0 {
-                    let p = inpainted.get_pixel(x, y);
-                    result.put_pixel(x, y, Rgb([p[0], p[1], p[2]]));
                 }
             }
         }
@@ -186,7 +113,7 @@ impl LamaInpainter {
         let stride_c = padded_h * padded_w;
         let stride_y = padded_w;
 
-        let rgb_img = img.to_rgb8();
+        let rgb_img = crate::ml::geometry::rgb_view(img);
         let raw_rgb = rgb_img.as_raw();
         let raw_mask = mask.as_raw();
 
@@ -219,6 +146,10 @@ impl LamaInpainter {
 
         let (_out_shape, out_slice) = outputs[0].try_extract_tensor::<f32>()
             .map_err(|e| anyhow::anyhow!("Extract LaMa output error: {}", e))?;
+        // A MODEL THAT RETURNS LESS THAN [1, 3, padded_h, padded_w] IS AN ERROR, NOT AN OUT-OF-BOUNDS PANIC (B5)
+        if out_slice.len() < 3 * stride_c {
+            anyhow::bail!("LaMa output has {} values, expected at least {}", out_slice.len(), 3 * stride_c);
+        }
 
         let mut raw_out = vec![0_u8; (w * h * 3) as usize];
         for y in 0..h as usize {

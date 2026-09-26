@@ -51,7 +51,11 @@ pub struct Region {
     #[serde(default)]
     pub kind: RegionKind,
     pub text: String,
+    /// LEGACY OCR SCORE (SIGMOID SCALE, (0.5, 0.7311]). DEPRECATED FOR DISPLAY; USE ocr_confidence (ADR-005).
     pub confidence: f32,
+    /// CALIBRATED OCR CONFIDENCE (MEAN MAX SOFTMAX PROBABILITY, [0, 1]).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ocr_confidence: Option<f32>,
     pub vertical: bool,
     pub angle: f32,
     #[serde(default)]
@@ -115,8 +119,21 @@ pub struct OcrStats {
     pub rescued_crops_count: usize,
     pub final_regions_count: usize,
     pub avg_confidence: f32,
+    /// MEAN CALIBRATED CONFIDENCE OF THE FINAL REGIONS.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub avg_ocr_confidence: Option<f32>,
+    /// NAME OF THE SCALE avg_ocr_confidence AND Region.ocr_confidence USE (crate::ml::ocr::confidence::SCALE_TAG).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub confidence_scale: Option<String>,
+    /// HOW MANY CLUSTERS WENT PAST THE REFINE-CROP GATE (EACH ONE RUNS LIVE CROP OCR).
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub refine_crop_attempts: usize,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub steps: Vec<OcrStepLog>,
+}
+
+fn is_zero(v: &usize) -> bool {
+    *v == 0
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

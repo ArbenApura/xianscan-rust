@@ -49,7 +49,6 @@ pub fn compute_chromatic_color_variance(img: &DynamicImage, rect: &BoxRect) -> f
         return 0.0;
     }
 
-    let rgb_img = img.to_rgb8();
     let step_x = (rw / 32).max(1);
     let step_y = (rh / 32).max(1);
 
@@ -59,7 +58,7 @@ pub fn compute_chromatic_color_variance(img: &DynamicImage, rect: &BoxRect) -> f
 
     for y in (ry..(ry + rh)).step_by(step_y as usize) {
         for x in (rx..(rx + rw)).step_by(step_x as usize) {
-            let p = rgb_img.get_pixel(x, y);
+            let p = crate::ml::geometry::sample_rgb(img, x, y);
             let rf = p[0] as f32;
             let gf = p[1] as f32;
             let bf = p[2] as f32;
@@ -100,7 +99,6 @@ pub fn extract_slanted_bubble_envelope(
         return None;
     }
     let (page_w, page_h) = img.dimensions();
-    let rgb_img = img.to_rgb8();
     let angle_rad = angle_deg * (std::f32::consts::PI / 180.0);
     let cos_a = angle_rad.cos();
     let sin_a = angle_rad.sin();
@@ -110,7 +108,7 @@ pub fn extract_slanted_bubble_envelope(
         let x = (u * cos_a - v * sin_a).round() as i32;
         let y = (u * sin_a + v * cos_a).round() as i32;
         if x >= 0 && x < page_w as i32 && y >= 0 && y < page_h as i32 {
-            let p = rgb_img.get_pixel(x as u32, y as u32);
+            let p = crate::ml::geometry::sample_rgb(img, x as u32, y as u32);
             Some([p[0], p[1], p[2]])
         } else {
             None
@@ -635,7 +633,6 @@ pub fn extract_dark_bubble_envelope(
         return None;
     }
 
-    let rgb_img = img.to_rgb8();
 
     // 1. SAMPLE INSIDE THE TEXT BOX TO VERIFY INVERTED CONTRAST
     // A DARK BUBBLE INTERIOR IS PREDOMINANTLY DARK PIXELS (LUMINANCE < 75) WITH LIGHT TEXT STROKES (LUMINANCE > 135)
@@ -649,7 +646,7 @@ pub fn extract_dark_bubble_envelope(
 
     for y in (by..(by + bh)).step_by(sample_step_y as usize) {
         for x in (bx..(bx + bw)).step_by(sample_step_x as usize) {
-            let p = rgb_img.get_pixel(x as u32, y as u32);
+            let p = crate::ml::geometry::sample_rgb(img, x as u32, y as u32);
             let lum = (0.299 * p[0] as f32 + 0.587 * p[1] as f32 + 0.114 * p[2] as f32) as u8;
             if lum < 75 {
                 dark_pixels += 1;
@@ -686,7 +683,7 @@ pub fn extract_dark_bubble_envelope(
         let gy = (by + dy).clamp(0, max_gy) as u32;
         for dx in (0..bw).step_by(sample_step_x as usize) {
             let gx = (bx + dx).clamp(0, max_gx) as u32;
-            let p = rgb_img.get_pixel(gx, gy);
+            let p = crate::ml::geometry::sample_rgb(img, gx, gy);
             let lum = (0.299 * p[0] as f32 + 0.587 * p[1] as f32 + 0.114 * p[2] as f32) as u8;
             if lum < 80 { margin_dark += 1; }
             margin_total += 1;
@@ -696,7 +693,7 @@ pub fn extract_dark_bubble_envelope(
         let gx = (bx + dx).clamp(0, max_gx) as u32;
         for dy in (0..bh).step_by(sample_step_y as usize) {
             let gy = (by + dy).clamp(0, max_gy) as u32;
-            let p = rgb_img.get_pixel(gx, gy);
+            let p = crate::ml::geometry::sample_rgb(img, gx, gy);
             let lum = (0.299 * p[0] as f32 + 0.587 * p[1] as f32 + 0.114 * p[2] as f32) as u8;
             if lum < 80 { margin_dark += 1; }
             margin_total += 1;
@@ -711,7 +708,7 @@ pub fn extract_dark_bubble_envelope(
     let max_pad = (bw.max(bh) * 2).clamp(35, 120);
     let is_dark_pixel = |x: i32, y: i32| -> bool {
         if x < 0 || x >= page_w as i32 || y < 0 || y >= page_h as i32 { return false; }
-        let p = rgb_img.get_pixel(x as u32, y as u32);
+        let p = crate::ml::geometry::sample_rgb(img, x as u32, y as u32);
         let lum = (0.299 * p[0] as f32 + 0.587 * p[1] as f32 + 0.114 * p[2] as f32) as u8;
         lum < 80
     };
@@ -839,7 +836,6 @@ pub fn extract_white_bubble_envelope(
         return None;
     }
 
-    let rgb_img = img.to_rgb8();
 
     // 1. SAMPLE INSIDE THE TEXT BOX TO VERIFY WHITE OR LIGHT TONED INTERIOR
     let sample_step_x = (bw / 20).max(1);
@@ -852,7 +848,7 @@ pub fn extract_white_bubble_envelope(
 
     for y in (by..(by + bh)).step_by(sample_step_y as usize) {
         for x in (bx..(bx + bw)).step_by(sample_step_x as usize) {
-            let p = rgb_img.get_pixel(x as u32, y as u32);
+            let p = crate::ml::geometry::sample_rgb(img, x as u32, y as u32);
             let lum = (0.299 * p[0] as f32 + 0.587 * p[1] as f32 + 0.114 * p[2] as f32) as u8;
             let max_c = p[0].max(p[1]).max(p[2]) as f32;
             let min_c = p[0].min(p[1]).min(p[2]) as f32;
@@ -893,7 +889,7 @@ pub fn extract_white_bubble_envelope(
     let max_pad = ((bw.max(bh) as f32 * 1.5).round() as i32).clamp(25, 100);
     let is_white_pixel = |x: i32, y: i32| -> bool {
         if x < 0 || x >= page_w as i32 || y < 0 || y >= page_h as i32 { return false; }
-        let p = rgb_img.get_pixel(x as u32, y as u32);
+        let p = crate::ml::geometry::sample_rgb(img, x as u32, y as u32);
         let lum = (0.299 * p[0] as f32 + 0.587 * p[1] as f32 + 0.114 * p[2] as f32) as u8;
         let max_c = p[0].max(p[1]).max(p[2]) as f32;
         let min_c = p[0].min(p[1]).min(p[2]) as f32;

@@ -6,6 +6,7 @@ use rayon::prelude::*;
 
 use crate::ml::detect::{lines_map_to_boxes, CHINESE_RE, PUNCT_ONLY};
 use crate::ml::geometry::{box_iou_pts, polygon_bounds};
+use crate::ml::ocr::score_thresholds as thr;
 use super::decode::{decode_ctc_slice, parse_dict_string, OcrLine, OcrResult};
 use super::slicing::{horizontal_paragraph_to_line_strips, vertical_to_upright_horizontal_strip};
 
@@ -45,6 +46,25 @@ pub struct RapidOcr {
     thai_rec_session: Option<Session>,
     characters_thai: Option<Vec<String>>,
     thai_pending: Option<(Vec<u8>, String)>,
+}
+
+/// WIDEST RECOGNISER INPUT (AFTER SCALING TO 48 PX TALL); LONGER LINES ARE SQUASHED, THE SAME IN EVERY PATH.
+pub const REC_MAX_WIDTH: u32 = 2048;
+
+/// ONE WARNING PER LANGUAGE WHEN ITS LAZILY LOADED RECOGNISER FAILS TO BUILD (THE LOAD IS RETRIED NEXT TIME).
+fn warn_lazy_rec_failure(lang: &str, err: &anyhow::Error) {
+    use std::sync::atomic::{AtomicBool, Ordering};
+    static KO: AtomicBool = AtomicBool::new(false);
+    static RU: AtomicBool = AtomicBool::new(false);
+    static TH: AtomicBool = AtomicBool::new(false);
+    let flag = match lang {
+        "korean" => &KO,
+        "cyrillic" => &RU,
+        _ => &TH,
+    };
+    if !flag.swap(true, Ordering::Relaxed) {
+        tracing::warn!("{} OCR recogniser failed to load, will retry: {}", lang, err);
+    }
 }
 
 impl RapidOcr {
@@ -161,10 +181,16 @@ impl RapidOcr {
 
     fn ensure_korean_rec(&mut self) {
         if self.korean_rec_session.is_none() {
-            if let Some((bytes, dict)) = self.korean_pending.take() {
-                if let Ok(session) = crate::ml::device::create_session_from_memory(&bytes, "rapid_ocr_korean") {
-                    self.korean_rec_session = Some(session);
-                    self.characters_korean = Some(parse_dict_string(&dict));
+            // THE PENDING BYTES ARE KEPT UNTIL A SESSION IS BUILT, SO A FAILED LOAD CAN BE RETRIED (FEAT-004 E4)
+            if let Some((bytes, dict)) = self.korean_pending.as_ref() {
+                match crate::ml::device::create_session_from_memory(bytes, "rapid_ocr_korean") {
+                    Ok(session) => {
+                        let characters = parse_dict_string(dict);
+                        self.korean_rec_session = Some(session);
+                        self.characters_korean = Some(characters);
+                        self.korean_pending = None;
+                    }
+                    Err(e) => warn_lazy_rec_failure("korean", &e),
                 }
             }
         }
@@ -172,10 +198,16 @@ impl RapidOcr {
 
     fn ensure_cyrillic_rec(&mut self) {
         if self.cyrillic_rec_session.is_none() {
-            if let Some((bytes, dict)) = self.cyrillic_pending.take() {
-                if let Ok(session) = crate::ml::device::create_session_from_memory(&bytes, "rapid_ocr_cyrillic") {
-                    self.cyrillic_rec_session = Some(session);
-                    self.characters_cyrillic = Some(parse_dict_string(&dict));
+            // THE PENDING BYTES ARE KEPT UNTIL A SESSION IS BUILT, SO A FAILED LOAD CAN BE RETRIED (FEAT-004 E4)
+            if let Some((bytes, dict)) = self.cyrillic_pending.as_ref() {
+                match crate::ml::device::create_session_from_memory(bytes, "rapid_ocr_cyrillic") {
+                    Ok(session) => {
+                        let characters = parse_dict_string(dict);
+                        self.cyrillic_rec_session = Some(session);
+                        self.characters_cyrillic = Some(characters);
+                        self.cyrillic_pending = None;
+                    }
+                    Err(e) => warn_lazy_rec_failure("cyrillic", &e),
                 }
             }
         }
@@ -183,10 +215,16 @@ impl RapidOcr {
 
     fn ensure_thai_rec(&mut self) {
         if self.thai_rec_session.is_none() {
-            if let Some((bytes, dict)) = self.thai_pending.take() {
-                if let Ok(session) = crate::ml::device::create_session_from_memory(&bytes, "rapid_ocr_thai") {
-                    self.thai_rec_session = Some(session);
-                    self.characters_thai = Some(parse_dict_string(&dict));
+            // THE PENDING BYTES ARE KEPT UNTIL A SESSION IS BUILT, SO A FAILED LOAD CAN BE RETRIED (FEAT-004 E4)
+            if let Some((bytes, dict)) = self.thai_pending.as_ref() {
+                match crate::ml::device::create_session_from_memory(bytes, "rapid_ocr_thai") {
+                    Ok(session) => {
+                        let characters = parse_dict_string(dict);
+                        self.thai_rec_session = Some(session);
+                        self.characters_thai = Some(characters);
+                        self.thai_pending = None;
+                    }
+                    Err(e) => warn_lazy_rec_failure("thai", &e),
                 }
             }
         }
@@ -210,7 +248,7 @@ impl RapidOcr {
             // 1. UPRIGHT HORIZONTAL PROJECTION SLICING (VALLEY-CUT)
             if let Some(upright_strip) = vertical_to_upright_horizontal_strip(crop) {
                 if let Ok(Some(res_upright)) = self.recognize_line_horizontal_with_lang(&upright_strip, source_lang) {
-                    if CHINESE_RE.is_match(&res_upright.text) || res_upright.score >= 0.60 {
+                    if CHINESE_RE.is_match(&res_upright.text) || res_upright.score >= thr::VERT_UPRIGHT_ACCEPT_MIN {
                         best_res = Some(res_upright);
                     }
                 }
@@ -237,7 +275,7 @@ impl RapidOcr {
             }
 
             if let Some(r) = best_res {
-                if CHINESE_RE.is_match(&r.text) || crate::ml::detect::has_cjk_characters(&r.text) || r.score >= 0.65 {
+                if CHINESE_RE.is_match(&r.text) || crate::ml::detect::has_cjk_characters(&r.text) || r.score >= thr::VERT_RESULT_ACCEPT_MIN {
                     return Ok(Some(r));
                 }
             }
@@ -291,7 +329,7 @@ impl RapidOcr {
                     opt_crop.as_ref().map(|c| {
                         let (w, h) = c.dimensions();
                         let r = target_h as f32 / h.max(1) as f32;
-                        let scaled_w = ((w as f32 * r).round() as usize).clamp(16, 2048);
+                        let scaled_w = ((w as f32 * r).round() as usize).clamp(16, REC_MAX_WIDTH as usize);
                         let resized = image::imageops::resize(
                             c,
                             scaled_w as u32,
@@ -398,7 +436,7 @@ impl RapidOcr {
 
         let target_h = 48_u32;
         let r = target_h as f32 / h as f32;
-        let max_w = ((w as f32 * r).round() as u32).max(16);
+        let max_w = ((w as f32 * r).round() as u32).clamp(16, REC_MAX_WIDTH);
         #[cfg(feature = "directml")]
         let target_w = (max_w.max(320) as usize).div_ceil(128) * 128;
         #[cfg(not(feature = "directml"))]
@@ -466,7 +504,7 @@ impl RapidOcr {
             let inv_dyn = DynamicImage::ImageRgba8(inverted);
             let (iw, ih) = inv_dyn.dimensions();
             let inv_r = target_h as f32 / ih as f32;
-            let inv_max_w = ((iw as f32 * inv_r).round() as u32).max(16);
+            let inv_max_w = ((iw as f32 * inv_r).round() as u32).clamp(16, REC_MAX_WIDTH);
             #[cfg(feature = "directml")]
             let inv_target_w = (inv_max_w.max(320) as usize).div_ceil(128) * 128;
             #[cfg(not(feature = "directml"))]
@@ -576,10 +614,13 @@ impl RapidOcr {
                             [w as i32, h as i32],
                             [0, h as i32],
                         ];
+                        let prob = line_res.prob_or_derived();
                         return Ok(Some(OcrResult {
                             text: line_res.text.clone(),
                             score: line_res.score,
                             lines: vec![(poly, line_res.text, line_res.score)],
+                            prob: Some(prob),
+                            line_probs: vec![prob],
                         }));
                     }
                 }
@@ -605,10 +646,12 @@ impl RapidOcr {
             let proj_strips = horizontal_paragraph_to_line_strips(crop);
             if proj_strips.len() >= 2 {
                 let mut proj_lines = Vec::new();
+                let mut proj_probs: Vec<f32> = Vec::new();
                 for (poly, strip_img) in proj_strips {
                     if let Ok(Some(line_res)) = self.recognize_line_horizontal_with_lang(&strip_img, source_lang) {
                         let clean_t = crate::ml::detect::clean_stray_ocr_artifacts(&line_res.text);
-                        if !clean_t.trim().is_empty() && line_res.score >= 0.55 {
+                        if !clean_t.trim().is_empty() && line_res.score >= thr::PROJ_STRIP_LINE_MIN {
+                            proj_probs.push(line_res.prob_or_derived());
                             proj_lines.push((poly, clean_t, line_res.score));
                         }
                     }
@@ -619,10 +662,13 @@ impl RapidOcr {
                     if proj_chars >= raw_chars || raw_lines.is_empty() {
                         let text_lines: Vec<String> = proj_lines.iter().map(|(_, t, _)| t.clone()).collect();
                         let max_score = proj_lines.iter().map(|(_, _, s)| *s).fold(0.0_f32, f32::max);
+                        let max_prob = proj_probs.iter().copied().fold(0.0_f32, f32::max);
                         return Ok(Some(OcrResult {
                             text: text_lines.join("\n"),
                             score: max_score,
                             lines: proj_lines,
+                            prob: Some(max_prob),
+                            line_probs: proj_probs,
                         }));
                     }
                 }
@@ -742,6 +788,8 @@ impl RapidOcr {
 
         let text_lines: Vec<String> = dedup_lines.iter().map(|l| l.text.clone()).collect();
         let max_score = dedup_lines.iter().map(|l| l.score).fold(0.0_f32, f32::max);
+        let out_probs: Vec<f32> = dedup_lines.iter().map(|l| l.prob_or_derived()).collect();
+        let max_prob = out_probs.iter().copied().fold(0.0_f32, f32::max);
         let out_lines: Vec<(Vec<[i32; 2]>, String, f32)> = dedup_lines
             .into_iter()
             .map(|l| {
@@ -762,6 +810,8 @@ impl RapidOcr {
             text: text_lines.join("\n"),
             score: max_score,
             lines: out_lines,
+            prob: Some(max_prob),
+            line_probs: out_probs,
         }))
     }
 
@@ -1001,10 +1051,12 @@ impl RapidOcr {
         for (idx, (poly, _)) in pending.iter().enumerate() {
             if let Some(line_res) = results_by_idx[idx].take() {
                 if !line_res.text.is_empty() {
+                    let prob = line_res.prob_or_derived();
                     lines.push(OcrLine {
                         polygon: poly.clone(),
                         text: line_res.text,
                         score: line_res.score,
+                        prob: Some(prob),
                     });
                 }
             }
@@ -1028,7 +1080,7 @@ impl RapidOcr {
                                 p[1] += y as i32;
                             }
                             let has_cn = CHINESE_RE.is_match(&tl.text);
-                            let min_score = if has_cn { 0.50 } else { 0.70 };
+                            let min_score = if has_cn { thr::TILE_LINE_MIN_CN } else { thr::TILE_LINE_MIN_OTHER };
 
                             if tl.text.trim().is_empty() || tl.score < min_score {
                                 continue;
@@ -1048,7 +1100,7 @@ impl RapidOcr {
                                 Some(idx) => {
                                     let existing = &lines[idx];
                                     let has_cn_old = CHINESE_RE.is_match(&existing.text);
-                                    if (has_cn && !has_cn_old) || (tl.score > existing.score + 0.05) || (has_cn && tl.score >= 0.70 && existing.score < 0.70) {
+                                    if (has_cn && !has_cn_old) || (tl.score > existing.score + thr::TILE_REPLACE_MARGIN) || (has_cn && tl.score >= thr::TILE_REPLACE_CONFIDENT && existing.score < thr::TILE_REPLACE_CONFIDENT) {
                                         lines[idx] = tl;
                                     }
                                 }
@@ -1080,7 +1132,7 @@ impl RapidOcr {
             let (_, _, lw, lh) = polygon_bounds(&l.polygon);
             let is_thin_horiz = lh <= 13 && lw >= 30;
             let is_thin_vert = lw <= 13 && lh >= 30;
-            if (is_thin_horiz || is_thin_vert) && l.score < 0.65 {
+            if (is_thin_horiz || is_thin_vert) && l.score < thr::THIN_SLIVER_MAX {
                 return false;
             }
             true
@@ -1091,18 +1143,18 @@ impl RapidOcr {
 
     /// CROP AN ROI WITH SMALL MARGIN
     pub fn crop_region(img: &DynamicImage, polygon: &[[i32; 2]], margin: i32) -> DynamicImage {
+        // i64 MATH AND A CLAMP TO THE PAGE: AN EMPTY PAGE OR A RECT FULLY OUTSIDE IT GIVES A 1x1 WHITE IMAGE (ADR-008)
         let (w, h) = img.dimensions();
         let (min_x, min_y, bw, bh) = polygon_bounds(polygon);
-
-        let x0 = (min_x - margin).clamp(0, w as i32 - 1) as u32;
-        let y0 = (min_y - margin).clamp(0, h as i32 - 1) as u32;
-        let x1 = ((min_x + bw + margin) as u32).min(w);
-        let y1 = ((min_y + bh + margin) as u32).min(h);
-
-        let crop_w = (x1 - x0).max(1);
-        let crop_h = (y1 - y0).max(1);
-
-        img.crop_imm(x0, y0, crop_w, crop_h)
+        let (w64, h64, m) = (w as i64, h as i64, margin as i64);
+        let x0 = (min_x as i64 - m).clamp(0, w64);
+        let y0 = (min_y as i64 - m).clamp(0, h64);
+        let x1 = (min_x as i64 + bw as i64 + m).clamp(0, w64);
+        let y1 = (min_y as i64 + bh as i64 + m).clamp(0, h64);
+        if w == 0 || h == 0 || x1 <= x0 || y1 <= y0 {
+            return DynamicImage::ImageRgb8(image::RgbImage::from_pixel(1, 1, image::Rgb([255, 255, 255])));
+        }
+        img.crop_imm(x0 as u32, y0 as u32, (x1 - x0) as u32, (y1 - y0) as u32)
     }
 }
 
