@@ -78,7 +78,7 @@ jobs:
           persist-credentials: false
 
       - name: Setup Node.js (for Web UI build)
-        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           # EXACT PIN (FEAT-008 PHASE 4). THIS NODE IS ALSO THE RUNTIME STAGED INTO THE BINARY BELOW.
           node-version-file: .nvmrc
@@ -213,7 +213,7 @@ jobs:
           persist-credentials: false
 
       - name: Setup Node.js
-        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version-file: .nvmrc
 
