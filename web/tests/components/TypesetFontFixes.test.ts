@@ -207,7 +207,7 @@ describe('FontRolesTable your fonts, import and system fonts', () => {
 		stubAll();
 		systemFontsStore.set([{ family: 'Impact', scriptType: 'dialogue', scripts: ['latin'], supportedWeights: ['normal'] } as never]);
 		render(FontRolesTable);
-		const [, accent] = within(screen.getByTestId('font-row-latin')).getAllByRole('combobox') as HTMLSelectElement[];
+		const [accent] = within(screen.getByTestId('font-row-latin-accent')).getAllByRole('combobox') as HTMLSelectElement[];
 		await fireEvent.change(accent, { target: { value: '__system__' } });
 		await fireEvent.click(await screen.findByRole('button', { name: /^Enable$/ }));
 		const s = get(settings);
@@ -221,7 +221,7 @@ describe('FontRolesTable your fonts, import and system fonts', () => {
 		systemFontsStore.set([{ family: 'Tahoma', scriptType: 'dialogue', scripts: ['latin', 'thai'], supportedWeights: ['normal'] } as never]);
 		settings.update((s) => ({ ...s, targetLang: 'th', enabledSystemFonts: ['Tahoma'] }));
 		render(FontRolesTable);
-		const [, accent] = within(await screen.findByTestId('font-row-thai')).getAllByRole('combobox') as HTMLSelectElement[];
+		const [accent] = within(await screen.findByTestId('font-row-thai-accent')).getAllByRole('combobox') as HTMLSelectElement[];
 		await fireEvent.change(accent, { target: { value: '__system__' } });
 		await fireEvent.click(await screen.findByRole('button', { name: /^Use$/ }));
 		expect(get(settings).typesetAccentFonts.thai).toBe('Tahoma');
@@ -302,52 +302,17 @@ describe('TypesettingTab Latin dialogue font', () => {
 	});
 });
 
-// -- EXACT PREVIEW (BUG 3) -- //
+// -- LIVE PREVIEW (THE EXACT RENDER BUTTON WAS REMOVED AT THE OWNER'S REQUEST) -- //
 
-describe('TypesettingTab exact preview', () => {
-	let previewResponse: () => Response;
-	let previewBodies: any[];
-
+describe('TypesettingTab live preview', () => {
 	beforeEach(() => {
-		previewBodies = [];
-		previewResponse = () => new Response(new Blob(['img'], { type: 'image/webp' }), { status: 200 });
-		vi.stubGlobal(
-			'fetch',
-			vi.fn(async (url: string, init?: RequestInit) => {
-				if (String(url) === '/api/typeset/preview') {
-					previewBodies.push(JSON.parse(String(init?.body)));
-					return previewResponse();
-				}
-				return new Response('{}', { status: 200 });
-			}),
-		);
-		vi.stubGlobal('URL', Object.assign(URL, { createObjectURL: vi.fn(() => 'blob:preview'), revokeObjectURL: vi.fn() }));
+		vi.stubGlobal('fetch', vi.fn(async () => new Response('{}', { status: 200 })));
 	});
 
-	it('sends the full effective style, and clears the image when an input changes', async () => {
-		settings.update((s) => ({ ...s, typesetOutline: 'heavy', typesetPadding: 0.08, enableTypesetItalic: true, enableTextRotation: false }));
+	it('has no exact render button any more', () => {
 		render(TypesettingTab);
-		await fireEvent.click(screen.getByTestId('render-exact-preview'));
-		await waitFor(() => expect(screen.getByAltText('Exact typeset preview')).toBeTruthy());
-		const { options, text } = previewBodies[0];
-		const eff = get(effectiveTypeset);
-		expect(options).toMatchObject({
-			fontDialogue: DEFAULTS.typesetFont,
-			casing: eff.casing,
-			fontWeight: eff.weight,
-			outlineMode: 'heavy',
-			boxInset: 0.08,
-			fontStyle: 'italic',
-			enableRotation: false,
-			scriptFonts: {},
-		});
-		// THE RAW SAMPLE: THE SERVER APPLIES THE CASING
-		expect(text).toBe(get(settings).typesetPreviewText || 'Hold on! What is this Cultivation Realm...?!');
-
-		await fireEvent.click(screen.getByText('Subtle boundary').closest('button')!);
-		await tick();
+		expect(screen.queryByTestId('render-exact-preview')).toBeNull();
 		expect(screen.queryByAltText('Exact typeset preview')).toBeNull();
-		expect(URL.revokeObjectURL).toHaveBeenCalledWith('blob:preview');
 	});
 
 	it('Import font in an accent cell assigns the imported font to that cell only (FEAT-010)', async () => {
@@ -361,7 +326,7 @@ describe('TypesettingTab exact preview', () => {
 			}),
 		);
 		render(TypesettingTab);
-		const [, accent] = within(screen.getByTestId('font-row-latin')).getAllByRole('combobox') as HTMLSelectElement[];
+		const [accent] = within(screen.getByTestId('font-row-latin-accent')).getAllByRole('combobox') as HTMLSelectElement[];
 		await fireEvent.change(accent, { target: { value: '__import__' } });
 		const input = document.querySelectorAll<HTMLInputElement>('#custom-font-input')[0];
 		await fireEvent.change(input, { target: { files: [new File(['x'], 'Some-Regular.ttf')] } });
@@ -370,27 +335,25 @@ describe('TypesettingTab exact preview', () => {
 		expect(get(settings).typesetFont).toBe(DEFAULTS.typesetFont);
 	});
 
-	it('shows the accent callout in the default Sigmar One and sends it with the exact preview (FEAT-010)', async () => {
+	it('shows accent text in the same bubble as dialogue, in the default Sigmar One (FEAT-010)', async () => {
 		settings.update((s) => ({ ...s, typesetAccentCasing: 'original' }));
 		render(TypesettingTab);
-		expect(screen.getByTestId('accent-preview').textContent?.trim()).toBe('Green Wood Sword Art');
-		await fireEvent.click(screen.getByTestId('render-exact-preview'));
-		await waitFor(() => expect(screen.getByAltText('Exact typeset preview')).toBeTruthy());
-		expect(previewBodies[0].accentText).toBe('Green Wood Sword Art');
-		expect(previewBodies[0].options).toMatchObject({ accentFonts: { latin: 'Sigmar One' }, accentCasing: 'original' });
-		// CHANGING THE ACCENT FONT CLEARS THE STALE IMAGE
-		settings.update((s) => ({ ...s, typesetAccentFonts: { latin: 'Lexend' } }));
-		await tick();
-		expect(screen.queryByAltText('Exact typeset preview')).toBeNull();
+		const bubble = screen.getByTestId('dialogue-preview').parentElement;
+		await fireEvent.click(screen.getByTestId('preview-mode-accent'));
+		const accent = screen.getByTestId('accent-preview');
+		expect(accent.textContent?.trim()).toBe('Green Wood Sword Art');
+		expect(accent.parentElement).toBe(bubble);
+		expect(accent.getAttribute('style')).toMatch(/Sigmar One/);
+		expect(screen.getByTestId('accent-preview-font').textContent).toMatch(/Accent font: Sigmar One/);
 	});
 
-	it('shows no accent callout and sends no accent sample when every accent cell is Off', async () => {
+	it('previews dialogue by default, and says the dialogue font draws accents when every accent cell is Off', async () => {
 		settings.update((s) => ({ ...s, typesetAccentFonts: {} }));
 		render(TypesettingTab);
 		expect(screen.queryByTestId('accent-preview')).toBeNull();
-		await fireEvent.click(screen.getByTestId('render-exact-preview'));
-		await waitFor(() => expect(previewBodies.length).toBe(1));
-		expect(previewBodies[0]).not.toHaveProperty('accentText');
+		expect(screen.getByTestId('dialogue-preview')).toBeTruthy();
+		await fireEvent.click(screen.getByTestId('preview-mode-accent'));
+		expect(screen.getByTestId('accent-preview-font').textContent).toMatch(/No accent font for Latin: drawn in the dialogue font/);
 	});
 
 	it('an import without Latin letters from the Latin dialogue cell never becomes the dialogue font (restored guard)', async () => {
@@ -413,14 +376,5 @@ describe('TypesettingTab exact preview', () => {
 		await tick();
 		expect(get(settings).typesetFont).toBe(DEFAULTS.typesetFont);
 		expect(get(settings).typesetAccentFonts.latin).toBe('Sigmar One');
-	});
-
-	it("shows the server's error message, not the raw JSON body", async () => {
-		previewResponse = () => new Response(JSON.stringify({ message: 'Preview request too large.' }), { status: 413 });
-		render(TypesettingTab);
-		await fireEvent.click(screen.getByTestId('render-exact-preview'));
-		const err = await screen.findByTestId('exact-preview-error');
-		expect(err.textContent).toMatch(/Preview request too large\./);
-		expect(err.textContent).not.toMatch(/\{/);
 	});
 });

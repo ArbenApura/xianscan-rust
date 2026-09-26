@@ -95,13 +95,16 @@ beforeAll(() => {
 	registerFonts();
 	// LATIN ACCENT: MONTSERRAT'S FILE WITHOUT [ ] É IN ITS cmap (LIKE A BLAMBOT DISPLAY FONT)
 	GlobalFonts.registerFromPath(join(FONT_DIR, 'Montserrat-Bold.ttf'), 'Test Accent');
+	// THE SAME FILE WITHOUT Q: A MISSING LETTER THAT HAS NO PLAIN FORM (FEAT-011)
+	GlobalFonts.registerFromPath(join(FONT_DIR, 'Montserrat-Bold.ttf'), 'Test Accent NoQ');
 	// HAN AND ARABIC ACCENTS: THE BUNDLED CJK AND ARABIC FILES UNDER NEW NAMES
 	GlobalFonts.registerFromPath(join(FONT_DIR, 'wqy-microhei.ttc'), 'Test Brush');
 	GlobalFonts.registerFromPath(join(FONT_DIR, 'Tajawal-Regular.ttf'), 'Test Arabic');
 	const accent = without(cmapOf('Montserrat-Bold.ttf'), '[]ÉéÈè');
+	const accentNoQ = without(cmapOf('Montserrat-Bold.ttf'), '[]ÉéÈèQq');
 	const brush = cmapOf('wqy-microhei.ttc');
 	const arabic = cmapOf('Tajawal-Regular.ttf');
-	registerCodepointSource((family) => ({ 'Test Accent': accent, 'Test Brush': brush, 'Test Arabic': arabic })[family]);
+	registerCodepointSource((family) => ({ 'Test Accent': accent, 'Test Accent NoQ': accentNoQ, 'Test Brush': brush, 'Test Arabic': arabic })[family]);
 	invalidateCoverageCache();
 	const c = createCanvas(PAGE_W, PAGE_H);
 	const x = c.getContext('2d');
@@ -163,12 +166,18 @@ describe('accent font selection', () => {
 		expect(fills.some((f) => firstFamily(f.font) === 'Test Accent')).toBe(true);
 	});
 
-	it('falls back to the dialogue font with a heavier outline when a letter is missing', async () => {
-		const text = "TECHNIQUE DE L'ÉPÉE";
-		await render([region({ text })], { accentFonts: { latin: 'Test Accent' } });
+	it('draws a missing accented letter plain in the accent font instead of falling back (FEAT-011)', async () => {
+		await render([region({ text: "TECHNIQUE DE L'ÉPÉE", role: 'accent' })], { accentFonts: { latin: 'Test Accent' } });
+		expect(fills.every((f) => firstFamily(f.font) === 'Test Accent')).toBe(true);
+		expect(fills.map((f) => f.text).join('')).toContain('EPEE');
+	});
+
+	it('falls back to the dialogue font with a heavier outline when a letter without a plain form is missing', async () => {
+		const text = 'TECHNIQUE OF THE BLADE';
+		await render([region({ text })], { accentFonts: { latin: 'Test Accent NoQ' } });
 		const plainWidth = strokes[0].lineWidth;
-		await render([region({ text, role: 'accent' })], { accentFonts: { latin: 'Test Accent' } });
-		expect(fills.some((f) => firstFamily(f.font) === 'Test Accent')).toBe(false);
+		await render([region({ text, role: 'accent' })], { accentFonts: { latin: 'Test Accent NoQ' } });
+		expect(fills.some((f) => firstFamily(f.font) === 'Test Accent NoQ')).toBe(false);
 		expect(strokes[0].lineWidth).toBeGreaterThan(plainWidth);
 	});
 

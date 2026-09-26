@@ -13,20 +13,16 @@
 		getMergedDialogueFonts,
 		getMergedScriptFonts,
 		BUNDLED_ACCENT_FONTS,
-		CASING_PRESETS,
-		FONT_WEIGHT_PRESETS,
-		normalizeFontWeightSelectValue,
 		fontRemovalPatch,
 		refreshFontAvailability,
 		unloadBrowserFontFace,
-		type TypesetCasing,
-		type TypesetFontWeight,
 		type TypesetFontOption,
 		type CustomFontItem,
 	} from '$lib/stores/settings';
 	import { languageScripts, scriptOfLanguage, type Script } from '$lib/languages';
 	import { SCRIPT_FONT_SLOTS, SCRIPT_LABELS, type ScriptFontSlot } from '$lib/typeset-scripts';
 	import { cn } from '$lib/utils/cn';
+	import { plainLatinLetter } from '$lib/diacritics';
 	import { ripple } from '$lib/actions/ripple';
 	// IMPORTED DEP-COMPONENTS
 	import AlertTriangle from 'lucide-svelte/icons/alert-triangle';
@@ -37,7 +33,6 @@
 	import X from 'lucide-svelte/icons/x';
 	// IMPORTED COMPONENTS
 	import Select, { type SelectOption } from '$lib/components/ui/Select.svelte';
-	import Switch from '$lib/components/ui/Switch.svelte';
 	import ConfirmDialog from '$lib/components/ui/ConfirmDialog.svelte';
 	import ImportFontModal from '$lib/components/typeset/ImportFontModal.svelte';
 	import SystemFontBrowserModal from '$lib/components/typeset/SystemFontBrowserModal.svelte';
@@ -288,30 +283,27 @@
 		return null;
 	}
 
+	/**
+	 * THE LETTERS AN ACCENT FONT STILL NEEDS (FEAT-011): A LATIN LETTER WITH A DIACRITIC THE FONT LACKS IS DRAWN PLAIN
+	 * (É -> E) IN THAT FONT, SO ONLY LETTERS WITHOUT A PLAIN FORM (DIGITS, SYMBOLS, PLAIN LETTERS) STILL MATTER.
+	 */
+	function lettersStillMissing(script: Script, missing: string[]): string[] {
+		return script === 'latin' ? missing.filter((ch) => plainLatinLetter(ch) === ch) : missing;
+	}
+
 	function accentNote(script: Script): CellNote | null {
 		const cov = accentCoverage[script];
 		if (!accentFonts[script] || !cov) return null;
 		const label = rowLabel(script);
 		if (!cov.available) return { tone: 'error', text: `"${cov.family}" is not installed. Accent text uses the dialogue font with a heavier outline.` };
 		if (!cov.coversScript) return { tone: 'error', text: `"${cov.family}" has no ${label} letters, so ${label} accent text uses the dialogue font with a heavier outline.` };
-		if (cov.missing.length > 0) {
-			const shown = cov.missing.slice(0, 12).join(' ');
-			return { tone: 'warning', text: `"${cov.family}" lacks ${shown}${cov.missing.length > 12 ? ' ...' : ''}. Accent text with these letters uses the dialogue font.` };
+		const missing = lettersStillMissing(script, cov.missing);
+		if (missing.length > 0) {
+			const shown = missing.slice(0, 12).join(' ');
+			return { tone: 'warning', text: `"${cov.family}" lacks ${shown}${missing.length > 12 ? ' ...' : ''}. Accent text with these letters uses the dialogue font.` };
 		}
 		if (!cov.verified) return { tone: 'info', text: 'Letter coverage of this system font could not be checked here. Import the font file to verify it.' };
 		return null;
-	}
-
-	function setAccentCasing(value: string): void {
-		settings.update((s) => ({ ...s, typesetAccentCasing: value as TypesetCasing }));
-	}
-
-	function setAccentWeight(value: string): void {
-		settings.update((s) => ({ ...s, typesetAccentFontWeight: value as TypesetFontWeight }));
-	}
-
-	function toggleAccentInBubbles(): void {
-		settings.update((s) => ({ ...s, typesetAccentInBubbles: !s.typesetAccentInBubbles }));
 	}
 
 	// -- LIFECYCLES -- //
@@ -347,11 +339,8 @@
 	);
 	$: others = LANGUAGE_SLOTS.filter((s) => !primary.includes(s) && !withFontSet.includes(s));
 	$: rows = ['latin', ...primary, ...withFontSet, ...(showAll ? others : [])] as Script[];
-	$: anyAccent = Object.keys(accentFonts).length > 0;
 	// THE SCRIPT SLOT OF THE CELL THAT OPENED THE IMPORT / SYSTEM FONT DIALOG (LATIN HAS NO SLOT)
 	$: targetSlot = target && target.script !== 'latin' ? (target.script as ScriptFontSlot) : undefined;
-	$: accentCasingOptions = CASING_PRESETS.map((p) => ({ value: p.id, label: p.label, hint: p.desc })) satisfies SelectOption[];
-	$: accentWeightOptions = FONT_WEIGHT_PRESETS.map((p) => ({ value: p.value, label: p.label, hint: p.hint })) satisfies SelectOption[];
 	// PRIMITIVE KEYS: A SETTINGS CHANGE THAT LEAVES THESE EQUAL DOES NOT RE-RUN THE CHECK
 	$: coverageKey = JSON.stringify([$settings.typesetFont || '', scriptFonts, accentFonts]);
 	$: scheduleRefresh(coverageKey);
@@ -382,8 +371,8 @@
 	</div>
 
 	<!-- ONE CARD: COLUMN HEADERS, A DIVIDED ROW PER SCRIPT, THE SHOW-ALL TOGGLE AS ITS FOOTER -->
-	<!-- WITHOUT AN ACCENT FONT THE STYLE ROW IS HIDDEN, SO THE TABLE ITSELF IS THE SEARCH TARGET FOR "ACCENT" -->
-	<div id={anyAccent ? undefined : 'setting-typeset-accent'} class="overflow-hidden rounded-xl border border-black/10 dark:border-white/10">
+	<!-- THE TABLE IS THE SEARCH TARGET FOR "ACCENT" -->
+	<div id="setting-typeset-accent" class="overflow-hidden rounded-xl border border-black/10 dark:border-white/10">
 		<!-- COLUMN HEADERS (WIDE SCREENS; ON PHONES EACH CELL CARRIES ITS OWN LABEL) -->
 		<div
 			class="hidden sm:grid sm:grid-cols-[9.5rem_minmax(0,1fr)_minmax(0,1fr)] gap-3 border-b border-black/10 bg-black/[0.02] px-3 py-1.5 text-[10px] font-bold uppercase tracking-wider opacity-70 dark:border-white/10 dark:bg-white/[0.02]"
@@ -424,7 +413,7 @@
 							</div>
 						{/if}
 					</div>
-					<div class="min-w-0 space-y-1">
+					<div class="min-w-0 space-y-1" data-testid={`font-row-${script}-accent`}>
 						<span class="text-[10px] font-semibold uppercase opacity-50 sm:hidden">Accent</span>
 						<Select
 							items={accentOptions(script)}
@@ -506,39 +495,6 @@
 					</button>
 				</span>
 			{/each}
-		</div>
-	{/if}
-
-	<!-- ACCENT STYLE: ONLY ONCE AN ACCENT FONT IS SET -->
-	{#if anyAccent}
-		<div
-			id="setting-typeset-accent"
-			class={cn(
-				'grid grid-cols-1 gap-2 rounded-xl border border-black/10 bg-black/[0.02] p-2.5 sm:grid-cols-3 dark:border-white/10 dark:bg-white/[0.02] transition-all duration-300',
-				highlightedSettingId === 'typeset-accent' && 'ring-2 ring-[#b23a2e] dark:ring-[#e08a63]',
-			)}
-			data-testid="accent-style"
-		>
-			<div class="space-y-1">
-				<div class="text-[10px] font-bold uppercase tracking-wider opacity-70">Accent casing</div>
-				<Select items={accentCasingOptions} value={$settings.typesetAccentCasing || 'uppercase'} size="sm" on:change={(e) => setAccentCasing(e.detail)} />
-			</div>
-			<div class="space-y-1">
-				<div class="text-[10px] font-bold uppercase tracking-wider opacity-70">Accent weight</div>
-				<Select
-					items={accentWeightOptions}
-					value={normalizeFontWeightSelectValue($settings.typesetAccentFontWeight)}
-					size="sm"
-					on:change={(e) => setAccentWeight(e.detail)}
-				/>
-			</div>
-			<div class="flex items-center justify-between gap-2 sm:pt-4">
-				<div class="min-w-0">
-					<div class="text-xs font-bold">Accent in speech bubbles</div>
-					<div class="text-[10px] opacity-60">Also style accent text inside bubbles</div>
-				</div>
-				<Switch checked={Boolean($settings.typesetAccentInBubbles)} on:click={toggleAccentInBubbles} ariaLabel="Accent in speech bubbles" />
-			</div>
 		</div>
 	{/if}
 </div>

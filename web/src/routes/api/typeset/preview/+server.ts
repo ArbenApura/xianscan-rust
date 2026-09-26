@@ -24,6 +24,8 @@ const previewSchema = z.object({
 	text: z.string().trim().min(1).max(500),
 	targetLang: z.string().max(16).optional(),
 	options: typesetOptionsSchema.optional(),
+	/** 'accent' DRAWS `text` AS A FREE-FLOATING ACCENT CALLOUT INSTEAD OF A SPEECH BUBBLE. */
+	mode: z.enum(['dialogue', 'accent']).optional(),
 	/** A SKILL OR TITLE CALLOUT DRAWN AS ACCENT TEXT BELOW THE BUBBLE (FEAT-010). */
 	accentText: z.string().trim().min(1).max(200).optional(),
 });
@@ -44,7 +46,7 @@ export const POST: RequestHandler = async ({ request, cookies }) => {
 	}
 	const parsed = previewSchema.safeParse(body);
 	if (!parsed.success) throw error(400, parsed.error.issues[0]?.message ?? 'Invalid preview request.');
-	const { text, targetLang, options, accentText } = parsed.data;
+	const { text, targetLang, options, accentText, mode } = parsed.data;
 
 	const targetScript = scriptOfLanguage(targetLang) ?? dominantScript(text, 'latin');
 	const typesetOptions = buildTypesetOptions({
@@ -61,7 +63,10 @@ export const POST: RequestHandler = async ({ request, cookies }) => {
 	ctx.fillRect(0, 0, WIDTH, height);
 	const page = canvas.toBuffer('image/png');
 
-	const regions: TypesetRegion[] = [{ id: 'preview', box: { x: 40, y: 30, w: WIDTH - 80, h: HEIGHT - 60 }, text, kind: 'dialogue_bubble' }];
+	const regions: TypesetRegion[] =
+		mode === 'accent'
+			? [{ id: 'preview', box: { x: 40, y: 30, w: WIDTH - 80, h: HEIGHT - 60 }, text, kind: 'free_text', role: 'accent' }]
+			: [{ id: 'preview', box: { x: 40, y: 30, w: WIDTH - 80, h: HEIGHT - 60 }, text, kind: 'dialogue_bubble' }];
 	if (accentText) {
 		regions.push({ id: 'preview-accent', box: { x: 60, y: HEIGHT, w: WIDTH - 120, h: ACCENT_BAND - 20 }, text: accentText, kind: 'free_text', role: 'accent' });
 	}

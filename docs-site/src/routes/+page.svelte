@@ -113,7 +113,7 @@
 			title: 'Automated Typesetting',
 			icon: Sparkles,
 			tag: 'Skia',
-			desc: 'Fits the translation into each bubble with balanced line breaks, outlines, rotation for tilted bubbles, the right font for every script, and a separate accent font for skill names, attacks and title cards.',
+			desc: 'Fits the translation into each bubble with balanced line breaks, outlines, rotation for tilted bubbles, the right font for every script, plain letters where a font has no accents, and a separate accent font for skill names, attacks and title cards.',
 		},
 	];
 

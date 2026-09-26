@@ -56,6 +56,25 @@ describe('typeset preview endpoint', () => {
 	});
 });
 
+describe('diacritics follow the font (FEAT-011)', () => {
+	const png = async (body: Record<string, unknown>) => Buffer.from(await (await request({ text: 'CAFE', ...body })).arrayBuffer());
+
+	it('draws É plain in CC Wild Words, in any language, and keeps it in a font that has it', async () => {
+		const wildWords = { fontDialogue: 'CC Wild Words' };
+		expect((await png({ text: 'CAFÉ', targetLang: 'fr', options: wildWords })).equals(await png({ targetLang: 'fr', options: wildWords }))).toBe(true);
+		const poppins = { fontDialogue: 'Poppins' };
+		expect((await png({ text: 'CAFÉ', targetLang: 'fr', options: poppins })).equals(await png({ targetLang: 'fr', options: poppins }))).toBe(false);
+	});
+
+	it('draws the text as an accent callout in accent mode', async () => {
+		const options = { accentFonts: { latin: 'Montserrat' } };
+		const dialogue = Buffer.from(await (await request({ text: 'GREEN WOOD', targetLang: 'en', options })).arrayBuffer());
+		const accent = Buffer.from(await (await request({ text: 'GREEN WOOD', targetLang: 'en', options, mode: 'accent' })).arrayBuffer());
+		expect(accent.equals(dialogue)).toBe(false);
+		await expect(request({ text: 'ok', mode: 'shout' })).rejects.toMatchObject({ status: 400 });
+	});
+});
+
 describe('accent sample (FEAT-010)', () => {
 	async function size(res: Response) {
 		const { loadImage } = await import('@napi-rs/canvas');

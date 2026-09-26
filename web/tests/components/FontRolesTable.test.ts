@@ -5,6 +5,7 @@
 import { render, fireEvent, screen, cleanup, waitFor, within } from '@testing-library/svelte';
 import { describe, it, expect, afterEach, beforeEach, vi } from 'vitest';
 import { get } from 'svelte/store';
+import { tick } from 'svelte';
 import FontRolesTable from '$lib/components/settings/FontRolesTable.svelte';
 import { settings, DEFAULTS } from '$lib/stores/settings';
 
@@ -103,7 +104,7 @@ describe('FontRolesTable accent column (FEAT-010)', () => {
 	it('choosing an accent font writes typesetAccentFonts; Off removes it', async () => {
 		stubFetch(coverage());
 		render(FontRolesTable);
-		const [, accent] = within(screen.getByTestId('font-row-latin')).getAllByRole('combobox') as HTMLSelectElement[];
+		const [accent] = within(screen.getByTestId('font-row-latin-accent')).getAllByRole('combobox') as HTMLSelectElement[];
 		expect(accent.value).toBe('__off__');
 		await fireEvent.change(accent, { target: { value: 'Montserrat' } });
 		expect(get(settings).typesetAccentFonts.latin).toBe('Montserrat');
@@ -125,23 +126,41 @@ describe('FontRolesTable accent column (FEAT-010)', () => {
 		settings.update((s) => ({ ...s, typesetAccentFonts: { latin: 'BadaBoom BB', han: 'System Brush' } }));
 		stubFetch(
 			coverage({}, [
-				{ script: 'latin', family: 'BadaBoom BB', available: true, verified: true, coversScript: true, missing: ['É', 'Ñ'] },
+				{ script: 'latin', family: 'BadaBoom BB', available: true, verified: true, coversScript: true, missing: ['É', 'Ñ', '7'] },
 				{ script: 'han', family: 'System Brush', available: true, verified: false, coversScript: true, missing: [] },
 			]),
 		);
 		render(FontRolesTable);
-		await waitFor(() => expect(screen.getByTestId('font-row-latin-accent-note').textContent).toMatch(/lacks É Ñ/));
+		await waitFor(() => expect(screen.getByTestId('font-row-latin-accent-note').textContent).toMatch(/lacks 7\./));
 		expect(screen.getByTestId('font-row-han-accent-note').textContent).toMatch(/could not be checked/);
 	});
 
-	it('shows accent casing, weight and the speech bubble switch once an accent font is set', async () => {
+	it('has no diacritics control and no accent style row (owner review)', async () => {
 		stubFetch(coverage());
-		render(FontRolesTable);
-		expect(screen.queryByTestId('accent-style')).toBeNull();
 		settings.update((s) => ({ ...s, typesetAccentFonts: { latin: 'Montserrat' } }));
-		const style = await screen.findByTestId('accent-style');
-		await fireEvent.click(within(style).getByRole('switch', { name: /Accent in speech bubbles/i }));
-		expect(get(settings).typesetAccentInBubbles).toBe(true);
+		render(FontRolesTable);
+		await screen.findByTestId('font-row-latin');
+		expect(screen.queryByTestId('latin-diacritics')).toBeNull();
+		expect(screen.queryByTestId('accent-style')).toBeNull();
+		expect(screen.queryByRole('switch', { name: /Accent in speech bubbles/i })).toBeNull();
+	});
+
+	it('leaves out missing accented letters, which are drawn plain in the accent font (FEAT-011)', async () => {
+		settings.update((s) => ({ ...s, typesetAccentFonts: { latin: 'BadaBoom BB' } }));
+		stubFetch(coverage({}, [{ script: 'latin', family: 'BadaBoom BB', available: true, verified: true, coversScript: true, missing: ['É', 'Ñ', '['] }]));
+		render(FontRolesTable);
+		const note = () => screen.queryByTestId('font-row-latin-accent-note')?.textContent ?? '';
+		await waitFor(() => expect(note()).toMatch(/lacks \[\./));
+		expect(note()).not.toMatch(/É|Ñ/);
+	});
+
+	it('shows no note when the only missing letters are drawn plain (FEAT-011)', async () => {
+		settings.update((s) => ({ ...s, typesetAccentFonts: { latin: 'BadaBoom BB' } }));
+		stubFetch(coverage({}, [{ script: 'latin', family: 'BadaBoom BB', available: true, verified: true, coversScript: true, missing: ['É', 'Ñ'] }]));
+		render(FontRolesTable);
+		await waitFor(() => expect(screen.getByTestId('font-row-latin-accent')).toBeTruthy());
+		await tick();
+		expect(screen.queryByTestId('font-row-latin-accent-note')).toBeNull();
 	});
 });
 

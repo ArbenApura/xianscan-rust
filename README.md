@@ -72,7 +72,7 @@ flowchart LR
 4. **Multi-Language OCR**: High-accuracy text extraction with support for vertical and horizontal text layouts across 10 languages.
 5. **Context-Aware AI Translation & Glossaries**: Integrates with local LLMs (Ollama, LM Studio with Qwen, Llama, Gemma) or cloud APIs (Gemini, OpenAI, Groq, OpenRouter). Uses a sliding dialogue context of previous pages (4 by default, adjustable) to keep speaker identity, pronouns, and topic consistent across page turns, combined with Aho-Corasick terminology glossaries to enforce consistent names and cultivation terms across chapters.
 6. **Neural Artwork Inpainting (LaMa)**: Removes dialogue text while reconstructing underlying artwork, gradients, and textures with configurable edge padding.
-7. **Typesetting Studio & Typography**: Automatically computes font sizing, line breaks, outline strokes, and bubble tilt, with per-script fonts (Hindi, Thai, Arabic including right-to-left layout, CJK, and more), plus a per-script accent font for skill names, attacks, spells, and title cards that the translator marks automatically.
+7. **Typesetting Studio & Typography**: Automatically computes font sizing, line breaks, outline strokes, and bubble tilt, with per-script fonts (Hindi, Thai, Arabic including right-to-left layout, CJK, and more), plus a per-script accent font for skill names, attacks, spells, and title cards that the translator marks automatically, and plain letters (É to E) wherever a font has no accented letters, so a word never mixes fonts.
 8. **Interactive Studio Inspector**: Visual overlay to inspect raw OCR bounding boxes, character confidence scores, model prompts, and make quick text adjustments before saving.
 
 ---

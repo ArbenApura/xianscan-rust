@@ -1,7 +1,6 @@
 <!-- TYPESETTING & LETTERING TAB (FEAT-009 PHASE 6: MOVED OUT OF SettingsModal.svelte) -->
 <script lang="ts">
 	// IMPORTED DEP-MODULES
-	import { onDestroy } from 'svelte';
 	import { toast } from 'svelte-sonner';
 	// IMPORTED MODULES
 	import { ripple } from '$lib/actions/ripple';
@@ -28,6 +27,7 @@
 		getValidCasingForFont,
 	} from '$lib/stores/settings';
 	import { dominantScript, SCRIPT_LABELS } from '$lib/typeset-scripts';
+	import { plainDiacritics } from '$lib/diacritics';
 	// IMPORTED DEP-COMPONENTS
 	import Type from 'lucide-svelte/icons/type';
 	import RotateCcw from 'lucide-svelte/icons/rotate-ccw';
@@ -83,6 +83,9 @@
 	let selectedPresetId = $settings.typesetPreviewPreset || 'en';
 	let isCustomTextMode = ($settings.typesetPreviewPreset || 'en') === 'custom';
 	let previewSampleText = $settings.typesetPreviewText || SAMPLE_TEXT_PRESETS[0].text;
+	let previewMode: 'dialogue' | 'accent' = 'dialogue';
+	// CUSTOM ACCENT CALLOUT; EMPTY UNTIL THE USER TYPES ONE (THE LANGUAGE SAMPLE IS SHOWN MEANWHILE)
+	let accentCustomText = '';
 
 	function selectTextPreset(preset: TextPreset) {
 		selectedPresetId = preset.id;
@@ -104,7 +107,17 @@
 		}));
 	}
 
+	function onCustomAccentChange(val: string) {
+		accentCustomText = val;
+	}
+
+	function setPreviewMode(mode: 'dialogue' | 'accent') {
+		previewMode = mode;
+	}
+
 	function enableCustomTextMode() {
+		// START THE CUSTOM ACCENT FROM THE SAMPLE ON SCREEN, SO THE CALLOUT DOES NOT JUMP
+		if (!accentCustomText) accentCustomText = ACCENT_SAMPLES[selectedPresetId] ?? ACCENT_SAMPLES.en;
 		isCustomTextMode = true;
 		selectedPresetId = 'custom';
 		settings.update((s) => ({
@@ -119,6 +132,12 @@
 		{ id: 'thin', label: 'Thin', px: '1.5px', desc: 'Subtle boundary' },
 		{ id: 'standard', label: 'Standard', px: '3px', desc: 'Balanced scanlation stroke' },
 		{ id: 'heavy', label: 'Heavy', px: '5px', desc: 'Thick contrast halo' },
+	];
+
+	// PREVIEW SUBJECT: A DIALOGUE BUBBLE OR AN ACCENT CALLOUT (SKILL NAMES, ATTACKS, TITLE CARDS)
+	const PREVIEW_MODES: { id: 'dialogue' | 'accent'; label: string }[] = [
+		{ id: 'dialogue', label: 'Dialogue' },
+		{ id: 'accent', label: 'Accent' },
 	];
 
 	const PADDING_PRESETS: { value: number; label: string; sub: string }[] = [
@@ -168,6 +187,30 @@
 		settings.update((s) => ({ ...s, typesetOutline: mode }));
 		const label = OUTLINE_PRESETS.find((p) => p.id === mode)?.label || mode;
 		toast.success(`Text stroke outline set to ${label}`);
+	}
+
+	/**
+	 * THE LATIN LETTERS `family` HAS NO GLYPH FOR, FROM THE COVERAGE ROUTE (FEAT-011), SO THE BROWSER PREVIEW DRAWS THEM
+	 * PLAIN (É -> E) AS THE RENDERER DOES. CACHED PER FAMILY; AN EMPTY SET WHILE LOADING OR ON FAILURE.
+	 */
+	async function loadMissingLatin(family: string): Promise<void> {
+		if (!family || missingLatin[family]) return;
+		missingLatin = { ...missingLatin, [family]: new Set() };
+		try {
+			const res = await fetch(`/api/system/fonts/coverage?accentFonts=${encodeURIComponent(JSON.stringify({ latin: family }))}`);
+			if (!res.ok) return;
+			const body = await res.json();
+			const entry = (body?.accent ?? []).find((a: { script?: string }) => a?.script === 'latin');
+			if (Array.isArray(entry?.missing)) missingLatin = { ...missingLatin, [family]: new Set(entry.missing as string[]) };
+		} catch {
+			// NO COVERAGE: THE PREVIEW KEEPS EVERY LETTER
+		}
+	}
+
+	/** CASED PREVIEW TEXT WITH THE LETTERS `family` LACKS DRAWN PLAIN, LIKE plainForFont ON THE SERVER. */
+	function plainForPreview(text: string, family: string, missing: Record<string, Set<string>>): string {
+		const set = missing[family];
+		return set && set.size > 0 ? plainDiacritics(text, (codePoint) => !set.has(String.fromCodePoint(codePoint))) : text;
 	}
 
 	function setCasing(casing: TypesetCasing | string) {
@@ -282,71 +325,11 @@
 	}) satisfies SelectOption[];
 
 	// THE PREVIEW USES THE SAME FAMILY THE SERVER WOULD FOR THE SAMPLE'S SCRIPT (BUNDLED FONTS HAVE @font-face RULES)
-	$: previewScript = dominantScript(previewSampleText, 'latin');
+	$: previewScript = dominantScript(previewMode === 'accent' ? accentSampleText : previewSampleText, 'latin');
 	$: dialogueStack = selectedFont?.stack || `"${$settings.typesetFont || 'CC Wild Words'}", sans-serif`;
 	$: previewScriptFamily = previewScript === 'latin' ? undefined : scriptPreviewFamily(previewScript, $settings.typesetScriptFonts);
 	$: previewFontFamily = previewScriptFamily ? `"${previewScriptFamily}", ${dialogueStack}` : dialogueStack;
 
-	// EXACT PREVIEW (ADR-009): THE REAL SKIA RENDER, ON DEMAND ONLY. THE REQUEST CARRIES THE WHOLE EFFECTIVE STYLE, SO
-	// A CHANGE MADE JUST BEFORE THE CLICK IS RENDERED EVEN IF THE DEBOUNCED SETTINGS SYNC HAS NOT SAVED IT YET.
-	let exactPreviewUrl: string | null = null;
-	let exactPreviewLoading = false;
-	let exactPreviewError = '';
-	// BUMPED WHENEVER THE INPUTS CHANGE: A RENDER STARTED FOR OLDER INPUTS IS DROPPED WHEN IT RETURNS
-	let exactPreviewSeq = 0;
-
-	function clearExactPreview(..._deps: unknown[]): void {
-		exactPreviewSeq++;
-		if (exactPreviewUrl) URL.revokeObjectURL(exactPreviewUrl);
-		exactPreviewUrl = null;
-		exactPreviewError = '';
-		exactPreviewLoading = false;
-	}
-
-	/** SVELTEKIT error() ANSWERS WITH JSON { message }; ANYTHING ELSE FALLS BACK TO THE RAW TEXT OR THE STATUS. */
-	async function readErrorMessage(res: Response): Promise<string> {
-		const raw = await res.text().catch(() => '');
-		try {
-			const body = JSON.parse(raw);
-			if (typeof body?.message === 'string' && body.message) return body.message;
-			if (typeof body?.error === 'string' && body.error) return body.error;
-		} catch {
-			// NOT JSON
-		}
-		return raw.trim() || `Request failed (${res.status})`;
-	}
-
-	async function renderExactPreview(): Promise<void> {
-		const seq = ++exactPreviewSeq;
-		exactPreviewLoading = true;
-		exactPreviewError = '';
-		try {
-			const preset = SAMPLE_TEXT_PRESETS.find((p) => p.id === selectedPresetId);
-			const res = await fetch('/api/typeset/preview', {
-				method: 'POST',
-				headers: { 'content-type': 'application/json' },
-				body: JSON.stringify({
-					// THE RAW SAMPLE: THE SERVER APPLIES THE CASING ITSELF (AND SKIPS IT FOR CASELESS SCRIPTS)
-					text: previewSampleText,
-					targetLang: preset?.lang,
-					options: exactPreviewOptions,
-					// THE ACCENT CALLOUT IS RENDERED TOO ONCE AN ACCENT FONT IS SET (FEAT-010)
-					...(accentPreviewOn ? { accentText: accentSampleText } : {}),
-				}),
-			});
-			if (!res.ok) throw new Error(await readErrorMessage(res));
-			const blob = await res.blob();
-			if (seq !== exactPreviewSeq) return;
-			if (exactPreviewUrl) URL.revokeObjectURL(exactPreviewUrl);
-			exactPreviewUrl = URL.createObjectURL(blob);
-		} catch (err: any) {
-			if (seq !== exactPreviewSeq) return;
-			exactPreviewError = err?.message || String(err);
-			toast.error(`Exact preview failed: ${exactPreviewError}`);
-		} finally {
-			if (seq === exactPreviewSeq) exactPreviewLoading = false;
-		}
-	}
 	$: previewIsDarkBubble = previewDarkBackground;
 	$: previewTextColor = previewIsDarkBubble ? '#ffffff' : '#111111';
 	$: previewStrokeColor = previewIsDarkBubble ? '#000000' : '#ffffff';
@@ -354,60 +337,44 @@
 	// THE PREVIEW SHOWS WHAT WILL BE SENT: THE EFFECTIVE WEIGHT AND CASING
 	$: previewFontWeight = normalizeFontWeightNumeric($effectiveTypeset.weight);
 	$: previewFontStyle = $settings.enableTypesetItalic ? 'italic' : 'normal';
-	$: previewEffectiveText =
+	// LETTERS WITH DIACRITICS THE FONT LACKS ARE DRAWN PLAIN (FEAT-011), AFTER CASING AS ON THE SERVER
+	let missingLatin: Record<string, Set<string>> = {};
+	$: previewDialogueFamily = $settings.typesetFont || DEFAULTS.typesetFont;
+	$: loadMissingLatin(previewDialogueFamily);
+	$: previewCasedText =
 		$effectiveTypeset.casing === 'uppercase'
 			? previewSampleText.toUpperCase()
 			: $effectiveTypeset.casing === 'lowercase'
 				? previewSampleText.toLowerCase()
 				: previewSampleText;
+	$: previewEffectiveText = plainForPreview(previewCasedText, previewDialogueFamily, missingLatin);
 	$: previewTransformRotation = $settings.enableTextRotation ? `rotate(${previewSimulatedAngle}deg)` : 'none';
 	$: previewInsetPadding = `${Math.max(8, Math.round(120 * ($settings.typesetPadding || 0.05)))}px`;
 	$: previewFontSizePx = '14px';
 
 	// ACCENT PREVIEW (FEAT-010): THE CALLOUT USES THE ACCENT FONT FOR THE SAMPLE'S SCRIPT, THE ACCENT CASING AND WEIGHT
 	$: accentFonts = $settings.typesetAccentFonts || {};
-	$: accentPreviewOn = Object.keys(accentFonts).length > 0;
-	$: accentSampleText = ACCENT_SAMPLES[selectedPresetId] ?? ACCENT_SAMPLES.en;
+	$: accentSampleText = isCustomTextMode
+		? accentCustomText.trim() || ACCENT_SAMPLES.en
+		: (ACCENT_SAMPLES[selectedPresetId] ?? ACCENT_SAMPLES.en);
 	$: accentPreviewScript = dominantScript(accentSampleText, 'latin');
 	// KANJI IN THE JAPANESE SAMPLE USE THE kana SLOT, AS THE RENDERER DOES FOR A JAPANESE BOOK
 	$: accentPreviewFamily = (selectedPresetId === 'ja' && accentPreviewScript === 'han' ? accentFonts.kana : undefined) ?? accentFonts[accentPreviewScript];
 	$: accentPreviewFontFamily = accentPreviewFamily ? `"${accentPreviewFamily}", ${previewFontFamily}` : previewFontFamily;
-	$: accentPreviewCased = accentPreviewScript !== 'latin' && accentPreviewScript !== 'cyrillic' && accentPreviewScript !== 'greek'
+	$: accentCasedText = accentPreviewScript !== 'latin' && accentPreviewScript !== 'cyrillic' && accentPreviewScript !== 'greek'
 		? accentSampleText
 		: ($settings.typesetAccentCasing || 'uppercase') === 'uppercase'
 			? accentSampleText.toUpperCase()
 			: ($settings.typesetAccentCasing || 'uppercase') === 'lowercase'
 				? accentSampleText.toLowerCase()
 				: accentSampleText;
+	$: accentDrawnFamily = accentPreviewFamily ?? previewDialogueFamily;
+	$: loadMissingLatin(accentDrawnFamily);
+	$: accentPreviewCased = plainForPreview(accentCasedText, accentDrawnFamily, missingLatin);
 	// NO ACCENT FONT FOR THIS SCRIPT: THE DIALOGUE FONT WITH A HEAVIER OUTLINE, AS THE RENDERER DOES (ADR-009)
 	$: accentPreviewStroke = accentPreviewFamily ? previewStrokeWidth : previewStrokeWidth === '0px' ? '1px' : previewStrokeWidth === '1px' ? '2px' : '3px';
+	$: previewLetterStroke = previewMode === 'accent' ? accentPreviewStroke : previewStrokeWidth;
 
-	// EVERYTHING THE EXACT RENDER DEPENDS ON, IN THE PREVIEW ROUTE'S OPTION SCHEMA
-	$: exactPreviewOptions = {
-		fontDialogue: $settings.typesetFont || DEFAULTS.typesetFont,
-		scriptFonts: $settings.typesetScriptFonts || {},
-		casing: $effectiveTypeset.casing,
-		fontWeight: $effectiveTypeset.weight,
-		fontStyle: ($settings.enableTypesetItalic ? 'italic' : 'normal') as 'italic' | 'normal',
-		outlineMode: $settings.typesetOutline || DEFAULTS.typesetOutline,
-		colorMode: $settings.typesetContrast || DEFAULTS.typesetContrast,
-		boxInset: Math.min(0.2, Math.max(0.01, $settings.typesetPadding || DEFAULTS.typesetPadding)),
-		enableRotation: Boolean($settings.enableTextRotation),
-		accentFonts,
-		accentCasing: $settings.typesetAccentCasing || DEFAULTS.typesetAccentCasing,
-		accentFontWeight: $settings.typesetAccentFontWeight || DEFAULTS.typesetAccentFontWeight,
-		accentInBubbles: Boolean($settings.typesetAccentInBubbles),
-	};
-	// A PRIMITIVE KEY, SO AN UNRELATED SETTINGS CHANGE DOES NOT CLEAR THE RENDERED IMAGE
-	$: exactPreviewKey = JSON.stringify([previewSampleText, selectedPresetId, isCustomTextMode, exactPreviewOptions, accentPreviewOn ? accentSampleText : null]);
-	$: clearExactPreview(exactPreviewKey);
-
-	// -- LIFECYCLES -- //
-
-	onDestroy(() => {
-		exactPreviewSeq++;
-		if (exactPreviewUrl) URL.revokeObjectURL(exactPreviewUrl);
-	});
 </script>
 
 <div class="space-y-5">
@@ -439,19 +406,47 @@
 				<Type size={14} class="text-[#b23a2e] dark:text-[#e08a63]" />
 				<span>Live Speech Bubble Preview</span>
 			</div>
-			<button
-				type="button"
-				on:click={() => (previewDarkBackground = !previewDarkBackground)}
-				class="inline-flex items-center gap-1.5 rounded-lg border border-black/10 bg-white px-2.5 py-1 text-[11px] font-semibold text-neutral-700 shadow-2xs hover:bg-neutral-50 dark:border-white/10 dark:bg-neutral-800 dark:text-neutral-200 dark:hover:bg-neutral-700 cursor-pointer"
-			>
-				{#if previewDarkBackground}
-					<Sun size={12} class="text-amber-500" />
-					<span>Light Page Scene</span>
-				{:else}
-					<Moon size={12} class="text-indigo-400" />
-					<span>Dark / Night Scene</span>
-				{/if}
-			</button>
+			<div class="flex items-center gap-1.5">
+				<!-- DIALOGUE / ACCENT: WHICH LETTERING THE PREVIEW SHOWS -->
+				<div
+					class="inline-flex items-center rounded-lg border border-black/10 bg-white p-0.5 shadow-2xs dark:border-white/10 dark:bg-neutral-800"
+					role="tablist"
+					aria-label="Preview lettering"
+				>
+					{#each PREVIEW_MODES as mode}
+						{@const isActive = previewMode === mode.id}
+						<button
+							type="button"
+							role="tab"
+							aria-selected={isActive}
+							on:click={() => setPreviewMode(mode.id)}
+							class={cn(
+								'rounded-md px-2.5 py-0.5 text-[11px] font-semibold transition-colors cursor-pointer',
+								isActive
+									? 'bg-[#b23a2e] text-white dark:bg-[#e08a63] dark:text-neutral-950'
+									: 'text-neutral-600 hover:bg-black/5 dark:text-neutral-300 dark:hover:bg-white/10',
+							)}
+							data-testid={`preview-mode-${mode.id}`}
+							use:ripple
+						>
+							{mode.label}
+						</button>
+					{/each}
+				</div>
+				<button
+					type="button"
+					on:click={() => (previewDarkBackground = !previewDarkBackground)}
+					class="inline-flex items-center gap-1.5 rounded-lg border border-black/10 bg-white px-2.5 py-1 text-[11px] font-semibold text-neutral-700 shadow-2xs hover:bg-neutral-50 dark:border-white/10 dark:bg-neutral-800 dark:text-neutral-200 dark:hover:bg-neutral-700 cursor-pointer"
+				>
+					{#if previewDarkBackground}
+						<Sun size={12} class="text-amber-500" />
+						<span>Light Page Scene</span>
+					{:else}
+						<Moon size={12} class="text-indigo-400" />
+						<span>Dark / Night Scene</span>
+					{/if}
+				</button>
+			</div>
 		</div>
 
 		<!-- SCRIPT / SAMPLE PRESET SWITCHER -->
@@ -485,12 +480,23 @@
 			</button>
 		</div>
 
-		{#if isCustomTextMode}
+		{#if isCustomTextMode && previewMode === 'accent'}
+			<input
+				type="text"
+				value={accentCustomText}
+				on:input={(e) => onCustomAccentChange(e.currentTarget.value)}
+				placeholder="Type a skill name, attack or title card..."
+				maxlength="200"
+				aria-label="Custom accent text"
+				class="h-[36px] w-full rounded-lg border border-black/10 bg-transparent px-3 text-xs outline-none transition-colors placeholder:opacity-40 focus:border-[#b23a2e] focus:ring-2 focus:ring-[#b23a2e]/30 dark:border-white/[0.08]"
+			/>
+		{:else if isCustomTextMode}
 			<input
 				type="text"
 				value={previewSampleText}
 				on:input={(e) => onCustomTextChange(e.currentTarget.value)}
 				placeholder="Type preview dialogue..."
+				aria-label="Custom dialogue text"
 				class="h-[36px] w-full rounded-lg border border-black/10 bg-transparent px-3 text-xs outline-none transition-colors placeholder:opacity-40 focus:border-[#b23a2e] focus:ring-2 focus:ring-[#b23a2e]/30 dark:border-white/[0.08]"
 			/>
 		{/if}
@@ -502,6 +508,7 @@
 			}`}
 		>
 			<div class="pointer-events-none absolute inset-0 opacity-20 bg-[radial-gradient(#888_1px,transparent_1px)] [background-size:12px_12px]"></div>
+			<!-- ONE BUBBLE FOR BOTH: THE MODE ONLY SWAPS THE LETTERING (FONT, WEIGHT, CASING, OUTLINE); RUNTIME VALUES (EXCEPTION (b)) -->
 			<div
 				class="relative z-10 max-w-[280px] sm:max-w-[320px] rounded-3xl border-2 shadow-lg transition-all duration-150 text-center"
 				style="
@@ -513,63 +520,32 @@
 			>
 				<div
 					class="leading-snug select-none transition-all duration-150 break-words px-1.5"
+					data-testid={previewMode === 'accent' ? 'accent-preview' : 'dialogue-preview'}
 					style="
-						font-family: {previewFontFamily};
-						font-weight: {previewFontWeight};
-						font-style: {previewFontStyle};
+						font-family: {previewMode === 'accent' ? accentPreviewFontFamily : previewFontFamily};
+						font-weight: {previewMode === 'accent' ? normalizeFontWeightNumeric($settings.typesetAccentFontWeight) : previewFontWeight};
+						font-style: {previewMode === 'accent' ? 'normal' : previewFontStyle};
 						font-size: {previewFontSizePx};
 						color: {previewTextColor};
 						paint-order: stroke fill;
-						-webkit-text-stroke: {previewStrokeWidth} {previewStrokeColor};
-						text-shadow: {previewStrokeWidth !== '0px' ? `0 0 3px ${previewStrokeColor}` : 'none'};
+						-webkit-text-stroke: {previewLetterStroke} {previewStrokeColor};
+						text-shadow: {previewLetterStroke !== '0px' ? `0 0 3px ${previewStrokeColor}` : 'none'};
 					"
 				>
-					{previewEffectiveText}
+					{previewMode === 'accent' ? accentPreviewCased : previewEffectiveText}
 				</div>
 			</div>
-			{#if accentPreviewOn}
-				<!-- ACCENT CALLOUT (FEAT-010): FREE TEXT IN THE ACCENT FONT; FAMILY AND STROKE ARE RUNTIME VALUES (EXCEPTION (b)) -->
-				<div
-					class="relative z-10 max-w-full select-none break-words text-center text-lg leading-tight"
-					data-testid="accent-preview"
-					style="
-						font-family: {accentPreviewFontFamily};
-						font-weight: {normalizeFontWeightNumeric($settings.typesetAccentFontWeight)};
-						color: {previewDarkBackground ? '#ffffff' : '#111111'};
-						paint-order: stroke fill;
-						-webkit-text-stroke: {accentPreviewStroke} {previewDarkBackground ? '#000000' : '#ffffff'};
-					"
-				>
-					{accentPreviewCased}
-				</div>
-			{/if}
 			<div class="absolute bottom-2 right-2.5 flex items-center gap-1 rounded-md bg-black/50 px-2 py-0.5 text-[9px] font-mono text-white backdrop-blur-xs">
 				<Compass size={10} />
 				<span>{$settings.enableTextRotation ? `Tilt Angle: +${previewSimulatedAngle}°` : 'Horizontal (0°)'}</span>
 			</div>
 		</div>
-		<div class="flex items-center justify-between gap-2">
-			<p class="text-[11px] opacity-60">
-				{previewScript === 'latin' ? 'Browser preview.' : `Browser preview (${SCRIPT_LABELS[previewScript]}).`} The exact render uses the same engine as your pages.
+		{#if previewMode === 'accent'}
+			<p class="text-[11px] opacity-60" data-testid="accent-preview-font">
+				{accentPreviewFamily
+					? `Accent font: ${accentPreviewFamily}.`
+					: `No accent font for ${SCRIPT_LABELS[accentPreviewScript]}: drawn in the dialogue font with a heavier outline. Choose one in the Fonts table below.`}
 			</p>
-			<button
-				type="button"
-				on:click={renderExactPreview}
-				disabled={exactPreviewLoading}
-				class="inline-flex shrink-0 items-center gap-1 rounded-lg border border-black/10 px-2 py-1 text-[11px] font-semibold hover:bg-black/5 disabled:opacity-50 dark:border-white/10 dark:hover:bg-white/5 cursor-pointer"
-				data-testid="render-exact-preview"
-				use:ripple
-			>
-				{exactPreviewLoading ? 'Rendering...' : 'Render exact preview'}
-			</button>
-		</div>
-		{#if exactPreviewError}
-			<p class="text-[11px] font-semibold text-red-700 dark:text-red-300" role="alert" data-testid="exact-preview-error">
-				Exact preview failed: {exactPreviewError}
-			</p>
-		{/if}
-		{#if exactPreviewUrl}
-			<img src={exactPreviewUrl} alt="Exact typeset preview" class="w-full rounded-xl border border-black/10 dark:border-white/10" />
 		{/if}
 	</div>
 

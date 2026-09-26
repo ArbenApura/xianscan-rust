@@ -23,6 +23,8 @@ import {
 	type TextColor,
 } from './typeset/fonts';
 import type { Script } from '$lib/languages';
+import { plainDiacritics } from '$lib/diacritics';
+import { familyCodepoints } from './typeset/coverage';
 import { dominantScript, type ScriptFontSlot } from '$lib/typeset-scripts';
 import { resolveDirection, type DirectionOverride } from '$lib/text-direction';
 import type { ScriptFontContext } from './typeset/script-fonts';
@@ -91,6 +93,16 @@ function legacyCjkFont(opts: Pick<TypesetOptions, 'fontCjk'>): string | undefine
  * THE SLOT MAP THE RENDERER USES. A LEGACY fontCjk (ONLY SET FOR AN OLD CLIENT'S EXPLICIT REQUEST, SEE
  * buildTypesetOptions) FILLS THE han / kana / hangul SLOTS THAT ARE STILL UNSET; EVERY OTHER SLOT IS AS GIVEN.
  */
+/**
+ * LATIN LETTERS WITH DIACRITICS THE FAMILY HAS NO GLYPH FOR ARE DRAWN PLAIN (É -> E), SO A WORD NEVER SWITCHES TO A FALLBACK
+ * FONT MID-WORD (FEAT-011). A FAMILY WHOSE CODE POINTS ARE UNKNOWN KEEPS EVERY LETTER. RUNS AFTER CASING, BECAUSE A FONT
+ * CAN HAVE É BUT NOT é. STORED TRANSLATIONS ARE NEVER CHANGED.
+ */
+export function plainForFont(text: string, family: string): string {
+	const codepoints = familyCodepoints(family);
+	return codepoints ? plainDiacritics(text, (codePoint) => codepoints.has(codePoint)) : text;
+}
+
 export function resolveScriptFontSlots(opts: Pick<TypesetOptions, 'fontCjk' | 'scriptFonts'>): Partial<Record<ScriptFontSlot, string>> {
 	const scriptFonts: Partial<Record<ScriptFontSlot, string>> = { ...(opts.scriptFonts ?? {}) };
 	const fontCjk = legacyCjkFont(opts);
@@ -178,7 +190,7 @@ export async function typesetPage(
 			return value.toUpperCase();
 		};
 		let font = fontFor(rawText, fontDialogue, fontCjk, scriptCtx);
-		let text = applyCasing(rawText, font, casing);
+		let text = plainForFont(applyCasing(rawText, font, casing), font);
 
 		// PER-REGION STYLE: THE PAGE-LEVEL VALUES UNLESS THIS REGION IS DRAWN IN THE ACCENT FONT (FEAT-010)
 		let regionCtx = scriptCtx;
@@ -186,7 +198,7 @@ export async function typesetPage(
 		let regionOutline = outlineMode;
 		let accentRendered = false;
 		if (accentOn && appliesAccent(r, opts)) {
-			const accent = resolveAccentFont(rawText, opts, scriptCtx, (value, family) => applyCasing(value, family, accentCasing));
+			const accent = resolveAccentFont(rawText, opts, scriptCtx, (value, family) => plainForFont(applyCasing(value, family, accentCasing), family));
 			if (accent) {
 				regionCtx = accentScriptContext(scriptCtx, accent);
 				font = fontFor(rawText, accent.font, fontCjk, regionCtx);

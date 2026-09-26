@@ -432,6 +432,8 @@ The translation model is not reachable.
 				title: '3. Translated Text Shows Empty Boxes',
 				content: `
 No installed font covers the target language's script. XianScan warns about this in the book editor and while translating. Open **Settings** -> **Typesetting & Lettering**, then pick a font for that script's row in the **Fonts** table, or choose **Import font...** in that dropdown. See [Typography & Fonts](/docs/advanced/typography).
+
+**A single letter such as \`É\` or \`ñ\` looked like a different font:** older versions drew a letter the dialogue font does not have in a fallback font. XianScan now draws it plain (\`É\` as \`E\`) in the dialogue font itself, so every word stays in one font. To keep the accents, choose a dialogue font that has them, such as Poppins. See [Typography & Fonts](/docs/advanced/typography#dialogue-font).
 `,
 			},
 			{
@@ -916,6 +918,7 @@ The web server draws the translation with Skia (\`@napi-rs/canvas\`, code in \`w
 - **Arabic:** drawn right to left with Arabic punctuation (\`؟ ، ؛\`), whole words kept together.
 - **Fonts:** each line uses a font that really covers its script (see [Typography & Fonts](/docs/advanced/typography)). If none does, a warning appears, because the text would show as boxes.
 - **Outline and tilt:** an outline in contrast to the background, and text rotated to match tilted bubbles (2 to 45 degrees).
+- **Accented letters:** a Latin letter the font has no glyph for (\`É\`, \`Ñ\`, \`ß\` in CC Wild Words) is drawn plain (\`E\`, \`N\`, \`ss\`) in the same font, so a word never switches fonts halfway. A font that has the letter keeps it. Saved translations are not changed.
 - **Accent text:** drawn in the accent font for its script when that font has every letter; missing symbols come from the dialogue font, and the text is centred on its measured ink. Otherwise it uses the dialogue font with one outline step heavier.
 `,
 			},
@@ -936,6 +939,8 @@ The web server draws the translation with Skia (\`@napi-rs/canvas\`, code in \`w
 - **Dialogue:** the font for speech, thoughts and captions. The **Latin** row is the font for English, Spanish, Indonesian and other Latin-script languages.
 - **Accent:** the font for skill names, attacks, spells and title cards (see [Accent Font](#accent-font)). Latin starts with the bundled **Sigmar One**; other scripts start **Off**, which means accent text looks like dialogue.
 
+Accented letters follow the font: if a font has no \`É\`, \`Ñ\` or \`ß\` (CC Wild Words has none), they are drawn as \`E\`, \`N\` and \`ss\` in that font instead of in a fallback font. A font that has them keeps them, so pick one like Poppins to keep French or Spanish accents.
+
 Latin, the scripts your books are translated into, the scripts of the default language pair (**General & Appearance**) and any script you set a font for are listed. **Show all scripts** reveals the others: Chinese, Japanese, Korean, Cyrillic, Thai, Hindi and Arabic, the scripts of every supported language.
 
 Below the table:
@@ -947,7 +952,7 @@ Below the table:
 - **Bubble Centering & Expansion:** lets text use a little more room than the detected text area, so letters are not clipped.
 - **Bubble Tilt Angle:** rotate text to follow tilted bubbles.
 
-**Live Speech Bubble Preview** shows the result as you change settings. The preview is drawn by your browser; **Render exact preview** draws it with the real typesetter so you see exactly what the pipeline will produce. Once an accent font is set, both previews also show an accent sample under the bubble.
+**Live Speech Bubble Preview** shows the result as you change settings. **Dialogue** / **Accent** at its top switches the lettering in the same bubble: dialogue in the dialogue font, or a skill name or title card in the accent font. Pick a language sample, or **Custom** to type your own text for either. The preview is drawn by your browser, so it can differ slightly from the typeset pages.
 
 **Live Pipeline Step Previews** is under **General & Appearance**.
 `,
@@ -972,8 +977,8 @@ Comics letter some text differently from speech: a cultivation technique announc
 
 - **The translator marks it.** While translating a page, the AI also says which text regions are accent text. Ordinary speech that only mentions a technique stays dialogue. Glossary terms with the category **technique** mark matching free-floating text as accent text too.
 - **Choose the font per script** in the **Accent** column of the Fonts table. Latin uses the bundled **Sigmar One** by default; pick a brush font for Chinese, for example, or another display font for Latin. Set a cell to **Off** to letter that script's accent text like dialogue; with every cell **Off**, pages look exactly as before accent fonts existed.
-- **Accent casing, weight and speech bubbles:** once an accent font is set, a row under the table sets its casing and weight, and **Accent in speech bubbles** (off by default) decides whether accent text inside a speech bubble also gets the accent font.
-- **Every letter must be in the font.** An accent font is used for a region only when it has every letter of that text. Many display fonts have no accented letters, so French \`É\` or Spanish \`Ñ\` makes that region fall back to the dialogue font with a slightly heavier outline. The Accent cell lists the common letters a font lacks.
+- **Accent style:** accent text is drawn in UPPERCASE at regular weight, and only outside speech bubbles.
+- **Every letter must be in the font.** An accent font is used for a region only when it has every letter of that text. Accented letters it lacks (\`É\`, \`Ñ\`) do not count: they are drawn plain in the accent font. Any other missing letter makes that region fall back to the dialogue font with a slightly heavier outline. The Accent cell lists the letters that still matter.
 - **Symbols:** brackets, dashes and similar marks missing from the accent font are drawn in the dialogue font, so \`[Skill: ...]\` keeps its brackets.
 - **System fonts on Linux, Docker and macOS user fonts:** XianScan cannot always read which letters these fonts have, and the Accent cell says so. Import the font file to get the letter check.
 - **Fix a region by hand:** in the Page Inspector, accent regions show an **Accent** badge. Open a region and switch **Lettering** between **Dialogue** and **Accent**. Re-translating the page resets these switches, like manual text edits.
@@ -1176,7 +1181,7 @@ curl -H "Authorization: Bearer $XIANSCAN_TOKEN" http://192.168.1.20:8124/api/boo
 | \`GET /api/system/fonts/system\` | Fonts installed on the computer |
 | \`GET /api/system/fonts/coverage\` | Which font is used for each script, and the letters each accent font lacks (\`accent\`) |
 | \`GET /api/system/fonts/book-scripts\` | Scripts your books are typeset in |
-| \`POST /api/typeset/preview\` | Render an exact typesetting preview (optional \`accentText\` adds an accent sample) |
+| \`POST /api/typeset/preview\` | Render an exact typesetting preview (optional \`mode: accent\` draws the text as an accent callout) |
 | \`GET\`, \`PATCH /api/system/access\` | LAN state, token and addresses; turn LAN on or off (after a restart) |
 | \`POST /api/system/access/token/regenerate\` | Replace the access token |
 | \`POST /api/auth/unlock\`, \`GET /api/auth/status\`, \`POST /api/auth/logout\` | Browser session |
