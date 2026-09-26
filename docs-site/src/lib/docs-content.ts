@@ -21,7 +21,7 @@ export const DOCS_CONTENT: Record<string, DocChapterContent> = {
 	'getting-started/quick-start': {
 		title: 'Quick Start (3-Minute Setup)',
 		description: 'Install and launch XianScan standalone server to translate your first raw comic chapter in under 3 minutes.',
-		lastUpdated: '2026-09-12',
+		lastUpdated: '2026-09-26',
 		sections: [
 			{
 				id: 'download-binary',
@@ -37,6 +37,8 @@ XianScan ships as a single, self-contained executable with the SvelteKit web int
 | **Docker (Linux x86_64)** | \`ghcr.io/arbenapura/xianscan:latest\` | CPU Multi-threaded (Zero-setup) |
 
 Download the latest release archive from the [GitHub Releases](https://github.com/ArbenApura/xianscan-rust/releases) page or pull the container image from GitHub Container Registry.
+
+Every release also ships \`SHA256SUMS.txt\`. Verify your download with \`sha256sum -c SHA256SUMS.txt --ignore-missing\` (on Windows: \`Get-FileHash xianscan-windows-x86_64.zip\` and compare).
 `,
 			},
 			{
@@ -64,6 +66,8 @@ docker run -d --name xianscan \\
   ghcr.io/arbenapura/xianscan:latest
 \`\`\`
 
+The container always listens on its published port, so every browser (including one on the Docker host), Mihon and the browser importer need the **access token** once. Print it with \`docker exec xianscan /app/xianscan --print-token\`. To keep it reachable from the host only, publish \`-p 127.0.0.1:8124:8124\`.
+
 Upon launch, XianScan logs its startup sequence directly in the terminal (initializing hardware acceleration, loading AI model weights, extracting embedded assets, and starting the local server).
 
 ![XianScan Terminal Startup Console](/showcase/terminal_launch.png)
@@ -78,6 +82,15 @@ Upon launch, XianScan logs its startup sequence directly in the terminal (initia
 3. Inside your book, create a chapter or drag-and-drop a raw comic folder / image files (JPG, PNG, WebP) directly onto the dropzone.
 4. Click **Translate All** on the top toolbar to queue translation tasks. Monitor your background jobs in real-time using the interactive **Queue Modal** HUD (which can be freely moved around the screen, minimized, or expanded to inspect all active and pending translations). Once the entire chapter finishes processing, clean inpainting and context-aware typeset outputs are displayed automatically.
 5. Switch to **Webtoon Reader View** to enjoy continuous reading with automated typesetting, or sync with **[Mihon](/docs/extensions/mihon)** and other Tachiyomi-compatible apps for a native Android mobile reading experience!
+
+#### Using XianScan from Other Devices
+XianScan only accepts connections from this computer by default. To use it from a phone, tablet or another PC:
+
+1. Open **Settings** -> **Network & Access**, turn on **LAN access**, and restart XianScan (or start it with \`xianscan --lan\`).
+2. Copy the **access token** from the same section (or run \`xianscan --print-token\`).
+3. Open one of the listed network addresses on the other device and paste the token once on the unlock page.
+
+If you upgraded from an earlier version with an existing library, LAN access stays on, but other devices now need the token.
 `,
 			},
 		],
@@ -86,7 +99,7 @@ Upon launch, XianScan logs its startup sequence directly in the terminal (initia
 	'getting-started/reading': {
 		title: 'How to Import & Read',
 		description: 'Explore the Webtoon reader, Side-by-Side comparison, Page Grid manager, Page Inspector, and Smart Re-slicing.',
-		lastUpdated: '2026-09-12',
+		lastUpdated: '2026-09-26',
 		sections: [
 			{
 				id: 'chapter-view-modes',
@@ -106,7 +119,7 @@ Inside any chapter, XianScan provides 3 switchable view modes located on the top
 Click on any page in Grid or Compare mode to open the **Page Inspector Modal**:
 
 - **3-Layer Switching**: Switch instantly between **Output** (Translated & Typeset), **Cleaned** (LaMa Neural Inpainting), and **Original** (Raw scan).
-- **OCR & Region Bounding Boxes**: Inspect detected speech bubble polygons, OCR confidence scores, extracted source dialogue, and target translations.
+- **OCR & Region Bounding Boxes**: Inspect detected speech bubble polygons, calibrated OCR confidence scores (pages processed before the calibration show an estimate, marked by a tooltip), extracted source dialogue, and target translations. The **OCR Stats** view shows the page's average confidence.
 - **Single-Page Re-run**: Re-run the translation or inpainting pipeline on an individual page without re-processing the entire chapter.
 `,
 			},
@@ -129,6 +142,8 @@ Click **Smart Re-slice** in the chapter menu to:
 - **Folder & Image Ingestion**: Drag-and-drop any folder of comic images directly onto the chapter canvas to import pages with automatic sequence numbering.
 - **Next / Previous Navigation**: Navigate between sequential chapters using the top toolbar navigation buttons or the **End of Chapter Card** at the bottom of the Webtoon reader.
 - **Pipeline Controls**: Use the toolbar menu to **Translate All**, **Cancel Translation**, or **Clear Progress** to re-translate with a different AI model or glossary theme.
+- **Chapter ZIP Download**: Download a chapter as a ZIP from the chapter toolbar or the chapter list. It unpacks into one folder named after the chapter's translated title. Pages without a translated output fall back to the original image; pages with no readable image at all are listed in \`MISSING_PAGES.txt\` inside the ZIP.
+- **Size Limits**: Each image may be up to 100 megapixels, a smart re-slice takes up to 400 images and a 200-megapixel stitched canvas. Larger inputs are refused with a clear error instead of exhausting memory.
 `,
 			},
 			{
@@ -171,6 +186,8 @@ XianScan is built in pure Rust with lock-free \`mimalloc\` memory allocation and
 - **CUDA 12 + cuDNN 9 (Linux / Windows)**: Dedicated GPU acceleration with automated driver persistence mode (\`nvidia-smi -pm 1\`).
 - **CoreML (macOS)**: Hardware acceleration on Apple Silicon (M1/M2/M3/M4) leveraging the Apple Neural Engine (ANE) and Metal compute.
 - **CPU Fallback**: Multi-threaded SIMD inference for standard laptops and systems without dedicated graphics.
+
+If a GPU provider (CUDA, DirectML or CoreML) fails while running a model, XianScan switches to the CPU and stays there until you pick a device again in **Settings** -> **Hardware & Compute**, so a broken driver does not fail every page.
 `,
 			},
 		],
@@ -179,7 +196,7 @@ XianScan is built in pure Rust with lock-free \`mimalloc\` memory allocation and
 	'extensions/importer': {
 		title: 'Browser Web Importer',
 		description: '1-click chapter capture and live in-browser overlay translation for Chromium and Firefox browsers.',
-		lastUpdated: '2026-09-12',
+		lastUpdated: '2026-09-26',
 		sections: [
 			{
 				id: 'importer-overview',
@@ -202,8 +219,8 @@ Download the ready-to-use extension assets directly from [GitHub Releases](https
 
 | Browser Family | Release Asset | Installation Steps |
 | :--- | :--- | :--- |
-| **Chrome / Edge / Brave / Opera** | \`xianscan-importer-v1.2.0-beta.7.zip\` | 1. Extract the ZIP archive.<br>2. Open \`chrome://extensions/\` (or \`edge://extensions/\` / \`brave://extensions/\`).<br>3. Enable **Developer mode** in the top-right corner.<br>4. Click **Load unpacked** and select the extracted folder. |
-| **Firefox / Floorp** | \`xianscan-importer-firefox-v1.2.0-beta.7.xpi\` | 1. Open \`about:addons\` in Firefox.<br>2. Click the **Gear ⚙** icon and select **Install Add-on From File...** (or drag-and-drop the \`.xpi\` file into Firefox).<br>3. Alternatively, open \`about:debugging#/runtime/this-firefox\` and click **Load Temporary Add-on...**. |
+| **Chrome / Edge / Brave / Opera** | \`xianscan-importer-v<version>.zip\` | 1. Extract the ZIP archive.<br>2. Open \`chrome://extensions/\` (or \`edge://extensions/\` / \`brave://extensions/\`).<br>3. Enable **Developer mode** in the top-right corner.<br>4. Click **Load unpacked** and select the extracted folder. |
+| **Firefox / Floorp** | \`xianscan-importer-firefox-v<version>.xpi\` | 1. Open \`about:addons\` in Firefox.<br>2. Click the **Gear ⚙** icon and select **Install Add-on From File...** (or drag-and-drop the \`.xpi\` file into Firefox).<br>3. Alternatively, open \`about:debugging#/runtime/this-firefox\` and click **Load Temporary Add-on...**. |
 
 *(For building from source and internal architecture, see [Extension & Client Architecture](/docs/advanced/extensions)).*
 `,
@@ -213,9 +230,13 @@ Download the ready-to-use extension assets directly from [GitHub Releases](https
 				title: '3. Capturing and Translating Chapters',
 				content: `
 1. Ensure your XianScan server is running on \`http://localhost:8124\`.
-2. Visit any online comic reader website.
-3. Click the **XianScan extension icon** in your browser toolbar.
-4. Click **Import to XianScan** to send chapter pages to your library, or toggle **Live In-Page Translate** to replace speech bubbles inline on the page in real time.
+2. Connect the extension once: click the **XianScan extension icon**, open its settings (gear), and fill in:
+   - **XianScan Server Endpoint**: \`http://127.0.0.1:8124\` on the same computer, or the LAN address shown in XianScan **Settings** -> **Network & Access** (LAN access must be turned on there first).
+   - **Access token**: copy it from XianScan **Settings** -> **Network & Access**. The token is required even on the same computer. It stays in the extension and is never given to web pages.
+   - Click **Save & Connect**. "Token rejected" means the token was mistyped or regenerated.
+3. Visit any online comic reader website.
+4. Click the **XianScan extension icon** in your browser toolbar.
+5. Click **Import to XianScan** to send chapter pages to your library, or toggle **Live In-Page Translate** to replace speech bubbles inline on the page in real time.
 `,
 			},
 			{
@@ -233,7 +254,7 @@ Download the ready-to-use extension assets directly from [GitHub Releases](https
 	'extensions/mihon': {
 		title: 'Mihon Android App (Wi-Fi Sync)',
 		description: 'Stream translated chapters over your local Wi-Fi LAN directly into Mihon, Tachiyomi, and Android comic readers.',
-		lastUpdated: '2026-09-12',
+		lastUpdated: '2026-09-26',
 		sections: [
 			{
 				id: 'mihon-overview',
@@ -246,6 +267,7 @@ If you don't already have Mihon installed on your Android device:
 - **Official Website**: [https://mihon.app/download/](https://mihon.app/download/)
 - **GitHub Releases**: [https://github.com/mihonapp/mihon/releases](https://github.com/mihonapp/mihon/releases)
 - *(Also fully compatible with Tachiyomi, TachiyomiSY, TachiyomiJ2K, and Aniyomi).*
+- **Tachimanga (iOS)**: being tested. It uses the same repository URL and server settings; allow the **Local Network** permission when iOS asks.
 `,
 			},
 			{
@@ -267,8 +289,7 @@ https://raw.githubusercontent.com/ArbenApura/xianscan-rust/repo/index.min.json
 
 #### Method B: Direct APK Download
 
-1. Download the pre-built extension APK directly:
-   - [tachiyomi-all.xianscan-v1.6.1-release.apk](https://raw.githubusercontent.com/ArbenApura/xianscan-rust/repo/apk/tachiyomi-all.xianscan-v1.6.1-release.apk)
+1. Download the latest extension APK (\`tachiyomi-all.xianscan-v<version>.apk\`) from the [\`repo\` branch](https://github.com/ArbenApura/xianscan-rust/tree/repo) of the repository.
 2. In Mihon, open **Browse** -> **Extensions** -> **⚙ (top-right)** -> **Install from files**.
 3. Select the downloaded APK file and tap **Trust** if prompted.
 `,
@@ -277,18 +298,20 @@ https://raw.githubusercontent.com/ArbenApura/xianscan-rust/repo/index.min.json
 				id: 'configure-connection',
 				title: '3. Connecting Over Local Wi-Fi',
 				content: `
-1. In Mihon, go to **Browse** -> **Extensions**.
-2. Tap the settings icon **⚙** next to **XianScan**.
-3. Tap the settings icon **⚙** again next to **"Multi"**.
-4. Tap **Server address**.
-5. Enter your computer's local IP address and port 8124 (e.g. \`http://192.168.100.98:8124\`, no trailing slash).
+1. On your computer, open XianScan **Settings** -> **Network & Access**, turn on **LAN access**, and restart XianScan.
+2. In Mihon, go to **Browse** -> **Extensions**.
+3. Tap the settings icon **⚙** next to **XianScan**.
+4. Tap the settings icon **⚙** again next to **"Multi"**.
+5. Tap **Server address**.
+6. Enter your computer's local IP address and port 8124 (e.g. \`http://192.168.100.98:8124\`, no trailing slash).
 
 You can find your LAN address printed directly in the XianScan startup terminal banner under **Network / LAN**:
 
 ![Terminal LAN Address](/showcase/lan_terminal_preview.png)
 
-6. In **Browse** -> **Sources**, tap the filter icon and enable the **Multi** language tag.
-7. Open **XianScan** under Sources to browse and read your translated library!
+7. Tap **Access token** and paste the token from XianScan **Settings** -> **Network & Access** (or from \`xianscan --print-token\`).
+8. In **Browse** -> **Sources**, tap the filter icon and enable the **Multi** language tag.
+9. Open **XianScan** under Sources to browse and read your translated library!
 
 *(For Mihon REST protocol specifications and building from source, see [Extension & Client Architecture](/docs/advanced/extensions)).*
 `,
@@ -299,13 +322,15 @@ You can find your LAN address printed directly in the XianScan startup terminal 
 	'translation/models': {
 		title: 'Choosing AI Providers (Local & Cloud)',
 		description: 'Configuration guide and benchmark comparisons across local offline LLMs and cloud API translation providers.',
-		lastUpdated: '2026-09-12',
+		lastUpdated: '2026-09-26',
 		sections: [
 			{
 				id: 'providers-overview',
 				title: '1. Configured AI Providers',
 				content: `
 XianScan features a universal OpenAI-compatible LLM client runtime with process-wide queue concurrency control, auto-retry, and reasoning tag suppression.
+
+**Changing a provider's base URL:** a saved API key never follows a provider to a new remote address. When you change a cloud provider's **Custom Endpoint Base URL**, enter the API key again in the same save ("Enter the API key again for the new base URL."). Local providers (Ollama, LM Studio, or any \`localhost\` address) do not need a key.
 `,
 			},
 			{
@@ -419,6 +444,8 @@ Glossary matching is handled by a high-performance matching engine (\`glossary-m
 All 7 preset theme packs are compiled across 20 languages:
 
 \`zh-Hans\` (Simplified Chinese), \`zh-Hant\` (Traditional Chinese), \`en\` (English), \`ja\` (Japanese), \`ko\` (Korean), \`es\` (Spanish), \`fr\` (French), \`de\` (German), \`ru\` (Russian), \`pt\` (Portuguese), \`it\` (Italian), \`id\` (Indonesian), \`tr\` (Turkish), \`nl\` (Dutch), \`pl\` (Polish), \`th\` (Thai), \`hi\` (Hindi), \`uk\` (Ukrainian), \`sv\` (Swedish), \`fi\` (Finnish).
+
+Arabic (\`ar\`) is available as a translation target (right-to-left typesetting included), but has no preset pack terms yet; add your own glossary terms.
 `,
 			},
 		],
@@ -427,7 +454,7 @@ All 7 preset theme packs are compiled across 20 languages:
 	'advanced/gpu': {
 		title: 'GPU Hardware Acceleration (CUDA, DirectML, CoreML)',
 		description: 'Complete guide for configuring NVIDIA CUDA + cuDNN on Linux, DirectML on Windows, and CoreML on Apple Silicon.',
-		lastUpdated: '2026-09-12',
+		lastUpdated: '2026-09-26',
 		sections: [
 			{
 				id: 'directml-windows',
@@ -451,7 +478,7 @@ Start-Process -FilePath "C:\\\\NVIDIA\\\\installer.exe" -ArgumentList "-s -clean
 
 #### Verify DirectML Hardware Recognition:
 \`\`\`powershell
-Invoke-RestMethod -Uri "http://127.0.0.1:8123/system/hardware" | ConvertTo-Json
+Invoke-RestMethod -Uri "http://127.0.0.1:8124/api/system/hardware" | ConvertTo-Json
 \`\`\`
 DirectML should report \`"active_provider": "DmlExecutionProvider"\` and identify your dedicated GPU.
 `,
@@ -523,7 +550,7 @@ After=network.target
 Type=simple
 User=ubuntu
 WorkingDirectory=/home/ubuntu/xianscan-app
-ExecStart=/home/ubuntu/xianscan-app/xianscan --host 0.0.0.0 --port 8124
+ExecStart=/home/ubuntu/xianscan-app/xianscan --lan
 Restart=always
 RestartSec=5
 Environment=PORT=8124
@@ -542,7 +569,7 @@ WantedBy=multi-user.target
 Switch hardware execution providers or set VRAM limits dynamically at runtime via REST API or Web Settings:
 
 \`\`\`bash
-# Query active hardware telemetry and GPU info
+# Query active hardware telemetry and GPU info (on the server itself, no token needed)
 curl http://localhost:8124/api/system/hardware
 
 # Switch active provider to CUDA with 8GB VRAM cap via Web API (Port 8124)
@@ -550,10 +577,8 @@ curl -X POST http://localhost:8124/api/system/hardware \\
   -H "Content-Type: application/json" \\
   -d '{"device": "cuda", "vram_limit_mb": 8192}'
 
-# Or switch directly on the Axum ML sidecar (Port 8123)
-curl -X POST http://localhost:8123/system/device \\
-  -H "Content-Type: application/json" \\
-  -d '{"provider": "cuda", "vram_limit_mb": 8192}'
+# From another machine, send the access token (xianscan --print-token)
+curl -H "Authorization: Bearer $XIANSCAN_TOKEN" http://<server-ip>:8124/api/system/hardware
 \`\`\`
 `,
 			},
@@ -563,7 +588,7 @@ curl -X POST http://localhost:8123/system/device \\
 	'advanced/ml-pipeline': {
 		title: 'ML Pipeline & Inpainting Engine',
 		description: 'Architectural breakdown of text detection, multilingual OCR reading flow, LaMa neural inpainting, and typesetting.',
-		lastUpdated: '2026-09-12',
+		lastUpdated: '2026-09-26',
 		sections: [
 			{
 				id: 'pipeline-stages',
@@ -611,6 +636,7 @@ XianScan executes a modular, multi-threaded neural pipeline implemented directly
 - **Slanted SFX Rotation Angle Preservation** - Preserves native rotation angles for tilted sound effects and standalone glyphs without snapping to axis alignment.
 - **Dialogue Assembly and Noise Filtering** - Filters bubble tail caret artifacts, deduplicates dash-prolonged shouts, and suppresses vertical ellipsis noise.
 - **Dialogue and Loanword Retention** - Preserves valid Latin words in CJK texts and recovers terminal dialogue punctuation.
+- **Tall-Page Detector Tiling** - Overlapping-tile detection for very tall strips (\`src/ml/detect/tiling.rs\`) is implemented but **off by default** while its accuracy is reviewed.
 `,
 			},
 			{
@@ -635,6 +661,11 @@ XianScan executes a modular, multi-threaded neural pipeline implemented directly
 - **Solid Background Fast Path (\`is_solid_background_patch\`)**:
   - Automatically identifies solid / flat white speech bubbles and replaces them instantly with exact color fills, bypassing GPU neural execution for sub-millisecond performance.
 - **White Bubble Shrinkwrap Cleaning** - Optional shrinkwrap mask mode isolates text glyphs rather than wiping the entire bubble interior, keeping speech bubble outlines and interior textures intact.
+- **Inpainting Strategies** (**Settings** -> **Inpainting & Cleaning** -> **Inpainting Strategy**, planned in \`src/ml/inpaint/plan.rs\`):
+  - **Patch Crop** (default): the local 1:1 patches described above; the fastest mode.
+  - **Balanced / scaled**: splits the page into tiles that keep its aspect ratio (512 px on the long side) instead of squashing the whole page into one 512x512 pass. Sharper on tall webtoon strips, but much slower on them (about 7x on a 20000 px strip).
+  - **Full Dynamic**: inpaints the whole page at native resolution while it fits a budget of 2048x2048 pixels (4096 px per side); larger pages are processed in overlapping bands so memory stays bounded.
+- **Independent Model Locks** - The detector, OCR and inpainting models each have their own lock, so cleaning a page is not blocked while a long smart re-slice is running.
 `,
 			},
 			{
@@ -644,6 +675,9 @@ XianScan executes a modular, multi-threaded neural pipeline implemented directly
 - **Google Skia Canvas Engine (\`@napi-rs/canvas\`)**: Native high-performance 2D graphics rendering embedded directly in the server.
 - **Binary Search Font Sizing (\`web/src/lib/server/typeset/layout.ts\`)**: Dynamically computes the maximum legible font size that fits comfortably within the speech bubble's polygon mask.
 - **Multi-Line Text Wrapping & Hyphenation**: Balances line lengths to prevent orphan words and maintain aesthetic dialogue shapes.
+- **Complex Script Line Breaking**: Hindi and other non-Latin scripts break only between whole grapheme clusters (never inside a conjunct, never with a hyphen), and Thai wraps at dictionary word boundaries.
+- **Right-to-Left Arabic**: Arabic targets are drawn right to left with Arabic punctuation (\`؟ ، ؛\`), whole words kept together, and text centred on its real ink height.
+- **Script-Aware Fonts**: Each line is drawn with a font that really covers its script (see [Typography & Custom Fonts](/docs/advanced/typography)); if no font covers the book's target script, the pipeline shows a warning toast instead of printing empty boxes.
 - **Outline Strokes & Bubble Tilt**: Applies configurable contrast outline strokes and rotates text lines to match the orientation angle of tilted dialogue bubbles.
 `,
 			},
@@ -652,14 +686,14 @@ XianScan executes a modular, multi-threaded neural pipeline implemented directly
 
 	'advanced/typography': {
 		title: 'Typography & Custom Fonts',
-		description: 'Configure custom font families, multi-weight variants, operating system font discovery, and typesetting layout controls.',
-		lastUpdated: '2026-09-12',
+		description: 'Configure custom font families, multi-weight variants, per-script fonts, operating system font discovery, and typesetting layout controls.',
+		lastUpdated: '2026-09-26',
 		sections: [
 			{
 				id: 'font-management',
 				title: '1. Custom Fonts and Variant Management',
 				content: `
-XianScan supports uploading custom web and desktop fonts (.ttf, .otf, and .woff2) directly into the web studio.
+XianScan supports uploading custom desktop fonts (.ttf and .otf) directly into the web studio. On import, XianScan reads each font's character map and shows which scripts it really covers (and warns about legacy-encoded Hindi fonts that would print the wrong letters).
 
 - **Multi-Weight Variant Mapping** - Map distinct font files to specific font weights within a single family (Regular, Bold, ExtraBold, Black, Light, Medium, SemiBold). The typesetting engine automatically selects the right variant matching the layout configuration.
 - **Local Storage** - Uploaded font files are validated, parsed with \`font-parser.ts\`, and stored securely in the local application data directory.
@@ -673,7 +707,7 @@ XianScan supports uploading custom web and desktop fonts (.ttf, .otf, and .woff2
 Instead of manually downloading and uploading font files, XianScan can scan and import fonts already installed on your machine.
 
 - **Cross-Platform Scanners** - Discovers fonts installed in standard system paths across Windows (\`C:\\Windows\\Fonts\`), macOS (\`/Library/Fonts\`, \`~/Library/Fonts\`), and Linux (\`/usr/share/fonts\`, \`~/.local/share/fonts\`).
-- **System Font Browser Modal** - Browse installed system fonts, preview font specimens in real time, and import families into the typesetting studio directly.
+- **System Font Browser Modal** - Browse installed system fonts, preview font specimens in real time, and enable families for typesetting directly. Opened from a script row in **Script Fonts**, it lists only fonts that cover that script, and **Use** assigns the family to that script.
 `,
 			},
 			{
@@ -686,6 +720,20 @@ Fine-tune dialogue text rendering to match comic styles.
 - **Text Casing Transforms** - Choose text transformations (uppercase, lowercase, capitalize, or normal) to follow traditional comic lettering conventions.
 - **Typesetting Expansion Margins** - Decouple text box anchoring from tight bubble borders with configurable expansion margins, preventing letter descenders and punctuation from being clipped.
 - **Contrast Outline Strokes** - Add customizable outline widths and colors around text glyphs to maintain legibility against textured or dark backgrounds.
+`,
+			},
+			{
+				id: 'script-fonts',
+				title: '4. Script Fonts (Hindi, Thai, Arabic, CJK, Cyrillic...)',
+				content: `
+**Settings** -> **Typesetting & Lettering** -> **Script Fonts** picks the font for each writing system the translation is drawn in. It replaces the old single CJK font setting (an existing CJK choice is kept for Chinese, Japanese and Korean).
+
+- **Automatic** (default): uses the best installed font that really has the letters, and names the font it resolved to. The order is your script choice, then a dialogue font that covers the script, then a bundled or system font.
+- **Bundled script fonts**: Noto Sans Devanagari (Hindi), Noto Sans Thai and Tajawal (Arabic), plus WenQuanYi Micro Hei for CJK, so every platform (including Docker) renders these scripts without extra font packages.
+- **System script fonts**: when installed, XianScan also uses the operating system's own fonts, for example Nirmala UI, Leelawadee UI and Segoe UI on Windows, Kohinoor Devanagari, Thonburi and Geeza Pro on macOS, and Noto Sans / Lohit / TLWG fonts on Linux.
+- **Per-script System Fonts and Import**: each script row opens the system font browser or the import dialog filtered to that script. Imported non-Latin fonts are listed under **Imported script fonts**, where they can also be deleted.
+- **Coverage warnings**: a red notice appears when no available font covers a script, and an amber one when the font you chose lacks it. The book editor and folder import show the same notice for the chosen target language.
+- **Render exact preview**: the live preview is drawn by the browser; **Render exact preview** renders it with the real server typesetter so you see exactly what the pipeline will produce.
 `,
 			},
 		],
@@ -732,17 +780,19 @@ When books, chapters, or pages are deleted from the library, XianScan enforces c
 	'advanced/api': {
 		title: 'REST API & Automation',
 		description: 'Comprehensive REST API documentation, Axum backend endpoints, and SvelteKit routes.',
-		lastUpdated: '2026-09-12',
+		lastUpdated: '2026-09-26',
 		sections: [
 			{
 				id: 'api-endpoints',
 				title: 'Core REST Endpoints',
 				content: `
-### Axum ML Inference Endpoints (\`http://localhost:8123\`)
+### Axum ML Inference Endpoints (\`http://127.0.0.1:8123\`, internal only)
+
+These routes are for the bundled web server. They listen on loopback, refuse browser requests and require the internal \`X-XianScan-Ml-Secret\` header (except \`GET /health\`). Use the web API on port 8124 instead.
 
 | Method & Route | Description |
 | :--- | :--- |
-| \`GET /health\` | Server status, version, accelerator, and active providers |
+| \`GET /health\` | Server status, version, accelerator, active providers, \`models_dir\`, \`engine_suspect\`, and input \`limits\` (\`max_image_pixels\`, \`max_images\`, \`max_canvas_pixels\`, \`reslice_body_bytes\`) |
 | \`GET /system/hardware\` | Hardware telemetry, VRAM usage, and model reload state |
 | \`POST /system/device\` | Switch active provider (\`"auto"\`, \`"directml"\`, \`"cuda"\`, \`"coreml"\`, \`"cpu"\`) |
 | \`GET /system/telemetry\` | Active and queued OCR jobs, CPU & host RAM stats |
@@ -755,9 +805,17 @@ When books, chapters, or pages are deleted from the library, XianScan enforces c
 | \`POST /pages/reslice/cancel\` | Cancel ongoing smart reslice job |
 | \`POST /pages/reslice/reset\` | Reset smart reslice worker state and initialize run ID |
 
+**Input limits:** each image may be up to 100 megapixels (65,535 px per side), a reslice takes up to 400 images and a 200-megapixel stitched canvas, and a reslice request body up to 512 MiB (image routes 64 MiB, stitch 128 MiB). A body over its limit, too many images or a stitched canvas over the limit is answered with \`413\`; an image that cannot be decoded or is over the per-image limit is answered with \`422\`. \`XIANSCAN_MAX_IMAGE_MP\` and \`XIANSCAN_MAX_RESLICE_MP\` raise the per-image and canvas limits (in megapixels).
+
 ---
 
 ### SvelteKit Web & Library Endpoints (\`http://localhost:8124/api\`)
+
+Requests from this machine (addressed to \`localhost\`, \`127.0.0.1\` or \`[::1]\`, with no proxy headers) are trusted. Everything else, including browser extensions and tunnels, must send the access token as \`Authorization: Bearer <token>\` or \`X-XianScan-Token: <token>\`; browsers unlock once on \`/unlock\` and get a session cookie. Cross-origin (CORS) access is granted only to browser extension origins.
+
+\`\`\`bash
+curl -H "Authorization: Bearer $XIANSCAN_TOKEN" http://192.168.1.10:8124/api/books
+\`\`\`
 
 | Method & Route | Description |
 | :--- | :--- |
@@ -770,6 +828,7 @@ When books, chapters, or pages are deleted from the library, XianScan enforces c
 | \`POST /api/chapters/:id/translate\` | Trigger translation pipeline for a chapter |
 | \`GET /api/chapters/:id/translate\` | Real-time SSE progress event stream |
 | \`DELETE /api/chapters/:id/translate\` | Cancel running chapter translation job |
+| \`GET /api/chapters/:id/download\` | Chapter ZIP (one folder; \`MISSING_PAGES.txt\` and an \`x-missing-pages\` header list pages that could not be included) |
 | \`POST /api/translate-text\` | Direct LLM text translation with dynamic dialogue memory |
 | \`GET /api/system/hardware\` | Query active GPU, VRAM limits, and hardware capabilities |
 | \`POST /api/system/hardware\` | Set hardware provider and VRAM ceiling |
@@ -777,13 +836,21 @@ When books, chapters, or pages are deleted from the library, XianScan enforces c
 | \`POST /api/glossary\` | Insert or update custom glossary entries |
 | \`GET /api/pages/:id/file?kind=output\` | Retrieve rendered page image (\`output\`, \`cleaned\`, \`original\`, \`thumb\`) |
 | \`GET /api/system/fonts\` | List custom and system fonts with variant mappings |
-| \`POST /api/system/fonts\` | Upload custom font family file (.ttf, .otf, .woff2) |
+| \`POST /api/system/fonts\` | Upload custom font family file (.ttf, .otf) |
 | \`GET /api/system/fonts/:id\` | Get font details and mapped weight variants |
 | \`DELETE /api/system/fonts/:id\` | Remove custom font family |
 | \`POST /api/system/fonts/:id/variants\` | Upload additional font weight variant |
 | \`DELETE /api/system/fonts/:id/variants/:variantId\` | Remove specific font variant |
 | \`GET /api/system/fonts/system\` | Query discovered local operating system fonts |
-| \`POST /api/system/fonts/system/:family\` | Import local OS font into the studio |
+| \`GET /api/system/fonts/system/:family\` | Stream the font file of an installed OS font family |
+| \`GET /api/system/fonts/coverage\` | Per-script font chain and the fonts that cover each script |
+| \`POST /api/typeset/preview\` | Render an exact typeset preview with the server typesetter |
+| \`GET /api/system/access\` | LAN access state, token, bind source, and network addresses |
+| \`PATCH /api/system/access\` | Turn LAN access on or off (applies after a restart) |
+| \`POST /api/system/access/token/regenerate\` | Replace the access token (paired devices need the new one) |
+| \`POST /api/auth/unlock\` | Exchange the access token for a browser session cookie |
+| \`GET /api/auth/status\` | Whether the current request is authorized |
+| \`POST /api/auth/logout\` | End the browser session |
 | \`GET /api/system/storage\` | System-wide disk consumption and cache telemetry |
 | \`POST /api/system/storage\` | Trigger transient cache purge or orphan cleanup |
 | \`GET /api/books/:id/storage\` | Get per-book disk consumption breakdown |
@@ -798,7 +865,7 @@ When books, chapters, or pages are deleted from the library, XianScan enforces c
 	'advanced/extensions': {
 		title: 'Extension & Client Architecture',
 		description: 'Internal architecture, build pipelines, and protocol specifications for the Browser Importer and Mihon Android extension.',
-		lastUpdated: '2026-09-12',
+		lastUpdated: '2026-09-26',
 		sections: [
 			{
 				id: 'importer-architecture',
@@ -833,7 +900,7 @@ yarn build
 The **XianScan Mihon Extension** (\`extensions/xianscan-mihon\`) implements the native Tachiyomi / Mihon Kotlin extension specification (\`eu.kanade.tachiyomi.extension.all.xianscan\`):
 
 #### Server-Side Protocol Endpoints:
-The SvelteKit server implements the following Mihon source routes on port \`8124\`:
+The SvelteKit server implements the following Mihon source routes on port \`8124\`. The extension sends the access token in an \`X-XianScan-Token\` header, only to the configured server host, and shows a readable message when the server answers \`401\`:
 
 | Endpoint | Purpose |
 | :--- | :--- |
@@ -849,12 +916,17 @@ The SvelteKit server implements the following Mihon source routes on port \`8124
 \`\`\`bash
 cd extensions/xianscan-mihon
 
-# Build debug APK (requires Android SDK + JDK 17):
+# Build debug APK (JDK 21 as in CI, Android SDK platform 34, build-tools 34.0.0):
 ./gradlew :app:assembleDebug
 
 # Build signed release APK:
 ./gradlew :app:assembleRelease
+
+# Check that the APK bundles no Kotlin stdlib or host library (needs dexdump):
+bash scripts/verify-apk.sh
 \`\`\`
+
+APKs are named \`tachiyomi-all.xianscan-v<version>-<buildType>.apk\`. Every dependency is \`compileOnly\`, because the host app provides Kotlin and all libraries.
 `,
 			},
 		],
@@ -863,7 +935,7 @@ cd extensions/xianscan-mihon
 	'advanced/self-hosting': {
 		title: 'Remote Server & Cloudflare Tunnels',
 		description: 'Deploy headless GPU servers (AWS EC2 / Hetzner) and configure zero-trust Cloudflare Tunnels.',
-		lastUpdated: '2026-09-12',
+		lastUpdated: '2026-09-26',
 		sections: [
 			{
 				id: 'docker-deployment',
@@ -902,6 +974,15 @@ volumes:
 
 Start the container stack with \`docker compose up -d\`. All SQLite database records, uploaded chapters, and caches persist in the \`xianscan-data\` volume under \`/config\`.
 
+#### Access Token
+The image sets \`XIANSCAN_BIND=lan\`, because a container is only reachable through its published port. Connections arrive from the Docker network, not from loopback, so **every** browser (including one on the Docker host), Mihon and the importer need the access token once:
+
+\`\`\`bash
+docker exec xianscan /app/xianscan --print-token
+\`\`\`
+
+To keep the container reachable from the host only, publish the port on loopback (\`-p 127.0.0.1:8124:8124\`, or \`"127.0.0.1:8124:8124"\` in Compose).
+
 #### Hardware Acceleration Notes
 The official container image uses a lightweight Ubuntu base (~800 MB) with multi-threaded CPU inference enabled out of the box, avoiding a multi-gigabyte CUDA SDK footprint in the image.
 
@@ -912,7 +993,7 @@ For GPU acceleration on Linux servers (such as AWS EC2 or dedicated NVIDIA insta
 				id: 'systemd-daemon',
 				title: '2. Linux Systemd Service Setup',
 				content: `
-Create a systemd unit file at \`/etc/systemd/system/xianscan.service\`:
+Create a systemd unit file at \`/etc/systemd/system/xianscan.service\`. XianScan listens on loopback only by default, which is what you want behind a Cloudflare Tunnel (section 4). If devices on your network should connect directly, add \`--lan\` to \`ExecStart\` and give them the token from \`xianscan --print-token\` (run it as the service user):
 
 \`\`\`ini
 [Unit]
@@ -949,25 +1030,27 @@ sudo systemctl enable --now xianscan
 On Windows Server (AWS EC2, Azure, Hetzner, or on-premise), run XianScan persistently across reboots and RDP/SSH disconnects by registering it under the \`SYSTEM\` account:
 
 \`\`\`powershell
-# 1. Allow ports through Windows Defender Firewall for all profiles
+# 1. Allow the web port through Windows Defender Firewall (needed because LAN access is enabled below;
+#    the ML port 8123 is internal and must stay closed)
 New-NetFirewallRule -Name "XianScan-Web-8124" -DisplayName "XianScan Web Studio" -Protocol TCP -LocalPort 8124 -Action Allow -Profile Any
-New-NetFirewallRule -Name "XianScan-ML-8123" -DisplayName "XianScan ML API" -Protocol TCP -LocalPort 8123 -Action Allow -Profile Any
 
-# 2. Register persistent Scheduled Task at system startup
-$action = New-ScheduledTaskAction -Execute "C:\\\\xianscan\\\\xianscan.exe" -WorkingDirectory "C:\\\\xianscan"
+# 2. Register persistent Scheduled Task at system startup (--lan: other devices connect with the access token)
+$action = New-ScheduledTaskAction -Execute "C:\\\\xianscan\\\\xianscan.exe" -Argument "--lan" -WorkingDirectory "C:\\\\xianscan"
 $trigger = New-ScheduledTaskTrigger -AtStartup
 $principal = New-ScheduledTaskPrincipal -UserId "SYSTEM" -LogonType ServiceAccount -RunLevel Highest
 
 Register-ScheduledTask -TaskName "XianScanService" -Action $action -Trigger $trigger -Principal $principal -Force
 Start-ScheduledTask -TaskName "XianScanService"
 \`\`\`
+
+The task runs as \`SYSTEM\`, so its data and access token live in the SYSTEM profile, not yours: running \`xianscan.exe --print-token\` as Administrator prints a different token. Read the service's token from \`C:\\Windows\\System32\\config\\systemprofile\\AppData\\Roaming\\XianScan\\data\\access-token\`, or open **Settings** -> **Network & Access** in a browser on the server (\`http://localhost:8124\`).
 `,
 			},
 			{
 				id: 'cloudflare-tunnels',
 				title: '4. Cloudflare Tunnel Remote Ingress',
 				content: `
-Securely access your home server or remote GPU instance over HTTPS without port forwarding.
+Access your home server or remote GPU instance over HTTPS without port forwarding. A tunnel publishes XianScan to the internet, so put a login in front of it (step 5) before sharing the hostname.
 
 1. Install \`cloudflared\` on your server:
 
@@ -1001,7 +1084,9 @@ sudo cloudflared service install
 sudo systemctl start cloudflared
 \`\`\`
 
-You can now access your XianScan server and Mihon extensions securely from anywhere at \`https://manga.yourdomain.com\`!
+5. **Required: protect the hostname with Cloudflare Access.** In Cloudflare Zero Trust, create an Access application for \`manga.yourdomain.com\` with a policy that only lets you in. XianScan still asks each new browser for the access token once (tunnel traffic is never treated as local). Mihon cannot complete an interactive Cloudflare login, so give it a path through Access (for example a service token, or a bypass rule for \`/api/mihon/*\`) and set the XianScan access token in the extension settings.
+
+Once Access is on, you can reach your XianScan server and Mihon extension securely from anywhere at \`https://manga.yourdomain.com\`.
 `,
 			},
 		],

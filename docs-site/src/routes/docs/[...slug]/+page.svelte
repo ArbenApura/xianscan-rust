@@ -197,13 +197,6 @@
 			{/each}
 		</div>
 	{:else if chapterData}
-		<!-- PRE-CONTENT NOTICE -->
-		<div class="mb-8">
-			<Callout variant="note" title="Preview Content">
-				Please note that the details on this page are pre-content drafts. More detailed technical specifications, architectural breakdowns, and updated guides will be added soon.
-			</Callout>
-		</div>
-
 		<!-- AUTHORED CHAPTER CONTENT SECTIONS -->
 		<div class="space-y-10">
 			{#each chapterData.sections as section}
@@ -223,7 +216,7 @@
 	{:else}
 		<!-- STANDARD CHAPTER PLACEHOLDER -->
 		<Callout variant="note" title="Section Under Active Writing">
-			This documentation chapter is currently being compiled for the <code>v0.5.0-beta.7</code> release. In the meantime, you can explore the codebase or discuss technical details in the Discord community.
+			This documentation chapter is currently being compiled for the <code>v0.5.0-beta.8</code> release. In the meantime, you can explore the codebase or discuss technical details in the Discord community.
 		</Callout>
 
 		<div class="my-8">

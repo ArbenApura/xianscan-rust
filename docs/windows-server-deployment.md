@@ -68,12 +68,11 @@ Cloud network interfaces are automatically assigned to the **Public** firewall p
 # Allow XianScan Web Studio (Port 8124)
 New-NetFirewallRule -Name "XianScan-Web-8124" -DisplayName "XianScan Web Studio" -Protocol TCP -LocalPort 8124 -Action Allow -Profile Any
 
-# Allow XianScan ML API & Health Checks (Port 8123)
-New-NetFirewallRule -Name "XianScan-ML-8123" -DisplayName "XianScan ML API" -Protocol TCP -LocalPort 8123 -Action Allow -Profile Any
+# Do NOT open port 8123: the ML API is internal to XianScan and only answers the local web server.
 ```
 
 > [!IMPORTANT]
-> Also ensure your Cloud Provider Security Group (e.g. AWS Security Group, Azure NSG) has inbound rules allowing ports `8124` and `8123` from your IP.
+> Also ensure your Cloud Provider Security Group (e.g. AWS Security Group, Azure NSG) has an inbound rule allowing port `8124` from your IP only. Port `8123` must stay closed.
 
 ---
 
@@ -84,11 +83,16 @@ New-NetFirewallRule -Name "XianScan-ML-8123" -DisplayName "XianScan ML API" -Pro
 New-Item -ItemType Directory -Force -Path "C:\xianscan"
 Set-Location -Path "C:\xianscan"
 
-# 2. Download latest Windows release bundle
-$url = "https://github.com/ArbenApura/xianscan-rust/releases/download/v0.5.0-beta.1/xianscan-windows-x86_64.zip"
-Invoke-WebRequest -Uri $url -OutFile "C:\xianscan\xianscan-windows-x86_64.zip" -UseBasicParsing
+# 2. Download latest Windows release bundle and its checksums
+$base = "https://github.com/ArbenApura/xianscan-rust/releases/latest/download"
+Invoke-WebRequest -Uri "$base/xianscan-windows-x86_64.zip" -OutFile "C:\xianscan\xianscan-windows-x86_64.zip" -UseBasicParsing
+Invoke-WebRequest -Uri "$base/SHA256SUMS.txt" -OutFile "C:\xianscan\SHA256SUMS.txt" -UseBasicParsing
 
-# 3. Extract release
+# 3. Verify the checksum (the two hashes must match)
+(Get-FileHash "C:\xianscan\xianscan-windows-x86_64.zip" -Algorithm SHA256).Hash
+Select-String -Path "C:\xianscan\SHA256SUMS.txt" -Pattern "xianscan-windows-x86_64.zip"
+
+# 4. Extract release
 Expand-Archive -Path "C:\xianscan\xianscan-windows-x86_64.zip" -DestinationPath "C:\xianscan" -Force
 ```
 
@@ -100,13 +104,19 @@ Start XianScan in a PowerShell console:
 
 ```powershell
 cd C:\xianscan
-.\xianscan.exe
+.\xianscan.exe --lan
+```
+
+`--lan` makes XianScan listen on the network (it is loopback-only by default). Every browser, Mihon install or importer that connects from another machine needs the access token once. Print it with:
+
+```powershell
+.\xianscan.exe --print-token
 ```
 
 In a second console or browser, query the hardware telemetry API:
 
 ```powershell
-Invoke-RestMethod -Uri "http://127.0.0.1:8123/system/hardware" | ConvertTo-Json -Depth 5
+Invoke-RestMethod -Uri "http://127.0.0.1:8124/api/system/hardware" | ConvertTo-Json -Depth 5
 ```
 
 ### Expected Output:
@@ -133,13 +143,24 @@ Invoke-RestMethod -Uri "http://127.0.0.1:8123/system/hardware" | ConvertTo-Json 
 To keep XianScan running 24/7 without needing an active RDP or SSH session, register it as a Windows Scheduled Task:
 
 ```powershell
-$action = New-ScheduledTaskAction -Execute "C:\xianscan\xianscan.exe" -WorkingDirectory "C:\xianscan"
+$action = New-ScheduledTaskAction -Execute "C:\xianscan\xianscan.exe" -Argument "--lan" -WorkingDirectory "C:\xianscan"
 $trigger = New-ScheduledTaskTrigger -AtStartup
 $principal = New-ScheduledTaskPrincipal -UserId "SYSTEM" -LogonType ServiceAccount -RunLevel Highest
 
 Register-ScheduledTask -TaskName "XianScanService" -Action $action -Trigger $trigger -Principal $principal -Force
 Start-ScheduledTask -TaskName "XianScanService"
 ```
+
+Stop the console instance from Step 4 first (`Ctrl+C`), or the task cannot bind port `8124`.
+
+> [!IMPORTANT]
+> The task runs as `SYSTEM`, so its library, settings and **access token** live in the SYSTEM profile, not in your Administrator profile. The token printed by `.\xianscan.exe --print-token` in Step 4 does **not** work for the service. Read the service's token from:
+>
+> ```powershell
+> Get-Content "C:\Windows\System32\config\systemprofile\AppData\Roaming\XianScan\data\access-token"
+> ```
+>
+> or open **Settings -> Network & Access** in a browser on the server (`http://localhost:8124`).
 
 ---
 
@@ -178,12 +199,12 @@ Follow the generated URL in your browser to authorize your server instance.
 ```
 
 ### 5. Configure XianScan Web Studio
-1. Open the Web Studio at `http://<your-server-ip>:8124`.
-2. Go to **Settings** -> **Translation Model Configuration**.
+1. Open the Web Studio at `http://<your-server-ip>:8124` and paste the access token (see Step 5) on the unlock page once.
+2. Go to **Settings** -> **AI Translation Providers**.
 3. Select **Ollama** as the provider:
-   - **Endpoint URL**: `http://localhost:11434`
+   - **Endpoint URL**: `http://localhost:11434/v1`
    - **Model**: `gemma4:cloud`
-4. Click **Test Connection & Save**.
+4. Click **Test Connection**, then set Ollama as the active engine.
 
 ---
 
@@ -192,6 +213,8 @@ Follow the generated URL in your browser to authorize your server instance.
 | Issue | Cause | Solution |
 | :--- | :--- | :--- |
 | `active_provider` shows `CPUExecutionProvider` | GPU driver missing or using Basic Display Adapter | Install official NVIDIA/AMD graphics driver and verify with `nvidia-smi` or `Get-CimInstance Win32_VideoController`. |
-| Cannot access port 8124 from remote browser | Windows Defender Firewall or Cloud Security Group blocking port | Run `New-NetFirewallRule ... -Profile Any` and check AWS/cloud security group inbound rules. |
+| Cannot access port 8124 from remote browser | Windows Defender Firewall or Cloud Security Group blocking port, or XianScan started without `--lan` | Run `New-NetFirewallRule ... -Profile Any`, check AWS/cloud security group inbound rules, and make sure XianScan runs with `--lan` (the startup banner shows `LAN access: off` otherwise). |
+| Remote browser shows the unlock page, or Mihon / the importer reports a rejected token | Every non-local client needs the access token | Paste the token of the running instance (for the Scheduled Task, the SYSTEM profile token from Step 5). After **Regenerate** in Settings, update every paired device. |
+| `Port 8124 is already in use` at startup | Another XianScan (for example the console run from Step 4, or an orphaned web server after a crash) holds the port | Find it with `netstat -ano \| findstr :8124`, then `tasklist /FI "PID eq <pid>"`; stop it or set `PORT` to another value. |
 | Ollama GUI fails on headless server | No active desktop session | Run `ollama serve` directly or register as a background Scheduled Task running under `SYSTEM`. |
 | SSH connection timed out | Default port 22 blocked by Windows Firewall on Public profile | Run `Set-NetFirewallRule -Name 'OpenSSH-Server-In-TCP' -Profile Any -Enabled True`. |

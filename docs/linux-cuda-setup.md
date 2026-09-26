@@ -138,7 +138,7 @@ After=network.target
 Type=simple
 User=ubuntu
 WorkingDirectory=/home/ubuntu/xianscan-app
-ExecStart=/home/ubuntu/xianscan-app/xianscan --host 0.0.0.0 --port 8124
+ExecStart=/home/ubuntu/xianscan-app/xianscan --lan
 Restart=always
 RestartSec=5
 Environment=PATH=/usr/local/cuda/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/home/ubuntu/.cargo/bin
@@ -152,6 +152,11 @@ UNIT
 
 sudo systemctl daemon-reload
 sudo systemctl enable --now xianscan
+```
+
+`--lan` makes XianScan listen on the network (it is loopback-only by default; leave it out if you only reach XianScan through a tunnel on the same machine). The web port is set with `PORT`. Other devices need the access token once; print it as the service user:
+```bash
+sudo -u ubuntu /home/ubuntu/xianscan-app/xianscan --print-token
 ```
 
 Check status anytime with:
@@ -194,7 +199,7 @@ sudo systemctl restart ollama
 
 ### 5. Selecting Ollama in the Web Studio
 
-Open **http://localhost:8124** (or your server domain) in your browser:
+Open **http://localhost:8124** (or your server address or domain, where you paste the access token on the unlock page once) in your browser:
 
 1. Open **Settings** (gear icon).
 2. Go to **AI Translation Providers** (or click the **Local & Offline** filter pill).
@@ -228,9 +233,9 @@ When viewing any translated chapter page in the reader:
   - **Total Pipeline Duration**: `detector_time_ms` + `ocr_fullpage_time_ms` + `inpaint_time_ms` executing in **< 1500 ms**.
 
 #### C. Terminal Verification (CLI)
-You can also inspect the raw JSON endpoint directly:
+You can also inspect the raw JSON endpoint directly (on the server itself, no token needed; the ML port 8123 is internal and refuses this request):
 ```bash
-curl -s http://127.0.0.1:8123/system/hardware | jq
+curl -s http://127.0.0.1:8124/api/system/hardware | jq
 ```
 Expected output:
 ```json
@@ -264,6 +269,10 @@ Expected output:
 #### `libcublasLt.so.13 or libcudart.so.13: cannot open shared object file`
 - **Cause**: The bundled ONNX runtime binary expects a newer or specific CUDA dynamic library path.
 - **Fix**: Ensure your `LD_LIBRARY_PATH` includes the directory holding `libcublasLt.so` and `libcudart.so` (e.g. `/usr/local/cuda/lib64`, `/usr/local/cuda/targets/x86_64-linux/lib`, or `/usr/local/lib/ollama/cuda_v13`).
+
+#### Stuck on CPU after a GPU error
+- **Cause**: When CUDA fails while running a model (after its retries), XianScan switches to the CPU and stays there so a broken driver does not fail every page.
+- **Fix**: Fix the driver or library problem above, then pick **NVIDIA CUDA** again in **Settings -> Hardware & Compute** (or restart XianScan).
 
 #### Out of Memory (OOM) when running Ollama + XianScan together
 - **Cause**: Both services competing for GPU VRAM.

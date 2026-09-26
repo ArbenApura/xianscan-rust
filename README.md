@@ -72,7 +72,7 @@ flowchart LR
 4. **Multi-Language OCR**: High-accuracy text extraction with support for vertical and horizontal text layouts across 10 languages.
 5. **Context-Aware AI Translation & Glossaries**: Integrates with local LLMs (Ollama, LM Studio with Qwen, Llama, Gemma) or cloud APIs (Gemini, OpenAI, Groq, OpenRouter). Uses an elastic multi-page dialogue memory tracker (up to 5 previous pages) to keep speaker identity, pronouns, and topic consistent across page turns, combined with Aho-Corasick terminology glossaries to enforce consistent names and cultivation terms across chapters.
 6. **Neural Artwork Inpainting (LaMa)**: Removes dialogue text while reconstructing underlying artwork, gradients, and textures with configurable edge padding.
-7. **Typesetting Studio & Typography**: Automatically computes font sizing, line breaks, outline strokes, and bubble tilt.
+7. **Typesetting Studio & Typography**: Automatically computes font sizing, line breaks, outline strokes, and bubble tilt, with per-script fonts (Hindi, Thai, Arabic including right-to-left layout, CJK, and more).
 8. **Interactive Studio Inspector**: Visual overlay to inspect raw OCR bounding boxes, character confidence scores, model prompts, and make quick text adjustments before saving.
 
 ---
@@ -136,9 +136,12 @@ Download the pre-compiled binary for your system from [Releases](https://github.
 
 *All neural network weights, OCR dictionaries, and the Web UI are embedded inside the executable. No network connection is required for core startup and CPU inference.*
 
+Each release includes `SHA256SUMS.txt`; verify your download with `sha256sum -c SHA256SUMS.txt --ignore-missing`.
+
 ### 2. Open the Web Studio
 - Open `http://localhost:8124` in your browser.
-- **Local Network (LAN)**: Access your library from tablets or mobile devices on your Wi-Fi via `http://<your-pc-ip>:8124`.
+- **Local Network (LAN)**: LAN access is **off by default**, so only this computer can open XianScan. To use it from tablets or phones on your Wi-Fi, turn on **Settings -> Network & Access -> LAN access** and restart XianScan (or start it with `xianscan --lan`). Then open `http://<your-pc-ip>:8124` on the other device and paste the **access token** shown in the same settings section once.
+- **Upgrading from an earlier version?** If you already had a library, LAN access stays on, but other devices now need the access token.
 
 ### 3. Translate a Book
 1. Click **+ New Book** and select source and target languages.
@@ -157,6 +160,14 @@ docker run -d --name xianscan \
 ```
 
 Then open `http://localhost:8124` (or `http://<host-ip>:8124` from another device on your LAN). Your library, settings, and caches persist in the `xianscan-config` volume (all models and the web UI are embedded in the image, so no extra setup is required).
+
+Connections reach the container from the Docker network, not from loopback, so every browser (including one on the Docker host), Mihon and the browser importer need the **access token** once. Print it with:
+
+```bash
+docker exec xianscan /app/xianscan --print-token
+```
+
+To keep the container reachable from this machine only, publish the port on loopback instead: `-p 127.0.0.1:8124:8124`.
 
 The server runs with multi-threaded CPU inference out of the box. NVIDIA GPU acceleration inside containers additionally requires the [NVIDIA Container Toolkit](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/) with CUDA/cuDNN runtime libraries; when they are unavailable, XianScan automatically falls back to the CPU engine.
 
@@ -192,6 +203,7 @@ The **1-Click Web Importer Extension** ([`extensions/xianscan-importer/`](extens
 
 - **Chrome / Edge / Brave / Opera**: Load unpacked from `extensions/xianscan-importer/dist/` in `chrome://extensions/` with Developer Mode enabled.
 - **Firefox**: Load temporary add-on from `extensions/xianscan-importer/dist-firefox/manifest.json` in `about:debugging#/runtime/this-firefox`.
+- **Connect**: open the extension settings, enter the server endpoint (`http://127.0.0.1:8124` on the same computer) and paste the **access token** from XianScan **Settings -> Network & Access** (required even on the same computer). See the [importer README](extensions/xianscan-importer/README.md#connecting-to-xianscan).
 
 </details>
 
@@ -227,15 +239,17 @@ Read your translated library on Android phones, tablets, or E-Ink devices using 
    https://raw.githubusercontent.com/ArbenApura/xianscan-rust/repo/index.min.json
    ```
 3. Go to **Browse -> Extensions**, search for **XianScan**, and install it.
-4. Configure server address:
+4. Turn on LAN access in XianScan first: **Settings -> Network & Access -> LAN access**, then restart XianScan.
+5. Configure server address:
    - In **Browse -> Extensions**, tap the settings icon ⚙ next to **XianScan** -> tap the settings icon ⚙ again next to **"Multi"** -> tap **Server address**.
    - Enter your computer's local IP address and port `8124` (e.g. `http://192.168.100.98:8124`, no trailing slash). You can find your LAN address printed directly in the XianScan startup terminal banner under **Network / LAN**:
 
    <p align="center">
      <img src="docs/showcase/lan_terminal_preview.png" width="480" alt="Terminal LAN Address" style="border-radius: 8px;" />
    </p>
-5. In **Browse -> Sources**, tap the filter icon and enable the **Multi** language tag.
-6. Open **XianScan** under Sources to browse and read your translated library.
+6. Set the access token: in the same extension settings tap **Access token** and paste the token from XianScan **Settings -> Network & Access**.
+7. In **Browse -> Sources**, tap the filter icon and enable the **Multi** language tag.
+8. Open **XianScan** under Sources to browse and read your translated library.
 
 </details>
 
@@ -288,6 +302,6 @@ Licensed under the **[MIT License](LICENSE)** © 2026 Arben Apura.
 - **Koharu RF-DETR Layout Detector & Segmenter**: 768px CPU-optimized RF-DETR Seg 2XL transformer model predicting bounding boxes and instance masks for speech bubbles, dialogue text, onomatopoeia/SFX, and panels by [mayocream/koharu](https://github.com/mayocream/koharu) and [mayocream/koharu-layout-rfdetr-seg-2xl-1152](https://huggingface.co/mayocream/koharu-layout-rfdetr-seg-2xl-1152) (Apache-2.0 / Manga109 terms).
 - **PaddleOCR & RapidOCR**: Multilingual OCR models (PP-OCRv6, Korean, Cyrillic, Thai) and direction classifier by [PaddlePaddle/PaddleOCR](https://github.com/PaddlePaddle/PaddleOCR), [RapidAI/RapidOCR](https://github.com/RapidAI/RapidOCR), and [xberg-io/paddleocr-onnx-models](https://huggingface.co/xberg-io/paddleocr-onnx-models) (Apache-2.0).
 - **LaMa Inpainting**: Large Mask Inpainting architecture by [advimman/lama](https://github.com/advimman/lama) (Apache-2.0) and manga inpainting weights by [ogkalu/lama-manga-onnx-dynamic](https://huggingface.co/ogkalu/lama-manga-onnx-dynamic).
-- **Typography & Fonts**: Open-source dialogue and CJK fonts (Friendly Sans, LXGW WenKai) under the SIL Open Font License ([OFL-1.1](https://openfontlicense.org/)). CC Wild Words is a registered trademark of Comicraft.
+- **Typography & Fonts**: Open-source dialogue font Friendly Sans and script fonts (Noto Sans Devanagari, Noto Sans Thai, Tajawal) under the SIL Open Font License ([OFL-1.1](https://openfontlicense.org/)); CJK fallback font WenQuanYi Micro Hei by the [WenQuanYi project](http://wenq.org/) under the [Apache License 2.0](https://www.apache.org/licenses/LICENSE-2.0). The licence texts for the script fonts and WenQuanYi Micro Hei ship in `web/static/fonts/licenses/`. CC Wild Words is a registered trademark of Comicraft.
 - **ONNX Runtime**: High-performance inference engine by [Microsoft](https://github.com/microsoft/onnxruntime) (MIT License).
 - **Artwork & Trademarks**: All demonstration images are referenced under Fair Use for open-source technical illustration and model benchmarking. All rights and copyrights remain with their respective intellectual property owners.
