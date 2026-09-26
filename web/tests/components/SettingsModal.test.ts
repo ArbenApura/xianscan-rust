@@ -9,6 +9,8 @@ import SettingsModal from '$lib/components/SettingsModal.svelte';
 import { updateProviderSchema, testProviderSchema, setHardwareDeviceSchema } from '$lib/schemas';
 import { validateForm } from '$lib/utils/form';
 import { settings, DEFAULTS } from '$lib/stores/settings';
+import { toast } from 'svelte-sonner';
+import { computeWork, computeToastIds, settingsHardwareInfo, providersSession, resetSettingsSession } from '$lib/stores/settings-ui';
 
 describe('SettingsModal Component UI', () => {
 	beforeEach(() => {
@@ -18,6 +20,57 @@ describe('SettingsModal Component UI', () => {
 
 	afterEach(() => {
 		cleanup();
+	});
+
+	it('does not rewrite the stored casing or weight for a font that is not loaded yet (FEAT-009 Phase 4)', async () => {
+		const fetchMock = vi.fn().mockImplementation(async () => ({ ok: true, json: async () => ({}) }));
+		global.fetch = fetchMock;
+		settings.set({ ...DEFAULTS, typesetFont: 'MyFont', typesetCasing: 'original', typesetFontWeight: '700' });
+
+		render(SettingsModal, { props: { open: false } });
+		await tick();
+		await tick();
+
+		expect(get(settings).typesetCasing).toBe('original');
+		expect(get(settings).typesetFontWeight).toBe('700');
+		const patches = fetchMock.mock.calls.filter(([, init]) => (init as RequestInit | undefined)?.method === 'PATCH');
+		expect(patches).toHaveLength(0);
+	});
+
+	it('polls telemetry one request at a time, only on the compute tab (FEAT-009 Phase 5)', async () => {
+		vi.useFakeTimers();
+		try {
+			let release: (() => void) | null = null;
+			const telemetryCalls: number[] = [];
+			const fetchMock = vi.fn().mockImplementation(async (url: string) => {
+				if (String(url).includes('/api/system/telemetry')) {
+					telemetryCalls.push(Date.now());
+					await new Promise<void>((r) => (release = r));
+					return { ok: true, json: async () => ({ active_jobs: 0, queued_jobs: 0 }) };
+				}
+				return { ok: true, json: async () => ({}) };
+			});
+			global.fetch = fetchMock;
+
+			render(SettingsModal, { props: { open: true, initialTab: 'compute' } });
+			await tick();
+			await vi.advanceTimersByTimeAsync(10_000);
+			// THE FIRST REQUEST IS STILL OUTSTANDING: NO SECOND ONE WAS STARTED
+			expect(telemetryCalls).toHaveLength(1);
+
+			release!();
+			await vi.advanceTimersByTimeAsync(2_100);
+			expect(telemetryCalls).toHaveLength(2);
+
+			// LEAVING THE COMPUTE TAB STOPS THE POLL
+			await fireEvent.click(screen.getAllByText('General & Appearance')[0]);
+			await tick();
+			release!();
+			await vi.advanceTimersByTimeAsync(10_000);
+			expect(telemetryCalls).toHaveLength(2);
+		} finally {
+			vi.useRealTimers();
+		}
 	});
 
 	it('renders settings modal with provider list and tab navigation', async () => {
@@ -360,8 +413,8 @@ describe('SettingsModal Component UI', () => {
 		expect(screen.queryByText('Reset Defaults')).toBeNull();
 		expect(whiteInpaintSwitch.getAttribute('aria-checked')).toBe('true');
 
-		// CHANGE INPAINT MODE TO SCALED (512x512)
-		const scaledBtn = screen.getByText('Balanced (512x512)').closest('button');
+		// CHANGE INPAINT MODE TO SCALED (512 PX TILES)
+		const scaledBtn = screen.getByText('Balanced (512 px Tiles)').closest('button');
 		await fireEvent.click(scaledBtn!);
 		await tick();
 
@@ -889,6 +942,431 @@ describe('SettingsModal Component UI', () => {
 		expect(get(settings).typesetCasing).toBe('uppercase');
 		expect(get(settings).typesetAllCaps).toBe(true);
 	});
+
+	it('dispatches close event when clicking the modal close button or backdrop', async () => {
+		const fetchMock = vi.fn().mockImplementation(async () => ({ ok: true, json: async () => ({}) }));
+		global.fetch = fetchMock;
+
+		const closeHandler = vi.fn();
+		const { component } = render(SettingsModal, {
+			props: {
+				open: true,
+				initialTab: 'appearance',
+			},
+		});
+		component.$on('close', closeHandler);
+		await tick();
+
+		// CLICK CLOSE BUTTON IN MODAL HEADER
+		const closeButton = screen.getByRole('button', { name: 'Close' });
+		await fireEvent.click(closeButton);
+		await tick();
+
+		expect(closeHandler).toHaveBeenCalledTimes(1);
+	});
+
+	it('dispatches close event when pressing Escape key', async () => {
+		const fetchMock = vi.fn().mockImplementation(async () => ({ ok: true, json: async () => ({}) }));
+		global.fetch = fetchMock;
+
+		const closeHandler = vi.fn();
+		const { component } = render(SettingsModal, {
+			props: {
+				open: true,
+				initialTab: 'appearance',
+			},
+		});
+		component.$on('close', closeHandler);
+		await tick();
+
+		const escEvent = new KeyboardEvent('keydown', { key: 'Escape' });
+		window.dispatchEvent(escEvent);
+		await tick();
+
+		expect(closeHandler).toHaveBeenCalledTimes(1);
+	});
+
+	it('dispatches both close and openTour events when starting tour from About tab', async () => {
+		const fetchMock = vi.fn().mockImplementation(async () => ({ ok: true, json: async () => ({}) }));
+		global.fetch = fetchMock;
+
+		const closeHandler = vi.fn();
+		const tourHandler = vi.fn();
+		const { component } = render(SettingsModal, {
+			props: {
+				open: true,
+				initialTab: 'about',
+			},
+		});
+		component.$on('close', closeHandler);
+		component.$on('openTour', tourHandler);
+		await tick();
+
+		const startTourButton = screen.getByRole('button', { name: /Replay Tour/i });
+		await fireEvent.click(startTourButton);
+		await tick();
+
+		expect(closeHandler).toHaveBeenCalledTimes(1);
+		expect(tourHandler).toHaveBeenCalledTimes(1);
+	});
 });
 
+// -- TAB REMOUNT REGRESSIONS (SEARCH ESCAPE, JUMP RETRY, STATE THAT MUST SURVIVE A TAB SWITCH) -- //
 
+const TWO_PROVIDERS = [
+	{
+		id: 'deepseek',
+		name: 'DeepSeek',
+		isDefault: true,
+		activeModel: 'deepseek-chat',
+		availableModels: ['deepseek-chat'],
+		baseUrl: 'https://api.deepseek.com',
+		hasKey: true,
+	},
+	{
+		id: 'gemini',
+		name: 'Google Gemini',
+		isDefault: false,
+		activeModel: 'gemini-2.5-flash',
+		availableModels: ['gemini-2.5-flash'],
+		baseUrl: 'https://generativelanguage.googleapis.com/v1beta/openai/',
+		hasKey: true,
+	},
+];
+
+function cpuHardware(reloading: boolean) {
+	return {
+		device_label: 'CPU Multi-threaded',
+		active_provider: 'CPUExecutionProvider',
+		providers: ['CPUExecutionProvider'],
+		available_providers: ['CPUExecutionProvider'],
+		has_cuda: false,
+		has_directml: false,
+		has_coreml: false,
+		reloading,
+	};
+}
+
+// THE STATUS PILL ALSO SHOWS THE DEVICE LABEL ONCE HARDWARE HAS LOADED; PICK THE DEVICE CARD BUTTON
+function cpuCard(): HTMLElement {
+	return screen
+		.getAllByText('CPU Multi-threaded')
+		.map((el) => el.closest('button'))
+		.find((b): b is HTMLButtonElement => !!b)!;
+}
+
+async function searchAndJump(query: string, label: RegExp) {
+	const input = screen.getByPlaceholderText('Search settings...') as HTMLInputElement;
+	input.value = query;
+	await fireEvent.input(input);
+	await tick();
+	await fireEvent.click(screen.getByRole('button', { name: label }));
+}
+
+describe('SettingsModal tab remount regressions', () => {
+	const originalScrollIntoView = (HTMLElement.prototype as any).scrollIntoView;
+	let scrolled: string[] = [];
+
+	beforeEach(() => {
+		vi.restoreAllMocks();
+		settings.set({ ...DEFAULTS });
+		resetSettingsSession();
+		computeWork.set({ switchingDevice: null, settingVramLimit: false });
+		computeToastIds.switching = null;
+		computeToastIds.vram = null;
+		settingsHardwareInfo.set(null);
+		scrolled = [];
+		(HTMLElement.prototype as any).scrollIntoView = function (this: HTMLElement) {
+			scrolled.push(this.id);
+		};
+	});
+
+	afterEach(() => {
+		cleanup();
+		(HTMLElement.prototype as any).scrollIntoView = originalScrollIntoView;
+	});
+
+	it('lets Escape in the search box close Settings unless the results popover is showing', async () => {
+		global.fetch = vi.fn().mockImplementation(async () => ({ ok: true, json: async () => ({}) }));
+		const closeHandler = vi.fn();
+		const { component } = render(SettingsModal, { props: { open: true, initialTab: 'appearance' } });
+		component.$on('close', closeHandler);
+		await tick();
+
+		const input = screen.getByPlaceholderText('Search settings...') as HTMLInputElement;
+		input.value = 'theme';
+		await fireEvent.input(input);
+		await tick();
+		expect(screen.getByRole('button', { name: 'Dismiss search results' })).toBeTruthy();
+
+		// FIRST ESCAPE ONLY HIDES THE POPOVER (THE KEY IS CONSUMED, SO THE MODAL STACK IGNORES IT)
+		const first = new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true });
+		input.dispatchEvent(first);
+		await tick();
+		expect(first.defaultPrevented).toBe(true);
+		expect(closeHandler).not.toHaveBeenCalled();
+
+		// SECOND ESCAPE (POPOVER HIDDEN) REACHES THE MODAL STACK AND CLOSES SETTINGS
+		await fireEvent.keyDown(input, { key: 'Escape' });
+		await tick();
+		expect(closeHandler).toHaveBeenCalledTimes(1);
+	});
+
+	it('closes Settings on Escape from an empty focused search box', async () => {
+		global.fetch = vi.fn().mockImplementation(async () => ({ ok: true, json: async () => ({}) }));
+		const closeHandler = vi.fn();
+		const { component } = render(SettingsModal, { props: { open: true, initialTab: 'appearance' } });
+		component.$on('close', closeHandler);
+		await tick();
+
+		const input = screen.getByPlaceholderText('Search settings...') as HTMLInputElement;
+		await fireEvent.focus(input);
+		await fireEvent.keyDown(input, { key: 'Escape' });
+		await tick();
+		expect(closeHandler).toHaveBeenCalledTimes(1);
+	});
+
+	it('scrolls to a provider target that renders only after the providers fetch', async () => {
+		vi.useFakeTimers();
+		try {
+			let resolveProviders: (() => void) | null = null;
+			global.fetch = vi.fn().mockImplementation(async (url: string) => {
+				if (String(url).endsWith('/api/system/providers')) {
+					await new Promise<void>((r) => (resolveProviders = r));
+					return { ok: true, json: async () => ({ providers: TWO_PROVIDERS }) };
+				}
+				return { ok: true, json: async () => ({}) };
+			});
+
+			render(SettingsModal, { props: { open: true, initialTab: 'appearance' } });
+			await tick();
+			await searchAndJump('api key', /API Key Configuration/i);
+			await vi.advanceTimersByTimeAsync(300);
+			expect(document.getElementById('setting-api-key')).toBeNull();
+			expect(scrolled).not.toContain('setting-api-key');
+
+			resolveProviders!();
+			await vi.advanceTimersByTimeAsync(100);
+			expect(document.getElementById('setting-api-key')).toBeTruthy();
+			expect(scrolled).toContain('setting-api-key');
+		} finally {
+			vi.useRealTimers();
+		}
+	});
+
+	it('re-scrolls an inference target once the provider card above it has loaded', async () => {
+		vi.useFakeTimers();
+		try {
+			let resolveProviders: (() => void) | null = null;
+			global.fetch = vi.fn().mockImplementation(async (url: string) => {
+				if (String(url).endsWith('/api/system/providers')) {
+					await new Promise<void>((r) => (resolveProviders = r));
+					return { ok: true, json: async () => ({ providers: TWO_PROVIDERS }) };
+				}
+				return { ok: true, json: async () => ({}) };
+			});
+
+			render(SettingsModal, { props: { open: true, initialTab: 'appearance' } });
+			await tick();
+			await searchAndJump('temperature', /Sampling Diversity/i);
+			await vi.advanceTimersByTimeAsync(200);
+			expect(scrolled.filter((id) => id === 'setting-sampling-diversity')).toHaveLength(1);
+
+			resolveProviders!();
+			await vi.advanceTimersByTimeAsync(100);
+			expect(scrolled.filter((id) => id === 'setting-sampling-diversity')).toHaveLength(2);
+		} finally {
+			vi.useRealTimers();
+		}
+	});
+
+	it('gives up on a jump target that never renders without leaving a retry loop running', async () => {
+		vi.useFakeTimers();
+		try {
+			global.fetch = vi.fn().mockImplementation(async (url: string) => {
+				if (String(url).endsWith('/api/system/providers')) {
+					await new Promise<void>(() => {});
+				}
+				return { ok: true, json: async () => ({}) };
+			});
+
+			render(SettingsModal, { props: { open: true, initialTab: 'appearance' } });
+			await tick();
+			await searchAndJump('api key', /API Key Configuration/i);
+			await vi.advanceTimersByTimeAsync(2_000);
+			expect(scrolled).toHaveLength(0);
+			expect(vi.getTimerCount()).toBe(0);
+		} finally {
+			vi.useRealTimers();
+		}
+	});
+
+	it('keeps the selected provider and its Verified result across tab switches, and resets them on reopen', async () => {
+		global.fetch = vi.fn().mockImplementation(async (url: string) => {
+			if (String(url).includes('/api/system/providers/test')) {
+				return { ok: true, json: async () => ({ ok: true, message: 'Connection verified', latencyMs: 42 }) };
+			}
+			if (String(url).includes('/api/system/providers')) {
+				return { ok: true, json: async () => ({ providers: TWO_PROVIDERS }) };
+			}
+			return { ok: true, json: async () => ({}) };
+		});
+
+		const { component } = render(SettingsModal, { props: { open: true, initialTab: 'providers' } });
+		await vi.waitFor(() => expect(screen.getByRole('button', { name: /DeepSeek/i })).toBeTruthy());
+
+		await fireEvent.click(screen.getByRole('button', { name: /DeepSeek/i }));
+		await tick();
+		await fireEvent.click(screen.getByRole('button', { name: /Google Gemini/i }));
+		await tick();
+		await fireEvent.click(screen.getByText('Test Connection').closest('button')!);
+		await vi.waitFor(() => expect(screen.getByText('Verified')).toBeTruthy());
+
+		// LEAVE AND COME BACK: THE TAB REMOUNTS BUT KEEPS THE PICK AND THE RESULT
+		await fireEvent.click(screen.getAllByText('General & Appearance')[0]);
+		await tick();
+		expect(screen.queryByText('Verified')).toBeNull();
+		await fireEvent.click(screen.getAllByText('AI Translation Providers')[0]);
+		await vi.waitFor(() => expect(screen.getByRole('button', { name: /Google Gemini/i })).toBeTruthy());
+		expect(screen.getByText('Verified')).toBeTruthy();
+
+		// A FRESH OPEN STARTS FROM THE DEFAULT PROVIDER WITH NO STALE RESULT
+		// (THE HARNESS NEVER FINISHES OUTROS, SO THE REOPEN REUSES THE MOUNTED TAB; ASSERT THE SESSION STATE IT DRIVES)
+		component.$set({ open: false });
+		await tick();
+		component.$set({ open: true, initialTab: 'providers' });
+		await vi.waitFor(() => expect(get(providersSession).selectedProviderId).toBe('deepseek'));
+		expect(get(providersSession).testResult).toBeNull();
+	});
+
+	it('starts a freshly mounted Settings on the default provider with no stale test result', async () => {
+		global.fetch = vi.fn().mockImplementation(async (url: string) => {
+			if (String(url).includes('/api/system/providers')) {
+				return { ok: true, json: async () => ({ providers: TWO_PROVIDERS }) };
+			}
+			return { ok: true, json: async () => ({}) };
+		});
+		providersSession.set({ selectedProviderId: 'gemini', testResult: { ok: true, message: 'stale', latencyMs: 1 } });
+
+		render(SettingsModal, { props: { open: true, initialTab: 'providers' } });
+		await vi.waitFor(() => expect(screen.getByRole('button', { name: /DeepSeek/i })).toBeTruthy());
+		expect(screen.queryByText('Verified')).toBeNull();
+	});
+
+	it('keeps a device switch busy across a tab switch without dismissing its loading toast', async () => {
+		let reloading = false;
+		let posts = 0;
+		global.fetch = vi.fn().mockImplementation(async (url: string, init?: RequestInit) => {
+			if (String(url).includes('/api/system/hardware') && init?.method === 'POST') {
+				posts += 1;
+				reloading = true;
+				return { ok: true, json: async () => cpuHardware(true) };
+			}
+			if (String(url).includes('/api/system/hardware')) {
+				return { ok: true, json: async () => cpuHardware(reloading) };
+			}
+			if (String(url).includes('/api/system/providers')) {
+				return { ok: true, json: async () => ({ providers: [] }) };
+			}
+			return { ok: true, json: async () => ({}) };
+		});
+		const dismissSpy = vi.spyOn(toast, 'dismiss');
+
+		render(SettingsModal, { props: { open: true, initialTab: 'compute' } });
+		await vi.waitFor(() => expect(get(settingsHardwareInfo)).toBeTruthy());
+		await tick();
+
+		await fireEvent.click(cpuCard());
+		await vi.waitFor(() => expect(screen.getByText('Reloading models…')).toBeTruthy());
+		const loadingToast = computeToastIds.switching;
+		expect(loadingToast).not.toBeNull();
+		expect(get(computeWork).switchingDevice).toBe('cpu');
+
+		// LEAVING THE TAB MUST NOT DISMISS THE TOAST OR FORGET THE SWITCH
+		await fireEvent.click(screen.getAllByText('General & Appearance')[0]);
+		await tick();
+		expect(dismissSpy).not.toHaveBeenCalledWith(loadingToast);
+		expect(get(computeWork).switchingDevice).toBe('cpu');
+
+		// BACK ON THE TAB: STILL BUSY, SO A SECOND SWITCH CANNOT FIRE
+		await fireEvent.click(screen.getAllByText('Hardware & Compute')[0]);
+		await tick();
+		expect(screen.getByText('Reloading models…')).toBeTruthy();
+		await fireEvent.click(cpuCard());
+		await tick();
+		expect(posts).toBe(1);
+
+		// THE RELOAD FINISHES WHILE THE TAB IS AWAY; THE SHELL STILL GETS THE FRESH (NOT RELOADING) STATUS
+		await fireEvent.click(screen.getAllByText('General & Appearance')[0]);
+		await tick();
+		reloading = false;
+		await vi.waitFor(() => expect(get(computeWork).switchingDevice).toBeNull(), { timeout: 2_000 });
+		expect(dismissSpy).toHaveBeenCalledWith(loadingToast);
+		expect(get(settingsHardwareInfo)?.reloading).toBe(false);
+		await fireEvent.click(screen.getAllByText('Hardware & Compute')[0]);
+		await tick();
+		expect(screen.queryByText('Reloading models…')).toBeNull();
+	});
+
+	it('lands on the device section when the VRAM limit is not shown (CPU-only machine)', async () => {
+		vi.useFakeTimers();
+		try {
+			global.fetch = vi.fn().mockImplementation(async (url: string) => {
+				if (String(url).endsWith('/api/system/hardware')) return { ok: true, json: async () => cpuHardware(false) };
+				return { ok: true, json: async () => ({}) };
+			});
+
+			render(SettingsModal, { props: { open: true, initialTab: 'appearance' } });
+			await tick();
+			await searchAndJump('vram', /GPU VRAM Allocation/i);
+			await vi.advanceTimersByTimeAsync(1_700);
+			expect(document.getElementById('setting-vram-limit')).toBeNull();
+			expect(scrolled).toContain('setting-compute-device');
+			expect(document.getElementById('setting-compute-device')!.className).toContain('ring-2');
+		} finally {
+			vi.useRealTimers();
+		}
+	});
+
+	it('lands on the provider section when the API key field is hidden (local provider)', async () => {
+		vi.useFakeTimers();
+		try {
+			const local = [{ id: 'ollama', name: 'Ollama', isDefault: true, activeModel: 'qwen3', availableModels: ['qwen3'], baseUrl: 'http://127.0.0.1:11434/v1', hasKey: false }];
+			global.fetch = vi.fn().mockImplementation(async (url: string) => {
+				if (String(url).endsWith('/api/system/providers')) return { ok: true, json: async () => ({ providers: local }) };
+				return { ok: true, json: async () => ({}) };
+			});
+
+			render(SettingsModal, { props: { open: true, initialTab: 'appearance' } });
+			await tick();
+			await searchAndJump('api key', /API Key Configuration/i);
+			await vi.advanceTimersByTimeAsync(300);
+			expect(document.getElementById('setting-api-key')).toBeNull();
+			expect(scrolled).toContain('setting-providers-hub');
+			expect(vi.getTimerCount()).toBeLessThanOrEqual(1);
+		} finally {
+			vi.useRealTimers();
+		}
+	});
+
+	it('finds the script font, preview, network and inpaint settings by their new keywords', async () => {
+		global.fetch = vi.fn().mockImplementation(async () => ({ ok: true, json: async () => ({}) }));
+		render(SettingsModal, { props: { open: true, initialTab: 'appearance' } });
+		await tick();
+
+		const input = screen.getByPlaceholderText('Search settings...') as HTMLInputElement;
+		const cases: [string, RegExp][] = [
+			['rtl', /Script fonts/i],
+			['exact', /Live Speech Bubble Preview/i],
+			['restart', /LAN Access/i],
+			['print-token', /Access Token & Device Pairing/i],
+			['tiles', /Inpainting Strategy/i],
+		];
+		for (const [query, label] of cases) {
+			input.value = query;
+			await fireEvent.input(input);
+			await tick();
+			expect(screen.getByRole('button', { name: label })).toBeTruthy();
+		}
+	});
+});

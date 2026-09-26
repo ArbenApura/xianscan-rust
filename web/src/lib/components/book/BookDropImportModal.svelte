@@ -34,6 +34,7 @@
 
 	// IMPORTED COMPONENTS
 	import { Modal, Button, TextField, LanguagePicker } from '$lib/components/ui';
+	import ScriptCoverageNotice from './ScriptCoverageNotice.svelte';
 
 	const dispatch = createEventDispatcher();
 
@@ -458,6 +459,7 @@
 				<div>
 					<span class="mb-1 block text-xs font-semibold opacity-60">Target Language</span>
 					<LanguagePicker bind:value={targetLang} excludeCode={sourceLang} />
+					<ScriptCoverageNotice lang={targetLang} />
 				</div>
 			</div>
 

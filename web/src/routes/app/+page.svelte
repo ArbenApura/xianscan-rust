@@ -4,6 +4,7 @@
 	import { onMount } from 'svelte';
 	import { toast } from 'svelte-sonner';
 	import { Button, TextField, Modal, ConfirmDialog, ActionMenu, LanguagePicker, Switch, LazyImage, Badge } from '$lib/components/ui';
+	import ScriptCoverageNotice from '$lib/components/book/ScriptCoverageNotice.svelte';
 	import { ripple } from '$lib/actions/ripple';
 	import { settings, THEME_POPOVER, THEME_PANEL_BORDER, LIB_LAYOUT_COOKIE, setCookie } from '$lib/stores/settings';
 	import { readingHistory } from '$lib/stores/reading-history';
@@ -39,7 +40,7 @@
 	import ScrollText from 'lucide-svelte/icons/scroll-text';
 	import HardDrive from 'lucide-svelte/icons/hard-drive';
 	// IMPORTED COMPONENTS
-	import SettingsModal from '$lib/components/SettingsModal.svelte';
+	import { openSettings } from '$lib/stores/settings-modal';
 	import BookMetadataFields from '$lib/components/book/BookMetadataFields.svelte';
 	import BookCoverPicker from '$lib/components/book/BookCoverPicker.svelte';
 	import BookDropImportModal from '$lib/components/book/BookDropImportModal.svelte';
@@ -702,7 +703,6 @@
 
 	// LLM PROVIDER WARNING BANNER STATE
 	let providerWarningDismissed = false;
-	let librarySettingsOpen = false;
 	$: isLlmConfigured = (data as any)?.llmStatus?.configured ?? true;
 	$: activeProviderName = (data as any)?.llmStatus?.activeProvider?.name ?? 'AI Provider';
 </script>
@@ -775,7 +775,7 @@
 					variant="primary"
 					size="sm"
 					class="gap-1.5 text-xs shadow-xs"
-					on:click={() => (librarySettingsOpen = true)}
+					on:click={() => openSettings('providers')}
 				>
 					<Settings size={14} />
 					<span>Configure AI</span>
@@ -1060,6 +1060,7 @@
 											{/if}
 											<a
 												href={`/app/books/${book.id}/`}
+												dir="auto"
 												class="font-bold text-sm sm:text-base tracking-tight hover:text-[#b23a2e] dark:hover:text-[#e08a63] block truncate px-0.5"
 												title={book.titleTarget || book.title}
 											>
@@ -1206,6 +1207,7 @@
 								{/if}
 								<a
 									href={`/app/books/${book.id}/`}
+									dir="auto"
 									class="font-bold text-xs sm:text-sm hover:text-[#b23a2e] dark:hover:text-[#e08a63] truncate block px-0.5"
 									title={book.titleTarget || book.title}
 								>
@@ -1496,6 +1498,7 @@
 			<div class="flex items-center gap-2">
 				<input
 					type="text"
+					dir="auto"
 					bind:value={titleTarget}
 					placeholder="e.g. Stardust"
 					class="h-[38px] min-w-0 flex-1 rounded-lg border border-black/10 bg-transparent px-3 text-sm outline-none transition-colors placeholder:opacity-40 focus:border-[#b23a2e] focus:ring-2 focus:ring-[#b23a2e]/30 dark:border-white/[0.06]"
@@ -1525,6 +1528,7 @@
 			<div>
 				<span class="mb-1 block text-xs font-semibold opacity-60">Target Language</span>
 				<LanguagePicker bind:value={targetLang} excludeCode={sourceLang} />
+				<ScriptCoverageNotice lang={targetLang} />
 			</div>
 		</div>
 
@@ -1589,6 +1593,7 @@
 				<div>
 					<span class="mb-1 block text-xs font-semibold opacity-60">Target Language</span>
 					<LanguagePicker bind:value={editTargetLang} excludeCode={editSourceLang} />
+					<ScriptCoverageNotice lang={editTargetLang} />
 				</div>
 			</div>
 
@@ -1650,12 +1655,6 @@
 <BookDropImportModal
 	bind:this={bookDropImportModal}
 	on:created={loadBooks}
-/>
-
-<!-- SETTINGS MODAL TRIGGERED FROM WARNING BANNER -->
-<SettingsModal
-	bind:open={librarySettingsOpen}
-	initialTab="providers"
 />
 
 <!-- BOOK LOCALIZATION DIRECTIVES MODAL -->

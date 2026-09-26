@@ -10,6 +10,7 @@
 		THEME_CLASS,
 		THEME_BAR,
 		type Theme,
+		refreshFontAvailability,
 	} from '$lib/stores/settings';
 	import { activeTranslatingChapters } from '$lib/stores/job-tracker';
 	import { mlStatus, type MLStatusState } from '$lib/stores/ml-status';
@@ -33,20 +34,49 @@
 
 	// IMPORTED UI COMPONENTS
 	import SettingsModal from '$lib/components/SettingsModal.svelte';
+	import { settingsModal, openSettings, closeSettings } from '$lib/stores/settings-modal';
 	import OnboardingModal from '$lib/components/OnboardingModal.svelte';
 	import BatchProgressWidget from '$lib/components/BatchProgressWidget.svelte';
 	import { batchProgress } from '$lib/stores/batch-tracker';
 
 	// -- STATES -- //
+	// THE ONE SETTINGS MODAL (FEAT-009 PHASE 5): OPENED THROUGH THE settingsModal STORE FROM ANY PAGE. THE MODAL CLOSES
+	// ITSELF THROUGH bind:open AND on:close, WHICH IS MIRRORED BACK INTO THE STORE.
 	let settingsOpen = false;
-	let settingsTab: 'ai' | 'compute' | 'general' = 'ai';
+	$: settingsOpen = $settingsModal.open;
+	function handleSettingsClose() {
+		closeSettings();
+	}
+	$: if (!settingsOpen && $settingsModal.open) closeSettings();
 	let onboardingOpen = false;
 	let lastScrollY = 0;
 	let topbarHidden = false;
+	let accessNoticePending = false;
 
-	function openSettings(tab: 'ai' | 'compute' | 'general' = 'ai') {
-		settingsTab = tab;
-		settingsOpen = true;
+
+	// ONE-TIME NOTICE FOR INSTALLS THAT WERE ON THE LAN BEFORE ACCESS TOKENS EXISTED
+	async function loadAccessNotice() {
+		try {
+			const res = await fetch('/api/system/access');
+			if (!res.ok) return;
+			const data = await res.json();
+			accessNoticePending = Boolean(data.noticePending);
+		} catch {
+			// NOTICE IS BEST-EFFORT
+		}
+	}
+
+	async function dismissAccessNotice() {
+		accessNoticePending = false;
+		try {
+			await fetch('/api/system/access', {
+				method: 'PATCH',
+				headers: { 'content-type': 'application/json' },
+				body: JSON.stringify({ dismissNotice: true }),
+			});
+		} catch {
+			// SHOWN AGAIN NEXT LOAD IF THIS FAILED
+		}
 	}
 
 	function openTour() {
@@ -64,6 +94,9 @@
 		mlStatus.startPolling();
 		syncClient.start();
 		versionCheck.checkForUpdates();
+		void loadAccessNotice();
+		// KNOW THE FONT CATALOG BEFORE ANY TYPESET REQUEST, SO THE EFFECTIVE STYLE IS RESOLVED (FEAT-009 PHASE 4)
+		void refreshFontAvailability();
 	});
 
 	onDestroy(() => {
@@ -311,6 +344,18 @@
 
 	<!-- PAGE CONTENT -->
 	<main class="mx-auto w-full max-w-6xl px-4 pt-6 pb-16 sm:px-6">
+		{#if accessNoticePending}
+			<!-- ONE-TIME ACCESS TOKEN NOTICE -->
+			<div class="mb-4 flex items-start gap-3 rounded-xl border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-sm" role="status">
+				<p class="flex-1">
+					LAN access now needs an access token. Paste it into Mihon and the browser importer.
+					<button type="button" class="font-semibold underline" on:click={() => openSettings('network')}>Open Settings</button>
+				</p>
+				<button type="button" aria-label="Dismiss" class="opacity-60 hover:opacity-100" on:click={dismissAccessNotice}>
+					<X class="h-4 w-4" />
+				</button>
+			</div>
+		{/if}
 		<slot />
 	</main>
 
@@ -320,7 +365,12 @@
 
 
 <!-- GLOBAL SETTINGS & PREFERENCES MODAL -->
-<SettingsModal bind:open={settingsOpen} initialTab={settingsTab} on:openTour={openTour} />
+<SettingsModal
+	bind:open={settingsOpen}
+	initialTab={$settingsModal.tab}
+	on:close={handleSettingsClose}
+	on:openTour={openTour}
+/>
 
 <!-- ONBOARDING WELCOME TOUR MODAL -->
 <OnboardingModal bind:open={onboardingOpen} />

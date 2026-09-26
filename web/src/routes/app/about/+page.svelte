@@ -197,7 +197,7 @@
 								<span class="text-[10px] text-neutral-500">Chrome · Edge · Firefox · Brave</span>
 							</div>
 							<p class="text-[11px] sm:text-xs text-neutral-600 dark:text-neutral-400 leading-relaxed max-w-xl">
-								Captures chapters from online comic sites and replaces panels in-place in real-time as background translation finishes.
+								Captures chapters from online comic sites and replaces panels in-place in real-time as background translation finishes. Paste the access token from Settings, Network &amp; Access into the extension.
 							</p>
 						</div>
 					</div>
@@ -253,7 +253,7 @@
 								<span class="text-[10px] text-neutral-500">Android · E-Ink</span>
 							</div>
 							<p class="text-[11px] sm:text-xs text-neutral-600 dark:text-neutral-400 leading-relaxed max-w-xl">
-								Stream and read translated chapters over your local home Wi-Fi directly in Mihon or Tachiyomi.
+								Stream and read translated chapters over your home Wi-Fi in Mihon or Tachiyomi. Turn on LAN access and copy the access token in Settings, Network &amp; Access.
 							</p>
 						</div>
 					</div>

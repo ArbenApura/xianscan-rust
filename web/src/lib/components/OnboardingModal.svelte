@@ -6,6 +6,7 @@
 	// IMPORTED MODULES
 	import { ripple } from '$lib/actions/ripple';
 	import { settings } from '$lib/stores/settings';
+	import { openSettings } from '$lib/stores/settings-modal';
 	// IMPORTED ICONS
 	import ArrowLeft from 'lucide-svelte/icons/arrow-left';
 	import ArrowRight from 'lucide-svelte/icons/arrow-right';
@@ -74,6 +75,12 @@
 		open = false;
 		dispatch('complete');
 		dispatch('close');
+	}
+
+	// PAIRING NEEDS THE ACCESS TOKEN (AND LAN ACCESS FOR PHONES): FINISH THE TOUR AND OPEN THAT SETTINGS TAB
+	function openNetworkSettings() {
+		completeOnboarding();
+		openSettings('network');
 	}
 
 	function skipOnboarding() {
@@ -231,7 +238,7 @@
 										<span>Cloud AI APIs</span>
 									</div>
 									<p class="text-[11px] sm:text-xs opacity-75 leading-relaxed">
-										Connect <strong>Gemini</strong>, <strong>OpenAI</strong>, <strong>Groq</strong>, or <strong>OpenRouter</strong> for ultra-fast chapter translations.
+										Connect <strong>DeepSeek</strong>, <strong>Gemini</strong>, <strong>OpenAI</strong>, <strong>Groq</strong>, <strong>OpenRouter</strong>, or any OpenAI-compatible <strong>Custom</strong> endpoint.
 									</p>
 								</div>
 							</div>
@@ -304,7 +311,7 @@
 										<ExternalLink size={12} class="opacity-40 group-hover:opacity-100 transition-opacity text-emerald-600 dark:text-emerald-400" />
 									</div>
 									<p class="text-[11px] sm:text-xs opacity-75 leading-relaxed">
-										Stream translated chapters directly to your Android phone or E-Ink tablet over local Wi-Fi.
+										Stream translated chapters to your Android phone or E-Ink tablet over Wi-Fi once LAN access is on.
 									</p>
 								</div>
 							</a>
@@ -312,7 +319,12 @@
 					</div>
 
 					<p class="text-[10.5px] sm:text-xs opacity-60 text-center pt-1 sm:pt-0">
-						You're all set! Replay this tour anytime from <strong>Preferences & Configuration &gt; About & Diagnostics</strong>.
+						Both need your access token from
+						<button
+							type="button"
+							on:click={openNetworkSettings}
+							class="font-semibold underline text-[#b23a2e] dark:text-[#e08a63] cursor-pointer"
+						>Network &amp; Access</button>. Replay this tour anytime from <strong>About &amp; Diagnostics</strong>.
 					</p>
 				</div>
 			{/if}

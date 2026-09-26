@@ -1,8 +1,10 @@
 // SETTINGS STORE WITH SCHEMA VERSIONING & SAFE PROGRESSIVE UPGRADE
 // Manages application preferences with SQLite synchronization and cookie mirroring.
 
-import { writable, get } from 'svelte/store';
+import { writable, derived, get } from 'svelte/store';
 import { browser } from '$app/environment';
+import type { Script } from '$lib/languages';
+import { SCRIPT_FONT_SLOTS, type ScriptFontSlot } from '$lib/typeset-scripts';
 
 // -- TYPES -- //
 
@@ -78,7 +80,10 @@ export interface AppSettings {
 	// ADVANCED TYPESETTING & INPAINTING CONFIGURATION
 	typesetFont: string;
 	typesetFontWeight: TypesetFontWeight;
+	/** @deprecated SUPERSEDED BY typesetScriptFonts (han / kana / hangul); KEPT FOR OLDER CLIENTS AND ROUTES. */
 	typesetCjkFont: string;
+	/** THE USER'S FONT PER SCRIPT; A MISSING SLOT MEANS AUTOMATIC (FEAT-006). */
+	typesetScriptFonts: Partial<Record<ScriptFontSlot, string>>;
 	typesetPadding: number;
 	typesetOutline: TypesetOutline;
 	typesetContrast: TypesetContrast;
@@ -113,17 +118,17 @@ export const INPAINT_MODES: { id: InpaintMode; label: string; tag: string; badge
 	},
 	{
 		id: 'scaled',
-		label: 'Balanced (512x512)',
-		tag: 'Fast - Standard',
+		label: 'Balanced (512 px Tiles)',
+		tag: 'Balanced - Slower on Long Strips',
 		badgeColor: 'text-amber-700 bg-amber-500/10 border-amber-500/30 dark:text-amber-300',
-		blurb: 'Standard quality for low-end hardware. Downsamples canvas to 512x512 before inpainting and upscales; fast and memory-efficient.',
+		blurb: 'Splits the page into square tiles and runs each at 512 px, keeping the aspect ratio. Sharper than one downscale, but much slower on very tall webtoon strips.',
 	},
 	{
 		id: 'full',
 		label: 'Full Dynamic',
 		tag: 'Slowest - Full Canvas',
 		badgeColor: 'text-sky-700 bg-sky-500/10 border-sky-500/30 dark:text-sky-300',
-		blurb: 'Highest global context quality. Inpaints the entire uncut image in one pass for seamless full-page texture blending; requires high VRAM and compute.',
+		blurb: 'Full-page context. Pages under about 4 MP run in one pass; larger pages run in overlapping bands, so memory stays bounded. Slowest mode.',
 	},
 ];
 
@@ -203,7 +208,7 @@ export const APP_FONTS: { id: AppFont; label: string; sample: string; blurb: str
 ];
 
 export const DEFAULTS: AppSettings = {
-	version: 11,
+	version: 12,
 	model: 'qwen3.5:9b',
 	inpaintMode: 'patch',
 	theme: 'sepia',
@@ -232,6 +237,7 @@ export const DEFAULTS: AppSettings = {
 	typesetFont: 'CC Wild Words',
 	typesetFontWeight: 'normal',
 	typesetCjkFont: 'WenQuanYi Micro Hei',
+	typesetScriptFonts: {},
 	typesetPadding: 0.05,
 	typesetOutline: 'standard',
 	typesetContrast: 'auto',
@@ -280,6 +286,7 @@ export const SERVER_CANONICAL_KEYS: (keyof AppSettings)[] = [
 	'typesetFont',
 	'typesetFontWeight',
 	'typesetCjkFont',
+	'typesetScriptFonts',
 	'typesetPadding',
 	'typesetOutline',
 	'typesetContrast',
@@ -317,7 +324,6 @@ export const PARALLEL_CHAPTERS_COOKIE = 'mt_parallel_chapters';
 export const RESLICE_BEFORE_BATCH_COOKIE = 'mt_reslice_batch';
 export const TYPESET_FONT_COOKIE = 'mt_ts_font';
 export const TYPESET_FONT_WEIGHT_COOKIE = 'mt_ts_font_weight';
-export const TYPESET_CJK_FONT_COOKIE = 'mt_ts_cjk_font';
 export const TYPESET_PADDING_COOKIE = 'mt_ts_padding';
 export const TYPESET_OUTLINE_COOKIE = 'mt_ts_outline';
 export const TYPESET_CONTRAST_COOKIE = 'mt_ts_contrast';
@@ -376,6 +382,8 @@ export const THEME_BAR: Record<Theme, string> = {
 
 export interface TypesetFontOption {
 	id: string;
+	/** SCRIPTS THIS FONT HAS GLYPHS FOR (FEAT-006); ABSENT FOR OLDER DATA. */
+	scripts?: Script[];
 	label: string;
 	sub: string;
 	stack?: string;
@@ -449,6 +457,8 @@ export interface CustomFontItem {
 	lowercaseOnly?: boolean;
 	supportedCasings?: TypesetCasing[];
 	variants?: CustomFontVariantItem[];
+	/** SCRIPTS THE FONT'S cmap COVERS (FEAT-006); ABSENT FOR FONTS UPLOADED BEFORE IT. */
+	scripts?: Script[];
 }
 
 export interface CasingPreset {
@@ -590,6 +600,8 @@ export function getValidFontWeightForFont(
 export interface SystemFontInfo {
 	family: string;
 	scriptType: 'dialogue' | 'cjk';
+	/** SCRIPTS THE FONT COVERS (FEAT-006); ABSENT FROM OLDER SERVERS. */
+	scripts?: Script[];
 	supportedWeights: ('normal' | 'bold')[];
 	isVariable?: boolean;
 	allCapsOnly?: boolean;
@@ -622,6 +634,8 @@ export async function fetchInstalledSystemFonts(script?: 'dialogue' | 'cjk'): Pr
 }
 
 const loadedBrowserFonts = new Set<string>();
+// SYSTEM FAMILIES THAT FAILED TO LOAD THIS SESSION (E.G. NO LONGER INSTALLED): NOT REQUESTED AGAIN UNTIL RE-ENABLED
+const failedSystemBrowserFonts = new Set<string>();
 
 // DYNAMICALLY REGISTERS CUSTOM FONT IN THE BROWSER DOM FOR LIVE PREVIEW
 export async function loadBrowserFontFace(font: {
@@ -673,13 +687,17 @@ export async function loadBrowserFontFace(font: {
 }
 
 // DYNAMICALLY REGISTERS SYSTEM INSTALLED FONT IN THE BROWSER DOM FOR LIVE PREVIEW
-export async function loadSystemBrowserFontFace(familyName: string): Promise<boolean> {
+// retryFailed: AN EXPLICIT ENABLE FROM THE SYSTEM FONT BROWSER TRIES AGAIN (THE FONT MAY HAVE BEEN INSTALLED SINCE)
+export async function loadSystemBrowserFontFace(familyName: string, retryFailed = false): Promise<boolean> {
 	if (typeof window === 'undefined' || typeof document === 'undefined' || !('fonts' in document)) {
 		return false;
 	}
 	const cacheKey = `system:${familyName}`;
 	if (loadedBrowserFonts.has(cacheKey)) {
 		return true;
+	}
+	if (failedSystemBrowserFonts.has(familyName) && !retryFailed) {
+		return false;
 	}
 	try {
 		const fontFace = new FontFace(familyName, `url(/api/system/fonts/system/${encodeURIComponent(familyName)})`, {
@@ -691,6 +709,7 @@ export async function loadSystemBrowserFontFace(familyName: string): Promise<boo
 		loadedBrowserFonts.add(cacheKey);
 		return true;
 	} catch {
+		failedSystemBrowserFonts.add(familyName);
 		return false;
 	}
 }
@@ -698,6 +717,7 @@ export async function loadSystemBrowserFontFace(familyName: string): Promise<boo
 export function unloadBrowserFontFace(fontId: string): void {
 	loadedBrowserFonts.delete(fontId);
 	loadedBrowserFonts.delete(`system:${fontId}`);
+	failedSystemBrowserFonts.delete(fontId);
 }
 
 const CJK_SYSTEM_FAMILY_REGEX =
@@ -809,6 +829,72 @@ export function getMergedCjkFonts(
 	return [...AVAILABLE_CJK_FONTS, ...customCjkOptions, ...systemCjkOptions];
 }
 
+const CJK_SLOTS = new Set<ScriptFontSlot>(['han', 'kana', 'hangul']);
+
+/** THE BUNDLED FONT OFFERED FOR EACH SCRIPT (THE SERVER RENDERS WITH THE SAME FILES). */
+const BUNDLED_SCRIPT_FONT_OPTIONS: Partial<Record<ScriptFontSlot, TypesetFontOption>> = {
+	han: AVAILABLE_CJK_FONTS[0],
+	kana: AVAILABLE_CJK_FONTS[0],
+	hangul: AVAILABLE_CJK_FONTS[0],
+	cyrillic: AVAILABLE_CJK_FONTS[0],
+	devanagari: { id: 'Noto Sans Devanagari', label: 'Noto Sans Devanagari', sub: 'Bundled Hindi / Devanagari', bundled: true, supportedWeights: ['normal', 'bold'], scripts: ['devanagari'] },
+	thai: { id: 'Noto Sans Thai', label: 'Noto Sans Thai', sub: 'Bundled Thai', bundled: true, supportedWeights: ['normal', 'bold'], scripts: ['thai'] },
+	arabic: { id: 'Tajawal', label: 'Tajawal', sub: 'Bundled Arabic', bundled: true, supportedWeights: ['normal', 'bold'], scripts: ['arabic', 'latin'] },
+};
+
+/** THE FAMILY A PREVIEW SHOULD USE FOR A SCRIPT: THE USER'S CHOICE, ELSE THE BUNDLED FONT. */
+export function scriptPreviewFamily(slot: ScriptFontSlot, scriptFonts: Partial<Record<ScriptFontSlot, string>> = {}): string | undefined {
+	return scriptFonts[slot] || BUNDLED_SCRIPT_FONT_OPTIONS[slot]?.id;
+}
+
+/**
+ * FONTS OFFERED FOR ONE SCRIPT SLOT: THE BUNDLED ONE, THEN CUSTOM AND ENABLED SYSTEM FONTS WHOSE `scripts` INCLUDE
+ * IT. DATA WITHOUT `scripts` (OLDER UPLOADS / SERVERS) FALLS BACK TO THE OLD CJK CATEGORY FOR THE CJK SLOTS.
+ */
+export function getMergedScriptFonts(
+	script: ScriptFontSlot,
+	customFonts: CustomFontItem[],
+	enabledSystemFonts: string[] = [],
+	systemFonts: SystemFontInfo[] = []
+): TypesetFontOption[] {
+	const covers = (scripts: Script[] | undefined, legacyCjk: boolean) =>
+		scripts ? scripts.includes(script) : CJK_SLOTS.has(script) && legacyCjk;
+	const options: TypesetFontOption[] = [];
+	const bundled = BUNDLED_SCRIPT_FONT_OPTIONS[script];
+	if (bundled) options.push(bundled);
+	for (const f of customFonts) {
+		if (!covers(f.scripts, f.scriptType === 'cjk')) continue;
+		options.push({
+			id: f.name,
+			label: f.name,
+			sub: f.variants && f.variants.length > 0 ? `Multi-weight (${f.variants.length + 1} files)` : 'Imported Font',
+			stack: `"${f.name}", sans-serif`,
+			custom: true,
+			customId: f.id,
+			scriptType: f.scriptType,
+			supportedWeights: f.supportedWeights,
+			isVariable: f.isVariable,
+			variants: f.variants,
+			scripts: f.scripts,
+		});
+	}
+	for (const familyName of enabledSystemFonts) {
+		const info = systemFonts.find((s) => s.family.toLowerCase() === familyName.toLowerCase());
+		if (!covers(info?.scripts, isSystemFontCjk(familyName, systemFonts))) continue;
+		options.push({
+			id: familyName,
+			label: familyName,
+			sub: 'System Installed Font',
+			stack: `"${familyName}", sans-serif`,
+			system: true,
+			supportedWeights: info?.supportedWeights || ['normal', 'bold'],
+			scripts: info?.scripts,
+		});
+	}
+	const seen = new Set<string>();
+	return options.filter((o) => !seen.has(o.id) && (seen.add(o.id), true));
+}
+
 export const fontAvailabilityStore = writable<Record<string, FontAvailabilityStatus>>({
 	'CC Wild Words': { available: true, bundled: true, note: 'Bundled comic dialogue font', supportedWeights: ['normal'], allCapsOnly: true, supportedCasings: ['uppercase'] },
 	'Friendly Sans': { available: true, bundled: true, note: 'Bundled clean Latin / symbol fallback', supportedWeights: ['normal'] },
@@ -818,6 +904,65 @@ export const fontAvailabilityStore = writable<Record<string, FontAvailabilitySta
 	'Lexend': { available: true, bundled: true, note: 'Bundled high legibility', supportedWeights: ['bold'] },
 	'WenQuanYi Micro Hei': { available: true, bundled: true, note: 'Bundled universal CJK engine', supportedWeights: ['normal', 'bold'] },
 });
+
+/** TRUE ONCE THE FONT CATALOG (SYSTEM + CUSTOM FONTS) HAS BEEN FETCHED FROM THE SERVER. */
+export const fontCatalogLoaded = writable(false);
+
+export interface EffectiveTypeset {
+	/** THE SELECTED DIALOGUE FONT, OR null WHEN ITS ID IS NOT (YET) IN THE CATALOG. */
+	font: TypesetFontOption | null;
+	fontKnown: boolean;
+	weight: TypesetFontWeight;
+	casing: TypesetCasing;
+	supportedWeights: string[];
+	supportedCasings?: TypesetCasing[];
+	isAllCaps: boolean;
+	isLowercaseOnly: boolean;
+	catalogLoaded: boolean;
+}
+
+/**
+ * THE TYPESET STYLE THAT WILL ACTUALLY BE USED, DERIVED AND NEVER WRITTEN BACK (FEAT-009 ADR-004): A FALLBACK FOR A
+ * FONT THAT CANNOT DO THE STORED WEIGHT OR CASING IS COMPUTED HERE, SO A FONT THAT IS SIMPLY NOT LOADED YET NEVER
+ * OVERWRITES THE USER'S CHOICE. AN UNKNOWN FONT KEEPS THE STORED VALUES.
+ */
+export function resolveEffectiveTypeset(
+	s: Pick<AppSettings, 'typesetFont' | 'typesetFontWeight' | 'typesetCasing'>,
+	catalog: { dialogueFonts: TypesetFontOption[]; fontStatus: Record<string, FontAvailabilityStatus>; loaded: boolean },
+): EffectiveTypeset {
+	const font = catalog.dialogueFonts.find((f) => f.id === s.typesetFont) ?? null;
+	const status = catalog.fontStatus[s.typesetFont];
+	const supportedWeights = status?.supportedWeights || font?.supportedWeights || ['normal'];
+	const isAllCaps = status?.allCapsOnly ?? font?.allCapsOnly ?? false;
+	const isLowercaseOnly = status?.lowercaseOnly ?? font?.lowercaseOnly ?? false;
+	const supportedCasings = status?.supportedCasings || font?.supportedCasings;
+	const storedCasing: TypesetCasing =
+		s.typesetCasing === 'lowercase' || s.typesetCasing === 'original' ? s.typesetCasing : 'uppercase';
+	if (!font) {
+		return {
+			font: null,
+			fontKnown: false,
+			weight: normalizeFontWeightSelectValue(s.typesetFontWeight),
+			casing: storedCasing,
+			supportedWeights,
+			supportedCasings,
+			isAllCaps,
+			isLowercaseOnly,
+			catalogLoaded: catalog.loaded,
+		};
+	}
+	return {
+		font,
+		fontKnown: true,
+		weight: getValidFontWeightForFont(s.typesetFontWeight, supportedWeights, font.isVariable),
+		casing: getValidCasingForFont(storedCasing, supportedCasings, isAllCaps, isLowercaseOnly),
+		supportedWeights,
+		supportedCasings,
+		isAllCaps,
+		isLowercaseOnly,
+		catalogLoaded: catalog.loaded,
+	};
+}
 
 export async function refreshFontAvailability(): Promise<Record<string, FontAvailabilityStatus>> {
 	try {
@@ -850,6 +995,7 @@ export async function refreshFontAvailability(): Promise<Record<string, FontAvai
 					loadBrowserFontFace(item);
 				}
 			}
+			fontCatalogLoaded.set(true);
 			if (data.fonts) {
 				return data.fonts;
 			}
@@ -1017,6 +1163,31 @@ export function setCookie(name: string, value: string, maxAgeDays = 365): void {
 	document.cookie = `${name}=${encodeURIComponent(value)}; path=/; max-age=${maxAge}; SameSite=Lax`;
 }
 
+/** KEEPS ONLY KNOWN SCRIPT SLOTS WITH A NON-EMPTY FAMILY NAME OF AT MOST 128 CHARACTERS. */
+export function sanitizeScriptFonts(value: unknown): Partial<Record<ScriptFontSlot, string>> {
+	const out: Partial<Record<ScriptFontSlot, string>> = {};
+	if (typeof value !== 'object' || value === null || Array.isArray(value)) return out;
+	for (const slot of SCRIPT_FONT_SLOTS) {
+		const family = (value as Record<string, unknown>)[slot];
+		if (typeof family === 'string' && family.trim() && family.length <= 128) out[slot] = family.trim();
+	}
+	return out;
+}
+
+/** VALUE EQUALITY FOR SETTINGS: OBJECTS AND ARRAYS COMPARE BY CONTENT, SO AN UNCHANGED MAP NEVER RE-SYNCS. */
+export function settingEquals(a: unknown, b: unknown): boolean {
+	if (a === b) return true;
+	if (typeof a === 'object' && a !== null && typeof b === 'object' && b !== null) {
+		return JSON.stringify(a) === JSON.stringify(b);
+	}
+	return false;
+}
+
+/** READS A STORED SETTINGS OBJECT: UNKNOWN KEYS DROPPED, WRONG TYPES DEFAULTED, OLD VERSIONS UPGRADED. */
+export function mergeKnownSettings(parsed: unknown): AppSettings {
+	return mergeKnown(parsed);
+}
+
 function mergeKnown(parsed: unknown): AppSettings {
 	const out: AppSettings = { ...DEFAULTS };
 	if (typeof parsed !== 'object' || parsed === null) return out;
@@ -1041,6 +1212,14 @@ function mergeKnown(parsed: unknown): AppSettings {
 	}
 	if ((parsed as any)?.version < 11 && (parsed as any)?.parallelProcesses === 3) {
 		out.parallelProcesses = 2;
+	}
+	out.typesetScriptFonts = sanitizeScriptFonts(out.typesetScriptFonts);
+	// VERSION 12: A CUSTOM CJK FONT BECOMES THE han / kana / hangul SCRIPT SLOTS
+	if ((parsed as any)?.version < 12 && out.typesetCjkFont && out.typesetCjkFont !== DEFAULTS.typesetCjkFont) {
+		const slots = out.typesetScriptFonts;
+		if (!slots.han && !slots.kana && !slots.hangul) {
+			out.typesetScriptFonts = { ...slots, han: out.typesetCjkFont, kana: out.typesetCjkFont, hangul: out.typesetCjkFont };
+		}
 	}
 	out.version = DEFAULTS.version;
 	return out;
@@ -1121,6 +1300,7 @@ function createSettings() {
 	if (browser && typeof window !== 'undefined') {
 		let prevTheme: Theme | null = null;
 		let prevFont: AppFont | null = null;
+		let prevEnabledSystemFonts = '';
 
 		// INITIAL APPLICATION
 		applyThemeClass(initial.theme);
@@ -1170,7 +1350,7 @@ function createSettings() {
 		window.addEventListener('online', () => {
 			const current = load();
 			for (const k of SERVER_CANONICAL_KEYS) {
-				if (current[k] !== lastSyncedCanonical[k]) {
+				if (!settingEquals(current[k], lastSyncedCanonical[k])) {
 					pendingServerSyncPatch[k] = current[k] as any;
 				}
 			}
@@ -1208,9 +1388,12 @@ function createSettings() {
 				applyFontFamily(s.appFont);
 			}
 
-			// AUTOMATICALLY PRELOAD ENABLED SYSTEM FONTS IN BROWSER DOM FOR TYPESET PREVIEW
-			if (Array.isArray(s.enabledSystemFonts)) {
-				for (const fam of s.enabledSystemFonts) {
+			// PRELOAD ENABLED SYSTEM FONTS IN THE BROWSER FOR THE TYPESET PREVIEW, ONLY WHEN THE LIST CHANGES
+			// (THIS SUBSCRIBER RUNS ON EVERY SETTINGS WRITE)
+			const enabledKey = Array.isArray(s.enabledSystemFonts) ? JSON.stringify(s.enabledSystemFonts) : '';
+			if (enabledKey !== prevEnabledSystemFonts) {
+				prevEnabledSystemFonts = enabledKey;
+				for (const fam of s.enabledSystemFonts ?? []) {
 					loadSystemBrowserFontFace(fam);
 				}
 			}
@@ -1220,7 +1403,7 @@ function createSettings() {
 				let hasChanges = false;
 
 				for (const k of SERVER_CANONICAL_KEYS) {
-					if (s[k] !== lastSyncedCanonical[k]) {
+					if (!settingEquals(s[k], lastSyncedCanonical[k])) {
 						pendingServerSyncPatch[k] = s[k] as any;
 						lastSyncedCanonical[k] = s[k] as any;
 						userModifiedKeys.add(k);
@@ -1257,7 +1440,7 @@ function createSettings() {
 			store.update((current) => {
 				const updated = fn(current);
 				for (const k of SERVER_CANONICAL_KEYS) {
-					if (updated[k] !== current[k]) {
+					if (!settingEquals(updated[k], current[k])) {
 						userModifiedKeys.add(k);
 					}
 				}
@@ -1286,3 +1469,14 @@ function createSettings() {
 		},
 	};
 }
+
+/** THE EFFECTIVE TYPESET STYLE FOR THE CURRENT SETTINGS AND FONT CATALOG (SEE resolveEffectiveTypeset). */
+export const effectiveTypeset = derived(
+	[settings, customFontsStore, systemFontsStore, fontAvailabilityStore, fontCatalogLoaded],
+	([$settings, $custom, $system, $status, $loaded]) =>
+		resolveEffectiveTypeset($settings, {
+			dialogueFonts: getMergedDialogueFonts($custom, $settings.enabledSystemFonts, $system),
+			fontStatus: $status,
+			loaded: $loaded,
+		}),
+);
