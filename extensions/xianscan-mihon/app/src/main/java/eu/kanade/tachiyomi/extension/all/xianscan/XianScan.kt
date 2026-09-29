@@ -142,17 +142,24 @@ class XianScan : HttpSource(), ConfigurableSource, UnmeteredSource {
     override fun chapterListRequest(manga: SManga): Request = GET(baseUrl + manga.url + "/chapters", headers)
 
     override fun chapterListParse(response: Response): List<SChapter> =
-        response.parseAs<ChapterListDto>().chapters
-            .map { ch ->
-                SChapter.create().apply {
-                    url = ch.url
-                    name = ch.name
-                    date_upload = ch.dateUpload
-                    chapter_number = ch.chapterNumber
-                    scanlator = "XianScan"
+    response.parseAs<ChapterListDto>().chapters
+        .map { ch ->
+            SChapter.create().apply {
+                url = ch.url
+                name = ch.name
+                date_upload = ch.dateUpload
+                chapter_number = ch.chapterNumber
+
+                val percent = if (ch.totalPages > 0) {
+                    (ch.translatedPages * 100 / ch.totalPages).coerceIn(0, 100)
+                } else {
+                    0
                 }
+
+                scanlator = "XianScan · ${percent}%"
             }
-            .sortedByDescending { it.chapter_number }
+        }
+        .sortedByDescending { it.chapter_number }
 
     override fun getChapterUrl(chapter: SChapter): String = baseUrl + chapter.url
 

@@ -32,6 +32,8 @@ data class ChapterDto(
     val name: String,
     val dateUpload: Long = 0L,
     val chapterNumber: Float = 0f,
+    val translatedPages: Int = 0,
+    val totalPages: Int = 0,
 )
 
 @Serializable

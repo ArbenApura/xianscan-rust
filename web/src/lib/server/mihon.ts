@@ -28,10 +28,12 @@ export interface MihonBookDto {
 }
 
 export interface MihonChapterDto {
-	url: string;
-	name: string;
-	dateUpload: number;
-	chapterNumber: number;
+        url: string;
+        name: string;
+        dateUpload: number;
+        chapterNumber: number;
+        translatedPages: number;
+        totalPages: number;
 }
 
 export interface MihonPageDto {
@@ -119,15 +121,29 @@ export function getMangaDetail(bookId: string): MihonBookDto {
 }
 
 export function getChaptersDto(bookId: string): MihonChapterDto[] {
-	const book = db.select({ id: books.id }).from(books).where(eq(books.id, bookId)).get();
-	if (!book) throw error(404, 'Book not found.');
-	const list = db.select().from(chapters).where(eq(chapters.bookId, bookId)).orderBy(chapters.seq).all();
-	return list.map((c) => ({
-		url: `/api/mihon/chapters/${c.id}`,
-		name: c.titleTarget || c.title || `Ch. ${c.seq + 1}`,
-		dateUpload: c.translatedAt ?? c.createdAt,
-		chapterNumber: c.seq + 1,
-	}));
+        const book = db.select({ id: books.id }).from(books).where(eq(books.id, bookId)).get();
+        if (!book) throw error(404, 'Book not found.');
+        const list = db.select().from(chapters).where(eq(chapters.bookId, bookId)).orderBy(chapters.seq).all();
+
+        return list.map((c) => {
+                const pageList = db
+                        .select({ status: pages.status })
+                        .from(pages)
+                        .where(eq(pages.chapterId, c.id))
+                        .all();
+
+                const totalPages = pageList.length;
+                const translatedPages = pageList.filter((p) => p.status === 'done').length;
+
+                return {
+                        url: `/api/mihon/chapters/${c.id}`,
+                        name: c.titleTarget || c.title || `Ch. ${c.seq + 1}`,
+                        dateUpload: c.translatedAt ?? c.createdAt,
+                        chapterNumber: c.seq + 1,
+                        translatedPages,
+                        totalPages,
+                };
+        });
 }
 
 export function getPagesDto(chapterId: number): MihonPageDto[] {
