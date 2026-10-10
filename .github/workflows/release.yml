@@ -337,7 +337,7 @@ jobs:
       contents: write
     steps:
       - name: Download Build Artifacts
-        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           path: dist
           merge-multiple: true
@@ -405,7 +405,7 @@ jobs:
       # UI, Node.js runtime, and ORT CUDA provider libs) instead of rebuilding
       # from source, so the image always matches the release archive.
       - name: Download Linux Release Archive
-        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: bin-x86_64-unknown-linux-gnu
           path: .
@@ -499,7 +499,7 @@ jobs:
       VT_API_KEY: ${{ secrets.VT_API_KEY }}
     steps:
       - name: Download Release Artifacts
-        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           # ONLY THE RELEASE FILES: THE DOCKER BUILD RECORD (*.dockerbuild) FAILS TO DOWNLOAD AND IS NOT A RELEASE ASSET
           pattern: '{bin-*,importer,mihon-apk}'
